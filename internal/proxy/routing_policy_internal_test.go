@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/cluster"
@@ -234,38 +235,65 @@ func TestClientSelectedUnknownModelIsNotAttributedToPolicy(t *testing.T) {
 	assert.False(t, unknown.RoutingPolicyPassthrough, "the client chose the model; no admin setting would fix it")
 }
 
-func TestPickedModelBillsWeaveCreditsUnlessSubscriptionOptedIn(t *testing.T) {
-	headers := http.Header{"Authorization": {"Bearer " + classifierTestSubToken}}
-	optedIn := func(ctx context.Context) context.Context {
-		return context.WithValue(ctx, InstallationPickedModelSubscriptionContextKey{}, true)
+func TestPickedModelFundsOnCallersOwnPlan(t *testing.T) {
+	picked := func() context.Context {
+		return auth.WithClientModelPassthrough(context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken))
+	}
+	creditFallback := func(ctx context.Context) context.Context {
+		return context.WithValue(ctx, InstallationPickedModelCreditFallbackContextKey{}, true)
 	}
 	for _, tc := range []struct {
-		name             string
-		ctx              context.Context
-		wantSubscription bool
+		name       string
+		ctx        context.Context
+		servedAsIs bool
+		provider   string
+		wantOwn    bool
+		wantPicked bool
 	}{
-		{name: "routed request uses the caller's plan", ctx: context.Background(), wantSubscription: true},
-		{name: "picked model bills Weave credits by default", ctx: auth.WithClientModelPassthrough(context.Background())},
-		{name: "picked model uses the plan once the org opts in", ctx: optedIn(auth.WithClientModelPassthrough(context.Background())), wantSubscription: true},
+		{name: "picked model stays on the caller's login", ctx: picked(), servedAsIs: true, provider: providers.ProviderAnthropic, wantOwn: true, wantPicked: true},
+		{name: "credit fallback opt-in releases it", ctx: creditFallback(picked()), servedAsIs: true, provider: providers.ProviderAnthropic, wantPicked: true},
+		{name: "no login for the served provider funds like routed traffic", ctx: picked(), servedAsIs: true, provider: providers.ProviderOpenAI, wantPicked: true},
+		{name: "a pick the org routed instead is routed traffic", ctx: picked(), provider: providers.ProviderAnthropic},
+		{name: "routed request is untouched", ctx: context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken), servedAsIs: true, provider: providers.ProviderAnthropic},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			creds := CredentialsFromContext(resolveAndInjectCredentials(tc.ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeSonnet46.String(), headers))
+			ctx := withPickedModelFunding(tc.ctx, tc.servedAsIs, tc.provider)
 
-			assert.Equal(t, tc.wantSubscription, creds != nil && creds.OAuth)
+			assert.Equal(t, tc.wantOwn, pickedModelOnOwnPlan(ctx))
+			assert.Equal(t, tc.wantOwn, paidFallbackForbidden(ctx))
+			assert.Equal(t, tc.wantPicked, auth.ClientModelPassthroughFrom(ctx))
 		})
 	}
 }
 
-func TestPickedModelSkipsManagedSubscriptionPoolByDefault(t *testing.T) {
+func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
+	svc := &Service{
+		usageObserver:            observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
+		deploymentKeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
+		now:                      func() time.Time { return time.Unix(1_000_000, 0) },
+	}
+	routed := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken)
+	picked := withPickedModelFunding(auth.WithClientModelPassthrough(routed), true, providers.ProviderAnthropic)
+	model := catalog.ModelIDClaudeSonnet46.String()
+
+	assert.True(t, svc.claudeSubscriptionExhausted(routed, http.Header{}), "routed traffic leaves a spent plan")
+	assert.False(t, svc.claudeSubscriptionExhausted(picked, http.Header{}), "a pick stays on its own plan and lets the provider decide")
+	assert.NoError(t, svc.subscriptionAPIAuthorization(routed, providers.ProviderAnthropic, model))
+	assert.ErrorIs(t, svc.subscriptionAPIAuthorization(picked, providers.ProviderAnthropic, model), ErrSubscriptionPoolUnavailable)
+}
+
+func TestPickedCodexModelMaySpendOwnCredits(t *testing.T) {
+	ctx := auth.WithClientModelPassthrough(context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, "codex-jwt"))
+
+	assert.True(t, requestcontext.SubscriptionExtraUsageFrom(withPickedModelFunding(ctx, true, providers.ProviderOpenAI)))
+	assert.False(t, requestcontext.SubscriptionExtraUsageFrom(withPickedModelFunding(ctx, false, providers.ProviderOpenAI)))
+}
+
+func TestPickedModelWithoutOwnLoginUsesManagedPool(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "token-a"}}}
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
 
-	_, _, managed, err := svc.leaseManagedSubscription(auth.WithClientModelPassthrough(managedSubscriptionTestContext()), providers.ProviderAnthropic, "claude-opus-4-8")
-	require.NoError(t, err)
-	assert.False(t, managed)
-
-	optedIn := context.WithValue(auth.WithClientModelPassthrough(managedSubscriptionTestContext()), InstallationPickedModelSubscriptionContextKey{}, true)
-	_, lease, managed, err := svc.leaseManagedSubscription(optedIn, providers.ProviderAnthropic, "claude-opus-4-8")
+	_, lease, managed, err := svc.leaseManagedSubscription(auth.WithClientModelPassthrough(managedSubscriptionTestContext()), providers.ProviderAnthropic, "claude-opus-4-8")
 	require.NoError(t, err)
 	assert.True(t, managed)
 	lease.Release()

@@ -625,9 +625,9 @@ type InstallationUsageBypassContextKey struct{}
 // subscription credentials are excluded before dispatch.
 type InstallationSubscriptionRoutingDisabledContextKey struct{}
 
-// InstallationPickedModelSubscriptionContextKey carries the installation's
-// opt-in (bool) to serve client-selected models on the caller's subscription.
-type InstallationPickedModelSubscriptionContextKey struct{}
+// InstallationPickedModelCreditFallbackContextKey carries the installation's
+// opt-in (bool) to rescue client-selected models on Weave credits.
+type InstallationPickedModelCreditFallbackContextKey struct{}
 
 // InstallationHideTerminalSurfacesContextKey is the context key for the
 // installation's hide-terminal-surfaces toggle (bool; absent == false);
@@ -1126,17 +1126,8 @@ func (s *Service) routableUniverse() map[string]struct{} {
 // subscriptionRoutingDisabledForRequest reports whether the authed installation
 // has turned off subscription serving for this request.
 func subscriptionRoutingDisabledForRequest(ctx context.Context) bool {
-	if disabled, _ := ctx.Value(InstallationSubscriptionRoutingDisabledContextKey{}).(bool); disabled {
-		return true
-	}
-	return PickedModelSubscriptionWithheld(ctx)
-}
-
-// PickedModelSubscriptionWithheld reports a client-selected model that bills
-// Weave credits because the installation has not opted it into subscriptions.
-func PickedModelSubscriptionWithheld(ctx context.Context) bool {
-	enabled, _ := ctx.Value(InstallationPickedModelSubscriptionContextKey{}).(bool)
-	return auth.ClientModelPassthroughFrom(ctx) && !enabled
+	disabled, _ := ctx.Value(InstallationSubscriptionRoutingDisabledContextKey{}).(bool)
+	return disabled
 }
 
 // subscriptionFundingOutOfPlayForRequest reports that Max product scope never
@@ -4212,6 +4203,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return routeErr
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
+	ctx = withPickedModelFunding(ctx, routeRes.CallerModelPassthrough, routeRes.Decision.Provider)
 	ctx = s.withTurnOverloadProbe(ctx, routeRes)
 	if preparingHandoff(ctx) {
 		return s.finishHandoffPreparation(ctx, w, env, req, routeRes)
@@ -7546,6 +7538,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return err
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
+	ctx = withPickedModelFunding(ctx, routeRes.CallerModelPassthrough, routeRes.Decision.Provider)
 	ctx = s.withTurnOverloadProbe(ctx, routeRes)
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
