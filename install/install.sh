@@ -111,7 +111,9 @@ export PATH="$PATH:$HOME/.weave/bin"
 # ---------- defaults ----------
 
 # The public hosted Weave Router URL. Override with --base-url for self-hosted.
-HOSTED_BASE_URL="https://router.workweave.ai"
+HOSTED_BASE_URL="https://router.weaveos.com"
+# Pre-rebrand hosted endpoint; still vouched for in settings written by older installs.
+LEGACY_HOSTED_BASE_URL="https://router.workweave.ai"
 DEFAULT_BASE_URL="${WEAVE_ROUTER_URL:-$HOSTED_BASE_URL}"
 # npm package name is supplied by the Node wrapper; direct shell installs keep
 # the current package name; WEAVE_ROUTER_NPM_PACKAGE remains an escape hatch for
@@ -2884,6 +2886,7 @@ models_endpoint_is_trusted() {
   normalized_url="$(strip_trailing_slashes "$url")"
   [ "$base_url_explicit" = "true" ] && return 0
   [ "$normalized_url" = "$(strip_trailing_slashes "$HOSTED_BASE_URL")" ] && return 0
+  [ "$normalized_url" = "$(strip_trailing_slashes "$LEGACY_HOSTED_BASE_URL")" ] && return 0
   [ -n "$base_src" ] && [ "$base_src" = "$key_src" ] && return 0
   # Project-scoped self-hosted installs intentionally split the endpoint and
   # key. The installer writes a gitignored marker beside the key; require that
@@ -3457,7 +3460,7 @@ toggle_copilot() {
 # Public, unauthed catalog of everything the router can route to. Mounted in
 # both deployment modes, so it is the one listing that always works.
 MODELS_CATALOG_PATH="/v1/router/models"
-MODELS_DASHBOARD_URL="https://router.workweave.ai/models"
+MODELS_DASHBOARD_URL="https://router.weaveos.com/models"
 
 # Set by models_api on every call.
 models_http_status=""
@@ -7534,7 +7537,7 @@ write_claude_settings() {
       env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "true" }
     } + (if $attribution == "true" then {attribution: {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
-        pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
+        pr: "🤖 Generated with [Weave Router](https://router.weaveos.com)"
       }} else {} end) + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl },
         hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ("[ ! -x \"" + $sl + "\" ] || \"" + $sl + "\" --prompt-hook" + $prompt_hook_scope)}]}]}} else {} end)' >"$tmp_patch"
   else
@@ -7542,7 +7545,7 @@ write_claude_settings() {
       env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "true" }
     } + (if $attribution == "true" then {attribution: {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
-        pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
+        pr: "🤖 Generated with [Weave Router](https://router.weaveos.com)"
       }} else {} end) + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl },
         hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ("[ ! -x \"" + $sl + "\" ] || \"" + $sl + "\" --prompt-hook" + $prompt_hook_scope)}]}]}} else {} end)' >"$tmp_patch"
   fi
@@ -7573,7 +7576,7 @@ write_claude_settings() {
            then .attribution = $b.attribution
          elif ($b.attribution | not) and $ours then
            .attribution |= (del(.commit)
-             | if .pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)" then del(.pr) else . end)
+             | if (.pr == "🤖 Generated with [Weave Router](https://router.weaveos.com)" or .pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)") then del(.pr) else . end)
            | (if (.attribution | length) == 0 then del(.attribution) else . end)
          else . end)
     ' "$settings_file" "$tmp_patch")"

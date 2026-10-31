@@ -123,9 +123,9 @@ chmod +x "$home/bin/opencode"
 entrypoint_output="$(HOME="$home" PATH="$home/bin:$PATH" NO_COLOR=1 \
   node "$root/bin.js" 2>&1)"
 check "the canonical no-argument entrypoint opens the hosted start page" \
-  "https://router.workweave.ai/start" "$(cat "$browser_log" 2>/dev/null || true)"
+  "https://router.weaveos.com/start" "$(cat "$browser_log" 2>/dev/null || true)"
 check "the no-argument entrypoint says which page it opened" "yes" \
-  "$(grep -Fq 'opening https://router.workweave.ai/start' <<<"$entrypoint_output" && echo yes || echo no)"
+  "$(grep -Fq 'opening https://router.weaveos.com/start' <<<"$entrypoint_output" && echo yes || echo no)"
 
 # Drive bin.js exactly as `npx @weave-os/router` does. A tarball missing any
 # runtime asset fails here even though every string assertion above passed.

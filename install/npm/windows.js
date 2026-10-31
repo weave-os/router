@@ -11,12 +11,13 @@ const { stdin, stdout } = require("node:process");
 const TOML = require("smol-toml");
 const git = require("isomorphic-git");
 
-const defaultBaseUrl = process.env.WEAVE_ROUTER_URL || "https://router.workweave.ai";
+const defaultBaseUrl = process.env.WEAVE_ROUTER_URL || "https://router.weaveos.com";
 const packageName = process.env.WEAVE_ROUTER_NPM_PACKAGE || "@weave-os/router";
 const claudeAttribution = {
   commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
-  pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)",
+  pr: "🤖 Generated with [Weave Router](https://router.weaveos.com)",
 };
+const legacyAttributionPR = "🤖 Generated with [Weave Router](https://router.workweave.ai)";
 
 let patchToml;
 
@@ -250,7 +251,7 @@ function installClaude(paths, baseUrl, key, email, attribution) {
     settings.attribution = { ...claudeAttribution, ...settings.attribution, commit: claudeAttribution.commit };
   } else if (!attribution && ownsAttribution) {
     delete settings.attribution.commit;
-    if (settings.attribution.pr === claudeAttribution.pr) delete settings.attribution.pr;
+    if ([claudeAttribution.pr, legacyAttributionPR].includes(settings.attribution.pr)) delete settings.attribution.pr;
     if (!Object.keys(settings.attribution).length) delete settings.attribution;
   }
   writeJson(paths.config, settings);
@@ -441,7 +442,7 @@ function uninstall(paths, target) {
 }
 
 function restoreField(record, field, savedValue, installedValue) {
-  if (!record || record[field] !== installedValue) return;
+  if (!record || (record[field] !== installedValue && !(field === "pr" && record[field] === legacyAttributionPR))) return;
   if (savedValue?.exists) record[field] = savedValue.value;
   else delete record[field];
 }
