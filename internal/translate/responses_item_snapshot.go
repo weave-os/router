@@ -46,7 +46,7 @@ func (s *ResponsesItemSnapshot) Backfill(payload []byte, path string) ([]byte, b
 		items = append(items, string(s.items[index]))
 	}
 	backfilled, err := sjson.SetRawBytes(payload, path, []byte("["+strings.Join(items, ",")+"]"))
-	// Unreachable in practice: path already resolved to an array in payload.
+	// If the write fails, keep the upstream terminal event as it is.
 	if err != nil {
 		return payload, false
 	}
