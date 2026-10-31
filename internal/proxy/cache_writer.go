@@ -3,6 +3,8 @@ package proxy
 import (
 	"bytes"
 	"net/http"
+
+	"weave-os/router/internal/sse"
 )
 
 // captureWriter mirrors writes into a buffer for post-response cache storage.
@@ -29,6 +31,7 @@ func (c *captureWriter) WriteHeader(code int) {
 	}
 	c.statusCode = code
 	c.wroteHeader = true
+	sse.PrepareJSONResponse(c.w)
 	c.w.WriteHeader(code)
 }
 
@@ -41,7 +44,7 @@ func (c *captureWriter) Write(p []byte) (int, error) {
 			c.body.Write(p)
 		}
 	}
-	return c.w.Write(p)
+	return sse.WriteJSONChunk(c.w, p)
 }
 
 func (c *captureWriter) Flush() {

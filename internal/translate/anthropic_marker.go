@@ -60,7 +60,7 @@ func (w *AnthropicRoutingMarkerWriter) Write(data []byte) (int, error) {
 	}
 	if !w.Streaming || w.indexOffset == 0 {
 		// Non-streaming or empty marker: fully transparent passthrough.
-		return w.Inner.Write(data)
+		return sse.WriteJSONChunk(w.Inner, data)
 	}
 	// Streaming with a configured marker: parse upstream SSE, drop message_start,
 	// shift content_block_* indices, pass everything else through.
