@@ -26,6 +26,7 @@
     "directives.tsv",
     "commands/",
     "codex-skills/",
+    "upstream-wait/",
     "pi-router/",
     "README.md",
     "LICENSE",
@@ -81,6 +82,7 @@
   "dependencies": {
     "@decimalturn/toml-patch": "3.3.0",
     "isomorphic-git": "1.43.1",
-    "smol-toml": "1.9.0"
+    "smol-toml": "1.9.0",
+    "ws": "8.22.0"
   }
 }
