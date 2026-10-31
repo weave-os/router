@@ -770,7 +770,11 @@ that send no session identity can only be pinned at the current thread scope.
 Codex handles its own `/model` locally and never sends the command itself; on
 an opted-in install (`X-Weave-Codex-Native-Model-Pin: 1`) the router instead
 keys off the `<model_switch>` developer fragment Codex records when the user
-switches models mid-session, and pins the request's model from then on. The
+switches models mid-session, and pins the request's model from then on. An
+install that also loads the router catalog (`X-Weave-Codex-Model-Catalog: 1`)
+gets the same pin from the `<model_instructions>` fragment Codex records
+instead; other installs ignore that fragment, since Codex also emits it when
+base instructions change without a switch. The
 model a session launched with is a baseline and routes automatically. The
 installed `$force-model` / `$fm` skill remains the persistent-pin path.
 An explicit force-model choice also takes precedence over an installation's

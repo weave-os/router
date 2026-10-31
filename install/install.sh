@@ -934,7 +934,7 @@ write_codex_config() {
   # Tag the client so telemetry can attribute traffic to Codex vs other CLIs
   # that share the same router key. The router otherwise has to guess from
   # User-Agent.
-  headers_parts="${headers_parts}, \"X-App\" = \"codex\", \"X-Weave-Codex-Native-Model-Pin\" = \"1\""
+  headers_parts="${headers_parts}, \"X-App\" = \"codex\", \"X-Weave-Codex-Native-Model-Pin\" = \"1\", \"X-Weave-Codex-Model-Catalog\" = \"1\""
   # No strategy header: pinning one here freezes installed clients on whatever
   # policy was current at install time, so a deployment-default change never
   # reaches them. Every endpoint, hosted or self-hosted, uses its own default.
@@ -1041,6 +1041,7 @@ name = "Weave Router"
 base_url = "${esc_url}/v1"
 wire_api = "responses"
 requires_openai_auth = true
+model_catalog_url = "${esc_url}/v1/codex/models"
 ${headers_line}
 ${hook_block}
 ${WEAVE_CODEX_END_MARKER}

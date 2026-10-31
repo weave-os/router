@@ -205,7 +205,10 @@ providers, and unrelated settings stay untouched.
 
 Run `npx @weave-os/router --codex` again to enable native `/model` selection on
 an existing install, then restart Codex. `/model` shows the models available to
-your active ChatGPT login plus **Weave Router**. Switching to a named model with
+your active ChatGPT login plus **Weave Router**. The provider's
+`model_catalog_url` points at the router's `/v1/codex/models`, which serves
+that same list, or Codex's bundled catalog plus **Weave Router** for API-key
+logins (Codex replaces its whole list with this response). Switching to a named model with
 `/model` during a session forces that model for each request from then on, and
 Codex's selected reasoning effort is sent with it. The model a session launches
 with (from `config.toml` or an SDK thread option) is only a baseline and still

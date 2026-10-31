@@ -423,6 +423,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	passthroughGroup.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(proxySvc))
 	passthroughGroup.GET("/v1/models", openaiapi.ModelsHandler(anthropicapi.PassthroughHandler(proxySvc), proxySvc.CodexModelCatalog))
 	passthroughGroup.GET("/v1/models/:model", anthropicapi.PassthroughHandler(proxySvc))
+	passthroughGroup.GET("/v1/codex/models", openaiapi.CodexCatalogHandler(proxySvc.CodexSelectionCatalog))
 	// Rides the passthrough group (cheap, no billing middleware) — read-only, no routing side-effects.
 	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler)
 
