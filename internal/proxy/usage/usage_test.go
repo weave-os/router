@@ -17,6 +17,7 @@ func TestParseCodexHeaders(t *testing.T) {
 	h.Set("x-codex-primary-window-minutes", "300")
 	h.Set("x-codex-secondary-used-percent", "12.5")
 	h.Set("x-codex-secondary-window-minutes", "10080")
+	h.Set("x-codex-secondary-reset-at", "1792670400")
 
 	snap, ok := usage.ParseCodexHeaders(h)
 	require.True(t, ok)
@@ -24,6 +25,19 @@ func TestParseCodexHeaders(t *testing.T) {
 	assert.Equal(t, 300, snap.Primary.WindowMinutes)
 	assert.InDelta(t, 0.125, snap.Secondary.UsedPercent, 1e-9)
 	assert.Equal(t, 10080, snap.Secondary.WindowMinutes)
+	assert.Equal(t, time.Unix(1792670400, 0).UTC(), snap.Secondary.ResetAt)
+}
+
+func TestUsageHeadersRejectNonFiniteUtilization(t *testing.T) {
+	for _, value := range []string{"NaN", "Inf", "-Inf"} {
+		h := http.Header{}
+		h.Set("x-codex-secondary-used-percent", value)
+		_, codexReported := usage.ParseCodexHeaders(h)
+		require.False(t, codexReported)
+		h.Set("anthropic-ratelimit-unified-7d-utilization", value)
+		_, claudeReported := usage.ParseAnthropicUnifiedHeaders(h)
+		require.False(t, claudeReported)
+	}
 }
 
 func TestParseCodexHeaders_LowUsageNotMisread(t *testing.T) {
@@ -72,6 +86,15 @@ func TestParseAnthropicUnified_FromRemainingLimit(t *testing.T) {
 	require.True(t, ok)
 	assert.InDelta(t, 0.75, snap.Primary.UsedPercent, 1e-9)
 	assert.InDelta(t, 0.10, snap.Secondary.UsedPercent, 1e-9)
+}
+
+func TestParseAnthropicUnified_OverageRemainingClamped(t *testing.T) {
+	h := http.Header{}
+	h.Set("anthropic-ratelimit-unified-7d-limit", "1000")
+	h.Set("anthropic-ratelimit-unified-7d-remaining", "-250")
+	snap, ok := usage.ParseAnthropicUnifiedHeaders(h)
+	require.True(t, ok)
+	assert.Equal(t, 1.0, snap.Secondary.UsedPercent)
 }
 
 // Utilization headers are 0-1 fractions on the wire, not 0-100 percents.
