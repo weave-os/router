@@ -638,6 +638,10 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		replayTrace = &traceCopy
 	}
 
+	var classificationProbability *float64
+	if probability, scored := res.ClassProbabilities[res.PredictedLabel]; scored {
+		classificationProbability = &probability
+	}
 	observability.FromContext(ctx).Info("Policy router decided",
 		"strategy", strategy,
 		"execution_mode", executionMode,
@@ -646,6 +650,10 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		"provider", binding.Provider,
 		"arm_id", binding.ArmID,
 		"roster_model", overrideRosterID,
+		"classified_group", res.PredictedLabel,
+		"classification_probability", classificationProbability,
+		"selected_group", res.PolicyGroup,
+		"selection_override_reason", selectionTrace.OverrideReason,
 		"score", res.Score,
 	)
 	rescueGroups := EscalatingRescueGroups(res.PolicyGroup, req.ForceCluster, res.RankedFallback)
