@@ -18,6 +18,9 @@ import (
 // CodexAutomaticModel is the native /model choice that keeps Weave routing automatic.
 const CodexAutomaticModel = string(router.ModelAutomatic)
 
+// codexRoutingContextWindow is the 1M window Codex budgets Weave Auto against.
+const codexRoutingContextWindow = 1_000_000
+
 // CodexModelCatalog forwards Codex's account-specific catalog and adds the
 // Weave routing choices. A visible one-entry response would make Codex hide
 // its native models, because visible remote catalogs replace its bundled list.
@@ -78,6 +81,8 @@ func addCodexRoutingModels(catalog []byte, includeVariants bool) ([]byte, error)
 		for path, value := range map[string]any{
 			"slug": choice.Model, "display_name": displayName, "description": description,
 			"visibility": "list", "priority": 0,
+			// Routing serves the widest-window models when the history needs them.
+			"context_window": codexRoutingContextWindow, "max_context_window": codexRoutingContextWindow,
 		} {
 			var err error
 			routingChoice, err = sjson.SetBytes(routingChoice, path, value)

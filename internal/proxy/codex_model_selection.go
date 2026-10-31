@@ -2,9 +2,11 @@ package proxy
 
 import (
 	"context"
+	"net/http"
 	"strings"
 
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/translate"
 
 	"github.com/tidwall/gjson"
 )
@@ -15,6 +17,18 @@ type codexSelectedModelContextKey struct{}
 // /model switch made during the session as an explicit force. The model a
 // session launches with (config.toml, SDK thread options) stays a baseline.
 const CodexNativeModelPinHeader = "X-Weave-Codex-Native-Model-Pin"
+
+// CodexModelCatalogHeader marks Codex clients that load the router's
+// model_catalog_url, whose /model switches arrive as <model_instructions>.
+const CodexModelCatalogHeader = "X-Weave-Codex-Model-Catalog"
+
+func codexModelSwitched(header http.Header, conversion translate.ResponsesConversion) bool {
+	if header.Get(CodexNativeModelPinHeader) != "1" {
+		return false
+	}
+	return conversion.CodexModelSwitch ||
+		(conversion.CodexModelInstructions && header.Get(CodexModelCatalogHeader) == "1")
+}
 
 // The client repeats its selected model on every request, so a request-scoped
 // force follows /model changes immediately without writing a separate pin.

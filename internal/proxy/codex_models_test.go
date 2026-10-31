@@ -65,3 +65,42 @@ func TestCodexModelCatalog_RequiresPairedOAuth(t *testing.T) {
 	_, err := svc.CodexModelCatalog(context.Background(), headers, "0.155.1")
 	require.ErrorContains(t, err, "requires ChatGPT OAuth and account ID")
 }
+
+func TestCodexSelectionCatalog_APIKeyLoginGetsBundledCatalog(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("an API-key login has no ChatGPT account catalog to fetch")
+	}))
+	defer upstream.Close()
+	client := openai.NewClient("deployment-key", "https://api.openai.com")
+	client.SetCodexBaseURL(upstream.URL)
+	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	headers := make(http.Header)
+	headers.Set("Authorization", "Bearer sk-test")
+
+	catalog, err := svc.CodexSelectionCatalog(context.Background(), headers, "0.164.0")
+
+	require.NoError(t, err)
+	models := gjson.GetBytes(catalog, "models").Array()
+	require.Greater(t, len(models), 1, "model_catalog_url replaces Codex's list, so native models must stay")
+	assert.Equal(t, proxy.CodexAutomaticModel, models[len(models)-1].Get("slug").String())
+	assert.NotEmpty(t, models[0].Get("base_instructions").String(), "bundled entries keep the metadata Codex needs")
+}
+
+func TestCodexSelectionCatalog_ChatGPTLoginGetsAccountCatalog(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-account-only","visibility":"list"}]}`))
+	}))
+	defer upstream.Close()
+	client := openai.NewClient("deployment-key", "https://api.openai.com")
+	client.SetCodexBaseURL(upstream.URL)
+	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	headers := make(http.Header)
+	headers.Set("Authorization", "Bearer subscription-token")
+	headers.Set("ChatGPT-Account-ID", "account-123")
+
+	catalog, err := svc.CodexSelectionCatalog(context.Background(), headers, "0.164.0")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"gpt-account-only", proxy.CodexAutomaticModel}, []string{gjson.GetBytes(catalog, "models.0.slug").String(), gjson.GetBytes(catalog, "models.1.slug").String()})
+	assert.Len(t, gjson.GetBytes(catalog, "models").Array(), 2)
+}

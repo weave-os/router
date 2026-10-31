@@ -273,11 +273,13 @@ function installCodex(paths, baseUrl, key, email) {
     base_url: `${baseUrl}/v1`,
     wire_api: "responses",
     requires_openai_auth: true,
+    model_catalog_url: `${baseUrl}/v1/codex/models`,
     http_headers: {
       "X-Weave-Router-Key": key,
       ...(email ? { "X-Weave-User-Email": email } : {}),
       "X-App": "codex",
       "X-Weave-Codex-Native-Model-Pin": "1",
+      "X-Weave-Codex-Model-Catalog": "1",
     },
   };
   writeToml(paths.config, settings);

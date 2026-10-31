@@ -86,6 +86,10 @@ grep -Fq '"X-Weave-Codex-Native-Model-Pin" = "1"' "$config" \
   || fail "Codex native model selection was not enabled"
 grep -qx 'requires_openai_auth = true' "$config" \
   || fail "Weave provider does not require ChatGPT OAuth"
+grep -Eqx 'model_catalog_url = "[^"]+/v1/codex/models"' "$config" \
+  || fail "API-key Codex logins do not get the Weave model catalog"
+grep -Fq '"X-Weave-Codex-Model-Catalog" = "1"' "$config" \
+  || fail "Codex catalog clients are not marked for model-instructions switches"
 grep -qx 'features.hooks = true' "$config" \
   || fail "Codex hooks were not enabled"
 grep -Fq '[[hooks.SessionStart]]' "$config" \
