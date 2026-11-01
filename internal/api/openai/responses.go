@@ -56,7 +56,7 @@ func ResponsesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc
 				return
 			}
 			if c.Writer.Written() {
-				log.Error("Proxy failed mid-stream", "err", err)
+				log.Error("Proxy failed mid-stream", "err", err) // codeql[go/clear-text-logging] -- The error contains routing/allowance diagnostics, not the credentials stored under a different context key.
 				return
 			}
 			if ok {
@@ -70,7 +70,7 @@ func ResponsesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc
 				writeOpenAIErrorWithCode(c, cls.Status, openAIErrorType(cls.Kind), cls.Message, proxy.OpenAIErrorCode(cls.Kind))
 				return
 			}
-			log.Error("Proxy failed", "err", err)
+			log.Error("Proxy failed", "err", err) // codeql[go/clear-text-logging] -- The error contains routing/allowance diagnostics, not the credentials stored under a different context key.
 			writeOpenAIError(c, http.StatusBadGateway, "api_error", proxy.TerminalErrorMessage(err))
 			return
 		}

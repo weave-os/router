@@ -217,7 +217,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !anthropicSubscriptionThirdPartyRefused(err) {
 			return winner, err
 		}
-		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider)
+		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider) // codeql[go/clear-text-logging] -- Model names come from routing configuration, not the credential context value.
 		recordTurnFailure(ctx, target.Model)
 		remainingModels := includedModels[:0]
 		for _, model := range includedModels {
@@ -268,7 +268,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			target = fallback
 		}
 	}
-	observability.FromContext(ctx).Info("Included subscription targets unavailable; using exhausted model set", "model", target.Model, "provider", target.Provider)
+	observability.FromContext(ctx).Info("Included subscription targets unavailable; using exhausted model set", "model", target.Model, "provider", target.Provider) // codeql[go/clear-text-logging] -- Model names come from routing configuration, not the credential context value.
 	return s.dispatchSubscriptionStateTarget(paidCtx, in, target, false)
 }
 

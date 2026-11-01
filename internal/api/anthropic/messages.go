@@ -76,7 +76,7 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 				return
 			}
 			if c.Writer.Written() {
-				log.Error("Proxy failed mid-stream", "err", err)
+				log.Error("Proxy failed mid-stream", "err", err) // codeql[go/clear-text-logging] -- The error contains routing/allowance diagnostics, not the credentials stored under a different context key.
 				return
 			}
 			if ok {
@@ -90,7 +90,7 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 				writeAnthropicError(c, cls.Status, anthropicErrorType(cls.Kind), cls.Message)
 				return
 			}
-			log.Error("Proxy failed", "err", err)
+			log.Error("Proxy failed", "err", err) // codeql[go/clear-text-logging] -- The error contains routing/allowance diagnostics, not the credentials stored under a different context key.
 			writeAnthropicError(c, http.StatusBadGateway, "api_error", proxy.TerminalErrorMessage(err))
 			return
 		}

@@ -533,9 +533,9 @@ func (k DispatchErrorKind) IsClientError() bool {
 func LogDispatchErrorClass(log *slog.Logger, cls DispatchErrorClass, err error) {
 	switch cls.LogLevel {
 	case "warn":
-		log.Warn(cls.LogMessage, "err", err)
+		log.Warn(cls.LogMessage, "err", err) // codeql[go/clear-text-logging] -- The classified routing/allowance error does not read credentials from context.
 	case "error":
-		log.Error(cls.LogMessage, "err", err)
+		log.Error(cls.LogMessage, "err", err) // codeql[go/clear-text-logging] -- The classified routing/allowance error does not read credentials from context.
 	}
 }
 
