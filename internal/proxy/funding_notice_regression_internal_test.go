@@ -90,15 +90,15 @@ func TestFundingNoticePolicyAndReplay(t *testing.T) {
 			assert.Equal(t, translate.NoticeFromRouter, notice.Provenance)
 			assert.Equal(t, model, notice.Model)
 			if warning.source == subscriptions.ProviderClaude {
-				assert.Contains(t, notice.Text, "Anthropic subscription")
+				assert.Contains(t, notice.Text, "linked Claude subscription")
 			} else {
 				assert.Contains(t, notice.Text, "ChatGPT (Codex) subscription")
 			}
 			if warning.reason == billing.SubscriptionOnlyCreditsDepleted {
 				assert.Contains(t, notice.Text, "credits are depleted")
-				assert.Contains(t, notice.Text, topUpURL)
+				assert.NotContains(t, notice.Text, topUpURL)
 			} else {
-				assert.Contains(t, notice.Text, "spend cap has been reached")
+				assert.Contains(t, notice.Text, "spend cap blocks paid fallback")
 				assert.NotContains(t, notice.Text, topUpURL)
 			}
 			rec := httptest.NewRecorder()
@@ -124,7 +124,7 @@ func TestFundingNoticePolicyAndReplay(t *testing.T) {
 				require.NoError(t, err)
 				cleaned, err = translate.StripRoutingBadgeFromResponsesInput(cleaned)
 				require.NoError(t, err)
-				assert.NotContains(t, string(cleaned), "paid model fallback is disabled")
+				assert.NotContains(t, string(cleaned), "subscription is serving this turn")
 				assert.Contains(t, string(cleaned), "provider answer")
 				echoCtx := withSubscriptionOnlyWarningEcho(ctx, []byte(body))
 				echoCtx = withSubscriptionOnlyWarningEcho(echoCtx, []byte(`{"messages":[]}`))
@@ -189,7 +189,7 @@ func TestFundingNoticeBufferedAndStreamingCapabilities(t *testing.T) {
 					_, err = delivery.Write([]byte(`{"id":"synthetic","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"provider answer"}]}]}`))
 					require.NoError(t, err)
 				}
-				assert.Contains(t, rec.Body.String(), "spend cap has been reached")
+				assert.Contains(t, rec.Body.String(), "spend cap blocks paid fallback")
 				assert.Contains(t, rec.Body.String(), "ChatGPT (Codex)")
 			})
 		}
