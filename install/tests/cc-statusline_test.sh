@@ -675,6 +675,32 @@ out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcr
 check_contains "visible org still renders the statusline" "$out" "deepseek/deepseek-v4-pro"
 check_not_contains "successful display-settings fetch does not show a routing warning" "$out" "routing unverified"
 
+# A disconnected linked plan is cached from display-settings and named with its reconnect command.
+c="$work/g3plans"; mkdir -p "$c/proj/.claude" "$c/cache"
+printf '{"hide_terminal_surfaces": false, "disconnected_plans": ["claude", "bad plan"]}' > "$c/ds.json"
+write_install "$c/proj" project "rk_proj_plans" "file://$c/ds.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
+    bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
+wait_for 5 test -f "$cache_file.plans"
+check "disconnected plans are cached without invalid names" "$(cat "$cache_file.plans" 2>/dev/null)" "claude"
+out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
+    bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
+check_contains "statusline names the disconnected plan and its reconnect command" "$out" "Claude plan disconnected: run npx @weave-os/router login claude --scope project --dir $c/proj"
+check_not_contains "statusline omits plans that are not disconnected" "$out" "Codex plan disconnected"
+printf '{"hide_terminal_surfaces": false, "disconnected_plans": []}' > "$c/ds.json"
+touch -d '2 hours ago' "$cache_file" 2>/dev/null || touch -t "$(date -d '2 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-2H +%Y%m%d%H%M)" "$cache_file"
+echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
+    bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
+wait_for 5 test ! -s "$cache_file.plans"
+check "a reconnected plan clears the cached warning" "$(cat "$cache_file.plans" 2>/dev/null)" ""
+
 # A fresh hidden cache decides without any network access: the install points
 # at an unreachable endpoint, but the pre-seeded fresh cache blanks the
 # statusline on the very first run.

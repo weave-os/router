@@ -425,7 +425,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	passthroughGroup.GET("/v1/models/:model", anthropicapi.PassthroughHandler(proxySvc))
 	passthroughGroup.GET("/v1/codex/models", openaiapi.CodexCatalogHandler(proxySvc.CodexSelectionCatalog))
 	// Rides the passthrough group (cheap, no billing middleware) — read-only, no routing side-effects.
-	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler)
+	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler(authSvc))
 
 	// Read-only product surface: the Codex status hook's rk_ key and API clients'
 	// ra_ keys read one installation's committed cost. Deliberately outside
