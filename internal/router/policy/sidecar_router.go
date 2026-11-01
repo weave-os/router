@@ -7,7 +7,6 @@ import (
 	"maps"
 	"math"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -444,7 +443,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 
 	overrideArmID := res.ArmID
 	overrideRosterID := res.Model
-	overrideReasonSuffix := ""
+	overrideReason := router.SelectionOverrideNone
 	// reselected records that the served arm is the router's pick rather than the
 	// sidecar's, which is the only case where res.Provider legitimately names a
 	// different provider than the resolved binding.
@@ -467,7 +466,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			pick, selectErr = r.selectEscalationArm(ctx, req, selectionInput, resolved, constrained)
 		}
 		if slidingInput.LeadGroup != "" && !constrained && pick.Group == slidingInput.LeadGroup {
-			overrideReasonSuffix = ":sliding_threshold"
+			overrideReason = router.SelectionOverrideSlidingThreshold
 		}
 		if selectErr != nil {
 			if errors.Is(selectErr, router.ErrPolicyPinUnavailable) {
@@ -520,7 +519,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		}
 		// Annotated even when the forced cluster is the one already selected,
 		// so telemetry can tell a constrained turn from a free one.
-		overrideReasonSuffix = ":force_cluster"
+		overrideReason = router.SelectionOverrideForceCluster
 		reselected = reselected || outcome.Changed || selectedForcedGroupWithPreference
 		observability.FromContext(ctx).Info("Forced cluster applied",
 			"strategy", strategy,
@@ -541,7 +540,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			overrideRosterID = outcome.RosterID
 			res.PolicyGroup = outcome.Group
 			if outcome.Changed {
-				overrideReasonSuffix = ":cluster_override"
+				overrideReason = router.SelectionOverrideCluster
 				reselected = true
 				observability.FromContext(ctx).Info("Cluster allowlist override applied",
 					"strategy", strategy,
@@ -566,7 +565,8 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	if selectionTrace.SelectedArm != "" {
 		selectionTrace.SelectedGroup = res.PolicyGroup
 		selectionTrace.SelectedArm = overrideRosterID
-		selectionTrace.OverrideReason = strings.TrimPrefix(overrideReasonSuffix, ":")
+		selectionTrace.OverrideReason = overrideReason
+		selectionTrace.ClusterOverridesPresent = len(req.ClusterArmOverrides) > 0
 		selectionTrace.ResolverExclusions = make([]router.SelectionExclusion, 0, len(resolved.Diagnostics))
 		for _, diagnostic := range resolved.Diagnostics {
 			selectionTrace.ResolverExclusions = append(selectionTrace.ResolverExclusions, router.SelectionExclusion{
@@ -606,7 +606,9 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	if selectionTrace.SelectedArm != "" {
 		reason = fmt.Sprintf("%s(group=%s,arm=%s,fallback_depth=%d)", reason, selectionTrace.SelectedGroup, selectionTrace.SelectedArm, selectionTrace.FallbackDepth)
 	}
-	reason += overrideReasonSuffix
+	if overrideReason != router.SelectionOverrideNone {
+		reason += ":" + string(overrideReason)
+	}
 
 	// The sidecar builds DisplayMarker from its own pre-override pick; once the
 	// router reselects a different arm, that string names the wrong model.

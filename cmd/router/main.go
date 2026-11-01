@@ -1299,6 +1299,7 @@ func main() {
 		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmDowngradeHysteresisTurns),
 		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmDowngradeHysteresisShadowTurns),
 		flags.KeyAuthorityCacheShadow:                 boolDefault(authorityCacheShadow),
+		flags.KeyAgreementShadowEpoch:                 "0",
 		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
 		flags.KeyOpenAIResponsesBroad:                 boolDefault(openAIResponsesBroad),
 		flags.KeyAllowedModelsHeader:                  boolDefault(allowedModelsHeader),

@@ -791,11 +791,25 @@ func (s *Service) runTurnLoop(
 	reqHeaders http.Header,
 	req router.Request,
 ) (res turnLoopResult, routeErr error) {
+	shadowStartedAt := time.Now()
 	defer func() {
 		if routeErr == nil {
 			routeErr = policyPinServed(ctx, res)
 			if routeErr == nil {
 				logAuthoritativeUpgrade(ctx, res)
+			}
+		}
+		if routeErr != nil && agreementShadowEnabled(ctx) {
+			key := deriveSessionKeyForRequest(ctx, env, apiKeyID)
+			params := InsertTelemetryParams{InstallationID: installationID.String(), RequestID: observability.RequestIDFromContext(ctx),
+				Timestamp: shadowStartedAt, SessionKey: key[:], Role: res.PinRole,
+				TurnType: string(turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx)))), ErrorClass: TurnErrorRoutingRefused}
+			applyAgreementShadowTelemetry(ctx, &params, res)
+			if params.agreementShadow != nil {
+				log := observability.FromContext(ctx)
+				observability.SafeGo(log, 5*time.Second, "agreementShadowRoutingFailure", func(shadowCtx context.Context) {
+					s.recordAgreementShadow(shadowCtx, log, params)
+				})
 			}
 		}
 	}()

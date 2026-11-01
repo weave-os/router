@@ -95,10 +95,10 @@ customer-specific revision.
 ## Offline model-agreement candidate
 
 `internal/router/switchpolicy` is an experimental replacement for the competing
-ordinary upgrade/downgrade gates. It is consumed by `cmd/replay-switch-policy`,
-not the serving router. It adds no serving flag and does not retire existing
-organization overrides. Durable persistence and override migration require a
-separate integration change.
+ordinary upgrade/downgrade gates. It is consumed by `cmd/replay-switch-policy`
+and the opt-in internal shadow comparison described below. Neither consumer
+controls dispatch. Existing serving gates and organization overrides remain
+unchanged; authoritative adoption and override migration are separate work.
 
 The candidate uses one minimum qualifying probability and consecutive votes for
 the exact provider, model, and quality group. Higher-group changes use the
@@ -153,3 +153,58 @@ distributed database scheduling, or estimate quality, billing, or latency.
 Prepare the proposal stream from classifier/ranker evidence and explicitly
 account for excluded or unsupported branches; do not silently remove individual
 requests from a vote sequence.
+
+## Internal agreement shadow
+
+The organization-only integer `agreement_shadow_epoch` defaults to 0 (off). A
+fresh positive value starts a run; use a new value when resuming after disabling
+and never reuse an old epoch. The epoch is part of the durable state key, so old
+votes and late callbacks cannot enter a newly activated run. The setting
+is honored only for admitted `prod/weave-internal` requests with a complete
+release/binding/state namespace. Stable and self-hosted requests ignore it. It
+compares fixed 1-up/5-down and 2-up/5-down policies, both at confidence 0.50,
+without changing any serving decision or making a classifier/provider call.
+Merging or deploying this code does not enable the experiment.
+
+The proposal is reconstructed from the returned classifier's raw group and
+effective arm order, intersected with the request's eligible roster IDs. Canonical
+effort suffixes are stripped for membership, and the actual request-resolved
+provider is used. Serving sliding thresholds cannot shape the shadow proposal.
+Missing, overridden, or inconsistent selection evidence produces a gap instead
+of a guessed candidate. No prompt or response content enters shadow state or logs.
+
+Each full admission-scoped pin key and role has a separate row in
+`router.agreement_shadow_states`; the 1-up and 2-up histories are distinct values
+committed atomically together with a compare-and-swap revision. They never read
+or write each other's votes, and the table is separate from live session pins.
+An initial segment starts from the eligible live incumbent when its quality
+group is known; otherwise it cold-starts and records that initialization. A
+changed classifier/selection identity starts a new segment. A hypothetical
+incumbent absent from the current eligible targets is replaced immediately with
+the typed incumbent-ineligible exception.
+
+Processing runs asynchronously after terminal response telemetry, which gives
+the actual served model and failover outcome. Failures/rescues, manual/compaction
+interventions, unavailable classification evidence, and unsupported paths break
+the segment. Request-start timestamps detect out-of-order completions across
+workers: these invalidate the old segment rather than manufacturing consecutive
+votes. Such overlaps can reduce comparison coverage substantially. Shadow-store
+errors log diagnostics and never change a response or prevent baseline telemetry
+from being attempted. Idle state is removed by the hourly sweep after seven days.
+
+Activation is a separate operational action: apply the table migration before
+deploying the binary, then explicitly select a fresh positive epoch for an internal installation
+through the existing admin flag controls. No operational change is performed by
+this PR. Monitor `router.agreement_shadow` and `router.agreement_shadow.gap` logs,
+joined by request ID to ordinary telemetry. Comparison rows include both policy
+parameters, proposed/selected identities, votes, direction, reason, simulated
+switch, source policy/release identities, segment and initialization metadata.
+
+Before comparing switch counts, reconcile opted-in baseline requests with
+comparison/gap/error events. Exclude invalidated segments and any stream with
+dropped observations or shadow-update errors; do not silently splice the remaining
+rows. Report coverage by turn type, installation and overlap, model usage, and
+qualified upgrade holds. Missing or intervention segments are not evidence that
+recovery or forcing has been counterfactually validated. The shadow holds live
+classifier evidence and tool history fixed, so it still does not measure alternative
+answer quality, cache behavior, billing, or the result of a fleet-wide rollout.

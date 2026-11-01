@@ -9,6 +9,15 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type RouterAgreementShadowState struct {
+	InstallationID uuid.UUID
+	SessionKey     []byte
+	Role           string
+	Revision       int64
+	State          []byte
+	UpdatedAt      pgtype.Timestamptz
+}
+
 type RouterBlindRouterExperimentAssignment struct {
 	RouterUserID        uuid.UUID
 	InstallationID      uuid.UUID

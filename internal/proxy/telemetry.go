@@ -65,6 +65,7 @@ type SessionCost struct {
 
 // InsertTelemetryParams mirrors one router.upstream span row.
 type InsertTelemetryParams struct {
+	agreementShadow *agreementShadowInput
 	ContextSnapshot []byte
 	InstallationID  string
 	// APIKeyID attributes the row to the authenticating api key (per-key spend
