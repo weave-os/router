@@ -1122,10 +1122,24 @@ if [[ "$has_pin_record" == "true" ]]; then
   status_text="$status_text · last pin: $last_pin_model"
 fi
 
+# Point the reconnect command at this install: a bare login reads the
+# user-scope config, which a project or --dir install doesn't use.
+weave_login_scope=""
+if [ -n "${weave_disconnected_plans:-}" ]; then
+  weave_sl_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+  case "$weave_sl_dir" in
+    */.claude)
+      weave_login_scope=" --dir $(printf '%q' "${weave_sl_dir%/.claude}")"
+      if grep -q 'X-Weave-Router-Key' "$weave_sl_dir/settings.local.json" 2>/dev/null; then
+        weave_login_scope=" --scope project$weave_login_scope"
+      fi
+      ;;
+  esac
+fi
 for weave_plan in ${weave_disconnected_plans:-}; do
   case "$weave_plan" in
-    claude) status_text="$status_text · Claude plan disconnected: run npx @weave-os/router login claude" ;;
-    codex) status_text="$status_text · Codex plan disconnected: run npx @weave-os/router login codex" ;;
+    claude) status_text="$status_text · Claude plan disconnected: run npx @weave-os/router login claude$weave_login_scope" ;;
+    codex) status_text="$status_text · Codex plan disconnected: run npx @weave-os/router login codex$weave_login_scope" ;;
   esac
 done
 

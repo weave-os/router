@@ -690,7 +690,7 @@ out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcr
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
     WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
     bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
-check_contains "statusline names the disconnected plan and its reconnect command" "$out" "Claude plan disconnected: run npx @weave-os/router login claude"
+check_contains "statusline names the disconnected plan and its reconnect command" "$out" "Claude plan disconnected: run npx @weave-os/router login claude --scope project --dir $c/proj"
 check_not_contains "statusline omits plans that are not disconnected" "$out" "Codex plan disconnected"
 printf '{"hide_terminal_surfaces": false, "disconnected_plans": []}' > "$c/ds.json"
 touch -d '2 hours ago' "$cache_file" 2>/dev/null || touch -t "$(date -d '2 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-2H +%Y%m%d%H%M)" "$cache_file"
