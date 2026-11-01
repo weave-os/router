@@ -67,7 +67,7 @@
     "url": "git+https://github.com/weave-os/router.git",
     "directory": "install/npm"
   },
-  "homepage": "https://workweave.ai",
+  "homepage": "https://weaveos.com/products/router",
   "license": "Apache-2.0",
   "keywords": [
     "weave",
@@ -75,7 +75,13 @@
     "claude",
     "claude-code",
     "anthropic",
+    "codex",
+    "opencode",
+    "openai",
     "llm-router",
+    "model-router",
+    "ai-gateway",
+    "llm-proxy",
     "pi",
     "pi-package"
   ],
