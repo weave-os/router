@@ -91,3 +91,65 @@ customer-specific revision.
 
 - The silent-drop mapping contract of `hmm.DeployedModelsForRosterIDs`, once the
   admin roster view reads the declarative roster instead.
+
+## Offline model-agreement candidate
+
+`internal/router/switchpolicy` is an experimental replacement for the competing
+ordinary upgrade/downgrade gates. It is consumed by `cmd/replay-switch-policy`,
+not the serving router. It adds no serving flag and does not retire existing
+organization overrides. Durable persistence and override migration require a
+separate integration change.
+
+The candidate uses one minimum qualifying probability and consecutive votes for
+the exact provider, model, and quality group. Higher-group changes use the
+upgrade requirement; lower-group and lateral changes use the downgrade
+requirement. The requirements count qualifying observations, not independent
+statistical evidence. A different destination, disqualifying probability,
+ineligible proposal, or incumbent confirmation resets the run. Changing the
+configuration also resets pending votes. Ordinary same-model labels do not
+rewrite the incumbent's accepted group or change reasoning effort.
+
+Cache warmth and history trimming cannot authorize a switch. Explicit manual,
+incumbent-ineligible, recovery, and active-quality-floor reasons are the only
+overrides. The caller must establish compatibility, funding, and recovery
+eligibility before supplying an override; a floor cannot lower an already higher
+quality group. This evaluator does not decide when a stream may be retried.
+
+Every decision carries its base state revision. `Commit` checks against a latest
+in-memory value for offline replay and sequence tests. A future database adapter
+must enforce the comparison atomically in its update; reading a row and then
+calling this function does not provide concurrency protection.
+
+The replay command accepts content-free JSONL, for example:
+
+```json
+{"id":"synthetic-1","session_key":"synthetic-thread","role":"default","timestamp":"2026-01-01T00:00:00Z","proposal":{"target":{"provider":"openai","model":"gpt-6.1-sol"},"group":"high"},"confidence":0.9,"eligible":true,"observed":{"provider":"openai","model":"gpt-6.1-sol"}}
+```
+
+```sh
+go run ./cmd/replay-switch-policy -input /private/proposals.jsonl \
+  -upgrade-votes 3 -downgrade-votes 5 -minimum-confidence 0.5 \
+  -trace /private/new-replay-trace.jsonl
+```
+
+Three-up/five-down is a comparison default, not an approved fleet calibration.
+The input must supply canonical quality groups, eligible candidate identities,
+and known overrides. Unknown fields are rejected to catch accidental inclusion
+of conversation content. Observations must be unique and ordered by timestamp
+within each full pin key and role. Traces are private files created without
+overwriting; the summary includes the input hash and coverage counts.
+
+Every pin bucket starts with empty state: no incumbent, pending votes, or prior
+revision is loaded. Its first eligible proposal becomes the initial model
+immediately, without waiting for the upgrade/downgrade vote count. Continuation
+analysis therefore requires history from pin creation. A mid-session suffix is
+treated as a new bucket, not as a continuation of the existing model; its choices
+and transition counts can differ. An explicit starting-state input is not
+supported, and every emitted summary discloses this cold-start boundary.
+
+The command serializes state and holds proposals and request timing fixed. It
+does not generate alternative model outputs, reclassify future requests, replay
+distributed database scheduling, or estimate quality, billing, or latency.
+Prepare the proposal stream from classifier/ranker evidence and explicitly
+account for excluded or unsupported branches; do not silently remove individual
+requests from a vote sequence.
