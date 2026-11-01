@@ -51,8 +51,8 @@ what changes for each tool, project-level setup, and all available options.
 
 ## Run it yourself
 
-You'll need Docker, a provider API key, and a local checkout. For example, with
-an OpenRouter key:
+You'll need Docker, Go 1.26 or later, a provider API key, and a local checkout.
+For example, with an OpenRouter key:
 
 ```bash
 git clone https://github.com/weave-os/router.git
