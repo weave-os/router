@@ -1,0 +1,24 @@
+cmd/replay-switch-policy/main.go
+  s_33522dee49bf01::t_df4eeab5dce157 59,91,154,192
+cmd/replay-switch-policy/main_test.go
+  s_33522dee49bf01::t_df4eeab5dce157 71,93-132
+  s_33522dee49bf01::t_9be365848fe484 133-134
+docs/HMM_GO_SELECTION.md
+  s_33522dee49bf01::t_df4eeab5dce157 142-149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4241987da4ebdb0d2d748241b631910cf41cc2a2",
+  "prompts": {},
+  "sessions": {
+    "s_33522dee49bf01": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18eb0-0355-7522-a7c9-ac571ae84fba",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
