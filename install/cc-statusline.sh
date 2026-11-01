@@ -377,6 +377,9 @@ weave_hidden_gate() {
   local cache="$cache_dir/display-settings${script_slug}"
   local ttl="${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-3600}"
 
+  # Linked plans that need a fresh login, from the last successful refresh.
+  weave_disconnected_plans="$(cat "$cache.plans" 2>/dev/null)"
+
   local now mtime fresh="false"
   now="$(date +%s 2>/dev/null)" || now=0
   if [ -f "$cache" ]; then
@@ -476,6 +479,8 @@ weave_hidden_gate() {
     else
       printf '0' >"$tmp" 2>/dev/null && mv "$tmp" "$cache" 2>/dev/null
     fi
+    plans="$(printf '%s' "$body" | jq -r '[.disconnected_plans[]? | select(type == "string" and test("^[a-z]+$"))] | join(" ")' 2>/dev/null)"
+    printf '%s' "$plans" >"$tmp" 2>/dev/null && mv "$tmp" "$cache.plans" 2>/dev/null
     rm -f "$tmp" 2>/dev/null
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
@@ -1116,6 +1121,13 @@ fi
 if [[ "$has_pin_record" == "true" ]]; then
   status_text="$status_text · last pin: $last_pin_model"
 fi
+
+for weave_plan in ${weave_disconnected_plans:-}; do
+  case "$weave_plan" in
+    claude) status_text="$status_text · Claude plan disconnected: run npx @weave-os/router login claude" ;;
+    codex) status_text="$status_text · Codex plan disconnected: run npx @weave-os/router login codex" ;;
+  esac
+done
 
 # /router-status reads this back through the prompt hook, so it can answer
 # without a model turn.
