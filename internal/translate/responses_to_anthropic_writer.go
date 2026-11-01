@@ -85,6 +85,7 @@ type ResponsesToAnthropicWriter struct {
 	emittedStopReason string
 	lifecycle         *StreamLifecycle
 	toolLedger        *ToolCallLedger
+	emptyTurn         completedEmptyTurn
 }
 
 // NewResponsesToAnthropicWriter wraps w to translate a streaming Responses
@@ -229,6 +230,9 @@ func (t *ResponsesToAnthropicWriter) Finalize() error {
 		if err := t.processFinalResponsesSSETail(); err != nil {
 			return err
 		}
+		if t.lifecycle.State() == StreamTerminal && !t.lifecycle.OutputStarted() && !t.emptyTurn.accepted() {
+			return t.emitEmptyCompletion()
+		}
 		if err := t.lifecycle.EOF(); err != nil {
 			if t.lifecycle.State() == StreamStarted {
 				if emitErr := t.emitStreamErrorEvent("api_error", "upstream stream ended before a terminal event"); emitErr != nil {
@@ -303,6 +307,7 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 			"frame_bytes", len(data))
 		return t.emitStreamErrorEvent("api_error", malformedResponsesFrameMessage)
 	}
+	t.emptyTurn.observe(data)
 	// Match on the payload type: intermediaries may drop the SSE event name.
 	switch responsesEventType(gjson.GetBytes(data, "type").String()) {
 	case responsesOutputItemAdded:
@@ -311,10 +316,12 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 		}
 		return t.handleOutputItemAdded(data)
 	case "response.output_text.delta":
-		t.markOutputProgress()
+		if hasNonEmptyDelta(data) {
+			t.markOutputProgress()
+		}
 		return t.handleTextDelta(data)
 	case responsesReasoningSummaryDelta, responsesReasoningTextDelta:
-		if delta := gjson.GetBytes(data, "delta"); delta.Type == gjson.String && delta.Str != "" {
+		if hasNonEmptyDelta(data) {
 			t.markReasoningProgress()
 		}
 		return t.handleReasoningDelta(data)
@@ -361,6 +368,9 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 		}
 		if !t.lifecycle.OutputStarted() && !t.hasPendingOutput() {
 			t.captureFinalResponse(data)
+			if t.emptyTurn.accepted() {
+				return t.lifecycle.Terminal()
+			}
 			return t.emitEmptyCompletion()
 		}
 		t.markOutputProgress()
@@ -403,6 +413,9 @@ func (t *ResponsesToAnthropicWriter) handleOutputItemAdded(data []byte) error {
 }
 
 func (t *ResponsesToAnthropicWriter) handleTextDelta(data []byte) error {
+	if !hasNonEmptyDelta(data) {
+		return nil
+	}
 	idx, err := t.openBlock(int(gjson.GetBytes(data, "output_index").Int()), "text")
 	if err != nil {
 		return err
@@ -414,6 +427,9 @@ func (t *ResponsesToAnthropicWriter) handleTextDelta(data []byte) error {
 }
 
 func (t *ResponsesToAnthropicWriter) handleReasoningDelta(data []byte) error {
+	if !hasNonEmptyDelta(data) {
+		return nil
+	}
 	idx, err := t.openBlock(int(gjson.GetBytes(data, "output_index").Int()), "thinking")
 	if err != nil {
 		return err
@@ -680,6 +696,9 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 		return t.finalizeError()
 	}
 	if !anthropicResponseHasUsableOutput(anthropic) {
+		t.emptyTurn = bufferedCompletedEmptyTurn(t.buf.Bytes())
+	}
+	if !anthropicResponseHasUsableOutput(anthropic) && !t.emptyTurn.accepted() {
 		t.log().Error("ResponsesToAnthropic: upstream returned an empty completion",
 			"request_model", t.requestModel)
 		recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
