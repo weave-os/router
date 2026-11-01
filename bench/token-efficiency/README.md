@@ -86,7 +86,7 @@ did the work (`estimates.trial_violations`):
 | Tasks | 25 ([manifest](../weave_bench/manifests/token_efficiency_swe_together_tasks.json)) | 33 ([manifest](../weave_bench/manifests/token_efficiency_terminalbench4_tasks.json)) |
 | Digest | `6b4c99b225a3f967e66a6541c3dad7c4aae4e7cbacb696f6dd6fa0e1cb067685` | `7e92e0a388041e88dee47c9627445bb8ad6dfd092e3e846ae4434f2c17d04afd` |
 | Source | [Togetherbench/SWE-Together](https://github.com/Togetherbench/SWE-Together) @ `811a70a2` | Harbor `terminal-bench/terminal-bench@4.0.0` |
-| Attempts | 2 per task per cell | 2 per task per arm |
+| Attempts | 2 per task per cell | 4 per task per arm (two runs of 2, pooled) |
 | Harness versions | Claude Code 2.1.280, Codex 0.133.0 | Claude Code 2.1.280, Codex 0.150.0 |
 
 A digest is the sha256 of the sorted task ids joined by newlines
@@ -232,7 +232,7 @@ You need:
   billed to you directly).
 
 **Spend.** Weave's own runs used subscriptions. At catalog prices each
-Terminal-Bench arm (33 tasks × 2) cost $49–$345 in Weave's runs, depending on
+Terminal-Bench arm (33 tasks × 4) cost $91–$678 in Weave's runs, depending on
 the model; a SWE-Together trial's cost depends on the model and the task, so
 estimate from a small run first. Start with `--core-only --n-attempts 1` and a
 single cell, and use `--dry-run` to see every command before it runs.
@@ -283,8 +283,12 @@ usage and any violations. That file is the raw evidence the ratios come from;
 ### 2. Quality factors (Terminal-Bench 4)
 
 ```bash
-weave-bench efficiency terminal-bench run --run-id tb4eff-$(date +%Y%m%d) --dry-run
+weave-bench efficiency terminal-bench run --run-id tb4eff-$(date +%Y%m%d) --n-attempts 4 --dry-run
 ```
+
+`--n-attempts 4` matches the published sample (132 trials per arm). The default
+is 2, and `report` reads a single Terminal-Bench run, so run all four attempts
+in one run rather than two runs of 2.
 
 Default arms: `cc-router`, `cc-opus-5-5`, `cx-router`, `cx-astra`,
 `cx-sol-6-1` (`cc-fable-5-1` is available). Each arm is one Harbor job at
@@ -317,8 +321,9 @@ production router:
 
 - **Work ratios: final.** Ten cells against each harness's comparison model.
   Values are rounded to two decimals as published.
-- **Quality factors: pending.** A second batch of Terminal-Bench attempts is
-  running; rows are added from the combined run.
+- **Quality factors: final.** Three router-vs-always-X comparisons from the
+  combined run (33 tasks × 4 attempts per arm; Claude Code 2.1.280, Codex
+  0.150.0). Catalog costs are rounded to whole dollars.
 
 ```bash
 weave-bench efficiency render token-efficiency/results/token_efficiency_results.json
@@ -390,6 +395,12 @@ reproduces the method, not that infrastructure:
   harness.
 - The internal guard excluded the router's utility turns by an internal flag;
   the kit uses the export's `turn_type`.
+- The internal Terminal-Bench analysis priced each trial from the router
+  sessions whose start and end sit nearest the trial's, within 60 s (matching
+  by greatest overlap mis-attributed cost when trials ran concurrently); the
+  kit matches by the session id Harbor records. A graded trial with no matched
+  session stayed in the pass rate at $0 cost (one `cc-router` attempt, reward
+  0, counted in `missing_telemetry`), where the kit drops it.
 - The analysis code (`estimates`, `quality`, `pooling`) is a direct port and
   reproduces the internal implementation's numbers exactly, bootstrap draws
   included; the runners have been checked offline (dry runs and tests) and not
@@ -401,7 +412,7 @@ reproduces the method, not that infrastructure:
   floor (≈ 0.2 for a session with no edits), so it is used for tokens only.
 - Some cells cannot complete some tasks (no edits in 39–152 turns); those
   slots are missing and the ratio uses the tasks both cells ran.
-- Pass-rate intervals on 33 tasks × 2 attempts are wide (≈ ±0.11 per arm);
+- Pass-rate intervals on 33 tasks × 4 attempts are wide (≈ ±0.12 per arm);
   the penalty's one-sided bound is deliberately conservative.
 - In Weave's runs a routed Opus 5.5 scored like a direct one on SWE-Together
   (0.55 vs 0.56 mean reward on 10 tasks × 2): an observation on a small,

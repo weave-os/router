@@ -11,7 +11,7 @@ from weave_bench.benchmarks import Benchmark
 from weave_bench.efficiency.cells import REQUESTED_MODEL, Cell, Harness
 from weave_bench.efficiency.estimates import EfficiencyEstimate, TokenUsage, WorkRatios
 from weave_bench.efficiency.pooling import MeasurementRun
-from weave_bench.efficiency.quality import ArmTasks, TaskOutcome, quality_factor
+from weave_bench.efficiency.quality import ArmTasks, Interval, TaskOutcome, capped_pass_rate_penalty, quality_factor
 from weave_bench.efficiency.results import (
     EvidenceStatus,
     QualityComparison,
@@ -59,8 +59,17 @@ def test_terminal_bench_tasks_are_in_the_pinned_tb4_dataset() -> None:
 
 def test_committed_results_validate_and_render() -> None:
     document = read_results(RESULTS)
-    assert document["quality_factors"]["status"] == EvidenceStatus.PENDING
-    assert "| Codex | gpt-6-astra | claude-opus-5-5 | 25 |" in render_markdown(document)
+    assert document["quality_factors"]["status"] == EvidenceStatus.FINAL
+    rendered = render_markdown(document)
+    assert "| Codex | gpt-6-astra | claude-opus-5-5 | 25 |" in rendered
+    assert "| Codex | always-gpt-6-astra | 33 | 64 / 132 | 78 / 132 |" in rendered
+
+
+def test_committed_penalties_follow_from_the_published_pass_rates() -> None:
+    for row in read_results(RESULTS)["quality_factors"]["rows"]:
+        penalty = capped_pass_rate_penalty(Interval(**row["baseline_pass_rate"]), Interval(**row["router_pass_rate"]))
+        # Published penalties come from unrounded pass rates; the stored intervals are rounded to 4 decimals.
+        assert row["pass_rate_penalty"] == pytest.approx(penalty, abs=1e-3)
 
 
 def test_committed_factors_follow_from_the_published_intervals() -> None:
@@ -79,6 +88,7 @@ def test_validation_rejects_a_changed_task_set_and_pending_rows() -> None:
     with pytest.raises(ValueError, match="task_set_digest"):
         validate_results(tampered)
     pending_with_rows = copy.deepcopy(document)
+    pending_with_rows["quality_factors"]["status"] = "pending"
     pending_with_rows["quality_factors"]["rows"] = [{}]
     with pytest.raises(ValueError, match="pending"):
         validate_results(pending_with_rows)
