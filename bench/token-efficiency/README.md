@@ -283,8 +283,12 @@ usage and any violations. That file is the raw evidence the ratios come from;
 ### 2. Quality factors (Terminal-Bench 4)
 
 ```bash
-weave-bench efficiency terminal-bench run --run-id tb4eff-$(date +%Y%m%d) --dry-run
+weave-bench efficiency terminal-bench run --run-id tb4eff-$(date +%Y%m%d) --n-attempts 4 --dry-run
 ```
+
+`--n-attempts 4` matches the published sample (132 trials per arm). The default
+is 2, and `report` reads a single Terminal-Bench run, so run all four attempts
+in one run rather than two runs of 2.
 
 Default arms: `cc-router`, `cc-opus-5-5`, `cx-router`, `cx-astra`,
 `cx-sol-6-1` (`cc-fable-5-1` is available). Each arm is one Harbor job at
