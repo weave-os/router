@@ -1,5 +1,22 @@
 # Router documentation
 
+Start with the task you need to complete:
+
+| Task | Documentation |
+|---|---|
+| Connect a coding tool to the hosted router | [Hosted quickstart](../README.md#30-second-quickstart) and [installer flags](../install/npm/README.md) |
+| Run the router and database yourself | [Self-hosted setup](../README.md#or-self-host-the-whole-stack) |
+| Configure a client, choose models, or switch routing off | [Coding-tool setup](../README.md#wire-it-into-your-tools) and [installer guide](../install/README.md) |
+| Find API endpoints | [Endpoint index](../README.md#endpoints) |
+| Understand per-action routing | [Canonical semantics](SEMANTICS.md) |
+| Configure providers, credentials, or telemetry | [Configuration reference](CONFIGURATION.md) |
+| Read session costs and routing decisions | [Session cost](SESSION_COST.md) and [analytics export](ANALYTICS_EXPORT.md) |
+| Inspect cross-format behavior | [Translation compatibility](TRANSLATION_COMPATIBILITY.md) |
+
+The hosted quickstart and self-hosted stack have different operating and credential requirements. Follow the instructions for the deployment you use. Client and model compatibility also vary; the README identifies Cursor as an early beta.
+
+## Engineering reference
+
 Index of Markdown documentation in the `router/` repo.
 
 | Doc | What it covers |
