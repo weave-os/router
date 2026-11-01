@@ -61,7 +61,7 @@ gh api "repos/weave-os/checks/contents/starter-checks/<slug>.md?ref=$REF" -H 'Ac
 1. Lint/format autofix on changed files (included in the one validation pass, Step 4)
 2. `git add <specific files>`
 3. `git commit -m "message"`
-4. `git push` (in a stack: `gh stack submit --auto --open`)
+4. `git push` (in a stack: one `gh stack push` per cycle — see [Stacks](#stacks-one-loop-for-the-whole-stack))
 
 If the branch is out of date: `git push --force-with-lease` only after verifying you don't overwrite someone else's work. Never raw `git push --force`.
 
@@ -95,6 +95,20 @@ Exit only when every condition is true on the same poll, _after CI has dispatche
 3. **No CI pending/running** — `checks_summary.pending == 0` and `checks_fetch_failed` is absent. If `checks_fetch_failed: true`, CI is unknown — do not count as done.
 4. **No `REVIEW_REQUESTED`** — `reviewRequests` is empty.
 5. **No `CHANGES_REQUESTED`** — `reviewDecision` is not `CHANGES_REQUESTED`; each `latestReviews` state is `APPROVED`, `COMMENTED`, or `DISMISSED`.
+
+## Stacks: one loop for the whole stack
+
+When the PR is part of a GitHub Stack (`gh stack view --short`, or `gh api repos/<owner>/<repo>/stacks`), run **one** loop for the whole stack, not one loop per PR. Every push to a lower branch cascade-rebases every branch above it, and each force-push re-runs CI and the bot reviewers on that PR, so independent per-PR loops multiply review rounds and race each other on shared history. Bots review each PR's diff alone, so many findings belong to a different layer than the one they are filed on.
+
+- **One writer.** A single agent owns every branch checkout, commit, rebase and push for the stack. Helpers (subagents) may only triage or draft edits for one PR and hand them back; they never push.
+- **One cycle covers every PR:**
+  1. Fetch Step 1 state for every PR in the stack (in parallel), bottom to top.
+  2. Let the round land: proceed once every PR's reviewer checks for its current head SHA have concluded, or ~5 min after the last push, whichever is first. Acting on the first thread and pushing again restarts every reviewer above that branch.
+  3. Triage all threads and failing checks across the stack together. Attribute each to the PR that **introduced** the code (`git log -L`/`git blame` on the top branch), and fix it there, even when it was filed or fails on a higher PR. A "no caller" / "unused" finding on a lower PR is a Decline when a higher PR uses it (`git grep` on the top branch). A CI failure on a higher PR caused by a lower PR's code is fixed in the lower PR.
+  4. Edit bottom-up: on each affected branch apply its fixes and commit, then cascade with `gh stack rebase` (resolve conflicts once) and validate on the top branch, which contains every layer.
+  5. Push once for the whole stack: `gh stack push` (atomic). Use `gh stack submit --auto --open` only to open or retarget PRs, since it can also rebase onto the latest trunk and re-review every PR.
+  6. Resolve threads per PR as in Step 5, then watch every PR with the Step 6 sentinel; new activity on any PR starts the next cycle.
+- **DONE** when every PR meets the DONE conditions on its current head and each branch contains its parent's tip. The 5-iteration cap counts stack cycles. Merge (`gh stack merge`) only when asked.
 
 ## Execution
 
@@ -317,7 +331,7 @@ Fixed:
 
 Declined (with explanation):
 - [summary of declined 1]"
-git push   # stack: gh stack submit --auto --open
+git push   # stack: commit on each branch, then one gh stack rebase + gh stack push (see Stacks)
 PUSHED_HEAD_SHA=$(git rev-parse HEAD)
 # now resolve human/Greptile Fix thread_ids (Declines already resolved above)
 ```
