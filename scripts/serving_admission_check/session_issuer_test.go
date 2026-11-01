@@ -39,7 +39,7 @@ func TestSubjectBoundIssuersPreserveSpendAcrossSubjectsAndKeyRotation(t *testing
 	queries := sqlc.New(tx)
 	installation, err := repositories.Installations.Create(ctx, auth.CreateInstallationParams{ExternalID: "fixture_" + uuid.NewString()[:16], Name: "Issuer spend fixture"})
 	require.NoError(t, err)
-	other, err := repositories.Installations.Create(ctx, auth.CreateInstallationParams{ExternalID: "fixture_" + uuid.NewString()[:16], Name: "Other issuer spend fixture"})
+	otherInstallation, err := repositories.Installations.Create(ctx, auth.CreateInstallationParams{ExternalID: "fixture_" + uuid.NewString()[:16], Name: "Other issuer spend fixture"})
 	require.NoError(t, err)
 
 	createIssuer := func(installationID string, subjectID string) *auth.APIKey {
@@ -61,22 +61,22 @@ func TestSubjectBoundIssuersPreserveSpendAcrossSubjectsAndKeyRotation(t *testing
 		return subject.ID.String()
 	}
 	firstSubject := createSubject()
-	first := createIssuer(installation.ID, firstSubject)
+	original := createIssuer(installation.ID, firstSubject)
 	rotated := createIssuer(installation.ID, firstSubject)
 	differentSubjectIssuer := createIssuer(installation.ID, createSubject())
 	legacy := createIssuer(installation.ID, "")
-	foreign := createIssuer(other.ID, "")
+	otherInstallationIssuer := createIssuer(otherInstallation.ID, "")
 	for _, row := range []struct {
 		issuer *auth.APIKey
 		spent  int64
 	}{
-		{first, 100}, {rotated, 200}, {differentSubjectIssuer, 300}, {legacy, 400}, {foreign, 900},
+		{original, 100}, {rotated, 200}, {differentSubjectIssuer, 300}, {legacy, 400}, {otherInstallationIssuer, 900},
 	} {
 		_, err := tx.Exec(ctx, `INSERT INTO router.delegated_token_spend (issuer_key_id, scope_kind, scope_id, spent_usd_micros) VALUES ($1, 'session', 'session-1', $2), ($1, 'task', 'task-1', $2)`, row.issuer.ID, row.spent)
 		require.NoError(t, err)
 	}
 	// Soft-deleting an old key must not remove the spend incurred before rotation.
-	_, err = tx.Exec(ctx, `UPDATE router.model_router_api_keys SET deleted_at = NOW() WHERE id = $1`, first.ID)
+	_, err = tx.Exec(ctx, `UPDATE router.model_router_api_keys SET deleted_at = NOW() WHERE id = $1`, original.ID)
 	require.NoError(t, err)
 	billing := postgres.NewBillingRepo(tx)
 	for _, issuer := range []*auth.APIKey{rotated, differentSubjectIssuer} {
