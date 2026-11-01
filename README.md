@@ -1,3 +1,14 @@
+<div align="center">
+<img width="7559" height="1200" alt="Weave Router" src="https://github.com/user-attachments/assets/139b6a47-f306-4553-a638-764549a1e76b" />
+
+[![Weave Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fapp.weaveos.com%2Fapi%2Frepository%2Fbadge%2Forg_QWsHDcRQWQEs6RpkdEZrlFK8%2F1222789989%2Fhttps%253A%252F%252Fgithub.com&cacheSeconds=3600)](https://app.weaveos.com/reports/repository/org_QWsHDcRQWQEs6RpkdEZrlFK8/https%3A%2F%2Fgithub.com/1222789989)
+[![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](go.mod)
+[![Tests](https://github.com/weave-os/router/actions/workflows/test.yml/badge.svg)](https://github.com/weave-os/router/actions/workflows/test.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Managed deployment](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frouter.weaveos.com%2Fv1%2Fversion&query=%24.display&label=managed%20deployment&color=EC6341&cacheSeconds=1800)](https://github.com/weave-os/router/deployments)
+[![#1 Product of the Day on Product Hunt](https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1247729&theme=light&period=daily)](https://www.producthunt.com/posts/weave-router-2-0?embed=true&utm_source=badge-top-post-badge&utm_medium=badge&utm_campaign=badge-weave-router-2-0)
+</div>
+
 # Weave Router
 
 Weave Router is a proxy that selects a model for each API request. It works with
