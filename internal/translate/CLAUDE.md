@@ -88,6 +88,25 @@ Policy and opt-outs stay in proxy; sinks reuse the existing protocol encoders af
 conversion. Read [the notice contract](../../docs/ROUTER_NOTICES.md) before adding
 notice kinds or changing prelude/retry behavior.
 
+## Router directives in replayed history (load-bearing)
+
+Clients resend the whole conversation each turn, so a directive the user typed on an
+earlier turn (`/fm`, `$router-session`, …) returns as an ordinary user message after
+its ack was already stripped. Left in place the model reads it, reasons about it, and
+sometimes re-runs the skill (Codex, prod 2026-10). [`command_history.go`](command_history.go)
+removes it: `StripHistoricalCommands` for `messages` bodies and
+`StripHistoricalCommandsFromResponsesInput` for the native Codex body. Four rules:
+the trailing user turn is never touched (that is where `Extract*Command` must still
+find a live directive); the first user message is never touched either, because
+`deriveSessionKey` hashes it as the thread discriminator and rewriting it would orphan
+the pin the directive created (so an opening `/fm` still reaches the model — accepted);
+the Codex `<skill>` attachment goes with its directive; and
+any text the user wrote alongside the directive is kept, so only the command line
+goes. Each directive family's own parser decides what counts, so the bare-only
+directives (`router-session`, `router-models`) with trailing arguments never fired
+and are not stripped. Tool-output directives stay the job of
+`StripRouterCommandsFromResponsesInput`.
+
 ## Invariants
 
 - **No I/O.** No HTTP, no DB, no filesystem.
