@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,8 +18,9 @@ import (
 )
 
 type codexQuotaWindow struct {
-	UsedPercent *float64 `json:"used_percent"`
-	ResetAt     int64    `json:"reset_at"`
+	UsedPercent        *float64 `json:"used_percent"`
+	ResetAt            int64    `json:"reset_at"`
+	LimitWindowSeconds int      `json:"limit_window_seconds"`
 }
 type codexIncludedQuota struct {
 	Allowed      *bool             `json:"allowed"`
@@ -86,6 +88,28 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) erro
 	if err := json.Unmarshal(body, &quotaStatus); err != nil {
 		log.Warn("Codex quota preflight decode failed", "err", err)
 		return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, resp.StatusCode)
+	}
+	if quota := quotaStatus.RateLimit; quota != nil {
+		headers := make(http.Header)
+		for _, window := range []struct {
+			prefix string
+			quota  *codexQuotaWindow
+		}{
+			{prefix: "x-codex-primary-", quota: quota.Primary},
+			{prefix: "x-codex-secondary-", quota: quota.Secondary},
+		} {
+			if window.quota == nil || window.quota.UsedPercent == nil || *window.quota.UsedPercent < 0 || *window.quota.UsedPercent > 100 {
+				continue
+			}
+			headers.Set(window.prefix+"used-percent", strconv.FormatFloat(*window.quota.UsedPercent, 'f', -1, 64))
+			if window.quota.ResetAt > 0 {
+				headers.Set(window.prefix+"reset-at", strconv.FormatInt(window.quota.ResetAt, 10))
+			}
+			if window.quota.LimitWindowSeconds > 0 {
+				headers.Set(window.prefix+"window-minutes", strconv.Itoa(window.quota.LimitWindowSeconds/60))
+			}
+		}
+		providers.ObserveUpstreamHeaders(parentCtx, headers)
 	}
 	// Usage-based and workspace plans report a plan without windowed limits;
 	// their exhaustion arrives as spend_control or rate_limit_reached_type.

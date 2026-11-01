@@ -10,9 +10,62 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
+
+type weeklyUsageCapture struct {
+	readings chan recordedWeeklyUsage
+}
+
+type recordedWeeklyUsage struct {
+	accountID string
+	window    usage.Window
+}
+
+func (capture *weeklyUsageCapture) RecordWeeklyUsage(_ context.Context, accountID string, window usage.Window) error {
+	capture.readings <- recordedWeeklyUsage{accountID: accountID, window: window}
+	return nil
+}
+
+func TestWeeklyUsagePersistsOnlyTheDispatchedAccountsReportedWeek(t *testing.T) {
+	now := time.Date(2026, time.October, 20, 12, 0, 0, 0, time.UTC)
+	for _, source := range []string{credSourceSubscription, credSourceCodexSubscription} {
+		t.Run(source, func(t *testing.T) {
+			capture := &weeklyUsageCapture{readings: make(chan recordedWeeklyUsage, 4)}
+			service := (&Service{now: func() time.Time { return now }}).
+				WithUsageObserver(usage.NewObserver([]byte("synthetic"), time.Minute, func() time.Time { return now })).
+				WithWeeklyUsageRecorder(capture)
+			ctx := service.withUsageObserver(context.Background(), http.Header{})
+			ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
+				APIKey: []byte("synthetic-token"), OAuth: true, Source: source, SubscriptionAccountID: "physical-account",
+			})
+			headers := http.Header{}
+			if source == credSourceSubscription {
+				headers.Set("anthropic-ratelimit-unified-7d-utilization", "0.63")
+				headers.Set("anthropic-ratelimit-unified-7d-reset", now.Add(48*time.Hour).Format(time.RFC3339))
+			} else {
+				headers.Set("x-codex-secondary-used-percent", "63")
+				headers.Set("x-codex-secondary-reset-at", now.Add(48*time.Hour).Format(time.RFC3339))
+			}
+			providers.ObserveUpstreamHeaders(ctx, headers)
+			select {
+			case reading := <-capture.readings:
+				require.Equal(t, "physical-account", reading.accountID)
+				require.InDelta(t, 0.63, reading.window.UsedPercent, 0.0001)
+				require.Equal(t, now, reading.window.ObservedAt)
+				require.Equal(t, now.Add(48*time.Hour), reading.window.ResetAt)
+			case <-time.After(time.Second):
+				t.Fatal("weekly observation was not persisted")
+			}
+			providers.ObserveUpstreamHeaders(ctx, http.Header{})
+			service.recordSubscriptionUsage(ctx, CredentialsFromContext(ctx), usage.Snapshot{Primary: usage.Window{WindowMinutes: 300, UsedPercent: 0.9}})
+			service.recordSubscriptionUsage(ctx, &Credentials{APIKey: []byte("direct-token"), OAuth: true, Source: source}, usage.Snapshot{Secondary: usage.Window{WindowMinutes: 10080, UsedPercent: 0.1}})
+			require.Empty(t, capture.readings, "missing weekly headers and unenrolled tokens must not overwrite saved usage")
+		})
+	}
+}
 
 // The subsidy must recognize a subscription presented via the inbound
 // Authorization bearer (Claude Code's sk-ant-oat…, Codex CLI's JWT+account-id on
