@@ -64,32 +64,41 @@ const (
 // sliding threshold does not define; an empty target means it does not move
 // the session.
 func SlidingThresholdTarget(pinned, classified Group, probability float64) (target Group, covered bool) {
-	switch {
-	case classified == Maximum && (pinned == Low || pinned == Medium):
-		return slidingBand(probability, High, Maximum), true
-	case classified == Maximum && pinned == High:
-		return slidingBand(probability, "", Maximum), true
-	case classified == High && pinned == Low:
-		return slidingBand(probability, Medium, High), true
-	case classified == High && pinned == Medium:
-		if probability >= slidingMediumToHighProbability {
-			return High, true
-		}
-		return "", true
-	case classified == Medium && pinned == Low:
-		return slidingBand(probability, Medium, Medium), true
+	thresholds, covered := SlidingThresholdsFor(pinned, classified)
+	if !covered {
+		return "", false
 	}
-	return "", false
+	if probability >= thresholds.FullProbability {
+		return classified, true
+	}
+	if probability >= thresholds.StepProbability {
+		return thresholds.StepGroup, true
+	}
+	return "", true
 }
 
-func slidingBand(probability float64, step, full Group) Group {
+// SlidingUpgradeThresholds exposes the same bounds to selection and its explanation.
+type SlidingUpgradeThresholds struct {
+	StepGroup       Group
+	StepProbability float64
+	FullProbability float64
+}
+
+// SlidingThresholdsFor returns the configured bands without evaluating a vote.
+func SlidingThresholdsFor(pinned, classified Group) (SlidingUpgradeThresholds, bool) {
 	switch {
-	case probability >= slidingFullProbability:
-		return full
-	case probability >= slidingStepProbability:
-		return step
+	case classified == Maximum && (pinned == Low || pinned == Medium):
+		return SlidingUpgradeThresholds{High, slidingStepProbability, slidingFullProbability}, true
+	case classified == Maximum && pinned == High:
+		return SlidingUpgradeThresholds{"", slidingFullProbability, slidingFullProbability}, true
+	case classified == High && pinned == Low:
+		return SlidingUpgradeThresholds{Medium, slidingStepProbability, slidingFullProbability}, true
+	case classified == High && pinned == Medium:
+		return SlidingUpgradeThresholds{High, slidingMediumToHighProbability, slidingMediumToHighProbability}, true
+	case classified == Medium && pinned == Low:
+		return SlidingUpgradeThresholds{Medium, slidingStepProbability, slidingStepProbability}, true
 	}
-	return ""
+	return SlidingUpgradeThresholds{}, false
 }
 
 // Constraint carries classifier intent without overriding user/provider restrictions.

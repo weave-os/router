@@ -352,6 +352,8 @@ type turnLoopResult struct {
 	AuthorityShadow authorityCacheShadow
 	// UpgradeShadow is quality evidence, independent of the cache-EV counterfactual.
 	UpgradeShadow *authoritativeUpgradeDecision
+	// SlidingUpgrade retains this turn's classification even when a held pin has no metadata.
+	SlidingUpgrade *slidingUpgradeExplanation
 	// DowngradeShadow records, on a served authoritative-per-turn downgrade,
 	// whether the off-by-default downgrade guards would have held the pin.
 	// Observation only: it never touches Decision.
@@ -796,6 +798,9 @@ func (s *Service) runTurnLoop(
 			routeErr = policyPinServed(ctx, res)
 			if routeErr == nil {
 				logAuthoritativeUpgrade(ctx, res)
+				if fields := slidingUpgradeLogFields(res); len(fields) > 0 {
+					observability.FromContext(ctx).Info("routing adjustment", fields...)
+				}
 			}
 		}
 	}()
@@ -1966,6 +1971,18 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 		if res.AuthoritativePerTurn {
+			if fresh.Metadata != nil && req.SlidingThresholdPinGroup != "" {
+				label := fresh.Metadata.ClassifierPredictedLabel
+				thresholds, covered := escalation.SlidingThresholdsFor(req.SlidingThresholdPinGroup, escalation.Group(label))
+				if probability, scored := fresh.Metadata.ClassifierProbabilities[label]; covered && scored {
+					target, _ := escalation.SlidingThresholdTarget(req.SlidingThresholdPinGroup, escalation.Group(label), probability)
+					res.SlidingUpgrade = &slidingUpgradeExplanation{
+						PinnedGroup: req.SlidingThresholdPinGroup, ClassifiedGroup: escalation.Group(label),
+						Probability: probability, TargetGroup: target, Thresholds: thresholds,
+						ConfidenceThreshold: s.hmmUpgradeConfidenceThreshold,
+					}
+				}
+			}
 			// Shadow before the pin-preserving gates so it covers every authoritative
 			// exit. PinTier partitions the result: authoritative_per_turn = fresh was
 			// served, sticky/confidence = pin was already kept.
