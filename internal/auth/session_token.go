@@ -40,8 +40,11 @@ const (
 // ErrInvalidSessionIssuerKey is returned when registering a JWK that is not an Ed25519 public key.
 var ErrInvalidSessionIssuerKey = errors.New("session issuer key must be an Ed25519 public JWK")
 
-// ErrSessionIssuerConflict is returned when a public key is already registered to another installation.
-var ErrSessionIssuerConflict = errors.New("session issuer key is registered to another installation")
+// ErrSessionIssuerConflict is returned when a public key is already registered with another binding.
+var ErrSessionIssuerConflict = errors.New("session issuer key is registered to another installation or subject")
+
+// ErrSessionIssuerSubjectUnavailable is returned when a subject-bound issuer cannot be tied to a live identity.
+var ErrSessionIssuerSubjectUnavailable = errors.New("session issuer credential subject is unavailable")
 
 // SessionCaps are optional USD spend limits a session token carries. A task
 // cap requires the task claim; both caps must be positive.
@@ -125,30 +128,47 @@ func (s *Service) WithSessionSpendCaps(enabled bool) *Service {
 }
 
 // RegisterSessionIssuer stores an Ed25519 public JWK as a session issuer for
-// the installation and returns its kid. Registering the same key again is a no-op.
-func (s *Service) RegisterSessionIssuer(ctx context.Context, installationID string, name *string, publicJWK []byte) (*APIKey, string, error) {
+// the installation and optional credential subject. Registering the same key
+// again is a no-op only when its installation and subject binding match.
+func (s *Service) RegisterSessionIssuer(ctx context.Context, installationID string, credentialSubjectID string, name *string, publicJWK []byte) (*APIKey, string, error) {
 	_, kid, canonical, err := ParseSessionIssuerJWK(publicJWK)
 	if err != nil {
 		return nil, "", err
 	}
+	if credentialSubjectID != "" {
+		if s.credentialSubjects == nil {
+			return nil, "", ErrSessionIssuerSubjectUnavailable
+		}
+		subject, lookupErr := s.credentialSubjects.GetCredentialSubject(ctx, credentialSubjectID, installationID)
+		if errors.Is(lookupErr, sql.ErrNoRows) || (lookupErr == nil && subject == nil) {
+			return nil, "", ErrSessionIssuerSubjectUnavailable
+		}
+		if lookupErr != nil {
+			return nil, "", lookupErr
+		}
+		if ValidateServingCredential(APIKey{Scope: ScopeSessionIssuer, CredentialSubjectID: credentialSubjectID}, subject) != nil {
+			return nil, "", ErrSessionIssuerSubjectUnavailable
+		}
+	}
 	keyHash := SessionIssuerKeyHash(kid)
-	existing, err := s.existingSessionIssuer(ctx, installationID, keyHash)
+	existing, err := s.existingSessionIssuer(ctx, installationID, credentialSubjectID, keyHash)
 	if existing != nil || !errors.Is(err, sql.ErrNoRows) {
 		return existing, kid, err
 	}
 	key, err := s.apiKeys.Create(ctx, CreateAPIKeyParams{
-		InstallationID: installationID,
-		ExternalID:     GenerateID("kid"),
-		Name:           name,
-		KeyPrefix:      keyHash[:len(sessionIssuerKeyHashPrefix)+8],
-		KeyHash:        keyHash,
-		KeySuffix:      kid[len(kid)-APITokenSuffixLen:],
-		Scope:          ScopeSessionIssuer,
-		PublicJWK:      canonical,
+		InstallationID:      installationID,
+		ExternalID:          GenerateID("kid"),
+		Name:                name,
+		KeyPrefix:           keyHash[:len(sessionIssuerKeyHashPrefix)+8],
+		KeyHash:             keyHash,
+		KeySuffix:           kid[len(kid)-APITokenSuffixLen:],
+		Scope:               ScopeSessionIssuer,
+		CredentialSubjectID: credentialSubjectID,
+		PublicJWK:           canonical,
 	})
 	if err != nil {
 		// A concurrent registration of the same key wins the unique key_hash index.
-		if winner, lookupErr := s.existingSessionIssuer(ctx, installationID, keyHash); winner != nil || errors.Is(lookupErr, ErrSessionIssuerConflict) {
+		if winner, lookupErr := s.existingSessionIssuer(ctx, installationID, credentialSubjectID, keyHash); winner != nil || errors.Is(lookupErr, ErrSessionIssuerConflict) {
 			return winner, kid, lookupErr
 		}
 		return nil, "", err
@@ -157,13 +177,13 @@ func (s *Service) RegisterSessionIssuer(ctx context.Context, installationID stri
 }
 
 // existingSessionIssuer returns the active issuer stored under keyHash, sql.ErrNoRows
-// when there is none, or ErrSessionIssuerConflict when another installation owns it.
-func (s *Service) existingSessionIssuer(ctx context.Context, installationID, keyHash string) (*APIKey, error) {
+// when there is none, or ErrSessionIssuerConflict when its binding differs.
+func (s *Service) existingSessionIssuer(ctx context.Context, installationID, credentialSubjectID, keyHash string) (*APIKey, error) {
 	existing, _, err := s.apiKeys.GetActiveByHashWithInstallation(ctx, keyHash)
 	if err != nil {
 		return nil, err
 	}
-	if existing.InstallationID != installationID || existing.Scope != ScopeSessionIssuer {
+	if existing.InstallationID != installationID || existing.Scope != ScopeSessionIssuer || existing.CredentialSubjectID != credentialSubjectID {
 		return nil, ErrSessionIssuerConflict
 	}
 	return existing, nil
