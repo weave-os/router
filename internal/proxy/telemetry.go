@@ -61,6 +61,13 @@ type SessionCost struct {
 	CacheCreationTokens    int64
 	CacheReadTokens        int64
 	LastRecordedAt         time.Time
+	// SavingsTurns and TokenEfficiency feed Normalized; a repository leaves
+	// them empty when it has no measurements.
+	SavingsTurns    []SessionSavingsTurn
+	TokenEfficiency TokenEfficiencyEvidence
+	// Normalized is set by Service.SessionCost when the session's comparison
+	// model is measured.
+	Normalized *NormalizedSessionSavings
 }
 
 // InsertTelemetryParams mirrors one router.upstream span row.
@@ -143,7 +150,10 @@ type InsertTelemetryParams struct {
 	// CacheCreation1hTokens is the 1-hour-TTL share of CacheCreationTokens.
 	CacheCreation1hTokens *int32
 	CacheReadTokens       *int32
-	ReasoningTokens       *int32
+	// BaselineWarmPrefillTokens is the switch-turn prefill a session kept on
+	// one model would have read from a warm cache.
+	BaselineWarmPrefillTokens *int32
+	ReasoningTokens           *int32
 	// Speed and InferenceGeo are the provider-reported usage.speed and
 	// usage.inference_geo; empty when not reported.
 	Speed                 string

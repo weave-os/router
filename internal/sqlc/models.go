@@ -724,7 +724,8 @@ type RouterModelRouterRequestTelemetry struct {
 	FailoverAttempted       *bool
 	ContextSnapshot         []byte
 	// Who owns the turn failure: provider, router, client or unknown; NULL on a normal completion
-	FailureOwner *string
+	FailureOwner              *string
+	BaselineWarmPrefillTokens *int32
 }
 
 type RouterModelRouterSubscriptionAccount struct {
@@ -1266,4 +1267,26 @@ type RouterTaskDomainProfile struct {
 	Outcome         []byte
 	ExpiresAt       pgtype.Timestamptz
 	RetryAfter      pgtype.Timestamptz
+}
+
+type RouterTokenEfficiencyQualityFactor struct {
+	Harness               string
+	BaselineModel         string
+	RouterPassRateLower   float64
+	BaselinePassRateUpper float64
+	ValidFrom             pgtype.Timestamptz
+	ValidTo               pgtype.Timestamptz
+}
+
+type RouterTokenEfficiencyRatio struct {
+	Harness       string
+	BaselineModel string
+	ServedModel   string
+	InputPoint    float64
+	InputLower    float64
+	OutputPoint   float64
+	OutputLower   float64
+	Native        bool
+	ValidFrom     pgtype.Timestamptz
+	ValidTo       pgtype.Timestamptz
 }

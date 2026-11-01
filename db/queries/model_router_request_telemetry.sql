@@ -111,6 +111,7 @@ INSERT INTO router.model_router_request_telemetry (
     ttft_ms,
     cache_creation_tokens,
     cache_creation_1h_tokens,
+    baseline_warm_prefill_tokens,
     cache_read_tokens,
     reasoning_tokens,
     speed,
@@ -287,6 +288,7 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('ttft_ms')::bigint,
     sqlc.narg('cache_creation_tokens')::int,
     sqlc.narg('cache_creation_1h_tokens')::int,
+    sqlc.narg('baseline_warm_prefill_tokens')::int,
     sqlc.narg('cache_read_tokens')::int,
     sqlc.narg('reasoning_tokens')::int,
     sqlc.narg('speed')::text,
@@ -916,3 +918,35 @@ WHERE t.installation_id = @installation_id::uuid
   AND t.session_id = @session_id::varchar
   AND t.span_type IN ('router.upstream', 'router.auxiliary_inference')
 GROUP BY t.session_id;
+
+-- name: GetSessionSavingsTurns :many
+-- Per-turn inputs to the session's normalized savings. subscription_served
+-- matches GetRoutingDecisionsForExport.
+SELECT
+    t.timestamp,
+    COALESCE(t.client_app, '')::text AS client_app,
+    COALESCE(t.requested_model, '')::text AS requested_model,
+    COALESCE(t.decision_model, '')::text AS decision_model,
+    COALESCE(t.decision_provider, '')::text AS decision_provider,
+    COALESCE(t.decision_reason, '')::text AS decision_reason,
+    COALESCE(t.input_tokens, 0)::bigint AS input_tokens,
+    COALESCE(t.output_tokens, 0)::bigint AS output_tokens,
+    COALESCE(t.cache_creation_tokens, 0)::bigint AS cache_creation_tokens,
+    COALESCE(t.cache_read_tokens, 0)::bigint AS cache_read_tokens,
+    COALESCE(t.baseline_warm_prefill_tokens, 0)::bigint AS baseline_warm_prefill_tokens,
+    (COALESCE(t.actual_input_cost_usd, 0) + COALESCE(t.actual_output_cost_usd, 0))::bigint AS actual_cost_usd,
+    COALESCE(
+        t.credential_source IN ('subscription', 'codex_subscription')
+        AND ((t.upstream_status_code >= 200 AND t.upstream_status_code < 300)
+             OR (t.upstream_status_code = 0 AND t.error_class IS NULL))
+        AND (
+            t.unified_limit_headers->>'anthropic-ratelimit-unified-representative-claim' = 'overage'
+            AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' = 'true'
+        ) IS DISTINCT FROM true,
+        false
+    )::boolean AS subscription_served
+FROM router.model_router_request_telemetry t
+WHERE t.installation_id = @installation_id::uuid
+  AND t.session_id = @session_id::varchar
+  AND t.span_type = 'router.upstream'
+ORDER BY t.timestamp ASC;

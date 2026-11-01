@@ -1,7 +1,6 @@
 import type { ExtensionAPI, ExtensionContext, Theme } from "@mariozechner/pi-coding-agent";
 import type { TUI } from "@mariozechner/pi-tui";
-import type { SavingsAggregate } from "./savings.js";
-import { formatSavings } from "./savings.js";
+import { formatSessionSavings, type SessionSavings } from "./session-savings.js";
 import { WoolyComponent } from "./wooly.js";
 
 const STATUS_KEY = "weave-router";
@@ -23,7 +22,7 @@ export interface RouterUiSnapshot {
 	requestedModel?: string;
 	routedModel?: string;
 	lastPinModel?: string;
-	savings: SavingsAggregate;
+	sessionSavings?: SessionSavings;
 }
 
 type LegacyCompatibleExtensionContext = ExtensionContext & { mode?: string };
@@ -89,7 +88,7 @@ export function clearLoomUi(ctx: ExtensionContext): void {
 
 export function updateRouterStatus(ctx: ExtensionContext, snapshot: RouterUiSnapshot): void {
 	if (!ctx.hasUI) return;
-	const { requestedModel, routedModel, lastPinModel, savings } = snapshot;
+	const { requestedModel, routedModel, lastPinModel, sessionSavings } = snapshot;
 	let route: string;
 	if (routedModel && requestedModel) route = `${routedModel} ← ${requestedModel}`;
 	else if (routedModel) route = routedModel;
@@ -98,6 +97,9 @@ export function updateRouterStatus(ctx: ExtensionContext, snapshot: RouterUiSnap
 
 	const tui = isTuiContext(ctx);
 	const label = tui ? ctx.ui.theme.bold(brand("WEAVE ROUTER")) : "WEAVE ROUTER";
-	const detail = `${route} · ${formatSavings(savings)}${lastPinModel ? ` · last pin: ${lastPinModel}` : ""}`;
+	const clauses = [route];
+	if (sessionSavings) clauses.push(formatSessionSavings(sessionSavings));
+	if (lastPinModel) clauses.push(`last pin: ${lastPinModel}`);
+	const detail = clauses.join(" · ");
 	ctx.ui.setStatus(STATUS_KEY, `${label} — ${tui ? ctx.ui.theme.fg("dim", detail) : detail}`);
 }

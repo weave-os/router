@@ -61,6 +61,11 @@ type sessionCostBody struct {
 	CacheCreationTokens    int64   `json:"cache_creation_tokens"`
 	CacheReadTokens        int64   `json:"cache_read_tokens"`
 	LastRecordedAt         string  `json:"last_recorded_at"`
+
+	NormalizedSavingsUSDMicros *int64   `json:"normalized_savings_usd_micros"`
+	NormalizedSavingsUSD       *float64 `json:"normalized_savings_usd"`
+	SavingsBaselineModel       string   `json:"savings_baseline_model"`
+	SavingsBaselineLabel       string   `json:"savings_baseline_label"`
 }
 
 type publicErrorBody struct {
@@ -115,6 +120,48 @@ func TestSessionCostHandler(t *testing.T) {
 			LastRecordedAt:         "2026-09-28T19:30:45.123456789Z",
 		}, body)
 		require.Equal(t, "session-1", repo.seenSessionID)
+	})
+
+	t.Run("reports normalized savings against the client's comparison model", func(t *testing.T) {
+		measuredFrom := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+		repo := &sessionCostRepo{cost: proxy.SessionCost{
+			SessionID: "session-1",
+			SavingsTurns: []proxy.SessionSavingsTurn{{
+				Timestamp: measuredFrom.Add(time.Hour), ClientApp: proxy.ClientAppClaudeCode,
+				RequestedModel: "claude-opus-5-5", DecisionModel: "claude-sonnet-5", DecisionProvider: "anthropic",
+				DecisionReason: "hmm_policy", InputTokens: 1_000_000, ActualCostUSDMicros: 1_000_000,
+			}},
+			TokenEfficiency: proxy.TokenEfficiencyEvidence{Ratios: []proxy.TokenEfficiencyRatio{{
+				Harness: proxy.TokenEfficiencyHarnessClaudeCode, BaselineModel: "claude-opus-5-5",
+				ServedModel: "claude-sonnet-5", InputLower: 0.5, OutputLower: 0.5,
+				Validity: proxy.TokenEfficiencyValidity{From: &measuredFrom},
+			}}},
+		}}
+		engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
+
+		rec := httptest.NewRecorder()
+		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/cost", nil))
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		var body sessionCostBody
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.NotNil(t, body.NormalizedSavingsUSDMicros)
+		require.Equal(t, int64(1_000_000), *body.NormalizedSavingsUSDMicros)
+		require.InDelta(t, 1.0, *body.NormalizedSavingsUSD, 1e-9)
+		require.Equal(t, "claude-opus-5-5", body.SavingsBaselineModel)
+		require.Equal(t, "Opus 5.5", body.SavingsBaselineLabel)
+	})
+
+	t.Run("omits normalized savings without measurements", func(t *testing.T) {
+		repo := &sessionCostRepo{cost: proxy.SessionCost{SessionID: "session-1", SavingsTurns: []proxy.SessionSavingsTurn{{ClientApp: proxy.ClientAppClaudeCode}}}}
+		engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
+
+		rec := httptest.NewRecorder()
+		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/cost", nil))
+
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.NotContains(t, rec.Body.String(), "normalized_savings_usd")
+		require.NotContains(t, rec.Body.String(), "savings_baseline_model")
 	})
 
 	t.Run("scopes the lookup to the calling installation", func(t *testing.T) {
