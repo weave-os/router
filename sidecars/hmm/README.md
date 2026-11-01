@@ -1,7 +1,8 @@
 # Frozen HMM policy sidecar
 
 This companion Python service makes the router's opt-in `hmm` strategy
-self-hostable. It serves immutable PCA/HMM/XGBoost artifacts through the
+self-hostable. This is a barebones, frozen version of the policy; for the best
+experience, use the [Weave-managed router](../../README.md#get-started). It serves immutable PCA/HMM/XGBoost artifacts through the
 router's `policy_router_v3` HTTP contract. Training, online learning,
 WorkWeave registries, GCS, and managed-service credentials are intentionally
 outside this package.
