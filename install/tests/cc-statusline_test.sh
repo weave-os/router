@@ -676,7 +676,7 @@ check_contains "visible org still renders the statusline" "$out" "deepseek/deeps
 check_not_contains "successful display-settings fetch does not show a routing warning" "$out" "routing unverified"
 
 # A disconnected linked plan is cached from display-settings and named with its reconnect command.
-c="$work/g3p"; mkdir -p "$c/proj/.claude" "$c/cache"
+c="$work/g3plans"; mkdir -p "$c/proj/.claude" "$c/cache"
 printf '{"hide_terminal_surfaces": false, "disconnected_plans": ["claude", "bad plan"]}' > "$c/ds.json"
 write_install "$c/proj" project "rk_proj_plans" "file://$c/ds.json"
 cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
