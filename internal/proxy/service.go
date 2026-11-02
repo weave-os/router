@@ -5859,8 +5859,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			CredentialKeyPrefix: credentialKeyPrefix,
 			CredentialKeySuffix: credentialKeySuffix,
 			CredentialSource:    credSource,
-			// Phase 0 instrumentation — Anthropic only; see unified_limit_capture.go.
+			// Subscription limit headers; see unified_limit_capture.go. A
+			// /v1/messages turn can be served by a Codex seat, so both apply.
 			UnifiedLimitHeaders: unifiedLimitHeadersJSON(ctx),
+			CodexLimitHeaders:   codexLimitHeadersJSON(ctx),
 		}
 		applyServedGroupTelemetry(ctx, &tel, routeRes, decision)
 		applyPlannerTelemetry(&tel, routeRes)
@@ -9087,6 +9089,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			CredentialKeyPrefix: credentialKeyPrefix,
 			CredentialKeySuffix: credentialKeySuffix,
 			CredentialSource:    credSource,
+			UnifiedLimitHeaders: unifiedLimitHeadersJSON(ctx),
+			CodexLimitHeaders:   codexLimitHeadersJSON(ctx),
 		}
 		applyServedGroupTelemetry(ctx, &telOAI, routeRes, decision)
 		applyPlannerTelemetry(&telOAI, routeRes)

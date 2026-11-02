@@ -31,6 +31,8 @@
 -- set observed on this turn (Claude Code cost-observing-proxy Phase 0
 -- instrumentation). NULL on non-subscription turns and on rows written before
 -- the column existed. Nothing reads it yet.
+-- codex_limit_headers is the verbatim x-codex-{primary,secondary,credits}-*
+-- header set observed on a Codex-subscription-served turn. NULL otherwise.
 -- inference_* / plan_* / fallback_reason / accounting_outcome / usage_known are
 -- the inference-policy provenance of the operation (purpose, policy entry and
 -- revisions, policy-selected target, why the served target differs, how usage
@@ -158,6 +160,7 @@ INSERT INTO router.model_router_request_telemetry (
     intended_model_family,
     final_model_family,
     unified_limit_headers,
+    codex_limit_headers,
     policy_pin_requested,
     policy_pin_honoured,
     planner_outcome,
@@ -334,6 +337,7 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('intended_model_family')::varchar,
     sqlc.narg('final_model_family')::varchar,
     sqlc.narg('unified_limit_headers')::jsonb,
+    sqlc.narg('codex_limit_headers')::jsonb,
     sqlc.narg('policy_pin_requested')::boolean,
     sqlc.narg('policy_pin_honoured')::boolean,
     sqlc.narg('planner_outcome')::varchar,
