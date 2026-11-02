@@ -33,4 +33,6 @@ def canonical_json(value: object) -> str:
 
 
 def canonical_json_bytes(value: object) -> bytes:
-    raise NotImplementedError("not on the classifier serving path")
+    """Return :func:`canonical_json` encoded as UTF-8 bytes."""
+
+    return canonical_json(value).encode("utf-8")

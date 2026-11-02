@@ -13,6 +13,8 @@ from typing import Any
 
 import numpy as np
 
+from hmm_sidecar.raw_v5.conversation_sequence import ELEMENT_KIND_SLOTS
+
 CATEGORICAL_DIM = 13
 # Raw HMM rows are [embedding | element-kind one-hots]. Bundles fit before the
 # prefix-normalized position column was dropped declare a width of one.
@@ -141,7 +143,36 @@ def _raw_prefix_matrix(
     *,
     relative_position_dim: int = RELATIVE_POSITION_DIM,
 ) -> np.ndarray:
-    raise NotImplementedError("not on the classifier serving path")
+    """Raw HMM feature rows for a prefix: ``[emb | categorical]``.
+
+    ``kinds`` sets the element-kind one-hot slots the conversation-sequence
+    bundles were trained with. ``None`` keeps all categorical values at zero.
+
+    The trailing ``index / (len - 1)`` column is gone: its value at a given
+    index depends on the length of the sequence it is built from, so a prefix
+    row never equalled the corresponding row of the conversation the HMM was
+    fit on, and every mid-conversation readout scored the current element as if
+    it were the last one. Bundles fit with the old column pass
+    ``relative_position_dim=1`` to keep their frozen PCA input width.
+    """
+    if relative_position_dim not in (0, 1):
+        raise ValueError(
+            f"unsupported relative_position_dim {relative_position_dim!r}; "
+            "expected 0 or 1"
+        )
+    denominator = max(len(embeddings) - 1, 1)
+    rows = []
+    for index, embedding in enumerate(embeddings):
+        categorical = [0.0] * CATEGORICAL_DIM
+        if kinds is not None:
+            slot = ELEMENT_KIND_SLOTS.get(kinds[index])
+            if slot is not None:
+                categorical[slot] = 1.0
+        legacy_position = (
+            [float(index) / float(denominator)] if relative_position_dim else []
+        )
+        rows.append([*embedding, *categorical, *legacy_position])
+    return np.asarray(rows, dtype=float)
 
 
 def belief_dynamics_features(
@@ -209,7 +240,9 @@ def belief_dynamics_features(
 
 
 def _tool_family_flags(tool_names: list[str] | tuple[str, ...]) -> list[float]:
-    raise NotImplementedError("not on the classifier serving path")
+    raise NotImplementedError(
+        "unsupported by the served Gemini per-message raw-V5 profile"
+    )
 
 
 def _current_intent_flags(text: str) -> list[float]:
@@ -227,11 +260,15 @@ def current_text_has_tool_intent(text: str) -> bool:
 
 
 def tool_context_features_from_packet(packet: Any | None) -> np.ndarray:
-    raise NotImplementedError("not on the classifier serving path")
+    raise NotImplementedError(
+        "unsupported by the served Gemini per-message raw-V5 profile"
+    )
 
 
 def harness_features_from_packet(packet: Any | None) -> np.ndarray:
-    raise NotImplementedError("not on the classifier serving path")
+    raise NotImplementedError(
+        "unsupported by the served Gemini per-message raw-V5 profile"
+    )
 
 
 def _feature_row(

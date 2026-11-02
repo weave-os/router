@@ -326,21 +326,27 @@ RAW_V5_ROUTER_REPRESENTATIONS = frozenset(
 
 
 def gemini_last_state_documents(texts: Sequence[str]) -> tuple[str, ...]:
-    raise NotImplementedError("not on the classifier serving path")
+    raise NotImplementedError(
+        "unsupported by the served Gemini per-message raw-V5 profile"
+    )
 
 
 def gemini_two_turn_documents(
     texts: Sequence[str],
     kinds: Sequence[str] | None = None,
 ) -> tuple[str, ...]:
-    raise NotImplementedError("not on the classifier serving path")
+    raise NotImplementedError(
+        "unsupported by the served Gemini per-message raw-V5 profile"
+    )
 
 
 def gemini_ten_turn_documents(
     texts: Sequence[str],
     kinds: Sequence[str] | None = None,
 ) -> tuple[str, ...]:
-    raise NotImplementedError("not on the classifier serving path")
+    raise NotImplementedError(
+        "unsupported by the served Gemini per-message raw-V5 profile"
+    )
 
 
 @dataclass(frozen=True)

@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 
 from hmm_sidecar import artifacts
-from hmm_sidecar.raw_v5 import af_embeddings
+from hmm_sidecar.raw_v5 import gemini_embeddings
 
 FIXTURES = Path(__file__).parent / "fixtures" / "raw_v5"
 
@@ -76,11 +76,11 @@ def test_raw_v5_artifact_id_matches_the_registry_model_id() -> None:
 @pytest.mark.parametrize(
     ("env", "expected"),
     [
-        ({"GEMINI_API_KEY": "k"}, af_embeddings.GeminiTransport.API_KEY),
-        ({}, af_embeddings.GeminiTransport.VERTEX),
+        ({"GEMINI_API_KEY": "k"}, gemini_embeddings.GeminiTransport.API_KEY),
+        ({}, gemini_embeddings.GeminiTransport.VERTEX),
         (
             {"GEMINI_API_KEY": "k", "HMM_GEMINI_TRANSPORT": "vertex"},
-            af_embeddings.GeminiTransport.VERTEX,
+            gemini_embeddings.GeminiTransport.VERTEX,
         ),
     ],
 )
@@ -89,13 +89,13 @@ def test_gemini_transport_resolution(monkeypatch, env, expected) -> None:
         monkeypatch.delenv(name, raising=False)
     for name, value in env.items():
         monkeypatch.setenv(name, value)
-    assert af_embeddings.resolve_gemini_transport() is expected
+    assert gemini_embeddings.resolve_gemini_transport() is expected
 
 
 def test_gemini_transport_rejects_unknown_values(monkeypatch) -> None:
     monkeypatch.setenv("HMM_GEMINI_TRANSPORT", "voyage")
-    with pytest.raises(af_embeddings.EmbeddingError):
-        af_embeddings.resolve_gemini_transport()
+    with pytest.raises(gemini_embeddings.EmbeddingError):
+        gemini_embeddings.resolve_gemini_transport()
 
 
 class _FakeModels:
@@ -116,12 +116,12 @@ def test_api_key_transport_embeds_each_text_with_the_pinned_contract(
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     monkeypatch.delenv("HMM_GEMINI_TRANSPORT", raising=False)
     monkeypatch.setattr(
-        af_embeddings,
+        gemini_embeddings,
         "_client",
         lambda *_args: SimpleNamespace(aio=SimpleNamespace(models=models)),
     )
     vectors = asyncio.run(
-        af_embeddings.embed_texts_uncached(
+        gemini_embeddings.embed_texts_uncached(
             ["a", "bb", "a"],
             model="google/gemini-embedding-2",
             vertex_output_dimensionality=3072,
@@ -185,3 +185,22 @@ def test_raw_v5_matches_the_production_golden(monkeypatch, tmp_path: Path) -> No
         np.testing.assert_allclose(
             readout.state_probabilities, expected["gamma_row"], rtol=0, atol=1e-9
         )
+
+
+@pytest.mark.skipif(
+    not os.environ.get("HMM_RAW_V5_PARITY_PACKAGE"),
+    reason="set HMM_RAW_V5_PARITY_PACKAGE to a raw-V5 package tarball",
+)
+def test_raw_v5_rejects_hmm_bundle_the_classifier_was_not_trained_on(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from hmm_sidecar.raw_v5.serving import RawV5Classifier, RawV5PackageError
+
+    monkeypatch.setenv("HMM_VERTEX_PROJECT", "stub")
+    with tarfile.open(os.environ["HMM_RAW_V5_PARITY_PACKAGE"]) as archive:
+        archive.extractall(tmp_path, filter="data")
+    manifest = artifacts._verify_manifest(tmp_path)
+    bundle = tmp_path / "hmm_bundle" / "bundle.json"
+    bundle.write_bytes(bundle.read_bytes() + b"\n")
+    with pytest.raises(RawV5PackageError, match="not trained on"):
+        RawV5Classifier(tmp_path, manifest)

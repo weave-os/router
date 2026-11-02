@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from hmm_sidecar.raw_v5.af_embeddings import EmbeddingVector
+from hmm_sidecar.raw_v5.gemini_embeddings import EmbeddingVector
 
 FetchMissing = Callable[[list[str]], Awaitable[tuple[dict[str, EmbeddingVector], Any]]]
 
@@ -23,7 +23,7 @@ class SingleFlightResult:
     """
 
     embeddings: dict[str, EmbeddingVector]
-    info: Any
+    run_info: Any
     fetched: int
     joined: int
 
@@ -98,7 +98,7 @@ class EmbeddingSingleFlight:
                 embeddings={
                     document: await pending for document, pending in joined.items()
                 },
-                info=None,
+                run_info=None,
                 fetched=0,
                 joined=len(joined),
             )
@@ -114,7 +114,7 @@ class EmbeddingSingleFlight:
             embeddings[document] = await pending
         return SingleFlightResult(
             embeddings=embeddings,
-            info=info,
+            run_info=info,
             fetched=len(owned),
             joined=len(joined),
         )

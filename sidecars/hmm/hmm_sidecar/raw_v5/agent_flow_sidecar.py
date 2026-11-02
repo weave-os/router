@@ -16,7 +16,7 @@ import numpy as np
 
 from hmm_sidecar.raw_v5.codebook import CachedLatentModel
 from hmm_sidecar.raw_v5.pickle_compat import load_latent_model
-from hmm_sidecar.raw_v5.af_embeddings import (
+from hmm_sidecar.raw_v5.gemini_embeddings import (
     EmbeddingVector,
     embed_texts,
     embed_texts_uncached,
@@ -49,16 +49,16 @@ from hmm_sidecar.raw_v5.state_representation import (
     gemini_two_turn_documents,
     resolve_sequence_representation,
 )
-from hmm_sidecar.raw_v5.af_embeddings import DEFAULT_VERTEX_LOCATION
+
+from hmm_sidecar.raw_v5.bayes_hmm import BayesianStickyHDPHMM
+from hmm_sidecar.raw_v5.serving_features import (
+    belief_dynamics_features,
+    raw_relative_position_dim,
+)
 
 log = logging.getLogger(__name__)
 
 DEFAULT_CURRENT_MODEL_PATH = Path("ml_dev/agent_flow/gold_models/current.json")
-#: Documents per provider request. Shared by serving and offline callers, so it
-#: carries no latency policy of its own — the HMM sidecar server enforces the
-#: bound its own inference deadline needs (see ``resolve_embedding_batch_size``
-#: in ``router-hmm-sidecar/server.py``).
-DEFAULT_EMBEDDING_BATCH_SIZE = 8
 #: Provider requests in flight per fetch. One keeps offline callers on the paced
 #: sequential path they were tuned for; the sidecar server raises it so a cold
 #: prefix costs one round trip rather than one per batch.
@@ -73,14 +73,39 @@ class AgentFlowSidecarError(RuntimeError):
 
 
 def _posterior_to_gamma(posterior: Any) -> np.ndarray:
-    raise NotImplementedError("not on the classifier serving path")
+    if hasattr(posterior, "gamma"):
+        return np.asarray(posterior.gamma, dtype=float)
+    if isinstance(posterior, tuple) and posterior:
+        return np.asarray(posterior[0], dtype=float)
+    raise AgentFlowSidecarError(
+        f"unsupported active sidecar posterior payload: {type(posterior).__name__}"
+    )
 
 
 def _live_belief_dynamics(
     model: object,
     projected: np.ndarray,
 ) -> tuple[float, ...] | None:
-    raise NotImplementedError("not on the classifier serving path")
+    """Causal belief-dynamics features for the live prefix, if the HMM filters.
+
+    The readout's ``gamma_row`` comes from smoothing, which at the last position
+    of a prefix equals filtering -- but the belief *history* those features
+    compare against does not, so they come from an explicit forward filter over
+    the same projected prefix. Only the Gibbs-sampled model has that recursion,
+    so an EM-fitted bundle reports nothing and the selector raises only if its
+    classifier actually declares the block.
+    """
+    if not isinstance(model, BayesianStickyHDPHMM):
+        return None
+    beliefs, step_log_likelihoods = model.forward_filter_steps(projected)
+    return tuple(
+        float(value)
+        for value in belief_dynamics_features(
+            beliefs=beliefs,
+            step_log_likelihoods=step_log_likelihoods,
+            self_transition=model.self_transition_probabilities(),
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -127,7 +152,23 @@ class InferTimings:
     embed_cache_evictions: int
 
     def log_fields(self) -> str:
-        raise NotImplementedError("not on the classifier serving path")
+        """Compact ``key=value`` rendering of the sub-stages, for one log line.
+
+        Deliberately omits ``total_ms``: the caller already times the whole
+        inference call and emits its own total, so including one here would put
+        a duplicate key in the line and break naive parsers. ``total_ms``
+        remains on the dataclass for programmatic callers.
+        """
+        return (
+            f"documents_ms={self.documents_ms:.1f} "
+            f"embed_ms={self.embed_ms:.1f} "
+            f"posterior_ms={self.posterior_ms:.1f} "
+            f"documents={self.documents} "
+            f"embed_cache_hits={self.embed_cache_hits} "
+            f"embed_cache_misses={self.embed_cache_misses} "
+            f"embed_inflight_joins={self.embed_inflight_joins} "
+            f"embed_cache_evictions={self.embed_cache_evictions}"
+        )
 
 
 @dataclass(frozen=True)
@@ -187,7 +228,6 @@ class AgentFlowHMMSidecar:
         vertex_model: str | None = None,
         vertex_output_dimensionality: int | None = 3072,
         vertex_task_type: str | None = None,
-        embedding_batch_size: int = DEFAULT_EMBEDDING_BATCH_SIZE,
         embedding_request_concurrency: int = DEFAULT_EMBEDDING_REQUEST_CONCURRENCY,
         embedding_max_retries: int = DEFAULT_EMBEDDING_MAX_RETRIES,
         embedding_request_timeout_seconds: float | None = None,
@@ -209,20 +249,12 @@ class AgentFlowHMMSidecar:
         )
         self.use_vertex = use_vertex
         self.vertex_project = vertex_project
-        self.vertex_location = (
-            (vertex_location or DEFAULT_VERTEX_LOCATION)
-            if use_vertex
-            else vertex_location
-        )
+        self.vertex_location = vertex_location
         self.vertex_model = vertex_model
         self.vertex_output_dimensionality = vertex_output_dimensionality
         self.vertex_task_type = vertex_task_type
         if embedding_max_retries < 0:
             raise ValueError("embedding_max_retries must be non-negative")
-        if embedding_batch_size < 1:
-            # Not merely defensive: the downstream ``max(1, batch_size)`` would
-            # accept 0 and quietly serve a batch size the caller never chose.
-            raise ValueError("embedding_batch_size must be at least 1")
         if embedding_request_concurrency < 1:
             raise ValueError("embedding_request_concurrency must be at least 1")
         if (
@@ -230,7 +262,6 @@ class AgentFlowHMMSidecar:
             and embedding_request_timeout_seconds <= 0
         ):
             raise ValueError("embedding_request_timeout_seconds must be positive")
-        self.embedding_batch_size = embedding_batch_size
         self.embedding_request_concurrency = embedding_request_concurrency
         self.embedding_max_retries = embedding_max_retries
         self.embedding_request_timeout_seconds = embedding_request_timeout_seconds
@@ -273,7 +304,6 @@ class AgentFlowHMMSidecar:
     def _embedding_call_base_kwargs(self, model: str) -> dict[str, Any]:
         return {
             "model": model,
-            "batch_size": self.embedding_batch_size,
             "use_vertex": self.use_vertex,
             "vertex_project": self.vertex_project,
             "vertex_location": self.vertex_location,
@@ -359,13 +389,18 @@ class AgentFlowHMMSidecar:
                 ) from exc
 
     def infer(self, texts: list[str]) -> AgentFlowHMMReadout:
-        raise NotImplementedError("not on the classifier serving path")
+        raise NotImplementedError(
+            "unsupported by the served Gemini per-message raw-V5 profile"
+        )
 
     def infer_turns(self, turns: list[LiveFlowTurn]) -> AgentFlowHMMReadout:
-        raise NotImplementedError("not on the classifier serving path")
+        raise NotImplementedError(
+            "unsupported by the served Gemini per-message raw-V5 profile"
+        )
 
     async def ainfer_turns(self, turns: list[LiveFlowTurn]) -> AgentFlowHMMReadout:
-        raise NotImplementedError("not on the classifier serving path")
+        readout, _ = await self.ainfer_turns_with_timings(turns)
+        return readout
 
     async def ainfer_turns_with_timings(
         self, turns: list[LiveFlowTurn]
@@ -484,7 +519,7 @@ class AgentFlowHMMSidecar:
                 fetch_missing,
             )
             new_embeddings = single_flight.embeddings
-            embedding_info = single_flight.info
+            embedding_info = single_flight.run_info
             embed_inflight_joins = single_flight.joined
             # fetched, not len(missing): a document joined to another caller's
             # in-flight fetch consumed no Vertex quota of its own (joins are
@@ -547,7 +582,7 @@ class AgentFlowHMMSidecar:
         state_vectors: Sequence[Sequence[float]],
         **kwargs: Any,
     ) -> AgentFlowHMMReadout:
-        if getattr(self, "offload_posterior", False):
+        if self.offload_posterior:
             # The HTTP service retains the enclosing inference task through
             # deadline/cancellation; native work must not occupy its probe loop.
             return await asyncio.to_thread(
@@ -566,7 +601,8 @@ class AgentFlowHMMSidecar:
     ) -> AgentFlowHMMReadout:
         """Run the pinned projector/HMM over ordered boundary state vectors.
 
-        Vectors come from :meth:`ainfer_turns`, one per raw-V5 document.
+        Vector acquisition stays outside this method so text-keyed embedding
+        caching cannot collapse two identical boundary texts into one state.
         """
         if not turns:
             raise AgentFlowSidecarError("cannot infer HMM state with no live turns")
@@ -747,7 +783,9 @@ class AgentFlowHMMSidecar:
 
     @property
     def current(self) -> dict[str, Any]:
-        raise NotImplementedError("not on the classifier serving path")
+        raise NotImplementedError(
+            "unsupported by the served Gemini per-message raw-V5 profile"
+        )
 
     @property
     def bundle_version(self) -> str:
@@ -822,11 +860,15 @@ class AgentFlowHMMSidecar:
 
     @property
     def state_service_contract(self) -> dict[str, object] | None:
-        raise NotImplementedError("not on the classifier serving path")
+        raise NotImplementedError(
+            "unsupported by the served Gemini per-message raw-V5 profile"
+        )
 
     @property
     def state_service_contract_sha256(self) -> str | None:
-        raise NotImplementedError("not on the classifier serving path")
+        raise NotImplementedError(
+            "unsupported by the served Gemini per-message raw-V5 profile"
+        )
 
     @property
     def embedding_model(self) -> str:
@@ -916,7 +958,48 @@ class AgentFlowHMMSidecar:
         turns: list[LiveFlowTurn],
         state_vectors: Sequence[Sequence[float]],
     ) -> np.ndarray:
-        raise NotImplementedError("not on the classifier serving path")
+        feature_schema = self.sequence_contract.get("feature_schema")
+        if not isinstance(feature_schema, dict):
+            raise AgentFlowSidecarError(
+                "active sidecar sequence contract missing feature_schema"
+            )
+        categorical_dim = int(feature_schema.get("categorical_dim") or 0)
+        if categorical_dim != 13:
+            raise AgentFlowSidecarError(
+                f"expected 13 categorical features from active sidecar, got {categorical_dim}"
+            )
+        relative_position_dim = raw_relative_position_dim(feature_schema)
+        expected_state_dim = int(self.sequence_contract.get("state_dimension") or 0)
+        rows: list[list[float]] = []
+        denom = max(len(turns) - 1, 1)
+        for index, (turn, state_vector) in enumerate(
+            zip(turns, state_vectors, strict=True)
+        ):
+            embedding = list(state_vector)
+            if not embedding:
+                raise AgentFlowSidecarError("state encoder returned an empty vector")
+            if expected_state_dim and len(embedding) != expected_state_dim:
+                raise AgentFlowSidecarError(
+                    "state encoder vector width does not match active sidecar "
+                    f"contract: got {len(embedding)}, expected {expected_state_dim}"
+                )
+            if not all(np.isfinite(value) for value in embedding):
+                raise AgentFlowSidecarError(
+                    "state encoder returned a non-finite vector"
+                )
+            categorical = list(turn.categorical)
+            if not categorical:
+                categorical = [0.0] * categorical_dim
+            if len(categorical) != categorical_dim:
+                raise AgentFlowSidecarError(
+                    "live categorical feature dimension does not match active sidecar "
+                    f"contract: got {len(categorical)}, expected {categorical_dim}"
+                )
+            legacy_position = (
+                [float(index) / float(denom)] if relative_position_dim else []
+            )
+            rows.append([*embedding, *categorical, *legacy_position])
+        return np.asarray(rows, dtype=float)
 
     def _resolve_path(self, path: Path) -> Path:
         if path.is_absolute():

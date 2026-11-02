@@ -150,7 +150,6 @@ async def embed_texts_uncached(
     texts: list[str],
     *,
     model: str,
-    batch_size: int = 32,
     max_retries: int = 6,
     use_vertex: bool = True,
     vertex_project: str | None = None,
@@ -163,7 +162,6 @@ async def embed_texts_uncached(
     return_info: bool = False,
     **_unused_provider_options: Any,
 ) -> dict[str, list[float]] | tuple[dict[str, list[float]], EmbeddingRunInfo]:
-    """Embed live texts with Gemini; ``batch_size`` only paces request fan-out."""
     from google.genai import types
 
     transport = resolve_gemini_transport()
@@ -184,7 +182,7 @@ async def embed_texts_uncached(
     config = types.EmbedContentConfig(**config_args)
     client = _client(transport, project, location)
     unique_texts = list(dict.fromkeys(texts))
-    concurrency = max(1, vertex_request_concurrency)
+    concurrency = vertex_request_concurrency
     vectors: dict[str, list[float]] = {}
     for start in range(0, len(unique_texts), concurrency):
         chunk = unique_texts[start : start + concurrency]

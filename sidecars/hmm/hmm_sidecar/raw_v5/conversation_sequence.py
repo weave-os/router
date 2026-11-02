@@ -51,14 +51,18 @@ NOT_VISIBLE = "None visible."
 
 
 def _section(title: str, values: Any) -> str:
-    raise NotImplementedError("not on the classifier serving path")
+    raise NotImplementedError(
+        "unsupported by the served Gemini per-message raw-V5 profile"
+    )
 
 
 def format_user_message_document(
     turn_index: int,
     canonical_turn: dict[str, Any],
 ) -> str:
-    raise NotImplementedError("not on the classifier serving path")
+    raise NotImplementedError(
+        "unsupported by the served Gemini per-message raw-V5 profile"
+    )
 
 
 def format_agent_reply_document(
@@ -67,7 +71,9 @@ def format_agent_reply_document(
     trace: dict[str, Any] | None,
     canonical_turn: dict[str, Any] | None = None,
 ) -> str:
-    raise NotImplementedError("not on the classifier serving path")
+    raise NotImplementedError(
+        "unsupported by the served Gemini per-message raw-V5 profile"
+    )
 
 
 @dataclass(frozen=True)
@@ -87,7 +93,9 @@ class SequenceElement:
 
     @property
     def round_index(self) -> int:
-        raise NotImplementedError("not on the classifier serving path")
+        raise NotImplementedError(
+            "unsupported by the served Gemini per-message raw-V5 profile"
+        )
 
 
 def conversation_sequence(
@@ -96,4 +104,6 @@ def conversation_sequence(
     tool_compaction: Any = None,
     label_index_for: Any = None,
 ) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
+    raise NotImplementedError(
+        "unsupported by the served Gemini per-message raw-V5 profile"
+    )

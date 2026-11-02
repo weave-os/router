@@ -62,12 +62,6 @@ class RawV5InputSource(StrEnum):
     LIVE_CONVERSATION = "raw_v5_live_conversation_messages"
 
 
-def raw_v5_feature_layout_sha256(layout: object) -> str:
-    """Hash a classifier feature layout as its own identity."""
-
-    return sha256_text(canonical_json(layout))
-
-
 class RawV5RuntimeContract(BaseModel):
     """The runtime contract a raw-V5 package manifest declares.
 
@@ -94,7 +88,9 @@ class RawV5RuntimeContract(BaseModel):
     classifier_feature_dim: int
 
     def resolved_profile(self) -> RawV5ServingProfile:
-        """Resolve the one servable profile and prove the package matches it."""
+        """Byte identity is the package sha256 pin plus the parity test; this only
+        proves the code builds the serializer and feature layout the classifier
+        was trained on."""
 
         try:
             profile = raw_v5_serving_profile(self.serving_config)
@@ -137,7 +133,7 @@ class RawV5RuntimeContract(BaseModel):
             ),
         )
         expected_layout = (
-            raw_v5_feature_layout_sha256(layout),
+            sha256_text(canonical_json(layout)),
             sum(int(block["dim"]) for block in layout),
         )
         if expected_layout != (

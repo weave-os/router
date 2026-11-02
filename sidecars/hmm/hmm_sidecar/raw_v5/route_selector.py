@@ -17,9 +17,6 @@ from typing import Any
 import numpy as np
 
 from hmm_sidecar.raw_v5.complexity_classifier import ComplexityClassifier
-from hmm_sidecar.raw_v5.complexity_labels import (
-    COMPLEXITY_CLASSES,
-)
 from hmm_sidecar.raw_v5.conversation_sequence import (
     AGENT_ELEMENT,
     CONVERSATION_SEQUENCE_STATE_DEFINITION,
@@ -207,9 +204,7 @@ class ComplexityRouteSelector:
         sequence_encoder: Any = None,
         interaction_state: RawV5InteractionStateGeometry | None = None,
     ) -> None:
-        classifier_classes = tuple(
-            getattr(classifier, "classes", ()) or COMPLEXITY_CLASSES
-        )
+        classifier_classes = tuple(classifier.classes)
         effective_confidence_threshold = (
             1.0 / len(classifier_classes)
             if confidence_threshold is None
@@ -268,23 +263,16 @@ class ComplexityRouteSelector:
         # state, alongside the HMM cluster features. Legacy bundles predate
         # state_repr and always carry the embedding block. A wrong value here
         # cannot serve silently: predict() rejects mismatched feature_dim.
-        metadata = getattr(classifier, "metadata", None)
+        metadata = classifier.metadata
         self._requires_raw_v5_tool_context_override = bool(
-            isinstance(metadata, dict)
-            and metadata.get("sequence_representation")
+            metadata.get("sequence_representation")
             == VOYAGE_4_LARGE_RAW_ROUTER_V5_TWO_TURN.value
             and self._uses_tool_context
         )
-        state_repr = (
-            metadata.get("state_repr", "embedding")
-            if isinstance(metadata, dict)
-            else "embedding"
-        )
+        state_repr = metadata.get("state_repr", "embedding")
         self._includes_raw_embedding = state_repr != "seqae"
-        self._conversation_sequence_contract = bool(
-            isinstance(metadata, dict)
-            and metadata.get("state_definition")
-            == CONVERSATION_SEQUENCE_STATE_DEFINITION
+        self._conversation_sequence_contract = (
+            metadata.get("state_definition") == CONVERSATION_SEQUENCE_STATE_DEFINITION
         )
         # An HMM-free classifier (--no-hmm-features) has no hmm_gamma /
         # one_hot_state blocks in its feature_layout: derive it from the
@@ -413,11 +401,7 @@ class ComplexityRouteSelector:
             position=int(position),
             prefix_length=int(prefix_length),
             is_last=0.0,  # serving never knows a turn is final
-            n_states=(
-                0
-                if getattr(self, "_classifier_hmm_free", False)
-                else int(gamma.shape[0])
-            ),
+            n_states=0 if self._classifier_hmm_free else int(gamma.shape[0]),
             projected_row=projected_row,
             seqae_latent=seqae_latent,
             include_embedding=self._includes_raw_embedding,
@@ -435,7 +419,7 @@ class ComplexityRouteSelector:
             ),
             belief_dynamics=belief_dynamics_values,
         )
-        element_lookback = getattr(self, "_element_lookback", None)
+        element_lookback = self._element_lookback
         if element_lookback is None:
             return row
         if not embedding_prefix:
@@ -510,10 +494,7 @@ def _classifier_uses_feature_block(
     classifier: ComplexityClassifier,
     block_name: str,
 ) -> bool:
-    metadata = getattr(classifier, "metadata", None)
-    if not isinstance(metadata, dict):
-        return False
-    feature_layout = metadata.get("feature_layout")
+    feature_layout = classifier.metadata.get("feature_layout")
     if not isinstance(feature_layout, list):
         return False
     return any(
@@ -530,8 +511,5 @@ def _classifier_has_feature_layout(classifier: ComplexityClassifier) -> bool:
     layout to search" -- the latter is a legacy classifier that predates this
     field, not an HMM-free one.
     """
-    metadata = getattr(classifier, "metadata", None)
-    if not isinstance(metadata, dict):
-        return False
-    feature_layout = metadata.get("feature_layout")
+    feature_layout = classifier.metadata.get("feature_layout")
     return isinstance(feature_layout, list) and len(feature_layout) > 0

@@ -31,7 +31,7 @@ async def test_published_package_classifies_a_turn(
     artifacts = resolve_artifacts()
     policy = FrozenPolicy(artifacts, FixedEmbedder(artifacts.probe_vector.tolist()))
 
-    result = await policy.classify(
+    result, _ = await policy.classify_with_timings(
         {
             "schema_version": "policy_router_v4",
             "route_id": "release-smoke-route",

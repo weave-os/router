@@ -29,7 +29,13 @@ from hmm_sidecar.raw_v5.raw_v5_contract import (
 )
 from hmm_sidecar.raw_v5 import gemini_tokens
 
+_RAW_V5_GEMINI_PREFIX_TRUNCATION_MARKER = (
+    "\n[truncated for gemini-embedding-2 input limit]"
+)
+
+
 RAW_V5_ROUTER_NO_RESPONSE_MARKER = "No agent response blocks recorded."
+RAW_V5_ROUTER_NO_TOOL_TRACE_MARKER = "No tool calls recorded."
 
 
 class RawV5SequenceError(ValueError):
@@ -169,7 +175,16 @@ def format_raw_v5_voyage_turn_window_document(
 
 
 def _gemini_prefix_with_marker(text: str, *, max_chars: int) -> str:
-    raise NotImplementedError("not on the classifier serving path")
+    """Slice original Unicode only after the complete document exceeds its token budget."""
+
+    if len(text) <= max_chars:
+        return text
+    prefix = text[:max_chars]
+    if not prefix.strip():
+        raise RawV5SequenceError(
+            "raw V5 Gemini prefix projection removed the complete source field"
+        )
+    return prefix + _RAW_V5_GEMINI_PREFIX_TRUNCATION_MARKER
 
 
 def _bounded_raw_v5_gemini_turn_window_document(
@@ -245,7 +260,25 @@ def raw_v5_gemini_element_documents(
     user_prompt: str,
     agent_response_blocks: Sequence[str],
 ) -> tuple[str, str]:
-    raise NotImplementedError("not on the classifier serving path")
+    """Per-message Gemini documents ``(U_t, A_t)``, each embedded on its own.
+
+    The turn-window documents embed ``A_t`` together with ``U_t`` and any
+    lookback, so every lookback is a separate embedding run. These are embedded
+    once per message and lookbacks are assembled from the stored vectors. The
+    user document byte-matches the one-round routing document, so it shares
+    that representation's cached vectors.
+    """
+
+    return (
+        _bounded_raw_v5_gemini_user_message_document(
+            f"Raw user message (turn {turn_index}):\n{user_prompt}"
+        ),
+        _bounded_raw_v5_gemini_agent_message_document(
+            format_raw_v5_router_agent_response_only_document(
+                turn_index, agent_response_blocks
+            )
+        ),
+    )
 
 
 def _bounded_raw_v5_gemini_user_message_document(user_text: str) -> str:

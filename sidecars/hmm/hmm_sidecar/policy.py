@@ -97,10 +97,6 @@ class FrozenPolicy:
             if isinstance(card, dict) and isinstance(card.get("state_id"), int)
         }
 
-    async def classify(self, payload: dict[str, Any]) -> ClassificationResult:
-        result, _ = await self.classify_with_timings(payload)
-        return result
-
     async def classify_with_timings(
         self, payload: dict[str, Any]
     ) -> tuple[ClassificationResult, RouteTimings]:

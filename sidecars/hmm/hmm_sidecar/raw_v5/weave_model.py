@@ -17,6 +17,19 @@ from hmm_sidecar.raw_v5.weave_data import (
 from hmm_sidecar.raw_v5.rl_fields import RLActionSpaceContract
 from hmm_sidecar.raw_v5.schema_base import FrozenClosedModel, NonEmptyString, Sha256Hex
 
+MUTABLE_ARTIFACT_PATH_PARTS = frozenset(
+    {
+        "current.json",
+        "latest",
+        "latest_bundle.json",
+    }
+)
+
+
+def _path_parts(path: str) -> tuple[str, ...]:
+    return tuple(part for part in path.replace("\\", "/").split("/") if part)
+
+
 WEAVE_MODEL_SCHEMA_VERSION = "weave_model.v0"
 
 
@@ -37,7 +50,7 @@ PINNED_MODEL_STATUSES = frozenset(
 
 
 def _has_mutable_artifact_alias(path: str) -> bool:
-    raise NotImplementedError("not on the classifier serving path")
+    return any(part in MUTABLE_ARTIFACT_PATH_PARTS for part in _path_parts(path))
 
 
 class ModelArtifact(FrozenClosedModel):

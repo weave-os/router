@@ -60,7 +60,9 @@ def element_lookback_layout_block(
 def stored_vector_lookback_layout_block(
     *, lookback_rounds: int, embedding_dim: int
 ) -> dict[str, Any]:
-    raise NotImplementedError("not on the classifier serving path")
+    raise NotImplementedError(
+        "unsupported by the served Gemini per-message raw-V5 profile"
+    )
 
 
 @dataclass(frozen=True)

@@ -50,6 +50,46 @@ from hmm_sidecar.raw_v5.frozen_raw_v5 import (
 )
 from hmm_sidecar.raw_v5.serving_features import CATEGORICAL_DIM
 
+import json
+from hmm_sidecar.raw_v5.raw_v5_sequence import (
+    RAW_V5_ROUTER_NO_RESPONSE_MARKER,
+    RAW_V5_ROUTER_NO_TOOL_TRACE_MARKER,
+)
+
+_DOCUMENT_BOUNDARY_MARKER = "\n[content omitted at HMM embedding boundary]"
+
+
+MAX_LIVE_CONTEXT_CHARS = 1_500
+
+
+MAX_LIVE_EMBEDDING_DOCUMENT_BYTES = 7_500
+
+
+LIVE_EMBEDDING_DOCUMENT_POLICY = "hmm_router_live_embedding_document_v1"
+
+
+FULL_CANONICAL_DOCUMENT_POLICY = (
+    "hmm_router_full_canonical_embedding_document_no_truncation_v1"
+)
+
+
+def bound_embedding_document(text: str) -> str:
+    """Bound one complete live HMM document by UTF-8 bytes.
+
+    The semantic fields above normally keep deterministic documents below this
+    ceiling.  This final boundary also covers LLM-canonicalized cache entries,
+    whose generated field lengths are not otherwise schema-bounded.
+    """
+    encoded = text.encode("utf-8")
+    if len(encoded) <= MAX_LIVE_EMBEDDING_DOCUMENT_BYTES:
+        return text
+
+    marker = _DOCUMENT_BOUNDARY_MARKER.encode("utf-8")
+    prefix_budget = MAX_LIVE_EMBEDDING_DOCUMENT_BYTES - len(marker)
+    prefix = encoded[:prefix_budget].decode("utf-8", errors="ignore").rstrip()
+    return prefix + _DOCUMENT_BOUNDARY_MARKER
+
+
 DEFAULT_LIVE_FLOW_MAX_ELEMENTS = 48
 
 # Legacy v1 bundles retain the original live-proxy boundaries below for exact
@@ -128,7 +168,35 @@ def bound_text(text: str, *, limit: int) -> str:
 
 
 def bound_recent_context(lines: list[str]) -> list[str]:
-    raise NotImplementedError("not on the classifier serving path")
+    """Keep the newest context within the live context character budget."""
+    cleaned = [clean_text(line) for line in lines if clean_text(line)]
+    if not cleaned:
+        return []
+
+    remaining = MAX_LIVE_CONTEXT_CHARS
+    selected_reversed: list[str] = []
+    for index in range(len(cleaned) - 1, -1, -1):
+        older_lines_remain = index > 0
+        marker_reserve = _CONTEXT_OMISSION_MARKER_RESERVE if older_lines_remain else 0
+        available = remaining - marker_reserve
+        if available <= 0:
+            break
+        line = cleaned[index]
+        bounded_line = bound_text(line, limit=available)
+        selected_reversed.append(bounded_line)
+        remaining -= len(bounded_line)
+        if len(line) > available:
+            break
+
+    selected = list(reversed(selected_reversed))
+    omitted_lines = len(cleaned) - len(selected)
+    if omitted_lines:
+        marker = f"[{omitted_lines} older context message(s) omitted by HMM boundary]"
+        if len(marker) > _CONTEXT_OMISSION_MARKER_RESERVE:
+            marker = marker[:_CONTEXT_OMISSION_MARKER_RESERVE]
+        selected.insert(0, marker)
+    assert sum(len(line) for line in selected) <= MAX_LIVE_CONTEXT_CHARS
+    return selected
 
 
 def finalize_embedding_documents(
@@ -137,7 +205,47 @@ def finalize_embedding_documents(
     *,
     preserve_full_canonical_data: bool = False,
 ) -> tuple[list[LiveFlowTurn], dict[str, Any]]:
-    raise NotImplementedError("not on the classifier serving path")
+    """Apply the selected document policy and add privacy-safe diagnostics."""
+    source_sizes = [len(element.turn_text.encode("utf-8")) for element in elements]
+    bounded_elements: list[LiveFlowTurn] = []
+    bounded_count = 0
+    for element, source_size in zip(elements, source_sizes, strict=True):
+        turn_text = (
+            element.turn_text
+            if preserve_full_canonical_data
+            else bound_embedding_document(element.turn_text)
+        )
+        if len(turn_text.encode("utf-8")) < source_size:
+            bounded_count += 1
+        bounded_elements.append(
+            LiveFlowTurn(
+                turn_text=turn_text,
+                categorical=element.categorical,
+            )
+        )
+
+    embedded_sizes = [
+        len(element.turn_text.encode("utf-8")) for element in bounded_elements
+    ]
+    return bounded_elements, {
+        **debug,
+        "hmm_embedding_document_policy": (
+            FULL_CANONICAL_DOCUMENT_POLICY
+            if preserve_full_canonical_data
+            else LIVE_EMBEDDING_DOCUMENT_POLICY
+        ),
+        "hmm_embedding_document_byte_limit": (
+            None if preserve_full_canonical_data else MAX_LIVE_EMBEDDING_DOCUMENT_BYTES
+        ),
+        "hmm_embedding_input_truncation": (
+            "forbidden_provider_must_reject_oversize"
+            if preserve_full_canonical_data
+            else "legacy_explicit_document_boundary"
+        ),
+        "hmm_embedding_documents_bounded": bounded_count,
+        "hmm_embedding_source_max_bytes": max(source_sizes, default=0),
+        "hmm_embedding_document_max_bytes": max(embedded_sizes, default=0),
+    }
 
 
 def kind_categorical(kind: str) -> tuple[float, ...]:
@@ -155,7 +263,26 @@ def prompt_to_turn(
     *,
     preserve_full_canonical_data: bool = False,
 ) -> LiveFlowTurn:
-    raise NotImplementedError("not on the classifier serving path")
+    text = (prompt_text or "[missing prompt text]").strip()
+    canonical_turn = {
+        "user_request": (
+            text
+            if preserve_full_canonical_data
+            else bound_text(text, limit=MAX_LIVE_USER_REQUEST_CHARS)
+        ),
+        "user_intent": (
+            text
+            if preserve_full_canonical_data
+            else bound_text(text, limit=MAX_LIVE_USER_INTENT_CHARS)
+        ),
+        "constraints_guidelines": (),
+        "context_supplied": (),
+        "clarifications_corrections": (),
+    }
+    return LiveFlowTurn(
+        turn_text=format_user_message_document(0, canonical_turn),
+        categorical=user_categorical(),
+    )
 
 
 def route_message_text(value: Any) -> str:
@@ -365,7 +492,30 @@ def _raw_v5_agent_tool_trace_document(
     response_blocks: list[str],
     trace: dict[str, Any] | None,
 ) -> str:
-    raise NotImplementedError("not on the classifier serving path")
+    sections = [f"Raw agent reply (turn {turn_index}):"]
+    if response_blocks:
+        sections.append(
+            "Response blocks:\n"
+            + "\n\n".join(
+                f"[{index}]\n{block}"
+                for index, block in enumerate(response_blocks, start=1)
+            )
+        )
+    else:
+        sections.append("Response blocks:\n" + RAW_V5_ROUTER_NO_RESPONSE_MARKER)
+    if trace is None:
+        sections.append("Tool action trace:\n" + RAW_V5_ROUTER_NO_TOOL_TRACE_MARKER)
+    else:
+        sections.append(
+            "Tool action trace:\n"
+            + json.dumps(
+                trace,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+    return "\n\n".join(sections)
 
 
 def _raw_v5_turn_window_document(
@@ -375,7 +525,9 @@ def _raw_v5_turn_window_document(
     current_user_text: str,
     current_agent_text: str | None,
 ) -> str:
-    raise NotImplementedError("not on the classifier serving path")
+    raise NotImplementedError(
+        "unsupported by the served Gemini per-message raw-V5 profile"
+    )
 
 
 def _raw_v5_window_turns(
@@ -485,7 +637,9 @@ def _raw_v5_previous_element_turns(
     source_turns: list[LiveFlowTurn],
     profile: RawV5ServingProfile,
 ) -> list[LiveFlowTurn]:
-    raise NotImplementedError("not on the classifier serving path")
+    raise NotImplementedError(
+        "unsupported by the served Gemini per-message raw-V5 profile"
+    )
 
 
 def _finalize_raw_v5_live_turns(

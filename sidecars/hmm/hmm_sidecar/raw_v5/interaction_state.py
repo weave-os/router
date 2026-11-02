@@ -99,11 +99,16 @@ def round_observations(
 def raw_round_vectors(
     embeddings: Sequence[Sequence[float]] | np.ndarray, kinds: Sequence[str]
 ) -> np.ndarray:
-    raise NotImplementedError("not on the classifier serving path")
+    raise NotImplementedError(
+        "unsupported by the served Gemini per-message raw-V5 profile"
+    )
 
 
 def completed_rounds(observations: np.ndarray) -> np.ndarray:
-    raise NotImplementedError("not on the classifier serving path")
+    """Rounds usable for HMM fitting: a trailing round without its agent block is dropped."""
+    if np.isnan(observations[-1]).any():
+        return observations[:-1]
+    return observations
 
 
 @dataclass(frozen=True)

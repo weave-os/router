@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import math
 import os
 import re
@@ -14,6 +15,7 @@ from typing import Any
 from hmm_sidecar.artifacts import is_raw_v5_package_manifest
 from hmm_sidecar.raw_v5.agent_flow_sidecar import AgentFlowHMMSidecar
 from hmm_sidecar.raw_v5.complexity_classifier import ComplexityClassifier
+from hmm_sidecar.raw_v5.hmm_feature_arms import ElementLookbackSource
 from hmm_sidecar.raw_v5.live_sequence import (
     DEFAULT_LIVE_FLOW_MAX_ELEMENTS,
     clean_text,
@@ -133,6 +135,13 @@ class RawV5Classifier:
             raise RawV5PackageError(
                 "raw-V5 packages serve only the live conversation snapshot"
             )
+        if (
+            contract.interaction_state.element_lookback_source
+            is ElementLookbackSource.STORED_VECTORS
+        ):
+            raise RawV5PackageError(
+                "raw-V5 stored-vector element lookback is not servable"
+            )
         profile = contract.resolved_profile()
         if profile.config.provider is not RawV5EmbeddingProvider.GEMINI:
             raise RawV5PackageError("only Gemini raw-V5 packages are servable")
@@ -149,7 +158,6 @@ class RawV5Classifier:
             workweave_dir=root,
             bundle_dir=root / "hmm_bundle",
             use_vertex=True,
-            embedding_batch_size=EMBEDDING_BATCH_SIZE,
             embedding_request_concurrency=math.ceil(
                 _live_flow_max_elements() / EMBEDDING_BATCH_SIZE
             ),
@@ -157,6 +165,13 @@ class RawV5Classifier:
             offload_posterior=True,
         )
         validate_raw_v5_configured_hmm_bundle(self.hmm.bundle, profile)
+        hmm_bundle_sha256 = hashlib.sha256(
+            (root / "hmm_bundle" / "bundle.json").read_bytes()
+        ).hexdigest()
+        if hmm_bundle_sha256 != self.classifier.metadata.get("hmm_bundle_json_sha256"):
+            raise RawV5PackageError(
+                "raw-V5 classifier was not trained on this package's HMM bundle"
+            )
         if self.hmm.sequence_representation is not profile.representation:
             raise RawV5PackageError(
                 f"raw-V5 HMM bundle loads {self.hmm.sequence_representation.value!r},"

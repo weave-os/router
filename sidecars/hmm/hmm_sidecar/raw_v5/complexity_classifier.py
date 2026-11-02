@@ -235,7 +235,7 @@ def validate_classifier_bundle(
     *,
     profile: RawV5ServingProfile,
 ) -> ValidatedClassifierBundle:
-    """Validate the pinned classifier bundle against the profile it serves."""
+    """Side-effect free: checks files and contracts without loading or writing."""
 
     artifact_dir = Path(artifact_dir)
     for name in (*REQUIRED_BUNDLE_FILES, WEAVEMODEL_SIDECAR_FILENAME):
@@ -422,7 +422,7 @@ class ComplexityClassifier:
 
     @property
     def hmm_bundle_version(self) -> str:
-        raise NotImplementedError("not on the classifier serving path")
+        return str(self.metadata["hmm_bundle_version"])
 
     def contributions(self, features: np.ndarray) -> np.ndarray:
         """Exact per-feature attributions (TreeSHAP) for every class.
