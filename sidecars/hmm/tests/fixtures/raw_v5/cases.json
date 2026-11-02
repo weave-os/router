@@ -1,0 +1,369 @@
+[
+ {
+  "schema_version": "policy_router_v4",
+  "has_tools": true,
+  "harness": "claude_code",
+  "execution_mode": "preview",
+  "training_allowed": false,
+  "route_id": "case0",
+  "latest_user_text": "fix the failing test in auth.go",
+  "prompt_text": "fix the failing test in auth.go",
+  "conversation_messages": [
+   {
+    "role": "user",
+    "text": "fix the failing test in auth.go"
+   }
+  ],
+  "turn_index": 0,
+  "available_tools": [
+   {
+    "name": "Read"
+   },
+   {
+    "name": "Bash"
+   },
+   {
+    "name": "Grep"
+   }
+  ]
+ },
+ {
+  "schema_version": "policy_router_v4",
+  "has_tools": true,
+  "harness": "claude_code",
+  "execution_mode": "preview",
+  "training_allowed": false,
+  "route_id": "case1",
+  "latest_user_text": "can you help me brainstorm a bit",
+  "prompt_text": "can you help me brainstorm a bit",
+  "conversation_messages": [
+   {
+    "role": "user",
+    "text": "please explore the repo"
+   },
+   {
+    "role": "assistant",
+    "text": "I launched an exploration agent.",
+    "tool_calls": [
+     {
+      "name": "Explore",
+      "input_keys": [
+       "prompt"
+      ]
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "text": "can you help me brainstorm a bit"
+   }
+  ],
+  "turn_index": 1,
+  "available_tools": [
+   {
+    "name": "Read"
+   },
+   {
+    "name": "Bash"
+   },
+   {
+    "name": "Grep"
+   }
+  ]
+ },
+ {
+  "schema_version": "policy_router_v4",
+  "has_tools": true,
+  "harness": "claude_code",
+  "execution_mode": "preview",
+  "training_allowed": false,
+  "route_id": "case2",
+  "latest_user_text": "hi",
+  "prompt_text": "hi",
+  "conversation_messages": [
+   {
+    "role": "user",
+    "text": "hi"
+   }
+  ],
+  "turn_index": 0,
+  "available_tools": [
+   {
+    "name": "Read"
+   },
+   {
+    "name": "Bash"
+   },
+   {
+    "name": "Grep"
+   }
+  ]
+ },
+ {
+  "schema_version": "policy_router_v4",
+  "has_tools": true,
+  "harness": "claude_code",
+  "execution_mode": "preview",
+  "training_allowed": false,
+  "route_id": "case3",
+  "latest_user_text": "write a haiku about rust lifetimes",
+  "prompt_text": "write a haiku about rust lifetimes",
+  "conversation_messages": [
+   {
+    "role": "user",
+    "text": "write a haiku about rust lifetimes"
+   }
+  ],
+  "turn_index": 0,
+  "available_tools": [
+   {
+    "name": "Read"
+   },
+   {
+    "name": "Bash"
+   },
+   {
+    "name": "Grep"
+   }
+  ]
+ },
+ {
+  "schema_version": "policy_router_v4",
+  "has_tools": true,
+  "harness": "claude_code",
+  "execution_mode": "preview",
+  "training_allowed": false,
+  "route_id": "case4",
+  "latest_user_text": "also update the migration",
+  "prompt_text": "also update the migration",
+  "conversation_messages": [
+   {
+    "role": "user",
+    "text": "refactor the payment service to use the new ledger api and add tests"
+   },
+   {
+    "role": "assistant",
+    "text": "Reading the service files.",
+    "tool_calls": [
+     {
+      "name": "Read",
+      "input_keys": [
+       "file_path"
+      ]
+     },
+     {
+      "name": "Grep",
+      "input_keys": [
+       "pattern",
+       "path"
+      ]
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "text": "also update the migration"
+   }
+  ],
+  "turn_index": 1,
+  "available_tools": [
+   {
+    "name": "Read"
+   },
+   {
+    "name": "Bash"
+   },
+   {
+    "name": "Grep"
+   }
+  ]
+ },
+ {
+  "schema_version": "policy_router_v4",
+  "has_tools": true,
+  "harness": "claude_code",
+  "execution_mode": "preview",
+  "training_allowed": false,
+  "route_id": "case5",
+  "latest_user_text": "what does this error mean: panic: runtime error: index out of range [3] with length 3",
+  "prompt_text": "what does this error mean: panic: runtime error: index out of range [3] with length 3",
+  "conversation_messages": [
+   {
+    "role": "user",
+    "text": "what does this error mean: panic: runtime error: index out of range [3] with length 3"
+   }
+  ],
+  "turn_index": 0,
+  "available_tools": [
+   {
+    "name": "Read"
+   },
+   {
+    "name": "Bash"
+   },
+   {
+    "name": "Grep"
+   }
+  ]
+ },
+ {
+  "schema_version": "policy_router_v4",
+  "has_tools": true,
+  "harness": "claude_code",
+  "execution_mode": "preview",
+  "training_allowed": false,
+  "route_id": "case6",
+  "latest_user_text": "write the go implementation",
+  "prompt_text": "write the go implementation",
+  "conversation_messages": [
+   {
+    "role": "user",
+    "text": "design a distributed rate limiter for a multi-region API gateway with strong fairness guarantees"
+   },
+   {
+    "role": "assistant",
+    "text": "Here is a high level design using token buckets per region..."
+   },
+   {
+    "role": "user",
+    "text": "now make it work during a network partition"
+   },
+   {
+    "role": "assistant",
+    "text": "During partitions we fall back to local budgets."
+   },
+   {
+    "role": "user",
+    "text": "write the go implementation"
+   }
+  ],
+  "turn_index": 2,
+  "available_tools": [
+   {
+    "name": "Read"
+   },
+   {
+    "name": "Bash"
+   },
+   {
+    "name": "Grep"
+   }
+  ]
+ },
+ {
+  "schema_version": "policy_router_v4",
+  "has_tools": true,
+  "harness": "claude_code",
+  "execution_mode": "preview",
+  "training_allowed": false,
+  "route_id": "case7",
+  "latest_user_text": "rename variable x to count in utils.py",
+  "prompt_text": "rename variable x to count in utils.py",
+  "conversation_messages": [
+   {
+    "role": "user",
+    "text": "rename variable x to count in utils.py"
+   }
+  ],
+  "turn_index": 0,
+  "available_tools": [
+   {
+    "name": "Read"
+   },
+   {
+    "name": "Bash"
+   },
+   {
+    "name": "Grep"
+   }
+  ]
+ },
+ {
+  "schema_version": "policy_router_v4",
+  "has_tools": true,
+  "harness": "claude_code",
+  "execution_mode": "preview",
+  "training_allowed": false,
+  "route_id": "case8",
+  "latest_user_text": "continue",
+  "prompt_text": "continue",
+  "conversation_messages": [
+   {
+    "role": "user",
+    "text": "run the tests"
+   },
+   {
+    "role": "assistant",
+    "text": "Running tests.",
+    "tool_calls": [
+     {
+      "name": "Bash",
+      "input_keys": [
+       "command"
+      ]
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "text": "they failed, fix them"
+   },
+   {
+    "role": "assistant",
+    "text": "Looking at failures.",
+    "tool_calls": [
+     {
+      "name": "Read",
+      "input_keys": [
+       "file_path"
+      ]
+     }
+    ]
+   },
+   {
+    "role": "user",
+    "text": "continue"
+   }
+  ],
+  "turn_index": 2,
+  "available_tools": [
+   {
+    "name": "Read"
+   },
+   {
+    "name": "Bash"
+   },
+   {
+    "name": "Grep"
+   }
+  ]
+ },
+ {
+  "schema_version": "policy_router_v4",
+  "has_tools": true,
+  "harness": "claude_code",
+  "execution_mode": "preview",
+  "training_allowed": false,
+  "route_id": "case9",
+  "latest_user_text": "summarize this PR description for the changelog",
+  "prompt_text": "summarize this PR description for the changelog",
+  "conversation_messages": [
+   {
+    "role": "user",
+    "text": "summarize this PR description for the changelog"
+   }
+  ],
+  "turn_index": 0,
+  "available_tools": [
+   {
+    "name": "Read"
+   },
+   {
+    "name": "Bash"
+   },
+   {
+    "name": "Grep"
+   }
+  ]
+ }
+]

@@ -13,9 +13,13 @@ dependencies = [
     # XGBoost's normal Linux x86 wheel bundles CUDA/NCCL. Use the official
     # inference-compatible CPU distribution there; other platforms do not publish
     # xgboost-cpu and receive the platform-native standard wheel.
-    "xgboost-cpu==3.3.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "xgboost==3.3.0; sys_platform != 'linux' or platform_machine != 'x86_64'",
+    "xgboost-cpu==3.4.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "xgboost==3.4.1; sys_platform != 'linux' or platform_machine != 'x86_64'",
     "httpx>=0.28.0,<0.29",
+    # Raw-V5 packages pickle a scikit-learn PCA projector; keep the version the
+    # package was fitted with so the projection is bit-identical.
+    "scikit-learn==1.9.0",
+    "google-genai==2.20.0",
 ]
 
 [dependency-groups]
@@ -39,14 +43,14 @@ constraint-dependencies = [
     "certifi>=2026.10.18",
     "click==8.4.2",
     "idna==3.18",
-    "numpy==2.5.1",
+    "numpy==2.5.2",
     "nvidia-nccl-cu12==2.30.7",
     "packaging==26.2",
     "platformdirs==4.10.0",
     "pydantic==2.13.4",
     "pydantic-core==2.46.4",
     "pygments==2.20.0",
-    "scipy==1.18.0",
+    "scipy==1.18.1",
     "typing-inspection==0.4.2",
 ]
 

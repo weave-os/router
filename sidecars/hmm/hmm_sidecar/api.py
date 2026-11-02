@@ -21,6 +21,7 @@ from .embeddings import (
     verify_embedding_contract,
 )
 from .policy import FrozenPolicy
+from .raw_v5_policy import RawV5Policy
 from .schemas import SELECTION_AUTHORITY_FIELDS
 
 log = logging.getLogger(__name__)
@@ -64,15 +65,18 @@ def _probe_key(artifacts: FrozenArtifacts) -> tuple[object, ...]:
 
 async def load_policies(
     registry: ArtifactRegistry,
-) -> tuple[dict[str, FrozenPolicy], float]:
+) -> tuple[dict[str, FrozenPolicy | RawV5Policy], float | None]:
     """Build one policy per registry package, probing the embedding endpoint
     once per distinct embedding contract (packages sharing a contract share the
     embedder and its probe). Returns the policies and the default's similarity.
     """
-    policies: dict[str, FrozenPolicy] = {}
+    policies: dict[str, FrozenPolicy | RawV5Policy] = {}
     probed: dict[tuple[object, ...], tuple[Embedder, float]] = {}
     similarity = None
     for package_sha256, artifacts in registry.by_sha256.items():
+        if artifacts.raw_v5_manifest is not None:
+            policies[package_sha256] = RawV5Policy(artifacts)
+            continue
         key = _probe_key(artifacts)
         if key not in probed:
             embedder = build_embedder(artifacts.manifest.embedding_contract)
@@ -86,7 +90,7 @@ async def load_policies(
         policies[package_sha256] = FrozenPolicy(artifacts, embedder)
         if artifacts is registry.default:
             similarity = probe_similarity
-    if similarity is None:
+    if registry.default.package_sha256 not in policies:
         raise RuntimeError("artifact registry default is not among its packages")
     log.info(
         "HMM sidecar probed %d embedding contract(s) for %d package(s)",
@@ -208,7 +212,7 @@ def ready() -> JSONResponse:
         "service": "hmm-sidecar",
         "version": VERSION,
         "schema_version": SCHEMA_VERSION,
-        "classifier_artifact_id": artifacts.manifest.model_id if artifacts else None,
+        "classifier_artifact_id": artifacts.model_id if artifacts else None,
         "classifier_artifact_sha256": artifacts.package_sha256 if artifacts else None,
         "classifier_image_digest": image_digest,
         "classifier_class_order": list(class_order),
