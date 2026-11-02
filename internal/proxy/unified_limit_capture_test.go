@@ -130,3 +130,67 @@ func TestWithUsageObserver_NoopWhenNothingToObserve(t *testing.T) {
 	got := s.withUsageObserver(ctx, http.Header{}) // no Authorization at all
 	assert.Nil(t, UnifiedLimitHeadersFrom(got), "no subscription token present -> capture never installed")
 }
+
+func TestCaptureUnifiedLimitHeaders_RecordsCodexHeadersOnCodexSubscription(t *testing.T) {
+	ctx := withUnifiedLimitCapture(context.Background())
+	ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
+		APIKey: []byte("eyJhbGciOi.codex.jwt"), Source: credSourceCodexSubscription, OAuth: true,
+	})
+
+	resp := http.Header{}
+	resp.Set("x-codex-primary-used-percent", "42")
+	resp.Set("x-codex-secondary-used-percent", "7")
+	resp.Set("x-codex-parent-thread-id", "thread_123")
+	captureUnifiedLimitHeaders(ctx, resp)
+
+	assert.Equal(t, map[string]string{
+		"x-codex-primary-used-percent":   "42",
+		"x-codex-secondary-used-percent": "7",
+	}, CodexLimitHeadersFrom(ctx))
+	assert.Nil(t, UnifiedLimitHeadersFrom(ctx))
+
+	b := codexLimitHeadersJSON(ctx)
+	require.NotNil(t, b)
+	var got map[string]string
+	require.NoError(t, json.Unmarshal(b, &got))
+	assert.Equal(t, "42", got["x-codex-primary-used-percent"])
+}
+
+func TestCaptureUnifiedLimitHeaders_LastAttemptReplacesOtherFamily(t *testing.T) {
+	ctx := withUnifiedLimitCapture(context.Background())
+	claudeCtx := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
+		APIKey: []byte("sk-ant-oat01-live"), Source: credSourceSubscription, OAuth: true,
+	})
+	claudeResp := http.Header{}
+	claudeResp.Set("anthropic-ratelimit-unified-status", "rejected")
+	captureUnifiedLimitHeaders(claudeCtx, claudeResp)
+
+	codexCtx := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
+		APIKey: []byte("eyJhbGciOi.codex.jwt"), Source: credSourceCodexSubscription, OAuth: true,
+	})
+	codexResp := http.Header{}
+	codexResp.Set("x-codex-primary-used-percent", "10")
+	captureUnifiedLimitHeaders(codexCtx, codexResp)
+
+	assert.Nil(t, unifiedLimitHeadersJSON(ctx), "the Codex attempt served the turn, so the Claude reading must not persist")
+	assert.Equal(t, "10", CodexLimitHeadersFrom(ctx)["x-codex-primary-used-percent"])
+}
+
+func TestWithUsageObserver_CapturesCodexHeadersForDirectCodexLogin(t *testing.T) {
+	s := &Service{}
+
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer eyJhbGciOi.codex.jwt")
+	headers.Set("ChatGPT-Account-ID", "acct-abc-123")
+
+	ctx := s.withUsageObserver(context.Background(), headers)
+	callCtx := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
+		APIKey: []byte("eyJhbGciOi.codex.jwt"), Source: credSourceCodexSubscription, OAuth: true,
+	})
+
+	resp := http.Header{}
+	resp.Set("x-codex-primary-used-percent", "55")
+	providers.ObserveUpstreamHeaders(callCtx, resp)
+
+	assert.Equal(t, "55", CodexLimitHeadersFrom(ctx)["x-codex-primary-used-percent"])
+}

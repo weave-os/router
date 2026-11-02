@@ -236,6 +236,9 @@ type InsertTelemetryParams struct {
 	// set, pre-marshaled JSON. Phase 0 instrumentation — nil on non-subscription
 	// turns. Nothing reads this yet.
 	UnifiedLimitHeaders []byte
+	// CodexLimitHeaders is the verbatim x-codex-{primary,secondary,credits}-*
+	// header set, pre-marshaled JSON. nil on turns no Codex subscription served.
+	CodexLimitHeaders []byte
 
 	// Planner* columns persist the per-turn verdict. nil/empty when planner did not run;
 	// a stored zero must not read as evidence. Cost fields are float64 USD; postgres adapter converts to micros.

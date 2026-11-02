@@ -33,3 +33,35 @@ func TestRawAnthropicUnifiedHeaders(t *testing.T) {
 		assert.Nil(t, usage.RawAnthropicUnifiedHeaders(http.Header{}))
 	})
 }
+
+func TestRawCodexLimitHeaders(t *testing.T) {
+	t.Run("captures quota-window and credit headers, case-insensitively", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-Codex-Primary-Used-Percent", "42")
+		h.Set("x-codex-primary-reset-at", "1793566800")
+		h.Set("x-codex-secondary-window-minutes", "10080")
+		h.Set("x-codex-credits-has-credits", "false")
+		h.Set("Content-Type", "application/json")
+
+		got := usage.RawCodexLimitHeaders(h)
+		assert.Equal(t, map[string]string{
+			"x-codex-primary-used-percent":     "42",
+			"x-codex-primary-reset-at":         "1793566800",
+			"x-codex-secondary-window-minutes": "10080",
+			"x-codex-credits-has-credits":      "false",
+		}, got)
+	})
+
+	t.Run("conversation identifiers are not limit headers", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("x-codex-parent-thread-id", "thread_123")
+		h.Set("x-codex-window-id", "window_456")
+		assert.Nil(t, usage.RawCodexLimitHeaders(h))
+	})
+
+	t.Run("anthropic headers are not codex headers", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("anthropic-ratelimit-unified-status", "allowed")
+		assert.Nil(t, usage.RawCodexLimitHeaders(h))
+	})
+}

@@ -194,6 +194,7 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		IntendedModelFamily:                      stringPtrOrNil(p.IntendedModelFamily),
 		FinalModelFamily:                         stringPtrOrNil(p.FinalModelFamily),
 		UnifiedLimitHeaders:                      p.UnifiedLimitHeaders,
+		CodexLimitHeaders:                        p.CodexLimitHeaders,
 		PlannerOutcome:                           stringPtrOrNil(p.PlannerOutcome),
 		PlannerReason:                            stringPtrOrNil(p.PlannerReason),
 		PlannerPinModel:                          stringPtrOrNil(p.PlannerPinModel),
