@@ -41,7 +41,6 @@ class RawFeatureMatrix(StrEnum):
     )
 
 
-RAW_V5_ROUTER_EMBEDDING_MODEL = "voyageai/voyage-4-large"
 RAW_V5_ROUTER_EMBEDDING_DIM = 1024
 # Gemini uses the same exact raw-V5 source and causal turn-window document
 # serializer as Voyage.  Its encoder identity is intentionally independent:

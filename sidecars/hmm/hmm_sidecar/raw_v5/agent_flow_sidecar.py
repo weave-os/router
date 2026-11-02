@@ -33,7 +33,6 @@ from hmm_sidecar.raw_v5.interaction_state import (
     round_observations,
     routing_state_features,
 )
-from hmm_sidecar.raw_v5.raw_v5_contract import RAW_V5_ROUTER_EMBEDDING_MODEL
 from hmm_sidecar.raw_v5.schemas import HMMStateSummary
 from hmm_sidecar.raw_v5.state_representation import (
     GEMINI_CANONICAL_V1,
@@ -41,11 +40,9 @@ from hmm_sidecar.raw_v5.state_representation import (
     GEMINI_EMBEDDING_2_TEN_TURN_V1,
     GEMINI_EMBEDDING_2_TWO_TURN_V1,
     GEMINI_EMBEDDING_REPRESENTATIONS,
-    CONTEXTUAL_CANONICAL_REPRESENTATIONS,
     RAW_V5_ROUTER_REPRESENTATIONS,
     SequenceRepresentation,
     StateEncoderContract,
-    VOYAGE_RAW_ROUTER_REPRESENTATIONS,
     get_state_encoder_contract,
     gemini_last_state_documents,
     gemini_ten_turn_documents,
@@ -198,8 +195,6 @@ class AgentFlowHMMSidecar:
         embedding_persist_vertex_client: bool = False,
         embedding_inflight_max_age_seconds: float | None = None,
         embedding_cache_path: Path | None = None,
-        gemma_state_cache_path: Path | None = None,
-        use_voyage_direct: bool = False,
         offload_posterior: bool = False,
     ) -> None:
         self.offload_posterior = offload_posterior
@@ -251,13 +246,6 @@ class AgentFlowHMMSidecar:
         # unboundedly, per call.
         self.embedding_persist_vertex_client = embedding_persist_vertex_client
         self.embedding_cache_path = embedding_cache_path
-        self.gemma_state_cache_path = gemma_state_cache_path
-        # Raw-V5 Voyage embeddings go to Voyage's own API instead of the
-        # OpenRouter broker. The vector contract is unchanged, so bundles and
-        # embedding caches stay interchangeable across the two transports.
-        if use_voyage_direct and use_vertex:
-            raise ValueError("use_voyage_direct requires use_vertex=False")
-        self.use_voyage_direct = use_voyage_direct
 
         self._current: dict[str, Any] | None = None
         self._bundle: dict[str, Any] | None = None
@@ -279,17 +267,10 @@ class AgentFlowHMMSidecar:
             max_inflight_age_seconds=embedding_inflight_max_age_seconds,
         )
         self._pinned_embedding_texts: set[str] = set()
-        self._gemma_state_client: Any | None = None
 
         self.validate_embedding_call_contract()
 
     def _embedding_call_base_kwargs(self, model: str) -> dict[str, Any]:
-        voyage_raw = model == RAW_V5_ROUTER_EMBEDDING_MODEL
-        if voyage_raw and not self.use_voyage_direct:
-            raise RuntimeError(
-                "Raw-V5 Voyage embeddings require direct Voyage transport; "
-                "OpenRouter is not supported for this path"
-            )
         return {
             "model": model,
             "batch_size": self.embedding_batch_size,
@@ -306,16 +287,6 @@ class AgentFlowHMMSidecar:
             # Prod serving must fail loud on Vertex errors — silent
             # OpenRouter fallback masks root causes and confuses ops.
             "allow_provider_fallback": False,
-            "enforce_openrouter_gemini_embedding_2_global_zdr_policy": (
-                not self.use_vertex and not voyage_raw
-            ),
-            # Raw-V5 Voyage models must use their pinned physical provider.
-            # This is deliberately selected from the model identity rather
-            # than the bundle here: this helper also runs during constructor
-            # signature validation, before every compatibility test has an
-            # on-disk bundle to resolve.
-            "enforce_openrouter_voyageai_embedding_policy": False,
-            "use_voyage_direct": voyage_raw and self.use_voyage_direct,
         }
 
     def _uncached_embedding_call_kwargs(self, model: str) -> dict[str, Any]:
@@ -415,21 +386,12 @@ class AgentFlowHMMSidecar:
         if not clean_turns:
             raise AgentFlowSidecarError("cannot infer HMM state with empty live turns")
         representation = self.sequence_representation
-        if representation in CONTEXTUAL_CANONICAL_REPRESENTATIONS:
-            # The Gemma path resolves state through a separate service rather
-            # than the embed-then-posterior pipeline, so it has no stage split
-            # to report. The caller still times and logs the total.
-            return await self._ainfer_gemma_turns(clean_turns), None
         if representation not in (
             *GEMINI_EMBEDDING_REPRESENTATIONS,
             *RAW_V5_ROUTER_REPRESENTATIONS,
         ):
             raise AgentFlowSidecarError(
                 f"unsupported local HMM sequence representation: {representation.value}"
-            )
-        if representation in VOYAGE_RAW_ROUTER_REPRESENTATIONS and self.use_vertex:
-            raise AgentFlowSidecarError(
-                "raw V5 Voyage HMM serving requires use_vertex=False"
             )
         if representation in RAW_V5_ROUTER_REPRESENTATIONS and len(clean_turns) != len(
             turns
@@ -469,7 +431,7 @@ class AgentFlowHMMSidecar:
                 else gemini_ten_turn_documents(texts)
             )
         else:
-            # Raw-V5 documents (Voyage and Gemini alike) are constructed by the
+            # Raw-V5 documents are constructed by the
             # explicit serving adapter before they enter this sidecar.
             # Re-wrapping them here would silently change the stored
             # model-input contract.
@@ -579,12 +541,6 @@ class AgentFlowHMMSidecar:
         )
         return readout, timings
 
-    async def _ainfer_gemma_turns(
-        self,
-        turns: list[LiveFlowTurn],
-    ) -> AgentFlowHMMReadout:
-        raise NotImplementedError("not on the classifier serving path")
-
     async def _ainfer_state_vectors(
         self,
         turns: list[LiveFlowTurn],
@@ -610,13 +566,7 @@ class AgentFlowHMMSidecar:
     ) -> AgentFlowHMMReadout:
         """Run the pinned projector/HMM over ordered boundary state vectors.
 
-        Gemini serving obtains one vector per canonical document (or one
-        previous+current pair document for Gemini Last State) in
-        :meth:`ainfer_turns`. Gemma serving obtains one contextual vector per
-        canonical U/A boundary from the dedicated Modal encoder. Keeping state
-        acquisition outside this method prevents text-keyed caching from
-        collapsing two identical boundary texts whose contextual Gemma states
-        are different.
+        Vectors come from :meth:`ainfer_turns`, one per raw-V5 document.
         """
         if not turns:
             raise AgentFlowSidecarError("cannot infer HMM state with no live turns")
@@ -928,11 +878,6 @@ class AgentFlowHMMSidecar:
                 *GEMINI_EMBEDDING_REPRESENTATIONS,
                 *RAW_V5_ROUTER_REPRESENTATIONS,
             ):
-                provider_name = (
-                    "Voyage"
-                    if self.sequence_representation in VOYAGE_RAW_ROUTER_REPRESENTATIONS
-                    else "Gemini"
-                )
                 latent_contract_sha256 = payload.model_info.get(
                     "state_encoder_contract_sha256"
                 )
@@ -946,21 +891,8 @@ class AgentFlowHMMSidecar:
                     and latent_contract_sha256 != expected_contract_sha256
                 ):
                     raise AgentFlowSidecarError(
-                        f"{provider_name} latent model state encoder contract does not "
+                        "Gemini latent model state encoder contract does not "
                         "match its bundle"
-                    )
-            elif self.sequence_representation in CONTEXTUAL_CANONICAL_REPRESENTATIONS:
-                if (
-                    payload.model_info.get("state_encoder_contract_sha256")
-                    != self.state_encoder_contract.sha256
-                    or payload.model_info.get("state_service_contract_sha256")
-                    != self.state_service_contract_sha256
-                    or payload.model_info.get("state_service_contract")
-                    != self.state_service_contract
-                ):
-                    raise AgentFlowSidecarError(
-                        "Gemma latent model state service contract does not match "
-                        "its bundle"
                     )
             self._latent_model = payload
         return self._latent_model
