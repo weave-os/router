@@ -1,0 +1,128 @@
+db/migrations/0137_session-issuer.down.sql
+  s_394c7cb9fc8be4::t_134d8efdc62869 1-15
+internal/sqlc/model_router_api_keys.sql.go
+  s_394c7cb9fc8be4::t_39c9be009d0559 24-25,36-37,39,52,56-57,68-69,80-81,83,95,117,123,142,170,244,253,286
+db/migrations/0137_session-issuer.up.sql
+  s_394c7cb9fc8be4::t_134d8efdc62869 1-2,4-18
+internal/auth/session_token.go
+  s_394c7cb9fc8be4::t_a3b73015e157c5 14-15,201-202,284,287,291-295,298
+  s_394c7cb9fc8be4::t_b99dfb4ad841d0 236
+  s_394c7cb9fc8be4::t_725606d17a3ab6 131-133,146-149,153-165
+  s_394c7cb9fc8be4::t_635146e2e7a725 1-13,16-20,22-23,25-40,43-58,63-66,68-80,81-112,113-117,119-124,126-130,134-142,143-145,150-152,166-200,203-231,232-235,237,247-254,260-261,265-267,269-271,272-283,285-286,288-290,296-297,299-302
+  s_394c7cb9fc8be4::t_c4b1185badfe7e 59-62,67,118,268
+  s_a156643a835fc6::t_ccc6ca13bef064 262-264
+  s_394c7cb9fc8be4::t_c9b2d0fe191a4a 41-42,238,243-246,255-257
+  s_394c7cb9fc8be4::t_1c43b7c0ddd8cf 258-259
+  s_a156643a835fc6::t_5cf877a417d2cc 239-242
+internal/auth/id.go
+  s_394c7cb9fc8be4::t_a3b73015e157c5 16-19,54,58-59
+internal/server/middleware/session_token_auth_test.go
+  s_394c7cb9fc8be4::t_22c987a6f3d6a4 1-30,32-69
+db/queries/model_router_api_keys.sql
+  s_394c7cb9fc8be4::t_39c9be009d0559 2-3,14-15,26-27
+docs/DELEGATED_SESSION_TOKENS.md
+  s_394c7cb9fc8be4::t_b4d3cded5f58f0 1-2,4,11-22,24-32,35-39,51-69
+  s_394c7cb9fc8be4::t_1f7c9ba5489ea2 33-34,40-49
+  s_394c7cb9fc8be4::t_e7cca8e60799e0 50
+internal/auth/api_key.go
+  s_394c7cb9fc8be4::t_a3b73015e157c5 5,20-21,36-42,76-77,89-90
+internal/sqlc/credential_subjects.sql.go
+  s_394c7cb9fc8be4::t_39c9be009d0559 97,117,148
+internal/auth/session_token_test.go
+  s_394c7cb9fc8be4::t_55f2f682e197b4 1-4,6-8,10-40,42,45-111,113-177,179,182-183,207-219,236-277,294-361,363-365,367-368,370-372,374-381
+  s_a156643a835fc6::t_3f840c800a5c6b 112,190-195,197-200,202-206,278-291
+  s_6d232f56a59ddc::t_dd97b2593afc35 292-293
+  s_a156643a835fc6::t_f6d0c64561b0ff 196,201
+  s_394c7cb9fc8be4::t_b75d3fb3ad5328 178,180-186,220-233
+  s_394c7cb9fc8be4::t_7622e174096a10 234-235
+  s_a156643a835fc6::t_5cf877a417d2cc 187
+internal/postgres/converters.go
+  s_394c7cb9fc8be4::t_250c39e5cab409 130-132
+  s_394c7cb9fc8be4::t_085dff5110723b 4,126,133-143
+internal/auth/service.go
+  s_394c7cb9fc8be4::t_a3b73015e157c5 110-112,355,378-379,381-391,844
+  s_394c7cb9fc8be4::t_39c9be009d0559 411,841-843
+internal/sqlc/models.go
+  s_394c7cb9fc8be4::t_39c9be009d0559 356,363-364
+  s_394c7cb9fc8be4::t_67ebf8ece403a3 152-159
+docs/README.md
+  s_394c7cb9fc8be4::t_b4d3cded5f58f0 13
+cmd/router/main.go
+  s_394c7cb9fc8be4::t_2bb0ea555c8878 598-603,614-615
+  s_394c7cb9fc8be4::t_37150067a12c53 244
+internal/api/admin/internal_session_issuers.go
+  s_394c7cb9fc8be4::t_c68a778cd7972a 1-37,39-72
+internal/postgres/repository.go
+  s_394c7cb9fc8be4::t_77ae389d49bab3 382
+internal/server/middleware/auth.go
+  s_394c7cb9fc8be4::t_706a298c59bc4c 105,107-109,136
+internal/server/server.go
+  s_394c7cb9fc8be4::t_944a111c14b092 257-260
+  s_394c7cb9fc8be4::t_37150067a12c53 359,391,452
+go.mod
+  s_394c7cb9fc8be4::t_46ddf7da2a5ded 14
+internal/auth/credential_subject_test.go
+  s_a156643a835fc6::t_3f840c800a5c6b 38-49
+internal/auth/credential_subject.go
+  s_a156643a835fc6::t_ccc6ca13bef064 44-56
+internal/postgres/serving/admission.go
+  s_a156643a835fc6::t_ccc6ca13bef064 92
+db/queries/billing.sql
+  s_394c7cb9fc8be4::t_67ebf8ece403a3 122-139,223-224,226-239
+internal/billing/repo.go
+  s_394c7cb9fc8be4::t_c9b2d0fe191a4a 60-63,68-72
+  s_394c7cb9fc8be4::t_cc7c462b011e18 73
+internal/proxy/service.go
+  s_394c7cb9fc8be4::t_c9b2d0fe191a4a 6832-6834
+internal/server/middleware/delegated_spend_cap.go
+  s_394c7cb9fc8be4::t_37150067a12c53 1-80
+db/migrations/0138_delegated-token-spend.up.sql
+  s_394c7cb9fc8be4::t_67ebf8ece403a3 1-17
+internal/billing/service.go
+  s_394c7cb9fc8be4::t_c9b2d0fe191a4a 152,260-278,368-371,453-454
+db/migrations/0138_delegated-token-spend.down.sql
+  s_394c7cb9fc8be4::t_67ebf8ece403a3 1-5
+internal/sqlc/billing.sql.go
+  s_394c7cb9fc8be4::t_67ebf8ece403a3 27-28,30,52-53,55,135-152,162,166,170,204-205,314-331,341,345,349,382-383,419-459
+  s_394c7cb9fc8be4::t_c820e4e8f5b94e 460
+internal/postgres/billing_repo.go
+  s_394c7cb9fc8be4::t_c9b2d0fe191a4a 78-79,91-102
+  s_394c7cb9fc8be4::t_1a48510f6eaaed 103-104
+internal/billing/prepaid.go
+  s_394c7cb9fc8be4::t_c9b2d0fe191a4a 93-96,198-199
+internal/server/middleware/delegated_spend_cap_test.go
+  s_394c7cb9fc8be4::t_b75d3fb3ad5328 1-74,77-95
+  s_394c7cb9fc8be4::t_643cefcaad2e95 75-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7fa413e47912c912470ce1d8e0990a7510887621",
+  "prompts": {},
+  "sessions": {
+    "s_394c7cb9fc8be4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16f2b-feba-72f3-a064-e0e2eff463af",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_6d232f56a59ddc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16ce6-2111-7912-b058-c76cfb204a48",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_a156643a835fc6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1703c-0931-7662-93c5-c7d0404406b5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

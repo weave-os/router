@@ -1,0 +1,108 @@
+install/pi-router/test/mock_router.py
+  s_c2608be38ef25d::t_e2415a2fcb9ea5 465-468,470
+  s_c2608be38ef25d::t_3bcf5dcadeb830 107
+  s_c2608be38ef25d::t_ee0d8b2dc262bc 469
+  s_a14098de17bb7f::t_c783122e059e36 300-302,305
+  s_c2608be38ef25d::t_d0d5c1c14324fd 355-363
+  s_c2608be38ef25d::t_a6c8b17699f97f 483
+  s_c2608be38ef25d::t_4dbb29ccee9f1e 332
+  s_c2608be38ef25d::t_d71c900afa7c9a 304
+  s_c2608be38ef25d::t_1b92566d5feefb 272
+  s_c2608be38ef25d::t_1608f756e2fb2c 351-352
+  s_c2608be38ef25d::t_f149a6c4ef6458 333-334
+  s_c2608be38ef25d::t_a412ed888c020d 410,432-438
+  s_c2608be38ef25d::t_800bed612a3835 330-331,336
+  s_a14098de17bb7f::t_d105943f79cdf5 303
+  s_c2608be38ef25d::t_3caad2454f45ea 335
+internal/proxy/classifier_session.go
+  s_a14098de17bb7f::t_13b2dbd04b33b8 23-25
+  s_c049e89c995f5d::t_d9a50145c4ab76 22
+internal/server/middleware/classifier_thread.go
+  s_a14098de17bb7f::t_13b2dbd04b33b8 25-29
+install/uninstall.sh
+  s_a14098de17bb7f::t_22958e176a6144 553-557
+install/codex-status.sh
+  s_c2608be38ef25d::t_9489e350522fa1 335,338-344,346-347,349,359,361
+  s_c2608be38ef25d::t_6de1462e38aae4 336-337,345,348
+  s_c2608be38ef25d::t_ee0d8b2dc262bc 107
+  s_c2608be38ef25d::t_db9204261ac351 35-37
+  s_c2608be38ef25d::t_d639ba1dc5be15 104
+  s_c2608be38ef25d::t_24d06642bedb56 360,362
+install/pi-router/test/responses_fixture.py
+  s_c2608be38ef25d::t_d0d5c1c14324fd 31,34-40
+  s_c2608be38ef25d::t_df6ff5dc6f81ea 43
+  s_c2608be38ef25d::t_1608f756e2fb2c 17,41-42,44-46
+install/install.sh
+  s_c2608be38ef25d::t_79b248e36b637f 855-856,869-870
+  s_c2608be38ef25d::t_1d890440b40503 734-735,750-751
+  s_c2608be38ef25d::t_1beec3793c5d67 818,821
+  s_c2608be38ef25d::t_6899bf711c3a9d 736-739,741-749,819-820
+  s_c2608be38ef25d::t_9489e350522fa1 858-867
+  s_a14098de17bb7f::t_1bf7dd6bb0bd21 1113
+  s_c2608be38ef25d::t_146ef8dc929e16 857
+  s_a14098de17bb7f::t_22958e176a6144 1118-1119,1123-1126
+  s_c2608be38ef25d::t_19d931ebacca46 740
+  s_c2608be38ef25d::t_6f5bb2171dd723 868
+install/tests/opencode_install_test.sh
+  s_a14098de17bb7f::t_22958e176a6144 80,107
+install/tests/codex_install_test.sh
+  s_c2608be38ef25d::t_8d8623fe9e0b9a 95-97,949-957
+  s_c2608be38ef25d::t_6c0efbb0c5d6a8 958
+install/pi-router/test/opencode_conformance.py
+  s_a14098de17bb7f::t_dd8e6f75a5af21 182-186,189,191,193-203
+  s_a14098de17bb7f::t_c783122e059e36 215-216
+  s_a14098de17bb7f::t_d4675429aef2d5 108,192
+  s_a14098de17bb7f::t_cbd633cf97864b 187-188
+  s_a14098de17bb7f::t_398826447d4454 190
+  s_a14098de17bb7f::t_53a3565526ec7e 204-205,209-214,217-218,220
+  s_a14098de17bb7f::t_100b92d3e35ec3 206-208,219
+internal/server/middleware/classifier_thread_test.go
+  s_a14098de17bb7f::t_13b2dbd04b33b8 92-94
+install/opencode-weave/src/index.ts
+  s_a14098de17bb7f::t_462f3b90e89230 41,719-734,737
+  s_a14098de17bb7f::t_1e3e00154fa3f5 735-736
+  s_a14098de17bb7f::t_1f75d338270833 738
+  s_a14098de17bb7f::t_7dd2c9408aa761 463,472-479
+docs/LLM_CLASSIFIER_CONTEXT.md
+  s_a14098de17bb7f::t_33973e73c05c0b 57-60,118-130
+  s_c2608be38ef25d::t_6ee2de8909a4db 132-146
+  s_c2608be38ef25d::t_330c784c05fc02 131
+install/tests/packaging_test.sh
+  s_a14098de17bb7f::t_22958e176a6144 44
+install/opencode-weave/README.md
+  s_a14098de17bb7f::t_4f32adb4e5211d 82-84
+  s_a14098de17bb7f::t_960dd007eab527 86-87
+  s_a14098de17bb7f::t_1bf7dd6bb0bd21 79-81,85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4b014dbb4589af1bb9439831678824125b1079dc",
+  "prompts": {},
+  "sessions": {
+    "s_a14098de17bb7f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cc3f-4873-7fb3-8e9d-b91dc3b824cf",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_c049e89c995f5d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0cc3f-4873-7fb3-8e9d-b91dc3b824cf",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_c2608be38ef25d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ccaf-87ab-7112-900a-670858d3609c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

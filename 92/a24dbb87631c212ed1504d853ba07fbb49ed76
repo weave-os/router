@@ -1,0 +1,26 @@
+clients/python/weave_router_client/client.py
+  s_f1929ee44adfce::t_095870d3acb337 112
+  s_f1929ee44adfce::t_6d4c11c453381f 88
+clients/python/tests/test_client.py
+  s_f1929ee44adfce::t_6d1c5cccc9fae9 95
+  s_f1929ee44adfce::t_c64f51b2589e26 109
+internal/api/anthropic/route.go
+  s_f1929ee44adfce::t_68eb20ea9dc686 16-17
+  s_f1929ee44adfce::t_f754274a751c4e 61-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "92a24dbb87631c212ed1504d853ba07fbb49ed76",
+  "prompts": {},
+  "sessions": {
+    "s_f1929ee44adfce": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b9c796f-2c8e-433a-a836-220f5b2f761d",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

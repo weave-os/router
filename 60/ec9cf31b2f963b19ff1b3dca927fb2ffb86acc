@@ -1,0 +1,22 @@
+internal/proxy/routing_policy_internal_test.go
+  s_3724c1d4ec4b89::t_9c4269aa531f3b 18,71-118,120-122,127
+  s_3724c1d4ec4b89::t_2ad087a575b10b 119,123-125
+docs/CONFIGURATION.md
+  s_3724c1d4ec4b89::t_9c4269aa531f3b 577-581
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "60ec9cf31b2f963b19ff1b3dca927fb2ffb86acc",
+  "prompts": {},
+  "sessions": {
+    "s_3724c1d4ec4b89": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e527-9a19-7141-92ed-476c3d2ffaac",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

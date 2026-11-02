@@ -1,0 +1,34 @@
+internal/proxy/pin_eviction_internal_test.go
+  s_05c9c8c10e8ecd::t_5ec8364be7067f 381-384,386-388,394,396,402
+  s_05c9c8c10e8ecd::t_72db0c748579ee 372-375
+  s_05c9c8c10e8ecd::t_c1c6e5a4ffffac 116-120,137
+internal/proxy/pin_eviction.go
+  s_05c9c8c10e8ecd::t_19c16fcbc876ff 140,144
+  s_05c9c8c10e8ecd::t_caed6c296c4cae 23-28,149
+  s_05c9c8c10e8ecd::t_72db0c748579ee 136-139
+internal/translate/emit_openai_test.go
+  s_05c9c8c10e8ecd::t_0b3daad6a2de2b 9-12
+internal/translate/emit_openai.go
+  s_05c9c8c10e8ecd::t_0b3daad6a2de2b 937-941
+internal/providers/provider.go
+  s_05c9c8c10e8ecd::t_0b3daad6a2de2b 413-417,449-452
+internal/proxy/service.go
+  s_05c9c8c10e8ecd::t_0e11f50efc8c61 3650
+  s_05c9c8c10e8ecd::t_72db0c748579ee 3648-3649
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "f28b992094880d8be888916f25361284b60ba0fb",
+  "prompts": {},
+  "sessions": {
+    "s_05c9c8c10e8ecd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "19b8ac3e-3407-419b-ac32-8fb3d3d2e2c3",
+        "model": "deepseek/deepseek-v4-flash"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

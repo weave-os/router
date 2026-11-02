@@ -1,0 +1,40 @@
+internal/proxy/dispatch_error_test.go
+  s_7fa428a6b6817b::t_e4124b11cbbbb6 358-362
+internal/policyclient/resilience.go
+  s_7fa428a6b6817b::t_e4d8eaeaa133fe 113-118
+internal/policyclient/client.go
+  s_7fa428a6b6817b::t_1863c84dbc7e0e 146-151
+internal/dispatch/target.go
+  s_7fa428a6b6817b::t_aac3e745ad3001 13
+  s_c5c07cefb50829::t_cf8d492539a712 71
+internal/dispatch/executor.go
+  s_7fa428a6b6817b::t_03a49ce7e71bfe 11,310
+internal/dispatch/target_test.go
+  s_c5c07cefb50829::t_75689b38290497 18,40
+internal/policyclient/resilience_test.go
+  s_c5c07cefb50829::t_d75994f1a78816 80-82,88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "26734e9e88588ca1dcd552c68646c6c0a81e15b0",
+  "prompts": {},
+  "sessions": {
+    "s_7fa428a6b6817b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "92be9f94-6f27-4e58-a8fb-0fe9429576cf",
+        "model": "grok-4.6"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_c5c07cefb50829": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fd80f23-12b3-4dac-b4f3-76527fda454d",
+        "model": "grok-4.6"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

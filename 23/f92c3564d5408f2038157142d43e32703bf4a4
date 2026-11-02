@@ -1,0 +1,19 @@
+bench/weave_bench/efficiency/cli.py
+  s_29aee27fb6d00d::t_3ae1f0a72a6b09 131,134,169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "23f92c3564d5408f2038157142d43e32703bf4a4",
+  "prompts": {},
+  "sessions": {
+    "s_29aee27fb6d00d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "334c31dc-6e6f-44da-90d5-bb62eb3cf18b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
