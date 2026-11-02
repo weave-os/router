@@ -111,6 +111,34 @@ func (r *Registry) ReadRelease(ctx context.Context, ref ObjectRef) (Release, err
 	return release, nil
 }
 
+// ExportHead copies a lane head and the exact objects it references into dir for
+// DirectoryRegistry, after the same validation the router applies when serving them.
+func (r *Registry) ExportHead(ctx context.Context, environment Environment, lane Lane, dir string) (HeadSnapshot, error) {
+	head, err := r.ReadHead(ctx, environment, lane)
+	if err != nil {
+		return HeadSnapshot{}, err
+	}
+	releasePayload, err := r.readExact(ctx, ObjectRef{
+		URI: head.Head.ReleaseURI, SHA256: head.Head.ReleaseSHA256, Generation: head.Head.ReleaseGeneration,
+	}, releaseObjectPrefix)
+	if err != nil {
+		return HeadSnapshot{}, err
+	}
+	release, err := DecodeRelease(releasePayload, r.rootURI)
+	if err != nil {
+		return HeadSnapshot{}, err
+	}
+	policyRef := ObjectRef{URI: release.Policy.URI, SHA256: release.Policy.SHA256, Generation: release.Policy.Generation}
+	if _, err := r.ReadPolicy(ctx, policyRef); err != nil {
+		return HeadSnapshot{}, err
+	}
+	policyPayload, err := r.readExact(ctx, policyRef, policyObjectPrefix)
+	if err != nil {
+		return HeadSnapshot{}, err
+	}
+	return head, WriteDirectoryRelease(dir, head.Head, releasePayload, policyPayload)
+}
+
 // ReadPolicy reads and fully validates exact immutable Go selection-policy bytes.
 func (r *Registry) ReadPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
 	roster, err := r.ReadServingPolicy(ctx, ref)

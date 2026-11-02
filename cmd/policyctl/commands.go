@@ -29,6 +29,7 @@ const (
 	commandRollback     commandName = "rollback"
 	commandStatus       commandName = "status"
 	commandServing      commandName = "serving"
+	commandExport       commandName = "export"
 )
 
 const defaultRegistryURI = "gs://weave_ml/weave_registry"
@@ -52,7 +53,7 @@ type classifierRevisionIdentity struct {
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: policyctl <compile|check-rosters|validate|publish|promote|rollback|status> [flags]")
+		return errors.New("usage: policyctl <compile|check-rosters|validate|publish|promote|rollback|status|export> [flags]")
 	}
 	switch commandName(args[0]) {
 	case commandServing:
@@ -71,6 +72,8 @@ func run(ctx context.Context, args []string) error {
 		return runPromote(ctx, args[1:], true)
 	case commandStatus:
 		return runStatus(ctx, args[1:])
+	case commandExport:
+		return runExport(ctx, args[1:])
 	default:
 		return fmt.Errorf("unknown policyctl command %q", args[0])
 	}
@@ -312,6 +315,43 @@ func runPromote(ctx context.Context, args []string, rollback bool) error {
 		return err
 	}
 	return writeJSON(updated)
+}
+
+// runExport snapshots a promoted lane into the directory layout served by
+// ROUTER_POLICY_RELEASE_DIR, so a self-hosted router can run that exact release.
+func runExport(ctx context.Context, args []string) error {
+	flags := flag.NewFlagSet(string(commandExport), flag.ContinueOnError)
+	registryURI := flags.String("registry", defaultRegistryURI, "GCS registry root")
+	environmentRaw := flags.String("environment", string(policyregistry.EnvironmentProd), "environment to export")
+	laneRaw := flags.String("lane", string(policyregistry.LaneStable), "lane to export")
+	outDir := flags.String("out", "", "directory to write the release into")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if strings.TrimSpace(*outDir) == "" {
+		return errors.New("--out is required")
+	}
+	environment := policyregistry.Environment(*environmentRaw)
+	lane := policyregistry.Lane(*laneRaw)
+	if err := policyregistry.ValidateEnvironment(environment); err != nil {
+		return err
+	}
+	if err := policyregistry.ValidateLane(lane); err != nil {
+		return err
+	}
+	registry, err := policyregistry.NewGCSRegistry(ctx, *registryURI)
+	if err != nil {
+		return err
+	}
+	defer registry.Close()
+	head, err := registry.ExportHead(ctx, environment, lane, *outDir)
+	if err != nil {
+		return err
+	}
+	if _, err := policyregistry.NewDirectoryRegistry(*outDir, ""); err != nil {
+		return fmt.Errorf("exported release does not load: %w", err)
+	}
+	return writeJSON(map[string]any{"environment": environment, "lane": lane, "release_id": head.Head.ReleaseSHA256, "out": *outDir})
 }
 
 func runStatus(ctx context.Context, args []string) error {

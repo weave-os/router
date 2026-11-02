@@ -32,15 +32,8 @@ type bakedRegistry struct {
 func writeBakedRegistry(t *testing.T) bakedRegistry {
 	t.Helper()
 	dir := t.TempDir()
-	write := func(relative string, payload []byte) string {
-		path := filepath.Join(dir, filepath.FromSlash(relative))
-		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-		require.NoError(t, os.WriteFile(path, payload, 0o600))
-		return path
-	}
 	policyPayload := []byte(directoryPolicyJSON)
 	policySHA := policyregistry.Digest(policyPayload)
-	policyPath := write("router_policy/v1/policies/sha256/"+policySHA+".json", policyPayload)
 
 	release := validRelease()
 	release.Classifier.ClassOrder = []string{"low"}
@@ -50,7 +43,6 @@ func writeBakedRegistry(t *testing.T) bakedRegistry {
 	releasePayload, err := json.Marshal(release)
 	require.NoError(t, err)
 	releaseSHA := policyregistry.Digest(releasePayload)
-	write("router_policy/v1/releases/sha256/"+releaseSHA+".json", releasePayload)
 
 	head := policyregistry.LaneHead{
 		SchemaVersion: policyregistry.LaneHeadSchemaV1,
@@ -61,9 +53,9 @@ func writeBakedRegistry(t *testing.T) bakedRegistry {
 		ClassifierRevisionName: "router-hmm-sidecar-00042-abc",
 		PromotedBy:             "operator", PromotedAt: "2026-09-10T12:00:00Z", Reason: "stable promote",
 	}
-	headPayload, err := json.Marshal(head)
-	require.NoError(t, err)
-	write("head.json", headPayload)
+	require.Error(t, policyregistry.WriteDirectoryRelease(dir, head, append(releasePayload, ' '), policyPayload))
+	require.NoError(t, policyregistry.WriteDirectoryRelease(dir, head, releasePayload, policyPayload))
+	policyPath := filepath.Join(dir, "router_policy", "v1", "policies", "sha256", policySHA+".json")
 	return bakedRegistry{dir: dir, policyPath: policyPath}
 }
 

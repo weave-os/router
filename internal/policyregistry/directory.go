@@ -2,6 +2,7 @@ package policyregistry
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -137,4 +138,31 @@ func readLocalObject(path string) ([]byte, error) {
 		return nil, fmt.Errorf("local policy object exceeds %d bytes", maxPolicyObjectBytes)
 	}
 	return payload, nil
+}
+
+// WriteDirectoryRelease lays out a lane head and the exact bytes of its release and
+// policy objects so NewDirectoryRegistry can serve them.
+func WriteDirectoryRelease(dir string, head LaneHead, releasePayload, policyPayload []byte) error {
+	if Digest(releasePayload) != head.ReleaseSHA256 {
+		return errors.New("release bytes do not match the lane head digest")
+	}
+	headPayload, err := json.MarshalIndent(head, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode lane head: %w", err)
+	}
+	objects := map[string][]byte{
+		releaseObjectPrefix + head.ReleaseSHA256 + ".json":   releasePayload,
+		policyObjectPrefix + Digest(policyPayload) + ".json": policyPayload,
+		directoryHeadFile: append(headPayload, '\n'),
+	}
+	for relative, payload := range objects {
+		path := filepath.Join(dir, filepath.FromSlash(relative))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return fmt.Errorf("create local policy directory: %w", err)
+		}
+		if err := os.WriteFile(path, payload, 0o644); err != nil {
+			return fmt.Errorf("write local policy object: %w", err)
+		}
+	}
+	return nil
 }
