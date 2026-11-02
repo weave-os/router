@@ -111,6 +111,8 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		FinalModelFamily:      row.FinalModelFamily,
 		ActualInputCostUSD:    servedCostUSD(row.ActualInputCostUsd, row.SubscriptionServed),
 		ActualOutputCostUSD:   servedCostUSD(row.ActualOutputCostUsd, row.SubscriptionServed),
+		APIRateInputCostUSD:   microsPtrToUSD(row.ActualInputCostUsd),
+		APIRateOutputCostUSD:  microsPtrToUSD(row.ActualOutputCostUsd),
 
 		RouteLatencyMs:           row.RouteLatencyMs,
 		UpstreamLatencyMs:        row.UpstreamLatencyMs,
