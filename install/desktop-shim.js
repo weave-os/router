@@ -17,6 +17,9 @@ const tls = require("node:tls");
 
 const INTERCEPT_HOST = "api.anthropic.com";
 const ROUTER_KEY_HEADER = "x-weave-router-key";
+// Desktop's model picker can't list Weave Auto, so Desktop's picks are routed
+// instead of honoring the CLI's passthrough header from ~/.claude/settings.json.
+const MODEL_PASSTHROUGH_HEADER = "x-weave-model-passthrough";
 // Claude Code's user agent names its entrypoint: "claude-desktop" for the Code
 // tab, "local-agent" for Cowork.
 const DESKTOP_USER_AGENT = /[(,]\s*(claude-desktop|local-agent)(?![\w-])/;
@@ -105,6 +108,7 @@ function forward(cfg, req, res) {
   for (const [name, value] of Object.entries(req.headers)) {
     if (!HOP_BY_HOP.has(name) && name !== ROUTER_KEY_HEADER) headers[name] = value;
   }
+  if (toRouter) delete headers[MODEL_PASSTHROUGH_HEADER];
   headers.host = target.host;
   if (toRouter && cfg.routerKey) headers[ROUTER_KEY_HEADER] = cfg.routerKey;
 

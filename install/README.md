@@ -408,7 +408,10 @@ this install sets up three things:
    run at login by launchd (macOS) or systemd `--user` (Linux). It terminates TLS
    for `api.anthropic.com` only. Messages API calls (`/v1/messages*`) whose user
    agent names Desktop's Code tab (`claude-desktop`) or Cowork (`local-agent`) go
-   to the router with `X-Weave-Router-Key`. Everything else, including other
+   to the router with `X-Weave-Router-Key`. The proxy drops
+   `X-Weave-Model-Passthrough` from those calls: Desktop's model picker can't
+   list Weave Auto, so the router routes whichever model Desktop sends (pin one
+   with `/force-model`). Everything else, including other
    apps' `api.anthropic.com` traffic and Desktop's sign-in, passes through to
    Anthropic unchanged. Every other host is tunneled untouched.
 2. **A certificate for `api.anthropic.com`**, trusted by the OS (login keychain
