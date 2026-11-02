@@ -94,6 +94,12 @@ minute, so it constrains only pathological polling.
 
 ## 3. What a row is
 
+The nullable `effort_arm`, `effort_selected`, `effort_sent` and `effort_source`
+fields distinguish the arm's reasoning label from the value dispatched after
+overrides and model-menu clamping. Use `effort_sent` for configuration comparisons.
+A null value means no explicit effort was recorded; it does not establish the
+provider's default computation or equal effort across models.
+
 **One row per upstream action.** An action is a single API call the agent makes
 to a model. That is the router's finest routing grain, and it is deliberately
 *not* "one row per user message". A single thing a person would call one

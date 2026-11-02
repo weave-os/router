@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/router"
 )
 
 // Decision is one exported routing decision: a single upstream action, not a
@@ -33,15 +34,19 @@ type Decision struct {
 	UserEmail       *string `json:"user_email"`
 	UserAccountUUID *string `json:"user_account_uuid"`
 
-	RequestedModel       *string  `json:"requested_model"`
-	DecisionModel        *string  `json:"decision_model"`
-	DecisionProvider     *string  `json:"decision_provider"`
-	RouteID              *string  `json:"route_id"`
-	RoutingStrategy      *string  `json:"routing_strategy"`
-	PolicyRouteKey       *string  `json:"policy_route_key"`
-	ClusterRouterVersion *string  `json:"cluster_router_version"`
-	CandidateModels      []string `json:"candidate_models"`
-	ChosenScore          *float64 `json:"chosen_score"`
+	RequestedModel       *string              `json:"requested_model"`
+	DecisionModel        *string              `json:"decision_model"`
+	DecisionProvider     *string              `json:"decision_provider"`
+	EffortArm            *router.EffortLevel  `json:"effort_arm"`
+	EffortSelected       *router.EffortLevel  `json:"effort_selected"`
+	EffortSent           *router.EffortLevel  `json:"effort_sent"`
+	EffortSource         *router.EffortSource `json:"effort_source"`
+	RouteID              *string              `json:"route_id"`
+	RoutingStrategy      *string              `json:"routing_strategy"`
+	PolicyRouteKey       *string              `json:"policy_route_key"`
+	ClusterRouterVersion *string              `json:"cluster_router_version"`
+	CandidateModels      []string             `json:"candidate_models"`
+	ChosenScore          *float64             `json:"chosen_score"`
 	// DecisionReason is free-form diagnostic prose whose format changes between
 	// router versions; do not parse it — group on DecisionModel / StickyHit /
 	// CandidateModels instead.

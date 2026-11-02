@@ -2,12 +2,31 @@ package router
 
 import "strings"
 
+type EffortLevel string
+
 const (
-	effortLow    = "low"
-	effortMedium = "medium"
-	effortHigh   = "high"
-	effortMax    = "max"
-	effortXhigh  = "xhigh"
+	EffortLow    EffortLevel = "low"
+	EffortMedium EffortLevel = "medium"
+	EffortHigh   EffortLevel = "high"
+	EffortMax    EffortLevel = "max"
+	EffortXhigh  EffortLevel = "xhigh"
+)
+
+const (
+	effortLow    = string(EffortLow)
+	effortMedium = string(EffortMedium)
+	effortHigh   = string(EffortHigh)
+	effortMax    = string(EffortMax)
+	effortXhigh  = string(EffortXhigh)
+)
+
+type EffortSource string
+
+const (
+	EffortSourceUser        EffortSource = "user"
+	EffortSourceEscalation  EffortSource = "escalation"
+	EffortSourceArm         EffortSource = "arm"
+	EffortSourceModelPolicy EffortSource = "model_policy"
 )
 
 // CanonicalizeEffort maps user-facing aliases to canonical routing effort levels.
