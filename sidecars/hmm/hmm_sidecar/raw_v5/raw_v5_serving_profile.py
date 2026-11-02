@@ -49,7 +49,6 @@ from hmm_sidecar.raw_v5.raw_v5_contract import (
     raw_v5_gemini_element_model_input_contract,
 )
 from hmm_sidecar.raw_v5.raw_v5_serving import (
-    RawV5DocumentKind,
     RawV5ServingInputError,
 )
 from hmm_sidecar.raw_v5.state_representation import (
@@ -72,17 +71,6 @@ class RawV5ToolEvidenceMode(StrEnum):
 
     COMPACTED_TOOL_TRACE = "compacted_tool_trace"
     USER_AGENT_ONLY = "user_agent_only"
-
-
-class RawV5AgentDocumentKind(StrEnum):
-    """What an embedded agent document is allowed to contain.
-
-    The compacted-trace value is the identity the deployed v7 Voyage contract
-    already pins, so a package trained under that lane keeps its exact bytes.
-    """
-
-    WITH_COMPACTED_TOOL_TRACE = RawV5DocumentKind.AGENT_WITH_LIVE_TOOL_TRACE.value
-    WITHOUT_TOOL_TRACE = "raw_agent_text_without_tool_trace"
 
 
 class RawV5DocumentWindow(StrEnum):

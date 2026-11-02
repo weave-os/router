@@ -7,5 +7,4 @@ the current token-budgeted builders; accepted old packages retain their original
 
 from __future__ import annotations
 
-RAW_V5_MODEL_INPUT_MAX_CHARS = 20_000
 RAW_V5_GEMINI_EMBEDDING_2_MAX_SERIALIZED_BYTES = 8_000

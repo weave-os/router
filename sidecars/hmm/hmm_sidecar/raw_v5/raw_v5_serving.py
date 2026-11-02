@@ -10,16 +10,6 @@ documents.
 
 from __future__ import annotations
 
-from enum import StrEnum
-
-
-class RawV5DocumentKind(StrEnum):
-    USER = "raw_user_text"
-    AGENT_WITH_LIVE_TOOL_TRACE = (
-        "raw_agent_text_with_existing_live_structural_tool_trace"
-    )
-
-
 # These values are persisted by the trainer in the raw-V5 HMM bundle. Keep
 # their exact stored semantics in this lightweight serving module instead of
 # importing the full training entry point (and its native ML dependencies) at
