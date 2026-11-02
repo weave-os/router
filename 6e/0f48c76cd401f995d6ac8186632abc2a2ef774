@@ -1,0 +1,21 @@
+install/codex-status.sh
+  s_c2608be38ef25d::t_e805d3b9bec2b1 337
+install/install.sh
+  s_c2608be38ef25d::t_e805d3b9bec2b1 4558
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6e0f48c76cd401f995d6ac8186632abc2a2ef774",
+  "prompts": {},
+  "sessions": {
+    "s_c2608be38ef25d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ccaf-87ab-7112-900a-670858d3609c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

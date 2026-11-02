@@ -1,0 +1,22 @@
+install/install.sh
+  s_f3547789752bdd::t_d5ef546a7f8b97 5763-5765
+  s_f3547789752bdd::t_69857ca22397c2 8-10,366-374,1844,1870-1881,1889-1891,1894-1897,4673,5636,5675,5681,5683,5689,5692-5694,5771
+install/uninstall.sh
+  s_f3547789752bdd::t_d087c0c4e5b42e 936-944
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "593bd3ef37f1b2d89e64eb25d5ae48c000645f6f",
+  "prompts": {},
+  "sessions": {
+    "s_f3547789752bdd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a638-906d-7943-af31-16faa734d88d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

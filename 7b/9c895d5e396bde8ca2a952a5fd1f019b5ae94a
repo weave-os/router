@@ -1,0 +1,21 @@
+internal/proxy/escalation.go
+  s_34c7b528a2660c::t_6838f83e76a34a 66
+internal/proxy/escalation_internal_test.go
+  s_34c7b528a2660c::t_e9142e17c99eca 157-171,181,183,185,191,213,459-472
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7b9c895d5e396bde8ca2a952a5fd1f019b5ae94a",
+  "prompts": {},
+  "sessions": {
+    "s_34c7b528a2660c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0872c-1993-76d1-bd9a-9a9c26a4cffb",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

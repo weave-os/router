@@ -1,0 +1,47 @@
+internal/policyregistry/serving_contract_v3.go
+  s_ea33c573c319a8::t_65112fb52aad27 1-63
+cmd/policyctl/serving_lifecycle_test.go
+  s_ea33c573c319a8::t_b8e10b302f2722 260
+cmd/policyctl/serving_release.go
+  s_ea33c573c319a8::t_b54a62e798fcbd 250-251,254-260
+cmd/policyctl/serving_release_test.go
+  s_ea33c573c319a8::t_22e430408338ac 351-377
+docs/HMM_GO_SELECTION.md
+  s_ea33c573c319a8::t_0fe41f5590972f 34-43,84-88
+docs/SERVING_CONTROL.md
+  s_ea33c573c319a8::t_bcec37ba62d5e3 32,69,80,142,524-642
+internal/policyregistry/serving_cohort_scopes_test.go
+  s_ea33c573c319a8::t_86af6298a8e056 1-200
+internal/policyregistry/serving_cohort_test.go
+  s_ea33c573c319a8::t_5a307418c752b7 1-201
+internal/policyregistry/serving_contract.go
+  s_ea33c573c319a8::t_f04a50e01a8908 522
+internal/policyregistry/serving_contract_v2.go
+  s_ea33c573c319a8::t_9ce31d07123a36 400-401,441,450-451,456-457,459
+internal/policyregistry/serving_contract_v3_test.go
+  s_ea33c573c319a8::t_746534995ba96c 1-139
+internal/policyregistry/serving_controller.go
+  s_ea33c573c319a8::t_ddbcdcc8d893dc 35-36,38-44,264,315-320,353,357,362,380,423,427,459-463,473-476,492,495,499,529-540,547-557,608-609,689,722-723,726,728-744,746-747,750,752,757,764,766,773,776,812-815,817,822
+internal/policyregistry/serving_gcs_test.go
+  s_ea33c573c319a8::t_2b6e7cdee1c307 178
+internal/policyregistry/serving_snapshot.go
+  s_ea33c573c319a8::t_f6ce243d789b62 129
+internal/policyregistry/serving_worker.go
+  s_ea33c573c319a8::t_c2b293d60dfd52 48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c2c1049945c18f2cb2b3302564d972589e282430",
+  "prompts": {},
+  "sessions": {
+    "s_ea33c573c319a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f8b0-9c00-7492-88e8-6cd4a0de0d11",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

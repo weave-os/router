@@ -1,0 +1,117 @@
+internal/router/cluster/artifacts/README.md
+  s_b3d94294f4c49d::t_c0d8d7632328d2 37
+install/npm/README.md
+  s_b3d94294f4c49d::t_c0d8d7632328d2 96
+docs/README.md
+  s_b3d94294f4c49d::t_c0d8d7632328d2 13
+CLAUDE.md
+  s_b3d94294f4c49d::t_c0d8d7632328d2 127
+  s_b3d94294f4c49d::t_ef953169052e67 3
+internal/providers/CLAUDE.md
+  s_b3d94294f4c49d::t_c0d8d7632328d2 16,21,51
+  s_b3d94294f4c49d::t_04cc8879a43253 3
+internal/router/sessionpin/CLAUDE.md
+  s_b3d94294f4c49d::t_c0d8d7632328d2 10
+  s_b3d94294f4c49d::t_112269ee03b3df 3
+internal/router/cluster/CLAUDE.md
+  s_b3d94294f4c49d::t_c0d8d7632328d2 5,62
+  s_b3d94294f4c49d::t_1a264a2d1fa4c2 3
+.github/workflows/docs.yml
+  s_b3d94294f4c49d::t_abd17f5fa94e76 20-24
+  s_b3d94294f4c49d::t_c0d8d7632328d2 1-19,25-29
+Makefile
+  s_b3d94294f4c49d::t_431fd8ba338d9e 35
+  s_b3d94294f4c49d::t_c0d8d7632328d2 12,29-34,36
+  s_b3d94294f4c49d::t_114b14408e8323 37
+scripts/generate_agent_guides.py
+  s_b3d94294f4c49d::t_431fd8ba338d9e 30
+  s_b3d94294f4c49d::t_f89334c211773e 1-29,31-121
+scripts/check_docs.py
+  s_b3d94294f4c49d::t_431fd8ba338d9e 2,16
+  s_b3d94294f4c49d::t_f89334c211773e 1,3-15,17-182
+internal/proxy/CLAUDE.md
+  s_b3d94294f4c49d::t_c0d8d7632328d2 21,272,274
+  s_b3d94294f4c49d::t_c219095f46ec18 3
+AGENTS.md
+  s_b3d94294f4c49d::t_dda3ba1c152e35 3,127
+cmd/AGENTS.md
+  s_b3d94294f4c49d::t_a84545f68a356c 3
+cmd/CLAUDE.md
+  s_b3d94294f4c49d::t_e4ed49725a2f2c 3
+db/AGENTS.md
+  s_b3d94294f4c49d::t_e741e103fb81a8 3
+db/CLAUDE.md
+  s_b3d94294f4c49d::t_d30b7df6db6a83 3
+internal/api/AGENTS.md
+  s_b3d94294f4c49d::t_71885fb6eb4c34 3
+internal/api/CLAUDE.md
+  s_b3d94294f4c49d::t_288d3923cef289 3
+internal/auth/AGENTS.md
+  s_b3d94294f4c49d::t_1f0c43db487c5f 3
+internal/auth/CLAUDE.md
+  s_b3d94294f4c49d::t_73ab8a52dec810 3
+internal/postgres/AGENTS.md
+  s_b3d94294f4c49d::t_ce8492b342fb22 3
+internal/postgres/CLAUDE.md
+  s_b3d94294f4c49d::t_9eba80211d54dd 3
+internal/providers/AGENTS.md
+  s_b3d94294f4c49d::t_76d7f6dc237870 3,16,21,51
+internal/proxy/AGENTS.md
+  s_b3d94294f4c49d::t_f0b67bcaff479e 3,21,272,274
+internal/proxy/usage/AGENTS.md
+  s_b3d94294f4c49d::t_88cac1b866c95b 3
+internal/proxy/usage/CLAUDE.md
+  s_b3d94294f4c49d::t_0ab427cf4d1fc7 3
+internal/router/AGENTS.md
+  s_b3d94294f4c49d::t_da97e01232e480 3
+internal/router/CLAUDE.md
+  s_b3d94294f4c49d::t_36c6ad0325b4e7 3
+internal/router/cache/AGENTS.md
+  s_b3d94294f4c49d::t_8b44226ae45c58 3
+internal/router/cache/CLAUDE.md
+  s_b3d94294f4c49d::t_7dd989dfb76e40 3
+internal/router/catalog/AGENTS.md
+  s_b3d94294f4c49d::t_8bd4c58f980f3e 3
+internal/router/catalog/CLAUDE.md
+  s_b3d94294f4c49d::t_9fc3bb027baa44 3
+internal/router/cluster/AGENTS.md
+  s_b3d94294f4c49d::t_e20f9178c17cb3 3,5,62
+internal/router/handover/AGENTS.md
+  s_b3d94294f4c49d::t_2d21fdf4bc86fa 3
+internal/router/handover/CLAUDE.md
+  s_b3d94294f4c49d::t_eee4aaf6cba906 3
+internal/router/planner/AGENTS.md
+  s_b3d94294f4c49d::t_eb13fe168bc51b 3
+internal/router/planner/CLAUDE.md
+  s_b3d94294f4c49d::t_948728c709aebe 3
+internal/router/rl/AGENTS.md
+  s_b3d94294f4c49d::t_89455478ba59c8 3
+internal/router/rl/CLAUDE.md
+  s_b3d94294f4c49d::t_09555521a0755b 3
+internal/router/sessionpin/AGENTS.md
+  s_b3d94294f4c49d::t_d9d5f3d4686daf 3,10
+internal/router/turntype/AGENTS.md
+  s_b3d94294f4c49d::t_06eb04112cae43 3
+internal/router/turntype/CLAUDE.md
+  s_b3d94294f4c49d::t_874f2236e0437c 3
+internal/translate/AGENTS.md
+  s_b3d94294f4c49d::t_12f41c1d73d2c9 3
+internal/translate/CLAUDE.md
+  s_b3d94294f4c49d::t_2c77642a7f038b 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "2da5444ea0ccec9e660e39dcedf4c23d7cd6f153",
+  "prompts": {},
+  "sessions": {
+    "s_b3d94294f4c49d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06974-8166-72a1-9f4f-4775e6d61966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+internal/translate/stream.go
+  s_aa2a97520252c7::t_39c478a02ef9ae 1220-1227
+  s_aa2a97520252c7::t_7ee39a9e188a68 1208-1210
+  s_aa2a97520252c7::t_4e0b958f5fadeb 1292-1293
+internal/translate/tool_args_validation_test.go
+  s_aa2a97520252c7::t_70396625bce2c2 269-270
+  s_aa2a97520252c7::t_0ef202ea925d10 287-296,300-322
+  s_aa2a97520252c7::t_c2555f53275c8e 361-363,365-366,372
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a66ff3cdb7a1d8125f8225d0fb46838ab8538c6a",
+  "prompts": {},
+  "sessions": {
+    "s_aa2a97520252c7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "af47878a-ee8f-4b51-929e-42090287146c",
+        "model": "z-ai/glm-5.3-flash"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

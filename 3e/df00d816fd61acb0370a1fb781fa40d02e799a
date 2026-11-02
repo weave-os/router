@@ -1,0 +1,22 @@
+internal/server/middleware/subscriber_allowance_test.go
+  s_b233fbe4912186::t_f4ba2e98596197 74,86-88,569-585
+  s_b233fbe4912186::t_b8789d3de91a01 586-587
+internal/server/middleware/subscriber_allowance.go
+  s_b233fbe4912186::t_f4ba2e98596197 160
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3edf00d816fd61acb0370a1fb781fa40d02e799a",
+  "prompts": {},
+  "sessions": {
+    "s_b233fbe4912186": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cc16-4a91-72c2-b2a8-e9217a873119",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

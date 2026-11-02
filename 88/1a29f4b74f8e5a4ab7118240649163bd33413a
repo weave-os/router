@@ -1,0 +1,27 @@
+install/install.sh
+  s_7a6983f650cc20::t_399922088a6087 4699
+  s_7a6983f650cc20::t_d7e8e434f24138 213-217,219-222
+  s_7a6983f650cc20::t_a708730a89ff23 218
+  s_7a6983f650cc20::t_aca68754541049 2044
+  s_7a6983f650cc20::t_184f562114ac95 1897-1908
+  s_7a6983f650cc20::t_3cef2158ba8493 3281-3290
+  s_7a6983f650cc20::t_4d79cd01073f3e 3291
+install/tests/subscription_cli_test.sh
+  s_7a6983f650cc20::t_589ee5fd56052f 76-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "881a29f4b74f8e5a4ab7118240649163bd33413a",
+  "prompts": {},
+  "sessions": {
+    "s_7a6983f650cc20": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d33a3a8-6f68-469d-94ea-381659064f80",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}

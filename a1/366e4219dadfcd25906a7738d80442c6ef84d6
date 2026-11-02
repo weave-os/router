@@ -1,0 +1,43 @@
+internal/proxy/command_outcome_internal_test.go
+  s_9787581b6d9509::t_6cae36b8b88698 56
+install/pi-router/test/force-model.test.ts
+  s_9787581b6d9509::t_6cae36b8b88698 236
+internal/proxy/pi_handoff_test.go
+  s_9787581b6d9509::t_0a40c68fae2fd4 255
+  s_9787581b6d9509::t_18deba11b2c80c 129,144,150,240-254,256-263
+internal/translate/tool_acceptance_internal_test.go
+  s_9787581b6d9509::t_6cae36b8b88698 13-14,129
+internal/proxy/loop_detection.go
+  s_9787581b6d9509::t_6cae36b8b88698 167-171,176,190-193
+  s_9787581b6d9509::t_b70a1146a5ec2f 160
+internal/proxy/force_model.go
+  s_9787581b6d9509::t_45c9348b97c630 588,604
+internal/proxy/force_parent_internal_test.go
+  s_9787581b6d9509::t_2c0b1855b0a830 85-146
+internal/proxy/loop_detection_internal_test.go
+  s_9787581b6d9509::t_26aeea5c9fb646 176,196,208,221,232,243,257,271,311,325
+internal/proxy/pi_handoff.go
+  s_9787581b6d9509::t_b47f2d65f9091c 187,196
+internal/proxy/service.go
+  s_9787581b6d9509::t_f56de19a22493d 3869,4001,7060
+internal/proxy/turnloop.go
+  s_9787581b6d9509::t_9d5d56dbbb087d 859
+internal/router/turntype/detect.go
+  s_9787581b6d9509::t_9bb091ff99325b 136,148-156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a1366e4219dadfcd25906a7738d80442c6ef84d6",
+  "prompts": {},
+  "sessions": {
+    "s_9787581b6d9509": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b5c-c4e5-79b0-a71b-d246a7b010df",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
