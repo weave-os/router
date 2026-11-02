@@ -242,7 +242,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				}
 				if attempt.Index > 0 {
 					log.Info("dispatchWithFallback: succeeded on fallback",
-						"model", decision.Model, // codeql[go/clear-text-logging] -- Model names come from routing configuration, not the credential context value.
+						"model", decision.Model,
 						"primary_provider", in.bindings[0].Provider,
 						"final_provider", decision.Provider,
 						"attempt_index", attempt.Index)
@@ -288,7 +288,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				in.buf.Discard()
 			}
 			log.Warn("dispatchWithFallback: retrying with another subscription account",
-				"model", decision.Model, // codeql[go/clear-text-logging] -- Model names come from routing configuration, not the credential context value.
+				"model", decision.Model,
 				"provider", decision.Provider,
 				"account_id", lease.AccountID,
 				"same_binding_retry", account+1,
@@ -356,7 +356,7 @@ func (s *Service) InspectInferencePlan(request policy.InspectionRequest) (policy
 }
 
 func (s *Service) afterSubscriptionRotationBudget(ctx context.Context, decision router.Decision, subscriptionAttempts int, rotationErr error) error {
-	observability.FromContext(ctx).Warn("Subscription admission budget spent; refusing unproven paid recovery", "model", decision.Model, "provider", decision.Provider, "budget_ms", subscriptionRotationBudget.Milliseconds(), "subscription_account_attempt", subscriptionAttempts, "err", rotationErr) // codeql[go/clear-text-logging] -- Model names come from routing configuration, not the credential context value.
+	observability.FromContext(ctx).Warn("Subscription admission budget spent; refusing unproven paid recovery", "model", decision.Model, "provider", decision.Provider, "budget_ms", subscriptionRotationBudget.Milliseconds(), "subscription_account_attempt", subscriptionAttempts, "err", rotationErr)
 	if forcedClaudeClientAppRefused(ctx, decision, nil) {
 		return errors.Join(ErrSubscriptionClientAppRefused, rotationErr)
 	}

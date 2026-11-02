@@ -371,7 +371,7 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 	if provider == providers.ProviderAnthropic && anthropicSubscriptionModelRejected(attemptErr) {
 		s.subscriptionModels.denyManaged("account:"+lease.AccountID, lease.AccountID, provider, model, s.clockNow().Add(subscriptionModelDenialTTL))
 		observability.FromContext(ctx).Warn("Managed subscription account cannot access model",
-			"provider", poolProvider, "account_id", lease.AccountID, "model", model) // codeql[go/clear-text-logging] -- The model name is routing configuration, not the credential context value.
+			"provider", poolProvider, "account_id", lease.AccountID, "model", model)
 		return true
 	}
 	if provider == providers.ProviderAnthropic && anthropicSubscriptionThirdPartyRefused(attemptErr) {
@@ -385,7 +385,7 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 	if provider == providers.ProviderOpenAI && codexSubscriptionModelRejected(attemptErr) {
 		s.subscriptionModels.denyManaged("account:"+lease.AccountID, lease.AccountID, provider, model, s.clockNow().Add(subscriptionModelDenialTTL))
 		observability.FromContext(ctx).Warn("Managed subscription account cannot access model",
-			"provider", poolProvider, "account_id", lease.AccountID, "model", model) // codeql[go/clear-text-logging] -- The model name is routing configuration, not the credential context value.
+			"provider", poolProvider, "account_id", lease.AccountID, "model", model)
 		return true
 	}
 	switch status {

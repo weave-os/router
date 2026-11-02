@@ -69,7 +69,7 @@ func bindRequestLogger(
 	key := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 	log := observability.FromContext(ctx).With(
 		"session_key", shortKey(key),
-		"api_key_id", apiKeyID, // codeql[go/clear-text-logging] -- This is the database row ID, never the bearer token or its hash.
+		"api_key_id", apiKeyID,
 		"ingress", ingress,
 	)
 	// Re-bind request_id only when the caller reached this without passing
