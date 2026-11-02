@@ -140,6 +140,12 @@ func deriveSessionKeyForRequest(ctx context.Context, env *translate.RequestEnvel
 		return claims.SessionKey
 	}
 	key := deriveSessionKey(env, sessionCredentialIdentity(ctx, apiKeyID), clientSessionIDForRequest(ctx, env))
+	if path := codexSubagentPath(ctx); path != "" {
+		// Codex full-history forks inherit both the session ID and the first
+		// user message. Keep their automatic state out of the parent's pin.
+		digest := sha256.Sum256([]byte("codex_agent:" + sessionKeyHex(key) + ":" + path))
+		copy(key[:], digest[:sessionpin.SessionKeyLen])
+	}
 	copy(key[:], requestcontext.ServingStateKey(ctx, key[:]))
 	return key
 }
