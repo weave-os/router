@@ -159,7 +159,11 @@ async def embed_texts_uncached(
     from google.genai import types
 
     transport = resolve_gemini_transport()
-    location = (vertex_location or DEFAULT_VERTEX_LOCATION).strip()
+    location = (
+        vertex_location
+        or os.environ.get("HMM_VERTEX_LOCATION", "").strip()
+        or DEFAULT_VERTEX_LOCATION
+    ).strip()
     project = (
         _vertex_project(vertex_project) if transport is GeminiTransport.VERTEX else ""
     )

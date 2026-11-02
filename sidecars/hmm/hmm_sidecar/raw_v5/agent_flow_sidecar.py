@@ -244,7 +244,7 @@ class AgentFlowHMMSidecar:
         self.embedding_wait_for_network = embedding_wait_for_network
         # Only set True by callers that guarantee every infer_turns() call runs
         # on the same persistent event loop for the process lifetime (the HMM
-        # sidecar's server.py, via ml_dev.hmm_router.async_runner). Any caller
+        # sidecar's server.py, via its async runner). Any caller
         # that runs its own event loop per call (offline scripts like
         # promote_prod.py, build_feedback_dataset.py, router_proxy.py) MUST
         # leave this False — see the _CLIENT_CACHE comment in
