@@ -832,6 +832,7 @@ func (s *Service) applyForceModelCommand(
 			return "", commandAcknowledgment{}, err
 		}
 		ack.outcome.Pin.Transition = translate.PinCleared
+		s.recordAgreementShadowCommandBoundary(ctx, installationID, threadSessionKey, ack.outcome.ID)
 		log.Debug("/unforce-model: session pin cleared",
 			"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 			"role", forceModelSessionRole,
@@ -887,6 +888,7 @@ func (s *Service) applyForceModelCommand(
 		shownModel = canonicalModel + ":" + effortLevel
 	}
 	ack.outcome.Pin = translate.CommandPin{Transition: translate.PinApplied, Model: canonicalModel, Provider: binding, Effort: effortLevel}
+	s.recordAgreementShadowCommandBoundary(ctx, installationID, threadSessionKey, ack.outcome.ID)
 	ack.force.clearCommand = directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "unforce-model"
 	ack.force.parentOnly = cmd.ParentOnly
 	log.Debug("/"+command+": session pin set",

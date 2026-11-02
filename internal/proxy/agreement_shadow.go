@@ -9,8 +9,11 @@ import (
 	"math"
 	"net/http"
 	"slices"
+	"time"
 
+	"github.com/google/uuid"
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -48,18 +51,18 @@ func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams
 	epoch := flags.IntOr(ctx, flags.KeyAgreementShadowEpoch, 0)
 	stateKey := append([]byte(nil), requestcontext.ServingStateKey(ctx, p.SessionKey)...)
 	stateKey = binary.BigEndian.AppendUint64(stateKey, uint64(epoch))
-	input := &agreementShadowInput{
+	shadow := &agreementShadowInput{
 		Epoch:       epoch,
 		Key:         switchpolicy.ShadowKey{InstallationID: p.InstallationID, SessionKey: stateKey, Role: role},
 		Observation: switchpolicy.ShadowObservation{RequestID: p.RequestID, StartedAt: p.Timestamp, Gap: switchpolicy.ShadowGapUnsupported},
 	}
-	p.agreementShadow = input
+	p.agreementShadow = shadow
 	if !res.AuthoritativePerTurn || !isHMMDecision(res.Fresh) || res.HardPinned || res.ForcedPinDropped || res.PolicyFallback || res.CallerModelPassthrough || res.UsageBypass || escalationRoutingApplied(res.Fresh) {
 		return
 	}
 	md := res.Fresh.Metadata
 	if md == nil || md.SelectionTrace == nil || md.ClassifierArtifactSHA256 == "" || md.SelectionPolicySHA256 == "" {
-		input.Observation.Gap = switchpolicy.ShadowGapMissing
+		shadow.Observation.Gap = switchpolicy.ShadowGapMissing
 		return
 	}
 	trace := md.SelectionTrace
@@ -69,13 +72,13 @@ func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams
 	selectedBase, _ := armid.SplitEffort(trace.SelectedArm)
 	selectedModel := armid.CatalogIDForRoster(selectedBase)
 	if selectedModel != res.Fresh.Model || md.CandidateProviders[selectedModel] != res.Fresh.Provider {
-		input.Observation.Gap = switchpolicy.ShadowGapMissing
+		shadow.Observation.Gap = switchpolicy.ShadowGapMissing
 		return
 	}
 	group := escalation.Group(md.ClassifierPredictedLabel)
 	confidence, scored := md.ClassifierProbabilities[string(group)]
 	if escalation.Rank(group) < 0 || !scored || math.IsNaN(confidence) || math.IsInf(confidence, 0) || confidence < 0 || confidence > 1 {
-		input.Observation.Gap = switchpolicy.ShadowGapMissing
+		shadow.Observation.Gap = switchpolicy.ShadowGapMissing
 		return
 	}
 	for _, arm := range trace.EffectiveOrders[string(group)] {
@@ -89,24 +92,24 @@ func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams
 			continue
 		}
 		if trace.SelectedGroup == string(group) && (res.Fresh.Model != model || res.Fresh.Provider != provider) {
-			input.Observation.Gap = switchpolicy.ShadowGapMissing
+			shadow.Observation.Gap = switchpolicy.ShadowGapMissing
 			return
 		}
 		if trace.SelectedGroup != string(group) && trace.OverrideReason != router.SelectionOverrideSlidingThreshold {
-			input.Observation.Gap = switchpolicy.ShadowGapMissing
+			shadow.Observation.Gap = switchpolicy.ShadowGapMissing
 			return
 		}
-		input.Observation.Proposal = switchpolicy.Selection{Target: switchpolicy.Target{Provider: provider, Model: model}, Group: group}
-		input.Observation.Confidence = confidence
-		input.Observation.PolicyIdentity = string(switchpolicy.VersionAgreementV1) + ":" + md.Strategy + ":" + md.ClassifierArtifactSHA256 + ":" + md.SelectionPolicySHA256 + ":" + md.RosterVersion
-		input.Observation.LivePin = switchpolicy.Selection{Target: switchpolicy.Target{Provider: res.PinProvider, Model: res.PinModel}, Group: escalation.Group(res.PinPolicyGroup)}
+		shadow.Observation.Proposal = switchpolicy.Selection{Target: switchpolicy.Target{Provider: provider, Model: model}, Group: group}
+		shadow.Observation.Confidence = confidence
+		shadow.Observation.PolicyIdentity = string(switchpolicy.VersionAgreementV1) + ":" + md.Strategy + ":" + md.ClassifierArtifactSHA256 + ":" + md.SelectionPolicySHA256 + ":" + md.RosterVersion
+		shadow.Observation.LivePin = switchpolicy.Selection{Target: switchpolicy.Target{Provider: res.PinProvider, Model: res.PinModel}, Group: escalation.Group(res.PinPolicyGroup)}
 		for model, provider := range md.CandidateProviders {
-			input.Observation.Eligible = append(input.Observation.Eligible, switchpolicy.Target{Provider: provider, Model: model})
+			shadow.Observation.Eligible = append(shadow.Observation.Eligible, switchpolicy.Target{Provider: provider, Model: model})
 		}
-		input.Observation.Gap = switchpolicy.ShadowGapNone
+		shadow.Observation.Gap = switchpolicy.ShadowGapNone
 		return
 	}
-	input.Observation.Gap = switchpolicy.ShadowGapMissing
+	shadow.Observation.Gap = switchpolicy.ShadowGapMissing
 }
 
 func (s *Service) recordAgreementShadow(ctx context.Context, log *slog.Logger, p InsertTelemetryParams) {
@@ -118,20 +121,20 @@ func (s *Service) recordAgreementShadow(ctx context.Context, log *slog.Logger, p
 		log.Warn("Agreement shadow store is unavailable", "installation_id", p.InstallationID)
 		return
 	}
-	input := *p.agreementShadow
-	if p.UpstreamStatusCode != http.StatusOK || p.ErrorClass != "" || (p.FailoverAttempted != nil && *p.FailoverAttempted) || (p.FailoverUsed != nil && *p.FailoverUsed) {
-		input.Observation.Gap = switchpolicy.ShadowGapFailure
+	shadow := *p.agreementShadow
+	if agreementShadowTransportFailed(p) {
+		shadow.Observation.Gap = switchpolicy.ShadowGapFailure
 	}
-	outcome, err := advanceAgreementShadow(ctx, store, input.Key, input.Observation)
+	outcome, err := advanceAgreementShadow(ctx, store, shadow.Key, shadow.Observation)
 	if err != nil {
-		log.Warn("Agreement shadow update failed", "installation_id", p.InstallationID, "shadow_session_key", hex.EncodeToString(input.Key.SessionKey), "role", input.Key.Role, "err", err)
+		log.Warn("Agreement shadow update failed", "installation_id", p.InstallationID, "shadow_session_key", hex.EncodeToString(shadow.Key.SessionKey), "role", shadow.Key.Role, "err", err)
 		return
 	}
-	log = log.With("installation_id", p.InstallationID, "shadow_session_key", hex.EncodeToString(input.Key.SessionKey), "role", input.Key.Role, "experiment_epoch", input.Epoch,
+	log = log.With("installation_id", p.InstallationID, "shadow_session_key", hex.EncodeToString(shadow.Key.SessionKey), "role", shadow.Key.Role, "experiment_epoch", shadow.Epoch,
 		"segment_id", outcome.SegmentID, "invalidated_segment", outcome.InvalidatedSegment, "gap", outcome.Gap,
-		"live_model", p.DecisionModel, "live_provider", p.DecisionProvider, "started_segment", outcome.StartedSegment, "seeded_from_live_pin", outcome.SeededFromLivePin,
-		"policy_identity", input.Observation.PolicyIdentity, "serving_release_id", p.ServingReleaseID, "serving_binding_id", p.ServingBindingID,
-		"request_started_at", input.Observation.StartedAt)
+		"live_model", p.DecisionModel, "live_provider", p.DecisionProvider, "live_error_class", p.ErrorClass, "started_segment", outcome.StartedSegment, "seeded_from_live_pin", outcome.SeededFromLivePin,
+		"policy_identity", shadow.Observation.PolicyIdentity, "serving_release_id", p.ServingReleaseID, "serving_binding_id", p.ServingBindingID,
+		"request_started_at", shadow.Observation.StartedAt)
 	if outcome.Gap != switchpolicy.ShadowGapNone || outcome.Duplicate {
 		log.Info("router.agreement_shadow.gap", "duplicate", outcome.Duplicate)
 	}
@@ -143,10 +146,40 @@ func (s *Service) recordAgreementShadow(ctx context.Context, log *slog.Logger, p
 			"minimum_confidence", decision.Next.Config.MinimumConfidence,
 			"model", decision.Next.Current.Target.Model, "provider", decision.Next.Current.Target.Provider,
 			"group", decision.Next.Current.Group, "direction", decision.Direction, "state_revision", decision.Next.Revision,
-			"proposal_model", input.Observation.Proposal.Target.Model, "proposal_provider", input.Observation.Proposal.Target.Provider,
-			"proposal_group", input.Observation.Proposal.Group, "confidence", input.Observation.Confidence,
+			"proposal_model", shadow.Observation.Proposal.Target.Model, "proposal_provider", shadow.Observation.Proposal.Target.Provider,
+			"proposal_group", shadow.Observation.Proposal.Group, "confidence", shadow.Observation.Confidence,
 			"votes", decision.Votes, "reason", decision.Reason, "override", decision.Override, "shadow_switched", decision.Switched,
 			"differs_from_live", decision.Next.Current.Target.Model != p.DecisionModel || decision.Next.Current.Target.Provider != p.DecisionProvider)
+	}
+}
+
+func agreementShadowTransportFailed(p InsertTelemetryParams) bool {
+	if p.UpstreamStatusCode != http.StatusOK || (p.FailoverAttempted != nil && *p.FailoverAttempted) || (p.FailoverUsed != nil && *p.FailoverUsed) {
+		return true
+	}
+	switch p.ErrorClass {
+	case "", TurnErrorMaxTokens, TurnErrorRefusal, TurnErrorInvalidToolArgs:
+		return false
+	default:
+		return true
+	}
+}
+
+// Successful pin commands have no upstream telemetry. Commit their boundary
+// before acknowledgement so an immediate tool-result cannot reuse old votes.
+func (s *Service) recordAgreementShadowCommandBoundary(ctx context.Context, installationID uuid.UUID, threadKey [sessionpin.SessionKeyLen]byte, commandID string) {
+	if !agreementShadowEnabled(ctx) || installationID == uuid.Nil || s.pinStore == nil {
+		return
+	}
+	boundaryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	startedAt := time.Now()
+	log := observability.FromContext(ctx).With("command_outcome_id", commandID)
+	for _, role := range forceModelClearRoles() {
+		p := InsertTelemetryParams{InstallationID: installationID.String(), RequestID: commandID, Timestamp: startedAt,
+			SessionKey: threadKey[:], Role: role, TurnType: string(turntype.MainLoop), UpstreamStatusCode: http.StatusOK}
+		applyAgreementShadowTelemetry(ctx, &p, turnLoopResult{})
+		s.recordAgreementShadow(boundaryCtx, log, p)
 	}
 }
 

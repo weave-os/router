@@ -184,13 +184,22 @@ incumbent absent from the current eligible targets is replaced immediately with
 the typed incumbent-ineligible exception.
 
 Processing runs asynchronously after terminal response telemetry, which gives
-the actual served model and failover outcome. Failures/rescues, manual/compaction
+the actual served model and failover outcome. Transport failures/rescues, manual/compaction
 interventions, unavailable classification evidence, and unsupported paths break
 the segment. Request-start timestamps detect out-of-order completions across
 workers: these invalidate the old segment rather than manufacturing consecutive
 votes. Such overlaps can reduce comparison coverage substantially. Shadow-store
 errors log diagnostics and never change a response or prevent baseline telemetry
 from being attempted. Idle state is removed by the hourly sweep after seven days.
+
+Completed HTTP 200 turns retain their classifier evidence even when telemetry
+labels their output `max_tokens`, refusal, or invalid tool arguments. Those quality
+labels remain on the comparison log; they are not transport failures. Successful
+force/unforce commands record an unsupported-turn boundary for the affected
+thread's pin roles after pin persistence and before acknowledgement, under a
+shared two-second best-effort budget. This prevents an immediate tool-result
+continuation from joining pre-command votes. Shadow errors do not reject the
+command, and failed or rejected commands do not record a successful boundary.
 
 Activation is a separate operational action: apply the table migration before
 deploying the binary, then explicitly select a fresh positive epoch for an internal installation
