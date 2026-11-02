@@ -89,6 +89,10 @@ type Decision struct {
 	// Actual* price the served turn; counterfactual not exported — consumers reprice via RequestedModel + /v1/analytics/models.
 	ActualInputCostUSD  *float64 `json:"actual_input_cost_usd"`
 	ActualOutputCostUSD *float64 `json:"actual_output_cost_usd"`
+	// APIRate* price the served turn at API rates even when SubscriptionServed, so
+	// evaluations can compare model usage cost regardless of who paid for it.
+	APIRateInputCostUSD  *float64 `json:"api_rate_input_cost_usd"`
+	APIRateOutputCostUSD *float64 `json:"api_rate_output_cost_usd"`
 
 	RouteLatencyMs           *int64  `json:"route_latency_ms"`
 	UpstreamLatencyMs        *int64  `json:"upstream_latency_ms"`

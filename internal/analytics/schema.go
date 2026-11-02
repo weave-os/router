@@ -77,6 +77,8 @@ func Schema() []Field {
 		{"final_model_family", "string", true, "Canonical family that served the request."},
 		{"actual_input_cost_usd", "float", true, "Input cost of the model that actually served the turn. 0 when subscription_served."},
 		{"actual_output_cost_usd", "float", true, "Output cost of the model that actually served the turn. 0 when subscription_served."},
+		{"api_rate_input_cost_usd", "float", true, "Input cost of the served turn at API rates. Equals actual_input_cost_usd unless subscription_served."},
+		{"api_rate_output_cost_usd", "float", true, "Output cost of the served turn at API rates. Equals actual_output_cost_usd unless subscription_served."},
 		{"route_latency_ms", "integer", true, "Time spent choosing a model."},
 		{"upstream_latency_ms", "integer", true, "Time spent waiting on the upstream provider."},
 		{"total_latency_ms", "integer", true, "End-to-end time for the action."},
