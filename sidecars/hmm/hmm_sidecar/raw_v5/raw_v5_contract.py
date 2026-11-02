@@ -45,7 +45,9 @@ class RawFeatureMatrix(StrEnum):
 
 RAW_V5_ROUTER_SEQUENCE_LAYOUT = "raw_agent_flow_v5_user_agent_v1"
 RAW_V5_ROUTER_STATE_DEFINITION = "hmm-router-raw-agent-flow-v5-user-agent-v1"
-RAW_V5_ROUTER_SERIALIZER_VERSION = "hmm_router_raw_agent_flow_v5_user_agent_serializer_v1"
+RAW_V5_ROUTER_SERIALIZER_VERSION = (
+    "hmm_router_raw_agent_flow_v5_user_agent_serializer_v1"
+)
 RAW_V5_AGENT_RESPONSE_CHRONOLOGY_CONTRACT_VERSION: Literal[
     "raw_v5_agent_response_chronology_v1"
 ] = "raw_v5_agent_response_chronology_v1"
@@ -88,15 +90,9 @@ RAW_V5_VOYAGE_TURN_WINDOW_DOCUMENT_SCHEMA_VERSION = (
 RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS = 1
 RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS = 2
 RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS = 10
-RAW_V5_VOYAGE_ONE_TURN_STATE_DEFINITION = (
-    "hmm-router-raw-v5-voyage-4-large-one-turn-v1"
-)
-RAW_V5_VOYAGE_TWO_TURN_STATE_DEFINITION = (
-    "hmm-router-raw-v5-voyage-4-large-two-turn-v1"
-)
-RAW_V5_VOYAGE_TEN_TURN_STATE_DEFINITION = (
-    "hmm-router-raw-v5-voyage-4-large-10-turn-v1"
-)
+RAW_V5_VOYAGE_ONE_TURN_STATE_DEFINITION = "hmm-router-raw-v5-voyage-4-large-one-turn-v1"
+RAW_V5_VOYAGE_TWO_TURN_STATE_DEFINITION = "hmm-router-raw-v5-voyage-4-large-two-turn-v1"
+RAW_V5_VOYAGE_TEN_TURN_STATE_DEFINITION = "hmm-router-raw-v5-voyage-4-large-10-turn-v1"
 RAW_V5_VOYAGE_ONE_TURN_SERIALIZER_VERSION = (
     "hmm_router_raw_v5_voyage_one_turn_serializer_v2"
 )
@@ -183,12 +179,8 @@ RAW_V5_PREVIOUS_ELEMENT_DOCUMENT_SCHEMA_VERSION = (
 QWEN_RAW_V5_TEXT_REPRESENTATION = "raw-v5-text-v3"
 QWEN_RAW_V5_TEXT_LEGACY_REPRESENTATION = "raw-v5-text-v1"
 QWEN_RAW_V5_TEXT_INPUT_SLUG = "qwen3.5-9b-raw-v5-text-v3"
-QWEN_RAW_V5_TEXT_INPUT_SCHEMA_VERSION = (
-    "hmm_router_qwen_raw_v5_text_input_contract_v3"
-)
-QWEN_RAW_V5_TEXT_CORPUS_SCHEMA_VERSION = (
-    "hmm_router_raw_v5_text_sequence_corpus_v3"
-)
+QWEN_RAW_V5_TEXT_INPUT_SCHEMA_VERSION = "hmm_router_qwen_raw_v5_text_input_contract_v3"
+QWEN_RAW_V5_TEXT_CORPUS_SCHEMA_VERSION = "hmm_router_raw_v5_text_sequence_corpus_v3"
 QWEN_RAW_V5_TEXT_TARGETS_SCHEMA_VERSION = (
     "hmm_router_complexity_raw_v5_text_sequence_targets_v3"
 )
@@ -612,8 +604,8 @@ def raw_v5_gemini_user_agent_only_model_input_contract(
     compaction artifact are neither required nor consulted.
     """
 
-    state_definition, serializer_version = (
-        _raw_v5_gemini_user_agent_only_constants(max_turns)
+    state_definition, serializer_version = _raw_v5_gemini_user_agent_only_constants(
+        max_turns
     )
     has_completed_history = max_turns > RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS
     return {
@@ -638,9 +630,7 @@ def raw_v5_gemini_user_agent_only_model_input_contract(
             "maximum_completed_prior_turns": max_turns - 1,
             **(
                 {
-                    "completed_turn": (
-                        "paired_raw_user_and_raw_agent_response_blocks"
-                    ),
+                    "completed_turn": ("paired_raw_user_and_raw_agent_response_blocks"),
                     "ordering": "oldest_completed_turn_to_current_partial_turn",
                 }
                 if has_completed_history
@@ -817,9 +807,7 @@ def raw_v5_gemini_user_agent_only_last_state_model_input_contract() -> (
             "maximum_serialized_bytes": RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_BYTES,
             "assumed_token_budget": RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS,
             "provider_maximum_input_tokens": 8_192,
-            "scope": (
-                "raw_v5_gemini_embedding_2_user_agent_only_last_state_documents"
-            ),
+            "scope": ("raw_v5_gemini_embedding_2_user_agent_only_last_state_documents"),
             "window_overflow": "drop_previous_element_before_truncating_current",
             "current_turn_overflow": (
                 "retain_utf8_prefixes_of_current_and_available_previous_fields"
@@ -873,23 +861,17 @@ RAW_V5_VOYAGE_TEN_TURN_INPUT_CONTRACT_SHA256 = hashlib.sha256(
 ).hexdigest()
 RAW_V5_GEMINI_ONE_TURN_INPUT_CONTRACT_SHA256 = hashlib.sha256(
     canonical_json(
-        raw_v5_gemini_turn_window_model_input_contract(
-            RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS
-        )
+        raw_v5_gemini_turn_window_model_input_contract(RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS)
     ).encode("utf-8")
 ).hexdigest()
 RAW_V5_GEMINI_TWO_TURN_INPUT_CONTRACT_SHA256 = hashlib.sha256(
     canonical_json(
-        raw_v5_gemini_turn_window_model_input_contract(
-            RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS
-        )
+        raw_v5_gemini_turn_window_model_input_contract(RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS)
     ).encode("utf-8")
 ).hexdigest()
 RAW_V5_GEMINI_TEN_TURN_INPUT_CONTRACT_SHA256 = hashlib.sha256(
     canonical_json(
-        raw_v5_gemini_turn_window_model_input_contract(
-            RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS
-        )
+        raw_v5_gemini_turn_window_model_input_contract(RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS)
     ).encode("utf-8")
 ).hexdigest()
 RAW_V5_GEMINI_USER_AGENT_ONLY_INPUT_CONTRACT_SHA256 = hashlib.sha256(
@@ -970,9 +952,7 @@ def raw_v5_feedback_sequence_contract() -> dict[str, object]:
             RAW_V5_ROUTER_SEQUENCE_CONTRACT_SHA256
         ),
         "model_input_projection": raw_v5_voyage_element_model_input_contract(),
-        "model_input_projection_sha256": (
-            RAW_V5_VOYAGE_ELEMENT_INPUT_CONTRACT_SHA256
-        ),
+        "model_input_projection_sha256": (RAW_V5_VOYAGE_ELEMENT_INPUT_CONTRACT_SHA256),
         "projection": {
             "user_element": "exact_raw_route_context_v6.conversation_messages user text",
             "agent_element": (

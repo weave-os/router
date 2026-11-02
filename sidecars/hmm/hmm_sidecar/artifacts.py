@@ -212,7 +212,10 @@ def _verify_files(root: Path, files: dict[str, str]) -> None:
 
 def _raw_v5_files(manifest: dict[str, Any]) -> dict[str, str]:
     files: dict[str, str] = {}
-    for directory, field in (("classifier", "classifier_files"), ("hmm_bundle", "hmm_bundle_files")):
+    for directory, field in (
+        ("classifier", "classifier_files"),
+        ("hmm_bundle", "hmm_bundle_files"),
+    ):
         entries = manifest.get(field)
         if not isinstance(entries, dict) or not entries:
             raise ValueError(f"raw-V5 package manifest lacks {field}")

@@ -414,11 +414,9 @@ def _raw_v5_window_turns(
             "raw V5 live sequence must end at one causal user boundary"
         )
     for offset in range(0, len(source_turns) - 1, 2):
-        if (
-            source_turns[offset].categorical != user_categorical()
-            or source_turns[offset + 1].categorical
-            != kind_categorical(AGENT_ELEMENT)
-        ):
+        if source_turns[offset].categorical != user_categorical() or source_turns[
+            offset + 1
+        ].categorical != kind_categorical(AGENT_ELEMENT):
             raise RawV5SequenceError(
                 "raw V5 live sequence requires alternating user/agent turns"
             )
@@ -525,9 +523,11 @@ def _finalize_raw_v5_live_turns(
         "hmm_embedding_document_policy": (
             FROZEN_RAW_V5_DOCUMENT_POLICY
             if frozen
-            else RAW_V5_GEMINI_DOCUMENT_POLICY
-            if gemini
-            else RAW_V5_VOYAGE_TWO_TURN_DOCUMENT_POLICY
+            else (
+                RAW_V5_GEMINI_DOCUMENT_POLICY
+                if gemini
+                else RAW_V5_VOYAGE_TWO_TURN_DOCUMENT_POLICY
+            )
         ),
         "hmm_embedding_document_serializer_version": (
             profile.document_serializer_version
@@ -535,14 +535,10 @@ def _finalize_raw_v5_live_turns(
         "hmm_embedding_document_byte_limit": (
             RAW_V5_GEMINI_EMBEDDING_2_MAX_SERIALIZED_BYTES
             if frozen and gemini
-            else RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_BYTES
-            if gemini
-            else None
+            else RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_BYTES if gemini else None
         ),
         "hmm_embedding_document_token_limit": (
-            None
-            if frozen or gemini
-            else RAW_V5_ROUTER_MAX_INPUT_TOKENS
+            None if frozen or gemini else RAW_V5_ROUTER_MAX_INPUT_TOKENS
         ),
         "hmm_embedding_document_assumed_token_budget": (
             RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS
@@ -552,9 +548,11 @@ def _finalize_raw_v5_live_turns(
         "hmm_embedding_input_truncation": (
             "raw_v5_contractual_structural_normalization"
             if frozen
-            else "raw_v5_contractual_byte_budget"
-            if gemini
-            else "raw_v5_contractual_token_budget"
+            else (
+                "raw_v5_contractual_byte_budget"
+                if gemini
+                else "raw_v5_contractual_token_budget"
+            )
         ),
         "hmm_embedding_documents_bounded": 0,
         "hmm_embedding_source_max_bytes": max(sizes),
@@ -621,7 +619,9 @@ def conversation_sequence_turns(
                 _raw_v5_window_turns(
                     [
                         LiveFlowTurn(
-                            turn_text=_raw_v5_user_document(first_turn_index, fallback_text),
+                            turn_text=_raw_v5_user_document(
+                                first_turn_index, fallback_text
+                            ),
                             categorical=user_categorical(),
                         )
                     ],
@@ -811,8 +811,7 @@ def conversation_sequence_turns(
             pending_user_canonical_turn = {
                 "user_request": (
                     full_text
-                    if preserve_full_canonical_data
-                    or raw_v5_documents
+                    if preserve_full_canonical_data or raw_v5_documents
                     else bound_text(
                         full_text,
                         limit=MAX_LIVE_USER_REQUEST_CHARS,
@@ -820,8 +819,7 @@ def conversation_sequence_turns(
                 ),
                 "user_intent": (
                     full_text
-                    if preserve_full_canonical_data
-                    or raw_v5_documents
+                    if preserve_full_canonical_data or raw_v5_documents
                     else bound_text(
                         full_text,
                         limit=MAX_LIVE_USER_INTENT_CHARS,
@@ -829,8 +827,7 @@ def conversation_sequence_turns(
                 ),
                 "context_supplied": (
                     [clean_text(line) for line in context_lines if clean_text(line)]
-                    if preserve_full_canonical_data
-                    or raw_v5_documents
+                    if preserve_full_canonical_data or raw_v5_documents
                     else bound_recent_context(context_lines)
                 ),
             }
@@ -840,8 +837,7 @@ def conversation_sequence_turns(
             message_groups = message_tool_groups(
                 raw_message,
                 preserve_full_canonical_data=(
-                    preserve_full_canonical_data
-                    or raw_v5_documents
+                    preserve_full_canonical_data or raw_v5_documents
                 ),
             )
             if pending_user_turn_index is not None and (text or message_groups):
@@ -861,8 +857,7 @@ def conversation_sequence_turns(
                 if not agent_goal:
                     agent_goal = (
                         cleaned
-                        if preserve_full_canonical_data
-                        or raw_v5_documents
+                        if preserve_full_canonical_data or raw_v5_documents
                         else bound_text(
                             cleaned,
                             limit=MAX_LIVE_AGENT_TEXT_CHARS,
@@ -870,8 +865,7 @@ def conversation_sequence_turns(
                     )
                 agent_last_text = (
                     cleaned
-                    if preserve_full_canonical_data
-                    or raw_v5_documents
+                    if preserve_full_canonical_data or raw_v5_documents
                     else bound_text(
                         cleaned,
                         limit=MAX_LIVE_AGENT_TEXT_CHARS,
@@ -882,8 +876,7 @@ def conversation_sequence_turns(
                         f"Agent step {current_agent_step_count}: "
                         + (
                             cleaned
-                            if preserve_full_canonical_data
-                            or raw_v5_documents
+                            if preserve_full_canonical_data or raw_v5_documents
                             else bound_text(
                                 cleaned,
                                 limit=MAX_LIVE_AGENT_TEXT_CHARS,
@@ -960,7 +953,9 @@ def conversation_sequence_turns(
                 _raw_v5_window_turns(
                     [
                         LiveFlowTurn(
-                            turn_text=_raw_v5_user_document(first_turn_index, fallback_text),
+                            turn_text=_raw_v5_user_document(
+                                first_turn_index, fallback_text
+                            ),
                             categorical=user_categorical(),
                         )
                     ],
@@ -1055,10 +1050,6 @@ RAW_V5_VOYAGE_TWO_TURN_SERVING_PROFILE = frozen_raw_v5_serving_profile(
 )
 
 
-
-
-
-
 def raw_v5_live_sequence_turns(
     messages: Any,
     *,
@@ -1098,8 +1089,7 @@ def raw_v5_live_sequence_turns(
             role = message.get("role")
             if (
                 not isinstance(role, str)
-                or role.strip().lower()
-                not in _RAW_V5_ROUTE_MESSAGE_ROLE_VALUES
+                or role.strip().lower() not in _RAW_V5_ROUTE_MESSAGE_ROLE_VALUES
             ):
                 raise RawV5SequenceError(
                     "raw V5 live conversation message has an invalid role: "

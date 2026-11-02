@@ -9,9 +9,7 @@ from typing import Any, Generic, Literal, TypeVar
 from pydantic import BaseModel
 
 Role = Literal["user", "agent"]
-ConversationOutcome = Literal[
-    "completed", "abandoned", "blocked", "ongoing"
-]
+ConversationOutcome = Literal["completed", "abandoned", "blocked", "ongoing"]
 GoalCategory = Literal[
     "fix_pr_review_comments",
     "bug_fix",

@@ -81,7 +81,11 @@ LEGACY_FIVE_CLASS_COMPLEXITY_CLASSES: tuple[str, ...] = (
 
 SUPPORTED_COMPLEXITY_CLASSES: tuple[str, ...] = tuple(
     dict.fromkeys(
-        (*COMPLEXITY_CLASSES, *LEGACY_FOUR_CLASS_COMPLEXITY_CLASSES, LEGACY_EXPLORE_LABEL)
+        (
+            *COMPLEXITY_CLASSES,
+            *LEGACY_FOUR_CLASS_COMPLEXITY_CLASSES,
+            LEGACY_EXPLORE_LABEL,
+        )
     )
 )
 
@@ -145,6 +149,7 @@ def router_training_target_taxonomy_for_classes(
 ) -> RouterTrainingTargetTaxonomy:
     raise NotImplementedError("not on the classifier serving path")
 
+
 LEGACY_COMPLEXITY_LABEL_ALIASES: dict[str, str] = {
     LEGACY_FAST_LABEL: LOW_LABEL,
     LEGACY_EXPLORE_LABEL: LOW_LABEL,
@@ -162,6 +167,7 @@ COMPLEXITY_DISPLAY_LABELS: dict[str, str] = {
     HIGH_LABEL: HIGH_LABEL,
     MAXIMUM_LABEL: MAXIMUM_LABEL,
 }
+
 
 # Session-scoped router modes (`/router-mode`). Each maps a set of canonical
 # classes to clamp toward a single destination class. `AUTO` is the default

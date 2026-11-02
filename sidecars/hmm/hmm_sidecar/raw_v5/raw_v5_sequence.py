@@ -47,7 +47,6 @@ from hmm_sidecar.raw_v5.raw_v5_contract import (
 )
 from hmm_sidecar.raw_v5 import gemini_tokens
 
-
 RAW_V5_ROUTER_NO_RESPONSE_MARKER = "No agent response blocks recorded."
 RAW_V5_ROUTER_NO_TOOL_TRACE_MARKER = "No tool calls recorded."
 
@@ -110,7 +109,11 @@ def format_raw_v5_router_agent_response_only_document(
     nor inspect.
     """
 
-    if isinstance(turn_index, bool) or not isinstance(turn_index, int) or turn_index < 0:
+    if (
+        isinstance(turn_index, bool)
+        or not isinstance(turn_index, int)
+        or turn_index < 0
+    ):
         raise RawV5SequenceError(
             "raw V5 user-agent-only agent document has an invalid turn index"
         )
@@ -383,7 +386,9 @@ def _raw_v5_turn_window_model_conversation_sequence(
     label_index_for: Callable[[object], int | None],
     max_turns: int,
     document_builder: Callable[..., str],
-    source_sequence_builder: Callable[..., list[SequenceElement]] = raw_v5_conversation_sequence,
+    source_sequence_builder: Callable[
+        ..., list[SequenceElement]
+    ] = raw_v5_conversation_sequence,
 ) -> list[SequenceElement]:
     raise NotImplementedError("not on the classifier serving path")
 

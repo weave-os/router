@@ -28,7 +28,6 @@ from hmm_sidecar.raw_v5.raw_v5_contract import (
     RAW_V5_MODEL_INPUT_STRUCTURED_LITERAL_MIN_CHARS,
 )
 
-
 _STRUCTURED_MARKER = "__workweave_structured_excerpt_v1__"
 _LOSSLESS_STRUCTURED_MARKER = "__workweave_structured_compaction_v1__"
 _TABLE_MARKER = "__workweave_table_v1__"

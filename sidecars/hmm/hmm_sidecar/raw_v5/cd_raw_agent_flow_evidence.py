@@ -23,7 +23,6 @@ from hmm_sidecar.raw_v5.cd_schemas import (
     ToolActionTraceCompaction,
 )
 
-
 RAW_AGENT_FLOW_TURN_EVIDENCE_SCHEMA_VERSION: Final = "agent_flow_raw_turn_evidence_v1"
 RAW_AGENT_FLOW_TURN_EVIDENCE_PREFIX: Final = "Raw Agent Flow turn evidence:\n"
 TOOL_ACTION_TRACE_SCHEMA_VERSION: Final = "tool_action_trace_v1"

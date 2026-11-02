@@ -191,11 +191,17 @@ class RawV5InteractionStateGeometry(BaseModel):
 
     @model_validator(mode="after")
     def _consistent_lookback(self) -> Self:
-        if self.user_pca_dim <= 0 or self.agent_pca_dim <= 0 or self.element_lookback_rounds < 1:
+        if (
+            self.user_pca_dim <= 0
+            or self.agent_pca_dim <= 0
+            or self.element_lookback_rounds < 1
+        ):
             raise ValueError(
                 "interaction-state geometry needs positive per-role PCA widths and lookback rounds"
             )
-        if (self.element_lookback_source is None) != (self.element_lookback_rounds == 1):
+        if (self.element_lookback_source is None) != (
+            self.element_lookback_rounds == 1
+        ):
             raise ValueError(
                 "an element_lookback source is declared exactly when the lookback spans earlier rounds"
             )
@@ -416,7 +422,9 @@ def _voyage_user_agent_only_profile(
         document_serializer_sha256=encoder.serializer_sha256,
         raw_feature_matrix=RawFeatureMatrix.VOYAGE_ELEMENT_KIND_SLOTS_V2,
         hmm_training_contract_version=RawV5HMMTrainingContractVersion.VOYAGE_V2,
-        _model_input_contract=lambda: raw_v5_voyage_user_agent_only_model_input_contract(max_turns),
+        _model_input_contract=lambda: raw_v5_voyage_user_agent_only_model_input_contract(
+            max_turns
+        ),
     )
 
 
@@ -476,13 +484,11 @@ _PROFILES: tuple[RawV5ServingProfile, ...] = (
     ),
     *(_voyage_turn_window_profile(turns) for turns in _SUPPORTED_LOOKBACK_ROUNDS),
     *(_gemini_turn_window_profile(turns) for turns in _SUPPORTED_LOOKBACK_ROUNDS),
-    *(
-        _gemini_user_agent_only_profile(turns)
-        for turns in _SUPPORTED_LOOKBACK_ROUNDS
-    ),
+    *(_gemini_user_agent_only_profile(turns) for turns in _SUPPORTED_LOOKBACK_ROUNDS),
     _GEMINI_USER_AGENT_ONLY_LAST_STATE_PROFILE,
     _GEMINI_ELEMENT_PROFILE,
 )
+
 
 # The Gemini user/agent-only candidates fit before the raw HMM matrix dropped
 # its relative-position column (#12323) share every document and encoder
@@ -548,9 +554,9 @@ _ARTIFACT_PROFILES: tuple[RawV5ServingProfile, ...] = (
 _PROFILES_BY_CONFIG: Mapping[RawV5ServingConfig, RawV5ServingProfile] = {
     profile.config: profile for profile in _PROFILES
 }
-_PROFILES_BY_REPRESENTATION: Mapping[
-    SequenceRepresentation, RawV5ServingProfile
-] = {profile.representation: profile for profile in _PROFILES}
+_PROFILES_BY_REPRESENTATION: Mapping[SequenceRepresentation, RawV5ServingProfile] = {
+    profile.representation: profile for profile in _PROFILES
+}
 _ARTIFACT_PROFILES_BY_LINEAGE: Mapping[
     tuple[SequenceRepresentation, RawV5HMMTrainingContractVersion, RawFeatureMatrix],
     RawV5ServingProfile,
@@ -726,9 +732,7 @@ def raw_v5_configured_hmm_training_contract_sha256(
     profile: RawV5ServingProfile,
 ) -> str:
     return hashlib.sha256(
-        canonical_json(raw_v5_configured_hmm_training_contract(profile)).encode(
-            "utf-8"
-        )
+        canonical_json(raw_v5_configured_hmm_training_contract(profile)).encode("utf-8")
     ).hexdigest()
 
 
@@ -837,12 +841,17 @@ def _hmm_observation_space(
         )
     user_pca_dim = training.get("user_pca_dim")
     agent_pca_dim = training.get("agent_pca_dim")
-    for name, value in (("user_pca_dim", user_pca_dim), ("agent_pca_dim", agent_pca_dim)):
+    for name, value in (
+        ("user_pca_dim", user_pca_dim),
+        ("agent_pca_dim", agent_pca_dim),
+    ):
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise RawV5ServingInputError(
                 f"interaction-state HMM bundle must pin a positive training.{name}"
             )
-    return InteractionStateObservationSpace(user_pca_dim=user_pca_dim, agent_pca_dim=agent_pca_dim)
+    return InteractionStateObservationSpace(
+        user_pca_dim=user_pca_dim, agent_pca_dim=agent_pca_dim
+    )
 
 
 def raw_v5_interaction_state_serving_input_contract(

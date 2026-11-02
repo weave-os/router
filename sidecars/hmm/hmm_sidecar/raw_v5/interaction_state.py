@@ -32,6 +32,7 @@ from hmm_sidecar.raw_v5.bayes_hmm import (
     _diag_gaussian_logpdf,
 )
 from hmm_sidecar.raw_v5.conversation_sequence import AGENT_ELEMENT, USER_ELEMENT
+
 # The layout vocabulary lives in the dependency-free module so contract
 # validators need not import this one; it stays importable from here.
 from hmm_sidecar.raw_v5.hmm_feature_arms import (  # noqa: F401
@@ -43,6 +44,7 @@ from hmm_sidecar.raw_v5.hmm_feature_arms import (  # noqa: F401
     stored_vector_lookback_layout_block,
 )
 from hmm_sidecar.raw_v5.serving_features import belief_dynamics_features
+
 
 @dataclass(frozen=True)
 class RoleProjector:
@@ -65,7 +67,11 @@ class RoleProjector:
 
 
 def fit_role_projector(
-    user_rows: np.ndarray, agent_rows: np.ndarray, *, pca_dim: int, seed: int,
+    user_rows: np.ndarray,
+    agent_rows: np.ndarray,
+    *,
+    pca_dim: int,
+    seed: int,
 ) -> RoleProjector:
     raise NotImplementedError("not on the classifier serving path")
 
@@ -94,11 +100,15 @@ def round_observations(
     observations[:, : projector.user_dim] = projector.user.transform(vectors[0::2])
     agent_vectors = vectors[1::2]
     if len(agent_vectors):
-        observations[: len(agent_vectors), projector.user_dim :] = projector.agent.transform(agent_vectors)
+        observations[: len(agent_vectors), projector.user_dim :] = (
+            projector.agent.transform(agent_vectors)
+        )
     return observations
 
 
-def raw_round_vectors(embeddings: Sequence[Sequence[float]] | np.ndarray, kinds: Sequence[str]) -> np.ndarray:
+def raw_round_vectors(
+    embeddings: Sequence[Sequence[float]] | np.ndarray, kinds: Sequence[str]
+) -> np.ndarray:
     raise NotImplementedError("not on the classifier serving path")
 
 
@@ -129,9 +139,15 @@ def _normalized(log_joint: np.ndarray) -> tuple[np.ndarray, float]:
 
 
 def interaction_filter(
-    model: BayesianStickyHDPHMM, observations: np.ndarray, *, user_dim: int,
+    model: BayesianStickyHDPHMM,
+    observations: np.ndarray,
+    *,
+    user_dim: int,
 ) -> InteractionFilterReadout:
-    if not isinstance(model, BayesianStickyHDPHMM) or model.covariance_type != "diagonal":
+    if (
+        not isinstance(model, BayesianStickyHDPHMM)
+        or model.covariance_type != "diagonal"
+    ):
         raise ValueError(
             "interaction-state filtering needs a diagonal Bayesian sticky HDP-HMM: "
             "only diagonal emissions let an unobserved agent block marginalize exactly"
@@ -142,19 +158,25 @@ def interaction_filter(
     if not agent_observed[:-1].all():
         raise ValueError("only the final round may lack its agent message")
     user_log_emission = _diag_gaussian_logpdf(
-        observations[:, :user_dim], sample.means[:, :user_dim], sample.variances[:, :user_dim],
+        observations[:, :user_dim],
+        sample.means[:, :user_dim],
+        sample.variances[:, :user_dim],
     )
     round_log_emission = np.full_like(user_log_emission, np.nan)
     if agent_observed.any():
         round_log_emission[agent_observed] = _diag_gaussian_logpdf(
-            observations[agent_observed], sample.means, sample.variances,
+            observations[agent_observed],
+            sample.means,
+            sample.variances,
         )
     routing = np.empty((rounds, model.n_states))
     completed = np.full((rounds, model.n_states), np.nan)
     routing_log_likelihoods = np.empty(rounds)
     log_prior = np.log(np.maximum(sample.startprob, 1e-300))
     for index in range(rounds):
-        routing[index], routing_log_likelihoods[index] = _normalized(log_prior + user_log_emission[index])
+        routing[index], routing_log_likelihoods[index] = _normalized(
+            log_prior + user_log_emission[index]
+        )
         if agent_observed[index]:
             completed[index], _ = _normalized(log_prior + round_log_emission[index])
             log_prior = np.log(np.maximum(sample.transmat.T @ completed[index], 1e-300))
@@ -174,7 +196,9 @@ class RoutingStateFeatures:
     belief_dynamics: np.ndarray
 
 
-def routing_state_features(readout: InteractionFilterReadout, round_index: int) -> RoutingStateFeatures:
+def routing_state_features(
+    readout: InteractionFilterReadout, round_index: int
+) -> RoutingStateFeatures:
     """HMM features at round ``round_index``'s user boundary.
 
     The previous state is the last completed (U, A) interaction, which the
@@ -182,13 +206,19 @@ def routing_state_features(readout: InteractionFilterReadout, round_index: int) 
     """
     belief = readout.routing_beliefs[round_index]
     current = int(np.argmax(belief))
-    previous = int(np.argmax(readout.completed_beliefs[round_index - 1])) if round_index else current
+    previous = (
+        int(np.argmax(readout.completed_beliefs[round_index - 1]))
+        if round_index
+        else current
+    )
     return RoutingStateFeatures(
         belief=belief,
         current_state=current,
         previous_state=previous,
         belief_dynamics=belief_dynamics_features(
-            beliefs=np.vstack([readout.completed_beliefs[:round_index], belief[None, :]]),
+            beliefs=np.vstack(
+                [readout.completed_beliefs[:round_index], belief[None, :]]
+            ),
             step_log_likelihoods=readout.routing_log_likelihoods[: round_index + 1],
             self_transition=readout.self_transition,
         ),
@@ -196,7 +226,10 @@ def routing_state_features(readout: InteractionFilterReadout, round_index: int) 
 
 
 def element_lookback_block(
-    observations: np.ndarray, *, round_index: int, lookback_rounds: int,
+    observations: np.ndarray,
+    *,
+    round_index: int,
+    lookback_rounds: int,
 ) -> np.ndarray:
     """Previous rounds' ``[user | agent]`` vectors, most recent first.
 

@@ -23,7 +23,6 @@ from hmm_sidecar.raw_v5.live_sequence import (
     tool_context_metadata,
 )
 from hmm_sidecar.raw_v5.raw_v5_runtime_contract import (
-    RAW_V5_CONFIGURED_INPUT_MODE,
     RawV5InputSource,
     RawV5InteractionStateRuntimeContract,
     RawV5RuntimeContractError,

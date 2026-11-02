@@ -19,7 +19,9 @@ from hmm_sidecar.raw_v5.state_representation import (
 
 RAW_V5_MODEL_INPUT_MAX_CHARS = 20_000
 RAW_V5_GEMINI_EMBEDDING_2_MAX_SERIALIZED_BYTES = 8_000
-_RAW_V5_GEMINI_PREFIX_TRUNCATION_MARKER = "\n[truncated for gemini-embedding-2 input limit]"
+_RAW_V5_GEMINI_PREFIX_TRUNCATION_MARKER = (
+    "\n[truncated for gemini-embedding-2 input limit]"
+)
 
 
 @dataclass(frozen=True)
@@ -114,7 +116,9 @@ _FROZEN_ENCODERS = {
 }
 
 
-def frozen_raw_v5_encoder(representation: SequenceRepresentation) -> StateEncoderContract:
+def frozen_raw_v5_encoder(
+    representation: SequenceRepresentation,
+) -> StateEncoderContract:
     """Reconstruct only known historical encoders and verify the full identity."""
 
     identity = _FROZEN_ENCODERS.get(representation)
@@ -132,7 +136,9 @@ def frozen_raw_v5_encoder(representation: SequenceRepresentation) -> StateEncode
         ),
     )
     if encoder.sha256 != identity.sha256:
-        raise ValueError(f"Frozen raw-V5 encoder identity drift: {representation.value}")
+        raise ValueError(
+            f"Frozen raw-V5 encoder identity drift: {representation.value}"
+        )
     return encoder
 
 

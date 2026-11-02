@@ -74,9 +74,7 @@ RAW_V5_CAUSAL_BOUNDARY = "current_raw_user_without_current_agent_evidence"
 # importing the full training entry point (and its native ML dependencies) at
 # sidecar startup.
 RAW_V5_ROUTER_HMM_AUTHORIZATION_FLAG = "--raw-v5-router-hmm"
-RAW_V5_VOYAGE_HMM_TRAINING_CONTRACT_VERSION = (
-    RawV5HMMTrainingContractVersion.VOYAGE_V2
-)
+RAW_V5_VOYAGE_HMM_TRAINING_CONTRACT_VERSION = RawV5HMMTrainingContractVersion.VOYAGE_V2
 
 
 class RawV5ServingInputError(ValueError):
@@ -167,9 +165,7 @@ def raw_v5_voyage_live_sequence_serving_input_contract() -> dict[str, object]:
 
 
 RAW_V5_VOYAGE_LIVE_SEQUENCE_SERVING_INPUT_CONTRACT_SHA256 = hashlib.sha256(
-    canonical_json(raw_v5_voyage_live_sequence_serving_input_contract()).encode(
-        "utf-8"
-    )
+    canonical_json(raw_v5_voyage_live_sequence_serving_input_contract()).encode("utf-8")
 ).hexdigest()
 
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import random
 from array import array
 from dataclasses import asdict, dataclass
 from enum import StrEnum
@@ -32,8 +33,6 @@ class GeminiTransport(StrEnum):
 
 @dataclass(frozen=True)
 class EmbeddingRunInfo:
-    """Provider metadata for one embedding run."""
-
     provider_requested: str
     provider_used: str
     fallback_used: bool
@@ -106,6 +105,17 @@ def _resolved_model(model: str, vertex_model: str | None) -> str:
     return (vertex_model or model).removeprefix("google/").removeprefix("models/")
 
 
+def _retryable(exc: BaseException) -> bool:
+    """Rate limits, server errors, timeouts and transport failures are retried;
+    other client errors (bad request, auth, quota config) fail at once."""
+    import httpx
+    from google.genai import errors
+
+    if isinstance(exc, errors.APIError):
+        return exc.code == 429 or exc.code >= 500
+    return isinstance(exc, (asyncio.TimeoutError, httpx.TransportError, OSError))
+
+
 async def _embed_one(
     client: Any,
     *,
@@ -130,12 +140,13 @@ async def _embed_one(
             raise
         except Exception as exc:
             attempt += 1
-            if attempt > max_retries:
+            if attempt > max_retries or not _retryable(exc):
                 raise EmbeddingError(
                     f"Gemini embedding failed after {attempt} attempts: "
                     f"{type(exc).__name__}"
                 ) from exc
-            await asyncio.sleep(RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1)))
+            delay = RETRY_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+            await asyncio.sleep(random.uniform(0, delay))
 
 
 async def embed_texts_uncached(

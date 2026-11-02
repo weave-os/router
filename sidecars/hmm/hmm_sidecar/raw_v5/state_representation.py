@@ -97,18 +97,14 @@ HMM_CORPUS_SCHEMA_VERSION_GEMINI_FULL_CONTEXT = "hmm_router_hmm_sequence_corpus.
 # canonical document serializer.  V10 makes those two independently verifiable
 # for fresh canonical Voyage runs without rewriting the readable v1 Gemini
 # corpus history.
-HMM_CORPUS_SCHEMA_VERSION_CANONICAL_PROVIDER = (
-    "hmm_router_hmm_sequence_corpus.v10"
-)
+HMM_CORPUS_SCHEMA_VERSION_CANONICAL_PROVIDER = "hmm_router_hmm_sequence_corpus.v10"
 
 LEGACY_STATE_DEFINITION = "hmm-router-conversation-sequence-v1"
 GEMMA_CANONICAL_STATE_DEFINITION = LEGACY_STATE_DEFINITION
 GEMINI_LAST_STATE_STATE_DEFINITION = "hmm-router-gemini-embedding-2-last-state-v1"
 GEMINI_TWO_TURN_STATE_DEFINITION = "hmm-router-gemini-embedding-2-two-turn-v1"
 GEMINI_TEN_TURN_STATE_DEFINITION = "hmm-router-gemini-embedding-2-10-turn-v1"
-ROUTING_GROUP_STATE_DEFINITION = (
-    "hmm-router-causal-raw-previous-round-current-user-v1"
-)
+ROUTING_GROUP_STATE_DEFINITION = "hmm-router-causal-raw-previous-round-current-user-v1"
 ROUTING_GROUP_SEQUENCE_LAYOUT = "causal_raw_previous_round_current_user_v1"
 RAW_TEXT_SEQUENCE_LAYOUT_ALIAS = "raw-text-v1"
 ROUTING_GROUP_ELEMENT = "routing_group"
@@ -122,9 +118,7 @@ ROUTING_GROUP_COMPONENT_DIM = 3072
 ROUTING_GROUP_HIDDEN_DIM = (
     len(ROUTING_GROUP_COMPONENT_ORDER) * ROUTING_GROUP_COMPONENT_DIM
 )
-GEMINI_FULL_CONTEXT_STATE_DEFINITION = (
-    "hmm-router-gemini-embedding-2-full-context-v1"
-)
+GEMINI_FULL_CONTEXT_STATE_DEFINITION = "hmm-router-gemini-embedding-2-full-context-v1"
 GEMMA_STATE_DEFINITION = "hmm-router-gemma4-raw-tool-trace-v1"
 LEGACY_SERIALIZER_VERSION = "hmm_router_conversation_sequence_contract_v1"
 GEMINI_LAST_STATE_SERIALIZER_VERSION = (
@@ -136,9 +130,7 @@ GEMINI_TWO_TURN_SERIALIZER_VERSION = (
 GEMINI_TEN_TURN_SERIALIZER_VERSION = (
     "hmm_router_gemini_embedding_2_ten_turn_serializer_v1"
 )
-ROUTING_GROUP_SERIALIZER_VERSION = (
-    "hmm_router_causal_raw_routing_group_serializer_v1"
-)
+ROUTING_GROUP_SERIALIZER_VERSION = "hmm_router_causal_raw_routing_group_serializer_v1"
 GEMINI_FULL_CONTEXT_SERIALIZER_VERSION = (
     "hmm_router_gemini_embedding_2_full_context_serializer_v1"
 )
@@ -1000,9 +992,7 @@ class SequenceRepresentation(str, Enum):
     GEMINI_EMBEDDING_2_LAST_STATE_V1 = "gemini-embedding-2-last-state-v1"
     GEMINI_EMBEDDING_2_TWO_TURN_V1 = "gemini-embedding-2-two-turn-v1"
     GEMINI_EMBEDDING_2_TEN_TURN_V1 = "gemini-embedding-2-10-turn-v1"
-    GEMINI_EMBEDDING_2_ROUTING_GROUP_V1 = (
-        "gemini-embedding-2-routing-group-v1"
-    )
+    GEMINI_EMBEDDING_2_ROUTING_GROUP_V1 = "gemini-embedding-2-routing-group-v1"
     # Source compatibility for code written while the public alias was being
     # introduced. The persisted value remains the established routing-group ID.
     GEMINI_EMBEDDING_2_NON_CANONICAL_V1 = GEMINI_EMBEDDING_2_ROUTING_GROUP_V1
@@ -1021,15 +1011,9 @@ class SequenceRepresentation(str, Enum):
     VOYAGE_4_LARGE_RAW_ROUTER_V5 = "voyage-4-large-raw-router-v5"
     # This is intentionally distinct from the legacy one-event representation:
     # every source field is structurally normalized before it is embedded.
-    VOYAGE_4_LARGE_RAW_ROUTER_V5_ONE_TURN = (
-        "voyage-4-large-raw-router-v5-one-turn"
-    )
-    VOYAGE_4_LARGE_RAW_ROUTER_V5_TWO_TURN = (
-        "voyage-4-large-raw-router-v5-two-turn"
-    )
-    VOYAGE_4_LARGE_RAW_ROUTER_V5_TEN_TURN = (
-        "voyage-4-large-raw-router-v5-10-turn"
-    )
+    VOYAGE_4_LARGE_RAW_ROUTER_V5_ONE_TURN = "voyage-4-large-raw-router-v5-one-turn"
+    VOYAGE_4_LARGE_RAW_ROUTER_V5_TWO_TURN = "voyage-4-large-raw-router-v5-two-turn"
+    VOYAGE_4_LARGE_RAW_ROUTER_V5_TEN_TURN = "voyage-4-large-raw-router-v5-10-turn"
     VOYAGE_4_LARGE_RAW_ROUTER_V5_USER_AGENT_ONLY = (
         "voyage-4-large-raw-router-v5-user-agent-only"
     )
@@ -1080,9 +1064,7 @@ class SequenceRepresentation(str, Enum):
     VOYAGE_CODE_4_RAW_ROUTER_V5_ELEMENT = "voyage-code-4-raw-router-v5-element-v1"
 
 
-GEMINI_EMBEDDING_2_NON_CANONICAL_ALIAS = (
-    "gemini-embedding-2-non-canonical-v1"
-)
+GEMINI_EMBEDDING_2_NON_CANONICAL_ALIAS = "gemini-embedding-2-non-canonical-v1"
 GEMINI_CANONICAL_V1 = SequenceRepresentation.GEMINI_CANONICAL_V1
 GEMINI_EMBEDDING_2_LAST_STATE_V1 = (
     SequenceRepresentation.GEMINI_EMBEDDING_2_LAST_STATE_V1
@@ -1490,7 +1472,9 @@ def _voyage_user_agent_only_encoder_contract(
 
 _CONTRACTS: dict[SequenceRepresentation, StateEncoderContract] = {
     **{
-        representation: _voyage_user_agent_only_encoder_contract(representation, max_turns)
+        representation: _voyage_user_agent_only_encoder_contract(
+            representation, max_turns
+        )
         for representation, max_turns in VOYAGE_RAW_ROUTER_USER_AGENT_ONLY_MAX_TURNS.items()
     },
     SequenceRepresentation.GEMINI_CANONICAL_V1: StateEncoderContract(
@@ -1575,9 +1559,7 @@ _CONTRACTS: dict[SequenceRepresentation, StateEncoderContract] = {
     ),
     SequenceRepresentation.GEMINI_EMBEDDING_2_NON_CANONICAL_V1: StateEncoderContract(
         contract_version=STATE_ENCODER_CONTRACT_VERSION,
-        representation=(
-            SequenceRepresentation.GEMINI_EMBEDDING_2_NON_CANONICAL_V1
-        ),
+        representation=(SequenceRepresentation.GEMINI_EMBEDDING_2_NON_CANONICAL_V1),
         state_definition=ROUTING_GROUP_STATE_DEFINITION,
         model_id="google/gemini-embedding-2",
         model_revision=None,
@@ -1600,9 +1582,7 @@ _CONTRACTS: dict[SequenceRepresentation, StateEncoderContract] = {
     ),
     SequenceRepresentation.GEMINI_EMBEDDING_2_FULL_CONTEXT_V1: StateEncoderContract(
         contract_version=STATE_ENCODER_CONTRACT_VERSION,
-        representation=(
-            SequenceRepresentation.GEMINI_EMBEDDING_2_FULL_CONTEXT_V1
-        ),
+        representation=(SequenceRepresentation.GEMINI_EMBEDDING_2_FULL_CONTEXT_V1),
         state_definition=GEMINI_FULL_CONTEXT_STATE_DEFINITION,
         model_id="google/gemini-embedding-2",
         model_revision=None,
@@ -2010,9 +1990,7 @@ _CONTRACTS: dict[SequenceRepresentation, StateEncoderContract] = {
         model_id=RAW_V5_GEMINI_EMBEDDING_2_MODEL,
         model_revision=None,
         tokenizer_revision=None,
-        serializer_version=(
-            RAW_V5_GEMINI_USER_AGENT_ONLY_TWO_TURN_SERIALIZER_VERSION
-        ),
+        serializer_version=(RAW_V5_GEMINI_USER_AGENT_ONLY_TWO_TURN_SERIALIZER_VERSION),
         serializer_sha256=(
             RAW_V5_GEMINI_USER_AGENT_ONLY_TWO_TURN_INPUT_CONTRACT_SHA256
         ),
@@ -2040,9 +2018,7 @@ _CONTRACTS: dict[SequenceRepresentation, StateEncoderContract] = {
         model_id=RAW_V5_GEMINI_EMBEDDING_2_MODEL,
         model_revision=None,
         tokenizer_revision=None,
-        serializer_version=(
-            RAW_V5_GEMINI_USER_AGENT_ONLY_TEN_TURN_SERIALIZER_VERSION
-        ),
+        serializer_version=(RAW_V5_GEMINI_USER_AGENT_ONLY_TEN_TURN_SERIALIZER_VERSION),
         serializer_sha256=(
             RAW_V5_GEMINI_USER_AGENT_ONLY_TEN_TURN_INPUT_CONTRACT_SHA256
         ),
@@ -2066,9 +2042,7 @@ _CONTRACTS: dict[SequenceRepresentation, StateEncoderContract] = {
         representation=(
             SequenceRepresentation.GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY_LAST_STATE
         ),
-        state_definition=(
-            RAW_V5_GEMINI_USER_AGENT_ONLY_LAST_STATE_STATE_DEFINITION
-        ),
+        state_definition=(RAW_V5_GEMINI_USER_AGENT_ONLY_LAST_STATE_STATE_DEFINITION),
         model_id=RAW_V5_GEMINI_EMBEDDING_2_MODEL,
         model_revision=None,
         tokenizer_revision=None,
@@ -2088,9 +2062,7 @@ _CONTRACTS: dict[SequenceRepresentation, StateEncoderContract] = {
             "causal_raw_v5_previous_element_plus_current_user_agent_response_only_"
             "gemini_8000_byte_previous_drop_then_current_prefix_v2"
         ),
-        position_policy=(
-            "raw_user_agent_event_order_previous_element_lookback_v1"
-        ),
+        position_policy=("raw_user_agent_event_order_previous_element_lookback_v1"),
         extraction_parity_fixture_sha256=None,
         tool_compaction=None,
     ),

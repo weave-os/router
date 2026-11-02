@@ -15,12 +15,8 @@ from pydantic import (
     model_validator,
 )
 
-SESSION_SKILL_APPLICABILITY_SCHEMA_VERSION = (
-    "agent_flow_session_skill_applicability_v1"
-)
-HMM_ROUTER_SESSION_CONTEXT_SCHEMA_VERSION = (
-    "hmm_router_stage2_session_context_v1"
-)
+SESSION_SKILL_APPLICABILITY_SCHEMA_VERSION = "agent_flow_session_skill_applicability_v1"
+HMM_ROUTER_SESSION_CONTEXT_SCHEMA_VERSION = "hmm_router_stage2_session_context_v1"
 HMM_ROUTER_TURN_CLASSIFICATION_SCHEMA_VERSION = (
     "hmm_router_stage2_turn_classification_v4"
 )
@@ -88,9 +84,7 @@ TurnType = Literal[
     "confirmation",
     "refinement",
 ]
-Modality = Literal[
-    "text", "image", "file_ref", "code_snippet", "url", "slash_command"
-]
+Modality = Literal["text", "image", "file_ref", "code_snippet", "url", "slash_command"]
 ComplexityClassification = Literal[
     "low",
     "medium",
@@ -109,9 +103,7 @@ HMM_ROUTER_COGNITIVE_ROLES: tuple[HMMRouterCognitiveRole, ...] = (
     "information_synthesis",
     "execution",
 )
-COMPLEXITY_CLASSIFICATION_LABELS = frozenset(
-    ("low", "medium", "high", "maximum")
-)
+COMPLEXITY_CLASSIFICATION_LABELS = frozenset(("low", "medium", "high", "maximum"))
 _COMPLEXITY_CLASSIFICATION_RANK: dict[ComplexityClassification, int] = {
     "low": 0,
     "medium": 1,
@@ -912,9 +904,7 @@ class AgentFlowRoundView(BaseModel, frozen=True):
     interactions: tuple[AgentFlowInteractionRecord, ...]
     decisions: tuple[AgentFlowDecisionRecord, ...]
     claims: tuple[AgentFlowClaimRecord, ...]
-    verification_obligations: tuple[
-        AgentFlowVerificationObligationRecord, ...
-    ]
+    verification_obligations: tuple[AgentFlowVerificationObligationRecord, ...]
     verification: tuple[AgentFlowVerificationRecord, ...]
     artifacts: tuple[AgentFlowArtifactRecord, ...]
     context: tuple[AgentFlowContextRecord, ...]
@@ -1030,13 +1020,9 @@ class HMMRouterUserTurnView(BaseModel, frozen=True):
 
     user_request: CanonicalFact
     user_intent: CanonicalFact
-    constraints_guidelines: tuple[CanonicalFact, ...] = Field(
-        default_factory=tuple
-    )
+    constraints_guidelines: tuple[CanonicalFact, ...] = Field(default_factory=tuple)
     context_supplied: tuple[CanonicalFact, ...] = Field(default_factory=tuple)
-    clarifications_corrections: tuple[CanonicalFact, ...] = Field(
-        default_factory=tuple
-    )
+    clarifications_corrections: tuple[CanonicalFact, ...] = Field(default_factory=tuple)
     problem_shape: HMMRouterProblemShape
 
 
@@ -1306,9 +1292,7 @@ class PartialAgentFlowRoundView(BaseModel, frozen=True):
     interactions: tuple[AgentFlowInteractionRecord, ...]
     decisions: tuple[AgentFlowDecisionRecord, ...]
     claims: tuple[AgentFlowClaimRecord, ...]
-    verification_obligations: tuple[
-        AgentFlowVerificationObligationRecord, ...
-    ]
+    verification_obligations: tuple[AgentFlowVerificationObligationRecord, ...]
     verification: tuple[AgentFlowVerificationRecord, ...]
     artifacts: tuple[AgentFlowArtifactRecord, ...]
     context: tuple[AgentFlowContextRecord, ...]
@@ -1324,13 +1308,9 @@ class PartialHMMRouterUserTurnView(BaseModel, frozen=True):
 
     user_request: CanonicalFact | None = None
     user_intent: CanonicalFact | None = None
-    constraints_guidelines: tuple[CanonicalFact, ...] = Field(
-        default_factory=tuple
-    )
+    constraints_guidelines: tuple[CanonicalFact, ...] = Field(default_factory=tuple)
     context_supplied: tuple[CanonicalFact, ...] = Field(default_factory=tuple)
-    clarifications_corrections: tuple[CanonicalFact, ...] = Field(
-        default_factory=tuple
-    )
+    clarifications_corrections: tuple[CanonicalFact, ...] = Field(default_factory=tuple)
     problem_shape: HMMRouterProblemShape | None = None
 
 

@@ -457,9 +457,8 @@ class AgentFlowHMMSidecar:
             raise AgentFlowSidecarError(
                 "raw V5 Voyage HMM serving requires use_vertex=False"
             )
-        if (
-            representation in RAW_V5_ROUTER_REPRESENTATIONS
-            and len(clean_turns) != len(turns)
+        if representation in RAW_V5_ROUTER_REPRESENTATIONS and len(clean_turns) != len(
+            turns
         ):
             # Raw-V5 documents are the actual pinned provider inputs. Dropping
             # one would change the causal HMM prefix (and potentially the U/A
@@ -621,7 +620,9 @@ class AgentFlowHMMSidecar:
         if getattr(self, "offload_posterior", False):
             # The HTTP service retains the enclosing inference task through
             # deadline/cancellation; native work must not occupy its probe loop.
-            return await asyncio.to_thread(self.infer_state_vectors, turns, state_vectors, **kwargs)
+            return await asyncio.to_thread(
+                self.infer_state_vectors, turns, state_vectors, **kwargs
+            )
         return self.infer_state_vectors(turns, state_vectors, **kwargs)
 
     def infer_state_vectors(
@@ -656,9 +657,14 @@ class AgentFlowHMMSidecar:
             )
         latent_model = self.latent_model
         sequence_contract = self.sequence_contract
-        if hmm_chain_of(getattr(latent_model, "model_info", None)) is HMMChain.INTERACTION_STATE:
+        if (
+            hmm_chain_of(getattr(latent_model, "model_info", None))
+            is HMMChain.INTERACTION_STATE
+        ):
             return self._interaction_state_readout(
-                turns, state_vectors, state_encoder_model=state_encoder_model,
+                turns,
+                state_vectors,
+                state_encoder_model=state_encoder_model,
             )
         raw = self._raw_feature_matrix(turns, state_vectors)
         expected_dim = int(sequence_contract.get("feature_dim") or 0)
@@ -740,9 +746,11 @@ class AgentFlowHMMSidecar:
         """
         latent_model = self.latent_model
         kinds = [
-            USER_ELEMENT
-            if turn.categorical[ELEMENT_KIND_SLOTS[USER_ELEMENT]] == 1.0
-            else AGENT_ELEMENT
+            (
+                USER_ELEMENT
+                if turn.categorical[ELEMENT_KIND_SLOTS[USER_ELEMENT]] == 1.0
+                else AGENT_ELEMENT
+            )
             for turn in turns
         ]
         if kinds[-1] != USER_ELEMENT:
@@ -761,7 +769,9 @@ class AgentFlowHMMSidecar:
         try:
             observations = round_observations(latent_model.projector, vectors, kinds)
             readout = interaction_filter(
-                latent_model.model, observations, user_dim=latent_model.projector.user_dim,
+                latent_model.model,
+                observations,
+                user_dim=latent_model.projector.user_dim,
             )
         except ValueError as error:
             raise AgentFlowSidecarError(str(error)) from error
@@ -771,7 +781,10 @@ class AgentFlowHMMSidecar:
         order = np.argsort(belief)[::-1]
         posterior_top = float(belief[routing.current_state])
         state_path = (
-            *(int(np.argmax(completed)) for completed in readout.completed_beliefs[:round_index]),
+            *(
+                int(np.argmax(completed))
+                for completed in readout.completed_beliefs[:round_index]
+            ),
             routing.current_state,
         )
         card = self.state_cards.get(routing.current_state, {})
@@ -781,14 +794,18 @@ class AgentFlowHMMSidecar:
             state_description=str(card.get("short_description") or ""),
             posterior=posterior_top,
             posterior_margin=(
-                float(belief[order[0]] - belief[order[1]]) if len(order) > 1 else posterior_top
+                float(belief[order[0]] - belief[order[1]])
+                if len(order) > 1
+                else posterior_top
             ),
             state_path=state_path,
             transition_key=(
                 f"{state_path[-2]}->{state_path[-1]}" if len(state_path) >= 2 else None
             ),
         )
-        embedding_prefix = tuple(tuple(float(value) for value in vector) for vector in vectors)
+        embedding_prefix = tuple(
+            tuple(float(value) for value in vector) for vector in vectors
+        )
         return AgentFlowHMMReadout(
             summary=summary,
             bundle_version=self.bundle_version,
@@ -1024,8 +1041,7 @@ class AgentFlowHMMSidecar:
             ):
                 provider_name = (
                     "Voyage"
-                    if self.sequence_representation
-                    in VOYAGE_RAW_ROUTER_REPRESENTATIONS
+                    if self.sequence_representation in VOYAGE_RAW_ROUTER_REPRESENTATIONS
                     else "Gemini"
                 )
                 latent_contract_sha256 = payload.model_info.get(

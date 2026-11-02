@@ -43,7 +43,9 @@ from hmm_sidecar.raw_v5.core import canonical_json, sha256_text
 RAW_V5_RUNTIME_CONTRACT_VERSION = "hmm_router_raw_v5_runtime_contract_v1"
 #: v2 adds the round-level HMM and lookback geometry of a per-message package.
 #: v1 stays byte-identical so every published package keeps resolving.
-RAW_V5_INTERACTION_STATE_RUNTIME_CONTRACT_VERSION = "hmm_router_raw_v5_runtime_contract_v2"
+RAW_V5_INTERACTION_STATE_RUNTIME_CONTRACT_VERSION = (
+    "hmm_router_raw_v5_runtime_contract_v2"
+)
 
 #: The ``runtime_contract.input_mode`` value a configuration-driven raw-V5
 #: package declares. The two fixed legacy modes stay exactly as published so
@@ -258,9 +260,7 @@ def _profile_identity(profile: RawV5ServingProfile) -> dict[str, object]:
         "serving_input_sha256": (
             raw_v5_configured_serving_input_contract_sha256(profile)
         ),
-        "hmm_training_contract_version": (
-            profile.hmm_training_contract_version.value
-        ),
+        "hmm_training_contract_version": (profile.hmm_training_contract_version.value),
         "hmm_training_contract_sha256": (
             raw_v5_configured_hmm_training_contract_sha256(profile)
         ),

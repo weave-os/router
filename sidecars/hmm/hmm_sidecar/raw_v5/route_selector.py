@@ -433,7 +433,11 @@ class ComplexityRouteSelector:
             position=int(position),
             prefix_length=int(prefix_length),
             is_last=0.0,  # serving never knows a turn is final
-            n_states=0 if getattr(self, "_classifier_hmm_free", False) else int(gamma.shape[0]),
+            n_states=(
+                0
+                if getattr(self, "_classifier_hmm_free", False)
+                else int(gamma.shape[0])
+            ),
             projected_row=projected_row,
             seqae_latent=seqae_latent,
             include_embedding=self._includes_raw_embedding,
@@ -455,7 +459,9 @@ class ComplexityRouteSelector:
         if element_lookback is None:
             return row
         if not embedding_prefix:
-            raise ValueError("element_lookback classifier requires the embedding prefix")
+            raise ValueError(
+                "element_lookback classifier requires the embedding prefix"
+            )
         return np.concatenate(
             [row, self._element_lookback_features(element_lookback, embedding_prefix)]
         )
@@ -470,7 +476,9 @@ class ComplexityRouteSelector:
         rounds = (
             raw_round_vectors(embedding_prefix, kinds)
             if element_lookback.source is ElementLookbackSource.STORED_VECTORS
-            else round_observations(self.latent_model.projector, embedding_prefix, kinds)
+            else round_observations(
+                self.latent_model.projector, embedding_prefix, kinds
+            )
         )
         return element_lookback_block(
             rounds,
@@ -481,7 +489,6 @@ class ComplexityRouteSelector:
     # ------------------------------------------------------------------
     # Selection
     # ------------------------------------------------------------------
-
 
     def classify(self, features: np.ndarray | None) -> ComplexityClassification:
         """Return classifier facts without consulting the serving roster."""
@@ -519,8 +526,6 @@ class ComplexityRouteSelector:
         )
 
 
-
-
 def _classifier_uses_feature_block(
     classifier: ComplexityClassifier,
     block_name: str,
@@ -550,7 +555,3 @@ def _classifier_has_feature_layout(classifier: ComplexityClassifier) -> bool:
         return False
     feature_layout = metadata.get("feature_layout")
     return isinstance(feature_layout, list) and len(feature_layout) > 0
-
-
-
-

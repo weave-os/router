@@ -19,13 +19,10 @@ import re
 
 from pydantic import BaseModel
 
-
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def sha256_text(value: str) -> str:
-    """Return the lowercase SHA-256 hex digest of a UTF-8 string."""
-
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 

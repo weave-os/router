@@ -45,7 +45,10 @@ def hmm_chain_of(model_info: dict[str, Any] | None) -> HMMChain:
 
 
 def element_lookback_layout_block(
-    *, lookback_rounds: int, user_dim: int, agent_dim: int,
+    *,
+    lookback_rounds: int,
+    user_dim: int,
+    agent_dim: int,
 ) -> dict[str, Any]:
     names = [
         name
@@ -59,7 +62,9 @@ def element_lookback_layout_block(
     return {"block": ELEMENT_LOOKBACK_BLOCK_NAME, "dim": len(names), "names": names}
 
 
-def stored_vector_lookback_layout_block(*, lookback_rounds: int, embedding_dim: int) -> dict[str, Any]:
+def stored_vector_lookback_layout_block(
+    *, lookback_rounds: int, embedding_dim: int
+) -> dict[str, Any]:
     raise NotImplementedError("not on the classifier serving path")
 
 
@@ -77,9 +82,13 @@ class ElementLookback:
 
     def layout_block(self) -> dict[str, Any]:
         if self.source is ElementLookbackSource.STORED_VECTORS:
-            return stored_vector_lookback_layout_block(lookback_rounds=self.rounds, embedding_dim=self.user_dim)
+            return stored_vector_lookback_layout_block(
+                lookback_rounds=self.rounds, embedding_dim=self.user_dim
+            )
         return element_lookback_layout_block(
-            lookback_rounds=self.rounds, user_dim=self.user_dim, agent_dim=self.agent_dim,
+            lookback_rounds=self.rounds,
+            user_dim=self.user_dim,
+            agent_dim=self.agent_dim,
         )
 
 
@@ -101,8 +110,12 @@ def resolve_element_lookback(block: object, *, embedding_dim: int) -> ElementLoo
         lookback = ElementLookback(
             rounds=rounds,
             source=ElementLookbackSource.PCA_PROJECTION,
-            user_dim=sum(1 for name in names if str(name).startswith("lookback_1_user_")),
-            agent_dim=sum(1 for name in names if str(name).startswith("lookback_1_agent_")),
+            user_dim=sum(
+                1 for name in names if str(name).startswith("lookback_1_user_")
+            ),
+            agent_dim=sum(
+                1 for name in names if str(name).startswith("lookback_1_agent_")
+            ),
         )
     elif declared_source == ElementLookbackSource.STORED_VECTORS:
         lookback = ElementLookback(
@@ -112,7 +125,9 @@ def resolve_element_lookback(block: object, *, embedding_dim: int) -> ElementLoo
             agent_dim=embedding_dim,
         )
     else:
-        raise ValueError(f"element_lookback source {declared_source!r} is not a layout training writes")
+        raise ValueError(
+            f"element_lookback source {declared_source!r} is not a layout training writes"
+        )
     if rounds < 2 or dict(fields) != lookback.layout_block():
         raise ValueError(
             "element_lookback block is neither the stored-vector layout nor the legacy per-role PCA layout"

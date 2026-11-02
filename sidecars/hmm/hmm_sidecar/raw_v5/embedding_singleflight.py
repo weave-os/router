@@ -96,8 +96,7 @@ class EmbeddingSingleFlight:
         if not owned:
             return SingleFlightResult(
                 embeddings={
-                    document: await pending
-                    for document, pending in joined.items()
+                    document: await pending for document, pending in joined.items()
                 },
                 info=None,
                 fetched=0,

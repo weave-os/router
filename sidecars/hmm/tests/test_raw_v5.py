@@ -17,7 +17,9 @@ from hmm_sidecar.raw_v5 import af_embeddings
 FIXTURES = Path(__file__).parent / "fixtures" / "raw_v5"
 
 
-def _raw_v5_manifest(classifier_files: dict[str, str], hmm_files: dict[str, str]) -> dict:
+def _raw_v5_manifest(
+    classifier_files: dict[str, str], hmm_files: dict[str, str]
+) -> dict:
     return {
         "schema_version": "hmm_router_classifier_package_v1",
         "runtime_contract": {"input_mode": "raw_v5_configured_serving_v1"},
@@ -47,10 +49,14 @@ def test_raw_v5_manifest_detection_requires_the_configured_input_mode() -> None:
     assert artifacts.is_raw_v5_package_manifest(manifest)
     manifest["runtime_contract"] = {"input_mode": "legacy"}
     assert not artifacts.is_raw_v5_package_manifest(manifest)
-    assert not artifacts.is_raw_v5_package_manifest({"schema_version": "hmm_router_frozen_package_v1"})
+    assert not artifacts.is_raw_v5_package_manifest(
+        {"schema_version": "hmm_router_frozen_package_v1"}
+    )
 
 
-def test_raw_v5_manifest_verifies_every_classifier_and_bundle_file(tmp_path: Path) -> None:
+def test_raw_v5_manifest_verifies_every_classifier_and_bundle_file(
+    tmp_path: Path,
+) -> None:
     _write_package(tmp_path)
     manifest = artifacts._verify_manifest(tmp_path)
     assert isinstance(manifest, dict)
@@ -72,7 +78,10 @@ def test_raw_v5_artifact_id_matches_the_registry_model_id() -> None:
     [
         ({"GEMINI_API_KEY": "k"}, af_embeddings.GeminiTransport.API_KEY),
         ({}, af_embeddings.GeminiTransport.VERTEX),
-        ({"GEMINI_API_KEY": "k", "HMM_GEMINI_TRANSPORT": "vertex"}, af_embeddings.GeminiTransport.VERTEX),
+        (
+            {"GEMINI_API_KEY": "k", "HMM_GEMINI_TRANSPORT": "vertex"},
+            af_embeddings.GeminiTransport.VERTEX,
+        ),
     ],
 )
 def test_gemini_transport_resolution(monkeypatch, env, expected) -> None:
@@ -95,15 +104,21 @@ class _FakeModels:
 
     async def embed_content(self, *, model, contents, config):
         self.calls.append((model, contents, config))
-        return SimpleNamespace(embeddings=[SimpleNamespace(values=[float(len(contents))] * 3)])
+        return SimpleNamespace(
+            embeddings=[SimpleNamespace(values=[float(len(contents))] * 3)]
+        )
 
 
-def test_api_key_transport_embeds_each_text_with_the_pinned_contract(monkeypatch) -> None:
+def test_api_key_transport_embeds_each_text_with_the_pinned_contract(
+    monkeypatch,
+) -> None:
     models = _FakeModels()
     monkeypatch.setenv("GEMINI_API_KEY", "k")
     monkeypatch.delenv("HMM_GEMINI_TRANSPORT", raising=False)
     monkeypatch.setattr(
-        af_embeddings, "_client", lambda *_args: SimpleNamespace(aio=SimpleNamespace(models=models))
+        af_embeddings,
+        "_client",
+        lambda *_args: SimpleNamespace(aio=SimpleNamespace(models=models)),
     )
     vectors = asyncio.run(
         af_embeddings.embed_texts_uncached(
@@ -150,7 +165,10 @@ def test_raw_v5_matches_the_production_golden(monkeypatch, tmp_path: Path) -> No
     assert isinstance(manifest, dict)
     classifier = RawV5Classifier(tmp_path, manifest)
     cases = json.loads((FIXTURES / "cases.json").read_text())
-    golden = {row["route_id"]: row for row in json.loads((FIXTURES / "golden.json").read_text())}
+    golden = {
+        row["route_id"]: row
+        for row in json.loads((FIXTURES / "golden.json").read_text())
+    }
 
     for case in cases:
         readout, _ = asyncio.run(classifier.classify(case))
@@ -164,4 +182,6 @@ def test_raw_v5_matches_the_production_golden(monkeypatch, tmp_path: Path) -> No
             rtol=0,
             atol=1e-9,
         )
-        np.testing.assert_allclose(readout.state_probabilities, expected["gamma_row"], rtol=0, atol=1e-9)
+        np.testing.assert_allclose(
+            readout.state_probabilities, expected["gamma_row"], rtol=0, atol=1e-9
+        )

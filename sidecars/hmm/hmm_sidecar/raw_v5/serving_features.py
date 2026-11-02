@@ -13,7 +13,6 @@ from typing import Any
 
 import numpy as np
 
-
 CATEGORICAL_DIM = 13
 # Raw HMM rows are [embedding | element-kind one-hots]. Bundles fit before the
 # prefix-normalized position column was dropped declare a width of one.
@@ -112,6 +111,7 @@ def belief_dynamics_layout_block() -> dict[str, Any]:
 
 def harness_layout_block() -> dict[str, Any]:
     raise NotImplementedError("not on the classifier serving path")
+
 
 _SEARCH_READ_RE = re.compile(
     r"\b(search|grep|rg|ripgrep|find|read|open|cat|ls|list|inspect|scan|look through|look at)\b",
@@ -299,11 +299,7 @@ def _feature_row(
     # layout (RESULTS_hmm_embedding_ablation_20260722.md, McNemar p=0.49), so
     # this is a supported layout rather than a degraded one.
     hmm_free = n_states == 0
-    eye = (
-        np.eye(n_states, dtype=float)
-        if state_identity is None
-        else state_identity
-    )
+    eye = np.eye(n_states, dtype=float) if state_identity is None else state_identity
     if hmm_free:
         gamma_top = 0.0
         gamma_margin = 0.0

@@ -113,7 +113,9 @@ def test_readiness_reports_the_classifier_identity_the_router_pins(monkeypatch) 
     monkeypatch.setenv("CLASSIFIER_IMAGE_DIGEST", "sha256:" + "c" * 64)
     with TestClient(app) as client:
         app.state.policy = ClassifyingPolicy()
-        app.state.artifacts = SimpleNamespace(model_id="artifact", package_sha256="a" * 64)
+        app.state.artifacts = SimpleNamespace(
+            model_id="artifact", package_sha256="a" * 64
+        )
         response = client.get("/readyz")
 
     assert response.status_code == 200
@@ -124,16 +126,19 @@ def test_readiness_reports_the_classifier_identity_the_router_pins(monkeypatch) 
     assert payload["classifier_image_digest"] == "sha256:" + "c" * 64
     assert payload["classifier_class_order"] == ["fast", "maximum"]
     # sha256 of Go's json.Marshal([]string{"fast","maximum"}).
-    assert payload["classifier_taxonomy_sha256"] == hashlib.sha256(
-        b'["fast","maximum"]'
-    ).hexdigest()
+    assert (
+        payload["classifier_taxonomy_sha256"]
+        == hashlib.sha256(b'["fast","maximum"]').hexdigest()
+    )
 
 
 def test_readiness_fails_closed_without_an_image_digest(monkeypatch) -> None:
     monkeypatch.delenv("CLASSIFIER_IMAGE_DIGEST", raising=False)
     with TestClient(app) as client:
         app.state.policy = ClassifyingPolicy()
-        app.state.artifacts = SimpleNamespace(model_id="artifact", package_sha256="a" * 64)
+        app.state.artifacts = SimpleNamespace(
+            model_id="artifact", package_sha256="a" * 64
+        )
         response = client.get("/readyz")
 
     assert response.status_code == 503

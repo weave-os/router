@@ -256,14 +256,10 @@ class DataQualityReport(FrozenOpenModel):
     feature_stats_uri: str | None = None
 
     def failed_checks(self) -> tuple[str, ...]:
-        return tuple(
-            check.name for check in self.checks if check.status == "fail"
-        )
+        return tuple(check.name for check in self.checks if check.status == "fail")
 
     def warned_checks(self) -> tuple[str, ...]:
-        return tuple(
-            check.name for check in self.checks if check.status == "warn"
-        )
+        return tuple(check.name for check in self.checks if check.status == "warn")
 
 
 class DataProducer(FrozenOpenModel):

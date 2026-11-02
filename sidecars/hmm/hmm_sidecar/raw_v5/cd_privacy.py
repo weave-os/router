@@ -6,14 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 AI_TRAINING_OPT_OUT_JOIN = (
     "LEFT JOIN organization_data_privacy_settings dps\n"
     "  ON dps.organization_id = {alias}.organization_id"
 )
-AI_TRAINING_ALLOWED_PREDICATE = (
-    "COALESCE(dps.ai_training_opt_out, false) = false"
-)
+AI_TRAINING_ALLOWED_PREDICATE = "COALESCE(dps.ai_training_opt_out, false) = false"
 TRAINING_PRIVACY_ATTESTATION_SCHEMA_VERSION = "ai_training_privacy_attestation_v1"
 TRAINING_PRIVACY_SNAPSHOT_SCHEMA_VERSION = "ai_training_opt_out_snapshot_v1"
 TRAINING_PRIVACY_POLICY = "exclude_ai_training_opt_out_organizations"
@@ -89,9 +86,7 @@ def assert_training_privacy_attestation(
 ) -> dict[str, Any]:
     """Fail unless an artifact carries the training privacy attestation."""
     if not isinstance(payload, dict):
-        raise RuntimeError(
-            f"{context} lacks required AI-training privacy attestation"
-        )
+        raise RuntimeError(f"{context} lacks required AI-training privacy attestation")
     if payload.get("schema_version") != TRAINING_PRIVACY_ATTESTATION_SCHEMA_VERSION:
         raise RuntimeError(
             f"{context} has invalid AI-training privacy attestation schema: "

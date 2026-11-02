@@ -216,7 +216,9 @@ def ready() -> JSONResponse:
         "classifier_artifact_sha256": artifacts.package_sha256 if artifacts else None,
         "classifier_image_digest": image_digest,
         "classifier_class_order": list(class_order),
-        "classifier_taxonomy_sha256": taxonomy_sha256(class_order) if class_order else None,
+        "classifier_taxonomy_sha256": (
+            taxonomy_sha256(class_order) if class_order else None
+        ),
         "classifier_artifact_sha256s": _loaded_artifact_sha256s(),
         "embedding_probe_similarity": getattr(
             app.state, "embedding_probe_similarity", None

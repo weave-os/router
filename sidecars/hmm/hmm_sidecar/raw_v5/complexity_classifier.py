@@ -193,7 +193,9 @@ def _raw_v5_no_tool_context_layout(
     element_lookback = None
     if len(layout) == 7:
         try:
-            element_lookback = resolve_element_lookback(layout[6], embedding_dim=embedding_dim)
+            element_lookback = resolve_element_lookback(
+                layout[6], embedding_dim=embedding_dim
+            )
         except ValueError as error:
             raise ComplexityClassifierError(
                 "raw V5 no-tool-context classifier has an invalid "
@@ -294,7 +296,9 @@ def _validate_raw_v5_configured_contract(
     try:
         encoder_contract = profile.state_encoder_contract
         if raw_encoder_contract != encoder_contract.to_dict():
-            raise ValueError("state encoder does not match the declared serving profile")
+            raise ValueError(
+                "state encoder does not match the declared serving profile"
+            )
     except ValueError as exc:
         raise ComplexityClassifierError(
             f"raw V5 classifier has an invalid state encoder contract: {exc}"
@@ -615,7 +619,9 @@ def validate_classifier_bundle(
             try:
                 encoder_contract = frozen_raw_v5_encoder(representation)
                 if raw_encoder_contract != encoder_contract.to_dict():
-                    raise ValueError("state encoder does not match the frozen Voyage profile")
+                    raise ValueError(
+                        "state encoder does not match the frozen Voyage profile"
+                    )
             except ValueError as exc:
                 raise ComplexityClassifierError(
                     "raw V5 Voyage classifier has an invalid state encoder "
@@ -637,7 +643,10 @@ def validate_classifier_bundle(
                 "serving_loader_available": False,
             }
             for field, expected in expected_values.items():
-                if metadata.get(field) != expected or input_contract.get(field) != expected:
+                if (
+                    metadata.get(field) != expected
+                    or input_contract.get(field) != expected
+                ):
                     raise ComplexityClassifierError(
                         "raw V5 Voyage classifier has an invalid " f"{field}"
                     )
@@ -651,11 +660,10 @@ def validate_classifier_bundle(
                     metadata=metadata,
                     input_contract=input_contract,
                 )
-            if (
-                encoder_contract.sha256
-                != metadata.get("state_encoder_contract_sha256")
-                or encoder_contract.sha256
-                != input_contract.get("state_encoder_contract_sha256")
+            if encoder_contract.sha256 != metadata.get(
+                "state_encoder_contract_sha256"
+            ) or encoder_contract.sha256 != input_contract.get(
+                "state_encoder_contract_sha256"
             ):
                 raise ComplexityClassifierError(
                     "raw V5 Voyage classifier state encoder contract hash is invalid"
