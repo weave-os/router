@@ -61,7 +61,7 @@ gh api "repos/weave-os/checks/contents/starter-checks/<slug>.md?ref=$REF" -H 'Ac
 1. Lint/format autofix on changed files (included in the one validation pass, Step 4)
 2. `git add <specific files>`
 3. `git commit -m "message"`
-4. `git push` (in a stack: `gh stack submit --auto --open`)
+4. `git push` (in a stack: push only the branches you changed — see [Stacks](#stacks-one-loop-for-the-whole-stack))
 
 If the branch is out of date: `git push --force-with-lease` only after verifying you don't overwrite someone else's work. Never raw `git push --force`.
 
@@ -95,6 +95,20 @@ Exit only when every condition is true on the same poll, _after CI has dispatche
 3. **No CI pending/running** — `checks_summary.pending == 0` and `checks_fetch_failed` is absent. If `checks_fetch_failed: true`, CI is unknown — do not count as done.
 4. **No `REVIEW_REQUESTED`** — `reviewRequests` is empty.
 5. **No `CHANGES_REQUESTED`** — `reviewDecision` is not `CHANGES_REQUESTED`; each `latestReviews` state is `APPROVED`, `COMMENTED`, or `DISMISSED`.
+
+## Stacks: one loop for the whole stack
+
+When the PR is part of a GitHub Stack (`gh stack view --short`, or `gh api repos/<owner>/<repo>/stacks`), run **one** loop for the whole stack, not one loop per PR. CI and the bot reviewers run on a PR when its own head moves (`opened`/`synchronize`), not when its parent branch moves. A lower fix reaches the branches above only when you rebase them, and each rebase force-pushes those branches and re-runs everything on them. So fix every PR's own findings in the same cycle, but rebase each upper branch onto its parent once, after the parent is green, not after every lower fix. Bots review each PR's diff alone, so many findings belong to a different layer than the one they are filed on.
+
+- **One writer.** A single agent owns every branch checkout, commit, rebase and push for the stack. Helpers (subagents) may only triage or draft edits for one PR and hand them back; they never push.
+- **One cycle covers every PR:**
+  1. Fetch Step 1 state for every PR in the stack (in parallel), bottom to top.
+  2. Triage all threads and failing checks across the stack together. Attribute each to the PR that **introduced** the code (`git log -L`/`git blame` on the top branch), and fix it there, even when it was filed or fails on a higher PR. A "no caller" / "unused" finding on a lower PR is a Decline when a higher PR uses it (`git grep` on the top branch). A CI failure on a higher PR caused by a lower PR's code is fixed in the lower PR; the higher PR stays red until its cascade, so don't patch it there.
+  3. Fix each affected branch on its current base, without rebasing: check it out, apply its fixes, run Step 4 on it, and commit. Its diff against its parent doesn't change, so its existing reviews still apply.
+  4. Push only the branches you changed (`git push origin <branch>`; no rebase, so no force). Branches above them keep their CI and review state.
+  5. Resolve threads per PR as in Step 5, then watch every PR with the Step 6 sentinel; new activity on any PR starts the next cycle.
+- **Cascade once per layer, bottom-up.** When a PR meets the DONE conditions and the branch directly above it doesn't contain its tip, check out that branch and run `gh stack rebase --downstack --no-trunk` (resolve conflicts with `gh stack rebase --continue`). Rerun Step 4 on that branch's own files (`git diff --name-only <parent>...HEAD`), then `gh stack push`. That PR's post-rebase review round is handled by the normal cycle. Repeat for the next branch up. If a parent changes again after its child was cascaded, cascade the child again. Until its cascade, an upper PR that conflicts only because its parent moved skips the Step 1 conflict gate; resolve that conflict during its cascade. In a stack the conflict gate applies only to the bottom PR conflicting with trunk: from the bottom branch run `gh stack rebase --downstack`, then `gh stack push`.
+- **DONE** when every PR meets the DONE conditions on its current head and each branch contains its parent's tip. The 5-iteration cap counts stack cycles. Merge (`gh stack merge`) only when asked.
 
 ## Execution
 
@@ -317,7 +331,7 @@ Fixed:
 
 Declined (with explanation):
 - [summary of declined 1]"
-git push   # stack: gh stack submit --auto --open
+git push   # stack: push only changed branches; cascade upper branches separately (see Stacks)
 PUSHED_HEAD_SHA=$(git rev-parse HEAD)
 # now resolve human/Greptile Fix thread_ids (Declines already resolved above)
 ```
