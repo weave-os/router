@@ -646,9 +646,6 @@ VOYAGE_CODE_4_RAW_ROUTER_V5_ELEMENT = (
 )
 # Per-message stores: one embedding per user or agent message; lookback is
 # assembled from stored vectors downstream.
-ELEMENT_STORE_REPRESENTATIONS = frozenset(
-    (GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT, VOYAGE_CODE_4_RAW_ROUTER_V5_ELEMENT)
-)
 GEMINI_EMBEDDING_REPRESENTATIONS = frozenset(
     (
         GEMINI_CANONICAL_V1,

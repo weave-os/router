@@ -21,7 +21,7 @@ the values the corpus, trainer, and embedding caches already use.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import StrEnum
 import hashlib
 from typing import Literal, Self
@@ -45,42 +45,13 @@ from hmm_sidecar.raw_v5.raw_v5_contract import (
     RAW_V5_GEMINI_ELEMENT_SERIALIZER_VERSION,
     RAW_V5_GEMINI_EMBEDDING_2_DIM,
     RAW_V5_GEMINI_EMBEDDING_2_MODEL,
-    RAW_V5_GEMINI_ONE_TURN_INPUT_CONTRACT_SHA256,
-    RAW_V5_GEMINI_ONE_TURN_SERIALIZER_VERSION,
-    RAW_V5_GEMINI_TEN_TURN_INPUT_CONTRACT_SHA256,
-    RAW_V5_GEMINI_TEN_TURN_SERIALIZER_VERSION,
-    RAW_V5_GEMINI_TWO_TURN_INPUT_CONTRACT_SHA256,
-    RAW_V5_GEMINI_TWO_TURN_SERIALIZER_VERSION,
-    RAW_V5_GEMINI_USER_AGENT_ONLY_INPUT_CONTRACT_SHA256,
-    RAW_V5_GEMINI_USER_AGENT_ONLY_LAST_STATE_INPUT_CONTRACT_SHA256,
-    RAW_V5_GEMINI_USER_AGENT_ONLY_LAST_STATE_SERIALIZER_VERSION,
-    RAW_V5_GEMINI_USER_AGENT_ONLY_SERIALIZER_VERSION,
-    RAW_V5_GEMINI_USER_AGENT_ONLY_TEN_TURN_INPUT_CONTRACT_SHA256,
-    RAW_V5_GEMINI_USER_AGENT_ONLY_TEN_TURN_SERIALIZER_VERSION,
-    RAW_V5_GEMINI_USER_AGENT_ONLY_TWO_TURN_INPUT_CONTRACT_SHA256,
-    RAW_V5_GEMINI_USER_AGENT_ONLY_TWO_TURN_SERIALIZER_VERSION,
-    RAW_V5_ROUTER_EMBEDDING_DIM,
-    RAW_V5_ROUTER_EMBEDDING_MODEL,
     RAW_V5_ROUTER_SEQUENCE_CONTRACT_SHA256,
     RAW_V5_ROUTER_SEQUENCE_LAYOUT,
-    RAW_V5_VOYAGE_ONE_TURN_INPUT_CONTRACT_SHA256,
     RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
-    RAW_V5_VOYAGE_ONE_TURN_SERIALIZER_VERSION,
-    RAW_V5_VOYAGE_TEN_TURN_INPUT_CONTRACT_SHA256,
-    RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS,
-    RAW_V5_VOYAGE_TEN_TURN_SERIALIZER_VERSION,
-    RAW_V5_VOYAGE_TWO_TURN_INPUT_CONTRACT_SHA256,
-    RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS,
-    RAW_V5_VOYAGE_TWO_TURN_SERIALIZER_VERSION,
     RawFeatureMatrix,
     RawV5HMMTrainingContractVersion,
     raw_v5_gemini_element_model_input_contract,
-    raw_v5_gemini_turn_window_model_input_contract,
-    raw_v5_gemini_user_agent_only_last_state_model_input_contract,
-    raw_v5_gemini_user_agent_only_model_input_contract,
-    raw_v5_voyage_user_agent_only_model_input_contract,
     raw_v5_router_sequence_contract,
-    raw_v5_voyage_turn_window_model_input_contract,
 )
 from hmm_sidecar.raw_v5.raw_v5_serving import (
     RAW_V5_CAUSAL_BOUNDARY,
@@ -89,29 +60,13 @@ from hmm_sidecar.raw_v5.raw_v5_serving import (
     RawV5ServingInputError,
 )
 from hmm_sidecar.raw_v5.state_representation import (
-    ELEMENT_STORE_REPRESENTATIONS,
     GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT,
-    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ONE_TURN,
-    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_TEN_TURN,
-    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_TWO_TURN,
-    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY,
-    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY_LAST_STATE,
-    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY_TEN_TURN,
-    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY_TWO_TURN,
     HMM_CORPUS_SCHEMA_VERSION_RAW_V5,
-    VOYAGE_4_LARGE_RAW_ROUTER_V5_ONE_TURN,
-    VOYAGE_4_LARGE_RAW_ROUTER_V5_TEN_TURN,
-    VOYAGE_4_LARGE_RAW_ROUTER_V5_TWO_TURN,
-    VOYAGE_RAW_ROUTER_USER_AGENT_ONLY_MAX_TURNS,
     SequenceRepresentation,
     StateEncoderContract,
     get_state_encoder_contract,
 )
 from hmm_sidecar.raw_v5.core import canonical_json
-from hmm_sidecar.raw_v5.frozen_raw_v5 import (
-    frozen_raw_v5_encoder,
-    frozen_raw_v5_model_input_contract,
-)
 
 RAW_V5_CONFIGURED_SERVING_INPUT_SCHEMA_VERSION = (
     "hmm_router_raw_v5_configured_serving_input_v1"
@@ -272,9 +227,6 @@ class RawV5ServingProfile:
             return RawV5AgentDocumentKind.WITHOUT_TOOL_TRACE
         return RawV5AgentDocumentKind.WITH_COMPACTED_TOOL_TRACE
 
-    def model_input_contract(self) -> dict[str, object]:
-        raise NotImplementedError("not on the classifier serving path")
-
 
 _RAW_FEATURE_MATRIX_RELATIVE_POSITION_DIM: Mapping[RawFeatureMatrix, int] = {
     RawFeatureMatrix.VOYAGE_ELEMENT_KIND_SLOTS_V2: RELATIVE_POSITION_DIM,
@@ -284,168 +236,6 @@ _RAW_FEATURE_MATRIX_RELATIVE_POSITION_DIM: Mapping[RawFeatureMatrix, int] = {
     RawFeatureMatrix.GEMINI_EMBEDDING_2_ELEMENT_KIND_SLOTS_V2: RELATIVE_POSITION_DIM,
 }
 
-
-def _voyage_turn_window_profile(max_turns: int) -> RawV5ServingProfile:
-    representation, serializer_version, serializer_sha256 = {
-        RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS: (
-            VOYAGE_4_LARGE_RAW_ROUTER_V5_ONE_TURN,
-            RAW_V5_VOYAGE_ONE_TURN_SERIALIZER_VERSION,
-            RAW_V5_VOYAGE_ONE_TURN_INPUT_CONTRACT_SHA256,
-        ),
-        RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS: (
-            VOYAGE_4_LARGE_RAW_ROUTER_V5_TWO_TURN,
-            RAW_V5_VOYAGE_TWO_TURN_SERIALIZER_VERSION,
-            RAW_V5_VOYAGE_TWO_TURN_INPUT_CONTRACT_SHA256,
-        ),
-        RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS: (
-            VOYAGE_4_LARGE_RAW_ROUTER_V5_TEN_TURN,
-            RAW_V5_VOYAGE_TEN_TURN_SERIALIZER_VERSION,
-            RAW_V5_VOYAGE_TEN_TURN_INPUT_CONTRACT_SHA256,
-        ),
-    }[max_turns]
-    return RawV5ServingProfile(
-        config=RawV5ServingConfig(
-            provider=RawV5EmbeddingProvider.VOYAGE,
-            tool_evidence=RawV5ToolEvidenceMode.COMPACTED_TOOL_TRACE,
-            document_window=RawV5DocumentWindow.TURN_WINDOW,
-            lookback_rounds=max_turns,
-        ),
-        representation=representation,
-        embedding_model=RAW_V5_ROUTER_EMBEDDING_MODEL,
-        embedding_dim=RAW_V5_ROUTER_EMBEDDING_DIM,
-        document_serializer_version=serializer_version,
-        document_serializer_sha256=serializer_sha256,
-        raw_feature_matrix=RawFeatureMatrix.VOYAGE_ELEMENT_KIND_SLOTS_V2,
-        hmm_training_contract_version=RawV5HMMTrainingContractVersion.VOYAGE_V2,
-        _model_input_contract=lambda: (
-            raw_v5_voyage_turn_window_model_input_contract(max_turns)
-        ),
-    )
-
-
-def _gemini_turn_window_profile(max_turns: int) -> RawV5ServingProfile:
-    representation, serializer_version, serializer_sha256 = {
-        RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS: (
-            GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ONE_TURN,
-            RAW_V5_GEMINI_ONE_TURN_SERIALIZER_VERSION,
-            RAW_V5_GEMINI_ONE_TURN_INPUT_CONTRACT_SHA256,
-        ),
-        RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS: (
-            GEMINI_EMBEDDING_2_RAW_ROUTER_V5_TWO_TURN,
-            RAW_V5_GEMINI_TWO_TURN_SERIALIZER_VERSION,
-            RAW_V5_GEMINI_TWO_TURN_INPUT_CONTRACT_SHA256,
-        ),
-        RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS: (
-            GEMINI_EMBEDDING_2_RAW_ROUTER_V5_TEN_TURN,
-            RAW_V5_GEMINI_TEN_TURN_SERIALIZER_VERSION,
-            RAW_V5_GEMINI_TEN_TURN_INPUT_CONTRACT_SHA256,
-        ),
-    }[max_turns]
-    return RawV5ServingProfile(
-        config=RawV5ServingConfig(
-            provider=RawV5EmbeddingProvider.GEMINI,
-            tool_evidence=RawV5ToolEvidenceMode.COMPACTED_TOOL_TRACE,
-            document_window=RawV5DocumentWindow.TURN_WINDOW,
-            lookback_rounds=max_turns,
-        ),
-        representation=representation,
-        embedding_model=RAW_V5_GEMINI_EMBEDDING_2_MODEL,
-        embedding_dim=RAW_V5_GEMINI_EMBEDDING_2_DIM,
-        document_serializer_version=serializer_version,
-        document_serializer_sha256=serializer_sha256,
-        raw_feature_matrix=RawFeatureMatrix.GEMINI_EMBEDDING_2_ELEMENT_KIND_SLOTS_V2,
-        hmm_training_contract_version=RawV5HMMTrainingContractVersion.GEMINI_V2,
-        _model_input_contract=lambda: (
-            raw_v5_gemini_turn_window_model_input_contract(max_turns)
-        ),
-    )
-
-
-def _gemini_user_agent_only_profile(max_turns: int) -> RawV5ServingProfile:
-    representation, serializer_version, serializer_sha256 = {
-        RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS: (
-            GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY,
-            RAW_V5_GEMINI_USER_AGENT_ONLY_SERIALIZER_VERSION,
-            RAW_V5_GEMINI_USER_AGENT_ONLY_INPUT_CONTRACT_SHA256,
-        ),
-        RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS: (
-            GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY_TWO_TURN,
-            RAW_V5_GEMINI_USER_AGENT_ONLY_TWO_TURN_SERIALIZER_VERSION,
-            RAW_V5_GEMINI_USER_AGENT_ONLY_TWO_TURN_INPUT_CONTRACT_SHA256,
-        ),
-        RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS: (
-            GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY_TEN_TURN,
-            RAW_V5_GEMINI_USER_AGENT_ONLY_TEN_TURN_SERIALIZER_VERSION,
-            RAW_V5_GEMINI_USER_AGENT_ONLY_TEN_TURN_INPUT_CONTRACT_SHA256,
-        ),
-    }[max_turns]
-    return RawV5ServingProfile(
-        config=RawV5ServingConfig(
-            provider=RawV5EmbeddingProvider.GEMINI,
-            tool_evidence=RawV5ToolEvidenceMode.USER_AGENT_ONLY,
-            document_window=RawV5DocumentWindow.TURN_WINDOW,
-            lookback_rounds=max_turns,
-        ),
-        representation=representation,
-        embedding_model=RAW_V5_GEMINI_EMBEDDING_2_MODEL,
-        embedding_dim=RAW_V5_GEMINI_EMBEDDING_2_DIM,
-        document_serializer_version=serializer_version,
-        document_serializer_sha256=serializer_sha256,
-        raw_feature_matrix=RawFeatureMatrix.GEMINI_EMBEDDING_2_ELEMENT_KIND_SLOTS_V2,
-        hmm_training_contract_version=RawV5HMMTrainingContractVersion.GEMINI_V2,
-        _model_input_contract=lambda: (
-            raw_v5_gemini_user_agent_only_model_input_contract(max_turns)
-        ),
-    )
-
-
-def _voyage_user_agent_only_profile(
-    representation: SequenceRepresentation,
-    max_turns: int,
-) -> RawV5ServingProfile:
-    encoder = get_state_encoder_contract(representation)
-    return RawV5ServingProfile(
-        config=RawV5ServingConfig(
-            provider=RawV5EmbeddingProvider.VOYAGE,
-            tool_evidence=RawV5ToolEvidenceMode.USER_AGENT_ONLY,
-            document_window=RawV5DocumentWindow.TURN_WINDOW,
-            lookback_rounds=max_turns,
-        ),
-        representation=representation,
-        embedding_model=encoder.model_id,
-        embedding_dim=encoder.hidden_dim,
-        document_serializer_version=encoder.serializer_version,
-        document_serializer_sha256=encoder.serializer_sha256,
-        raw_feature_matrix=RawFeatureMatrix.VOYAGE_ELEMENT_KIND_SLOTS_V2,
-        hmm_training_contract_version=RawV5HMMTrainingContractVersion.VOYAGE_V2,
-        _model_input_contract=lambda: raw_v5_voyage_user_agent_only_model_input_contract(
-            max_turns
-        ),
-    )
-
-
-_GEMINI_USER_AGENT_ONLY_LAST_STATE_PROFILE = RawV5ServingProfile(
-    config=RawV5ServingConfig(
-        provider=RawV5EmbeddingProvider.GEMINI,
-        tool_evidence=RawV5ToolEvidenceMode.USER_AGENT_ONLY,
-        document_window=RawV5DocumentWindow.PREVIOUS_ELEMENT,
-        lookback_rounds=RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
-    ),
-    representation=GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY_LAST_STATE,
-    embedding_model=RAW_V5_GEMINI_EMBEDDING_2_MODEL,
-    embedding_dim=RAW_V5_GEMINI_EMBEDDING_2_DIM,
-    document_serializer_version=(
-        RAW_V5_GEMINI_USER_AGENT_ONLY_LAST_STATE_SERIALIZER_VERSION
-    ),
-    document_serializer_sha256=(
-        RAW_V5_GEMINI_USER_AGENT_ONLY_LAST_STATE_INPUT_CONTRACT_SHA256
-    ),
-    raw_feature_matrix=RawFeatureMatrix.GEMINI_EMBEDDING_2_ELEMENT_KIND_SLOTS_V2,
-    hmm_training_contract_version=RawV5HMMTrainingContractVersion.GEMINI_V2,
-    _model_input_contract=(
-        raw_v5_gemini_user_agent_only_last_state_model_input_contract
-    ),
-)
 
 _GEMINI_ELEMENT_PROFILE = RawV5ServingProfile(
     config=RawV5ServingConfig(
@@ -464,26 +254,11 @@ _GEMINI_ELEMENT_PROFILE = RawV5ServingProfile(
     _model_input_contract=raw_v5_gemini_element_model_input_contract,
 )
 
-_SUPPORTED_LOOKBACK_ROUNDS = (
-    RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
-    RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS,
-    RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS,
-)
 
-_PROFILES: tuple[RawV5ServingProfile, ...] = (
-    *(
-        _voyage_user_agent_only_profile(representation, turns)
-        for representation, turns in VOYAGE_RAW_ROUTER_USER_AGENT_ONLY_MAX_TURNS.items()
-        # Per-message stores share a lookback with the turn-window contracts,
-        # so they serve only through a per_message profile (Gemini's below).
-        if representation not in ELEMENT_STORE_REPRESENTATIONS
-    ),
-    *(_voyage_turn_window_profile(turns) for turns in _SUPPORTED_LOOKBACK_ROUNDS),
-    *(_gemini_turn_window_profile(turns) for turns in _SUPPORTED_LOOKBACK_ROUNDS),
-    *(_gemini_user_agent_only_profile(turns) for turns in _SUPPORTED_LOOKBACK_ROUNDS),
-    _GEMINI_USER_AGENT_ONLY_LAST_STATE_PROFILE,
-    _GEMINI_ELEMENT_PROFILE,
-)
+# The only configuration serving supports: Gemini per-message documents with
+# user/agent-only tool evidence and one lookback round. Packages declaring any
+# other combination are rejected at load.
+_PROFILES: tuple[RawV5ServingProfile, ...] = (_GEMINI_ELEMENT_PROFILE,)
 
 
 # The Gemini user/agent-only candidates fit before the raw HMM matrix dropped
@@ -492,60 +267,24 @@ _PROFILES: tuple[RawV5ServingProfile, ...] = (
 # immutable artifacts, so serving validates them against their own frozen
 # lineage instead of relabelling them as v2. This profile is deliberately kept
 # out of the configuration registry new training resolves through.
-def frozen_raw_v5_serving_profile(profile: RawV5ServingProfile) -> RawV5ServingProfile:
-    """Select the exact historical input codec, never a relaxed contract."""
-
-    if profile.frozen_encoder is not None:
-        return profile
-    encoder = frozen_raw_v5_encoder(profile.representation)
-    return replace(
-        profile,
-        frozen_encoder=encoder,
-        document_serializer_version=encoder.serializer_version,
-        document_serializer_sha256=encoder.serializer_sha256,
-        _model_input_contract=lambda: frozen_raw_v5_model_input_contract(
-            profile.model_input_contract(), encoder
-        ),
-    )
 
 
 def _profile_for_encoder_hash(
     profile: RawV5ServingProfile,
     state_encoder_contract_sha256: str | None,
 ) -> RawV5ServingProfile:
-    if state_encoder_contract_sha256 is None or (
-        state_encoder_contract_sha256 == profile.state_encoder_contract.sha256
+    if state_encoder_contract_sha256 not in (
+        None,
+        profile.state_encoder_contract.sha256,
     ):
-        return profile
-    try:
-        frozen = frozen_raw_v5_serving_profile(profile)
-    except ValueError as error:
         raise RawV5ServingInputError(
-            "raw V5 package disagrees with the current state encoder contract: "
-            f"{profile.representation.value}"
-        ) from error
-    if state_encoder_contract_sha256 != frozen.state_encoder_contract.sha256:
-        raise RawV5ServingInputError(
-            "raw V5 package disagrees with known state encoder contracts: "
+            "raw V5 package disagrees with the state encoder contract: "
             f"{profile.representation.value}"
         )
-    return frozen
+    return profile
 
 
-_GEMINI_USER_AGENT_ONLY_V1_ARTIFACT_PROFILE = replace(
-    frozen_raw_v5_serving_profile(
-        _gemini_user_agent_only_profile(RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS)
-    ),
-    raw_feature_matrix=(
-        RawFeatureMatrix.GEMINI_EMBEDDING_2_ELEMENT_KIND_SLOTS_RELATIVE_POSITION_V1
-    ),
-    hmm_training_contract_version=RawV5HMMTrainingContractVersion.GEMINI_V1,
-)
-
-_ARTIFACT_PROFILES: tuple[RawV5ServingProfile, ...] = (
-    *_PROFILES,
-    _GEMINI_USER_AGENT_ONLY_V1_ARTIFACT_PROFILE,
-)
+_ARTIFACT_PROFILES = _PROFILES
 
 _PROFILES_BY_CONFIG: Mapping[RawV5ServingConfig, RawV5ServingProfile] = {
     profile.config: profile for profile in _PROFILES
@@ -560,7 +299,11 @@ _ARTIFACT_PROFILES_BY_RUNTIME_IDENTITY: Mapping[
 
 
 def _supported_configs_message() -> str:
-    raise NotImplementedError("not on the classifier serving path")
+    return ", ".join(
+        f"{p.config.provider!s}/{p.config.tool_evidence!s}/"
+        f"{p.config.document_window!s}/{p.config.lookback_rounds}"
+        for p in _PROFILES
+    )
 
 
 def raw_v5_serving_profile(config: RawV5ServingConfig) -> RawV5ServingProfile:

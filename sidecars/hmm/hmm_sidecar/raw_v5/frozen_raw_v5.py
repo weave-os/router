@@ -156,10 +156,3 @@ def validate_raw_v5_serving_encoder(
             f"{expected_representation.value}"
         )
     return frozen
-
-
-def frozen_raw_v5_model_input_contract(
-    current: dict[str, object],
-    encoder: StateEncoderContract,
-) -> dict[str, object]:
-    raise NotImplementedError("not on the classifier serving path")
