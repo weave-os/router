@@ -101,7 +101,12 @@ func applyAgreementShadowTelemetry(ctx context.Context, p *InsertTelemetryParams
 		}
 		shadow.Observation.Proposal = switchpolicy.Selection{Target: switchpolicy.Target{Provider: provider, Model: model}, Group: group}
 		shadow.Observation.Confidence = confidence
-		shadow.Observation.PolicyIdentity = string(switchpolicy.VersionAgreementV1) + ":" + md.Strategy + ":" + md.ClassifierArtifactSHA256 + ":" + md.SelectionPolicySHA256 + ":" + md.RosterVersion
+		// Adapter labels can alternate while the frozen policy stays identical.
+		identityStrategy := router.Strategy(md.Strategy)
+		if identityStrategy == router.StrategyHMMEmbedding {
+			identityStrategy = router.StrategyHMM
+		}
+		shadow.Observation.PolicyIdentity = string(switchpolicy.VersionAgreementV1) + ":" + string(identityStrategy) + ":" + md.ClassifierArtifactSHA256 + ":" + md.SelectionPolicySHA256 + ":" + md.RosterVersion
 		shadow.Observation.LivePin = switchpolicy.Selection{Target: switchpolicy.Target{Provider: res.PinProvider, Model: res.PinModel}, Group: escalation.Group(res.PinPolicyGroup)}
 		for model, provider := range md.CandidateProviders {
 			shadow.Observation.Eligible = append(shadow.Observation.Eligible, switchpolicy.Target{Provider: provider, Model: model})

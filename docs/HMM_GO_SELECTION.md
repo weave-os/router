@@ -179,7 +179,10 @@ committed atomically together with a compare-and-swap revision. They never read
 or write each other's votes, and the table is separate from live session pins.
 An initial segment starts from the eligible live incumbent when its quality
 group is known; otherwise it cold-starts and records that initialization. A
-changed classifier/selection identity starts a new segment. A hypothetical
+changed classifier/selection identity starts a new segment. The shadow identity
+normalizes the primary `hmm` and `hmm_embedding` adapter labels; matching classifier,
+selection-policy and roster fingerprints preserve votes across those labels.
+Explicit beta/Qwen strategies remain distinct. A hypothetical
 incumbent absent from the current eligible targets is replaced immediately with
 the typed incumbent-ineligible exception.
 
