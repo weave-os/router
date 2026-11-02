@@ -61,7 +61,9 @@ func UnifiedLimitHeadersFrom(ctx context.Context) map[string]string {
 	return c.raw
 }
 
-// CodexLimitHeadersFrom is the Codex counterpart of UnifiedLimitHeadersFrom.
+// CodexLimitHeadersFrom returns the raw Codex limit header map captured for this
+// request (nil if withUnifiedLimitCapture was never installed, or nothing was
+// captured — e.g. no Codex subscription call was made this turn).
 func CodexLimitHeadersFrom(ctx context.Context) map[string]string {
 	c, ok := ctx.Value(unifiedLimitCaptureKey{}).(*unifiedLimitCapture)
 	if !ok || c == nil {
@@ -77,8 +79,9 @@ func unifiedLimitHeadersJSON(ctx context.Context) []byte {
 	return limitHeadersJSON(ctx, UnifiedLimitHeadersFrom(ctx), "unified_limit_headers")
 }
 
-// codexLimitHeadersJSON is the codex_limit_headers counterpart of
-// unifiedLimitHeadersJSON.
+// codexLimitHeadersJSON marshals the captured Codex limit-header map to []byte
+// for InsertTelemetryParams. Returns nil when nothing was captured, so the
+// codex_limit_headers column stays NULL.
 func codexLimitHeadersJSON(ctx context.Context) []byte {
 	return limitHeadersJSON(ctx, CodexLimitHeadersFrom(ctx), "codex_limit_headers")
 }
