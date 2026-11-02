@@ -114,6 +114,7 @@ const (
 	KeyHMMDowngradeHysteresisTurns          Key = "hmm_downgrade_hysteresis_turns"
 	KeyHMMDowngradeHysteresisShadowTurns    Key = "hmm_downgrade_hysteresis_shadow_turns"
 	KeyAuthorityCacheShadow                 Key = "authority_cache_shadow"
+	KeyAgreementShadowEpoch                 Key = "agreement_shadow_epoch"
 	KeySiblingFailover                      Key = "sibling_failover"
 	KeyEffortEscalation                     Key = "effort_escalation"
 	KeyCyberRefusalRepin                    Key = "cyber_refusal_repin"
@@ -175,7 +176,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 26
+const RegistryVersion = 27
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -333,6 +334,12 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_AUTHORITY_CACHE_SHADOW",
 		Kind:           KindBool,
 		Description:    "Record the HMM cache gate's counterfactual verdict on authoritative-per-turn turns. Observation only; never changes what is served.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyAgreementShadowEpoch,
+		Kind:           KindInt,
+		Description:    "Observation-only internal agreement comparison: 0 disables; choose a fresh positive epoch for each activation/resumption. Compares 1-up/5-down with 2-up/5-down without affecting serving.",
 		OrgOverridable: true,
 	},
 	{
@@ -577,7 +584,7 @@ func ValidateOverrides(o Overrides) error {
 				return fmt.Errorf("%w: %q must be between 0 and 100, got %d", ErrInvalidValue, key, value)
 			}
 		}
-		if key == KeyAuthoritativeUpgradeVotes && value < 0 {
+		if (key == KeyAuthoritativeUpgradeVotes || key == KeyAgreementShadowEpoch) && value < 0 {
 			return fmt.Errorf("%w: %q must be nonnegative, got %d", ErrInvalidValue, key, value)
 		}
 		if key == KeyRateLimitCooldownSeconds && value < 1 {

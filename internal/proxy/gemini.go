@@ -522,6 +522,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		applyBlindExperimentTelemetry(ctx, &telemetryParams, &routeRes)
 		applyPolicyPinTelemetry(ctx, &telemetryParams, decision.Metadata)
 		applySubscriberTelemetry(ctx, &telemetryParams)
+		applyAgreementShadowTelemetry(ctx, &telemetryParams, routeRes)
 		subscriberTelemetry = &telemetryParams
 	}
 

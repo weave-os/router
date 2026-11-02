@@ -433,26 +433,36 @@ type RoutingMetadata struct {
 	ArmScores map[string]float32
 }
 
+type SelectionOverrideReason string
+
+const (
+	SelectionOverrideNone             SelectionOverrideReason = ""
+	SelectionOverrideSlidingThreshold SelectionOverrideReason = "sliding_threshold"
+	SelectionOverrideForceCluster     SelectionOverrideReason = "force_cluster"
+	SelectionOverrideCluster          SelectionOverrideReason = "cluster_override"
+)
+
 // SelectionTrace is the content-free replay record for one Go-owned policy
 // decision. It captures the classifier ordering, exact eligible roster IDs,
 // bounded preference inputs, effective orders and typed hard exclusions.
 type SelectionTrace struct {
-	TaskDomain             *taskdomain.Outcome                            `json:"task_domain,omitempty"`
-	ClassifierRanking      []string                                       `json:"classifier_ranking"`
-	Harness                string                                         `json:"harness"`
-	ForcedGroup            string                                         `json:"forced_group,omitempty"`
-	CandidateRosterIDs     []string                                       `json:"candidate_roster_ids"`
-	QualityBias            *float64                                       `json:"quality_bias,omitempty"`
-	PreferredModels        []string                                       `json:"preferred_models,omitempty"`
-	SubscriptionProviders  []string                                       `json:"subscription_providers,omitempty"`
-	EffectiveOrders        map[string][]string                            `json:"effective_orders"`
-	ScoresByGroup          map[string]map[string]float32                  `json:"scores_by_group,omitempty"`
-	ScoreComponentsByGroup map[string]map[string]SelectionScoreComponents `json:"score_components_by_group,omitempty"`
-	ResolverExclusions     []SelectionExclusion                           `json:"resolver_exclusions,omitempty"`
-	SelectedGroup          string                                         `json:"selected_group"`
-	SelectedArm            string                                         `json:"selected_arm"`
-	FallbackDepth          int                                            `json:"fallback_depth"`
-	OverrideReason         string                                         `json:"override_reason,omitempty"`
+	TaskDomain              *taskdomain.Outcome                            `json:"task_domain,omitempty"`
+	ClassifierRanking       []string                                       `json:"classifier_ranking"`
+	Harness                 string                                         `json:"harness"`
+	ForcedGroup             string                                         `json:"forced_group,omitempty"`
+	CandidateRosterIDs      []string                                       `json:"candidate_roster_ids"`
+	QualityBias             *float64                                       `json:"quality_bias,omitempty"`
+	PreferredModels         []string                                       `json:"preferred_models,omitempty"`
+	SubscriptionProviders   []string                                       `json:"subscription_providers,omitempty"`
+	EffectiveOrders         map[string][]string                            `json:"effective_orders"`
+	ScoresByGroup           map[string]map[string]float32                  `json:"scores_by_group,omitempty"`
+	ScoreComponentsByGroup  map[string]map[string]SelectionScoreComponents `json:"score_components_by_group,omitempty"`
+	ResolverExclusions      []SelectionExclusion                           `json:"resolver_exclusions,omitempty"`
+	SelectedGroup           string                                         `json:"selected_group"`
+	SelectedArm             string                                         `json:"selected_arm"`
+	FallbackDepth           int                                            `json:"fallback_depth"`
+	OverrideReason          SelectionOverrideReason                        `json:"override_reason,omitempty"`
+	ClusterOverridesPresent bool                                           `json:"cluster_overrides_present,omitempty"`
 }
 
 // SelectionScoreComponents records the bounded terms behind an arm's final score.

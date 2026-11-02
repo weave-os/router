@@ -647,6 +647,11 @@ model. Failures are loud by design.
 
 ### Authoritative upgrade evidence policy
 
+For the independent observation-only agreement experiment, see
+[Internal agreement shadow](HMM_GO_SELECTION.md#internal-agreement-shadow).
+Its organization-only `agreement_shadow_epoch` is 0 (off) by default and
+restricted to admitted internal traffic; it never replaces the gates below.
+
 Authoritative HMM turns evaluate a typed evidence policy for expensive fresh
 models. The deployment default is `score`, the `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` floor.
 Set `ROUTER_AUTHORITATIVE_UPGRADE_POLICY=evidence` (or the installation override

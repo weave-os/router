@@ -212,6 +212,16 @@ jobs:
       - name: Run tests with vetting
         run: go test -vet=all -count=1 ./...
 
+      - name: Check agreement shadow state on disposable Postgres
+        env:
+          PGPASSWORD: router
+          ROUTER_AGREEMENT_SHADOW_TEST_DATABASE_URL: postgres://router:router@127.0.0.1:5432/agreement_shadow_test?sslmode=disable&search_path=router
+        run: |
+          createdb -h 127.0.0.1 -p 5432 -U router agreement_shadow_test
+          psql -h 127.0.0.1 -p 5432 -U router -d agreement_shadow_test -c "CREATE SCHEMA router;"
+          migrate -path ./db/migrations -database "$ROUTER_AGREEMENT_SHADOW_TEST_DATABASE_URL" up
+          go test -race ./internal/postgres -run TestAgreementShadowPostgresAtomicity -count=1
+
       - name: Check managed serving admission on ephemeral Postgres
         env:
           ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router

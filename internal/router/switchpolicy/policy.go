@@ -1,5 +1,5 @@
 // Package switchpolicy evaluates destination-specific model agreement without I/O.
-// It is exercised by the offline replay command; serving integration is separate.
+// It is used by offline replay and observation-only shadowing, never dispatch.
 package switchpolicy
 
 import (

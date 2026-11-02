@@ -5869,6 +5869,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		applyBlindExperimentTelemetry(ctx, &tel, &routeRes)
 		applyPolicyPinTelemetry(ctx, &tel, decision.Metadata)
 		applySubscriberTelemetry(ctx, &tel)
+		applyAgreementShadowTelemetry(ctx, &tel, routeRes)
 		// Hard-pinned turn types carry history shapes that mimic failure signals,
 		// so only the detector's trusted turn types enter the training corpus.
 		signalTurn := tt == turntype.MainLoop || tt == turntype.ToolResult
@@ -7039,6 +7040,7 @@ func (s *Service) fireTelemetry(p InsertTelemetryParams) {
 			// reported loudly enough to alert on.
 			log.Warn("Telemetry insert failed", "err", err)
 		}
+		s.recordAgreementShadow(ctx, log, p)
 	})
 }
 
@@ -9093,6 +9095,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		applyBlindExperimentTelemetry(ctx, &telOAI, &routeRes)
 		applyPolicyPinTelemetry(ctx, &telOAI, decision.Metadata)
 		applySubscriberTelemetry(ctx, &telOAI)
+		applyAgreementShadowTelemetry(ctx, &telOAI, routeRes)
 		if proxyErr == nil {
 			applySubscriberSettlementTelemetry(subscriberSettlement, &telOAI)
 		} else {

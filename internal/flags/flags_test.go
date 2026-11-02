@@ -25,6 +25,20 @@ func TestParseOverridesValid(t *testing.T) {
 	assert.False(t, o.IsEmpty())
 }
 
+func TestAgreementShadowEpochValidation(t *testing.T) {
+	for _, epoch := range []int{-1, 0, 1} {
+		raw, err := json.Marshal(map[flags.Key]int{flags.KeyAgreementShadowEpoch: epoch})
+		require.NoError(t, err)
+		parsed, err := flags.ParseOverrides(raw)
+		if epoch < 0 {
+			require.Error(t, err)
+		} else {
+			require.NoError(t, err)
+			assert.Equal(t, epoch, parsed.Ints[flags.KeyAgreementShadowEpoch])
+		}
+	}
+}
+
 func TestParseOverridesEmptyIsNotAnError(t *testing.T) {
 	for name, raw := range map[string][]byte{
 		"nil":          nil,
