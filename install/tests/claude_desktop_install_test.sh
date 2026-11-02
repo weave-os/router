@@ -42,6 +42,10 @@ printf '%s %s\n' "\$tool" "\$*" >>"$calls"
 case "\$tool \$1" in
   "sudo "*) exit 0 ;;
   "security verify-cert") exit 1 ;;
+  "launchctl bootstrap")
+    attempts=\$(( \$(cat "$state/bootstrap_attempts" 2>/dev/null || echo 0) + 1 ))
+    echo "\$attempts" >"$state/bootstrap_attempts"
+    [ "\$attempts" -gt "\${FAKE_BOOTSTRAP_FAILURES:-0}" ] || exit 5 ;;
   "security remove-trusted-cert") [ -z "\${FAKE_TRUST_REMOVAL_FAILS:-}" ] || exit 1 ;;
   "networksetup -listallnetworkservices") printf 'An asterisk (*) denotes that a network service is disabled.\nWi-Fi\n*Old VPN\n' ;;
   "networksetup -getautoproxyurl") printf 'URL: %s\nEnabled: No\n' "\$(cat "$state/pac" 2>/dev/null || echo '(null)')" ;;
@@ -74,7 +78,7 @@ install_desktop() {
 
 reset_os() {
   : >"$calls"
-  rm -f "$state/pac" "$state/mode"
+  rm -f "$state/pac" "$state/mode" "$state/bootstrap_attempts"
 }
 
 shim_dir="$home/.weave-router/desktop-shim"
@@ -153,6 +157,14 @@ grep -Eq "^launchctl bootstrap gui/[0-9]+ $plist$" "$calls" || fail "launchd age
 grep -Fq "security add-trusted-cert -r trustRoot -k $home/Library/Keychains/login.keychain-db $shim_dir/ca.pem" "$calls" || fail "CA not trusted in the login keychain"
 grep -Fq "sudo networksetup -setautoproxyurl Wi-Fi $pac_url" "$calls" || fail "auto-proxy not set on Wi-Fi: $(cat "$calls")"
 ! grep -Fq "Old VPN" "$calls" || fail "auto-proxy set on a disabled service"
+
+# bootout returns before the old agent has exited, so a reinstall's first bootstraps can fail.
+reset_os
+out="$(install_desktop env FAKE_UNAME=Darwin FAKE_BOOTSTRAP_FAILURES=2 2>&1)" || fail "macOS reinstall failed while the old agent was still exiting: $out"
+[ "$(grep -Ec "^launchctl bootstrap gui/[0-9]+ $plist$" "$calls")" -eq 3 ] || fail "bootstrap not retried: $(cat "$calls")"
+reset_os
+! install_desktop env FAKE_UNAME=Darwin FAKE_BOOTSTRAP_FAILURES=99 >/dev/null 2>&1 || fail "install succeeded although launchd never started the proxy"
+[ "$(grep -Ec "^launchctl bootstrap gui/[0-9]+ $plist$" "$calls")" -eq 5 ] || fail "bootstrap retries not capped: $(cat "$calls")"
 
 # launchd rejects a malformed plist, so a HOME containing & or < must still parse.
 odd_home="$work/odd&<home"

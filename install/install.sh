@@ -6471,10 +6471,17 @@ start_desktop_shim_service() {
 </plist>
 PLIST
       launchctl bootout "gui/$uid/$desktop_shim_launchd_label" >/dev/null 2>&1 || true
-      if ! launchctl bootstrap "gui/$uid" "$plist"; then
-        err "launchctl could not start the Claude Desktop proxy from $plist."
-        exit 1
-      fi
+      # bootout returns before the old agent has exited, and bootstrapping the
+      # same label meanwhile fails (error 5), so a reinstall retries for a bit.
+      local attempt=1
+      until launchctl bootstrap "gui/$uid" "$plist" 2>/dev/null; do
+        if [ "$attempt" -ge 5 ]; then
+          err "launchctl could not start the Claude Desktop proxy from $plist."
+          exit 1
+        fi
+        attempt=$((attempt + 1))
+        sleep 1
+      done
       ok "Claude Desktop proxy runs at login (launchd $desktop_shim_launchd_label)"
       ;;
     Linux)
