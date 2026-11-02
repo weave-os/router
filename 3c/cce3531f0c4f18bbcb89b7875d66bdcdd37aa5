@@ -1,0 +1,45 @@
+internal/proxy/unified_limit_capture.go
+  s_6abf776e1fb281::t_7e7ab477ecdba7 12-15,20-22,24-25,37-38,49-50,53-55,64-72,77-86,94
+internal/proxy/usage/raw_headers.go
+  s_6abf776e1fb281::t_3e80b09b864464 12-20,30-40,43,46-47,57-65
+db/migrations/0143_codex-limit-headers.down.sql
+  s_6abf776e1fb281::t_0d243f117cb4df 1-6
+db/migrations/0143_codex-limit-headers.up.sql
+  s_6abf776e1fb281::t_f26f7f456d6418 1-9
+db/queries/model_router_request_telemetry.sql
+  s_6abf776e1fb281::t_0031ba9f1d2f3d 34-35,163,340
+internal/postgres/telemetry.go
+  s_6abf776e1fb281::t_9f2b540984da5d 197
+internal/proxy/service.go
+  s_6abf776e1fb281::t_b12935ec350dc0 5862-5863,5865,9092-9093
+internal/proxy/subscription_observation.go
+  s_6abf776e1fb281::t_555904b3c597ea 136-137
+internal/proxy/telemetry.go
+  s_6abf776e1fb281::t_174840723b7204 239-241
+internal/proxy/unified_limit_capture_test.go
+  s_6abf776e1fb281::t_a72fc81f5d5bf6 133-196
+internal/proxy/usage/raw_headers_test.go
+  s_6abf776e1fb281::t_622555f482d254 36-67
+internal/proxy/usage_bypass.go
+  s_6abf776e1fb281::t_02a36a1b90aa60 730
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_6abf776e1fb281::t_37835386cafa51 2051,2228,2230,2234,2236-2241,2244,2246-2249,2251,2255-2257,2262-2263,2265,2273-2274,2276-2277,2282-2284,2288-2289,2295-2297,2300-2302,2409,2519-2520,2648,2825,2827,2831,2833-2838,2841,2843-2846,2848,2852-2854,2859-2860,2862,2870-2871,2873-2874,2879-2881,2885-2886,2892-2894,2897-2899,3005
+internal/sqlc/models.go
+  s_6abf776e1fb281::t_5055cb1e065375 736-737
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3ccce3531f0c4f18bbcb89b7875d66bdcdd37aa5",
+  "prompts": {},
+  "sessions": {
+    "s_6abf776e1fb281": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "789338df-203a-40ba-85e4-4b4be1ef34ec",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
