@@ -156,7 +156,7 @@ test("desktop shim", async (t) => {
     const { res, chunks, text } = await viaProxy(proxyPort, ca, {
       method: "POST",
       reqPath: "/v1/messages?beta=true",
-      headers: { "user-agent": CODE_TAB_USER_AGENT, authorization: "Bearer sk-ant-oat-subscription", "content-type": "application/json", "x-weave-router-key": "rk_spoofed" },
+      headers: { "user-agent": CODE_TAB_USER_AGENT, authorization: "Bearer sk-ant-oat-subscription", "content-type": "application/json", "x-weave-router-key": "rk_spoofed", "x-weave-model-passthrough": "1" },
       body: '{"model":"claude-sonnet-5","stream":true}',
     });
     assert.equal(res.statusCode, 200);
@@ -165,6 +165,7 @@ test("desktop shim", async (t) => {
     const routerRequest = router.seen.at(-1);
     assert.equal(routerRequest.url, "/prefix/v1/messages?beta=true");
     assert.equal(routerRequest.headers["x-weave-router-key"], "rk_desktop_test");
+    assert.equal(routerRequest.headers["x-weave-model-passthrough"], undefined, "Desktop picks must be routed, not passed through");
     assert.equal(routerRequest.headers.authorization, "Bearer sk-ant-oat-subscription");
     assert.equal(routerRequest.headers.host, `127.0.0.1:${routerPort}`);
     assert.equal(routerRequest.body, '{"model":"claude-sonnet-5","stream":true}');
