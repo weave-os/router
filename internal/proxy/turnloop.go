@@ -1663,7 +1663,7 @@ func (s *Service) runTurnLoop(
 
 	// The context fit-check below would otherwise lift this exclusion and serve
 	// a Gemini pin that rejects the unsigned history mid-stream.
-	if _, unsigned := req.UnsignedHistoryExcludedModels[pin.Model]; pinFound && unsigned {
+	if _, pinExcludedForUnsigned := req.UnsignedHistoryExcludedModels[pin.Model]; pinFound && pinExcludedForUnsigned {
 		log.Info("Session pin dropped: the pinned model cannot accept this request's unsigned tool-call history",
 			"pin_model", pin.Model,
 			"pin_provider", pin.Provider,
