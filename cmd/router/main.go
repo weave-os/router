@@ -1071,6 +1071,7 @@ func main() {
 	var servingAdmission *middleware.ServingAdmissionConfig
 	testPlansEnabled := strings.EqualFold(config.GetOr("ROUTER_TEST_PLANS_ENABLED", "false"), "true")
 	policyEnvironmentRaw := strings.TrimSpace(config.GetOr("ROUTER_POLICY_ENVIRONMENT", ""))
+	policyReleaseDir := strings.TrimSpace(config.GetOr("ROUTER_POLICY_RELEASE_DIR", ""))
 	taskRuntime, taskErr := loadTaskDomainRuntime(pool)
 	if taskErr != nil {
 		logger.Error("Task classifier configuration invalid; refusing to boot", "err", taskErr)
@@ -1130,18 +1131,33 @@ func main() {
 			}
 		}
 		logger.Info("Managed serving admission enabled", "target", admission.Identity.Target, "revision", admission.Identity.Revision)
-	} else if policyEnvironmentRaw != "" {
-		registryURI := strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry"))
-		policyRegistry, registryErr := policyregistry.NewGCSRegistry(context.Background(), registryURI)
-		if registryErr != nil {
-			logger.Error("Router policy registry failed to initialize; refusing to boot", "err", registryErr)
-			panic(registryErr)
+	} else if policyEnvironmentRaw != "" || policyReleaseDir != "" {
+		var policyRegistry policyregistry.Loader
+		var policyEnvironment policyregistry.Environment
+		defaultSidecarAuth := policySidecarAuthGoogleIDToken
+		if policyReleaseDir != "" {
+			directoryRegistry, registryErr := policyregistry.NewDirectoryRegistry(policyReleaseDir, config.GetOr("ROUTER_HMM_SIDECAR_URL", ""))
+			if registryErr != nil {
+				logger.Error("Local router policy release is invalid; refusing to boot", "dir", policyReleaseDir, "err", registryErr)
+				panic(registryErr)
+			}
+			policyRegistry = directoryRegistry
+			policyEnvironment = directoryRegistry.Environment()
+			defaultSidecarAuth = policySidecarAuthNone
+		} else {
+			registryURI := strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry"))
+			gcsRegistry, registryErr := policyregistry.NewGCSRegistry(context.Background(), registryURI)
+			if registryErr != nil {
+				logger.Error("Router policy registry failed to initialize; refusing to boot", "err", registryErr)
+				panic(registryErr)
+			}
+			defer gcsRegistry.Close()
+			policyRegistry = gcsRegistry
+			policyEnvironment = policyregistry.Environment(policyEnvironmentRaw)
 		}
-		defer policyRegistry.Close()
-		policyEnvironment := policyregistry.Environment(policyEnvironmentRaw)
 		hmmTimeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
 		hmmAttemptTimeout := parseEnvAttemptTimeoutMs("ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS", policyclient.DeriveAttemptTimeout(hmmTimeout))
-		hmmAuthMode := config.GetOr("ROUTER_HMM_SIDECAR_AUTH", policySidecarAuthGoogleIDToken)
+		hmmAuthMode := config.GetOr("ROUTER_HMM_SIDECAR_AUTH", defaultSidecarAuth)
 		stableManager, managerErr := policyregistry.NewManager(
 			policyRegistry,
 			policyEnvironment,
@@ -1176,14 +1192,20 @@ func main() {
 		hmmRosterModels = newHMMRosterSource(stableManager, hmmTimeout)
 		escalationObserver = stableDynamicRouter
 
-		betaManager, betaManagerErr := policyregistry.NewManager(
-			policyRegistry,
-			policyEnvironment,
-			policyregistry.LaneBeta,
-			hmmPolicySnapshotBuilder(availableProviders, []router.Strategy{router.StrategyHMMBeta}, hmmAuthMode, hmmTimeout, hmmAttemptTimeout),
-			logger,
-		)
-		if betaManagerErr != nil {
+		var betaManager *policyregistry.Manager
+		var betaManagerErr error
+		if policyReleaseDir == "" {
+			betaManager, betaManagerErr = policyregistry.NewManager(
+				policyRegistry,
+				policyEnvironment,
+				policyregistry.LaneBeta,
+				hmmPolicySnapshotBuilder(availableProviders, []router.Strategy{router.StrategyHMMBeta}, hmmAuthMode, hmmTimeout, hmmAttemptTimeout),
+				logger,
+			)
+		}
+		if policyReleaseDir != "" {
+			logger.Info("Serving the local router policy release; beta lane disabled", "dir", policyReleaseDir)
+		} else if betaManagerErr != nil {
 			logger.Error("Beta router policy manager is invalid; beta disabled", "err", betaManagerErr)
 		} else {
 			hmmBetaRouter = policyregistry.NewDynamicRouter(betaManager, router.StrategyHMMBeta)
@@ -1224,9 +1246,9 @@ func main() {
 				safeGo(logger, "policy-invalidation-listener", func() { policyListener.Run(policyListenerCtx) })
 			}
 		}
-		logger.Info("HMM policy managers wired", "registry_uri", registryURI, "environment", policyEnvironment, "candidate_models", len(routingTargets))
+		logger.Info("HMM policy managers wired", "registry_uri", policyRegistry.RootURI(), "environment", policyEnvironment, "candidate_models", len(routingTargets))
 	} else {
-		logger.Info("HMM policy routers disabled (ROUTER_POLICY_ENVIRONMENT unset); HMM strategies will return 503")
+		logger.Info("HMM policy routers disabled (ROUTER_POLICY_ENVIRONMENT and ROUTER_POLICY_RELEASE_DIR unset); HMM strategies will return 503")
 	}
 
 	// Wired only when ROUTER_BANDIT_POSTERIOR_FILE points at a ts_posterior.json;
