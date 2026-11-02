@@ -3,6 +3,7 @@ package policyregistry
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -113,7 +114,9 @@ func (r *Registry) ReadRelease(ctx context.Context, ref ObjectRef) (Release, err
 
 // ExportHead copies a lane head and the exact objects it references into dir for
 // DirectoryRegistry, after the same validation the router applies when serving them.
-func (r *Registry) ExportHead(ctx context.Context, environment Environment, lane Lane, dir string) (HeadSnapshot, error) {
+// A non-empty classifierImageDigest re-pins the release to the image that will serve
+// it; the rewritten release gets its own content address.
+func (r *Registry) ExportHead(ctx context.Context, environment Environment, lane Lane, dir, classifierImageDigest string) (HeadSnapshot, error) {
 	head, err := r.ReadHead(ctx, environment, lane)
 	if err != nil {
 		return HeadSnapshot{}, err
@@ -135,6 +138,17 @@ func (r *Registry) ExportHead(ctx context.Context, environment Environment, lane
 	policyPayload, err := r.readExact(ctx, policyRef, policyObjectPrefix)
 	if err != nil {
 		return HeadSnapshot{}, err
+	}
+	if classifierImageDigest != "" && classifierImageDigest != release.Classifier.ImageDigest {
+		release.Classifier.ImageDigest = classifierImageDigest
+		if err := release.Validate(r.rootURI); err != nil {
+			return HeadSnapshot{}, err
+		}
+		if releasePayload, err = json.Marshal(release); err != nil {
+			return HeadSnapshot{}, fmt.Errorf("encode re-pinned release: %w", err)
+		}
+		head.Head.ReleaseSHA256 = Digest(releasePayload)
+		head.Head.ReleaseURI = r.rootURI + "/" + releaseObjectPrefix + head.Head.ReleaseSHA256 + ".json"
 	}
 	return head, WriteDirectoryRelease(dir, head.Head, releasePayload, policyPayload)
 }

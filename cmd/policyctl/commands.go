@@ -325,6 +325,7 @@ func runExport(ctx context.Context, args []string) error {
 	environmentRaw := flags.String("environment", string(policyregistry.EnvironmentProd), "environment to export")
 	laneRaw := flags.String("lane", string(policyregistry.LaneStable), "lane to export")
 	outDir := flags.String("out", "", "directory to write the release into")
+	classifierImageDigest := flags.String("classifier-image-digest", "", "re-pin the release to this sidecar image digest (sha256:<hex>)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -344,7 +345,7 @@ func runExport(ctx context.Context, args []string) error {
 		return err
 	}
 	defer registry.Close()
-	head, err := registry.ExportHead(ctx, environment, lane, *outDir)
+	head, err := registry.ExportHead(ctx, environment, lane, *outDir, strings.TrimSpace(*classifierImageDigest))
 	if err != nil {
 		return err
 	}
