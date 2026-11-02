@@ -51,10 +51,8 @@ from hmm_sidecar.raw_v5.state_representation import (
     gemini_ten_turn_documents,
     gemini_two_turn_documents,
     resolve_sequence_representation,
-    validate_state_encoder_contract,
 )
 from hmm_sidecar.raw_v5.af_embeddings import DEFAULT_VERTEX_LOCATION
-from hmm_sidecar.raw_v5.frozen_raw_v5 import validate_raw_v5_serving_encoder
 
 log = logging.getLogger(__name__)
 
@@ -870,92 +868,7 @@ class AgentFlowHMMSidecar:
 
     @property
     def state_encoder_contract(self) -> StateEncoderContract:
-        representation = self.sequence_representation
-        if representation in GEMINI_EMBEDDING_REPRESENTATIONS:
-            contract = get_state_encoder_contract(representation)
-            raw_bundle_contract = self.bundle.get("state_encoder_contract")
-            raw_sequence_contract = self.sequence_contract.get("state_encoder_contract")
-            # The original Gemini representation is an immutable supported
-            # format even though its artifacts predate explicit contract
-            # metadata. New input formats use new representation IDs and must
-            # carry internally consistent contract copies.
-            if self._uses_implicit_legacy_gemini_contract():
-                return contract
-            if not isinstance(raw_bundle_contract, dict) or not isinstance(
-                raw_sequence_contract, dict
-            ):
-                raise AgentFlowSidecarError(
-                    "Gemini bundle is missing its state encoder contract"
-                )
-            try:
-                bundle_contract = validate_state_encoder_contract(
-                    raw_bundle_contract,
-                    expected_representation=representation,
-                )
-                sequence_contract = validate_state_encoder_contract(
-                    raw_sequence_contract,
-                    expected_representation=representation,
-                )
-            except ValueError as exc:
-                raise AgentFlowSidecarError(
-                    f"Gemini bundle has an invalid state encoder contract: {exc}"
-                ) from exc
-            if (
-                bundle_contract.sha256 != contract.sha256
-                or sequence_contract.sha256 != contract.sha256
-                or self.bundle.get("state_encoder_contract_sha256") != contract.sha256
-                or self.sequence_contract.get("state_encoder_contract_sha256")
-                != contract.sha256
-            ):
-                raise AgentFlowSidecarError(
-                    "Gemini bundle copies disagree on state encoder identity"
-                )
-            return contract
-        raw_contract = self.bundle.get("state_encoder_contract")
-        if not isinstance(raw_contract, dict):
-            raise AgentFlowSidecarError(
-                "HMM bundle is missing its state_encoder_contract"
-            )
-        encoder_validator = (
-            validate_raw_v5_serving_encoder
-            if representation in RAW_V5_ROUTER_REPRESENTATIONS
-            else validate_state_encoder_contract
-        )
-        try:
-            contract = encoder_validator(
-                raw_contract,
-                expected_representation=representation,
-            )
-        except ValueError as exc:
-            raise AgentFlowSidecarError(
-                f"HMM bundle has an invalid state encoder contract: {exc}"
-            ) from exc
-        sequence_contract_payload = self.sequence_contract.get("state_encoder_contract")
-        if not isinstance(sequence_contract_payload, dict):
-            raise AgentFlowSidecarError(
-                "HMM sequence contract is missing its state encoder contract"
-            )
-        try:
-            sequence_encoder = encoder_validator(
-                sequence_contract_payload,
-                expected_representation=representation,
-            )
-        except ValueError as exc:
-            raise AgentFlowSidecarError(
-                f"HMM sequence contract has an invalid encoder contract: {exc}"
-            ) from exc
-        if (
-            contract.sha256 != sequence_encoder.sha256
-            or self.bundle.get("state_encoder_contract_sha256") != contract.sha256
-            or self.sequence_contract.get("state_encoder_contract_sha256")
-            != contract.sha256
-        ):
-            raise AgentFlowSidecarError(
-                "HMM bundle copies disagree on state encoder identity"
-            )
-        if representation in CONTEXTUAL_CANONICAL_REPRESENTATIONS:
-            _ = self.state_service_contract
-        return contract
+        return get_state_encoder_contract(self.sequence_representation)
 
     @property
     def state_service_contract(self) -> dict[str, object] | None:

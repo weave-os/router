@@ -68,7 +68,6 @@ STATE_ENCODER_CONTRACT_VERSION = "hmm_router_state_encoder_contract_v1"
 # also carries a Gemma/Qwen Modal service contract.
 # Provider-embedding corpus rows that pin one embedding document containing
 # the current partial turn plus the immediately preceding completed turn.
-HMM_CORPUS_SCHEMA_VERSION_RAW_V5 = "hmm_router_hmm_sequence_corpus.v8"
 # Provider-embedding corpus rows whose single document holds every completed
 # prior turn that fits the provider token budget, oldest dropped first.
 # Canonical provider embeddings need both identities: the vector model and the
@@ -1500,20 +1499,3 @@ def get_state_encoder_contract(
     value: str | SequenceRepresentation,
 ) -> StateEncoderContract:
     return _CONTRACTS[resolve_sequence_representation(value)]
-
-
-def validate_gemma_state_service_contract(
-    payload: Mapping[str, object],
-    *,
-    expected_representation: str | SequenceRepresentation,
-    expected_sha256: object,
-) -> Mapping[str, object]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def validate_state_encoder_contract(
-    payload: Mapping[str, object],
-    *,
-    expected_representation: str | SequenceRepresentation | None = None,
-) -> StateEncoderContract:
-    raise NotImplementedError("not on the classifier serving path")

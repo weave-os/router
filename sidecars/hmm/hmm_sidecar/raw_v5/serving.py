@@ -24,7 +24,6 @@ from hmm_sidecar.raw_v5.live_sequence import (
 )
 from hmm_sidecar.raw_v5.raw_v5_runtime_contract import (
     RawV5InputSource,
-    RawV5InteractionStateRuntimeContract,
     RawV5RuntimeContractError,
     parse_raw_v5_runtime_contract,
 )
@@ -138,15 +137,9 @@ class RawV5Classifier:
         if profile.config.provider is not RawV5EmbeddingProvider.GEMINI:
             raise RawV5PackageError("only Gemini raw-V5 packages are servable")
         self.profile = profile
-        self.interaction_state = (
-            contract.interaction_state
-            if isinstance(contract, RawV5InteractionStateRuntimeContract)
-            else None
-        )
+        self.interaction_state = contract.interaction_state
         self.classifier = ComplexityClassifier.load(
-            root / "classifier",
-            allow_raw_v5_serving_release=False,
-            raw_v5_configured_profile=profile,
+            root / "classifier", profile=profile
         )
         if sorted(self.classifier.classes) != sorted(contract.classes):
             raise RawV5PackageError(

@@ -20,22 +20,11 @@ class RawV5DocumentKind(StrEnum):
     )
 
 
-RAW_V5_CAUSAL_BOUNDARY = "current_raw_user_without_current_agent_evidence"
-
 # These values are persisted by the trainer in the raw-V5 HMM bundle. Keep
 # their exact stored semantics in this lightweight serving module instead of
 # importing the full training entry point (and its native ML dependencies) at
 # sidecar startup.
-RAW_V5_ROUTER_HMM_AUTHORIZATION_FLAG = "--raw-v5-router-hmm"
 
 
 class RawV5ServingInputError(ValueError):
     """Raised when a live request cannot satisfy the raw-V5 model input."""
-
-
-def raw_v5_voyage_two_turn_hmm_training_contract() -> dict[str, object]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_voyage_two_turn_hmm_training_contract_sha256() -> str:
-    raise NotImplementedError("not on the classifier serving path")

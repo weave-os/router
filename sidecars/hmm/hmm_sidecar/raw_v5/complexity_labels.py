@@ -25,10 +25,6 @@ MAXIMUM_LABEL = "maximum"
 # persisted taxonomy. Use LEGACY_* when the literal old artifact value is
 # required.
 
-LEGACY_FAST_LABEL = "fast"
-LEGACY_BALANCED_LABEL = "balanced"
-LEGACY_EXPLORE_LABEL = "explore"
-
 
 # Reasoning levels encoded as trailing model-ID suffixes in HMM roster arms.
 
@@ -44,20 +40,6 @@ COMPLEXITY_CLASSES: tuple[str, ...] = (
 
 # Exact predecessor orders. These are immutable artifact compatibility
 # contracts, not supported output vocabularies for new models.
-LEGACY_FOUR_CLASS_COMPLEXITY_CLASSES: tuple[str, ...] = (
-    LEGACY_FAST_LABEL,
-    LEGACY_BALANCED_LABEL,
-    HIGH_LABEL,
-    MAXIMUM_LABEL,
-)
-
-LEGACY_FIVE_CLASS_COMPLEXITY_CLASSES: tuple[str, ...] = (
-    LEGACY_FAST_LABEL,
-    LEGACY_EXPLORE_LABEL,
-    LEGACY_BALANCED_LABEL,
-    HIGH_LABEL,
-    MAXIMUM_LABEL,
-)
 
 
 # Session-scoped router modes (`/router-mode`). Each maps a set of canonical

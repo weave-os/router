@@ -23,12 +23,10 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-import hashlib
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from hmm_sidecar.raw_v5.conversation_sequence import ELEMENT_KIND_SLOTS
 from hmm_sidecar.raw_v5.hmm_feature_arms import (
     ElementLookback,
     ElementLookbackSource,
@@ -45,34 +43,20 @@ from hmm_sidecar.raw_v5.raw_v5_contract import (
     RAW_V5_GEMINI_ELEMENT_SERIALIZER_VERSION,
     RAW_V5_GEMINI_EMBEDDING_2_DIM,
     RAW_V5_GEMINI_EMBEDDING_2_MODEL,
-    RAW_V5_ROUTER_SEQUENCE_CONTRACT_SHA256,
-    RAW_V5_ROUTER_SEQUENCE_LAYOUT,
     RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
     RawFeatureMatrix,
     RawV5HMMTrainingContractVersion,
     raw_v5_gemini_element_model_input_contract,
-    raw_v5_router_sequence_contract,
 )
 from hmm_sidecar.raw_v5.raw_v5_serving import (
-    RAW_V5_CAUSAL_BOUNDARY,
-    RAW_V5_ROUTER_HMM_AUTHORIZATION_FLAG,
     RawV5DocumentKind,
     RawV5ServingInputError,
 )
 from hmm_sidecar.raw_v5.state_representation import (
     GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT,
-    HMM_CORPUS_SCHEMA_VERSION_RAW_V5,
     SequenceRepresentation,
     StateEncoderContract,
     get_state_encoder_contract,
-)
-from hmm_sidecar.raw_v5.core import canonical_json
-
-RAW_V5_CONFIGURED_SERVING_INPUT_SCHEMA_VERSION = (
-    "hmm_router_raw_v5_configured_serving_input_v1"
-)
-RAW_V5_INTERACTION_STATE_SERVING_INPUT_SCHEMA_VERSION = (
-    "hmm_router_raw_v5_interaction_state_serving_input_v1"
 )
 
 
@@ -221,12 +205,6 @@ class RawV5ServingProfile:
 
         return _RAW_FEATURE_MATRIX_RELATIVE_POSITION_DIM[self.raw_feature_matrix]
 
-    @property
-    def agent_document_kind(self) -> RawV5AgentDocumentKind:
-        if self.config.tool_evidence is RawV5ToolEvidenceMode.USER_AGENT_ONLY:
-            return RawV5AgentDocumentKind.WITHOUT_TOOL_TRACE
-        return RawV5AgentDocumentKind.WITH_COMPACTED_TOOL_TRACE
-
 
 _RAW_FEATURE_MATRIX_RELATIVE_POSITION_DIM: Mapping[RawFeatureMatrix, int] = {
     RawFeatureMatrix.VOYAGE_ELEMENT_KIND_SLOTS_V2: RELATIVE_POSITION_DIM,
@@ -269,32 +247,8 @@ _PROFILES: tuple[RawV5ServingProfile, ...] = (_GEMINI_ELEMENT_PROFILE,)
 # out of the configuration registry new training resolves through.
 
 
-def _profile_for_encoder_hash(
-    profile: RawV5ServingProfile,
-    state_encoder_contract_sha256: str | None,
-) -> RawV5ServingProfile:
-    if state_encoder_contract_sha256 not in (
-        None,
-        profile.state_encoder_contract.sha256,
-    ):
-        raise RawV5ServingInputError(
-            "raw V5 package disagrees with the state encoder contract: "
-            f"{profile.representation.value}"
-        )
-    return profile
-
-
-_ARTIFACT_PROFILES = _PROFILES
-
 _PROFILES_BY_CONFIG: Mapping[RawV5ServingConfig, RawV5ServingProfile] = {
     profile.config: profile for profile in _PROFILES
-}
-_ARTIFACT_PROFILES_BY_RUNTIME_IDENTITY: Mapping[
-    tuple[RawV5ServingConfig, RawV5HMMTrainingContractVersion],
-    RawV5ServingProfile,
-] = {
-    (profile.config, profile.hmm_training_contract_version): profile
-    for profile in _ARTIFACT_PROFILES
 }
 
 
@@ -326,114 +280,6 @@ def raw_v5_serving_profile(config: RawV5ServingConfig) -> RawV5ServingProfile:
     return profile
 
 
-def raw_v5_serving_profile_for_runtime_contract(
-    config: RawV5ServingConfig,
-    *,
-    hmm_training_contract_version: RawV5HMMTrainingContractVersion,
-    state_encoder_contract_sha256: str | None = None,
-) -> RawV5ServingProfile:
-    """Resolve a package's declared configuration at the HMM lineage it carries."""
-
-    profile = _ARTIFACT_PROFILES_BY_RUNTIME_IDENTITY.get(
-        (config, hmm_training_contract_version)
-    )
-    if profile is None:
-        raise RawV5ServingInputError(
-            "raw V5 runtime contract is not servable: "
-            f"provider={config.provider!s} tool_evidence={config.tool_evidence!s} "
-            f"document_window={config.document_window!s} "
-            f"lookback_rounds={config.lookback_rounds!r} "
-            f"hmm_training_contract_version={hmm_training_contract_version.value!r}; "
-            f"supported={_supported_configs_message()}"
-        )
-    return _profile_for_encoder_hash(profile, state_encoder_contract_sha256)
-
-
-def raw_v5_configured_serving_input_contract(
-    profile: RawV5ServingProfile,
-) -> dict[str, object]:
-    """Return the model-consumed input contract for one configuration.
-
-    Like the fixed per-schema contracts it generalizes, this records only what
-    reaches the model: the declared configuration, the provider geometry, and
-    the pinned document serializer. Transport and collection details stay out.
-    """
-
-    return {
-        "schema_version": RAW_V5_CONFIGURED_SERVING_INPUT_SCHEMA_VERSION,
-        "serving_config": {
-            "provider": profile.config.provider.value,
-            "tool_evidence": profile.config.tool_evidence.value,
-            "document_window": profile.config.document_window.value,
-            "lookback_rounds": profile.config.lookback_rounds,
-        },
-        "sequence_layout": RAW_V5_ROUTER_SEQUENCE_LAYOUT,
-        "sequence_representation": profile.representation.value,
-        "embedding_model": profile.embedding_model,
-        "embedding_dim": profile.embedding_dim,
-        "state_encoder_contract_sha256": profile.state_encoder_contract.sha256,
-        "raw_v5_router_sequence_contract_sha256": (
-            RAW_V5_ROUTER_SEQUENCE_CONTRACT_SHA256
-        ),
-        "document_serializer_version": profile.document_serializer_version,
-        "document_serializer_sha256": profile.document_serializer_sha256,
-        "turn_window_size": profile.config.lookback_rounds,
-        "model_consumed_documents": {
-            "user_element": RawV5DocumentKind.USER.value,
-            "agent_element": profile.agent_document_kind.value,
-        },
-        "causal_boundary": RAW_V5_CAUSAL_BOUNDARY,
-        "no_canonical_fallback": True,
-    }
-
-
-def raw_v5_configured_serving_input_contract_sha256(
-    profile: RawV5ServingProfile,
-) -> str:
-    return hashlib.sha256(
-        canonical_json(raw_v5_configured_serving_input_contract(profile)).encode(
-            "utf-8"
-        )
-    ).hexdigest()
-
-
-def raw_v5_configured_hmm_training_contract(
-    profile: RawV5ServingProfile,
-) -> dict[str, object]:
-    """Return the trainer-stored contract for a configuration's HMM.
-
-    This mirrors ``train_conversation_hmm.raw_v5_router_hmm_training_contract``
-    exactly. It is duplicated here for the same reason the fixed Voyage copy
-    is: the sidecar must validate stored model lineage at startup without
-    importing the trainer's native ML dependencies.
-    """
-
-    return {
-        "contract_version": profile.hmm_training_contract_version,
-        "authorization_flag": RAW_V5_ROUTER_HMM_AUTHORIZATION_FLAG,
-        "sequence_representation": profile.representation.value,
-        "corpus_schema_version": HMM_CORPUS_SCHEMA_VERSION_RAW_V5,
-        "sequence_layout": RAW_V5_ROUTER_SEQUENCE_LAYOUT,
-        "element_kind_ids": dict(ELEMENT_KIND_SLOTS),
-        "state_encoder_contract_sha256": profile.state_encoder_contract.sha256,
-        "raw_v5_router_sequence_contract_sha256": (
-            RAW_V5_ROUTER_SEQUENCE_CONTRACT_SHA256
-        ),
-        "raw_feature_matrix": profile.raw_feature_matrix.value,
-        "readout": "causal_prefix_forward_filter_v1",
-        "training_only": True,
-        "serving_loader_available": False,
-    }
-
-
-def raw_v5_configured_hmm_training_contract_sha256(
-    profile: RawV5ServingProfile,
-) -> str:
-    return hashlib.sha256(
-        canonical_json(raw_v5_configured_hmm_training_contract(profile)).encode("utf-8")
-    ).hexdigest()
-
-
 def validate_raw_v5_configured_hmm_bundle(
     bundle: object,
     profile: RawV5ServingProfile,
@@ -455,22 +301,6 @@ def validate_raw_v5_configured_hmm_bundle(
     expected_values: dict[str, object] = {
         "sequence_representation": profile.representation.value,
         "embedding_model": expected_encoder.model_id,
-        "state_encoder_contract": expected_encoder.to_dict(),
-        "state_encoder_contract_sha256": expected_encoder.sha256,
-        "sequence_layout": RAW_V5_ROUTER_SEQUENCE_LAYOUT,
-        "element_kind_ids": dict(ELEMENT_KIND_SLOTS),
-        "raw_v5_router_sequence_contract": raw_v5_router_sequence_contract(),
-        "raw_v5_router_sequence_contract_sha256": (
-            RAW_V5_ROUTER_SEQUENCE_CONTRACT_SHA256
-        ),
-        "raw_v5_router_hmm_training_contract": (
-            raw_v5_configured_hmm_training_contract(profile)
-        ),
-        "raw_v5_router_hmm_training_contract_sha256": (
-            raw_v5_configured_hmm_training_contract_sha256(profile)
-        ),
-        "training_only": True,
-        "serving_loader_available": False,
     }
     sequence_expected_values = dict(expected_values)
     sequence_expected_values["representation"] = sequence_expected_values.pop(
@@ -550,27 +380,3 @@ def _hmm_observation_space(
     return InteractionStateObservationSpace(
         user_pca_dim=user_pca_dim, agent_pca_dim=agent_pca_dim
     )
-
-
-def raw_v5_interaction_state_serving_input_contract(
-    profile: RawV5ServingProfile,
-    geometry: RawV5InteractionStateGeometry,
-) -> dict[str, object]:
-    """The configured input contract plus the round-level HMM and lookback it feeds."""
-
-    return {
-        **raw_v5_configured_serving_input_contract(profile),
-        "schema_version": RAW_V5_INTERACTION_STATE_SERVING_INPUT_SCHEMA_VERSION,
-        "interaction_state": geometry.model_dump(mode="json"),
-    }
-
-
-def raw_v5_interaction_state_serving_input_contract_sha256(
-    profile: RawV5ServingProfile,
-    geometry: RawV5InteractionStateGeometry,
-) -> str:
-    return hashlib.sha256(
-        canonical_json(
-            raw_v5_interaction_state_serving_input_contract(profile, geometry)
-        ).encode("utf-8")
-    ).hexdigest()

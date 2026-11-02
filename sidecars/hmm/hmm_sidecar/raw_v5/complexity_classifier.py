@@ -21,38 +21,13 @@ import numpy as np
 
 from hmm_sidecar.raw_v5.complexity_labels import (
     COMPLEXITY_CLASSES,
-    LEGACY_FOUR_CLASS_COMPLEXITY_CLASSES,
-    LEGACY_FIVE_CLASS_COMPLEXITY_CLASSES,
-)
-from hmm_sidecar.raw_v5.cd_privacy import (
-    assert_training_privacy_attestation,
 )
 from hmm_sidecar.raw_v5.core import sha256_file
-from hmm_sidecar.raw_v5.state_representation import (
-    CONTEXTUAL_CANONICAL_REPRESENTATIONS,
-    GEMINI_EMBEDDING_REPRESENTATIONS,
-    RAW_V5_ROUTER_REPRESENTATIONS,
-    SequenceRepresentation,
-    VOYAGE_4_LARGE_RAW_ROUTER_V5_TWO_TURN,
-    resolve_sequence_representation,
-    validate_gemma_state_service_contract,
-    validate_state_encoder_contract,
-)
 from hmm_sidecar.raw_v5.raw_v5_contract import (
     RAW_V5_ROUTER_EMBEDDING_DIM,
-    RAW_V5_ROUTER_SEQUENCE_CONTRACT_SHA256,
-    RAW_V5_ROUTER_SEQUENCE_LAYOUT,
-    raw_v5_router_sequence_contract,
-)
-from hmm_sidecar.raw_v5.raw_v5_serving import (
-    raw_v5_voyage_two_turn_hmm_training_contract,
-    raw_v5_voyage_two_turn_hmm_training_contract_sha256,
 )
 from hmm_sidecar.raw_v5.raw_v5_serving_profile import (
-    RawV5DocumentWindow,
     RawV5ServingProfile,
-    raw_v5_configured_hmm_training_contract,
-    raw_v5_configured_hmm_training_contract_sha256,
 )
 from hmm_sidecar.raw_v5.hmm_feature_arms import (
     ELEMENT_LOOKBACK_BLOCK_NAME,
@@ -64,16 +39,11 @@ from hmm_sidecar.raw_v5.serving_features import (
     belief_dynamics_layout_block,
 )
 from hmm_sidecar.raw_v5.weave_model import WeaveModel
-from hmm_sidecar.raw_v5.frozen_raw_v5 import frozen_raw_v5_encoder
 
 REQUIRED_BUNDLE_FILES = ("model.json", "classes.json", "metadata.json")
 WEAVEMODEL_SIDECAR_FILENAME = "complexity_clf.weavemodel.json"
 MODEL_BUNDLE_SCHEMA_VERSION = "hmm_router_complexity_clf_bundle.v4"
 PREDICTION_SCHEMA_VERSION = "hmm_router_complexity_prediction_v4"
-PREVIOUS_MODEL_BUNDLE_SCHEMA_VERSION = "hmm_router_complexity_clf_bundle.v3"
-PREVIOUS_PREDICTION_SCHEMA_VERSION = "hmm_router_complexity_prediction_v3"
-LEGACY_MODEL_BUNDLE_SCHEMA_VERSION = "hmm_router_complexity_clf_bundle.v2"
-LEGACY_PREDICTION_SCHEMA_VERSION = "hmm_router_complexity_prediction_v2"
 MODEL_FAMILY = "hmm_router_complexity_classifier"
 TASK_FAMILY = "hmm_router_routing"
 
@@ -238,126 +208,8 @@ def validate_raw_v5_no_tool_context_feature_contract(
     return metadata_layout
 
 
-def validate_raw_v5_voyage_two_turn_no_tool_context_feature_contract(
-    *, metadata: dict[str, Any], input_contract: dict[str, Any]
-) -> int:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _validate_raw_v5_voyage_two_turn_feature_contract(
-    *, metadata: dict[str, Any], input_contract: dict[str, Any]
-) -> None:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _validate_raw_v5_configured_contract(
-    *,
-    metadata: dict[str, Any],
-    input_contract: dict[str, Any],
-    profile: RawV5ServingProfile,
-) -> None:
-    """Validate a raw-V5 classifier against the configuration it declares.
-
-    This is the generic form of the two fixed Voyage checks: every expectation
-    is derived from the declared profile, so a Gemini or user/agent-only
-    candidate is validated as strictly as the deployed Voyage one and neither
-    can pass under the other's geometry.
-    """
-
-    raw_encoder_contract = metadata.get("state_encoder_contract")
-    if not isinstance(raw_encoder_contract, dict):
-        raise ComplexityClassifierError(
-            "raw V5 classifier lacks state_encoder_contract"
-        )
-    try:
-        encoder_contract = profile.state_encoder_contract
-        if raw_encoder_contract != encoder_contract.to_dict():
-            raise ValueError(
-                "state encoder does not match the declared serving profile"
-            )
-    except ValueError as exc:
-        raise ComplexityClassifierError(
-            f"raw V5 classifier has an invalid state encoder contract: {exc}"
-        ) from exc
-    expected_values: dict[str, Any] = {
-        "sequence_representation": profile.representation.value,
-        "sequence_layout": RAW_V5_ROUTER_SEQUENCE_LAYOUT,
-        "raw_v5_router_sequence_contract": raw_v5_router_sequence_contract(),
-        "raw_v5_router_sequence_contract_sha256": (
-            RAW_V5_ROUTER_SEQUENCE_CONTRACT_SHA256
-        ),
-        "raw_v5_router_hmm_training_contract": (
-            raw_v5_configured_hmm_training_contract(profile)
-        ),
-        "raw_v5_router_hmm_training_contract_sha256": (
-            raw_v5_configured_hmm_training_contract_sha256(profile)
-        ),
-        "state_encoder_contract_sha256": encoder_contract.sha256,
-        "training_only": True,
-        "serving_loader_available": False,
-    }
-    for field, expected in expected_values.items():
-        if metadata.get(field) != expected or input_contract.get(field) != expected:
-            raise ComplexityClassifierError(
-                f"raw V5 classifier has an invalid {field} for the "
-                f"{profile.representation.value} configuration it declares"
-            )
-    layout = validate_raw_v5_no_tool_context_feature_contract(
-        metadata=metadata,
-        input_contract=input_contract,
-        embedding_dim=profile.embedding_dim,
-    )
-    if (
-        layout.element_lookback is not None
-        and profile.config.document_window is not RawV5DocumentWindow.PER_MESSAGE
-    ):
-        raise ComplexityClassifierError(
-            f"an {ELEMENT_LOOKBACK_BLOCK_NAME} block is served only from per-message "
-            f"documents, not {profile.representation.value}"
-        )
-
-
 class ComplexityClassifierError(RuntimeError):
     """Raised when the classifier bundle is missing, corrupt, or mismatched."""
-
-
-def _validate_training_only_serving_release(
-    *,
-    training_only: bool,
-    representation: SequenceRepresentation | None,
-    allow_raw_v5_serving_release: bool,
-    allow_raw_v5_no_tool_context_serving_release: bool = False,
-    raw_v5_configured_profile: RawV5ServingProfile | None = None,
-) -> None:
-    selected = (
-        int(allow_raw_v5_serving_release)
-        + int(allow_raw_v5_no_tool_context_serving_release)
-        + int(raw_v5_configured_profile is not None)
-    )
-    if selected > 1:
-        raise ComplexityClassifierError(
-            "raw V5 serving release must select exactly one package feature contract"
-        )
-    if not training_only:
-        return
-    if selected == 0:
-        raise ComplexityClassifierError(
-            "classifier is marked training-only and cannot be loaded for serving"
-        )
-    if raw_v5_configured_profile is not None:
-        if representation is not raw_v5_configured_profile.representation:
-            raise ComplexityClassifierError(
-                "training-only classifier does not carry the representation its "
-                "declared raw V5 configuration serves: "
-                f"{representation!s} != "
-                f"{raw_v5_configured_profile.representation.value}"
-            )
-        return
-    if representation is not VOYAGE_4_LARGE_RAW_ROUTER_V5_TWO_TURN:
-        raise ComplexityClassifierError(
-            "training-only classifier is only releasable for the pinned raw V5 "
-            "Voyage two-turn representation"
-        )
 
 
 @dataclass(frozen=True)
@@ -381,16 +233,9 @@ class ValidatedClassifierBundle:
 def validate_classifier_bundle(
     artifact_dir: Path | str,
     *,
-    expected_hmm_bundle_sha256: str | None = None,
-    allow_raw_v5_serving_release: bool = False,
-    allow_raw_v5_no_tool_context_serving_release: bool = False,
-    raw_v5_configured_profile: RawV5ServingProfile | None = None,
+    profile: RawV5ServingProfile,
 ) -> ValidatedClassifierBundle:
-    """Validate the immutable classifier contract without loading XGBoost.
-
-    This is deliberately side-effect free so publishers can fail before they
-    create an archive or write anything to WeaveRegistry.
-    """
+    """Validate the pinned classifier bundle against the profile it serves."""
 
     artifact_dir = Path(artifact_dir)
     for name in (*REQUIRED_BUNDLE_FILES, WEAVEMODEL_SIDECAR_FILENAME):
@@ -402,26 +247,12 @@ def validate_classifier_bundle(
         (artifact_dir / WEAVEMODEL_SIDECAR_FILENAME).read_text(encoding="utf-8")
     )
     bundle_schema = weave_model.artifact.bundle_schema_version
-    schema_contracts = {
-        MODEL_BUNDLE_SCHEMA_VERSION: (
-            COMPLEXITY_CLASSES,
-            PREDICTION_SCHEMA_VERSION,
-        ),
-        PREVIOUS_MODEL_BUNDLE_SCHEMA_VERSION: (
-            LEGACY_FOUR_CLASS_COMPLEXITY_CLASSES,
-            PREVIOUS_PREDICTION_SCHEMA_VERSION,
-        ),
-        LEGACY_MODEL_BUNDLE_SCHEMA_VERSION: (
-            LEGACY_FIVE_CLASS_COMPLEXITY_CLASSES,
-            LEGACY_PREDICTION_SCHEMA_VERSION,
-        ),
-    }
-    if bundle_schema not in schema_contracts:
+    if bundle_schema != MODEL_BUNDLE_SCHEMA_VERSION:
         raise ComplexityClassifierError(
-            "classifier WeaveModel bundle schema is unsupported: "
-            f"{weave_model.artifact.bundle_schema_version!r}"
+            f"classifier WeaveModel bundle schema is unsupported: {bundle_schema!r}"
         )
-    expected_classes_tuple, expected_prediction_schema = schema_contracts[bundle_schema]
+    expected_classes_tuple = COMPLEXITY_CLASSES
+    expected_prediction_schema = PREDICTION_SCHEMA_VERSION
     if tuple(weave_model.artifact.required_files) != REQUIRED_BUNDLE_FILES:
         raise ComplexityClassifierError(
             "classifier WeaveModel required_files do not match the canonical "
@@ -443,10 +274,6 @@ def validate_classifier_bundle(
     metadata = json.loads((artifact_dir / "metadata.json").read_text(encoding="utf-8"))
     if not isinstance(metadata, dict):
         raise ComplexityClassifierError("classifier metadata must be a JSON object")
-    training_only = (
-        metadata.get("training_only") is True
-        or metadata.get("serving_loader_available") is False
-    )
     metadata_schema = metadata.get("schema_version")
     if metadata_schema != bundle_schema:
         raise ComplexityClassifierError(
@@ -512,157 +339,16 @@ def validate_classifier_bundle(
             raise ComplexityClassifierError(
                 f"classifier metadata {field} does not match WeaveModel contract"
             )
-    raw_representation = metadata.get("sequence_representation")
-    representation: SequenceRepresentation | None = None
-    if raw_representation is not None:
-        try:
-            representation = resolve_sequence_representation(str(raw_representation))
-        except ValueError as exc:
-            raise ComplexityClassifierError(
-                f"classifier has an invalid sequence representation: {exc}"
-            ) from exc
-    _validate_training_only_serving_release(
-        training_only=training_only,
-        representation=representation,
-        allow_raw_v5_serving_release=allow_raw_v5_serving_release,
-        allow_raw_v5_no_tool_context_serving_release=(
-            allow_raw_v5_no_tool_context_serving_release
-        ),
-        raw_v5_configured_profile=raw_v5_configured_profile,
-    )
-    if raw_v5_configured_profile is not None:
-        if representation not in RAW_V5_ROUTER_REPRESENTATIONS:
-            raise ComplexityClassifierError(
-                "raw V5 configured serving release requires a raw V5 classifier "
-                f"representation, got {representation!s}"
-            )
-        _validate_raw_v5_configured_contract(
-            metadata=metadata,
-            input_contract=input_contract,
-            profile=raw_v5_configured_profile,
-        )
-    elif representation is not None:
-        if representation in GEMINI_EMBEDDING_REPRESENTATIONS:
-            raw_encoder_contract = metadata.get("state_encoder_contract")
-            if not isinstance(raw_encoder_contract, dict):
-                raise ComplexityClassifierError(
-                    "Gemini classifier lacks state_encoder_contract"
-                )
-            try:
-                validate_state_encoder_contract(
-                    raw_encoder_contract,
-                    expected_representation=representation,
-                )
-            except ValueError as exc:
-                raise ComplexityClassifierError(
-                    f"Gemini classifier has an invalid state encoder contract: {exc}"
-                ) from exc
-        elif representation in CONTEXTUAL_CANONICAL_REPRESENTATIONS:
-            raw_service_contract = metadata.get("state_service_contract")
-            if not isinstance(raw_service_contract, dict):
-                raise ComplexityClassifierError(
-                    "Gemma classifier lacks state_service_contract"
-                )
-            try:
-                validate_gemma_state_service_contract(
-                    raw_service_contract,
-                    expected_representation=representation,
-                    expected_sha256=metadata.get("state_service_contract_sha256"),
-                )
-            except ValueError as exc:
-                raise ComplexityClassifierError(
-                    f"Gemma classifier has an invalid state service contract: {exc}"
-                ) from exc
-        elif representation in RAW_V5_ROUTER_REPRESENTATIONS:
-            if not (
-                allow_raw_v5_serving_release
-                or allow_raw_v5_no_tool_context_serving_release
-            ):
-                raise ComplexityClassifierError(
-                    "raw V5 Voyage classifier requires an explicit raw serving "
-                    "package release"
-                )
-            if representation is not VOYAGE_4_LARGE_RAW_ROUTER_V5_TWO_TURN:
-                raise ComplexityClassifierError(
-                    "raw V5 serving supports only the pinned Voyage two-turn "
-                    "representation"
-                )
-            raw_encoder_contract = metadata.get("state_encoder_contract")
-            if not isinstance(raw_encoder_contract, dict):
-                raise ComplexityClassifierError(
-                    "raw V5 Voyage classifier lacks state_encoder_contract"
-                )
-            try:
-                encoder_contract = frozen_raw_v5_encoder(representation)
-                if raw_encoder_contract != encoder_contract.to_dict():
-                    raise ValueError(
-                        "state encoder does not match the frozen Voyage profile"
-                    )
-            except ValueError as exc:
-                raise ComplexityClassifierError(
-                    "raw V5 Voyage classifier has an invalid state encoder "
-                    f"contract: {exc}"
-                ) from exc
-            expected_values = {
-                "sequence_layout": RAW_V5_ROUTER_SEQUENCE_LAYOUT,
-                "raw_v5_router_sequence_contract": raw_v5_router_sequence_contract(),
-                "raw_v5_router_sequence_contract_sha256": (
-                    RAW_V5_ROUTER_SEQUENCE_CONTRACT_SHA256
-                ),
-                "raw_v5_router_hmm_training_contract": (
-                    raw_v5_voyage_two_turn_hmm_training_contract()
-                ),
-                "raw_v5_router_hmm_training_contract_sha256": (
-                    raw_v5_voyage_two_turn_hmm_training_contract_sha256()
-                ),
-                "training_only": True,
-                "serving_loader_available": False,
-            }
-            for field, expected in expected_values.items():
-                if (
-                    metadata.get(field) != expected
-                    or input_contract.get(field) != expected
-                ):
-                    raise ComplexityClassifierError(
-                        "raw V5 Voyage classifier has an invalid " f"{field}"
-                    )
-            if allow_raw_v5_no_tool_context_serving_release:
-                validate_raw_v5_voyage_two_turn_no_tool_context_feature_contract(
-                    metadata=metadata,
-                    input_contract=input_contract,
-                )
-            else:
-                _validate_raw_v5_voyage_two_turn_feature_contract(
-                    metadata=metadata,
-                    input_contract=input_contract,
-                )
-            if encoder_contract.sha256 != metadata.get(
-                "state_encoder_contract_sha256"
-            ) or encoder_contract.sha256 != input_contract.get(
-                "state_encoder_contract_sha256"
-            ):
-                raise ComplexityClassifierError(
-                    "raw V5 Voyage classifier state encoder contract hash is invalid"
-                )
-    hmm_sha = str(input_contract.get("hmm_bundle_json_sha256") or "")
-    if expected_hmm_bundle_sha256 is not None and hmm_sha != expected_hmm_bundle_sha256:
+    if metadata.get("sequence_representation") != profile.representation.value:
         raise ComplexityClassifierError(
-            "classifier was not trained against the HMM bundle being packaged: "
-            f"classifier expects {hmm_sha!r}, package has "
-            f"{expected_hmm_bundle_sha256!r}"
+            "classifier sequence representation does not match the serving "
+            f"profile: {metadata.get('sequence_representation')!r}"
         )
-    metadata_privacy = assert_training_privacy_attestation(
-        metadata.get("training_privacy"),
-        context=f"classifier metadata {artifact_dir}",
+    validate_raw_v5_no_tool_context_feature_contract(
+        metadata=metadata,
+        input_contract=input_contract,
+        embedding_dim=profile.embedding_dim,
     )
-    contract_privacy = assert_training_privacy_attestation(
-        input_contract.get("training_privacy"),
-        context=f"classifier WeaveModel {artifact_dir}",
-    )
-    if metadata_privacy != contract_privacy:
-        raise ComplexityClassifierError(
-            "classifier metadata privacy attestation does not match WeaveModel contract"
-        )
     return ValidatedClassifierBundle(
         weave_model=weave_model,
         metadata=metadata,
@@ -691,19 +377,10 @@ class ComplexityClassifier:
         cls,
         artifact_dir: Path | str,
         *,
-        allow_raw_v5_serving_release: bool = False,
-        allow_raw_v5_no_tool_context_serving_release: bool = False,
-        raw_v5_configured_profile: RawV5ServingProfile | None = None,
+        profile: RawV5ServingProfile,
     ) -> "ComplexityClassifier":
         artifact_dir = Path(artifact_dir)
-        validated = validate_classifier_bundle(
-            artifact_dir,
-            allow_raw_v5_serving_release=allow_raw_v5_serving_release,
-            allow_raw_v5_no_tool_context_serving_release=(
-                allow_raw_v5_no_tool_context_serving_release
-            ),
-            raw_v5_configured_profile=raw_v5_configured_profile,
-        )
+        validated = validate_classifier_bundle(artifact_dir, profile=profile)
         metadata = validated.metadata
         try:
             import xgboost
