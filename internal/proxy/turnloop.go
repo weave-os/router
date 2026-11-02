@@ -1661,6 +1661,17 @@ func (s *Service) runTurnLoop(
 		pin = sessionpin.Pin{}
 	}
 
+	// The context fit-check below would otherwise lift this exclusion and serve
+	// a Gemini pin that rejects the unsigned history mid-stream.
+	if _, unsigned := req.UnsignedHistoryExcludedModels[pin.Model]; pinFound && unsigned {
+		log.Info("Session pin dropped: the pinned model cannot accept this request's unsigned tool-call history",
+			"pin_model", pin.Model,
+			"pin_provider", pin.Provider,
+		)
+		pinFound = false
+		pin = sessionpin.Pin{}
+	}
+
 	// If the pre-filter excluded the pinned model for context overflow,
 	// re-verify with a direct fit-check before evicting the pin. Must reuse
 	// the pre-filter's estimate (ContextOverflowTokenEstimate, ÷4) rather than
