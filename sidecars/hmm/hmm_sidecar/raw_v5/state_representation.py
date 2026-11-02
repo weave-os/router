@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from enum import Enum, StrEnum
-from functools import lru_cache
+from enum import Enum
 from typing import Any, Mapping, Sequence
 
 from hmm_sidecar.raw_v5.raw_v5_contract import (
@@ -63,41 +62,19 @@ from hmm_sidecar.raw_v5.raw_v5_contract import (
 )
 from hmm_sidecar.raw_v5.core import canonical_json, sha256_text
 
-
-class CorpusStorageFormat(StrEnum):
-    INLINE_JSONL = "inline-jsonl"
-    BINARY = "binary"
-
-
-class CorpusStorageSchema(StrEnum):
-    CONVERSATION_FLOAT32_V1 = "router_binary_conversation_v1"
-    OBJECT_LOCATION_V1 = "router_corpus_object_location_v1"
-
-
 STATE_ENCODER_CONTRACT_VERSION = "hmm_router_state_encoder_contract_v1"
-GEMMA_STATE_REQUEST_SCHEMA_VERSION = "hmm_gemma_state_request_v1"
-GEMMA_STATE_RESPONSE_SCHEMA_VERSION = "hmm_gemma_state_response_v1"
-GEMMA_STATE_STREAM_EVENT_SCHEMA_VERSION = "hmm_gemma_state_stream_event_v1"
-HMM_CORPUS_SCHEMA_VERSION_LEGACY = "hmm_router_hmm_sequence_corpus.v1"
-HMM_CORPUS_SCHEMA_VERSION_REPRESENTATION_AWARE = "hmm_router_hmm_sequence_corpus.v3"
 # Provider-embedding corpus rows that pin the distinct adjacent-turn input
 # contract.  Keep this separate from v3, whose representation-aware payload
 # also carries a Gemma/Qwen Modal service contract.
-HMM_CORPUS_SCHEMA_VERSION_GEMINI_LAST_STATE = "hmm_router_hmm_sequence_corpus.v4"
 # Provider-embedding corpus rows that pin one embedding document containing
 # the current partial turn plus the immediately preceding completed turn.
-HMM_CORPUS_SCHEMA_VERSION_GEMINI_TWO_TURN = "hmm_router_hmm_sequence_corpus.v5"
-HMM_CORPUS_SCHEMA_VERSION_GEMINI_TEN_TURN = "hmm_router_hmm_sequence_corpus.v6"
-HMM_CORPUS_SCHEMA_VERSION_ROUTING_GROUP = "hmm_router_hmm_sequence_corpus.v7"
 HMM_CORPUS_SCHEMA_VERSION_RAW_V5 = "hmm_router_hmm_sequence_corpus.v8"
 # Provider-embedding corpus rows whose single document holds every completed
 # prior turn that fits the provider token budget, oldest dropped first.
-HMM_CORPUS_SCHEMA_VERSION_GEMINI_FULL_CONTEXT = "hmm_router_hmm_sequence_corpus.v9"
 # Canonical provider embeddings need both identities: the vector model and the
 # canonical document serializer.  V10 makes those two independently verifiable
 # for fresh canonical Voyage runs without rewriting the readable v1 Gemini
 # corpus history.
-HMM_CORPUS_SCHEMA_VERSION_CANONICAL_PROVIDER = "hmm_router_hmm_sequence_corpus.v10"
 
 LEGACY_STATE_DEFINITION = "hmm-router-conversation-sequence-v1"
 GEMMA_CANONICAL_STATE_DEFINITION = LEGACY_STATE_DEFINITION
@@ -105,9 +82,6 @@ GEMINI_LAST_STATE_STATE_DEFINITION = "hmm-router-gemini-embedding-2-last-state-v
 GEMINI_TWO_TURN_STATE_DEFINITION = "hmm-router-gemini-embedding-2-two-turn-v1"
 GEMINI_TEN_TURN_STATE_DEFINITION = "hmm-router-gemini-embedding-2-10-turn-v1"
 ROUTING_GROUP_STATE_DEFINITION = "hmm-router-causal-raw-previous-round-current-user-v1"
-ROUTING_GROUP_SEQUENCE_LAYOUT = "causal_raw_previous_round_current_user_v1"
-RAW_TEXT_SEQUENCE_LAYOUT_ALIAS = "raw-text-v1"
-ROUTING_GROUP_ELEMENT = "routing_group"
 ROUTING_GROUP_COMPONENT_ORDER = (
     "previous_user",
     "previous_tool_compaction",
@@ -140,9 +114,6 @@ GEMINI_FULL_CONTEXT_SERIALIZER_VERSION = (
 # document valid JSON and always retains the current turn.
 GEMINI_MAX_INPUT_TOKENS = 8192
 GEMINI_FULL_CONTEXT_MAX_WINDOW_TOKENS = GEMINI_MAX_INPUT_TOKENS - 1
-GEMINI_TURN_WINDOW_DOCUMENT_SCHEMA_VERSION = (
-    "hmm_router_gemini_embedding_2_turn_window_document_v1"
-)
 GEMMA_CANONICAL_SERIALIZER_VERSION = (
     "hmm_router_gemma4_canonical_sequence_serializer_v2"
 )
@@ -150,25 +121,10 @@ GEMMA_SERIALIZER_VERSION = "hmm_router_gemma4_raw_tool_trace_serializer_v2"
 QWEN35_CANONICAL_SERIALIZER_VERSION = (
     "hmm_router_qwen35_canonical_sequence_serializer_v1"
 )
-GEMINI_LAST_STATE_NO_PREVIOUS = "[no previous canonical element]"
-GEMINI_LAST_STATE_INPUT_POLICY = "current_plus_immediate_previous_canonical_element_v1"
-GEMINI_TWO_TURN_INPUT_POLICY = (
-    "current_partial_turn_plus_immediately_previous_completed_turn_v1"
-)
-GEMINI_TEN_TURN_INPUT_POLICY = (
-    "current_partial_turn_plus_up_to_nine_immediately_previous_completed_turns_v1"
-)
-GEMINI_FULL_CONTEXT_INPUT_POLICY = (
-    "current_partial_turn_plus_all_previous_completed_turns_"
-    "oldest_dropped_to_fit_token_budget_v1"
-)
 
 GEMMA_MODEL_ID = "google/gemma-4-26B-A4B-it"
 GEMMA_MODEL_REVISION = "47b6801b24d15ff9bcd8c96dfaea0be9ed3a0301"
 GEMMA_HIDDEN_DIM = 2816
-GEMMA_NUM_HIDDEN_LAYERS = 30
-GEMMA_NUM_EXPERTS = 128
-GEMMA_TOP_K_EXPERTS = 8
 GEMMA_MAX_POSITION_EMBEDDINGS = 262_144
 # Preserve the already-pinned rolling-window geometry while changing only the
 # execution service. Pure Transformers does not need vLLM's former reserved
@@ -181,10 +137,8 @@ GEMMA_MAX_WINDOW_TOKENS = GEMMA_MAX_POSITION_EMBEDDINGS - 1
 GEMMA_12B_MODEL_ID = "google/gemma-4-12B-it"
 GEMMA_12B_MODEL_REVISION = "12ace6d648d72bd41519e140f1185f34d38c7e3d"
 GEMMA_12B_HIDDEN_DIM = 3840
-GEMMA_12B_NUM_HIDDEN_LAYERS = 48
 GEMMA_12B_MAX_POSITION_EMBEDDINGS = 262_144
 GEMMA_12B_MAX_WINDOW_TOKENS = GEMMA_12B_MAX_POSITION_EMBEDDINGS - 1
-GEMMA_12B_SLIDING_WINDOW = 1_024
 
 # Qwen 3.5 9B is a separate long-context encoder domain. Its hybrid text
 # backbone uses 24 Gated DeltaNet linear-attention blocks and eight full
@@ -194,60 +148,24 @@ GEMMA_12B_SLIDING_WINDOW = 1_024
 QWEN35_9B_MODEL_ID = "Qwen/Qwen3.5-9B"
 QWEN35_9B_MODEL_REVISION = "21eca8a083a2121a92fba681f4a7c72cf20ff1a7"
 QWEN35_9B_HIDDEN_DIM = 4096
-QWEN35_9B_NUM_HIDDEN_LAYERS = 32
-QWEN35_9B_FULL_ATTENTION_INTERVAL = 4
-QWEN35_9B_LINEAR_ATTENTION_LAYERS = 24
-QWEN35_9B_FULL_ATTENTION_LAYERS = 8
 QWEN35_9B_MAX_POSITION_EMBEDDINGS = 262_144
 QWEN35_9B_MAX_WINDOW_TOKENS = 50_000
 
 # Dev-only Modal serving geometry.  This is intentionally independent of the
 # production models/v2 registry: the local HMM pipeline and the ephemeral Modal
 # app share this small immutable identity directly.
-GEMMA_STATE_SERVICE_CONTRACT_VERSION = "hmm_gemma_state_dev_service_v6"
-GEMMA_STATE_CUDA_VERSION = "13.0.2"
-GEMMA_STATE_TORCH_VERSION = "2.11.0"
-GEMMA_STATE_TRANSFORMERS_VERSION = "5.5.3"
-GEMMA_STATE_ACCELERATE_VERSION = "1.13.0"
-GEMMA_STATE_ATTENTION_IMPLEMENTATION = "flex_attention"
 # PyTorch 2.11's default BF16/256-head-dim Triton kernel exceeds Hopper's
 # per-block resource ceiling. These documented FlexAttention controls keep the
 # fused causal forward below that ceiling without changing sequence geometry.
-GEMMA_STATE_FLEX_KERNEL_OPTIONS: Mapping[str, int] = {
-    "BLOCK_M": 32,
-    "BLOCK_N": 32,
-    "num_stages": 1,
-    "num_warps": 4,
-}
-GEMMA_STATE_GPU = "H200"
-GEMMA_STATE_MODAL_APP_NAME = "hmm-gemma4-state-dev"
-GEMMA_STATE_MODAL_CLASS_NAME = "GemmaStateService"
-GEMMA_STATE_MODAL_URI = (
-    f"modal://{GEMMA_STATE_MODAL_APP_NAME}/{GEMMA_STATE_MODAL_CLASS_NAME}"
-)
 
 # The dense 12B checkpoint requires the newer unified Gemma 4 implementation.
 # Keep its image, service identity, and batch scheduler isolated from both 26B
 # services so upgrading it cannot invalidate existing artifacts or caches.
-GEMMA_12B_STATE_SERVICE_CONTRACT_VERSION = "hmm_gemma_12b_state_dev_service_v2"
-GEMMA_12B_STATE_TRANSFORMERS_VERSION = "5.14.1"
-GEMMA_12B_STATE_MAX_BATCH_SIZE = 4
 # Bucket the padded forward length so FlexAttention sees a finite set of input
 # shapes. Without this, TorchDynamo eventually hits its recompile limit and
 # falls back to eager ``create_block_mask``, which materializes a quadratic
 # dense mask for long contexts. Right-padding does not affect any gathered
 # causal token because every pad is strictly to its right.
-GEMMA_12B_STATE_LENGTH_BUCKETS = tuple(
-    1 << exponent
-    for exponent in range(8, GEMMA_12B_MAX_POSITION_EMBEDDINGS.bit_length())
-)
-GEMMA_12B_STATE_MAX_PADDED_TOKENS = GEMMA_12B_MAX_POSITION_EMBEDDINGS
-GEMMA_12B_STATE_TORCH_DYNAMO_RECOMPILE_LIMIT = 64
-GEMMA_12B_STATE_MODAL_APP_NAME = "hmm-gemma4-state-12b-dev"
-GEMMA_12B_STATE_MODAL_CLASS_NAME = "Gemma12BStateService"
-GEMMA_12B_STATE_MODAL_URI = (
-    f"modal://{GEMMA_12B_STATE_MODAL_APP_NAME}/" f"{GEMMA_12B_STATE_MODAL_CLASS_NAME}"
-)
 
 # Full-context 12B encoder: ONE KV-cached chunked-prefill pass per
 # conversation instead of one exact suffix forward per boundary. Gemma 4's
@@ -260,33 +178,17 @@ GEMMA_12B_STATE_MODAL_URI = (
 # tokens exceed the window does the pass re-anchor to the newest suffix. This
 # is a distinct encoder domain: its states, caches, and artifacts never mix
 # with the per-boundary suffix representation.
-GEMMA_12B_FULL_CONTEXT_STATE_SERVICE_CONTRACT_VERSION = (
-    "hmm_gemma_12b_full_context_state_dev_service_v2"
-)
-GEMMA_12B_FULL_CONTEXT_PREFILL_CHUNK_TOKENS = 8_192
 # Per-container LRU of live conversation caches so a warm turn only prefills
 # its NEW tokens. Reuse is gated on an exact prefix-token SHA match, and a
 # miss falls back to the cold chunked re-prefill, so cached and cold states
 # are identical. ~16.4 KiB/token of global KV on the 12B → 1M tokens ≈ 16 GiB
 # alongside ~24 GiB of weights on the H100.
-FULL_CONTEXT_CONVERSATION_CACHE_MAX_TOKENS = 1_048_576
-FULL_CONTEXT_CONVERSATION_CACHE_POLICY = (
-    "per_container_lru_exact_prefix_sha256_reuse_or_cold_reprefill_v1"
-)
 # When a conversation outgrows the 262,143-token window the pass re-anchors to
 # ``total - (max_window - slack)`` and re-prefills once. The slack buys
 # headroom so subsequent boundaries keep appending to the same cache instead of
 # re-prefilling per boundary: overflow boundaries see between
 # ``max_window - slack`` and ``max_window`` tokens of context (232K-262K), and
 # a conversation pays one re-prefill per ``slack`` tokens past the cap.
-GEMMA_12B_FULL_CONTEXT_REANCHOR_SLACK_TOKENS = 32_768
-GEMMA_12B_FULL_CONTEXT_STATE_GPU = "H100"
-GEMMA_12B_FULL_CONTEXT_STATE_MODAL_APP_NAME = "hmm-gemma4-state-12b-fullctx-dev"
-GEMMA_12B_FULL_CONTEXT_STATE_MODAL_CLASS_NAME = "Gemma12BFullContextStateService"
-GEMMA_12B_FULL_CONTEXT_STATE_MODAL_URI = (
-    f"modal://{GEMMA_12B_FULL_CONTEXT_STATE_MODAL_APP_NAME}/"
-    f"{GEMMA_12B_FULL_CONTEXT_STATE_MODAL_CLASS_NAME}"
-)
 
 # Full-context Qwen encoder: same one-KV-cached-pass design as the Gemma
 # full-context service. Qwen's hybrid backbone is even friendlier to it —
@@ -295,79 +197,26 @@ GEMMA_12B_FULL_CONTEXT_STATE_MODAL_URI = (
 # 36.0 GiB peak at 4,518 tok/s on one H100 with parity cosine >= 0.99989 vs
 # the one-shot forward (RESULTS_hmm_qwen35_9b_kv_chunked_prefill.md). This
 # removes the 50K cap; the canonical 50K representation stays untouched.
-QWEN35_9B_FULL_CONTEXT_STATE_SERVICE_CONTRACT_VERSION = (
-    "hmm_qwen35_9b_full_context_state_dev_service_v1"
-)
 QWEN35_9B_FULL_CONTEXT_MAX_WINDOW_TOKENS = QWEN35_9B_MAX_POSITION_EMBEDDINGS - 1
-QWEN35_9B_FULL_CONTEXT_STATE_GPU = "H100"
-QWEN35_9B_FULL_CONTEXT_STATE_MODAL_APP_NAME = "hmm-qwen35-state-9b-fullctx-dev"
-QWEN35_9B_FULL_CONTEXT_STATE_MODAL_CLASS_NAME = "Qwen35FullContextStateService"
-QWEN35_9B_FULL_CONTEXT_STATE_MODAL_URI = (
-    f"modal://{QWEN35_9B_FULL_CONTEXT_STATE_MODAL_APP_NAME}/"
-    f"{QWEN35_9B_FULL_CONTEXT_STATE_MODAL_CLASS_NAME}"
-)
 
 # Keep Qwen in its own image, app, volume, and contract. It shares the local
 # request/cache protocol with the Gemma encoders, but no vectors or artifacts
 # are interchangeable across their model and serializer identities.
-QWEN35_9B_STATE_SERVICE_CONTRACT_VERSION = "hmm_qwen35_9b_state_dev_service_v1"
-QWEN35_9B_STATE_TRANSFORMERS_VERSION = "5.14.1"
-QWEN35_9B_STATE_FLA_VERSION = "0.5.1"
-QWEN35_9B_STATE_CAUSAL_CONV1D_VERSION = "1.6.2.post1"
-QWEN35_9B_STATE_ATTENTION_IMPLEMENTATION = "sdpa"
-QWEN35_9B_STATE_SDPA_BACKEND = "flash_attention"
-QWEN35_9B_STATE_MAX_BATCH_SIZE = 4
 # The 50K encoder cap lets all four flows fit within one 200K padded-token
 # batch. A CUDA-OOM multirow batch is still split into exact singletons without
 # changing vectors.
-QWEN35_9B_STATE_MAX_PADDED_TOKENS = (
-    QWEN35_9B_STATE_MAX_BATCH_SIZE * QWEN35_9B_MAX_WINDOW_TOKENS
-)
-QWEN35_9B_STATE_MODAL_APP_NAME = "hmm-qwen35-state-9b-dev"
-QWEN35_9B_STATE_MODAL_CLASS_NAME = "Qwen35StateService"
-QWEN35_9B_STATE_MODAL_URI = (
-    f"modal://{QWEN35_9B_STATE_MODAL_APP_NAME}/" f"{QWEN35_9B_STATE_MODAL_CLASS_NAME}"
-)
 
 # The quantized encoder is a separate representation and Modal class. Keep the
 # existing BF16 service identity immutable so its cache and trained artifacts
 # remain usable while the FP8 path is evaluated independently.
-GEMMA_STATE_FP8_SERVICE_CONTRACT_VERSION = "hmm_gemma_state_dev_fp8_service_v4"
 # Transformers 5.5.3 declares kernels>=0.12,<0.13. Older kernels releases
 # interpret Transformers' integer Hub-kernel API version as a packaging
 # specifier and fail on the first quantized forward before loading a kernel.
-GEMMA_STATE_FP8_KERNELS_VERSION = "0.12.3"
-GEMMA_STATE_FP8_HUB_KERNEL_REPO = "kernels-community/finegrained-fp8"
-GEMMA_STATE_FP8_HUB_KERNEL_VERSION = 1
-GEMMA_STATE_FP8_HUB_KERNEL_REVISION = "11ecd2182a4efedc61eaf8f91f599e62e77791e1"
-GEMMA_STATE_FP8_KERNEL_CACHE_PATH = "/opt/hmm-gemma-fp8-kernels"
-GEMMA_STATE_FP8_HUB_KERNEL_LOAD_POLICY = (
-    "baked_exact_revision_local_only_before_model_weights_v1"
-)
 GEMMA_STATE_FP8_WEIGHT_DTYPE = "float8_e4m3fn"
-GEMMA_STATE_FP8_TEXT_ACTIVATION_COMPATIBILITY = (
-    "Gemma4TextConfig.hidden_act=hidden_activation"
-)
 # 64 divides the 2,112-wide shared MLP, 704-wide experts, and all attention
 # projections. Larger 128-row blocks would leave the shared MLP unquantizable.
 GEMMA_STATE_FP8_WEIGHT_BLOCK_SIZE = (64, 64)
 GEMMA_STATE_FP8_ACTIVATION_SCHEME = "dynamic"
-GEMMA_STATE_FP8_EXPERTS_IMPLEMENTATION = "grouped_mm"
-GEMMA_STATE_FP8_MODULES_TO_NOT_CONVERT = (
-    "model.vision_tower",
-    "model.audio_tower",
-    "model.embed_vision",
-    "model.embed_audio",
-    "lm_head",
-)
-GEMMA_STATE_FP8_MODAL_APP_NAME = "hmm-gemma4-state-fp8-dev"
-GEMMA_STATE_FP8_MODAL_CLASS_NAME = "GemmaQuantizedStateService"
-GEMMA_STATE_LEGACY_FP8_MODAL_URI = (
-    f"modal://{GEMMA_STATE_MODAL_APP_NAME}/{GEMMA_STATE_FP8_MODAL_CLASS_NAME}"
-)
-GEMMA_STATE_FP8_MODAL_URI = (
-    f"modal://{GEMMA_STATE_FP8_MODAL_APP_NAME}/{GEMMA_STATE_FP8_MODAL_CLASS_NAME}"
-)
 
 TOOL_COMPACTION_SCHEMA_VERSION = "tool_action_trace_v1"
 TOOL_COMPACTION_MODEL = "deepseek/deepseek-v4-flash"
@@ -647,343 +496,6 @@ QWEN35_9B_FULL_CONTEXT_EXTRACTION_PARITY_FIXTURE_SHA256 = sha256_text(
     )
 )
 
-GEMMA_STATE_SERVICE_CONTRACT: Mapping[str, object] = {
-    "contract_version": GEMMA_STATE_SERVICE_CONTRACT_VERSION,
-    "model_id": GEMMA_MODEL_ID,
-    "model_revision": GEMMA_MODEL_REVISION,
-    "hidden_size": GEMMA_HIDDEN_DIM,
-    "num_hidden_layers": GEMMA_NUM_HIDDEN_LAYERS,
-    "num_experts": GEMMA_NUM_EXPERTS,
-    "top_k_experts": GEMMA_TOP_K_EXPERTS,
-    "max_position_embeddings": GEMMA_MAX_POSITION_EMBEDDINGS,
-    "engine": {
-        "name": "huggingface-transformers",
-        "torch_version": GEMMA_STATE_TORCH_VERSION,
-        "transformers_version": GEMMA_STATE_TRANSFORMERS_VERSION,
-        "accelerate_version": GEMMA_STATE_ACCELERATE_VERSION,
-        "cuda_version": GEMMA_STATE_CUDA_VERSION,
-        "model_class": "Gemma4ForConditionalGeneration",
-        "text_model_class": "Gemma4TextModel",
-        "attention_implementation": GEMMA_STATE_ATTENTION_IMPLEMENTATION,
-        "flex_kernel_options": dict(GEMMA_STATE_FLEX_KERNEL_OPTIONS),
-        "retained_model_component": "model.language_model",
-        "non_text_components_released_after_load": True,
-        "compute_dtype": "bfloat16",
-        "device_map": "cuda:0",
-        "use_cache": False,
-        "quantization": None,
-        "output": "last_hidden_state",
-        "boundary_gather": "shared_origin_prefix_then_shifted_suffix_v1",
-        "trust_remote_code": False,
-    },
-    "gpu": GEMMA_STATE_GPU,
-}
-GEMMA_STATE_SERVICE_CONTRACT_SHA256 = sha256_text(
-    json.dumps(
-        GEMMA_STATE_SERVICE_CONTRACT,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-)
-
-GEMMA_STATE_FP8_SERVICE_CONTRACT: Mapping[str, object] = {
-    "contract_version": GEMMA_STATE_FP8_SERVICE_CONTRACT_VERSION,
-    "model_id": GEMMA_MODEL_ID,
-    "model_revision": GEMMA_MODEL_REVISION,
-    "hidden_size": GEMMA_HIDDEN_DIM,
-    "num_hidden_layers": GEMMA_NUM_HIDDEN_LAYERS,
-    "num_experts": GEMMA_NUM_EXPERTS,
-    "top_k_experts": GEMMA_TOP_K_EXPERTS,
-    "max_position_embeddings": GEMMA_MAX_POSITION_EMBEDDINGS,
-    "engine": {
-        "name": "huggingface-transformers",
-        "torch_version": GEMMA_STATE_TORCH_VERSION,
-        "transformers_version": GEMMA_STATE_TRANSFORMERS_VERSION,
-        "accelerate_version": GEMMA_STATE_ACCELERATE_VERSION,
-        "kernels_version": GEMMA_STATE_FP8_KERNELS_VERSION,
-        "cuda_version": GEMMA_STATE_CUDA_VERSION,
-        "model_class": "Gemma4ForConditionalGeneration",
-        "text_model_class": "Gemma4TextModel",
-        "attention_implementation": GEMMA_STATE_ATTENTION_IMPLEMENTATION,
-        "flex_kernel_options": dict(GEMMA_STATE_FLEX_KERNEL_OPTIONS),
-        "retained_model_component": "model.language_model",
-        "non_text_components_released_after_load": True,
-        "compute_dtype": "fp8_e4m3fn_w8a8_with_bfloat16_residual",
-        "device_map": "cuda:0",
-        "use_cache": False,
-        "quantization": {
-            "config_class": "FineGrainedFP8Config",
-            "weight_dtype": GEMMA_STATE_FP8_WEIGHT_DTYPE,
-            "weight_block_size": GEMMA_STATE_FP8_WEIGHT_BLOCK_SIZE,
-            "activation_scheme": GEMMA_STATE_FP8_ACTIVATION_SCHEME,
-            "linear_coverage": "all_eligible_text_model_linear_modules",
-            "moe_coverage": "all_text_model_expert_modules",
-            "excluded_non_text_modules": GEMMA_STATE_FP8_MODULES_TO_NOT_CONVERT,
-            "experts_implementation": GEMMA_STATE_FP8_EXPERTS_IMPLEMENTATION,
-            "text_activation_config_compatibility": (
-                GEMMA_STATE_FP8_TEXT_ACTIVATION_COMPATIBILITY
-            ),
-            "kernel_backend": "huggingface_finegrained_fp8_triton",
-            "hub_kernel_repo": GEMMA_STATE_FP8_HUB_KERNEL_REPO,
-            "hub_kernel_version": GEMMA_STATE_FP8_HUB_KERNEL_VERSION,
-            "hub_kernel_revision": GEMMA_STATE_FP8_HUB_KERNEL_REVISION,
-            "hub_kernel_cache_path": GEMMA_STATE_FP8_KERNEL_CACHE_PATH,
-            "hub_kernel_load_policy": GEMMA_STATE_FP8_HUB_KERNEL_LOAD_POLICY,
-            "use_hub_kernels": True,
-            "residual_norm_attention_scores_dtype": "bfloat16",
-            "final_hidden_state_dtype": "bfloat16",
-        },
-        "output": "last_hidden_state",
-        "boundary_gather": "shared_origin_prefix_then_shifted_suffix_v1",
-        "trust_remote_code": False,
-    },
-    "gpu": GEMMA_STATE_GPU,
-}
-GEMMA_STATE_FP8_SERVICE_CONTRACT_SHA256 = sha256_text(
-    json.dumps(
-        GEMMA_STATE_FP8_SERVICE_CONTRACT,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-)
-
-GEMMA_12B_STATE_SERVICE_CONTRACT: Mapping[str, object] = {
-    "contract_version": GEMMA_12B_STATE_SERVICE_CONTRACT_VERSION,
-    "model_id": GEMMA_12B_MODEL_ID,
-    "model_revision": GEMMA_12B_MODEL_REVISION,
-    "hidden_size": GEMMA_12B_HIDDEN_DIM,
-    "num_hidden_layers": GEMMA_12B_NUM_HIDDEN_LAYERS,
-    "dense_transformer": True,
-    "max_position_embeddings": GEMMA_12B_MAX_POSITION_EMBEDDINGS,
-    "sliding_window": GEMMA_12B_SLIDING_WINDOW,
-    "engine": {
-        "name": "huggingface-transformers",
-        "torch_version": GEMMA_STATE_TORCH_VERSION,
-        "transformers_version": GEMMA_12B_STATE_TRANSFORMERS_VERSION,
-        "accelerate_version": GEMMA_STATE_ACCELERATE_VERSION,
-        "cuda_version": GEMMA_STATE_CUDA_VERSION,
-        "model_class": "Gemma4UnifiedForConditionalGeneration",
-        "text_model_class": "Gemma4UnifiedTextModel",
-        "attention_implementation": GEMMA_STATE_ATTENTION_IMPLEMENTATION,
-        "flex_kernel_options": dict(GEMMA_STATE_FLEX_KERNEL_OPTIONS),
-        "retained_model_component": "model.language_model",
-        "non_text_components_released_after_load": True,
-        "compute_dtype": "bfloat16",
-        "device_map": "cuda:0",
-        "use_cache": False,
-        "quantization": None,
-        "output": "last_hidden_state",
-        "boundary_gather": (
-            "shared_origin_prefix_then_shifted_suffix_dynamic_batch_v2"
-        ),
-        "attention_masks": "cached_broadcast_block_masks_v1",
-        "torch_dynamo_recompile_limit": (GEMMA_12B_STATE_TORCH_DYNAMO_RECOMPILE_LIMIT),
-        "fail_on_torch_dynamo_recompile_limit": True,
-        "trust_remote_code": False,
-    },
-    "batching": {
-        "scope": "gemma4_12b_only",
-        "transport": "explicit_private_modal_batch_stream_v1",
-        "max_batch_size": GEMMA_12B_STATE_MAX_BATCH_SIZE,
-        "max_padded_tokens": GEMMA_12B_STATE_MAX_PADDED_TOKENS,
-        "length_buckets": list(GEMMA_12B_STATE_LENGTH_BUCKETS),
-        "packing": "longest_first_greedy_bucketed_token_budget_v2",
-        "padding": "causal_future_only_right_pad_without_padding_mask_v1",
-        "position_ids": "explicit_suffix_local_zero_based_per_row_v1",
-        "oversize_singleton": "allow_one_exact_window_up_to_model_limit_v1",
-        "oom_fallback": "split_multirow_batch_to_singletons_v1",
-    },
-    "gpu": GEMMA_STATE_GPU,
-}
-GEMMA_12B_STATE_SERVICE_CONTRACT_SHA256 = sha256_text(
-    json.dumps(
-        GEMMA_12B_STATE_SERVICE_CONTRACT,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-)
-
-GEMMA_12B_FULL_CONTEXT_STATE_SERVICE_CONTRACT: Mapping[str, object] = {
-    "contract_version": GEMMA_12B_FULL_CONTEXT_STATE_SERVICE_CONTRACT_VERSION,
-    "model_id": GEMMA_12B_MODEL_ID,
-    "model_revision": GEMMA_12B_MODEL_REVISION,
-    "hidden_size": GEMMA_12B_HIDDEN_DIM,
-    "num_hidden_layers": GEMMA_12B_NUM_HIDDEN_LAYERS,
-    "dense_transformer": True,
-    "max_position_embeddings": GEMMA_12B_MAX_POSITION_EMBEDDINGS,
-    "sliding_window": GEMMA_12B_SLIDING_WINDOW,
-    "engine": {
-        "name": "huggingface-transformers",
-        "torch_version": GEMMA_STATE_TORCH_VERSION,
-        "transformers_version": GEMMA_12B_STATE_TRANSFORMERS_VERSION,
-        "accelerate_version": GEMMA_STATE_ACCELERATE_VERSION,
-        "cuda_version": GEMMA_STATE_CUDA_VERSION,
-        "model_class": "Gemma4UnifiedForConditionalGeneration",
-        "text_model_class": "Gemma4UnifiedTextModel",
-        "attention_implementation": "sdpa",
-        "retained_model_component": "model.language_model",
-        "non_text_components_released_after_load": True,
-        "compute_dtype": "bfloat16",
-        "device_map": "cuda:0",
-        "use_cache": True,
-        "kv_cache": "transformers_dynamic_cache_config_hybrid_v1",
-        "prefill_chunk_tokens": GEMMA_12B_FULL_CONTEXT_PREFILL_CHUNK_TOKENS,
-        "reanchor_slack_tokens": GEMMA_12B_FULL_CONTEXT_REANCHOR_SLACK_TOKENS,
-        "quantization": None,
-        "output": "last_hidden_state",
-        "boundary_gather": (
-            "chunked_prefill_absolute_positions_reanchor_past_window_v1"
-        ),
-        "trust_remote_code": False,
-    },
-    "batching": {
-        "scope": "gemma4_12b_full_context_only",
-        "transport": "explicit_private_modal_batch_stream_v1",
-        # One conversation owns the KV cache for its whole pass; concurrency
-        # comes from Modal containers, not padded co-batching.
-        "max_batch_size": 1,
-        "packing": "single_conversation_kv_cached_prefill_v1",
-        "padding": "none_v1",
-        "position_ids": "absolute_from_window_start_zero_based_v1",
-        "oversize_singleton": "reanchor_newest_window_and_reprefill_v1",
-    },
-    "conversation_cache": {
-        "policy": FULL_CONTEXT_CONVERSATION_CACHE_POLICY,
-        "max_resident_tokens": FULL_CONTEXT_CONVERSATION_CACHE_MAX_TOKENS,
-        # Reuse requires the exact SHA-256 of the serialized prefix tokens the
-        # cache was built from; any mismatch discards it and re-prefills, so
-        # states never depend on cache residency.
-        "reuse_gate": "exact_prefix_token_sha256_v1",
-        "state_equivalence": "identical_to_cold_chunked_prefill_v1",
-    },
-    "gpu": GEMMA_12B_FULL_CONTEXT_STATE_GPU,
-}
-GEMMA_12B_FULL_CONTEXT_STATE_SERVICE_CONTRACT_SHA256 = sha256_text(
-    json.dumps(
-        GEMMA_12B_FULL_CONTEXT_STATE_SERVICE_CONTRACT,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-)
-
-QWEN35_9B_STATE_SERVICE_CONTRACT: Mapping[str, object] = {
-    "contract_version": QWEN35_9B_STATE_SERVICE_CONTRACT_VERSION,
-    "model_id": QWEN35_9B_MODEL_ID,
-    "model_revision": QWEN35_9B_MODEL_REVISION,
-    "hidden_size": QWEN35_9B_HIDDEN_DIM,
-    "num_hidden_layers": QWEN35_9B_NUM_HIDDEN_LAYERS,
-    "linear_attention_layers": QWEN35_9B_LINEAR_ATTENTION_LAYERS,
-    "full_attention_layers": QWEN35_9B_FULL_ATTENTION_LAYERS,
-    "full_attention_interval": QWEN35_9B_FULL_ATTENTION_INTERVAL,
-    "max_position_embeddings": QWEN35_9B_MAX_POSITION_EMBEDDINGS,
-    "engine": {
-        "name": "huggingface-transformers",
-        "torch_version": GEMMA_STATE_TORCH_VERSION,
-        "transformers_version": QWEN35_9B_STATE_TRANSFORMERS_VERSION,
-        "accelerate_version": GEMMA_STATE_ACCELERATE_VERSION,
-        "flash_linear_attention_version": QWEN35_9B_STATE_FLA_VERSION,
-        "causal_conv1d_version": QWEN35_9B_STATE_CAUSAL_CONV1D_VERSION,
-        "cuda_version": GEMMA_STATE_CUDA_VERSION,
-        "model_class": "Qwen3_5ForConditionalGeneration",
-        "text_model_class": "Qwen3_5TextModel",
-        "attention_implementation": QWEN35_9B_STATE_ATTENTION_IMPLEMENTATION,
-        "sdpa_backend": QWEN35_9B_STATE_SDPA_BACKEND,
-        "linear_attention_backend": "fla_chunk_gated_delta_rule",
-        "require_fast_linear_attention": True,
-        "retained_model_component": "model.language_model",
-        "non_text_components_released_after_load": True,
-        "compute_dtype": "bfloat16",
-        "device_map": "cuda:0",
-        "use_cache": False,
-        "quantization": None,
-        "output": "last_hidden_state",
-        "boundary_gather": "exact_causal_state_at_each_turn_boundary_v1",
-        "trust_remote_code": False,
-    },
-    "batching": {
-        "scope": "qwen35_9b_only",
-        "transport": "explicit_private_modal_batch_stream_v1",
-        "max_batch_size": QWEN35_9B_STATE_MAX_BATCH_SIZE,
-        "max_padded_tokens": QWEN35_9B_STATE_MAX_PADDED_TOKENS,
-        "packing": "longest_first_greedy_exact_padded_token_budget_v1",
-        "padding": "causal_future_only_right_pad_without_padding_mask_v1",
-        "position_ids": "explicit_suffix_local_zero_based_mrope_v1",
-        "oversize_singleton": "allow_one_exact_window_up_to_model_limit_v1",
-        "oom_fallback": "split_multirow_batch_to_singletons_v1",
-    },
-    "gpu": GEMMA_STATE_GPU,
-}
-QWEN35_9B_STATE_SERVICE_CONTRACT_SHA256 = sha256_text(
-    json.dumps(
-        QWEN35_9B_STATE_SERVICE_CONTRACT,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-)
-
-QWEN35_9B_FULL_CONTEXT_STATE_SERVICE_CONTRACT: Mapping[str, object] = {
-    "contract_version": QWEN35_9B_FULL_CONTEXT_STATE_SERVICE_CONTRACT_VERSION,
-    "model_id": QWEN35_9B_MODEL_ID,
-    "model_revision": QWEN35_9B_MODEL_REVISION,
-    "hidden_size": QWEN35_9B_HIDDEN_DIM,
-    "num_hidden_layers": QWEN35_9B_NUM_HIDDEN_LAYERS,
-    "linear_attention_layers": QWEN35_9B_LINEAR_ATTENTION_LAYERS,
-    "full_attention_layers": QWEN35_9B_FULL_ATTENTION_LAYERS,
-    "full_attention_interval": QWEN35_9B_FULL_ATTENTION_INTERVAL,
-    "max_position_embeddings": QWEN35_9B_MAX_POSITION_EMBEDDINGS,
-    "engine": {
-        "name": "huggingface-transformers",
-        "torch_version": GEMMA_STATE_TORCH_VERSION,
-        "transformers_version": QWEN35_9B_STATE_TRANSFORMERS_VERSION,
-        "accelerate_version": GEMMA_STATE_ACCELERATE_VERSION,
-        "flash_linear_attention_version": QWEN35_9B_STATE_FLA_VERSION,
-        "causal_conv1d_version": QWEN35_9B_STATE_CAUSAL_CONV1D_VERSION,
-        "cuda_version": GEMMA_STATE_CUDA_VERSION,
-        "model_class": "Qwen3_5ForConditionalGeneration",
-        "text_model_class": "Qwen3_5TextModel",
-        "attention_implementation": QWEN35_9B_STATE_ATTENTION_IMPLEMENTATION,
-        "linear_attention_backend": "fla_chunk_gated_delta_rule",
-        "require_fast_linear_attention": True,
-        "retained_model_component": "model.language_model",
-        "non_text_components_released_after_load": True,
-        "compute_dtype": "bfloat16",
-        "device_map": "cuda:0",
-        "use_cache": True,
-        "kv_cache": "transformers_hybrid_linear_attention_cache_v1",
-        "prefill_chunk_tokens": GEMMA_12B_FULL_CONTEXT_PREFILL_CHUNK_TOKENS,
-        "reanchor_slack_tokens": GEMMA_12B_FULL_CONTEXT_REANCHOR_SLACK_TOKENS,
-        "quantization": None,
-        "output": "last_hidden_state",
-        "boundary_gather": (
-            "chunked_prefill_absolute_positions_reanchor_past_window_v1"
-        ),
-        "trust_remote_code": False,
-    },
-    "batching": {
-        "scope": "qwen35_9b_full_context_only",
-        "transport": "explicit_private_modal_batch_stream_v1",
-        "max_batch_size": 1,
-        "packing": "single_conversation_kv_cached_prefill_v1",
-        "padding": "none_v1",
-        "position_ids": "absolute_from_window_start_zero_based_v1",
-        "oversize_singleton": "reanchor_newest_window_and_reprefill_v1",
-    },
-    "conversation_cache": {
-        "policy": FULL_CONTEXT_CONVERSATION_CACHE_POLICY,
-        "max_resident_tokens": FULL_CONTEXT_CONVERSATION_CACHE_MAX_TOKENS,
-        "reuse_gate": "exact_prefix_token_sha256_v1",
-        "state_equivalence": "identical_to_cold_chunked_prefill_v1",
-    },
-    "gpu": QWEN35_9B_FULL_CONTEXT_STATE_GPU,
-}
-QWEN35_9B_FULL_CONTEXT_STATE_SERVICE_CONTRACT_SHA256 = sha256_text(
-    json.dumps(
-        QWEN35_9B_FULL_CONTEXT_STATE_SERVICE_CONTRACT,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-)
-
 
 class SequenceRepresentation(str, Enum):
     """Stable command-line and artifact identifiers for sequence geometry."""
@@ -1147,20 +659,6 @@ GEMINI_EMBEDDING_REPRESENTATIONS = frozenset(
         GEMINI_EMBEDDING_2_FULL_CONTEXT_V1,
     )
 )
-GEMINI_WINDOWED_EMBEDDING_REPRESENTATIONS = frozenset(
-    (
-        GEMINI_EMBEDDING_2_LAST_STATE_V1,
-        GEMINI_EMBEDDING_2_TWO_TURN_V1,
-        GEMINI_EMBEDDING_2_TEN_TURN_V1,
-        GEMINI_EMBEDDING_2_FULL_CONTEXT_V1,
-    )
-)
-GEMINI_EMBEDDING_INPUT_POLICIES: Mapping[SequenceRepresentation, str] = {
-    GEMINI_EMBEDDING_2_LAST_STATE_V1: GEMINI_LAST_STATE_INPUT_POLICY,
-    GEMINI_EMBEDDING_2_TWO_TURN_V1: GEMINI_TWO_TURN_INPUT_POLICY,
-    GEMINI_EMBEDDING_2_TEN_TURN_V1: GEMINI_TEN_TURN_INPUT_POLICY,
-    GEMINI_EMBEDDING_2_FULL_CONTEXT_V1: GEMINI_FULL_CONTEXT_INPUT_POLICY,
-}
 GEMMA4_CANONICAL_REPRESENTATIONS = frozenset(
     (
         GEMMA4_CANONICAL_V1,
@@ -1169,27 +667,12 @@ GEMMA4_CANONICAL_REPRESENTATIONS = frozenset(
         GEMMA4_12B_FULL_CONTEXT_V1,
     )
 )
-GEMMA4_REPRESENTATIONS = frozenset(
-    (
-        GEMMA4_CANONICAL_V1,
-        GEMMA4_CANONICAL_FP8_V1,
-        GEMMA4_12B_CANONICAL_V1,
-        GEMMA4_12B_FULL_CONTEXT_V1,
-        GEMMA4_RAW_TOOL_TRACE_V1,
-    )
-)
 CONTEXTUAL_CANONICAL_REPRESENTATIONS = frozenset(
     (
         *GEMMA4_CANONICAL_REPRESENTATIONS,
         QWEN35_9B_CANONICAL_V1,
         QWEN35_9B_FULL_CONTEXT_V1,
     )
-)
-BATCHED_CONTEXTUAL_REPRESENTATIONS = frozenset(
-    (GEMMA4_12B_CANONICAL_V1, QWEN35_9B_CANONICAL_V1)
-)
-FULL_CONTEXT_REPRESENTATIONS = frozenset(
-    (GEMMA4_12B_FULL_CONTEXT_V1, QWEN35_9B_FULL_CONTEXT_V1)
 )
 VOYAGE_RAW_ROUTER_USER_AGENT_ONLY_MAX_TURNS: Mapping[SequenceRepresentation, int] = {
     VOYAGE_4_LARGE_RAW_ROUTER_V5_USER_AGENT_ONLY: RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
@@ -1209,21 +692,10 @@ VOYAGE_RAW_ROUTER_REPRESENTATIONS = frozenset(
         *VOYAGE_RAW_ROUTER_USER_AGENT_ONLY_REPRESENTATIONS,
     )
 )
-VOYAGE_CANONICAL_REPRESENTATIONS = frozenset((VOYAGE_4_LARGE_CANONICAL_V1,))
-VOYAGE_PROVIDER_REPRESENTATIONS = frozenset(
-    (*VOYAGE_CANONICAL_REPRESENTATIONS, *VOYAGE_RAW_ROUTER_REPRESENTATIONS)
-)
 # The menu names these bounded contexts by total rounds including the current
 # partial round.  The legacy one-event raw-V5 representation remains readable,
 # while this new one-round entry uses the uniform structural normalizer for
 # every selected source element just like the multi-round entries.
-VOYAGE_RAW_ROUTER_LOOKBACK_ROUNDS: Mapping[SequenceRepresentation, int] = {
-    **VOYAGE_RAW_ROUTER_USER_AGENT_ONLY_MAX_TURNS,
-    VOYAGE_4_LARGE_RAW_ROUTER_V5: 1,
-    VOYAGE_4_LARGE_RAW_ROUTER_V5_ONE_TURN: RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
-    VOYAGE_4_LARGE_RAW_ROUTER_V5_TWO_TURN: RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS,
-    VOYAGE_4_LARGE_RAW_ROUTER_V5_TEN_TURN: RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS,
-}
 GEMINI_RAW_ROUTER_REPRESENTATIONS = frozenset(
     (
         GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ONE_TURN,
@@ -1236,98 +708,12 @@ GEMINI_RAW_ROUTER_REPRESENTATIONS = frozenset(
         GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT,
     )
 )
-GEMINI_RAW_ROUTER_USER_AGENT_ONLY_REPRESENTATIONS = frozenset(
-    (
-        GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY,
-        GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY_TWO_TURN,
-        GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY_TEN_TURN,
-        GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY_LAST_STATE,
-        GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT,
-    )
-)
-RAW_V5_ROUTER_USER_AGENT_ONLY_REPRESENTATIONS = (
-    GEMINI_RAW_ROUTER_USER_AGENT_ONLY_REPRESENTATIONS
-    | VOYAGE_RAW_ROUTER_USER_AGENT_ONLY_REPRESENTATIONS
-)
 RAW_V5_ROUTER_REPRESENTATIONS = frozenset(
     (*VOYAGE_RAW_ROUTER_REPRESENTATIONS, *GEMINI_RAW_ROUTER_REPRESENTATIONS)
 )
-RAW_V5_ROUTER_LOOKBACK_ROUNDS: Mapping[SequenceRepresentation, int] = {
-    **VOYAGE_RAW_ROUTER_LOOKBACK_ROUNDS,
-    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ONE_TURN: RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
-    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_TWO_TURN: RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS,
-    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_TEN_TURN: RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS,
-    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY: (
-        RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS
-    ),
-    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY_TWO_TURN: (
-        RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS
-    ),
-    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY_TEN_TURN: (
-        RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS
-    ),
-    # One lookback element is at most the previous round's agent half, so the
-    # document never spans two completed rounds.
-    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY_LAST_STATE: (
-        RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS
-    ),
-    # Each stored document holds one message; wider windows are classifier
-    # features assembled downstream (--element-lookback-rounds).
-    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT: RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
-}
-
-
-def format_gemini_last_state_document(
-    previous_text: str | None,
-    current_text: str,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
 
 
 def gemini_last_state_documents(texts: Sequence[str]) -> tuple[str, ...]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def format_gemini_two_turn_document(
-    *,
-    previous_user_text: str | None,
-    previous_agent_text: str | None,
-    current_user_text: str,
-    current_agent_text: str | None = None,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def format_gemini_turn_window_document(
-    *,
-    previous_turns: Sequence[tuple[str, str]],
-    current_user_text: str,
-    current_agent_text: str | None = None,
-    window_turns: int,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _approx_token_count(text: str) -> int:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def format_gemini_full_context_document(
-    *,
-    previous_turns: Sequence[tuple[str, str]],
-    current_user_text: str,
-    current_agent_text: str | None = None,
-    max_window_tokens: int = GEMINI_FULL_CONTEXT_MAX_WINDOW_TOKENS,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def gemini_full_context_documents(
-    texts: Sequence[str],
-    kinds: Sequence[str] | None = None,
-    *,
-    max_window_tokens: int = GEMINI_FULL_CONTEXT_MAX_WINDOW_TOKENS,
-) -> tuple[str, ...]:
     raise NotImplementedError("not on the classifier serving path")
 
 
@@ -1341,15 +727,6 @@ def gemini_two_turn_documents(
 def gemini_ten_turn_documents(
     texts: Sequence[str],
     kinds: Sequence[str] | None = None,
-) -> tuple[str, ...]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def gemini_turn_window_documents(
-    texts: Sequence[str],
-    kinds: Sequence[str] | None = None,
-    *,
-    window_turns: int,
 ) -> tuple[str, ...]:
     raise NotImplementedError("not on the classifier serving path")
 
@@ -1432,11 +809,6 @@ _TOOL_COMPACTION_CONTRACT: Mapping[str, object] = {
         TOOL_COMPACTION_STRUCTURED_INPUT_SOURCE_SHA256
     ),
 }
-
-
-@lru_cache(maxsize=1)
-def assert_tool_compaction_implementation_contract() -> None:
-    raise NotImplementedError("not on the classifier serving path")
 
 
 # Append-only representation registry. Once a representation ID has produced a
@@ -2127,26 +1499,10 @@ def resolve_sequence_representation(
     )
 
 
-def normalize_sequence_layout(value: str | None) -> str | None:
-    raise NotImplementedError("not on the classifier serving path")
-
-
 def get_state_encoder_contract(
     value: str | SequenceRepresentation,
 ) -> StateEncoderContract:
     return _CONTRACTS[resolve_sequence_representation(value)]
-
-
-def get_gemma_state_service_contract(
-    value: str | SequenceRepresentation,
-) -> Mapping[str, object]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def get_gemma_state_service_contract_sha256(
-    value: str | SequenceRepresentation,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
 
 
 def validate_gemma_state_service_contract(
@@ -2158,17 +1514,9 @@ def validate_gemma_state_service_contract(
     raise NotImplementedError("not on the classifier serving path")
 
 
-def get_gemma_state_modal_uri(value: str | SequenceRepresentation) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
 def validate_state_encoder_contract(
     payload: Mapping[str, object],
     *,
     expected_representation: str | SequenceRepresentation | None = None,
 ) -> StateEncoderContract:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def representation_slug(value: str | SequenceRepresentation) -> str:
     raise NotImplementedError("not on the classifier serving path")

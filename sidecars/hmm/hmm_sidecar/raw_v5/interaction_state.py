@@ -66,16 +66,6 @@ class RoleProjector:
         return self.user_dim + self.agent_dim
 
 
-def fit_role_projector(
-    user_rows: np.ndarray,
-    agent_rows: np.ndarray,
-    *,
-    pca_dim: int,
-    seed: int,
-) -> RoleProjector:
-    raise NotImplementedError("not on the classifier serving path")
-
-
 def round_count(kinds: Sequence[str]) -> int:
     """Rounds in a strict ``U, A, U, A, ...`` sequence; a trailing ``U`` opens a round."""
     for position, kind in enumerate(kinds):

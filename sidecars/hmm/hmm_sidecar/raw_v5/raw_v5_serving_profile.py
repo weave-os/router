@@ -267,10 +267,6 @@ class RawV5ServingProfile:
         return _RAW_FEATURE_MATRIX_RELATIVE_POSITION_DIM[self.raw_feature_matrix]
 
     @property
-    def uses_vertex_embeddings(self) -> bool:
-        raise NotImplementedError("not on the classifier serving path")
-
-    @property
     def agent_document_kind(self) -> RawV5AgentDocumentKind:
         if self.config.tool_evidence is RawV5ToolEvidenceMode.USER_AGENT_ONLY:
             return RawV5AgentDocumentKind.WITHOUT_TOOL_TRACE
@@ -554,20 +550,6 @@ _ARTIFACT_PROFILES: tuple[RawV5ServingProfile, ...] = (
 _PROFILES_BY_CONFIG: Mapping[RawV5ServingConfig, RawV5ServingProfile] = {
     profile.config: profile for profile in _PROFILES
 }
-_PROFILES_BY_REPRESENTATION: Mapping[SequenceRepresentation, RawV5ServingProfile] = {
-    profile.representation: profile for profile in _PROFILES
-}
-_ARTIFACT_PROFILES_BY_LINEAGE: Mapping[
-    tuple[SequenceRepresentation, RawV5HMMTrainingContractVersion, RawFeatureMatrix],
-    RawV5ServingProfile,
-] = {
-    (
-        profile.representation,
-        profile.hmm_training_contract_version,
-        profile.raw_feature_matrix,
-    ): profile
-    for profile in _ARTIFACT_PROFILES
-}
 _ARTIFACT_PROFILES_BY_RUNTIME_IDENTITY: Mapping[
     tuple[RawV5ServingConfig, RawV5HMMTrainingContractVersion],
     RawV5ServingProfile,
@@ -575,10 +557,6 @@ _ARTIFACT_PROFILES_BY_RUNTIME_IDENTITY: Mapping[
     (profile.config, profile.hmm_training_contract_version): profile
     for profile in _ARTIFACT_PROFILES
 }
-
-SUPPORTED_RAW_V5_SERVING_CONFIGS: tuple[RawV5ServingConfig, ...] = tuple(
-    profile.config for profile in _PROFILES
-)
 
 
 def _supported_configs_message() -> str:
@@ -603,22 +581,6 @@ def raw_v5_serving_profile(config: RawV5ServingConfig) -> RawV5ServingProfile:
             f"{_supported_configs_message()}"
         )
     return profile
-
-
-def raw_v5_serving_profile_for_representation(
-    representation: SequenceRepresentation,
-) -> RawV5ServingProfile:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_serving_profile_for_artifact(
-    representation: SequenceRepresentation,
-    *,
-    hmm_training_contract_version: RawV5HMMTrainingContractVersion,
-    raw_feature_matrix: RawFeatureMatrix,
-    state_encoder_contract_sha256: str | None = None,
-) -> RawV5ServingProfile:
-    raise NotImplementedError("not on the classifier serving path")
 
 
 def raw_v5_serving_profile_for_runtime_contract(
@@ -690,13 +652,6 @@ def raw_v5_configured_serving_input_contract_sha256(
             "utf-8"
         )
     ).hexdigest()
-
-
-def validate_raw_v5_configured_serving_input_contract(
-    value: object,
-    profile: RawV5ServingProfile,
-) -> None:
-    raise NotImplementedError("not on the classifier serving path")
 
 
 def raw_v5_configured_hmm_training_contract(
@@ -876,31 +831,3 @@ def raw_v5_interaction_state_serving_input_contract_sha256(
             raw_v5_interaction_state_serving_input_contract(profile, geometry)
         ).encode("utf-8")
     ).hexdigest()
-
-
-__all__ = [
-    "RAW_V5_CONFIGURED_SERVING_INPUT_SCHEMA_VERSION",
-    "RAW_V5_INTERACTION_STATE_SERVING_INPUT_SCHEMA_VERSION",
-    "SUPPORTED_RAW_V5_SERVING_CONFIGS",
-    "InteractionStateObservationSpace",
-    "RawV5AgentDocumentKind",
-    "RawV5DocumentWindow",
-    "RawV5EmbeddingProvider",
-    "RawV5InteractionStateGeometry",
-    "RawV5ServingConfig",
-    "RawV5ServingProfile",
-    "RawV5ToolEvidenceMode",
-    "frozen_raw_v5_serving_profile",
-    "raw_v5_configured_hmm_training_contract",
-    "raw_v5_configured_hmm_training_contract_sha256",
-    "raw_v5_configured_serving_input_contract",
-    "raw_v5_configured_serving_input_contract_sha256",
-    "raw_v5_interaction_state_serving_input_contract",
-    "raw_v5_interaction_state_serving_input_contract_sha256",
-    "raw_v5_serving_profile",
-    "raw_v5_serving_profile_for_artifact",
-    "raw_v5_serving_profile_for_representation",
-    "raw_v5_serving_profile_for_runtime_contract",
-    "validate_raw_v5_configured_hmm_bundle",
-    "validate_raw_v5_configured_serving_input_contract",
-]

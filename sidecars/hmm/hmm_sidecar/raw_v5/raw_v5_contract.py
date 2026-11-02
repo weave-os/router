@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping
 from enum import StrEnum
-from typing import Literal
 from hmm_sidecar.raw_v5.core import canonical_json, sha256_text
 from hmm_sidecar.raw_v5.gemini_tokens import (
     GEMINI_EMBEDDING_MAX_INPUT_TOKENS,
@@ -48,9 +46,6 @@ RAW_V5_ROUTER_STATE_DEFINITION = "hmm-router-raw-agent-flow-v5-user-agent-v1"
 RAW_V5_ROUTER_SERIALIZER_VERSION = (
     "hmm_router_raw_agent_flow_v5_user_agent_serializer_v1"
 )
-RAW_V5_AGENT_RESPONSE_CHRONOLOGY_CONTRACT_VERSION: Literal[
-    "raw_v5_agent_response_chronology_v1"
-] = "raw_v5_agent_response_chronology_v1"
 RAW_V5_ROUTER_EMBEDDING_MODEL = "voyageai/voyage-4-large"
 RAW_V5_ROUTER_EMBEDDING_DIM = 1024
 # Gemini uses the same exact raw-V5 source and causal turn-window document
@@ -63,12 +58,6 @@ RAW_V5_ROUTER_MAX_INPUT_TOKENS = 32_000
 RAW_V5_ROUTER_CLASSIFICATION_SCHEMA_VERSION = "hmm_router_stage2_turn_classification_v5"
 RAW_V5_MODEL_INPUT_PROJECTION_SCHEMA_VERSION = (
     "hmm_router_raw_v5_structural_overflow_projection_v1"
-)
-RAW_V5_MODEL_INPUT_STATE_DEFINITION = (
-    "hmm-router-raw-agent-flow-v5-user-agent-structural-overflow-v1"
-)
-RAW_V5_MODEL_INPUT_SERIALIZER_VERSION = (
-    "hmm_router_raw_v5_model_input_structural_overflow_serializer_v1"
 )
 RAW_V5_MODEL_INPUT_MAX_CHARS = 20_000
 RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS = GEMINI_EMBEDDING_MAX_INPUT_TOKENS
@@ -176,35 +165,6 @@ RAW_V5_GEMINI_USER_AGENT_ONLY_LAST_STATE_SERIALIZER_VERSION = (
 RAW_V5_PREVIOUS_ELEMENT_DOCUMENT_SCHEMA_VERSION = (
     "hmm_router_raw_v5_previous_element_document_v1"
 )
-QWEN_RAW_V5_TEXT_REPRESENTATION = "raw-v5-text-v3"
-QWEN_RAW_V5_TEXT_LEGACY_REPRESENTATION = "raw-v5-text-v1"
-QWEN_RAW_V5_TEXT_INPUT_SLUG = "qwen3.5-9b-raw-v5-text-v3"
-QWEN_RAW_V5_TEXT_INPUT_SCHEMA_VERSION = "hmm_router_qwen_raw_v5_text_input_contract_v3"
-QWEN_RAW_V5_TEXT_CORPUS_SCHEMA_VERSION = "hmm_router_raw_v5_text_sequence_corpus_v3"
-QWEN_RAW_V5_TEXT_TARGETS_SCHEMA_VERSION = (
-    "hmm_router_complexity_raw_v5_text_sequence_targets_v3"
-)
-QWEN_RAW_V5_TEXT_DATASET_METADATA_SCHEMA_VERSION = (
-    "hmm_router_complexity_raw_v5_text_dataset_v3"
-)
-QWEN_RAW_V5_TEXT_DATASET_PIPELINE_MODE = "router_qwen_9b_raw_v5_text_v3"
-RAW_V5_FEEDBACK_SEQUENCE_SERIALIZER_VERSION = (
-    "hmm_router_raw_v5_feedback_sequence_serializer_v3"
-)
-RAW_V5_GEMINI_FEEDBACK_SEQUENCE_SERIALIZER_VERSION = (
-    "hmm_router_raw_v5_gemini_embedding_2_feedback_sequence_serializer_v5"
-)
-RAW_V5_FEEDBACK_GOLD_PRODUCER = "ml_dev.hmm_router.raw_v5_feedback_gold"
-RAW_V5_FEEDBACK_FEATURE_BUILD_MODE = (
-    "raw_v5_feedback_direct_embedding_structural_overflow_v1"
-)
-RAW_V5_FEEDBACK_SEQUENCE_GOLD_FILENAME = "raw_v5_feedback_sequence_gold.npz"
-
-
-def validate_raw_v5_agent_response_chronology_contract(
-    metadata: Mapping[str, object], *, context: str
-) -> None:
-    raise NotImplementedError("not on the classifier serving path")
 
 
 def raw_v5_router_sequence_contract() -> dict[str, object]:
@@ -902,233 +862,3 @@ RAW_V5_GEMINI_USER_AGENT_ONLY_LAST_STATE_INPUT_CONTRACT_SHA256 = hashlib.sha256(
         raw_v5_gemini_user_agent_only_last_state_model_input_contract()
     ).encode("utf-8")
 ).hexdigest()
-
-
-def qwen_raw_v5_text_input_contract() -> dict[str, object]:
-    """Return Qwen's raw-V5 text and label-alignment contract."""
-
-    return {
-        "schema_version": QWEN_RAW_V5_TEXT_INPUT_SCHEMA_VERSION,
-        "corpus_schema_version": QWEN_RAW_V5_TEXT_CORPUS_SCHEMA_VERSION,
-        "targets_schema_version": QWEN_RAW_V5_TEXT_TARGETS_SCHEMA_VERSION,
-        "input": "exact_raw_v5_causal_user_agent_tool_evidence_text",
-        "sequence_layout": RAW_V5_ROUTER_SEQUENCE_LAYOUT,
-        "base_raw_v5_router_sequence_contract_sha256": (
-            RAW_V5_ROUTER_SEQUENCE_CONTRACT_SHA256
-        ),
-        "corpus_text_policy": "untruncated_source_text",
-        "tokenizer": "selected_qwen_model_at_pinned_revision",
-        "context_window": "exact_causal_token_suffix_at_configured_qwen_max_length",
-        "prediction_boundary": "end_of_labeled_raw_user_turn",
-        "current_agent_response_policy": "strictly_after_its_user_routing_boundary",
-        "no_canonical_fallback": True,
-        "no_embedding_stage": True,
-        "no_neural_compression": True,
-    }
-
-
-QWEN_RAW_V5_TEXT_INPUT_CONTRACT_SHA256 = hashlib.sha256(
-    canonical_json(qwen_raw_v5_text_input_contract()).encode("utf-8")
-).hexdigest()
-
-
-def raw_v5_feedback_sequence_contract() -> dict[str, object]:
-    """Return the separate raw-runtime-feedback projection contract.
-
-    Runtime thumbs are offline human complexity labels, but their evidence is
-    captured by the router's current route-context producer rather than Agent
-    Flow Stage 2.  This deliberately remains a distinct contract: it shares
-    V5's raw user/agent layout and Voyage vector space without pretending that
-    a bounded serving snapshot is an Agent Flow V5 classification record.
-    """
-
-    return {
-        "schema_version": RAW_V5_FEEDBACK_SEQUENCE_SERIALIZER_VERSION,
-        "source_context_schema": "hmm_router_route_context_v6",
-        "sequence_layout": RAW_V5_ROUTER_SEQUENCE_LAYOUT,
-        "embedding_model": RAW_V5_ROUTER_EMBEDDING_MODEL,
-        "embedding_dimension": RAW_V5_ROUTER_EMBEDDING_DIM,
-        "base_raw_v5_router_sequence_contract_sha256": (
-            RAW_V5_ROUTER_SEQUENCE_CONTRACT_SHA256
-        ),
-        "model_input_projection": raw_v5_voyage_element_model_input_contract(),
-        "model_input_projection_sha256": (RAW_V5_VOYAGE_ELEMENT_INPUT_CONTRACT_SHA256),
-        "projection": {
-            "user_element": "exact_raw_route_context_v6.conversation_messages user text",
-            "agent_element": (
-                "exact_raw_route_context_v6 assistant/tool evidence between "
-                "adjacent user routing boundaries"
-            ),
-            "system_developer_messages": "excluded_to_match_v5_user_agent_layout",
-            "label_fields": "excluded_from_embedding_text",
-        },
-        "causal_boundary": (
-            "human_complexity_label_attaches_to_last_user_element_and_prefix_ends_at_user"
-        ),
-        "no_canonical_fallback": True,
-        "no_builder_truncation_within_token_budget": True,
-        "source_snapshot_policy": (
-            "use_exact_captured_route_context_v6_snapshot; upstream serving "
-            "capture_may_have_been_bounded"
-        ),
-    }
-
-
-RAW_V5_FEEDBACK_SEQUENCE_CONTRACT_SHA256 = hashlib.sha256(
-    canonical_json(raw_v5_feedback_sequence_contract()).encode("utf-8")
-).hexdigest()
-
-
-def raw_v5_gemini_feedback_sequence_contract() -> dict[str, object]:
-    """Return the raw-runtime-feedback contract for Gemini Embedding 2.
-
-    This preserves the raw route-context evidence and causal boundary while
-    applying the same Gemini-only byte-bounded window projection used by Stage 2.
-    """
-
-    return {
-        "schema_version": RAW_V5_GEMINI_FEEDBACK_SEQUENCE_SERIALIZER_VERSION,
-        "source_context_schema": "hmm_router_route_context_v6",
-        "sequence_layout": RAW_V5_ROUTER_SEQUENCE_LAYOUT,
-        "embedding_model": RAW_V5_GEMINI_EMBEDDING_2_MODEL,
-        "embedding_dimension": RAW_V5_GEMINI_EMBEDDING_2_DIM,
-        "base_raw_v5_router_sequence_contract_sha256": (
-            RAW_V5_ROUTER_SEQUENCE_CONTRACT_SHA256
-        ),
-        "model_input_projection": raw_v5_model_input_projection_contract(),
-        "model_input_projection_sha256": (
-            RAW_V5_MODEL_INPUT_PROJECTION_CONTRACT_SHA256
-        ),
-        "gemini_window_size_policy": {
-            "maximum_serialized_bytes": RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_BYTES,
-            "assumed_token_budget": RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS,
-            "window_overflow": "drop_oldest_completed_turns_first",
-            "current_turn_overflow": "retain_marked_utf8_prefixes",
-        },
-        "projection": {
-            "user_element": "exact_raw_route_context_v6.conversation_messages user text",
-            "agent_element": (
-                "exact_raw_route_context_v6 assistant/tool evidence between "
-                "adjacent user routing boundaries"
-            ),
-            "system_developer_messages": "excluded_to_match_v5_user_agent_layout",
-            "label_fields": "excluded_from_embedding_text",
-        },
-        "causal_boundary": (
-            "human_complexity_label_attaches_to_last_user_element_and_prefix_ends_at_user"
-        ),
-        "no_canonical_fallback": True,
-        "builder_truncation": "gemini_8000_byte_marked_prefix_projection_v5",
-        "source_snapshot_policy": (
-            "use_exact_captured_route_context_v6_snapshot; upstream serving "
-            "capture_may_have_been_bounded"
-        ),
-    }
-
-
-RAW_V5_GEMINI_FEEDBACK_SEQUENCE_CONTRACT_SHA256 = hashlib.sha256(
-    canonical_json(raw_v5_gemini_feedback_sequence_contract()).encode("utf-8")
-).hexdigest()
-
-
-__all__ = [
-    "QWEN_RAW_V5_TEXT_CORPUS_SCHEMA_VERSION",
-    "QWEN_RAW_V5_TEXT_DATASET_METADATA_SCHEMA_VERSION",
-    "QWEN_RAW_V5_TEXT_DATASET_PIPELINE_MODE",
-    "QWEN_RAW_V5_TEXT_INPUT_CONTRACT_SHA256",
-    "QWEN_RAW_V5_TEXT_INPUT_SCHEMA_VERSION",
-    "QWEN_RAW_V5_TEXT_INPUT_SLUG",
-    "QWEN_RAW_V5_TEXT_LEGACY_REPRESENTATION",
-    "QWEN_RAW_V5_TEXT_REPRESENTATION",
-    "QWEN_RAW_V5_TEXT_TARGETS_SCHEMA_VERSION",
-    "RAW_V5_ROUTER_CLASSIFICATION_SCHEMA_VERSION",
-    "RAW_V5_GEMINI_EMBEDDING_2_DIM",
-    "RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS",
-    "RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_BYTES",
-    "RAW_V5_GEMINI_EMBEDDING_2_MODEL",
-    "RAW_V5_GEMINI_FEEDBACK_SEQUENCE_CONTRACT_SHA256",
-    "RAW_V5_GEMINI_FEEDBACK_SEQUENCE_SERIALIZER_VERSION",
-    "RAW_V5_GEMINI_ONE_TURN_INPUT_CONTRACT_SHA256",
-    "RAW_V5_GEMINI_ONE_TURN_SERIALIZER_VERSION",
-    "RAW_V5_GEMINI_ONE_TURN_STATE_DEFINITION",
-    "RAW_V5_GEMINI_TEN_TURN_INPUT_CONTRACT_SHA256",
-    "RAW_V5_GEMINI_TEN_TURN_SERIALIZER_VERSION",
-    "RAW_V5_GEMINI_TEN_TURN_STATE_DEFINITION",
-    "RAW_V5_GEMINI_TWO_TURN_INPUT_CONTRACT_SHA256",
-    "RAW_V5_GEMINI_TWO_TURN_SERIALIZER_VERSION",
-    "RAW_V5_GEMINI_TWO_TURN_STATE_DEFINITION",
-    "RAW_V5_GEMINI_ELEMENT_INPUT_CONTRACT_SHA256",
-    "RAW_V5_GEMINI_ELEMENT_SERIALIZER_VERSION",
-    "RAW_V5_GEMINI_ELEMENT_STATE_DEFINITION",
-    "RAW_V5_VOYAGE_CODE_4_ELEMENT_INPUT_CONTRACT_SHA256",
-    "RAW_V5_VOYAGE_CODE_4_ELEMENT_MAX_INPUT_TOKENS",
-    "RAW_V5_VOYAGE_CODE_4_ELEMENT_SERIALIZER_VERSION",
-    "RAW_V5_VOYAGE_CODE_4_ELEMENT_STATE_DEFINITION",
-    "RAW_V5_VOYAGE_CODE_4_EMBEDDING_MODEL",
-    "RAW_V5_GEMINI_USER_AGENT_ONLY_INPUT_CONTRACT_SHA256",
-    "RAW_V5_GEMINI_USER_AGENT_ONLY_LAST_STATE_INPUT_CONTRACT_SHA256",
-    "RAW_V5_GEMINI_USER_AGENT_ONLY_LAST_STATE_SERIALIZER_VERSION",
-    "RAW_V5_GEMINI_USER_AGENT_ONLY_LAST_STATE_STATE_DEFINITION",
-    "RAW_V5_PREVIOUS_ELEMENT_DOCUMENT_SCHEMA_VERSION",
-    "RAW_V5_GEMINI_USER_AGENT_ONLY_SERIALIZER_VERSION",
-    "RAW_V5_GEMINI_USER_AGENT_ONLY_STATE_DEFINITION",
-    "RAW_V5_GEMINI_USER_AGENT_ONLY_TEN_TURN_INPUT_CONTRACT_SHA256",
-    "RAW_V5_GEMINI_USER_AGENT_ONLY_TEN_TURN_SERIALIZER_VERSION",
-    "RAW_V5_GEMINI_USER_AGENT_ONLY_TEN_TURN_STATE_DEFINITION",
-    "RAW_V5_GEMINI_USER_AGENT_ONLY_TWO_TURN_INPUT_CONTRACT_SHA256",
-    "RAW_V5_GEMINI_USER_AGENT_ONLY_TWO_TURN_SERIALIZER_VERSION",
-    "RAW_V5_GEMINI_USER_AGENT_ONLY_TWO_TURN_STATE_DEFINITION",
-    "RAW_V5_MODEL_INPUT_CODE_EXCERPT_CHARS",
-    "RAW_V5_MODEL_INPUT_MAX_CHARS",
-    "RAW_V5_MODEL_INPUT_PROJECTION_CONTRACT_SHA256",
-    "RAW_V5_VOYAGE_ELEMENT_INPUT_CONTRACT_SHA256",
-    "RAW_V5_VOYAGE_ELEMENT_SERIALIZER_VERSION",
-    "RAW_V5_VOYAGE_ELEMENT_STATE_DEFINITION",
-    "RAW_V5_MODEL_INPUT_PROJECTION_SCHEMA_VERSION",
-    "RAW_V5_MODEL_INPUT_SCHEMA_MAX_DEPTH",
-    "RAW_V5_MODEL_INPUT_SCHEMA_MAX_FIELDS",
-    "RAW_V5_MODEL_INPUT_SCHEMA_MAX_ITEMS",
-    "RAW_V5_MODEL_INPUT_SERIALIZER_VERSION",
-    "RAW_V5_MODEL_INPUT_SAMPLE_MAX_DEPTH",
-    "RAW_V5_MODEL_INPUT_STATE_DEFINITION",
-    "RAW_V5_MODEL_INPUT_STRING_SAMPLE_CHARS",
-    "RAW_V5_MODEL_INPUT_STRUCTURED_LITERAL_MIN_CHARS",
-    "RAW_V5_VOYAGE_TEN_TURN_INPUT_CONTRACT_SHA256",
-    "RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS",
-    "RAW_V5_VOYAGE_TEN_TURN_SERIALIZER_VERSION",
-    "RAW_V5_VOYAGE_TEN_TURN_STATE_DEFINITION",
-    "RAW_V5_VOYAGE_TURN_WINDOW_DOCUMENT_SCHEMA_VERSION",
-    "RAW_V5_VOYAGE_ONE_TURN_INPUT_CONTRACT_SHA256",
-    "RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS",
-    "RAW_V5_VOYAGE_ONE_TURN_SERIALIZER_VERSION",
-    "RAW_V5_VOYAGE_ONE_TURN_STATE_DEFINITION",
-    "RAW_V5_VOYAGE_TWO_TURN_INPUT_CONTRACT_SHA256",
-    "RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS",
-    "RAW_V5_VOYAGE_TWO_TURN_SERIALIZER_VERSION",
-    "RAW_V5_VOYAGE_TWO_TURN_STATE_DEFINITION",
-    "RAW_V5_FEEDBACK_SEQUENCE_CONTRACT_SHA256",
-    "RAW_V5_FEEDBACK_FEATURE_BUILD_MODE",
-    "RAW_V5_FEEDBACK_GOLD_PRODUCER",
-    "RAW_V5_FEEDBACK_SEQUENCE_GOLD_FILENAME",
-    "RAW_V5_FEEDBACK_SEQUENCE_SERIALIZER_VERSION",
-    "RAW_V5_ROUTER_EMBEDDING_DIM",
-    "RAW_V5_ROUTER_EMBEDDING_MODEL",
-    "RAW_V5_ROUTER_MAX_INPUT_TOKENS",
-    "RAW_V5_ROUTER_SEQUENCE_CONTRACT_SHA256",
-    "RAW_V5_ROUTER_SEQUENCE_LAYOUT",
-    "RAW_V5_ROUTER_SERIALIZER_VERSION",
-    "RAW_V5_ROUTER_STATE_DEFINITION",
-    "qwen_raw_v5_text_input_contract",
-    "raw_v5_model_input_projection_contract",
-    "raw_v5_voyage_element_model_input_contract",
-    "raw_v5_feedback_sequence_contract",
-    "raw_v5_gemini_feedback_sequence_contract",
-    "raw_v5_gemini_turn_window_model_input_contract",
-    "raw_v5_gemini_user_agent_only_model_input_contract",
-    "raw_v5_voyage_user_agent_only_model_input_contract",
-    "raw_v5_router_sequence_contract",
-    "raw_v5_voyage_ten_turn_model_input_contract",
-    "raw_v5_voyage_one_turn_model_input_contract",
-    "raw_v5_voyage_turn_window_model_input_contract",
-    "raw_v5_voyage_two_turn_model_input_contract",
-]

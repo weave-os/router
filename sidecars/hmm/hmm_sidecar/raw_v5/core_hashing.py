@@ -15,19 +15,12 @@ from __future__ import annotations
 from collections.abc import Sequence
 import hashlib
 from pathlib import Path
-import re
 
 from pydantic import BaseModel
-
-_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def sha256_bytes(value: bytes) -> str:
-    raise NotImplementedError("not on the classifier serving path")
 
 
 def sha256_file(path: Path, *, chunk_bytes: int = 1_048_576) -> str:
@@ -48,8 +41,4 @@ def sha256_texts(values: Sequence[str]) -> str:
 
 
 def self_sha256(model: BaseModel, *, exclude_field: str) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def require_sha256(value: str, *, owner: str) -> str:
     raise NotImplementedError("not on the classifier serving path")

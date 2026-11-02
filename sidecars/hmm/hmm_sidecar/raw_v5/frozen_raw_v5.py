@@ -7,7 +7,7 @@ the current token-budgeted builders; accepted old packages retain their original
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
@@ -19,9 +19,6 @@ from hmm_sidecar.raw_v5.state_representation import (
 
 RAW_V5_MODEL_INPUT_MAX_CHARS = 20_000
 RAW_V5_GEMINI_EMBEDDING_2_MAX_SERIALIZED_BYTES = 8_000
-_RAW_V5_GEMINI_PREFIX_TRUNCATION_MARKER = (
-    "\n[truncated for gemini-embedding-2 input limit]"
-)
 
 
 @dataclass(frozen=True)
@@ -165,37 +162,4 @@ def frozen_raw_v5_model_input_contract(
     current: dict[str, object],
     encoder: StateEncoderContract,
 ) -> dict[str, object]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def frozen_voyage_turn_window_document(
-    *,
-    previous_turns: Sequence[tuple[str, str]],
-    current_user_text: str,
-    current_agent_text: str | None,
-    max_turns: int,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def frozen_gemini_turn_window_document(
-    *,
-    previous_turns: Sequence[tuple[str, str]],
-    current_user_text: str,
-    current_agent_text: str | None,
-    max_turns: int,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def frozen_gemini_previous_element_document(
-    *,
-    previous_element: tuple[str, str] | None,
-    current_kind: str,
-    current_text: str,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _frozen_utf8_prefix_with_marker(text: str, *, max_bytes: int) -> str:
     raise NotImplementedError("not on the classifier serving path")

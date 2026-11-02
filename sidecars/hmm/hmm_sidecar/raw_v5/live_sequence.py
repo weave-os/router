@@ -30,7 +30,6 @@ from hmm_sidecar.raw_v5.raw_v5_contract import (
     RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS,
     RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_BYTES,
     RAW_V5_ROUTER_MAX_INPUT_TOKENS,
-    RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS,
 )
 from hmm_sidecar.raw_v5.raw_v5_sequence import (
     RawV5SequenceError,
@@ -43,11 +42,8 @@ from hmm_sidecar.raw_v5.raw_v5_sequence import (
 from hmm_sidecar.raw_v5.raw_v5_serving_profile import (
     RawV5DocumentWindow,
     RawV5EmbeddingProvider,
-    RawV5ServingConfig,
     RawV5ServingProfile,
     RawV5ToolEvidenceMode,
-    raw_v5_serving_profile,
-    frozen_raw_v5_serving_profile,
 )
 from hmm_sidecar.raw_v5.frozen_raw_v5 import (
     RAW_V5_GEMINI_EMBEDDING_2_MAX_SERIALIZED_BYTES,
@@ -62,7 +58,6 @@ DEFAULT_LIVE_FLOW_MAX_ELEMENTS = 48
 # document rather than receiving a clipped substitute.
 MAX_LIVE_USER_REQUEST_CHARS = 3_000
 MAX_LIVE_USER_INTENT_CHARS = 1_000
-MAX_LIVE_CONTEXT_CHARS = 1_500
 MAX_LIVE_AGENT_TEXT_CHARS = 1_500
 MAX_LIVE_TOOL_GROUPS = 8
 MAX_LIVE_TOOL_INPUT_KEYS = 8
@@ -71,11 +66,6 @@ MAX_LIVE_TOOL_ITEM_CHARS = 300
 # Legacy v1 final document boundary. v2 never calls this truncator. Vertex
 # auto-truncation is disabled, and OpenRouter single-document oversize errors
 # are surfaced without retrying a shortened payload.
-MAX_LIVE_EMBEDDING_DOCUMENT_BYTES = 7_500
-LIVE_EMBEDDING_DOCUMENT_POLICY = "hmm_router_live_embedding_document_v1"
-FULL_CANONICAL_DOCUMENT_POLICY = (
-    "hmm_router_full_canonical_embedding_document_no_truncation_v1"
-)
 RAW_V5_VOYAGE_TWO_TURN_DOCUMENT_POLICY = (
     "raw_v5_voyage_serialized_32000_token_budget_v2"
 )
@@ -83,7 +73,6 @@ RAW_V5_GEMINI_DOCUMENT_POLICY = "raw_v5_gemini_serialized_8000_byte_budget_v4"
 FROZEN_RAW_V5_DOCUMENT_POLICY = (
     "raw_v5_voyage_two_turn_uniform_structural_normalization_v1"
 )
-_DOCUMENT_BOUNDARY_MARKER = "\n[content omitted at HMM embedding boundary]"
 _CONTEXT_OMISSION_MARKER_RESERVE = 80
 
 
@@ -139,10 +128,6 @@ def bound_text(text: str, *, limit: int) -> str:
 
 
 def bound_recent_context(lines: list[str]) -> list[str]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def bound_embedding_document(text: str) -> str:
     raise NotImplementedError("not on the classifier serving path")
 
 
@@ -300,10 +285,6 @@ def latest_user_text_from_messages(messages: Any) -> str:
         if text:
             return text
     return ""
-
-
-def available_tool_names_from_messages(messages: Any) -> tuple[str, ...]:
-    raise NotImplementedError("not on the classifier serving path")
 
 
 def tool_context_metadata(messages: Any) -> dict[str, Any]:
@@ -1038,18 +1019,6 @@ def conversation_sequence_turns(
     )
 
 
-RAW_V5_VOYAGE_TWO_TURN_SERVING_PROFILE = frozen_raw_v5_serving_profile(
-    raw_v5_serving_profile(
-        RawV5ServingConfig(
-            provider=RawV5EmbeddingProvider.VOYAGE,
-            tool_evidence=RawV5ToolEvidenceMode.COMPACTED_TOOL_TRACE,
-            document_window=RawV5DocumentWindow.TURN_WINDOW,
-            lookback_rounds=RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS,
-        )
-    )
-)
-
-
 def raw_v5_live_sequence_turns(
     messages: Any,
     *,
@@ -1142,12 +1111,3 @@ def raw_v5_live_sequence_turns(
     )
     debug["raw_v5_live_input"] = debug["hmm_sequence_source"]
     return turns, debug
-
-
-def raw_v5_voyage_two_turn_live_sequence_turns(
-    messages: Any,
-    *,
-    fallback_text: str,
-    max_elements: int = DEFAULT_LIVE_FLOW_MAX_ELEMENTS,
-) -> tuple[list[LiveFlowTurn], dict[str, Any]]:
-    raise NotImplementedError("not on the classifier serving path")

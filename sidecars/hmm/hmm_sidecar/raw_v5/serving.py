@@ -41,7 +41,6 @@ from hmm_sidecar.raw_v5.schemas import (
 )
 from hmm_sidecar.raw_v5.serving_features import current_text_has_tool_intent
 
-CLASSIFIER_PACKAGE_SCHEMA_VERSION = "hmm_router_classifier_package_v1"
 EMBEDDING_BATCH_SIZE = 8
 
 

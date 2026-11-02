@@ -34,17 +34,6 @@ PINNED_MODEL_STATUSES = frozenset(
         WeaveModelStatus.PROD,
     }
 )
-MUTABLE_ARTIFACT_PATH_PARTS = frozenset(
-    {
-        "current.json",
-        "latest",
-        "latest_bundle.json",
-    }
-)
-
-
-def _path_parts(path: str) -> tuple[str, ...]:
-    raise NotImplementedError("not on the classifier serving path")
 
 
 def _has_mutable_artifact_alias(path: str) -> bool:
@@ -202,23 +191,3 @@ class WeaveModel(FrozenClosedModel):
             raise ValueError("prod WeaveModel requires passed_regression_gate=True")
 
         return self
-
-
-class GeneratedOutputs(FrozenClosedModel):
-    gold_current_json: str | None = None
-    sidecar_model_config_json: str | None = None
-    sidecar_docker_include_list: str | None = None
-
-
-class WeaveModelRegistry(FrozenClosedModel):
-    registry_schema_version: NonEmptyString
-    object_type: Literal["WeaveModelRegistry"] = "WeaveModelRegistry"
-    updated_at: datetime
-    active_prod_model_id: NonEmptyString | None
-    models: dict[str, WeaveModel]
-    generated_outputs: GeneratedOutputs
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @model_validator(mode="after")
-    def check_model_keys_and_active_prod(self) -> Self:
-        raise NotImplementedError("not on the classifier serving path")

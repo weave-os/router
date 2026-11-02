@@ -240,14 +240,6 @@ class RawV5InteractionStateRuntimeContract(RawV5RuntimeContract):
         }
 
 
-def _configured_feature_layout_identities(
-    *,
-    embedding_dim: int,
-    hmm_states: int,
-) -> set[tuple[str, int]]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
 def _profile_identity(profile: RawV5ServingProfile) -> dict[str, object]:
     return {
         "sequence_representation": profile.representation.value,
@@ -265,20 +257,6 @@ def _profile_identity(profile: RawV5ServingProfile) -> dict[str, object]:
             raw_v5_configured_hmm_training_contract_sha256(profile)
         ),
     }
-
-
-def build_raw_v5_runtime_contract(
-    profile: RawV5ServingProfile,
-    *,
-    input_source: RawV5InputSource,
-    hmm_states: int,
-    pca_dim: int,
-    classes: tuple[str, ...],
-    classifier_feature_layout: object,
-    classifier_feature_dim: int,
-    interaction_state: RawV5InteractionStateGeometry | None = None,
-) -> dict[str, object]:
-    raise NotImplementedError("not on the classifier serving path")
 
 
 def parse_raw_v5_runtime_contract(value: object) -> RawV5RuntimeContract:

@@ -90,17 +90,6 @@ class ServingFeatureComposition(FrozenOpenModel):
     upstream_bundle_version: str | None = None
     upstream_bundle_sha256: Sha256Hex | None = None
 
-    @model_validator(mode="after")
-    def check_layout_dims(self) -> Self:
-        if self.feature_layout and self.feature_dim is not None:
-            layout_dim = sum(block.dim for block in self.feature_layout)
-            if layout_dim != self.feature_dim:
-                raise ValueError(
-                    "feature_layout dims sum to "
-                    f"{layout_dim} but feature_dim is {self.feature_dim}"
-                )
-        return self
-
 
 class WeaveFeatureContract(FrozenOpenModel):
     episode_schema_version: NonEmptyString
@@ -110,13 +99,6 @@ class WeaveFeatureContract(FrozenOpenModel):
     cost_table_version: NonEmptyString
     cache_accounting_version: NonEmptyString
     provider_usage_schema_version: NonEmptyString
-
-    def asdict(self) -> dict[str, str]:
-        return {
-            key: str(value)
-            for key, value in self.model_dump().items()
-            if value is not None
-        }
 
     def summary(self) -> str:
         return (
@@ -184,20 +166,6 @@ class RLTrajectoryPayloadContract(PayloadContract):
     rewards_are_ground_truth: bool = True
     old_q_estimates_are_ground_truth: Literal[False] = False
 
-    @model_validator(mode="after")
-    def check_required_trajectory_fields(self) -> Self:
-        missing_fields = [
-            field_name
-            for field_name in self.trajectory_fields
-            if field_name not in self.required_fields
-        ]
-        if missing_fields:
-            fields = ", ".join(missing_fields)
-            raise ValueError(
-                "required_fields must include every trajectory field: " + fields
-            )
-        return self
-
 
 class RunResultsPayloadContract(PayloadContract):
     run_id: NonEmptyString
@@ -255,12 +223,6 @@ class DataQualityReport(FrozenOpenModel):
     degenerate_vector_count: int | None = Field(default=None, ge=0)
     feature_stats_uri: str | None = None
 
-    def failed_checks(self) -> tuple[str, ...]:
-        return tuple(check.name for check in self.checks if check.status == "fail")
-
-    def warned_checks(self) -> tuple[str, ...]:
-        return tuple(check.name for check in self.checks if check.status == "warn")
-
 
 class DataProducer(FrozenOpenModel):
     """One model + prompt that produced or transformed rows in this dataset.
@@ -293,14 +255,6 @@ class Lineage(FrozenOpenModel):
     supersedes_data_id: str | None = None
 
 
-KIND_TO_CONTRACT: dict[WeaveDataKind, type[PayloadContract]] = {
-    WeaveDataKind.RL_TRAJECTORY: RLTrajectoryPayloadContract,
-    WeaveDataKind.FEEDBACK_LABELS: FeedbackLabelsPayloadContract,
-    WeaveDataKind.RUN_RESULTS: RunResultsPayloadContract,
-    WeaveDataKind.SUPERVISED_EXAMPLES: SupervisedPayloadContract,
-}
-
-
 class WeaveData(FrozenOpenModel):
     object_type: Literal["WeaveData"] = "WeaveData"
     data_id: NonEmptyString
@@ -314,39 +268,3 @@ class WeaveData(FrozenOpenModel):
     lineage: Lineage = Field(default_factory=Lineage)
     quality: DataQualityReport | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
-
-    @model_validator(mode="before")
-    @classmethod
-    def coerce_payload_contract(cls, data: Any) -> Any:
-        if not isinstance(data, dict):
-            return data
-
-        contract = data.get("payload_contract")
-        if not isinstance(contract, dict):
-            return data
-
-        kind = data.get("data_kind")
-        kind_value = kind.value if isinstance(kind, WeaveDataKind) else kind
-        data = dict(data)
-
-        try:
-            kind_enum = WeaveDataKind(kind_value)
-        except ValueError:
-            kind_enum = None
-        contract_cls = KIND_TO_CONTRACT.get(kind_enum, PayloadContract)
-        data["payload_contract"] = contract_cls.model_validate(contract)
-
-        return data
-
-    @model_validator(mode="after")
-    def check_payload_contract_matches_kind(self) -> Self:
-        contract_cls = KIND_TO_CONTRACT.get(self.data_kind)
-        if contract_cls is not None and not isinstance(
-            self.payload_contract,
-            contract_cls,
-        ):
-            raise ValueError(
-                f"{self.data_kind.value} WeaveData requires {contract_cls.__name__}"
-            )
-
-        return self

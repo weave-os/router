@@ -78,14 +78,6 @@ MODEL_FAMILY = "hmm_router_complexity_classifier"
 TASK_FAMILY = "hmm_router_routing"
 
 
-def raw_v5_voyage_two_turn_feature_layout() -> list[dict[str, Any]]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_voyage_two_turn_feature_dim() -> int:
-    raise NotImplementedError("not on the classifier serving path")
-
-
 def raw_v5_no_tool_context_feature_layout(
     n_states: int,
     *,
@@ -156,22 +148,6 @@ class RawV5ClassifierLayout(NamedTuple):
     n_states: int
     belief_dynamics: bool
     element_lookback: ElementLookback | None
-
-
-def raw_v5_voyage_two_turn_no_tool_context_feature_layout(
-    n_states: int,
-    *,
-    belief_dynamics: bool = False,
-) -> list[dict[str, Any]]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_voyage_two_turn_no_tool_context_feature_dim(
-    n_states: int,
-    *,
-    belief_dynamics: bool = False,
-) -> int:
-    raise NotImplementedError("not on the classifier serving path")
 
 
 def _raw_v5_no_tool_context_layout(

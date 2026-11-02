@@ -395,30 +395,6 @@ class AgentFlowHMMSidecar:
     def infer_turns(self, turns: list[LiveFlowTurn]) -> AgentFlowHMMReadout:
         raise NotImplementedError("not on the classifier serving path")
 
-    def preload_embedding_texts(self, texts: Sequence[str]) -> int:
-        raise NotImplementedError("not on the classifier serving path")
-
-    async def apreload_embedding_texts(self, texts: Sequence[str]) -> int:
-        raise NotImplementedError("not on the classifier serving path")
-
-    def preload_embedding_turn_sequences(
-        self,
-        sequences: Sequence[Sequence[str]],
-    ) -> int:
-        raise NotImplementedError("not on the classifier serving path")
-
-    async def apreload_embedding_turn_sequences(
-        self,
-        sequences: Sequence[Sequence[str]],
-    ) -> int:
-        raise NotImplementedError("not on the classifier serving path")
-
-    def embedding_cache_stats(self) -> dict[str, int]:
-        raise NotImplementedError("not on the classifier serving path")
-
-    async def ainfer(self, texts: list[str]) -> AgentFlowHMMReadout:
-        raise NotImplementedError("not on the classifier serving path")
-
     async def ainfer_turns(self, turns: list[LiveFlowTurn]) -> AgentFlowHMMReadout:
         raise NotImplementedError("not on the classifier serving path")
 

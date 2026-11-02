@@ -11,11 +11,6 @@ from enum import StrEnum
 from typing import Any
 
 
-class HMMFeatureArm(StrEnum):
-    WITH_HMM = "full"
-    WITHOUT_HMM = "fresh_classifier"
-
-
 class HMMChain(StrEnum):
     ELEMENT = "element"
     INTERACTION_STATE = "interaction_state"

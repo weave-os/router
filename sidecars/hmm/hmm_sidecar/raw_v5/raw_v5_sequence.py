@@ -18,83 +18,22 @@ source field exactly when the complete provider document fits.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Sequence
-from typing import Any, Protocol
+from collections.abc import Sequence
 
 
-from hmm_sidecar.raw_v5.cd_models import ConversationTrace
-from hmm_sidecar.raw_v5.cd_raw_agent_flow_evidence import (
-    RawAgentFlowTurnEvidence,
-)
-from hmm_sidecar.raw_v5.conversation_sequence import (
-    SequenceElement,
-)
 from hmm_sidecar.raw_v5.raw_v5_contract import (
-    RAW_V5_FEEDBACK_SEQUENCE_CONTRACT_SHA256,
-    RAW_V5_FEEDBACK_SEQUENCE_SERIALIZER_VERSION,
-    RAW_V5_ROUTER_EMBEDDING_DIM,
-    RAW_V5_ROUTER_EMBEDDING_MODEL,
-    RAW_V5_ROUTER_MAX_INPUT_TOKENS,
-    RAW_V5_ROUTER_SEQUENCE_CONTRACT_SHA256,
-    RAW_V5_ROUTER_SEQUENCE_LAYOUT,
-    RAW_V5_ROUTER_SERIALIZER_VERSION,
-    RAW_V5_ROUTER_STATE_DEFINITION,
     RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
     RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS,
     RAW_V5_VOYAGE_TURN_WINDOW_DOCUMENT_SCHEMA_VERSION,
     RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS,
-    raw_v5_router_sequence_contract,
 )
 from hmm_sidecar.raw_v5 import gemini_tokens
 
 RAW_V5_ROUTER_NO_RESPONSE_MARKER = "No agent response blocks recorded."
-RAW_V5_ROUTER_NO_TOOL_TRACE_MARKER = "No tool calls recorded."
 
 
 class RawV5SequenceError(ValueError):
     """The V5-only raw sequence contract cannot be satisfied."""
-
-
-class RawV5BlankUserPromptError(RawV5SequenceError):
-    """A raw V5 turn cannot define a routing boundary from blank user text."""
-
-
-class RawV5NonCausalTraceError(RawV5SequenceError):
-    """Recorded response timing cannot support the routing input sequence."""
-
-
-def validate_raw_v5_agent_response_chronology(
-    source_trace: ConversationTrace, *, last_target_turn_index: int
-) -> None:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-class RawV5UserAgentOnlyTurnEvidence(Protocol):
-    """The minimum raw fields used by tool-free embedding projections.
-
-    This deliberately omits ``tool_action_trace``.  Consumers that do not
-    otherwise need tool evidence can pass a small structural record instead
-    of constructing :class:`RawAgentFlowTurnEvidence`, whose validation owns
-    the separate tool-trace contract.
-    """
-
-    turn_index: int
-    user_prompt: str
-    agent_response_blocks: Sequence[str]
-
-
-def format_raw_v5_router_user_document(
-    turn_index: int,
-    evidence: RawAgentFlowTurnEvidence,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def format_raw_v5_router_agent_document(
-    turn_index: int,
-    evidence: RawAgentFlowTurnEvidence,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
 
 
 def format_raw_v5_router_agent_response_only_document(
@@ -135,44 +74,6 @@ def format_raw_v5_router_agent_response_only_document(
     else:
         sections.append("Response blocks:\n" + RAW_V5_ROUTER_NO_RESPONSE_MARKER)
     return "\n\n".join(sections)
-
-
-def _raw_v5_user_agent_only_conversation_sequence(
-    turn_entries: Sequence[dict[str, Any]],
-    *,
-    label_index_for: Callable[[object], int | None],
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_conversation_sequence(
-    turn_entries: Sequence[dict[str, Any]],
-    *,
-    label_index_for: Callable[[object], int | None],
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _project_model_input_elements(
-    elements: Sequence[SequenceElement],
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_model_conversation_sequence(
-    turn_entries: Sequence[dict[str, Any]],
-    *,
-    label_index_for: Callable[[object], int | None],
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_voyage_model_conversation_sequence(
-    turn_entries: Sequence[dict[str, Any]],
-    *,
-    label_index_for: Callable[[object], int | None],
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
 
 
 def _validate_raw_v5_voyage_window_turns(max_turns: int) -> None:
@@ -267,21 +168,6 @@ def format_raw_v5_voyage_turn_window_document(
     )
 
 
-def _bounded_raw_v5_voyage_turn_window_document(
-    *,
-    previous_turns: Sequence[tuple[str, str]],
-    current_user_text: str,
-    current_agent_text: str | None,
-    max_turns: int,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-_RAW_V5_GEMINI_PREFIX_TRUNCATION_MARKER = (
-    "\n[truncated for gemini-embedding-2 input limit]"
-)
-
-
 def _gemini_prefix_with_marker(text: str, *, max_chars: int) -> str:
     raise NotImplementedError("not on the classifier serving path")
 
@@ -354,95 +240,6 @@ def _bounded_raw_v5_gemini_turn_window_document(
     return best
 
 
-def format_raw_v5_previous_element_document(
-    *,
-    previous_element: tuple[str, str] | None,
-    current_kind: str,
-    current_text: str,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _bounded_raw_v5_gemini_previous_element_document(
-    *,
-    previous_element: tuple[str, str] | None,
-    current_kind: str,
-    current_text: str,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_gemini_user_agent_only_last_state_model_conversation_sequence(
-    turn_entries: Sequence[dict[str, Any]],
-    *,
-    label_index_for: Callable[[object], int | None],
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _raw_v5_turn_window_model_conversation_sequence(
-    turn_entries: Sequence[dict[str, Any]],
-    *,
-    label_index_for: Callable[[object], int | None],
-    max_turns: int,
-    document_builder: Callable[..., str],
-    source_sequence_builder: Callable[
-        ..., list[SequenceElement]
-    ] = raw_v5_conversation_sequence,
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_voyage_turn_window_model_conversation_sequence(
-    turn_entries: Sequence[dict[str, Any]],
-    *,
-    label_index_for: Callable[[object], int | None],
-    max_turns: int,
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_gemini_turn_window_model_conversation_sequence(
-    turn_entries: Sequence[dict[str, Any]],
-    *,
-    label_index_for: Callable[[object], int | None],
-    max_turns: int,
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_gemini_user_agent_only_model_conversation_sequence(
-    turn_entries: Sequence[dict[str, Any]],
-    *,
-    label_index_for: Callable[[object], int | None],
-    max_turns: int = RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_voyage_user_agent_only_model_conversation_sequence(
-    turn_entries: Sequence[dict[str, Any]],
-    *,
-    label_index_for: Callable[[object], int | None],
-    max_turns: int = RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _raw_v5_user_agent_only_evidence_fields(
-    evidence: RawV5UserAgentOnlyTurnEvidence,
-) -> tuple[int, str, tuple[str, ...]]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_gemini_user_agent_only_documents_from_evidence(
-    turn_evidence: Sequence[RawV5UserAgentOnlyTurnEvidence],
-    *,
-    max_turns: int = RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
-) -> dict[int, tuple[str, str]]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
 def raw_v5_gemini_element_documents(
     turn_index: int,
     user_prompt: str,
@@ -480,181 +277,3 @@ def _bounded_raw_v5_gemini_agent_message_document(agent_document: str) -> str:
             "raw V5 Gemini agent message cannot fit the 8000-byte input budget"
         )
     return fitted
-
-
-def _clip_voyage_code_4_element_document(document: str) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_voyage_code_4_element_documents(
-    turn_index: int,
-    user_prompt: str,
-    agent_response_blocks: Sequence[str],
-) -> tuple[str, str]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_voyage_code_4_element_model_conversation_sequence(
-    turn_entries: Sequence[dict[str, Any]],
-    *,
-    label_index_for: Callable[[object], int | None],
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_gemini_element_model_conversation_sequence(
-    turn_entries: Sequence[dict[str, Any]],
-    *,
-    label_index_for: Callable[[object], int | None],
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_voyage_user_agent_only_documents_from_evidence(
-    turn_evidence: Sequence[RawV5UserAgentOnlyTurnEvidence],
-    *,
-    max_turns: int = RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
-) -> dict[int, tuple[str, str]]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _raw_v5_user_agent_only_documents_from_evidence(
-    turn_evidence: Sequence[RawV5UserAgentOnlyTurnEvidence],
-    *,
-    max_turns: int,
-    document_builder: Callable[..., str],
-) -> dict[int, tuple[str, str]]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_gemini_user_agent_only_last_state_documents_from_evidence(
-    turn_evidence: Sequence[RawV5UserAgentOnlyTurnEvidence],
-) -> dict[int, tuple[str, str]]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _raw_v5_turn_window_documents_from_evidence(
-    turn_evidence: Sequence[RawAgentFlowTurnEvidence],
-    *,
-    max_turns: int,
-    document_builder: Callable[..., str],
-    provider_name: str,
-) -> dict[int, tuple[str, str]]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_gemini_turn_window_documents_from_evidence(
-    turn_evidence: Sequence[RawAgentFlowTurnEvidence],
-    *,
-    max_turns: int,
-) -> dict[int, tuple[str, str]]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_voyage_turn_window_documents_from_evidence(
-    turn_evidence: Sequence[RawAgentFlowTurnEvidence],
-    *,
-    max_turns: int,
-) -> dict[int, tuple[str, str]]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def validate_raw_v5_voyage_turn_window_document(
-    text: str,
-    *,
-    max_turns: int,
-    state_boundary: str,
-) -> dict[str, object]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _feedback_raw_message(
-    value: object,
-    *,
-    message_index: int,
-) -> dict[str, Any]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _feedback_agent_document(
-    turn_index: int,
-    messages: Sequence[dict[str, Any]],
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_feedback_conversation_sequence(
-    messages: Sequence[object],
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_feedback_model_conversation_sequence(
-    messages: Sequence[object],
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_feedback_turn_window_model_conversation_sequence(
-    messages: Sequence[object],
-    *,
-    max_turns: int,
-    document_builder: Callable[..., str] = _bounded_raw_v5_voyage_turn_window_document,
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_feedback_voyage_turn_window_model_conversation_sequence(
-    messages: Sequence[object],
-    *,
-    max_turns: int,
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def raw_v5_feedback_gemini_turn_window_model_conversation_sequence(
-    messages: Sequence[object],
-    *,
-    max_turns: int,
-) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-__all__ = [
-    "RAW_V5_ROUTER_SEQUENCE_LAYOUT",
-    "RAW_V5_ROUTER_SEQUENCE_CONTRACT_SHA256",
-    "RAW_V5_FEEDBACK_SEQUENCE_CONTRACT_SHA256",
-    "RAW_V5_FEEDBACK_SEQUENCE_SERIALIZER_VERSION",
-    "RAW_V5_ROUTER_SERIALIZER_VERSION",
-    "RAW_V5_ROUTER_STATE_DEFINITION",
-    "RAW_V5_ROUTER_EMBEDDING_DIM",
-    "RAW_V5_ROUTER_EMBEDDING_MODEL",
-    "RAW_V5_ROUTER_MAX_INPUT_TOKENS",
-    "RawV5BlankUserPromptError",
-    "RawV5UserAgentOnlyTurnEvidence",
-    "RawV5SequenceError",
-    "format_raw_v5_router_agent_document",
-    "format_raw_v5_router_agent_response_only_document",
-    "format_raw_v5_router_user_document",
-    "raw_v5_conversation_sequence",
-    "raw_v5_feedback_conversation_sequence",
-    "raw_v5_feedback_gemini_turn_window_model_conversation_sequence",
-    "raw_v5_feedback_model_conversation_sequence",
-    "raw_v5_feedback_turn_window_model_conversation_sequence",
-    "raw_v5_feedback_voyage_turn_window_model_conversation_sequence",
-    "raw_v5_model_conversation_sequence",
-    "raw_v5_voyage_model_conversation_sequence",
-    "raw_v5_gemini_turn_window_documents_from_evidence",
-    "raw_v5_gemini_turn_window_model_conversation_sequence",
-    "raw_v5_gemini_user_agent_only_documents_from_evidence",
-    "raw_v5_voyage_user_agent_only_documents_from_evidence",
-    "raw_v5_voyage_user_agent_only_model_conversation_sequence",
-    "raw_v5_gemini_user_agent_only_last_state_documents_from_evidence",
-    "raw_v5_gemini_user_agent_only_last_state_model_conversation_sequence",
-    "raw_v5_gemini_user_agent_only_model_conversation_sequence",
-    "raw_v5_router_sequence_contract",
-    "raw_v5_voyage_turn_window_documents_from_evidence",
-    "raw_v5_voyage_turn_window_model_conversation_sequence",
-    "format_raw_v5_voyage_turn_window_document",
-    "validate_raw_v5_voyage_turn_window_document",
-]

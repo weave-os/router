@@ -61,8 +61,6 @@ from hmm_sidecar.raw_v5.state_representation import (
 
 log = logging.getLogger(__name__)
 
-DEFAULT_CONFIDENCE_THRESHOLD = 1.0 / len(COMPLEXITY_CLASSES)
-
 
 ATTRIBUTION_SCHEMA_VERSION = "hmm_router_route_attribution_v1"
 ATTRIBUTION_TOP_FACTORS = 5
@@ -93,24 +91,6 @@ class ComplexityClassification:
     confidence: float
     margin: float
     attribution: dict[str, Any] | None
-
-
-@dataclass(frozen=True)
-class ArmRouteSelection:
-    """One within-cluster arm result.
-
-    The trained arm-selector supplies every exploitation choice.  The optional
-    epsilon draw may replace that choice for exploration, but pairwise
-    strengths are consulted only by explicitly legacy rollback packages.
-    """
-
-    target_model: str
-    arm_index: int
-    propensity: float
-    policy_snapshot_id: str
-    reason: str
-    greedy_model: str
-    explored: bool
 
 
 def attribution_summary(

@@ -31,34 +31,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-
-from hmm_sidecar.raw_v5.cd_schemas import (
-    HMMRouterRoundView,
-    HMMRouterUserTurnView,
-)
-
 CONVERSATION_SEQUENCE_STATE_DEFINITION = "hmm-router-conversation-sequence-v1"
 # Metadata value for canonical U/A conversation sequences.  Keep this beside
 # the sequence contract because both the HMM trainer and dataset builders need
 # to validate it without importing one another.
-CANONICAL_SEQUENCE_LAYOUT = "canonical_user_agent_v1"
 # v1 bundles route only at user-turn boundaries.  v2 retains the identical
 # offline U/A sequence and supervision but additionally permits the live
 # prefix to end at a cumulative in-progress agent turn at an agent-step
 # Action boundary.  Existing artifacts remain immutable and loadable.
-CONVERSATION_SEQUENCE_CONTRACT_VERSION_V1 = (
-    "hmm_router_conversation_sequence_contract_v1"
-)
-CONVERSATION_SEQUENCE_CONTRACT_VERSION_V2 = (
-    "hmm_router_conversation_sequence_contract_v2"
-)
-CONVERSATION_SEQUENCE_CONTRACT_VERSION = CONVERSATION_SEQUENCE_CONTRACT_VERSION_V2
-SUPPORTED_CONVERSATION_SEQUENCE_CONTRACT_VERSIONS = frozenset(
-    {
-        CONVERSATION_SEQUENCE_CONTRACT_VERSION_V1,
-        CONVERSATION_SEQUENCE_CONTRACT_VERSION_V2,
-    }
-)
 USER_TURN_ACTION_BOUNDARY = "user_turn"
 AGENT_STEP_ACTION_BOUNDARY = "agent_step"
 USER_ELEMENT = "user"
@@ -67,17 +47,7 @@ AGENT_ELEMENT = "agent"
 # HMM trainer and every consumer that computes posteriors from a
 # conversation-sequence bundle.
 ELEMENT_KIND_SLOTS = {USER_ELEMENT: 0, AGENT_ELEMENT: 1}
-NO_TOOL_CALLS_MARKER = "No tool calls recorded."
 NOT_VISIBLE = "None visible."
-STANDALONE_CANONICAL_USER_TURN_FIELD = "canonical_user_turn"
-
-
-def supports_agent_step_actions(contract_version: str) -> bool:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _lines(values: Any) -> list[str]:
-    raise NotImplementedError("not on the classifier serving path")
 
 
 def _section(title: str, values: Any) -> str:
@@ -91,64 +61,11 @@ def format_user_message_document(
     raise NotImplementedError("not on the classifier serving path")
 
 
-def format_hmm_router_user_message_document(
-    turn_index: int,
-    view: HMMRouterRoundView,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def format_hmm_router_user_turn_document(
-    turn_index: int,
-    user: HMMRouterUserTurnView,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def parse_standalone_canonical_user_turn(value: object) -> HMMRouterUserTurnView:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _format_user_message_document(
-    turn_index: int,
-    *,
-    user_request: str,
-    user_intent: str,
-    constraints_guidelines: Any,
-    context_supplied: Any,
-    clarifications_corrections: Any,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _action_group_line(group: dict[str, Any]) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
 def format_agent_reply_document(
     turn_index: int,
     *,
     trace: dict[str, Any] | None,
     canonical_turn: dict[str, Any] | None = None,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def format_hmm_router_agent_reply_document(
-    turn_index: int,
-    *,
-    trace: dict[str, Any] | None,
-    view: HMMRouterRoundView,
-) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def _format_agent_reply_document(
-    turn_index: int,
-    *,
-    trace: dict[str, Any] | None,
-    outcome: str,
-    open_state: str,
 ) -> str:
     raise NotImplementedError("not on the classifier serving path")
 
@@ -173,20 +90,10 @@ class SequenceElement:
         raise NotImplementedError("not on the classifier serving path")
 
 
-def _traces_by_turn(tool_compaction: Any) -> dict[int, dict[str, Any]]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
 def conversation_sequence(
     turn_entries: list[dict[str, Any]],
     *,
     tool_compaction: Any = None,
     label_index_for: Any = None,
 ) -> list[SequenceElement]:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def routing_prefixes(
-    elements: list[SequenceElement],
-) -> list[tuple[SequenceElement, list[SequenceElement]]]:
     raise NotImplementedError("not on the classifier serving path")

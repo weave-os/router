@@ -61,18 +61,6 @@ TOOL_CONTEXT_FEATURE_NAMES = (
 # harnesses we model, everything else pools. A bucket with no traffic is a dead
 # column, and every extra column costs width in a layout whose alignment is only
 # width-checked at serve time.
-HARNESS_BUCKET_CLAUDE_CODE = "claude_code"
-HARNESS_BUCKET_CODEX = "codex"
-HARNESS_BUCKET_POOLED = "pooled"
-HARNESS_BUCKET_NAMES = (
-    HARNESS_BUCKET_CLAUDE_CODE,
-    HARNESS_BUCKET_CODEX,
-    HARNESS_BUCKET_POOLED,
-)
-HARNESS_CONTEXT_FEATURE_NAMES = tuple(
-    f"harness_{name}" for name in HARNESS_BUCKET_NAMES
-)
-HARNESS_CONTEXT_DIM = len(HARNESS_BUCKET_NAMES)
 HARNESS_BLOCK_NAME = "harness_one_hot"
 
 
@@ -107,10 +95,6 @@ def belief_dynamics_layout_block() -> dict[str, Any]:
         "dim": BELIEF_DYNAMICS_DIM,
         "names": list(BELIEF_DYNAMICS_FEATURE_NAMES),
     }
-
-
-def harness_layout_block() -> dict[str, Any]:
-    raise NotImplementedError("not on the classifier serving path")
 
 
 _SEARCH_READ_RE = re.compile(
@@ -242,30 +226,7 @@ def current_text_has_tool_intent(text: str) -> bool:
     return _current_intent_flags(text)[0] == 0.0
 
 
-def tool_context_features_from_values(
-    *,
-    latest_user_text: str = "",
-    has_tool_affordance: bool = False,
-    requires_tool_use: bool = False,
-    available_tools: list[str] | tuple[str, ...] = (),
-    prior_tool_names: list[str] | tuple[str, ...] = (),
-    prior_tool_call_count: int = 0,
-    prior_tool_turn_count: int = 0,
-    prior_tool_result_count: int = 0,
-    prior_tool_error_count: int = 0,
-) -> np.ndarray:
-    raise NotImplementedError("not on the classifier serving path")
-
-
 def tool_context_features_from_packet(packet: Any | None) -> np.ndarray:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def harness_bucket(harness: Any) -> str:
-    raise NotImplementedError("not on the classifier serving path")
-
-
-def harness_features_from_values(harness: Any = None) -> np.ndarray:
     raise NotImplementedError("not on the classifier serving path")
 
 

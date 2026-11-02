@@ -11,7 +11,7 @@ import asyncio
 import os
 import random
 from array import array
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, TypeAlias
 
@@ -43,9 +43,6 @@ class EmbeddingRunInfo:
     task_type: str | None = None
     vertex_project: str | None = None
     vertex_location: str | None = None
-
-    def as_dict(self) -> dict[str, object | None]:
-        return asdict(self)
 
 
 def _gemini_api_key() -> str:

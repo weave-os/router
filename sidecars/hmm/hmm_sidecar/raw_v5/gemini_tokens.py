@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Final
 
 GEMINI_EMBEDDING_MAX_INPUT_TOKENS: Final = 8_100
-GEMINI_EMBEDDING_PROVIDER_MAX_INPUT_TOKENS: Final = 8_192
 GEMINI_EMBEDDING_MAX_INPUT_BYTES: Final = 8_000
 
 
