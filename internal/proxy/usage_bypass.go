@@ -37,6 +37,9 @@ const (
 	// the caller's own Claude subscription credential. No opt-in needed — see
 	// classifierPassthroughEngaged.
 	reasonClassifierPassthrough = "classifier_subscription_passthrough"
+	// reasonClassifierRequestedModel: an API-billed classifier turn served on
+	// policy.ClassifierModel (classifierModelDecision).
+	reasonClassifierModel = "classifier_model"
 )
 
 // usageBypassDecision returns the strict pass-through decision when either

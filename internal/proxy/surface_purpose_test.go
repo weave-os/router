@@ -176,8 +176,8 @@ func TestUtilityTurns_DispatchUnderResolvedPurpose(t *testing.T) {
 	}
 }
 
-// A classifier is scored, so it is authorized under the ingress surface's
-// main-inference policy and served on the scorer's pick, not the hard pin.
+// A classifier is not hard-pinned, so it is authorized under the ingress
+// surface's main-inference policy and served on the classifier model.
 func TestClassifierTurn_DispatchUnderSurfacePurpose(t *testing.T) {
 	const anthropicOK = `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`
 	body := `{"model":"claude-sonnet-4-6","max_tokens":64,"messages":[{"role":"user","content":"is this safe? yes/no"}]}`
@@ -187,7 +187,7 @@ func TestClassifierTurn_DispatchUnderSurfacePurpose(t *testing.T) {
 	sink := &purposeSink{}
 	executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
 	require.NoError(t, err)
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "test"}}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Reason: "test"}}
 	svc := proxy.NewService(fr, clients, nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithInferenceExecutor(executor)
 
@@ -195,13 +195,13 @@ func TestClassifierTurn_DispatchUnderSurfacePurpose(t *testing.T) {
 	require.NoError(t, svc.ProxyMessages(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), rec,
 		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
-	assert.Equal(t, 1, fr.routeCalls)
+	assert.Equal(t, 0, fr.routeCalls)
 	require.Len(t, sink.events, 1)
 	event := sink.events[0]
 	assert.Equal(t, inference.PurposeAnthropicMessages, event.Purpose)
 	assert.Equal(t, inference.PolicyID("main-anthropic-messages"), event.PolicyID)
 	assert.Equal(t, inference.AttemptOutcomeServed, event.Outcome)
-	assert.Equal(t, "claude-sonnet-4-6", event.Target.CatalogID)
+	assert.Equal(t, "claude-haiku-5-5", event.Target.CatalogID)
 }
 
 func TestAutomaticProbesServeUnderIngressPolicyWithoutConversationState(t *testing.T) {

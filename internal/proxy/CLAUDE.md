@@ -286,11 +286,14 @@ still applies, so a successful probe does not prove subscription-specific quota.
 An explicit `ROUTER_HARD_PIN_MODEL`
 retains the utility override, and deliberate `/force-model` choices still win.
 
-**Classifier turns are scored, not hard-pinned.** Claude Code's security
+**Classifier turns are not hard-pinned.** Claude Code's security
 monitor is a fresh window (own system prompt, ~50k-token transcript as
 payload, `max_tokens=64`, `thinking: disabled`), so `isUnpinnedScoredTurn`
-sends it through `routeWithoutPin`: the scorer picks for its shape, `/force-model`
-still wins, and no session pin is read or written — an anchored pin here would
+sends it through `routeWithoutPin`: `/force-model` still wins, an API-billed
+classifier (no Claude subscription in context or headers, no subscription-state
+model sets) is served on `policy.ClassifierModel` (`classifier_model`; the
+verdict is one token over a long transcript, so input price is the cost), a
+classifier model the request cannot use falls to the scorer, and no session pin is read or written — an anchored pin here would
 leak into the conversation that follows, and the conversation's pin was not
 scored for this prompt. Routing markers skip it too:
 the transcript is the thing being graded, and the verdict is machine-parsed.
