@@ -1419,7 +1419,7 @@ if [ -f "$settings_file" ]; then
   # statusLine or apiKeyHelper would be silently clobbered.
   cleaned="$(jq --arg statusline_setting_owned "$statusline_setting_owned" "$CLAUDE_WEAVE_AUTO_STRIP_JQ"' | 
     if .env then
-      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH))
+      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH, .CLAUDE_CODE_AUTO_MODE_SERVER))
       | (if (.env | length) == 0 then del(.env) else . end)
     else . end
     | (if $statusline_setting_owned == "true" then del(.statusLine) else . end)
@@ -1450,7 +1450,7 @@ if [ -n "$local_settings_file" ] && [ -f "$local_settings_file" ]; then
   # router key; scrub both so uninstall fully reverts the local config.
   cleaned="$(jq "$CLAUDE_WEAVE_AUTO_STRIP_JQ"' |
     if .env then
-      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH, .WEAVE_ROUTER_BASE_URL))
+      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH, .CLAUDE_CODE_AUTO_MODE_SERVER, .WEAVE_ROUTER_BASE_URL))
       | (if (.env | length) == 0 then del(.env) else . end)
     else . end
     | del(.apiKeyHelper)

@@ -99,6 +99,7 @@ test("native uninstall removes the managed Claude routing variables", async () =
   assert.equal(claude.env.ANTHROPIC_BASE_URL, "https://api.anthropic.com");
   assert.equal(claude.env.ANTHROPIC_CUSTOM_HEADERS, "X-Custom: keep\nX-App: custom-client");
   assert.equal(claude.env.ENABLE_TOOL_SEARCH, "false");
+  assert.equal(claude.env.CLAUDE_CODE_AUTO_MODE_SERVER, undefined);
   assert.equal(claude.attribution.commit, "original commit");
   assert.equal(claude.attribution.custom, "keep");
   assert.equal(claude.custom, true);
@@ -358,6 +359,18 @@ test("project setup handles large Git indexes without listing unrelated paths", 
   execFileSync("git", ["-C", project, "update-index", "--index-info"], { input: indexEntries });
   await runInstallerAt(project, ["--codex", "--scope", "project", "--non-interactive", "--base-url", baseUrl], { cwd: project });
   assert.equal(TOML.parse(fs.readFileSync(path.join(project, ".codex", "config.toml"), "utf8")).model_provider, "weave");
+});
+
+test("a Claude upgrade from older install state saves and restores a newly managed variable", async () => {
+  const home = path.join(temporaryHome, "claude-state-upgrade");
+  const settingsPath = path.join(home, ".claude", "settings.json");
+  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+  fs.writeFileSync(settingsPath, JSON.stringify({ env: { CLAUDE_CODE_AUTO_MODE_SERVER: "1" } }));
+  fs.writeFileSync(path.join(home, ".claude", ".weave-router-state.json"), JSON.stringify({ env: { ANTHROPIC_BASE_URL: { exists: false }, ENABLE_TOOL_SEARCH: { exists: false } } }));
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+  assert.equal(JSON.parse(fs.readFileSync(settingsPath, "utf8")).env.CLAUDE_CODE_AUTO_MODE_SERVER, "0");
+  await runInstallerAt(home, ["--claude", "--uninstall"]);
+  assert.equal(JSON.parse(fs.readFileSync(settingsPath, "utf8")).env.CLAUDE_CODE_AUTO_MODE_SERVER, "1");
 });
 
 test("Codex uninstall after upgrading a stateless install removes the managed provider", async () => {
