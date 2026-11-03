@@ -4778,6 +4778,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 						WithLogger(log).
 						WithEstimatedInputTokens(feats.Tokens).
 						WithRequestHadTools(feats.HasTools).
+						WithPriorConsecutiveNudges(env.TrailingRouterNudgeTurns()).
 						WithThinkTagReasoning(catalog.ThinkTagReasoningFor(d.Model)).
 						WithSeedToolCallMarkup(env.SeedToolCallNames(prep.ResponseToolNames)).
 						WithEscapeNormalize(s.escapeNormalize).
@@ -4895,6 +4896,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					WithLogger(log).
 					WithEstimatedInputTokens(feats.Tokens).
 					WithRequestHadTools(feats.HasTools).
+					WithPriorConsecutiveNudges(env.TrailingRouterNudgeTurns()).
 					WithEscapeNormalize(s.escapeNormalize).
 					WithToolValidator(toolValidator)
 				if err := anthropicTr.Prelude(env.Stream()); err != nil {

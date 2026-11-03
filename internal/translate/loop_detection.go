@@ -329,3 +329,61 @@ func hexDigit(n byte) byte {
 	}
 	return 'a' + n - 10
 }
+
+// TrailingRouterNudgeTurns counts the most recent assistant turns whose only
+// tool calls are router-synthesized text-only-turn nudges, stopping at the
+// first real tool call or plain user prompt.
+func (e *RequestEnvelope) TrailingRouterNudgeTurns() int {
+	if e == nil || e.format != FormatAnthropic {
+		return 0
+	}
+	msgs := gjson.GetBytes(e.body, "messages")
+	if !msgs.IsArray() {
+		return 0
+	}
+	arr := msgs.Array()
+	n := 0
+	for i := len(arr) - 1; i >= 0; i-- {
+		content := arr[i].Get("content")
+		switch arr[i].Get("role").String() {
+		case "user":
+			if !hasContentBlockType(content, "tool_result") {
+				return n
+			}
+		case "assistant":
+			if !onlyRouterNudgeToolUses(content) {
+				return n
+			}
+			n++
+		default:
+			return n
+		}
+	}
+	return n
+}
+
+func hasContentBlockType(content gjson.Result, typ string) bool {
+	found := false
+	content.ForEach(func(_, block gjson.Result) bool {
+		found = block.Get("type").String() == typ
+		return !found
+	})
+	return found
+}
+
+func onlyRouterNudgeToolUses(content gjson.Result) bool {
+	nudges := 0
+	real := false
+	content.ForEach(func(_, block gjson.Result) bool {
+		if block.Get("type").String() != "tool_use" {
+			return true
+		}
+		if strings.HasPrefix(block.Get("id").String(), routerNudgeIDPrefix) {
+			nudges++
+			return true
+		}
+		real = true
+		return false
+	})
+	return nudges > 0 && !real
+}
