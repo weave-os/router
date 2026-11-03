@@ -443,7 +443,8 @@ type Service struct {
 	// usageObserver records per-credential subscription rate-limit headroom from
 	// upstream response headers, feeding account source selection and the
 	// usage-bypass gate.
-	usageObserver *usage.Observer
+	usageObserver       *usage.Observer
+	weeklyUsageRecorder usage.WeeklyRecorder
 
 	// managedSubscriptions leases encrypted, owner-scoped Claude/Codex
 	// subscription credentials. Nil leaves the legacy credential path unchanged.

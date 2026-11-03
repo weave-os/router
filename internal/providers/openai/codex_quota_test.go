@@ -16,6 +16,26 @@ import (
 	"weave-os/router/internal/router"
 )
 
+func TestCodexQuotaPreflightObservesWeeklyUsageBeforeExhaustion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"rate_limit":{"allowed":false,"limit_reached":true,"secondary_window":{"used_percent":100,"reset_at":1792670400,"limit_window_seconds":604800}}}`)
+	}))
+	defer server.Close()
+	client := NewClient("deployment-key", server.URL)
+	client.SetCodexBaseURL(server.URL)
+	var observed http.Header
+	ctx := providers.WithUpstreamHeaderObserver(codexCtx("synthetic-token", "synthetic-account"), func(_ context.Context, headers http.Header) {
+		observed = headers
+	})
+	err := client.checkCodexIncludedQuota(ctx, "synthetic-model")
+	var upstream *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &upstream)
+	require.Equal(t, http.StatusTooManyRequests, upstream.Status)
+	require.Equal(t, "100", observed.Get("x-codex-secondary-used-percent"))
+	require.Equal(t, "1792670400", observed.Get("x-codex-secondary-reset-at"))
+	require.Equal(t, "10080", observed.Get("x-codex-secondary-window-minutes"))
+}
+
 func TestCodexIncludedQuotaPreflight(t *testing.T) {
 	for _, tc := range []struct {
 		name, quota string

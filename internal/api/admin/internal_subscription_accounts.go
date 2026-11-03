@@ -13,14 +13,21 @@ import (
 )
 
 type internalSubscriptionAccountResponse struct {
-	ID                string                        `json:"id"`
-	Provider          auth.SubscriptionProvider     `json:"provider"`
-	ExternalAccountID string                        `json:"external_account_id"`
-	DisplayName       string                        `json:"display_name,omitempty"`
-	Enabled           bool                          `json:"enabled"`
-	State             auth.SubscriptionAccountState `json:"state"`
-	CooldownUntil     *time.Time                    `json:"cooldown_until,omitempty"`
-	CreatedAt         time.Time                     `json:"created_at"`
+	ID                string                           `json:"id"`
+	Provider          auth.SubscriptionProvider        `json:"provider"`
+	ExternalAccountID string                           `json:"external_account_id"`
+	DisplayName       string                           `json:"display_name,omitempty"`
+	Enabled           bool                             `json:"enabled"`
+	State             auth.SubscriptionAccountState    `json:"state"`
+	CooldownUntil     *time.Time                       `json:"cooldown_until,omitempty"`
+	CreatedAt         time.Time                        `json:"created_at"`
+	WeeklyUsage       *subscriptionWeeklyUsageResponse `json:"weekly_usage,omitempty"`
+}
+
+type subscriptionWeeklyUsageResponse struct {
+	UsedPercent float64    `json:"used_percent"`
+	CheckedAt   time.Time  `json:"checked_at"`
+	ResetAt     *time.Time `json:"reset_at,omitempty"`
 }
 
 type internalUpdateSubscriptionAccountRequest struct {
@@ -43,7 +50,7 @@ func InternalListSubscriptionAccountsHandler(authSvc *auth.Service) gin.HandlerF
 		}
 		response := make([]internalSubscriptionAccountResponse, 0, len(accounts))
 		for _, account := range accounts {
-			response = append(response, internalSubscriptionAccountResponse{
+			summary := internalSubscriptionAccountResponse{
 				ID:                account.ID,
 				Provider:          account.Provider,
 				ExternalAccountID: account.ExternalAccountID,
@@ -52,7 +59,14 @@ func InternalListSubscriptionAccountsHandler(authSvc *auth.Service) gin.HandlerF
 				State:             account.State,
 				CooldownUntil:     account.CooldownUntil,
 				CreatedAt:         account.CreatedAt,
-			})
+			}
+			if account.WeeklyUsage != nil {
+				summary.WeeklyUsage = &subscriptionWeeklyUsageResponse{UsedPercent: account.WeeklyUsage.UsedPercent * 100, CheckedAt: account.WeeklyUsage.ObservedAt}
+				if !account.WeeklyUsage.ResetAt.IsZero() {
+					summary.WeeklyUsage.ResetAt = &account.WeeklyUsage.ResetAt
+				}
+			}
+			response = append(response, summary)
 		}
 		c.JSON(http.StatusOK, response)
 	}

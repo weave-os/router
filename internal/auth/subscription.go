@@ -7,6 +7,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"weave-os/router/internal/proxy/usage"
 )
 
 // SubscriptionProvider identifies a provider-specific account pool.
@@ -100,6 +102,7 @@ type SubscriptionAccount struct {
 	State                  SubscriptionAccountState
 	CooldownUntil          *time.Time
 	CreatedAt              time.Time
+	WeeklyUsage            *usage.Window
 }
 
 // CreateSubscriptionAccountParams describes an encrypted account enrollment.

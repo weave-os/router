@@ -13,7 +13,51 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
+	"weave-os/router/internal/proxy/usage"
 )
+
+func TestSubscriptionWeeklyUsageSurvivesRestartAndRejectsOlderWrites(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	ctx := context.Background()
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderClaude,
+		ExternalAccountID: "synthetic-weekly-account", RefreshToken: []byte("ciphertext"),
+	})
+	require.NoError(t, err)
+	checkedAt := time.Date(2026, time.October, 20, 12, 0, 0, 0, time.UTC)
+	reading := usage.Window{UsedPercent: 0.63, WindowMinutes: 10080, ObservedAt: checkedAt, ResetAt: checkedAt.Add(48 * time.Hour)}
+	recorder := postgres.NewSubscriptionUsageRecorder(fixture.pool)
+	require.NoError(t, recorder.RecordWeeklyUsage(ctx, account.ID, reading))
+	older := reading
+	older.UsedPercent = 0.1
+	older.ObservedAt = checkedAt.Add(-time.Minute)
+	require.NoError(t, recorder.RecordWeeklyUsage(ctx, account.ID, older))
+
+	accounts, err := postgres.NewSubscriptionAccountRepo(fixture.pool).ListSubscriptionAccounts(ctx, owner)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	require.Equal(t, &reading, accounts[0].WeeklyUsage)
+	partial := reading
+	partial.UsedPercent = 0.7
+	partial.ObservedAt = checkedAt.Add(time.Minute)
+	partial.ResetAt = time.Time{}
+	require.NoError(t, recorder.RecordWeeklyUsage(ctx, account.ID, partial))
+	accounts, err = repo.ListSubscriptionAccounts(ctx, owner)
+	require.NoError(t, err)
+	require.Equal(t, reading.ResetAt, accounts[0].WeeklyUsage.ResetAt, "a missing reset header must preserve the known future reset")
+	require.Equal(t, 0.7, accounts[0].WeeklyUsage.UsedPercent)
+
+	refilled := usage.Window{WindowMinutes: 10080, ObservedAt: reading.ResetAt.Add(time.Minute)}
+	require.NoError(t, recorder.RecordWeeklyUsage(ctx, account.ID, refilled))
+	accounts, err = repo.ListSubscriptionAccounts(ctx, owner)
+	require.NoError(t, err)
+	require.Equal(t, &refilled, accounts[0].WeeklyUsage, "a genuine zero reading replaces the expired week")
+	otherAccounts, err := repo.ListSubscriptionAccounts(ctx, auth.SubscriptionOwner{SubscriberID: fixture.subscriberB.String()})
+	require.NoError(t, err)
+	require.Empty(t, otherAccounts)
+}
 
 // These exercise the ownership predicates that unit tests can't: a subscriber
 // reaching its linked accounts through any of its keys, isolation between two

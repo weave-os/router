@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres/dbbudget"
+	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
@@ -26,6 +27,22 @@ type subscriptionAccountRepo struct{ tx sqlc.DBTX }
 // NewSubscriptionAccountRepo constructs the encrypted subscription-account repository.
 func NewSubscriptionAccountRepo(tx sqlc.DBTX) auth.SubscriptionAccountRepository {
 	return &subscriptionAccountRepo{tx: tx}
+}
+
+func NewSubscriptionUsageRecorder(tx sqlc.DBTX) usage.WeeklyRecorder {
+	return &subscriptionAccountRepo{tx: tx}
+}
+
+func (r *subscriptionAccountRepo) RecordWeeklyUsage(ctx context.Context, accountID string, window usage.Window) error {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return err
+	}
+	return dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionWeeklyUsage(ctx, sqlc.UpdateModelRouterSubscriptionWeeklyUsageParams{
+		ID: accountUUID, UsedFraction: window.UsedPercent,
+		CheckedAt: pgtype.Timestamptz{Time: window.ObservedAt, Valid: true},
+		ResetAt:   pgtype.Timestamptz{Time: window.ResetAt, Valid: !window.ResetAt.IsZero()},
+	})
 }
 
 // subscriptionOwnerPredicate maps an owner onto the two nullable columns every
@@ -346,7 +363,14 @@ func toAuthSubscriptionAccount(row sqlc.RouterModelRouterSubscriptionAccount) *a
 }
 
 func toAuthSubscriptionAccountListRow(row sqlc.ListModelRouterSubscriptionAccountsRow) *auth.SubscriptionAccount {
-	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+	account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+	if row.WeeklyUsageFraction != nil && row.WeeklyUsageCheckedAt.Valid {
+		account.WeeklyUsage = &usage.Window{UsedPercent: *row.WeeklyUsageFraction, ObservedAt: row.WeeklyUsageCheckedAt.Time.UTC(), WindowMinutes: 7 * 24 * 60}
+		if row.WeeklyUsageResetAt.Valid {
+			account.WeeklyUsage.ResetAt = row.WeeklyUsageResetAt.Time.UTC()
+		}
+	}
+	return account
 }
 
 func toAuthSubscriptionAccountFields(id uuid.UUID, subscriberID, apiKeyID pgtype.UUID, provider, externalAccountID string, providerUserID, displayName *string, refreshTokenCiphertext []byte, enabled bool, healthState string, cooldownUntil, createdAt pgtype.Timestamp) *auth.SubscriptionAccount {

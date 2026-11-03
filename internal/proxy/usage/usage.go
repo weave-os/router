@@ -12,6 +12,7 @@
 package usage
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -54,6 +55,13 @@ type Window struct {
 	// ObservedAt belongs to this window, so a sibling-only response cannot
 	// renew its exhaustion evidence when Record merges partial observations.
 	ObservedAt time.Time
+}
+
+// WeeklyRecorder persists display estimates for verified physical account IDs.
+// Implementations must retain newer readings when writes arrive out of order.
+// These estimates do not replace the observer's routing decisions.
+type WeeklyRecorder interface {
+	RecordWeeklyUsage(context.Context, string, Window) error
 }
 
 func (w Window) present() bool { return w.WindowMinutes > 0 || w.UsedPercent > 0 }
@@ -345,6 +353,7 @@ func parseCodexWindow(h http.Header, which string, defaultWindowMinutes int) (Wi
 	if m, ok := parseInt(h.Get("x-codex-" + which + "-window-minutes")); ok {
 		w.WindowMinutes = m
 	}
+	w.ResetAt, _ = parseResetTime(h.Get("x-codex-" + which + "-reset-at"))
 	return w, true
 }
 
@@ -391,7 +400,7 @@ func parseAnthropicWindow(h http.Header, which string, windowMinutes int) (Windo
 	if !lOK || !rOK || limit <= 0 {
 		return Window{}, false
 	}
-	used := math.Max(0, 1-remaining/limit)
+	used := math.Min(1, math.Max(0, 1-remaining/limit))
 	return Window{UsedPercent: used, WindowMinutes: windowMinutes, ResetAt: resetAt}, true
 }
 
@@ -456,7 +465,7 @@ func parseFloat(s string) (float64, bool) {
 		return 0, false
 	}
 	v, err := strconv.ParseFloat(s, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
 		return 0, false
 	}
 	return v, true

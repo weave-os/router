@@ -278,6 +278,9 @@ SELECT id,
        enabled,
        health_state,
        cooldown_until,
+       weekly_usage_fraction,
+       weekly_usage_checked_at,
+       weekly_usage_reset_at,
        created_at,
        updated_at
 FROM router.model_router_subscription_accounts
@@ -303,6 +306,9 @@ type ListModelRouterSubscriptionAccountsRow struct {
 	Enabled                bool
 	HealthState            string
 	CooldownUntil          pgtype.Timestamp
+	WeeklyUsageFraction    *float64
+	WeeklyUsageCheckedAt   pgtype.Timestamptz
+	WeeklyUsageResetAt     pgtype.Timestamptz
 	CreatedAt              pgtype.Timestamp
 	UpdatedAt              pgtype.Timestamp
 }
@@ -323,6 +329,9 @@ type ListModelRouterSubscriptionAccountsRow struct {
 //	       enabled,
 //	       health_state,
 //	       cooldown_until,
+//	       weekly_usage_fraction,
+//	       weekly_usage_checked_at,
+//	       weekly_usage_reset_at,
 //	       created_at,
 //	       updated_at
 //	FROM router.model_router_subscription_accounts
@@ -350,6 +359,9 @@ func (q *Queries) ListModelRouterSubscriptionAccounts(ctx context.Context, arg L
 			&i.Enabled,
 			&i.HealthState,
 			&i.CooldownUntil,
+			&i.WeeklyUsageFraction,
+			&i.WeeklyUsageCheckedAt,
+			&i.WeeklyUsageResetAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -905,6 +917,43 @@ func (q *Queries) UpdateModelRouterSubscriptionRefreshToken(ctx context.Context,
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const updateModelRouterSubscriptionWeeklyUsage = `-- name: UpdateModelRouterSubscriptionWeeklyUsage :exec
+UPDATE router.model_router_subscription_accounts
+SET weekly_usage_fraction = $1::double precision,
+    weekly_usage_checked_at = $2::timestamptz,
+    weekly_usage_reset_at = COALESCE($3::timestamptz,
+        CASE WHEN weekly_usage_reset_at > $2::timestamptz THEN weekly_usage_reset_at END)
+WHERE id = $4::uuid
+  AND (weekly_usage_checked_at IS NULL OR weekly_usage_checked_at < $2::timestamptz)
+`
+
+type UpdateModelRouterSubscriptionWeeklyUsageParams struct {
+	UsedFraction float64
+	CheckedAt    pgtype.Timestamptz
+	ResetAt      pgtype.Timestamptz
+	ID           uuid.UUID
+}
+
+// Display estimates are written only for the physical account actually dispatched.
+// Partial responses never call this query, and delayed writes cannot replace newer readings.
+//
+//	UPDATE router.model_router_subscription_accounts
+//	SET weekly_usage_fraction = $1::double precision,
+//	    weekly_usage_checked_at = $2::timestamptz,
+//	    weekly_usage_reset_at = COALESCE($3::timestamptz,
+//	        CASE WHEN weekly_usage_reset_at > $2::timestamptz THEN weekly_usage_reset_at END)
+//	WHERE id = $4::uuid
+//	  AND (weekly_usage_checked_at IS NULL OR weekly_usage_checked_at < $2::timestamptz)
+func (q *Queries) UpdateModelRouterSubscriptionWeeklyUsage(ctx context.Context, arg UpdateModelRouterSubscriptionWeeklyUsageParams) error {
+	_, err := q.db.Exec(ctx, updateModelRouterSubscriptionWeeklyUsage,
+		arg.UsedFraction,
+		arg.CheckedAt,
+		arg.ResetAt,
+		arg.ID,
+	)
+	return err
 }
 
 const upsertModelRouterSubscriptionAccountForSubscriber = `-- name: UpsertModelRouterSubscriptionAccountForSubscriber :one

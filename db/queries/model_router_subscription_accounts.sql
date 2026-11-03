@@ -96,12 +96,26 @@ SELECT id,
        enabled,
        health_state,
        cooldown_until,
+       weekly_usage_fraction,
+       weekly_usage_checked_at,
+       weekly_usage_reset_at,
        created_at,
        updated_at
 FROM router.model_router_subscription_accounts
 WHERE subscriber_id = sqlc.narg(subscriber_id)::uuid
    OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid)
 ORDER BY provider, created_at;
+
+-- Display estimates are written only for the physical account actually dispatched.
+-- Partial responses never call this query, and delayed writes cannot replace newer readings.
+-- name: UpdateModelRouterSubscriptionWeeklyUsage :exec
+UPDATE router.model_router_subscription_accounts
+SET weekly_usage_fraction = @used_fraction::double precision,
+    weekly_usage_checked_at = @checked_at::timestamptz,
+    weekly_usage_reset_at = COALESCE(sqlc.narg(reset_at)::timestamptz,
+        CASE WHEN weekly_usage_reset_at > @checked_at::timestamptz THEN weekly_usage_reset_at END)
+WHERE id = @id::uuid
+  AND (weekly_usage_checked_at IS NULL OR weekly_usage_checked_at < @checked_at::timestamptz);
 
 -- A duplicate physical identity stays quarantined until the conflicting rows are reconciled.
 -- name: UpdateModelRouterSubscriptionAccountState :execrows

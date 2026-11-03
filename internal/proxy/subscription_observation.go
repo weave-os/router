@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -39,6 +40,30 @@ func codexSubscriptionCoversModel(model string) bool {
 func (s *Service) WithUsageObserver(obs *usage.Observer) *Service {
 	s.usageObserver = obs
 	return s
+}
+
+func (s *Service) WithWeeklyUsageRecorder(recorder usage.WeeklyRecorder) *Service {
+	s.weeklyUsageRecorder = recorder
+	return s
+}
+
+func (s *Service) recordSubscriptionUsage(ctx context.Context, creds *Credentials, snapshot usage.Snapshot) {
+	s.usageObserver.Record(s.subscriptionUsageKey(creds), snapshot)
+	if creds.SubscriptionAccountID == "" {
+		return
+	}
+	s.usageObserver.Record(s.usageObserver.Key(creds.APIKey), snapshot)
+	if s.weeklyUsageRecorder == nil || snapshot.Secondary.WindowMinutes != 7*24*60 {
+		return
+	}
+	window := snapshot.Secondary
+	window.ObservedAt = s.clockNow()
+	log := observability.FromContext(ctx)
+	observability.SafeGoContext(ctx, log, 2*time.Second, "record_subscription_weekly_usage", func(writeCtx context.Context) {
+		if err := s.weeklyUsageRecorder.RecordWeeklyUsage(writeCtx, creds.SubscriptionAccountID, window); err != nil {
+			log.Warn("Failed to persist subscription weekly usage", "account_id", creds.SubscriptionAccountID, "err", err)
+		}
+	})
 }
 
 // presentSubscriptionTokens returns the caller's Codex and Claude subscription
@@ -164,17 +189,11 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) co
 		switch creds.Source {
 		case credSourceCodexSubscription:
 			if snap, ok := usage.ParseCodexHeaders(h); ok {
-				s.usageObserver.Record(s.subscriptionUsageKey(creds), snap)
-				if creds.SubscriptionAccountID != "" {
-					s.usageObserver.Record(s.usageObserver.Key(creds.APIKey), snap)
-				}
+				s.recordSubscriptionUsage(callCtx, creds, snap)
 			}
 		case credSourceSubscription:
 			if snap, ok := usage.ParseAnthropicUnifiedHeaders(h); ok {
-				s.usageObserver.Record(s.subscriptionUsageKey(creds), snap)
-				if creds.SubscriptionAccountID != "" {
-					s.usageObserver.Record(s.usageObserver.Key(creds.APIKey), snap)
-				}
+				s.recordSubscriptionUsage(callCtx, creds, snap)
 			}
 		}
 	}
