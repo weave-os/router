@@ -207,7 +207,7 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 
 	for _, candidate := range candidates {
 		found, stripped := parse(candidate.text, candidate.fromToolResult)
-		if !found {
+		if !found && !candidate.fromToolResult {
 			if before, query, after, ok := cursorUserQuery(candidate.text); ok {
 				if found, stripped = parse(query, candidate.fromToolResult); found {
 					stripped = before + stripped + after
