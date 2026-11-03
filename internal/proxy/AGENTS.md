@@ -290,7 +290,8 @@ retains the utility override, and deliberate `/force-model` choices still win.
 monitor is a fresh window (own system prompt, ~50k-token transcript as
 payload, `max_tokens=64`, `thinking: disabled`), so `isUnpinnedScoredTurn`
 sends it through `routeWithoutPin`: `/force-model` still wins, an API-billed
-classifier is served on the model the client requested
+classifier (no Claude subscription in context or headers, no subscription-state
+model sets) is served on the model the client requested
 (`classifier_requested_model`; Claude Code asks for Sonnet 5, and the scorer
 picked Opus for most of them), an unservable request falls to the scorer, and
 no session pin is read or written — an anchored pin here would

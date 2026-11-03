@@ -125,6 +125,20 @@ func TestClassifier_UnservableRequestedModel_IsScored(t *testing.T) {
 	assertNoPinWrite(t, store)
 }
 
+// A spent Claude subscription sent only as a request header still belongs to
+// the scorer, which owns the spent-plan fallback.
+func TestClassifier_ExhaustedHeaderSubscription_IsScored(t *testing.T) {
+	svc, fr, _, _ := classifierPassthroughFixture(t, exhaustedObserver())
+	svc = svc.WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+	rec, req := classifierRequest()
+	req.Header.Set("Authorization", "Bearer "+bypassSubToken)
+
+	require.NoError(t, svc.ProxyMessages(authedCtx(uuid.New().String()), []byte(classifierBody), rec, req))
+
+	assert.Equal(t, 1, fr.routeCalls)
+	assert.Equal(t, classifierScorerPickMdl, rec.Header().Get(proxy.HeaderRouterModel))
+}
+
 // A main-loop turn with the same subscription and no usage-bypass opt-in is
 // unchanged: the classifier lane must not widen into a general passthrough.
 func TestClassifier_MainLoopWithSubscription_StillScored(t *testing.T) {

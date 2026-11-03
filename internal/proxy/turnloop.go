@@ -659,7 +659,7 @@ func (s *Service) routeWithoutPin(
 		res.UsageBypass = true
 		return res, nil
 	}
-	if dec, ok := s.classifierRequestedModelDecision(ctx, req, res.TurnType); ok {
+	if dec, ok := s.classifierRequestedModelDecision(ctx, reqHeaders, req, res.TurnType); ok {
 		res.Decision = dec
 		res.CallerModelPassthrough = true
 		res.Origin = policy.OverrideSourceRequest
@@ -677,10 +677,14 @@ func (s *Service) routeWithoutPin(
 // classifierRequestedModelDecision serves an API-billed Claude Code classifier
 // on the model the client asked for: the client picks it for the verdict, and
 // a scorer substitute costs more without grading the transcript any better.
-// Subscription callers stay on classifierPassthroughEngaged or the scorer,
-// which owns their spent-plan fallback; an unservable model is scored.
-func (s *Service) classifierRequestedModelDecision(ctx context.Context, req router.Request, tt turntype.TurnType) (router.Decision, bool) {
-	if tt != turntype.Classifier || anthropicSubscriptionFromContext(ctx) != "" || !catalog.PermittedBy(req.ProductEligibility, req.RequestedModel) {
+// Subscription callers (context or header credential) and subscription-state
+// model sets stay on classifierPassthroughEngaged or the scorer, which owns
+// their spent-plan fallback; an unservable model is scored.
+func (s *Service) classifierRequestedModelDecision(ctx context.Context, headers http.Header, req router.Request, tt turntype.TurnType) (router.Decision, bool) {
+	if tt != turntype.Classifier || subscriptionStateModelsEnabled(ctx) || !catalog.PermittedBy(req.ProductEligibility, req.RequestedModel) {
+		return router.Decision{}, false
+	}
+	if _, anthropicSub := presentSubscriptionTokens(ctx, headers); anthropicSub != "" {
 		return router.Decision{}, false
 	}
 	dec, err := s.callerModelPassthroughDecision(ctx, req)
