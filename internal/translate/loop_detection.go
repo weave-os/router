@@ -373,7 +373,7 @@ func hasContentBlockType(content gjson.Result, typ string) bool {
 
 func onlyRouterNudgeToolUses(content gjson.Result) bool {
 	nudges := 0
-	real := false
+	hasRealToolUse := false
 	content.ForEach(func(_, block gjson.Result) bool {
 		if block.Get("type").String() != "tool_use" {
 			return true
@@ -382,8 +382,8 @@ func onlyRouterNudgeToolUses(content gjson.Result) bool {
 			nudges++
 			return true
 		}
-		real = true
+		hasRealToolUse = true
 		return false
 	})
-	return nudges > 0 && !real
+	return nudges > 0 && !hasRealToolUse
 }
