@@ -124,7 +124,7 @@ type seedToolCallGate struct {
 	held  strings.Builder
 }
 
-// Feed consumes one content delta and returns the text to emit now.
+// Feed holds content that could still be a leading Seed tool call and returns the text safe to emit now; it returns "" while text is held.
 func (g *seedToolCallGate) Feed(content string) string {
 	if g.state == seedGatePassthrough || content == "" {
 		return content
@@ -149,9 +149,6 @@ func (g *seedToolCallGate) Feed(content string) string {
 		return g.release()
 	}
 }
-
-// Capturing reports whether the gate is holding a candidate tool call.
-func (g *seedToolCallGate) Capturing() bool { return g.state == seedGateCapturing }
 
 // Resolve ends the gate and returns the held text. ok reports that the text
 // was a well-formed capture, parsed into calls.
