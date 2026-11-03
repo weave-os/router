@@ -9,36 +9,6 @@ from typing import Any, Callable, Literal
 
 import numpy as np
 
-
-def _full_gaussian_logpdf(
-    x: np.ndarray,
-    means: np.ndarray,
-    covariances: np.ndarray,
-) -> np.ndarray:
-    log_probs = np.empty((x.shape[0], means.shape[0]), dtype=float)
-    const = x.shape[1] * np.log(2.0 * np.pi)
-    for state in range(means.shape[0]):
-        covariance = covariances[state]
-        jitter = 0.0
-        for _ in range(5):
-            try:
-                chol = np.linalg.cholesky(
-                    covariance + np.eye(covariance.shape[0]) * jitter
-                )
-                break
-            except np.linalg.LinAlgError:
-                jitter = 1e-8 if jitter == 0.0 else jitter * 10.0
-        else:
-            chol = np.linalg.cholesky(
-                0.5 * (covariance + covariance.T) + np.eye(covariance.shape[0]) * 1e-6
-            )
-        solved = np.linalg.solve(chol, (x - means[state]).T).T
-        quad = np.sum(solved * solved, axis=1)
-        log_det = 2.0 * np.log(np.diag(chol)).sum()
-        log_probs[:, state] = -0.5 * (const + log_det + quad)
-    return log_probs
-
-
 try:
     from tqdm.auto import tqdm  # type: ignore[import-not-found]
 except ImportError:  # pragma: no cover - progress bars are optional.
@@ -194,12 +164,9 @@ def _forward_backward(
     n_states = len(startprob)
     log_start = np.log(np.maximum(startprob, 1e-300))
     log_trans = np.log(np.maximum(transmat, 1e-300))
-    if covariance_type == "diagonal":
-        log_emit = _diag_gaussian_logpdf(x, means, variances)
-    elif covariance_type == "full":
-        log_emit = _full_gaussian_logpdf(x, means, variances)
-    else:
+    if covariance_type != "diagonal":
         raise ValueError(f"Unsupported covariance_type: {covariance_type!r}")
+    log_emit = _diag_gaussian_logpdf(x, means, variances)
     timesteps = x.shape[0]
 
     alpha = np.empty((timesteps, n_states), dtype=float)
