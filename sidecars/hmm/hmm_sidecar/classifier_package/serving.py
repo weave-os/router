@@ -295,6 +295,7 @@ class PackageClassifier:
                     "hmm_posterior": float(readout.summary.posterior),
                     "attribution": classification.attribution,
                     **_posterior_diagnostics(readout),
+                    **history_debug,
                 },
                 degraded=bounded.degraded,
                 prior_age_seconds=bounded.prior_age_seconds,
