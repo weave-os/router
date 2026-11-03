@@ -33,7 +33,7 @@ def _reset_overrun_counts() -> Iterator[None]:
 
 
 def _infer(readout: str, *, delay: float = 0.0):
-    async def infer() -> tuple[str, str]:
+    async def infer():
         if delay:
             await asyncio.sleep(delay)
         return readout, f"timings:{readout}"

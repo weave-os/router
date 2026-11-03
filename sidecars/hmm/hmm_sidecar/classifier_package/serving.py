@@ -232,13 +232,13 @@ class PackageClassifier:
             max_elements=0 if interaction_lane else _live_flow_max_elements(),
             first_turn_index=omitted_user_turns,
         )
-        bounded = await infer_within_deadline(
+        inference = await infer_within_deadline(
             infer=lambda: self.hmm.ainfer_turns_with_timings(turns),
             session_id=session_id,
             store=self.last_readouts,
             deadline_seconds=self.infer_deadline_seconds,
         )
-        readout, infer_timings = bounded.readout, bounded.timings
+        readout, infer_timings = inference.readout, inference.timings
         has_tools = bool(payload.get("has_tools"))
         packet = CognitiveStatePacket(
             request_id=str(payload.get("route_id") or ""),
@@ -297,8 +297,8 @@ class PackageClassifier:
                     **_posterior_diagnostics(readout),
                     **history_debug,
                 },
-                degraded=bounded.degraded,
-                prior_age_seconds=bounded.prior_age_seconds,
+                degraded=inference.degraded,
+                prior_age_seconds=inference.prior_age_seconds,
             ),
             infer_timings,
         )

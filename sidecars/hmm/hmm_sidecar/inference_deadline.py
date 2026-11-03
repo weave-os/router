@@ -73,10 +73,6 @@ def infer_deadline_seconds() -> float | None:
     return deadline if deadline > 0 else None
 
 
-def max_prior_age_seconds() -> float:
-    return _env_float(MAX_PRIOR_AGE_ENV, DEFAULT_MAX_PRIOR_AGE_SECONDS)
-
-
 @dataclass(frozen=True)
 class BoundedInference:
     """One inference result, and whether it describes the current turn."""
@@ -169,7 +165,9 @@ async def infer_within_deadline(
         )
     except asyncio.TimeoutError:
         _keep_warming(task, session_id, store, started_at, overran=True)
-        prior = store.get(session_id, max_prior_age_seconds())
+        prior = store.get(
+            session_id, _env_float(MAX_PRIOR_AGE_ENV, DEFAULT_MAX_PRIOR_AGE_SECONDS)
+        )
         if prior is None:
             raise
         return BoundedInference(
