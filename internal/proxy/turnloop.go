@@ -791,6 +791,7 @@ func (s *Service) runTurnLoop(
 	reqHeaders http.Header,
 	req router.Request,
 ) (res turnLoopResult, routeErr error) {
+	subAgentHint = subAgentHintForRequest(ctx, subAgentHint)
 	shadowStartedAt := time.Now()
 	defer func() {
 		if routeErr == nil {
