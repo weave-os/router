@@ -456,9 +456,9 @@ type AnthropicSSETranslator struct {
 	splitter          thinkTagSplitter
 
 	// seedToolNames enables recovery of a leading Seed-style tool call
-	// streamed as content text (see seed_tool_call.go); only calls naming one
-	// of these declared tools convert.
-	seedToolNames          map[string]struct{}
+	// streamed as content text (see seed_tool_call.go); maps callable wire
+	// names to client tool names (RequestEnvelope.SeedToolCallNames).
+	seedToolNames          map[string]string
 	seedGate               seedToolCallGate
 	seedToolCallsRecovered int
 
@@ -581,9 +581,9 @@ func (t *AnthropicSSETranslator) WithThinkTagReasoning(on bool) *AnthropicSSETra
 }
 
 // WithSeedToolCallMarkup enables recovery of Seed-style tool-call markup
-// streamed as content into tool_use blocks, for calls naming a declared tool.
-func (t *AnthropicSSETranslator) WithSeedToolCallMarkup(declared map[string]struct{}) *AnthropicSSETranslator {
-	t.seedToolNames = declared
+// streamed as content into tool_use blocks, for calls naming a key of names.
+func (t *AnthropicSSETranslator) WithSeedToolCallMarkup(names map[string]string) *AnthropicSSETranslator {
+	t.seedToolNames = names
 	return t
 }
 

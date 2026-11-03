@@ -162,6 +162,10 @@ func TestProxyOpenAIChatCompletion_SeedToolCallMarkupFallsBackToText(t *testing.
 		"undeclared tool": {seedMarkupChatBody(true), undeclared},
 		"invalid json":    {seedMarkupChatBody(true), invalidJSON},
 		"not leading":     {seedMarkupChatBody(true), midProse},
+		"tools disabled": {
+			[]byte(strings.Replace(string(seedMarkupChatBody(true)), `"tools":`, `"tool_choice":"none","tools":`, 1)),
+			"<seed:tool_call><function_name>Shell</function_name><argument>{\"command\": \"ls\"}</argument></seed:tool_call>",
+		},
 		"no tools declared": {
 			[]byte(`{"model":"` + seedMarkupModel + `","stream":true,"messages":[{"role":"user","content":"hi"}]}`),
 			"<seed:tool_call><function_name>Shell</function_name><argument>{\"command\": \"ls\"}</argument></seed:tool_call>",

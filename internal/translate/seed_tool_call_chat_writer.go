@@ -22,9 +22,10 @@ var (
 // held only while it could still be that markup; anything else, including
 // unparseable markup, reaches the client unchanged.
 type SeedToolCallChatWriter struct {
-	inner    http.ResponseWriter
-	flusher  http.Flusher
-	declared map[string]struct{}
+	inner      http.ResponseWriter
+	flusher    http.Flusher
+	names      map[string]string
+	outputMark func()
 
 	status         int
 	streaming      bool
@@ -39,12 +40,12 @@ type SeedToolCallChatWriter struct {
 	convertedCount int
 }
 
-// NewSeedToolCallChatWriter wraps inner. declared holds the request's tool
-// names; only calls naming one of them are converted. Call Finalize after the
-// upstream returns.
-func NewSeedToolCallChatWriter(inner http.ResponseWriter, declared map[string]struct{}) *SeedToolCallChatWriter {
+// NewSeedToolCallChatWriter wraps inner. names comes from
+// RequestEnvelope.SeedToolCallNames; only calls naming one of its keys are
+// converted. Call Finalize after the upstream returns.
+func NewSeedToolCallChatWriter(inner http.ResponseWriter, names map[string]string) *SeedToolCallChatWriter {
 	flusher, _ := inner.(http.Flusher)
-	return &SeedToolCallChatWriter{inner: inner, flusher: flusher, declared: declared}
+	return &SeedToolCallChatWriter{inner: inner, flusher: flusher, names: names}
 }
 
 // ConvertedToolCalls reports how many tool calls were recovered from markup.
@@ -71,10 +72,15 @@ func (w *SeedToolCallChatWriter) Flush() {
 	}
 }
 
-// ArmOutputProgress forwards the output-stall watchdog hook.
+// ArmOutputProgress forwards the output-stall watchdog hook and keeps mark,
+// since content held as a candidate call never reaches the inner writer.
 func (w *SeedToolCallChatWriter) ArmOutputProgress(mark func()) bool {
 	arm, ok := w.inner.(providers.OutputProgressArmer)
-	return ok && arm.ArmOutputProgress(mark)
+	if !ok || !arm.ArmOutputProgress(mark) {
+		return false
+	}
+	w.outputMark = mark
+	return true
 }
 
 // ArmReasoningProgress forwards the reasoning-progress hook.
@@ -84,7 +90,7 @@ func (w *SeedToolCallChatWriter) ArmReasoningProgress(mark func()) bool {
 }
 
 func (w *SeedToolCallChatWriter) active() bool {
-	return len(w.declared) > 0 && w.status < 400
+	return len(w.names) > 0 && w.status < 400
 }
 
 func (w *SeedToolCallChatWriter) Write(chunk []byte) (int, error) {
@@ -174,13 +180,17 @@ func (w *SeedToolCallChatWriter) writeRecord(record []byte) error {
 		return err
 	}
 	w.lastChunk = append(w.lastChunk[:0], trimmed...)
-	if choice.Get("delta.tool_calls").IsArray() {
+	if len(choice.Get("delta.tool_calls").Array()) > 0 {
 		w.sawToolCalls = true
 	}
 	rewritten := trimmed
 	if content := choice.Get("delta.content"); content.Type == gjson.String && content.Str != "" {
-		if out := w.gate.Feed(content.Str); out != content.Str {
+		out := w.gate.Feed(content.Str)
+		if out != content.Str {
 			rewritten = setChatDeltaContent(rewritten, out)
+		}
+		if out == "" && w.outputMark != nil {
+			w.outputMark()
 		}
 	}
 	if choice.Get("finish_reason").String() != "" {
@@ -200,7 +210,7 @@ func (w *SeedToolCallChatWriter) resolveStream(finish []byte) error {
 		return nil
 	}
 	w.resolved = true
-	calls, text, ok := w.gate.Resolve(w.declared)
+	calls, text, ok := w.gate.Resolve(w.names)
 	template := finish
 	if template == nil {
 		template = w.lastChunk
@@ -219,7 +229,7 @@ func (w *SeedToolCallChatWriter) resolveStream(finish []byte) error {
 			return err
 		}
 		if finish == nil {
-			return nil
+			finish = chatChunkWith(template, func(c []byte) []byte { return c })
 		}
 		finish, _ = sjson.SetBytes(finish, "choices.0.finish_reason", "tool_calls")
 		return w.writeChunk(finish)
@@ -258,7 +268,7 @@ func (w *SeedToolCallChatWriter) rewriteResponse(body []byte) []byte {
 	if content.Type != gjson.String || !leadsWithSeedToolCall(content.Str) || message.Get("tool_calls.0").Exists() {
 		return body
 	}
-	calls, ok := parseSeedToolCalls(content.Str, w.declared)
+	calls, ok := parseSeedToolCalls(content.Str, w.names)
 	if !ok {
 		return body
 	}

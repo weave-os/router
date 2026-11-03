@@ -178,7 +178,7 @@ func OpenAIToAnthropicResponse(body []byte, requestModel string) ([]byte, error)
 // openAIToAnthropicResponse is the validator-aware variant: tool_use inputs
 // are checked/repaired against the request's tool schemas, returning one
 // toolcheck.Issue per offending block. A nil validator is syntax-check-only.
-func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator, thinkTagReasoning, escapeNormalize bool, seedToolNames map[string]struct{}, facts usage.Facts, clientInputScale float64) ([]byte, []toolcheck.Issue, error) {
+func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator, thinkTagReasoning, escapeNormalize bool, seedToolNames map[string]string, facts usage.Facts, clientInputScale float64) ([]byte, []toolcheck.Issue, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, nil, fmt.Errorf("unmarshal openai response: invalid JSON")
 	}

@@ -4779,7 +4779,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 						WithEstimatedInputTokens(feats.Tokens).
 						WithRequestHadTools(feats.HasTools).
 						WithThinkTagReasoning(catalog.ThinkTagReasoningFor(d.Model)).
-						WithSeedToolCallMarkup(env.DeclaredToolNames()).
+						WithSeedToolCallMarkup(env.SeedToolCallNames(prep.ResponseToolNames)).
 						WithEscapeNormalize(s.escapeNormalize).
 						WithToolValidator(toolValidator)
 					if providers.OutputExcludesReasoning(d.Provider) {
@@ -8014,8 +8014,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				var attemptSink http.ResponseWriter = refusalGate
 				var seedToolCalls *translate.SeedToolCallChatWriter
 				if surface == surfaceChat {
-					if declared := env.DeclaredToolNames(); len(declared) > 0 {
-						seedToolCalls = translate.NewSeedToolCallChatWriter(attemptSink, declared)
+					if names := env.SeedToolCallNames(prep.ResponseToolNames); len(names) > 0 {
+						seedToolCalls = translate.NewSeedToolCallChatWriter(attemptSink, names)
 						attemptSink = seedToolCalls
 					}
 				}

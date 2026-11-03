@@ -36,71 +36,74 @@ type seedToolCall struct {
 }
 
 // parseSeedToolCalls parses text made only of one or more Seed-style tool
-// calls separated by whitespace. It fails (ok=false) on anything else —
-// surrounding prose, a name the request did not declare, or arguments that
-// are not a JSON object — so the caller can leave the text untouched.
-func parseSeedToolCalls(text string, declared map[string]struct{}) ([]seedToolCall, bool) {
+// calls separated by whitespace. names maps each callable wire name to the
+// client tool name to emit. It fails (ok=false) on anything else —
+// surrounding prose, a name not in names, or arguments that are not a JSON
+// object — so the caller can leave the text untouched.
+func parseSeedToolCalls(text string, names map[string]string) ([]seedToolCall, bool) {
 	var calls []seedToolCall
 	rest := strings.TrimSpace(text)
 	for rest != "" {
-		body, ok := strings.CutPrefix(rest, seedToolCallOpen)
-		if !ok {
-			return nil, false
-		}
-		end, closerLen := -1, 0
-		for _, closer := range seedToolCallClosers {
-			if i := strings.Index(body, closer); i >= 0 && (end < 0 || i < end) {
-				end, closerLen = i, len(closer)
-			}
-		}
-		if end < 0 {
-			return nil, false
-		}
-		call, ok := parseSeedToolCallBody(body[:end], declared)
-		if !ok {
+		var call seedToolCall
+		var ok bool
+		if call, rest, ok = parseSeedToolCall(rest, names); !ok {
 			return nil, false
 		}
 		calls = append(calls, call)
-		rest = strings.TrimSpace(body[end+closerLen:])
+		rest = strings.TrimSpace(rest)
 	}
 	return calls, len(calls) > 0
 }
 
-func parseSeedToolCallBody(body string, declared map[string]struct{}) (seedToolCall, bool) {
-	rest, ok := strings.CutPrefix(strings.TrimSpace(body), seedFunctionNameOpen)
+func parseSeedToolCall(text string, names map[string]string) (seedToolCall, string, bool) {
+	rest, ok := strings.CutPrefix(text, seedToolCallOpen)
 	if !ok {
-		return seedToolCall{}, false
+		return seedToolCall{}, "", false
 	}
-	name, rest, ok := strings.Cut(rest, seedFunctionNameClose)
-	name = strings.TrimSpace(name)
-	if !ok || name == "" {
-		return seedToolCall{}, false
+	if rest, ok = strings.CutPrefix(trimSeedSpace(rest), seedFunctionNameOpen); !ok {
+		return seedToolCall{}, "", false
 	}
-	if _, known := declared[name]; !known {
-		return seedToolCall{}, false
-	}
-	rest = strings.TrimSpace(rest)
-	if rest == "" {
-		return seedToolCall{Name: name, Arguments: "{}"}, true
-	}
-	rest, ok = strings.CutPrefix(rest, seedArgumentOpen)
+	wireName, rest, ok := strings.Cut(rest, seedFunctionNameClose)
 	if !ok {
-		return seedToolCall{}, false
+		return seedToolCall{}, "", false
 	}
-	end := strings.LastIndex(rest, seedArgumentClose)
-	if end < 0 || strings.TrimSpace(rest[end+len(seedArgumentClose):]) != "" {
-		return seedToolCall{}, false
+	name, known := names[strings.TrimSpace(wireName)]
+	if !known {
+		return seedToolCall{}, "", false
 	}
-	args := strings.TrimSpace(rest[:end])
-	if args == "" {
-		args = "{}"
+	call := seedToolCall{Name: name, Arguments: "{}"}
+	rest = trimSeedSpace(rest)
+	if after, hasArgument := strings.CutPrefix(rest, seedArgumentOpen); hasArgument {
+		if call.Arguments, rest, ok = parseSeedArgument(after); !ok {
+			return seedToolCall{}, "", false
+		}
 	}
-	var object map[string]json.RawMessage
-	if json.Unmarshal([]byte(args), &object) != nil || object == nil {
-		return seedToolCall{}, false
+	rest = trimSeedSpace(rest)
+	for _, closer := range seedToolCallClosers {
+		if after, closed := strings.CutPrefix(rest, closer); closed {
+			return call, after, true
+		}
 	}
-	return seedToolCall{Name: name, Arguments: args}, true
+	return seedToolCall{}, "", false
 }
+
+// parseSeedArgument decodes the JSON object after <argument> so a closing
+// tag inside a JSON string is not mistaken for the end of the call.
+func parseSeedArgument(text string) (arguments, rest string, ok bool) {
+	text = trimSeedSpace(text)
+	if after, empty := strings.CutPrefix(text, seedArgumentClose); empty {
+		return "{}", after, true
+	}
+	decoder := json.NewDecoder(strings.NewReader(text))
+	var raw json.RawMessage
+	if decoder.Decode(&raw) != nil || len(raw) == 0 || raw[0] != '{' {
+		return "", "", false
+	}
+	rest, ok = strings.CutPrefix(trimSeedSpace(text[decoder.InputOffset():]), seedArgumentClose)
+	return string(raw), rest, ok
+}
+
+func trimSeedSpace(s string) string { return strings.TrimLeft(s, " \t\r\n") }
 
 // leadsWithSeedToolCall reports whether text opens (after whitespace) with
 // the Seed tool-call open tag.
@@ -152,13 +155,13 @@ func (g *seedToolCallGate) Feed(content string) string {
 
 // Resolve ends the gate and returns the held text. ok reports that the text
 // was a well-formed capture, parsed into calls.
-func (g *seedToolCallGate) Resolve(declared map[string]struct{}) (calls []seedToolCall, text string, ok bool) {
+func (g *seedToolCallGate) Resolve(names map[string]string) (calls []seedToolCall, text string, ok bool) {
 	capturing := g.state == seedGateCapturing
 	text = g.release()
 	if !capturing {
 		return nil, text, false
 	}
-	calls, ok = parseSeedToolCalls(text, declared)
+	calls, ok = parseSeedToolCalls(text, names)
 	return calls, text, ok
 }
 
