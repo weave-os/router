@@ -21,7 +21,7 @@ from .embeddings import (
     verify_embedding_contract,
 )
 from .policy import FrozenPolicy
-from .raw_v5_policy import RawV5Policy
+from .package_policy import PackagePolicy
 from .schemas import SELECTION_AUTHORITY_FIELDS
 
 log = logging.getLogger(__name__)
@@ -65,17 +65,17 @@ def _probe_key(artifacts: FrozenArtifacts) -> tuple[object, ...]:
 
 async def load_policies(
     registry: ArtifactRegistry,
-) -> tuple[dict[str, FrozenPolicy | RawV5Policy], float | None]:
+) -> tuple[dict[str, FrozenPolicy | PackagePolicy], float | None]:
     """Build one policy per registry package, probing the embedding endpoint
     once per distinct embedding contract (packages sharing a contract share the
     embedder and its probe). Returns the policies and the default's similarity.
     """
-    policies: dict[str, FrozenPolicy | RawV5Policy] = {}
+    policies: dict[str, FrozenPolicy | PackagePolicy] = {}
     probed: dict[tuple[object, ...], tuple[Embedder, float]] = {}
     similarity = None
     for package_sha256, artifacts in registry.by_sha256.items():
-        if artifacts.raw_v5_manifest is not None:
-            policies[package_sha256] = RawV5Policy(artifacts)
+        if artifacts.package_manifest is not None:
+            policies[package_sha256] = PackagePolicy(artifacts)
             continue
         key = _probe_key(artifacts)
         if key not in probed:

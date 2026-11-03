@@ -8,14 +8,18 @@ from typing import Any, Literal, Self
 
 from pydantic import Field, model_validator
 
-from hmm_sidecar.raw_v5.weave_data import (
+from hmm_sidecar.classifier_package.weave_data import (
     ServingFeatureComposition,
     WeaveDataKind,
     WeaveDataRef,
     WeaveFeatureContract,
 )
-from hmm_sidecar.raw_v5.rl_fields import RLActionSpaceContract
-from hmm_sidecar.raw_v5.schema_base import FrozenClosedModel, NonEmptyString, Sha256Hex
+from hmm_sidecar.classifier_package.rl_fields import RLActionSpaceContract
+from hmm_sidecar.classifier_package.schema_base import (
+    FrozenClosedModel,
+    NonEmptyString,
+    Sha256Hex,
+)
 
 MUTABLE_ARTIFACT_PATH_PARTS = frozenset(
     {

@@ -12,45 +12,44 @@ from pathlib import Path
 from typing import Any
 
 
-from hmm_sidecar.artifacts import is_raw_v5_package_manifest
-from hmm_sidecar.raw_v5.agent_flow_sidecar import AgentFlowHMMSidecar
-from hmm_sidecar.raw_v5.complexity_classifier import ComplexityClassifier
-from hmm_sidecar.raw_v5.hmm_feature_arms import ElementLookbackSource
-from hmm_sidecar.raw_v5.live_sequence import (
+from hmm_sidecar.artifacts import is_classifier_package_manifest
+from hmm_sidecar.classifier_package.agent_flow_sidecar import AgentFlowHMMSidecar
+from hmm_sidecar.classifier_package.complexity_classifier import ComplexityClassifier
+from hmm_sidecar.classifier_package.hmm_feature_arms import ElementLookbackSource
+from hmm_sidecar.classifier_package.live_sequence import (
     DEFAULT_LIVE_FLOW_MAX_ELEMENTS,
     clean_text,
-    raw_v5_live_sequence_turns,
+    live_sequence_turns,
     route_message_role,
     route_message_text,
     tool_context_metadata,
 )
-from hmm_sidecar.raw_v5.raw_v5_runtime_contract import (
-    RawV5InputSource,
-    RawV5RuntimeContractError,
-    parse_raw_v5_runtime_contract,
+from hmm_sidecar.classifier_package.runtime_contract import (
+    InputSource,
+    RuntimeContractError,
+    parse_runtime_contract,
 )
-from hmm_sidecar.raw_v5.raw_v5_serving_profile import (
-    RawV5EmbeddingProvider,
-    validate_raw_v5_configured_hmm_bundle,
+from hmm_sidecar.classifier_package.serving_profile import (
+    validate_configured_hmm_bundle,
 )
-from hmm_sidecar.raw_v5.route_selector import ComplexityRouteSelector
-from hmm_sidecar.raw_v5.schemas import (
+from hmm_sidecar.classifier_package.route_selector import ComplexityRouteSelector
+from hmm_sidecar.classifier_package.schemas import (
     CognitiveAction,
     CognitiveStatePacket,
     ContextSignals,
     RouterHarness,
 )
-from hmm_sidecar.raw_v5.serving_features import current_text_has_tool_intent
+from hmm_sidecar.classifier_package.serving_features import current_text_has_tool_intent
 
 EMBEDDING_BATCH_SIZE = 8
 
 
-class RawV5PackageError(ValueError):
+class PackageError(ValueError):
     pass
 
 
 @dataclass(frozen=True)
-class RawV5Readout:
+class Readout:
     label: str
     probabilities: dict[str, float]
     confidence: float
@@ -119,39 +118,35 @@ def _posterior_diagnostics(readout: Any) -> dict[str, Any]:
     }
 
 
-class RawV5Classifier:
+class PackageClassifier:
     """Raw-V5 live sequence -> Gemini embeddings -> HMM -> complexity classifier."""
 
     def __init__(self, root: Path, manifest: dict[str, Any]) -> None:
-        if not is_raw_v5_package_manifest(manifest):
-            raise RawV5PackageError("package is not a configured raw-V5 package")
+        if not is_classifier_package_manifest(manifest):
+            raise PackageError("package is not a configured raw-V5 package")
         try:
-            contract = parse_raw_v5_runtime_contract(
+            contract = parse_runtime_contract(
                 manifest["runtime_contract"].get("raw_v5_runtime_contract")
             )
-        except RawV5RuntimeContractError as error:
-            raise RawV5PackageError(f"raw-V5 package is not servable: {error}")
-        if contract.input_source is not RawV5InputSource.LIVE_CONVERSATION:
-            raise RawV5PackageError(
+        except RuntimeContractError as error:
+            raise PackageError(f"raw-V5 package is not servable: {error}")
+        if contract.input_source is not InputSource.LIVE_CONVERSATION:
+            raise PackageError(
                 "raw-V5 packages serve only the live conversation snapshot"
             )
         if (
             contract.interaction_state.element_lookback_source
             is ElementLookbackSource.STORED_VECTORS
         ):
-            raise RawV5PackageError(
-                "raw-V5 stored-vector element lookback is not servable"
-            )
+            raise PackageError("raw-V5 stored-vector element lookback is not servable")
         profile = contract.resolved_profile()
-        if profile.config.provider is not RawV5EmbeddingProvider.GEMINI:
-            raise RawV5PackageError("only Gemini raw-V5 packages are servable")
         self.profile = profile
         self.interaction_state = contract.interaction_state
         self.classifier = ComplexityClassifier.load(
             root / "classifier", profile=profile
         )
         if sorted(self.classifier.classes) != sorted(contract.classes):
-            raise RawV5PackageError(
+            raise PackageError(
                 "raw-V5 classifier taxonomy does not match its declared classes"
             )
         self.hmm = AgentFlowHMMSidecar(
@@ -164,16 +159,16 @@ class RawV5Classifier:
             embedding_persist_vertex_client=True,
             offload_posterior=True,
         )
-        validate_raw_v5_configured_hmm_bundle(self.hmm.bundle, profile)
+        validate_configured_hmm_bundle(self.hmm.bundle, profile)
         hmm_bundle_sha256 = hashlib.sha256(
             (root / "hmm_bundle" / "bundle.json").read_bytes()
         ).hexdigest()
         if hmm_bundle_sha256 != self.classifier.metadata.get("hmm_bundle_json_sha256"):
-            raise RawV5PackageError(
+            raise PackageError(
                 "raw-V5 classifier was not trained on this package's HMM bundle"
             )
         if self.hmm.sequence_representation is not profile.representation:
-            raise RawV5PackageError(
+            raise PackageError(
                 f"raw-V5 HMM bundle loads {self.hmm.sequence_representation.value!r},"
                 f" not the declared {profile.representation.value!r}"
             )
@@ -189,7 +184,7 @@ class RawV5Classifier:
     def classes(self) -> tuple[str, ...]:
         return tuple(self.classifier.classes)
 
-    async def classify(self, payload: dict[str, Any]) -> tuple[RawV5Readout, Any]:
+    async def classify(self, payload: dict[str, Any]) -> tuple[Readout, Any]:
         messages = payload.get("conversation_messages")
         latest_user_text = str(payload.get("latest_user_text") or "").strip()
         interaction_lane = self.interaction_state is not None
@@ -198,7 +193,7 @@ class RawV5Classifier:
             if interaction_lane
             else 0
         )
-        turns, history_debug = raw_v5_live_sequence_turns(
+        turns, history_debug = live_sequence_turns(
             messages,
             fallback_text=latest_user_text,
             profile=self.profile,
@@ -248,7 +243,7 @@ class RawV5Classifier:
         state_path = tuple(int(value) for value in readout.summary.state_path or ())
         state_id = int(readout.summary.state_id or 0)
         return (
-            RawV5Readout(
+            Readout(
                 label=classification.label,
                 probabilities=dict(classification.probs),
                 confidence=float(classification.confidence),

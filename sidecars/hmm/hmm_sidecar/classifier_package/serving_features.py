@@ -13,7 +13,7 @@ from typing import Any
 
 import numpy as np
 
-from hmm_sidecar.raw_v5.conversation_sequence import ELEMENT_KIND_SLOTS
+from hmm_sidecar.classifier_package.conversation_sequence import ELEMENT_KIND_SLOTS
 
 CATEGORICAL_DIM = 13
 # Raw HMM rows are [embedding | element-kind one-hots]. Bundles fit before the

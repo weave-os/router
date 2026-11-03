@@ -8,7 +8,7 @@ so a valid candidate could be unservable for reasons unrelated to its quality.
 This module is the single place that maps a declared training configuration to
 the exact serving identity it implies: the sequence representation, provider
 geometry, document serializer, and model-input contract already pinned in
-:mod:`ml_dev.hmm_router.raw_v5_contract`. It adds no new document semantics and
+:mod:`hmm_sidecar.classifier_package.contract`. It adds no new document semantics and
 never widens an existing contract — an unsupported combination raises instead
 of resolving to a neighbouring profile, so a package either declares a
 combination this registry can serve or it fails closed.
@@ -27,31 +27,31 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
-from hmm_sidecar.raw_v5.hmm_feature_arms import (
+from hmm_sidecar.classifier_package.hmm_feature_arms import (
     ElementLookback,
     ElementLookbackSource,
     HMMChain,
     hmm_chain_of,
 )
-from hmm_sidecar.raw_v5.serving_features import (
+from hmm_sidecar.classifier_package.serving_features import (
     LEGACY_RELATIVE_POSITION_DIM,
     RELATIVE_POSITION_DIM,
     raw_relative_position_dim,
 )
-from hmm_sidecar.raw_v5.raw_v5_contract import (
-    RAW_V5_GEMINI_ELEMENT_INPUT_CONTRACT_SHA256,
-    RAW_V5_GEMINI_ELEMENT_SERIALIZER_VERSION,
-    RAW_V5_GEMINI_EMBEDDING_2_DIM,
-    RAW_V5_GEMINI_EMBEDDING_2_MODEL,
-    RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
+from hmm_sidecar.classifier_package.contract import (
+    GEMINI_ELEMENT_INPUT_CONTRACT_SHA256,
+    GEMINI_ELEMENT_SERIALIZER_VERSION,
+    GEMINI_EMBEDDING_2_DIM,
+    GEMINI_EMBEDDING_2_MODEL,
+    ONE_TURN_MAX_TURNS,
     RawFeatureMatrix,
-    RawV5HMMTrainingContractVersion,
-    raw_v5_gemini_element_model_input_contract,
+    HMMTrainingContractVersion,
+    gemini_element_model_input_contract,
 )
-from hmm_sidecar.raw_v5.raw_v5_serving import (
-    RawV5ServingInputError,
+from hmm_sidecar.classifier_package.errors import (
+    ServingInputError,
 )
-from hmm_sidecar.raw_v5.state_representation import (
+from hmm_sidecar.classifier_package.state_representation import (
     GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT,
     SequenceRepresentation,
     StateEncoderContract,
@@ -59,21 +59,20 @@ from hmm_sidecar.raw_v5.state_representation import (
 )
 
 
-class RawV5EmbeddingProvider(StrEnum):
+class EmbeddingProvider(StrEnum):
     """The embedding provider a raw-V5 candidate was trained against."""
 
-    VOYAGE = "voyage"
     GEMINI = "gemini"
 
 
-class RawV5ToolEvidenceMode(StrEnum):
+class ToolEvidenceMode(StrEnum):
     """Whether agent documents carry the compacted structural tool trace."""
 
     COMPACTED_TOOL_TRACE = "compacted_tool_trace"
     USER_AGENT_ONLY = "user_agent_only"
 
 
-class RawV5DocumentWindow(StrEnum):
+class DocumentWindow(StrEnum):
     """How much conversation history each embedded document carries."""
 
     #: ``lookback_rounds`` completed user/agent rounds plus the current turn.
@@ -85,7 +84,7 @@ class RawV5DocumentWindow(StrEnum):
     PER_MESSAGE = "per_message"
 
 
-class RawV5ServingConfig(BaseModel):
+class ServingConfig(BaseModel):
     """The pipeline configuration a raw-V5 package declares for serving.
 
     This is the boundary model parsed out of a package manifest, so it is
@@ -95,13 +94,13 @@ class RawV5ServingConfig(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    provider: RawV5EmbeddingProvider
-    tool_evidence: RawV5ToolEvidenceMode
-    document_window: RawV5DocumentWindow
+    provider: EmbeddingProvider
+    tool_evidence: ToolEvidenceMode
+    document_window: DocumentWindow
     lookback_rounds: int
 
 
-class RawV5InteractionStateGeometry(BaseModel):
+class InteractionStateGeometry(BaseModel):
     """The round-level HMM and classifier lookback an interaction-state package serves.
 
     ``element_lookback_rounds`` counts the current round (1 = no lookback
@@ -165,23 +164,22 @@ class InteractionStateObservationSpace:
 
 
 @dataclass(frozen=True, slots=True)
-class RawV5ServingProfile:
+class ServingProfile:
     """The exact serving identity implied by one supported configuration."""
 
-    config: RawV5ServingConfig
+    config: ServingConfig
     representation: SequenceRepresentation
     embedding_model: str
     embedding_dim: int
     document_serializer_version: str
     document_serializer_sha256: str
     raw_feature_matrix: RawFeatureMatrix
-    hmm_training_contract_version: RawV5HMMTrainingContractVersion
+    hmm_training_contract_version: HMMTrainingContractVersion
     _model_input_contract: Callable[[], dict[str, object]]
-    frozen_encoder: StateEncoderContract | None = None
 
     @property
     def state_encoder_contract(self) -> StateEncoderContract:
-        return self.frozen_encoder or get_state_encoder_contract(self.representation)
+        return get_state_encoder_contract(self.representation)
 
     @property
     def relative_position_dim(self) -> int:
@@ -195,7 +193,6 @@ class RawV5ServingProfile:
 
 
 _RAW_FEATURE_MATRIX_RELATIVE_POSITION_DIM: Mapping[RawFeatureMatrix, int] = {
-    RawFeatureMatrix.VOYAGE_ELEMENT_KIND_SLOTS_V2: RELATIVE_POSITION_DIM,
     RawFeatureMatrix.GEMINI_EMBEDDING_2_ELEMENT_KIND_SLOTS_RELATIVE_POSITION_V1: (
         LEGACY_RELATIVE_POSITION_DIM
     ),
@@ -203,28 +200,28 @@ _RAW_FEATURE_MATRIX_RELATIVE_POSITION_DIM: Mapping[RawFeatureMatrix, int] = {
 }
 
 
-_GEMINI_ELEMENT_PROFILE = RawV5ServingProfile(
-    config=RawV5ServingConfig(
-        provider=RawV5EmbeddingProvider.GEMINI,
-        tool_evidence=RawV5ToolEvidenceMode.USER_AGENT_ONLY,
-        document_window=RawV5DocumentWindow.PER_MESSAGE,
-        lookback_rounds=RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
+_GEMINI_ELEMENT_PROFILE = ServingProfile(
+    config=ServingConfig(
+        provider=EmbeddingProvider.GEMINI,
+        tool_evidence=ToolEvidenceMode.USER_AGENT_ONLY,
+        document_window=DocumentWindow.PER_MESSAGE,
+        lookback_rounds=ONE_TURN_MAX_TURNS,
     ),
     representation=GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT,
-    embedding_model=RAW_V5_GEMINI_EMBEDDING_2_MODEL,
-    embedding_dim=RAW_V5_GEMINI_EMBEDDING_2_DIM,
-    document_serializer_version=RAW_V5_GEMINI_ELEMENT_SERIALIZER_VERSION,
-    document_serializer_sha256=RAW_V5_GEMINI_ELEMENT_INPUT_CONTRACT_SHA256,
+    embedding_model=GEMINI_EMBEDDING_2_MODEL,
+    embedding_dim=GEMINI_EMBEDDING_2_DIM,
+    document_serializer_version=GEMINI_ELEMENT_SERIALIZER_VERSION,
+    document_serializer_sha256=GEMINI_ELEMENT_INPUT_CONTRACT_SHA256,
     raw_feature_matrix=RawFeatureMatrix.GEMINI_EMBEDDING_2_ELEMENT_KIND_SLOTS_V2,
-    hmm_training_contract_version=RawV5HMMTrainingContractVersion.GEMINI_V2,
-    _model_input_contract=raw_v5_gemini_element_model_input_contract,
+    hmm_training_contract_version=HMMTrainingContractVersion.GEMINI_V2,
+    _model_input_contract=gemini_element_model_input_contract,
 )
 
 
 # The only configuration serving supports: Gemini per-message documents with
 # user/agent-only tool evidence and one lookback round. Packages declaring any
 # other combination are rejected at load.
-_PROFILES: tuple[RawV5ServingProfile, ...] = (_GEMINI_ELEMENT_PROFILE,)
+_PROFILES: tuple[ServingProfile, ...] = (_GEMINI_ELEMENT_PROFILE,)
 
 
 # The Gemini user/agent-only candidates fit before the raw HMM matrix dropped
@@ -235,7 +232,7 @@ _PROFILES: tuple[RawV5ServingProfile, ...] = (_GEMINI_ELEMENT_PROFILE,)
 # out of the configuration registry new training resolves through.
 
 
-_PROFILES_BY_CONFIG: Mapping[RawV5ServingConfig, RawV5ServingProfile] = {
+_PROFILES_BY_CONFIG: Mapping[ServingConfig, ServingProfile] = {
     profile.config: profile for profile in _PROFILES
 }
 
@@ -248,7 +245,7 @@ def _supported_configs_message() -> str:
     )
 
 
-def raw_v5_serving_profile(config: RawV5ServingConfig) -> RawV5ServingProfile:
+def serving_profile(config: ServingConfig) -> ServingProfile:
     """Resolve one servable configuration, or fail closed.
 
     An unsupported combination has no trained representation, corpus, or
@@ -258,7 +255,7 @@ def raw_v5_serving_profile(config: RawV5ServingConfig) -> RawV5ServingProfile:
 
     profile = _PROFILES_BY_CONFIG.get(config)
     if profile is None:
-        raise RawV5ServingInputError(
+        raise ServingInputError(
             "raw V5 serving configuration is not servable: "
             f"provider={config.provider!s} tool_evidence={config.tool_evidence!s} "
             f"document_window={config.document_window!s} "
@@ -268,9 +265,9 @@ def raw_v5_serving_profile(config: RawV5ServingConfig) -> RawV5ServingProfile:
     return profile
 
 
-def validate_raw_v5_configured_hmm_bundle(
+def validate_configured_hmm_bundle(
     bundle: object,
-    profile: RawV5ServingProfile,
+    profile: ServingProfile,
 ) -> InteractionStateObservationSpace | None:
     """Prove a bundle carries the declared configuration's representation.
 
@@ -281,10 +278,10 @@ def validate_raw_v5_configured_hmm_bundle(
     """
 
     if not isinstance(bundle, dict):
-        raise RawV5ServingInputError("raw V5 HMM bundle must be an object")
+        raise ServingInputError("raw V5 HMM bundle must be an object")
     sequence_contract = bundle.get("sequence_contract")
     if not isinstance(sequence_contract, dict):
-        raise RawV5ServingInputError("raw V5 HMM bundle lacks sequence_contract")
+        raise ServingInputError("raw V5 HMM bundle lacks sequence_contract")
     expected_encoder = profile.state_encoder_contract
     expected_values: dict[str, object] = {
         "sequence_representation": profile.representation.value,
@@ -300,11 +297,9 @@ def validate_raw_v5_configured_hmm_bundle(
     ):
         for field, expected in expected_by_field.items():
             if value.get(field) != expected:
-                raise RawV5ServingInputError(
-                    f"{location} has an invalid {field} contract"
-                )
+                raise ServingInputError(f"{location} has an invalid {field} contract")
     if sequence_contract.get("state_dimension") != expected_encoder.hidden_dim:
-        raise RawV5ServingInputError(
+        raise ServingInputError(
             "raw V5 HMM sequence contract has an invalid state dimension"
         )
     # The serving row builder takes its position-column width from this schema,
@@ -312,15 +307,13 @@ def validate_raw_v5_configured_hmm_bundle(
     # its PCA input, and a v2 bundle labelled v1 one column wider.
     feature_schema = sequence_contract.get("feature_schema")
     if not isinstance(feature_schema, dict):
-        raise RawV5ServingInputError(
-            "raw V5 HMM sequence contract lacks feature_schema"
-        )
+        raise ServingInputError("raw V5 HMM sequence contract lacks feature_schema")
     try:
         declared_relative_position_dim = raw_relative_position_dim(feature_schema)
     except ValueError as error:
-        raise RawV5ServingInputError(str(error)) from error
+        raise ServingInputError(str(error)) from error
     if declared_relative_position_dim != profile.relative_position_dim:
-        raise RawV5ServingInputError(
+        raise ServingInputError(
             "raw V5 HMM sequence contract feature_schema declares a "
             f"relative_position_dim of {declared_relative_position_dim}, but "
             f"{profile.raw_feature_matrix.value} rows carry "
@@ -331,20 +324,20 @@ def validate_raw_v5_configured_hmm_bundle(
 
 def _hmm_observation_space(
     bundle: dict[str, object],
-    profile: RawV5ServingProfile,
+    profile: ServingProfile,
 ) -> InteractionStateObservationSpace | None:
     """Per-message profiles serve only the round-level chain; every other profile the element chain."""
 
     training = bundle.get("training")
     chain = hmm_chain_of(training if isinstance(training, dict) else None)
-    if profile.config.document_window is not RawV5DocumentWindow.PER_MESSAGE:
+    if profile.config.document_window is not DocumentWindow.PER_MESSAGE:
         if chain is not HMMChain.ELEMENT:
-            raise RawV5ServingInputError(
+            raise ServingInputError(
                 f"{profile.representation.value} serves only element-chain HMM bundles"
             )
         return None
     if not isinstance(training, dict) or chain is not HMMChain.INTERACTION_STATE:
-        raise RawV5ServingInputError(
+        raise ServingInputError(
             "per-message raw V5 documents are served only by an interaction-state HMM bundle"
         )
     # Only diagonal emissions let the unobserved current agent block marginalize exactly.
@@ -352,7 +345,7 @@ def _hmm_observation_space(
         training.get("covariance") != "diagonal"
         or training.get("baseline") != "full_bayes_sticky_hdp_hmm"
     ):
-        raise RawV5ServingInputError(
+        raise ServingInputError(
             "interaction-state HMM bundle must be a diagonal Bayesian sticky HDP-HMM"
         )
     user_pca_dim = training.get("user_pca_dim")
@@ -362,7 +355,7 @@ def _hmm_observation_space(
         ("agent_pca_dim", agent_pca_dim),
     ):
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-            raise RawV5ServingInputError(
+            raise ServingInputError(
                 f"interaction-state HMM bundle must pin a positive training.{name}"
             )
     return InteractionStateObservationSpace(

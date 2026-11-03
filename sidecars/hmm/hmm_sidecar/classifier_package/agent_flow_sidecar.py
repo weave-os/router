@@ -14,33 +14,33 @@ from typing import Any
 
 import numpy as np
 
-from hmm_sidecar.raw_v5.codebook import CachedLatentModel
-from hmm_sidecar.raw_v5.pickle_compat import load_latent_model
-from hmm_sidecar.raw_v5.gemini_embeddings import (
+from hmm_sidecar.classifier_package.codebook import CachedLatentModel
+from hmm_sidecar.classifier_package.pickle_compat import load_latent_model
+from hmm_sidecar.classifier_package.gemini_embeddings import (
     EmbeddingVector,
     embed_texts,
     embed_texts_uncached,
 )
-from hmm_sidecar.raw_v5.conversation_sequence import (
+from hmm_sidecar.classifier_package.conversation_sequence import (
     AGENT_ELEMENT,
     ELEMENT_KIND_SLOTS,
     USER_ELEMENT,
 )
-from hmm_sidecar.raw_v5.embedding_singleflight import EmbeddingSingleFlight
-from hmm_sidecar.raw_v5.hmm_feature_arms import HMMChain, hmm_chain_of
-from hmm_sidecar.raw_v5.interaction_state import (
+from hmm_sidecar.classifier_package.embedding_singleflight import EmbeddingSingleFlight
+from hmm_sidecar.classifier_package.hmm_feature_arms import HMMChain, hmm_chain_of
+from hmm_sidecar.classifier_package.interaction_state import (
     interaction_filter,
     round_observations,
     routing_state_features,
 )
-from hmm_sidecar.raw_v5.schemas import HMMStateSummary
-from hmm_sidecar.raw_v5.state_representation import (
+from hmm_sidecar.classifier_package.schemas import HMMStateSummary
+from hmm_sidecar.classifier_package.state_representation import (
     GEMINI_CANONICAL_V1,
     GEMINI_EMBEDDING_2_LAST_STATE_V1,
     GEMINI_EMBEDDING_2_TEN_TURN_V1,
     GEMINI_EMBEDDING_2_TWO_TURN_V1,
     GEMINI_EMBEDDING_REPRESENTATIONS,
-    RAW_V5_ROUTER_REPRESENTATIONS,
+    ROUTER_REPRESENTATIONS,
     SequenceRepresentation,
     StateEncoderContract,
     get_state_encoder_contract,
@@ -50,8 +50,8 @@ from hmm_sidecar.raw_v5.state_representation import (
     resolve_sequence_representation,
 )
 
-from hmm_sidecar.raw_v5.bayes_hmm import BayesianStickyHDPHMM
-from hmm_sidecar.raw_v5.serving_features import (
+from hmm_sidecar.classifier_package.bayes_hmm import BayesianStickyHDPHMM
+from hmm_sidecar.classifier_package.serving_features import (
     belief_dynamics_features,
     raw_relative_position_dim,
 )
@@ -423,14 +423,12 @@ class AgentFlowHMMSidecar:
         representation = self.sequence_representation
         if representation not in (
             *GEMINI_EMBEDDING_REPRESENTATIONS,
-            *RAW_V5_ROUTER_REPRESENTATIONS,
+            *ROUTER_REPRESENTATIONS,
         ):
             raise AgentFlowSidecarError(
                 f"unsupported local HMM sequence representation: {representation.value}"
             )
-        if representation in RAW_V5_ROUTER_REPRESENTATIONS and len(clean_turns) != len(
-            turns
-        ):
+        if representation in ROUTER_REPRESENTATIONS and len(clean_turns) != len(turns):
             # Raw-V5 documents are the actual pinned provider inputs. Dropping
             # one would change the causal HMM prefix (and potentially the U/A
             # alignment) instead of merely omitting cosmetic route context.
@@ -882,7 +880,7 @@ class AgentFlowHMMSidecar:
         if not isinstance(value, str) or not value:
             raise AgentFlowSidecarError("active bundle missing state encoder model")
         if (
-            self.sequence_representation in RAW_V5_ROUTER_REPRESENTATIONS
+            self.sequence_representation in ROUTER_REPRESENTATIONS
             and value != self.state_encoder_contract.model_id
         ):
             raise AgentFlowSidecarError(
@@ -918,7 +916,7 @@ class AgentFlowHMMSidecar:
                 )
             if self.sequence_representation in (
                 *GEMINI_EMBEDDING_REPRESENTATIONS,
-                *RAW_V5_ROUTER_REPRESENTATIONS,
+                *ROUTER_REPRESENTATIONS,
             ):
                 latent_contract_sha256 = payload.model_info.get(
                     "state_encoder_contract_sha256"

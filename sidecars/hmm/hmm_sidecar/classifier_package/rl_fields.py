@@ -5,8 +5,8 @@ from __future__ import annotations
 
 from pydantic import Field
 
-from hmm_sidecar.raw_v5.weave_data import WeaveFeatureContract
-from hmm_sidecar.raw_v5.schema_base import FrozenClosedModel, NonEmptyString
+from hmm_sidecar.classifier_package.weave_data import WeaveFeatureContract
+from hmm_sidecar.classifier_package.schema_base import FrozenClosedModel, NonEmptyString
 
 
 class RLActionSpaceContract(FrozenClosedModel):

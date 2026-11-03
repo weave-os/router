@@ -10,9 +10,9 @@ after that boundary.  A causal Transformer can consume the resulting
 
 The exact functions in this module remain the Stage-2/audit serialization.
 The legacy ``*_model_*`` helper layers Qwen's separately hashed, overflow-only
-structural projection on top of it. Voyage model inputs use an independent
-token-counted projection; its fixed-window helper preserves every selected
-source field exactly when the complete provider document fits.
+structural projection on top of it. Gemini model inputs use a byte-budgeted
+projection that preserves every selected source field exactly when the
+complete provider document fits.
 """
 
 from __future__ import annotations
@@ -21,28 +21,24 @@ import json
 from collections.abc import Sequence
 
 
-from hmm_sidecar.raw_v5.raw_v5_contract import (
-    RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
-    RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS,
-    RAW_V5_VOYAGE_TURN_WINDOW_DOCUMENT_SCHEMA_VERSION,
-    RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS,
+from hmm_sidecar.classifier_package.contract import (
+    ONE_TURN_MAX_TURNS,
+    TURN_WINDOW_DOCUMENT_SCHEMA_VERSION,
 )
-from hmm_sidecar.raw_v5 import gemini_tokens
+from hmm_sidecar.classifier_package import gemini_tokens
 
-_RAW_V5_GEMINI_PREFIX_TRUNCATION_MARKER = (
-    "\n[truncated for gemini-embedding-2 input limit]"
-)
+_GEMINI_PREFIX_TRUNCATION_MARKER = "\n[truncated for gemini-embedding-2 input limit]"
 
 
-RAW_V5_ROUTER_NO_RESPONSE_MARKER = "No agent response blocks recorded."
-RAW_V5_ROUTER_NO_TOOL_TRACE_MARKER = "No tool calls recorded."
+ROUTER_NO_RESPONSE_MARKER = "No agent response blocks recorded."
+ROUTER_NO_TOOL_TRACE_MARKER = "No tool calls recorded."
 
 
-class RawV5SequenceError(ValueError):
+class DocumentError(ValueError):
     """The V5-only raw sequence contract cannot be satisfied."""
 
 
-def format_raw_v5_router_agent_response_only_document(
+def format_router_agent_response_only_document(
     turn_index: int,
     agent_response_blocks: Sequence[str],
 ) -> str:
@@ -59,13 +55,13 @@ def format_raw_v5_router_agent_response_only_document(
         or not isinstance(turn_index, int)
         or turn_index < 0
     ):
-        raise RawV5SequenceError(
+        raise DocumentError(
             "raw V5 user-agent-only agent document has an invalid turn index"
         )
     if not isinstance(agent_response_blocks, (list, tuple)) or any(
         not isinstance(block, str) for block in agent_response_blocks
     ):
-        raise RawV5SequenceError(
+        raise DocumentError(
             "raw V5 user-agent-only agent document requires response-block text"
         )
     sections = [f"Raw agent reply (turn {turn_index}):"]
@@ -78,39 +74,25 @@ def format_raw_v5_router_agent_response_only_document(
             )
         )
     else:
-        sections.append("Response blocks:\n" + RAW_V5_ROUTER_NO_RESPONSE_MARKER)
+        sections.append("Response blocks:\n" + ROUTER_NO_RESPONSE_MARKER)
     return "\n\n".join(sections)
 
 
-def _validate_raw_v5_voyage_window_turns(max_turns: int) -> None:
-    """Reject unpinned raw-V5 Voyage history windows."""
-
-    if (
-        isinstance(max_turns, bool)
-        or not isinstance(max_turns, int)
-        or max_turns
-        not in (
-            RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
-            RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS,
-            RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS,
-        )
-    ):
-        raise RawV5SequenceError(
-            "raw V5 Voyage turn-window max_turns must be one of "
-            f"{RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS}, "
-            f"{RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS}, "
-            f"{RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS}; got {max_turns!r}"
+def _validate_window_turns(max_turns: int) -> None:
+    if isinstance(max_turns, bool) or max_turns != ONE_TURN_MAX_TURNS:
+        raise DocumentError(
+            f"raw V5 turn-window max_turns must be {ONE_TURN_MAX_TURNS}; got {max_turns!r}"
         )
 
 
-def format_raw_v5_voyage_turn_window_document(
+def format_turn_window_document(
     *,
     previous_turns: Sequence[tuple[str, str]],
     current_user_text: str,
     current_agent_text: str | None = None,
     max_turns: int,
 ) -> str:
-    """Build one marked causal raw-V5 Voyage provider document.
+    """Build one marked causal raw-V5 provider document.
 
     The input texts are already source-element projected, if necessary.  The
     caller controls the fixed-size history; this formatter is intentionally
@@ -118,20 +100,18 @@ def format_raw_v5_voyage_turn_window_document(
     future/current agent response at a user routing boundary.
     """
 
-    _validate_raw_v5_voyage_window_turns(max_turns)
+    _validate_window_turns(max_turns)
     if len(previous_turns) > max_turns - 1:
-        raise RawV5SequenceError(
-            "raw V5 Voyage turn window contains too many completed turns"
-        )
+        raise DocumentError("raw V5 turn window contains too many completed turns")
     if not isinstance(current_user_text, str) or not current_user_text.strip():
-        raise RawV5SequenceError(
-            "raw V5 Voyage turn window requires a non-empty current user document"
+        raise DocumentError(
+            "raw V5 turn window requires a non-empty current user document"
         )
     if current_agent_text is not None and (
         not isinstance(current_agent_text, str) or not current_agent_text.strip()
     ):
-        raise RawV5SequenceError(
-            "raw V5 Voyage turn window current agent document must be non-empty text or None"
+        raise DocumentError(
+            "raw V5 turn window current agent document must be non-empty text or None"
         )
 
     turns: list[dict[str, object]] = []
@@ -142,8 +122,8 @@ def format_raw_v5_voyage_turn_window_document(
             or len(turn) != 2
             or any(not isinstance(value, str) or not value.strip() for value in turn)
         ):
-            raise RawV5SequenceError(
-                "raw V5 Voyage turn-window history must contain complete non-empty U/A pairs"
+            raise DocumentError(
+                "raw V5 turn-window history must contain complete non-empty U/A pairs"
             )
         turns.append(
             {
@@ -163,7 +143,7 @@ def format_raw_v5_voyage_turn_window_document(
     )
     return json.dumps(
         {
-            "schema_version": RAW_V5_VOYAGE_TURN_WINDOW_DOCUMENT_SCHEMA_VERSION,
+            "schema_version": TURN_WINDOW_DOCUMENT_SCHEMA_VERSION,
             "state_boundary": "agent" if current_agent_text is not None else "user",
             "turn_window_size": max_turns,
             "turns": turns,
@@ -181,13 +161,13 @@ def _gemini_prefix_with_marker(text: str, *, max_chars: int) -> str:
         return text
     prefix = text[:max_chars]
     if not prefix.strip():
-        raise RawV5SequenceError(
+        raise DocumentError(
             "raw V5 Gemini prefix projection removed the complete source field"
         )
-    return prefix + _RAW_V5_GEMINI_PREFIX_TRUNCATION_MARKER
+    return prefix + _GEMINI_PREFIX_TRUNCATION_MARKER
 
 
-def _bounded_raw_v5_gemini_turn_window_document(
+def _bounded_gemini_turn_window_document(
     *,
     previous_turns: Sequence[tuple[str, str]],
     current_user_text: str,
@@ -203,14 +183,14 @@ def _bounded_raw_v5_gemini_turn_window_document(
     markers, against 8,000 bytes. No token-count API is used.
     """
 
-    _validate_raw_v5_voyage_window_turns(max_turns)
+    _validate_window_turns(max_turns)
     max_completed_turns = max_turns - 1
     selected_previous_turns = list(
         previous_turns[-max_completed_turns:] if max_completed_turns else ()
     )
 
     def render(user_text: str, agent_text: str | None) -> str:
-        return format_raw_v5_voyage_turn_window_document(
+        return format_turn_window_document(
             previous_turns=selected_previous_turns,
             current_user_text=user_text,
             current_agent_text=agent_text,
@@ -249,13 +229,13 @@ def _bounded_raw_v5_gemini_turn_window_document(
         else:
             high = field_budget - 1
     if best is None:
-        raise RawV5SequenceError(
+        raise DocumentError(
             "raw V5 Gemini current turn cannot fit the 8000-byte input budget"
         )
     return best
 
 
-def raw_v5_gemini_element_documents(
+def gemini_element_documents(
     turn_index: int,
     user_prompt: str,
     agent_response_blocks: Sequence[str],
@@ -270,27 +250,27 @@ def raw_v5_gemini_element_documents(
     """
 
     return (
-        _bounded_raw_v5_gemini_user_message_document(
+        _bounded_gemini_user_message_document(
             f"Raw user message (turn {turn_index}):\n{user_prompt}"
         ),
-        _bounded_raw_v5_gemini_agent_message_document(
-            format_raw_v5_router_agent_response_only_document(
+        _bounded_gemini_agent_message_document(
+            format_router_agent_response_only_document(
                 turn_index, agent_response_blocks
             )
         ),
     )
 
 
-def _bounded_raw_v5_gemini_user_message_document(user_text: str) -> str:
-    return _bounded_raw_v5_gemini_turn_window_document(
+def _bounded_gemini_user_message_document(user_text: str) -> str:
+    return _bounded_gemini_turn_window_document(
         previous_turns=(),
         current_user_text=user_text,
         current_agent_text=None,
-        max_turns=RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
+        max_turns=ONE_TURN_MAX_TURNS,
     )
 
 
-def _bounded_raw_v5_gemini_agent_message_document(agent_document: str) -> str:
+def _bounded_gemini_agent_message_document(agent_document: str) -> str:
     """The agent reply alone, fit to Gemini's byte budget as a marked prefix."""
 
     if gemini_tokens.gemini_input_fits_byte_budget(agent_document):
@@ -306,7 +286,7 @@ def _bounded_raw_v5_gemini_agent_message_document(agent_document: str) -> str:
         else:
             high = keep_chars - 1
     if fitted is None:
-        raise RawV5SequenceError(
+        raise DocumentError(
             "raw V5 Gemini agent message cannot fit the 8000-byte input budget"
         )
     return fitted
