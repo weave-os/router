@@ -79,6 +79,16 @@ func gatewayProvidersFromKeys(keys []*auth.ExternalAPIKey) map[string]struct{} {
 }
 
 func customBindingsFromKeys(keys []*auth.ExternalAPIKey) map[string][]string {
+	return aliasedBindingsFromKeys(keys, false)
+}
+
+// passthroughBindingsFromKeys also keeps aliased models retired from routing:
+// passthrough serves the client's model as-is rather than choosing one.
+func passthroughBindingsFromKeys(keys []*auth.ExternalAPIKey) map[string][]string {
+	return aliasedBindingsFromKeys(keys, true)
+}
+
+func aliasedBindingsFromKeys(keys []*auth.ExternalAPIKey, includeRetired bool) map[string][]string {
 	var out map[string][]string
 	for _, key := range keys {
 		// Mirrors enabledProvidersForRequest: a key with no usable plaintext
@@ -88,7 +98,7 @@ func customBindingsFromKeys(keys []*auth.ExternalAPIKey) map[string][]string {
 		}
 		for model := range key.ModelAliases {
 			m, known := catalog.ByID(model)
-			if !known || m.Tier == catalog.TierUnknown {
+			if !known || (m.Tier == catalog.TierUnknown && !includeRetired) {
 				continue
 			}
 			if out == nil {
