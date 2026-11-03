@@ -32,11 +32,11 @@ type SeedToolCallChatWriter struct {
 	pending        bytes.Buffer
 	scanner        sse.Scanner
 
-	gate          seedToolCallGate
-	sawToolCalls  bool
-	resolved      bool
-	lastChunk     []byte
-	convertedCall int
+	gate           seedToolCallGate
+	sawToolCalls   bool
+	resolved       bool
+	lastChunk      []byte
+	convertedCount int
 }
 
 // NewSeedToolCallChatWriter wraps inner. declared holds the request's tool
@@ -48,7 +48,7 @@ func NewSeedToolCallChatWriter(inner http.ResponseWriter, declared map[string]st
 }
 
 // ConvertedToolCalls reports how many tool calls were recovered from markup.
-func (w *SeedToolCallChatWriter) ConvertedToolCalls() int { return w.convertedCall }
+func (w *SeedToolCallChatWriter) ConvertedToolCalls() int { return w.convertedCount }
 
 func (w *SeedToolCallChatWriter) Header() http.Header { return w.inner.Header() }
 
@@ -145,7 +145,7 @@ func (w *SeedToolCallChatWriter) Finalize() error {
 	}
 	_, text, _ := w.gate.Resolve(nil)
 	w.resolved = true
-	if text == "" || w.lastChunk == nil {
+	if text == "" {
 		return nil
 	}
 	return w.writeChunk(chatChunkWith(w.lastChunk, func(c []byte) []byte {
@@ -197,9 +197,6 @@ func (w *SeedToolCallChatWriter) writeRecord(record []byte) error {
 // chunk to rewrite and forward, or nil at a bare [DONE].
 func (w *SeedToolCallChatWriter) resolveStream(finish []byte) error {
 	if w.resolved {
-		if finish != nil {
-			return w.writeChunk(finish)
-		}
 		return nil
 	}
 	w.resolved = true
@@ -210,10 +207,12 @@ func (w *SeedToolCallChatWriter) resolveStream(finish []byte) error {
 	}
 	// A turn that also streamed structured calls keeps its markup as text
 	// rather than mixing recovered calls into the upstream's indices.
-	if ok && !w.sawToolCalls && template != nil {
-		w.convertedCall = len(calls)
+	if ok && !w.sawToolCalls {
+		w.convertedCount = len(calls)
 		if err := w.writeChunk(chatChunkWith(template, func(c []byte) []byte {
-			c, _ = sjson.SetRawBytes(c, "choices.0.delta", seedChatToolCallsDelta(calls, true))
+			delta := []byte(`{"role":"assistant"}`)
+			delta, _ = sjson.SetRawBytes(delta, "tool_calls", seedChatToolCalls(calls, true))
+			c, _ = sjson.SetRawBytes(c, "choices.0.delta", delta)
 			c, _ = sjson.SetRawBytes(c, "choices.0.finish_reason", []byte("null"))
 			return c
 		})); err != nil {
@@ -227,17 +226,14 @@ func (w *SeedToolCallChatWriter) resolveStream(finish []byte) error {
 	}
 	if text != "" {
 		if finish != nil {
-			existing := gjson.GetBytes(finish, "choices.0.delta.content").Str
-			return w.writeChunk(setChatDeltaContent(finish, text+existing))
+			return w.writeChunk(setChatDeltaContent(finish, text+gjson.GetBytes(finish, "choices.0.delta.content").Str))
 		}
-		if template != nil {
-			if err := w.writeChunk(chatChunkWith(template, func(c []byte) []byte {
-				c, _ = sjson.SetBytes(c, "choices.0.delta.content", text)
-				c, _ = sjson.SetRawBytes(c, "choices.0.finish_reason", []byte("null"))
-				return c
-			})); err != nil {
-				return err
-			}
+		if err := w.writeChunk(chatChunkWith(template, func(c []byte) []byte {
+			c, _ = sjson.SetBytes(c, "choices.0.delta.content", text)
+			c, _ = sjson.SetRawBytes(c, "choices.0.finish_reason", []byte("null"))
+			return c
+		})); err != nil {
+			return err
 		}
 	}
 	if finish != nil {
@@ -276,7 +272,7 @@ func (w *SeedToolCallChatWriter) rewriteResponse(body []byte) []byte {
 	if err != nil {
 		return body
 	}
-	w.convertedCall = len(calls)
+	w.convertedCount = len(calls)
 	return rewritten
 }
 
@@ -305,12 +301,6 @@ func setChatDeltaContent(chunk []byte, content string) []byte {
 		return chunk
 	}
 	return out
-}
-
-func seedChatToolCallsDelta(calls []seedToolCall, streaming bool) []byte {
-	delta := []byte(`{"role":"assistant"}`)
-	delta, _ = sjson.SetRawBytes(delta, "tool_calls", seedChatToolCalls(calls, streaming))
-	return delta
 }
 
 func seedChatToolCalls(calls []seedToolCall, streaming bool) []byte {

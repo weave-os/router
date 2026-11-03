@@ -74,10 +74,10 @@ func driveSeedAnthropic(t *testing.T, thinkTags bool, events ...string) (string,
 }
 
 func seedChunk(content string) string {
-	return `data: {"id":"c1","choices":[{"index":0,"delta":{"content":` + string(mustJSON(content)) + `},"finish_reason":null}]}` + "\n\n"
+	return `data: {"id":"c1","choices":[{"index":0,"delta":{"content":` + string(jsonStringLiteralNoHTMLEscape(content)) + `},"finish_reason":null}]}` + "\n\n"
 }
 
-func mustJSON(s string) []byte {
+func jsonStringLiteralNoHTMLEscape(s string) []byte {
 	var b strings.Builder
 	encoder := json.NewEncoder(&b)
 	encoder.SetEscapeHTML(false)
