@@ -51,6 +51,16 @@ func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 	return id
 }
 
+// ChatClientIdentity is ClientIdentityFromHeaders plus the Cursor agent id
+// from a Chat Completions body when no header names the session.
+func ChatClientIdentity(h http.Header, body []byte) ClientIdentity {
+	id := ClientIdentityFromHeaders(h)
+	if id.ClientApp == ClientAppCursor && id.SessionID == "" {
+		id.SessionID = requestcontext.CursorAgentSessionID(body)
+	}
+	return id
+}
+
 func openCodeCaller(id ClientIdentity) turntype.OpenCodeCaller {
 	isClient := id.ClientApp == ClientAppOpencode
 	return turntype.OpenCodeCaller{IsClient: isClient, IsSubagent: isClient && id.OpenCodeSubagent}

@@ -31,7 +31,7 @@ func ChatCompletionHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handle
 		observability.LogServerProxyRequestShape(c, body)
 		defer observability.RecordServerProxyResponseID(c)()
 
-		ctx := requestcontext.WithClientIdentity(c.Request.Context(), proxy.ClientIdentityFromHeaders(c.Request.Header))
+		ctx := requestcontext.WithClientIdentity(c.Request.Context(), proxy.ChatClientIdentity(c.Request.Header, body))
 		ctx = proxy.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c))
 		ctx, err = proxy.ResolveRoutingAssignment(ctx, authSvc, middleware.InstallationFrom(c))
 		if err != nil {
