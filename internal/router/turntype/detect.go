@@ -142,11 +142,16 @@ func Detect(env *translate.RequestEnvelope, feats translate.RoutingFeatures, sub
 	if env.SourceFormat() == translate.FormatAnthropic && isRecap(lastUserText) {
 		return Recap
 	}
-	if IsSubAgent(env, subAgentHint, openCode) {
+	if openCode.IsSubagent || isSubAgentDispatch(env.MetadataUserID(), env.AnthropicBillingHeader(), "", subAgentHint) {
 		return SubAgentDispatch
 	}
+	// Claude Code's security monitor also opens its payload with <transcript>,
+	// so the body sniff yields to the tool-less classifier shape.
 	if isClassifier(feats) {
 		return Classifier
+	}
+	if IsSubAgent(env, subAgentHint, openCode) {
+		return SubAgentDispatch
 	}
 	if feats.LastKind == "tool_result" {
 		return ToolResult
