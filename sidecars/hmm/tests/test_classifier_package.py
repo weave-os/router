@@ -234,6 +234,16 @@ def test_overrun_inference_serves_the_sessions_prior_state(
         tmp_path, manifest, ServingOptions(infer_deadline_seconds=0.2)
     )
     cases = json.loads((FIXTURES / "cases.json").read_text())
+    prefix_lengths: list[int] = []
+    serving_features = classifier.selector.serving_features
+
+    def recording_serving_features(**kwargs):
+        prefix_lengths.append(kwargs["prefix_length"])
+        return serving_features(**kwargs)
+
+    monkeypatch.setattr(
+        classifier.selector, "serving_features", recording_serving_features
+    )
 
     async def scenario() -> None:
         first, _ = await classifier.classify(cases[0], session_id="session-a")
@@ -244,6 +254,12 @@ def test_overrun_inference_serves_the_sessions_prior_state(
         assert timings is None
         assert degraded.state_path == first.state_path
         assert degraded.probabilities == first.probabilities
+        # The fallback readout keeps the length it was computed at even when
+        # the request trims a different number of older turns.
+        trimmed = {**cases[1], "omitted_user_turn_count": 5}
+        trimmed_degraded, _ = await classifier.classify(trimmed, session_id="session-a")
+        assert trimmed_degraded.degraded
+        assert prefix_lengths[-1] == prefix_lengths[0]
         with pytest.raises(TimeoutError):
             await classifier.classify(cases[1], session_id="session-b")
 

@@ -90,13 +90,34 @@ class _PriorReadout:
     # returned: an overrunning call describes the turn it was launched for, and
     # dating it at completion would make a seconds-late readout look fresh.
     observed_at: float
+    weight: int
 
 
 class LastReadoutStore:
-    """Most recent completed readout per session, bounded and in-process."""
+    """Most recent completed readout per session, bounded and in-process.
 
-    def __init__(self, max_sessions: int = LAST_READOUT_MAX_SESSIONS) -> None:
+    ``weigh`` sizes a readout (e.g. its retained embedding values); with
+    ``max_weight`` the least recently used sessions are evicted until the total
+    fits, so a few long conversations cannot pin unbounded memory.
+    """
+
+    def __init__(
+        self,
+        max_sessions: int = LAST_READOUT_MAX_SESSIONS,
+        *,
+        max_age_seconds: float | None = None,
+        weigh: Callable[[Any], int] | None = None,
+        max_weight: int | None = None,
+    ) -> None:
         self._max_sessions = max_sessions
+        self._max_age_seconds = (
+            _env_float(MAX_PRIOR_AGE_ENV, DEFAULT_MAX_PRIOR_AGE_SECONDS)
+            if max_age_seconds is None
+            else max_age_seconds
+        )
+        self._weigh = weigh
+        self._max_weight = max_weight
+        self._weight = 0
         self._entries: OrderedDict[str, _PriorReadout] = OrderedDict()
 
     def put(
@@ -118,27 +139,47 @@ class LastReadoutStore:
         existing = self._entries.get(session_id)
         if existing is not None and existing.observed_at >= observed_at:
             return
-        self._entries.pop(session_id, None)
+        self._remove(session_id)
+        weight = self._weigh(readout) if self._weigh is not None else 1
         self._entries[session_id] = _PriorReadout(
             readout=readout,
             observed_at=observed_at,
+            weight=weight,
         )
-        while len(self._entries) > self._max_sessions:
-            self._entries.popitem(last=False)
+        self._weight += weight
+        self._prune_expired()
+        while len(self._entries) > self._max_sessions or (
+            self._max_weight is not None and self._weight > self._max_weight
+        ):
+            _, evicted = self._entries.popitem(last=False)
+            self._weight -= evicted.weight
 
-    def get(
-        self, session_id: str | None, max_age_seconds: float
-    ) -> _PriorReadout | None:
+    def get(self, session_id: str | None) -> _PriorReadout | None:
         if not session_id:
             return None
         entry = self._entries.get(session_id)
         if entry is None:
             return None
-        if time.monotonic() - entry.observed_at > max_age_seconds:
-            self._entries.pop(session_id, None)
+        if self._expired(entry, time.monotonic()):
+            self._remove(session_id)
             return None
         self._entries.move_to_end(session_id)
         return entry
+
+    def _expired(self, entry: _PriorReadout, now: float) -> bool:
+        return now - entry.observed_at > self._max_age_seconds
+
+    def _prune_expired(self) -> None:
+        now = time.monotonic()
+        for session_id in [
+            key for key, entry in self._entries.items() if self._expired(entry, now)
+        ]:
+            self._remove(session_id)
+
+    def _remove(self, session_id: str) -> None:
+        entry = self._entries.pop(session_id, None)
+        if entry is not None:
+            self._weight -= entry.weight
 
 
 async def infer_within_deadline(
@@ -165,9 +206,7 @@ async def infer_within_deadline(
         )
     except asyncio.TimeoutError:
         _keep_warming(task, session_id, store, started_at, overran=True)
-        prior = store.get(
-            session_id, _env_float(MAX_PRIOR_AGE_ENV, DEFAULT_MAX_PRIOR_AGE_SECONDS)
-        )
+        prior = store.get(session_id)
         if prior is None:
             raise
         return BoundedInference(

@@ -211,7 +211,7 @@ def test_the_overrunning_inference_still_completes_and_arms_the_next_turn() -> N
         assert degraded.readout == "turn-1"
 
         await asyncio.sleep(0.1)
-        assert store.get("s1", 60.0).readout == "turn-2"
+        assert store.get("s1").readout == "turn-2"
 
     asyncio.run(scenario())
 
@@ -344,12 +344,12 @@ def test_the_prior_store_evicts_the_least_recently_used_session() -> None:
     store = LastReadoutStore(max_sessions=2)
     store.put("a", "readout-a")
     store.put("b", "readout-b")
-    store.get("a", 60.0)
+    store.get("a")
     store.put("c", "readout-c")
 
-    assert store.get("b", 60.0) is None
-    assert store.get("a", 60.0).readout == "readout-a"
-    assert store.get("c", 60.0).readout == "readout-c"
+    assert store.get("b") is None
+    assert store.get("a").readout == "readout-a"
+    assert store.get("c").readout == "readout-c"
 
 
 def test_a_late_overrun_never_replaces_a_newer_turns_state() -> None:
@@ -385,7 +385,7 @@ def test_a_late_overrun_never_replaces_a_newer_turns_state() -> None:
         )
         await asyncio.sleep(0.3)
 
-        assert store.get("s1", 60.0).readout == "turn-3"
+        assert store.get("s1").readout == "turn-3"
 
     asyncio.run(scenario())
 
@@ -397,7 +397,7 @@ def test_an_out_of_order_put_is_dropped_rather_than_redating_the_session() -> No
     store.put("s1", "newer", newer)
     store.put("s1", "older", newer - 10.0)
 
-    assert store.get("s1", 60.0).readout == "newer"
+    assert store.get("s1").readout == "newer"
 
 
 def test_caller_cancellation_before_the_deadline_is_not_an_overrun() -> None:
@@ -417,7 +417,31 @@ def test_caller_cancellation_before_the_deadline_is_not_an_overrun() -> None:
             await caller
         assert OVERRUN_COUNTS == {"live": 0, "total": 0}
         await asyncio.sleep(0.1)
-        assert store.get("s1", 60).readout == "finished"
+        assert store.get("s1").readout == "finished"
         assert OVERRUN_COUNTS == {"live": 0, "total": 0}
 
     asyncio.run(scenario())
+
+
+def test_writing_to_the_prior_store_drops_expired_sessions() -> None:
+    """An expired readout can never be served, so it must not stay resident
+    until its own session happens to be looked up again."""
+    store = LastReadoutStore(max_age_seconds=10.0)
+    store.put("old", "readout-old", observed_at=time.monotonic() - 60.0)
+    store.put("new", "readout-new")
+
+    assert list(store._entries) == ["new"]
+
+
+def test_the_prior_store_evicts_sessions_past_its_weight_budget() -> None:
+    """Long conversations retain large embedding prefixes; the budget bounds
+    their total, not just the session count."""
+    store = LastReadoutStore(weigh=len, max_weight=10)
+    store.put("a", "aaaa")
+    store.put("b", "bbbb")
+    store.get("a")
+    store.put("c", "cccc")
+
+    assert store.get("b") is None
+    assert store.get("a").readout == "aaaa"
+    assert store.get("c").readout == "cccc"
