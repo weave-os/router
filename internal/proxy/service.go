@@ -723,10 +723,10 @@ func machineReadTurn(res turnLoopResult) bool {
 	return res.SuggestionMode || res.CallerModelPassthrough || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe
 }
 
-// muteSlowStartFor keeps the slow-start notice off turns that carry no
-// router text: machine-read replies and hard-pinned compaction/sub-agent turns.
+// Child replies feed back into the parent, so slow-start notices would pollute
+// its tool results and consume the parent's notice cooldown.
 func muteSlowStartFor(ctx context.Context, res turnLoopResult) {
-	if machineReadTurn(res) || res.HardPinned {
+	if machineReadTurn(res) || res.HardPinned || res.TurnType == turntype.SubAgentDispatch {
 		attemptTraceFromContext(ctx).muteSlowStart()
 	}
 }
