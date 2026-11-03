@@ -1,0 +1,50 @@
+internal/policyclient/client.go
+  h_16c9377d4ebc00 79,268,281,338-343,649,662,1126-1152
+internal/policyclient/client_test.go
+  h_16c9377d4ebc00 82,90-93,129,140-141
+internal/proxy/conversation_messages.go
+  h_16c9377d4ebc00 51-61
+internal/proxy/gemini.go
+  h_16c9377d4ebc00 108
+internal/proxy/hmm_outcome_internal_test.go
+  h_16c9377d4ebc00 65,92-95
+internal/proxy/route_preview.go
+  h_16c9377d4ebc00 81
+internal/proxy/service.go
+  h_16c9377d4ebc00 493,2776,3912,3915,4285,5245
+internal/router/policy/contract.go
+  h_16c9377d4ebc00 74
+internal/router/policy/sidecar_router.go
+  h_16c9377d4ebc00 124,296
+internal/router/router.go
+  h_16c9377d4ebc00 126,128-130,203-209
+internal/translate/available_tools.go
+  h_16c9377d4ebc00 7-8,12-45
+internal/translate/client_response_text.go
+  h_16c9377d4ebc00 1-86
+internal/translate/client_response_text_test.go
+  h_16c9377d4ebc00 1-20
+internal/translate/native_server_tools.go
+  h_16c9377d4ebc00 1-84
+internal/translate/native_server_tools_test.go
+  h_16c9377d4ebc00 1-44
+internal/translate/requirements.go
+  h_16c9377d4ebc00 29,36,41
+internal/translate/requirements_test.go
+  h_16c9377d4ebc00 35-81
+internal/translate/responses.go
+  h_16c9377d4ebc00 84
+internal/translate/responses_codex.go
+  h_16c9377d4ebc00 68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "b89162968f418d1950693746cfa06548bd3cf83a",
+  "prompts": {},
+  "humans": {
+    "h_16c9377d4ebc00": {
+      "author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+cmd/router/main.go
+  s_14682fca0edca7::t_b0e00858c9c9d8 2416,2420
+internal/anthropicfederation/bindings.go
+  s_14682fca0edca7::t_bdb67f8feea0f2 7,45-47
+internal/anthropicfederation/source_test.go
+  s_14682fca0edca7::t_e3dc6ea3b5bf8c 89
+internal/providers/anthropic/federation_test.go
+  s_14682fca0edca7::t_29efa9ee49b5e1 43-44,70-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3828019c83f517e339fc804519e9457cf60d1f1f",
+  "prompts": {},
+  "sessions": {
+    "s_14682fca0edca7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18ea6-05c9-7ad1-874e-a720bd132cbc",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

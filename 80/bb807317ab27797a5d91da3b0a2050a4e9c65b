@@ -1,0 +1,28 @@
+internal/proxy/service.go
+  s_cf418399adffae::t_4cc9dfc5c0c2fa 2717-2721,2728
+  s_cf418399adffae::t_13f024be5addfb 2843,2845-2846
+  s_cf418399adffae::t_1c459ab0bb9939 2773-2788
+  s_cf418399adffae::t_c16ffbe6a5c720 2764
+internal/proxy/baseline_failover_integration_test.go
+  s_cf418399adffae::t_46be58465c9e36 375-469
+internal/providers/provider.go
+  s_cf418399adffae::t_ea0cb8526fb739 340-373
+internal/providers/provider_retry_test.go
+  s_cf418399adffae::t_fabb3d94b4a203 69-133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "80bb807317ab27797a5d91da3b0a2050a4e9c65b",
+  "prompts": {},
+  "sessions": {
+    "s_cf418399adffae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "917838df-4804-4164-a17b-8e9e783dd86d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

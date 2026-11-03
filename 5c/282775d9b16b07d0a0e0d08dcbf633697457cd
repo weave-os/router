@@ -1,0 +1,24 @@
+internal/proxy/service.go
+  s_9ec1fa7de2e18e::t_7de692c152d59c 865-881,883-884,888,899
+  s_9ec1fa7de2e18e::t_fb28b26ae3f693 5214,8361
+  s_9ec1fa7de2e18e::t_0d29f1dbc6af10 4923,4926,8099,8102
+internal/proxy/marker_internal_test.go
+  s_9ec1fa7de2e18e::t_6620570a9d9ac0 554,563,581
+  s_9ec1fa7de2e18e::t_b2b7458f496a59 37,45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5c282775d9b16b07d0a0e0d08dcbf633697457cd",
+  "prompts": {},
+  "sessions": {
+    "s_9ec1fa7de2e18e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1604e-02e9-7660-9a45-30fc2161edd8",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
