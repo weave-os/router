@@ -1,5 +1,5 @@
 <div align="center">
-<img width="7559" height="1200" alt="Weave Router" src="https://github.com/user-attachments/assets/139b6a47-f306-4553-a638-764549a1e76b" />
+<img width="7559" height="1200" alt="Weave Router" src="docs/router-banner.png" />
 
 [![Weave Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fapp.weaveos.com%2Fapi%2Frepository%2Fbadge%2Forg_QWsHDcRQWQEs6RpkdEZrlFK8%2F1222789989%2Fhttps%253A%252F%252Fgithub.com&cacheSeconds=3600)](https://app.weaveos.com/reports/repository/org_QWsHDcRQWQEs6RpkdEZrlFK8/https%3A%2F%2Fgithub.com/1222789989)
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](go.mod)
