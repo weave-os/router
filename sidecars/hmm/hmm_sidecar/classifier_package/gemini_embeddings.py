@@ -174,7 +174,10 @@ async def embed_texts_uncached(
         _vertex_project(vertex_project) if transport is GeminiTransport.VERTEX else ""
     )
     resolved_model = _resolved_model(model, vertex_model)
-    config_args: dict[str, object] = {"auto_truncate": False}
+    # The Developer API rejects auto_truncate; it is Vertex-only.
+    config_args: dict[str, object] = (
+        {"auto_truncate": False} if transport is GeminiTransport.VERTEX else {}
+    )
     if vertex_output_dimensionality is not None:
         config_args["output_dimensionality"] = vertex_output_dimensionality
     if vertex_task_type:

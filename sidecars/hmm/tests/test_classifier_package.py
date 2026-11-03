@@ -131,7 +131,24 @@ def test_api_key_transport_embeds_each_text_with_the_pinned_contract(
     model, _, config = models.calls[0]
     assert model == "gemini-embedding-2"
     assert config.output_dimensionality == 3072
-    assert config.auto_truncate is False
+    assert config.auto_truncate is None
+
+
+def test_vertex_transport_disables_auto_truncation(monkeypatch) -> None:
+    models = _FakeModels()
+    monkeypatch.setenv("HMM_GEMINI_TRANSPORT", "vertex")
+    monkeypatch.setenv("HMM_VERTEX_PROJECT", "p")
+    monkeypatch.setattr(
+        gemini_embeddings,
+        "_client",
+        lambda *_args: SimpleNamespace(aio=SimpleNamespace(models=models)),
+    )
+    asyncio.run(
+        gemini_embeddings.embed_texts_uncached(
+            ["a"], model="google/gemini-embedding-2"
+        )
+    )
+    assert models.calls[0][2].auto_truncate is False
 
 
 def _stub_vector(text: str, dim: int) -> list[float]:
