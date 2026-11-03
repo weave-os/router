@@ -121,10 +121,6 @@ class _SessionReadout:
     omitted_user_turns: int
 
 
-def _retained_embedding_values(readout: _SessionReadout) -> int:
-    return sum(len(row) for row in readout.hmm.embedding_prefix)
-
-
 def _non_negative_int(value: Any) -> int:
     try:
         return max(int(value), 0)
@@ -206,7 +202,7 @@ class PackageClassifier:
         )
         self.infer_deadline_seconds = options.infer_deadline_seconds
         self.last_readouts = LastReadoutStore(
-            weigh=_retained_embedding_values,
+            weigh=lambda readout: sum(len(row) for row in readout.hmm.embedding_prefix),
             max_weight=LAST_READOUT_MAX_EMBEDDING_VALUES,
         )
         validate_configured_hmm_bundle(self.hmm.bundle, profile)
@@ -259,7 +255,7 @@ class PackageClassifier:
             first_turn_index=omitted_user_turns,
         )
 
-        async def infer() -> tuple[_SessionReadout, Any]:
+        async def infer():
             hmm_readout, timings = await self.hmm.ainfer_turns_with_timings(turns)
             return _SessionReadout(hmm_readout, omitted_user_turns), timings
 
