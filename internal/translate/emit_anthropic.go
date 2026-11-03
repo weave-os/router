@@ -4,8 +4,10 @@ import (
 	"crypto/sha1"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -1164,7 +1166,7 @@ func uniqueSanitizedAnthropicToolName(name string, reservedNames map[string]stru
 }
 
 func anthropicToolSchemaRaw(schema gjson.Result) string {
-	raw, err := json.Marshal(sanitizeAnthropicSchema(schema.Value()))
+	raw, err := json.Marshal(sanitizeAnthropicInputSchema(schema.Value()))
 	if err != nil {
 		return schema.Raw
 	}
@@ -1187,7 +1189,7 @@ func sanitizeAnthropicTools(v any) any {
 		nativeDomainFilter := isAnthropicNativeDomainFilterTool(tool)
 		for k, child := range tool {
 			if k == "input_schema" {
-				copied[k] = sanitizeAnthropicSchema(child)
+				copied[k] = sanitizeAnthropicInputSchema(child)
 				continue
 			}
 			// Anthropic 400s empty allowed_domains/blocked_domains ("Empty list of
@@ -1216,6 +1218,104 @@ func isEmptyDomainList(v any) bool {
 	default:
 		return false
 	}
+}
+
+// sanitizeAnthropicInputSchema also lifts top-level allOf/anyOf/oneOf, which
+// Anthropic rejects on input_schema, into one object schema.
+func sanitizeAnthropicInputSchema(v any) any {
+	sanitized := sanitizeAnthropicSchema(v)
+	root, ok := sanitized.(map[string]any)
+	if !ok {
+		return sanitized
+	}
+	return liftAnthropicTopLevelComposition(root)
+}
+
+// liftAnthropicTopLevelComposition merges the object branches of top-level
+// allOf/anyOf/oneOf into the root's properties. A property is required when
+// allOf requires it or every anyOf/oneOf alternative does; the branch
+// constraints themselves cannot be expressed and are dropped.
+func liftAnthropicTopLevelComposition(root map[string]any) map[string]any {
+	keywords := []string{"allOf", "anyOf", "oneOf"}
+	composed := false
+	for _, k := range keywords {
+		if _, ok := root[k]; ok {
+			composed = true
+			break
+		}
+	}
+	if !composed {
+		return root
+	}
+	out := make(map[string]any, len(root))
+	for k, v := range root {
+		if !slices.Contains(keywords, k) {
+			out[k] = v
+		}
+	}
+	props, _ := out["properties"].(map[string]any)
+	merged := maps.Clone(props)
+	if merged == nil {
+		merged = map[string]any{}
+	}
+	required := schemaRequiredSet(out)
+	for _, k := range keywords {
+		branches, _ := root[k].([]any)
+		var common map[string]struct{}
+		for i, b := range branches {
+			branch, ok := b.(map[string]any)
+			if !ok {
+				continue
+			}
+			branch = liftAnthropicTopLevelComposition(branch)
+			if bp, ok := branch["properties"].(map[string]any); ok {
+				for name, schema := range bp {
+					if _, exists := merged[name]; !exists {
+						merged[name] = schema
+					}
+				}
+			}
+			br := schemaRequiredSet(branch)
+			if k == "allOf" {
+				maps.Copy(required, br)
+				continue
+			}
+			if i == 0 || common == nil {
+				common = br
+				continue
+			}
+			for name := range common {
+				if _, ok := br[name]; !ok {
+					delete(common, name)
+				}
+			}
+		}
+		maps.Copy(required, common)
+	}
+	out["type"] = "object"
+	out["properties"] = merged
+	if len(required) == 0 {
+		delete(out, "required")
+	} else {
+		names := slices.Sorted(maps.Keys(required))
+		list := make([]any, len(names))
+		for i, name := range names {
+			list[i] = name
+		}
+		out["required"] = list
+	}
+	return out
+}
+
+func schemaRequiredSet(schema map[string]any) map[string]struct{} {
+	set := map[string]struct{}{}
+	list, _ := schema["required"].([]any)
+	for _, v := range list {
+		if name, ok := v.(string); ok {
+			set[name] = struct{}{}
+		}
+	}
+	return set
 }
 
 func sanitizeAnthropicSchema(v any) any {

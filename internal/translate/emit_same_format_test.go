@@ -4,7 +4,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -638,6 +640,68 @@ func TestOpenAIToAnthropic_StripsUnsupportedToolSchemaPattern(t *testing.T) {
 	assert.NotContains(t, amount, "pattern", "Anthropic rejects regex lookahead in JSON Schema patterns")
 	assert.Equal(t, "string", amount["type"])
 	assert.Equal(t, "decimal", amount["description"])
+}
+
+func TestOpenAIToAnthropic_LiftsTopLevelSchemaComposition(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"tools":[{
+		"type":"function",
+		"function":{
+			"name":"open_page",
+			"parameters":{
+				"type":"object",
+				"properties":{"workdir":{"type":"string"}},
+				"required":["workdir"],
+				"anyOf":[
+					{"type":"object","properties":{"page_id":{"type":"string"},"mode":{"type":"string"}},"required":["page_id","mode"]},
+					{"type":"object","properties":{"url":{"type":"string"},"mode":{"type":"string"}},"required":["url","mode"]}
+				],
+				"allOf":[{"properties":{"limit":{"type":"integer"}},"required":["limit"]}]
+			}
+		}
+	}]}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, opts)
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+
+	tools, _ := out["tools"].([]any)
+	require.Len(t, tools, 1)
+	tool, _ := tools[0].(map[string]any)
+	schema, _ := tool["input_schema"].(map[string]any)
+	for _, keyword := range []string{"anyOf", "oneOf", "allOf"} {
+		assert.NotContains(t, schema, keyword, "Anthropic rejects top-level %s on input_schema", keyword)
+	}
+	assert.Equal(t, "object", schema["type"])
+	props, _ := schema["properties"].(map[string]any)
+	assert.ElementsMatch(t, []string{"workdir", "page_id", "url", "mode", "limit"}, slices.Collect(maps.Keys(props)))
+	assert.ElementsMatch(t, []any{"workdir", "mode", "limit"}, schema["required"])
+}
+
+func TestPassthroughSameFormat_LiftsTopLevelSchemaComposition(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-7","max_tokens":16,"messages":[{"role":"user","content":"hi"}],"tools":[{
+		"name":"pick",
+		"input_schema":{"oneOf":[
+			{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]},
+			{"type":"object","properties":{"b":{"type":"string"}},"required":["b"]}
+		]}
+	}]}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropicPassthrough(http.Header{})
+	require.NoError(t, err)
+
+	schema := gjson.GetBytes(prep.Body, "tools.0.input_schema")
+	assert.False(t, schema.Get("oneOf").Exists())
+	assert.Equal(t, "object", schema.Get("type").String())
+	assert.True(t, schema.Get("properties.a").Exists())
+	assert.True(t, schema.Get("properties.b").Exists())
+	assert.False(t, schema.Get("required").Exists(), "no property is required by every alternative")
 }
 
 func TestAnthropicSameFormat_LeadingSystemMessageHoistedWhenNoSystemField(t *testing.T) {
