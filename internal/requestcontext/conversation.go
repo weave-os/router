@@ -193,6 +193,17 @@ func firstUserMessageText(body []byte, surface ConversationSurface) string {
 	return text
 }
 
+var cursorAgentStorePattern = regexp.MustCompile(`Current agent's store: \S*cursor_agent_stores/([0-9a-fA-F-]{36})/`)
+
+// CursorAgentSessionID returns the per-conversation agent id Cursor embeds in
+// its opening user message; Cursor's only body identifier, user, is per person.
+func CursorAgentSessionID(body []byte) string {
+	if m := cursorAgentStorePattern.FindStringSubmatch(firstUserMessageText(body, ConversationChat)); m != nil {
+		return NormalizeClientIdentifier(m[1])
+	}
+	return ""
+}
+
 // isUserMessage applies the role defaults the Responses and Gemini parsers use:
 // a Responses message item and a Gemini content without a role are user turns.
 func isUserMessage(message gjson.Result, surface ConversationSurface) bool {

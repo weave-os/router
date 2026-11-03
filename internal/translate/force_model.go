@@ -208,6 +208,13 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 	for _, candidate := range candidates {
 		found, stripped := parse(candidate.text, candidate.fromToolResult)
 		if !found {
+			if before, query, after, ok := cursorUserQuery(candidate.text); ok {
+				if found, stripped = parse(query, candidate.fromToolResult); found {
+					stripped = before + stripped + after
+				}
+			}
+		}
+		if !found {
 			continue
 		}
 		if fromToolResult && stripped == "" && candidate.dropPath != "" {
@@ -222,6 +229,30 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 		return true, fromToolResult
 	}
 	return false, false
+}
+
+const (
+	cursorUserQueryOpen  = "<user_query>"
+	cursorUserQueryClose = "</user_query>"
+)
+
+// cursorUserQuery splits Cursor's turn text, which wraps the typed message in
+// <user_query> after injected context blocks, around that typed message.
+func cursorUserQuery(text string) (before, query, after string, ok bool) {
+	open := strings.Index(text, cursorUserQueryOpen)
+	if open < 0 {
+		return "", "", "", false
+	}
+	head := text[:open]
+	if strings.TrimSpace(head[leadingInjectedPrefixEnd(head):]) != "" {
+		return "", "", "", false
+	}
+	closeIdx := strings.LastIndex(text, cursorUserQueryClose)
+	if closeIdx < open || strings.TrimSpace(text[closeIdx+len(cursorUserQueryClose):]) != "" {
+		return "", "", "", false
+	}
+	start := open + len(cursorUserQueryOpen)
+	return text[:start], text[start:closeIdx], text[closeIdx:], true
 }
 
 // dropCommandBlock deletes the block at dropPath, cascading to the whole

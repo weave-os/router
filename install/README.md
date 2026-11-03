@@ -753,9 +753,11 @@ What each `off` does (and `on` reverses byte-for-byte):
 - **Copilot CLI** — puts back the default model parked during install;
   `weave/auto` stays selectable in `/model`. Next `copilot` run.
 
-**Cursor** has no config file we own — its base URL lives in Cursor's own
-settings UI. To toggle it, open **Settings → Models → Override OpenAI Base
-URL** and turn the override (`<base-url>/v1`) on or off there.
+**Cursor** has no config file we own — its key, base URL, and `weave-auto`
+custom model live in Cursor's own settings UI. To toggle it, open **Settings →
+Models → Override OpenAI Base URL** and turn the override (`<base-url>/v1`) on
+or off there. Cursor calls that URL from its own servers, so it must be
+publicly reachable.
 
 ## Choosing which models the router may pick
 

@@ -76,9 +76,14 @@ installer command, for example:
 npx @weave-os/router --codex --local
 ```
 
-Cursor support is in early beta. In Cursor, open Settings → Models, set
-*Override OpenAI Base URL* to `http://localhost:8080/v1`, and enter your
-`rk_...` router key.
+Cursor routes its Agent and Ask chats through the router. Cursor calls the base
+URL from its own servers, not from your machine, so a `localhost` router is
+unreachable: use the hosted router or a publicly reachable self-hosted URL. In
+Cursor, open Settings → Models, turn on *OpenAI API Key* with your `rk_...`
+router key, set *Override OpenAI Base URL* to `<base-url>/v1`, and add a custom
+model named `weave-auto` (the router rejects other `weave-` names). Tab
+completion and Apply stay on Cursor's own models, and BYOK needs a paid Cursor
+seat.
 
 The self-hosted router sends prompts to your configured provider. It also
 supports OpenTelemetry for tracing. For configuration, deployment details, and

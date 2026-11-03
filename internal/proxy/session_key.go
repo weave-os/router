@@ -78,18 +78,9 @@ func bindRequestLogger(
 		log = log.With("request_id", requestID)
 	}
 	// The client's own session id, bound when present so operators can grep
-	// by the id the user actually sees. Envelope first (Claude Code packs it
-	// in metadata.user_id); header identity covers Codex, which sends
-	// Session-Id and never a Chat Completions `user` field.
-	cs := ""
-	if env != nil {
-		cs = env.ClientSessionID()
-	}
-	if cs == "" {
-		cs = ClientIdentityFrom(ctx).SessionID
-	}
-	if cs != "" {
-		log = log.With("client_session_id", cs)
+	// by the id the user actually sees; same precedence as the session key.
+	if clientSessionID != "" {
+		log = log.With("client_session_id", clientSessionID)
 	}
 	// Promote rather than merely attach: the access log and any FromGin caller
 	// read the gin-bound logger, so session_key would otherwise never reach
