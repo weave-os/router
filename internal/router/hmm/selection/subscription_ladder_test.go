@@ -42,8 +42,10 @@ func TestSubscriptionLadderLeadsTheGroupForTheSubscriptionInPlay(t *testing.T) {
 		wantArm               string
 	}{
 		{name: "claude only in claude code serves sonnet", harness: "claude_code", subscriptionProviders: []string{providers.ProviderAnthropic}, candidates: everyArm, wantArm: "anthropic/sonnet"},
-		{name: "claude only in codex serves sonnet", harness: "codex", subscriptionProviders: []string{providers.ProviderAnthropic}, candidates: everyArm, wantArm: "anthropic/sonnet"},
-		{name: "codex only in claude code serves terra", harness: "claude_code", subscriptionProviders: []string{providers.ProviderOpenAI}, candidates: everyArm, wantArm: "openai/terra"},
+		{name: "claude only in codex keeps the codex order", harness: "codex", subscriptionProviders: []string{providers.ProviderAnthropic}, candidates: everyArm, wantArm: "openai/luna"},
+		{name: "codex only in claude code keeps the claude code order", harness: "claude_code", subscriptionProviders: []string{providers.ProviderOpenAI}, candidates: everyArm, wantArm: "anthropic/haiku"},
+		{name: "codex only in hyphenated claude code keeps the claude code order", harness: "claude-code", subscriptionProviders: []string{providers.ProviderOpenAI}, candidates: everyArm, wantArm: "anthropic/haiku"},
+		{name: "claude only in an unknown harness serves sonnet", harness: "pi", subscriptionProviders: []string{providers.ProviderAnthropic}, candidates: everyArm, wantArm: "anthropic/sonnet"},
 		{name: "both in claude code serves the claude ladder", harness: "claude_code", subscriptionProviders: both, candidates: everyArm, wantArm: "anthropic/sonnet"},
 		{name: "both in codex serves the codex ladder", harness: "codex", subscriptionProviders: both, candidates: everyArm, wantArm: "openai/terra"},
 		{name: "both in an unknown harness keeps the harness order", harness: "pi", subscriptionProviders: both, candidates: everyArm, wantArm: "openai/luna"},
