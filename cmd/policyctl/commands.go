@@ -326,11 +326,15 @@ func runExport(ctx context.Context, args []string) error {
 	laneRaw := flags.String("lane", string(policyregistry.LaneStable), "lane to export")
 	outDir := flags.String("out", "", "directory to write the release into")
 	classifierImageDigest := flags.String("classifier-image-digest", "", "re-pin the release to this sidecar image digest (sha256:<hex>)")
+	servingTarget := flags.String("serving-target", "", "export the default lane of this managed serving target (e.g. prod/stable); --registry is then the serving registry root")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if strings.TrimSpace(*outDir) == "" {
 		return errors.New("--out is required")
+	}
+	if target := strings.TrimSpace(*servingTarget); target != "" {
+		return exportServingTarget(ctx, *registryURI, policyregistry.ServingTarget(target), *outDir, strings.TrimSpace(*classifierImageDigest))
 	}
 	environment := policyregistry.Environment(*environmentRaw)
 	lane := policyregistry.Lane(*laneRaw)
@@ -353,6 +357,25 @@ func runExport(ctx context.Context, args []string) error {
 		return fmt.Errorf("exported release does not load: %w", err)
 	}
 	return writeJSON(map[string]any{"environment": environment, "lane": lane, "release_id": head.Head.ReleaseSHA256, "out": *outDir})
+}
+
+func exportServingTarget(ctx context.Context, registryURI string, target policyregistry.ServingTarget, outDir, classifierImageDigest string) error {
+	registry, err := policyregistry.NewGCSRegistry(ctx, registryURI)
+	if err != nil {
+		return err
+	}
+	defer registry.Close()
+	exported, err := policyregistry.ExportServingTarget(ctx, registry, target, outDir, classifierImageDigest)
+	if err != nil {
+		return err
+	}
+	if _, err := policyregistry.NewDirectoryRegistry(outDir, ""); err != nil {
+		return fmt.Errorf("exported release does not load: %w", err)
+	}
+	return writeJSON(map[string]any{
+		"serving_target": target, "activation_id": exported.ActivationID, "candidate": exported.Candidate,
+		"release_id": exported.Head.ReleaseSHA256, "package": exported.Package, "out": outDir,
+	})
 }
 
 func runStatus(ctx context.Context, args []string) error {
