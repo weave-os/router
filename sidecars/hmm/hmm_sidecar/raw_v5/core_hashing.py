@@ -21,12 +21,6 @@ from pydantic import BaseModel
 from hmm_sidecar.raw_v5.core_canonical import canonical_json_bytes
 
 
-def sha256_bytes(value: bytes) -> str:
-    """Return the lowercase SHA-256 hex digest of raw bytes."""
-
-    return hashlib.sha256(value).hexdigest()
-
-
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
@@ -69,6 +63,6 @@ def self_sha256(model: BaseModel, *, exclude_field: str) -> str:
     and hash.
     """
 
-    return sha256_bytes(
+    return hashlib.sha256(
         canonical_json_bytes(model.model_dump(mode="json", exclude={exclude_field}))
-    )
+    ).hexdigest()

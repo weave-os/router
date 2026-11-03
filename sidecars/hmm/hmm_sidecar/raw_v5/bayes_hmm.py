@@ -10,12 +10,6 @@ from typing import Any, Callable, Literal
 import numpy as np
 
 
-def _regularize_full_covariance(covariance: np.ndarray, min_covar: float) -> np.ndarray:
-    """Symmetrize and ridge-regularize a full covariance matrix."""
-    covariance = 0.5 * (covariance + covariance.T)
-    return covariance + np.eye(covariance.shape[0]) * min_covar
-
-
 def _full_gaussian_logpdf(
     x: np.ndarray,
     means: np.ndarray,
@@ -36,28 +30,15 @@ def _full_gaussian_logpdf(
             except np.linalg.LinAlgError:
                 jitter = 1e-8 if jitter == 0.0 else jitter * 10.0
         else:
-            chol = np.linalg.cholesky(_regularize_full_covariance(covariance, 1e-6))
+            chol = np.linalg.cholesky(
+                0.5 * (covariance + covariance.T) + np.eye(covariance.shape[0]) * 1e-6
+            )
         diff = x - means[state]
         solved = np.linalg.solve(chol, diff.T).T
         quad = np.sum(solved * solved, axis=1)
         log_det = 2.0 * np.log(np.diag(chol)).sum()
         log_probs[:, state] = -0.5 * (const + log_det + quad)
     return log_probs
-
-
-def _gaussian_logpdf(
-    x: np.ndarray,
-    means: np.ndarray,
-    covariances: np.ndarray,
-    *,
-    covariance_type: str,
-) -> np.ndarray:
-    """Return Gaussian emission log likelihoods for one covariance mode."""
-    if covariance_type == "diagonal":
-        return _diag_gaussian_logpdf(x, means, covariances)
-    if covariance_type == "full":
-        return _full_gaussian_logpdf(x, means, covariances)
-    raise ValueError(f"Unsupported covariance_type: {covariance_type!r}")
 
 
 try:
@@ -166,8 +147,7 @@ class BayesianStickyHDPHMM:
         """Return posterior responsibilities from the MAP retained sample."""
         if not self.parameter_samples_:
             raise RuntimeError("Bayesian HMM has no parameter samples")
-        sample = self.map_sample()
-        gamma, xi, loglik = self._posterior_with_sample(x, sample)
+        gamma, xi, loglik = self._posterior_with_sample(x, self.map_sample())
         return BayesianHMMPosterior(
             gamma=gamma,
             xi=xi,
@@ -216,12 +196,12 @@ def _forward_backward(
     n_states = len(startprob)
     log_start = np.log(np.maximum(startprob, 1e-300))
     log_trans = np.log(np.maximum(transmat, 1e-300))
-    log_emit = _gaussian_logpdf(
-        x,
-        means,
-        variances,
-        covariance_type=covariance_type,
-    )
+    if covariance_type == "diagonal":
+        log_emit = _diag_gaussian_logpdf(x, means, variances)
+    elif covariance_type == "full":
+        log_emit = _full_gaussian_logpdf(x, means, variances)
+    else:
+        raise ValueError(f"Unsupported covariance_type: {covariance_type!r}")
     timesteps = x.shape[0]
 
     alpha = np.empty((timesteps, n_states), dtype=float)
@@ -286,7 +266,6 @@ def _diag_gaussian_logpdf(
 
 
 def _logsumexp(x: np.ndarray, axis: int) -> np.ndarray:
-    """Small NumPy logsumexp helper."""
     max_value = np.max(x, axis=axis, keepdims=True)
     summed = np.sum(np.exp(x - max_value), axis=axis, keepdims=True)
     return np.squeeze(max_value + np.log(np.maximum(summed, 1e-300)), axis=axis)

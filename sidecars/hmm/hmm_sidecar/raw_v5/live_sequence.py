@@ -84,8 +84,9 @@ def bound_embedding_document(text: str) -> str:
     if len(encoded) <= MAX_LIVE_EMBEDDING_DOCUMENT_BYTES:
         return text
 
-    marker = _DOCUMENT_BOUNDARY_MARKER.encode("utf-8")
-    prefix_budget = MAX_LIVE_EMBEDDING_DOCUMENT_BYTES - len(marker)
+    prefix_budget = MAX_LIVE_EMBEDDING_DOCUMENT_BYTES - len(
+        _DOCUMENT_BOUNDARY_MARKER.encode("utf-8")
+    )
     prefix = encoded[:prefix_budget].decode("utf-8", errors="ignore").rstrip()
     return prefix + _DOCUMENT_BOUNDARY_MARKER
 

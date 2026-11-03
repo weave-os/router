@@ -26,10 +26,6 @@ MUTABLE_ARTIFACT_PATH_PARTS = frozenset(
 )
 
 
-def _path_parts(path: str) -> tuple[str, ...]:
-    return tuple(part for part in path.replace("\\", "/").split("/") if part)
-
-
 WEAVE_MODEL_SCHEMA_VERSION = "weave_model.v0"
 
 
@@ -50,7 +46,10 @@ PINNED_MODEL_STATUSES = frozenset(
 
 
 def _has_mutable_artifact_alias(path: str) -> bool:
-    return any(part in MUTABLE_ARTIFACT_PATH_PARTS for part in _path_parts(path))
+    return any(
+        part in MUTABLE_ARTIFACT_PATH_PARTS
+        for part in path.replace("\\", "/").split("/")
+    )
 
 
 class ModelArtifact(FrozenClosedModel):
