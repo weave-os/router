@@ -103,8 +103,13 @@ services:
     # block overrides env_file values, and any "${VAR:-}" form there
     # would silently zero out the env_file value when run in a shell
     # without the var exported. Let env_file be authoritative for the
-    # provider keys; main.go will panic if ANTHROPIC_API_KEY ends up
-    # unset and loud-warn for any unregistered provider.
+    # provider keys.
+    #
+    # Distroless runtime note: the server image has no shell or printenv.
+    # Do not use `docker compose exec server printenv` to inspect variables.
+    # Instead, verify loaded environment variables using:
+    #   docker inspect <container> --format '{{range .Config.Env}}{{slice (split . "=") 0 1}}{{"\n"}}{{end}}'
+    # or check the router's boot logs / GET /admin/v1/config endpoint.
     env_file:
       - path: .env.development
         required: false
