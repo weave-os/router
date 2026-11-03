@@ -3197,7 +3197,7 @@ toggle_claude() {
         # is never touched, so this stays out of `git diff`.
         if [ -f "$local_settings_file" ]; then
           jq '{env: (.env // {}), weave_auto_selected: (.model == "weave-auto" or .model == "weave-auto[1m]")}' "$local_settings_file" >"$parked"
-          merged="$(jq '.env = ((.env // {} | del(.ANTHROPIC_CUSTOM_HEADERS)) + {ANTHROPIC_BASE_URL: "https://api.anthropic.com"}) | '"$CLAUDE_WEAVE_AUTO_STRIP_JQ" "$local_settings_file")"
+          merged="$(jq '.env = ((.env // {} | del(.ANTHROPIC_CUSTOM_HEADERS, .CLAUDE_CODE_AUTO_MODE_SERVER)) + {ANTHROPIC_BASE_URL: "https://api.anthropic.com"}) | '"$CLAUDE_WEAVE_AUTO_STRIP_JQ" "$local_settings_file")"
         else
           printf '{"env":{}}\n' >"$parked"
           merged='{"env":{"ANTHROPIC_BASE_URL":"https://api.anthropic.com"}}'
@@ -7982,6 +7982,7 @@ write_claude_settings() {
   # turns; the first routed non-Anthropic turn makes Claude Code fall back for
   # the session and hold an action behind a "gateway isn't compatible" notice.
   # Opt out up front so it uses its own classifier requests from the start.
+  # Project scope keeps the opt-out in settings.local.json so `off` can drop it.
   local prompt_hook_scope=""
   if [ -n "$install_dir" ]; then
     prompt_hook_scope=" --dir $(printf '%q' "$install_dir")"
@@ -7990,7 +7991,7 @@ write_claude_settings() {
   fi
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
     jq -n --arg attribution "$attribution" --arg url "$base_url" --arg sl "$statusline_path_for_settings" --arg prompt_hook_scope "$prompt_hook_scope" --arg statusline_install "$statusline_install" '{
-      env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "true", CLAUDE_CODE_AUTO_MODE_SERVER: "0" }
+      env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "true" }
     } + (if $attribution == "true" then {attribution: {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.weaveos.com)"
@@ -8047,7 +8048,7 @@ write_claude_settings() {
 
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
     jq -n --arg header "$custom_headers" --arg router_url "$base_url" '{
-      env: { ANTHROPIC_CUSTOM_HEADERS: $header, WEAVE_ROUTER_BASE_URL: $router_url }
+      env: { ANTHROPIC_CUSTOM_HEADERS: $header, WEAVE_ROUTER_BASE_URL: $router_url, CLAUDE_CODE_AUTO_MODE_SERVER: "0" }
     }' >"$tmp_patch"
     if [ -f "$local_settings_file" ]; then
       # Also strip ANTHROPIC_BASE_URL: `off` in project scope points this file

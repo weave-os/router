@@ -238,7 +238,8 @@ function installClaude(paths, baseUrl, key, email, attribution) {
   const optedOutOfAttribution = Object.hasOwn(settings.env || {}, "ANTHROPIC_BASE_URL") && settings.attribution == null;
   const localSettings = paths.localConfig ? readJson(paths.localConfig) : null;
   const state = readJson(paths.state);
-  state.env ||= Object.fromEntries(["ANTHROPIC_BASE_URL", "ENABLE_TOOL_SEARCH", "CLAUDE_CODE_AUTO_MODE_SERVER"].map((field) => [field, { exists: Object.hasOwn(settings.env || {}, field), value: settings.env?.[field] }]));
+  state.env ||= {};
+  for (const field of ["ANTHROPIC_BASE_URL", "ENABLE_TOOL_SEARCH", "CLAUDE_CODE_AUTO_MODE_SERVER"]) state.env[field] ||= { exists: Object.hasOwn(settings.env || {}, field), value: settings.env?.[field] };
   state.attribution ||= Object.fromEntries(Object.keys(claudeAttribution).map((field) => [field, { exists: Object.hasOwn(settings.attribution || {}, field), value: settings.attribution?.[field] }]));
   state.originalAppHeaders ||= {
     config: (settings.env?.ANTHROPIC_CUSTOM_HEADERS || "").split("\n").filter((header) => /^X-App:/i.test(header)),

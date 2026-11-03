@@ -33,6 +33,16 @@ mkdir -p "$project_home" "$project"
 git -C "$project" init -q
 (cd "$project" && run_install "$project_home" --scope project)
 test "$(jq -r '.env.ENABLE_TOOL_SEARCH' "$project/.claude/settings.json")" = "true"
-test "$(jq -r '.env.CLAUDE_CODE_AUTO_MODE_SERVER' "$project/.claude/settings.json")" = "0"
+test "$(jq -r '.env.CLAUDE_CODE_AUTO_MODE_SERVER' "$project/.claude/settings.json")" = "null"
+test "$(jq -r '.env.CLAUDE_CODE_AUTO_MODE_SERVER' "$project/.claude/settings.local.json")" = "0"
+
+toggle_project() {
+  (cd "$project" && HOME="$project_home" XDG_CACHE_HOME="$project_home/.cache" PATH="$fake_bin:$PATH" NO_COLOR=1 \
+    bash "$installer" "$1" --claude --scope project </dev/null >/dev/null 2>&1)
+}
+toggle_project off
+test "$(jq -r '.env.CLAUDE_CODE_AUTO_MODE_SERVER' "$project/.claude/settings.local.json")" = "null"
+toggle_project on
+test "$(jq -r '.env.CLAUDE_CODE_AUTO_MODE_SERVER' "$project/.claude/settings.local.json")" = "0"
 
 echo "Claude tool-search and auto-mode installer regression tests passed"

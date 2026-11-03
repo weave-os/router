@@ -105,7 +105,7 @@ explicitly to its managed Codex config.
 
 | Path                                  | Purpose                                                       |
 | ------------------------------------- | ------------------------------------------------------------- |
-| `~/.claude/settings.json`             | Sets `env.ANTHROPIC_BASE_URL`, `env.ANTHROPIC_CUSTOM_HEADERS` with `X-Weave-Router-Key`, `env.ENABLE_TOOL_SEARCH=true` (a custom base URL otherwise inlines tool schemas into every request), `env.CLAUDE_CODE_AUTO_MODE_SERVER=0` (auto mode's server-side classifier has no verdict on non-Anthropic turns), `statusLine`, and Claude Code `attribution` so commits/PRs credit Weave Router. Other keys preserved. |
+| `~/.claude/settings.json`             | Sets `env.ANTHROPIC_BASE_URL`, `env.ANTHROPIC_CUSTOM_HEADERS` with `X-Weave-Router-Key`, `env.ENABLE_TOOL_SEARCH=true` (a custom base URL otherwise inlines tool schemas into every request), `env.CLAUDE_CODE_AUTO_MODE_SERVER=0` (auto mode's server-side classifier has no verdict on non-Anthropic turns; project scope writes it to `settings.local.json`), `statusLine`, and Claude Code `attribution` so commits/PRs credit Weave Router. Other keys preserved. |
 | `~/.weave/cc-statusline.sh`           | Shows the model you picked, the model served, and an estimated session cost comparison. Also answers `/router-status` locally through a prompt hook. It is not a routing health check. |
 
 **Project scope (`--scope project`):**
