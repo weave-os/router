@@ -80,19 +80,19 @@ func (e *RequestEnvelope) AvailableToolNames() []string {
 // ResponseToolNames, so a call naming a sanitized upstream alias restores the
 // client's original name.
 func (e *RequestEnvelope) SeedToolCallNames(wireAliases map[string]string) map[string]string {
-	kind, pinned := anthropicToolChoice(e.body)
+	kind, namedTool := anthropicToolChoice(e.body)
 	if e.format == FormatOpenAI {
 		if gjson.GetBytes(e.body, "n").Int() > 1 {
 			return nil
 		}
-		kind, pinned = openAIToolChoice(e.body)
+		kind, namedTool = openAIToolChoice(e.body)
 	}
 	if kind == toolChoiceNone {
 		return nil
 	}
 	var names map[string]string
 	for _, tool := range e.ToolDescriptors() {
-		if tool.ServerExecuted || tool.Name == "" || (kind == toolChoiceNamed && tool.Name != pinned) {
+		if tool.ServerExecuted || tool.Name == "" || (kind == toolChoiceNamed && tool.Name != namedTool) {
 			continue
 		}
 		if names == nil {
