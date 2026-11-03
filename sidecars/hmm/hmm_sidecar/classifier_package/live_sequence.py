@@ -200,9 +200,19 @@ def finalize_embedding_documents(
 
     return bounded_elements, {
         **debug,
-        "hmm_embedding_document_policy": GEMINI_DOCUMENT_POLICY,
-        "hmm_embedding_document_byte_limit": GEMINI_EMBEDDING_2_MAX_INPUT_BYTES,
-        "hmm_embedding_input_truncation": "raw_v5_contractual_byte_budget",
+        "hmm_embedding_document_policy": (
+            FULL_CANONICAL_DOCUMENT_POLICY
+            if preserve_full_canonical_data
+            else LIVE_EMBEDDING_DOCUMENT_POLICY
+        ),
+        "hmm_embedding_document_byte_limit": (
+            None if preserve_full_canonical_data else MAX_LIVE_EMBEDDING_DOCUMENT_BYTES
+        ),
+        "hmm_embedding_input_truncation": (
+            "forbidden_provider_must_reject_oversize"
+            if preserve_full_canonical_data
+            else "legacy_explicit_document_boundary"
+        ),
         "hmm_embedding_documents_bounded": bounded_count,
         "hmm_embedding_source_max_bytes": max(source_sizes, default=0),
         "hmm_embedding_document_max_bytes": max(
