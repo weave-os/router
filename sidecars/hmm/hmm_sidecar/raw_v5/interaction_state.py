@@ -105,7 +105,7 @@ def raw_round_vectors(
 
 
 def completed_rounds(observations: np.ndarray) -> np.ndarray:
-    """Rounds usable for HMM fitting: a trailing round without its agent block is dropped."""
+    """NaN in the last row means its agent block has not arrived yet, so drop that round."""
     if np.isnan(observations[-1]).any():
         return observations[:-1]
     return observations
