@@ -286,11 +286,14 @@ still applies, so a successful probe does not prove subscription-specific quota.
 An explicit `ROUTER_HARD_PIN_MODEL`
 retains the utility override, and deliberate `/force-model` choices still win.
 
-**Classifier turns are scored, not hard-pinned.** Claude Code's security
+**Classifier turns are not hard-pinned.** Claude Code's security
 monitor is a fresh window (own system prompt, ~50k-token transcript as
 payload, `max_tokens=64`, `thinking: disabled`), so `isUnpinnedScoredTurn`
-sends it through `routeWithoutPin`: the scorer picks for its shape, `/force-model`
-still wins, and no session pin is read or written — an anchored pin here would
+sends it through `routeWithoutPin`: `/force-model` still wins, an API-billed
+classifier is served on the model the client requested
+(`classifier_requested_model`; Claude Code asks for Sonnet 5, and the scorer
+picked Opus for most of them), an unservable request falls to the scorer, and
+no session pin is read or written — an anchored pin here would
 leak into the conversation that follows, and the conversation's pin was not
 scored for this prompt. Routing markers skip it too:
 the transcript is the thing being graded, and the verdict is machine-parsed.

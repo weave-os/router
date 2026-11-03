@@ -659,6 +659,12 @@ func (s *Service) routeWithoutPin(
 		res.UsageBypass = true
 		return res, nil
 	}
+	if dec, ok := s.classifierRequestedModelDecision(ctx, req, res.TurnType); ok {
+		res.Decision = dec
+		res.CallerModelPassthrough = true
+		res.Origin = policy.OverrideSourceRequest
+		return res, nil
+	}
 	decision, err := s.routeFor(ctx, req)
 	if err != nil {
 		return res, err
@@ -666,6 +672,23 @@ func (s *Service) routeWithoutPin(
 	res.Decision = decision
 	res.Fresh = decision
 	return res, nil
+}
+
+// classifierRequestedModelDecision serves an API-billed Claude Code classifier
+// on the model the client asked for: the client picks it for the verdict, and
+// a scorer substitute costs more without grading the transcript any better.
+// Subscription callers stay on classifierPassthroughEngaged or the scorer,
+// which owns their spent-plan fallback; an unservable model is scored.
+func (s *Service) classifierRequestedModelDecision(ctx context.Context, req router.Request, tt turntype.TurnType) (router.Decision, bool) {
+	if tt != turntype.Classifier || anthropicSubscriptionFromContext(ctx) != "" || !catalog.PermittedBy(req.ProductEligibility, req.RequestedModel) {
+		return router.Decision{}, false
+	}
+	dec, err := s.callerModelPassthroughDecision(ctx, req)
+	if err != nil || !s.clients.Has(dec.Provider) {
+		return router.Decision{}, false
+	}
+	dec.Reason = reasonClassifierRequestedModel
+	return dec, true
 }
 
 func authoritativePolicyTurn(tt turntype.TurnType) bool {
