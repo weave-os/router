@@ -206,7 +206,7 @@ def finalize_embedding_documents(
     *,
     preserve_full_canonical_data: bool = False,
 ) -> tuple[list[LiveFlowTurn], dict[str, Any]]:
-    """Apply the selected document policy and add privacy-safe diagnostics."""
+    """Diagnostics carry only byte counts and policy labels, never document text."""
     source_sizes = [len(element.turn_text.encode("utf-8")) for element in elements]
     bounded_elements: list[LiveFlowTurn] = []
     bounded_count = 0

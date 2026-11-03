@@ -18,7 +18,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from hmm_sidecar.raw_v5.core_canonical import canonical_json_bytes
+from hmm_sidecar.raw_v5.core_canonical import canonical_json
 
 
 def sha256_text(value: str) -> str:
@@ -64,5 +64,7 @@ def self_sha256(model: BaseModel, *, exclude_field: str) -> str:
     """
 
     return hashlib.sha256(
-        canonical_json_bytes(model.model_dump(mode="json", exclude={exclude_field}))
+        canonical_json(model.model_dump(mode="json", exclude={exclude_field})).encode(
+            "utf-8"
+        )
     ).hexdigest()

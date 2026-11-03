@@ -420,10 +420,6 @@ class ComplexityClassifier:
         value = self.metadata.get("sequence_autoencoder_identity")
         return str(value) if value else None
 
-    @property
-    def hmm_bundle_version(self) -> str:
-        return str(self.metadata["hmm_bundle_version"])
-
     def contributions(self, features: np.ndarray) -> np.ndarray:
         """Exact per-feature attributions (TreeSHAP) for every class.
 

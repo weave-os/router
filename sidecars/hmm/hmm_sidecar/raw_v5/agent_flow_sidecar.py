@@ -958,18 +958,14 @@ class AgentFlowHMMSidecar:
         turns: list[LiveFlowTurn],
         state_vectors: Sequence[Sequence[float]],
     ) -> np.ndarray:
-        feature_schema = self.sequence_contract.get("feature_schema")
-        if not isinstance(feature_schema, dict):
-            raise AgentFlowSidecarError(
-                "active sidecar sequence contract missing feature_schema"
-            )
+        feature_schema = self.sequence_contract["feature_schema"]
         categorical_dim = int(feature_schema.get("categorical_dim") or 0)
         if categorical_dim != 13:
             raise AgentFlowSidecarError(
                 f"expected 13 categorical features from active sidecar, got {categorical_dim}"
             )
         relative_position_dim = raw_relative_position_dim(feature_schema)
-        expected_state_dim = int(self.sequence_contract.get("state_dimension") or 0)
+        expected_state_dim = int(self.sequence_contract["state_dimension"])
         rows: list[list[float]] = []
         denom = max(len(turns) - 1, 1)
         for index, (turn, state_vector) in enumerate(
@@ -978,7 +974,7 @@ class AgentFlowHMMSidecar:
             embedding = list(state_vector)
             if not embedding:
                 raise AgentFlowSidecarError("state encoder returned an empty vector")
-            if expected_state_dim and len(embedding) != expected_state_dim:
+            if len(embedding) != expected_state_dim:
                 raise AgentFlowSidecarError(
                     "state encoder vector width does not match active sidecar "
                     f"contract: got {len(embedding)}, expected {expected_state_dim}"

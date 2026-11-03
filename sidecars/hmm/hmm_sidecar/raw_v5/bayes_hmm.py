@@ -15,7 +15,6 @@ def _full_gaussian_logpdf(
     means: np.ndarray,
     covariances: np.ndarray,
 ) -> np.ndarray:
-    """Return log p(x_t | z_t=k) for full-covariance Gaussian states."""
     log_probs = np.empty((x.shape[0], means.shape[0]), dtype=float)
     const = x.shape[1] * np.log(2.0 * np.pi)
     for state in range(means.shape[0]):

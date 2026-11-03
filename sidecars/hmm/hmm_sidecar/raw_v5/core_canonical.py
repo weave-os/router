@@ -1,7 +1,7 @@
 """Canonical JSON serialization shared across ml_infra and ml_dev.
 
-Byte-compatibility contract: ``canonical_json``/``canonical_json_bytes`` in
-this module produce output byte-for-byte identical to the historical private
+Byte-compatibility contract: ``canonical_json`` in this module, UTF-8
+encoded, produces output byte-for-byte identical to the historical private
 copies of ``_canonical_json_bytes`` in ``ml_dev/pipeline_artifact_store.py``
 and ``ml_dev/collector_gcs_ledger.py`` for every input, and identical to
 ``ml_dev/agent_flow/extraction/conversation_dataset/canonical_hashing.py:canonical_json``
@@ -30,7 +30,3 @@ def canonical_json(value: object) -> str:
         separators=(",", ":"),
         sort_keys=True,
     )
-
-
-def canonical_json_bytes(value: object) -> bytes:
-    return canonical_json(value).encode("utf-8")
