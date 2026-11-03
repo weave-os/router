@@ -12,14 +12,12 @@ import numpy as np
 import pytest
 
 from hmm_sidecar import artifacts
-from hmm_sidecar.raw_v5 import gemini_embeddings
+from hmm_sidecar.classifier_package import gemini_embeddings
 
-FIXTURES = Path(__file__).parent / "fixtures" / "raw_v5"
+FIXTURES = Path(__file__).parent / "fixtures" / "classifier_package"
 
 
-def _raw_v5_manifest(
-    classifier_files: dict[str, str], hmm_files: dict[str, str]
-) -> dict:
+def _manifest(classifier_files: dict[str, str], hmm_files: dict[str, str]) -> dict:
     return {
         "schema_version": "hmm_router_classifier_package_v1",
         "runtime_contract": {"input_mode": "raw_v5_configured_serving_v1"},
@@ -37,24 +35,24 @@ def _write_package(root: Path, *, tamper: bool = False) -> None:
     (root / "hmm_bundle").mkdir()
     (root / "classifier" / "model.json").write_bytes(b"classifier")
     (root / "hmm_bundle" / "manifest.json").write_bytes(b"bundle")
-    manifest = _raw_v5_manifest(
+    manifest = _manifest(
         {"model.json": _sha(b"classifier")},
         {"manifest.json": _sha(b"bundle" if not tamper else b"other")},
     )
     (root / "manifest.json").write_text(json.dumps(manifest))
 
 
-def test_raw_v5_manifest_detection_requires_the_configured_input_mode() -> None:
-    manifest = _raw_v5_manifest({}, {})
-    assert artifacts.is_raw_v5_package_manifest(manifest)
+def test_manifest_detection_requires_the_configured_input_mode() -> None:
+    manifest = _manifest({}, {})
+    assert artifacts.is_classifier_package_manifest(manifest)
     manifest["runtime_contract"] = {"input_mode": "legacy"}
-    assert not artifacts.is_raw_v5_package_manifest(manifest)
-    assert not artifacts.is_raw_v5_package_manifest(
+    assert not artifacts.is_classifier_package_manifest(manifest)
+    assert not artifacts.is_classifier_package_manifest(
         {"schema_version": "hmm_router_frozen_package_v1"}
     )
 
 
-def test_raw_v5_manifest_verifies_every_classifier_and_bundle_file(
+def test_manifest_verifies_every_classifier_and_bundle_file(
     tmp_path: Path,
 ) -> None:
     _write_package(tmp_path)
@@ -67,9 +65,9 @@ def test_raw_v5_manifest_verifies_every_classifier_and_bundle_file(
         artifacts._verify_manifest(tampered)
 
 
-def test_raw_v5_artifact_id_matches_the_registry_model_id() -> None:
+def test_artifact_id_matches_the_registry_model_id() -> None:
     sha = "ee62a7cc4f188b5e" + "0" * 48
-    loaded = artifacts.FrozenArtifacts(Path("."), None, sha, None, raw_v5_manifest={})
+    loaded = artifacts.FrozenArtifacts(Path("."), None, sha, None, package_manifest={})
     assert loaded.model_id == "hmm_router_sidecar_package_ee62a7cc4f188b5e"
 
 
@@ -146,11 +144,11 @@ def _stub_vector(text: str, dim: int) -> list[float]:
     not os.environ.get("HMM_RAW_V5_PARITY_PACKAGE"),
     reason="set HMM_RAW_V5_PARITY_PACKAGE to a raw-V5 package tarball to run parity",
 )
-def test_raw_v5_matches_the_production_golden(monkeypatch, tmp_path: Path) -> None:
+def test_matches_the_production_golden(monkeypatch, tmp_path: Path) -> None:
     """Golden readouts were produced by Weave's production sidecar on the same
     package with the same deterministic stub embeddings."""
-    from hmm_sidecar.raw_v5 import agent_flow_sidecar
-    from hmm_sidecar.raw_v5.serving import RawV5Classifier
+    from hmm_sidecar.classifier_package import agent_flow_sidecar
+    from hmm_sidecar.classifier_package.serving import PackageClassifier
 
     async def stub_embeddings(texts, *, model, **kwargs):
         dim = kwargs.get("vertex_output_dimensionality") or 3072
@@ -163,7 +161,7 @@ def test_raw_v5_matches_the_production_golden(monkeypatch, tmp_path: Path) -> No
         archive.extractall(tmp_path, filter="data")
     manifest = artifacts._verify_manifest(tmp_path)
     assert isinstance(manifest, dict)
-    classifier = RawV5Classifier(tmp_path, manifest)
+    classifier = PackageClassifier(tmp_path, manifest)
     cases = json.loads((FIXTURES / "cases.json").read_text())
     golden = {
         row["route_id"]: row
@@ -191,10 +189,10 @@ def test_raw_v5_matches_the_production_golden(monkeypatch, tmp_path: Path) -> No
     not os.environ.get("HMM_RAW_V5_PARITY_PACKAGE"),
     reason="set HMM_RAW_V5_PARITY_PACKAGE to a raw-V5 package tarball",
 )
-def test_raw_v5_rejects_hmm_bundle_the_classifier_was_not_trained_on(
+def test_rejects_hmm_bundle_the_classifier_was_not_trained_on(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from hmm_sidecar.raw_v5.serving import RawV5Classifier, RawV5PackageError
+    from hmm_sidecar.classifier_package.serving import PackageClassifier, PackageError
 
     monkeypatch.setenv("HMM_VERTEX_PROJECT", "stub")
     with tarfile.open(os.environ["HMM_RAW_V5_PARITY_PACKAGE"]) as archive:
@@ -202,5 +200,5 @@ def test_raw_v5_rejects_hmm_bundle_the_classifier_was_not_trained_on(
     manifest = artifacts._verify_manifest(tmp_path)
     bundle = tmp_path / "hmm_bundle" / "bundle.json"
     bundle.write_bytes(bundle.read_bytes() + b"\n")
-    with pytest.raises(RawV5PackageError, match="not trained on"):
-        RawV5Classifier(tmp_path, manifest)
+    with pytest.raises(PackageError, match="not trained on"):
+        PackageClassifier(tmp_path, manifest)

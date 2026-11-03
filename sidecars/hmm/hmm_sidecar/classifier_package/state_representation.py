@@ -7,15 +7,15 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Mapping, Sequence
 
-from hmm_sidecar.raw_v5.raw_v5_contract import (
-    RAW_V5_GEMINI_ELEMENT_INPUT_CONTRACT_SHA256,
-    RAW_V5_GEMINI_ELEMENT_SERIALIZER_VERSION,
-    RAW_V5_GEMINI_ELEMENT_STATE_DEFINITION,
-    RAW_V5_GEMINI_EMBEDDING_2_DIM,
-    RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS,
-    RAW_V5_GEMINI_EMBEDDING_2_MODEL,
+from hmm_sidecar.classifier_package.contract import (
+    GEMINI_ELEMENT_INPUT_CONTRACT_SHA256,
+    GEMINI_ELEMENT_SERIALIZER_VERSION,
+    GEMINI_ELEMENT_STATE_DEFINITION,
+    GEMINI_EMBEDDING_2_DIM,
+    GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS,
+    GEMINI_EMBEDDING_2_MODEL,
 )
-from hmm_sidecar.raw_v5.core import sha256_text
+from hmm_sidecar.classifier_package.core import sha256_text
 
 STATE_ENCODER_CONTRACT_VERSION = "hmm_router_state_encoder_contract_v1"
 # Provider-embedding corpus rows that pin the distinct adjacent-turn input
@@ -249,7 +249,7 @@ GEMINI_RAW_ROUTER_REPRESENTATIONS = frozenset(
         GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT,
     )
 )
-RAW_V5_ROUTER_REPRESENTATIONS = GEMINI_RAW_ROUTER_REPRESENTATIONS
+ROUTER_REPRESENTATIONS = GEMINI_RAW_ROUTER_REPRESENTATIONS
 
 
 def gemini_last_state_documents(texts: Sequence[str]) -> tuple[str, ...]:
@@ -344,23 +344,23 @@ class StateEncoderContract:
 # replacing an existing entry and invalidating historical bundles.
 
 
-# Serving supports one representation; see raw_v5_serving_profile._PROFILES.
+# Serving supports one representation; see serving_profile._PROFILES.
 _CONTRACTS: dict[SequenceRepresentation, StateEncoderContract] = {
     SequenceRepresentation.GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT: StateEncoderContract(
         contract_version=STATE_ENCODER_CONTRACT_VERSION,
         representation=SequenceRepresentation.GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT,
-        state_definition=RAW_V5_GEMINI_ELEMENT_STATE_DEFINITION,
-        model_id=RAW_V5_GEMINI_EMBEDDING_2_MODEL,
+        state_definition=GEMINI_ELEMENT_STATE_DEFINITION,
+        model_id=GEMINI_EMBEDDING_2_MODEL,
         model_revision=None,
         tokenizer_revision=None,
-        serializer_version=RAW_V5_GEMINI_ELEMENT_SERIALIZER_VERSION,
-        serializer_sha256=RAW_V5_GEMINI_ELEMENT_INPUT_CONTRACT_SHA256,
-        hidden_dim=RAW_V5_GEMINI_EMBEDDING_2_DIM,
+        serializer_version=GEMINI_ELEMENT_SERIALIZER_VERSION,
+        serializer_sha256=GEMINI_ELEMENT_INPUT_CONTRACT_SHA256,
+        hidden_dim=GEMINI_EMBEDDING_2_DIM,
         extraction="provider_embedding",
         compute_dtype="provider_defined",
         wire_dtype="provider_float_sequence",
         added_normalization="provider_defined",
-        max_window_tokens=RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS,
+        max_window_tokens=GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS,
         window_policy="per_message_user_or_agent_alone_gemini_8000_byte_marked_prefix_v1",
         position_policy="raw_user_agent_event_order_per_message_v1",
         extraction_parity_fixture_sha256=None,

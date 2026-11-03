@@ -5,7 +5,7 @@ exact model input the candidate was trained on. This contract makes that
 configuration data: the
 publisher declares it, the sidecar parses it through this one closed boundary
 model, and both sides resolve the same
-:class:`~ml_dev.hmm_router.raw_v5_serving_profile.RawV5ServingProfile` from it.
+:class:`~hmm_sidecar.classifier_package.serving_profile.ServingProfile` from it.
 Anything unknown, incomplete, mutated, or internally inconsistent fails closed
 here rather than serving a different geometry than the one that was trained.
 """
@@ -17,34 +17,32 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from hmm_sidecar.raw_v5.complexity_classifier import (
-    raw_v5_no_tool_context_feature_layout,
+from hmm_sidecar.classifier_package.complexity_classifier import (
+    no_tool_context_feature_layout,
 )
-from hmm_sidecar.raw_v5.raw_v5_serving_profile import (
-    RawV5InteractionStateGeometry,
-    RawV5ServingConfig,
-    RawV5ServingProfile,
-    raw_v5_serving_profile,
+from hmm_sidecar.classifier_package.serving_profile import (
+    InteractionStateGeometry,
+    ServingConfig,
+    ServingProfile,
+    serving_profile,
 )
-from hmm_sidecar.raw_v5.core import canonical_json, sha256_text
+from hmm_sidecar.classifier_package.core import canonical_json, sha256_text
 
 #: v2 adds the round-level HMM and lookback geometry of a per-message package.
 #: v1 stays byte-identical so every published package keeps resolving.
-RAW_V5_INTERACTION_STATE_RUNTIME_CONTRACT_VERSION = (
-    "hmm_router_raw_v5_runtime_contract_v2"
-)
+INTERACTION_STATE_RUNTIME_CONTRACT_VERSION = "hmm_router_raw_v5_runtime_contract_v2"
 
 #: The ``runtime_contract.input_mode`` value a configuration-driven raw-V5
 #: package declares. The two fixed legacy modes stay exactly as published so
 #: the deployed packages remain explicit rollback targets.
-RAW_V5_CONFIGURED_INPUT_MODE = "raw_v5_configured_serving_v1"
+CONFIGURED_INPUT_MODE = "raw_v5_configured_serving_v1"
 
 
-class RawV5RuntimeContractError(ValueError):
+class RuntimeContractError(ValueError):
     """A package's declared runtime contract cannot be served as declared."""
 
 
-class RawV5InputSource(StrEnum):
+class InputSource(StrEnum):
     """Where the routed request's raw conversation elements come from.
 
     This is orthogonal to the trained document geometry: the same profile can
@@ -56,7 +54,7 @@ class RawV5InputSource(StrEnum):
     LIVE_CONVERSATION = "raw_v5_live_conversation_messages"
 
 
-class RawV5RuntimeContract(BaseModel):
+class RuntimeContract(BaseModel):
     """The runtime contract a raw-V5 package manifest declares.
 
     Serving supports one configuration, so the checks here are the ones that
@@ -67,10 +65,10 @@ class RawV5RuntimeContract(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="ignore")
 
-    contract_version: Literal[RAW_V5_INTERACTION_STATE_RUNTIME_CONTRACT_VERSION]
-    input_source: RawV5InputSource
-    serving_config: RawV5ServingConfig
-    interaction_state: RawV5InteractionStateGeometry
+    contract_version: Literal[INTERACTION_STATE_RUNTIME_CONTRACT_VERSION]
+    input_source: InputSource
+    serving_config: ServingConfig
+    interaction_state: InteractionStateGeometry
     sequence_representation: str
     embedding_model: str
     embedding_dim: int
@@ -81,15 +79,15 @@ class RawV5RuntimeContract(BaseModel):
     classifier_feature_layout_sha256: str
     classifier_feature_dim: int
 
-    def resolved_profile(self) -> RawV5ServingProfile:
+    def resolved_profile(self) -> ServingProfile:
         """Byte identity is the package sha256 pin plus the parity test; this only
         proves the code builds the serializer and feature layout the classifier
         was trained on."""
 
         try:
-            profile = raw_v5_serving_profile(self.serving_config)
+            profile = serving_profile(self.serving_config)
         except ValueError as error:
-            raise RawV5RuntimeContractError(str(error)) from error
+            raise RuntimeContractError(str(error)) from error
         declared = {
             "sequence_representation": self.sequence_representation,
             "embedding_model": self.embedding_model,
@@ -108,17 +106,17 @@ class RawV5RuntimeContract(BaseModel):
             key for key, value in declared.items() if expected[key] != value
         )
         if mismatched:
-            raise RawV5RuntimeContractError(
+            raise RuntimeContractError(
                 "raw V5 runtime contract disagrees with the serving profile: "
                 f"fields={mismatched}"
             )
         if len(set(self.classes)) != len(self.classes):
-            raise RawV5RuntimeContractError(
+            raise RuntimeContractError(
                 f"raw V5 runtime contract repeats a class: {list(self.classes)}"
             )
         # The round-level filter always emits belief dynamics, then the
         # declared lookback.
-        layout = raw_v5_no_tool_context_feature_layout(
+        layout = no_tool_context_feature_layout(
             self.hmm_states,
             embedding_dim=profile.embedding_dim,
             belief_dynamics=True,
@@ -134,7 +132,7 @@ class RawV5RuntimeContract(BaseModel):
             self.classifier_feature_layout_sha256,
             self.classifier_feature_dim,
         ):
-            raise RawV5RuntimeContractError(
+            raise RuntimeContractError(
                 "raw V5 runtime contract's classifier feature layout does not "
                 "match its geometry: "
                 f"states={self.hmm_states} feature_dim={self.classifier_feature_dim}"
@@ -142,17 +140,17 @@ class RawV5RuntimeContract(BaseModel):
         return profile
 
 
-def parse_raw_v5_runtime_contract(value: object) -> RawV5RuntimeContract:
+def parse_runtime_contract(value: object) -> RuntimeContract:
     """Parse and self-check a package's declared raw-V5 runtime contract."""
 
     if not isinstance(value, dict):
-        raise RawV5RuntimeContractError(
+        raise RuntimeContractError(
             "raw V5 package does not declare a runtime contract object"
         )
     try:
-        contract = RawV5RuntimeContract.model_validate(value)
+        contract = RuntimeContract.model_validate(value)
     except ValidationError as error:
-        raise RawV5RuntimeContractError(
+        raise RuntimeContractError(
             f"raw V5 runtime contract is not servable as declared: {error}"
         ) from error
     contract.resolved_profile()

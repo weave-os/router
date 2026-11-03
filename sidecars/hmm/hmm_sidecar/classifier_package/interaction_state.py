@@ -27,15 +27,18 @@ from typing import Sequence
 import numpy as np
 from sklearn.decomposition import PCA
 
-from hmm_sidecar.raw_v5.bayes_hmm import (
+from hmm_sidecar.classifier_package.bayes_hmm import (
     BayesianStickyHDPHMM,
     _diag_gaussian_logpdf,
 )
-from hmm_sidecar.raw_v5.conversation_sequence import AGENT_ELEMENT, USER_ELEMENT
+from hmm_sidecar.classifier_package.conversation_sequence import (
+    AGENT_ELEMENT,
+    USER_ELEMENT,
+)
 
 # The layout vocabulary lives in the dependency-free module so contract
 # validators need not import this one; it stays importable from here.
-from hmm_sidecar.raw_v5.hmm_feature_arms import (  # noqa: F401
+from hmm_sidecar.classifier_package.hmm_feature_arms import (  # noqa: F401
     ELEMENT_LOOKBACK_BLOCK_NAME,
     ElementLookback,
     element_lookback_layout_block,
@@ -43,7 +46,7 @@ from hmm_sidecar.raw_v5.hmm_feature_arms import (  # noqa: F401
     resolve_element_lookback,
     stored_vector_lookback_layout_block,
 )
-from hmm_sidecar.raw_v5.serving_features import belief_dynamics_features
+from hmm_sidecar.classifier_package.serving_features import belief_dynamics_features
 
 
 @dataclass(frozen=True)

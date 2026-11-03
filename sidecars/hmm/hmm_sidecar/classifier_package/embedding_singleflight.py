@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from hmm_sidecar.raw_v5.gemini_embeddings import EmbeddingVector
+from hmm_sidecar.classifier_package.gemini_embeddings import EmbeddingVector
 
 FetchMissing = Callable[[list[str]], Awaitable[tuple[dict[str, EmbeddingVector], Any]]]
 

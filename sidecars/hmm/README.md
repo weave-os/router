@@ -53,7 +53,7 @@ Weave's managed router publishes. They use the same variables
 verifies every `classifier/` and `hmm_bundle/` file against the manifest digest
 list and reports `hmm_router_sidecar_package_<first 16 hex of the package
 sha256>` as `classifier_artifact_id`, which is the id a policy release pins.
-The serving code is in `hmm_sidecar/raw_v5/`.
+The serving code is in `hmm_sidecar/classifier_package/`.
 
 Only Gemini packages are served. Embeddings use `google-genai`:
 
@@ -65,9 +65,9 @@ Only Gemini packages are served. Embeddings use `google-genai`:
 | `HMM_VERTEX_LOCATION` | Vertex location |
 
 These packages carry no embedding probe vector, so `/readyz` reports no probe
-similarity for them. `tests/test_raw_v5.py` runs the production-parity check
+similarity for them. `tests/test_classifier_package.py` runs the production-parity check
 when `HMM_RAW_V5_PARITY_PACKAGE` names a package tarball; the fixtures under
-`tests/fixtures/raw_v5/` are synthetic conversations and the readouts Weave's
+`tests/fixtures/classifier_package/` are synthetic conversations and the readouts Weave's
 production sidecar produced for them with deterministic stub embeddings.
 
 ## Embedding compatibility
@@ -119,4 +119,4 @@ The public v1 package contains data arrays and XGBoost JSON only. The legacy
 training pickle, training rows, prompts, embedding cache, local filesystem
 paths, and WorkWeave registry records are excluded. Raw-V5 packages include a
 pickled HMM bundle, so load them only from a digest you trust; the sidecar maps
-the bundle's training module paths onto `hmm_sidecar.raw_v5` and nothing else.
+the bundle's training module paths onto `hmm_sidecar.classifier_package` and nothing else.

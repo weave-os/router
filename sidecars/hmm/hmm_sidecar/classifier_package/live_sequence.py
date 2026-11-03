@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from hmm_sidecar.raw_v5.conversation_sequence import (
+from hmm_sidecar.classifier_package.conversation_sequence import (
     AGENT_STEP_ACTION_BOUNDARY,
     AGENT_ELEMENT,
     ELEMENT_KIND_SLOTS,
@@ -25,29 +25,29 @@ from hmm_sidecar.raw_v5.conversation_sequence import (
     format_agent_reply_document,
     format_user_message_document,
 )
-from hmm_sidecar.raw_v5.raw_v5_contract import (
-    RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS,
-    RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_BYTES,
+from hmm_sidecar.classifier_package.contract import (
+    GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS,
+    GEMINI_EMBEDDING_2_MAX_INPUT_BYTES,
 )
-from hmm_sidecar.raw_v5.raw_v5_sequence import (
-    RawV5SequenceError,
+from hmm_sidecar.classifier_package.documents import (
+    DocumentError,
     # Intentionally share the trainer's one exact budget/window implementation;
     # reproducing it here would create a second model-input serializer.
-    _bounded_raw_v5_gemini_agent_message_document,
-    _bounded_raw_v5_gemini_user_message_document,
-    format_raw_v5_router_agent_response_only_document,
+    _bounded_gemini_agent_message_document,
+    _bounded_gemini_user_message_document,
+    format_router_agent_response_only_document,
 )
-from hmm_sidecar.raw_v5.raw_v5_serving_profile import (
-    RawV5DocumentWindow,
-    RawV5ServingProfile,
-    RawV5ToolEvidenceMode,
+from hmm_sidecar.classifier_package.serving_profile import (
+    DocumentWindow,
+    ServingProfile,
+    ToolEvidenceMode,
 )
-from hmm_sidecar.raw_v5.serving_features import CATEGORICAL_DIM
+from hmm_sidecar.classifier_package.serving_features import CATEGORICAL_DIM
 
 import json
-from hmm_sidecar.raw_v5.raw_v5_sequence import (
-    RAW_V5_ROUTER_NO_RESPONSE_MARKER,
-    RAW_V5_ROUTER_NO_TOOL_TRACE_MARKER,
+from hmm_sidecar.classifier_package.documents import (
+    ROUTER_NO_RESPONSE_MARKER,
+    ROUTER_NO_TOOL_TRACE_MARKER,
 )
 
 _DOCUMENT_BOUNDARY_MARKER = "\n[content omitted at HMM embedding boundary]"
@@ -98,11 +98,11 @@ MAX_LIVE_TOOL_GROUPS = 8
 MAX_LIVE_TOOL_INPUT_KEYS = 8
 MAX_LIVE_TOOL_ITEM_CHARS = 300
 
-RAW_V5_GEMINI_DOCUMENT_POLICY = "raw_v5_gemini_serialized_8000_byte_budget_v4"
+GEMINI_DOCUMENT_POLICY = "raw_v5_gemini_serialized_8000_byte_budget_v4"
 _CONTEXT_OMISSION_MARKER_RESERVE = 80
 
 
-class RawV5RouteMessageRole(StrEnum):
+class RouteMessageRole(StrEnum):
     SYSTEM = "system"
     DEVELOPER = "developer"
     USER = "user"
@@ -110,9 +110,7 @@ class RawV5RouteMessageRole(StrEnum):
     MODEL = "model"
 
 
-_RAW_V5_ROUTE_MESSAGE_ROLE_VALUES = frozenset(
-    role.value for role in RawV5RouteMessageRole
-)
+_ROUTE_MESSAGE_ROLE_VALUES = frozenset(role.value for role in RouteMessageRole)
 
 
 @dataclass(frozen=True)
@@ -210,8 +208,8 @@ def finalize_embedding_documents(
 
     return bounded_elements, {
         **debug,
-        "hmm_embedding_document_policy": RAW_V5_GEMINI_DOCUMENT_POLICY,
-        "hmm_embedding_document_byte_limit": RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_BYTES,
+        "hmm_embedding_document_policy": GEMINI_DOCUMENT_POLICY,
+        "hmm_embedding_document_byte_limit": GEMINI_EMBEDDING_2_MAX_INPUT_BYTES,
         "hmm_embedding_input_truncation": "raw_v5_contractual_byte_budget",
         "hmm_embedding_documents_bounded": bounded_count,
         "hmm_embedding_source_max_bytes": max(source_sizes, default=0),
@@ -269,8 +267,8 @@ def route_message_role(value: Any) -> str:
     if not isinstance(value, dict):
         return ""
     role = str(value.get("role") or "").strip().lower()
-    if role == RawV5RouteMessageRole.MODEL.value:
-        return RawV5RouteMessageRole.ASSISTANT.value
+    if role == RouteMessageRole.MODEL.value:
+        return RouteMessageRole.ASSISTANT.value
     return role
 
 
@@ -425,21 +423,21 @@ def tool_context_metadata(messages: Any) -> dict[str, Any]:
     }
 
 
-def _raw_v5_user_document(turn_index: int, user_text: str) -> str:
+def _user_document(turn_index: int, user_text: str) -> str:
     text = clean_text(user_text)
     if not text:
-        raise RawV5SequenceError(
+        raise DocumentError(
             f"raw V5 live user prompt is blank: turn_index={turn_index}"
         )
     return f"Raw user message (turn {turn_index}):\n{text}"
 
 
-def _raw_v5_agent_document(
+def _agent_document(
     turn_index: int,
     *,
     response_blocks: list[str],
     trace: dict[str, Any] | None,
-    profile: RawV5ServingProfile,
+    profile: ServingProfile,
 ) -> str:
     """Serialize ``A_t`` exactly as the profile's representation was trained.
 
@@ -448,19 +446,19 @@ def _raw_v5_agent_document(
     trained documents never contained one.
     """
 
-    if profile.config.tool_evidence is RawV5ToolEvidenceMode.USER_AGENT_ONLY:
-        return format_raw_v5_router_agent_response_only_document(
+    if profile.config.tool_evidence is ToolEvidenceMode.USER_AGENT_ONLY:
+        return format_router_agent_response_only_document(
             turn_index,
             response_blocks,
         )
-    return _raw_v5_agent_tool_trace_document(
+    return _agent_tool_trace_document(
         turn_index,
         response_blocks=response_blocks,
         trace=trace,
     )
 
 
-def _raw_v5_agent_tool_trace_document(
+def _agent_tool_trace_document(
     turn_index: int,
     *,
     response_blocks: list[str],
@@ -476,9 +474,9 @@ def _raw_v5_agent_tool_trace_document(
             )
         )
     else:
-        sections.append("Response blocks:\n" + RAW_V5_ROUTER_NO_RESPONSE_MARKER)
+        sections.append("Response blocks:\n" + ROUTER_NO_RESPONSE_MARKER)
     if trace is None:
-        sections.append("Tool action trace:\n" + RAW_V5_ROUTER_NO_TOOL_TRACE_MARKER)
+        sections.append("Tool action trace:\n" + ROUTER_NO_TOOL_TRACE_MARKER)
     else:
         sections.append(
             "Tool action trace:\n"
@@ -492,8 +490,8 @@ def _raw_v5_agent_tool_trace_document(
     return "\n\n".join(sections)
 
 
-def _raw_v5_turn_window_document(
-    profile: RawV5ServingProfile,
+def _turn_window_document(
+    profile: ServingProfile,
     *,
     previous_turns: list[tuple[str, str]],
     current_user_text: str,
@@ -504,9 +502,9 @@ def _raw_v5_turn_window_document(
     )
 
 
-def _raw_v5_window_turns(
+def _window_turns(
     source_turns: list[LiveFlowTurn],
-    profile: RawV5ServingProfile,
+    profile: ServingProfile,
 ) -> list[LiveFlowTurn]:
     """Apply the profile's declared lookback geometry to source U/A documents.
 
@@ -517,24 +515,20 @@ def _raw_v5_window_turns(
     """
 
     if not source_turns or len(source_turns) % 2 != 1:
-        raise RawV5SequenceError(
-            "raw V5 live sequence must end at one causal user boundary"
-        )
+        raise DocumentError("raw V5 live sequence must end at one causal user boundary")
     for offset in range(0, len(source_turns) - 1, 2):
         if source_turns[offset].categorical != user_categorical() or source_turns[
             offset + 1
         ].categorical != kind_categorical(AGENT_ELEMENT):
-            raise RawV5SequenceError(
+            raise DocumentError(
                 "raw V5 live sequence requires alternating user/agent turns"
             )
     if source_turns[-1].categorical != user_categorical():
-        raise RawV5SequenceError(
-            "raw V5 live sequence final element is not a user boundary"
-        )
-    if profile.config.document_window is RawV5DocumentWindow.PREVIOUS_ELEMENT:
-        return _raw_v5_previous_element_turns(source_turns, profile)
-    if profile.config.document_window is RawV5DocumentWindow.PER_MESSAGE:
-        return _raw_v5_per_message_turns(source_turns)
+        raise DocumentError("raw V5 live sequence final element is not a user boundary")
+    if profile.config.document_window is DocumentWindow.PREVIOUS_ELEMENT:
+        return _previous_element_turns(source_turns, profile)
+    if profile.config.document_window is DocumentWindow.PER_MESSAGE:
+        return _per_message_turns(source_turns)
 
     max_completed_turns = profile.config.lookback_rounds - 1
     completed_turns: list[tuple[str, str]] = []
@@ -545,7 +539,7 @@ def _raw_v5_window_turns(
         output.extend(
             (
                 LiveFlowTurn(
-                    turn_text=_raw_v5_turn_window_document(
+                    turn_text=_turn_window_document(
                         profile,
                         previous_turns=completed_turns,
                         current_user_text=user_turn.turn_text,
@@ -554,7 +548,7 @@ def _raw_v5_window_turns(
                     categorical=user_turn.categorical,
                 ),
                 LiveFlowTurn(
-                    turn_text=_raw_v5_turn_window_document(
+                    turn_text=_turn_window_document(
                         profile,
                         previous_turns=completed_turns,
                         current_user_text=user_turn.turn_text,
@@ -573,7 +567,7 @@ def _raw_v5_window_turns(
     final_user = source_turns[-1]
     output.append(
         LiveFlowTurn(
-            turn_text=_raw_v5_turn_window_document(
+            turn_text=_turn_window_document(
                 profile,
                 previous_turns=completed_turns,
                 current_user_text=final_user.turn_text,
@@ -585,10 +579,10 @@ def _raw_v5_window_turns(
     return output
 
 
-def _raw_v5_per_message_turns(source_turns: list[LiveFlowTurn]) -> list[LiveFlowTurn]:
+def _per_message_turns(source_turns: list[LiveFlowTurn]) -> list[LiveFlowTurn]:
     """Embed each U and A document alone, as the element store did.
 
-    These are the bounding helpers ``raw_v5_gemini_element_documents`` and the
+    These are the bounding helpers ``gemini_element_documents`` and the
     training sequence builder apply, so a live document and its stored vector
     share one serializer: the user document is the one-round routing document
     and the agent reply is its response blocks, alone, within 8,000 bytes.
@@ -597,9 +591,9 @@ def _raw_v5_per_message_turns(source_turns: list[LiveFlowTurn]) -> list[LiveFlow
     return [
         LiveFlowTurn(
             turn_text=(
-                _bounded_raw_v5_gemini_user_message_document(turn.turn_text)
+                _bounded_gemini_user_message_document(turn.turn_text)
                 if turn.categorical == user_categorical()
-                else _bounded_raw_v5_gemini_agent_message_document(turn.turn_text)
+                else _bounded_gemini_agent_message_document(turn.turn_text)
             ),
             categorical=turn.categorical,
         )
@@ -607,19 +601,19 @@ def _raw_v5_per_message_turns(source_turns: list[LiveFlowTurn]) -> list[LiveFlow
     ]
 
 
-def _raw_v5_previous_element_turns(
+def _previous_element_turns(
     source_turns: list[LiveFlowTurn],
-    profile: RawV5ServingProfile,
+    profile: ServingProfile,
 ) -> list[LiveFlowTurn]:
     raise NotImplementedError(
         "unsupported by the served Gemini per-message raw-V5 profile"
     )
 
 
-def _finalize_raw_v5_live_turns(
+def _finalize_live_turns(
     turns: list[LiveFlowTurn],
     debug: dict[str, Any],
-    profile: RawV5ServingProfile,
+    profile: ServingProfile,
 ) -> tuple[list[LiveFlowTurn], dict[str, Any]]:
     sizes = [len(turn.turn_text.encode("utf-8")) for turn in turns]
     return turns, {
@@ -627,14 +621,14 @@ def _finalize_raw_v5_live_turns(
         "hmm_sequence_length": len(turns),
         "hmm_action_boundary": USER_TURN_ACTION_BOUNDARY,
         "hmm_open_agent_turn_included": False,
-        "hmm_embedding_document_policy": RAW_V5_GEMINI_DOCUMENT_POLICY,
+        "hmm_embedding_document_policy": GEMINI_DOCUMENT_POLICY,
         "hmm_embedding_document_serializer_version": (
             profile.document_serializer_version
         ),
-        "hmm_embedding_document_byte_limit": RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_BYTES,
+        "hmm_embedding_document_byte_limit": GEMINI_EMBEDDING_2_MAX_INPUT_BYTES,
         "hmm_embedding_document_token_limit": None,
         "hmm_embedding_document_assumed_token_budget": (
-            RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS
+            GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS
         ),
         "hmm_embedding_input_truncation": "raw_v5_contractual_byte_budget",
         "hmm_embedding_documents_bounded": 0,
@@ -658,7 +652,7 @@ def conversation_sequence_turns(
     doc_resolver: Any = None,
     include_current_agent_action: bool = False,
     preserve_full_canonical_data: bool = False,
-    raw_v5_profile: RawV5ServingProfile | None = None,
+    package_profile: ServingProfile | None = None,
     first_turn_index: int = 0,
 ) -> tuple[list[LiveFlowTurn], dict[str, Any]]:
     """Build the live U/A turn sequence from router conversation messages.
@@ -679,14 +673,14 @@ def conversation_sequence_turns(
     ``preserve_full_canonical_data``: no field, document, tool-group, or
     Session-history cap is permitted.
 
-    ``raw_v5_profile`` reuses this same message parser and tool-group
+    ``package_profile`` reuses this same message parser and tool-group
     compaction, but swaps only the U/A document formatter and then applies the
     lookback geometry that profile's representation was trained with. Tool-free
     profiles never serialize a tool-action section. It never invokes
     ``doc_resolver``.
     """
-    raw_v5_documents = raw_v5_profile is not None
-    if raw_v5_documents and (
+    package_documents = package_profile is not None
+    if package_documents and (
         doc_resolver is not None
         or include_current_agent_action
         or preserve_full_canonical_data
@@ -697,18 +691,16 @@ def conversation_sequence_turns(
     if preserve_full_canonical_data and max_elements > 0:
         raise ValueError("full canonical Action inputs forbid max_elements truncation")
     if not isinstance(messages, list):
-        if raw_v5_profile is not None:
-            return _finalize_raw_v5_live_turns(
-                _raw_v5_window_turns(
+        if package_profile is not None:
+            return _finalize_live_turns(
+                _window_turns(
                     [
                         LiveFlowTurn(
-                            turn_text=_raw_v5_user_document(
-                                first_turn_index, fallback_text
-                            ),
+                            turn_text=_user_document(first_turn_index, fallback_text),
                             categorical=user_categorical(),
                         )
                     ],
-                    raw_v5_profile,
+                    package_profile,
                 ),
                 {
                     "history_message_count": 0,
@@ -716,7 +708,7 @@ def conversation_sequence_turns(
                     "history_agent_step_count": 0,
                     "hmm_sequence_source": "route_text",
                 },
-                raw_v5_profile,
+                package_profile,
             )
         return finalize_embedding_documents(
             [
@@ -784,16 +776,16 @@ def conversation_sequence_turns(
             "open_state_after_turn": "Later turns may refine or supersede this request.",
         }
         assert pending_user_canonical_turn is not None
-        if raw_v5_profile is not None:
-            user_doc = _raw_v5_user_document(
+        if package_profile is not None:
+            user_doc = _user_document(
                 pending_user_turn_index,
                 pending_user_raw_text,
             )
-            agent_doc = _raw_v5_agent_document(
+            agent_doc = _agent_document(
                 pending_user_turn_index,
                 response_blocks=agent_response_blocks,
                 trace=trace,
-                profile=raw_v5_profile,
+                profile=package_profile,
             )
         elif doc_resolver is not None:
             user_doc, agent_doc = doc_resolver(
@@ -894,7 +886,7 @@ def conversation_sequence_turns(
             pending_user_canonical_turn = {
                 "user_request": (
                     full_text
-                    if preserve_full_canonical_data or raw_v5_documents
+                    if preserve_full_canonical_data or package_documents
                     else bound_text(
                         full_text,
                         limit=MAX_LIVE_USER_REQUEST_CHARS,
@@ -902,7 +894,7 @@ def conversation_sequence_turns(
                 ),
                 "user_intent": (
                     full_text
-                    if preserve_full_canonical_data or raw_v5_documents
+                    if preserve_full_canonical_data or package_documents
                     else bound_text(
                         full_text,
                         limit=MAX_LIVE_USER_INTENT_CHARS,
@@ -910,7 +902,7 @@ def conversation_sequence_turns(
                 ),
                 "context_supplied": (
                     [clean_text(line) for line in context_lines if clean_text(line)]
-                    if preserve_full_canonical_data or raw_v5_documents
+                    if preserve_full_canonical_data or package_documents
                     else bound_recent_context(context_lines)
                 ),
             }
@@ -920,7 +912,7 @@ def conversation_sequence_turns(
             message_groups = message_tool_groups(
                 raw_message,
                 preserve_full_canonical_data=(
-                    preserve_full_canonical_data or raw_v5_documents
+                    preserve_full_canonical_data or package_documents
                 ),
             )
             if pending_user_turn_index is not None and (text or message_groups):
@@ -929,18 +921,18 @@ def conversation_sequence_turns(
             agent_groups.extend(message_groups)
             if (
                 not preserve_full_canonical_data
-                and not raw_v5_documents
+                and not package_documents
                 and len(agent_groups) > MAX_LIVE_TOOL_GROUPS
             ):
                 del agent_groups[:-MAX_LIVE_TOOL_GROUPS]
             if text:
                 cleaned = clean_text(text)
-                if raw_v5_documents:
+                if package_documents:
                     agent_response_blocks.append(cleaned)
                 if not agent_goal:
                     agent_goal = (
                         cleaned
-                        if preserve_full_canonical_data or raw_v5_documents
+                        if preserve_full_canonical_data or package_documents
                         else bound_text(
                             cleaned,
                             limit=MAX_LIVE_AGENT_TEXT_CHARS,
@@ -948,7 +940,7 @@ def conversation_sequence_turns(
                     )
                 agent_last_text = (
                     cleaned
-                    if preserve_full_canonical_data or raw_v5_documents
+                    if preserve_full_canonical_data or package_documents
                     else bound_text(
                         cleaned,
                         limit=MAX_LIVE_AGENT_TEXT_CHARS,
@@ -959,7 +951,7 @@ def conversation_sequence_turns(
                         f"Agent step {current_agent_step_count}: "
                         + (
                             cleaned
-                            if preserve_full_canonical_data or raw_v5_documents
+                            if preserve_full_canonical_data or package_documents
                             else bound_text(
                                 cleaned,
                                 limit=MAX_LIVE_AGENT_TEXT_CHARS,
@@ -986,11 +978,11 @@ def conversation_sequence_turns(
         elements.append(
             LiveFlowTurn(
                 turn_text=(
-                    _raw_v5_user_document(
+                    _user_document(
                         pending_user_turn_index,
                         pending_user_raw_text,
                     )
-                    if raw_v5_documents
+                    if package_documents
                     else format_user_message_document(
                         pending_user_turn_index,
                         pending_user_canonical_turn,
@@ -1031,18 +1023,16 @@ def conversation_sequence_turns(
             open_agent_included = True
 
     if not elements:
-        if raw_v5_profile is not None:
-            return _finalize_raw_v5_live_turns(
-                _raw_v5_window_turns(
+        if package_profile is not None:
+            return _finalize_live_turns(
+                _window_turns(
                     [
                         LiveFlowTurn(
-                            turn_text=_raw_v5_user_document(
-                                first_turn_index, fallback_text
-                            ),
+                            turn_text=_user_document(first_turn_index, fallback_text),
                             categorical=user_categorical(),
                         )
                     ],
-                    raw_v5_profile,
+                    package_profile,
                 ),
                 {
                     "history_message_count": len(messages),
@@ -1050,7 +1040,7 @@ def conversation_sequence_turns(
                     "history_agent_step_count": total_agent_step_count,
                     "hmm_sequence_source": "route_text",
                 },
-                raw_v5_profile,
+                package_profile,
             )
         return finalize_embedding_documents(
             [
@@ -1073,9 +1063,9 @@ def conversation_sequence_turns(
 
     sequence_length_before_truncation = len(elements)
     elements = truncate_sequence_elements(elements, max_elements)
-    if raw_v5_profile is not None:
-        return _finalize_raw_v5_live_turns(
-            _raw_v5_window_turns(elements, raw_v5_profile),
+    if package_profile is not None:
+        return _finalize_live_turns(
+            _window_turns(elements, package_profile),
             {
                 "history_message_count": len(messages),
                 "hmm_sequence_length_before_truncation": (
@@ -1091,7 +1081,7 @@ def conversation_sequence_turns(
                 "history_agent_step_count": total_agent_step_count,
                 "current_agent_step_index": None,
             },
-            raw_v5_profile,
+            package_profile,
         )
     return finalize_embedding_documents(
         elements,
@@ -1121,11 +1111,11 @@ def conversation_sequence_turns(
     )
 
 
-def raw_v5_live_sequence_turns(
+def live_sequence_turns(
     messages: Any,
     *,
     fallback_text: str,
-    profile: RawV5ServingProfile,
+    profile: ServingProfile,
     max_elements: int = DEFAULT_LIVE_FLOW_MAX_ELEMENTS,
     first_turn_index: int = 0,
 ) -> tuple[list[LiveFlowTurn], dict[str, Any]]:
@@ -1144,31 +1134,31 @@ def raw_v5_live_sequence_turns(
     """
 
     if messages is not None and not isinstance(messages, list):
-        raise RawV5SequenceError("raw V5 live conversation_messages is not a list")
+        raise DocumentError("raw V5 live conversation_messages is not a list")
     prompt = clean_text(fallback_text)
     if not messages and not prompt:
-        raise RawV5SequenceError(
+        raise DocumentError(
             "raw V5 live sequence requires conversation_messages or raw route text"
         )
     if messages:
         for message_index, message in enumerate(messages):
             if not isinstance(message, dict):
-                raise RawV5SequenceError(
+                raise DocumentError(
                     "raw V5 live conversation message is not an object: "
                     f"index={message_index}"
                 )
             role = message.get("role")
             if (
                 not isinstance(role, str)
-                or role.strip().lower() not in _RAW_V5_ROUTE_MESSAGE_ROLE_VALUES
+                or role.strip().lower() not in _ROUTE_MESSAGE_ROLE_VALUES
             ):
-                raise RawV5SequenceError(
+                raise DocumentError(
                     "raw V5 live conversation message has an invalid role: "
                     f"index={message_index}"
                 )
             text = message.get("text")
             if text is not None and not isinstance(text, str):
-                raise RawV5SequenceError(
+                raise DocumentError(
                     "raw V5 live conversation message text is not a string: "
                     f"index={message_index}"
                 )
@@ -1184,7 +1174,7 @@ def raw_v5_live_sequence_turns(
                     for call in tool_calls
                 )
             ):
-                raise RawV5SequenceError(
+                raise DocumentError(
                     "raw V5 live conversation message has invalid tool_calls: "
                     f"index={message_index}"
                 )
@@ -1193,12 +1183,12 @@ def raw_v5_live_sequence_turns(
                 not isinstance(tool_results, list)
                 or any(not isinstance(value, dict) for value in tool_results)
             ):
-                raise RawV5SequenceError(
+                raise DocumentError(
                     "raw V5 live conversation message has invalid tool_results: "
                     f"index={message_index}"
                 )
         if not latest_user_text_from_messages(messages):
-            raise RawV5SequenceError(
+            raise DocumentError(
                 "raw V5 live conversation_messages has no usable user boundary"
             )
     turns, debug = conversation_sequence_turns(
@@ -1208,7 +1198,7 @@ def raw_v5_live_sequence_turns(
         doc_resolver=None,
         include_current_agent_action=False,
         preserve_full_canonical_data=False,
-        raw_v5_profile=profile,
+        package_profile=profile,
         first_turn_index=first_turn_index,
     )
     debug["raw_v5_live_input"] = debug["hmm_sequence_source"]

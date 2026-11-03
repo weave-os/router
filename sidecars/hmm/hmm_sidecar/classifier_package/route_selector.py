@@ -16,40 +16,40 @@ from typing import Any
 
 import numpy as np
 
-from hmm_sidecar.raw_v5.complexity_classifier import ComplexityClassifier
-from hmm_sidecar.raw_v5.conversation_sequence import (
+from hmm_sidecar.classifier_package.complexity_classifier import ComplexityClassifier
+from hmm_sidecar.classifier_package.conversation_sequence import (
     AGENT_ELEMENT,
     CONVERSATION_SEQUENCE_STATE_DEFINITION,
     USER_ELEMENT,
 )
-from hmm_sidecar.raw_v5.hmm_feature_arms import (
+from hmm_sidecar.classifier_package.hmm_feature_arms import (
     ELEMENT_LOOKBACK_BLOCK_NAME,
     ElementLookback,
     ElementLookbackSource,
     HMMChain,
     resolve_element_lookback,
 )
-from hmm_sidecar.raw_v5.interaction_state import (
+from hmm_sidecar.classifier_package.interaction_state import (
     element_lookback_block,
     hmm_chain_of,
     raw_round_vectors,
     round_observations,
 )
-from hmm_sidecar.raw_v5.raw_v5_serving_profile import RawV5InteractionStateGeometry
-from hmm_sidecar.raw_v5.serving_features import (
+from hmm_sidecar.classifier_package.serving_profile import InteractionStateGeometry
+from hmm_sidecar.classifier_package.serving_features import (
     BELIEF_DYNAMICS_BLOCK_NAME,
     BELIEF_DYNAMICS_DIM,
     _feature_row,
     _raw_prefix_matrix,
     raw_relative_position_dim,
 )
-from hmm_sidecar.raw_v5.serving_features import HARNESS_BLOCK_NAME
-from hmm_sidecar.raw_v5.serving_features import harness_features_from_packet
-from hmm_sidecar.raw_v5.serving_features import (
+from hmm_sidecar.classifier_package.serving_features import HARNESS_BLOCK_NAME
+from hmm_sidecar.classifier_package.serving_features import harness_features_from_packet
+from hmm_sidecar.classifier_package.serving_features import (
     TOOL_CONTEXT_FEATURE_NAMES,
     tool_context_features_from_packet,
 )
-from hmm_sidecar.raw_v5.schemas import (
+from hmm_sidecar.classifier_package.schemas import (
     CognitiveStatePacket,
 )
 
@@ -154,7 +154,7 @@ def _served_element_lookback(
     *,
     classifier: ComplexityClassifier,
     latent_model: Any,
-    interaction_state: RawV5InteractionStateGeometry | None,
+    interaction_state: InteractionStateGeometry | None,
 ) -> ElementLookback | None:
     """The lookback this selector appends; only a declared package serves the round-level chain."""
     chain = hmm_chain_of(getattr(latent_model, "model_info", None))
@@ -199,7 +199,7 @@ class ComplexityRouteSelector:
         confidence_threshold: float | None = None,
         latent_model: Any = None,
         sequence_encoder: Any = None,
-        interaction_state: RawV5InteractionStateGeometry | None = None,
+        interaction_state: InteractionStateGeometry | None = None,
     ) -> None:
         classifier_classes = tuple(classifier.classes)
         effective_confidence_threshold = (

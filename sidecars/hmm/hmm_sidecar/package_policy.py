@@ -7,18 +7,18 @@ from . import SCHEMA_VERSION
 from .artifacts import FrozenArtifacts
 from .embeddings import EmbedStats
 from .policy import RouteTimings
-from .raw_v5.serving import RawV5Classifier
+from .classifier_package.serving import PackageClassifier
 from .schemas import ClassificationResult
 
 
-class RawV5Policy:
+class PackagePolicy:
     """Serves a configured raw-V5 classifier package on the v4 wire contract."""
 
     def __init__(self, artifacts: FrozenArtifacts) -> None:
-        if artifacts.raw_v5_manifest is None:
-            raise ValueError("RawV5Policy requires a raw-V5 classifier package")
+        if artifacts.package_manifest is None:
+            raise ValueError("PackagePolicy requires a raw-V5 classifier package")
         self.artifacts = artifacts
-        self.runtime = RawV5Classifier(artifacts.root, artifacts.raw_v5_manifest)
+        self.runtime = PackageClassifier(artifacts.root, artifacts.package_manifest)
         self.classifier = self.runtime.classifier
 
     async def classify_with_timings(

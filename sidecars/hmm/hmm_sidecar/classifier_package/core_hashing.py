@@ -18,7 +18,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from hmm_sidecar.raw_v5.core_canonical import canonical_json
+from hmm_sidecar.classifier_package.core_canonical import canonical_json
 
 
 def sha256_text(value: str) -> str:

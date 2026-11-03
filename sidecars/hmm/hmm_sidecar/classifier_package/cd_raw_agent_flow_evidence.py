@@ -10,7 +10,7 @@ from pydantic import (
     Field,
 )
 
-from hmm_sidecar.raw_v5.cd_schemas import (
+from hmm_sidecar.classifier_package.cd_schemas import (
     ToolActionTraceCompaction,
 )
 

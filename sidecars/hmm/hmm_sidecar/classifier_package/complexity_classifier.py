@@ -19,23 +19,23 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from hmm_sidecar.raw_v5.complexity_labels import (
+from hmm_sidecar.classifier_package.complexity_labels import (
     COMPLEXITY_CLASSES,
 )
-from hmm_sidecar.raw_v5.core import sha256_file
-from hmm_sidecar.raw_v5.raw_v5_serving_profile import (
-    RawV5ServingProfile,
+from hmm_sidecar.classifier_package.core import sha256_file
+from hmm_sidecar.classifier_package.serving_profile import (
+    ServingProfile,
 )
-from hmm_sidecar.raw_v5.hmm_feature_arms import (
+from hmm_sidecar.classifier_package.hmm_feature_arms import (
     ELEMENT_LOOKBACK_BLOCK_NAME,
     ElementLookback,
     resolve_element_lookback,
 )
-from hmm_sidecar.raw_v5.serving_features import (
+from hmm_sidecar.classifier_package.serving_features import (
     SCALAR_FEATURE_NAMES,
     belief_dynamics_layout_block,
 )
-from hmm_sidecar.raw_v5.weave_model import WeaveModel
+from hmm_sidecar.classifier_package.weave_model import WeaveModel
 
 REQUIRED_BUNDLE_FILES = ("model.json", "classes.json", "metadata.json")
 WEAVEMODEL_SIDECAR_FILENAME = "complexity_clf.weavemodel.json"
@@ -45,7 +45,7 @@ MODEL_FAMILY = "hmm_router_complexity_classifier"
 TASK_FAMILY = "hmm_router_routing"
 
 
-def raw_v5_no_tool_context_feature_layout(
+def no_tool_context_feature_layout(
     n_states: int,
     *,
     embedding_dim: int,
@@ -90,7 +90,7 @@ def raw_v5_no_tool_context_feature_layout(
     return layout
 
 
-def raw_v5_no_tool_context_feature_dim(
+def no_tool_context_feature_dim(
     n_states: int,
     *,
     embedding_dim: int,
@@ -99,7 +99,7 @@ def raw_v5_no_tool_context_feature_dim(
 ) -> int:
     return sum(
         int(block["dim"])
-        for block in raw_v5_no_tool_context_feature_layout(
+        for block in no_tool_context_feature_layout(
             n_states,
             embedding_dim=embedding_dim,
             belief_dynamics=belief_dynamics,
@@ -108,7 +108,7 @@ def raw_v5_no_tool_context_feature_dim(
     )
 
 
-class RawV5ClassifierLayout(NamedTuple):
+class ClassifierLayout(NamedTuple):
     """The optional blocks a no-tool-context raw-V5 classifier declares."""
 
     n_states: int
@@ -116,12 +116,12 @@ class RawV5ClassifierLayout(NamedTuple):
     element_lookback: ElementLookback | None
 
 
-def _raw_v5_no_tool_context_layout(
+def _no_tool_context_layout(
     source: dict[str, Any],
     *,
     source_name: str,
     embedding_dim: int,
-) -> RawV5ClassifierLayout:
+) -> ClassifierLayout:
     """Return the layout's HMM state count and its optional trailing blocks:
     belief dynamics, then (interaction-state classifiers only) element_lookback."""
 
@@ -158,13 +158,13 @@ def _raw_v5_no_tool_context_layout(
             f"dimensions in {source_name}"
         )
     n_states = state_dims[0]
-    expected_layout = raw_v5_no_tool_context_feature_layout(
+    expected_layout = no_tool_context_feature_layout(
         n_states,
         embedding_dim=embedding_dim,
         belief_dynamics=belief_dynamics,
         element_lookback=element_lookback,
     )
-    expected_dim = raw_v5_no_tool_context_feature_dim(
+    expected_dim = no_tool_context_feature_dim(
         n_states,
         embedding_dim=embedding_dim,
         belief_dynamics=belief_dynamics,
@@ -175,23 +175,23 @@ def _raw_v5_no_tool_context_layout(
             "raw V5 no-tool-context classifier has an invalid "
             f"{source_name} feature layout"
         )
-    return RawV5ClassifierLayout(n_states, belief_dynamics, element_lookback)
+    return ClassifierLayout(n_states, belief_dynamics, element_lookback)
 
 
-def validate_raw_v5_no_tool_context_feature_contract(
+def validate_no_tool_context_feature_contract(
     *,
     metadata: dict[str, Any],
     input_contract: dict[str, Any],
     embedding_dim: int,
-) -> RawV5ClassifierLayout:
+) -> ClassifierLayout:
     """Validate the structural layout and return its state count and blocks."""
 
-    metadata_layout = _raw_v5_no_tool_context_layout(
+    metadata_layout = _no_tool_context_layout(
         metadata,
         source_name="metadata",
         embedding_dim=embedding_dim,
     )
-    contract_layout = _raw_v5_no_tool_context_layout(
+    contract_layout = _no_tool_context_layout(
         input_contract,
         source_name="WeaveModel input contract",
         embedding_dim=embedding_dim,
@@ -229,7 +229,7 @@ class ValidatedClassifierBundle:
 def validate_classifier_bundle(
     artifact_dir: Path | str,
     *,
-    profile: RawV5ServingProfile,
+    profile: ServingProfile,
 ) -> ValidatedClassifierBundle:
     """Side-effect free: checks files and contracts without loading or writing."""
 
@@ -340,7 +340,7 @@ def validate_classifier_bundle(
             "classifier sequence representation does not match the serving "
             f"profile: {metadata.get('sequence_representation')!r}"
         )
-    validate_raw_v5_no_tool_context_feature_contract(
+    validate_no_tool_context_feature_contract(
         metadata=metadata,
         input_contract=input_contract,
         embedding_dim=profile.embedding_dim,
@@ -373,7 +373,7 @@ class ComplexityClassifier:
         cls,
         artifact_dir: Path | str,
         *,
-        profile: RawV5ServingProfile,
+        profile: ServingProfile,
     ) -> "ComplexityClassifier":
         artifact_dir = Path(artifact_dir)
         validated = validate_classifier_bundle(artifact_dir, profile=profile)

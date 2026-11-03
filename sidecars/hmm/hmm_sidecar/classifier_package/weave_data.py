@@ -8,7 +8,11 @@ from typing import Any, Literal, Self
 
 from pydantic import Field, model_validator
 
-from hmm_sidecar.raw_v5.schema_base import FrozenOpenModel, NonEmptyString, Sha256Hex
+from hmm_sidecar.classifier_package.schema_base import (
+    FrozenOpenModel,
+    NonEmptyString,
+    Sha256Hex,
+)
 
 
 class WeaveDataKind(str, Enum):

@@ -3,5 +3,5 @@
 from __future__ import annotations
 
 
-class RawV5ServingInputError(ValueError):
+class ServingInputError(ValueError):
     """Raised when a live request cannot satisfy the raw-V5 model input."""
