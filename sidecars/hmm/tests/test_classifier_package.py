@@ -144,9 +144,7 @@ def test_vertex_transport_disables_auto_truncation(monkeypatch) -> None:
         lambda *_args: SimpleNamespace(aio=SimpleNamespace(models=models)),
     )
     asyncio.run(
-        gemini_embeddings.embed_texts_uncached(
-            ["a"], model="google/gemini-embedding-2"
-        )
+        gemini_embeddings.embed_texts_uncached(["a"], model="google/gemini-embedding-2")
     )
     assert models.calls[0][2].auto_truncate is False
 
