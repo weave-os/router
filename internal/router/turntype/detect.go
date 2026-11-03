@@ -150,7 +150,7 @@ func Detect(env *translate.RequestEnvelope, feats translate.RoutingFeatures, sub
 	if isClassifier(feats) {
 		return Classifier
 	}
-	if IsSubAgent(env, subAgentHint, openCode) {
+	if isSubAgentDispatch("", "", env.FirstUserMessageText(), "") {
 		return SubAgentDispatch
 	}
 	if feats.LastKind == "tool_result" {
