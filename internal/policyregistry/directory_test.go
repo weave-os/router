@@ -125,3 +125,32 @@ func TestDirectoryRegistryFailsClosedOnMissingHeadOrBadSidecarURL(t *testing.T) 
 		assert.Error(t, err, raw)
 	}
 }
+
+func TestWriteDirectoryReleaseKeepsWorkingHeadWhenObjectWriteFails(t *testing.T) {
+	baked := writeBakedRegistry(t)
+	headPath := filepath.Join(baked.dir, "head.json")
+	headBefore, err := os.ReadFile(headPath)
+	require.NoError(t, err)
+	var head policyregistry.LaneHead
+	require.NoError(t, json.Unmarshal(headBefore, &head))
+	releaseBefore, err := os.ReadFile(filepath.Join(baked.dir, "router_policy", "v1", "releases", "sha256", head.ReleaseSHA256+".json"))
+	require.NoError(t, err)
+	var release policyregistry.Release
+	require.NoError(t, json.Unmarshal(releaseBefore, &release))
+	release.Provenance.CreatedBy = "next-export"
+	releasePayload, err := json.Marshal(release)
+	require.NoError(t, err)
+	head.ReleaseSHA256 = policyregistry.Digest(releasePayload)
+	head.ReleaseURI = testRegistryRoot + "/router_policy/v1/releases/sha256/" + head.ReleaseSHA256 + ".json"
+	require.NoError(t, os.MkdirAll(filepath.Join(baked.dir, "router_policy", "v1", "releases", "sha256", head.ReleaseSHA256+".json"), 0o755))
+	policyPayload, err := os.ReadFile(baked.policyPath)
+	require.NoError(t, err)
+
+	require.Error(t, policyregistry.WriteDirectoryRelease(baked.dir, head, releasePayload, policyPayload))
+
+	headAfter, err := os.ReadFile(headPath)
+	require.NoError(t, err)
+	assert.Equal(t, headBefore, headAfter)
+	_, err = policyregistry.NewDirectoryRegistry(baked.dir, "")
+	require.NoError(t, err)
+}

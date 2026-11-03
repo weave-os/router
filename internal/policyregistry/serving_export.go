@@ -3,7 +3,6 @@ package policyregistry
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -71,9 +70,6 @@ func ExportServingTarget(ctx context.Context, store ServingExportStore, target S
 	identity := candidate.Classifier.Identity
 	if classifierImageDigest != "" {
 		identity.ImageDigest = classifierImageDigest
-	}
-	if candidate.Provenance.RouterRevision == "" || activation.Actor == "" {
-		return ServingExport{}, errors.New("active candidate lacks the provenance a release requires")
 	}
 	activatedAt := activation.ActivatedAt.UTC().Format(time.RFC3339)
 	release := Release{

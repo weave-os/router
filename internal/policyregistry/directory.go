@@ -153,7 +153,6 @@ func WriteDirectoryRelease(dir string, head LaneHead, releasePayload, policyPayl
 	objects := map[string][]byte{
 		releaseObjectPrefix + head.ReleaseSHA256 + ".json":   releasePayload,
 		policyObjectPrefix + Digest(policyPayload) + ".json": policyPayload,
-		directoryHeadFile: append(headPayload, '\n'),
 	}
 	for relative, payload := range objects {
 		path := filepath.Join(dir, filepath.FromSlash(relative))
@@ -163,6 +162,25 @@ func WriteDirectoryRelease(dir string, head LaneHead, releasePayload, policyPayl
 		if err := os.WriteFile(path, payload, 0o644); err != nil {
 			return fmt.Errorf("write local policy object: %w", err)
 		}
+	}
+	// The head is replaced last and atomically so a failed export never strands a working one.
+	staged, err := os.CreateTemp(dir, directoryHeadFile+".*")
+	if err != nil {
+		return fmt.Errorf("stage local lane head: %w", err)
+	}
+	defer os.Remove(staged.Name())
+	if _, err := staged.Write(append(headPayload, '\n')); err != nil {
+		staged.Close()
+		return fmt.Errorf("write local lane head: %w", err)
+	}
+	if err := staged.Close(); err != nil {
+		return fmt.Errorf("write local lane head: %w", err)
+	}
+	if err := os.Chmod(staged.Name(), 0o644); err != nil {
+		return fmt.Errorf("write local lane head: %w", err)
+	}
+	if err := os.Rename(staged.Name(), filepath.Join(dir, directoryHeadFile)); err != nil {
+		return fmt.Errorf("replace local lane head: %w", err)
 	}
 	return nil
 }

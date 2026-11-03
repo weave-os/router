@@ -333,49 +333,41 @@ func runExport(ctx context.Context, args []string) error {
 	if strings.TrimSpace(*outDir) == "" {
 		return errors.New("--out is required")
 	}
-	if target := strings.TrimSpace(*servingTarget); target != "" {
-		return exportServingTarget(ctx, *registryURI, policyregistry.ServingTarget(target), *outDir, strings.TrimSpace(*classifierImageDigest))
-	}
-	environment := policyregistry.Environment(*environmentRaw)
-	lane := policyregistry.Lane(*laneRaw)
-	if err := policyregistry.ValidateEnvironment(environment); err != nil {
-		return err
-	}
-	if err := policyregistry.ValidateLane(lane); err != nil {
-		return err
-	}
 	registry, err := policyregistry.NewGCSRegistry(ctx, *registryURI)
 	if err != nil {
 		return err
 	}
 	defer registry.Close()
-	head, err := registry.ExportHead(ctx, environment, lane, *outDir, strings.TrimSpace(*classifierImageDigest))
-	if err != nil {
-		return err
+	digest := strings.TrimSpace(*classifierImageDigest)
+	var summary map[string]any
+	if target := policyregistry.ServingTarget(strings.TrimSpace(*servingTarget)); target != "" {
+		exported, err := policyregistry.ExportServingTarget(ctx, registry, target, *outDir, digest)
+		if err != nil {
+			return err
+		}
+		summary = map[string]any{
+			"serving_target": target, "activation_id": exported.ActivationID, "candidate": exported.Candidate,
+			"release_id": exported.Head.ReleaseSHA256, "package": exported.Package, "out": *outDir,
+		}
+	} else {
+		environment := policyregistry.Environment(*environmentRaw)
+		lane := policyregistry.Lane(*laneRaw)
+		if err := policyregistry.ValidateEnvironment(environment); err != nil {
+			return err
+		}
+		if err := policyregistry.ValidateLane(lane); err != nil {
+			return err
+		}
+		head, err := registry.ExportHead(ctx, environment, lane, *outDir, digest)
+		if err != nil {
+			return err
+		}
+		summary = map[string]any{"environment": environment, "lane": lane, "release_id": head.Head.ReleaseSHA256, "out": *outDir}
 	}
 	if _, err := policyregistry.NewDirectoryRegistry(*outDir, ""); err != nil {
 		return fmt.Errorf("exported release does not load: %w", err)
 	}
-	return writeJSON(map[string]any{"environment": environment, "lane": lane, "release_id": head.Head.ReleaseSHA256, "out": *outDir})
-}
-
-func exportServingTarget(ctx context.Context, registryURI string, target policyregistry.ServingTarget, outDir, classifierImageDigest string) error {
-	registry, err := policyregistry.NewGCSRegistry(ctx, registryURI)
-	if err != nil {
-		return err
-	}
-	defer registry.Close()
-	exported, err := policyregistry.ExportServingTarget(ctx, registry, target, outDir, classifierImageDigest)
-	if err != nil {
-		return err
-	}
-	if _, err := policyregistry.NewDirectoryRegistry(outDir, ""); err != nil {
-		return fmt.Errorf("exported release does not load: %w", err)
-	}
-	return writeJSON(map[string]any{
-		"serving_target": target, "activation_id": exported.ActivationID, "candidate": exported.Candidate,
-		"release_id": exported.Head.ReleaseSHA256, "package": exported.Package, "out": outDir,
-	})
+	return writeJSON(summary)
 }
 
 func runStatus(ctx context.Context, args []string) error {

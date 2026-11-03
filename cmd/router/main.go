@@ -1134,6 +1134,7 @@ func main() {
 	} else if policyEnvironmentRaw != "" || policyReleaseDir != "" {
 		var policyRegistry policyregistry.Loader
 		var policyEnvironment policyregistry.Environment
+		policyLane := policyregistry.LaneStable
 		defaultSidecarAuth := policySidecarAuthGoogleIDToken
 		if policyReleaseDir != "" {
 			directoryRegistry, registryErr := policyregistry.NewDirectoryRegistry(policyReleaseDir, config.GetOr("ROUTER_HMM_SIDECAR_URL", ""))
@@ -1143,10 +1144,10 @@ func main() {
 			}
 			policyRegistry = directoryRegistry
 			policyEnvironment = directoryRegistry.Environment()
+			policyLane = directoryRegistry.Lane()
 			defaultSidecarAuth = policySidecarAuthNone
 		} else {
-			registryURI := strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry"))
-			gcsRegistry, registryErr := policyregistry.NewGCSRegistry(context.Background(), registryURI)
+			gcsRegistry, registryErr := policyregistry.NewGCSRegistry(context.Background(), strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry")))
 			if registryErr != nil {
 				logger.Error("Router policy registry failed to initialize; refusing to boot", "err", registryErr)
 				panic(registryErr)
@@ -1161,7 +1162,7 @@ func main() {
 		stableManager, managerErr := policyregistry.NewManager(
 			policyRegistry,
 			policyEnvironment,
-			policyregistry.LaneStable,
+			policyLane,
 			hmmPolicySnapshotBuilder(availableProviders, []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding}, hmmAuthMode, hmmTimeout, hmmAttemptTimeout),
 			logger,
 		)
