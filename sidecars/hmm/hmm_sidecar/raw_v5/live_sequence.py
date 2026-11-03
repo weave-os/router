@@ -169,7 +169,7 @@ def bound_text(text: str, *, limit: int) -> str:
 
 
 def bound_recent_context(lines: list[str]) -> list[str]:
-    """Keep the newest context within the live context character budget."""
+    """Older lines that do not fit become one omission marker, reserved from the budget."""
     cleaned = [clean_text(line) for line in lines if clean_text(line)]
     if not cleaned:
         return []
@@ -193,8 +193,6 @@ def bound_recent_context(lines: list[str]) -> list[str]:
     omitted_lines = len(cleaned) - len(selected)
     if omitted_lines:
         marker = f"[{omitted_lines} older context message(s) omitted by HMM boundary]"
-        if len(marker) > _CONTEXT_OMISSION_MARKER_RESERVE:
-            marker = marker[:_CONTEXT_OMISSION_MARKER_RESERVE]
         selected.insert(0, marker)
     assert sum(len(line) for line in selected) <= MAX_LIVE_CONTEXT_CHARS
     return selected

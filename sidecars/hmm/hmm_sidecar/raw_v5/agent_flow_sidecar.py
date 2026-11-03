@@ -967,7 +967,7 @@ class AgentFlowHMMSidecar:
         relative_position_dim = raw_relative_position_dim(feature_schema)
         expected_state_dim = int(self.sequence_contract["state_dimension"])
         rows: list[list[float]] = []
-        denom = max(len(turns) - 1, 1)
+        denominator = max(len(turns) - 1, 1)
         for index, (turn, state_vector) in enumerate(
             zip(turns, state_vectors, strict=True)
         ):
@@ -992,7 +992,7 @@ class AgentFlowHMMSidecar:
                     f"contract: got {len(categorical)}, expected {categorical_dim}"
                 )
             legacy_position = (
-                [float(index) / float(denom)] if relative_position_dim else []
+                [float(index) / float(denominator)] if relative_position_dim else []
             )
             rows.append([*embedding, *categorical, *legacy_position])
         return np.asarray(rows, dtype=float)

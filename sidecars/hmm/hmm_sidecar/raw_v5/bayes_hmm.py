@@ -32,8 +32,7 @@ def _full_gaussian_logpdf(
             chol = np.linalg.cholesky(
                 0.5 * (covariance + covariance.T) + np.eye(covariance.shape[0]) * 1e-6
             )
-        diff = x - means[state]
-        solved = np.linalg.solve(chol, diff.T).T
+        solved = np.linalg.solve(chol, (x - means[state]).T).T
         quad = np.sum(solved * solved, axis=1)
         log_det = 2.0 * np.log(np.diag(chol)).sum()
         log_probs[:, state] = -0.5 * (const + log_det + quad)
@@ -146,11 +145,11 @@ class BayesianStickyHDPHMM:
         """Return posterior responsibilities from the MAP retained sample."""
         if not self.parameter_samples_:
             raise RuntimeError("Bayesian HMM has no parameter samples")
-        gamma, xi, loglik = self._posterior_with_sample(x, self.map_sample())
+        gamma, xi, log_likelihood = self._posterior_with_sample(x, self.map_sample())
         return BayesianHMMPosterior(
             gamma=gamma,
             xi=xi,
-            log_likelihood=loglik,
+            log_likelihood=log_likelihood,
         )
 
     def map_sample(self) -> _ParameterSample:
@@ -218,8 +217,8 @@ def _forward_backward(
             axis=1,
         )
 
-    loglik = float(_logsumexp(alpha[-1], axis=0))
-    gamma = np.exp(alpha + beta - loglik)
+    log_likelihood = float(_logsumexp(alpha[-1], axis=0))
+    gamma = np.exp(alpha + beta - log_likelihood)
     gamma = np.maximum(gamma, 1e-300)
     gamma /= gamma.sum(axis=1, keepdims=True)
 
@@ -240,7 +239,7 @@ def _forward_backward(
                 + log_trans
                 + log_emit[time + 1][None, :]
                 + beta[time + 1][None, :]
-                - loglik
+                - log_likelihood
             )
             xi_t = np.exp(log_xi)
             normalized_xi = xi_t / max(xi_t.sum(), 1e-300)
@@ -249,7 +248,7 @@ def _forward_backward(
             else:
                 transitions[time] = normalized_xi
 
-    return gamma, transitions, loglik
+    return gamma, transitions, log_likelihood
 
 
 def _diag_gaussian_logpdf(
