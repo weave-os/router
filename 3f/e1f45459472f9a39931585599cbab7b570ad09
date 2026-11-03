@@ -1,0 +1,23 @@
+docs/LLM_CLASSIFIER_CONTEXT.md
+  s_395fcfacea68ca::t_6dd2a784a1b801 48-49
+internal/translate/escalation_observation.go
+  s_395fcfacea68ca::t_6dd2a784a1b801 221-224
+internal/translate/escalation_observation_test.go
+  s_395fcfacea68ca::t_6dd2a784a1b801 156-184
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3fe1f45459472f9a39931585599cbab7b570ad09",
+  "prompts": {},
+  "sessions": {
+    "s_395fcfacea68ca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bd20-5294-7431-af5a-fda13c268f77",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

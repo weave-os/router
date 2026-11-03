@@ -1,0 +1,19 @@
+frontend/src/components/settings/ProviderKeysPanel.tsx
+  s_83919cab6bfaee::t_5dd7fcb1fa69e7 20,28,38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "21966ba896fca015c2f393bd4d10da4d7e6b1364",
+  "prompts": {},
+  "sessions": {
+    "s_83919cab6bfaee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b91-235f-74d3-8217-fffbfe042d86",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

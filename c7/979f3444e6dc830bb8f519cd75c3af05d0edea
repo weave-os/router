@@ -1,0 +1,21 @@
+internal/postgres/session_strategy_repo_test.go
+  s_28c8815db4c15b::t_d9f9f6cddec1c1 243-245
+internal/postgres/session_pin_repo.go
+  s_28c8815db4c15b::t_d9f9f6cddec1c1 90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c7979f3444e6dc830bb8f519cd75c3af05d0edea",
+  "prompts": {},
+  "sessions": {
+    "s_28c8815db4c15b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0832c-78ed-7dc3-829b-0f975789e8e8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

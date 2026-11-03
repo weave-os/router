@@ -1,0 +1,25 @@
+.github/workflows/non_go_checks.yml
+  s_b3d94294f4c49d::t_648ca8de1dc660 1-105
+frontend/package.json
+  s_b3d94294f4c49d::t_1fe9fca13fd0f4 9-10
+scripts/changed_non_go_files.sh
+  s_b3d94294f4c49d::t_a5786fbe1dbfb9 1-58
+scripts/tests/changed_non_go_files_test.sh
+  s_b3d94294f4c49d::t_ce3e1e6b89bb30 1-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c7601dbabac6f5c334f0f53dfc56cf7abf3471b6",
+  "prompts": {},
+  "sessions": {
+    "s_b3d94294f4c49d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06974-8166-72a1-9f4f-4775e6d61966",
+        "model": "unknown"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
