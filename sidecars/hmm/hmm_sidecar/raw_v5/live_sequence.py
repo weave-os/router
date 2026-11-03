@@ -223,9 +223,6 @@ def finalize_embedding_documents(
             )
         )
 
-    embedded_sizes = [
-        len(element.turn_text.encode("utf-8")) for element in bounded_elements
-    ]
     return bounded_elements, {
         **debug,
         "hmm_embedding_document_policy": (
@@ -243,7 +240,10 @@ def finalize_embedding_documents(
         ),
         "hmm_embedding_documents_bounded": bounded_count,
         "hmm_embedding_source_max_bytes": max(source_sizes, default=0),
-        "hmm_embedding_document_max_bytes": max(embedded_sizes, default=0),
+        "hmm_embedding_document_max_bytes": max(
+            (len(element.turn_text.encode("utf-8")) for element in bounded_elements),
+            default=0,
+        ),
     }
 
 
