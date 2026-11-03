@@ -329,6 +329,9 @@ func forceModelNames() map[string]string {
 		if unprefixed, ok := strings.CutPrefix(m.ID, "claude-"); ok {
 			names[unprefixed] = m.ID
 		}
+		if variantFirst, ok := variantFirstGPTName(m.ID); ok {
+			names[variantFirst] = m.ID
+		}
 	}
 	for bare, id := range bareCatalogNames {
 		names[bare] = id
@@ -337,6 +340,21 @@ func forceModelNames() map[string]string {
 		names[alias] = id
 	}
 	return names
+}
+
+// gptVariantID matches a GPT release whose version has a minor component
+// ("gpt-6.1-sol"). A bare major ("sol-6") can name a generation rather than one
+// release, so it gets no variant-first spelling.
+var gptVariantID = regexp.MustCompile(`^gpt-([0-9]+\.[0-9]+)-([a-z]+)$`)
+
+// variantFirstGPTName spells a GPT release variant first, as users say it:
+// "gpt-6.1-sol" is also "sol-6.1" (and, folded, "sol 6.1" or "sol-6-1").
+func variantFirstGPTName(id string) (string, bool) {
+	match := gptVariantID.FindStringSubmatch(id)
+	if match == nil {
+		return "", false
+	}
+	return match[2] + "-" + match[1], true
 }
 
 // foldedForceModelNames indexes forceModelNames by folded spelling. A folded
