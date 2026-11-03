@@ -99,6 +99,7 @@ test("native uninstall removes the managed Claude routing variables", async () =
   assert.equal(claude.env.ANTHROPIC_BASE_URL, "https://api.anthropic.com");
   assert.equal(claude.env.ANTHROPIC_CUSTOM_HEADERS, "X-Custom: keep\nX-App: custom-client");
   assert.equal(claude.env.ENABLE_TOOL_SEARCH, "false");
+  assert.equal(claude.env.CLAUDE_CODE_AUTO_MODE_SERVER, undefined);
   assert.equal(claude.attribution.commit, "original commit");
   assert.equal(claude.attribution.custom, "keep");
   assert.equal(claude.custom, true);

@@ -3219,9 +3219,9 @@ toggle_claude() {
       else
         # Park just the router-owned env keys, then strip them so Claude Code
         # falls back to its own Anthropic login.
-        jq '{env: ((.env // {}) | {ANTHROPIC_BASE_URL, ANTHROPIC_CUSTOM_HEADERS, ENABLE_TOOL_SEARCH} | with_entries(select(.value != null))), weave_auto_selected: (.model == "weave-auto" or .model == "weave-auto[1m]")}' "$settings_file" >"$parked"
+        jq '{env: ((.env // {}) | {ANTHROPIC_BASE_URL, ANTHROPIC_CUSTOM_HEADERS, ENABLE_TOOL_SEARCH, CLAUDE_CODE_AUTO_MODE_SERVER} | with_entries(select(.value != null))), weave_auto_selected: (.model == "weave-auto" or .model == "weave-auto[1m]")}' "$settings_file" >"$parked"
         chmod 600 "$parked"
-        merged="$(jq '(.env // {}) |= del(.ANTHROPIC_BASE_URL, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH)
+        merged="$(jq '(.env // {}) |= del(.ANTHROPIC_BASE_URL, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH, .CLAUDE_CODE_AUTO_MODE_SERVER)
                       | (if (.env // {} | length) == 0 then del(.env) else . end) | '"$CLAUDE_WEAVE_AUTO_STRIP_JQ" "$settings_file")"
         printf '%s\n' "$merged" >"$settings_file"
       fi
@@ -7978,6 +7978,10 @@ write_claude_settings() {
   # Setting ANTHROPIC_BASE_URL makes Claude Code treat us as non-first-party.
   # Force tool-search deferral to match first-party Claude Code; "auto" can inline
   # every tool schema when the custom endpoint advertises a 200K context window.
+  # Auto mode's server-side classifier only returns verdicts on Anthropic-served
+  # turns; the first routed non-Anthropic turn makes Claude Code fall back for
+  # the session and hold an action behind a "gateway isn't compatible" notice.
+  # Opt out up front so it uses its own classifier requests from the start.
   local prompt_hook_scope=""
   if [ -n "$install_dir" ]; then
     prompt_hook_scope=" --dir $(printf '%q' "$install_dir")"
@@ -7986,7 +7990,7 @@ write_claude_settings() {
   fi
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
     jq -n --arg attribution "$attribution" --arg url "$base_url" --arg sl "$statusline_path_for_settings" --arg prompt_hook_scope "$prompt_hook_scope" --arg statusline_install "$statusline_install" '{
-      env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "true" }
+      env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "true", CLAUDE_CODE_AUTO_MODE_SERVER: "0" }
     } + (if $attribution == "true" then {attribution: {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.weaveos.com)"
@@ -7994,7 +7998,7 @@ write_claude_settings() {
         hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ("[ ! -x \"" + $sl + "\" ] || \"" + $sl + "\" --prompt-hook" + $prompt_hook_scope)}]}]}} else {} end)' >"$tmp_patch"
   else
     jq -n --arg attribution "$attribution" --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" --arg prompt_hook_scope "$prompt_hook_scope" --arg statusline_install "$statusline_install" '{
-      env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "true" }
+      env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "true", CLAUDE_CODE_AUTO_MODE_SERVER: "0" }
     } + (if $attribution == "true" then {attribution: {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.weaveos.com)"

@@ -238,7 +238,7 @@ function installClaude(paths, baseUrl, key, email, attribution) {
   const optedOutOfAttribution = Object.hasOwn(settings.env || {}, "ANTHROPIC_BASE_URL") && settings.attribution == null;
   const localSettings = paths.localConfig ? readJson(paths.localConfig) : null;
   const state = readJson(paths.state);
-  state.env ||= Object.fromEntries(["ANTHROPIC_BASE_URL", "ENABLE_TOOL_SEARCH"].map((field) => [field, { exists: Object.hasOwn(settings.env || {}, field), value: settings.env?.[field] }]));
+  state.env ||= Object.fromEntries(["ANTHROPIC_BASE_URL", "ENABLE_TOOL_SEARCH", "CLAUDE_CODE_AUTO_MODE_SERVER"].map((field) => [field, { exists: Object.hasOwn(settings.env || {}, field), value: settings.env?.[field] }]));
   state.attribution ||= Object.fromEntries(Object.keys(claudeAttribution).map((field) => [field, { exists: Object.hasOwn(settings.attribution || {}, field), value: settings.attribution?.[field] }]));
   state.originalAppHeaders ||= {
     config: (settings.env?.ANTHROPIC_CUSTOM_HEADERS || "").split("\n").filter((header) => /^X-App:/i.test(header)),
@@ -266,6 +266,7 @@ function installClaude(paths, baseUrl, key, email, attribution) {
     settings.env.ANTHROPIC_CUSTOM_HEADERS = [...previousHeaders, ...routerHeaders].filter(Boolean).join("\n");
   }
   settings.env.ENABLE_TOOL_SEARCH = "true";
+  settings.env.CLAUDE_CODE_AUTO_MODE_SERVER = "0";
   const modelSettings = localSettings || settings;
   const modelUnset = !process.env.ANTHROPIC_MODEL && [settings, localSettings, readJson(path.join(process.env.USERPROFILE || process.env.HOME, ".claude", "settings.json"))].every((layer) => !layer || (!Object.hasOwn(layer, "model") && !layer.env?.ANTHROPIC_MODEL));
   modelSettings.modelPicker = { ...(modelSettings.modelPicker || {}) };
@@ -392,6 +393,7 @@ function uninstall(paths, target) {
     if (!fs.existsSync(paths.state) && ![settings.env?.ANTHROPIC_CUSTOM_HEADERS, localSettings?.env?.ANTHROPIC_CUSTOM_HEADERS].some((headers) => /^X-Weave-Router-Key:/m.test(headers || ""))) return;
     restoreField(settings.env, "ANTHROPIC_BASE_URL", state.env?.ANTHROPIC_BASE_URL, state.installedBaseUrl || settings.env?.ANTHROPIC_BASE_URL);
     restoreField(settings.env, "ENABLE_TOOL_SEARCH", state.env?.ENABLE_TOOL_SEARCH, "true");
+    restoreField(settings.env, "CLAUDE_CODE_AUTO_MODE_SERVER", state.env?.CLAUDE_CODE_AUTO_MODE_SERVER, "0");
     for (const layer of [settings, localSettings]) if (layer) stripClaudeWeaveAuto(layer);
     const customHeaders = (headerBlock, originalAppHeaders) => {
       const preservedHeaders = (headerBlock || "").split("\n").filter((header) => !/^X-Weave-(?:Router-Key|User-Email|User-Name|Model-Passthrough):/i.test(header) && !/^X-App:\s*claude-code\s*$/i.test(header));
