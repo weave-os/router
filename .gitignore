@@ -11,6 +11,7 @@ bin/
 *.out
 cover.html
 coverage.out
+.coverage
 
 # Vendor (we use modules, not vendoring)
 vendor/
