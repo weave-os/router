@@ -23,10 +23,11 @@ import (
 )
 
 const (
-	classifierPassthroughReason    = "classifier_subscription_passthrough"
-	classifierRequestedModelReason = "classifier_requested_model"
-	classifierRequestedMdl         = "claude-haiku-4-5"
-	classifierScorerPickMdl        = "claude-opus-4-7"
+	classifierPassthroughReason = "classifier_subscription_passthrough"
+	classifierModelReason       = "classifier_model"
+	classifierServedMdl         = "claude-haiku-5-5"
+	classifierRequestedMdl      = "claude-haiku-4-5"
+	classifierScorerPickMdl     = "claude-opus-4-7"
 )
 
 // classifierPassthroughFixture wires a scorer that would substitute
@@ -97,28 +98,28 @@ func TestClassifier_SubscriptionPassthrough_SkipsScorer(t *testing.T) {
 // Without a Claude subscription the classifier is billed API spend either
 // way, so it is served on the model the client asked for rather than on a
 // scorer substitute: Claude Code picks its classifier model deliberately.
-func TestClassifier_NoSubscription_ServesRequestedModel(t *testing.T) {
+func TestClassifier_NoSubscription_ServesClassifierModel(t *testing.T) {
 	svc, fr, p, store := classifierPassthroughFixture(t, nil)
 	rec, req := classifierRequest()
 
 	require.NoError(t, svc.ProxyMessages(authedCtx(uuid.New().String()), []byte(classifierBody), rec, req))
 
 	assert.Equal(t, 0, fr.routeCalls, "an API-billed classifier must not be scored")
-	assert.Equal(t, classifierRequestedMdl, rec.Header().Get(proxy.HeaderRouterModel))
-	assert.Equal(t, classifierRequestedModelReason, rec.Header().Get(proxy.HeaderRouterDecision))
+	assert.Equal(t, classifierServedMdl, rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, classifierModelReason, rec.Header().Get(proxy.HeaderRouterDecision))
 	require.Len(t, p.proxyBodies, 1)
-	assert.Contains(t, string(p.proxyBodies[0]), `"model":"`+classifierRequestedMdl+`"`)
+	assert.Contains(t, string(p.proxyBodies[0]), `"model":"`+classifierServedMdl+`"`)
 	assertNoPinWrite(t, store)
 }
 
-// A requested model the router cannot serve as-is leaves the classifier to
-// the scorer instead of refusing it.
-func TestClassifier_UnservableRequestedModel_IsScored(t *testing.T) {
+// An installation allowlist without the classifier model leaves the
+// classifier to the scorer instead of refusing it.
+func TestClassifier_ClassifierModelNotAllowed_IsScored(t *testing.T) {
 	svc, fr, _, store := classifierPassthroughFixture(t, nil)
 	rec, req := classifierRequest()
-	body := strings.Replace(classifierBody, `"model":"`+classifierRequestedMdl+`"`, `"model":"not-a-catalog-model"`, 1)
+	ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.InstallationAllowedModelsContextKey{}, []string{classifierRequestedMdl, classifierScorerPickMdl})
 
-	require.NoError(t, svc.ProxyMessages(authedCtx(uuid.New().String()), []byte(body), rec, req))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, req))
 
 	assert.Equal(t, 1, fr.routeCalls)
 	assert.Equal(t, classifierScorerPickMdl, rec.Header().Get(proxy.HeaderRouterModel))

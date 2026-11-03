@@ -177,7 +177,7 @@ func TestUtilityTurns_DispatchUnderResolvedPurpose(t *testing.T) {
 }
 
 // A classifier is not hard-pinned, so it is authorized under the ingress
-// surface's main-inference policy and served on the requested model.
+// surface's main-inference policy and served on the classifier model.
 func TestClassifierTurn_DispatchUnderSurfacePurpose(t *testing.T) {
 	const anthropicOK = `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`
 	body := `{"model":"claude-sonnet-4-6","max_tokens":64,"messages":[{"role":"user","content":"is this safe? yes/no"}]}`
@@ -201,7 +201,7 @@ func TestClassifierTurn_DispatchUnderSurfacePurpose(t *testing.T) {
 	assert.Equal(t, inference.PurposeAnthropicMessages, event.Purpose)
 	assert.Equal(t, inference.PolicyID("main-anthropic-messages"), event.PolicyID)
 	assert.Equal(t, inference.AttemptOutcomeServed, event.Outcome)
-	assert.Equal(t, "claude-sonnet-4-6", event.Target.CatalogID)
+	assert.Equal(t, "claude-haiku-5-5", event.Target.CatalogID)
 }
 
 func TestAutomaticProbesServeUnderIngressPolicyWithoutConversationState(t *testing.T) {

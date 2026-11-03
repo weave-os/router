@@ -38,8 +38,8 @@ const (
 	// classifierPassthroughEngaged.
 	reasonClassifierPassthrough = "classifier_subscription_passthrough"
 	// reasonClassifierRequestedModel: an API-billed classifier turn served on
-	// the model the client requested (classifierRequestedModelDecision).
-	reasonClassifierRequestedModel = "classifier_requested_model"
+	// policy.ClassifierModel (classifierModelDecision).
+	reasonClassifierModel = "classifier_model"
 )
 
 // usageBypassDecision returns the strict pass-through decision when either

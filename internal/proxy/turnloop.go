@@ -659,10 +659,10 @@ func (s *Service) routeWithoutPin(
 		res.UsageBypass = true
 		return res, nil
 	}
-	if dec, ok := s.classifierRequestedModelDecision(ctx, reqHeaders, req, res.TurnType); ok {
+	if dec, ok := s.classifierModelDecision(ctx, reqHeaders, req, res.TurnType); ok {
 		res.Decision = dec
 		res.CallerModelPassthrough = true
-		res.Origin = policy.OverrideSourceRequest
+		res.Origin = policy.OverrideSourceDeployment
 		return res, nil
 	}
 	decision, err := s.routeFor(ctx, req)
@@ -674,24 +674,25 @@ func (s *Service) routeWithoutPin(
 	return res, nil
 }
 
-// classifierRequestedModelDecision serves an API-billed Claude Code classifier
-// on the model the client asked for: the client picks it for the verdict, and
-// a scorer substitute costs more without grading the transcript any better.
-// Subscription callers (context or header credential) and subscription-state
-// model sets stay on classifierPassthroughEngaged or the scorer, which owns
-// their spent-plan fallback; an unservable model is scored.
-func (s *Service) classifierRequestedModelDecision(ctx context.Context, headers http.Header, req router.Request, tt turntype.TurnType) (router.Decision, bool) {
-	if tt != turntype.Classifier || subscriptionStateModelsEnabled(ctx) || !catalog.PermittedBy(req.ProductEligibility, req.RequestedModel) {
+// classifierModelDecision serves an API-billed client classifier on
+// policy.ClassifierModel instead of the scorer's pick: the verdict is one token
+// over a long transcript, so input price is the whole cost. Subscription
+// callers (context or header credential) and subscription-state model sets stay
+// on classifierPassthroughEngaged or the scorer, which owns their spent-plan
+// fallback; a classifier model the request cannot use is scored.
+func (s *Service) classifierModelDecision(ctx context.Context, headers http.Header, req router.Request, tt turntype.TurnType) (router.Decision, bool) {
+	if tt != turntype.Classifier || subscriptionStateModelsEnabled(ctx) || !catalog.PermittedBy(req.ProductEligibility, policy.ClassifierModel) {
 		return router.Decision{}, false
 	}
 	if _, anthropicSub := presentSubscriptionTokens(ctx, headers); anthropicSub != "" {
 		return router.Decision{}, false
 	}
+	req.RequestedModel = policy.ClassifierModel
 	dec, err := s.callerModelPassthroughDecision(ctx, req)
 	if err != nil || !s.clients.Has(dec.Provider) {
 		return router.Decision{}, false
 	}
-	dec.Reason = reasonClassifierRequestedModel
+	dec.Reason = reasonClassifierModel
 	return dec, true
 }
 

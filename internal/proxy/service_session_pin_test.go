@@ -628,7 +628,7 @@ const classifierBody = `{"model":"claude-haiku-4-5","max_tokens":5,"messages":[{
 // prefix with the main loop), so it is served on the model the client asked
 // for rather than the deployment hard pin — prod 2026-09: Gemini 3.x
 // hard-pinned here failed 99.5% of Claude Code's security-monitor verdicts.
-func TestService_Classifier_ServesRequestedModelNotHardPinned(t *testing.T) {
+func TestService_Classifier_ServesClassifierModelNotHardPinned(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
 	svc := newPinSvc(fr, store)
@@ -638,9 +638,9 @@ func TestService_Classifier_ServesRequestedModelNotHardPinned(t *testing.T) {
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, httpReq))
 
-	assert.Equal(t, 0, fr.routeCalls, "an API-billed classifier keeps the requested model")
-	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
-	assert.Equal(t, "classifier_requested_model", rec.Header().Get(proxy.HeaderRouterDecision))
+	assert.Equal(t, 0, fr.routeCalls, "an API-billed classifier is served on the classifier model")
+	assert.Equal(t, "claude-haiku-5-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "classifier_model", rec.Header().Get(proxy.HeaderRouterDecision))
 	assert.Equal(t, 1, store.getCalls, "classifier checks force-model state only, never the conversation pin")
 
 	select {
@@ -669,7 +669,7 @@ func TestService_Classifier_IgnoresExistingSessionPin(t *testing.T) {
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, httpReq))
 
-	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "the session pin must not replace the classifier's requested model")
+	assert.Equal(t, "claude-haiku-5-5", rec.Header().Get(proxy.HeaderRouterModel), "the session pin must not replace the classifier model")
 }
 
 // Regression guard: excluded_models must be honored on the hard-pin tier too.

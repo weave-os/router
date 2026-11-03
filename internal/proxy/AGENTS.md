@@ -291,10 +291,9 @@ monitor is a fresh window (own system prompt, ~50k-token transcript as
 payload, `max_tokens=64`, `thinking: disabled`), so `isUnpinnedScoredTurn`
 sends it through `routeWithoutPin`: `/force-model` still wins, an API-billed
 classifier (no Claude subscription in context or headers, no subscription-state
-model sets) is served on the model the client requested
-(`classifier_requested_model`; Claude Code asks for Sonnet 5, and the scorer
-picked Opus for most of them), an unservable request falls to the scorer, and
-no session pin is read or written — an anchored pin here would
+model sets) is served on `policy.ClassifierModel` (`classifier_model`; the
+verdict is one token over a long transcript, so input price is the cost), a
+classifier model the request cannot use falls to the scorer, and no session pin is read or written — an anchored pin here would
 leak into the conversation that follows, and the conversation's pin was not
 scored for this prompt. Routing markers skip it too:
 the transcript is the thing being graded, and the verdict is machine-parsed.
