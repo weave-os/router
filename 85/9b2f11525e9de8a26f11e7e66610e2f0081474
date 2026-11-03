@@ -1,0 +1,25 @@
+internal/proxy/AGENTS.md
+  s_980914d43580db::t_24892c145be507 44
+internal/proxy/CLAUDE.md
+  s_980914d43580db::t_72cec4da0b4578 44
+internal/proxy/compaction.go
+  s_980914d43580db::t_912d708fb42787 323-326,329,335,337,339-340,342-343,346
+internal/proxy/compaction_test.go
+  s_980914d43580db::t_784ba664f6c5af 208,437,802-803,810-837,839
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "859b2f11525e9de8a26f11e7e66610e2f0081474",
+  "prompts": {},
+  "sessions": {
+    "s_980914d43580db": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae5ab8c5-50a9-4ae6-930a-ff22188bfb75",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

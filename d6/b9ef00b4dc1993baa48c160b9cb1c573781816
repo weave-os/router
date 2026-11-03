@@ -1,0 +1,24 @@
+scripts/agent_checks.py
+  s_2a05efb374be75::t_6a374d0f261fa8 69-72
+scripts/smoke/test_runner.py
+  s_2a05efb374be75::t_6a374d0f261fa8 36,114-118,231,233-244
+  s_2a05efb374be75::t_585b41c7f4c17d 232,245
+scripts/smoke/runner.py
+  s_2a05efb374be75::t_6a374d0f261fa8 517-522,529-531
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d6b9ef00b4dc1993baa48c160b9cb1c573781816",
+  "prompts": {},
+  "sessions": {
+    "s_2a05efb374be75": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e9e5-5891-7b40-8cb6-3fc254b09418",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

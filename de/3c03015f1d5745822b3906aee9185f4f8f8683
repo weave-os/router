@@ -1,0 +1,66 @@
+internal/proxy/escalation_internal_test.go
+  s_1711b1cdf285a5::t_da6838a7895fba 20,306
+  s_1711b1cdf285a5::t_c5f96e0fe8dfca 23,301-305,307-324
+  s_1711b1cdf285a5::t_ca98bfd01c46f3 237,285
+  s_1711b1cdf285a5::t_e4cd918fb4f2f2 325
+internal/translate/escalation_response.go
+  s_1711b1cdf285a5::t_c02c132e978be3 39,51-71,179-181,190,200-206,233,267-269,271-273,318,350-353
+  s_1711b1cdf285a5::t_878075a22021ba 8,249-250,270,281-283,297-311,316-317
+internal/postgres/escalation_repo.go
+  s_1711b1cdf285a5::t_77eb0dd57bb056 14,42-53
+internal/proxy/turnloop.go
+  s_d4f50ccf8209db::t_388e32a46cb739 1294,1301-1320,1322-1354,1357-1438,1442-1443,1446-1449,1451,1455-1458,1460-1463,1465-1471,1473-1484,1486-1490,1492-1504,1507-1551,1558-1562,1564-1596,1598-1613,1615-1625,1628-1629,1631-1633,1635,1637-1660,1664-1676,1678-1680,1682
+  s_1711b1cdf285a5::t_af6f2204854bb2 1295,1677
+scripts/escalation_state_check/main.go
+  s_1711b1cdf285a5::t_d9b8a731567130 41
+  s_1711b1cdf285a5::t_504566c3fdc757 388-397
+  s_1711b1cdf285a5::t_ba49f82728edf1 8,21,44,58-77,359-387
+cmd/router/main.go
+  s_1711b1cdf285a5::t_ca98bfd01c46f3 1112
+internal/translate/escalation_response_test.go
+  s_1711b1cdf285a5::t_fec21dc2ec2d06 4-5,34
+  s_1711b1cdf285a5::t_4c7b86a689f6bf 170-174,200-250
+  s_1711b1cdf285a5::t_9fd284d4064e99 105-169,175-199,251-252
+internal/proxy/gemini.go
+  s_1711b1cdf285a5::t_f1d8fe8d6dfa2b 33,172-175,277
+internal/proxy/service.go
+  s_1711b1cdf285a5::t_f1d8fe8d6dfa2b 2933,3292-3295,3610,5731,6055-6058,6203
+internal/proxy/escalation_completion_internal_test.go
+  s_d4f50ccf8209db::t_bd58e71aaa1e46 96
+  s_1711b1cdf285a5::t_bf6a9351f9e465 1-95,97-134
+db/queries/escalation_sessions.sql
+  s_1711b1cdf285a5::t_77eb0dd57bb056 24
+db/queries/escalation_check_fixtures.sql
+  s_1711b1cdf285a5::t_ba49f82728edf1 13-21
+  s_1711b1cdf285a5::t_77eb0dd57bb056 1-12
+internal/proxy/escalation_failopen_internal_test.go
+  s_d4f50ccf8209db::t_17f4650353f29d 1-66
+internal/sqlc/escalation_check_fixtures.sql.go
+  s_1711b1cdf285a5::t_e961afa6abe3f3 1-92
+internal/sqlc/escalation_sessions.sql.go
+  s_1711b1cdf285a5::t_f0a0b9788bc8d8 309,340
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "de3c03015f1d5745822b3906aee9185f4f8f8683",
+  "prompts": {},
+  "sessions": {
+    "s_1711b1cdf285a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0833b-a9ba-7153-8d32-00b7bc91c073",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_d4f50ccf8209db": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0833b-a9ba-7153-8d32-00b7bc91c073",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

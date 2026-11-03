@@ -1,0 +1,146 @@
+scripts/smoke/test_runner.py
+  s_04c176961d26fc::t_9699796beef6d0 1-630
+internal/proxy/stream_cut_internal_test.go
+  s_04c176961d26fc::t_9699796beef6d0 53-84
+internal/server/middleware/subscriber_allowance_test.go
+  s_04c176961d26fc::t_9699796beef6d0 65-66,74,78,83,87-89,226-227,452,455-459,461,464,467,470-473
+internal/server/middleware/subscriber_allowance_dispatch_test.go
+  s_04c176961d26fc::t_9699796beef6d0 46-51,53-56,58-59,97,100,110
+.dockerignore
+  s_04c176961d26fc::t_9699796beef6d0 33
+internal/postgres/session_turn_clock_repo.go
+  s_04c176961d26fc::t_9699796beef6d0 1-67
+cmd/router-gateway/startup.go
+  s_04c176961d26fc::t_9699796beef6d0 1-37
+internal/sqlc/session_turn_clocks.sql.go
+  s_04c176961d26fc::t_9699796beef6d0 1-133
+Makefile
+  s_04c176961d26fc::t_9699796beef6d0 15-21,25,87,237,244-253
+scripts/mark_key_used_check/main_test.go
+  s_04c176961d26fc::t_9699796beef6d0 21,32,41,94-106
+scripts/smoke/runner.py
+  s_04c176961d26fc::t_9699796beef6d0 1-536
+smoke/mitmproxy/docker-compose.yml
+  s_04c176961d26fc::t_9699796beef6d0 42
+docs/SMOKE.md
+  s_04c176961d26fc::t_9699796beef6d0 6-8,26,42,44,56-61,69-74,91-125,132-136,139-161,187-188,191-194,197-199,238,241,268-271,275-279
+internal/proxy/usage_bypass_internal_test.go
+  s_04c176961d26fc::t_9699796beef6d0 729-730,761-786
+  s_04c176961d26fc::t_f6520ef8d4c253 787
+internal/proxy/user_prompt_gap.go
+  s_04c176961d26fc::t_9699796beef6d0 1-88
+internal/sqlc/subscriber_billing.sql.go
+  s_04c176961d26fc::t_9699796beef6d0 148,150,155,158,160,163-164,286,320,374,417,436-465,479-480
+internal/translate/spiral_signals_test.go
+  s_04c176961d26fc::t_9699796beef6d0 342-443
+db/queries/model_router_request_telemetry.sql
+  s_04c176961d26fc::t_9699796beef6d0 47-55,214-219,377-382
+internal/proxy/telemetry.go
+  s_04c176961d26fc::t_9699796beef6d0 288-301,635
+internal/subscriptions/entitlement/context.go
+  s_04c176961d26fc::t_9699796beef6d0 48
+cmd/router/main.go
+  s_04c176961d26fc::t_9699796beef6d0 672-674,1260,2123-2135
+  s_04c176961d26fc::t_28e079511a2437 2136-2141
+db/migrations/0116_telemetry-user-prompt-and-error-class.down.sql
+  s_04c176961d26fc::t_9699796beef6d0 1-12
+db/queries/model_router_api_keys.sql
+  s_04c176961d26fc::t_9699796beef6d0 49-51,53-63
+internal/proxy/service.go
+  s_04c176961d26fc::t_9699796beef6d0 147-149,3654-3655,5118-5122,6257,6676,8043-8044
+internal/postgres/repository.go
+  s_04c176961d26fc::t_9699796beef6d0 424-427,429
+.gitignore
+  s_04c176961d26fc::t_9699796beef6d0 50
+AGENTS.md
+  s_04c176961d26fc::t_9699796beef6d0 5-26,180-182,234,277
+internal/proxy/gemini.go
+  s_04c176961d26fc::t_9699796beef6d0 408-412,472
+.github/workflows/docs.yml
+  s_04c176961d26fc::t_9699796beef6d0 30-32
+cmd/CLAUDE.md
+  s_04c176961d26fc::t_9699796beef6d0 29,36
+cmd/router-gateway/startup_test.go
+  s_04c176961d26fc::t_9699796beef6d0 1-76
+db/queries/session_turn_clocks.sql
+  s_04c176961d26fc::t_9699796beef6d0 1-47
+internal/proxy/output_limit_response_test.go
+  s_04c176961d26fc::t_9699796beef6d0 98-131
+internal/proxy/turn_error_class.go
+  s_04c176961d26fc::t_9699796beef6d0 1-84
+internal/postgres/subscriber_credit_repo_replay_test.go
+  s_04c176961d26fc::t_9699796beef6d0 1-130
+.github/workflows/smoke.yml
+  s_04c176961d26fc::t_9699796beef6d0 12-13,43-71,74-75,90-94,127-128
+CLAUDE.md
+  s_04c176961d26fc::t_9699796beef6d0 5-26,180-182,234,277
+internal/postgres/subscriber_credit_repo_test.go
+  s_04c176961d26fc::t_9699796beef6d0 233-389
+scripts/test_agent_checks.py
+  s_04c176961d26fc::t_9699796beef6d0 1-428
+scripts/smoke/run.sh
+  s_04c176961d26fc::t_9699796beef6d0 2,4
+internal/auth/api_key.go
+  s_04c176961d26fc::t_9699796beef6d0 78
+internal/translate/user_prompt.go
+  s_04c176961d26fc::t_9699796beef6d0 1-133
+internal/server/middleware/subscriber_subscription_conflict_test.go
+  s_04c176961d26fc::t_9699796beef6d0 21,40,52,71
+internal/postgres/subscriber_allowance_repo.go
+  s_04c176961d26fc::t_9699796beef6d0 24-25,28
+scripts/agent_checks.py
+  s_04c176961d26fc::t_9699796beef6d0 1-572
+internal/postgres/telemetry.go
+  s_04c176961d26fc::t_9699796beef6d0 250-254
+db/queries/llm_escalation.sql
+  s_04c176961d26fc::t_9699796beef6d0 11-35,37,45,47-53
+internal/postgres/llm_escalation_repo.go
+  s_04c176961d26fc::t_9699796beef6d0 43-50,56,59-60,63,84-88,90-92,96-100,105-106,180,216,263,290-300
+db/migrations/0116_telemetry-user-prompt-and-error-class.up.sql
+  s_04c176961d26fc::t_9699796beef6d0 1-22
+internal/server/middleware/subscriber_allowance.go
+  s_04c176961d26fc::t_9699796beef6d0 38-42,89,98,101
+internal/server/middleware/subscriber_product_scope_test.go
+  s_04c176961d26fc::t_9699796beef6d0 88,205-206
+internal/sqlc/models.go
+  s_04c176961d26fc::t_9699796beef6d0 632-657,987-992
+  s_04c176961d26fc::t_eaa6552e581783 993-994
+internal/subscriptions/entitlement/contracts.go
+  s_04c176961d26fc::t_9699796beef6d0 29-32,231,244
+internal/proxy/usage_bypass.go
+  s_04c176961d26fc::t_9699796beef6d0 531-533,556-557
+CONTRIBUTING.md
+  s_04c176961d26fc::t_9699796beef6d0 81-84,87-93,185
+internal/sqlc/model_router_api_keys.sql.go
+  s_04c176961d26fc::t_9699796beef6d0 278-279,281-283,286,288,290-318
+cmd/AGENTS.md
+  s_04c176961d26fc::t_9699796beef6d0 29,36
+db/queries/subscriber_billing.sql
+  s_04c176961d26fc::t_9699796beef6d0 11-16,18-19,21-22,56,68,71,110
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_04c176961d26fc::t_9699796beef6d0 2016-2021,2179-2184,2347-2351,2400-2408,2567-2572,2730-2735,2897-2901
+internal/proxy/turn_signal_telemetry_internal_test.go
+  s_04c176961d26fc::t_9699796beef6d0 5,7,172-302
+cmd/router-gateway/main.go
+  s_04c176961d26fc::t_9699796beef6d0 6,68,71-73,75
+internal/sqlc/llm_escalation.sql.go
+  s_04c176961d26fc::t_9699796beef6d0 215-230,258,260,263,266-268,384-390,394-397,400,403-409,411-416,658-704
+internal/postgres/subscriber_credit_repo.go
+  s_04c176961d26fc::t_9699796beef6d0 103-114,116-117,119-152,155,165-179,203,208,224-238,242,244-245,247-252,254,266-276,297,299-308,312-314,317-322
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6e61ccdb2d7e86950a3fb5d89a3b109c3f9ebb30",
+  "prompts": {},
+  "sessions": {
+    "s_04c176961d26fc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0eae5-6fbb-70a1-bf3b-e652b125a910",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

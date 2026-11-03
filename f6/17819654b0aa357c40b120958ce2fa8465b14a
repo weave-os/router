@@ -1,0 +1,76 @@
+bench/weave_bench/efficiency/pin_proxy.py
+  s_29aee27fb6d00d::t_b0a4dd0e2a1918 1-125
+bench/weave_bench/efficiency/savings.py
+  s_29aee27fb6d00d::t_a86329715b9a15 1-59
+bench/tests/test_efficiency_runners.py
+  s_29aee27fb6d00d::t_9e0907383acc7f 1-177
+  s_29aee27fb6d00d::t_6da95437c18b70 178-185
+bench/weave_bench/efficiency/tasks.py
+  s_29aee27fb6d00d::t_64c704be755235 1-76
+bench/tests/test_efficiency_quality.py
+  s_29aee27fb6d00d::t_f877e34a7860a9 1-152
+  s_29aee27fb6d00d::t_b30d472ba579d8 153-167
+bench/weave_bench/efficiency/results.py
+  s_29aee27fb6d00d::t_686cc137aa3622 10
+  s_29aee27fb6d00d::t_3500049685b7df 1-9,11-170,173-267
+  s_29aee27fb6d00d::t_b9dc9bbb81b8ab 171-172
+  s_29aee27fb6d00d::t_7f635bef530c80 268-274
+bench/weave_bench/efficiency/pooling.py
+  s_29aee27fb6d00d::t_0fe0af150beca9 1-158
+  s_29aee27fb6d00d::t_054dc969d2fc39 159
+bench/tests/test_efficiency_estimates.py
+  s_29aee27fb6d00d::t_cef76a7b4fe5c5 1-129
+bench/token-efficiency/README.md
+  s_29aee27fb6d00d::t_236bce4d90c50a 1-398
+  s_29aee27fb6d00d::t_e3265daf5b37de 399-400
+bench/weave_bench/efficiency/terminal_bench.py
+  s_29aee27fb6d00d::t_a0cdd10f44d5ef 234,238-239,241
+  s_29aee27fb6d00d::t_74093db5da0452 1-233,235-237,240,242-273
+bench/weave_bench/efficiency/swe_together.py
+  s_29aee27fb6d00d::t_470a8895c2bfa0 1-242
+bench/weave_bench/efficiency/cells.py
+  s_29aee27fb6d00d::t_1abf00ae42fa52 1-88
+bench/weave_bench/efficiency/quality.py
+  s_29aee27fb6d00d::t_6d7ace6c8499f3 1-177
+  s_29aee27fb6d00d::t_be6c4110c16f36 178-179
+bench/weave_bench/efficiency/estimates.py
+  s_29aee27fb6d00d::t_fd69bf7359e60c 1-243
+bench/weave_bench/efficiency/cli.py
+  s_29aee27fb6d00d::t_5cd67489986ee3 1-305
+  s_29aee27fb6d00d::t_5e401b42dbe9e5 306-313
+bench/tests/test_efficiency_results.py
+  s_29aee27fb6d00d::t_3f328c0d4839fa 1-124
+  s_29aee27fb6d00d::t_11b93295c97934 125-128
+.gitignore
+  s_29aee27fb6d00d::t_4360c9d95a7635 73-74
+bench/README.md
+  s_29aee27fb6d00d::t_d2ae6eb199b0db 16-18
+bench/pyproject.toml
+  s_29aee27fb6d00d::t_898a9d90194741 34
+bench/token-efficiency/results/token_efficiency_results.json
+  s_29aee27fb6d00d::t_91839f1e9f8962 1-251
+bench/weave_bench/cli.py
+  s_29aee27fb6d00d::t_87fadfdbe19a2a 10,30,263-264
+bench/weave_bench/efficiency/swe_together_versions.patch
+  s_29aee27fb6d00d::t_b20b85c8e0ee12 1-22
+bench/weave_bench/manifests/token_efficiency_swe_together_tasks.json
+  s_29aee27fb6d00d::t_09153d33012f21 1-135
+bench/weave_bench/manifests/token_efficiency_terminalbench4_tasks.json
+  s_29aee27fb6d00d::t_010df38b7aa29e 1-142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f617819654b0aa357c40b120958ce2fa8465b14a",
+  "prompts": {},
+  "sessions": {
+    "s_29aee27fb6d00d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "334c31dc-6e6f-44da-90d5-bb62eb3cf18b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

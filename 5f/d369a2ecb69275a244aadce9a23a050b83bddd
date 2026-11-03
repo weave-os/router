@@ -1,0 +1,43 @@
+db/migrations/0130_subscription-state-model-exclusions.down.sql
+  s_6c0f50e29c46d2::t_34557e3299c73e 1-8
+db/migrations/0130_subscription-state-model-exclusions.up.sql
+  s_6c0f50e29c46d2::t_19e22d41d40765 1-16
+docs/SUBSCRIPTION_ROUTING.md
+  s_6c0f50e29c46d2::t_2a269c4d970215 27-29
+internal/auth/installation.go
+  s_6c0f50e29c46d2::t_5c0e004fddf04c 28-32,34-35
+internal/postgres/converters.go
+  s_6c0f50e29c46d2::t_0387981590d485 4,11,47-51,82,179-190
+internal/postgres/converters_test.go
+  s_6c0f50e29c46d2::t_903b35139e1804 78-98,101-103,106-108
+internal/proxy/service.go
+  s_6c0f50e29c46d2::t_836696ab07088b 528-531
+internal/proxy/subscription_state_models.go
+  s_6c0f50e29c46d2::t_b5d7c388037b7d 23,25-26
+internal/proxy/subscription_state_models_internal_test.go
+  s_6c0f50e29c46d2::t_16c27128a089de 20,477-483
+internal/server/middleware/auth.go
+  s_6c0f50e29c46d2::t_a5849d06f00b50 165-167
+internal/sqlc/model_router_api_keys.sql.go
+  s_6c0f50e29c46d2::t_7412a7bc04ffec 115,134,198-200
+internal/sqlc/model_router_installations.sql.go
+  s_6c0f50e29c46d2::t_4bb2e59b85db91 25,46,87-89,95,109,154-156,162,171,222-224
+internal/sqlc/models.go
+  s_6c0f50e29c46d2::t_8a7a168136f096 464-474
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5fd369a2ecb69275a244aadce9a23a050b83bddd",
+  "prompts": {},
+  "sessions": {
+    "s_6c0f50e29c46d2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b54c56cc-92ac-41fe-b45b-e32ecd1479d6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

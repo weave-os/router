@@ -1,0 +1,19 @@
+internal/translate/responses.go
+  s_e9a8c9d0e8b345::t_5efa2173905877 993-995
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b9523b63cf263a99d211387565c1335fe8233d37",
+  "prompts": {},
+  "sessions": {
+    "s_e9a8c9d0e8b345": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15be7-db6e-7fc0-baaa-fc417eda4afd",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

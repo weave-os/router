@@ -1,0 +1,19 @@
+install/tests/organization_policy_hook_test.sh
+  s_b1931d2e578d24::t_82e1eabc253c97 87,99,181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b878064d22712e606c221260ee9d84eea6ac182a",
+  "prompts": {},
+  "sessions": {
+    "s_b1931d2e578d24": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e2e-131f-7810-9724-179c8c8de9f4",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}
