@@ -200,8 +200,9 @@ func (t *compactionTracker) checkAndRecord(sessionKey [sessionpin.SessionKeyLen]
 		return true
 	}
 	// Rolling-window trimming: messageCount flat, tool-call count shrinks
-	// (gated to reject Explore's flat ~3-message window).
-	if toolCallCount < last.toolCallCount && messageCount >= compactionMinHistoryMessages {
+	// (gated to reject Explore's flat ~3-message window). A typed prompt resets
+	// the tool-call window while history grows, so growth is not a trim.
+	if toolCallCount < last.toolCallCount && messageCount <= last.msgCount && messageCount >= compactionMinHistoryMessages {
 		return true
 	}
 	return false
