@@ -38,17 +38,9 @@ from hmm_sidecar.classifier_package.documents import (
     format_router_agent_response_only_document,
 )
 from hmm_sidecar.classifier_package.serving_profile import (
-    DocumentWindow,
     ServingProfile,
-    ToolEvidenceMode,
 )
 from hmm_sidecar.classifier_package.serving_features import CATEGORICAL_DIM
-
-import json
-from hmm_sidecar.classifier_package.documents import (
-    ROUTER_NO_RESPONSE_MARKER,
-    ROUTER_NO_TOOL_TRACE_MARKER,
-)
 
 _DOCUMENT_BOUNDARY_MARKER = "\n[content omitted at HMM embedding boundary]"
 
@@ -436,82 +428,21 @@ def _agent_document(
     turn_index: int,
     *,
     response_blocks: list[str],
-    trace: dict[str, Any] | None,
-    profile: ServingProfile,
 ) -> str:
-    """Serialize ``A_t`` exactly as the profile's representation was trained.
-
-    Tool-free profiles emit only the raw response blocks: they must not carry
-    a tool-action section, not even an empty-trace marker, because their
-    trained documents never contained one.
+    """Serialize ``A_t`` as response blocks only: the served profile was
+    trained on documents with no tool-action section, not even an empty marker.
     """
 
-    if profile.config.tool_evidence is ToolEvidenceMode.USER_AGENT_ONLY:
-        return format_router_agent_response_only_document(
-            turn_index,
-            response_blocks,
-        )
-    return _agent_tool_trace_document(
-        turn_index,
-        response_blocks=response_blocks,
-        trace=trace,
-    )
-
-
-def _agent_tool_trace_document(
-    turn_index: int,
-    *,
-    response_blocks: list[str],
-    trace: dict[str, Any] | None,
-) -> str:
-    sections = [f"Raw agent reply (turn {turn_index}):"]
-    if response_blocks:
-        sections.append(
-            "Response blocks:\n"
-            + "\n\n".join(
-                f"[{index}]\n{block}"
-                for index, block in enumerate(response_blocks, start=1)
-            )
-        )
-    else:
-        sections.append("Response blocks:\n" + ROUTER_NO_RESPONSE_MARKER)
-    if trace is None:
-        sections.append("Tool action trace:\n" + ROUTER_NO_TOOL_TRACE_MARKER)
-    else:
-        sections.append(
-            "Tool action trace:\n"
-            + json.dumps(
-                trace,
-                ensure_ascii=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-        )
-    return "\n\n".join(sections)
-
-
-def _turn_window_document(
-    profile: ServingProfile,
-    *,
-    previous_turns: list[tuple[str, str]],
-    current_user_text: str,
-    current_agent_text: str | None,
-) -> str:
-    raise NotImplementedError(
-        "unsupported by the served Gemini per-message raw-V5 profile"
-    )
+    return format_router_agent_response_only_document(turn_index, response_blocks)
 
 
 def _window_turns(
     source_turns: list[LiveFlowTurn],
-    profile: ServingProfile,
 ) -> list[LiveFlowTurn]:
-    """Apply the profile's declared lookback geometry to source U/A documents.
+    """Validate the causal U/A order and embed each element alone.
 
     ``source_turns`` are the per-element raw documents in causal order, ending
-    at the routed user boundary. Turn-window profiles wrap each element in the
-    trailing fixed-size round window the representation was trained on;
-    previous-element profiles wrap it with exactly the one element before it.
+    at the routed user boundary.
     """
 
     if not source_turns or len(source_turns) % 2 != 1:
@@ -525,58 +456,7 @@ def _window_turns(
             )
     if source_turns[-1].categorical != user_categorical():
         raise DocumentError("raw V5 live sequence final element is not a user boundary")
-    if profile.config.document_window is DocumentWindow.PREVIOUS_ELEMENT:
-        return _previous_element_turns(source_turns, profile)
-    if profile.config.document_window is DocumentWindow.PER_MESSAGE:
-        return _per_message_turns(source_turns)
-
-    max_completed_turns = profile.config.lookback_rounds - 1
-    completed_turns: list[tuple[str, str]] = []
-    output: list[LiveFlowTurn] = []
-    for offset in range(0, len(source_turns) - 1, 2):
-        user_turn = source_turns[offset]
-        agent_turn = source_turns[offset + 1]
-        output.extend(
-            (
-                LiveFlowTurn(
-                    turn_text=_turn_window_document(
-                        profile,
-                        previous_turns=completed_turns,
-                        current_user_text=user_turn.turn_text,
-                        current_agent_text=None,
-                    ),
-                    categorical=user_turn.categorical,
-                ),
-                LiveFlowTurn(
-                    turn_text=_turn_window_document(
-                        profile,
-                        previous_turns=completed_turns,
-                        current_user_text=user_turn.turn_text,
-                        current_agent_text=agent_turn.turn_text,
-                    ),
-                    categorical=agent_turn.categorical,
-                ),
-            )
-        )
-        completed_turns.append((user_turn.turn_text, agent_turn.turn_text))
-        if max_completed_turns:
-            del completed_turns[:-max_completed_turns]
-        else:
-            completed_turns.clear()
-
-    final_user = source_turns[-1]
-    output.append(
-        LiveFlowTurn(
-            turn_text=_turn_window_document(
-                profile,
-                previous_turns=completed_turns,
-                current_user_text=final_user.turn_text,
-                current_agent_text=None,
-            ),
-            categorical=final_user.categorical,
-        )
-    )
-    return output
+    return _per_message_turns(source_turns)
 
 
 def _per_message_turns(source_turns: list[LiveFlowTurn]) -> list[LiveFlowTurn]:
@@ -599,15 +479,6 @@ def _per_message_turns(source_turns: list[LiveFlowTurn]) -> list[LiveFlowTurn]:
         )
         for turn in source_turns
     ]
-
-
-def _previous_element_turns(
-    source_turns: list[LiveFlowTurn],
-    profile: ServingProfile,
-) -> list[LiveFlowTurn]:
-    raise NotImplementedError(
-        "unsupported by the served Gemini per-message raw-V5 profile"
-    )
 
 
 def _finalize_live_turns(
@@ -700,7 +571,6 @@ def conversation_sequence_turns(
                             categorical=user_categorical(),
                         )
                     ],
-                    package_profile,
                 ),
                 {
                     "history_message_count": 0,
@@ -784,8 +654,6 @@ def conversation_sequence_turns(
             agent_doc = _agent_document(
                 pending_user_turn_index,
                 response_blocks=agent_response_blocks,
-                trace=trace,
-                profile=package_profile,
             )
         elif doc_resolver is not None:
             user_doc, agent_doc = doc_resolver(
@@ -1032,7 +900,6 @@ def conversation_sequence_turns(
                             categorical=user_categorical(),
                         )
                     ],
-                    package_profile,
                 ),
                 {
                     "history_message_count": len(messages),
@@ -1065,7 +932,7 @@ def conversation_sequence_turns(
     elements = truncate_sequence_elements(elements, max_elements)
     if package_profile is not None:
         return _finalize_live_turns(
-            _window_turns(elements, package_profile),
+            _window_turns(elements),
             {
                 "history_message_count": len(messages),
                 "hmm_sequence_length_before_truncation": (
