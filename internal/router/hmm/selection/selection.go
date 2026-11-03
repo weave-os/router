@@ -5,6 +5,7 @@ package selection
 
 import (
 	"math"
+	"slices"
 	"sort"
 	"strings"
 
@@ -128,17 +129,19 @@ func SelectGroupsWithSubscriptions(
 	return selectGroups(roster, groups, harness, SubscriptionLadderProvider(harness, subscriptionProviders), candidates, qualityBias, preferredModels, evidence, profile)
 }
 
-// SubscriptionLadderProvider picks whose ladder serves: the only subscription
-// in play, or the harness's native vendor when both are. Empty means no ladder.
+// SubscriptionLadderProvider picks whose ladder serves. A harness with a native
+// vendor only ever leads with that vendor's ladder, so another vendor's
+// subscription never pulls its arm ahead of the harness order; other harnesses
+// follow the only subscription in play. Empty means no ladder.
 func SubscriptionLadderProvider(harness string, subscriptionProviders []string) string {
+	if native, ok := harnessSubscriptionProvider[rosterdata.Harness(strings.ReplaceAll(harness, "-", "_"))]; ok {
+		if slices.Contains(subscriptionProviders, native) {
+			return native
+		}
+		return ""
+	}
 	if len(subscriptionProviders) == 1 {
 		return subscriptionProviders[0]
-	}
-	native := harnessSubscriptionProvider[rosterdata.Harness(strings.ReplaceAll(harness, "-", "_"))]
-	for _, provider := range subscriptionProviders {
-		if provider == native {
-			return provider
-		}
 	}
 	return ""
 }
