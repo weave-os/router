@@ -56,3 +56,46 @@ func TestExtractRouterFeedbackCommand_CursorUserQuery(t *testing.T) {
 	assert.Equal(t, "down", res.Rating)
 	assert.True(t, strings.Contains(res.Feedback, "too slow"), "feedback = %q", res.Feedback)
 }
+
+func cursorUserTurn(query string) map[string]any {
+	return map[string]any{"role": "user", "content": []any{
+		map[string]any{"type": "text", "text": "<open_and_recently_viewed_files>\nUser currently doesn't have any open files in their IDE.\n</open_and_recently_viewed_files>"},
+		map[string]any{"type": "text", "text": "<timestamp>Tuesday, Nov 3, 2026, 1:15 AM (UTC)</timestamp>\n<user_query>\n" + query + "\n</user_query>"},
+	}}
+}
+
+func cursorAssistantTurn(text string) map[string]any {
+	return map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "text", "text": text}}}
+}
+
+func cursorHistoryEnv(t *testing.T, command, ack string) *translate.RequestEnvelope {
+	t.Helper()
+	env, err := translate.ParseOpenAI(mustMarshalJSON(t, map[string]any{
+		"model": "weave-auto",
+		"messages": []any{
+			map[string]any{"role": "system", "content": "You are an AI coding assistant, powered by weave-auto."},
+			cursorUserTurn(command),
+			cursorAssistantTurn(ack),
+			cursorUserTurn("continue with the implementation"),
+		},
+	}))
+	require.NoError(t, err)
+	return env
+}
+
+func TestStripRouterFeedbackArtifacts_CursorHistory(t *testing.T) {
+	env := cursorHistoryEnv(t, "/rf - too slow", "Weave Router: Feedback recorded (down).")
+	assert.Equal(t, 2, env.StripRouterFeedbackArtifacts())
+	prep, err := env.PrepareOpenAI(nil, translate.EmitOptions{TargetModel: "gpt-4o"})
+	require.NoError(t, err)
+	assert.NotContains(t, string(prep.Body), "/rf")
+	assert.Contains(t, string(prep.Body), "continue with the implementation")
+}
+
+func TestStripBetaArtifacts_CursorHistory(t *testing.T) {
+	env := cursorHistoryEnv(t, "/beta", "✦ **Weave Router** → Beta is unavailable for this session.\n\n")
+	assert.Equal(t, 2, env.StripBetaArtifacts())
+	prep, err := env.PrepareOpenAI(nil, translate.EmitOptions{TargetModel: "gpt-4o"})
+	require.NoError(t, err)
+	assert.NotContains(t, string(prep.Body), "/beta")
+}

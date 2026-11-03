@@ -255,6 +255,24 @@ func cursorUserQuery(text string) (before, query, after string, ok bool) {
 	return text[:start], text[start:closeIdx], text[closeIdx:], true
 }
 
+// parseInCursorQuery retries parse on the typed message inside Cursor's
+// <user_query> wrapper, re-wrapping the stripped text around it.
+func parseInCursorQuery[T any](text string, parse func(string) (T, bool, string)) (T, bool, string) {
+	res, found, stripped := parse(text)
+	if found {
+		return res, found, stripped
+	}
+	if before, query, after, ok := cursorUserQuery(text); ok {
+		if inner, innerFound, innerStripped := parse(query); innerFound {
+			if strings.TrimSpace(innerStripped) == "" {
+				return inner, true, strings.TrimSuffix(before, cursorUserQueryOpen)
+			}
+			return inner, true, before + innerStripped + after
+		}
+	}
+	return res, found, stripped
+}
+
 // dropCommandBlock deletes the block at dropPath, cascading to the whole
 // message when that empties its content array, and reports false when the
 // result would be an empty history (providers reject empty content arrays).

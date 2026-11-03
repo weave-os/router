@@ -146,7 +146,7 @@ func parseBetaCommand(text string) (result BetaCommandResult, found bool, stripp
 func isBetaCommandOnlyContent(content gjson.Result) bool {
 	switch {
 	case content.Type == gjson.String:
-		_, found, stripped := parseBetaCommand(content.String())
+		_, found, stripped := parseInCursorQuery(content.String(), parseBetaCommand)
 		return found && isOnlyInjectedCommandText(stripped)
 	case content.Type == gjson.JSON && content.IsArray():
 		seenCommand := false
@@ -157,12 +157,11 @@ func isBetaCommandOnlyContent(content gjson.Result) bool {
 				return false
 			}
 			text := block.Get("text").String()
-			if strings.TrimSpace(text) == "" || isClaudeCodeInjectedBlock(text) {
+			if _, found, stripped := parseInCursorQuery(text, parseBetaCommand); found && isOnlyInjectedCommandText(stripped) {
+				seenCommand = true
 				return true
 			}
-			_, found, stripped := parseBetaCommand(text)
-			if found && isOnlyInjectedCommandText(stripped) {
-				seenCommand = true
+			if strings.TrimSpace(text) == "" || isClaudeCodeInjectedBlock(text) || isOnlyInjectedCommandText(text) {
 				return true
 			}
 			allSynthetic = false
