@@ -455,6 +455,13 @@ type AnthropicSSETranslator struct {
 	thinkTagReasoning bool
 	splitter          thinkTagSplitter
 
+	// seedToolNames enables recovery of a leading Seed-style tool call
+	// streamed as content text (see seed_tool_call.go); maps callable wire
+	// names to client tool names (RequestEnvelope.SeedToolCallNames).
+	seedToolNames          map[string]string
+	seedGate               seedToolCallGate
+	seedToolCallsRecovered int
+
 	// escapeNormalize repairs literal `\n`/`\t`/`\r` sequences that upstream
 	// models occasionally double-escape (`\\n` on the wire) in file-edit tool
 	// args (Edit/Write/MultiEdit). Off by default: the transform can corrupt
@@ -573,6 +580,13 @@ func (t *AnthropicSSETranslator) WithThinkTagReasoning(on bool) *AnthropicSSETra
 	return t
 }
 
+// WithSeedToolCallMarkup enables recovery of Seed-style tool-call markup
+// streamed as content into tool_use blocks, for calls naming a key of names.
+func (t *AnthropicSSETranslator) WithSeedToolCallMarkup(names map[string]string) *AnthropicSSETranslator {
+	t.seedToolNames = names
+	return t
+}
+
 // WithEscapeNormalize enables the escape-repair pass on file-edit tool
 // (Edit/Write/MultiEdit) args for the buffered non-streaming response path.
 func (t *AnthropicSSETranslator) WithEscapeNormalize(on bool) *AnthropicSSETranslator {
@@ -633,6 +647,9 @@ type ResponseSummary struct {
 	// validation, including ones repair recovered. Logged as
 	// router.tool_call_invalid per entry.
 	ToolCallIssues []toolcheck.Issue
+	// SeedToolCallsRecovered counts tool_use blocks recovered from Seed-style
+	// tool-call markup the upstream streamed as text.
+	SeedToolCallsRecovered int
 	// OutputTokens is the upstream completion_tokens count, when reported.
 	OutputTokens int
 	// InputTokens is the upstream prompt_tokens count, when reported.
@@ -662,19 +679,20 @@ func countUnrepairableToolArgs(issues []toolcheck.Issue) int {
 // before the stream completes the fields reflect partial state.
 func (t *AnthropicSSETranslator) Summary() ResponseSummary {
 	return ResponseSummary{
-		UpstreamFinishReason:  t.finishReason,
-		StopReason:            t.emittedStopReason,
-		StopReasonPromoted:    t.toolUseEmitted && openAIFinishToAnthropic(t.finishReason) != "tool_use",
-		ToolUseBlocks:         t.toolUseCount,
-		InvalidToolArgsBlocks: countUnrepairableToolArgs(t.toolCallIssues),
-		TextOnlyTurnNudged:    t.nudgeEmitted,
-		StopReasonDemoted:     t.stopReasonDemoted,
-		SuppressedToolCalls:   t.toolLedger.SuppressedCount(),
-		ToolCallIssues:        t.toolCallIssues,
-		OutputTokens:          t.UsageFacts().BilledOutputTokens(),
-		InputTokens:           t.UsageFacts().PromptTokens(),
-		CacheReadTokens:       t.UsageFacts().CacheRead.Value,
-		CacheCreationTokens:   t.UsageFacts().CacheWrite.Value,
+		UpstreamFinishReason:   t.finishReason,
+		StopReason:             t.emittedStopReason,
+		StopReasonPromoted:     t.toolUseEmitted && openAIFinishToAnthropic(t.finishReason) != "tool_use",
+		ToolUseBlocks:          t.toolUseCount,
+		InvalidToolArgsBlocks:  countUnrepairableToolArgs(t.toolCallIssues),
+		TextOnlyTurnNudged:     t.nudgeEmitted,
+		StopReasonDemoted:      t.stopReasonDemoted,
+		SuppressedToolCalls:    t.toolLedger.SuppressedCount(),
+		ToolCallIssues:         t.toolCallIssues,
+		SeedToolCallsRecovered: t.seedToolCallsRecovered,
+		OutputTokens:           t.UsageFacts().BilledOutputTokens(),
+		InputTokens:            t.UsageFacts().PromptTokens(),
+		CacheReadTokens:        t.UsageFacts().CacheRead.Value,
+		CacheCreationTokens:    t.UsageFacts().CacheWrite.Value,
 	}
 }
 
@@ -827,7 +845,7 @@ func (t *AnthropicSSETranslator) Finalize() error {
 	// surviving tool call to stop_reason=tool_use.
 	recordOutputLimit(t.usageSink, gjson.GetBytes(body, "choices.0.finish_reason").Str == "length")
 
-	translated, issues, err := openAIToAnthropicResponse(body, t.requestModel, t.toolValidator, t.thinkTagReasoning, t.escapeNormalize, t.UsageFacts(), t.clientInputTokenScale())
+	translated, issues, err := openAIToAnthropicResponse(body, t.requestModel, t.toolValidator, t.thinkTagReasoning, t.escapeNormalize, t.seedToolNames, t.UsageFacts(), t.clientInputTokenScale())
 	t.toolCallIssues = append(t.toolCallIssues, issues...)
 	if err != nil {
 		t.inner.Header().Set("Content-Type", "application/json")
@@ -1043,12 +1061,12 @@ func (t *AnthropicSSETranslator) emitDelta(delta gjson.Result) error {
 						return err
 					}
 				default:
-					if err := t.appendText(seg.text); err != nil {
+					if err := t.appendContentText(seg.text); err != nil {
 						return err
 					}
 				}
 			}
-		} else if err := t.appendText(content); err != nil {
+		} else if err := t.appendContentText(content); err != nil {
 			return err
 		}
 	}
@@ -1074,33 +1092,12 @@ func (t *AnthropicSSETranslator) emitDelta(delta gjson.Result) error {
 			emitErr = err
 			return false
 		}
-		blockIdx, ok := t.toolBlocks[idx]
-		if !ok {
-			id, name := t.toolLedger.ProjectID(idx, t.uniqueToolUseID), entry.Name
-			if t.textOpen {
-				if err := t.emitContentBlockStop(t.blockIdx - 1); err != nil {
-					emitErr = err
-					return false
-				}
-				t.textOpen = false
-			}
-			if t.thinkingOpen {
-				if err := t.emitContentBlockStop(t.blockIdx - 1); err != nil {
-					emitErr = err
-					return false
-				}
-				t.thinkingOpen = false
-			}
+		if _, ok := t.toolBlocks[idx]; !ok {
 			sig := tc.Get("function.thought_signature").Str
 			if sig == "" {
 				sig = tc.Get("thought_signature").Str
 			}
-			blockIdx = t.blockIdx
-			t.toolBlocks[idx] = blockIdx
-			t.toolUseEmitted = true
-			t.toolUseCount++
-			t.blockIdx++
-			if emitErr = t.emitContentBlockStartTool(blockIdx, id, name, sig); emitErr != nil {
+			if emitErr = t.openToolUseBlock(idx, entry.Name, sig); emitErr != nil {
 				return false
 			}
 		}
@@ -1108,6 +1105,70 @@ func (t *AnthropicSSETranslator) emitDelta(delta gjson.Result) error {
 		return true
 	})
 	return emitErr
+}
+
+// openToolUseBlock closes any open text/thinking block and starts the
+// tool_use block for ledger entry idx; finishStream emits its arguments.
+func (t *AnthropicSSETranslator) openToolUseBlock(idx int, name, sig string) error {
+	id := t.toolLedger.ProjectID(idx, t.uniqueToolUseID)
+	if t.textOpen {
+		if err := t.emitContentBlockStop(t.blockIdx - 1); err != nil {
+			return err
+		}
+		t.textOpen = false
+	}
+	if t.thinkingOpen {
+		if err := t.emitContentBlockStop(t.blockIdx - 1); err != nil {
+			return err
+		}
+		t.thinkingOpen = false
+	}
+	blockIdx := t.blockIdx
+	t.toolBlocks[idx] = blockIdx
+	t.toolUseEmitted = true
+	t.toolUseCount++
+	t.blockIdx++
+	return t.emitContentBlockStartTool(blockIdx, id, name, sig)
+}
+
+// appendContentText routes visible content text through the Seed tool-call
+// gate, which holds a leading <seed:tool_call> until finishStream.
+func (t *AnthropicSSETranslator) appendContentText(text string) error {
+	if len(t.seedToolNames) > 0 {
+		if text = t.seedGate.Feed(text); text == "" {
+			return nil
+		}
+	}
+	return t.appendText(text)
+}
+
+// resolveSeedToolCalls turns held Seed tool-call markup into tool_use blocks,
+// or releases it as text when it does not parse, names an undeclared tool,
+// or the upstream also sent structured calls.
+func (t *AnthropicSSETranslator) resolveSeedToolCalls() error {
+	if len(t.seedToolNames) == 0 {
+		return nil
+	}
+	calls, text, ok := t.seedGate.Resolve(t.seedToolNames)
+	if !ok || t.upstreamErrorStatus != 0 || len(t.toolLedger.Entries()) > 0 {
+		if text == "" {
+			return nil
+		}
+		return t.appendText(text)
+	}
+	for idx, call := range calls {
+		t.toolLedger.AppendArguments(idx, "", call.Name, call.Arguments)
+		if err := t.openToolUseBlock(idx, call.Name, ""); err != nil {
+			return err
+		}
+	}
+	t.seedToolCallsRecovered = len(calls)
+	t.log().Warn("AnthropicSSE recovered tool calls from Seed text markup",
+		"upstream_model", t.modelFromUpstream,
+		"request_model", t.requestModel,
+		"tool_calls", len(calls),
+	)
+	return nil
 }
 
 func (t *AnthropicSSETranslator) emitValidatedToolArgsDelta(sourceIndex, blockIdx int) error {
@@ -1148,6 +1209,7 @@ const leadingContentCap = 64
 // finish_reason="stop" — a valid turn, not a parse failure. Nudging on it
 // looped the session (echo -> re-pin -> another <think>+answer -> repeat).
 var toolishMarkupMarkers = []string{
+	"<seed:tool_call", "</seed",
 	"<tool_call", "</tool_call",
 	"<function", "</function",
 	"<invoke", "</invoke",
@@ -1266,11 +1328,14 @@ func (t *AnthropicSSETranslator) finishStream() error {
 					return err
 				}
 			default:
-				if err := t.appendText(seg.text); err != nil {
+				if err := t.appendContentText(seg.text); err != nil {
 					return err
 				}
 			}
 		}
+	}
+	if err := t.resolveSeedToolCalls(); err != nil {
+		return err
 	}
 	if t.textOpen {
 		if err := t.emitContentBlockStop(t.blockIdx - 1); err != nil {
