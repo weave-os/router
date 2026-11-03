@@ -67,6 +67,39 @@ func TestLastReplayedResponsesModel(t *testing.T) {
 	assert.Empty(t, translate.LastReplayedResponsesModel(body("Docs say: "+legacy)))
 }
 
+func TestSlowStartInResponsesTurn(t *testing.T) {
+	const slowStart = codexResponsesBadgeSentinelForTest + "↳ OpenAI took 41s to first output (usually ~3s; client tool wait excluded)\n\n"
+	const selection = codexResponsesBadgeSentinelForTest + "✦ **Weave Router** → synthetic-model\n\n"
+	for _, test := range []struct {
+		name string
+		text string
+		tail string
+		role translate.EscalationRole
+		want bool
+	}{
+		{name: "marked assistant notice", text: slowStart, role: translate.EscalationRoleAssistant, want: true},
+		{name: "trimmed notice", text: strings.TrimSpace(slowStart), role: translate.EscalationRoleAssistant, want: true},
+		{name: "selection then notice", text: selection + slowStart + "Continuing", role: translate.EscalationRoleAssistant, want: true},
+		{name: "selection alone", text: selection, role: translate.EscalationRoleAssistant},
+		{name: "unmarked prose", text: strings.TrimPrefix(slowStart, codexResponsesBadgeSentinelForTest), role: translate.EscalationRoleAssistant},
+		{name: "quoted notice", text: "Docs say: " + slowStart, role: translate.EscalationRoleAssistant},
+		{name: "user quote", text: slowStart, role: translate.EscalationRoleUser},
+		{name: "tool quote", text: slowStart, role: translate.EscalationRoleTool},
+		{name: "new prompt", text: slowStart, role: translate.EscalationRoleAssistant, tail: `,{"role":"user","content":[{"type":"input_text","text":"Check the serializer"}]}`},
+		{name: "new image prompt", text: slowStart, role: translate.EscalationRoleAssistant, tail: `,{"role":"user","content":[{"type":"input_image","image_url":"synthetic.png"}]}`},
+		{name: "tool continuation", text: slowStart, role: translate.EscalationRoleAssistant, tail: `,{"type":"custom_tool_call_output","call_id":"synthetic","output":"done"}`, want: true},
+		{name: "injected wrapper", text: slowStart, role: translate.EscalationRoleAssistant, tail: `,{"role":"user","content":[{"type":"input_text","text":"<system-reminder>Synthetic status</system-reminder>"}]}`, want: true},
+		{name: "later assistant prose", text: slowStart, role: translate.EscalationRoleAssistant, tail: `,{"role":"assistant","content":"Checking the parser"}`, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			message, err := json.Marshal(map[string]any{"type": "message", "role": test.role, "content": []map[string]string{{"type": "output_text", "text": test.text}}})
+			require.NoError(t, err)
+			body := []byte(`{"input":[{"role":"user","content":"Check the parser"},` + string(message) + test.tail + `]}`)
+			assert.Equal(t, test.want, translate.SlowStartInResponsesTurn(body))
+		})
+	}
+}
+
 func TestStripRoutingMarkerFromWhitespaceTrimmedReplay(t *testing.T) {
 	const marker = "✦ **Weave Router** → first-model · best pick for this turn"
 	body, err := json.Marshal(map[string]any{"messages": []map[string]any{

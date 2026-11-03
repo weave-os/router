@@ -32,6 +32,53 @@ var routerOwnedNoticePattern = regexp.MustCompile(`(?s)(?:` + regexp.QuoteMeta(r
 
 var replayedNoticePattern = regexp.MustCompile(`(?s)(?:` + regexp.QuoteMeta(routerNoticeSentinel) + `.*?\n\n|` + legacyRoutingMarkerExpression + `|` + trimmedRoutingMarkerExpression + `)` + rescueDetailExpression)
 
+var replayedSlowStartPattern = regexp.MustCompile(`\A` + regexp.QuoteMeta(routerNoticeSentinel+SlowStartPrefix) + `[^\n]+ took [0-9]+s to first output \([^\n]+\)(?:\n\n|\z)`)
+
+// SlowStartInResponsesTurn reads replay evidence before cleanup. Tool loops
+// can outlive the worker's cooldown or move to a worker with no cooldown state.
+func SlowStartInResponsesTurn(body []byte) bool {
+	items := gjson.GetBytes(body, "input").Array()
+	for i := len(items) - 1; i >= 0; i-- {
+		item := items[i]
+		kind := escalationWireType(item.Get("type").Str)
+		if kind != "" && kind != escalationWireMessage {
+			continue
+		}
+		role := EscalationRole(item.Get("role").Str)
+		if role != EscalationRoleAssistant && role != EscalationRoleUser {
+			continue
+		}
+		blocks, media, err := escalationContentBlocks(item.Get("content"))
+		if err != nil || (role == EscalationRoleUser && media) {
+			return false
+		}
+		for _, block := range blocks {
+			if block.Type != EscalationBlockText {
+				continue
+			}
+			if role == EscalationRoleUser {
+				if !isOnlyKnownInjectedText(block.Text) {
+					return false
+				}
+				continue
+			}
+			text := block.Text
+			for {
+				if replayedSlowStartPattern.MatchString(text) {
+					return true
+				}
+				span := replayedNoticePattern.FindStringIndex(text)
+				if span == nil || span[0] != 0 {
+					break
+				}
+				text = text[span[1]:]
+			}
+			break
+		}
+	}
+	return false
+}
+
 func IsRouterNoticeText(text string) bool {
 	return routerOwnedNoticePattern.MatchString(text)
 }

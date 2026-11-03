@@ -70,7 +70,13 @@ Client statusline/title helpers remain separate lifecycle integrations.
 
 Slow-start notices measure dispatch to first provider content, including earlier
 attempts when a rescue occurred, but excluding client tool execution before the
-request. Identified Codex clients can also send native exec/poll timing headers
+request. Subagent turns suppress them, including automatically routed children
+and their tool continuations, so a child cannot consume the parent's cooldown.
+Codex continuations also suppress a notice already replayed since the last user
+prompt, independently of worker restarts and the five-minute process cooldown.
+This replay rule requires the notice in the supplied history; concurrent requests
+or histories omitting it still rely on the process cooldown.
+Identified Codex clients can also send native exec/poll timing headers
 or a code-mode `Script completed` / `Wall time … seconds` header. The notice shows
 that last result's reported call duration separately when its call ID and tool
 identity match; it never adds tool time to provider wait. A result saying

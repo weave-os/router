@@ -152,6 +152,9 @@ func slowStartNotice(ctx context.Context, trace *attemptTrace, tracker *slowStar
 	if wait <= threshold || trace.hideDetails() || isHeadlessClientUserAgent(ClientIdentityFrom(ctx).UserAgent) {
 		return translate.RouterNotice{}, false
 	}
+	if ClientIdentityFrom(ctx).ClientApp == ClientAppCodex && translate.SlowStartInResponsesTurn(trace.inbound) {
+		return translate.RouterNotice{}, false
+	}
 	if cooldownKey, ok := slowStartCooldownKey(ctx); !ok || !tracker.claim(cooldownKey, now) {
 		return translate.RouterNotice{}, false
 	}
