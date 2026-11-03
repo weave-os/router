@@ -52,9 +52,6 @@ from hmm_sidecar.raw_v5.serving_features import (
 from hmm_sidecar.raw_v5.schemas import (
     CognitiveStatePacket,
 )
-from hmm_sidecar.raw_v5.state_representation import (
-    VOYAGE_4_LARGE_RAW_ROUTER_V5_TWO_TURN,
-)
 
 log = logging.getLogger(__name__)
 
@@ -264,11 +261,6 @@ class ComplexityRouteSelector:
         # state_repr and always carry the embedding block. A wrong value here
         # cannot serve silently: predict() rejects mismatched feature_dim.
         metadata = classifier.metadata
-        self._requires_raw_v5_tool_context_override = bool(
-            metadata.get("sequence_representation")
-            == VOYAGE_4_LARGE_RAW_ROUTER_V5_TWO_TURN.value
-            and self._uses_tool_context
-        )
         state_repr = metadata.get("state_repr", "embedding")
         self._includes_raw_embedding = state_repr != "seqae"
         self._conversation_sequence_contract = (
@@ -388,11 +380,6 @@ class ComplexityRouteSelector:
                     "tool-context feature override does not match the supported "
                     "raw V5 feature vector"
                 )
-        elif self._requires_raw_v5_tool_context_override:
-            raise ValueError(
-                "raw V5 Voyage classifier requires its direct tool-context "
-                "feature vector"
-            )
         row = _feature_row(
             embedding=embedding,
             gamma_row=gamma,

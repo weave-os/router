@@ -20,7 +20,6 @@ class RawV5HMMTrainingContractVersion(StrEnum):
     training, which always writes the current ``_V2`` versions.
     """
 
-    VOYAGE_V2 = "hmm_router_raw_v5_voyage_hmm_training_contract_v2"
     GEMINI_V1 = "hmm_router_raw_v5_gemini_embedding_2_hmm_training_contract_v1"
     GEMINI_V2 = "hmm_router_raw_v5_gemini_embedding_2_hmm_training_contract_v2"
 
@@ -32,7 +31,6 @@ class RawFeatureMatrix(StrEnum):
     rows are one column wider and must not be reinterpreted under ``v2``.
     """
 
-    VOYAGE_ELEMENT_KIND_SLOTS_V2 = "voyage_embedding_plus_element_kind_slots_v2"
     GEMINI_EMBEDDING_2_ELEMENT_KIND_SLOTS_RELATIVE_POSITION_V1 = (
         "gemini_embedding_2_plus_element_kind_slots_plus_relative_position_v1"
     )
@@ -41,27 +39,17 @@ class RawFeatureMatrix(StrEnum):
     )
 
 
-RAW_V5_ROUTER_EMBEDDING_DIM = 1024
-# Gemini uses the same exact raw-V5 source and causal turn-window document
-# serializer as Voyage.  Its encoder identity is intentionally independent:
-# vectors must never be allowed to reuse a Voyage cache or artifact merely
-# because the input document bytes are the same.
 RAW_V5_GEMINI_EMBEDDING_2_MODEL = "google/gemini-embedding-2"
 RAW_V5_GEMINI_EMBEDDING_2_DIM = 3072
-RAW_V5_ROUTER_MAX_INPUT_TOKENS = 32_000
 RAW_V5_ROUTER_CLASSIFICATION_SCHEMA_VERSION = "hmm_router_stage2_turn_classification_v5"
 RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS = GEMINI_EMBEDDING_MAX_INPUT_TOKENS
 RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_BYTES = GEMINI_EMBEDDING_MAX_INPUT_BYTES
-# The existing raw-V5 Voyage representation embeds one raw U/A element at a
-# time.  These are deliberately separate contracts for bounded causal round
-# windows: changing a provider document's history changes its vector geometry,
-# so it must never reuse the one-element cache or artifact lineage.
-RAW_V5_VOYAGE_TURN_WINDOW_DOCUMENT_SCHEMA_VERSION = (
+# Model-input bytes: every document embeds this schema name, so it cannot change
+# without retraining.
+RAW_V5_TURN_WINDOW_DOCUMENT_SCHEMA_VERSION = (
     "hmm_router_raw_v5_voyage_turn_window_document_v1"
 )
-RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS = 1
-RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS = 2
-RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS = 10
+RAW_V5_ONE_TURN_MAX_TURNS = 1
 # This is deliberately separate from the tool-aware raw V5 documents above.
 # Its source projection contains only user text and persisted response blocks;
 # the distinct 1/2/10-turn identities prevent both tool-aware and differently
@@ -81,64 +69,9 @@ RAW_V5_GEMINI_ELEMENT_STATE_DEFINITION = (
 RAW_V5_GEMINI_ELEMENT_SERIALIZER_VERSION = (
     "hmm_router_raw_v5_gemini_embedding_2_element_serializer_v1"
 )
-# The same per-message store over voyage-code-4 (32,000-token context). Its
-# documents are plain message text; counting uses the pinned voyage-4-large
-# tokenizer, so a 2,000-token margin covers voyage-code-4's unpublished one.
-RAW_V5_GEMINI_USER_AGENT_ONLY_TWO_TURN_STATE_DEFINITION = (
-    "hmm-router-raw-v5-gemini-embedding-2-user-agent-only-two-turn-v1"
-)
-RAW_V5_GEMINI_USER_AGENT_ONLY_TEN_TURN_STATE_DEFINITION = (
-    "hmm-router-raw-v5-gemini-embedding-2-user-agent-only-10-turn-v1"
-)
-RAW_V5_GEMINI_USER_AGENT_ONLY_TWO_TURN_SERIALIZER_VERSION = (
-    "hmm_router_raw_v5_gemini_embedding_2_user_agent_only_two_turn_serializer_v4"
-)
-RAW_V5_GEMINI_USER_AGENT_ONLY_TEN_TURN_SERIALIZER_VERSION = (
-    "hmm_router_raw_v5_gemini_embedding_2_user_agent_only_ten_turn_serializer_v4"
-)
-# The tool-free projection carrying the immediately preceding element, which
-# is the timeframe prod's Gemini Last State classifier was trained on. A
-# document's history is part of its vector geometry, so this carries its own
-# identity instead of reusing the current-element-only or round-windowed
-# caches and artifacts.
 
 
-def _raw_v5_gemini_user_agent_only_constants(
-    max_turns: int,
-) -> tuple[str, str]:
-    """Return the separately pinned identity for a no-tool U/A window."""
-
-    if isinstance(max_turns, bool) or not isinstance(max_turns, int):
-        raise ValueError(
-            "raw V5 Gemini user-agent-only max_turns must be an integer; "
-            f"got {max_turns!r}"
-        )
-    if max_turns == RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS:
-        return (
-            RAW_V5_GEMINI_USER_AGENT_ONLY_STATE_DEFINITION,
-            RAW_V5_GEMINI_USER_AGENT_ONLY_SERIALIZER_VERSION,
-        )
-    if max_turns == RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS:
-        return (
-            RAW_V5_GEMINI_USER_AGENT_ONLY_TWO_TURN_STATE_DEFINITION,
-            RAW_V5_GEMINI_USER_AGENT_ONLY_TWO_TURN_SERIALIZER_VERSION,
-        )
-    if max_turns == RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS:
-        return (
-            RAW_V5_GEMINI_USER_AGENT_ONLY_TEN_TURN_STATE_DEFINITION,
-            RAW_V5_GEMINI_USER_AGENT_ONLY_TEN_TURN_SERIALIZER_VERSION,
-        )
-    raise ValueError(
-        "raw V5 Gemini user-agent-only max_turns must be one of "
-        f"{RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS}, "
-        f"{RAW_V5_VOYAGE_TWO_TURN_MAX_TURNS}, "
-        f"{RAW_V5_VOYAGE_TEN_TURN_MAX_TURNS}; got {max_turns!r}"
-    )
-
-
-def raw_v5_gemini_user_agent_only_model_input_contract(
-    max_turns: int = RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
-) -> dict[str, object]:
+def raw_v5_gemini_user_agent_only_model_input_contract() -> dict[str, object]:
     """Return Gemini's tool-free U/A-pair turn-window input contract.
 
     This is an additive training representation, not an alternate rendering
@@ -147,14 +80,10 @@ def raw_v5_gemini_user_agent_only_model_input_contract(
     compaction artifact are neither required nor consulted.
     """
 
-    state_definition, serializer_version = _raw_v5_gemini_user_agent_only_constants(
-        max_turns
-    )
-    has_completed_history = max_turns > RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS
     return {
-        "schema_version": serializer_version,
-        "document_schema_version": RAW_V5_VOYAGE_TURN_WINDOW_DOCUMENT_SCHEMA_VERSION,
-        "state_definition": state_definition,
+        "schema_version": RAW_V5_GEMINI_USER_AGENT_ONLY_SERIALIZER_VERSION,
+        "document_schema_version": RAW_V5_TURN_WINDOW_DOCUMENT_SCHEMA_VERSION,
+        "state_definition": RAW_V5_GEMINI_USER_AGENT_ONLY_STATE_DEFINITION,
         "embedding_model": RAW_V5_GEMINI_EMBEDDING_2_MODEL,
         "embedding_dimension": RAW_V5_GEMINI_EMBEDDING_2_DIM,
         "source_classification_schema": RAW_V5_ROUTER_CLASSIFICATION_SCHEMA_VERSION,
@@ -169,16 +98,8 @@ def raw_v5_gemini_user_agent_only_model_input_contract(
             "label_fields": "excluded_from_embedding_text",
         },
         "window": {
-            "maximum_turns": max_turns,
-            "maximum_completed_prior_turns": max_turns - 1,
-            **(
-                {
-                    "completed_turn": ("paired_raw_user_and_raw_agent_response_blocks"),
-                    "ordering": "oldest_completed_turn_to_current_partial_turn",
-                }
-                if has_completed_history
-                else {}
-            ),
+            "maximum_turns": RAW_V5_ONE_TURN_MAX_TURNS,
+            "maximum_completed_prior_turns": 0,
             "current_turn": "raw_user_plus_raw_agent_response_blocks_after_boundary",
             "document_format": "deterministic_compact_json",
             "turn_fields": [
@@ -193,11 +114,7 @@ def raw_v5_gemini_user_agent_only_model_input_contract(
             "assumed_token_budget": RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS,
             "provider_maximum_input_tokens": 8_192,
             "scope": "raw_v5_gemini_embedding_2_user_agent_only_documents",
-            "window_overflow": (
-                "drop_oldest_completed_turns_before_truncating_current_turn"
-                if has_completed_history
-                else "not_applicable_no_completed_history"
-            ),
+            "window_overflow": "not_applicable_no_completed_history",
             "current_turn_overflow": (
                 "retain_utf8_prefixes_of_current_user_and_available_agent_fields"
             ),
@@ -205,17 +122,8 @@ def raw_v5_gemini_user_agent_only_model_input_contract(
             "residual_overflow": "fail_closed",
         },
         "causal_boundary": {
-            "user_element": (
-                "up_to_maximum_completed_prior_raw_user_agent_response_only_"
-                "turns_plus_current_raw_user"
-                if has_completed_history
-                else "current_raw_user_only"
-            ),
-            "agent_element": (
-                "same_causal_window_plus_current_raw_agent_response_blocks"
-                if has_completed_history
-                else "same_current_raw_user_plus_agent_response_blocks"
-            ),
+            "user_element": "current_raw_user_only",
+            "agent_element": "same_current_raw_user_plus_agent_response_blocks",
             "future_agent_response": "forbidden",
             "window_reset": "every_conversation",
         },
@@ -232,14 +140,12 @@ def raw_v5_gemini_element_model_input_contract() -> dict[str, object]:
     agent element, which embeds the user turn and the reply together.
     """
 
-    contract = raw_v5_gemini_user_agent_only_model_input_contract(
-        RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS
-    )
+    contract = raw_v5_gemini_user_agent_only_model_input_contract()
     contract.update(
         schema_version=RAW_V5_GEMINI_ELEMENT_SERIALIZER_VERSION,
         state_definition=RAW_V5_GEMINI_ELEMENT_STATE_DEFINITION,
         window={
-            "maximum_turns": RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
+            "maximum_turns": RAW_V5_ONE_TURN_MAX_TURNS,
             "maximum_completed_prior_turns": 0,
             "user_document": "one_round_routing_document_current_raw_user_only",
             "agent_document": "raw_agent_reply_response_blocks_text_only",

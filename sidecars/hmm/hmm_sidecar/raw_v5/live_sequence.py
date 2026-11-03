@@ -7,8 +7,7 @@ logic lives here — importable by both the sidecar (``server.py``) and
 ``build_feedback_dataset`` — instead of being duplicated and drifting.
 
 No embedding model is loaded here. Raw-V5 Gemini construction uses a local
-8,000-byte limit; Voyage uses its local tokenizer. Neither construction path
-needs Google credentials or a token-count API request.
+8,000-byte limit and needs no Google credentials or token-count API request.
 """
 
 from __future__ import annotations
@@ -29,7 +28,6 @@ from hmm_sidecar.raw_v5.conversation_sequence import (
 from hmm_sidecar.raw_v5.raw_v5_contract import (
     RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS,
     RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_BYTES,
-    RAW_V5_ROUTER_MAX_INPUT_TOKENS,
 )
 from hmm_sidecar.raw_v5.raw_v5_sequence import (
     RawV5SequenceError,
@@ -41,12 +39,8 @@ from hmm_sidecar.raw_v5.raw_v5_sequence import (
 )
 from hmm_sidecar.raw_v5.raw_v5_serving_profile import (
     RawV5DocumentWindow,
-    RawV5EmbeddingProvider,
     RawV5ServingProfile,
     RawV5ToolEvidenceMode,
-)
-from hmm_sidecar.raw_v5.frozen_raw_v5 import (
-    RAW_V5_GEMINI_EMBEDDING_2_MAX_SERIALIZED_BYTES,
 )
 from hmm_sidecar.raw_v5.serving_features import CATEGORICAL_DIM
 
@@ -104,16 +98,7 @@ MAX_LIVE_TOOL_GROUPS = 8
 MAX_LIVE_TOOL_INPUT_KEYS = 8
 MAX_LIVE_TOOL_ITEM_CHARS = 300
 
-# Legacy v1 final document boundary. v2 never calls this truncator. Vertex
-# auto-truncation is disabled, and OpenRouter single-document oversize errors
-# are surfaced without retrying a shortened payload.
-RAW_V5_VOYAGE_TWO_TURN_DOCUMENT_POLICY = (
-    "raw_v5_voyage_serialized_32000_token_budget_v2"
-)
 RAW_V5_GEMINI_DOCUMENT_POLICY = "raw_v5_gemini_serialized_8000_byte_budget_v4"
-FROZEN_RAW_V5_DOCUMENT_POLICY = (
-    "raw_v5_voyage_two_turn_uniform_structural_normalization_v1"
-)
 _CONTEXT_OMISSION_MARKER_RESERVE = 80
 
 
@@ -225,19 +210,9 @@ def finalize_embedding_documents(
 
     return bounded_elements, {
         **debug,
-        "hmm_embedding_document_policy": (
-            FULL_CANONICAL_DOCUMENT_POLICY
-            if preserve_full_canonical_data
-            else LIVE_EMBEDDING_DOCUMENT_POLICY
-        ),
-        "hmm_embedding_document_byte_limit": (
-            None if preserve_full_canonical_data else MAX_LIVE_EMBEDDING_DOCUMENT_BYTES
-        ),
-        "hmm_embedding_input_truncation": (
-            "forbidden_provider_must_reject_oversize"
-            if preserve_full_canonical_data
-            else "legacy_explicit_document_boundary"
-        ),
+        "hmm_embedding_document_policy": RAW_V5_GEMINI_DOCUMENT_POLICY,
+        "hmm_embedding_document_byte_limit": RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_BYTES,
+        "hmm_embedding_input_truncation": "raw_v5_contractual_byte_budget",
         "hmm_embedding_documents_bounded": bounded_count,
         "hmm_embedding_source_max_bytes": max(source_sizes, default=0),
         "hmm_embedding_document_max_bytes": max(
@@ -647,47 +622,21 @@ def _finalize_raw_v5_live_turns(
     profile: RawV5ServingProfile,
 ) -> tuple[list[LiveFlowTurn], dict[str, Any]]:
     sizes = [len(turn.turn_text.encode("utf-8")) for turn in turns]
-    gemini = profile.config.provider is RawV5EmbeddingProvider.GEMINI
-    frozen = profile.frozen_encoder is not None
     return turns, {
         **debug,
         "hmm_sequence_length": len(turns),
         "hmm_action_boundary": USER_TURN_ACTION_BOUNDARY,
         "hmm_open_agent_turn_included": False,
-        "hmm_embedding_document_policy": (
-            FROZEN_RAW_V5_DOCUMENT_POLICY
-            if frozen
-            else (
-                RAW_V5_GEMINI_DOCUMENT_POLICY
-                if gemini
-                else RAW_V5_VOYAGE_TWO_TURN_DOCUMENT_POLICY
-            )
-        ),
+        "hmm_embedding_document_policy": RAW_V5_GEMINI_DOCUMENT_POLICY,
         "hmm_embedding_document_serializer_version": (
             profile.document_serializer_version
         ),
-        "hmm_embedding_document_byte_limit": (
-            RAW_V5_GEMINI_EMBEDDING_2_MAX_SERIALIZED_BYTES
-            if frozen and gemini
-            else RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_BYTES if gemini else None
-        ),
-        "hmm_embedding_document_token_limit": (
-            None if frozen or gemini else RAW_V5_ROUTER_MAX_INPUT_TOKENS
-        ),
+        "hmm_embedding_document_byte_limit": RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_BYTES,
+        "hmm_embedding_document_token_limit": None,
         "hmm_embedding_document_assumed_token_budget": (
             RAW_V5_GEMINI_EMBEDDING_2_MAX_INPUT_TOKENS
-            if gemini and not frozen
-            else None
         ),
-        "hmm_embedding_input_truncation": (
-            "raw_v5_contractual_structural_normalization"
-            if frozen
-            else (
-                "raw_v5_contractual_byte_budget"
-                if gemini
-                else "raw_v5_contractual_token_budget"
-            )
-        ),
+        "hmm_embedding_input_truncation": "raw_v5_contractual_byte_budget",
         "hmm_embedding_documents_bounded": 0,
         "hmm_embedding_source_max_bytes": max(sizes),
         "hmm_embedding_document_max_bytes": max(sizes),

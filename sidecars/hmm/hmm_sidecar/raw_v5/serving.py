@@ -30,7 +30,6 @@ from hmm_sidecar.raw_v5.raw_v5_runtime_contract import (
     parse_raw_v5_runtime_contract,
 )
 from hmm_sidecar.raw_v5.raw_v5_serving_profile import (
-    RawV5EmbeddingProvider,
     validate_raw_v5_configured_hmm_bundle,
 )
 from hmm_sidecar.raw_v5.route_selector import ComplexityRouteSelector
@@ -143,8 +142,6 @@ class RawV5Classifier:
                 "raw-V5 stored-vector element lookback is not servable"
             )
         profile = contract.resolved_profile()
-        if profile.config.provider is not RawV5EmbeddingProvider.GEMINI:
-            raise RawV5PackageError("only Gemini raw-V5 packages are servable")
         self.profile = profile
         self.interaction_state = contract.interaction_state
         self.classifier = ComplexityClassifier.load(

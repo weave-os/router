@@ -23,9 +23,6 @@ from hmm_sidecar.raw_v5.complexity_labels import (
     COMPLEXITY_CLASSES,
 )
 from hmm_sidecar.raw_v5.core import sha256_file
-from hmm_sidecar.raw_v5.raw_v5_contract import (
-    RAW_V5_ROUTER_EMBEDDING_DIM,
-)
 from hmm_sidecar.raw_v5.raw_v5_serving_profile import (
     RawV5ServingProfile,
 )
@@ -51,7 +48,7 @@ TASK_FAMILY = "hmm_router_routing"
 def raw_v5_no_tool_context_feature_layout(
     n_states: int,
     *,
-    embedding_dim: int = RAW_V5_ROUTER_EMBEDDING_DIM,
+    embedding_dim: int,
     belief_dynamics: bool = False,
     element_lookback: ElementLookback | None = None,
 ) -> list[dict[str, Any]]:
@@ -61,9 +58,8 @@ def raw_v5_no_tool_context_feature_layout(
     numeric tool-context block. Tool use remains part of the embedded raw
     agent document; it is not appended as a second classifier input.
 
-    ``embedding_dim`` is the declared provider's vector width, so the same
-    structural layout describes a Voyage and a Gemini candidate without either
-    one being able to validate against the other's geometry.
+    ``embedding_dim`` is the declared provider's vector width, so a layout
+    validates only against the geometry of the provider it was trained on.
 
     ``belief_dynamics`` selects the layout of classifiers retrained with the
     trailing causal belief-dynamics block. It is an additive suffix, so a
@@ -97,7 +93,7 @@ def raw_v5_no_tool_context_feature_layout(
 def raw_v5_no_tool_context_feature_dim(
     n_states: int,
     *,
-    embedding_dim: int = RAW_V5_ROUTER_EMBEDDING_DIM,
+    embedding_dim: int,
     belief_dynamics: bool = False,
     element_lookback: ElementLookback | None = None,
 ) -> int:
@@ -124,7 +120,7 @@ def _raw_v5_no_tool_context_layout(
     source: dict[str, Any],
     *,
     source_name: str,
-    embedding_dim: int = RAW_V5_ROUTER_EMBEDDING_DIM,
+    embedding_dim: int,
 ) -> RawV5ClassifierLayout:
     """Return the layout's HMM state count and its optional trailing blocks:
     belief dynamics, then (interaction-state classifiers only) element_lookback."""
@@ -186,7 +182,7 @@ def validate_raw_v5_no_tool_context_feature_contract(
     *,
     metadata: dict[str, Any],
     input_contract: dict[str, Any],
-    embedding_dim: int = RAW_V5_ROUTER_EMBEDDING_DIM,
+    embedding_dim: int,
 ) -> RawV5ClassifierLayout:
     """Validate the structural layout and return its state count and blocks."""
 

@@ -1,14 +1,8 @@
 """The raw-V5 runtime contract a sidecar package declares for serving.
 
 A raw-V5 package is only servable if the process that loads it can rebuild the
-exact model input the candidate was trained on. Before this contract, that was
-implied by the package schema version, which pinned exactly one configuration
-(Voyage, compacted tool trace, two-turn window). Every other combination
-``wv router pipeline`` can train -- Gemini, tool-free projections, the
-previous-element projection, one/two/ten-turn windows, any state count, any PCA
-dimension -- had no way to be served.
-
-The contract published here makes that configuration data instead: the
+exact model input the candidate was trained on. This contract makes that
+configuration data: the
 publisher declares it, the sidecar parses it through this one closed boundary
 model, and both sides resolve the same
 :class:`~ml_dev.hmm_router.raw_v5_serving_profile.RawV5ServingProfile` from it.

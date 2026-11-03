@@ -43,7 +43,7 @@ from hmm_sidecar.raw_v5.raw_v5_contract import (
     RAW_V5_GEMINI_ELEMENT_SERIALIZER_VERSION,
     RAW_V5_GEMINI_EMBEDDING_2_DIM,
     RAW_V5_GEMINI_EMBEDDING_2_MODEL,
-    RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
+    RAW_V5_ONE_TURN_MAX_TURNS,
     RawFeatureMatrix,
     RawV5HMMTrainingContractVersion,
     raw_v5_gemini_element_model_input_contract,
@@ -62,7 +62,6 @@ from hmm_sidecar.raw_v5.state_representation import (
 class RawV5EmbeddingProvider(StrEnum):
     """The embedding provider a raw-V5 candidate was trained against."""
 
-    VOYAGE = "voyage"
     GEMINI = "gemini"
 
 
@@ -177,11 +176,10 @@ class RawV5ServingProfile:
     raw_feature_matrix: RawFeatureMatrix
     hmm_training_contract_version: RawV5HMMTrainingContractVersion
     _model_input_contract: Callable[[], dict[str, object]]
-    frozen_encoder: StateEncoderContract | None = None
 
     @property
     def state_encoder_contract(self) -> StateEncoderContract:
-        return self.frozen_encoder or get_state_encoder_contract(self.representation)
+        return get_state_encoder_contract(self.representation)
 
     @property
     def relative_position_dim(self) -> int:
@@ -195,7 +193,6 @@ class RawV5ServingProfile:
 
 
 _RAW_FEATURE_MATRIX_RELATIVE_POSITION_DIM: Mapping[RawFeatureMatrix, int] = {
-    RawFeatureMatrix.VOYAGE_ELEMENT_KIND_SLOTS_V2: RELATIVE_POSITION_DIM,
     RawFeatureMatrix.GEMINI_EMBEDDING_2_ELEMENT_KIND_SLOTS_RELATIVE_POSITION_V1: (
         LEGACY_RELATIVE_POSITION_DIM
     ),
@@ -208,7 +205,7 @@ _GEMINI_ELEMENT_PROFILE = RawV5ServingProfile(
         provider=RawV5EmbeddingProvider.GEMINI,
         tool_evidence=RawV5ToolEvidenceMode.USER_AGENT_ONLY,
         document_window=RawV5DocumentWindow.PER_MESSAGE,
-        lookback_rounds=RAW_V5_VOYAGE_ONE_TURN_MAX_TURNS,
+        lookback_rounds=RAW_V5_ONE_TURN_MAX_TURNS,
     ),
     representation=GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT,
     embedding_model=RAW_V5_GEMINI_EMBEDDING_2_MODEL,
