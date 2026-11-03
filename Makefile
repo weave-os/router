@@ -209,6 +209,11 @@ up: ## Start the compose stack in the background (no install.sh wiring)
 
 up-hmm: ## Start the stack with the opt-in frozen HMM policy sidecar
 	docker compose -f docker-compose.yml -f sidecars/hmm/docker-compose.yml \
+		--profile hmm build hmm-sidecar
+	CLASSIFIER_IMAGE_DIGEST=$$(docker image inspect --format '{{.Id}}' \
+		$$(docker compose -f docker-compose.yml -f sidecars/hmm/docker-compose.yml \
+			--profile hmm config --images hmm-sidecar)) \
+		docker compose -f docker-compose.yml -f sidecars/hmm/docker-compose.yml \
 		--profile hmm up --build -d
 
 down: ## Stop the compose stack, including the optional HMM sidecar (keeps the postgres volume)

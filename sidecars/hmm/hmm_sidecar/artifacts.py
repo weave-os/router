@@ -10,6 +10,7 @@ import tempfile
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import httpx
 import numpy as np
@@ -24,14 +25,36 @@ MAX_MEMBER_BYTES = 64 * 1024 * 1024
 # stay small enough for startup to finish inside a readiness window.
 MAX_PACKAGE_REGISTRY_ENTRIES = 8
 DEFAULT_CACHE_DIR = Path("/tmp/workweave-hmm-artifacts")
+RAW_V5_PACKAGE_SCHEMA_VERSION = "hmm_router_classifier_package_v1"
+RAW_V5_CONFIGURED_INPUT_MODE = "raw_v5_configured_serving_v1"
+# Weave registry model id of a published package: family + first 16 hex of the
+# package sha256. Releases pin this as the classifier artifact id.
+RAW_V5_PACKAGE_MODEL_FAMILY = "hmm_router_sidecar_package"
+
+
+def is_raw_v5_package_manifest(manifest: dict[str, Any]) -> bool:
+    runtime = manifest.get("runtime_contract")
+    return (
+        manifest.get("schema_version") == RAW_V5_PACKAGE_SCHEMA_VERSION
+        and isinstance(runtime, dict)
+        and runtime.get("input_mode") == RAW_V5_CONFIGURED_INPUT_MODE
+    )
 
 
 @dataclass(frozen=True)
 class FrozenArtifacts:
     root: Path
-    manifest: FrozenPackageManifest
+    manifest: FrozenPackageManifest | None
     package_sha256: str
-    probe_vector: np.ndarray
+    probe_vector: np.ndarray | None
+    raw_v5_manifest: dict[str, Any] | None = None
+
+    @property
+    def model_id(self) -> str:
+        if self.raw_v5_manifest is not None:
+            return f"{RAW_V5_PACKAGE_MODEL_FAMILY}_{self.package_sha256[:16]}"
+        assert self.manifest is not None
+        return self.manifest.model_id
 
 
 @dataclass(frozen=True)
@@ -174,10 +197,8 @@ def _safe_extract(archive: Path, destination: Path) -> None:
         payload.extractall(destination, members=members, filter="data")
 
 
-def _verify_manifest(root: Path) -> FrozenPackageManifest:
-    manifest_path = root / "manifest.json"
-    manifest = FrozenPackageManifest.model_validate_json(manifest_path.read_text())
-    for relative, expected in manifest.files.items():
+def _verify_files(root: Path, files: dict[str, str]) -> None:
+    for relative, expected in files.items():
         path = root / relative
         if not path.is_file():
             raise ValueError(f"package file is missing: {relative}")
@@ -187,6 +208,28 @@ def _verify_manifest(root: Path) -> FrozenPackageManifest:
                 f"package file sha256 mismatch for {relative}: "
                 f"expected {expected}, got {actual}"
             )
+
+
+def _raw_v5_files(manifest: dict[str, Any]) -> dict[str, str]:
+    files: dict[str, str] = {}
+    for directory, field in (
+        ("classifier", "classifier_files"),
+        ("hmm_bundle", "hmm_bundle_files"),
+    ):
+        entries = manifest.get(field)
+        if not isinstance(entries, dict) or not entries:
+            raise ValueError(f"raw-V5 package manifest lacks {field}")
+        files.update({f"{directory}/{name}": str(sha) for name, sha in entries.items()})
+    return files
+
+
+def _verify_manifest(root: Path) -> FrozenPackageManifest | dict[str, Any]:
+    raw = json.loads((root / "manifest.json").read_text())
+    if isinstance(raw, dict) and is_raw_v5_package_manifest(raw):
+        _verify_files(root, _raw_v5_files(raw))
+        return raw
+    manifest = FrozenPackageManifest.model_validate(raw)
+    _verify_files(root, manifest.files)
     return manifest
 
 
@@ -264,6 +307,8 @@ def _resolve_package(source: PackageSource, cache: Path) -> FrozenArtifacts:
         )
     root = _materialize_archive(archive, actual, cache)
     manifest = _verify_manifest(root)
+    if isinstance(manifest, dict):
+        return FrozenArtifacts(root, None, actual, None, raw_v5_manifest=manifest)
     probe_path = root / manifest.embedding_contract.probe_vector_file
     probe = np.asarray(np.load(probe_path, allow_pickle=False), dtype=np.float64)
     if probe.shape != (manifest.embedding_contract.dimensions,):

@@ -483,6 +483,14 @@ jobs:
       - name: Build sidecar image
         run: docker build --file sidecars/hmm/Dockerfile --tag router-hmm-sidecar:test .
 
+      - name: Check image import closure
+        run: |
+          docker run --rm --entrypoint python router-hmm-sidecar:test -c "
+          import importlib, pkgutil, hmm_sidecar
+          for module in pkgutil.walk_packages(hmm_sidecar.__path__, 'hmm_sidecar.'):
+              importlib.import_module(module.name)
+          "
+
       - name: Smoke-test liveness without credentials
         run: |
           trap 'docker rm --force router-hmm-sidecar-test >/dev/null 2>&1 || true' EXIT
