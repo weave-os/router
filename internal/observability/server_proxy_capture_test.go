@@ -3,6 +3,7 @@ package observability_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func serveServerProxyShape(t *testing.T, userAgent string, headers map[string]string, body string) string {
@@ -100,4 +102,39 @@ func TestRecordServerProxyResponseIDIgnoresOtherClients(t *testing.T) {
 
 	assert.Equal(t, `data: {"id":"chatcmpl-x"}`, body)
 	assert.NotContains(t, out, "Copilot proxy response id")
+}
+
+func TestRecordServerProxyResponseIDPreventsHTMLSniffing(t *testing.T) {
+	for _, contentType := range []string{"", "text/event-stream"} {
+		for _, writeString := range []bool{false, true} {
+			t.Run(contentType+"/"+strconv.FormatBool(writeString), func(t *testing.T) {
+				gin.SetMode(gin.TestMode)
+				engine := gin.New()
+				engine.POST("/v1/chat/completions", func(c *gin.Context) {
+					defer observability.RecordServerProxyResponseID(c)()
+					if contentType != "" {
+						c.Header("Content-Type", contentType)
+					}
+					var err error
+					if writeString {
+						_, err = c.Writer.WriteString(`<script>alert(1)</script>`)
+					} else {
+						_, err = c.Writer.Write([]byte(`<script>alert(1)</script>`))
+					}
+					require.NoError(t, err)
+				})
+				req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+				req.Header.Set("User-Agent", "copilot-api")
+				rec := httptest.NewRecorder()
+				engine.ServeHTTP(rec, req)
+				expectedContentType := contentType
+				if expectedContentType == "" {
+					expectedContentType = "application/json"
+				}
+				assert.Equal(t, expectedContentType, rec.Header().Get("Content-Type"))
+				assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+				assert.Equal(t, `<script>alert(1)</script>`, rec.Body.String())
+			})
+		}
+	}
 }

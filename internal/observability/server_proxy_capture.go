@@ -55,12 +55,15 @@ type serverProxyResponseRecorder struct {
 
 func (w *serverProxyResponseRecorder) Write(b []byte) (int, error) {
 	w.scan(b)
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/json")
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	return w.ResponseWriter.Write(b)
 }
 
 func (w *serverProxyResponseRecorder) WriteString(s string) (int, error) {
-	w.scan([]byte(s))
-	return w.ResponseWriter.WriteString(s)
+	return w.Write([]byte(s))
 }
 
 func (w *serverProxyResponseRecorder) scan(b []byte) {

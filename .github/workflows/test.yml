@@ -421,7 +421,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           version: "0.9.28"
-          python-version: "3.12.3"
+          python-version: "3.11.14"
           enable-cache: true
           cache-dependency-glob: sidecars/task-domain/uv.lock
       - name: Test without GPU or checkpoint downloads

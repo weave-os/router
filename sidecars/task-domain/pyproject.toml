@@ -1,11 +1,12 @@
 [project]
 name = "router-task-domain"
 version = "0.1.0"
-requires-python = ">=3.11"
+# Python 3.11 provides distutils without vLLM's vulnerable setuptools<81 dependency.
+requires-python = ">=3.11,<3.12"
 dependencies = ["fastapi>=0.115,<1", "uvicorn>=0.34,<1"]
 
 [project.optional-dependencies]
-qwen = ["vllm==0.31.0"]
+qwen = ["vllm==0.32.0"]
 test = ["httpx>=0.28,<1", "pytest>=8,<10"]
 
 [tool.pytest.ini_options]
