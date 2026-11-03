@@ -1232,19 +1232,12 @@ func sanitizeAnthropicInputSchema(v any) any {
 }
 
 // liftAnthropicTopLevelComposition merges the object branches of top-level
-// allOf/anyOf/oneOf into the root's properties. A property is required when
-// allOf requires it or every anyOf/oneOf alternative does; the branch
-// constraints themselves cannot be expressed and are dropped.
+// allOf/anyOf/oneOf (resolving local $refs) into the root's properties. A
+// property is required when allOf requires it or every anyOf/oneOf alternative
+// does; the branch constraints themselves cannot be expressed and are dropped.
 func liftAnthropicTopLevelComposition(root map[string]any) map[string]any {
 	keywords := []string{"allOf", "anyOf", "oneOf"}
-	composed := false
-	for _, k := range keywords {
-		if _, ok := root[k]; ok {
-			composed = true
-			break
-		}
-	}
-	if !composed {
+	if !slices.ContainsFunc(keywords, func(k string) bool { _, ok := root[k]; return ok }) {
 		return root
 	}
 	out := make(map[string]any, len(root))
@@ -1253,64 +1246,84 @@ func liftAnthropicTopLevelComposition(root map[string]any) map[string]any {
 			out[k] = v
 		}
 	}
-	props, _ := out["properties"].(map[string]any)
-	merged := maps.Clone(props)
-	if merged == nil {
-		merged = map[string]any{}
+	mergedProps, _ := out["properties"].(map[string]any)
+	mergedProps = maps.Clone(mergedProps)
+	if mergedProps == nil {
+		mergedProps = map[string]any{}
 	}
 	required := schemaRequiredSet(out)
 	for _, k := range keywords {
 		branches, _ := root[k].([]any)
-		var common map[string]struct{}
-		for i, b := range branches {
-			branch, ok := b.(map[string]any)
+		var requiredInAll map[string]struct{}
+		for _, b := range branches {
+			branch, ok := resolveLocalSchemaRef(root, b).(map[string]any)
 			if !ok {
+				// A boolean (or unreadable) alternative requires nothing.
+				requiredInAll = map[string]struct{}{}
 				continue
 			}
 			branch = liftAnthropicTopLevelComposition(branch)
-			if bp, ok := branch["properties"].(map[string]any); ok {
-				for name, schema := range bp {
-					if _, exists := merged[name]; !exists {
-						merged[name] = schema
+			if branchProps, ok := branch["properties"].(map[string]any); ok {
+				for name, schema := range branchProps {
+					if _, exists := mergedProps[name]; !exists {
+						mergedProps[name] = schema
 					}
 				}
 			}
-			br := schemaRequiredSet(branch)
-			if k == "allOf" {
-				maps.Copy(required, br)
-				continue
-			}
-			if i == 0 || common == nil {
-				common = br
-				continue
-			}
-			for name := range common {
-				if _, ok := br[name]; !ok {
-					delete(common, name)
-				}
+			branchRequired := schemaRequiredSet(branch)
+			switch {
+			case k == "allOf":
+				maps.Copy(required, branchRequired)
+			case requiredInAll == nil:
+				requiredInAll = branchRequired
+			default:
+				maps.DeleteFunc(requiredInAll, func(name string, _ struct{}) bool {
+					_, ok := branchRequired[name]
+					return !ok
+				})
 			}
 		}
-		maps.Copy(required, common)
+		maps.Copy(required, requiredInAll)
 	}
 	out["type"] = "object"
-	out["properties"] = merged
-	if len(required) == 0 {
-		delete(out, "required")
-	} else {
+	out["properties"] = mergedProps
+	delete(out, "required")
+	if len(required) > 0 {
 		names := slices.Sorted(maps.Keys(required))
-		list := make([]any, len(names))
+		requiredNames := make([]any, len(names))
 		for i, name := range names {
-			list[i] = name
+			requiredNames[i] = name
 		}
-		out["required"] = list
+		out["required"] = requiredNames
 	}
 	return out
 }
 
+// resolveLocalSchemaRef follows a "#/$defs/X" or "#/definitions/X" branch to
+// its definition on root; any other value is returned unchanged.
+func resolveLocalSchemaRef(root map[string]any, branch any) any {
+	node, ok := branch.(map[string]any)
+	if !ok {
+		return branch
+	}
+	ref, _ := node["$ref"].(string)
+	for _, defsKey := range []string{"$defs", "definitions"} {
+		name, found := strings.CutPrefix(ref, "#/"+defsKey+"/")
+		if !found {
+			continue
+		}
+		defs, _ := root[defsKey].(map[string]any)
+		if target, exists := defs[name]; exists {
+			return target
+		}
+	}
+	return branch
+}
+
 func schemaRequiredSet(schema map[string]any) map[string]struct{} {
 	set := map[string]struct{}{}
-	list, _ := schema["required"].([]any)
-	for _, v := range list {
+	requiredValues, _ := schema["required"].([]any)
+	for _, v := range requiredValues {
 		if name, ok := v.(string); ok {
 			set[name] = struct{}{}
 		}

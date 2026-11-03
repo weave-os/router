@@ -704,6 +704,25 @@ func TestPassthroughSameFormat_LiftsTopLevelSchemaComposition(t *testing.T) {
 	assert.False(t, schema.Get("required").Exists(), "no property is required by every alternative")
 }
 
+func TestPassthroughSameFormat_LiftsRefAndBooleanCompositionBranches(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-7","max_tokens":16,"messages":[{"role":"user","content":"hi"}],"tools":[{
+		"name":"pick",
+		"input_schema":{
+			"$defs":{"ByID":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}},
+			"anyOf":[{"$ref":"#/$defs/ByID"},true]
+		}
+	}]}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropicPassthrough(http.Header{})
+	require.NoError(t, err)
+
+	schema := gjson.GetBytes(prep.Body, "tools.0.input_schema")
+	assert.False(t, schema.Get("anyOf").Exists())
+	assert.True(t, schema.Get("properties.id").Exists(), "a $ref alternative contributes its properties")
+	assert.False(t, schema.Get("required").Exists(), "the boolean alternative requires nothing")
+}
+
 func TestAnthropicSameFormat_LeadingSystemMessageHoistedWhenNoSystemField(t *testing.T) {
 	// A role:"system" message inside the messages array is invalid for the
 	// Anthropic Messages API; a leading one is hoisted to the top-level system
