@@ -40,7 +40,7 @@ func (s *Service) gatewayUnservedModelsForRequest(ctx context.Context) map[strin
 		}
 		for model := range key.ModelAliases {
 			m, known := catalog.ByID(model)
-			if !known || m.Tier == catalog.TierUnknown {
+			if !known {
 				continue
 			}
 			declared[m.ID]++
@@ -79,6 +79,10 @@ func gatewayProvidersFromKeys(keys []*auth.ExternalAPIKey) map[string]struct{} {
 }
 
 func customBindingsFromKeys(keys []*auth.ExternalAPIKey) map[string][]string {
+	return aliasedBindingsFromKeys(keys, false)
+}
+
+func aliasedBindingsFromKeys(keys []*auth.ExternalAPIKey, includeRetired bool) map[string][]string {
 	var out map[string][]string
 	for _, key := range keys {
 		// Mirrors enabledProvidersForRequest: a key with no usable plaintext
@@ -88,7 +92,7 @@ func customBindingsFromKeys(keys []*auth.ExternalAPIKey) map[string][]string {
 		}
 		for model := range key.ModelAliases {
 			m, known := catalog.ByID(model)
-			if !known || m.Tier == catalog.TierUnknown {
+			if !known || (m.Tier == catalog.TierUnknown && !includeRetired) {
 				continue
 			}
 			if out == nil {
