@@ -202,3 +202,65 @@ def test_rejects_hmm_bundle_the_classifier_was_not_trained_on(
     bundle.write_bytes(bundle.read_bytes() + b"\n")
     with pytest.raises(PackageError, match="not trained on"):
         PackageClassifier(tmp_path, manifest)
+
+
+@pytest.mark.skipif(
+    not os.environ.get("HMM_RAW_V5_PARITY_PACKAGE"),
+    reason="set HMM_RAW_V5_PARITY_PACKAGE to a raw-V5 package tarball",
+)
+def test_overrun_inference_serves_the_sessions_prior_state(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from hmm_sidecar.classifier_package import agent_flow_sidecar
+    from hmm_sidecar.classifier_package.serving import (
+        PackageClassifier,
+        ServingOptions,
+    )
+
+    embed_delay_seconds = {"value": 0.0}
+
+    async def stub_embeddings(texts, *, model, **kwargs):
+        await asyncio.sleep(embed_delay_seconds["value"])
+        dim = kwargs.get("vertex_output_dimensionality") or 3072
+        vectors = {text: _stub_vector(text, dim) for text in texts}
+        return (vectors, None) if kwargs.get("return_info") else vectors
+
+    monkeypatch.setattr(agent_flow_sidecar, "embed_texts_uncached", stub_embeddings)
+    monkeypatch.setenv("HMM_VERTEX_PROJECT", "stub")
+    with tarfile.open(os.environ["HMM_RAW_V5_PARITY_PACKAGE"]) as archive:
+        archive.extractall(tmp_path, filter="data")
+    manifest = artifacts._verify_manifest(tmp_path)
+    classifier = PackageClassifier(
+        tmp_path, manifest, ServingOptions(infer_deadline_seconds=0.2)
+    )
+    cases = json.loads((FIXTURES / "cases.json").read_text())
+    prefix_lengths: list[int] = []
+    serving_features = classifier.selector.serving_features
+
+    def recording_serving_features(**kwargs):
+        prefix_lengths.append(kwargs["prefix_length"])
+        return serving_features(**kwargs)
+
+    monkeypatch.setattr(
+        classifier.selector, "serving_features", recording_serving_features
+    )
+
+    async def scenario() -> None:
+        first, _ = await classifier.classify(cases[0], session_id="session-a")
+        assert not first.degraded
+        embed_delay_seconds["value"] = 1.0
+        degraded, timings = await classifier.classify(cases[1], session_id="session-a")
+        assert degraded.degraded
+        assert timings is None
+        assert degraded.state_path == first.state_path
+        assert degraded.probabilities == first.probabilities
+        # The fallback readout keeps the length it was computed at even when
+        # the request trims a different number of older turns.
+        trimmed = {**cases[1], "omitted_user_turn_count": 5}
+        trimmed_degraded, _ = await classifier.classify(trimmed, session_id="session-a")
+        assert trimmed_degraded.degraded
+        assert prefix_lengths[-1] == prefix_lengths[0]
+        with pytest.raises(TimeoutError):
+            await classifier.classify(cases[1], session_id="session-b")
+
+    asyncio.run(scenario())

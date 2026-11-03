@@ -13,7 +13,10 @@ from typing import Any
 
 
 from hmm_sidecar.artifacts import is_classifier_package_manifest
-from hmm_sidecar.classifier_package.agent_flow_sidecar import AgentFlowHMMSidecar
+from hmm_sidecar.classifier_package.agent_flow_sidecar import (
+    AgentFlowHMMReadout,
+    AgentFlowHMMSidecar,
+)
 from hmm_sidecar.classifier_package.complexity_classifier import ComplexityClassifier
 from hmm_sidecar.classifier_package.hmm_feature_arms import ElementLookbackSource
 from hmm_sidecar.classifier_package.live_sequence import (
@@ -40,8 +43,19 @@ from hmm_sidecar.classifier_package.schemas import (
     RouterHarness,
 )
 from hmm_sidecar.classifier_package.serving_features import current_text_has_tool_intent
+from hmm_sidecar.inference_deadline import LastReadoutStore, infer_within_deadline
 
 EMBEDDING_BATCH_SIZE = 8
+
+
+@dataclass(frozen=True)
+class ServingOptions:
+    """Deployment settings that change latency and failure handling, never outputs."""
+
+    vertex_project: str | None = None
+    vertex_location: str | None = None
+    embedding_request_concurrency: int | None = None
+    infer_deadline_seconds: float | None = None
 
 
 class PackageError(ValueError):
@@ -59,6 +73,8 @@ class Readout:
     state_probabilities: tuple[float, ...]
     turns: int
     debug: dict[str, Any]
+    degraded: bool = False
+    prior_age_seconds: float | None = None
 
 
 def _live_flow_max_elements() -> int:
@@ -87,6 +103,22 @@ def _harness(payload: dict[str, Any]) -> RouterHarness:
         return RouterHarness(str(payload.get("harness") or ""))
     except ValueError:
         return RouterHarness.UNKNOWN
+
+
+# About 128 MB of retained prefix rows; a 48-element Gemini prefix is ~147k.
+LAST_READOUT_MAX_EMBEDDING_VALUES = 16_000_000
+
+
+@dataclass(frozen=True)
+class _SessionReadout:
+    """A session's HMM readout with the omitted-turn offset it was computed at.
+
+    A deadline fallback reuses the readout on a later request whose
+    ``omitted_user_turn_count`` may differ, so the offset must travel with it.
+    """
+
+    hmm: AgentFlowHMMReadout
+    omitted_user_turns: int
 
 
 def _non_negative_int(value: Any) -> int:
@@ -121,7 +153,12 @@ def _posterior_diagnostics(readout: Any) -> dict[str, Any]:
 class PackageClassifier:
     """Raw-V5 live sequence -> Gemini embeddings -> HMM -> complexity classifier."""
 
-    def __init__(self, root: Path, manifest: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        root: Path,
+        manifest: dict[str, Any],
+        options: ServingOptions = ServingOptions(),
+    ) -> None:
         if not is_classifier_package_manifest(manifest):
             raise PackageError("package is not a configured raw-V5 package")
         try:
@@ -153,11 +190,20 @@ class PackageClassifier:
             workweave_dir=root,
             bundle_dir=root / "hmm_bundle",
             use_vertex=True,
-            embedding_request_concurrency=math.ceil(
-                _live_flow_max_elements() / EMBEDDING_BATCH_SIZE
-            ),
+            vertex_project=options.vertex_project,
+            vertex_location=options.vertex_location,
+            embedding_request_concurrency=options.embedding_request_concurrency
+            or math.ceil(_live_flow_max_elements() / EMBEDDING_BATCH_SIZE),
             embedding_persist_vertex_client=True,
+            # A call that outlived the deadline cannot finish any route that
+            # joins it, so later requests fetch anew instead of inheriting it.
+            embedding_inflight_max_age_seconds=options.infer_deadline_seconds,
             offload_posterior=True,
+        )
+        self.infer_deadline_seconds = options.infer_deadline_seconds
+        self.last_readouts = LastReadoutStore(
+            weigh=lambda readout: sum(len(row) for row in readout.hmm.embedding_prefix),
+            max_weight=LAST_READOUT_MAX_EMBEDDING_VALUES,
         )
         validate_configured_hmm_bundle(self.hmm.bundle, profile)
         hmm_bundle_sha256 = hashlib.sha256(
@@ -184,7 +230,15 @@ class PackageClassifier:
     def classes(self) -> tuple[str, ...]:
         return tuple(self.classifier.classes)
 
-    async def classify(self, payload: dict[str, Any]) -> tuple[Readout, Any]:
+    async def classify(
+        self, payload: dict[str, Any], *, session_id: str | None = None
+    ) -> tuple[Readout, Any]:
+        """Classify one turn.
+
+        Past ``infer_deadline_seconds`` the turn is classified on the session's
+        last completed HMM readout instead (``Readout.degraded``); without a
+        prior readout the deadline raises ``TimeoutError``.
+        """
         messages = payload.get("conversation_messages")
         latest_user_text = str(payload.get("latest_user_text") or "").strip()
         interaction_lane = self.interaction_state is not None
@@ -200,7 +254,19 @@ class PackageClassifier:
             max_elements=0 if interaction_lane else _live_flow_max_elements(),
             first_turn_index=omitted_user_turns,
         )
-        readout, infer_timings = await self.hmm.ainfer_turns_with_timings(turns)
+
+        async def infer():
+            hmm_readout, timings = await self.hmm.ainfer_turns_with_timings(turns)
+            return _SessionReadout(hmm_readout, omitted_user_turns), timings
+
+        inference = await infer_within_deadline(
+            infer=infer,
+            session_id=session_id,
+            store=self.last_readouts,
+            deadline_seconds=self.infer_deadline_seconds,
+        )
+        readout = inference.readout.hmm
+        infer_timings = inference.timings
         has_tools = bool(payload.get("has_tools"))
         packet = CognitiveStatePacket(
             request_id=str(payload.get("route_id") or ""),
@@ -225,7 +291,9 @@ class PackageClassifier:
                 **history_debug,
             },
         )
-        prefix_length = int(readout.prefix_length) + 2 * omitted_user_turns
+        prefix_length = (
+            int(readout.prefix_length) + 2 * inference.readout.omitted_user_turns
+        )
         features = await asyncio.to_thread(
             self.selector.serving_features,
             embedding=list(readout.latest_embedding),
@@ -257,7 +325,10 @@ class PackageClassifier:
                     "hmm_posterior": float(readout.summary.posterior),
                     "attribution": classification.attribution,
                     **_posterior_diagnostics(readout),
+                    **history_debug,
                 },
+                degraded=inference.degraded,
+                prior_age_seconds=inference.prior_age_seconds,
             ),
             infer_timings,
         )
