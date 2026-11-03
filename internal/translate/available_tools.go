@@ -72,3 +72,19 @@ func (e *RequestEnvelope) AvailableToolNames() []string {
 	sort.Strings(names)
 	return names
 }
+
+// DeclaredToolNames returns the client-executed tool names the request
+// declared, or nil when it declared none.
+func (e *RequestEnvelope) DeclaredToolNames() map[string]struct{} {
+	var names map[string]struct{}
+	for _, tool := range e.ToolDescriptors() {
+		if tool.ServerExecuted || tool.Name == "" {
+			continue
+		}
+		if names == nil {
+			names = make(map[string]struct{})
+		}
+		names[tool.Name] = struct{}{}
+	}
+	return names
+}

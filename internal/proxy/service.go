@@ -4779,6 +4779,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 						WithEstimatedInputTokens(feats.Tokens).
 						WithRequestHadTools(feats.HasTools).
 						WithThinkTagReasoning(catalog.ThinkTagReasoningFor(d.Model)).
+						WithSeedToolCallMarkup(env.DeclaredToolNames()).
 						WithEscapeNormalize(s.escapeNormalize).
 						WithToolValidator(toolValidator)
 					if providers.OutputExcludesReasoning(d.Provider) {
@@ -8011,6 +8012,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					refusalGate.holdPreOutputFailure()
 				}
 				var attemptSink http.ResponseWriter = refusalGate
+				var seedToolCalls *translate.SeedToolCallChatWriter
+				if surface == surfaceChat {
+					if declared := env.DeclaredToolNames(); len(declared) > 0 {
+						seedToolCalls = translate.NewSeedToolCallChatWriter(attemptSink, declared)
+						attemptSink = seedToolCalls
+					}
+				}
 				proxyWriter := attemptSink
 				// A translated attempt reads Responses SSE, which the chat-shaped
 				// usage extractor can't parse — the translator records usage instead.
@@ -8065,6 +8073,15 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					preludeBuf.Seal()
 				}
 				err := p.Proxy(actx, d, prep, proxyWriter, r)
+				if seedToolCalls != nil {
+					err = finalizeAfterProxy(err, seedToolCalls.Finalize)
+					if n := seedToolCalls.ConvertedToolCalls(); n > 0 {
+						log.Warn("Recovered tool calls from Seed text markup",
+							"model", d.Model,
+							"provider", d.Provider,
+							"tool_calls", n)
+					}
+				}
 				if err == nil && chatTerminal != nil {
 					err = chatTerminal.streamErr()
 				}
