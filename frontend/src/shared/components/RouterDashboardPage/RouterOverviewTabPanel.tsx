@@ -25,6 +25,13 @@ import {
   SPEND_SUMMARY_CARDS,
 } from "../RouterDashboardStats";
 import { RouterOverviewTab } from "../RouterOverviewTabs";
+import {
+  RouterCostBreakdownChart,
+  RouterCostPerRequestChart,
+  RouterCumulativeSavingsChart,
+  RouterSavingsRateChart,
+  RouterSpendByMakerChart,
+} from "../RouterSpend";
 
 export interface RouterOverviewTabPanelProps {
   filters: UseDashboardFiltersResult["filters"];
@@ -76,6 +83,11 @@ export function RouterOverviewTabPanel({ filters, methodologyHref, tab }: Router
             methodologyHref={methodologyHref}
             range={range}
           />
+          <RouterCostBreakdownChart className={ResponsiveGrid.Full} granularity={granularity} range={range} />
+          <RouterCumulativeSavingsChart className={ResponsiveGrid.Medium} granularity={granularity} range={range} />
+          <RouterSavingsRateChart className={ResponsiveGrid.Medium} granularity={granularity} range={range} />
+          <RouterCostPerRequestChart className={ResponsiveGrid.Medium} granularity={granularity} range={range} />
+          <RouterSpendByMakerChart className={ResponsiveGrid.Medium} range={range} />
         </ResponsiveGrid>
       );
 
