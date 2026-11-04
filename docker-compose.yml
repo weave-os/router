@@ -136,6 +136,9 @@ services:
       # The server listens on the container interface when capture is enabled;
       # the published port below remains host-loopback-only.
       ROUTER_HTTP_CAPTURE_LISTEN_HOST: "0.0.0.0"
+      # Local stack only: selfhosted mode refuses to boot without
+      # EXTERNAL_KEY_ENCRYPTION_KEY unless this is set.
+      ROUTER_ALLOW_UNENCRYPTED_PROVIDER_KEYS: "true"
     volumes:
       # Set ROUTER_HTTP_CAPTURE_FILE=/router-captures/<new-file>.jsonl in
       # .env.local to enable Compose capture and keep the output on the host.

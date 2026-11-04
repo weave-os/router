@@ -932,18 +932,20 @@ non-debug, and non-learning.
 
 | Variable                      | Default   | Purpose |
 | ----------------------------- | --------- | ------- |
-| `EXTERNAL_KEY_ENCRYPTION_KEY` | *(unset)* | Tink AES-256-GCM keyset (JSON) that encrypts customer-supplied upstream provider keys at rest. |
+| `EXTERNAL_KEY_ENCRYPTION_KEY` | *(unset)* | Tink AES-256-GCM keyset (JSON) that encrypts customer-supplied upstream provider keys at rest. Required in `selfhosted` mode. |
+| `ROUTER_ALLOW_UNENCRYPTED_PROVIDER_KEYS` | `false` | Local development only: lets `selfhosted` mode boot without a keyset, storing BYOK secrets unencrypted. The bundled `docker-compose.yml` sets it. |
 
-**If unset, BYOK secrets are stored unencrypted** and the router logs a
-`WARN` at startup. Set this in any deployment that handles real customer
-secrets. Generate with:
+In `selfhosted` mode the router **refuses to boot** without a keyset, so
+dashboard provider keys are never stored unencrypted. In `managed` mode an
+unset keyset stores BYOK secrets unencrypted and logs a `WARN` at startup.
+Generate with:
 
 ```bash
 tinkey create-keyset --key-template AES256_GCM --out-format json
 ```
 
-A *malformed* keyset still fails closed (the router refuses to boot); only a
-genuinely absent value triggers the unencrypted bypass.
+Keep the keyset: changing it makes existing stored keys unreadable. A
+*malformed* keyset always fails closed (the router refuses to boot).
 
 ## Telemetry (OpenTelemetry)
 

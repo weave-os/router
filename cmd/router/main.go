@@ -181,20 +181,13 @@ func main() {
 	}
 	logger.Info("Translation compatibility configured", "mode", translationCompatibilityMode)
 
-	// EXTERNAL_KEY_ENCRYPTION_KEY is optional: unset falls back to a no-op
-	// encryptor (BYOK secrets stored unencrypted, fine for self-hosted/local).
-	// A malformed keyset still fails closed — only a genuinely absent var bypasses.
-	keysetJSON := config.GetOr("EXTERNAL_KEY_ENCRYPTION_KEY", "")
-	var encryptor auth.Encryptor
-	if keysetJSON == "" {
+	encryptor, err := newProviderKeyEncryptor(deploymentMode, osEnvLookup)
+	if err != nil {
+		logger.Error("Provider key encryption is not configured; refusing to boot", "err", err)
+		panic(err)
+	}
+	if _, unencrypted := encryptor.(auth.NoOpEncryptor); unencrypted {
 		logger.Warn("EXTERNAL_KEY_ENCRYPTION_KEY not set; BYOK secrets will be stored unencrypted at rest. Set EXTERNAL_KEY_ENCRYPTION_KEY to a Tink AES-256-GCM keyset to enable encryption.")
-		encryptor = auth.NoOpEncryptor{}
-	} else {
-		encryptor, err = auth.NewTinkEncryptor(keysetJSON)
-		if err != nil {
-			logger.Error("Failed to create Tink encryptor from keyset", "err", err)
-			panic(err)
-		}
 	}
 
 	repo := postgres.NewRepository(pool, encryptor)
