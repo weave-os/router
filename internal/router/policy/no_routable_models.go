@@ -17,6 +17,11 @@ var ErrNoRoutableModels = errors.New("policy: configuration leaves no routable m
 var ErrGatewayServesNoDeployedModel = fmt.Errorf(
 	"policy: no deployed model is aliased by a gateway key: %w", ErrNoRoutableModels)
 
+// ErrNoProviderCredentials is ErrNoRoutableModels narrowed to the unkeyed
+// case: every deployed model was dropped for want of a usable provider.
+var ErrNoProviderCredentials = fmt.Errorf(
+	"policy: no enabled provider can dispatch any deployed model: %w", ErrNoRoutableModels)
+
 // ErrContextWindowExceeded signals that resolution came back empty because the
 // request is too large, so the client receives its native prompt-too-long
 // error and compacts rather than being told to change its configuration.
@@ -34,7 +39,20 @@ func emptyCandidateError(diagnostics []Diagnostic) error {
 	if slices.ContainsFunc(diagnostics, func(d Diagnostic) bool { return d.Reason == ExclusionContextWindow }) {
 		return ErrContextWindowExceeded
 	}
+	if slices.ContainsFunc(diagnostics, isProviderExclusion) &&
+		!slices.ContainsFunc(diagnostics, func(d Diagnostic) bool { return !isProviderExclusion(d) && !isStructuralExclusion(d) }) {
+		return ErrNoProviderCredentials
+	}
 	return ErrNoRoutableModels
+}
+
+func isProviderExclusion(d Diagnostic) bool {
+	return d.Reason == ExclusionNoProvider || d.Reason == ExclusionProviderPolicy
+}
+
+// isStructuralExclusion covers drops no installation setting can undo.
+func isStructuralExclusion(d Diagnostic) bool {
+	return d.Reason == ExclusionUnmappedRoster || d.Reason == ExclusionUnknownCatalogModel
 }
 
 // candidateLogFields flattens a resolution into slog fields so a failed
