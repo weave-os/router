@@ -137,7 +137,7 @@ var (
 	anthropicAdaptiveFallback = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback)
 	// Fable 5.1, Opus 5.5, and Sonnet 5.5 additionally reject tool_choice
 	// any/tool ("not supported for this model"); opus-5 and fable-5 accept them.
-	anthropicAdaptiveFallbackAutoTools = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly)
+	anthropicAdaptiveFallbackAutoTools = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly, CapAssistantPrefillUnsupported)
 	anthropicExtended                  = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapExtendedThinking)
 )
 
@@ -181,7 +181,7 @@ var registry = map[string]ModelSpec{
 	"claude-fable-5-1": NewSpecWithReasoning(
 		ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true},
 		CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback,
-		CapAutoToolChoiceOnly, CapTemperatureUnsupported,
+		CapAutoToolChoiceOnly, CapTemperatureUnsupported, CapAssistantPrefillUnsupported,
 	),
 	"claude-opus-5-5": NewSpecWithReasoning(
 		ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true},
@@ -214,6 +214,7 @@ var registry = map[string]ModelSpec{
 		CapExtendedContext,
 		CapXhighEffort,
 		CapServerSideFallback,
+		CapAssistantPrefillUnsupported,
 	),
 
 	"claude-sonnet-4-5": NewSpec(),
