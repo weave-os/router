@@ -123,6 +123,8 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 			"ROUTER_SERVING_CONFIGURATION_URI=invalid-disabled-configuration",
 			"ROUTER_SERVING_CONFIGURATION_GENERATION=invalid-disabled-generation",
 			"ROUTER_SERVING_TARGET=invalid-disabled-target",
+			// The fixture stores no dashboard provider keys.
+			"ROUTER_ALLOW_UNENCRYPTED_PROVIDER_KEYS=true",
 		)
 	}
 	command.Stdout = logFile
