@@ -709,7 +709,7 @@ func isUserForcedReason(reason string) bool {
 // pasted-screenshot turn dispatches to a text-only model and the upstream
 // rejects the whole request.
 func pinServesImages(pin sessionpin.Pin, req router.Request) bool {
-	return !req.HasImages || catalog.AcceptsImages(pin.Model)
+	return !req.HasImages || catalog.AcceptsImages(pin.Model) && catalog.AcceptsImageCount(pin.Model, req.ImageCount, req.EnabledProviders)
 }
 
 // excludingModel returns excluded plus model, copying instead of mutating the
@@ -1402,7 +1402,7 @@ func (s *Service) runTurnLoop(
 			demoted = mergeSessionStrikes(demoted, turnStrikes)
 		}
 	}
-	res.SessionStrikeReadmitModels = harnessSafeModels(imageSafeModels(demoted, req.HasImages), req.HasTools)
+	res.SessionStrikeReadmitModels = harnessSafeModels(imageSafeModels(demoted, req.ImageCount), req.HasTools)
 	if s.ResolveTransientRateLimit(ctx) && (!forceModelFound || !forcedPinEligible(forceModelPin, req)) {
 		// A transient strike expires: only one request per session/model may
 		// probe the recovered arm at a time.
@@ -1410,7 +1410,7 @@ func (s *Service) runTurnLoop(
 		now := s.clockNow()
 		cooling := activeDemotionCooldowns(cooldowns, now)
 		if len(cooling) > 0 {
-			res.SessionCooldownModels = readmittableCooldowns(cooling, demoted, req.HasImages)
+			res.SessionCooldownModels = readmittableCooldowns(cooling, demoted, req.ImageCount)
 			demoted = mergeSessionStrikes(demoted, cooldownsByExpiry(cooling))
 		}
 		// One probe per request: the first expired arm (longest cooled first)
@@ -1728,7 +1728,8 @@ func (s *Service) runTurnLoop(
 				// that must not be bypassed just because context happens to fit).
 				policyExcluded := s.excludedModelsForRequest(ctx)
 				_, policyExcludes := policyExcluded[pin.Model]
-				compatibilityExcludes := req.TranslationRequirements.Images && !catalog.AcceptsImages(pin.Model)
+				compatibilityExcludes := req.TranslationRequirements.Images && !catalog.AcceptsImages(pin.Model) ||
+					req.ImageCount > 0 && !catalog.AcceptsImageCount(pin.Model, req.ImageCount, req.EnabledProviders)
 				if !policyExcludes && !compatibilityExcludes {
 					if len(req.ExcludedModels) > 0 {
 						pruned := make(map[string]struct{}, len(req.ExcludedModels)-1)
@@ -1785,7 +1786,8 @@ func (s *Service) runTurnLoop(
 	// which would break the soft fallback for OSS-only deploys with no
 	// image-capable candidate. Without this guard a text-pinned session would
 	// 4xx the moment the user pastes a screenshot.
-	if pinFound && req.HasImages && !catalog.AcceptsImages(pin.Model) {
+	if pinFound && req.HasImages && (!catalog.AcceptsImages(pin.Model) ||
+		req.ImageCount > 0 && !catalog.AcceptsImageCount(pin.Model, req.ImageCount, req.EnabledProviders)) {
 		log.Info("Session pin is text-only for image-bearing turn; falling through to scorer",
 			"pin_model", pin.Model,
 			"pin_provider", pin.Provider,
@@ -2271,7 +2273,8 @@ func (s *Service) runTurnLoop(
 									"pin_provider", pin.Provider,
 									"last_output_tokens", pin.LastOutputTokens,
 								)
-							} else if req.HasImages && !catalog.AcceptsImages(pin.Model) {
+							} else if req.HasImages && (!catalog.AcceptsImages(pin.Model) ||
+								req.ImageCount > 0 && !catalog.AcceptsImageCount(pin.Model, req.ImageCount, req.EnabledProviders)) {
 								log.Info("Expired session pin is text-only for image-bearing turn; skipping re-anchor",
 									"pin_model", pin.Model,
 									"pin_provider", pin.Provider,
@@ -2327,7 +2330,7 @@ func (s *Service) runTurnLoop(
 			anchor := pinDecision(pin)
 			// Band swap picks which half of the pinned pair serves this turn; the
 			// pin itself stays anchored (refreshed below) so we can swap again next turn.
-			served := s.bandSwapServed(ctx, res.TurnType, pin, fresh, req.HasImages, req.EnabledProviders, req.ExcludedModels)
+			served := s.bandSwapServed(ctx, res.TurnType, pin, fresh, req.HasImages, req.ImageCount, req.EnabledProviders, req.ExcludedModels)
 			res.Decision = served
 			res.StickyHit = true
 			res.PinTier = "postgres_stay_" + decision.Reason
@@ -2447,7 +2450,8 @@ func modelExcludedForRecoveryProbe(req router.Request, model string) bool {
 	} else if req.EnabledProviders != nil && len(catalog.EnumerateBindingsWithCustom(model, req.EnabledProviders, req.CustomBindings)) == 0 {
 		return true
 	}
-	return req.HasImages && !catalog.AcceptsImages(model)
+	return req.HasImages && (!catalog.AcceptsImages(model) ||
+		req.ImageCount > 0 && !catalog.AcceptsImageCount(model, req.ImageCount, req.EnabledProviders))
 }
 
 func (s *Service) hmmCostGatedDecision(
@@ -2735,7 +2739,8 @@ func (s *Service) normalizeHMMStayPin(req router.Request, p sessionpin.Pin) (ses
 			return sessionpin.Pin{}, false
 		}
 	}
-	if req.HasImages && !catalog.AcceptsImages(model) {
+	if req.HasImages && (!catalog.AcceptsImages(model) ||
+		req.ImageCount > 0 && !catalog.AcceptsImageCount(model, req.ImageCount, req.EnabledProviders)) {
 		return sessionpin.Pin{}, false
 	}
 	p.Model = model

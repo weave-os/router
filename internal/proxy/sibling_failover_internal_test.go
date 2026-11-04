@@ -507,8 +507,8 @@ func TestNoteRescueReadmission_RecordsStruckOutArm(t *testing.T) {
 
 func TestImageSafeModels_DropsTextOnlyArmsOnImageTurns(t *testing.T) {
 	models := []string{"claude-opus-5", "z-ai/glm-5.1"}
-	assert.Equal(t, models, imageSafeModels(models, false))
-	assert.Equal(t, []string{"claude-opus-5"}, imageSafeModels(models, true))
+	assert.Equal(t, models, imageSafeModels(models, 0))
+	assert.Equal(t, []string{"claude-opus-5"}, imageSafeModels(models, 1))
 }
 
 // Strike readmission belongs to sibling failover only: the cyber-refusal

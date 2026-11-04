@@ -71,6 +71,7 @@ func (s *Service) anthropicRoutingRequest(
 	}
 	embedOnlyUser := s.ResolveEmbedOnlyUserMessage(ctx)
 	features := env.RoutingFeatures(embedOnlyUser)
+	ctx = withRequestImageCount(ctx, features.ImageCount)
 	promptText := features.PromptText
 	if embedOnlyUser && features.OnlyUserMessageText != "" {
 		promptText = features.OnlyUserMessageText
@@ -107,6 +108,7 @@ func (s *Service) anthropicRoutingRequest(
 		EstimatedInputTokens:         features.Tokens,
 		HasTools:                     features.HasTools,
 		HasImages:                    features.HasImages,
+		ImageCount:                   features.ImageCount,
 		TranslationRequirements:      env.TranslationRequirements(router.EndpointAnthropicMessages),
 		ReasoningConfigurationSHA256: env.ReasoningConfigurationSHA256(),
 		ToolConfigurationSHA256:      env.ToolConfigurationSHA256(),

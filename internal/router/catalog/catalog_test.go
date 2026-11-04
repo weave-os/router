@@ -636,6 +636,55 @@ func TestMaxCandidateProviders(t *testing.T) {
 		"DeepSeek V4.1 Flash remains Fireworks-primary")
 }
 
+func TestProviderBindingAcceptsImageCount(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cap  int
+		n    int
+		want bool
+	}{
+		{name: "unknown cap", cap: 0, n: 17, want: true},
+		{name: "below cap", cap: 4, n: 3, want: true},
+		{name: "at cap", cap: 4, n: 4, want: true},
+		{name: "above cap", cap: 4, n: 5, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, (ProviderBinding{MaxImagesPerRequest: tc.cap}).AcceptsImageCount(tc.n))
+		})
+	}
+}
+
+func TestAcceptsImageCount(t *testing.T) {
+	mimo := "xiaomi/mimo-v2.6-pro"
+	tests := []struct {
+		name      string
+		model     string
+		count     int
+		providers map[string]struct{}
+		want      bool
+	}{
+		{name: "zero images", model: mimo, count: 0, providers: map[string]struct{}{providers.ProviderDeepInfra: {}}, want: true},
+		{name: "within deepinfra cap", model: mimo, count: 4, providers: map[string]struct{}{providers.ProviderDeepInfra: {}}, want: true},
+		{name: "over cap with all bindings", model: mimo, count: 17, want: true},
+		{name: "over cap with both bindings", model: mimo, count: 17, providers: map[string]struct{}{providers.ProviderDeepInfra: {}, providers.ProviderOpenRouter: {}}, want: true},
+		{name: "over cap with deepinfra only", model: mimo, count: 17, providers: map[string]struct{}{providers.ProviderDeepInfra: {}}, want: false},
+		{name: "no enabled catalog binding", model: mimo, count: 17, providers: map[string]struct{}{providers.ProviderAnthropic: {}}, want: true},
+		{name: "text-only model", model: "qwen/qwen3-235b-a22b-2507", count: 1, want: false},
+		{name: "unknown model", model: "unknown/model", count: 17, want: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, AcceptsImageCount(tc.model, tc.count, tc.providers))
+		})
+	}
+}
+
+func TestMiMoV26ProDeepInfraImageLimit(t *testing.T) {
+	binding, ok := BindingFor("xiaomi/mimo-v2.6-pro", providers.ProviderDeepInfra)
+	require.True(t, ok)
+	assert.Equal(t, 4, binding.MaxImagesPerRequest)
+}
+
 // TestWaferPricing pins the per-1M rates and cache multipliers as published on
 // wafer.ai, since billing debits flow straight through these numbers.
 func TestWaferPricing(t *testing.T) {
