@@ -418,7 +418,7 @@ func (p DebitInferenceParams) requestedModel() string {
 // Returns the post-debit balance (0 on override, since balance doesn't
 // change).
 func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams) (int64, error) {
-	warnOnUnknownPricing(p)
+	warnOnUnknownPricing(ctx, p)
 	notional := computeNotionalMicros(p)
 	if owner, ok := InternalTestOwnerFrom(ctx); ok {
 		return s.debitInternalTest(ctx, p, owner.TestSubjectID, notional)
@@ -576,7 +576,7 @@ func (s *Service) maybeSignalRecharge(ctx context.Context, owner Owner, delta, b
 // entry, so PrimaryPriceFor/PriceFor returned a zero Pricing and this turn
 // is about to debit $0 for real usage. Override/subscription-served turns
 // are exempt: those are intentionally free, not a pricing gap.
-func warnOnUnknownPricing(p DebitInferenceParams) {
+func warnOnUnknownPricing(ctx context.Context, p DebitInferenceParams) {
 	if p.HasOverride || p.SubscriptionServed {
 		return
 	}
@@ -586,7 +586,7 @@ func warnOnUnknownPricing(p DebitInferenceParams) {
 	if p.InputTokens == 0 && p.OutputTokens == 0 && p.CacheCreation == 0 && p.CacheRead == 0 {
 		return
 	}
-	observability.Get().Error("Billing debit resolved zero-value catalog pricing for a real turn — add the model to internal/router/catalog/catalog.go's Models table",
+	observability.FromContext(ctx).Error("Billing debit resolved zero-value catalog pricing for a real turn — add the model to internal/router/catalog/catalog.go's Models table",
 		"model", p.Model,
 		"provider", p.Provider,
 		"organization_id", p.OrganizationID,
