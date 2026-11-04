@@ -33,6 +33,9 @@ type TelemetryRepository interface {
 	GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]TelemetryModelBucket, error)
 	GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (TelemetryTurnResult, error)
 	GetSessionCost(ctx context.Context, installationID, sessionID string) (SessionCost, error)
+	// Dashboard reads scope to installationID, or every installation when it is empty.
+	GetTelemetryDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryDashboardFact, error)
+	GetTelemetryDashboardActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryActiveUsers, error)
 }
 
 // InferenceAttemptStore persists the ordered upstream attempts of an inference
@@ -429,6 +432,29 @@ type TelemetryBucket struct {
 	Bucket           time.Time
 	RequestedCostUSD float64
 	ActualCostUSD    float64
+}
+
+// TelemetryDashboardFact sums upstream spans sharing a bucket, served model,
+// billing path and decision type.
+type TelemetryDashboardFact struct {
+	Bucket              time.Time
+	DecisionModel       string
+	SubscriptionServed  bool
+	DecisionType        string
+	AutomaticAlias      bool
+	RequestCount        int64
+	InputTokens         int64
+	OutputTokens        int64
+	CacheCreationTokens int64
+	CacheReadTokens     int64
+	ActualCostUSD       float64
+}
+
+// TelemetryActiveUsers counts distinct people in one bucket.
+type TelemetryActiveUsers struct {
+	Bucket    time.Time
+	Linked    bool
+	UserCount int64
 }
 
 // TelemetryModelBucket is one time-bucket entry for a single decision model,

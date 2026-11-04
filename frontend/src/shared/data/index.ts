@@ -1,4 +1,5 @@
 export * from "./availability";
+export * from "./metricSeries";
 export * from "./RouterDashboardDataProvider";
 export * from "./RouterDashboardDataSource";
 export * from "./types";

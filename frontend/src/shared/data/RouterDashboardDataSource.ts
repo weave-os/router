@@ -1,5 +1,10 @@
 import type { Capability } from "./availability";
 import type {
+  RouterMetricSeries,
+  RouterMetricSeriesRequest,
+  RouterReportSummary,
+} from "./metricSeries";
+import type {
   APIKey,
   APIKeyScope,
   APIKeyUsage,
@@ -30,6 +35,10 @@ export interface MetricsDataSource {
   costTimeseries(query: TimeseriesQuery): Promise<MetricsTimeseries>;
   /** Requests, tokens and cost per decision model per bucket. */
   modelMix(query: TimeseriesQuery): Promise<MetricsModelBreakdown>;
+  /** Totals for the stat cards, with savings against the comparison model. */
+  reportSummary(range: DateRange): Promise<RouterReportSummary>;
+  /** One metric, optionally grouped, per bucket; feeds every dashboard chart card. */
+  series(request: RouterMetricSeriesRequest): Promise<RouterMetricSeries>;
 }
 
 export interface IndividualsDataSource {

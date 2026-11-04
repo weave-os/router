@@ -106,3 +106,11 @@ func TestFireTelemetryRecoversFromPanic(t *testing.T) {
 	assert.Contains(t, buf.String(), "Background goroutine panicked")
 	assert.Contains(t, buf.String(), "fireTelemetry")
 }
+
+func (panicTelemetryRepo) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryDashboardFact, error) {
+	return nil, nil
+}
+
+func (panicTelemetryRepo) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]TelemetryActiveUsers, error) {
+	return nil, nil
+}

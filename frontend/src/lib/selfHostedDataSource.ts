@@ -12,6 +12,19 @@ export const selfHostedDataSource: RouterDashboardDataSource = {
     modelMix: ({ granularity, range }) =>
       api.metrics.modelBreakdown(granularity, range.from, range.to),
     summary: range => api.metrics.summary(range.from, range.to),
+    reportSummary: async range => {
+      const summary = await api.metrics.reportSummary(range.from, range.to);
+      return {
+        comparisonCostUSD: summary.comparison_cost_usd,
+        comparisonModel: summary.comparison_model,
+        lastRequestAt: summary.last_request_at,
+        requestCount: summary.request_count,
+        savingsUSD: summary.savings_usd,
+        totalCostUSD: summary.total_cost_usd,
+        totalTokens: summary.total_tokens,
+      };
+    },
+    series: request => api.metrics.series(request),
   },
   requests: {
     list: ({ limit, range }) => api.metrics.details(range.from, range.to, limit),

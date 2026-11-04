@@ -552,6 +552,69 @@ func (r *TelemetryRepo) GetTelemetrySummaryAll(ctx context.Context, from, to tim
 	}, nil
 }
 
+func dashboardInstallationFilter(installationID string) (pgtype.UUID, error) {
+	if installationID == "" {
+		return pgtype.UUID{}, nil
+	}
+	id, err := uuid.Parse(installationID)
+	if err != nil {
+		return pgtype.UUID{}, err
+	}
+	return pgtype.UUID{Bytes: id, Valid: true}, nil
+}
+
+// GetTelemetryDashboardFacts reads the dashboard's per-dimension sums.
+func (r *TelemetryRepo) GetTelemetryDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryDashboardFact, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetryDashboardFacts(ctx, sqlc.GetTelemetryDashboardFactsParams{
+		Granularity:    granularity,
+		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
+		ToTime:         pgtype.Timestamptz{Time: to, Valid: true},
+		InstallationID: installation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardFactsRow) proxy.TelemetryDashboardFact {
+		return proxy.TelemetryDashboardFact{
+			Bucket:              row.Bucket.Time,
+			DecisionModel:       row.DecisionModel,
+			SubscriptionServed:  row.SubscriptionServed,
+			DecisionType:        row.DecisionType,
+			AutomaticAlias:      row.AutomaticAlias,
+			RequestCount:        row.RequestCount,
+			InputTokens:         row.InputTokens,
+			OutputTokens:        row.OutputTokens,
+			CacheCreationTokens: row.CacheCreationTokens,
+			CacheReadTokens:     row.CacheReadTokens,
+			ActualCostUSD:       microsToUSD(row.ActualCostUsd),
+		}
+	}), nil
+}
+
+// GetTelemetryDashboardActiveUsers counts distinct people per bucket.
+func (r *TelemetryRepo) GetTelemetryDashboardActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryActiveUsers, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetryDashboardActiveUsers(ctx, sqlc.GetTelemetryDashboardActiveUsersParams{
+		Granularity:    granularity,
+		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
+		ToTime:         pgtype.Timestamptz{Time: to, Valid: true},
+		InstallationID: installation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardActiveUsersRow) proxy.TelemetryActiveUsers {
+		return proxy.TelemetryActiveUsers{Bucket: row.Bucket.Time, Linked: row.Linked, UserCount: row.UserCount}
+	}), nil
+}
+
 // GetTelemetryTimeseriesAll is the admin-only counterpart to GetTelemetryTimeseries.
 func (r *TelemetryRepo) GetTelemetryTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryBucket, error) {
 	q := dbbudget.Queries(r.tx)

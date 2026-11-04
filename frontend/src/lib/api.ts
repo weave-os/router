@@ -1,3 +1,4 @@
+import type { RouterMetricSeries, RouterMetricSeriesRequest } from "@/shared/data";
 import type {
   AnthropicFederationConfig,
   APIKey,
@@ -88,6 +89,17 @@ export const api = {
       if (from) params.set("from", from);
       if (to) params.set("to", to);
       return request<MetricsModelBreakdown>(`/metrics/model-breakdown?${params.toString()}`);
+    },
+    series: ({ granularity, group, range, type }: RouterMetricSeriesRequest) => {
+      const params = new URLSearchParams({ granularity: granularity ?? "total", type });
+      if (group) params.set("group", group);
+      params.set("from", range.from);
+      params.set("to", range.to);
+      return request<RouterMetricSeries>(`/metrics/series?${params.toString()}`);
+    },
+    reportSummary: (from: string, to: string) => {
+      const params = new URLSearchParams({ from, to });
+      return request<ReportSummaryResponse>(`/metrics/report-summary?${params.toString()}`);
     },
   },
   keys: {
@@ -187,3 +199,13 @@ export const api = {
       }),
   },
 };
+
+export interface ReportSummaryResponse {
+  comparison_cost_usd: number;
+  comparison_model: string;
+  last_request_at: string | null;
+  request_count: number;
+  savings_usd: number;
+  total_cost_usd: number;
+  total_tokens: number;
+}

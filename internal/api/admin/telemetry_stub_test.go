@@ -56,3 +56,11 @@ func (stubTelemetryRepo) GetTelemetryBySessionSequence(context.Context, uuid.UUI
 func (stubTelemetryRepo) GetSessionCost(context.Context, string, string) (proxy.SessionCost, error) {
 	return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
 }
+
+func (stubTelemetryRepo) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryDashboardFact, error) {
+	return nil, nil
+}
+
+func (stubTelemetryRepo) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryActiveUsers, error) {
+	return nil, nil
+}

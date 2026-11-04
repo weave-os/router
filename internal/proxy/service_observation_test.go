@@ -961,3 +961,11 @@ func TestProxyOpenAIResponses_NativeResponseSignals(t *testing.T) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+func (*captureTelemetry) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryDashboardFact, error) {
+	return nil, nil
+}
+
+func (*captureTelemetry) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryActiveUsers, error) {
+	return nil, nil
+}

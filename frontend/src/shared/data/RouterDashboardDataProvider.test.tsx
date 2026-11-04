@@ -24,7 +24,13 @@ function dataSourceWith(summaryFn: RouterDashboardDataSource["metrics"]["summary
   const notSupported = unavailable(UnavailableReason.NotSupportedByHost, "n/a");
   return {
     individuals: notSupported,
-    metrics: { costTimeseries: vi.fn(), modelMix: vi.fn(), summary: summaryFn },
+    metrics: {
+      costTimeseries: vi.fn(),
+      modelMix: vi.fn(),
+      reportSummary: vi.fn(),
+      series: vi.fn(),
+      summary: summaryFn,
+    },
     requests: notSupported,
     settings: {
       apiKeys: notSupported,
