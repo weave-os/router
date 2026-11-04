@@ -319,6 +319,13 @@ class AgentFlowHMMSidecar:
             "allow_provider_fallback": False,
         }
 
+    async def probe_embedding(self, text: str) -> EmbeddingVector:
+        """One uncached embedding through the exact live serving call."""
+        vectors, _info = await embed_texts_uncached(
+            [text], **self._uncached_embedding_call_kwargs(self.embedding_model)
+        )
+        return vectors[text]
+
     def _uncached_embedding_call_kwargs(self, model: str) -> dict[str, Any]:
         """The exact kwargs the live ``embed_texts_uncached`` call uses."""
         kwargs = self._embedding_call_base_kwargs(model)

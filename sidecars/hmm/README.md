@@ -64,8 +64,12 @@ Only Gemini packages are served. Embeddings use `google-genai`:
 | `HMM_VERTEX_PROJECT` / `GOOGLE_CLOUD_PROJECT` | Vertex project (ADC credentials) |
 | `HMM_VERTEX_LOCATION` | Vertex location |
 
-These packages carry no embedding probe vector, so `/readyz` reports no probe
-similarity for them. `tests/test_classifier_package.py` runs the production-parity check
+At startup the sidecar embeds one probe text through the configured transport
+and checks the vector has the package's declared width and is finite and
+non-zero. Missing credentials, an unknown `HMM_GEMINI_TRANSPORT`, a denied
+Vertex project or a wrong-width endpoint fail `/readyz` with the cause in
+`error`, instead of failing every route. These packages carry no reference
+probe vector, so `/readyz` reports no probe similarity for them. `tests/test_classifier_package.py` runs the production-parity check
 when `HMM_RAW_V5_PARITY_PACKAGE` names a package tarball; the fixtures under
 `tests/fixtures/classifier_package/` are synthetic conversations and the readouts Weave's
 production sidecar produced for them with deterministic stub embeddings.
@@ -113,7 +117,8 @@ raw-V5 `hmm_router_classifier_package_v1` archives. It verifies:
 - safe archive paths, member count, and size limits;
 - every file digest listed by the manifest;
 - classifier/HMM dimensions and class order (frozen v1 packages);
-- the live embedding endpoint against the stored probe (frozen v1 packages).
+- the live embedding endpoint against the stored probe (frozen v1 packages);
+- one live embedding of the declared width (raw-V5 packages).
 
 The public v1 package contains data arrays and XGBoost JSON only. The legacy
 training pickle, training rows, prompts, embedding cache, local filesystem

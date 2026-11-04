@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 
 from hmm_sidecar.artifacts import is_classifier_package_manifest
 from hmm_sidecar.classifier_package.agent_flow_sidecar import (
@@ -18,6 +19,10 @@ from hmm_sidecar.classifier_package.agent_flow_sidecar import (
     AgentFlowHMMSidecar,
 )
 from hmm_sidecar.classifier_package.complexity_classifier import ComplexityClassifier
+from hmm_sidecar.classifier_package.gemini_embeddings import (
+    EmbeddingError,
+    resolve_gemini_transport,
+)
 from hmm_sidecar.classifier_package.hmm_feature_arms import ElementLookbackSource
 from hmm_sidecar.classifier_package.live_sequence import (
     DEFAULT_LIVE_FLOW_MAX_ELEMENTS,
@@ -46,6 +51,7 @@ from hmm_sidecar.classifier_package.serving_features import current_text_has_too
 from hmm_sidecar.inference_deadline import LastReadoutStore, infer_within_deadline
 
 EMBEDDING_BATCH_SIZE = 8
+EMBEDDING_PROBE_TEXT = "Weave Router embedding probe"
 
 
 @dataclass(frozen=True)
@@ -229,6 +235,41 @@ class PackageClassifier:
     @property
     def classes(self) -> tuple[str, ...]:
         return tuple(self.classifier.classes)
+
+    async def verify_embedding_config(self) -> None:
+        """Embed one probe at boot so bad credentials or a mismatched embedding
+        endpoint fail readiness instead of every route."""
+        model = self.profile.embedding_model
+        embedding_dim = self.profile.embedding_dim
+        configured_transport = (
+            os.environ.get("HMM_GEMINI_TRANSPORT", "").strip() or "auto"
+        )
+        try:
+            transport = resolve_gemini_transport().value
+        except EmbeddingError as error:
+            raise EmbeddingError(
+                f"embedding probe for package model {model!r} over transport"
+                f" {configured_transport!r} failed: {error}"
+            ) from error
+        try:
+            vector = await self.hmm.probe_embedding(EMBEDDING_PROBE_TEXT)
+        except Exception as error:
+            raise EmbeddingError(
+                f"embedding probe for package model {model!r} over transport"
+                f" {transport!r} failed: {type(error).__name__}: {error}"
+            ) from error
+        probe_values = np.asarray(vector, dtype=np.float64)
+        if probe_values.shape != (embedding_dim,):
+            raise EmbeddingError(
+                f"embedding probe for package model {model!r} over transport"
+                f" {transport!r} returned {probe_values.size} dimensions; the package"
+                f" was trained on {embedding_dim}"
+            )
+        if not np.all(np.isfinite(probe_values)) or not np.any(probe_values):
+            raise EmbeddingError(
+                f"embedding probe for package model {model!r} over transport"
+                f" {transport!r} returned a zero or non-finite vector"
+            )
 
     async def classify(
         self, payload: dict[str, Any], *, session_id: str | None = None

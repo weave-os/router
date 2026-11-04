@@ -279,3 +279,73 @@ def test_overrun_inference_serves_the_sessions_prior_state(
             await classifier.classify(cases[1], session_id="session-b")
 
     asyncio.run(scenario())
+
+
+class _ProbeHMM:
+    def __init__(self, result: object) -> None:
+        self.result = result
+        self.calls: list[str] = []
+
+    async def probe_embedding(self, text: str) -> object:
+        self.calls.append(text)
+        if isinstance(self.result, BaseException):
+            raise self.result
+        return self.result
+
+
+def _probe_classifier(probe_result: object, dim: int = 4):
+    from hmm_sidecar.classifier_package.serving import PackageClassifier
+
+    classifier = object.__new__(PackageClassifier)
+    classifier.profile = SimpleNamespace(embedding_model="gemini-embedding-2", embedding_dim=dim)  # type: ignore[attr-defined]
+    classifier.hmm = _ProbeHMM(probe_result)  # type: ignore[attr-defined]
+    return classifier
+
+
+def test_embedding_probe_accepts_a_vector_of_the_declared_width() -> None:
+    classifier = _probe_classifier([0.5, 0.5, 0.5, 0.5])
+
+    asyncio.run(classifier.verify_embedding_config())
+
+    assert classifier.hmm.calls, "the probe makes one live embedding call"
+
+
+@pytest.mark.parametrize(
+    ("probe_result", "expected_error"),
+    [
+        ([0.5, 0.5, 0.5], "3 dimensions"),
+        ([0.0, 0.0, 0.0, 0.0], "zero or non-finite"),
+        ([float("nan"), 1.0, 1.0, 1.0], "zero or non-finite"),
+        (
+            gemini_embeddings.EmbeddingError(
+                "GEMINI_API_KEY or GOOGLE_API_KEY is required"
+            ),
+            "GEMINI_API_KEY",
+        ),
+    ],
+)
+def test_embedding_probe_fails_closed_naming_the_package_model(
+    monkeypatch, probe_result: object, expected_error: str
+) -> None:
+    monkeypatch.setenv("HMM_GEMINI_TRANSPORT", "api_key")
+    classifier = _probe_classifier(probe_result)
+
+    with pytest.raises(gemini_embeddings.EmbeddingError) as raised:
+        asyncio.run(classifier.verify_embedding_config())
+
+    message = str(raised.value)
+    assert "gemini-embedding-2" in message
+    assert "api_key" in message
+    assert expected_error in message
+
+
+def test_embedding_probe_rejects_an_unknown_transport_before_any_call(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("HMM_GEMINI_TRANSPORT", "bedrock")
+    classifier = _probe_classifier([0.5, 0.5, 0.5, 0.5])
+
+    with pytest.raises(gemini_embeddings.EmbeddingError, match="HMM_GEMINI_TRANSPORT"):
+        asyncio.run(classifier.verify_embedding_config())
+
+    assert classifier.hmm.calls == []
