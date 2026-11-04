@@ -480,5 +480,4 @@ function IconBadge({ children }: React.PropsWithChildren) {
   );
 }
 
-/** Renders an icon with a nice badge around it. */
 Icon.Badge = IconBadge;

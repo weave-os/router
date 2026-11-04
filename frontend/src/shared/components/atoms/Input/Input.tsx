@@ -4,9 +4,6 @@ import { cn } from "../../../tools/cn";
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {}
 
-/**
- * Renders a styled input field.
- */
 export const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ className, type, ...props }, ref) => {
     return (

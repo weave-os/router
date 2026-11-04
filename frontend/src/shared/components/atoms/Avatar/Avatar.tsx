@@ -43,7 +43,7 @@ export interface AvatarProps extends React.ComponentPropsWithoutRef<typeof Avata
  *
  * @example getFallback("John Doe") // "JD"
  */
-function getFallback(name: string): string {
+function getFallback(name: string) {
   return name
     .split(" ")
     .filter(part => part.length > 0)
@@ -58,9 +58,6 @@ type AvatarType = React.ForwardRefExoticComponent<
   Loading: typeof AvatarLoading;
 };
 
-/**
- * Renders an avatar for a user or other entity.
- */
 export const Avatar = React.forwardRef<React.ElementRef<typeof AvatarPrimitive.Root>, AvatarProps>(
   (
     {

@@ -1,7 +1,7 @@
 import { capTooltipSeries, TooltipSeriesEntry } from "./capTooltipSeries";
 
 describe("capTooltipSeries", () => {
-  function make(entries: [string, number][]): TooltipSeriesEntry<string>[] {
+  function make(entries: [string, number][]) {
     return entries.map(([name, sortValue]) => ({ name, sortValue }));
   }
 

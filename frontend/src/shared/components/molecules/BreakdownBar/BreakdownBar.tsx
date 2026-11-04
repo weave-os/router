@@ -14,7 +14,7 @@ export interface BreakdownSlice {
 }
 
 /** Largest slice first, catch-alls last; ties keep the caller's order. */
-function orderBreakdownSlices(slices: readonly BreakdownSlice[]): BreakdownSlice[] {
+function orderBreakdownSlices(slices: readonly BreakdownSlice[]) {
   const isOther = (slice: BreakdownSlice) => slice.isOther === true;
   return [...slices].sort((a, b) => {
     if (isOther(a) !== isOther(b)) return isOther(a) ? 1 : -1;

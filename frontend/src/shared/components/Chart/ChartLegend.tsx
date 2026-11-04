@@ -16,7 +16,7 @@ const LEGEND_TEXT_MAX_LENGTH = 40;
 /** Height of one legend row: the 20px line plus the item's vertical padding. */
 const LEGEND_ROW_HEIGHT_PX = 24;
 
-function truncateText(text: string, maxLength: number): string {
+function truncateText(text: string, maxLength: number) {
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength - 3) + "...";
 }

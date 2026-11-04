@@ -8,9 +8,6 @@ export interface ErrorCardProps extends CardProps {
   title: string;
 }
 
-/**
- * Renders an error state.
- */
 export function ErrorCard({
   children,
   className,

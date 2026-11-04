@@ -1,6 +1,3 @@
-/**
- * Make all properties in T optional, including in nested objects.
- */
 export type DeepPartial<T> =
   // oxlint-disable-next-line typescript/no-unsafe-function-type
   T extends Function

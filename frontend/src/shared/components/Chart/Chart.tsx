@@ -170,7 +170,7 @@ interface StackEdges {
   isStart: boolean;
 }
 
-const UNSTACKED_BAR_EDGES: StackEdges = { isEnd: true, isStart: true };
+const UNSTACKED_BAR_EDGES = { isEnd: true, isStart: true };
 
 /**
  * Finds a bar's place in its stack at one data point. Recharts stacks positive and negative values

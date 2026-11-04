@@ -1,5 +1,6 @@
 import { type ReactNode, useMemo, useState } from "react";
 
+import { normalizeSearchText } from "../../../tools/strings";
 import { Icon } from "../../atoms/Icon";
 import { Input } from "../../atoms/Input";
 import { Text } from "../../atoms/Text";
@@ -47,10 +48,11 @@ export function SearchableList<T>({
   const [page, setPage] = useState(0);
 
   const filtered = useMemo(() => {
-    const trimmed = search.trim();
-    if (trimmed === "") return items;
-    const lower = trimmed.toLowerCase();
-    return items.filter(item => getSearchValue(item).toLowerCase().includes(lower));
+    const normalizedQuery = normalizeSearchText(search);
+    if (normalizedQuery === "") return items;
+    return items.filter(item =>
+      normalizeSearchText(getSearchValue(item)).includes(normalizedQuery),
+    );
   }, [items, search, getSearchValue]);
 
   const { clampedPage, start, totalPages, visible } = getVisibleWindow({

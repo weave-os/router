@@ -129,7 +129,7 @@ export function modelColorTokens(models: readonly string[]): string[] {
 function colorsForModels(
   models: readonly string[],
   shadesByFamily: Readonly<Record<RouterModelFamily, readonly string[]>>,
-): string[] {
+) {
   const usedShades = new Map<RouterModelFamily, Set<number>>();
   // Slug variants of one model (e.g. dashed and dotted versions) are one model, not a collision.
   const colorByDisplayName = new Map<string, string>();

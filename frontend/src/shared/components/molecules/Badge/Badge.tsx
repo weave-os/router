@@ -94,9 +94,6 @@ type BadgeType = React.ForwardRefExoticComponent<
   Loading: React.ComponentType<BadgeLoadingProps>;
 };
 
-/**
- * Renders a badge.
- */
 export const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(
   ({ appearance, className, href, hslColor, intent, style, tooltip, ...props }, ref) => {
     const hasTooltip = tooltip != null;

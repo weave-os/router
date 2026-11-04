@@ -163,16 +163,16 @@ func MetricsPeopleHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch people."})
 			return
 		}
-		out := make([]dashboardPerson, 0, len(people))
+		peopleResponse := make([]dashboardPerson, 0, len(people))
 		for _, person := range people {
 			row := dashboardPerson{ID: person.ID, Linked: person.Linked, DisplayName: person.DisplayName, Email: person.Email}
 			if person.LastRequestAt != nil {
 				formatted := person.LastRequestAt.UTC().Format(time.RFC3339)
 				row.LastRequestAt = &formatted
 			}
-			out = append(out, row)
+			peopleResponse = append(peopleResponse, row)
 		}
-		c.JSON(http.StatusOK, dashboardPeopleResponse{People: out})
+		c.JSON(http.StatusOK, dashboardPeopleResponse{People: peopleResponse})
 	}
 }
 
@@ -298,21 +298,21 @@ func factValue(fact proxy.TelemetryDashboardFact, metric dashboardMetricType) fl
 }
 
 func factPoints(facts []proxy.TelemetryDashboardFact, metric dashboardMetricType, group dashboardMetricGroup, total bool) []dashboardPoint {
-	acc := newPointAccumulator(total)
+	accumulator := newPointAccumulator(total)
 	for _, fact := range facts {
 		if metric == dashboardMetricCost && group == dashboardGroupCostType {
 			actual, comparison := costTypeActual, costTypeComparison
-			acc.add(fact.Bucket, &actual, billedCost(fact))
-			acc.add(fact.Bucket, &comparison, comparisonCost(fact))
+			accumulator.add(fact.Bucket, &actual, billedCost(fact))
+			accumulator.add(fact.Bucket, &comparison, comparisonCost(fact))
 			continue
 		}
-		acc.add(fact.Bucket, factGroup(fact, group), factValue(fact, metric))
+		accumulator.add(fact.Bucket, factGroup(fact, group), factValue(fact, metric))
 	}
-	return acc.points()
+	return accumulator.points()
 }
 
 func activeUserPoints(users []proxy.TelemetryActiveUsers, group dashboardMetricGroup, total bool) []dashboardPoint {
-	acc := newPointAccumulator(total)
+	accumulator := newPointAccumulator(total)
 	for _, row := range users {
 		var label *string
 		if group == dashboardGroupUserLink {
@@ -322,9 +322,9 @@ func activeUserPoints(users []proxy.TelemetryActiveUsers, group dashboardMetricG
 			}
 			label = &link
 		}
-		acc.add(row.Bucket, label, float64(row.UserCount))
+		accumulator.add(row.Bucket, label, float64(row.UserCount))
 	}
-	return acc.points()
+	return accumulator.points()
 }
 
 type pointKey struct {
@@ -365,14 +365,14 @@ func (a *pointAccumulator) points() []dashboardPoint {
 		}
 		return a.order[i].group < a.order[j].group
 	})
-	out := make([]dashboardPoint, 0, len(a.order))
+	points := make([]dashboardPoint, 0, len(a.order))
 	for _, key := range a.order {
 		point := dashboardPoint{Group: a.groups[key], Value: a.values[key]}
 		if !a.total {
 			bucket := key.time
 			point.Time = &bucket
 		}
-		out = append(out, point)
+		points = append(points, point)
 	}
-	return out
+	return points
 }

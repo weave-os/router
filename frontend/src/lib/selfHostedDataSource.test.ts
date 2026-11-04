@@ -15,7 +15,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function requestedURL(): URL {
+function requestedURL() {
   return new URL(String(fetchMock.mock.lastCall?.[0]), "http://router.test");
 }
 
