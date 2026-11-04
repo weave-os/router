@@ -169,9 +169,26 @@ func TestSubscriptionFundingLiveQuotaProofAllowsAPIWithoutObserver(t *testing.T)
 	require.Equal(t, "paid rollover", rec.Body.String())
 }
 
+// A buffered provider 5xx on the plan is the one operational failure that
+// does buy paid rescue: the plan could not serve, and the turn moves on.
+func TestSubscriptionFundingProviderFailureAuthorizesPaidRescue(t *testing.T) {
+	failure := &providers.UpstreamErrorResponse{Status: http.StatusBadGateway, Body: []byte(`{"error":{"type":"service_unavailable_error","code":"server_is_overloaded"}}`)}
+	upstream := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{err: failure}, {writeBytes: []byte("paid rescue answer")}}}
+	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "seat", AccessToken: "oauth-token"}}}
+	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: upstream}).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+	ctx := WithManagedSubscriptionCandidates(context.Background(), []*auth.SubscriptionAccount{{ID: "seat", Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive}})
+	rec := httptest.NewRecorder()
+	buf := newPreludeBuffer(rec)
+	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+	in.initialDecision = router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}
+	_, err := svc.dispatchWithFallback(ctx, in)
+	require.NoError(t, err)
+	require.Equal(t, 2, upstream.calls, "the plan attempt fails, the paid attempt serves")
+	require.Contains(t, rec.Body.String(), "paid rescue answer")
+}
+
 func TestSubscriptionFundingOperationalFailuresNeverAuthorizeAPI(t *testing.T) {
 	for _, failure := range []error{
-		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway},
 		&providers.UpstreamErrorResponse{Status: http.StatusUnauthorized},
 		&providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"rate_limit_error"}}`)},
 		&providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: []byte(`{"error":{"type":"invalid_request_error","message":"Third-party apps now draw from your extra usage, not your plan limits"}}`)},

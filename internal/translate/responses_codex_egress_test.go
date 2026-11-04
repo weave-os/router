@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -199,7 +200,7 @@ func TestResponsesWriter_PortableCodexBuffersUntilLateCustomToolName(t *testing.
 	assert.True(t, customDone)
 }
 
-func TestResponsesWriter_PortableCodexRejectsNamelessToolCall(t *testing.T) {
+func TestResponsesWriter_PortableCodexSuppressesNamelessToolCall(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
 	w.SetToolMappings(map[string]translate.ResponsesToolMapping{
@@ -209,8 +210,8 @@ func TestResponsesWriter_PortableCodexRejectsNamelessToolCall(t *testing.T) {
 	w.WriteHeader(200)
 
 	_, err := w.Write([]byte(`data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_bad","type":"function","function":{"arguments":"{}"}}]},"finish_reason":"tool_calls"}]}` + "\n\n"))
-	require.ErrorContains(t, err, "missing a function name")
-	require.Error(t, w.FinalizeError(err))
+	require.ErrorIs(t, err, providers.ErrUpstreamEmptyCompletion)
+	require.NoError(t, w.FinalizeError(err))
 	assert.Contains(t, rec.Body.String(), `"type":"response.failed"`)
 	assert.NotContains(t, rec.Body.String(), `"type":"function_call"`)
 	assert.NotContains(t, rec.Body.String(), `"type":"custom_tool_call"`)

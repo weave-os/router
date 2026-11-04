@@ -5,12 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/usage"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // Shapes follow recorded first-party Messages responses: the per-TTL split,
@@ -70,6 +71,7 @@ func TestUsageExtractor_UnreportedSplitFallsBackToRequestTTL(t *testing.T) {
 	}{
 		{name: "1h request, no split", declared1h: true, body: anthropicNoSplitBody, want1h: 322, wantChecked: true},
 		{name: "5m or mixed request, no split", declared1h: false, body: anthropicNoSplitBody, want1h: 0, wantChecked: true},
+		{name: "reported zero split wins over declared TTL", declared1h: true, body: strings.Replace(anthropicNoSplitBody, `"output_tokens":4`, `"output_tokens":4,"cache_creation":{"ephemeral_5m_input_tokens":0,"ephemeral_1h_input_tokens":0}`, 1), want1h: 0, wantChecked: false},
 		{name: "reported split wins over declared TTL", declared1h: true, body: anthropicSplitBody, want1h: 300, wantChecked: false},
 		{name: "null cache_creation is not a split", declared1h: true, body: strings.Replace(anthropicNoSplitBody, `"output_tokens":4`, `"output_tokens":4,"cache_creation":null`, 1), want1h: 322, wantChecked: true},
 		{name: "null per-TTL counts are not a split", declared1h: true, body: strings.Replace(anthropicNoSplitBody, `"output_tokens":4`, `"output_tokens":4,"cache_creation":{"ephemeral_5m_input_tokens":null,"ephemeral_1h_input_tokens":null}`, 1), want1h: 322, wantChecked: true},
@@ -93,9 +95,8 @@ func TestUsageExtractor_UnreportedSplitFallsBackToRequestTTL(t *testing.T) {
 
 func TestUsageExtractor_RecordedUsageModifiersFeedTranslatedPaths(t *testing.T) {
 	ext := otel.NewUsageExtractor(nil, providers.ProviderAnthropic)
-	ext.RecordCacheUsage(500, 0)
-	ext.RecordUsageModifiers(200, true, string(catalog.SpeedFast), string(catalog.InferenceGeoUS))
-	ext.RecordUsageModifiers(0, false, "", "")
+	ext.RecordProviderUsage(usage.Facts{Present: true, CacheWrite: usage.Reported(500), CacheRead: usage.Reported(0), CacheWrite1h: usage.Reported(200), Speed: catalog.SpeedFast, SpeedReported: true, InferenceGeo: catalog.InferenceGeoUS, InferenceGeoReported: true})
+	ext.RecordProviderUsage(usage.Facts{})
 
 	assert.Equal(t, catalog.UsageModifiers{CacheCreation1h: 200, InferenceGeo: catalog.InferenceGeoUS}, ext.UsageModifiers())
 	assert.Equal(t, catalog.SpeedFast, ext.Speed())

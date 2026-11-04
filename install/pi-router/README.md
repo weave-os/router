@@ -19,7 +19,7 @@ That writes `~/.pi/agent/models.json` (the `weave` provider), adds
 the key in `~/.pi/agent/.weave_router_key`. pi auto-installs `@weave-os/router`
 from npm on next start and loads this extension via its `pi.extensions` field.
 Plain `pi` then connects to the installed endpoint, normally
-`https://router.workweave.ai`; it does not start a local Python proxy.
+`https://router.weaveos.com`; it does not start a local Python proxy.
 
 ## What it does
 
@@ -32,8 +32,10 @@ Plain `pi` then connects to the installed endpoint, normally
   selects the model per request. You don't pick a model — the router does.
 - **Force-model commands.** `/fm <model>` and `/force-model <model>` pin the
   current router session; `/ufm` and `/unforce-model` resume automatic routing.
-  The persistent status changes to `WEAVE ROUTER — <model> [forced]` after the
-  router validates and canonicalizes the requested model.
+  The status records `last pin: <model>` alongside response attribution after
+  a completed acknowledgment. This is reachable branch history, not a query
+  of the router's current pin. Structured response headers drive new history;
+  older transcripts retain explicit force/clear command acknowledgment support.
 - **Beta routing toggle.** `/beta` toggles the router's beta HMM strategy for
   the current session. The router confirms whether beta routing is enabled or
   disabled; run `/beta` again to switch back.

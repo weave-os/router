@@ -108,6 +108,8 @@ func writeWebSearchSSE(w http.ResponseWriter, msg websearch.Message) error {
 	w.Header().Set("Content-Type", "text/event-stream")
 	flusher, _ := w.(http.Flusher)
 	bw := bufio.NewWriterSize(w, 8192)
+	initialUsage := msg.Usage
+	initialUsage.OutputTokens = 0
 
 	bw.WriteString(sseEvent("message_start", mustMarshalJSON(map[string]any{
 		"type": "message_start",
@@ -115,7 +117,7 @@ func writeWebSearchSSE(w http.ResponseWriter, msg websearch.Message) error {
 			"id": msg.ID, "type": "message", "role": "assistant",
 			"content": []any{}, "model": msg.Model,
 			"stop_reason": nil, "stop_sequence": nil,
-			"usage": map[string]any{"input_tokens": msg.Usage.InputTokens, "output_tokens": 0},
+			"usage": initialUsage,
 		},
 	})))
 

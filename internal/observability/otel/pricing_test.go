@@ -33,6 +33,7 @@ func TestLookup(t *testing.T) {
 		{name: "gpt-6-astra", model: "gpt-6-astra", wantInput: 10.00, wantOutput: 50.00},
 		{name: "gpt-6-sol", model: "gpt-6-sol", wantInput: 2.00, wantOutput: 10.00},
 		{name: "gpt-6.1-sol", model: "gpt-6.1-sol", wantInput: 2.00, wantOutput: 10.00},
+		{name: "gpt-6.1-terra", model: "gpt-6.1-terra", wantInput: 1.00, wantOutput: 5.00},
 		{name: "gpt-6-luna", model: "gpt-6-luna", wantInput: 0.10, wantOutput: 0.50},
 		{name: "gpt-5.6-sol", model: "gpt-5.6-sol", wantInput: 4.00, wantOutput: 20.00},
 		{name: "gpt-5.6-terra", model: "gpt-5.6-terra", wantInput: 2.00, wantOutput: 12.00},
@@ -84,9 +85,13 @@ func TestLookup(t *testing.T) {
 		{name: "gemini-2.0-flash", model: "gemini-2.0-flash", wantInput: 0.10, wantOutput: 0.40},
 		{name: "gemini-2.0-flash-lite", model: "gemini-2.0-flash-lite", wantInput: 0.075, wantOutput: 0.30},
 
-		// ── Moonshot (Fireworks primary binding) ───────────────
+		// ── Moonshot ───────────────────────────────────────────
 		{name: "moonshotai/kimi-k3", model: "moonshotai/kimi-k3", wantInput: 3.00, wantOutput: 15.00},
+		{name: "moonshotai/kimi-k3.1", model: "moonshotai/kimi-k3.1", wantInput: 2.00, wantOutput: 10.00},
 		{name: "moonshotai/kimi-k2.7", model: "moonshotai/kimi-k2.7", wantInput: 0.95, wantOutput: 4.00},
+
+		// ── MiniMax ────────────────────────────────────────────
+		{name: "minimax/minimax-m3.1-flash", model: "minimax/minimax-m3.1-flash", wantInput: 0.15, wantOutput: 0.60},
 
 		// ── Dated variants (8-digit suffix normalization) ──────
 		{name: "claude-haiku-4-5-20251001", model: "claude-haiku-4-5-20251001", wantInput: 1.00, wantOutput: 5.00},

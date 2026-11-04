@@ -11,6 +11,40 @@ import (
 	"github.com/google/uuid"
 )
 
+const deleteExpiredLLMEscalationContinuationBatch = `-- name: DeleteExpiredLLMEscalationContinuationBatch :execrows
+WITH batch AS MATERIALIZED (
+  SELECT c.activation, c.response_digest FROM router.llm_escalation_continuations c
+  JOIN router.llm_escalation_sessions s ON s.lifetime = c.lifetime
+  WHERE s.expires_at <= clock_timestamp()
+  LIMIT $1::int
+  FOR UPDATE OF c SKIP LOCKED
+)
+DELETE FROM router.llm_escalation_continuations c
+USING batch b
+WHERE c.activation = b.activation AND c.response_digest = b.response_digest
+`
+
+// One expired session can hold hundreds of MB of history, so histories drain in bounded batches first.
+// MATERIALIZED evaluates the locking LIMIT once, so a statement never deletes more than one batch.
+//
+//	WITH batch AS MATERIALIZED (
+//	  SELECT c.activation, c.response_digest FROM router.llm_escalation_continuations c
+//	  JOIN router.llm_escalation_sessions s ON s.lifetime = c.lifetime
+//	  WHERE s.expires_at <= clock_timestamp()
+//	  LIMIT $1::int
+//	  FOR UPDATE OF c SKIP LOCKED
+//	)
+//	DELETE FROM router.llm_escalation_continuations c
+//	USING batch b
+//	WHERE c.activation = b.activation AND c.response_digest = b.response_digest
+func (q *Queries) DeleteExpiredLLMEscalationContinuationBatch(ctx context.Context, batchSize int32) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredLLMEscalationContinuationBatch, batchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteExpiredLLMEscalationScope = `-- name: DeleteExpiredLLMEscalationScope :exec
 DELETE FROM router.llm_escalation_sessions WHERE scope = $1::bytea AND expires_at <= clock_timestamp()
 `
@@ -23,16 +57,35 @@ func (q *Queries) DeleteExpiredLLMEscalationScope(ctx context.Context, scope []b
 	return err
 }
 
-const deleteExpiredLLMEscalationSessions = `-- name: DeleteExpiredLLMEscalationSessions :exec
-DELETE FROM router.llm_escalation_sessions WHERE expires_at<=clock_timestamp()
+const deleteExpiredLLMEscalationSessionBatch = `-- name: DeleteExpiredLLMEscalationSessionBatch :execrows
+WITH batch AS MATERIALIZED (
+  SELECT scope FROM router.llm_escalation_sessions
+  WHERE expires_at <= clock_timestamp()
+  LIMIT $1::int
+  FOR UPDATE SKIP LOCKED
+)
+DELETE FROM router.llm_escalation_sessions s
+USING batch b
+WHERE s.scope = b.scope
 `
 
-// Cascade operational metadata and continuation content together.
+// Skip rows a concurrent sweeper or request holds instead of waiting out the operation budget.
 //
-//	DELETE FROM router.llm_escalation_sessions WHERE expires_at<=clock_timestamp()
-func (q *Queries) DeleteExpiredLLMEscalationSessions(ctx context.Context) error {
-	_, err := q.db.Exec(ctx, deleteExpiredLLMEscalationSessions)
-	return err
+//	WITH batch AS MATERIALIZED (
+//	  SELECT scope FROM router.llm_escalation_sessions
+//	  WHERE expires_at <= clock_timestamp()
+//	  LIMIT $1::int
+//	  FOR UPDATE SKIP LOCKED
+//	)
+//	DELETE FROM router.llm_escalation_sessions s
+//	USING batch b
+//	WHERE s.scope = b.scope
+func (q *Queries) DeleteExpiredLLMEscalationSessionBatch(ctx context.Context, batchSize int32) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteExpiredLLMEscalationSessionBatch, batchSize)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const expireLLMEscalationJobLeases = `-- name: ExpireLLMEscalationJobLeases :exec

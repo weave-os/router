@@ -22,7 +22,7 @@ const LOOM_WORDMARK = [
 export interface RouterUiSnapshot {
 	requestedModel?: string;
 	routedModel?: string;
-	forcedModel?: string;
+	lastPinModel?: string;
 	savings: SavingsAggregate;
 }
 
@@ -89,7 +89,7 @@ export function clearLoomUi(ctx: ExtensionContext): void {
 
 export function updateRouterStatus(ctx: ExtensionContext, snapshot: RouterUiSnapshot): void {
 	if (!ctx.hasUI) return;
-	const { requestedModel, routedModel, forcedModel, savings } = snapshot;
+	const { requestedModel, routedModel, lastPinModel, savings } = snapshot;
 	let route: string;
 	if (routedModel && requestedModel) route = `${routedModel} ← ${requestedModel}`;
 	else if (routedModel) route = routedModel;
@@ -98,6 +98,6 @@ export function updateRouterStatus(ctx: ExtensionContext, snapshot: RouterUiSnap
 
 	const tui = isTuiContext(ctx);
 	const label = tui ? ctx.ui.theme.bold(brand("WEAVE ROUTER")) : "WEAVE ROUTER";
-	const detail = forcedModel ? `${forcedModel} [forced]` : `${route} · ${formatSavings(savings)}`;
+	const detail = `${route} · ${formatSavings(savings)}${lastPinModel ? ` · last pin: ${lastPinModel}` : ""}`;
 	ctx.ui.setStatus(STATUS_KEY, `${label} — ${tui ? ctx.ui.theme.fg("dim", detail) : detail}`);
 }

@@ -7,11 +7,17 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/usage"
+
 	"github.com/tidwall/gjson"
 )
 
 // GeminiToOpenAIResponse converts a non-streaming Gemini response to OpenAI format.
 func GeminiToOpenAIResponse(body []byte, requestModel string) ([]byte, error) {
+	return geminiToOpenAIResponse(body, requestModel, usage.ParseGemini(gjson.GetBytes(body, "usageMetadata")))
+}
+
+func geminiToOpenAIResponse(body []byte, requestModel string, facts usage.Facts) ([]byte, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, fmt.Errorf("unmarshal gemini response: invalid JSON")
 	}
@@ -38,7 +44,7 @@ func GeminiToOpenAIResponse(body []byte, requestModel string) ([]byte, error) {
 	jw.EndObj()
 	jw.EndArr()
 	jw.Key("usage")
-	writeOpenAIUsageFromGemini(jw, gjson.GetBytes(body, "usageMetadata"))
+	writeChatUsage(jw, facts)
 	jw.EndObj()
 	return jw.Bytes(), nil
 }
@@ -57,6 +63,8 @@ func writeOpenAIMessageFromGemini(jw *jsonWriter, candidate gjson.Result) (hasTo
 		args string
 	}
 	var toolCalls []toolCallEntry
+	ledger := NewToolCallLedger()
+	sourceIndex := 0
 
 	// First pass: find any thoughtSignature in the candidate's parts.
 	// Gemini 3.x emits one sig per turn — usually on the leading text or
@@ -80,8 +88,13 @@ func writeOpenAIMessageFromGemini(jw *jsonWriter, candidate gjson.Result) (hasTo
 			if sig == "" {
 				sig = inheritedSig
 			}
-			id := embedSignatureInID(generateToolCallID(), sig)
-			toolCalls = append(toolCalls, toolCallEntry{id: id, name: name, args: args})
+			call := ledger.Close(sourceIndex, generateToolCallID(), name, args).Accept(nil)
+			sourceIndex++
+			if call.Suppression != ToolCallNotSuppressed {
+				return true
+			}
+			id := embedSignatureInID(call.ID, sig)
+			toolCalls = append(toolCalls, toolCallEntry{id: id, name: call.Name, args: call.Arguments})
 			return true
 		}
 		if t := part.Get("text").String(); t != "" {
@@ -137,38 +150,6 @@ func writeOpenAIMessageFromGemini(jw *jsonWriter, candidate gjson.Result) (hasTo
 	jw.EndObj()
 
 	return hasToolCalls, leadingSig
-}
-
-// geminiOutputTokens returns the billable output count from Gemini usageMetadata.
-// candidatesTokenCount excludes thinking; Google bills thoughtsTokenCount at the
-// output rate, so the two are summed (matching OpenAI's completion_tokens).
-func geminiOutputTokens(meta gjson.Result) int64 {
-	return meta.Get("candidatesTokenCount").Int() + meta.Get("thoughtsTokenCount").Int()
-}
-
-// writeOpenAIUsageFromGemini writes the "usage" object from Gemini usageMetadata.
-func writeOpenAIUsageFromGemini(jw *jsonWriter, meta gjson.Result) {
-	prompt := meta.Get("promptTokenCount").Int()
-	completion := geminiOutputTokens(meta)
-	total := meta.Get("totalTokenCount").Int()
-	if total == 0 {
-		total = prompt + completion
-	}
-	jw.Obj()
-	jw.Key("prompt_tokens")
-	jw.Int(prompt)
-	jw.Key("completion_tokens")
-	jw.Int(completion)
-	jw.Key("total_tokens")
-	jw.Int(total)
-	if reasoning := meta.Get("thoughtsTokenCount").Int(); reasoning > 0 {
-		jw.Key("completion_tokens_details")
-		jw.Obj()
-		jw.Key("reasoning_tokens")
-		jw.Int(reasoning)
-		jw.EndObj()
-	}
-	jw.EndObj()
 }
 
 // GeminiToOpenAIError re-wraps a Gemini error envelope as an OpenAI error.

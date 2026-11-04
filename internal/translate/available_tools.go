@@ -72,3 +72,38 @@ func (e *RequestEnvelope) AvailableToolNames() []string {
 	sort.Strings(names)
 	return names
 }
+
+// SeedToolCallNames maps each wire name a Seed-style text tool call may use
+// to the client tool it recovers as, honoring tool_choice: nil when the
+// request declared no client tools, disabled them with "none", or asked for
+// several choices (n > 1). wireAliases is the prepared request's
+// ResponseToolNames, so a call naming a sanitized upstream alias restores the
+// client's original name.
+func (e *RequestEnvelope) SeedToolCallNames(wireAliases map[string]string) map[string]string {
+	kind, namedTool := anthropicToolChoice(e.body)
+	if e.format == FormatOpenAI {
+		if gjson.GetBytes(e.body, "n").Int() > 1 {
+			return nil
+		}
+		kind, namedTool = openAIToolChoice(e.body)
+	}
+	if kind == toolChoiceNone {
+		return nil
+	}
+	var names map[string]string
+	for _, tool := range e.ToolDescriptors() {
+		if tool.ServerExecuted || tool.Name == "" || (kind == toolChoiceNamed && tool.Name != namedTool) {
+			continue
+		}
+		if names == nil {
+			names = make(map[string]string)
+		}
+		names[tool.Name] = tool.Name
+	}
+	for alias, original := range wireAliases {
+		if _, declared := names[original]; declared {
+			names[alias] = original
+		}
+	}
+	return names
+}

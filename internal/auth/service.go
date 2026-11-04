@@ -72,27 +72,28 @@ func (NoOpInstallationChangeNotifier) NotifyInstallationChanged(string) {}
 
 // Service authenticates incoming bearer tokens. Identity only; routing/dispatch lives in proxy.Service.
 type Service struct {
-	installations           InstallationRepository
-	apiKeys                 APIKeyRepository
-	credentialSubjects      CredentialSubjectLookup
-	externalKeys            ExternalAPIKeyRepository
-	users                   UserRepository
-	clusterModelLists       ClusterModelListRepository
-	userClusterModelLists   UserClusterModelListRepository
-	blindExperiments        BlindExperimentRepository
-	routingPolicies         RoutingPolicyRepository
-	routingPolicyCache      *RoutingPolicyCache
-	cache                   APIKeyCache
-	userCache               UserCache
-	userClusterCache        UserClusterListCache
-	blindExperimentCache    BlindExperimentCache
-	blindExperimentFetches  singleflight.Group
-	subscriptionAccounts    SubscriptionAccountRepository
-	codexEnrollmentVerifier CodexEnrollmentVerifier
-	notifier                InstallationChangeNotifier
-	now                     Clock
-	encryptor               Encryptor
-	keypairTokens           *KeypairTokenCache
+	installations             InstallationRepository
+	apiKeys                   APIKeyRepository
+	credentialSubjects        CredentialSubjectLookup
+	externalKeys              ExternalAPIKeyRepository
+	users                     UserRepository
+	clusterModelLists         ClusterModelListRepository
+	userClusterModelLists     UserClusterModelListRepository
+	blindExperiments          BlindExperimentRepository
+	routingPolicies           RoutingPolicyRepository
+	routingPolicyCache        *RoutingPolicyCache
+	cache                     APIKeyCache
+	userCache                 UserCache
+	userClusterCache          UserClusterListCache
+	blindExperimentCache      BlindExperimentCache
+	blindExperimentFetches    singleflight.Group
+	subscriptionAccounts      SubscriptionAccountRepository
+	codexEnrollmentVerifier   CodexEnrollmentVerifier
+	notifier                  InstallationChangeNotifier
+	now                       Clock
+	encryptor                 Encryptor
+	keypairTokens             *KeypairTokenCache
+	anthropicFederationTokens AnthropicFederationTokenSource
 	// wifTokens is nil unless the deployment runs with a workload identity;
 	// WIF keys are then dropped rather than sent without a credential.
 	wifTokens WIFTokenSource
@@ -106,6 +107,9 @@ type Service struct {
 	// overrides are not applied to any request, so an incident rollback via env
 	// var cannot be defeated by a stored per-org row.
 	flagOverridesDisabled bool
+
+	// delegatedSpendCapsEnabled is false when this worker cannot meter delegated caps.
+	delegatedSpendCapsEnabled bool
 
 	// adminPassword and adminSessionKey are empty when admin login is disabled.
 	adminPassword   string
@@ -349,7 +353,7 @@ func (s *Service) IssueAPIKey(ctx context.Context, installationID string, name *
 // returns the raw token. The token prefix follows the scope, so the credential
 // advertises its own authority.
 func (s *Service) IssueScopedAPIKey(ctx context.Context, installationID string, scope APIKeyScope, name *string, createdBy *string) (*APIKey, string, error) {
-	if !scope.Valid() {
+	if !scope.UserIssuable() {
 		return nil, "", fmt.Errorf("%w: %q", ErrInvalidKeyScope, scope)
 	}
 	scope = scope.Normalized()
@@ -372,9 +376,20 @@ func (s *Service) IssueScopedAPIKey(ctx context.Context, installationID string, 
 	return key, rawToken, nil
 }
 
-// ListAPIKeys returns all active API keys for an installation.
+// ListAPIKeys returns the installation's active user-facing API keys. Session
+// issuers are internal and never listed.
 func (s *Service) ListAPIKeys(ctx context.Context, installationID string) ([]*APIKey, error) {
-	return s.apiKeys.ListForInstallation(ctx, installationID)
+	keys, err := s.apiKeys.ListForInstallation(ctx, installationID)
+	if err != nil {
+		return nil, err
+	}
+	visible := keys[:0]
+	for _, key := range keys {
+		if key.Scope.UserIssuable() {
+			visible = append(visible, key)
+		}
+	}
+	return visible, nil
 }
 
 // RotateAPIKey soft-deletes the named key and issues a replacement under the
@@ -394,7 +409,7 @@ func (s *Service) RotateAPIKey(ctx context.Context, installationID, keyID string
 			break
 		}
 	}
-	if target == nil {
+	if target == nil || !target.Scope.UserIssuable() {
 		return nil, "", ErrAPIKeyNotFound
 	}
 	if target.CredentialSubjectID != "" {
@@ -454,10 +469,11 @@ type UpsertExternalAPIKeyParams struct {
 	// AuthType selects how RawKey authenticates upstream; empty means AuthTypeBearer.
 	// AuthTypeKeypairJWT makes RawKey an RSA private key issued for AuthAccount/AuthUser.
 	// AuthTypeAzureEntra makes RawKey an Entra client secret for AuthAccount/AuthUser.
-	AuthType    string
-	AuthAccount *string
-	AuthUser    *string
-	CreatedBy   *string
+	FederationConfig *AnthropicFederationConfig
+	AuthType         AuthType
+	AuthAccount      *string
+	AuthUser         *string
+	CreatedBy        *string
 }
 
 // UpsertExternalAPIKey replaces the provider's key for the installation.
@@ -498,6 +514,13 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 	if err != nil {
 		return nil, err
 	}
+	federation, err := NormalizeAnthropicFederation(authType, provider, trimmedValue(normalizedBaseURL), params.FederationConfig)
+	if err != nil {
+		return nil, err
+	}
+	if authType == AuthTypeAnthropicWIF && rawKey != "" {
+		return nil, fmt.Errorf("%w: workload federation takes no key material", ErrInvalidAnthropicFederation)
+	}
 	if authType == AuthTypeWIF {
 		if !providers.RequiresBaseURL(provider) {
 			return nil, fmt.Errorf("%w: %s does not accept workload identity credentials", ErrInvalidKeypairAuth, provider)
@@ -532,14 +555,18 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 	}
 	// Generate external ID first so it binds into the ciphertext as AAD.
 	externalID := GenerateID("ekid")
-	ciphertext, err := s.encryptor.Encrypt([]byte(rawKey), externalID, provider)
-	if err != nil {
-		return nil, err
+	ciphertext := []byte{}
+	var hash, prefix, suffix string
+	if authType != AuthTypeWIF && authType != AuthTypeAnthropicWIF {
+		ciphertext, err = s.encryptor.Encrypt([]byte(rawKey), externalID, provider)
+		if err != nil {
+			return nil, err
+		}
+		hash, prefix, suffix = APITokenFingerprint(rawKey)
 	}
 	if err := s.externalKeys.SoftDeleteByProvider(ctx, installationID, provider); err != nil {
 		return nil, err
 	}
-	hash, prefix, suffix := APITokenFingerprint(rawKey)
 	key, err := s.externalKeys.Create(ctx, CreateExternalAPIKeyParams{
 		InstallationID: installationID,
 		ExternalID:     externalID,
@@ -557,10 +584,11 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 		ForwardedClientHeaders: forwardedHeaders,
 		BaggageHeader:          baggageHeader,
 
-		AuthType:    authType,
-		AuthAccount: authAccount,
-		AuthUser:    authUser,
-		CreatedBy:   params.CreatedBy,
+		FederationConfig: federation,
+		AuthType:         authType,
+		AuthAccount:      authAccount,
+		AuthUser:         authUser,
+		CreatedBy:        params.CreatedBy,
 	})
 	if err != nil {
 		return nil, err
@@ -824,6 +852,10 @@ func (s *Service) verifyAPIKey(ctx context.Context, rawToken string, includeUpst
 	if !HasAPIKeyPrefix(rawToken) {
 		return nil, nil, nil, nil, ErrInvalidPrefix
 	}
+	if IsSessionToken(rawToken) {
+		// Session tokens verify through VerifySessionToken; never as a hashed bearer.
+		return nil, nil, nil, nil, ErrInvalidToken
+	}
 
 	keyHash := HashAPIKeySHA256(rawToken)
 
@@ -949,6 +981,38 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 	}
 	s.userCache.Set(installationID, identityKey, user.ID)
 	log.Debug("ResolveAndStashUser upsert ok", "installation_id", installationID, "user_id", user.ID)
+	return s.withUserSettings(ctx, installationID, user.ID)
+}
+
+// ResolveAndStashKeyOwner upserts the router user for the authenticated owner
+// of a personal API key and stashes the ID on ctx. It is the fallback for
+// requests that assert no identity of their own, so a client-sent email or
+// account UUID always takes precedence over it. Never fails an authenticated
+// request — returns ctx unchanged on error.
+func (s *Service) ResolveAndStashKeyOwner(ctx context.Context, installationID, credentialSubjectID, displayName string) context.Context {
+	log := observability.FromContext(ctx)
+	if s.users == nil || installationID == "" {
+		return ctx
+	}
+	identityKey := "subject:" + credentialSubjectID
+	if cached, ok := s.userCache.Get(installationID, identityKey); ok {
+		return s.withUserSettings(ctx, installationID, cached)
+	}
+	var optionalName *string
+	if displayName != "" {
+		optionalName = &displayName
+	}
+	user, err := s.users.UpsertByCredentialSubject(ctx, UpsertUserByCredentialSubjectParams{
+		InstallationID:      installationID,
+		CredentialSubjectID: credentialSubjectID,
+		DisplayName:         optionalName,
+	})
+	if err != nil {
+		log.Warn("Failed to resolve router user for API key owner", "installation_id", installationID, "err", err)
+		return ctx
+	}
+	s.userCache.Set(installationID, identityKey, user.ID)
+	log.Debug("ResolveAndStashKeyOwner upsert ok", "installation_id", installationID, "user_id", user.ID)
 	return s.withUserSettings(ctx, installationID, user.ID)
 }
 
@@ -1121,4 +1185,10 @@ func (s *Service) fireMarkFirstRequestServed(installationID string) {
 			log.Warn("Failed to mark installation first request served", "err", err)
 		}
 	})
+}
+
+// WithAnthropicFederationTokenSource configures native Anthropic federation independently of Snowflake.
+func (s *Service) WithAnthropicFederationTokenSource(source AnthropicFederationTokenSource) *Service {
+	s.anthropicFederationTokens = source
+	return s
 }

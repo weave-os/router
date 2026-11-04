@@ -24,9 +24,13 @@ const (
 	StrategyHMM Strategy = "hmm"
 	// StrategyHMMEmbedding uses the HMM sidecar with the embedding-quality-seeded bandit prior.
 	StrategyHMMEmbedding Strategy = "hmm_embedding"
-	// StrategyHMMBeta routes through an independently deployed beta HMM policy.
-	// It is selected only by the session-scoped /beta toggle.
+	// StrategyHMMBeta selects the beta HMM classifier.
+	// It is selected explicitly by a routing model ID or a legacy session toggle.
 	StrategyHMMBeta Strategy = "hmm_beta"
+	// StrategyHMMQwen selects Qwen through the same classifier sidecar.
+	StrategyHMMQwen Strategy = "hmm_qwen"
+	// StrategyDecisionModel asks the decision model judge for task and call complexity and picks models in Go.
+	StrategyDecisionModel Strategy = "decision_model"
 	// StrategyBandit routes via Thompson sampling over a frozen
 	// ts_posterior.json (cluster×model reward posterior). Opt-in only; wired
 	// when ROUTER_BANDIT_POSTERIOR_FILE is set at boot.
@@ -38,7 +42,12 @@ const (
 // IsHMMStrategy reports whether strategy uses the HMM policy contract and
 // lifecycle semantics.
 func IsHMMStrategy(strategy Strategy) bool {
-	return strategy == StrategyHMM || strategy == StrategyHMMEmbedding || strategy == StrategyHMMBeta
+	return strategy == StrategyHMM || strategy == StrategyHMMEmbedding || IsBetaStrategy(strategy)
+}
+
+// IsBetaStrategy identifies explicit session classifier overrides.
+func IsBetaStrategy(strategy Strategy) bool {
+	return strategy == StrategyHMMBeta || strategy == StrategyHMMQwen
 }
 
 type strategyContextKey struct{}

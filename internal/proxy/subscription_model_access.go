@@ -131,7 +131,7 @@ func (s *Service) resolveCredentials(ctx context.Context, provider, model string
 		return resolved
 	}
 	previous, _ := ctx.Value(suppressClaudeModelContextKey{}).(map[string]struct{})
-	models := make(map[string]struct{}, len(previous)+1)
+	models := make(map[string]struct{}, len(previous))
 	for id := range previous {
 		models[id] = struct{}{}
 	}

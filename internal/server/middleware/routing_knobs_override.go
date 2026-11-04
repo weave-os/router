@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/gin-gonic/gin"
 )
@@ -78,7 +79,7 @@ func detectAPIFormat(path string) apiFormat {
 // WithRoutingKnobsOverride parses the x-weave-routing-* headers and stashes them on the request context.
 func WithRoutingKnobsOverride() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context()); managed && identity.Plan != "" {
+		if identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context()); managed && entitlement.PlanHasServingProfile(entitlement.Plan(identity.Plan)) {
 			c.Next()
 			return
 		}

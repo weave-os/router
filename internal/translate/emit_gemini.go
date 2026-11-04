@@ -34,7 +34,7 @@ var (
 // PrepareGemini builds a Gemini native REST request body. Native is required for
 // multi-turn tool use on Gemini 3.x: OpenAI-compat doesn't return thought_signature.
 func (e *RequestEnvelope) PrepareGemini(_ http.Header, opts EmitOptions) (providers.PreparedRequest, error) {
-	if isGemini3xModel(opts.TargetModel) && e.HasUnsignedToolCallHistory() {
+	if usesGemini3Contract(opts.TargetModel) && e.HasUnsignedToolCallHistory() {
 		return providers.PreparedRequest{}, fmt.Errorf("%w: Gemini 3.x requires a thoughtSignature on every historical function call", ErrGeminiUnsignedToolHistory)
 	}
 	e, err := e.withWorkspaceSystemAppended(opts)
@@ -765,10 +765,10 @@ func geminiFunctionResponsePart(name, result string) string {
 	return string(pw.Bytes())
 }
 
-// isGemini3xModel reports whether model is a Gemini 3.x preview, which
-// requires thoughtSignature on every functionCall; 2.x accepts sig-less calls.
-func isGemini3xModel(model string) bool {
-	return strings.HasPrefix(model, "gemini-3")
+// usesGemini3Contract includes Argon, which retains Gemini 3 thinking levels
+// and requires thought signatures on function calls.
+func usesGemini3Contract(model string) bool {
+	return strings.HasPrefix(model, "gemini-3") || model == router.ModelGemini4Argon
 }
 
 // geminiToolMode returns VALIDATED normally, or AUTO when the proxy requested
@@ -786,7 +786,7 @@ func geminiToolMode(downgradeValidated bool) string {
 // writeGeminiToolChoiceFrom{Anthropic,OpenAI} so RequestMutationStats can
 // predict it without re-deriving.
 func geminiEmitsValidatedToolMode(body []byte, model string, format Format) bool {
-	if !hasNonEmptyTools(body) || !isGemini3xModel(model) {
+	if !hasNonEmptyTools(body) || !usesGemini3Contract(model) {
 		return false
 	}
 	var kind toolChoiceKind
@@ -1047,7 +1047,7 @@ func writeGeminiToolChoiceFromAnthropic(jw *jsonWriter, body []byte, model strin
 // mode=VALIDATED for schema-constrained decoding; explicit
 // none/required/named choices map straight to a functionCallingConfig mode.
 func writeGeminiToolChoice(jw *jsonWriter, body []byte, model string, downgradeValidated bool, kind toolChoiceKind, name string) {
-	if (kind == toolChoiceAbsent || kind == toolChoiceAuto) && hasNonEmptyTools(body) && isGemini3xModel(model) {
+	if (kind == toolChoiceAbsent || kind == toolChoiceAuto) && hasNonEmptyTools(body) && usesGemini3Contract(model) {
 		writeGeminiFunctionCallingMode(jw, geminiToolMode(downgradeValidated), "")
 		return
 	}
@@ -1159,7 +1159,7 @@ func geminiThinkingActive(intent ReasoningIntent, opts EmitOptions) bool {
 	}
 	switch intent.Kind {
 	case ReasoningDisabled:
-		return isGemini3xModel(opts.TargetModel)
+		return usesGemini3Contract(opts.TargetModel)
 	case ReasoningBudget:
 		return intent.BudgetTokens > 0
 	case ReasoningLevel:
@@ -1211,7 +1211,7 @@ func applyGeminiReasoning(intent ReasoningIntent, opts EmitOptions) (ReasoningIn
 	// 3.x accepts only named thinking levels. Normalize at the Gemini boundary so
 	// the generic capability validator still rejects numeric budgets for targets
 	// that genuinely cannot represent them.
-	if isGemini3xModel(opts.TargetModel) && intent.Kind == ReasoningBudget {
+	if usesGemini3Contract(opts.TargetModel) && intent.Kind == ReasoningBudget {
 		intent.Kind = ReasoningLevel
 		intent.Level = effortForBudget(intent.BudgetTokens)
 		intent.NormalizationNotes = append(
@@ -1233,13 +1233,13 @@ func geminiThinkingConfigRaw(intent ReasoningIntent, model string) (string, erro
 		return "", nil
 	}
 	if intent.Kind == ReasoningDisabled {
-		if isGemini3xModel(model) {
+		if usesGemini3Contract(model) {
 			return "", nil
 		}
 		return thinkingConfigRaw("none", model), nil
 	}
 	if intent.Kind == ReasoningBudget {
-		if isGemini3xModel(model) {
+		if usesGemini3Contract(model) {
 			return "", fmt.Errorf("%w: Gemini 3.x does not support thinking budgets", ErrReasoningIncompatible)
 		}
 		fw := newJSONWriter()
@@ -1259,7 +1259,7 @@ func geminiThinkingConfigRaw(intent ReasoningIntent, model string) (string, erro
 func thinkingConfigRaw(effort, model string) string {
 	// 3.x uses thinkingLevel; the legacy numeric thinkingBudget is documented as
 	// suboptimal there and mixing both fields 400s. 2.5 keeps thinkingBudget.
-	if isGemini3xModel(model) {
+	if usesGemini3Contract(model) {
 		var level string
 		switch effort {
 		case "low", "medium", "high":

@@ -57,4 +57,18 @@ done
 [[ -f "$output/typescript-frontend" ]]
 [[ -f "$output/typescript-pi" ]]
 
+for manifest in pnpm-lock.yaml pnpm-workspace.yaml; do
+	base=$(git -C "$repo" rev-parse HEAD)
+	printf 'packages: []\n' >"$repo/install/pi-router/$manifest"
+	git -C "$repo" add "install/pi-router/$manifest"
+	git -C "$repo" commit --quiet -m "change pi dependency configuration"
+	head=$(git -C "$repo" rev-parse HEAD)
+	(
+		cd "$repo"
+		"$script_dir/changed_non_go_files.sh" "$base" "$head" "$output"
+	)
+	[[ -f "$output/typescript-pi" ]]
+	[[ ! -f "$output/typescript-frontend" ]]
+done
+
 echo "changed non-Go file discovery tests passed"

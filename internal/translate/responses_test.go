@@ -488,7 +488,10 @@ func TestResponsesWriter_NativePreludeFallbackAndFailureStaySequenced(t *testing
 	assert.Equal(t, "failed", failed["status"])
 	assert.Equal(t, "claude-opus-4-8", failed["model"])
 	output := failed["output"].([]any)
-	content := output[0].(map[string]any)["content"].([]any)
+	require.Len(t, output, 2)
+	initialContent := output[0].(map[string]any)["content"].([]any)
+	assert.Contains(t, initialContent[0].(map[string]any)["text"], "initial decision")
+	content := output[1].(map[string]any)["content"].([]any)
 	assert.Contains(t, content[0].(map[string]any)["text"], "fallback decision")
 }
 
