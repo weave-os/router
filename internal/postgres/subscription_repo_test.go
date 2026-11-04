@@ -185,6 +185,13 @@ func TestSubscriptionAccountHealthIsOwnerScoped(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, auth.SubscriptionAccountStateUnknown, account.State)
 
+	leaseID := uuid.NewString()
+	acquisition, err := repo.TryAcquireSubscriptionRefreshLease(ctx, account.ID, owner, leaseID, time.Minute)
+	require.NoError(t, err)
+	require.True(t, acquisition.Acquired)
+	credentials, err := repo.GetSubscriptionCredentialRecord(ctx, account.ID, owner)
+	require.NoError(t, err)
+
 	resetAt := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
 	require.NoError(t, healthRepo.UpdateSubscriptionAccountHealth(
 		ctx, account.ID, owner, auth.SubscriptionAccountStateExhausted, true, &resetAt,
@@ -205,6 +212,23 @@ func TestSubscriptionAccountHealthIsOwnerScoped(t *testing.T) {
 	assert.Equal(t, auth.SubscriptionAccountStateExhausted, accounts[0].State)
 	require.NotNil(t, accounts[0].CooldownUntil)
 	assert.WithinDuration(t, resetAt, *accounts[0].CooldownUntil, time.Microsecond)
+
+	// A credential rejection must not shorten a longer quota reset.
+	require.NoError(t, repo.UpdateSubscriptionAccountCooldown(ctx, account.ID, owner, time.Now().UTC().Add(5*time.Minute)))
+	accounts, err = repo.ListSubscriptionAccounts(ctx, owner)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	require.NotNil(t, accounts[0].CooldownUntil)
+	assert.Equal(t, resetAt, *accounts[0].CooldownUntil)
+	assert.Equal(t, auth.SubscriptionAccountStateExhausted, accounts[0].State)
+
+	require.NoError(t, repo.CooldownSubscriptionAccountIfRefreshHolder(ctx, account.ID, owner, leaseID, credentials.TokenRefreshVersion, time.Now().UTC().Add(5*time.Minute)))
+	accounts, err = repo.ListSubscriptionAccounts(ctx, owner)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	require.NotNil(t, accounts[0].CooldownUntil)
+	assert.Equal(t, resetAt, *accounts[0].CooldownUntil)
+	assert.Equal(t, auth.SubscriptionAccountStateExhausted, accounts[0].State)
 
 	otherOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
 	assert.ErrorIs(t, healthRepo.UpdateSubscriptionAccountHealth(

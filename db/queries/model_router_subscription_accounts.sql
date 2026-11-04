@@ -129,8 +129,8 @@ WHERE account.id = @id::uuid
 -- persisting a quota cooldown.
 -- name: UpdateModelRouterSubscriptionAccountCooldown :execrows
 UPDATE router.model_router_subscription_accounts
-SET cooldown_until = @cooldown_until::timestamp,
-    health_state = 'cooldown',
+SET cooldown_until = GREATEST(cooldown_until, @cooldown_until::timestamp),
+    health_state = CASE WHEN cooldown_until > @cooldown_until::timestamp THEN health_state ELSE 'cooldown' END,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = @id::uuid
   AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
@@ -297,8 +297,8 @@ WHERE id = @id::uuid
 -- A stale refresh failure must not put the winner's credentials on cooldown.
 -- name: CooldownModelRouterSubscriptionAccountIfRefreshHolder :execrows
 UPDATE router.model_router_subscription_accounts
-SET cooldown_until = @cooldown_until::timestamp,
-    health_state = 'cooldown',
+SET cooldown_until = GREATEST(cooldown_until, @cooldown_until::timestamp),
+    health_state = CASE WHEN cooldown_until > @cooldown_until::timestamp THEN health_state ELSE 'cooldown' END,
     token_refresh_lease_until = NULL,
     token_refresh_lease_id = NULL,
     updated_at = CURRENT_TIMESTAMP
