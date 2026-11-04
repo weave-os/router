@@ -10,7 +10,7 @@ Set `ROUTER_DEPLOYMENT_MODE=selfhosted` and supply all of:
 - `ROUTER_LOCAL_CLASSIFIER_URL`, an explicit HTTP loopback origin/port
 - `ROUTER_SERVING_REGISTRY_URI`, the read-only registry root
 
-Only the default profile is admitted by this composition. Subscriber products and live managed admission are not emulated. The generic pinned-loader preserves explicit V3 profile policies, but this entrypoint supplies the default until the corresponding product/tenant admission exists.
+Only the default profile is admitted by this composition. Subscriber products and live managed admission are not emulated. The generic pinned-loader preserves explicit V3 profile policies, but this entrypoint rejects a nonempty `ROUTER_LOCAL_PROFILE_KEY` until the corresponding product/tenant admission exists.
 
 The server binds loopback, places the exact snapshot on every local request and requires `hmm_embedding`. A seeded installation or strategy header cannot switch to the legacy cluster or another lane. Missing strategy/snapshot fails closed. Ordinary model compatibility, manual model controls, funding and recovery still run in their existing owners. The local runtime does not fabricate a managed activation, serving assertion or production execution identity: retain source selection/policy/classifier identities and local execution provenance separately.
 

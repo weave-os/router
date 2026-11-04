@@ -17,10 +17,14 @@ func buildLocalServingRuntime(ctx context.Context, mode server.DeploymentMode, a
 	if mode != server.DeploymentModeSelfHosted {
 		return nil, nil, fmt.Errorf("local pinned serving requires selfhosted mode")
 	}
+	// Reject unsupported admission before any registry access; never silently choose the default.
+	profileKey := config.GetOr("ROUTER_LOCAL_PROFILE_KEY", "")
+	if profileKey != "" {
+		return nil, nil, fmt.Errorf("local composition requires default profile until product admission is supplied")
+	}
 	pin := policyregistry.PinnedRuntimeRequest{
-		Target: policyregistry.ServingTarget(config.MustGet("ROUTER_LOCAL_POLICY_TARGET")),
-		// Product-specific profiles require admission that this local composition does not provide.
-		ProfileKey: "",
+		Target:     policyregistry.ServingTarget(config.MustGet("ROUTER_LOCAL_POLICY_TARGET")),
+		ProfileKey: profileKey,
 		SelectionSet: policyregistry.ObjectRef{URI: config.MustGet("ROUTER_LOCAL_SELECTION_SET_URI"),
 			SHA256: config.MustGet("ROUTER_LOCAL_SELECTION_SET_SHA256"), Generation: int64(parseEnvInt("ROUTER_LOCAL_SELECTION_SET_GENERATION", 0))},
 		RouterRevision: config.MustGet("ROUTER_LOCAL_ROUTER_REVISION"), PolicySHA256: config.MustGet("ROUTER_LOCAL_POLICY_SHA256"),

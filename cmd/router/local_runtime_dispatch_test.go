@@ -20,7 +20,17 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/server"
 )
+
+func TestLocalCompositionRejectsUnsupportedProfileBeforeLoadingRegistry(t *testing.T) {
+	t.Setenv("ROUTER_LOCAL_PROFILE_KEY", "unsupported-product-profile")
+	t.Setenv("ROUTER_LOCAL_POLICY_TARGET", "")
+	loaded, closeRegistry, err := buildLocalServingRuntime(context.Background(), server.DeploymentModeSelfHosted, nil)
+	require.ErrorContains(t, err, "requires default profile")
+	require.Nil(t, loaded)
+	require.Nil(t, closeRegistry)
+}
 
 type localFakeProvider struct {
 	models []string
