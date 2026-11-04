@@ -307,6 +307,41 @@ func TestSubscriptionStateModelsHTTPIngress(t *testing.T) {
 	}
 }
 
+// A classifier asking for a model outside the spent plan's paid set is still
+// served from that set rather than passed through on the requested model.
+func TestSubscriptionStateModelsClassifierUsesPaidSet(t *testing.T) {
+	var models []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		models = append(models, gjson.GetBytes(body, "model").String())
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"id\":\"synthetic\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"allow\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":1}}\n\ndata: [DONE]\n\n")
+	}))
+	defer upstream.Close()
+	codexClient := openai.NewClient("expensive-paid-key", upstream.URL)
+	codexClient.SetCodexBaseURL(upstream.URL)
+	svc := NewService(stateModelRouter{}, map[string]providers.Client{
+		providers.ProviderAnthropic:  anthropic.NewClient("expensive-paid-key", upstream.URL),
+		providers.ProviderOpenAI:     codexClient,
+		providers.ProviderOpenRouter: openaicompat.NewClient("cheap-paid-key", upstream.URL),
+	}, nil, false, nil, nil, false, "", "", nil).
+		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{}}).
+		WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}))
+	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+	body := `{"model":"` + stateClaudeModel + `","stream":true,"max_tokens":64,"thinking":{"type":"disabled"},"system":"You are a security monitor.","messages":[{"role":"user","content":"grade this action"}]}`
+	rec := httptest.NewRecorder()
+
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathMessages, strings.NewReader(body))))
+
+	require.Equal(t, statePaidModel, rec.Header().Get(HeaderRouterModel))
+	require.Equal(t, []string{statePaidModel}, models)
+}
+
 func TestSubscriptionStateModelsPaidFallbackSkipsUnavailableProvider(t *testing.T) {
 	claude := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{writeBytes: []byte("must not be called")}}}
 	paid := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("cheap paid answer")}}}

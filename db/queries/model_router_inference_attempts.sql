@@ -27,7 +27,10 @@ INSERT INTO router.model_router_inference_attempts (
     output_tokens,
     cache_creation_tokens,
     cache_read_tokens,
-    cost_usd_micros
+    cost_usd_micros,
+    error_class,
+    failure_owner,
+    body_translated
 ) VALUES (
     @installation_id::uuid,
     @request_id::varchar,
@@ -49,7 +52,10 @@ INSERT INTO router.model_router_inference_attempts (
     sqlc.narg('output_tokens')::int,
     sqlc.narg('cache_creation_tokens')::int,
     sqlc.narg('cache_read_tokens')::int,
-    sqlc.narg('cost_usd_micros')::bigint
+    sqlc.narg('cost_usd_micros')::bigint,
+    sqlc.narg('error_class')::varchar,
+    sqlc.narg('failure_owner')::varchar,
+    @body_translated::boolean
 )
 ON CONFLICT (installation_id, request_id, operation_id, attempt_index) DO NOTHING;
 

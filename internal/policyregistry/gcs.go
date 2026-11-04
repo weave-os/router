@@ -3,6 +3,7 @@ package policyregistry
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -109,6 +110,47 @@ func (r *Registry) ReadRelease(ctx context.Context, ref ObjectRef) (Release, err
 		return Release{}, err
 	}
 	return release, nil
+}
+
+// ExportHead copies a lane head and the exact objects it references into dir for
+// DirectoryRegistry, after the same validation the router applies when serving them.
+// A non-empty classifierImageDigest re-pins the release to the image that will serve
+// it; the rewritten release gets its own content address.
+func (r *Registry) ExportHead(ctx context.Context, environment Environment, lane Lane, dir, classifierImageDigest string) (HeadSnapshot, error) {
+	head, err := r.ReadHead(ctx, environment, lane)
+	if err != nil {
+		return HeadSnapshot{}, err
+	}
+	releasePayload, err := r.readExact(ctx, ObjectRef{
+		URI: head.Head.ReleaseURI, SHA256: head.Head.ReleaseSHA256, Generation: head.Head.ReleaseGeneration,
+	}, releaseObjectPrefix)
+	if err != nil {
+		return HeadSnapshot{}, err
+	}
+	release, err := DecodeRelease(releasePayload, r.rootURI)
+	if err != nil {
+		return HeadSnapshot{}, err
+	}
+	policyRef := ObjectRef{URI: release.Policy.URI, SHA256: release.Policy.SHA256, Generation: release.Policy.Generation}
+	if _, err := r.ReadPolicy(ctx, policyRef); err != nil {
+		return HeadSnapshot{}, err
+	}
+	policyPayload, err := r.readExact(ctx, policyRef, policyObjectPrefix)
+	if err != nil {
+		return HeadSnapshot{}, err
+	}
+	if classifierImageDigest != "" && classifierImageDigest != release.Classifier.ImageDigest {
+		release.Classifier.ImageDigest = classifierImageDigest
+		if err := release.Validate(r.rootURI); err != nil {
+			return HeadSnapshot{}, err
+		}
+		if releasePayload, err = json.Marshal(release); err != nil {
+			return HeadSnapshot{}, fmt.Errorf("encode re-pinned release: %w", err)
+		}
+		head.Head.ReleaseSHA256 = Digest(releasePayload)
+		head.Head.ReleaseURI = r.rootURI + "/" + releaseObjectPrefix + head.Head.ReleaseSHA256 + ".json"
+	}
+	return head, WriteDirectoryRelease(dir, head.Head, releasePayload, policyPayload)
 }
 
 // ReadPolicy reads and fully validates exact immutable Go selection-policy bytes.

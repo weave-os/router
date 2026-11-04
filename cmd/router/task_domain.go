@@ -186,16 +186,19 @@ func (r *taskDomainRuntime) bind(candidate policyregistry.Candidate) (taskdomain
 	if !selected {
 		return nil, nil, "", nil
 	}
-	if r == nil {
-		return nil, nil, "", errors.New("admitted task classifier release is not loaded")
+	baseline := &proxy.TaskDomainResolver{ReleaseSHA256: ref.SHA256}
+	var loaded loadedTaskDomain
+	exists := false
+	if r != nil {
+		loaded, exists = r.bindings[ref.SHA256]
 	}
-	loaded, exists := r.bindings[ref.SHA256]
 	if !exists {
-		return nil, nil, "", errors.New("admitted task classifier release is unavailable")
+		// Task weighting is optional: retiring a classifier must not strand candidates already admitted with it.
+		return baseline, nil, "", nil
 	}
 	evidenceSHA := loaded.release.Evidence[candidate.Policy.SHA256]
 	if evidenceSHA == "" {
-		return &proxy.TaskDomainResolver{ReleaseSHA256: ref.SHA256}, nil, "", nil
+		return baseline, nil, "", nil
 	}
 	evidence, err := selection.ParseDomainEvidence(loaded.evidence[evidenceSHA], candidate.Policy)
 	if err != nil {

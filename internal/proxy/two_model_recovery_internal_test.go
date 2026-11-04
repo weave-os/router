@@ -312,7 +312,7 @@ func TestTwoModelRecoveryHMMRefreshDoesNotRewriteCooldown(t *testing.T) {
 		Decision: router.Decision{Provider: providers.ProviderAnthropic, Model: freshTurnModel, Reason: hmmHistoryReason}}
 	for step := 0; step <= 96; step++ {
 		now = rateLimitTestNow.Add(time.Duration(step) * 30 * time.Minute)
-		svc.recordHMMTurnHistory(res, providers.ProviderAnthropic, freshTurnModel, 0, 0, 0, 0, false)
+		svc.recordHMMTurnHistory(context.Background(), res, providers.ProviderAnthropic, freshTurnModel, 0, 0, 0, 0, false)
 		turn := runDemotionTurnLoop(t, svc, context.Background())
 		turn.releaseCooldownProbes()
 		if step == 0 {

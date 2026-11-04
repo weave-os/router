@@ -6,11 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/usage"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUsageExtractor_AnthropicNonStreaming(t *testing.T) {
@@ -162,13 +163,12 @@ func TestUsageExtractor_RecordedXAIUsageIncludesReasoning(t *testing.T) {
 	// Cross-format turns record usage from the translator rather than sniffing
 	// the client-bound bytes; the xAI correction must apply on that path too.
 	ext := otel.NewUsageExtractor(nil, providers.ProviderXAI)
-	ext.RecordUsage(663, 50)
-	ext.RecordReasoningUsage(124)
+	ext.RecordProviderUsage(usage.Facts{Present: true, Input: usage.Reported(663), Output: usage.Reported(50), Reasoning: usage.Reported(124)})
 	_, out := ext.Tokens()
 	assert.Equal(t, 174, out)
 
 	nonReasoning := otel.NewUsageExtractor(nil, providers.ProviderXAI)
-	nonReasoning.RecordUsage(663, 50)
+	nonReasoning.RecordProviderUsage(usage.Facts{Present: true, Input: usage.Reported(663), Output: usage.Reported(50)})
 	_, out = nonReasoning.Tokens()
 	assert.Equal(t, 50, out)
 }

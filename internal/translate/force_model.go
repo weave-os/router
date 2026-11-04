@@ -21,6 +21,8 @@ const ReasonLoopEscalation = "loop_escalation"
 type ForceModelResult struct {
 	// Model is the target model name; empty when Clear is true.
 	Model string
+	// ParentOnly restricts the pin to the invoking thread.
+	ParentOnly bool
 	// Clear is true for /unforce-model.
 	Clear bool
 	// FromToolResult is true when an agent invoked the command through a tool.
@@ -28,7 +30,7 @@ type ForceModelResult struct {
 }
 
 // ExtractForceModelCommand scans the trailing user or tool-result message in env for a
-// /force-model <model> (aliases /model and /fm) or /unforce-model directive,
+// /force-model <model> (aliases /model and /fm), /force-parent <model>, or /unforce-model directive,
 // stripping it from env.body.
 // FromToolResult distinguishes agent-issued commands from user-typed ones.
 // Returns (zero, false) when no command is present.
@@ -205,6 +207,13 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 
 	for _, candidate := range candidates {
 		found, stripped := parse(candidate.text, candidate.fromToolResult)
+		if !found && !candidate.fromToolResult {
+			if before, query, after, ok := cursorUserQuery(candidate.text); ok {
+				if found, stripped = parse(query, candidate.fromToolResult); found {
+					stripped = before + stripped + after
+				}
+			}
+		}
 		if !found {
 			continue
 		}
@@ -220,6 +229,48 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 		return true, fromToolResult
 	}
 	return false, false
+}
+
+const (
+	cursorUserQueryOpen  = "<user_query>"
+	cursorUserQueryClose = "</user_query>"
+)
+
+// cursorUserQuery splits Cursor's turn text, which wraps the typed message in
+// <user_query> after injected context blocks, around that typed message.
+func cursorUserQuery(text string) (before, query, after string, ok bool) {
+	open := strings.Index(text, cursorUserQueryOpen)
+	if open < 0 {
+		return "", "", "", false
+	}
+	head := text[:open]
+	if strings.TrimSpace(head[leadingInjectedPrefixEnd(head):]) != "" {
+		return "", "", "", false
+	}
+	closeIdx := strings.LastIndex(text, cursorUserQueryClose)
+	if closeIdx < open || strings.TrimSpace(text[closeIdx+len(cursorUserQueryClose):]) != "" {
+		return "", "", "", false
+	}
+	start := open + len(cursorUserQueryOpen)
+	return text[:start], text[start:closeIdx], text[closeIdx:], true
+}
+
+// parseInCursorQuery retries parse on the typed message inside Cursor's
+// <user_query> wrapper, re-wrapping the stripped text around it.
+func parseInCursorQuery[T any](text string, parse func(string) (T, bool, string)) (T, bool, string) {
+	res, found, stripped := parse(text)
+	if found {
+		return res, found, stripped
+	}
+	if before, query, after, ok := cursorUserQuery(text); ok {
+		if inner, innerFound, innerStripped := parse(query); innerFound {
+			if strings.TrimSpace(innerStripped) == "" {
+				return inner, true, strings.TrimSuffix(before, cursorUserQueryOpen)
+			}
+			return inner, true, before + innerStripped + after
+		}
+	}
+	return res, found, stripped
 }
 
 // dropCommandBlock deletes the block at dropPath, cascading to the whole
@@ -342,14 +393,14 @@ func parseForceModelCommandFromSource(text string, fromToolResult bool) (res For
 		if trimmed == "" {
 			continue
 		}
-		if after, ok := cutAnyPrefix(trimmed, "/force-model ", "/model ", "/fm ", "$force-model ", "$fm "); ok {
+		if after, ok := cutAnyPrefix(trimmed, "/force-model ", "/model ", "/fm ", "$force-model ", "$fm ", "/force-parent ", "$force-parent "); ok {
 			if fromToolResult && strings.HasPrefix(trimmed, "/model ") {
 				return ForceModelResult{}, false, text
 			}
 			// Fields+Join collapses runs of whitespace so "/fm  qwen   3.8"
 			// and "/fm qwen 3.8" are the same string to the resolver.
 			if name := strings.Join(strings.Fields(after), " "); name != "" {
-				res = ForceModelResult{Model: name}
+				res = ForceModelResult{Model: name, ParentOnly: strings.HasPrefix(trimmed, "/force-parent ") || strings.HasPrefix(trimmed, "$force-parent ")}
 				found = true
 				cmdIdx = i
 			}
@@ -467,22 +518,13 @@ func leadingInjectedPrefixEnd(text string) int {
 func isOnlyKnownInjectedText(text string) bool {
 	rest := strings.TrimSpace(text)
 	for rest != "" {
-		// Checks the LEADING tag against the known set, then consumes exactly
-		// that block: leadingInjectedPrefixEnd would run past an unknown block
-		// sitting behind a known one.
-		if !isClaudeCodeInjectedBlock(rest) {
+		// Consume exactly the known leading block; the generic prefix parser
+		// would also consume unknown tags after a known wrapper.
+		blockEnd := leadingClaudeCodeInjectedBlockEnd(rest)
+		if blockEnd == 0 {
 			return false
 		}
-		gt := strings.Index(rest, ">")
-		if gt < 0 {
-			return false
-		}
-		closeTag := "</" + rest[1:gt] + ">"
-		closeIdx := strings.Index(rest[gt+1:], closeTag)
-		if closeIdx < 0 {
-			return false
-		}
-		rest = strings.TrimSpace(rest[gt+1+closeIdx+len(closeTag):])
+		rest = strings.TrimSpace(rest[blockEnd:])
 	}
 	return true
 }

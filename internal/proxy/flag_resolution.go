@@ -93,6 +93,12 @@ func (s *Service) ResolveAuthoritativeDowngradeGate(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAuthoritativeDowngradeGate, s.authoritativeDowngradeGate)
 }
 
+// ResolveAuthoritativeUpgradeSlidingThreshold reports whether an authoritative
+// upgrade inside a sliding-threshold band bypasses the confidence floor.
+func (s *Service) ResolveAuthoritativeUpgradeSlidingThreshold(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyAuthoritativeUpgradeSlidingThreshold, s.authoritativeUpgradeSlidingThreshold)
+}
+
 // ResolveHMMDowngradeHysteresisTurns returns how many consecutive
 // cheaper-than-pin authoritative votes are required before the downgrade is
 // applied. 0 disables hysteresis.
@@ -146,6 +152,16 @@ func (s *Service) ResolveCCAutonomySystemAppend(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyCCAutonomySystemAppend, s.ccAutonomySystemAppend)
 }
 
+// ResolveEarlyStopRedo reports the early_stop_redo mode (org-overridable). An
+// unset or unrecognized value resolves to off.
+func (s *Service) ResolveEarlyStopRedo(ctx context.Context) flags.EarlyStopRedoMode {
+	mode, err := flags.ParseEarlyStopRedoMode(flags.StringOr(ctx, flags.KeyEarlyStopRedo, string(s.earlyStopRedo)))
+	if err != nil {
+		return flags.EarlyStopRedoOff
+	}
+	return mode
+}
+
 // ResolveCCWorkspaceSystemAppend reports whether Claude Code main-loop and
 // tool-result turns served cross-vendor get translate.WorkspaceSystemText
 // appended (cc_workspace_system_append; org-overridable).
@@ -186,6 +202,13 @@ func (s *Service) ResolveRateLimitCooldown(ctx context.Context) time.Duration {
 		seconds = DefaultRateLimitCooldownSeconds
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+// ResolveProviderOverloaded reports the ROUTER_PROVIDER_OVERLOADED flag: on,
+// the request's dispatch outcomes feed the per-model 529 circuit breaker and
+// its routing honours open circuits as deployment-wide automatic exclusions.
+func (s *Service) ResolveProviderOverloaded(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyProviderOverloaded, s.providerOverloaded)
 }
 
 // ResolveNativeAnthropicResponseSignals reports the

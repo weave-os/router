@@ -2,19 +2,23 @@ package proxy
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandit"
 	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rl"
+	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
 )
 
@@ -32,6 +36,7 @@ const (
 	DispatchErrorUpstreamStatus
 	DispatchErrorNotImplemented
 	DispatchErrorProviderNotConfigured
+	DispatchErrorAnthropicFederationUnavailable
 	DispatchErrorRequestNotJSONObject
 	DispatchErrorResponsesChatCompletionsBody
 	DispatchErrorNoEligibleProvider
@@ -70,6 +75,8 @@ const (
 	DispatchErrorClassifierUnavailable
 	DispatchErrorSpendCapReached
 	DispatchErrorSubscriptionClientAppRefused
+	DispatchErrorDecisionModelUnavailable
+	DispatchErrorCompactionUnservable
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -82,6 +89,9 @@ type DispatchErrorClass struct {
 	Status     int
 	Message    string
 	RetryAfter bool
+	// NoClientRetry tells SDK clients (x-should-retry: false) that retrying
+	// the identical request cannot succeed.
+	NoClientRetry bool
 	// LogLevel is "", "warn", or "error". Empty means the handler should not
 	// log at all (the error is either already logged upstream, e.g. a
 	// buffered UpstreamStatusError, or a routine client-input problem).
@@ -108,7 +118,14 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var forcedClusterStrategy *ForcedClusterUnsupportedStrategyError
 	var forcedClusterUnservable *policy.ForcedClusterUnservableError
 	var resolution *policy.ResolutionError
+	var compactionUnservable *CompactionUnservableError
+	var allowanceSpent *IncludedAllowanceSpentError
 	switch {
+	case errors.Is(err, auth.ErrAnthropicFederationUnavailable):
+		return DispatchErrorClass{Kind: DispatchErrorAnthropicFederationUnavailable, Status: http.StatusServiceUnavailable, Message: "Anthropic workload federation is unavailable.", RetryAfter: true}, true
+	case errors.Is(err, policy.ErrClassifierWarming):
+		return DispatchErrorClass{Kind: DispatchErrorPolicyUnavailable, Status: http.StatusServiceUnavailable,
+			Message: policy.ErrClassifierWarming.Error(), RetryAfter: true, LogLevel: "warn", LogMessage: "Classifier warming"}, true
 	case errors.Is(err, router.ErrClassifierHistoryUnavailable), errors.Is(err, router.ErrClassifierThreadInvalid):
 		return DispatchErrorClass{Kind: DispatchErrorClassifierHistory, Status: http.StatusConflict, Message: "Classifier thread history is unavailable or changed. Restore the complete original history; do not re-enroll a compacted thread.", LogLevel: "warn", LogMessage: "Classifier history rejected"}, true
 	case errors.Is(err, router.ErrClassifierInputTooLong):
@@ -132,6 +149,18 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "Rejected forced Claude turn: subscriptions refused third-party client",
 		}, true
 	// Ahead of the pool cases: a billing-gated pool refusal carries both.
+	case errors.As(err, &allowanceSpent):
+		kind := DispatchErrorCreditsExhausted
+		if errors.Is(err, ErrSpendCapSubscriptionUnavailable) {
+			kind = DispatchErrorSpendCapReached
+		}
+		return DispatchErrorClass{
+			Kind:       kind,
+			Status:     http.StatusPaymentRequired,
+			Message:    includedAllowanceSpentMessage(allowanceSpent),
+			LogLevel:   "warn",
+			LogMessage: "Subscription-only request refused: included allowance spent and subscription unavailable",
+		}, true
 	case errors.Is(err, ErrSpendCapSubscriptionUnavailable):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorSpendCapReached,
@@ -218,6 +247,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: forced cluster has no eligible model",
 		}, true
+	case errors.As(err, &compactionUnservable):
+		return compactionUnservableClassFor(compactionUnservable), true
 	// Before the generic upstream cases: an overflow must reach every client in
 	// its native shape, not as an opaque upstream failure.
 	case isContextOverflow(err):
@@ -226,7 +257,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 		return DispatchErrorClass{
 			Kind:    DispatchErrorUpstreamStatus,
 			Status:  statusErr.Status,
-			Message: "Upstream call failed.",
+			Message: TerminalErrorMessage(err),
 		}, true
 	case errors.As(err, &bufferedErr):
 		// Same as UpstreamStatusError: preserve the upstream status so a
@@ -235,7 +266,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 		return DispatchErrorClass{
 			Kind:    DispatchErrorUpstreamStatus,
 			Status:  bufferedErr.Status,
-			Message: "Upstream call failed.",
+			Message: TerminalErrorMessage(err),
 		}, true
 	case errors.Is(err, providers.ErrNotImplemented):
 		return DispatchErrorClass{
@@ -398,6 +429,15 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "error",
 			LogMessage: "Bandit routing unavailable",
 		}, true
+	case errors.Is(err, decisionmodel.ErrUnavailable):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorDecisionModelUnavailable,
+			Status:     http.StatusServiceUnavailable,
+			Message:    "Router unavailable: decision model routing failed and no fallback is configured.",
+			RetryAfter: true,
+			LogLevel:   "error",
+			LogMessage: "decision model routing unavailable",
+		}, true
 	case errors.Is(err, hmm.ErrHMMUnavailable):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorHMMUnavailable,
@@ -497,4 +537,27 @@ func LogDispatchErrorClass(log *slog.Logger, cls DispatchErrorClass, err error) 
 	case "error":
 		log.Error(cls.LogMessage, "err", err)
 	}
+}
+
+var allowanceWindowNames = map[entitlement.PeriodKind]string{
+	entitlement.PeriodKindSixHour: "six-hour",
+	entitlement.PeriodKindWeekly:  "weekly",
+	entitlement.PeriodKindBilling: "monthly",
+}
+
+var allowancePlanNames = map[entitlement.Plan]string{
+	entitlement.PlanBoost: "Boost",
+	entitlement.PlanMax:   "Max",
+}
+
+func includedAllowanceSpentMessage(e *IncludedAllowanceSpentError) string {
+	message := fmt.Sprintf("Your Weave router %s plan's %s allowance is used up and your subscription can't serve this turn (rate-limited, or the requested model isn't subscription-covered).",
+		allowancePlanNames[e.Window.Plan], allowanceWindowNames[e.Window.Kind])
+	if !e.Window.ResetsAt.IsZero() {
+		message += " Included usage resumes at " + e.Window.ResetsAt.UTC().Format("15:04 MST on Jan 2") + "."
+	}
+	if errors.Is(e.orgGate, ErrSpendCapSubscriptionUnavailable) {
+		return message + " A Weave router spend cap blocks paid routing until then."
+	}
+	return message + " To keep routing until then, add credits: " + topUpURL
 }

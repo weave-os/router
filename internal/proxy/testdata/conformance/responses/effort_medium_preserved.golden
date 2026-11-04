@@ -149,6 +149,7 @@
       },
       "type": "message_delta",
       "usage": {
+        "cache_read_input_tokens": 0,
         "input_tokens": 150,
         "output_tokens": 45
       }

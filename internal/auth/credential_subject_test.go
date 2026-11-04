@@ -35,3 +35,15 @@ func TestPersonalCredentialRequiresCompletedUnrevokedProjection(t *testing.T) {
 	key.Scope = auth.ScopeAnalyticsRead
 	require.ErrorIs(t, auth.ValidateCredentialSubject(key, &valid), auth.ErrInvalidKeyScope)
 }
+
+func TestServingAdmissionAcceptsSessionIssuerWithoutPersonalOwnership(t *testing.T) {
+	issuer := auth.APIKey{ID: "issuer", Scope: auth.ScopeSessionIssuer}
+	subject := auth.CredentialSubject{ID: "subject", ProjectionComplete: true, AccessEnabled: true, InternalEnrolled: true}
+	require.NoError(t, auth.ValidateServingCredential(issuer, nil))
+	require.ErrorIs(t, auth.ValidateServingCredential(issuer, &subject), auth.ErrPersonalCredentialRequired)
+	issuer.CredentialSubjectID = subject.ID
+	require.ErrorIs(t, auth.ValidateServingCredential(issuer, &subject), auth.ErrPersonalCredentialRequired)
+
+	readKey := auth.APIKey{ID: "read", Scope: auth.ScopeAnalyticsRead}
+	require.ErrorIs(t, auth.ValidateServingCredential(readKey, nil), auth.ErrInvalidKeyScope)
+}

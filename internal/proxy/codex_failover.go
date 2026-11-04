@@ -70,7 +70,7 @@ func (s *Service) openaiFallbackKeyAvailable(ctx context.Context) bool {
 // so the turn tries an eligible shared subscription or API fallback, and is
 // refused when neither is available.
 func (s *Service) codexSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
-	if s.usageObserver == nil || s.codexExtraCreditsAllowed() {
+	if s.usageObserver == nil || s.codexExtraCreditsAllowed() || pickedModelOnOwnPlan(ctx) {
 		// Included usage observations cannot rule out fresh purchased credits.
 		// The provider still verifies quota and credit availability per attempt.
 		return false

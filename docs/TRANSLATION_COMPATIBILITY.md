@@ -21,13 +21,13 @@ text-only models.
 | `shadow` | Emits the same compatibility diagnostics without changing broad candidate pools. Native-only safety paths remain constrained. |
 | `enforce` | Applies declared semantic requirements as provider/model candidate filters. |
 
-Native-only Responses requirements select the OpenAI adapter. Native dispatch
-preserves Responses input items and supported extensions while applying the
-routed model and dispatch controls. Identified Codex clients can project
-supported custom and namespace tools for other upstream formats; unsupported
-request shapes remain on the native OpenAI path. Gemini ingress selects the
-native Gemini family before routing; it no longer reaches the late
-unsupported-cross-format path.
+Native-only Responses requirements select the native OpenAI adapter. Native
+dispatch preserves Responses input items and extensions while applying the
+routed model, call-ID normalization, and applicable fast-mode and reasoning-effort
+controls. Identified Codex clients can project supported custom and namespace
+tools to other upstream formats; shapes that require native Responses stay on
+the OpenAI path. Gemini ingress selects the native Gemini family before routing;
+it no longer reaches the late unsupported-cross-format path.
 
 ## Observability
 

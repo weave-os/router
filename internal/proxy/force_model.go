@@ -122,6 +122,7 @@ var forceModelAliases = map[string]string{
 	"gpt-5-6":       "gpt-5.6-sol",
 	"gpt-5-6-sol":   "gpt-5.6-sol",
 	"terra":         "gpt-5.6-terra",
+	"gpt-6-1-terra": "gpt-6.1-terra",
 	"gpt-5-6-terra": "gpt-5.6-terra",
 	"gpt-5-6-luna":  "gpt-5.6-luna",
 	"gpt-5-5":       "gpt-5.5",
@@ -177,24 +178,29 @@ var forceModelAliases = map[string]string{
 	"qwen/qwen-3.8-max": "qwen/qwen3.8-max",
 	"qwen-3.8-max":      "qwen/qwen3.8-max",
 	"qwen-3.8":          "qwen/qwen3.8-max",
-	// Generic Kimi aliases follow K3; version-specific K2 pins stay exact.
-	"kimi":      "moonshotai/kimi-k3",
-	"kimi-k3":   "moonshotai/kimi-k3",
-	"kimi-k2.7": "moonshotai/kimi-k2.7",
-	"kimi-k2.6": "moonshotai/kimi-k2.6",
+	// Generic Kimi aliases follow the newest managed-servable release; version-specific pins stay exact.
+	"kimi":                     "moonshotai/kimi-k3",
+	"kimi-k3.1":                "moonshotai/kimi-k3.1",
+	"kimi-k3.1-pro":            "moonshotai/kimi-k3.1",
+	"moonshotai/kimi-k3.1-pro": "moonshotai/kimi-k3.1",
+	"kimi-k3":                  "moonshotai/kimi-k3",
+	"kimi-k2.7":                "moonshotai/kimi-k2.7",
+	"kimi-k2.6":                "moonshotai/kimi-k2.6",
 	// Generic GLM aliases follow 5.3; version-specific pins stay exact.
-	"glm":           "z-ai/glm-5.3",
-	"zai":           "z-ai/glm-5.3",
-	"z-ai":          "z-ai/glm-5.3",
-	"glm-5.3-flash": "z-ai/glm-5.3-flash",
-	"glm-5.3":       "z-ai/glm-5.3",
-	"glm-5.2":       "z-ai/glm-5.2",
-	"glm-5.1":       "z-ai/glm-5.1",
-	"glm-5":         "z-ai/glm-5",
-	"minimax":       "minimax/minimax-m3",
-	"minimax-m3":    "minimax/minimax-m3",
-	"minimax-m2.7":  "minimax/minimax-m2.7",
-	"mistral":       "mistralai/mistral-small-2603",
+	"glm":                "z-ai/glm-5.3",
+	"zai":                "z-ai/glm-5.3",
+	"z-ai":               "z-ai/glm-5.3",
+	"glm-5.3-flash":      "z-ai/glm-5.3-flash",
+	"glm-5.3":            "z-ai/glm-5.3",
+	"glm-5.2":            "z-ai/glm-5.2",
+	"glm-5.1":            "z-ai/glm-5.1",
+	"glm-5":              "z-ai/glm-5",
+	"minimax":            "minimax/minimax-m3.1-flash",
+	"minimax-m3.1":       "minimax/minimax-m3.1-flash",
+	"minimax-m3.1-flash": "minimax/minimax-m3.1-flash",
+	"minimax-m3":         "minimax/minimax-m3",
+	"minimax-m2.7":       "minimax/minimax-m2.7",
+	"mistral":            "mistralai/mistral-small-2603",
 }
 
 // forceModelExamples follows the family aliases so the unknown-model hint
@@ -323,6 +329,9 @@ func forceModelNames() map[string]string {
 		if unprefixed, ok := strings.CutPrefix(m.ID, "claude-"); ok {
 			names[unprefixed] = m.ID
 		}
+		if variantFirst, ok := variantFirstGPTName(m.ID); ok {
+			names[variantFirst] = m.ID
+		}
 	}
 	for bare, id := range bareCatalogNames {
 		names[bare] = id
@@ -331,6 +340,21 @@ func forceModelNames() map[string]string {
 		names[alias] = id
 	}
 	return names
+}
+
+// gptVariantID matches a GPT release whose version has a minor component
+// ("gpt-6.1-sol"). A bare major ("sol-6") can name a generation rather than one
+// release, so it gets no variant-first spelling.
+var gptVariantID = regexp.MustCompile(`^gpt-([0-9]+\.[0-9]+)-([a-z]+)$`)
+
+// variantFirstGPTName spells a GPT release variant first, as users say it:
+// "gpt-6.1-sol" is also "sol-6.1" (and, folded, "sol 6.1" or "sol-6-1").
+func variantFirstGPTName(id string) (string, bool) {
+	match := gptVariantID.FindStringSubmatch(id)
+	if match == nil {
+		return "", false
+	}
+	return match[2] + "-" + match[1], true
 }
 
 // foldedForceModelNames indexes forceModelNames by folded spelling. A folded
@@ -559,7 +583,7 @@ func (s *Service) setForceModelSessionPin(
 	ctx context.Context,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	installationID uuid.UUID,
-	canonicalModel, provider, effort string,
+	canonicalModel, provider, effort, forcedThreadKey string,
 ) error {
 	if s.pinStore == nil || installationID == uuid.Nil {
 		return nil
@@ -568,22 +592,24 @@ func (s *Service) setForceModelSessionPin(
 		return fmt.Errorf("preserve force-model control history: %w", err)
 	}
 	forced := sessionpin.Pin{
-		SessionKey:     sessionKey,
-		Role:           forceModelSessionRole,
-		InstallationID: installationID,
-		Provider:       provider,
-		Model:          canonicalModel,
-		Effort:         effort,
-		Reason:         translate.ReasonUserForceModel,
-		TurnCount:      1,
-		PinnedUntil:    pinNeverExpires,
+		SessionKey:      sessionKey,
+		Role:            forceModelSessionRole,
+		InstallationID:  installationID,
+		Provider:        provider,
+		Model:           canonicalModel,
+		Effort:          effort,
+		ForcedThreadKey: forcedThreadKey,
+		Reason:          translate.ReasonUserForceModel,
+		TurnCount:       1,
+		PinnedUntil:     pinNeverExpires,
 	}
 	return s.pinStore.Upsert(context.Background(), forced)
 }
 
 func (s *Service) loadForceModelSessionPin(
 	ctx context.Context,
-	sessionKey [sessionpin.SessionKeyLen]byte,
+	sessionKey, threadSessionKey [sessionpin.SessionKeyLen]byte,
+	isSubagent bool,
 ) (sessionpin.Pin, bool, bool) {
 	if s.pinStore == nil {
 		return sessionpin.Pin{}, false, false
@@ -598,6 +624,11 @@ func (s *Service) loadForceModelSessionPin(
 	}
 	if !found || !pin.PinnedUntil.After(time.Now()) || !isUserForcedReason(pin.Reason) || pin.Model == "" || pin.Provider == "" {
 		return sessionpin.Pin{}, false, false
+	}
+	if pin.ForcedThreadKey != "" && (isSubagent || pin.ForcedThreadKey != sessionKeyHex(threadSessionKey)) {
+		// Suppress pre-session-scope force rows on children as an explicit clear
+		// does, so switching from force-model cannot revive an inherited pin.
+		return pin, false, true
 	}
 	return pin, true, false
 }
@@ -762,7 +793,7 @@ func (s *Service) applyForceModelHeader(
 		// omits routing knobs from the request passed to the scorer.
 		forcedModel += ":" + effortLevel
 	}
-	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, provider, effortLevel); err != nil {
+	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, provider, effortLevel, ""); err != nil {
 		log.Error("x-weave-force-model: session pin upsert failed", "err", err)
 		return ctx, forcedModel, nil
 	}
@@ -789,16 +820,11 @@ func (s *Service) handleForceModelCommand(
 	threadSessionKey, forceModelSessionKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {
-	_, msg, err := s.applyForceModelCommand(ctx, env, cmd, installationID, threadSessionKey, forceModelSessionKey)
+	_, ack, err := s.applyForceModelCommand(ctx, cmd, installationID, threadSessionKey, forceModelSessionKey)
 	if err != nil {
 		return err
 	}
-	switch env.SourceFormat() {
-	case translate.FormatOpenAI:
-		return writeSyntheticOpenAIResponse(w, env, msg, inputTokens)
-	default:
-		return writeSyntheticAnthropicResponse(w, env, msg, inputTokens)
-	}
+	return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
 }
 
 // applyForceModelCommand updates the session pin without deciding whether the
@@ -807,35 +833,29 @@ func (s *Service) handleForceModelCommand(
 // req.ForceModel resolves the same effort) when a force was applied.
 func (s *Service) applyForceModelCommand(
 	ctx context.Context,
-	env *translate.RequestEnvelope,
 	cmd translate.ForceModelResult,
 	installationID uuid.UUID,
 	threadSessionKey, forceModelSessionKey [sessionpin.SessionKeyLen]byte,
-) (string, string, error) {
+) (string, commandAcknowledgment, error) {
 	log := observability.FromContext(ctx)
 
-	// Formatted as a routing marker (✦ **Weave Router** → …\n\n) so
-	// StripRoutingMarkerFromMessages strips it from later inbound requests;
-	// otherwise it'd persist in history and leak router internals upstream.
-	var msg string
+	ack := newCommandAcknowledgment(translate.CommandForceModel)
 	if cmd.Clear {
 		if err := s.clearLegacyForceModelPins(ctx, installationID, threadSessionKey); err != nil {
 			log.Error("/unforce-model: legacy pin cleanup failed", "err", err)
-			return "", "", err
+			return "", commandAcknowledgment{}, err
 		}
 		if err := s.clearForceModelSessionPin(ctx, installationID, forceModelSessionKey); err != nil {
 			log.Error("/unforce-model: session pin clear failed", "err", err)
-			return "", "", err
+			return "", commandAcknowledgment{}, err
 		}
-		msg = "✦ **Weave Router** → force-model cleared · resuming automatic model selection\n\n"
-		if env.SourceFormat() == translate.FormatOpenAI {
-			msg = "Weave Router: force-model cleared; resuming automatic model selection"
-		}
+		ack.outcome.Pin.Transition = translate.PinCleared
+		s.recordAgreementShadowCommandBoundary(ctx, installationID, threadSessionKey, ack.outcome.ID)
 		log.Debug("/unforce-model: session pin cleared",
 			"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 			"role", forceModelSessionRole,
 		)
-		return "", msg, nil
+		return "", ack, nil
 	}
 
 	canonicalModel, provider, known, effortLevel := resolveForceModelWithEffort(cmd.Model)
@@ -847,15 +867,9 @@ func (s *Service) applyForceModelCommand(
 			"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 			"role", forceModelSessionRole,
 		)
-		hint := "Use a model ID or shorthand, e.g. " + forceModelExamples + "."
-		if suggestion != "" {
-			hint = fmt.Sprintf("Did you mean %q?", suggestion)
-		}
-		msg = fmt.Sprintf("✦ **Weave Router** → force-model: %q isn't a recognized model · keeping automatic routing. %s\n\n", cmd.Model, hint)
-		if env.SourceFormat() == translate.FormatOpenAI {
-			msg = fmt.Sprintf("Weave Router: force-model: %q isn't a recognized model; keeping automatic routing. %s", cmd.Model, hint)
-		}
-		return "", msg, nil
+		ack.outcome.Disposition = translate.CommandRejected
+		ack.force = forceAcknowledgment{rejection: forceUnknownModel, inputModel: cmd.Model, suggestion: suggestion}
+		return "", ack, nil
 	}
 
 	binding, reason := s.forcedModelBinding(ctx, canonicalModel, provider)
@@ -868,31 +882,35 @@ func (s *Service) applyForceModelCommand(
 			"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 			"role", forceModelSessionRole,
 		)
-		msg = fmt.Sprintf("✦ **Weave Router** → force-model rejected: %s · keeping automatic routing. Ask an admin to allow the provider, or force a model from one that is permitted.\n\n", reason)
-		if env.SourceFormat() == translate.FormatOpenAI {
-			msg = fmt.Sprintf("Weave Router: force-model rejected: %s; keeping automatic routing. Ask an admin to allow the provider, or force a model from one that is permitted.", reason)
-		}
-		return "", msg, nil
+		ack.outcome.Disposition = translate.CommandRejected
+		ack.force = forceAcknowledgment{rejection: forceExcludedModel, reason: reason}
+		return "", ack, nil
 	}
 
 	if err := s.clearLegacyForceModelPins(ctx, installationID, threadSessionKey); err != nil {
 		log.Error("/force-model: legacy pin cleanup failed", "err", err)
-		return "", "", err
+		return "", commandAcknowledgment{}, err
 	}
-	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, binding, effortLevel); err != nil {
+	forcedThreadKey := ""
+	command := "force-model"
+	if cmd.ParentOnly {
+		forcedThreadKey = sessionKeyHex(threadSessionKey)
+		command = "force-parent"
+	}
+	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, binding, effortLevel, forcedThreadKey); err != nil {
 		log.Error("/force-model: session pin upsert failed", "err", err)
-		return "", "", err
+		return "", commandAcknowledgment{}, err
 	}
 	shownModel := canonicalModel
 	if effortLevel != "" {
 		shownModel = canonicalModel + ":" + effortLevel
 	}
-	clear := directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "unforce-model"
-	msg = fmt.Sprintf("✦ **Weave Router** → force-model applied: %s (%s) · Use %s to clear\n\n", shownModel, binding, clear)
-	if env.SourceFormat() == translate.FormatOpenAI {
-		msg = fmt.Sprintf("Weave Router: force-model applied: %s (%s). Use %s to clear.", shownModel, binding, clear)
-	}
-	log.Debug("/force-model: session pin set",
+	ack.outcome.Pin = translate.CommandPin{Transition: translate.PinApplied, Model: canonicalModel, Provider: binding, Effort: effortLevel}
+	s.recordAgreementShadowCommandBoundary(ctx, installationID, threadSessionKey, ack.outcome.ID)
+	ack.force.clearCommand = directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "unforce-model"
+	ack.force.parentOnly = cmd.ParentOnly
+	log.Debug("/"+command+": session pin set",
+		"forced_thread_key", forcedThreadKey,
 		"input_model", cmd.Model,
 		"canonical_model", canonicalModel,
 		"provider", binding,
@@ -900,7 +918,7 @@ func (s *Service) applyForceModelCommand(
 		"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 		"role", forceModelSessionRole,
 	)
-	return shownModel, msg, nil
+	return shownModel, ack, nil
 }
 
 // writeSyntheticAnthropicResponse writes a minimal Anthropic Messages API

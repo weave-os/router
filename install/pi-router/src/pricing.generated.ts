@@ -7,7 +7,7 @@ export interface ModelPricing {
 	cacheReadMultiplier: number;
 }
 
-export const PRICING_VERSION = "catalog-sha256:c789a08504a34650";
+export const PRICING_VERSION = "catalog-sha256:3b753718c0db1fdc";
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({
 	"claude-fable-5": { inputUsdPerMillion: 10, outputUsdPerMillion: 50, cacheReadMultiplier: 0.1 },
@@ -44,6 +44,7 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"gemini-3.6-flash": { inputUsdPerMillion: 1.5, outputUsdPerMillion: 7.5, cacheReadMultiplier: 0.1 },
 	"gemini-3.7-flash": { inputUsdPerMillion: 1.5, outputUsdPerMillion: 7.5, cacheReadMultiplier: 0.1 },
 	"gemini-3.8-flash": { inputUsdPerMillion: 1.5, outputUsdPerMillion: 7.5, cacheReadMultiplier: 0.1 },
+	"gemini-4-argon": { inputUsdPerMillion: 2, outputUsdPerMillion: 10, cacheReadMultiplier: 0.1 },
 	"google/gemma-4-26b-a4b-it": { inputUsdPerMillion: 0.15, outputUsdPerMillion: 0.6, cacheReadMultiplier: 0.1 },
 	"gpt-4.1": { inputUsdPerMillion: 2, outputUsdPerMillion: 8, cacheReadMultiplier: 0.25 },
 	"gpt-4.1-mini": { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6, cacheReadMultiplier: 0.25 },
@@ -71,17 +72,20 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"gpt-6-luna": { inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.5, cacheReadMultiplier: 0.1 },
 	"gpt-6-sol": { inputUsdPerMillion: 2, outputUsdPerMillion: 10, cacheReadMultiplier: 0.1 },
 	"gpt-6.1-sol": { inputUsdPerMillion: 2, outputUsdPerMillion: 10, cacheReadMultiplier: 0.05 },
+	"gpt-6.1-terra": { inputUsdPerMillion: 1, outputUsdPerMillion: 5, cacheReadMultiplier: 0.05 },
 	"grok-4.5": { inputUsdPerMillion: 2, outputUsdPerMillion: 6, cacheReadMultiplier: 0.25 },
 	"grok-4.6": { inputUsdPerMillion: 2, outputUsdPerMillion: 6, cacheReadMultiplier: 0.25 },
 	"grok-4.7": { inputUsdPerMillion: 2, outputUsdPerMillion: 6, cacheReadMultiplier: 0.25 },
 	"inclusionai/ling-3.0-flash": { inputUsdPerMillion: 0.06, outputUsdPerMillion: 0.18, cacheReadMultiplier: 0.2 },
 	"minimax/minimax-m2.7": { inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2, cacheReadMultiplier: 0.2 },
 	"minimax/minimax-m3": { inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2, cacheReadMultiplier: 0.2 },
+	"minimax/minimax-m3.1-flash": { inputUsdPerMillion: 0.15, outputUsdPerMillion: 0.6, cacheReadMultiplier: 0.1 },
 	"mistralai/mistral-small-2603": { inputUsdPerMillion: 0.2, outputUsdPerMillion: 0.6, cacheReadMultiplier: 0.1 },
 	"moonshotai/kimi-k2.5": { inputUsdPerMillion: 0.6, outputUsdPerMillion: 3, cacheReadMultiplier: 0.5 },
 	"moonshotai/kimi-k2.6": { inputUsdPerMillion: 0.95, outputUsdPerMillion: 4, cacheReadMultiplier: 0.1684 },
 	"moonshotai/kimi-k2.7": { inputUsdPerMillion: 0.95, outputUsdPerMillion: 4, cacheReadMultiplier: 0.2 },
 	"moonshotai/kimi-k3": { inputUsdPerMillion: 3, outputUsdPerMillion: 15, cacheReadMultiplier: 0.1 },
+	"moonshotai/kimi-k3.1": { inputUsdPerMillion: 2, outputUsdPerMillion: 10, cacheReadMultiplier: 0.1 },
 	"muse-spark-1.3": { inputUsdPerMillion: 1.25, outputUsdPerMillion: 4.25, cacheReadMultiplier: 0.12 },
 	"qwen/qwen3-235b-a22b-2507": { inputUsdPerMillion: 0.2266, outputUsdPerMillion: 0.9064, cacheReadMultiplier: 0.5 },
 	"qwen/qwen3-30b-a3b-instruct-2507": { inputUsdPerMillion: 0.15, outputUsdPerMillion: 0.6, cacheReadMultiplier: 0.1684 },

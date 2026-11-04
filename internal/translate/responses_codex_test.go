@@ -160,7 +160,7 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexTools(t *test
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexHistory(t *testing.T) {
 	body := []byte("{ \"model\":\"gpt-5.6-sol\",\"input\":[" +
 		`{"type":"reasoning","id":"rs_1","encrypted_content":"opaque","summary":[]},` +
-		`{"type":"agent_message","id":"am_1","author":"child","recipient":"parent","content":[{"type":"input_text","text":"plain update"},{"type":"encrypted_content","encrypted_content":"opaque-agent"}]},` +
+		`{"type":"agent_message","id":"am_1","author":"child","recipient":"parent","content":[{"type":"input_text","text":"plain update"}]},` +
 		`{"type":"function_call","call_id":"call_fn","name":"lookup","namespace":"collaboration","arguments":"{\"q\":1}"},` +
 		`{"type":"custom_tool_call","call_id":"call_custom","name":"exec","namespace":"functions","input":"text(true);"},` +
 		`{"type":"function_call_output","call_id":"call_fn","output":[{"type":"input_text","text":"one"},{"type":"input_text","text":"two"}]},` +
@@ -176,7 +176,7 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexHistory(t *te
 
 	messages := gjson.GetBytes(converted.Body, "messages").Array()
 	require.Len(t, messages, 6)
-	assert.Equal(t, "assistant", messages[0].Get("role").Str)
+	assert.Equal(t, string(translate.EscalationRoleUser), messages[0].Get("role").Str)
 	assert.Equal(t, "plain update", messages[0].Get("content").Str)
 
 	assert.Equal(t, "assistant", messages[1].Get("role").Str)
@@ -197,7 +197,6 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexHistory(t *te
 	assert.Equal(t, translate.ResponsesToolMapping{Alias: "collaboration__lookup", Name: "lookup", Namespace: "collaboration"}, converted.ToolMappings["collaboration__lookup"])
 	assert.Equal(t, translate.ResponsesToolMapping{Alias: "exec", Name: "exec", Custom: true}, converted.ToolMappings["exec"])
 	assertReportCode(t, converted.Report, "responses_encrypted_reasoning_dropped")
-	assertReportCode(t, converted.Report, "responses_encrypted_agent_content_dropped")
 	assertReportCode(t, converted.Report, "responses_agent_message_projected")
 	assertReportCode(t, converted.Report, "responses_structured_tool_output_projected")
 	assertReportCode(t, converted.Report, "responses_message_phase_dropped")
@@ -241,6 +240,11 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexReasoningFail
 			item: `{"type":"reasoning","summary":[]}`,
 			code: "responses_reasoning_replay_native_only",
 		},
+		{
+			name: "null content without encrypted replay",
+			item: `{"type":"reasoning","summary":[],"content":null}`,
+			code: "responses_reasoning_replay_native_only",
+		},
 	}
 
 	for _, test := range tests {
@@ -256,23 +260,46 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexReasoningFail
 }
 
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexReasoningSummaryIsPortable(t *testing.T) {
-	body := []byte(`{
+	tests := []struct {
+		name string
+		item string
+	}{
+		{
+			name: "absent content",
+			item: `{"type":"reasoning","id":"rs_1","encrypted_content":"opaque","summary":[{"type":"summary_text","text":"**Evaluating** the schema"}]}`,
+		},
+		{
+			name: "null content",
+			item: `{"type":"reasoning","id":"rs_1","encrypted_content":"opaque","summary":[{"type":"summary_text","text":"**Evaluating** the schema"}],"content":null}`,
+		},
+		{
+			name: "empty content array",
+			item: `{"type":"reasoning","id":"rs_1","encrypted_content":"opaque","summary":[{"type":"summary_text","text":"**Evaluating** the schema"}],"content":[]}`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := []byte(`{
 		"model":"gpt-6.1-sol",
 		"input":[
 			{"type":"message","role":"user","content":[{"type":"input_text","text":"investigate"}]},
-			{"type":"reasoning","id":"rs_1","encrypted_content":"opaque","summary":[{"type":"summary_text","text":"**Evaluating** the schema"}]},
+			` + test.item + `,
 			{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}
 		]
 	}`)
 
-	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
-	require.NoError(t, err)
-	assert.False(t, converted.Requirements.NativeOnly)
-	assert.False(t, converted.Requirements.ReasoningReplay)
-	messages := gjson.GetBytes(converted.Body, "messages").Array()
-	require.Len(t, messages, 2)
-	assert.NotContains(t, string(converted.Body), "Evaluating")
-	assertReportCode(t, converted.Report, "responses_encrypted_reasoning_dropped")
+			converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+			require.NoError(t, err)
+			assert.False(t, converted.Requirements.NativeOnly)
+			assert.False(t, converted.Requirements.ReasoningReplay)
+			assert.Equal(t, body, converted.OriginalBody)
+			messages := gjson.GetBytes(converted.Body, "messages").Array()
+			require.Len(t, messages, 2)
+			assert.NotContains(t, string(converted.Body), "Evaluating")
+			assertReportCode(t, converted.Report, "responses_encrypted_reasoning_dropped")
+		})
+	}
 }
 
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexToolOutputImageHoisted(t *testing.T) {
@@ -335,6 +362,43 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexRepeatedCallI
 	assert.Equal(t, "data:image/png;base64,Qg==", content[2].Get("image_url.url").Str)
 }
 
+// A pasted screenshot must not pin the whole session to OpenAI: that dropped
+// a /force-model pin to an Anthropic model with provider_not_enabled.
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexUserImageProjected(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-6.1-sol",
+		"input":[{"type":"message","role":"user","content":[
+			{"type":"input_text","text":"what is this?"},
+			{"type":"input_image","image_url":"data:image/png;base64,QQ==","detail":"high"}
+		]}]
+	}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.False(t, converted.Requirements.NativeOnly)
+	assert.True(t, converted.Requirements.Images)
+
+	content := gjson.GetBytes(converted.Body, "messages.0.content").Array()
+	require.Len(t, content, 2)
+	assert.Equal(t, "what is this?", content[0].Get("text").Str)
+	assert.Equal(t, "image_url", content[1].Get("type").Str)
+	assert.Equal(t, "data:image/png;base64,QQ==", content[1].Get("image_url.url").Str)
+	assert.Equal(t, "high", content[1].Get("image_url.detail").Str)
+	assertReportCode(t, converted.Report, "responses_message_image_projected")
+}
+
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexMessageImageFileFailsClosed(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-6.1-sol",
+		"input":[{"type":"message","role":"user","content":[{"type":"input_image","file_id":"file_1"}]}]
+	}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.True(t, converted.Requirements.NativeOnly)
+	assertReportCode(t, converted.Report, "responses_message_content_native_only")
+}
+
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexToolOutputFileFailsClosed(t *testing.T) {
 	body := []byte(`{
 		"model":"gpt-6.1-sol",
@@ -360,7 +424,6 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexEncryptedOnly
 	require.NoError(t, err)
 	assert.True(t, converted.Requirements.NativeOnly)
 	assert.Empty(t, gjson.GetBytes(converted.Body, "messages").Array())
-	assertReportCode(t, converted.Report, "responses_encrypted_agent_content_dropped")
 	assertReportCode(t, converted.Report, "responses_agent_message_native_only")
 }
 
@@ -477,7 +540,7 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexUnknownStaysN
 	body := []byte(`{
 		"model":"gpt-5.6-sol",
 		"input":[{"type":"computer_call","id":"comp_1","action":{"type":"click"}}],
-		"tools":[{"type":"web_search","search_context_size":"medium"}]
+		"tools":[{"type":"image_generation"}]
 	}`)
 
 	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
@@ -564,6 +627,18 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexModelSwitch(t
 			assert.Equal(t, tc.want, converted.CodexModelSwitch)
 		})
 	}
+}
+
+func TestConvertResponsesToChatCompletionsWithOptions_CodexModelInstructionsAreSeparateFromSwitch(t *testing.T) {
+	body, err := json.Marshal(map[string]any{"model": "gpt-6-sol", "input": []any{
+		map[string]any{"type": "message", "role": "user", "content": "start"},
+		map[string]any{"type": "message", "role": "developer", "content": []any{map[string]any{"type": "input_text", "text": "<model_instructions>\nThe current model is gpt-6.1-sol.\n</model_instructions>"}}},
+	}})
+	require.NoError(t, err)
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.True(t, converted.CodexModelInstructions)
+	assert.False(t, converted.CodexModelSwitch)
 }
 
 func TestConvertResponsesToChatCompletions_LegacyIgnoresCodexModelSwitch(t *testing.T) {

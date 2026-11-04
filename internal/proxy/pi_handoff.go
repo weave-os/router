@@ -184,7 +184,7 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseW
 	return writePreparedHandoff(w, prepared)
 }
 
-func (s *Service) resumeHandoff(ctx context.Context, env *translate.RequestEnvelope, req router.Request) (turnLoopResult, error) {
+func (s *Service) resumeHandoff(ctx context.Context, env *translate.RequestEnvelope, req router.Request, isSubagent bool) (turnLoopResult, error) {
 	claims := handoffFromContext(ctx)
 	if claims.Route.Strategy != router.StrategyFromContext(ctx) ||
 		claims.SessionID != clientSessionIDForRequest(ctx, env) ||
@@ -193,7 +193,7 @@ func (s *Service) resumeHandoff(ctx context.Context, env *translate.RequestEnvel
 	}
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, claims.Route.SessionKey)
-	_, forced, _ := s.loadForceModelSessionPin(ctx, forceKey)
+	_, forced, _ := s.loadForceModelSessionPin(ctx, forceKey, claims.Route.SessionKey, isSubagent)
 	if req.ForceModel != "" || forced {
 		return turnLoopResult{}, ErrHandoffInvalid
 	}

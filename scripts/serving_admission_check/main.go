@@ -320,7 +320,7 @@ func checkNoFixtureResidue(ctx context.Context, pool *pgxpool.Pool, installation
 func checkRetainedAdmissionClock(ctx context.Context, admissions *serving.ServingAdmissionRepo, installationID, keyID string) error {
 	startedAt := time.Now().UTC().Truncate(time.Second)
 	var previousBinding *policyregistry.SessionReleaseBinding
-	for _, elapsed := range []time.Duration{0, 12 * time.Hour, 25 * time.Hour, 36 * time.Hour} {
+	for _, elapsed := range []time.Duration{0, 20 * time.Minute, 40 * time.Minute, 59 * time.Minute} {
 		now := startedAt.Add(elapsed)
 		_, admitted, err := admissions.Admit(ctx, installationID, keyID, "retained-clock", func(_ context.Context, admission policyregistry.SerializedAdmission) (policyregistry.SessionReleaseBinding, error) {
 			if previousBinding != nil {

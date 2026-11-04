@@ -31,7 +31,7 @@ build-backend = "setuptools.build_meta"
 include = ["weave_bench*"]
 
 [tool.setuptools.package-data]
-weave_bench = ["manifests/*.json", "prices.generated.json"]
+weave_bench = ["manifests/*.json", "prices.generated.json", "efficiency/*.patch"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

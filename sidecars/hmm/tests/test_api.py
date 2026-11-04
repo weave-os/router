@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,56 +15,56 @@ from hmm_sidecar.api import app, configure_logging
 from hmm_sidecar.artifacts import ArtifactRegistry, FrozenArtifacts
 from hmm_sidecar.schemas import EmbeddingContract
 from hmm_sidecar.policy import RouteTimings
-from hmm_sidecar.schemas import RoutePreviewResult, RouteResult
+from hmm_sidecar.schemas import ClassificationResult
+
+
+def _classification(sha: str = "a" * 64) -> ClassificationResult:
+    return ClassificationResult(
+        schema_version="policy_router_v4",
+        route_id="route",
+        classifier_artifact_id="artifact",
+        classifier_artifact_sha256=sha,
+        predicted_label="fast",
+        class_order=("fast", "maximum"),
+        class_probabilities={"fast": 0.6, "maximum": 0.4},
+        classifier_confidence=0.6,
+        classifier_margin=0.2,
+        hmm_state_id=1,
+        hmm_state_path=(0, 1),
+        hmm_state_probabilities=(0.3, 0.7),
+    )
+
+
+def _timings() -> RouteTimings:
+    return RouteTimings(
+        sequence_ms=1.0,
+        embed_ms=1.0,
+        hmm_ms=1.0,
+        classifier_ms=1.0,
+        total_ms=4.0,
+        turns=1,
+        embed_requested=1,
+        embed_cached=1,
+        embed_fetched=0,
+    )
 
 
 class RejectingPolicy:
-    async def route_with_timings(self, payload: dict[str, object]) -> None:
+    async def classify_with_timings(self, payload: dict[str, object]) -> None:
         del payload
         raise ValueError("private artifact path: /secret/model.npz")
 
 
-class PreviewingPolicy:
-    async def preview(self, payload: dict[str, object]) -> object:
-        assert payload["execution_mode"] == "preview"
-        return RoutePreviewResult(
-            route_id="route",
-            policy_artifact_id="artifact",
-            policy_artifact_sha256="a" * 64,
-            roster_sha256="b" * 64,
-            hmm_state_id=1,
-            hmm_state_path=(0, 1),
-            hmm_state_probabilities=(0.3, 0.7),
-            class_order=("fast", "maximum"),
-            class_probabilities={"fast": 0.6, "maximum": 0.4},
-            ranked_fallback=(
-                {
-                    "group": "fast",
-                    "probability": 0.6,
-                    "roster_arms": ("provider/a",),
-                    "eligible_arms": ("provider/a",),
-                },
-                {
-                    "group": "maximum",
-                    "probability": 0.4,
-                    "roster_arms": ("provider/b",),
-                    "eligible_arms": (),
-                },
-            ),
-            selected_group="fast",
-            eligible_roster_ids=("provider/a",),
-        )
+class ClassifyingPolicy:
+    def __init__(self, sha: str = "a" * 64) -> None:
+        self.sha = sha
+        self.classes = ("fast", "maximum")
+        self.classifier = SimpleNamespace(classes=self.classes)
+        self.payloads: list[dict[str, object]] = []
 
-
-class RosterPolicy:
-    clusters = {
-        "maximum": {"arms": ["provider/opus", "provider/fable"]},
-        "fast": {"arms": ["provider/haiku"]},
-    }
-    roster_version = "c" * 64
-
-    def roster_ids(self) -> list[str]:
-        return ["openai/gpt-5.6-sol", "anthropic/claude-opus-4.8"]
+    async def classify_with_timings(self, payload: dict[str, object]):
+        self.payloads.append(payload)
+        return _classification(self.sha), _timings()
 
 
 def test_liveness_does_not_depend_on_model_readiness() -> None:
@@ -80,31 +81,13 @@ def test_capabilities_are_frozen_and_do_not_request_content_callbacks() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["schema_version"] == "policy_router_v3"
+    assert payload["schema_version"] == "policy_router_v4"
     assert payload["reports_outcomes"] is False
     assert payload["reports_feedback"] is False
     assert payload["supports_shadow"] is True
-    assert payload["reports_ranked_fallback"] is True
+    assert payload["supported_schema_versions"] == ["policy_router_v4"]
+    assert "reports_ranked_fallback" not in payload
     assert payload["learning"]["state"] == "frozen_policy"
-
-
-def test_roster_returns_ordered_cluster_arms() -> None:
-    with TestClient(app) as client:
-        app.state.policy = RosterPolicy()
-        response = client.get("/roster")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["clusters"]["maximum"] == ["provider/opus", "provider/fable"]
-    assert payload["clusters"]["fast"] == ["provider/haiku"]
-    assert payload["roster_version"] == "c" * 64
-
-
-def test_roster_fails_closed_without_a_policy() -> None:
-    with TestClient(app) as client:
-        response = client.get("/roster")
-
-    assert response.status_code == 503
 
 
 def test_disabled_callbacks_are_contract_compatible_noops() -> None:
@@ -126,90 +109,81 @@ def test_readiness_fails_closed_without_an_artifact() -> None:
     assert response.json()["ready"] is False
 
 
+def test_readiness_reports_the_classifier_identity_the_router_pins(monkeypatch) -> None:
+    monkeypatch.setenv("CLASSIFIER_IMAGE_DIGEST", "sha256:" + "c" * 64)
+    with TestClient(app) as client:
+        app.state.policy = ClassifyingPolicy()
+        app.state.artifacts = SimpleNamespace(
+            model_id="artifact", package_sha256="a" * 64
+        )
+        response = client.get("/readyz")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["schema_version"] == "policy_router_v4"
+    assert payload["classifier_artifact_id"] == "artifact"
+    assert payload["classifier_artifact_sha256"] == "a" * 64
+    assert payload["classifier_image_digest"] == "sha256:" + "c" * 64
+    assert payload["classifier_class_order"] == ["fast", "maximum"]
+    # sha256 of Go's json.Marshal([]string{"fast","maximum"}).
+    assert (
+        payload["classifier_taxonomy_sha256"]
+        == hashlib.sha256(b'["fast","maximum"]').hexdigest()
+    )
+
+
+def test_readiness_fails_closed_without_an_image_digest(monkeypatch) -> None:
+    monkeypatch.delenv("CLASSIFIER_IMAGE_DIGEST", raising=False)
+    with TestClient(app) as client:
+        app.state.policy = ClassifyingPolicy()
+        app.state.artifacts = SimpleNamespace(
+            model_id="artifact", package_sha256="a" * 64
+        )
+        response = client.get("/readyz")
+
+    assert response.status_code == 503
+    assert response.json()["classifier_image_digest"] is None
+    assert "CLASSIFIER_IMAGE_DIGEST" in response.json()["error"]
+
+
 def test_route_rejections_do_not_expose_internal_exception_text() -> None:
     with TestClient(app) as client:
         app.state.policy = RejectingPolicy()
-        response = client.post("/route", json={"schema_version": "policy_router_v3"})
+        response = client.post("/route", json={"schema_version": "policy_router_v4"})
 
     assert response.status_code == 422
     assert response.json() == {"error": "route request rejected"}
     assert "/secret/model.npz" not in response.text
 
 
-def test_preview_requires_explicit_mode_and_returns_all_selected_arms() -> None:
+def test_preview_requires_explicit_mode_and_returns_classification_facts() -> None:
     with TestClient(app) as client:
-        app.state.policy = PreviewingPolicy()
-        rejected = client.post("/preview", json={"schema_version": "policy_router_v3"})
+        app.state.policy = ClassifyingPolicy()
+        rejected = client.post("/preview", json={"schema_version": "policy_router_v4"})
         response = client.post(
             "/preview",
             json={
-                "schema_version": "policy_router_v3",
+                "schema_version": "policy_router_v4",
                 "execution_mode": "preview",
             },
         )
 
     assert rejected.status_code == 400
     assert response.status_code == 200
-    assert response.json()["eligible_roster_ids"] == ["provider/a"]
-
-
-def test_roster_returns_arm_union() -> None:
-    with TestClient(app) as client:
-        app.state.policy = RosterPolicy()
-        response = client.get("/roster")
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["schema_version"] == "policy_router_v3"
-    assert payload["roster_ids"] == [
-        "openai/gpt-5.6-sol",
-        "anthropic/claude-opus-4.8",
-    ]
-
-
-def test_roster_fails_closed_without_policy() -> None:
-    with TestClient(app) as client:
-        app.state.policy = None
-        response = client.get("/roster")
-
-    assert response.status_code == 503
+    assert response.json()["hmm_state_probabilities"] == [0.3, 0.7]
 
 
 class TimedPolicy:
-    """Returns a fixed decision plus fixed timings, so the log line is assertable."""
+    """Returns a fixed classification plus fixed timings, so the log line is assertable."""
 
     def __init__(self) -> None:
         self.calls = 0
 
-    async def route_with_timings(self, payload: dict[str, object]):
+    async def classify_with_timings(self, payload: dict[str, object]):
         del payload
         self.calls += 1
         return (
-            RouteResult(
-                route_id="route",
-                score=0.9,
-                candidate_scores={"provider/a": 0.9},
-                reason="test",
-                state_label="state_1",
-                policy_group="fast",
-                policy_label="fast",
-                policy_route_key="hmm:1:fast",
-                confidence=0.9,
-                margin=0.4,
-                propensity=1.0,
-                policy_artifact_id="artifact",
-                policy_artifact_sha256="a" * 64,
-                roster_version="b" * 64,
-                ranked_fallback=(
-                    {
-                        "group": "fast",
-                        "probability": 0.9,
-                        "roster_arms": ("provider/a",),
-                        "eligible_arms": ("provider/a",),
-                    },
-                ),
-                debug={"frozen_policy": True},
-            ),
+            _classification(),
             RouteTimings(
                 sequence_ms=1.25,
                 embed_ms=604.5,
@@ -235,7 +209,7 @@ def test_route_logs_one_stage_timing_line(caplog) -> None:
         with TestClient(app) as client:
             app.state.policy = policy
             response = client.post(
-                "/route", json={"schema_version": "policy_router_v3"}
+                "/route", json={"schema_version": "policy_router_v4"}
             )
 
     assert response.status_code == 200
@@ -260,25 +234,48 @@ def test_route_logs_one_stage_timing_line(caplog) -> None:
         assert field in line, f"{field!r} missing from {line!r}"
 
 
-def test_route_response_names_no_arm() -> None:
-    """v3 is classifier-only: a router reading a served arm out of the body is
-    reading a null, not a stale pick."""
+def test_route_response_is_classification_facts_only() -> None:
+    """The Go router decodes v4 bodies with unknown fields disallowed."""
     with TestClient(app) as client:
         app.state.policy = TimedPolicy()
-        response = client.post("/route", json={"schema_version": "policy_router_v3"})
+        response = client.post("/route", json={"schema_version": "policy_router_v4"})
 
     payload = response.json()
-    assert payload["schema_version"] == "policy_router_v3"
-    assert payload["selected_roster_id"] is None
-    assert payload["selected_provider"] is None
-    assert payload["model"] is None
-    assert payload["ranked_fallback"][0]["eligible_arms"] == ["provider/a"]
+    assert set(payload) == {
+        "schema_version",
+        "route_id",
+        "classifier_artifact_id",
+        "classifier_artifact_sha256",
+        "predicted_label",
+        "class_order",
+        "class_probabilities",
+        "classifier_confidence",
+        "classifier_margin",
+        "hmm_state_id",
+        "hmm_state_path",
+        "hmm_state_probabilities",
+    }
+    assert payload["schema_version"] == "policy_router_v4"
+
+
+@pytest.mark.parametrize("field", ["candidates", "preferred_models", "quality_bias"])
+def test_route_rejects_selection_authority_fields(field: str) -> None:
+    policy = ClassifyingPolicy()
+    with TestClient(app) as client:
+        app.state.policy = policy
+        response = client.post(
+            "/route", json={"schema_version": "policy_router_v4", field: []}
+        )
+
+    assert response.status_code == 400
+    assert response.json()["fields"] == [field]
+    assert policy.payloads == []
 
 
 def test_route_rejects_the_superseded_selection_schema() -> None:
     with TestClient(app) as client:
         app.state.policy = TimedPolicy()
-        response = client.post("/route", json={"schema_version": "policy_router_v1"})
+        response = client.post("/route", json={"schema_version": "policy_router_v3"})
 
     assert response.status_code == 400
     assert response.json() == {"error": "unsupported policy schema"}
@@ -320,7 +317,7 @@ def test_route_failures_do_not_log_a_timing_line(caplog) -> None:
         with TestClient(app) as client:
             app.state.policy = RejectingPolicy()
             response = client.post(
-                "/route", json={"schema_version": "policy_router_v3"}
+                "/route", json={"schema_version": "policy_router_v4"}
             )
 
     assert response.status_code == 422
@@ -364,100 +361,48 @@ def test_configure_logging_does_not_duplicate_an_existing_setup() -> None:
         package_log.setLevel(original_level)
 
 
-class SelectedArtifactPolicy(RosterPolicy):
-    def __init__(self, sha: str) -> None:
-        self.roster_version = sha
-        self.sha = sha
-
-    async def route_with_timings(self, payload: dict[str, object]):
-        del payload
-        return (
-            RouteResult(
-                route_id="route",
-                score=0.9,
-                candidate_scores={"provider/a": 0.9},
-                reason="test",
-                state_label="state_1",
-                policy_group="fast",
-                policy_label="fast",
-                policy_route_key="hmm:1:fast",
-                confidence=0.9,
-                margin=0.4,
-                propensity=1.0,
-                policy_artifact_id="artifact",
-                policy_artifact_sha256=self.sha,
-                roster_version=self.roster_version,
-                ranked_fallback=(
-                    {
-                        "group": "fast",
-                        "probability": 1.0,
-                        "roster_arms": ("provider/a",),
-                        "eligible_arms": ("provider/a",),
-                    },
-                ),
-                debug={"frozen_policy": True},
-            ),
-            RouteTimings(
-                sequence_ms=1.0,
-                embed_ms=1.0,
-                hmm_ms=1.0,
-                classifier_ms=1.0,
-                total_ms=4.0,
-                turns=1,
-                embed_requested=1,
-                embed_cached=1,
-                embed_fetched=0,
-            ),
-        )
-
-
 def test_route_serves_the_requested_registry_artifact() -> None:
-    default = SelectedArtifactPolicy("d" * 64)
-    pinned = SelectedArtifactPolicy("e" * 64)
+    default = ClassifyingPolicy("d" * 64)
+    pinned = ClassifyingPolicy("e" * 64)
     with TestClient(app) as client:
         app.state.policy = default
         app.state.policies = {default.sha: default, pinned.sha: pinned}
-        unpinned = client.post("/route", json={"schema_version": "policy_router_v3"})
+        unpinned = client.post("/route", json={"schema_version": "policy_router_v4"})
         selected = client.post(
             "/route",
-            json={"schema_version": "policy_router_v3", "artifact_sha256": pinned.sha},
+            json={"schema_version": "policy_router_v4", "artifact_sha256": pinned.sha},
         )
-        roster = client.get("/roster", params={"artifact_sha256": pinned.sha})
 
     assert unpinned.status_code == 200
-    assert unpinned.json()["policy_artifact_sha256"] == default.sha
+    assert unpinned.json()["classifier_artifact_sha256"] == default.sha
     assert selected.status_code == 200
-    assert selected.json()["policy_artifact_sha256"] == pinned.sha
-    assert roster.status_code == 200
-    assert roster.json()["roster_version"] == pinned.sha
+    assert selected.json()["classifier_artifact_sha256"] == pinned.sha
 
 
 def test_unknown_artifact_sha256_is_a_404_never_the_default() -> None:
-    default = SelectedArtifactPolicy("d" * 64)
+    default = ClassifyingPolicy("d" * 64)
     with TestClient(app) as client:
         app.state.policy = default
         app.state.policies = {default.sha: default}
         route = client.post(
             "/route",
-            json={"schema_version": "policy_router_v3", "artifact_sha256": "f" * 64},
+            json={"schema_version": "policy_router_v4", "artifact_sha256": "f" * 64},
         )
         preview = client.post(
             "/preview",
             json={
-                "schema_version": "policy_router_v3",
+                "schema_version": "policy_router_v4",
                 "execution_mode": "preview",
                 "artifact_sha256": "f" * 64,
             },
         )
-        roster = client.get("/roster", params={"artifact_sha256": "f" * 64})
         bad_type = client.post(
-            "/route", json={"schema_version": "policy_router_v3", "artifact_sha256": 7}
+            "/route", json={"schema_version": "policy_router_v4", "artifact_sha256": 7}
         )
 
     assert route.status_code == 404
     assert route.json()["artifact_sha256"] == "f" * 64
     assert preview.status_code == 404
-    assert roster.status_code == 404
     assert bad_type.status_code == 400
 
 

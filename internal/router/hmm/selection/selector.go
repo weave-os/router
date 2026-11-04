@@ -54,6 +54,8 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 				return policy.SelectionPick{}, fmt.Errorf("forced group %q is absent from policy: %w", input.ForcedGroup, ErrNoEligibleArm)
 			}
 			rankedGroups = []string{input.ForcedGroup}
+		} else if index := slices.Index(rankedGroups, input.LeadGroup); input.LeadGroup != "" && index > 0 {
+			rankedGroups = append([]string{input.LeadGroup}, append(rankedGroups[:index], rankedGroups[index+1:]...)...)
 		}
 		groups := make([]Group, 0, len(rankedGroups))
 		for _, group := range rankedGroups {
@@ -67,10 +69,11 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 		if input.TaskDomain != nil && input.TaskDomain.Status == taskdomain.Ready && input.TaskDomain.EvidenceSHA256 == evidenceSHA256 {
 			profile = input.TaskDomain.Profile
 		}
-		pick, scoresByGroup, scoreComponentsByGroup, ordersByGroup, ok := SelectGroupsWithDomainPreferences(
+		pick, scoresByGroup, scoreComponentsByGroup, ordersByGroup, ok := SelectGroupsWithSubscriptions(
 			roster,
 			groups,
 			input.Harness,
+			input.SubscriptionProviders,
 			candidates,
 			input.QualityBias,
 			input.PreferredModels,
@@ -117,6 +120,7 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 				CandidateRosterIDs:     append([]string(nil), input.CandidateRosterIDs...),
 				QualityBias:            input.QualityBias,
 				PreferredModels:        append([]string(nil), input.PreferredModels...),
+				SubscriptionProviders:  append([]string(nil), input.SubscriptionProviders...),
 				EffectiveOrders:        ordersByGroup,
 				ScoresByGroup:          scoresByGroup,
 				ScoreComponentsByGroup: scoreComponentsByGroup,

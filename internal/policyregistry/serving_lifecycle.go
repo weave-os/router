@@ -1,12 +1,15 @@
 package policyregistry
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 	"time"
 
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/google/uuid"
@@ -14,9 +17,9 @@ import (
 
 const (
 	// ServingIdleLifetime is measured from the last admitted request, not stream completion.
-	ServingIdleLifetime = 24 * time.Hour
-	// ServingRetirementLifetime starts once, when an activation is superseded.
-	ServingRetirementLifetime = 7 * 24 * time.Hour
+	// It matches the one-hour session-pin TTL: a rebind resets the conversation's routing
+	// state, so it must only happen once the provider prompt cache has gone cold.
+	ServingIdleLifetime = time.Hour
 	// ServingDrainGrace exceeds the current maximum 600-second worker request duration.
 	ServingDrainGrace = 15 * time.Minute
 )
@@ -235,18 +238,21 @@ func NextServingActivation(snapshot ServingStateSnapshot, proposalPayload []byte
 
 // SessionReleaseBinding is the release decision persisted under an authenticated conversation scope.
 type SessionReleaseBinding struct {
-	Target               ServingTarget    `json:"target"`
-	ActivationID         string           `json:"activation_id"`
-	Selection            ServingSelection `json:"selection"`
-	ProfileKey           string           `json:"profile_key,omitempty"`
-	ProfileName          string           `json:"profile_name,omitempty"`
-	Plan                 entitlement.Plan `json:"plan,omitempty"`
-	EntitlementVersion   int64            `json:"entitlement_version,omitempty"`
-	EnrollmentGeneration int64            `json:"enrollment_generation"`
-	AssignmentGeneration int64            `json:"assignment_generation"`
-	BindingGeneration    int64            `json:"binding_generation"`
-	CreatedAt            time.Time        `json:"created_at"`
-	LastAdmittedAt       time.Time        `json:"last_admitted_at"`
+	RoutingModel         router.RoutingModel `json:"routing_model,omitempty"`
+	Target               ServingTarget       `json:"target"`
+	ActivationID         string              `json:"activation_id"`
+	Selection            ServingSelection    `json:"selection"`
+	ProfileKey           string              `json:"profile_key,omitempty"`
+	ProfileName          string              `json:"profile_name,omitempty"`
+	Plan                 entitlement.Plan    `json:"plan,omitempty"`
+	EntitlementVersion   int64               `json:"entitlement_version,omitempty"`
+	EnrollmentGeneration int64               `json:"enrollment_generation"`
+	AssignmentGeneration int64               `json:"assignment_generation"`
+	// Empty on bindings persisted before routing controls were projected.
+	RoutingControlsDigest string    `json:"routing_controls_digest,omitempty"`
+	BindingGeneration     int64     `json:"binding_generation"`
+	CreatedAt             time.Time `json:"created_at"`
+	LastAdmittedAt        time.Time `json:"last_admitted_at"`
 }
 
 // AdmissionProjection is read from authenticated router storage, never caller headers.
@@ -258,6 +264,10 @@ type AdmissionProjection struct {
 	EntitlementVersion   int64
 	EnrollmentGeneration int64
 	AssignmentGeneration int64
+	// RoutingControlsDigest changes when the installation's model or provider
+	// controls change, so a pinned conversation cannot keep a roster that no
+	// longer overlaps them.
+	RoutingControlsDigest string
 }
 
 // SelectSessionRelease applies pin lifetimes to an authoritative target read inside session serialization.
@@ -294,6 +304,7 @@ func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionP
 	}
 	generation := int64(1)
 	createdAt := now
+	var routingModel router.RoutingModel
 	if previous != nil {
 		if previous.BindingGeneration <= 0 || previous.CreatedAt.IsZero() || previous.LastAdmittedAt.Before(previous.CreatedAt) || previous.LastAdmittedAt.After(now) {
 			return SessionReleaseBinding{}, errors.New("invalid persisted session binding")
@@ -301,6 +312,7 @@ func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionP
 		generation = previous.BindingGeneration + 1
 		createdAt = previous.CreatedAt
 		if previous.Target == projection.Target {
+			routingModel = previous.RoutingModel
 			activation, exists := snapshot.State.Activations[previous.ActivationID]
 			if !exists {
 				return SessionReleaseBinding{}, errors.New("persisted session references an unknown activation")
@@ -312,7 +324,7 @@ func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionP
 			if !sameSelection(selected, previous.Selection) {
 				return SessionReleaseBinding{}, errors.New("persisted session selection differs from its activation")
 			}
-			eligible := previous.ProfileKey == projection.ProfileKey && previous.ProfileName == projection.ProfileName && previous.Plan == projection.Plan && previous.EntitlementVersion == projection.EntitlementVersion && previous.EnrollmentGeneration == projection.EnrollmentGeneration && previous.AssignmentGeneration == projection.AssignmentGeneration && now.Before(previous.LastAdmittedAt.Add(ServingIdleLifetime)) && activation.WithdrawnAt == nil && (activation.SupersededAt == nil || now.Before(activation.SupersededAt.Add(ServingRetirementLifetime)))
+			eligible := previous.ProfileKey == projection.ProfileKey && previous.ProfileName == projection.ProfileName && previous.Plan == projection.Plan && previous.EntitlementVersion == projection.EntitlementVersion && previous.EnrollmentGeneration == projection.EnrollmentGeneration && previous.AssignmentGeneration == projection.AssignmentGeneration && (previous.RoutingControlsDigest == "" || previous.RoutingControlsDigest == projection.RoutingControlsDigest) && now.Before(previous.LastAdmittedAt.Add(ServingIdleLifetime)) && activation.WithdrawnAt == nil
 			if eligible {
 				retained := *previous
 				retained.LastAdmittedAt = now
@@ -324,7 +336,7 @@ func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionP
 	if err != nil {
 		return SessionReleaseBinding{}, err
 	}
-	return SessionReleaseBinding{Target: projection.Target, ActivationID: current.ID, Selection: selection, ProfileKey: projection.ProfileKey, ProfileName: projection.ProfileName, Plan: projection.Plan, EntitlementVersion: projection.EntitlementVersion, EnrollmentGeneration: projection.EnrollmentGeneration, AssignmentGeneration: projection.AssignmentGeneration, BindingGeneration: generation, CreatedAt: createdAt, LastAdmittedAt: now}, nil
+	return SessionReleaseBinding{RoutingModel: routingModel, Target: projection.Target, ActivationID: current.ID, Selection: selection, ProfileKey: projection.ProfileKey, ProfileName: projection.ProfileName, Plan: projection.Plan, EntitlementVersion: projection.EntitlementVersion, EnrollmentGeneration: projection.EnrollmentGeneration, AssignmentGeneration: projection.AssignmentGeneration, RoutingControlsDigest: projection.RoutingControlsDigest, BindingGeneration: generation, CreatedAt: createdAt, LastAdmittedAt: now}, nil
 }
 
 func selectionForActivation(activation Activation, profileKey string, sets map[string]SelectionSetView, root string, target ServingTarget) (ServingSelection, error) {
@@ -353,4 +365,20 @@ func sameSelection(left, right ServingSelection) bool {
 		return false
 	}
 	return left.Profile == nil || *left.Profile == *right.Profile
+}
+
+// RoutingControlsDigest fingerprints the installation controls that shape the
+// candidate set; order and duplicates are not significant.
+func RoutingControlsDigest(allowedModels, excludedModels, excludedProviders []string, routingStrategy *string) string {
+	canonical := func(values []string) []string {
+		out := slices.Clone(values)
+		slices.Sort(out)
+		return slices.Compact(out)
+	}
+	strategy := ""
+	if routingStrategy != nil {
+		strategy = *routingStrategy
+	}
+	encoded, _ := json.Marshal([]any{canonical(allowedModels), canonical(excludedModels), canonical(excludedProviders), strategy})
+	return Digest(encoded)
 }

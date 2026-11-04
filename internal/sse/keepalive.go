@@ -78,6 +78,7 @@ func (k *KeepaliveWriter) Header() http.Header { return k.inner.Header() }
 func (k *KeepaliveWriter) WriteHeader(code int) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
+	PrepareJSONResponse(k.inner)
 	k.inner.WriteHeader(code)
 }
 
@@ -85,7 +86,7 @@ func (k *KeepaliveWriter) Write(p []byte) (n int, err error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	n, err = k.inner.Write(p)
+	n, err = WriteJSONChunk(k.inner, p)
 	k.last = time.Now()
 	k.noteWritten(p[:n])
 	if !k.armed && !k.stopped && k.interval > 0 {

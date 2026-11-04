@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -84,18 +83,15 @@ func (s *Service) handleRouterFeedbackCommand(
 	log := observability.FromContext(ctx)
 	role := roleForTier(catalog.TierFor(env.Model()))
 
+	ack := newCommandAcknowledgment(translate.CommandRouterFeedback)
+	ack.clientApp = ClientIdentityFrom(ctx).ClientApp
 	feedback := strings.TrimSpace(cmd.Feedback)
 	rating := cmd.Rating
 	if rating == "" && feedback == "" {
-		// No verdict and no note. Message is formatted as a routing marker so
-		// StripRoutingMarkerFromMessages strips it from later requests.
-		rf := directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "rf"
-		msg := fmt.Sprintf("✦ **Weave Router** → Router-feedback needs a verdict or a note, e.g. %s+ or %s- too slow.\n\n", rf, rf)
-		if env.SourceFormat() == translate.FormatOpenAI {
-			msg = fmt.Sprintf("Weave Router: router-feedback needs a verdict or a note, e.g. %s+ or %s- too slow.", rf, rf)
-		}
+		ack.feedback = feedbackEmpty
+		ack.outcome.Disposition = translate.CommandRejected
 		if synthetic {
-			return writeSyntheticCommandResponse(w, env, msg, inputTokens)
+			return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
 		}
 		return nil
 	}
@@ -110,13 +106,10 @@ func (s *Service) handleRouterFeedbackCommand(
 		if err != nil {
 			log.Error("/router-feedback: sequence lookup failed", "sequence", cmd.Sequence, "err", err)
 			if errors.Is(err, sql.ErrNoRows) {
-				rf := directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "rf"
-				msg := fmt.Sprintf("✦ **Weave Router** → No turn found at that sequence number. Try `%s` without a number for the last turn.\n\n", rf)
-				if env.SourceFormat() == translate.FormatOpenAI {
-					msg = fmt.Sprintf("Weave Router: No turn found at that sequence number. Try `%s` without a number for the last turn.", rf)
-				}
+				ack.feedback = feedbackMissingSequence
+				ack.outcome.Disposition = translate.CommandRejected
 				if synthetic {
-					return writeSyntheticCommandResponse(w, env, msg, inputTokens)
+					return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
 				}
 				return nil
 			}
@@ -251,7 +244,8 @@ func (s *Service) handleRouterFeedbackCommand(
 	)
 
 	if synthetic {
-		return writeSyntheticCommandResponse(w, env, routerFeedbackAck(env.SourceFormat(), rating), inputTokens)
+		ack.feedback, ack.rating = feedbackRecorded, rating
+		return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
 	}
 	return nil
 }
@@ -351,23 +345,6 @@ func routerFeedbackTrainingDelta(env *translate.RequestEnvelope) []router.Conver
 	return append([]router.ConversationMessage(nil), messages[start:ratedAssistant+1]...)
 }
 
-// routerFeedbackAck renders the acknowledgment, echoing the verdict. The
-// Anthropic-format ack is wrapped as a routing marker so it gets stripped
-// from subsequent turns.
-func routerFeedbackAck(format translate.Format, rating string) string {
-	verdict := ""
-	switch rating {
-	case translate.RouterFeedbackRatingUp:
-		verdict = " 👍"
-	case translate.RouterFeedbackRatingDown:
-		verdict = " 👎"
-	}
-	if format == translate.FormatOpenAI {
-		return "Weave Router: Feedback recorded" + verdict + ". Thank you."
-	}
-	return "✦ **Weave Router** → Feedback recorded" + verdict + ". Thank you.\n\n"
-}
-
 // persistedFeedbackText is the value written to router.router_feedback.feedback.
 // Verdict-only submissions get a compact emoji so the NOT NULL column is never empty.
 func persistedFeedbackText(rating, feedback string) string {
@@ -381,15 +358,4 @@ func persistedFeedbackText(rating, feedback string) string {
 		return "👎"
 	}
 	return ""
-}
-
-// writeSyntheticCommandResponse writes a router-command acknowledgment in the
-// inbound wire format without dispatching upstream.
-func writeSyntheticCommandResponse(w http.ResponseWriter, env *translate.RequestEnvelope, msg string, inputTokens int) error {
-	switch env.SourceFormat() {
-	case translate.FormatOpenAI:
-		return writeSyntheticOpenAIResponse(w, env, msg, inputTokens)
-	default:
-		return writeSyntheticAnthropicResponse(w, env, msg, inputTokens)
-	}
 }

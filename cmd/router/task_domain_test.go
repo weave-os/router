@@ -30,11 +30,9 @@ func TestTaskBindingRequiresAdmittedAndLoadedRelease(t *testing.T) {
 	assert.Empty(t, digest)
 	releaseSHA := strings.Repeat("a", 64)
 	candidate := policyregistry.Candidate{AuxiliaryModels: map[string]policyregistry.ObjectRef{taskdomain.AuxiliaryModel: {SHA256: releaseSHA}}, Policy: &rosterdata.Roster{SHA256: strings.Repeat("b", 64)}}
-	_, _, _, err = runtime.bind(candidate)
-	require.ErrorContains(t, err, "not loaded")
+	assertBaselineTaskBinding(t, runtime, candidate, releaseSHA)
 	runtime = &taskDomainRuntime{bindings: map[string]loadedTaskDomain{strings.Repeat("c", 64): {}}}
-	_, _, _, err = runtime.bind(candidate)
-	require.ErrorContains(t, err, "unavailable")
+	assertBaselineTaskBinding(t, runtime, candidate, releaseSHA)
 	runtime.bindings[releaseSHA] = loadedTaskDomain{release: taskdomain.Release{Evidence: map[string]string{strings.Repeat("d", 64): strings.Repeat("e", 64)}}}
 	resolver, evidence, digest, err = runtime.bind(candidate)
 	require.NoError(t, err)
@@ -50,6 +48,19 @@ func TestTaskBindingRequiresAdmittedAndLoadedRelease(t *testing.T) {
 	runtime.bindings[releaseSHA] = loaded
 	_, _, _, err = runtime.bind(candidate)
 	require.Error(t, err, "invalid admitted evidence cannot become a different release")
+}
+
+// A retired or unloaded task classifier must not make an admitted candidate unservable.
+func assertBaselineTaskBinding(t *testing.T, runtime *taskDomainRuntime, candidate policyregistry.Candidate, releaseSHA string) {
+	t.Helper()
+	resolver, evidence, digest, err := runtime.bind(candidate)
+	require.NoError(t, err)
+	require.NotNil(t, resolver)
+	assert.Nil(t, evidence)
+	assert.Empty(t, digest)
+	outcome := resolver.Resolve(context.Background(), taskdomain.Input{ConversationKey: "synthetic", RootSHA256: strings.Repeat("d", 64), UserText: "Synthetic task"})
+	assert.Equal(t, taskdomain.EvidenceUnavailable, outcome.Status)
+	assert.Equal(t, releaseSHA, outcome.ReleaseSHA256)
 }
 
 func TestTaskDomainBindingDigestRequiresExactBytes(t *testing.T) {

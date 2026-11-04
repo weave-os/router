@@ -133,6 +133,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 					ExpectedRemainingTurns: 3,
 				}).
 				WithSummarizer(summarizer).
+				WithHMMDowngradeHysteresisTurns(0).
 				WithPolicyStrategy(policy.StrategySpec{
 					Strategy: strategy,
 					Router:   policyRouter,
@@ -241,7 +242,7 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
 		nil,
-	).WithPolicyStrategy(policy.StrategySpec{
+	).WithHMMDowngradeHysteresisTurns(0).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   policyRouter,
 		Capabilities: policy.Capabilities{
@@ -315,6 +316,34 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 			wantModel:  "claude-opus-4-8",
 			wantSticky: false,
 			wantTier:   "authoritative_per_turn",
+		},
+		{
+			name:     "majority-confidence upgrade serves fresh",
+			pinFound: true,
+			pinModel: "claude-haiku-4-5",
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-opus-4-8",
+				Reason:   "hmm_policy(classifier 'maximum' (p=0.55))",
+				Metadata: &router.RoutingMetadata{ChosenScore: 0.55},
+			},
+			wantModel:  "claude-opus-4-8",
+			wantSticky: false,
+			wantTier:   "authoritative_per_turn",
+		},
+		{
+			name:     "sub-majority upgrade keeps cheaper pin",
+			pinFound: true,
+			pinModel: "claude-haiku-4-5",
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-opus-4-8",
+				Reason:   "hmm_policy(classifier 'maximum' (p=0.45))",
+				Metadata: &router.RoutingMetadata{ChosenScore: 0.45},
+			},
+			wantModel:  "claude-haiku-4-5",
+			wantSticky: true,
+			wantTier:   "authoritative_hmm_upgrade_confidence_low",
 		},
 		{
 			name:     "downgrade serves fresh despite low confidence",
@@ -395,7 +424,7 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
 				nil,
-			).WithPolicyStrategy(policy.StrategySpec{
+			).WithHMMDowngradeHysteresisTurns(0).WithPolicyStrategy(policy.StrategySpec{
 				Strategy: strategy,
 				Router:   policyRouter,
 				Capabilities: policy.Capabilities{

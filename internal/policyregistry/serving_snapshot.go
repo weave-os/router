@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/armid"
 )
 
@@ -144,12 +145,16 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 		Policy:             prepared.Policy,
 		ClassifierAudience: prepared.Binding.Classifier.Audience,
 	}
+	candidate.StrategyPolicies = prepared.StrategyPolicies
 	routers, err := c.builder(ctx, candidate)
 	if err != nil {
 		return nil, err
 	}
 	if len(routers) == 0 {
 		return nil, errors.New("admitted serving snapshot has no routers")
+	}
+	if routers[router.PrimaryRoutingStrategy] == nil {
+		return nil, errors.New("admitted serving snapshot has no primary classifier router")
 	}
 	snapshot := &Snapshot{Candidate: candidate, Routers: routers}
 	if existing, loaded, _ := c.loaded.PeekOrAdd(key, snapshot); loaded {

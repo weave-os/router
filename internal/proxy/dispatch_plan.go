@@ -1,6 +1,9 @@
 package proxy
 
 import (
+	"strings"
+	"time"
+
 	"context"
 	"errors"
 	"fmt"
@@ -109,6 +112,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 	}
 
 	lastIdx := 0
+	lastProvider := in.initialDecision.Provider
 	managedBinding := false
 	ctx, rotationBudget := withSubscriptionAdmissionBudget(ctx)
 	ctx = withClientAppRefusalPaidFallback(ctx, in.initialDecision)
@@ -122,6 +126,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		},
 		Prepare: func(ctx context.Context, attempt dispatch.Attempt) (context.Context, error) {
 			lastIdx = attempt.Index
+			lastProvider = attempt.Target.Provider
 			if attempt.Index == 0 {
 				return ctx, nil
 			}
@@ -144,6 +149,11 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		decision := in.initialDecision
 		decision.Provider = attempt.Target.Provider
 		guarded := dispatch.GuardTarget(client, attempt.Target)
+		trace := attemptTraceFromContext(ctx)
+		if trace != nil {
+			trace.beginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
+			guarded = dispatch.ObservePrepared(guarded, trace.observeSent)
+		}
 		var lastSubscriptionErr error
 		if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
 			usage.IntendedModel = decision.Model
@@ -243,19 +253,32 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				return attemptErr
 			}
 			rotate := managedAttempt && (s.recordManagedSubscriptionFailure(bookkeepingCtx, decision.Provider, decision.Model, lease, attemptErr) || providers.IsRetryable(attemptErr))
+			if managedAttempt && !committed(in.buf) {
+				s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
+			}
 			if !managedAttempt && servedOnCodexSubscription(credentialCtx) && !committed(in.buf) {
 				_, quotaSpent := codexQuotaExhaustion(attemptErr)
 				if quotaSpent || codexOAuthCredentialRejected(attemptErr) || codexSubscriptionModelRejected(attemptErr) || providers.IsRetryable(attemptErr) {
 					s.recordCodexQuotaExhaustion(bookkeepingCtx, http.Header{}, attemptErr)
+					s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
 					attemptCtx = resolveAndInjectCredentials(withSuppressedCodexSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{})
 					rotate = true
 				}
+			}
+			if credentialRejectionStands(lastSubscriptionErr, attemptErr, codexOAuthCredentialRejected) {
+				return lastSubscriptionErr
 			}
 			if committed(in.buf) || !rotate {
 				if providers.IsUpstreamModelNotFound(attemptErr) {
 					s.rememberGatewayLacksModel(attemptCtx, decision.Provider, decision.Model)
 				}
 				return attemptErr
+			}
+			// Describe runs once per dispatch attempt; record the failed account
+			// call before the next account overwrites the traced body.
+			if trace != nil {
+				trace.describe(ctx, attempt, attemptErr)
+				trace.beginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
 			}
 			lastSubscriptionErr = attemptErr
 			if rotationBudget.remaining <= 0 {
@@ -273,8 +296,14 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		}
 	}
 
+	if trace := attemptTraceFromContext(ctx); trace != nil {
+		transport.Describe = func(attempt dispatch.Attempt, err error) inference.AttemptDiagnosis {
+			return trace.describe(ctx, attempt, err)
+		}
+	}
 	req := inference.InvocationRequest{Purpose: in.purpose, RequestID: observability.RequestIDFromContext(ctx)}
 	result, runErr := executor.Run(ctx, req, plan, transport)
+	s.recordOverloadOutcome(ctx, in.initialDecision.Model, lastProvider, result.Outcome.ResponseCommitted, runErr)
 	if runErr == nil {
 		return lastIdx, nil
 	}
@@ -293,6 +322,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 	case dispatch.FailureReasonProviderNotConfigured, dispatch.FailureReasonPrepare:
 		return lastIdx, runErr
 	}
+	runErr = attributeTerminalError(attemptTraceFromContext(ctx), runErr)
 	if in.flushErr != nil && !in.deferFlushOnExhaustion && !committed(in.buf) {
 		in.flushErr(in.w, runErr)
 	}
@@ -341,4 +371,23 @@ func recordWinningCredentials(ctx, credentialCtx context.Context) {
 		usage.WinningCredentials = requestcontext.CredentialsFromContext(credentialCtx)
 		usage.Finished = true
 	}
+}
+
+// gatewayDeploymentBaseURL names the deployment-configured endpoint of a
+// customer gateway, so failures on it are attributed to that gateway.
+func gatewayDeploymentBaseURL(provider string, client providers.Client) string {
+	if !providers.IsGateway(provider) {
+		return ""
+	}
+	for client != nil {
+		if c, ok := client.(interface{ BaseURL() string }); ok {
+			return strings.TrimRight(c.BaseURL(), "/")
+		}
+		w, ok := client.(interface{ Unwrap() providers.Client })
+		if !ok {
+			return ""
+		}
+		client = w.Unwrap()
+	}
+	return ""
 }
