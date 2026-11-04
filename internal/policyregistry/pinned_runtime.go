@@ -68,6 +68,8 @@ func LoadPinnedRuntime(ctx context.Context, store ServingStore, pin PinnedRuntim
 	}
 	view := set.View(pin.SelectionSet)
 	selection := view.Default
+	// Profile loading retains the V3 binding contract, but the local entrypoint
+	// supplies only the default until product-specific admission is available.
 	if pin.ProfileKey != "" {
 		var found bool
 		selection, found = view.Profiles[pin.ProfileKey]

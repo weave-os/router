@@ -18,8 +18,9 @@ func buildLocalServingRuntime(ctx context.Context, mode server.DeploymentMode, a
 		return nil, nil, fmt.Errorf("local pinned serving requires selfhosted mode")
 	}
 	pin := policyregistry.PinnedRuntimeRequest{
-		Target:     policyregistry.ServingTarget(config.MustGet("ROUTER_LOCAL_POLICY_TARGET")),
-		ProfileKey: config.GetOr("ROUTER_LOCAL_PROFILE_KEY", ""),
+		Target: policyregistry.ServingTarget(config.MustGet("ROUTER_LOCAL_POLICY_TARGET")),
+		// Product-specific profiles require admission that this local composition does not provide.
+		ProfileKey: "",
 		SelectionSet: policyregistry.ObjectRef{URI: config.MustGet("ROUTER_LOCAL_SELECTION_SET_URI"),
 			SHA256: config.MustGet("ROUTER_LOCAL_SELECTION_SET_SHA256"), Generation: int64(parseEnvInt("ROUTER_LOCAL_SELECTION_SET_GENERATION", 0))},
 		RouterRevision: config.MustGet("ROUTER_LOCAL_ROUTER_REVISION"), PolicySHA256: config.MustGet("ROUTER_LOCAL_POLICY_SHA256"),
@@ -27,9 +28,6 @@ func buildLocalServingRuntime(ctx context.Context, mode server.DeploymentMode, a
 		ClassifierPackageSHA256: config.MustGet("ROUTER_LOCAL_CLASSIFIER_SHA256"),
 		ClassifierImageDigest:   config.MustGet("ROUTER_LOCAL_CLASSIFIER_IMAGE_DIGEST"),
 		ClassifierURL:           config.MustGet("ROUTER_LOCAL_CLASSIFIER_URL"),
-	}
-	if pin.ProfileKey != "" {
-		return nil, nil, fmt.Errorf("local composition requires default profile until product admission is supplied")
 	}
 	registry, err := policyregistry.NewGCSRegistry(ctx, strings.TrimSpace(config.GetOr("ROUTER_SERVING_REGISTRY_URI", "gs://weave_ml/weave_registry/router/serving")))
 	if err != nil {

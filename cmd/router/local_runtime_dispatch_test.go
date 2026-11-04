@@ -71,9 +71,9 @@ func TestLocalPinnedCurrentHMMDecisionUsesUnchangedExecutorRetryPath(t *testing.
 	available := map[string]struct{}{providers.ProviderOpenAI: {}}
 	routers, err := hmmPolicySnapshotBuilder(available, []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding}, policySidecarAuthNone, time.Second, time.Second)(context.Background(), candidate)
 	require.NoError(t, err)
-	bound := &policyregistry.PinnedRuntime{Snapshot: &policyregistry.Snapshot{Candidate: candidate, Routers: routers}}
-	ctx := bound.Bind(context.Background())
-	decision, err := policyregistry.NewAdmittedRouter(router.StrategyHMMEmbedding, bound.Snapshot).Route(ctx, router.Request{PromptText: "Authored local composition check", ClientApp: "codex"})
+	pinnedRuntime := &policyregistry.PinnedRuntime{Snapshot: &policyregistry.Snapshot{Candidate: candidate, Routers: routers}}
+	ctx := pinnedRuntime.Bind(context.Background())
+	decision, err := policyregistry.NewAdmittedRouter(router.StrategyHMMEmbedding, pinnedRuntime.Snapshot).Route(ctx, router.Request{PromptText: "Authored local composition check", ClientApp: "codex"})
 	require.NoError(t, err)
 	require.Equal(t, catalog.ModelGPT6Luna, decision.Model)
 	require.Equal(t, policySHA, decision.Metadata.SelectionPolicySHA256)
