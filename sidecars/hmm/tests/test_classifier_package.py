@@ -13,6 +13,8 @@ import pytest
 
 from hmm_sidecar import artifacts
 from hmm_sidecar.classifier_package import gemini_embeddings
+from hmm_sidecar.classifier_package.runtime_contract import ReferenceProbe
+from hmm_sidecar.classifier_package.serving_profile import EmbeddingProvider
 
 FIXTURES = Path(__file__).parent / "fixtures" / "classifier_package"
 
@@ -286,18 +288,32 @@ class _ProbeHMM:
         self.result = result
         self.calls: list[str] = []
 
-    async def probe_embedding(self, text: str) -> object:
-        self.calls.append(text)
+    async def probe_embeddings(self, texts: list[str]) -> list[object]:
+        self.calls.extend(texts)
         if isinstance(self.result, BaseException):
             raise self.result
-        return self.result
+        if isinstance(self.result, dict):
+            return [self.result[text] for text in texts]
+        return [self.result for _ in texts]
 
 
-def _probe_classifier(probe_result: object, dim: int = 4):
+def _probe_classifier(
+    probe_result: object,
+    dim: int = 4,
+    *,
+    provider: EmbeddingProvider = EmbeddingProvider.GEMINI,
+    model: str = "gemini-embedding-2",
+    reference_probes: tuple[ReferenceProbe, ...] = (),
+):
     from hmm_sidecar.classifier_package.serving import PackageClassifier
 
     classifier = object.__new__(PackageClassifier)
-    classifier.profile = SimpleNamespace(embedding_model="gemini-embedding-2", embedding_dim=dim)  # type: ignore[attr-defined]
+    classifier.profile = SimpleNamespace(  # type: ignore[attr-defined]
+        embedding_model=model,
+        embedding_dim=dim,
+        config=SimpleNamespace(provider=provider),
+    )
+    classifier.reference_probes = reference_probes  # type: ignore[attr-defined]
     classifier.hmm = _ProbeHMM(probe_result)  # type: ignore[attr-defined]
     return classifier
 
@@ -348,4 +364,95 @@ def test_embedding_probe_rejects_an_unknown_transport_before_any_call(
     with pytest.raises(gemini_embeddings.EmbeddingError, match="HMM_GEMINI_TRANSPORT"):
         asyncio.run(classifier.verify_embedding_config())
 
+    assert classifier.hmm.calls == []
+
+
+CUSTOMER_MODEL = "acme/embed-small"
+_REFERENCES = (
+    ReferenceProbe(text="first probe", vector=(1.0, 0.0, 0.0, 0.0)),
+    ReferenceProbe(text="second probe", vector=(0.0, 1.0, 0.0, 0.0)),
+)
+
+
+def _customer_model_classifier(probe_result: object):
+    return _probe_classifier(
+        probe_result,
+        provider=EmbeddingProvider.OPENAI_COMPATIBLE,
+        model=CUSTOMER_MODEL,
+        reference_probes=_REFERENCES,
+    )
+
+
+def _configure_customer_model(monkeypatch, model: str = CUSTOMER_MODEL) -> None:
+    monkeypatch.setenv("HMM_EMBEDDING_PROVIDER", "openai-compatible")
+    monkeypatch.setenv("HMM_EMBEDDING_MODEL", model)
+
+
+def test_customer_model_probe_accepts_vectors_matching_the_references(
+    monkeypatch,
+) -> None:
+    _configure_customer_model(monkeypatch)
+    classifier = _customer_model_classifier(
+        {
+            "first probe": [0.9999, 0.01, 0.0, 0.0],
+            "second probe": [0.0, 2.0, 0.0, 0.0],
+        }
+    )
+
+    asyncio.run(classifier.verify_embedding_config())
+
+    assert classifier.hmm.calls == ["first probe", "second probe"]
+
+
+def test_customer_model_probe_rejects_vectors_from_a_different_model(
+    monkeypatch,
+) -> None:
+    _configure_customer_model(monkeypatch)
+    classifier = _customer_model_classifier(
+        {
+            "first probe": [1.0, 0.0, 0.0, 0.0],
+            "second probe": [0.5, 0.5, 0.5, 0.5],
+        }
+    )
+
+    with pytest.raises(gemini_embeddings.EmbeddingError, match="reference vectors"):
+        asyncio.run(classifier.verify_embedding_config())
+
+
+@pytest.mark.parametrize(
+    ("provider_setting", "model_setting", "expected_error"),
+    [
+        (None, CUSTOMER_MODEL, "HMM_EMBEDDING_PROVIDER"),
+        ("google", CUSTOMER_MODEL, "HMM_EMBEDDING_PROVIDER"),
+        ("openai-compatible", None, "HMM_EMBEDDING_MODEL 'unset'"),
+        ("openai-compatible", "acme/embed-large", "acme/embed-large"),
+    ],
+)
+def test_customer_model_probe_fails_closed_before_any_call_on_a_config_mismatch(
+    monkeypatch,
+    provider_setting: str | None,
+    model_setting: str | None,
+    expected_error: str,
+) -> None:
+    for name, value in (
+        ("HMM_EMBEDDING_PROVIDER", provider_setting),
+        ("HMM_EMBEDDING_MODEL", model_setting),
+    ):
+        if value is None:
+            monkeypatch.delenv(name, raising=False)
+        else:
+            monkeypatch.setenv(name, value)
+    classifier = _customer_model_classifier([1.0, 0.0, 0.0, 0.0])
+
+    with pytest.raises(gemini_embeddings.EmbeddingError, match=expected_error):
+        asyncio.run(classifier.verify_embedding_config())
+    assert classifier.hmm.calls == []
+
+
+def test_gemini_package_refuses_a_customer_embedding_provider(monkeypatch) -> None:
+    monkeypatch.setenv("HMM_EMBEDDING_PROVIDER", "openai-compatible")
+    classifier = _probe_classifier([0.5, 0.5, 0.5, 0.5])
+
+    with pytest.raises(gemini_embeddings.EmbeddingError, match="served by Gemini"):
+        asyncio.run(classifier.verify_embedding_config())
     assert classifier.hmm.calls == []

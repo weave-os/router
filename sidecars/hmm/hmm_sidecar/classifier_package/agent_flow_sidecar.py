@@ -7,7 +7,7 @@ import inspect
 import json
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -236,7 +236,11 @@ class AgentFlowHMMSidecar:
         embedding_inflight_max_age_seconds: float | None = None,
         embedding_cache_path: Path | None = None,
         offload_posterior: bool = False,
+        embed_uncached: Callable[..., Awaitable[Any]] | None = None,
+        state_encoder_contract: StateEncoderContract | None = None,
     ) -> None:
+        self._embed_uncached_override = embed_uncached
+        self._package_state_encoder = state_encoder_contract
         self.offload_posterior = offload_posterior
         self.workweave_dir = workweave_dir
         self.current_model_path = self._resolve_path(
@@ -319,12 +323,16 @@ class AgentFlowHMMSidecar:
             "allow_provider_fallback": False,
         }
 
-    async def probe_embedding(self, text: str) -> EmbeddingVector:
-        """One uncached embedding through the exact live serving call."""
-        vectors, _info = await embed_texts_uncached(
-            [text], **self._uncached_embedding_call_kwargs(self.embedding_model)
+    @property
+    def _embed_uncached(self) -> Callable[..., Awaitable[Any]]:
+        return self._embed_uncached_override or embed_texts_uncached
+
+    async def probe_embeddings(self, texts: list[str]) -> list[EmbeddingVector]:
+        """Uncached embeddings through the exact live serving call."""
+        vectors, _info = await self._embed_uncached(
+            texts, **self._uncached_embedding_call_kwargs(self.embedding_model)
         )
-        return vectors[text]
+        return [vectors[text] for text in texts]
 
     def _uncached_embedding_call_kwargs(self, model: str) -> dict[str, Any]:
         """The exact kwargs the live ``embed_texts_uncached`` call uses."""
@@ -379,7 +387,7 @@ class AgentFlowHMMSidecar:
         )
         for callee, call_kwargs in (
             (
-                embed_texts_uncached,
+                self._embed_uncached,
                 self._uncached_embedding_call_kwargs(probe_model),
             ),
             (
@@ -514,7 +522,7 @@ class AgentFlowHMMSidecar:
                             self.embedding_cache_path,
                         ),
                     )
-                return await embed_texts_uncached(
+                return await self._embed_uncached(
                     documents_to_fetch,
                     **self._uncached_embedding_call_kwargs(embedding_model),
                 )
@@ -861,6 +869,8 @@ class AgentFlowHMMSidecar:
 
     @property
     def state_encoder_contract(self) -> StateEncoderContract:
+        if self._package_state_encoder is not None:
+            return self._package_state_encoder
         return get_state_encoder_contract(self.sequence_representation)
 
     @property

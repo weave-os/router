@@ -21,6 +21,7 @@ from hmm_sidecar.classifier_package.complexity_classifier import (
     no_tool_context_feature_layout,
 )
 from hmm_sidecar.classifier_package.serving_profile import (
+    EmbeddingProvider,
     InteractionStateGeometry,
     ServingConfig,
     ServingProfile,
@@ -54,6 +55,15 @@ class InputSource(StrEnum):
     LIVE_CONVERSATION = "raw_v5_live_conversation_messages"
 
 
+class ReferenceProbe(BaseModel):
+    """A probe text and the vector the training-time embedding model returned."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    text: str = Field(min_length=1)
+    vector: tuple[float, ...] = Field(min_length=1)
+
+
 class RuntimeContract(BaseModel):
     """The runtime contract a raw-V5 package manifest declares.
 
@@ -78,6 +88,9 @@ class RuntimeContract(BaseModel):
     classes: tuple[str, ...] = Field(min_length=1)
     classifier_feature_layout_sha256: str
     classifier_feature_dim: int
+    #: Required for customer-model packages: startup re-embeds each text and
+    #: refuses to serve unless the live vectors match these.
+    reference_probes: tuple[ReferenceProbe, ...] = ()
 
     def resolved_profile(self) -> ServingProfile:
         """Byte identity is the package sha256 pin plus the parity test; this only
@@ -85,9 +98,26 @@ class RuntimeContract(BaseModel):
         was trained on."""
 
         try:
-            profile = serving_profile(self.serving_config)
+            profile = serving_profile(
+                self.serving_config,
+                embedding_model=self.embedding_model,
+                embedding_dim=self.embedding_dim,
+            )
         except ValueError as error:
             raise RuntimeContractError(str(error)) from error
+        if (
+            self.serving_config.provider is EmbeddingProvider.OPENAI_COMPATIBLE
+            and not self.reference_probes
+        ):
+            raise RuntimeContractError(
+                "an openai_compatible package must declare reference_probes"
+            )
+        if any(
+            len(probe.vector) != self.embedding_dim for probe in self.reference_probes
+        ):
+            raise RuntimeContractError(
+                f"a reference probe vector is not {self.embedding_dim} wide"
+            )
         declared = {
             "sequence_representation": self.sequence_representation,
             "embedding_model": self.embedding_model,
