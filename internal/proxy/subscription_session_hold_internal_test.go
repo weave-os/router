@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -66,4 +67,17 @@ func TestSubscriptionStatePoolOverloadHoldsSessionOffModel(t *testing.T) {
 	now = now.Add(10 * time.Minute)
 	codex.outcomes = append(codex.outcomes[:codex.calls], fakeOutcome{writeBytes: []byte("recovered")})
 	require.Equal(t, stateCodexModel, serve().Model, "the hold expires so a recovered pool serves again")
+}
+
+func TestSessionHoldCoversSiblingModelsOnThePool(t *testing.T) {
+	svc := &Service{now: time.Now}
+	ctx := context.WithValue(WithManagedSubscriptionUsage(context.Background()), ClientIdentityContextKey{}, ClientIdentity{SessionID: "codex-session"})
+	svc.markSubscriptionPoolUnavailable(ctx, subscriptions.ProviderCodex)
+	svc.holdSessionOffSubscriptionPool(ctx, providers.ProviderOpenAI, stateCodexModel)
+
+	sibling := "gpt-6-luna"
+	_, known := catalog.ByID(sibling)
+	require.True(t, known)
+	require.Equal(t, []string{stateClaudeModel}, svc.withoutHeldSubscriptionModels(ctx, []string{stateCodexModel, sibling, stateClaudeModel}),
+		"every model on the held pool stays out, not just the one that failed")
 }

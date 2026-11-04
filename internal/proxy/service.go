@@ -74,6 +74,7 @@ type Service struct {
 
 	router             router.Router
 	subscriptionModels subscriptionModelAccess
+	sessionHolds       subscriptionSessionHolds
 	// strategies contains every non-default router and its optional lifecycle
 	// reporters. Adding a strategy does not require another Service field.
 	strategies map[router.Strategy]registeredStrategy

@@ -112,8 +112,9 @@ requests and clears them on the next real user prompt
 (`RequestEnvelope.EndsWithUserPrompt`), so the session doesn't swap back to the
 failing model mid-turn. When the included lane drops a model because its
 subscription pool failed on provider capacity (5xx), the session is also held
-off it for `subscriptionSessionHold` (5 min, in memory per replica), which the
-next user prompt does not clear; otherwise every prompt re-walked the
+off that whole pool (every model it serves) for `subscriptionSessionHold`
+(5 min, in memory per replica, own cache), which the next user prompt does not
+clear; a held pool is still tried when the request admits nothing else; otherwise every prompt re-walked the
 overloaded pool and flipped families. Each managed account+model that answered
 a 5xx is skipped for `managedOverloadCooldown` (30s, in memory) by later
 requests, which still authorizes the same paid rescue as a live 5xx.

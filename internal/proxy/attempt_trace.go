@@ -165,7 +165,8 @@ func (t *attemptTrace) lastFailure() (tracedAttempt, bool) {
 	return tracedAttempt{}, false
 }
 
-// failedOn reports whether any attempt on model failed in this request.
+// failedOn reports whether any attempt on model failed in this request. Models
+// match by base model (baseModelOf), so catalog variants of one model count.
 func (t *attemptTrace) failedOn(model string) bool {
 	if t == nil {
 		return false
