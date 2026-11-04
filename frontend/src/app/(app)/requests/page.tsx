@@ -8,7 +8,6 @@ import { RequestFilterBar } from "@/components/requests/RequestFilterBar";
 import {
   EMPTY_REQUEST_FILTERS,
   filterRequests,
-  type RequestFilters,
 } from "@/components/requests/requestFilters";
 import { RequestsTable } from "@/components/requests/RequestsTable";
 import { api, type MetricsDetailRow } from "@/lib/api";
@@ -21,11 +20,11 @@ const REQUEST_LIMIT = 1000;
 function RequestsBody({
   rows,
   error,
-  visible,
+  filteredRows,
 }: {
   rows: MetricsDetailRow[] | null;
   error: string | null;
-  visible: MetricsDetailRow[];
+  filteredRows: MetricsDetailRow[];
 }) {
   if (error != null) {
     return (
@@ -36,10 +35,10 @@ function RequestsBody({
   if (rows.length === 0) {
     return <div className="py-12 text-center text-sm text-muted-foreground">No requests in this window.</div>;
   }
-  if (visible.length === 0) {
+  if (filteredRows.length === 0) {
     return <div className="py-12 text-center text-sm text-muted-foreground">No requests match these filters.</div>;
   }
-  return <RequestsTable rows={visible} />;
+  return <RequestsTable rows={filteredRows} />;
 }
 
 export default function RequestsPage() {
@@ -47,7 +46,7 @@ export default function RequestsPage() {
   const { fromISO, toISO } = dashboardFilters.filters;
   const [rows, setRows] = useState<MetricsDetailRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filters, setFilters] = useState<RequestFilters>(EMPTY_REQUEST_FILTERS);
+  const [filters, setFilters] = useState(EMPTY_REQUEST_FILTERS);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,7 +65,7 @@ export default function RequestsPage() {
     };
   }, [fromISO, toISO]);
 
-  const visible = useMemo(() => filterRequests(rows ?? [], filters), [rows, filters]);
+  const filteredRows = useMemo(() => filterRequests(rows ?? [], filters), [rows, filters]);
 
   return (
     <Page
@@ -87,12 +86,12 @@ export default function RequestsPage() {
         </div>
         {rows != null && rows.length > 0 && (
           <p className="text-xs text-muted-foreground">
-            {visible.length.toLocaleString()} of {rows.length.toLocaleString()} requests
+            {filteredRows.length.toLocaleString()} of {rows.length.toLocaleString()} requests
             {rows.length >= REQUEST_LIMIT ? ` (newest ${REQUEST_LIMIT.toLocaleString()} in this window)` : ""}
           </p>
         )}
         <div className="overflow-auto rounded-lg border border-border">
-          <RequestsBody rows={rows} error={error} visible={visible} />
+          <RequestsBody rows={rows} error={error} filteredRows={filteredRows} />
         </div>
       </Page.Section>
     </Page>

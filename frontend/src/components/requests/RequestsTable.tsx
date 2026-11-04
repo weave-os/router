@@ -31,7 +31,7 @@ const HEADERS: { label: string; right?: boolean }[] = [
 const CELL = "whitespace-nowrap px-3 py-2.5";
 
 export function RequestsTable({ rows }: { rows: MetricsDetailRow[] }) {
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [expandedRowKey, setExpandedRowKey] = useState<string | null>(null);
 
   return (
     <table className="w-full border-collapse text-sm">
@@ -50,16 +50,27 @@ export function RequestsTable({ rows }: { rows: MetricsDetailRow[] }) {
       <tbody>
         {rows.map((r, idx) => {
           const rowKey = `${r.request_id}-${idx}`;
-          const open = expanded === rowKey;
+          const open = expandedRowKey === rowKey;
+          const toggle = () => setExpandedRowKey(open ? null : rowKey);
           return (
             <Fragment key={rowKey}>
               <tr
                 className="cursor-pointer border-t border-border/50 hover:bg-muted/30"
-                aria-expanded={open}
-                onClick={() => setExpanded(open ? null : rowKey)}
+                onClick={toggle}
               >
                 <td className={cn(CELL, "w-6 text-muted-foreground")}>
-                  {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  <button
+                    type="button"
+                    aria-expanded={open}
+                    aria-label={open ? "Hide request details" : "Show request details"}
+                    className="flex items-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+                    onClick={e => {
+                      e.stopPropagation();
+                      toggle();
+                    }}
+                  >
+                    {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </button>
                 </td>
                 <td className={CELL}>{formatTimestamp(r.timestamp)}</td>
                 <td className={cn(CELL, "tabular-nums", isFailedRequest(r) && "text-danger")}>

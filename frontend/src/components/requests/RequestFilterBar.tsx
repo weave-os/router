@@ -23,8 +23,8 @@ interface RequestFilterBarProps {
 }
 
 export function RequestFilterBar({ rows, filters, onChange }: RequestFilterBarProps) {
-  const providers = distinctValues(rows, r => r.decision_provider);
-  const models = distinctValues(rows, r => r.decision_model);
+  const providers = distinctValues(rows, r => r.decision_provider, filters.provider);
+  const models = distinctValues(rows, r => r.decision_model, filters.model);
 
   return (
     <>

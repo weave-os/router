@@ -40,6 +40,12 @@ export function filterRequests(rows: MetricsDetailRow[], filters: RequestFilters
   });
 }
 
-export function distinctValues(rows: MetricsDetailRow[], pick: (row: MetricsDetailRow) => string): string[] {
-  return [...new Set(rows.map(pick).filter(v => v !== ""))].sort();
+// The active selection stays listed even when a new date window has no rows
+// for it, so the dropdown never hides the filter that is emptying the table.
+export function distinctValues(
+  rows: MetricsDetailRow[],
+  pick: (row: MetricsDetailRow) => string,
+  selected: string,
+): string[] {
+  return [...new Set([...rows.map(pick), selected].filter(v => v !== ""))].sort();
 }
