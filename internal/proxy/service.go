@@ -7700,6 +7700,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// runs on Weave credits instead of hard-failing.
 	if s.codexSubscriptionExhausted(ctx, r.Header) {
 		ctx = withSuppressedCodexSubscription(ctx)
+		ctx = withSubscriptionReconnectNudge(ctx, ownCodexPlanSpentNudge)
 	}
 	resolvedCtx := s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
 	responsesEndpointKey := EffectiveBaseURL(resolvedCtx, decision.Provider)
