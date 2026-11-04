@@ -40,12 +40,12 @@ func TestProxyMessages_SpentOwnClaudePlanNudgesToConnectASeat(t *testing.T) {
 
 	first := serve(body)
 	require.Contains(t, first, "your own Claude plan is out of usage")
-	require.Contains(t, first, proxy.SubscriptionsDashboardURL+"&reconnect=claude", "the link starts the Claude login")
+	require.Contains(t, first, proxy.SubscriptionsDashboardURL+"?reconnect=claude", "the link starts the Claude login")
 	require.NotContains(t, upstreamAuth[0], bypassSubToken, "the spent plan is not forwarded")
 
 	echoed, err := json.Marshal(map[string]any{"model": "claude-opus-4-7", "max_tokens": 4096, "stream": true, "messages": []map[string]any{
 		{"role": "user", "content": "hello"},
-		{"role": "assistant", "content": []map[string]string{{"type": "text", "text": "✦ **Weave Router** → your own Claude plan is out of usage for now. Connect or reconnect a Claude seat to keep this on a subscription: " + proxy.SubscriptionsDashboardURL + "&reconnect=claude\n\nhi"}}},
+		{"role": "assistant", "content": []map[string]string{{"type": "text", "text": "✦ **Weave Router** → your own Claude plan is out of usage for now. Connect or reconnect a Claude seat to keep this on a subscription: " + proxy.SubscriptionsDashboardURL + "?reconnect=claude\n\nhi"}}},
 		{"role": "user", "content": "again"},
 	}})
 	require.NoError(t, err)
