@@ -7,6 +7,12 @@ import { RouterMetricGroup, RouterMetricType } from "../../data";
 import { RouterDashboardSlot, RouterDashboardSlotName } from "../../slots";
 import { type UseDashboardFiltersResult } from "../DashboardPageFilters";
 import { ResponsiveGrid } from "../ResponsiveGrid";
+import {
+  RouterAdoptionCard,
+  RouterDailyRequestsHeatmap,
+  RouterInactiveCard,
+  RouterRequestsPerActiveUserChart,
+} from "../RouterActivity";
 import { RouterGroupedChartCard } from "../RouterCharts/RouterGroupedChartCard";
 import {
   ROUTER_BILLING_SERIES_CONFIGS,
@@ -37,7 +43,9 @@ export function RouterOverviewTabPanel({ filters, methodologyHref, tab }: Router
         <ResponsiveGrid>
           <div className={`${ResponsiveGrid.Full} grid grid-cols-1 gap-2.5 @4xl:grid-cols-2`}>
             <RouterDashboardStats cards={ACTIVITY_SUMMARY_CARDS} range={range} />
+            <RouterAdoptionCard />
           </div>
+          <RouterDailyRequestsHeatmap className={ResponsiveGrid.Medium} range={range} />
           <RouterGroupedChartCard
             className={ResponsiveGrid.Medium}
             fillPattern={ChartFillPattern.Dots}
@@ -49,6 +57,12 @@ export function RouterOverviewTabPanel({ filters, methodologyHref, tab }: Router
             seriesType={ChartSeriesType.Area}
             subtitle="Distinct people who sent router requests per bucket, stacked as unlinked router users and linked Weave accounts."
             title="Active people"
+          />
+          <RouterInactiveCard className={ResponsiveGrid.Medium} />
+          <RouterRequestsPerActiveUserChart
+            className={ResponsiveGrid.Medium}
+            granularity={granularity}
+            range={range}
           />
         </ResponsiveGrid>
       );

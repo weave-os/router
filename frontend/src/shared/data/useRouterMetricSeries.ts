@@ -4,7 +4,7 @@ import { type LoadState } from "@/shared/tools/LoadState";
 
 import { type RouterMetricSeries, type RouterMetricSeriesRequest } from "./metricSeries";
 import { useRouterDashboardQuery } from "./RouterDashboardDataProvider";
-import { type RouterReportSummary } from "./metricSeries";
+import { type RouterPerson, type RouterReportSummary } from "./metricSeries";
 import { type DateRange } from "./types";
 
 /** One dashboard metric from the host's data source; reloads when any request field changes. */
@@ -26,4 +26,8 @@ export function useRouterReportSummary(range: DateRange): LoadState<RouterReport
     dataSource => dataSource.metrics.reportSummary(range),
     [range.from, range.to],
   );
+}
+
+export function useRouterPeople(): LoadState<readonly RouterPerson[]> {
+  return useRouterDashboardQuery(dataSource => dataSource.metrics.people(), []);
 }
