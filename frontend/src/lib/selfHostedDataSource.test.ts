@@ -46,3 +46,42 @@ test("capabilities without an /admin/v1 endpoint are declared unavailable", () =
   expect(isUnavailable(selfHostedDataSource.individuals)).toBe(true);
   expect(isUnavailable(selfHostedDataSource.settings.usage)).toBe(true);
 });
+
+test("subscription pool reads /admin/v1/subscription-pool and maps each seat", async () => {
+  fetchMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        enabled: true,
+        seats: [
+          {
+            cooldown_until: null,
+            display_name: "Platform seat",
+            enabled: true,
+            id: "seat-1",
+            limit_windows: [
+              { resets_at: "2026-11-05T00:00:00Z", used_fraction: 0.4, window_minutes: 10080 },
+            ],
+            limits_observed_at: "2026-11-04T00:00:00Z",
+            owner_name: "ada@example.com",
+            provider: "claude",
+            served_requests: 12,
+            state: "active",
+          },
+        ],
+      }),
+      { status: 200 },
+    ),
+  );
+  const { subscriptions } = selfHostedDataSource;
+  if (isUnavailable(subscriptions)) throw new Error("subscriptions should be available");
+
+  const pool = await subscriptions.pool();
+
+  expect(requestedURL().pathname).toBe("/admin/v1/subscription-pool");
+  expect(pool.seats[0]).toMatchObject({
+    displayName: "Platform seat",
+    limitWindows: [{ resetsAt: "2026-11-05T00:00:00Z", usedFraction: 0.4, windowMinutes: 10080 }],
+    ownerName: "ada@example.com",
+    servedRequests: 12,
+  });
+});

@@ -1,10 +1,7 @@
 "use client";
 
-import {
-  RouterDashboardSlot,
-  RouterDashboardSlotName,
-  useHasRouterDashboardSlot,
-} from "../../slots";
+import { isUnavailable, useRouterDashboardDataSource } from "../../data";
+import { RouterDashboardSlot, RouterDashboardSlotName } from "../../slots";
 import { Text } from "../atoms/Text";
 import { DashboardPageFilters, useDashboardFilters } from "../DashboardPageFilters";
 import { Page } from "../Page";
@@ -21,9 +18,7 @@ export interface RouterDashboardPageProps {
 export function RouterDashboardPage({ methodologyHref }: RouterDashboardPageProps) {
   const filters = useDashboardFilters();
   const tab = useRouterOverviewTab();
-  const showSubscriptions = useHasRouterDashboardSlot(
-    RouterDashboardSlotName.DashboardSubscriptionsTab,
-  );
+  const showSubscriptions = !isUnavailable(useRouterDashboardDataSource().subscriptions);
 
   return (
     <Page

@@ -22,6 +22,7 @@ import { ChartTabToggle } from "./ChartTabToggle";
 import { pivotSeries, TIME_KEY, toShare } from "./pivotSeries";
 import { periodPercentChange, RouterChartHeadline } from "./RouterChartHeadline";
 import { type RouterSeriesConfigs } from "./routerSeriesConfigs";
+import { ROUTER_SOURCE_MARK } from "./routerSourceMark";
 
 enum GroupedMetricView {
   Share = "share",
@@ -34,6 +35,8 @@ const VIEW_OPTIONS = [
 ] as const;
 
 export interface RouterGroupedChartCardProps {
+  /** Deep-link id; also gives the card its overflow menu. */
+  chartId: string;
   className?: string;
   /** Hatches or dots every series, e.g. the active-people areas. */
   fillPattern?: ChartFillPattern;
@@ -51,6 +54,7 @@ export interface RouterGroupedChartCardProps {
 
 /** A grouped router metric per bucket, headlined by its per-bucket average and period change. */
 export function RouterGroupedChartCard({
+  chartId,
   className,
   fillPattern,
   formatValue = formatBigDecimal,
@@ -110,7 +114,9 @@ export function RouterGroupedChartCard({
 
   return (
     <ChartCard
+      chartId={chartId}
       className={className}
+      sources={ROUTER_SOURCE_MARK}
       title={title}
       headline={
         <RouterChartHeadline

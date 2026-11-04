@@ -3050,6 +3050,14 @@ func (s *Service) MetricsPeople(ctx context.Context, installationID string) ([]T
 	return s.telemetry.GetTelemetryDashboardPeople(ctx, installationID)
 }
 
+// MetricsSubscriptionPool lists the pool's seats with their newest quota reading.
+func (s *Service) MetricsSubscriptionPool(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]TelemetrySubscriptionSeat, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetrySubscriptionPoolSeats(ctx, installationID, servedSince, readingsSince)
+}
+
 // MetricsModelBreakdown returns per-bucket totals grouped by decision model
 // for the dashboard's per-model usage and spend charts.
 func (s *Service) MetricsModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryModelBucket, error) {

@@ -973,3 +973,7 @@ func (*captureTelemetry) GetTelemetryDashboardActiveUsers(context.Context, strin
 func (*captureTelemetry) GetTelemetryDashboardPeople(context.Context, string) ([]proxy.TelemetryPerson, error) {
 	return nil, nil
 }
+
+func (*captureTelemetry) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]proxy.TelemetrySubscriptionSeat, error) {
+	return nil, nil
+}

@@ -41,6 +41,7 @@ function dataSourceWith(summaryFn: RouterDashboardDataSource["metrics"]["summary
       routing: notSupported,
       usage: notSupported,
     },
+    subscriptions: notSupported,
   } satisfies RouterDashboardDataSource;
 }
 

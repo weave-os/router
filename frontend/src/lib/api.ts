@@ -1,4 +1,9 @@
-import type { RouterMetricSeries, RouterMetricSeriesRequest } from "@/shared/data";
+import type {
+  RouterMetricSeries,
+  RouterMetricSeriesRequest,
+  RouterSubscriptionProvider,
+  RouterSubscriptionSeatState,
+} from "@/shared/data";
 import type {
   AnthropicFederationConfig,
   APIKey,
@@ -103,6 +108,7 @@ export const api = {
       return request<ReportSummaryResponse>(`/metrics/report-summary?${params.toString()}`);
     },
   },
+  subscriptionPool: () => request<SubscriptionPoolResponse>("/subscription-pool"),
   keys: {
     list: () => request<{ keys: APIKey[] }>("/keys"),
     issue: (name?: string, scope: APIKeyScope = "routing") =>
@@ -208,6 +214,22 @@ export interface PeopleResponse {
     id: string;
     last_request_at: string | null;
     linked: boolean;
+  }[];
+}
+
+export interface SubscriptionPoolResponse {
+  enabled: boolean;
+  seats: {
+    cooldown_until: string | null;
+    display_name: string | null;
+    enabled: boolean;
+    id: string;
+    limit_windows: { resets_at: string | null; used_fraction: number; window_minutes: number }[];
+    limits_observed_at: string | null;
+    owner_name: string | null;
+    provider: RouterSubscriptionProvider;
+    served_requests: number;
+    state: RouterSubscriptionSeatState;
   }[];
 }
 

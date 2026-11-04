@@ -1761,6 +1761,149 @@ func (q *Queries) GetTelemetryRowsAll(ctx context.Context, arg GetTelemetryRowsA
 	return items, nil
 }
 
+const getTelemetrySubscriptionPoolSeats = `-- name: GetTelemetrySubscriptionPoolSeats :many
+SELECT
+    account.id,
+    account.provider,
+    account.display_name,
+    account.enabled,
+    account.health_state,
+    account.cooldown_until::timestamptz AS cooldown_until,
+    COALESCE(owner.name, '')::text AS owner_name,
+    served.requests::bigint AS served_requests,
+    reading.timestamp::timestamptz AS limits_observed_at,
+    reading.unified_limit_headers,
+    reading.codex_limit_headers
+FROM router.model_router_subscription_accounts account
+LEFT JOIN LATERAL (
+    SELECT COALESCE(NULLIF(u.display_name, ''), u.email, k.name) AS name
+    FROM router.model_router_subscription_account_installations registration
+    LEFT JOIN router.model_router_users u
+      ON u.credential_subject_id = account.subscriber_id AND u.installation_id = registration.installation_id AND u.deleted_at IS NULL
+    LEFT JOIN router.model_router_api_keys k
+      ON k.credential_subject_id = account.subscriber_id AND k.installation_id = registration.installation_id AND k.deleted_at IS NULL
+    WHERE registration.subscription_account_id = account.id AND account.subscriber_id IS NOT NULL
+      AND COALESCE(NULLIF(u.display_name, ''), u.email, k.name) IS NOT NULL
+    ORDER BY u.id IS NULL, k.created_at
+    LIMIT 1
+) owner ON TRUE
+CROSS JOIN LATERAL (
+    SELECT COUNT(*) AS requests FROM router.model_router_request_telemetry t
+    WHERE t.subscription_account_id = account.id AND t.span_type = 'router.upstream' AND t.timestamp >= $1::timestamptz
+      AND t.upstream_status_code >= 200 AND t.upstream_status_code < 300
+) served
+LEFT JOIN LATERAL (
+    SELECT t.timestamp, t.unified_limit_headers, t.codex_limit_headers FROM router.model_router_request_telemetry t
+    WHERE t.subscription_account_id = account.id AND t.span_type = 'router.upstream' AND t.timestamp >= $2::timestamptz
+      AND (t.unified_limit_headers IS NOT NULL OR t.codex_limit_headers IS NOT NULL)
+    ORDER BY t.timestamp DESC LIMIT 1
+) reading ON TRUE
+WHERE EXISTS (
+    SELECT 1 FROM router.model_router_subscription_account_installations registration
+    WHERE registration.subscription_account_id = account.id
+      AND ($3::uuid IS NULL OR registration.installation_id = $3::uuid)
+)
+ORDER BY account.provider, account.created_at, account.id
+`
+
+type GetTelemetrySubscriptionPoolSeatsParams struct {
+	ServedSince    pgtype.Timestamptz
+	ReadingsSince  pgtype.Timestamptz
+	InstallationID pgtype.UUID
+}
+
+type GetTelemetrySubscriptionPoolSeatsRow struct {
+	ID                  uuid.UUID
+	Provider            string
+	DisplayName         *string
+	Enabled             bool
+	HealthState         string
+	CooldownUntil       pgtype.Timestamptz
+	OwnerName           string
+	ServedRequests      int64
+	LimitsObservedAt    pgtype.Timestamptz
+	UnifiedLimitHeaders []byte
+	CodexLimitHeaders   []byte
+}
+
+// Subscription accounts registered to the pool with their latest quota reading.
+// A seat registered to several installations appears once; its quota is a
+// property of the physical subscription, not of who borrowed it.
+//
+//	SELECT
+//	    account.id,
+//	    account.provider,
+//	    account.display_name,
+//	    account.enabled,
+//	    account.health_state,
+//	    account.cooldown_until::timestamptz AS cooldown_until,
+//	    COALESCE(owner.name, '')::text AS owner_name,
+//	    served.requests::bigint AS served_requests,
+//	    reading.timestamp::timestamptz AS limits_observed_at,
+//	    reading.unified_limit_headers,
+//	    reading.codex_limit_headers
+//	FROM router.model_router_subscription_accounts account
+//	LEFT JOIN LATERAL (
+//	    SELECT COALESCE(NULLIF(u.display_name, ''), u.email, k.name) AS name
+//	    FROM router.model_router_subscription_account_installations registration
+//	    LEFT JOIN router.model_router_users u
+//	      ON u.credential_subject_id = account.subscriber_id AND u.installation_id = registration.installation_id AND u.deleted_at IS NULL
+//	    LEFT JOIN router.model_router_api_keys k
+//	      ON k.credential_subject_id = account.subscriber_id AND k.installation_id = registration.installation_id AND k.deleted_at IS NULL
+//	    WHERE registration.subscription_account_id = account.id AND account.subscriber_id IS NOT NULL
+//	      AND COALESCE(NULLIF(u.display_name, ''), u.email, k.name) IS NOT NULL
+//	    ORDER BY u.id IS NULL, k.created_at
+//	    LIMIT 1
+//	) owner ON TRUE
+//	CROSS JOIN LATERAL (
+//	    SELECT COUNT(*) AS requests FROM router.model_router_request_telemetry t
+//	    WHERE t.subscription_account_id = account.id AND t.span_type = 'router.upstream' AND t.timestamp >= $1::timestamptz
+//	      AND t.upstream_status_code >= 200 AND t.upstream_status_code < 300
+//	) served
+//	LEFT JOIN LATERAL (
+//	    SELECT t.timestamp, t.unified_limit_headers, t.codex_limit_headers FROM router.model_router_request_telemetry t
+//	    WHERE t.subscription_account_id = account.id AND t.span_type = 'router.upstream' AND t.timestamp >= $2::timestamptz
+//	      AND (t.unified_limit_headers IS NOT NULL OR t.codex_limit_headers IS NOT NULL)
+//	    ORDER BY t.timestamp DESC LIMIT 1
+//	) reading ON TRUE
+//	WHERE EXISTS (
+//	    SELECT 1 FROM router.model_router_subscription_account_installations registration
+//	    WHERE registration.subscription_account_id = account.id
+//	      AND ($3::uuid IS NULL OR registration.installation_id = $3::uuid)
+//	)
+//	ORDER BY account.provider, account.created_at, account.id
+func (q *Queries) GetTelemetrySubscriptionPoolSeats(ctx context.Context, arg GetTelemetrySubscriptionPoolSeatsParams) ([]GetTelemetrySubscriptionPoolSeatsRow, error) {
+	rows, err := q.db.Query(ctx, getTelemetrySubscriptionPoolSeats, arg.ServedSince, arg.ReadingsSince, arg.InstallationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetTelemetrySubscriptionPoolSeatsRow
+	for rows.Next() {
+		var i GetTelemetrySubscriptionPoolSeatsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Provider,
+			&i.DisplayName,
+			&i.Enabled,
+			&i.HealthState,
+			&i.CooldownUntil,
+			&i.OwnerName,
+			&i.ServedRequests,
+			&i.LimitsObservedAt,
+			&i.UnifiedLimitHeaders,
+			&i.CodexLimitHeaders,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTelemetrySummary = `-- name: GetTelemetrySummary :one
 SELECT
     COUNT(*)::bigint                                            AS request_count,

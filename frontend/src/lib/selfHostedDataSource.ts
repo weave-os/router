@@ -80,4 +80,28 @@ export const selfHostedDataSource: RouterDashboardDataSource = {
       "Per-key usage is not available on self-hosted Router yet.",
     ),
   },
+  subscriptions: {
+    pool: async () => {
+      const { enabled, seats } = await api.subscriptionPool();
+      return {
+        enabled,
+        seats: seats.map(seat => ({
+          cooldownUntil: seat.cooldown_until,
+          displayName: seat.display_name,
+          enabled: seat.enabled,
+          id: seat.id,
+          limitWindows: seat.limit_windows.map(limitWindow => ({
+            resetsAt: limitWindow.resets_at,
+            usedFraction: limitWindow.used_fraction,
+            windowMinutes: limitWindow.window_minutes,
+          })),
+          limitsObservedAt: seat.limits_observed_at,
+          ownerName: seat.owner_name,
+          provider: seat.provider,
+          servedRequests: seat.served_requests,
+          state: seat.state,
+        })),
+      };
+    },
+  },
 };

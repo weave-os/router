@@ -3,7 +3,6 @@
 import { useMemo } from "react";
 
 import { RouterMetricGroup, RouterMetricType } from "../../data";
-import { RouterDashboardSlot, RouterDashboardSlotName } from "../../slots";
 import { ChartFillPattern, ChartSeriesType } from "../Chart";
 import { type UseDashboardFiltersResult } from "../DashboardPageFilters";
 import { ResponsiveGrid } from "../ResponsiveGrid";
@@ -38,6 +37,7 @@ import {
   RouterSavingsRateChart,
   RouterSpendByMakerChart,
 } from "../RouterSpend";
+import { RouterSubscriptionPool } from "../RouterSubscriptionPool";
 
 export interface RouterOverviewTabPanelProps {
   filters: UseDashboardFiltersResult["filters"];
@@ -64,6 +64,7 @@ export function RouterOverviewTabPanel({
           </div>
           <RouterDailyRequestsHeatmap className={ResponsiveGrid.Medium} range={range} />
           <RouterGroupedChartCard
+            chartId="router_active_users"
             className={ResponsiveGrid.Medium}
             fillPattern={ChartFillPattern.Dots}
             granularity={granularity}
@@ -120,6 +121,7 @@ export function RouterOverviewTabPanel({
       return (
         <ResponsiveGrid>
           <RouterGroupedChartCard
+            chartId="router_requests_by_decision"
             className={ResponsiveGrid.Medium}
             granularity={granularity}
             group={RouterMetricGroup.DecisionType}
@@ -131,6 +133,7 @@ export function RouterOverviewTabPanel({
             title="Routing decisions"
           />
           <RouterGroupedChartCard
+            chartId="router_requests_by_billing"
             className={ResponsiveGrid.Medium}
             granularity={granularity}
             group={RouterMetricGroup.Billing}
@@ -166,9 +169,7 @@ export function RouterOverviewTabPanel({
     case RouterOverviewTab.Subscriptions:
       return (
         <ResponsiveGrid>
-          <div className={ResponsiveGrid.Full}>
-            <RouterDashboardSlot name={RouterDashboardSlotName.DashboardSubscriptionsTab} />
-          </div>
+          <RouterSubscriptionPool className={ResponsiveGrid.Full} />
         </ResponsiveGrid>
       );
   }

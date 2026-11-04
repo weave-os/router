@@ -39,6 +39,7 @@ import { Tabs } from "../molecules/Tabs";
 import { displayGranularity } from "../RouterCharts/chartRange";
 import { TIME_KEY } from "../RouterCharts/pivotSeries";
 import { RouterChartHeadline } from "../RouterCharts/RouterChartHeadline";
+import { ROUTER_SOURCE_MARK } from "../RouterCharts/routerSourceMark";
 
 interface ModelChartProps {
   className?: string;
@@ -169,6 +170,7 @@ export function RouterModelMixShareChart({
 
   return (
     <ChartCard
+      sources={ROUTER_SOURCE_MARK}
       className={className}
       fullBleed={hero}
       topRight={
@@ -288,6 +290,7 @@ export function RouterModelRequestsSmallMultiples({
 
   return (
     <ChartCard
+      sources={ROUTER_SOURCE_MARK}
       autoHeight
       className={className}
       title="Requests by model"
@@ -371,6 +374,8 @@ export function RouterModelSpendRanking({
 
   return (
     <ChartCard
+      chartId="router_model_spend"
+      sources={ROUTER_SOURCE_MARK}
       className={className}
       title="Catalog cost by model"
       subtitle="Each model's share of catalog cost over the range. Subscription requests contribute $0."

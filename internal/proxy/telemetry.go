@@ -37,6 +37,7 @@ type TelemetryRepository interface {
 	GetTelemetryDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryDashboardFact, error)
 	GetTelemetryDashboardActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryActiveUsers, error)
 	GetTelemetryDashboardPeople(ctx context.Context, installationID string) ([]TelemetryPerson, error)
+	GetTelemetrySubscriptionPoolSeats(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]TelemetrySubscriptionSeat, error)
 }
 
 // InferenceAttemptStore persists the ordered upstream attempts of an inference
@@ -467,6 +468,22 @@ type TelemetryPerson struct {
 	DisplayName   string
 	Email         string
 	LastRequestAt *time.Time
+}
+
+// TelemetrySubscriptionSeat is one pooled Claude/Codex subscription with the
+// raw limit headers of its newest served turn inside the reading lookback.
+type TelemetrySubscriptionSeat struct {
+	ID                 string
+	Provider           string
+	DisplayName        *string
+	OwnerName          *string
+	Enabled            bool
+	State              string
+	CooldownUntil      *time.Time
+	ServedRequests     int64
+	LimitsObservedAt   *time.Time
+	ClaudeLimitHeaders map[string]string
+	CodexLimitHeaders  map[string]string
 }
 
 // TelemetryModelBucket is one time-bucket entry for a single decision model,

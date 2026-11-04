@@ -344,3 +344,7 @@ func (*auxTelemetryRepo) GetTelemetryDashboardActiveUsers(context.Context, strin
 func (*auxTelemetryRepo) GetTelemetryDashboardPeople(context.Context, string) ([]TelemetryPerson, error) {
 	return nil, nil
 }
+
+func (*auxTelemetryRepo) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]TelemetrySubscriptionSeat, error) {
+	return nil, nil
+}

@@ -32,11 +32,12 @@ import {
 import { ChartCard } from "../ChartCard";
 import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
 import { ErrorCard } from "../ErrorCard";
+import { ListogramSelector } from "../Listogram";
 import { LoadStateWrapper } from "../LoadStateWrapper";
 import { displayGranularity, previousRange } from "../RouterCharts/chartRange";
-import { ChartTabToggle } from "../RouterCharts/ChartTabToggle";
 import { TIME_KEY } from "../RouterCharts/pivotSeries";
 import { periodPercentChange, RouterChartHeadline } from "../RouterCharts/RouterChartHeadline";
+import { ROUTER_SOURCE_MARK } from "../RouterCharts/routerSourceMark";
 
 interface SpendChartProps {
   className?: string;
@@ -62,10 +63,12 @@ export enum RouterCostView {
   Trend = "trend",
 }
 
-const COST_VIEW_OPTIONS = [
-  { label: "Trend", value: RouterCostView.Trend },
-  { label: "Breakdown", value: RouterCostView.Breakdown },
-] as const;
+const COST_VIEW_LABELS: Record<RouterCostView, string> = {
+  [RouterCostView.Breakdown]: "Breakdown",
+  [RouterCostView.Trend]: "Trend",
+};
+
+const COST_VIEWS = [RouterCostView.Trend, RouterCostView.Breakdown] as const;
 
 /** Catalog and comparison cost per bucket, oldest first. */
 export function costBuckets(points: readonly RouterMetricPoint[]): CostBucket[] {
@@ -243,6 +246,8 @@ export function RouterCostBreakdownChart({
 
   return (
     <ChartCard
+      chartId="router_cost_breakdown"
+      sources={ROUTER_SOURCE_MARK}
       className={className}
       title="Router cost savings"
       subtitle={
@@ -257,11 +262,11 @@ export function RouterCostBreakdownChart({
         />
       }
       topRight={
-        <ChartTabToggle
-          ariaLabel="Cost view"
-          onChange={setView}
-          options={COST_VIEW_OPTIONS}
-          value={view}
+        <ListogramSelector
+          labels={COST_VIEW_LABELS}
+          option={view}
+          options={COST_VIEWS}
+          setOption={setView}
         />
       }
     >
@@ -298,6 +303,8 @@ export function RouterCumulativeSavingsChart({ className, granularity, range }: 
 
   return (
     <ChartCard
+      chartId="router_cumulative_savings"
+      sources={ROUTER_SOURCE_MARK}
       className={className}
       title="Cumulative savings"
       subtitle={`Running total of catalog cost saved vs ${comparisonModel} across the selected time range. Below $0, routing has cost more so far.`}
@@ -352,6 +359,8 @@ export function RouterSavingsRateChart({ className, granularity, range }: SpendC
 
   return (
     <ChartCard
+      chartId="router_savings_rate"
+      sources={ROUTER_SOURCE_MARK}
       className={className}
       title="Savings rate"
       subtitle={`Savings divided by comparison cost (${comparisonModel}) per bucket.`}
@@ -417,6 +426,8 @@ export function RouterCostPerRequestChart({ className, granularity, range }: Spe
 
   return (
     <ChartCard
+      chartId="router_cost_per_request"
+      sources={ROUTER_SOURCE_MARK}
       className={className}
       title="Cost per request"
       subtitle="Catalog cost divided by requests, per bucket. Subscription-served requests count as $0."
@@ -500,6 +511,8 @@ export function RouterSpendByMakerChart({
 
   return (
     <ChartCard
+      chartId="router_spend_by_maker"
+      sources={ROUTER_SOURCE_MARK}
       autoHeight
       className={className}
       title="Catalog cost by model maker"

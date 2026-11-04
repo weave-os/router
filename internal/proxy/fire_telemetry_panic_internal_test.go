@@ -118,3 +118,7 @@ func (panicTelemetryRepo) GetTelemetryDashboardActiveUsers(context.Context, stri
 func (panicTelemetryRepo) GetTelemetryDashboardPeople(context.Context, string) ([]TelemetryPerson, error) {
 	return nil, nil
 }
+
+func (panicTelemetryRepo) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]TelemetrySubscriptionSeat, error) {
+	return nil, nil
+}

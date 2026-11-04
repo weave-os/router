@@ -8,11 +8,6 @@ export function isPartialBucketSeriesKey(key: string): boolean {
   return key.startsWith(PARTIAL_BUCKET_SERIES_PREFIX);
 }
 
-export function getOriginalFromPartialBucketSeriesKey(key: string): string {
-  if (!isPartialBucketSeriesKey(key)) return key;
-  return key.slice(PARTIAL_BUCKET_SERIES_PREFIX.length);
-}
-
 const PROJECTED_SERIES_PREFIX = "__proj__";
 
 export function getProjectedSeriesKey(series: string) {

@@ -2,7 +2,9 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"weave-os/router/internal/inference"
@@ -633,6 +635,66 @@ func (r *TelemetryRepo) GetTelemetryDashboardPeople(ctx context.Context, install
 		}
 		return person
 	}), nil
+}
+
+// GetTelemetrySubscriptionPoolSeats lists pooled subscriptions and their newest limit headers.
+func (r *TelemetryRepo) GetTelemetrySubscriptionPoolSeats(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]proxy.TelemetrySubscriptionSeat, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetrySubscriptionPoolSeats(ctx, sqlc.GetTelemetrySubscriptionPoolSeatsParams{
+		ServedSince:    pgtype.Timestamptz{Time: servedSince, Valid: true},
+		ReadingsSince:  pgtype.Timestamptz{Time: readingsSince, Valid: true},
+		InstallationID: installation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	seats := make([]proxy.TelemetrySubscriptionSeat, 0, len(rows))
+	for _, row := range rows {
+		seat := proxy.TelemetrySubscriptionSeat{
+			ID:               row.ID.String(),
+			Provider:         row.Provider,
+			DisplayName:      row.DisplayName,
+			Enabled:          row.Enabled,
+			State:            row.HealthState,
+			ServedRequests:   row.ServedRequests,
+			CooldownUntil:    optionalTime(row.CooldownUntil),
+			LimitsObservedAt: optionalTime(row.LimitsObservedAt),
+		}
+		if row.OwnerName != "" {
+			owner := row.OwnerName
+			seat.OwnerName = &owner
+		}
+		if seat.ClaudeLimitHeaders, err = limitHeaders(row.UnifiedLimitHeaders); err != nil {
+			return nil, err
+		}
+		if seat.CodexLimitHeaders, err = limitHeaders(row.CodexLimitHeaders); err != nil {
+			return nil, err
+		}
+		seats = append(seats, seat)
+	}
+	return seats, nil
+}
+
+func optionalTime(value pgtype.Timestamptz) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	t := value.Time
+	return &t
+}
+
+func limitHeaders(raw []byte) (map[string]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var headers map[string]string
+	if err := json.Unmarshal(raw, &headers); err != nil {
+		return nil, fmt.Errorf("decode limit headers: %w", err)
+	}
+	return headers, nil
 }
 
 // GetTelemetryTimeseriesAll is the admin-only counterpart to GetTelemetryTimeseries.

@@ -14,6 +14,7 @@ import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
 import { displayGranularity, previousRange } from "../RouterCharts/chartRange";
 import { TIME_KEY } from "../RouterCharts/pivotSeries";
 import { periodPercentChange, RouterChartHeadline } from "../RouterCharts/RouterChartHeadline";
+import { ROUTER_SOURCE_MARK } from "../RouterCharts/routerSourceMark";
 
 const PER_PERSON_KEY = "requests_per_person";
 const PER_PERSON_KEYS = LoadState.loaded([PER_PERSON_KEY] as const);
@@ -137,6 +138,8 @@ export function RouterRequestsPerActiveUserChart({
 
   return (
     <ChartCard
+      chartId="router_requests_per_active_user"
+      sources={ROUTER_SOURCE_MARK}
       className={className}
       title="Requests per active person"
       subtitle="Router requests per bucket divided by the people active in it."

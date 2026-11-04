@@ -20,6 +20,7 @@ import { Heatmap, HeatmapDensity, HeatmapLegend, HeatmapTexture } from "../Chart
 import { ChartCard } from "../ChartCard";
 import { ErrorCard } from "../ErrorCard";
 import { LoadStateWrapper } from "../LoadStateWrapper";
+import { ROUTER_SOURCE_MARK } from "../RouterCharts/routerSourceMark";
 
 const HEATMAP_COLOR = ChartColor.Scale2;
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -106,6 +107,7 @@ export function RouterDailyRequestsHeatmap({
 
   return (
     <ChartCard
+      sources={ROUTER_SOURCE_MARK}
       autoHeight
       className={className}
       headerBottom={

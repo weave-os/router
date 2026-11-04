@@ -1106,3 +1106,7 @@ func (recordingTelemetry) GetTelemetryDashboardActiveUsers(context.Context, stri
 func (recordingTelemetry) GetTelemetryDashboardPeople(context.Context, string) ([]proxy.TelemetryPerson, error) {
 	return nil, nil
 }
+
+func (recordingTelemetry) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]proxy.TelemetrySubscriptionSeat, error) {
+	return nil, nil
+}

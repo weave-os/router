@@ -999,3 +999,50 @@ WHERE t.span_type = 'router.upstream'
   AND t.api_key_id IS NOT NULL
   AND (sqlc.narg(installation_id)::uuid IS NULL OR t.installation_id = sqlc.narg(installation_id)::uuid)
 GROUP BY t.api_key_id;
+
+-- Subscription accounts registered to the pool with their latest quota reading.
+-- A seat registered to several installations appears once; its quota is a
+-- property of the physical subscription, not of who borrowed it.
+-- name: GetTelemetrySubscriptionPoolSeats :many
+SELECT
+    account.id,
+    account.provider,
+    account.display_name,
+    account.enabled,
+    account.health_state,
+    account.cooldown_until::timestamptz AS cooldown_until,
+    COALESCE(owner.name, '')::text AS owner_name,
+    served.requests::bigint AS served_requests,
+    reading.timestamp::timestamptz AS limits_observed_at,
+    reading.unified_limit_headers,
+    reading.codex_limit_headers
+FROM router.model_router_subscription_accounts account
+LEFT JOIN LATERAL (
+    SELECT COALESCE(NULLIF(u.display_name, ''), u.email, k.name) AS name
+    FROM router.model_router_subscription_account_installations registration
+    LEFT JOIN router.model_router_users u
+      ON u.credential_subject_id = account.subscriber_id AND u.installation_id = registration.installation_id AND u.deleted_at IS NULL
+    LEFT JOIN router.model_router_api_keys k
+      ON k.credential_subject_id = account.subscriber_id AND k.installation_id = registration.installation_id AND k.deleted_at IS NULL
+    WHERE registration.subscription_account_id = account.id AND account.subscriber_id IS NOT NULL
+      AND COALESCE(NULLIF(u.display_name, ''), u.email, k.name) IS NOT NULL
+    ORDER BY u.id IS NULL, k.created_at
+    LIMIT 1
+) owner ON TRUE
+CROSS JOIN LATERAL (
+    SELECT COUNT(*) AS requests FROM router.model_router_request_telemetry t
+    WHERE t.subscription_account_id = account.id AND t.span_type = 'router.upstream' AND t.timestamp >= @served_since::timestamptz
+      AND t.upstream_status_code >= 200 AND t.upstream_status_code < 300
+) served
+LEFT JOIN LATERAL (
+    SELECT t.timestamp, t.unified_limit_headers, t.codex_limit_headers FROM router.model_router_request_telemetry t
+    WHERE t.subscription_account_id = account.id AND t.span_type = 'router.upstream' AND t.timestamp >= @readings_since::timestamptz
+      AND (t.unified_limit_headers IS NOT NULL OR t.codex_limit_headers IS NOT NULL)
+    ORDER BY t.timestamp DESC LIMIT 1
+) reading ON TRUE
+WHERE EXISTS (
+    SELECT 1 FROM router.model_router_subscription_account_installations registration
+    WHERE registration.subscription_account_id = account.id
+      AND (sqlc.narg(installation_id)::uuid IS NULL OR registration.installation_id = sqlc.narg(installation_id)::uuid)
+)
+ORDER BY account.provider, account.created_at, account.id;

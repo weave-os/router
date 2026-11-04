@@ -5,6 +5,7 @@ import type {
   RouterMetricSeriesRequest,
   RouterReportSummary,
 } from "./metricSeries";
+import type { SubscriptionsDataSource } from "./subscriptionPool";
 import type {
   APIKey,
   APIKeyScope,
@@ -122,4 +123,6 @@ export interface RouterDashboardDataSource {
   individuals: Capability<IndividualsDataSource>;
   requests: Capability<RequestsDataSource>;
   settings: SettingsDataSource;
+  /** The Claude/Codex subscription-account pool; hosts without one hide the Subscriptions tab. */
+  subscriptions: Capability<SubscriptionsDataSource>;
 }
