@@ -27,6 +27,9 @@ const PROVIDERS = [
   "together",
   "bedrock",
   "xai",
+  "deepinfra",
+  "minimax",
+  "meta",
   "anthropic_gateway",
   "openai_gateway",
 ] as const;
@@ -43,6 +46,9 @@ const PROVIDER_LABEL: Record<Provider, string> = {
   together: "Together",
   bedrock: "AWS Bedrock",
   xai: "xAI",
+  deepinfra: "DeepInfra",
+  minimax: "MiniMax",
+  meta: "Meta",
   anthropic_gateway: "Anthropic-compatible gateway",
   openai_gateway: "OpenAI-compatible gateway",
 };
@@ -56,6 +62,9 @@ const PROVIDER_ENV_VAR: Record<Provider, string> = {
   together: "TOGETHER_API_KEY",
   bedrock: "AWS_BEARER_TOKEN_BEDROCK",
   xai: "XAI_API_KEY",
+  deepinfra: "DEEPINFRA_API_KEY",
+  minimax: "MINIMAX_API_KEY",
+  meta: "META_API_KEY",
   anthropic_gateway: "ANTHROPIC_GATEWAY_TOKEN",
   openai_gateway: "OPENAI_GATEWAY_TOKEN",
 };
