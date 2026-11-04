@@ -343,11 +343,15 @@ func (r *subscriptionAccountRepo) PersistSubscriptionTokens(ctx context.Context,
 }
 
 func toAuthSubscriptionAccount(row sqlc.RouterModelRouterSubscriptionAccount) *auth.SubscriptionAccount {
-	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+	account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+	account.CredentialRejections = int(row.CredentialRejectionCount)
+	return account
 }
 
 func toAuthSubscriptionAccountListRow(row sqlc.ListModelRouterSubscriptionAccountsRow) *auth.SubscriptionAccount {
-	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+	account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+	account.CredentialRejections = int(row.CredentialRejectionCount)
+	return account
 }
 
 func toAuthSubscriptionAccountFields(id uuid.UUID, subscriberID, apiKeyID pgtype.UUID, provider, externalAccountID string, providerUserID, displayName *string, refreshTokenCiphertext []byte, enabled bool, healthState string, cooldownUntil, createdAt pgtype.Timestamp) *auth.SubscriptionAccount {
@@ -515,4 +519,19 @@ func subscriptionProviderUserID(providerUserID *string) string {
 		return ""
 	}
 	return *providerUserID
+}
+
+func (r *subscriptionAccountRepo) SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (auth.SubscriptionOwner, error) {
+	subscriber, err := uuid.Parse(subscriberID)
+	if err != nil {
+		return auth.SubscriptionOwner{}, err
+	}
+	row, err := dbbudget.Queries(r.tx).GetSubscriberEnrollmentKey(ctx, subscriber)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return auth.SubscriptionOwner{}, auth.ErrSubscriptionEnrollmentKeyNotFound
+	}
+	if err != nil {
+		return auth.SubscriptionOwner{}, err
+	}
+	return auth.SubscriptionOwner{SubscriberID: subscriberID, APIKeyID: row.APIKeyID.String(), InstallationID: row.InstallationID.String()}, nil
 }

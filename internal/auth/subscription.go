@@ -103,6 +103,9 @@ type SubscriptionAccount struct {
 	// AccessTokenMissing reports a dropped persisted access token, so replicas
 	// discard their cached copy instead of replaying a rejected token.
 	AccessTokenMissing bool
+	// CredentialRejections counts unresolved provider credential rejections,
+	// so owners can reconnect before the account is disabled.
+	CredentialRejections int
 }
 
 // CreateSubscriptionAccountParams describes an encrypted account enrollment.
@@ -226,6 +229,26 @@ type SubscriptionAccountRepository interface {
 	UpdateSubscriptionRefreshToken(context.Context, string, SubscriptionOwner, []byte) error
 	DeleteSubscriptionAccount(context.Context, string, SubscriptionOwner) error
 	SubscriptionRefreshRepository
+}
+
+// SubscriptionEnrollmentOwnerResolver finds the routing key a keyless browser
+// reconnect enrolls through.
+type SubscriptionEnrollmentOwnerResolver interface {
+	SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (SubscriptionOwner, error)
+}
+
+// ErrSubscriptionEnrollmentKeyNotFound means the subscriber has no active
+// personal routing key to own a browser-enrolled account.
+var ErrSubscriptionEnrollmentKeyNotFound = errors.New("subscriber has no active routing key")
+
+// SubscriberEnrollmentOwner resolves the full owner a browser reconnect needs,
+// since enrollment records the routing key and installation alongside the subscriber.
+func (s *Service) SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (SubscriptionOwner, error) {
+	resolver, ok := s.subscriptionAccounts.(SubscriptionEnrollmentOwnerResolver)
+	if !ok {
+		return SubscriptionOwner{}, errors.New("subscription enrollment owner lookup is not configured")
+	}
+	return resolver.SubscriberEnrollmentOwner(ctx, subscriberID)
 }
 
 // ErrSubscriptionAccountNotFound indicates a state mutation did not match the

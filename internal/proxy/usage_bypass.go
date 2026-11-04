@@ -378,11 +378,46 @@ func routerNoticeForRequest(ctx context.Context, headers http.Header, source sub
 	if text := warning.text(); text != "" && !echoed[warning] {
 		kind = translate.NoticeFundingWarning
 		marker = text
+	} else if nudge, _ := ctx.Value(subscriptionReconnectNudgeContextKey{}).(string); nudge != "" && !reconnectNudgeEchoed(ctx, nudge) {
+		kind = translate.NoticeSubscriptionReconnect
+		marker = nudge
 	}
 	return translate.NewRouterNotice(kind, suppressMarkerIfRequested(ctx, headers, marker), model, "")
 }
 
 type subscriptionOnlyWarningsEchoedContextKey struct{}
+
+// SubscriptionsDashboardURL is the user's own linked-plans settings page.
+// The nudges add `reconnect=<provider>` so the page starts that login on load.
+const SubscriptionsDashboardURL = "https://router.weaveos.com/settings/subscriptions"
+
+// ownCodexPlanSpentNudge replaces the routing marker once per session when
+// the caller's own ChatGPT plan is spent, so they can connect a seat instead
+// of silently running on shared or paid capacity.
+const ownCodexPlanSpentNudge = routingMarkerPrefix +
+	"your own ChatGPT (Codex) plan is out of usage for now. Connect or reconnect a Codex seat to keep this on a subscription: " +
+	SubscriptionsDashboardURL + "?reconnect=codex\n\n"
+
+// ownClaudePlanSpentNudge is the Claude Code counterpart, shown when the
+// caller's own Claude plan is spent or drawing overage.
+const ownClaudePlanSpentNudge = routingMarkerPrefix +
+	"your own Claude plan is out of usage for now. Connect or reconnect a Claude seat to keep this on a subscription: " +
+	SubscriptionsDashboardURL + "?reconnect=claude\n\n"
+
+var subscriptionReconnectNudges = []string{ownCodexPlanSpentNudge, ownClaudePlanSpentNudge}
+
+type subscriptionReconnectNudgeContextKey struct{}
+
+type subscriptionReconnectNudgesEchoedContextKey struct{}
+
+func withSubscriptionReconnectNudge(ctx context.Context, text string) context.Context {
+	return context.WithValue(ctx, subscriptionReconnectNudgeContextKey{}, text)
+}
+
+func reconnectNudgeEchoed(ctx context.Context, text string) bool {
+	echoed, _ := ctx.Value(subscriptionReconnectNudgesEchoedContextKey{}).(map[string]bool)
+	return echoed[text]
+}
 
 var subscriptionFundingWarnings = []subscriptionFundingWarning{
 	{reason: billing.SubscriptionOnlyCreditsDepleted, source: subscriptions.ProviderClaude},
@@ -403,7 +438,14 @@ func withSubscriptionOnlyWarningEcho(ctx context.Context, body []byte) context.C
 	for _, warning := range subscriptionFundingWarnings {
 		echoed[warning] = seen[warning.text()] || prior[warning]
 	}
-	return context.WithValue(ctx, subscriptionOnlyWarningsEchoedContextKey{}, echoed)
+	ctx = context.WithValue(ctx, subscriptionOnlyWarningsEchoedContextKey{}, echoed)
+	nudgesSeen := translate.EchoedInAssistantText(body, subscriptionReconnectNudges)
+	priorNudges, _ := ctx.Value(subscriptionReconnectNudgesEchoedContextKey{}).(map[string]bool)
+	nudgesEchoed := make(map[string]bool, len(subscriptionReconnectNudges))
+	for _, nudge := range subscriptionReconnectNudges {
+		nudgesEchoed[nudge] = nudgesSeen[nudge] || priorNudges[nudge]
+	}
+	return context.WithValue(ctx, subscriptionReconnectNudgesEchoedContextKey{}, nudgesEchoed)
 }
 
 // ErrCreditsExhaustedSubscriptionUnavailable is returned by ProxyMessages and

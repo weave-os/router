@@ -138,6 +138,9 @@ type Features struct {
 	// SubscriptionPoolsEnabled mirrors ROUTER_SUBSCRIPTION_POOLS_ENABLED so the
 	// dashboard can tell a disabled pool from an empty one.
 	SubscriptionPoolsEnabled bool
+	// SubscriptionLogins runs browser reconnects for the control plane. Nil
+	// leaves enrollment on `router login` alone.
+	SubscriptionLogins admin.SubscriptionLoginFlow
 }
 
 // RegisterWithFeatures is Register with optional request features enabled.
@@ -263,6 +266,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			internalGroup.GET("/subscription-accounts/:subscriberID", admin.InternalListSubscriptionAccountsHandler(authSvc))
 			internalGroup.PATCH("/subscription-accounts/:subscriberID/:accountID", admin.InternalUpdateSubscriptionAccountHandler(authSvc))
 			internalGroup.DELETE("/subscription-accounts/:subscriberID/:accountID", admin.InternalDeleteSubscriptionAccountHandler(authSvc))
+			if features.SubscriptionLogins != nil {
+				internalGroup.POST("/subscription-logins/:subscriberID", admin.InternalStartSubscriptionLoginHandler(authSvc, features.SubscriptionLogins))
+				internalGroup.POST("/subscription-logins/:subscriberID/complete", admin.InternalCompleteSubscriptionLoginHandler(authSvc, features.SubscriptionLogins))
+			}
 		}
 		// Inference-policy inspection: the reviewed registry, the deployment's
 		// view of it, and a resolution preview. Read-only and content-free; the

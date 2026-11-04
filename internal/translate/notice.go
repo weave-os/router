@@ -18,6 +18,9 @@ const (
 	NoticeModelSelection NoticeKind = "model_selection"
 	NoticeFundingWarning NoticeKind = "funding_warning"
 	NoticeSlowStart      NoticeKind = "slow_start"
+	// NoticeSubscriptionReconnect points the user at the dashboard to connect
+	// or reconnect a subscription seat.
+	NoticeSubscriptionReconnect NoticeKind = "subscription_reconnect"
 )
 
 type NoticeProvenance string
