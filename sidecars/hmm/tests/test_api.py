@@ -500,6 +500,7 @@ def test_boot_fails_when_a_package_cannot_embed(
     class FakePackagePolicy:
         def __init__(self, artifacts: FrozenArtifacts) -> None:
             self.artifacts = artifacts
+            self.runtime = self
 
         async def verify_embedding_config(self) -> None:
             probed.append(self.artifacts.package_sha256)
@@ -523,6 +524,7 @@ def test_readiness_fails_closed_when_the_embedding_probe_fails(
     class FakePackagePolicy:
         def __init__(self, artifacts: FrozenArtifacts) -> None:
             self.artifacts = artifacts
+            self.runtime = self
 
         async def verify_embedding_config(self) -> None:
             raise api_module.EmbeddingError(

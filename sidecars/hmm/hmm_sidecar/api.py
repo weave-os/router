@@ -77,7 +77,7 @@ async def load_policies(
     for package_sha256, artifacts in registry.by_sha256.items():
         if artifacts.package_manifest is not None:
             package_policy = PackagePolicy(artifacts)
-            await package_policy.verify_embedding_config()
+            await package_policy.runtime.verify_embedding_config()
             policies[package_sha256] = package_policy
             package_probes += 1
             continue

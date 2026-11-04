@@ -240,14 +240,16 @@ class PackageClassifier:
         """Embed one probe at boot so bad credentials or a mismatched embedding
         endpoint fail readiness instead of every route."""
         model = self.profile.embedding_model
-        dim = self.profile.embedding_dim
-        configured = os.environ.get("HMM_GEMINI_TRANSPORT", "").strip() or "auto"
+        embedding_dim = self.profile.embedding_dim
+        configured_transport = (
+            os.environ.get("HMM_GEMINI_TRANSPORT", "").strip() or "auto"
+        )
         try:
             transport = resolve_gemini_transport().value
         except EmbeddingError as error:
             raise EmbeddingError(
                 f"embedding probe for package model {model!r} over transport"
-                f" {configured!r} failed: {error}"
+                f" {configured_transport!r} failed: {error}"
             ) from error
         try:
             vector = await self.hmm.probe_embedding(EMBEDDING_PROBE_TEXT)
@@ -256,14 +258,14 @@ class PackageClassifier:
                 f"embedding probe for package model {model!r} over transport"
                 f" {transport!r} failed: {type(error).__name__}: {error}"
             ) from error
-        values = np.asarray(vector, dtype=np.float64)
-        if values.shape != (dim,):
+        probe_values = np.asarray(vector, dtype=np.float64)
+        if probe_values.shape != (embedding_dim,):
             raise EmbeddingError(
                 f"embedding probe for package model {model!r} over transport"
-                f" {transport!r} returned {values.size} dimensions; the package"
-                f" was trained on {dim}"
+                f" {transport!r} returned {probe_values.size} dimensions; the package"
+                f" was trained on {embedding_dim}"
             )
-        if not np.all(np.isfinite(values)) or not np.any(values):
+        if not np.all(np.isfinite(probe_values)) or not np.any(probe_values):
             raise EmbeddingError(
                 f"embedding probe for package model {model!r} over transport"
                 f" {transport!r} returned a zero or non-finite vector"

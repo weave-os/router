@@ -293,12 +293,12 @@ class _ProbeHMM:
         return self.result
 
 
-def _probe_classifier(result: object, dim: int = 4):
+def _probe_classifier(probe_result: object, dim: int = 4):
     from hmm_sidecar.classifier_package.serving import PackageClassifier
 
     classifier = object.__new__(PackageClassifier)
     classifier.profile = SimpleNamespace(embedding_model="gemini-embedding-2", embedding_dim=dim)  # type: ignore[attr-defined]
-    classifier.hmm = _ProbeHMM(result)  # type: ignore[attr-defined]
+    classifier.hmm = _ProbeHMM(probe_result)  # type: ignore[attr-defined]
     return classifier
 
 
@@ -311,7 +311,7 @@ def test_embedding_probe_accepts_a_vector_of_the_declared_width() -> None:
 
 
 @pytest.mark.parametrize(
-    ("result", "reason"),
+    ("probe_result", "expected_error"),
     [
         ([0.5, 0.5, 0.5], "3 dimensions"),
         ([0.0, 0.0, 0.0, 0.0], "zero or non-finite"),
@@ -325,10 +325,10 @@ def test_embedding_probe_accepts_a_vector_of_the_declared_width() -> None:
     ],
 )
 def test_embedding_probe_fails_closed_naming_the_package_model(
-    monkeypatch, result: object, reason: str
+    monkeypatch, probe_result: object, expected_error: str
 ) -> None:
     monkeypatch.setenv("HMM_GEMINI_TRANSPORT", "api_key")
-    classifier = _probe_classifier(result)
+    classifier = _probe_classifier(probe_result)
 
     with pytest.raises(gemini_embeddings.EmbeddingError) as raised:
         asyncio.run(classifier.verify_embedding_config())
@@ -336,7 +336,7 @@ def test_embedding_probe_fails_closed_naming_the_package_model(
     message = str(raised.value)
     assert "gemini-embedding-2" in message
     assert "api_key" in message
-    assert reason in message
+    assert expected_error in message
 
 
 def test_embedding_probe_rejects_an_unknown_transport_before_any_call(

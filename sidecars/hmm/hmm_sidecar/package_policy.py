@@ -21,9 +21,6 @@ class PackagePolicy:
         self.runtime = PackageClassifier(artifacts.root, artifacts.package_manifest)
         self.classifier = self.runtime.classifier
 
-    async def verify_embedding_config(self) -> None:
-        await self.runtime.verify_embedding_config()
-
     async def classify_with_timings(
         self, payload: dict[str, Any]
     ) -> tuple[ClassificationResult, RouteTimings]:
