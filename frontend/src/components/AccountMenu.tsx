@@ -1,8 +1,8 @@
 "use client";
 
 import { api } from "@/lib/api";
-import { Icon } from "@/shared/components/atoms/Icon";
 import { Avatar } from "@/shared/components/atoms/Avatar";
+import { Icon } from "@/shared/components/atoms/Icon";
 import { Button } from "@/shared/components/molecules/Button";
 import { Popover } from "@/shared/components/molecules/Popover";
 import { Appearance } from "@/shared/components/types";

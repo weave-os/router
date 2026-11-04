@@ -3,8 +3,8 @@
 import { AccountMenu } from "@/components/AccountMenu";
 import { Logo } from "@/components/Logo";
 import { SETTINGS_NAV } from "@/components/settings/nav";
-import { DOCS_URL, SAVINGS_METHODOLOGY_URL, SUPPORT_URL, FEEDBACK_URL } from "@/lib/links";
 import { api } from "@/lib/api";
+import { DOCS_URL, SAVINGS_METHODOLOGY_URL, SUPPORT_URL, FEEDBACK_URL } from "@/lib/links";
 import { selfHostedDataSource } from "@/lib/selfHostedDataSource";
 import {
   RouterSettingsSidebar,
@@ -30,7 +30,12 @@ const NAV_ITEMS: readonly RouterSidebarNavItem[] = [
 
 const UTILITY_ITEMS: readonly RouterSidebarUtilityItem[] = [
   { href: DOCS_URL, icon: "Book", label: "Docs", newTab: true },
-  { href: SAVINGS_METHODOLOGY_URL, icon: "Banknote", label: "Cost savings methodology", newTab: true },
+  {
+    href: SAVINGS_METHODOLOGY_URL,
+    icon: "Banknote",
+    label: "Cost savings methodology",
+    newTab: true,
+  },
   { href: SUPPORT_URL, icon: "Chat", label: "Support", newTab: true },
   { href: FEEDBACK_URL, icon: "Sparkles", label: "Feedback", newTab: true },
   { href: "/settings", icon: "Settings", label: "Settings" },
