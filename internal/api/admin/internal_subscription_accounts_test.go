@@ -82,6 +82,10 @@ func (r *internalSubscriptionAccountRepo) DisableSubscriptionAccountIfRefreshHol
 	panic("not used")
 }
 
+func (r *internalSubscriptionAccountRepo) RecordSubscriptionCredentialRejection(context.Context, string, auth.SubscriptionOwner, auth.SubscriptionCredentialRejectionInput) (auth.SubscriptionCredentialRejection, error) {
+	return auth.SubscriptionCredentialRejection{}, nil
+}
+
 func (r *internalSubscriptionAccountRepo) CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, auth.SubscriptionOwner, string, int64, time.Time) error {
 	panic("not used")
 }

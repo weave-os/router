@@ -33,6 +33,9 @@ adopted AS (
       cooldown_until = NULL,
       access_token_ciphertext = NULL,
       access_token_expires_at = NULL,
+      credential_rejection_count = 0,
+      credential_first_rejected_at = NULL,
+      credential_last_rejection_reason = NULL,
       token_refresh_lease_until = NULL,
       token_refresh_lease_id = NULL,
       token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
@@ -108,6 +111,9 @@ ORDER BY provider, created_at;
 UPDATE router.model_router_subscription_accounts AS account
 SET enabled = @enabled::boolean,
     health_state = CASE WHEN @enabled::boolean THEN 'unknown' ELSE 'disabled' END,
+    credential_rejection_count = CASE WHEN @enabled::boolean THEN 0 ELSE account.credential_rejection_count END,
+    credential_first_rejected_at = CASE WHEN @enabled::boolean THEN NULL ELSE account.credential_first_rejected_at END,
+    credential_last_rejection_reason = CASE WHEN @enabled::boolean THEN NULL ELSE account.credential_last_rejection_reason END,
     cooldown_until = @cooldown_until::timestamp,
     updated_at = CURRENT_TIMESTAMP
 WHERE account.id = @id::uuid
@@ -164,6 +170,9 @@ WHERE id = @id::uuid
 UPDATE router.model_router_subscription_accounts
 SET refresh_token_ciphertext = @refresh_token_ciphertext::bytea,
     health_state = 'unknown',
+    credential_rejection_count = 0,
+    credential_first_rejected_at = NULL,
+    credential_last_rejection_reason = NULL,
     access_token_ciphertext = NULL,
     access_token_expires_at = NULL,
     token_refresh_lease_until = NULL,
@@ -269,6 +278,7 @@ SET refresh_token_ciphertext = @refresh_token_ciphertext::bytea,
     token_refresh_lease_until = NULL,
     token_refresh_lease_id = NULL,
     token_refresh_version = token_refresh_version + 1,
+    credential_last_rejection_reason = NULL,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = @id::uuid
   AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
@@ -328,7 +338,8 @@ WITH installation AS MATERIALIZED (
 SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
        account.external_account_id, account.provider_user_id, account.display_name, account.refresh_token_ciphertext,
        account.enabled, account.health_state, account.cooldown_until, account.created_at,
-       CASE WHEN account.subscriber_id = sqlc.narg(subscriber_id)::uuid THEN 'personal' ELSE 'shared' END AS tier
+       CASE WHEN account.subscriber_id = sqlc.narg(subscriber_id)::uuid THEN 'personal' ELSE 'shared' END AS tier,
+       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing
 FROM router.model_router_subscription_accounts AS account
 JOIN members ON members.subject_id = account.subscriber_id
 JOIN installation ON TRUE
@@ -349,3 +360,44 @@ WHERE (account.provider <> 'codex' OR account.provider_user_id IS NOT NULL)
         WHERE registration.installation_id = installation.id AND registration.subscription_account_id = account.id)))
 ORDER BY (account.subscriber_id = sqlc.narg(subscriber_id)::uuid) DESC NULLS LAST, account.created_at, account.id
 FOR SHARE OF account;
+
+-- Counts one provider credential rejection inside a rolling window. Strikes
+-- older than the window restart at one. The previous reason is returned so
+-- the caller can recognise back-to-back explicit invalid_grant rejections; a
+-- successful refresh clears it. A refresh rejection passes its lease and
+-- version so a refresher that lost the lease records nothing.
+-- name: RecordModelRouterSubscriptionCredentialRejection :one
+WITH previous AS (
+  SELECT id, credential_last_rejection_reason
+  FROM router.model_router_subscription_accounts
+  WHERE id = @id::uuid
+    AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
+         OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid))
+    AND enabled = TRUE
+  AND (sqlc.narg(lease_id)::uuid IS NULL
+       OR (token_refresh_lease_id = sqlc.narg(lease_id)::uuid
+           AND token_refresh_version = sqlc.narg(expected_version)::bigint))
+  FOR UPDATE
+)
+UPDATE router.model_router_subscription_accounts AS account
+SET credential_rejection_count = CASE
+        WHEN account.credential_first_rejected_at IS NULL
+             OR account.credential_first_rejected_at < @window_start::timestamp
+        THEN 1
+        ELSE account.credential_rejection_count + 1
+    END,
+    credential_first_rejected_at = CASE
+        WHEN account.credential_first_rejected_at IS NULL
+             OR account.credential_first_rejected_at < @window_start::timestamp
+        THEN @rejected_at::timestamp
+        ELSE account.credential_first_rejected_at
+    END,
+    credential_last_rejection_reason = @reason::varchar,
+    access_token_ciphertext = CASE WHEN @invalidate_access_token::boolean THEN NULL ELSE account.access_token_ciphertext END,
+    access_token_expires_at = CASE WHEN @invalidate_access_token::boolean THEN NULL ELSE account.access_token_expires_at END,
+    updated_at = CURRENT_TIMESTAMP
+FROM previous
+WHERE account.id = previous.id
+RETURNING account.credential_rejection_count,
+          account.credential_first_rejected_at,
+          previous.credential_last_rejection_reason AS previous_reason;

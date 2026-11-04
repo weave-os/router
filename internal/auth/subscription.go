@@ -100,6 +100,9 @@ type SubscriptionAccount struct {
 	State                  SubscriptionAccountState
 	CooldownUntil          *time.Time
 	CreatedAt              time.Time
+	// AccessTokenMissing reports a dropped persisted access token, so replicas
+	// discard their cached copy instead of replaying a rejected token.
+	AccessTokenMissing bool
 }
 
 // CreateSubscriptionAccountParams describes an encrypted account enrollment.
@@ -179,6 +182,27 @@ type RefreshLeaseAcquisition struct {
 	TookOver bool
 }
 
+// SubscriptionCredentialRejectionInput describes one provider credential
+// rejection. A refresh rejection sets LeaseID and ExpectedVersion so a
+// refresher that lost its lease cannot strike replacement credentials.
+type SubscriptionCredentialRejectionInput struct {
+	Reason                string
+	RejectedAt            time.Time
+	Window                time.Duration
+	InvalidateAccessToken bool
+	LeaseID               string
+	ExpectedVersion       int64
+}
+
+// SubscriptionCredentialRejection is an account's provider credential
+// rejection history inside the current strike window. PreviousReason is the
+// reason recorded by the strike before this one.
+type SubscriptionCredentialRejection struct {
+	Count           int
+	FirstRejectedAt time.Time
+	PreviousReason  string
+}
+
 // SubscriptionRefreshRepository coordinates refresh leases and encrypted
 // credential persistence across router replicas.
 type SubscriptionRefreshRepository interface {
@@ -187,6 +211,7 @@ type SubscriptionRefreshRepository interface {
 	ReleaseSubscriptionRefreshLease(context.Context, string, SubscriptionOwner, string) error
 	DisableSubscriptionAccountIfRefreshHolder(context.Context, string, SubscriptionOwner, string, int64) error
 	CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, SubscriptionOwner, string, int64, time.Time) error
+	RecordSubscriptionCredentialRejection(context.Context, string, SubscriptionOwner, SubscriptionCredentialRejectionInput) (SubscriptionCredentialRejection, error)
 	GetSubscriptionCredentialRecord(context.Context, string, SubscriptionOwner) (*SubscriptionCredentialRecord, error)
 	PersistSubscriptionTokens(context.Context, string, SubscriptionOwner, string, int64, []byte, []byte, time.Time) error
 }
@@ -411,6 +436,16 @@ func (s *Service) CooldownSubscriptionAccountIfRefreshHolder(ctx context.Context
 		return err
 	}
 	return repo.CooldownSubscriptionAccountIfRefreshHolder(ctx, accountID, owner, leaseID, expectedVersion, cooldownUntil)
+}
+
+// RecordSubscriptionCredentialRejection counts one provider credential
+// rejection; strikes older than window restart the count.
+func (s *Service) RecordSubscriptionCredentialRejection(ctx context.Context, owner SubscriptionOwner, accountID string, input SubscriptionCredentialRejectionInput) (SubscriptionCredentialRejection, error) {
+	repo, err := s.subscriptionRefreshRepository()
+	if err != nil {
+		return SubscriptionCredentialRejection{}, err
+	}
+	return repo.RecordSubscriptionCredentialRejection(ctx, accountID, owner, input)
 }
 
 // LoadSubscriptionCredentials decrypts the current refresh and access tokens

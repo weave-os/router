@@ -408,12 +408,13 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 			"provider", poolProvider, "account_id", lease.AccountID, "cooldown_until", resetAt)
 		return true
 	case http.StatusUnauthorized, http.StatusForbidden:
-		if err := reconnectManagedSubscription(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID); err != nil {
-			observability.FromContext(ctx).Error("Failed to disable rejected subscription account",
+		reconnect, err := rejectManagedSubscriptionCredential(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID, status)
+		if err != nil {
+			observability.FromContext(ctx).Error("Failed to record rejected subscription account",
 				"provider", poolProvider, "account_id", lease.AccountID, "err", err)
 		}
 		observability.FromContext(ctx).Warn("Subscription account credential rejected",
-			"provider", poolProvider, "account_id", lease.AccountID, "upstream_status", status)
+			"provider", poolProvider, "account_id", lease.AccountID, "upstream_status", status, "reconnect_required", reconnect)
 		return true
 	default:
 		return false
@@ -494,6 +495,15 @@ func (s *Service) recordManagedSubscriptionSuccess(ctx context.Context, provider
 		observability.FromContext(ctx).Error("Failed to mark subscription account active",
 			"provider", poolProvider, "account_id", lease.AccountID, "err", err)
 	}
+}
+
+func rejectManagedSubscriptionCredential(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, accountID string, upstreamStatus int) (bool, error) {
+	if rejector, ok := leaser.(interface {
+		RejectCredential(context.Context, auth.SubscriptionOwner, subscriptions.Provider, string, int) (bool, error)
+	}); ok {
+		return rejector.RejectCredential(ctx, owner, provider, accountID, upstreamStatus)
+	}
+	return true, reconnectManagedSubscription(ctx, leaser, owner, provider, accountID)
 }
 
 func reconnectManagedSubscription(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, accountID string) error {

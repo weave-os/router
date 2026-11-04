@@ -66,6 +66,16 @@ func (s *scriptedSubscriptionLeaser) Disable(_ context.Context, _ auth.Subscript
 	return nil
 }
 
+type strikingSubscriptionLeaser struct {
+	*scriptedSubscriptionLeaser
+	rejected []int
+}
+
+func (s *strikingSubscriptionLeaser) RejectCredential(_ context.Context, _ auth.SubscriptionOwner, _ subscriptions.Provider, _ string, upstreamStatus int) (bool, error) {
+	s.rejected = append(s.rejected, upstreamStatus)
+	return false, nil
+}
+
 func managedSubscriptionTestContext() context.Context {
 	return managedSubscriptionContext(auth.SubscriptionProviderClaude)
 }
@@ -613,6 +623,37 @@ func TestDispatchWithFallbackDisablesRejectedManagedAccountBeforeRotation(t *tes
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"opaque-a"}, leaser.disabledIDs)
+	require.Equal(t, "served", recorder.Body.String())
+}
+
+func TestDispatchWithFallbackStrikesRejectedManagedAccountInsteadOfDisabling(t *testing.T) {
+	leaser := &strikingSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
+		{AccountID: "opaque-a", AccessToken: "token-a"},
+		{AccountID: "opaque-b", AccessToken: "token-b"},
+	}}}
+	client := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{
+		{err: &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized}},
+		{writeBytes: []byte("served")},
+	}}
+	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
+	recorder := httptest.NewRecorder()
+	buffer := newPreludeBuffer(recorder)
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
+		w: recorder, buf: buffer,
+		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
+		purpose:         inference.PurposeAnthropicMessages,
+		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+			buffer.Seal()
+			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []int{http.StatusUnauthorized}, leaser.rejected)
+	require.Empty(t, leaser.disabledIDs)
 	require.Equal(t, "served", recorder.Body.String())
 }
 

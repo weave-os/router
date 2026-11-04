@@ -210,6 +210,20 @@ func (p *Pool) ReconnectRequired(accountID string) bool {
 	return true
 }
 
+// InvalidateAccessToken drops a cached access token the provider rejected so
+// the next lease refreshes it.
+func (p *Pool) InvalidateAccessToken(accountID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	state, ok := p.accounts[accountID]
+	if !ok {
+		return false
+	}
+	state.account.AccessToken = ""
+	state.account.AccessTokenExpiresAt = time.Time{}
+	return true
+}
+
 // Activate makes an account available after a successful provider response.
 func (p *Pool) Activate(accountID string) bool {
 	p.mu.Lock()
@@ -394,8 +408,11 @@ func (p *Pool) refreshAccount(ctx context.Context, account Account, refresh Refr
 		}()
 		// Classify here so a failure is recorded even when every waiter left.
 		var terminal terminalRefreshError
+		var rejected *credentialRejectionCooldownError
 		switch {
 		case err == nil, errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		case errors.As(err, &rejected):
+			p.Cooldown(account.ID, rejected.until)
 		case errors.As(err, &terminal) && terminal.Terminal():
 			p.ReconnectRequired(account.ID)
 		default:
