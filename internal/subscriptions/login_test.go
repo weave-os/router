@@ -18,7 +18,7 @@ func unsignedJWT(t *testing.T, claims map[string]any) string {
 	t.Helper()
 	payload, err := json.Marshal(claims)
 	require.NoError(t, err)
-	return "e30." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
+	return base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`)) + "." + base64.RawURLEncoding.EncodeToString(payload) + ".sig"
 }
 
 func TestCodexBrowserLoginPollsUntilApprovedThenReturnsIdentity(t *testing.T) {

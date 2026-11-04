@@ -25,7 +25,20 @@ const otherSubscriberID = "9b6f3c4e-2f1a-4d8b-9c7e-5a4b3c2d1e0f"
 
 type loginAccountRepo struct {
 	internalSubscriptionAccountRepo
-	enrolled *auth.CreateSubscriptionAccountParams
+	enrolled          *auth.CreateSubscriptionAccountParams
+	withoutRoutingKey bool
+}
+
+const (
+	testEnrollmentAPIKeyID       = "5d2c1b0a-9e8f-4a7b-8c6d-1e2f3a4b5c6d"
+	testEnrollmentInstallationID = "7a6b5c4d-3e2f-4a1b-9c8d-0e1f2a3b4c5d"
+)
+
+func (r *loginAccountRepo) SubscriberEnrollmentOwner(_ context.Context, subscriberID string) (auth.SubscriptionOwner, error) {
+	if r.withoutRoutingKey {
+		return auth.SubscriptionOwner{}, auth.ErrSubscriptionEnrollmentKeyNotFound
+	}
+	return auth.SubscriptionOwner{SubscriberID: subscriberID, APIKeyID: testEnrollmentAPIKeyID, InstallationID: testEnrollmentInstallationID}, nil
 }
 
 func (r *loginAccountRepo) UpsertSubscriptionAccount(_ context.Context, params auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, auth.SubscriptionUpsertKind, error) {
@@ -34,8 +47,8 @@ func (r *loginAccountRepo) UpsertSubscriptionAccount(_ context.Context, params a
 }
 
 type fakeLoginFlow struct {
-	pending   bool
-	completed []subscriptions.PendingLogin
+	returnPending      bool
+	completionAttempts []subscriptions.PendingLogin
 }
 
 func (f *fakeLoginFlow) StartLogin(_ context.Context, provider subscriptions.Provider) (subscriptions.StartedLogin, error) {
@@ -46,8 +59,8 @@ func (f *fakeLoginFlow) StartLogin(_ context.Context, provider subscriptions.Pro
 }
 
 func (f *fakeLoginFlow) CompleteLogin(_ context.Context, pending subscriptions.PendingLogin, code string) (subscriptions.CompletedLogin, error) {
-	f.completed = append(f.completed, pending)
-	if f.pending {
+	f.completionAttempts = append(f.completionAttempts, pending)
+	if f.returnPending {
 		return subscriptions.CompletedLogin{}, subscriptions.ErrLoginPending
 	}
 	return subscriptions.CompletedLogin{Provider: pending.Provider, ExternalAccountID: "acct:org", DisplayName: "dev@example.com", RefreshToken: "rt-" + code}, nil
@@ -106,11 +119,11 @@ func TestBrowserLoginEnrollsTheSubscriberThatStartedIt(t *testing.T) {
 	recorder := postLogin(t, engine, "/internal/v1/subscription-logins/"+testSubscriberID+"/complete", map[string]string{"login_token": token, "code": "code#state-1"})
 	require.Equal(t, http.StatusCreated, recorder.Code, recorder.Body.String())
 	require.NotNil(t, repo.enrolled)
-	require.Equal(t, testSubscriberID, repo.enrolled.Owner.SubscriberID)
+	require.Equal(t, auth.SubscriptionOwner{SubscriberID: testSubscriberID, APIKeyID: testEnrollmentAPIKeyID, InstallationID: testEnrollmentInstallationID}, repo.enrolled.Owner)
 	require.Equal(t, auth.SubscriptionProviderClaude, repo.enrolled.Provider)
 	require.Equal(t, "acct:org", repo.enrolled.ExternalAccountID)
 	require.NotEqual(t, []byte("rt-code#state-1"), repo.enrolled.RefreshToken, "refresh token is encrypted at rest")
-	require.Equal(t, "secret-verifier", flow.completed[0].Verifier)
+	require.Equal(t, "secret-verifier", flow.completionAttempts[0].Verifier)
 }
 
 func TestBrowserLoginTokenCannotCompleteForAnotherSubscriber(t *testing.T) {
@@ -121,17 +134,30 @@ func TestBrowserLoginTokenCannotCompleteForAnotherSubscriber(t *testing.T) {
 
 	recorder := postLogin(t, engine, "/internal/v1/subscription-logins/"+otherSubscriberID+"/complete", map[string]string{"login_token": token, "code": "code#state-1"})
 	require.Equal(t, http.StatusBadRequest, recorder.Code)
-	require.Empty(t, flow.completed)
+	require.Empty(t, flow.completionAttempts)
 	require.Nil(t, repo.enrolled)
 }
 
 func TestBrowserLoginReportsPendingUntilApproved(t *testing.T) {
 	repo := &loginAccountRepo{}
-	flow := &fakeLoginFlow{pending: true}
+	flow := &fakeLoginFlow{returnPending: true}
 	engine := loginTestEngine(t, repo, flow)
 	token := startLogin(t, engine)
 
 	recorder := postLogin(t, engine, "/internal/v1/subscription-logins/"+testSubscriberID+"/complete", map[string]string{"login_token": token})
 	require.Equal(t, http.StatusAccepted, recorder.Code)
+	require.Nil(t, repo.enrolled)
+}
+
+func TestBrowserLoginWithoutRoutingKeyKeepsTheProviderCodeUnspent(t *testing.T) {
+	repo := &loginAccountRepo{withoutRoutingKey: true}
+	flow := &fakeLoginFlow{}
+	engine := loginTestEngine(t, repo, flow)
+	token := startLogin(t, engine)
+
+	recorder := postLogin(t, engine, "/internal/v1/subscription-logins/"+testSubscriberID+"/complete", map[string]string{"login_token": token, "code": "code#state-1"})
+	require.Equal(t, http.StatusConflict, recorder.Code, recorder.Body.String())
+	require.Contains(t, recorder.Body.String(), "routing_key_required")
+	require.Empty(t, flow.completionAttempts)
 	require.Nil(t, repo.enrolled)
 }

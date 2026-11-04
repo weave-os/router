@@ -231,6 +231,26 @@ type SubscriptionAccountRepository interface {
 	SubscriptionRefreshRepository
 }
 
+// SubscriptionEnrollmentOwnerResolver finds the routing key a keyless browser
+// reconnect enrolls through.
+type SubscriptionEnrollmentOwnerResolver interface {
+	SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (SubscriptionOwner, error)
+}
+
+// ErrSubscriptionEnrollmentKeyNotFound means the subscriber has no active
+// personal routing key to own a browser-enrolled account.
+var ErrSubscriptionEnrollmentKeyNotFound = errors.New("subscriber has no active routing key")
+
+// SubscriberEnrollmentOwner resolves the full owner a browser reconnect needs,
+// since enrollment records the routing key and installation alongside the subscriber.
+func (s *Service) SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (SubscriptionOwner, error) {
+	resolver, ok := s.subscriptionAccounts.(SubscriptionEnrollmentOwnerResolver)
+	if !ok {
+		return SubscriptionOwner{}, errors.New("subscription enrollment owner lookup is not configured")
+	}
+	return resolver.SubscriberEnrollmentOwner(ctx, subscriberID)
+}
+
 // ErrSubscriptionAccountNotFound indicates a state mutation did not match the
 // authenticated owner.
 var ErrSubscriptionAccountNotFound = errors.New("subscription account not found")

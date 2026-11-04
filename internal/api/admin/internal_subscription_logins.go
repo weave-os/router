@@ -98,6 +98,17 @@ func InternalCompleteSubscriptionLoginHandler(authSvc *auth.Service, flow Subscr
 			return
 		}
 		log = log.With("provider", pending.Provider)
+		enrollmentOwner, err := authSvc.SubscriberEnrollmentOwner(c.Request.Context(), owner.SubscriberID)
+		if errors.Is(err, auth.ErrSubscriptionEnrollmentKeyNotFound) {
+			log.Warn("Subscription login has no routing key to enroll through")
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "routing_key_required"})
+			return
+		}
+		if err != nil {
+			log.Error("Failed to resolve subscription login owner", "err", err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "subscription_login_unavailable"})
+			return
+		}
 		completed, err := flow.CompleteLogin(c.Request.Context(), pending, request.Code)
 		if errors.Is(err, subscriptions.ErrLoginPending) {
 			c.JSON(http.StatusAccepted, gin.H{"status": "pending"})
@@ -109,7 +120,7 @@ func InternalCompleteSubscriptionLoginHandler(authSvc *auth.Service, flow Subscr
 			return
 		}
 		account, err := authSvc.AddSubscriptionAccount(c.Request.Context(), auth.CreateSubscriptionAccountParams{
-			Owner:             owner,
+			Owner:             enrollmentOwner,
 			Provider:          auth.SubscriptionProvider(completed.Provider),
 			ExternalAccountID: completed.ExternalAccountID,
 			DisplayName:       completed.DisplayName,

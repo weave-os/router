@@ -12,6 +12,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 const (
@@ -60,7 +62,6 @@ func (c *OAuthClient) codexIssuer() string {
 	return strings.TrimSuffix(c.codexTokenURL, "/oauth/token")
 }
 
-// StartLogin begins a browser login for provider.
 func (c *OAuthClient) StartLogin(ctx context.Context, provider Provider) (StartedLogin, error) {
 	expiresAt := c.now().Add(LoginTTL)
 	switch provider {
@@ -243,25 +244,14 @@ func randomURLToken() (string, error) {
 }
 
 func emailFromJWT(token string) string {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
+	claims := jwt.MapClaims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(token, claims); err != nil {
 		return ""
 	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return ""
+	if email, ok := claims["email"].(string); ok && email != "" {
+		return email
 	}
-	var claims struct {
-		Email   string `json:"email"`
-		Profile struct {
-			Email string `json:"email"`
-		} `json:"https://api.openai.com/profile"`
-	}
-	if json.Unmarshal(payload, &claims) != nil {
-		return ""
-	}
-	if claims.Email != "" {
-		return claims.Email
-	}
-	return claims.Profile.Email
+	profile, _ := claims["https://api.openai.com/profile"].(map[string]any)
+	email, _ := profile["email"].(string)
+	return email
 }

@@ -66,10 +66,9 @@ type TokenRefresher interface {
 
 // OAuthClient refreshes Claude and Codex subscription credentials.
 type OAuthClient struct {
-	httpClient     *http.Client
-	codexTokenURL  string
-	claudeTokenURL string
-	// claudeAuthorizeURL is the browser login entry for StartLogin.
+	httpClient         *http.Client
+	codexTokenURL      string
+	claudeTokenURL     string
 	claudeAuthorizeURL string
 	now                func() time.Time
 }

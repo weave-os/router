@@ -266,6 +266,52 @@ func (q *Queries) GetModelRouterSubscriptionCredentialRecord(ctx context.Context
 	return i, err
 }
 
+const getSubscriberEnrollmentKey = `-- name: GetSubscriberEnrollmentKey :one
+SELECT k.id AS api_key_id, k.installation_id
+FROM router.model_router_api_keys AS k
+JOIN router.credential_subjects AS subject ON subject.id = k.credential_subject_id
+JOIN router.credential_subject_installations AS access
+  ON access.subject_id = subject.id AND access.installation_id = k.installation_id
+JOIN router.model_router_installations AS installation ON installation.id = k.installation_id
+WHERE k.credential_subject_id = $1::uuid
+  AND k.deleted_at IS NULL
+  AND installation.deleted_at IS NULL
+  AND subject.projection_complete
+  AND subject.revoked_at IS NULL
+  AND access.access_enabled
+ORDER BY k.created_at DESC, k.id
+LIMIT 1
+`
+
+type GetSubscriberEnrollmentKeyRow struct {
+	APIKeyID       uuid.UUID
+	InstallationID uuid.UUID
+}
+
+// Browser reconnect has no request key, so it enrolls through the subscriber's
+// newest active personal routing key whose installation access is enabled.
+//
+//	SELECT k.id AS api_key_id, k.installation_id
+//	FROM router.model_router_api_keys AS k
+//	JOIN router.credential_subjects AS subject ON subject.id = k.credential_subject_id
+//	JOIN router.credential_subject_installations AS access
+//	  ON access.subject_id = subject.id AND access.installation_id = k.installation_id
+//	JOIN router.model_router_installations AS installation ON installation.id = k.installation_id
+//	WHERE k.credential_subject_id = $1::uuid
+//	  AND k.deleted_at IS NULL
+//	  AND installation.deleted_at IS NULL
+//	  AND subject.projection_complete
+//	  AND subject.revoked_at IS NULL
+//	  AND access.access_enabled
+//	ORDER BY k.created_at DESC, k.id
+//	LIMIT 1
+func (q *Queries) GetSubscriberEnrollmentKey(ctx context.Context, subscriberID uuid.UUID) (GetSubscriberEnrollmentKeyRow, error) {
+	row := q.db.QueryRow(ctx, getSubscriberEnrollmentKey, subscriberID)
+	var i GetSubscriberEnrollmentKeyRow
+	err := row.Scan(&i.APIKeyID, &i.InstallationID)
+	return i, err
+}
+
 const listModelRouterSubscriptionAccounts = `-- name: ListModelRouterSubscriptionAccounts :many
 SELECT id,
        subscriber_id,
