@@ -387,7 +387,8 @@ func routerNoticeForRequest(ctx context.Context, headers http.Header, source sub
 
 type subscriptionOnlyWarningsEchoedContextKey struct{}
 
-// SubscriptionsDashboardURL is where users connect or reconnect a seat.
+// SubscriptionsDashboardURL is where users connect or reconnect a seat. The
+// nudges add `reconnect=<provider>` so the dashboard starts that login on load.
 const SubscriptionsDashboardURL = "https://router.weaveos.com/dashboard?router-tab=subscriptions"
 
 // ownCodexPlanSpentNudge replaces the routing marker once per session when
@@ -395,13 +396,13 @@ const SubscriptionsDashboardURL = "https://router.weaveos.com/dashboard?router-t
 // of silently running on shared or paid capacity.
 const ownCodexPlanSpentNudge = routingMarkerPrefix +
 	"your own ChatGPT (Codex) plan is out of usage for now. Connect or reconnect a Codex seat to keep this on a subscription: " +
-	SubscriptionsDashboardURL + "\n\n"
+	SubscriptionsDashboardURL + "&reconnect=codex\n\n"
 
 // ownClaudePlanSpentNudge is the Claude Code counterpart, shown when the
 // caller's own Claude plan is spent or drawing overage.
 const ownClaudePlanSpentNudge = routingMarkerPrefix +
 	"your own Claude plan is out of usage for now. Connect or reconnect a Claude seat to keep this on a subscription: " +
-	SubscriptionsDashboardURL + "\n\n"
+	SubscriptionsDashboardURL + "&reconnect=claude\n\n"
 
 var subscriptionReconnectNudges = []string{ownCodexPlanSpentNudge, ownClaudePlanSpentNudge}
 

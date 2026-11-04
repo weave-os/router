@@ -17,7 +17,7 @@ func TestOwnCodexPlanSpentNudgeShowsOncePerSession(t *testing.T) {
 	first := withSubscriptionOnlyWarningEcho(ctx, []byte(`{"input":[{"role":"user","content":"hi"}]}`))
 	notice := routerNoticeForRequest(first, http.Header{}, subscriptions.ProviderCodex, "gpt-6", "✦ **Weave Router** → gpt-6\n\n")
 	require.Equal(t, translate.NoticeSubscriptionReconnect, notice.Kind)
-	require.Contains(t, notice.Text, SubscriptionsDashboardURL)
+	require.Contains(t, notice.Text, SubscriptionsDashboardURL+"&reconnect=codex", "the link starts the Codex login")
 
 	history, err := json.Marshal(map[string]any{"input": []map[string]any{
 		{"role": "user", "content": "hi"},
