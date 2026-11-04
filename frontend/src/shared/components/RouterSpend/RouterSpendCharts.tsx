@@ -1,9 +1,10 @@
 "use client";
 
-import { type ReactNode, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import {
   type DateRange,
+  RouterBilling,
   RouterCostType,
   RouterMetricGroup,
   type RouterMetricPoint,
@@ -11,30 +12,33 @@ import {
 } from "../../data";
 import { useRouterMetricSeries, useRouterReportSummary } from "../../data/useRouterMetricSeries";
 import {
-  MODEL_FAMILY_COLOR,
   MODEL_FAMILY_LABEL,
   modelFamily,
   type RouterModelFamily,
 } from "../../objects/RouterModelFamily";
-import { ChartColorToken } from "../../tools/chartColors";
-import { formatPercentage, formatUSD } from "../../tools/format";
+import { AccountChartColorToken, ChartColorToken } from "../../tools/chartColors";
+import { formatRouterModelName, formatUSD, formatUSDCompact } from "../../tools/format";
 import { LoadState } from "../../tools/LoadState";
 import { addGranularity, formatInterval, formatTime } from "../../tools/timeGranularity";
-import { Skeleton } from "../atoms/Skeleton";
 import { Text } from "../atoms/Text";
 import {
   Chart,
   ChartAxisType,
   type ChartData,
+  type ChartReferenceLine,
   type ChartSeriesConfig,
   ChartSeriesType,
 } from "../Chart";
 import { ChartCard } from "../ChartCard";
 import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
 import { ErrorCard } from "../ErrorCard";
-import { ListogramSelector } from "../Listogram";
+import { Listogram, ListogramSelector } from "../Listogram";
 import { LoadStateWrapper } from "../LoadStateWrapper";
-import { displayGranularity, previousRange } from "../RouterCharts/chartRange";
+import {
+  displayGranularity,
+  latestCompleteBucket,
+  previousRange,
+} from "../RouterCharts/chartRange";
 import { TIME_KEY } from "../RouterCharts/pivotSeries";
 import { periodPercentChange, RouterChartHeadline } from "../RouterCharts/RouterChartHeadline";
 import { ROUTER_SOURCE_MARK } from "../RouterCharts/routerSourceMark";
@@ -54,7 +58,6 @@ interface CostBucket {
 type ChartRows = ChartData<typeof TIME_KEY, string, number, number>;
 
 const COMPARISON_FALLBACK = "the comparison model";
-const NO_PERIOD_CHANGE = LoadState.loaded(null);
 const SAVINGS_KEY = "saved";
 const EXTRA_COST_KEY = "extra";
 
@@ -93,8 +96,9 @@ function costTotals(points: readonly RouterMetricPoint[]) {
   );
 }
 
+/** Savings as a percentage of the comparison cost; null when nothing could be compared. */
 function savingsRate({ actual, comparison }: { actual: number; comparison: number }) {
-  return comparison === 0 ? null : (comparison - actual) / comparison;
+  return comparison === 0 ? null : ((comparison - actual) / comparison) * 100;
 }
 
 function formatSavings(savings: number) {
@@ -103,7 +107,8 @@ function formatSavings(savings: number) {
 
 function useComparisonLabel(range: DateRange) {
   const summary = useRouterReportSummary(range);
-  return LoadState.unwrap(summary)?.comparisonModel || COMPARISON_FALLBACK;
+  const comparisonModel = LoadState.unwrap(summary)?.comparisonModel;
+  return comparisonModel ? formatRouterModelName(comparisonModel) : COMPARISON_FALLBACK;
 }
 
 /** Bucketed cost for the range plus the same-length window before it, for period change. */
@@ -124,20 +129,31 @@ function useCostSeries(granularity: Granularity, range: DateRange) {
 }
 
 function TimeChart({
+  categorical = false,
   config,
   dependentKeys,
   formatValue,
   granularity,
   legend = false,
+  allowDependentTickDecimals = false,
+  annotations,
+  highlightedIndependentValue,
+  mutedBarColor,
   referenceLines,
   rows,
 }: {
+  /** Bars sit on one category per bucket instead of a padded time axis. */
+  categorical?: boolean;
+  highlightedIndependentValue?: number;
+  mutedBarColor?: string;
   config: Record<string, ChartSeriesConfig<number, number>>;
   legend?: boolean;
   dependentKeys: readonly string[];
   formatValue: (value: number) => string;
   granularity: Granularity;
-  referenceLines?: LoadState<readonly { type: "dependent"; value: number }[]>;
+  referenceLines?: LoadState<readonly ChartReferenceLine<number, number>[]>;
+  allowDependentTickDecimals?: boolean;
+  annotations?: readonly { dependentKey: string; independentValue: number; label: string }[];
   rows: LoadState<readonly Record<string, number>[]>;
 }) {
   const timeGranularity = displayGranularity(granularity);
@@ -149,14 +165,22 @@ function TimeChart({
       dependentKeys={keys}
       groups={LoadState.loaded([dependentKeys])}
       independentKey={TIME_KEY}
-      independentType={ChartAxisType.Time}
-      independentDomain={([min, max]) => [
-        addGranularity(min, timeGranularity, -1).getTime(),
-        addGranularity(max, timeGranularity, 1).getTime(),
-      ]}
+      independentType={categorical ? ChartAxisType.Category : ChartAxisType.Time}
+      independentDomain={
+        categorical
+          ? undefined
+          : ([min, max]) => [
+              addGranularity(min, timeGranularity, -1).getTime(),
+              addGranularity(max, timeGranularity, 1).getTime(),
+            ]
+      }
       formatValue={formatValue}
       formatIndependentValue={value => formatTime(value, timeGranularity)}
       formatIndependentValueTooltip={value => formatInterval(value, timeGranularity)}
+      allowDependentTickDecimals={allowDependentTickDecimals}
+      annotations={annotations}
+      highlightedIndependentValue={highlightedIndependentValue}
+      mutedBarColor={mutedBarColor}
       referenceLines={referenceLines}
       legend={legend}
     />
@@ -271,9 +295,10 @@ export function RouterCostBreakdownChart({
       }
     >
       <TimeChart
+        categorical={view === RouterCostView.Breakdown}
         config={config}
         dependentKeys={view === RouterCostView.Trend ? TREND_KEYS : BREAKDOWN_KEYS}
-        formatValue={formatUSD}
+        formatValue={formatUSDCompact}
         granularity={granularity}
         legend
         rows={rows}
@@ -299,7 +324,6 @@ export function RouterCumulativeSavingsChart({ className, granularity, range }: 
       }),
     [current],
   );
-  const total = LoadState.map(rows, values => values.at(-1)?.[CUMULATIVE_KEY] ?? 0);
 
   return (
     <ChartCard
@@ -308,12 +332,6 @@ export function RouterCumulativeSavingsChart({ className, granularity, range }: 
       className={className}
       title="Cumulative savings"
       subtitle={`Running total of catalog cost saved vs ${comparisonModel} across the selected time range. Below $0, routing has cost more so far.`}
-      headline={
-        <RouterChartHeadline
-          percentChange={NO_PERIOD_CHANGE}
-          statistic={LoadState.map(total, value => ({ total: formatSavings(value) }))}
-        />
-      }
     >
       <TimeChart
         config={{
@@ -325,7 +343,7 @@ export function RouterCumulativeSavingsChart({ className, granularity, range }: 
           },
         }}
         dependentKeys={CUMULATIVE_KEYS}
-        formatValue={formatUSD}
+        formatValue={formatUSDCompact}
         granularity={granularity}
         rows={rows}
       />
@@ -334,8 +352,12 @@ export function RouterCumulativeSavingsChart({ className, granularity, range }: 
 }
 
 const RATE_KEY = "savings_rate";
+
+function formatSavingsRate(rate: number) {
+  return `${rate.toFixed(1)}%`;
+}
 const RATE_KEYS = [RATE_KEY] as const;
-const ZERO_REFERENCE_LINES = LoadState.loaded([{ type: "dependent" as const, value: 0 }]);
+const ZERO_REFERENCE_LINE = { type: "dependent" as const, value: 0 };
 
 export function RouterSavingsRateChart({ className, granularity, range }: SpendChartProps) {
   const comparisonModel = useComparisonLabel(range);
@@ -351,10 +373,25 @@ export function RouterSavingsRateChart({ className, granularity, range }: SpendC
     [current],
   );
   const rate = LoadState.map(current, ({ values }) => savingsRate(costTotals(values)));
+  // The spend-weighted range rate rather than a mean of bucket rates, so the line matches the headline.
+  const referenceLines = LoadState.map(rate, value =>
+    value == null
+      ? [ZERO_REFERENCE_LINE]
+      : [
+          ZERO_REFERENCE_LINE,
+          {
+            dashed: true,
+            label: `Overall ${formatSavingsRate(value)}`,
+            side: "right" as const,
+            type: "dependent" as const,
+            value,
+          },
+        ],
+  );
   const rateChange = LoadState.map(current, previous, (now, before) => {
     const nowRate = savingsRate(costTotals(now.values));
     const beforeRate = savingsRate(costTotals(before.values));
-    return nowRate == null || beforeRate == null ? null : (nowRate - beforeRate) * 100;
+    return nowRate == null || beforeRate == null ? null : nowRate - beforeRate;
   });
 
   return (
@@ -370,7 +407,7 @@ export function RouterSavingsRateChart({ className, granularity, range }: SpendC
           changeUnit="pp"
           percentChange={rateChange}
           statistic={LoadState.map(rate, value =>
-            value == null ? {} : { total: formatPercentage(value) },
+            value == null ? {} : { total: formatSavingsRate(value) },
           )}
         />
       }
@@ -379,14 +416,21 @@ export function RouterSavingsRateChart({ className, granularity, range }: SpendC
         config={{
           [RATE_KEY]: {
             color: ChartColorToken.Green,
-            label: "Savings rate",
-            type: ChartSeriesType.Line,
+            label: `Savings rate vs ${comparisonModel}`,
+            type: ChartSeriesType.Bar,
           },
         }}
+        categorical
         dependentKeys={RATE_KEYS}
-        formatValue={formatPercentage}
+        formatValue={formatSavingsRate}
         granularity={granularity}
-        referenceLines={ZERO_REFERENCE_LINES}
+        highlightedIndependentValue={latestCompleteBucket(
+          (LoadState.unwrap(rows) ?? []).map(row => row[TIME_KEY]),
+          range,
+          displayGranularity(granularity),
+        )}
+        mutedBarColor={AccountChartColorToken.Gray}
+        referenceLines={referenceLines}
         rows={rows}
       />
     </ChartCard>
@@ -394,6 +438,13 @@ export function RouterSavingsRateChart({ className, granularity, range }: SpendC
 }
 
 const PER_REQUEST_KEY = "cost_per_request";
+// Cost per request is often a fraction of a cent, which a two-decimal currency format rounds to $0.00.
+const USD_PER_REQUEST_FORMATTER = new Intl.NumberFormat(undefined, {
+  currency: "USD",
+  maximumSignificantDigits: 3,
+  style: "currency",
+});
+const formatUSDPerRequest = (value: number) => USD_PER_REQUEST_FORMATTER.format(value);
 const PER_REQUEST_KEYS = [PER_REQUEST_KEY] as const;
 
 function totalByTime(points: readonly RouterMetricPoint[]) {
@@ -405,24 +456,115 @@ function totalByTime(points: readonly RouterMetricPoint[]) {
   return totals;
 }
 
+// A bucket at least this many times the range's median cost per request is marked as unusual.
+const UNUSUAL_BUCKET_RATIO = 1.5;
+// Fewer buckets than this give the median too little to stand for "usual".
+const MIN_BUCKETS_FOR_UNUSUAL = 4;
+
+/** Spend over requests for the whole range, so busy buckets weigh more than quiet ones. */
+function rangeCostPerRequest(
+  spend: readonly RouterMetricPoint[],
+  requests: readonly RouterMetricPoint[],
+) {
+  const count = requests.reduce((sum, { value }) => sum + value, 0);
+  return count === 0 ? null : spend.reduce((sum, { value }) => sum + value, 0) / count;
+}
+
+/** Buckets whose cost per request is at least {@link UNUSUAL_BUCKET_RATIO} × the median bucket. */
+export function unusualCostPerRequestBuckets(rows: readonly { ratio: number; time: number }[]) {
+  if (rows.length < MIN_BUCKETS_FOR_UNUSUAL) return [];
+  const sorted = rows.map(({ ratio }) => ratio).sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  const usual =
+    sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+  if (usual <= 0) return [];
+  return rows.flatMap(({ ratio, time }) =>
+    ratio >= usual * UNUSUAL_BUCKET_RATIO ? [{ multiple: ratio / usual, time }] : [],
+  );
+}
+
+enum CostPerRequestScope {
+  All = "all",
+  PayPerUse = "pay_per_use",
+}
+
+const COST_PER_REQUEST_SCOPES = [CostPerRequestScope.All, CostPerRequestScope.PayPerUse] as const;
+
+const COST_PER_REQUEST_SCOPE_LABELS: Record<CostPerRequestScope, string> = {
+  [CostPerRequestScope.All]: "All requests",
+  [CostPerRequestScope.PayPerUse]: "Pay-per-use only",
+};
+
+const COST_PER_REQUEST_SCOPE_SUBTITLES: Record<CostPerRequestScope, string> = {
+  [CostPerRequestScope.All]:
+    "Catalog cost divided by requests, per bucket. Subscription-served requests count as $0.",
+  [CostPerRequestScope.PayPerUse]:
+    "Catalog cost divided by API requests per bucket, excluding subscription requests.",
+};
+
 export function RouterCostPerRequestChart({ className, granularity, range }: SpendChartProps) {
-  const { current: cost } = useCostSeries(granularity, range);
-  const requests = useRouterMetricSeries({ granularity, range, type: RouterMetricType.ModelUsage });
+  const [scope, setScope] = useState(CostPerRequestScope.All);
+  // Pay-per-use leaves out subscription-served requests, which count as $0 and pull the figure down.
+  const billing = scope === CostPerRequestScope.PayPerUse ? RouterBilling.API : undefined;
+  const previousWindow = useMemo(() => previousRange(range), [range]);
+  const spend = useRouterMetricSeries({
+    billing,
+    granularity,
+    range,
+    type: RouterMetricType.ModelSpend,
+  });
+  const requests = useRouterMetricSeries({
+    billing,
+    granularity,
+    range,
+    type: RouterMetricType.ModelUsage,
+  });
+  const previousSpend = useRouterMetricSeries({
+    billing,
+    granularity,
+    range: previousWindow,
+    type: RouterMetricType.ModelSpend,
+  });
+  const previousRequests = useRouterMetricSeries({
+    billing,
+    granularity,
+    range: previousWindow,
+    type: RouterMetricType.ModelUsage,
+  });
   const rows = useMemo(
     () =>
-      LoadState.map(cost, requests, (costSeries, requestSeries) => {
+      LoadState.map(spend, requests, (spendSeries, requestSeries) => {
         const requestTotals = totalByTime(requestSeries.values);
-        return costBuckets(costSeries.values).flatMap(({ actual, time }) => {
-          const count = requestTotals.get(time) ?? 0;
-          return count === 0 ? [] : [{ [PER_REQUEST_KEY]: actual / count, [TIME_KEY]: time }];
-        });
+        return [...totalByTime(spendSeries.values)]
+          .filter(([time]) => (requestTotals.get(time) ?? 0) > 0)
+          .sort(([a], [b]) => a - b)
+          .map(([time, value]) => ({ ratio: value / requestTotals.get(time)!, time }));
       }),
-    [cost, requests],
+    [requests, spend],
   );
-  const average = LoadState.map(cost, requests, (costSeries, requestSeries) => {
-    const count = requestSeries.values.reduce((sum, { value }) => sum + value, 0);
-    return count === 0 ? null : costTotals(costSeries.values).actual / count;
-  });
+  const chartRows = LoadState.map(rows, values =>
+    values.map(({ ratio, time }) => ({ [PER_REQUEST_KEY]: ratio, [TIME_KEY]: time })),
+  );
+  const annotations = unusualCostPerRequestBuckets(LoadState.unwrap(rows) ?? []).map(
+    ({ multiple, time }) => ({
+      dependentKey: PER_REQUEST_KEY,
+      independentValue: time,
+      label: `${multiple.toFixed(1)}× median`,
+    }),
+  );
+  const average = LoadState.map(spend, requests, (s, r) => rangeCostPerRequest(s.values, r.values));
+  const percentChange = LoadState.map(
+    spend,
+    requests,
+    previousSpend,
+    previousRequests,
+    (s, r, ps, pr) => {
+      const now = rangeCostPerRequest(s.values, r.values);
+      return now == null
+        ? null
+        : periodPercentChange(now, rangeCostPerRequest(ps.values, pr.values) ?? 0);
+    },
+  );
 
   return (
     <ChartCard
@@ -430,17 +572,28 @@ export function RouterCostPerRequestChart({ className, granularity, range }: Spe
       sources={ROUTER_SOURCE_MARK}
       className={className}
       title="Cost per request"
-      subtitle="Catalog cost divided by requests, per bucket. Subscription-served requests count as $0."
+      subtitle={COST_PER_REQUEST_SCOPE_SUBTITLES[scope]}
+      topRight={
+        <ListogramSelector
+          labels={COST_PER_REQUEST_SCOPE_LABELS}
+          option={scope}
+          options={COST_PER_REQUEST_SCOPES}
+          setOption={setScope}
+        />
+      }
       headline={
         <RouterChartHeadline
-          percentChange={NO_PERIOD_CHANGE}
+          invertChangeColor
+          percentChange={percentChange}
           statistic={LoadState.map(average, value =>
-            value == null ? {} : { total: `${formatUSD(value)} avg` },
+            value == null ? {} : { total: formatUSDPerRequest(value) },
           )}
         />
       }
     >
       <TimeChart
+        allowDependentTickDecimals
+        annotations={annotations}
         config={{
           [PER_REQUEST_KEY]: {
             color: ChartColorToken.Scale1,
@@ -449,51 +602,28 @@ export function RouterCostPerRequestChart({ className, granularity, range }: Spe
           },
         }}
         dependentKeys={PER_REQUEST_KEYS}
-        formatValue={formatUSD}
+        formatValue={formatUSDPerRequest}
         granularity={granularity}
-        rows={rows}
+        rows={chartRows}
       />
     </ChartCard>
   );
 }
 
-/** Catalog cost over the range per model maker, largest first. */
+/**
+ * Each maker's catalog cost summed over the range, largest first. Makers present only through
+ * subscription-served ($0) requests stay in the list at $0.
+ */
 export function spendByMaker(points: readonly RouterMetricPoint[]) {
   const totals = new Map<RouterModelFamily, number>();
   for (const { group, value } of points) {
-    const family = modelFamily(group ?? "");
+    if (group == null || group === "") continue;
+    const family = modelFamily(group);
     totals.set(family, (totals.get(family) ?? 0) + value);
   }
-  return [...totals].filter(([, spend]) => spend > 0).sort(([, a], [, b]) => b - a);
-}
-
-function RankedBars({
-  rows,
-}: {
-  rows: readonly (readonly [RouterModelFamily, number])[];
-}): ReactNode {
-  const max = rows[0]?.[1] ?? 0;
-  return (
-    <ul className="flex flex-col gap-3" aria-label="Catalog cost by model maker">
-      {rows.map(([family, spend]) => (
-        <li key={family} className="flex flex-col gap-1">
-          <div className="flex items-baseline justify-between gap-2">
-            <Text className="text-body">{MODEL_FAMILY_LABEL[family]}</Text>
-            <Text className="text-body tabular-nums">{formatUSD(spend)}</Text>
-          </div>
-          <div className="bg-wv-gray-100 h-2 rounded-sm">
-            <div
-              className="h-full rounded-sm"
-              style={{
-                backgroundColor: MODEL_FAMILY_COLOR[family],
-                width: `${max === 0 ? 0 : (spend / max) * 100}%`,
-              }}
-            />
-          </div>
-        </li>
-      ))}
-    </ul>
-  );
+  return [...totals]
+    .map(([family, spend]) => ({ family, spend }))
+    .sort((a, b) => b.spend - a.spend);
 }
 
 export function RouterSpendByMakerChart({
@@ -506,27 +636,22 @@ export function RouterSpendByMakerChart({
     range,
     type: RouterMetricType.ModelSpend,
   });
-  const rows = useMemo(() => LoadState.map(spend, ({ values }) => spendByMaker(values)), [spend]);
-  const total = LoadState.map(rows, values => values.reduce((sum, [, value]) => sum + value, 0));
+  const makerTotals = useMemo(
+    () => LoadState.map(spend, ({ values }) => spendByMaker(values)),
+    [spend],
+  );
 
   return (
     <ChartCard
       chartId="router_spend_by_maker"
       sources={ROUTER_SOURCE_MARK}
-      autoHeight
       className={className}
       title="Catalog cost by model maker"
       subtitle="Catalog cost over the range by model maker. Subscription requests contribute $0."
-      headline={
-        <RouterChartHeadline
-          percentChange={NO_PERIOD_CHANGE}
-          statistic={LoadState.map(total, value => ({ total: formatUSD(value) }))}
-        />
-      }
     >
       <LoadStateWrapper
-        state={rows}
-        loading={<Skeleton className="h-40 w-full" />}
+        state={makerTotals}
+        loading={<Listogram.Loading rows={4} />}
         error={() => (
           <ErrorCard
             title="Couldn't load catalog cost by maker"
@@ -534,14 +659,28 @@ export function RouterSpendByMakerChart({
           />
         )}
       >
-        {values =>
-          values.length === 0 ? (
+        {totals =>
+          totals.length === 0 ? (
             <ErrorCard
-              title="No API spend yet"
+              title="No requests yet"
               description="Route requests through Weave Router to see catalog cost by model maker."
             />
           ) : (
-            <RankedBars rows={values} />
+            <Listogram>
+              <ul className="flex flex-col gap-1">
+                {totals.map(({ family, spend: makerSpend }) => (
+                  <li key={family}>
+                    <Listogram.Row
+                      formatValue={formatUSD}
+                      maxValue={totals[0].spend}
+                      value={makerSpend}
+                    >
+                      <Text className="truncate text-body">{MODEL_FAMILY_LABEL[family]}</Text>
+                    </Listogram.Row>
+                  </li>
+                ))}
+              </ul>
+            </Listogram>
           )
         }
       </LoadStateWrapper>

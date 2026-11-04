@@ -48,7 +48,7 @@ export function ExternalIcon({ alt, className, type }: ExternalIconProps) {
       );
     case ExternalIconType.WeaveRouter:
       return (
-        <>
+        <span className="relative inline-flex shrink-0">
           {/* oxlint-disable-next-line nextjs/no-img-element -- inline data URI, nothing to optimize. */}
           <img
             src={ROUTER_MARK_LIGHT_SRC}
@@ -61,7 +61,7 @@ export function ExternalIcon({ alt, className, type }: ExternalIconProps) {
             alt={label}
             className={cn(iconClassName, "hidden dark:block")}
           />
-        </>
+        </span>
       );
   }
 }

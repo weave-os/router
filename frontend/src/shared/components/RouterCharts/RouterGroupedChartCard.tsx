@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { type DateRange, type RouterMetricGroup, type RouterMetricType } from "../../data";
 import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
-import { formatBigDecimal } from "../../tools/format";
+import { formatBigDecimal, formatInteger } from "../../tools/format";
 import { LoadState } from "../../tools/LoadState";
 import { addGranularity, formatInterval, formatTime } from "../../tools/timeGranularity";
 import {
@@ -19,10 +19,11 @@ import { ChartCard } from "../ChartCard";
 import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
 import { displayGranularity, previousRange } from "./chartRange";
 import { ChartTabToggle } from "./ChartTabToggle";
+import { usePartialBucketTick } from "./partialBucketTick";
 import { pivotSeries, TIME_KEY, toShare } from "./pivotSeries";
 import { periodPercentChange, RouterChartHeadline } from "./RouterChartHeadline";
 import { type RouterSeriesConfigs } from "./routerSeriesConfigs";
-import { ROUTER_SOURCE_MARK } from "./routerSourceMark";
+import { ROUTER_METRIC_SOURCE_MARK } from "./routerSourceMark";
 
 enum GroupedMetricView {
   Share = "share",
@@ -43,12 +44,16 @@ export interface RouterGroupedChartCardProps {
   formatValue?: (value: number) => string;
   granularity: Granularity;
   group: RouterMetricGroup;
+  /** Flags ticks whose bucket the date range cuts short; on by default. */
+  markPartialBuckets?: boolean;
   metric: RouterMetricType;
   range: DateRange;
   seriesConfigs: RouterSeriesConfigs;
   seriesType: ChartSeriesType.Area | ChartSeriesType.Bar;
   /** Offers the Volume | Share toggle that renders each bucket's groups as percents. */
   shareToggle?: boolean;
+  /** Headlines the average as whole `<unit>/<bucket>`, e.g. "7 users/day". */
+  statisticUnit?: string;
   title: string;
 }
 
@@ -60,11 +65,13 @@ export function RouterGroupedChartCard({
   formatValue = formatBigDecimal,
   granularity,
   group,
+  markPartialBuckets = true,
   metric,
   range,
   seriesConfigs,
   seriesType,
   shareToggle = false,
+  statisticUnit,
   title,
 }: RouterGroupedChartCardProps) {
   const [view, setView] = useState(GroupedMetricView.Volume);
@@ -109,6 +116,7 @@ export function RouterGroupedChartCard({
       }),
     );
   }, [fillPattern, pivoted, seriesConfigs, seriesType]);
+  const partialBucketTick = usePartialBucketTick(range, timeGranularity);
   const isShare = view === GroupedMetricView.Share;
   const formatShown = (value: number) => (isShare ? `${value.toFixed(0)}%` : formatValue(value));
 
@@ -116,14 +124,16 @@ export function RouterGroupedChartCard({
     <ChartCard
       chartId={chartId}
       className={className}
-      sources={ROUTER_SOURCE_MARK}
+      sources={ROUTER_METRIC_SOURCE_MARK}
       title={title}
       headline={
         <RouterChartHeadline
           percentChange={percentChange}
-          statistic={LoadState.map(average, value => ({
-            rate: { granularity: timeGranularity, rate: formatValue(value) },
-          }))}
+          statistic={LoadState.map(average, value =>
+            statisticUnit == null
+              ? { rate: { granularity: timeGranularity, rate: formatValue(value) } }
+              : { total: `${formatInteger(value)} ${statisticUnit}/${timeGranularity}` },
+          )}
         />
       }
       topRight={
@@ -147,13 +157,20 @@ export function RouterGroupedChartCard({
         groups={LoadState.map(shown, ({ keys }) => [keys])}
         independentKey={TIME_KEY}
         independentType={ChartAxisType.Time}
-        independentDomain={([min, max]) => [
-          addGranularity(min, timeGranularity, -1).getTime(),
-          addGranularity(max, timeGranularity, 1).getTime(),
-        ]}
+        // A bucket of padding either side centres bars on their ticks; an area instead runs
+        // edge to edge, so it ends on the first and last buckets.
+        independentDomain={([min, max]) =>
+          seriesType === ChartSeriesType.Area
+            ? [min, max]
+            : [
+                addGranularity(min, timeGranularity, -1).getTime(),
+                addGranularity(max, timeGranularity, 1).getTime(),
+              ]
+        }
         formatValue={formatShown}
         formatIndependentValue={value => formatTime(value, timeGranularity)}
         formatIndependentValueTooltip={value => formatInterval(value, timeGranularity)}
+        independentTick={markPartialBuckets ? partialBucketTick : undefined}
         legend
       />
     </ChartCard>

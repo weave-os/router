@@ -73,6 +73,8 @@ export function RouterOverviewTabPanel({
             range={range}
             seriesConfigs={ROUTER_USER_LINK_SERIES_CONFIGS}
             seriesType={ChartSeriesType.Area}
+            statisticUnit="users"
+            markPartialBuckets={false}
             title="Active people"
           />
           <RouterInactiveCard className={ResponsiveGrid.Medium} />

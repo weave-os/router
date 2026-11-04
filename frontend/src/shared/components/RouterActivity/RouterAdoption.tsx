@@ -250,19 +250,13 @@ export function RouterInactiveCard({ className }: { className?: string }) {
           const unlinked = inactive.length - linked;
           return (
             <>
-              <MetricValue
-                className="mt-2 block"
-                size={TypographyRole.Display}
-                value={formatInteger(linked)}
-              />
+              <MetricValue className="mt-2 block tracking-tight" value={formatInteger(linked)} />
               <Text className="mt-1 text-caption text-wv-secondary">
-                linked people with no request in {INACTIVE_AFTER_DAYS}+ days ·{" "}
-                {ALL_TIME_CAVEAT.toLowerCase()}
+                {`linked people with no request in ${INACTIVE_AFTER_DAYS}+ days · ${ALL_TIME_CAVEAT.toLowerCase()}`}
               </Text>
               {unlinked > 0 && (
                 <Text className="text-caption text-wv-secondary">
-                  {formatInteger(unlinked)} unlinked router {pluralize(unlinked, "user")} with no
-                  request in {INACTIVE_AFTER_DAYS}+ days
+                  {`${formatInteger(unlinked)} unlinked router ${pluralize(unlinked, "user")} with no request in ${INACTIVE_AFTER_DAYS}+ days`}
                 </Text>
               )}
               {inactive.length > 0 && (

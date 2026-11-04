@@ -4,6 +4,7 @@ import type {
   RouterPerson,
   RouterMetricSeriesRequest,
   RouterReportSummary,
+  RouterRoutingState,
 } from "./metricSeries";
 import type { SubscriptionsDataSource } from "./subscriptionPool";
 import type {
@@ -40,7 +41,7 @@ export interface MetricsDataSource {
   /** Everyone who can route with their latest request ever; ignores the date filter. */
   people(): Promise<readonly RouterPerson[]>;
   /** Totals for the stat cards, with savings against the comparison model. */
-  reportSummary(range: DateRange): Promise<RouterReportSummary>;
+  reportSummary(range: DateRange, routingState?: RouterRoutingState): Promise<RouterReportSummary>;
   /** One metric, optionally grouped, per bucket; feeds every dashboard chart card. */
   series(request: RouterMetricSeriesRequest): Promise<RouterMetricSeries>;
 }

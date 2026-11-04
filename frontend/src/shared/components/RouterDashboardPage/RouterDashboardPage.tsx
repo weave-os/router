@@ -13,9 +13,11 @@ import { RouterOverviewTabPanel } from "./RouterOverviewTabPanel";
 export interface RouterDashboardPageProps {
   /** Where the savings card's "How we measure" link goes. */
   methodologyHref?: string;
+  /** The "Router cost & savings" heading, for hosts that move focus to it. */
+  headingRef?: React.Ref<HTMLHeadingElement>;
 }
 
-export function RouterDashboardPage({ methodologyHref }: RouterDashboardPageProps) {
+export function RouterDashboardPage({ headingRef, methodologyHref }: RouterDashboardPageProps) {
   const filters = useDashboardFilters();
   const tab = useRouterOverviewTab();
   const showSubscriptions = !isUnavailable(useRouterDashboardDataSource().subscriptions);
@@ -25,7 +27,7 @@ export function RouterDashboardPage({ methodologyHref }: RouterDashboardPageProp
       header={
         <PageHeader
           left={
-            <Text tabIndex={-1} variant="h4" as="h2" className="truncate">
+            <Text ref={headingRef} tabIndex={-1} variant="h4" as="h2" className="truncate">
               Router cost &amp; savings
             </Text>
           }

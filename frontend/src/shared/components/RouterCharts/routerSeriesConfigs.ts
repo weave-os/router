@@ -29,6 +29,6 @@ export const ROUTER_ROUTING_STATE_SERIES_CONFIGS: RouterSeriesConfigs = {
 };
 
 export const ROUTER_USER_LINK_SERIES_CONFIGS: RouterSeriesConfigs = {
-  [RouterUserLink.Linked]: { color: ChartColorToken.Scale1, label: "Linked people" },
   [RouterUserLink.Unlinked]: { color: AccountChartColorToken.Gray, label: "Unlinked router users" },
+  [RouterUserLink.Linked]: { color: ChartColorToken.Scale1, label: "Linked people" },
 };

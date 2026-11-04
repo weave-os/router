@@ -244,7 +244,14 @@ export function RouterModelMixShareChart({
   );
 }
 
-/** One series per model over the range's buckets, busiest first; a missing bucket reads as 0. */
+// Three models plus Other fill the 2 × 2 grid.
+const TOP_REQUEST_MODELS = 3;
+const OTHER_REQUEST_MODELS_KEY = "__other_models__";
+
+/**
+ * One series per model over the range's buckets, the busiest three then the rest folded into
+ * Other; a missing bucket reads as 0.
+ */
 export function modelRequestSeries(points: readonly RouterMetricPoint[]) {
   const times = [
     ...new Set(points.flatMap(({ time }) => (time == null ? [] : [new Date(time).getTime()]))),
@@ -264,12 +271,23 @@ export function modelRequestSeries(points: readonly RouterMetricPoint[]) {
     values: times.map(time => byTime.get(time) ?? 0),
   }));
   ranked.sort((a, b) => b.total - a.total);
-  const colors = modelColorTokens(ranked.map(({ key }) => key));
+  const top = ranked.slice(0, TOP_REQUEST_MODELS);
+  const rest = ranked.slice(TOP_REQUEST_MODELS);
+  const colors = modelColorTokens(top.map(({ key }) => key));
   const allRequests = ranked.reduce((sum, { total }) => sum + total, 0);
+  const panels = top.map((model, index) => ({ ...model, color: colors[index] }));
+  if (rest.length > 0) {
+    panels.push({
+      color: AccountChartColorToken.Gray,
+      key: OTHER_REQUEST_MODELS_KEY,
+      label: "Other models",
+      total: rest.reduce((sum, { total }) => sum + total, 0),
+      values: times.map((_, index) => rest.reduce((sum, { values }) => sum + values[index], 0)),
+    });
+  }
   return {
-    series: ranked.map((model, index) => ({
+    series: panels.map(model => ({
       ...model,
-      color: colors[index],
       summary: `${formatBigDecimal(model.total)} · ${formatPercentage(allRequests === 0 ? 0 : model.total / allRequests)}`,
     })),
     times,

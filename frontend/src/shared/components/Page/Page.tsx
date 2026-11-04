@@ -1,5 +1,6 @@
 import React from "react";
 
+import { ElementClassName } from "../../ids";
 import { cn } from "../../tools/cn";
 
 export interface PageProps extends React.PropsWithChildren {
@@ -32,6 +33,7 @@ export function Page({ children, className, header, subheader, tabs }: PageProps
       <div
         className={cn(
           "relative flex h-full w-full flex-col items-center overflow-auto @container [scrollbar-gutter:stable]",
+          ElementClassName.ScrollableContainer,
           className,
         )}
       >

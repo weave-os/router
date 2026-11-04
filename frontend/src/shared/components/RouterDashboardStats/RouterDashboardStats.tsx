@@ -1,16 +1,11 @@
 "use client";
 
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNowStrict } from "date-fns";
 
-import {
-  RouterMetricGroup,
-  RouterMetricType,
-  RouterRoutingState,
-  type DateRange,
-} from "../../data";
-import { useRouterMetricSeries, useRouterReportSummary } from "../../data/useRouterMetricSeries";
+import { RouterRoutingState, type DateRange } from "../../data";
+import { useRouterReportSummary } from "../../data/useRouterMetricSeries";
 import { cn } from "../../tools/cn";
-import { formatBigDecimal, formatUSD } from "../../tools/format";
+import { formatBigDecimal, formatRouterModelName, formatUSD } from "../../tools/format";
 import { LoadState } from "../../tools/LoadState";
 import { TypographyRole } from "../../tools/typography";
 import { Icon } from "../atoms/Icon";
@@ -84,15 +79,9 @@ export function RouterDashboardStats({
   range,
 }: RouterDashboardStatsProps) {
   const summaryState = useRouterReportSummary(range);
-  const routingState = useRouterMetricSeries({
-    granularity: null,
-    group: RouterMetricGroup.RoutingState,
-    range,
-    type: RouterMetricType.Cost,
-  });
   const routedSpend = LoadState.map(
-    routingState,
-    series => series.values.find(point => point.group === RouterRoutingState.Routed)?.value ?? 0,
+    useRouterReportSummary(range, RouterRoutingState.Routed),
+    routed => routed.totalCostUSD,
   );
   const visible = CARD_ORDER.filter(card => cards.has(card));
 
@@ -127,6 +116,7 @@ export function RouterDashboardStats({
           const savingsRate =
             summary.comparisonCostUSD > 0 ? summary.savingsUSD / summary.comparisonCostUSD : null;
           const routed = LoadState.unwrap(routedSpend);
+          const comparisonModel = formatRouterModelName(summary.comparisonModel);
           const avgTokens =
             summary.requestCount > 0 ? summary.totalTokens / summary.requestCount : null;
           return (
@@ -149,28 +139,29 @@ export function RouterDashboardStats({
               {cards.has(RouterSummaryCard.Savings) && (
                 <StatCard
                   accent={summary.savingsUSD < 0 ? "danger" : "success"}
-                  label={`Saved vs ${summary.comparisonModel}`}
+                  label={`Saved vs ${comparisonModel}`}
                   methodologyHref={methodologyHref}
                   sub={
                     savingsRate == null
                       ? undefined
-                      : `${(savingsRate * 100).toFixed(1)}% saved vs ${summary.comparisonModel}`
+                      : `${(savingsRate * 100).toFixed(1)}% saved vs ${comparisonModel}`
                   }
-                  tooltip={savingsExplanation(summary.comparisonModel)}
+                  tooltip={savingsExplanation(comparisonModel)}
                   value={formatUSD(summary.savingsUSD)}
                 />
               )}
               {cards.has(RouterSummaryCard.Requests) && (
                 <StatCard
                   label="Requests"
-                  note={summary.requestCount === 0 ? "No requests in this range" : undefined}
+                  note="Requests appear once they complete, usually within a minute"
                   size={TypographyRole.Display}
                   sub={
                     summary.lastRequestAt == null
                       ? undefined
-                      : `Latest request started ${formatDistanceToNow(
+                      : `Latest request started ${formatDistanceToNowStrict(
                           new Date(summary.lastRequestAt),
-                        )} ago`
+                          { addSuffix: true },
+                        )}`
                   }
                   value={formatBigDecimal(summary.requestCount)}
                 />

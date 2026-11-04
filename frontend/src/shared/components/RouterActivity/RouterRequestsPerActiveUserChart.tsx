@@ -4,14 +4,18 @@ import { useMemo } from "react";
 
 import { type DateRange, type RouterMetricPoint, RouterMetricType } from "../../data";
 import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
-import { ChartColor } from "../../tools/chartColors";
+import { AccountChartColor, ChartColor } from "../../tools/chartColors";
 import { formatBigDecimal } from "../../tools/format";
 import { LoadState } from "../../tools/LoadState";
-import { addGranularity, formatInterval, formatTime } from "../../tools/timeGranularity";
+import { formatInterval, formatTime } from "../../tools/timeGranularity";
 import { Chart, ChartAxisType, type ChartData, ChartSeriesType } from "../Chart";
 import { ChartCard } from "../ChartCard";
 import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
-import { displayGranularity, previousRange } from "../RouterCharts/chartRange";
+import {
+  displayGranularity,
+  latestCompleteBucket,
+  previousRange,
+} from "../RouterCharts/chartRange";
 import { TIME_KEY } from "../RouterCharts/pivotSeries";
 import { periodPercentChange, RouterChartHeadline } from "../RouterCharts/RouterChartHeadline";
 import { ROUTER_SOURCE_MARK } from "../RouterCharts/routerSourceMark";
@@ -44,12 +48,14 @@ export function requestsPerActivePerson(
     }));
 }
 
-function totalPerPerson(
+/** The mean over buckets of requests ÷ active people; null with nobody active. */
+function meanPerPerson(
   requests: readonly RouterMetricPoint[],
   activeUsers: readonly RouterMetricPoint[],
 ) {
-  const people = activeUsers.reduce((sum, { value }) => sum + value, 0);
-  return people === 0 ? null : requests.reduce((sum, { value }) => sum + value, 0) / people;
+  const perBucket = requestsPerActivePerson(requests, activeUsers);
+  if (perBucket.length === 0) return null;
+  return perBucket.reduce((sum, row) => sum + row[PER_PERSON_KEY], 0) / perBucket.length;
 }
 
 function median(values: readonly number[]) {
@@ -76,23 +82,13 @@ export function RouterRequestsPerActiveUserChart({
     type: RouterMetricType.ActiveUsers,
   });
   const previousWindow = useMemo(() => previousRange(range), [range]);
-  const totalRequests = useRouterMetricSeries({
-    granularity: null,
-    range,
-    type: RouterMetricType.ModelUsage,
-  });
-  const totalActive = useRouterMetricSeries({
-    granularity: null,
-    range,
-    type: RouterMetricType.ActiveUsers,
-  });
   const previousRequests = useRouterMetricSeries({
-    granularity: null,
+    granularity,
     range: previousWindow,
     type: RouterMetricType.ModelUsage,
   });
   const previousActive = useRouterMetricSeries({
-    granularity: null,
+    granularity,
     range: previousWindow,
     type: RouterMetricType.ActiveUsers,
   });
@@ -102,19 +98,17 @@ export function RouterRequestsPerActiveUserChart({
       LoadState.map(requests, activeUsers, (r, a) => requestsPerActivePerson(r.values, a.values)),
     [activeUsers, requests],
   );
-  const mean = LoadState.map(totalRequests, totalActive, (r, a) =>
-    totalPerPerson(r.values, a.values),
-  );
+  const mean = LoadState.map(requests, activeUsers, (r, a) => meanPerPerson(r.values, a.values));
   const percentChange = LoadState.map(
-    totalRequests,
-    totalActive,
+    requests,
+    activeUsers,
     previousRequests,
     previousActive,
     (r, a, pr, pa) => {
-      const now = totalPerPerson(r.values, a.values);
+      const now = meanPerPerson(r.values, a.values);
       return now == null
         ? null
-        : periodPercentChange(now, totalPerPerson(pr.values, pa.values) ?? 0);
+        : periodPercentChange(now, meanPerPerson(pr.values, pa.values) ?? 0);
     },
   );
   const referenceLines = useMemo(
@@ -142,7 +136,7 @@ export function RouterRequestsPerActiveUserChart({
       sources={ROUTER_SOURCE_MARK}
       className={className}
       title="Requests per active person"
-      subtitle="Router requests per bucket divided by the people active in it."
+      subtitle="Router requests divided by the people who sent them, per bucket, linked and unlinked together."
       headline={
         <RouterChartHeadline
           percentChange={percentChange}
@@ -166,14 +160,16 @@ export function RouterRequestsPerActiveUserChart({
         )}
         dependentKeys={PER_PERSON_KEYS}
         independentKey={TIME_KEY}
-        independentType={ChartAxisType.Time}
-        independentDomain={([min, max]) => [
-          addGranularity(min, timeGranularity, -1).getTime(),
-          addGranularity(max, timeGranularity, 1).getTime(),
-        ]}
+        independentType={ChartAxisType.Category}
         formatValue={formatBigDecimal}
         formatIndependentValue={value => formatTime(value, timeGranularity)}
         formatIndependentValueTooltip={value => formatInterval(value, timeGranularity)}
+        highlightedIndependentValue={latestCompleteBucket(
+          (LoadState.unwrap(rows) ?? []).map(row => row[TIME_KEY]),
+          range,
+          timeGranularity,
+        )}
+        mutedBarColor={AccountChartColor.Gray}
         referenceLines={referenceLines}
       />
     </ChartCard>

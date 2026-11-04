@@ -1,6 +1,7 @@
 import type {
   RouterMetricSeries,
   RouterMetricSeriesRequest,
+  RouterRoutingState,
   RouterSubscriptionProvider,
   RouterSubscriptionSeatState,
 } from "@/shared/data";
@@ -95,16 +96,18 @@ export const api = {
       if (to) params.set("to", to);
       return request<MetricsModelBreakdown>(`/metrics/model-breakdown?${params.toString()}`);
     },
-    series: ({ granularity, group, range, type }: RouterMetricSeriesRequest) => {
+    series: ({ billing, granularity, group, range, type }: RouterMetricSeriesRequest) => {
       const params = new URLSearchParams({ granularity: granularity ?? "total", type });
+      if (billing) params.set("billing", billing);
       if (group) params.set("group", group);
       params.set("from", range.from);
       params.set("to", range.to);
       return request<RouterMetricSeries>(`/metrics/series?${params.toString()}`);
     },
     people: () => request<PeopleResponse>("/metrics/people"),
-    reportSummary: (from: string, to: string) => {
+    reportSummary: (from: string, to: string, routingState?: RouterRoutingState) => {
       const params = new URLSearchParams({ from, to });
+      if (routingState) params.set("routing_state", routingState);
       return request<ReportSummaryResponse>(`/metrics/report-summary?${params.toString()}`);
     },
   },

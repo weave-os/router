@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -45,5 +46,23 @@ func TestFactPointsTotalCollapsesBuckets(t *testing.T) {
 	}
 	if *points[0].Group != billingAPI || points[0].Value != 5 || *points[1].Group != billingSubscription || points[1].Value != 4 {
 		t.Fatalf("points = %+v", points)
+	}
+}
+
+func TestFactsInGroupKeepsOnlyThatLabel(t *testing.T) {
+	facts := []proxy.TelemetryDashboardFact{
+		{DecisionType: string(dashboardDecisionRouterPick), ActualCostUSD: 1},
+		{DecisionType: string(dashboardDecisionPassthrough), ActualCostUSD: 2},
+		{DecisionType: "forced", ActualCostUSD: 4},
+	}
+
+	if got := reportSummary(factsInGroup(slices.Clone(facts), dashboardGroupRoutingState, routingStateRouted)).TotalCostUSD; got != 5 {
+		t.Fatalf("routed cost = %v, want 5", got)
+	}
+	if got := reportSummary(factsInGroup(slices.Clone(facts), dashboardGroupRoutingState, routingStatePassthru)).TotalCostUSD; got != 2 {
+		t.Fatalf("passthrough cost = %v, want 2", got)
+	}
+	if got := len(factsInGroup(facts, dashboardGroupRoutingState, "")); got != 3 {
+		t.Fatalf("unfiltered facts = %d, want 3", got)
 	}
 }

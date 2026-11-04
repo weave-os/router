@@ -92,9 +92,17 @@ export function RouterDailyRequestsHeatmap({
   className?: string;
   range: DateRange;
 }) {
+  // Fetch the edge days already visible in the calendar, without changing the page's range.
+  const calendarRange = useMemo(
+    () => ({
+      from: startOfGranularityUTC(new Date(range.from), TimeGranularity.Week).toISOString(),
+      to: range.to,
+    }),
+    [range],
+  );
   const daily = useRouterMetricSeries({
     granularity: "day",
-    range,
+    range: calendarRange,
     type: RouterMetricType.ModelUsage,
   });
   const grid = useMemo(

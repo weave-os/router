@@ -48,6 +48,8 @@ export enum RouterDecisionType {
 }
 
 export interface RouterMetricSeriesRequest {
+  /** Only requests billed this way; omitted counts every request. */
+  billing?: RouterBilling;
   /** `null` aggregates the whole range into one value per group. */
   granularity: MetricsGranularity | null;
   group?: RouterMetricGroup;

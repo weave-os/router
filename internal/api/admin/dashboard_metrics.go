@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"slices"
 	"sort"
 	"time"
 
@@ -85,6 +86,11 @@ func MetricsSeriesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Unsupported metric type or group."})
 			return
 		}
+		billing := c.Query("billing")
+		if billing != "" && (metric == dashboardMetricActiveUsers || (billing != billingAPI && billing != billingSubscription)) {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Unsupported billing filter."})
+			return
+		}
 		granularity := c.DefaultQuery("granularity", "day")
 		total := granularity == totalGranularity
 		if total || (granularity != "hour" && granularity != "day" && granularity != "week") {
@@ -115,7 +121,7 @@ func MetricsSeriesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch metric series."})
 				return
 			}
-			points = factPoints(facts, metric, group, total)
+			points = factPoints(factsInGroup(facts, dashboardGroupBilling, billing), metric, group, total)
 		}
 		c.JSON(http.StatusOK, dashboardSeriesResponse{Values: points})
 	}
@@ -129,12 +135,17 @@ func MetricsReportSummaryHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		if !ok {
 			return
 		}
+		routingState := c.Query("routing_state")
+		if routingState != "" && routingState != routingStateRouted && routingState != routingStatePassthru {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Unsupported routing_state."})
+			return
+		}
 		facts, err := proxySvc.MetricsDashboardFacts(c.Request.Context(), installationID, from, to, "hour")
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch summary."})
 			return
 		}
-		c.JSON(http.StatusOK, reportSummary(facts))
+		c.JSON(http.StatusOK, reportSummary(factsInGroup(facts, dashboardGroupRoutingState, routingState)))
 	}
 }
 
@@ -197,6 +208,16 @@ func validDashboardSeries(metric dashboardMetricType, group dashboardMetricGroup
 		}
 	}
 	return false
+}
+
+// factsInGroup keeps the facts whose group label is label; "" keeps every fact.
+func factsInGroup(facts []proxy.TelemetryDashboardFact, group dashboardMetricGroup, label string) []proxy.TelemetryDashboardFact {
+	if label == "" {
+		return facts
+	}
+	return slices.DeleteFunc(facts, func(fact proxy.TelemetryDashboardFact) bool {
+		return *factGroup(fact, group) != label
+	})
 }
 
 func reportSummary(facts []proxy.TelemetryDashboardFact) dashboardReportSummaryResponse {

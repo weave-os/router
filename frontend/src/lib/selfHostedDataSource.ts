@@ -27,8 +27,8 @@ export const selfHostedDataSource: RouterDashboardDataSource = {
         link: person.linked ? RouterUserLink.Linked : RouterUserLink.Unlinked,
       }));
     },
-    reportSummary: async range => {
-      const summary = await api.metrics.reportSummary(range.from, range.to);
+    reportSummary: async (range, routingState) => {
+      const summary = await api.metrics.reportSummary(range.from, range.to, routingState);
       return {
         comparisonCostUSD: summary.comparison_cost_usd,
         comparisonModel: summary.comparison_model,

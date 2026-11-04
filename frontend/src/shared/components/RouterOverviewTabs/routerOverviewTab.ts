@@ -6,7 +6,7 @@ export enum RouterOverviewTab {
   Subscriptions = "subscriptions",
 }
 
-export const ROUTER_OVERVIEW_TAB_PARAM = "tab";
+export const ROUTER_OVERVIEW_TAB_PARAM = "router-tab";
 
 export const ROUTER_OVERVIEW_TAB_LABEL: Record<RouterOverviewTab, string> = {
   [RouterOverviewTab.Activity]: "Activity",
