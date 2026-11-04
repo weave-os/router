@@ -130,7 +130,9 @@ type Features struct {
 	// ServingAdmission admits authenticated requests and pins policy snapshots.
 	// Nil keeps legacy/self-hosted workers on their existing admission path.
 	ServingAdmission *middleware.ServingAdmissionConfig
-	TestPlans        *policyregistry.TestPlanTools
+	// PinnedRuntime is a local immutable policy composition, not managed admission.
+	PinnedRuntime *policyregistry.PinnedRuntime
+	TestPlans     *policyregistry.TestPlanTools
 	// SubscriberAllowance gates inference on an individual Max/Boost
 	// subscriber's included Router allowance. Nil leaves every request on the
 	// org/prepaid billing gates alone.
@@ -162,6 +164,12 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		engine.Use(middleware.WithTrafficCapture(features.TrafficCapture))
 	}
 	engine.Use(gin.Recovery())
+	if features.PinnedRuntime != nil {
+		if mode != DeploymentModeSelfHosted || features.ServingAdmission != nil {
+			panic("local pinned runtime cannot replace managed admission")
+		}
+		engine.Use(middleware.WithPinnedRuntime(features.PinnedRuntime))
+	}
 	// Managed mode: BYOK is opt-in per installation (see WithAuth).
 	byokRequiresOptIn := mode == DeploymentModeManaged
 	var policyPinMiddleware []gin.HandlerFunc
