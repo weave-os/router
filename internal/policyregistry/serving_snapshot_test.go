@@ -102,3 +102,13 @@ func TestServingRuntimeCacheCannotBypassProfileOwnershipOrExactReferences(t *tes
 		require.Error(t, err)
 	}
 }
+
+func TestServingRuntimeCacheRejectsSnapshotWithoutPrimaryClassifier(t *testing.T) {
+	store, _, set := controllerFixture(t)
+	cache, err := policyregistry.NewServingRuntimeCache(store, func(context.Context, policyregistry.Candidate) (map[router.Strategy]router.Router, error) {
+		return map[router.Strategy]router.Router{router.StrategyHMMBeta: stubRouter{}}, nil
+	})
+	require.NoError(t, err)
+	_, err = cache.Snapshot(context.Background(), policyregistry.SessionReleaseBinding{Target: set.Target, Selection: set.Default})
+	require.ErrorContains(t, err, "no primary classifier router")
+}

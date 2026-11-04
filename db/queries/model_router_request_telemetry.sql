@@ -31,6 +31,8 @@
 -- set observed on this turn (Claude Code cost-observing-proxy Phase 0
 -- instrumentation). NULL on non-subscription turns and on rows written before
 -- the column existed. Nothing reads it yet.
+-- codex_limit_headers is the verbatim x-codex-{primary,secondary,credits}-*
+-- header set observed on a Codex-subscription-served turn. NULL otherwise.
 -- inference_* / plan_* / fallback_reason / accounting_outcome / usage_known are
 -- the inference-policy provenance of the operation (purpose, policy entry and
 -- revisions, policy-selected target, why the served target differs, how usage
@@ -50,7 +52,7 @@
 -- user_prompt_gap_prior_model is the model that served that response. The gap
 -- is NULL on the session's first prompt and when the previous response
 -- overlapped this one. error_class buckets how the turn failed (NULL on a
--- normal completion). latest_tool_call_counts is {tool: {calls, errors}} over
+-- normal completion) and failure_owner names who owns that failure. latest_tool_call_counts is {tool: {calls, errors}} over
 -- only the tool results this request delivered, unlike tool_error_counts,
 -- which re-counts the whole history on every turn.
 -- failover_used marks a turn a rescue served; failover_attempted marks any turn
@@ -158,6 +160,7 @@ INSERT INTO router.model_router_request_telemetry (
     intended_model_family,
     final_model_family,
     unified_limit_headers,
+    codex_limit_headers,
     policy_pin_requested,
     policy_pin_honoured,
     planner_outcome,
@@ -229,6 +232,7 @@ INSERT INTO router.model_router_request_telemetry (
     user_prompt_gap_ms,
     user_prompt_gap_prior_model,
     error_class,
+    failure_owner,
     latest_tool_call_counts,
     context_snapshot
 ) VALUES (
@@ -333,6 +337,7 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('intended_model_family')::varchar,
     sqlc.narg('final_model_family')::varchar,
     sqlc.narg('unified_limit_headers')::jsonb,
+    sqlc.narg('codex_limit_headers')::jsonb,
     sqlc.narg('policy_pin_requested')::boolean,
     sqlc.narg('policy_pin_honoured')::boolean,
     sqlc.narg('planner_outcome')::varchar,
@@ -404,6 +409,7 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('user_prompt_gap_ms')::bigint,
     sqlc.narg('user_prompt_gap_prior_model')::varchar,
     sqlc.narg('error_class')::varchar,
+    sqlc.narg('failure_owner')::varchar,
     sqlc.narg('latest_tool_call_counts')::jsonb,
     sqlc.narg('context_snapshot')::jsonb
 )
@@ -803,6 +809,8 @@ SELECT
     t.sticky_hit,
     t.failover_used,
     t.cross_format,
+    t.error_class,
+    t.failure_owner,
     t.estimated_input_tokens,
     t.input_tokens,
     t.output_tokens,

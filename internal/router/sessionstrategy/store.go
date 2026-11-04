@@ -28,7 +28,7 @@ type Preference struct {
 
 // Validate rejects values that are not valid explicit preferences.
 func (p Preference) Validate() error {
-	if p.Strategy != router.StrategyHMMBeta {
+	if !router.IsBetaStrategy(p.Strategy) {
 		return ErrInvalidStrategy
 	}
 	return nil
@@ -41,5 +41,5 @@ func (p Preference) Validate() error {
 type Store interface {
 	Get(ctx context.Context, installationID uuid.UUID, sessionKey [SessionKeyLen]byte) (Preference, bool, error)
 	Toggle(ctx context.Context, preference Preference) (bool, error)
-	Disable(ctx context.Context, installationID uuid.UUID, sessionKey [SessionKeyLen]byte) (bool, error)
+	Disable(ctx context.Context, installationID uuid.UUID, sessionKey [SessionKeyLen]byte, strategy router.Strategy) (bool, error)
 }

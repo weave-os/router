@@ -67,9 +67,13 @@ type ManagedSubscriptionUsage struct {
 	AttemptedAccounts       map[string]struct{}
 	QuotaExhaustedAccounts  map[string]time.Time
 	QuotaExhaustedProviders map[subscriptions.Provider]time.Time
-	ClientAppRefused        bool
-	Finished                bool
-	WinningCredentials      *Credentials
+	// UnavailableProviders records, per pool, until when this turn's
+	// subscription attempts are known to have failed on provider capacity
+	// (5xx), which authorizes a paid rescue without proving quota exhaustion.
+	UnavailableProviders map[subscriptions.Provider]time.Time
+	ClientAppRefused     bool
+	Finished             bool
+	WinningCredentials   *Credentials
 }
 
 var (
@@ -529,7 +533,7 @@ func (s *Service) supportsSubscriptionTransport(provider string) bool {
 // subscriptionAlternativeDecisions uses only the policy's request-compatible
 // ordering in its selected quality group. Explicit choices remain fixed.
 func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req router.Request, selected router.Decision) []router.Decision {
-	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || req.ForceModel != "" {
+	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || req.ForceModel != "" || memberSelectedModel(ctx, selected.Model) {
 		return nil
 	}
 	if _, explicit := catalog.ByID(req.RequestedModel); explicit {

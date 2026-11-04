@@ -57,7 +57,17 @@ type DebitParams struct {
 	// APIKeyID, if non-empty, attributes the debit to that key, bumping its
 	// lifetime spent_usd_micros in the same transaction.
 	APIKeyID string
+	// DelegatedSessionID and DelegatedTaskID, if non-empty, attribute the debit
+	// to a delegated session token's session and task under APIKeyID (its issuer).
+	DelegatedSessionID string
+	DelegatedTaskID    string
 	// RouterUserID, if non-empty, attributes the debit to that engineer and bumps
 	// the org's monthly counter; org counter is always bumped regardless.
 	RouterUserID string
+}
+
+// DelegatedSpendReader reads a delegated session's and task's spend-to-date
+// fresh from storage, bypassing every cache.
+type DelegatedSpendReader interface {
+	GetDelegatedTokenSpend(ctx context.Context, issuerKeyID, sessionID, taskID string) (sessionSpentMicros, taskSpentMicros int64, err error)
 }

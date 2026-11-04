@@ -43,7 +43,7 @@ func openRouterSystemReminder(model string) string {
 // global imperative, which research shows over-pushes and is an unreliable
 // governor of model action.
 func geminiSystemReminder(model string) string {
-	if isGemini3xModel(model) {
+	if usesGemini3Contract(model) {
 		return geminiToolUseReminder
 	}
 	return ""

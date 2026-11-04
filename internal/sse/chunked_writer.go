@@ -46,6 +46,7 @@ func (c *ChunkedWriter) WriteHeader(code int) {
 	ct := c.Inner.Header().Get("Content-Type")
 	c.Streaming = strings.Contains(ct, "text/event-stream") && code < 400
 	c.HeadersEmitted = true
+	PrepareJSONResponse(c.Inner)
 	c.Inner.WriteHeader(code)
 }
 

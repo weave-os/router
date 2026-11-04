@@ -27,6 +27,8 @@ That's it. Nothing else needs editing — the planner, scorer, OTel emitter, ins
 
 Today most models carry a single binding. The catalog's data shape is multi-binding so SOC 2 direct-provider rows can append an OpenRouter fallback without touching call sites: managed-prod deploys (no `OPENROUTER_API_KEY`) get the primary binding; self-hosters with only OpenRouter get the trailing one.
 
+A trailing `SubscriptionOverflowOnly` OpenRouter binding on Claude/GPT rows is invisible to routing, failover and BYOK custom-binding dedup (`RoutableBindings`, `EnumerateBindings`, `ResolveBinding`); only the `subscription_exhausted_openrouter_only` exhausted-subscription lane in `internal/proxy` dispatches it, via `BindingFor`. `PriceFor` still prices it.
+
 The cluster scorer resolves each routable model's binding at boot via `ResolveBinding(id, availableProviders)`. The chosen binding's `Provider` becomes the `router.Decision.Provider`; the planner then uses `catalog.PriceFor(provider, id)` so STAY-vs-SWITCH EV math is correct when a model is served by different providers at different prices.
 
 ## Invariants

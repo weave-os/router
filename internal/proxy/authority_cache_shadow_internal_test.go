@@ -86,6 +86,7 @@ func runAuthorityShadowTurnWithPin(
 			ThresholdUSD:           0.001,
 			ExpectedRemainingTurns: 3,
 		}).
+		WithHMMDowngradeHysteresisTurns(0).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
 			Router:   &authorityShadowTestRouter{decision: fresh},

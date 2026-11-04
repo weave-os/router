@@ -21,30 +21,74 @@ type planOwnedAllowedModelsGate struct{}
 
 func (planOwnedAllowedModelsGate) ResolveAllowedModelsHeader(context.Context) bool { return true }
 
-func TestPlanOwnedServingForcesProfileStrategyAndIgnoresCustomerHeaders(t *testing.T) {
+func TestMaxServingForcesProfileStrategyAndIgnoresCustomerHeaders(t *testing.T) {
 	t.Parallel()
 
-	for _, plan := range []entitlement.Plan{entitlement.PlanMax, entitlement.PlanBoost} {
-		t.Run(string(plan), func(t *testing.T) {
+	plan := entitlement.PlanMax
+	t.Run(string(plan), func(t *testing.T) {
+		engine := gin.New()
+		engine.Use(func(c *gin.Context) {
+			c.Set("router_installation", &auth.Installation{
+				ID:                           "installation",
+				PolicyHeaderOverridesEnabled: true,
+				RoutingStrategy:              router.StrategyRL,
+			})
+			ctx := requestcontext.WithServingIdentity(c.Request.Context(), requestcontext.ServingIdentity{Plan: string(plan)})
+			c.Request = c.Request.WithContext(ctx)
+			c.Next()
+		})
+		engine.Use(
+			middleware.WithClusterVersionOverride(),
+			middleware.WithRouterStrategyDefault(router.StrategyCluster, allRegisteredLive, router.StrategyHMM, router.StrategyRL),
+			middleware.WithAllowedModelsOverride(planOwnedAllowedModelsGate{}),
+			middleware.WithRoutingKnobsOverride(),
+			middleware.WithForceEffortOverride(),
+			middleware.WithPolicyPinOverride(),
+		)
+		var strategy router.Strategy
+		engine.GET("/probe", func(c *gin.Context) {
+			strategy = router.StrategyFromContext(c.Request.Context())
+			c.Status(http.StatusOK)
+		})
+
+		request := httptest.NewRequest(http.MethodGet, "/probe", nil)
+		request.Header.Set(middleware.RouterStrategyOverrideHeader, "bandit")
+		request.Header.Set(middleware.ClusterVersionOverrideHeader, "customer-roster")
+		request.Header.Set(proxy.AllowedModelsHeader, "unknown-model")
+		request.Header.Set(middleware.HeaderAlpha, "not-a-number")
+		request.Header.Set(middleware.ForceEffortOverrideHeader, "invalid")
+		request.Header.Set(middleware.PolicyPinOverrideHeader, "invalid")
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, request)
+
+		assert.Equal(t, http.StatusOK, response.Code)
+		assert.Equal(t, router.StrategyHMM, strategy)
+	})
+}
+
+func TestBoostServingUsesInstallationStrategyAndAuthorizedOverride(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		header string
+		want   router.Strategy
+	}{
+		{name: "installation default", want: router.StrategyRL},
+		{name: "authorized override", header: string(router.StrategyHMM), want: router.StrategyHMM},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			engine := gin.New()
 			engine.Use(func(c *gin.Context) {
 				c.Set("router_installation", &auth.Installation{
-					ID:                           "installation",
-					PolicyHeaderOverridesEnabled: true,
-					RoutingStrategy:              router.StrategyRL,
+					ID: "installation", PolicyHeaderOverridesEnabled: true,
+					RoutingStrategy: router.StrategyRL,
 				})
-				ctx := requestcontext.WithServingIdentity(c.Request.Context(), requestcontext.ServingIdentity{Plan: string(plan)})
+				ctx := requestcontext.WithServingIdentity(c.Request.Context(), requestcontext.ServingIdentity{Plan: string(entitlement.PlanBoost)})
 				c.Request = c.Request.WithContext(ctx)
 				c.Next()
 			})
-			engine.Use(
-				middleware.WithClusterVersionOverride(),
-				middleware.WithRouterStrategyDefault(router.StrategyCluster, allRegisteredLive, router.StrategyHMM, router.StrategyRL),
-				middleware.WithAllowedModelsOverride(planOwnedAllowedModelsGate{}),
-				middleware.WithRoutingKnobsOverride(),
-				middleware.WithForceEffortOverride(),
-				middleware.WithPolicyPinOverride(),
-			)
+			engine.Use(middleware.WithRouterStrategyDefault(router.StrategyCluster, allRegisteredLive, router.StrategyHMM, router.StrategyRL))
 			var strategy router.Strategy
 			engine.GET("/probe", func(c *gin.Context) {
 				strategy = router.StrategyFromContext(c.Request.Context())
@@ -52,17 +96,14 @@ func TestPlanOwnedServingForcesProfileStrategyAndIgnoresCustomerHeaders(t *testi
 			})
 
 			request := httptest.NewRequest(http.MethodGet, "/probe", nil)
-			request.Header.Set(middleware.RouterStrategyOverrideHeader, "bandit")
-			request.Header.Set(middleware.ClusterVersionOverrideHeader, "customer-roster")
-			request.Header.Set(proxy.AllowedModelsHeader, "unknown-model")
-			request.Header.Set(middleware.HeaderAlpha, "not-a-number")
-			request.Header.Set(middleware.ForceEffortOverrideHeader, "invalid")
-			request.Header.Set(middleware.PolicyPinOverrideHeader, "invalid")
+			if tc.header != "" {
+				request.Header.Set(middleware.RouterStrategyOverrideHeader, tc.header)
+			}
 			response := httptest.NewRecorder()
 			engine.ServeHTTP(response, request)
 
 			assert.Equal(t, http.StatusOK, response.Code)
-			assert.Equal(t, router.StrategyHMM, strategy)
+			assert.Equal(t, tc.want, strategy)
 		})
 	}
 }

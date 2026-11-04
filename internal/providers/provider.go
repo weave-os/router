@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/net/http2"
+
 	"weave-os/router/internal/router"
 )
 
@@ -388,6 +390,25 @@ func (e *UpstreamErrorResponse) Error() string {
 
 func (e *UpstreamErrorResponse) Unwrap() error { return e.Cause }
 
+type QuotaVerificationFailure string
+
+const (
+	QuotaVerificationFailureRequest         QuotaVerificationFailure = "request"
+	QuotaVerificationFailureTransport       QuotaVerificationFailure = "transport"
+	QuotaVerificationFailureTimeout         QuotaVerificationFailure = "timeout"
+	QuotaVerificationFailureEndpoint        QuotaVerificationFailure = "endpoint"
+	QuotaVerificationFailureInvalidResponse QuotaVerificationFailure = "invalid_response"
+)
+
+type QuotaVerificationUnavailableError struct {
+	Failure        QuotaVerificationFailure
+	UpstreamStatus int
+}
+
+func (e *QuotaVerificationUnavailableError) Error() string {
+	return fmt.Sprintf("subscription quota verification unavailable: %s (upstream status %d)", e.Failure, e.UpstreamStatus)
+}
+
 // MaxBufferedErrorBytes caps the buffered upstream error body; beyond this
 // it's truncated and the rest of the stream is drained without retention.
 const MaxBufferedErrorBytes = 64 * 1024
@@ -513,6 +534,20 @@ func IsResponseHeaderTimeout(err error) bool {
 		return false
 	}
 	return strings.Contains(urlErr.Err.Error(), "timeout awaiting response headers")
+}
+
+// IsHTTP2ConnectionLoss reports whether the provider's HTTP/2 connection
+// failed under the request: a stream reset, GOAWAY or connection error, or a
+// keepalive ping it never answered. The lost-ping error is untyped in x/net
+// and arrives bare from Body.Read once headers are in, so it is matched by text.
+func IsHTTP2ConnectionLoss(err error) bool {
+	var streamErr http2.StreamError
+	var goAway http2.GoAwayError
+	var connErr http2.ConnectionError
+	if errors.As(err, &streamErr) || errors.As(err, &goAway) || errors.As(err, &connErr) {
+		return true
+	}
+	return err != nil && strings.Contains(err.Error(), "http2: client connection lost")
 }
 
 // IsUpstreamModelNotFound reports whether err is a buffered upstream 404,

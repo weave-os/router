@@ -9,7 +9,7 @@ func mergeClusterOverrides(key, user map[string][]string) map[string][]string {
 	if len(key) == 0 && len(user) == 0 {
 		return nil
 	}
-	out := make(map[string][]string, len(key)+len(user))
+	out := make(map[string][]string, len(key))
 	for cluster, models := range key {
 		out[cluster] = models
 	}

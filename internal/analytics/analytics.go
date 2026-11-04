@@ -62,6 +62,9 @@ type Decision struct {
 	StickyHit          bool  `json:"sticky_hit"`
 	FailoverUsed       bool  `json:"failover_used"`
 	CrossFormat        bool  `json:"cross_format"`
+	// ErrorClass and FailureOwner are null on a normal completion.
+	ErrorClass   *string `json:"error_class"`
+	FailureOwner *string `json:"failure_owner"`
 
 	EstimatedInputTokens *int64 `json:"estimated_input_tokens"`
 	InputTokens          *int64 `json:"input_tokens"`
@@ -86,6 +89,10 @@ type Decision struct {
 	// Actual* price the served turn; counterfactual not exported — consumers reprice via RequestedModel + /v1/analytics/models.
 	ActualInputCostUSD  *float64 `json:"actual_input_cost_usd"`
 	ActualOutputCostUSD *float64 `json:"actual_output_cost_usd"`
+	// APIRate* price the served turn at API rates even when SubscriptionServed, so
+	// evaluations can compare model usage cost regardless of who paid for it.
+	APIRateInputCostUSD  *float64 `json:"api_rate_input_cost_usd"`
+	APIRateOutputCostUSD *float64 `json:"api_rate_output_cost_usd"`
 
 	RouteLatencyMs           *int64  `json:"route_latency_ms"`
 	UpstreamLatencyMs        *int64  `json:"upstream_latency_ms"`

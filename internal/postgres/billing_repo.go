@@ -75,6 +75,8 @@ func (r *BillingRepo) DebitInference(ctx context.Context, p billing.DebitParams)
 		RouterRequestID:    stringPtrOrNil(p.RouterRequestID),
 		RouterModel:        stringPtrOrNil(p.RouterModel),
 		APIKeyID:           uuidOrNil(p.APIKeyID),
+		DelegatedSessionID: stringPtrOrNil(p.DelegatedSessionID),
+		DelegatedTaskID:    stringPtrOrNil(p.DelegatedTaskID),
 		RouterUserID:       uuidOrNil(p.RouterUserID),
 	})
 	if err != nil {
@@ -84,6 +86,20 @@ func (r *BillingRepo) DebitInference(ctx context.Context, p billing.DebitParams)
 		return 0, err
 	}
 	return balanceAfter, nil
+}
+
+// GetDelegatedTokenSpend reads a delegated session's and task's spend-to-date
+// fresh from Postgres. Missing rows and an empty task ID read as zero.
+func (r *BillingRepo) GetDelegatedTokenSpend(ctx context.Context, issuerKeyID, sessionID, taskID string) (int64, int64, error) {
+	issuer, err := uuid.Parse(issuerKeyID)
+	if err != nil {
+		return 0, 0, err
+	}
+	row, err := dbbudget.Queries(r.tx).GetDelegatedTokenSpend(ctx, sqlc.GetDelegatedTokenSpendParams{IssuerKeyID: issuer, SessionID: sessionID, TaskID: taskID})
+	if err != nil {
+		return 0, 0, err
+	}
+	return row.SessionSpentUsdMicros, row.TaskSpentUsdMicros, nil
 }
 
 // GetAPIKeySpend reads a key's cap and spend-to-date fresh from Postgres.

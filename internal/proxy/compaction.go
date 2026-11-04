@@ -3,7 +3,10 @@ package proxy
 import (
 	"context"
 	"slices"
+	"strings"
+	"time"
 
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -42,48 +45,65 @@ func anthropicSummarizerEligible(model string) bool {
 }
 
 // compactionPreferredSummarizer returns the session's active pinned model
-// when it is served by Anthropic directly — the same model that has been
-// running the conversation, so its prompt cache is warm for the summary call.
-// Empty when there is no pin store, no active pin, or the pin is elsewhere.
+// when it is served by Anthropic directly or through a gateway — the same
+// model that has been running the conversation, so its prompt cache is warm
+// for the summary call. Empty when there is no pin store, no active pin, or
+// the pin is on another vendor.
 func (s *Service) compactionPreferredSummarizer(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) string {
 	if s.pinStore == nil {
 		return ""
 	}
 	pin, active := s.loadPin(ctx, sessionKey, role)
-	if !active || pin.Provider != providers.ProviderAnthropic {
+	if !active || (pin.Provider != providers.ProviderAnthropic && !providers.IsGateway(pin.Provider)) {
 		return ""
 	}
 	return pin.Model
 }
 
+// compactionSummarizer is a model a harness compaction turn may be served on,
+// with the override source that authorizes it.
+type compactionSummarizer struct {
+	provider string
+	model    string
+	source   policy.OverrideSource
+}
+
 // compactionHardPin picks the model for a harness's own compaction turn: the
-// model that ran the conversation when it is Sonnet-class or better (prompt
-// cache warm — what Claude Code and Codex do against their vendor directly),
-// else the configured compaction model on Anthropic. A Codex thread arrives
-// in Responses format, so when a non-Anthropic model has been serving it the
-// turn stays there rather than being summarized cross-format by Sonnet — the
-// summary replaces the thread's history for every turn that follows. source
-// records whether the session's own model or the deployment's configured one
-// won, so the plan is authorized under the matching override. ok=false when
-// nothing is eligible for this request, so the caller falls back to the
-// generic hard-pin tier.
+// first of compactionSummarizers. ok=false when nothing is eligible for this
+// request, so the caller falls back to the generic hard-pin tier.
 func (s *Service) compactionHardPin(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (provider, model string, source policy.OverrideSource, ok bool) {
-	// Gateway-exclusive tenants drop vendor bindings; leave them to the resolver.
-	if len(req.GatewayProviders) > 0 {
+	summarizers := s.compactionSummarizers(ctx, sessionKey, role, req)
+	if len(summarizers) == 0 {
 		return "", "", "", false
 	}
+	return summarizers[0].provider, summarizers[0].model, summarizers[0].source, true
+}
+
+// compactionSummarizers lists, in preference order, the models a harness
+// compaction turn may be served on: the model that ran the conversation when
+// it is Sonnet-class or better (prompt cache warm — what Claude Code and Codex
+// do against their vendor directly), then the configured compaction model,
+// then the large-window summarizer. A Codex thread arrives in Responses
+// format, so when a non-Anthropic model has been serving it that model leads
+// rather than a cross-format Sonnet summary — the summary replaces the
+// thread's history for every turn that follows. Anthropic summarizers bind
+// directly or through a gateway key the request holds. source records whether
+// the session's own model or the deployment's configured one chose each
+// entry, so the plan is authorized under the matching override.
+func (s *Service) compactionSummarizers(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) []compactionSummarizer {
+	var out []compactionSummarizer
 	if req.ClientApp == ClientAppCodex {
 		if p, m, served := s.compactionSessionModel(ctx, sessionKey, role, req); served {
-			return p, m, policy.OverrideSourceSession, true
+			out = append(out, compactionSummarizer{provider: p, model: m, source: policy.OverrideSourceSession})
 		}
 	}
-	if req.EnabledProviders != nil {
-		if _, enabled := req.EnabledProviders[providers.ProviderAnthropic]; !enabled {
-			return "", "", "", false
-		}
-	}
+	cortexGateways := cortexGatewayProvidersForRequest(ctx)
 	eligible := func(m string) bool {
 		if !anthropicSummarizerEligible(m) {
+			return false
+		}
+		provider, bound := summarizerProvider(m, req)
+		if !bound {
 			return false
 		}
 		if s.availableModels != nil {
@@ -94,16 +114,105 @@ func (s *Service) compactionHardPin(ctx context.Context, sessionKey [sessionpin.
 		if _, excluded := req.ExcludedModels[m]; excluded {
 			return false
 		}
-		return !automaticallyDisabled(req, m)
+		// Gateways may enforce a smaller window than the vendor, so the serving binding's window is the one that counts.
+		return !automaticallyDisabled(req, m) &&
+			(req.EstimatedInputTokens <= 0 || req.EstimatedInputTokens+contextWindowOutputReserve <= gatewayContextWindow(cortexGateways, m, provider))
 	}
-	preferred := s.compactionPreferredSummarizer(ctx, sessionKey, role)
-	if latest := catalog.LatestInFamily(preferred, eligible); latest != "" {
-		return providers.ProviderAnthropic, latest, policy.OverrideSourceSession, true
+	cascade := []struct {
+		model  string
+		source policy.OverrideSource
+	}{
+		{s.compactionPreferredSummarizer(ctx, sessionKey, role), policy.OverrideSourceSession},
+		{s.compactionModelOrDefault(), policy.OverrideSourceDeployment},
+		{policy.PrecompactionLargeWindowModel, policy.OverrideSourceDeployment},
 	}
-	if m := catalog.LatestInFamily(s.compactionModelOrDefault(), eligible); m != "" {
-		return providers.ProviderAnthropic, m, policy.OverrideSourceDeployment, true
+	for _, step := range cascade {
+		latest := catalog.LatestInFamily(step.model, eligible)
+		if latest == "" || slices.ContainsFunc(out, func(c compactionSummarizer) bool { return c.model == latest }) {
+			continue
+		}
+		provider, _ := summarizerProvider(latest, req)
+		out = append(out, compactionSummarizer{provider: provider, model: latest, source: step.source})
 	}
-	return "", "", "", false
+	return out
+}
+
+// crossGatewayRescuers lists the request's gateway-held models on another
+// gateway than the primary's, highest tier then widest window first. Every
+// model behind one gateway shares a tokenizer and window, so an overflow there
+// is only rescuable across gateways: Claude
+// counts the same transcript as roughly 1.5x the tokens gpt-6-luna does, so a
+// nominally smaller window can still fit it.
+func (s *Service) crossGatewayRescuers(ctx context.Context, primary compactionSummarizer, req router.Request) []compactionSummarizer {
+	cortexGateways := cortexGatewayProvidersForRequest(ctx)
+	var out []compactionSummarizer
+	for model := range req.CustomBindings {
+		provider, held := gatewayProviderFor(model, req.CustomBindings, req.GatewayProviders)
+		if !held || provider == primary.provider || catalog.TierFor(model) < catalog.TierMid {
+			continue
+		}
+		if _, excluded := req.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
+			continue
+		}
+		if s.availableModels != nil {
+			if _, available := s.availableModels[model]; !available {
+				continue
+			}
+		}
+		out = append(out, compactionSummarizer{provider: provider, model: model, source: policy.OverrideSourceDeployment})
+	}
+	slices.SortFunc(out, func(a, b compactionSummarizer) int {
+		if ta, tb := catalog.TierFor(a.model), catalog.TierFor(b.model); ta != tb {
+			return int(tb) - int(ta)
+		}
+		if wa, wb := gatewayContextWindow(cortexGateways, a.model, a.provider), gatewayContextWindow(cortexGateways, b.model, b.provider); wa != wb {
+			return wb - wa
+		}
+		return strings.Compare(a.model, b.model)
+	})
+	return out
+}
+
+// summarizerProvider binds an Anthropic summarizer for this request: through
+// a held gateway key that aliases it for a gateway-exclusive tenant, else
+// Anthropic directly when the tenant enables it.
+func summarizerProvider(model string, req router.Request) (string, bool) {
+	if len(req.GatewayProviders) > 0 {
+		return gatewayProviderFor(model, req.CustomBindings, req.GatewayProviders)
+	}
+	if req.EnabledProviders != nil {
+		if _, enabled := req.EnabledProviders[providers.ProviderAnthropic]; !enabled {
+			return "", false
+		}
+	}
+	return providers.ProviderAnthropic, true
+}
+
+// compactionRescueMetadata gives a compaction hard pin an ordered rescue list:
+// the remaining summarizers, then the generic utility model, then models on
+// other gateways for an overflow. Without it a pre-commit failure on the summarizer
+// surfaces to the client, which retries the same compaction against the same
+// failing model.
+func compactionRescueMetadata(fallbacks []compactionSummarizer, utilityProvider, utilityModel string, crossProvider []compactionSummarizer) *router.RoutingMetadata {
+	md := &router.RoutingMetadata{RosterFailover: true, CandidateProviders: map[string]string{}}
+	add := func(provider, model string) {
+		if model == "" || slices.Contains(md.RescueModels, model) {
+			return
+		}
+		md.RescueModels = append(md.RescueModels, model)
+		md.CandidateProviders[model] = provider
+	}
+	for _, fallback := range fallbacks {
+		add(fallback.provider, fallback.model)
+	}
+	add(utilityProvider, utilityModel)
+	for _, rescuer := range crossProvider {
+		add(rescuer.provider, rescuer.model)
+	}
+	if len(md.RescueModels) == 0 {
+		return nil
+	}
+	return md
 }
 
 // compactionSessionModel upgrades the last served non-Anthropic session
@@ -113,11 +222,20 @@ func (s *Service) compactionSessionModel(ctx context.Context, sessionKey [sessio
 	if s.pinStore == nil {
 		return "", "", false
 	}
-	threadPin, active := s.loadPin(ctx, sessionKey, role)
-	if !active {
-		threadPin = sessionpin.Pin{}
+	// Compaction follows the served model, not the classifier that chose it.
+	// Auxiliary requests can overwrite these rows under another strategy.
+	var served sessionpin.Pin
+	for _, pinRole := range []string{role, hmmHistoryRole(role)} {
+		pin, found, err := s.pinStore.Get(ctx, sessionKey, pinRole)
+		if err != nil {
+			observability.FromContext(ctx).Error("Compaction session history unavailable", "role", pinRole, "err", err)
+			continue
+		}
+		if !found || (pinRole == role && !pin.PinnedUntil.After(time.Now())) {
+			continue
+		}
+		served = latestServedPin(served, pin)
 	}
-	served := latestServedPin(threadPin, s.loadHMMHistory(ctx, sessionKey, role))
 	model = served.LastServedModel
 	if model == "" {
 		model = served.Model

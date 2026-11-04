@@ -4,7 +4,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -87,6 +89,61 @@ func TestAnthropicSameFormat_RejectsExplicitTTLOrderViolation(t *testing.T) {
 	require.NoError(t, err)
 	_, err = env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-8", Capabilities: router.Lookup("claude-opus-4-8")})
 	require.ErrorIs(t, err, translate.ErrAnthropicCacheControlInvalid)
+}
+
+// Claude Code sends these first-party fields when it talks to api.anthropic.com
+// directly (prompt-caching-scope and prompt-caching-evict betas).
+func TestAnthropicSameFormat_FirstPartyCacheControlFields(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-8","max_tokens":1024,"system":[{"type":"text","text":"sys","cache_control":{"type":"ephemeral","ttl":"1h","scope":"global","evict_on_complete":true}}],"messages":[{"role":"user","content":"hi"}]}`)
+	bothBetas := "prompt-caching-scope-2026-01-05,prompt-caching-evict-2026-05-12"
+	cases := []struct {
+		name     string
+		provider string
+		beta     string
+		want     map[string]any
+	}{
+		{"anthropic with both betas keeps both", providers.ProviderAnthropic, bothBetas, map[string]any{"type": "ephemeral", "ttl": "1h", "scope": "global", "evict_on_complete": true}},
+		{"anthropic drops a field without its beta", providers.ProviderAnthropic, "prompt-caching-scope-2026-01-05", map[string]any{"type": "ephemeral", "ttl": "1h", "scope": "global"}},
+		{"gateway drops both", providers.ProviderAnthropicGateway, bothBetas, map[string]any{"type": "ephemeral", "ttl": "1h"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env, err := translate.ParseAnthropic(body)
+			require.NoError(t, err)
+			p, err := env.PrepareAnthropic(http.Header{"Anthropic-Beta": {tc.beta}}, translate.EmitOptions{TargetModel: "claude-opus-4-8", TargetProvider: tc.provider, Capabilities: router.Lookup("claude-opus-4-8")})
+			require.NoError(t, err)
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(p.Body, &out))
+			system := out["system"].([]any)
+			require.Len(t, system, 1)
+			assert.Equal(t, tc.want, system[0].(map[string]any)["cache_control"])
+		})
+	}
+}
+
+func TestAnthropicSameFormat_ValidatesFirstPartyCacheControlFields(t *testing.T) {
+	cases := []struct {
+		policy string
+		valid  bool
+	}{
+		{`{"type":"ephemeral","scope":"global"}`, true},
+		{`{"type":"ephemeral","evict_on_complete":false}`, true},
+		{`{"type":"ephemeral","scope":""}`, false},
+		{`{"type":"ephemeral","scope":1}`, false},
+		{`{"type":"ephemeral","evict_on_complete":"yes"}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.policy, func(t *testing.T) {
+			env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","max_tokens":1024,"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":` + tc.policy + `}]}]}`))
+			require.NoError(t, err)
+			_, err = env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-8", TargetProvider: providers.ProviderAnthropic, Capabilities: router.Lookup("claude-opus-4-8")})
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, translate.ErrAnthropicCacheControlInvalid)
+			}
+		})
+	}
 }
 
 func TestAnthropicSameFormat_ToolCacheControlCountsTowardCapacity(t *testing.T) {
@@ -227,6 +284,42 @@ func TestOpenAISameFormat_ReasoningEffortKeptForReasoning(t *testing.T) {
 	}
 	out := parseAndEmit(t, body, "openai", opts)
 	assert.Equal(t, "high", out["reasoning_effort"])
+}
+
+// An always-on target 400s on a disabled effort, so "none" becomes its floor
+// level; a router-forced effort still wins.
+func TestOpenAISameFormat_DisabledEffortMapsToAlwaysOnFloor(t *testing.T) {
+	const model = "minimax/minimax-m3.1-flash"
+	body := []byte(`{"model":"minimax","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"none"}`)
+	for _, tc := range []struct {
+		name   string
+		forced string
+		want   string
+	}{
+		{name: "disabled maps to floor", want: "low"},
+		{name: "forced effort wins", forced: "high", want: "high"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := translate.EmitOptions{
+				TargetModel:          model,
+				TargetProvider:       providers.ProviderMiniMax,
+				Capabilities:         router.Lookup(model),
+				ForceReasoningEffort: tc.forced,
+			}
+			out := parseAndEmit(t, body, "openai", opts)
+			assert.Equal(t, tc.want, out["reasoning_effort"])
+		})
+	}
+}
+
+func TestOpenAISameFormat_DisabledEffortKeptWhenReasoningCanBeOff(t *testing.T) {
+	body := []byte(`{"model":"o3-mini","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"none"}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "o3-mini",
+		Capabilities: router.Lookup("o3-mini"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.Equal(t, "none", out["reasoning_effort"])
 }
 
 func TestOpenAISameFormat_ReasoningEffortDeletedForGPT5OnChatCompletions(t *testing.T) {
@@ -547,6 +640,87 @@ func TestOpenAIToAnthropic_StripsUnsupportedToolSchemaPattern(t *testing.T) {
 	assert.NotContains(t, amount, "pattern", "Anthropic rejects regex lookahead in JSON Schema patterns")
 	assert.Equal(t, "string", amount["type"])
 	assert.Equal(t, "decimal", amount["description"])
+}
+
+func TestOpenAIToAnthropic_LiftsTopLevelSchemaComposition(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"tools":[{
+		"type":"function",
+		"function":{
+			"name":"open_page",
+			"parameters":{
+				"type":"object",
+				"properties":{"workdir":{"type":"string"}},
+				"required":["workdir"],
+				"anyOf":[
+					{"type":"object","properties":{"page_id":{"type":"string"},"mode":{"type":"string"}},"required":["page_id","mode"]},
+					{"type":"object","properties":{"url":{"type":"string"},"mode":{"type":"string"}},"required":["url","mode"]}
+				],
+				"allOf":[{"properties":{"limit":{"type":"integer"}},"required":["limit"]}]
+			}
+		}
+	}]}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, opts)
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+
+	tools, _ := out["tools"].([]any)
+	require.Len(t, tools, 1)
+	tool, _ := tools[0].(map[string]any)
+	schema, _ := tool["input_schema"].(map[string]any)
+	for _, keyword := range []string{"anyOf", "oneOf", "allOf"} {
+		assert.NotContains(t, schema, keyword, "Anthropic rejects top-level %s on input_schema", keyword)
+	}
+	assert.Equal(t, "object", schema["type"])
+	props, _ := schema["properties"].(map[string]any)
+	assert.ElementsMatch(t, []string{"workdir", "page_id", "url", "mode", "limit"}, slices.Collect(maps.Keys(props)))
+	assert.ElementsMatch(t, []any{"workdir", "mode", "limit"}, schema["required"])
+}
+
+func TestPassthroughSameFormat_LiftsTopLevelSchemaComposition(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-7","max_tokens":16,"messages":[{"role":"user","content":"hi"}],"tools":[{
+		"name":"pick",
+		"input_schema":{"oneOf":[
+			{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]},
+			{"type":"object","properties":{"b":{"type":"string"}},"required":["b"]}
+		]}
+	}]}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropicPassthrough(http.Header{})
+	require.NoError(t, err)
+
+	schema := gjson.GetBytes(prep.Body, "tools.0.input_schema")
+	assert.False(t, schema.Get("oneOf").Exists())
+	assert.Equal(t, "object", schema.Get("type").String())
+	assert.True(t, schema.Get("properties.a").Exists())
+	assert.True(t, schema.Get("properties.b").Exists())
+	assert.False(t, schema.Get("required").Exists(), "no property is required by every alternative")
+}
+
+func TestPassthroughSameFormat_LiftsRefAndBooleanCompositionBranches(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-7","max_tokens":16,"messages":[{"role":"user","content":"hi"}],"tools":[{
+		"name":"pick",
+		"input_schema":{
+			"$defs":{"ByID":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}},
+			"anyOf":[{"$ref":"#/$defs/ByID"},true]
+		}
+	}]}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropicPassthrough(http.Header{})
+	require.NoError(t, err)
+
+	schema := gjson.GetBytes(prep.Body, "tools.0.input_schema")
+	assert.False(t, schema.Get("anyOf").Exists())
+	assert.True(t, schema.Get("properties.id").Exists(), "a $ref alternative contributes its properties")
+	assert.False(t, schema.Get("required").Exists(), "the boolean alternative requires nothing")
 }
 
 func TestAnthropicSameFormat_LeadingSystemMessageHoistedWhenNoSystemField(t *testing.T) {
@@ -888,6 +1062,29 @@ func TestAnthropicSameFormat_DisabledThinkingUpconvertedForAdaptiveModel(t *test
 	outputConfig, _ := out["output_config"].(map[string]any)
 	require.NotNil(t, outputConfig, "output_config.effort is required when adaptive thinking is set")
 	assert.Equal(t, "low", outputConfig["effort"], "disabled maps to the lowest adaptive effort")
+}
+
+// Claude Code's auto-mode classifier (stage 1) asks for a 64-token verdict with
+// thinking disabled and temperature 1, and blocks the tool call when the
+// verdict is missing. Upconverting to adaptive thinking on an always-on model
+// must not leave the visible answer competing with hidden reasoning for those
+// 64 tokens, nor send a sampling override alongside thinking.
+func TestAnthropicSameFormat_DisabledThinkingUpconvertFloorsBudgetAndDropsTemperature(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-5","max_tokens":64,"temperature":1,"stop_sequences":["</block>"],"thinking":{"type":"disabled"},"system":"verdict","messages":[{"role":"user","content":"transcript"},{"role":"user","content":"action"}]}`)
+	for _, model := range []string{"claude-sonnet-5-5", "claude-opus-5-5"} {
+		t.Run(model, func(t *testing.T) {
+			out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+				TargetModel:  model,
+				Capabilities: router.Lookup(model),
+			})
+			thinking, _ := out["thinking"].(map[string]any)
+			require.NotNil(t, thinking)
+			require.Equal(t, "adaptive", thinking["type"])
+			assert.GreaterOrEqual(t, out["max_tokens"], float64(16000), "hidden reasoning must not exhaust a 64-token verdict budget")
+			assert.NotContains(t, out, "temperature", "temperature must not accompany router-enabled thinking")
+			assert.Equal(t, []any{"</block>"}, out["stop_sequences"])
+		})
+	}
 }
 
 // Legacy extended-thinking models (claude-haiku-4-5) accept thinking.type=disabled

@@ -25,6 +25,7 @@ user_home="$work/user"
 mkdir -p "$user_home"
 run_install "$user_home" --scope user
 test "$(jq -r '.env.ENABLE_TOOL_SEARCH' "$user_home/.claude/settings.json")" = "true"
+test "$(jq -r '.env.CLAUDE_CODE_AUTO_MODE_SERVER' "$user_home/.claude/settings.json")" = "0"
 
 project_home="$work/project-home"
 project="$work/project"
@@ -32,5 +33,16 @@ mkdir -p "$project_home" "$project"
 git -C "$project" init -q
 (cd "$project" && run_install "$project_home" --scope project)
 test "$(jq -r '.env.ENABLE_TOOL_SEARCH' "$project/.claude/settings.json")" = "true"
+test "$(jq -r '.env.CLAUDE_CODE_AUTO_MODE_SERVER' "$project/.claude/settings.json")" = "null"
+test "$(jq -r '.env.CLAUDE_CODE_AUTO_MODE_SERVER' "$project/.claude/settings.local.json")" = "0"
 
-echo "Claude tool-search installer regression tests passed"
+toggle_project() {
+  (cd "$project" && HOME="$project_home" XDG_CACHE_HOME="$project_home/.cache" PATH="$fake_bin:$PATH" NO_COLOR=1 \
+    bash "$installer" "$1" --claude --scope project </dev/null >/dev/null 2>&1)
+}
+toggle_project off
+test "$(jq -r '.env.CLAUDE_CODE_AUTO_MODE_SERVER' "$project/.claude/settings.local.json")" = "null"
+toggle_project on
+test "$(jq -r '.env.CLAUDE_CODE_AUTO_MODE_SERVER' "$project/.claude/settings.local.json")" = "0"
+
+echo "Claude tool-search and auto-mode installer regression tests passed"

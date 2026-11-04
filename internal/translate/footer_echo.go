@@ -2,58 +2,39 @@ package translate
 
 import "github.com/tidwall/gjson"
 
-// FeedbackFooterSinceLastHumanTurn reports whether an assistant message
-// after the most recent human-authored turn still carries the echoed feedback
-// footer — if so, background-task continuations would stack duplicate hints.
-// Handles Anthropic and OpenAI messages[] shapes. Must run before
-// StripFeedbackFooterFromMessages removes the echo.
-func FeedbackFooterSinceLastHumanTurn(body []byte) bool {
-	if FeedbackFooterSinceLastHumanTurnInResponses(body) {
+// FeedbackFooterInHistory reports whether any assistant message in the
+// request history already carries the rating hint, so the hint is shown at
+// most once per conversation. Must run on the original body before ingress
+// strips the hint.
+func FeedbackFooterInHistory(body []byte) bool {
+	if FeedbackFooterInResponsesHistory(body) {
 		return true
 	}
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
 		return false
 	}
-	all := msgs.Array()
-	for i := len(all) - 1; i >= 0; i-- {
-		msg := all[i]
-		switch msg.Get("role").String() {
-		case "user":
-			if userIsHumanTurn(msg) {
-				return false
-			}
-		case "assistant":
-			if feedbackFooterPattern.MatchString(assistantMessageText(msg)) {
-				return true
-			}
+	for _, msg := range msgs.Array() {
+		if msg.Get("role").String() == "assistant" && feedbackFooterPattern.MatchString(assistantMessageText(msg)) {
+			return true
 		}
 	}
 	return false
 }
 
-// FeedbackFooterSinceLastHumanTurnInResponses is the Responses-input analogue
-// of FeedbackFooterSinceLastHumanTurn. Must run on the original body before
-// portable conversion strips the hint.
-func FeedbackFooterSinceLastHumanTurnInResponses(body []byte) bool {
+// FeedbackFooterInResponsesHistory is the Responses-input analogue of
+// FeedbackFooterInHistory. Must run on the original body before portable
+// conversion strips the hint.
+func FeedbackFooterInResponsesHistory(body []byte) bool {
 	input := gjson.GetBytes(body, "input")
 	if !input.IsArray() {
 		return false
 	}
-	all := input.Array()
-	for i := len(all) - 1; i >= 0; i-- {
-		item := all[i]
+	for _, item := range input.Array() {
 		itemType := item.Get("type").Str
-		role := item.Get("role").Str
-		if itemType == "message" || (itemType == "" && role != "") {
-			switch role {
-			case "user":
-				return false
-			case "assistant":
-				if responsesItemHasFeedbackFooter(item) {
-					return true
-				}
-			}
+		isMessage := itemType == "message" || (itemType == "" && item.Get("role").Str != "")
+		if isMessage && item.Get("role").Str == "assistant" && responsesItemHasFeedbackFooter(item) {
+			return true
 		}
 	}
 	return false

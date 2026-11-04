@@ -73,5 +73,15 @@ type AttemptEvent struct {
 	Latency            time.Duration
 	Usage              Usage
 	// CostUSD is meaningful only when Usage.Known is true.
-	CostUSD float64
+	CostUSD   float64
+	Diagnosis AttemptDiagnosis
+}
+
+// AttemptDiagnosis is the surface's reading of one attempt: how it failed,
+// who owns the failure, and whether the router rewrote the request body it
+// sent. ErrorClass and FailureOwner are empty on a served attempt.
+type AttemptDiagnosis struct {
+	ErrorClass     string
+	FailureOwner   string
+	BodyTranslated bool
 }

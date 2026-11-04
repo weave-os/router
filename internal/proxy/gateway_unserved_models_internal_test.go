@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -64,6 +65,22 @@ func TestGatewayUnservedModelsForRequest_ExcludesRefusedAliasOnly(t *testing.T) 
 	require.NotNil(t, got)
 	assert.Contains(t, got, "grok-4.6")
 	assert.NotContains(t, got, "claude-haiku-4-5")
+}
+
+// Passthrough can send a model retired from routing to a gateway, so its
+// refusal must exclude it like any other alias.
+func TestGatewayUnservedModelsForRequest_ExcludesRefusedRetiredAlias(t *testing.T) {
+	const endpoint = "https://cortex.example.com/api/v2/cortex"
+	retired := catalog.ModelIDClaudeOpus48.String()
+	require.Equal(t, catalog.TierUnknown, catalog.TierFor(retired), "fixture needs a model retired from routing")
+	s := &Service{}
+	s.unservedGatewayModels.Store(gatewayModelKey(endpoint, providers.ProviderAnthropicGateway, retired), struct{}{})
+
+	got := s.gatewayUnservedModelsForRequest(ctxWithKeys(
+		gatewayKey(providers.ProviderAnthropicGateway, endpoint, retired),
+	))
+
+	assert.Contains(t, got, retired)
 }
 
 // Another endpoint aliasing the same model may still serve it; excluding the

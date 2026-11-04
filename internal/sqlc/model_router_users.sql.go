@@ -13,7 +13,7 @@ import (
 )
 
 const getModelRouterUser = `-- name: GetModelRouterUser :one
-SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name
+SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id
 FROM router.model_router_users
 WHERE id = $1::uuid
   AND deleted_at IS NULL
@@ -21,7 +21,7 @@ WHERE id = $1::uuid
 
 // Single-row read by id; returns sql.ErrNoRows when missing or soft-deleted.
 //
-//	SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name
+//	SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id
 //	FROM router.model_router_users
 //	WHERE id = $1::uuid
 //	  AND deleted_at IS NULL
@@ -37,12 +37,13 @@ func (q *Queries) GetModelRouterUser(ctx context.Context, id uuid.UUID) (RouterM
 		&i.LastSeenAt,
 		&i.DeletedAt,
 		&i.DisplayName,
+		&i.CredentialSubjectID,
 	)
 	return i, err
 }
 
 const listModelRouterUsersForInstallation = `-- name: ListModelRouterUsersForInstallation :many
-SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name
+SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id
 FROM router.model_router_users
 WHERE installation_id = $1::uuid
   AND deleted_at IS NULL
@@ -51,7 +52,7 @@ ORDER BY last_seen_at DESC
 
 // Lists active users for an installation (admin / dashboard; not on the request path).
 //
-//	SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name
+//	SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id
 //	FROM router.model_router_users
 //	WHERE installation_id = $1::uuid
 //	  AND deleted_at IS NULL
@@ -74,6 +75,7 @@ func (q *Queries) ListModelRouterUsersForInstallation(ctx context.Context, insta
 			&i.LastSeenAt,
 			&i.DeletedAt,
 			&i.DisplayName,
+			&i.CredentialSubjectID,
 		); err != nil {
 			return nil, err
 		}
@@ -103,7 +105,7 @@ ON CONFLICT (installation_id, claude_account_uuid)
 DO UPDATE SET
     last_seen_at = CURRENT_TIMESTAMP,
     display_name = COALESCE(EXCLUDED.display_name, router.model_router_users.display_name)
-RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name
+RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id
 `
 
 type UpsertModelRouterUserByAccountUUIDParams struct {
@@ -137,7 +139,7 @@ type UpsertModelRouterUserByAccountUUIDParams struct {
 //	DO UPDATE SET
 //	    last_seen_at = CURRENT_TIMESTAMP,
 //	    display_name = COALESCE(EXCLUDED.display_name, router.model_router_users.display_name)
-//	RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name
+//	RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id
 func (q *Queries) UpsertModelRouterUserByAccountUUID(ctx context.Context, arg UpsertModelRouterUserByAccountUUIDParams) (RouterModelRouterUser, error) {
 	row := q.db.QueryRow(ctx, upsertModelRouterUserByAccountUUID, arg.InstallationID, arg.ClaudeAccountUUID, arg.DisplayName)
 	var i RouterModelRouterUser
@@ -150,6 +152,72 @@ func (q *Queries) UpsertModelRouterUserByAccountUUID(ctx context.Context, arg Up
 		&i.LastSeenAt,
 		&i.DeletedAt,
 		&i.DisplayName,
+		&i.CredentialSubjectID,
+	)
+	return i, err
+}
+
+const upsertModelRouterUserByCredentialSubject = `-- name: UpsertModelRouterUserByCredentialSubject :one
+INSERT INTO router.model_router_users (
+    installation_id,
+    credential_subject_id,
+    display_name
+)
+VALUES (
+    $1::uuid,
+    $2::uuid,
+    $3::text
+)
+ON CONFLICT (installation_id, credential_subject_id)
+  WHERE email IS NULL AND claude_account_uuid IS NULL AND credential_subject_id IS NOT NULL AND deleted_at IS NULL
+DO UPDATE SET
+    last_seen_at = CURRENT_TIMESTAMP,
+    display_name = COALESCE(EXCLUDED.display_name, router.model_router_users.display_name)
+RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id
+`
+
+type UpsertModelRouterUserByCredentialSubjectParams struct {
+	InstallationID      uuid.UUID
+	CredentialSubjectID uuid.UUID
+	DisplayName         *string
+}
+
+// Upserts the key owner's identity for a request authenticated by a personal
+// API key that carries no client-asserted identity (GitHub Copilot, Cursor,
+// raw API calls send neither X-Weave-User-Email nor Claude Code metadata).
+// The CONFLICT target matches the partial unique index
+// model_router_users_installation_subject_unique (WHERE email IS NULL AND
+// claude_account_uuid IS NULL AND credential_subject_id IS NOT NULL).
+//
+//	INSERT INTO router.model_router_users (
+//	    installation_id,
+//	    credential_subject_id,
+//	    display_name
+//	)
+//	VALUES (
+//	    $1::uuid,
+//	    $2::uuid,
+//	    $3::text
+//	)
+//	ON CONFLICT (installation_id, credential_subject_id)
+//	  WHERE email IS NULL AND claude_account_uuid IS NULL AND credential_subject_id IS NOT NULL AND deleted_at IS NULL
+//	DO UPDATE SET
+//	    last_seen_at = CURRENT_TIMESTAMP,
+//	    display_name = COALESCE(EXCLUDED.display_name, router.model_router_users.display_name)
+//	RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id
+func (q *Queries) UpsertModelRouterUserByCredentialSubject(ctx context.Context, arg UpsertModelRouterUserByCredentialSubjectParams) (RouterModelRouterUser, error) {
+	row := q.db.QueryRow(ctx, upsertModelRouterUserByCredentialSubject, arg.InstallationID, arg.CredentialSubjectID, arg.DisplayName)
+	var i RouterModelRouterUser
+	err := row.Scan(
+		&i.ID,
+		&i.InstallationID,
+		&i.Email,
+		&i.ClaudeAccountUUID,
+		&i.FirstSeenAt,
+		&i.LastSeenAt,
+		&i.DeletedAt,
+		&i.DisplayName,
+		&i.CredentialSubjectID,
 	)
 	return i, err
 }
@@ -170,7 +238,7 @@ WITH merged AS (
             AND email = $1::text
             AND deleted_at IS NULL
       )
-    RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name
+    RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id
 ),
 inserted AS (
     INSERT INTO router.model_router_users (
@@ -189,11 +257,11 @@ inserted AS (
         last_seen_at        = CURRENT_TIMESTAMP,
         claude_account_uuid = COALESCE(EXCLUDED.claude_account_uuid, router.model_router_users.claude_account_uuid),
         display_name        = COALESCE(EXCLUDED.display_name, router.model_router_users.display_name)
-    RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name
+    RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id
 )
-SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name FROM merged
+SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id FROM merged
 UNION ALL
-SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name FROM inserted
+SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id FROM inserted
 `
 
 type UpsertModelRouterUserByEmailParams struct {
@@ -204,14 +272,15 @@ type UpsertModelRouterUserByEmailParams struct {
 }
 
 type UpsertModelRouterUserByEmailRow struct {
-	ID                uuid.UUID
-	InstallationID    uuid.UUID
-	Email             *string
-	ClaudeAccountUUID pgtype.UUID
-	FirstSeenAt       pgtype.Timestamp
-	LastSeenAt        pgtype.Timestamp
-	DeletedAt         pgtype.Timestamp
-	DisplayName       *string
+	ID                  uuid.UUID
+	InstallationID      uuid.UUID
+	Email               *string
+	ClaudeAccountUUID   pgtype.UUID
+	FirstSeenAt         pgtype.Timestamp
+	LastSeenAt          pgtype.Timestamp
+	DeletedAt           pgtype.Timestamp
+	DisplayName         *string
+	CredentialSubjectID pgtype.UUID
 }
 
 // Upserts an end-user identity keyed on (installation_id, email), refreshing
@@ -255,7 +324,7 @@ type UpsertModelRouterUserByEmailRow struct {
 //	            AND email = $1::text
 //	            AND deleted_at IS NULL
 //	      )
-//	    RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name
+//	    RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id
 //	),
 //	inserted AS (
 //	    INSERT INTO router.model_router_users (
@@ -274,11 +343,11 @@ type UpsertModelRouterUserByEmailRow struct {
 //	        last_seen_at        = CURRENT_TIMESTAMP,
 //	        claude_account_uuid = COALESCE(EXCLUDED.claude_account_uuid, router.model_router_users.claude_account_uuid),
 //	        display_name        = COALESCE(EXCLUDED.display_name, router.model_router_users.display_name)
-//	    RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name
+//	    RETURNING id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id
 //	)
-//	SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name FROM merged
+//	SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id FROM merged
 //	UNION ALL
-//	SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name FROM inserted
+//	SELECT id, installation_id, email, claude_account_uuid, first_seen_at, last_seen_at, deleted_at, display_name, credential_subject_id FROM inserted
 func (q *Queries) UpsertModelRouterUserByEmail(ctx context.Context, arg UpsertModelRouterUserByEmailParams) (UpsertModelRouterUserByEmailRow, error) {
 	row := q.db.QueryRow(ctx, upsertModelRouterUserByEmail,
 		arg.Email,
@@ -296,6 +365,7 @@ func (q *Queries) UpsertModelRouterUserByEmail(ctx context.Context, arg UpsertMo
 		&i.LastSeenAt,
 		&i.DeletedAt,
 		&i.DisplayName,
+		&i.CredentialSubjectID,
 	)
 	return i, err
 }

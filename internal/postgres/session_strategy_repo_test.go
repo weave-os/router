@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -112,7 +113,7 @@ func TestSessionStrategyRepoGetMissingMeansStable(t *testing.T) {
 	assert.Empty(t, preference)
 }
 
-func TestSessionStrategyRepoToggleAcceptsOnlyHMMBeta(t *testing.T) {
+func TestSessionStrategyRepoToggleAcceptsBetaClassifiers(t *testing.T) {
 	t.Parallel()
 
 	installationID := uuid.New()
@@ -136,9 +137,17 @@ func TestSessionStrategyRepoToggleAcceptsOnlyHMMBeta(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, enabled)
 	assert.True(t, strings.Contains(db.rowQuery, "ON CONFLICT (installation_id, session_key)"))
-	assert.Contains(t, db.rowQuery, "enabled = NOT router.session_strategy_preferences.enabled")
+	assert.Contains(t, db.rowQuery, "THEN NOT router.session_strategy_preferences.enabled ELSE TRUE END")
 	assert.Contains(t, db.rowQuery, "RETURNING enabled")
 	assert.Equal(t, []any{installationID, key[:], string(router.StrategyHMMBeta)}, db.rowArgs)
+	enabled, err = repo.Toggle(context.Background(), sessionstrategy.Preference{
+		InstallationID: installationID,
+		SessionKey:     key,
+		Strategy:       router.StrategyHMMQwen,
+	})
+	require.NoError(t, err)
+	assert.True(t, enabled)
+	assert.Equal(t, []any{installationID, key[:], string(router.StrategyHMMQwen)}, db.rowArgs, "the switch must write the newly selected classifier")
 }
 
 func TestSessionStrategyRepoDisableReportsWhetherBetaWasOn(t *testing.T) {
@@ -149,16 +158,16 @@ func TestSessionStrategyRepoDisableReportsWhetherBetaWasOn(t *testing.T) {
 	db := &sessionStrategyDB{execTag: pgconn.NewCommandTag("UPDATE 1")}
 	repo := NewSessionStrategyRepo(db)
 
-	wasEnabled, err := repo.Disable(context.Background(), installationID, key)
+	wasEnabled, err := repo.Disable(context.Background(), installationID, key, router.StrategyHMMBeta)
 	require.NoError(t, err)
 	assert.True(t, wasEnabled)
 	require.Len(t, db.execCalls, 1)
 	assert.Contains(t, db.execCalls[0].query, "SET enabled = FALSE")
 	assert.Contains(t, db.execCalls[0].query, "AND enabled")
-	assert.Equal(t, []any{installationID, key[:]}, db.execCalls[0].args)
+	assert.Equal(t, []any{installationID, key[:], string(router.StrategyHMMBeta)}, db.execCalls[0].args)
 
 	db.execTag = pgconn.NewCommandTag("UPDATE 0")
-	wasEnabled, err = repo.Disable(context.Background(), installationID, key)
+	wasEnabled, err = repo.Disable(context.Background(), installationID, key, router.StrategyHMMBeta)
 	require.NoError(t, err)
 	assert.False(t, wasEnabled, "a session already on stable routing was not enabled")
 }
@@ -187,6 +196,7 @@ func TestSessionPinMutationsCarryExpectedRoutingStrategy(t *testing.T) {
 	t.Parallel()
 
 	key := [sessionpin.SessionKeyLen]byte{10, 11, 12}
+	unscopedPinExclusions := fmt.Sprintf("NOT IN ('%s', '%s')", router.StrategyHMMBeta, router.StrategyHMMQwen)
 	db := &sessionStrategyDB{row: sessionStrategyRow{err: sql.ErrNoRows}}
 	repo := NewSessionPinRepo(db)
 	ctx := context.Background()
@@ -195,7 +205,7 @@ func TestSessionPinMutationsCarryExpectedRoutingStrategy(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ok)
 	assert.Contains(t, db.rowQuery, "routing_strategy = ''")
-	assert.Contains(t, db.rowQuery, "<> 'hmm_beta'")
+	assert.Contains(t, db.rowQuery, unscopedPinExclusions)
 	assert.Equal(t, []any{key[:], "default", string(router.StrategyCluster)}, db.rowArgs)
 
 	_, ok, err = repo.Consume(ctx, key, "default", router.StrategyHMMBeta)
@@ -222,7 +232,7 @@ func TestSessionPinMutationsCarryExpectedRoutingStrategy(t *testing.T) {
 	require.Len(t, db.execCalls, 4)
 	for _, call := range db.execCalls {
 		assert.Contains(t, call.query, "routing_strategy = ''")
-		assert.Contains(t, call.query, "<> 'hmm_beta'")
+		assert.Contains(t, call.query, unscopedPinExclusions)
 		assert.Equal(t, string(router.StrategyHMMBeta), call.args[len(call.args)-1])
 	}
 }

@@ -91,6 +91,30 @@ DO UPDATE SET
     display_name = COALESCE(EXCLUDED.display_name, router.model_router_users.display_name)
 RETURNING *;
 
+-- Upserts the key owner's identity for a request authenticated by a personal
+-- API key that carries no client-asserted identity (GitHub Copilot, Cursor,
+-- raw API calls send neither X-Weave-User-Email nor Claude Code metadata).
+-- The CONFLICT target matches the partial unique index
+-- model_router_users_installation_subject_unique (WHERE email IS NULL AND
+-- claude_account_uuid IS NULL AND credential_subject_id IS NOT NULL).
+-- name: UpsertModelRouterUserByCredentialSubject :one
+INSERT INTO router.model_router_users (
+    installation_id,
+    credential_subject_id,
+    display_name
+)
+VALUES (
+    @installation_id::uuid,
+    @credential_subject_id::uuid,
+    sqlc.narg('display_name')::text
+)
+ON CONFLICT (installation_id, credential_subject_id)
+  WHERE email IS NULL AND claude_account_uuid IS NULL AND credential_subject_id IS NOT NULL AND deleted_at IS NULL
+DO UPDATE SET
+    last_seen_at = CURRENT_TIMESTAMP,
+    display_name = COALESCE(EXCLUDED.display_name, router.model_router_users.display_name)
+RETURNING *;
+
 -- Single-row read by id; returns sql.ErrNoRows when missing or soft-deleted.
 -- name: GetModelRouterUser :one
 SELECT *

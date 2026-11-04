@@ -53,6 +53,11 @@ func (r *countingUserRepository) UpsertByAccountUUID(context.Context, auth.Upser
 	return &auth.User{ID: "unexpected"}, nil
 }
 
+func (r *countingUserRepository) UpsertByCredentialSubject(context.Context, auth.UpsertUserByCredentialSubjectParams) (*auth.User, error) {
+	r.upserts++
+	return &auth.User{ID: "unexpected"}, nil
+}
+
 func (*countingUserRepository) Get(context.Context, string) (*auth.User, error) {
 	return nil, nil
 }
@@ -626,4 +631,23 @@ func TestPassthroughHandler_HappyPath(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, `{"input_tokens":42}`, rec.Body.String())
+}
+
+func TestMessagesHandler_UnservableCompactionTellsClientNotToRetry(t *testing.T) {
+	client := &fakeProviderClient{proxyErr: &providers.UpstreamErrorResponse{
+		Status: http.StatusBadRequest,
+		Body:   []byte(`{"message":"prompt is too long: 2100056 tokens \u003e 1000000 maximum"}`),
+	}}
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-5", Reason: "test"}},
+		map[string]providers.Client{providers.ProviderAnthropic: client},
+		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-sonnet-4-5", nil,
+	)
+	body := `{"model":"claude-sonnet-4-5","max_tokens":4096,"messages":[{"role":"user","content":"Your task is to create a detailed summary of the conversation so far. Do not call any tools."}]}`
+
+	rec := postMessages(messagesEngine(svc), []byte(body))
+
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+	assert.Equal(t, "false", rec.Header().Get("x-should-retry"))
+	assert.NotContains(t, rec.Body.String(), "Compact the conversation")
 }

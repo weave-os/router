@@ -2,20 +2,22 @@ package translate
 
 import "strings"
 
-// openRouterProviderHint pins model slugs to caching-capable backends.
+// openRouterProviderHint prefers caching-capable first-party backends.
 // Without it, OpenRouter load-balances by price onto hosts without prefix
 // caching, which breaks agentic workloads re-sending large transcripts.
+// Fallbacks stay on: the first-party host does not serve every slug in the
+// family, and a disallowed fallback turns that into a 404.
 func openRouterProviderHint(model string) map[string]any {
 	switch {
 	case strings.HasPrefix(model, "deepseek/"):
 		return map[string]any{
 			"order":           []string{"deepseek"},
-			"allow_fallbacks": false,
+			"allow_fallbacks": true,
 		}
 	case strings.HasPrefix(model, "moonshotai/"):
 		return map[string]any{
 			"order":           []string{"moonshotai"},
-			"allow_fallbacks": false,
+			"allow_fallbacks": true,
 		}
 	case strings.HasPrefix(model, "qwen/"), strings.HasPrefix(model, "google/"):
 		return map[string]any{"sort": "throughput"}

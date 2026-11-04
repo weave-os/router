@@ -75,6 +75,13 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		if admission.Outcome == entitlement.AdmissionExhausted {
+			c.Request = c.Request.WithContext(entitlement.WithSpentWindow(c.Request.Context(), entitlement.SpentWindow{
+				Plan:     admission.Plan,
+				Kind:     admission.ExhaustedPeriod,
+				ResetsAt: admission.ResetsAt,
+			}))
+		}
 
 		// An agent-shadow evaluation draws no included allowance — it is Weave's
 		// own traffic, not the subscriber's turn — but it dispatches a forced
