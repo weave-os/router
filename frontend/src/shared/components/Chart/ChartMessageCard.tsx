@@ -14,7 +14,6 @@ export interface ChartMessageCardProps extends CardProps {
   overlay?: boolean;
 }
 
-/** Renders a message on top of the chart. */
 export function ChartMessageCard({ className, overlay = false, ...props }: ChartMessageCardProps) {
   return (
     <>
@@ -37,9 +36,6 @@ interface ChartMessageCardEmptyProps {
   emptyMessage?: React.ReactNode;
 }
 
-/**
- * Renders an empty message in a filled panel covering the chart.
- */
 ChartMessageCard.Empty = function ChartMessageCardEmpty({
   emptyMessage,
 }: ChartMessageCardEmptyProps) {
@@ -62,9 +58,6 @@ ChartMessageCard.Empty = function ChartMessageCardEmpty({
   );
 };
 
-/**
- * Renders a loading message on top of the chart.
- */
 interface ChartMessageCardLoadingProps {
   overlay?: boolean;
 }
@@ -85,9 +78,6 @@ interface ChartMessageCardErrorProps {
   error: Error;
 }
 
-/**
- * Renders an error message on top of the chart.
- */
 ChartMessageCard.Error = function ChartMessageCardError({ error }: ChartMessageCardErrorProps) {
   return (
     <ChartMessageCard

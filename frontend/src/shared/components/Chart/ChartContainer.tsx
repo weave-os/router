@@ -4,9 +4,6 @@ import { cn } from "../../tools/cn";
 
 export interface ChartContainerProps extends React.HTMLAttributes<HTMLDivElement> {}
 
-/**
- * Renders a container for a chart. This component handles styling.
- */
 export const ChartContainer = forwardRef<HTMLDivElement, ChartContainerProps>(
   ({ children, className, id, ...props }, ref) => {
     const uniqueId = useId();

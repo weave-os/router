@@ -15,16 +15,10 @@ export function getOriginalFromPartialBucketSeriesKey(key: string): string {
 
 const PROJECTED_SERIES_PREFIX = "__proj__";
 
-/**
- * Gets the key for the projected version of the given series.
- */
 export function getProjectedSeriesKey(series: string) {
   return `${PROJECTED_SERIES_PREFIX}${series}`;
 }
 
-/**
- * Checks if the given key is a projected series key.
- */
 export function isProjectedSeriesKey(key: string) {
   return key.startsWith(PROJECTED_SERIES_PREFIX);
 }

@@ -38,44 +38,11 @@ export enum ChartAxisType {
 }
 
 /**
- * A Recharts strategy for preserving independent-axis ticks.
- */
-export enum ChartTickInterval {
-  PreserveStartEnd = "preserveStartEnd",
-}
-
-/**
  * The dependent axis to display a series on.
  */
 export enum ChartDependentAxis {
   Left = "left",
   Right = "right",
-}
-
-/**
- * Defines a line on an XY chart.
- */
-export interface ChartLineDefinition {
-  /** The y-intercept of the line. */
-  intercept: number;
-  /** The slope of the line. */
-  slope: number;
-}
-
-/**
- * Configuration for shading a scatter plot into four quadrants, split at the median of the
- * plotted x and y values. Each quadrant gets a subtle background fill and a corner label. Used
- * by {@link ScatterPlotProps.quadrants}.
- */
-export interface ScatterQuadrantConfig {
-  /** Label for the bottom-left quadrant (low x, low y). */
-  bottomLeftLabel: string;
-  /** Label for the bottom-right quadrant (high x, low y). */
-  bottomRightLabel: string;
-  /** Label for the top-left quadrant (low x, high y). */
-  topLeftLabel: string;
-  /** Label for the top-right quadrant (high x, high y). */
-  topRightLabel: string;
 }
 
 /**

@@ -596,9 +596,6 @@ export interface ChartProps<
   ) => ChartData<TIndependentKey, TDependentKey, TIndependentValue, TDependentValue>;
 }
 
-/**
- * Renders a chart.
- */
 export function Chart<
   TIndependentKey extends ChartDataKeyType,
   TDependentKey extends ChartDataKeyType,

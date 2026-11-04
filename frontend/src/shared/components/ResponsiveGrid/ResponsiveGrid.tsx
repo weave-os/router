@@ -2,10 +2,6 @@ import { cn } from "../../tools/cn";
 
 export interface ResponsiveGridProps extends React.HTMLAttributes<HTMLDivElement> {}
 
-/**
- * Renders a grid that is responsive to the screen size. Use the `ResponsiveGrid.*` classes to size
- * elements correctly.
- */
 export function ResponsiveGrid({ children, className, ...props }: ResponsiveGridProps) {
   return (
     <div className={cn("grid grid-cols-6 gap-2.5 @container", className)} {...props}>

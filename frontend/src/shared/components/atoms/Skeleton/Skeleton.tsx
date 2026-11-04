@@ -15,9 +15,6 @@ export interface SkeletonProps extends React.ComponentProps<"div"> {
   darker?: boolean;
 }
 
-/**
- * Renders a loading skeleton.
- */
 export function Skeleton({
   as: Element = "div",
   className,
@@ -45,9 +42,6 @@ export interface SkeletonTextProps extends SkeletonProps {
   size?: "2xl" | "4xl" | "base" | "h1" | "h2" | "h3" | "h4" | "lg" | "p" | "sm" | "xl" | "xs";
 }
 
-/**
- * Renders a skeleton exactly matching the size and spacing of text.
- */
 Skeleton.Text = function SkeletonText({
   as: Element = "div",
   children,

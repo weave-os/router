@@ -16,7 +16,6 @@ const LEGEND_TEXT_MAX_LENGTH = 40;
 /** Height of one legend row: the 20px line plus the item's vertical padding. */
 const LEGEND_ROW_HEIGHT_PX = 24;
 
-/** Truncate text to a max length with ellipsis */
 function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength - 3) + "...";
@@ -133,9 +132,6 @@ interface ChartLegendSeriesProps {
   series: Pick<RechartsLegendPayloadItem, "color" | "type" | "value">;
 }
 
-/**
- * Renders the content for a single series in the chart tooltip.
- */
 function ChartLegendSeries<TDependentKey extends ChartDataKeyType>({
   series,
 }: ChartLegendSeriesProps) {

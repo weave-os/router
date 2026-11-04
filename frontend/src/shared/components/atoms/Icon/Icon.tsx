@@ -452,9 +452,6 @@ export interface IconProps extends LucideProps {
   type: IconType;
 }
 
-/**
- * Common icon component.
- */
 export function Icon({ className, intent = Intent.Default, type, ...iconProps }: IconProps) {
   const IconComponent = ICON_COMPONENTS[type];
 

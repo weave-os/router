@@ -26,9 +26,6 @@ const HORIZONTAL_TEXT_ANCHOR: Readonly<
   right: "end",
 };
 
-/**
- * Renders a label for a reference line.
- */
 export function ChartReferenceLineLabel({
   label,
   side = "center",
