@@ -57,3 +57,8 @@ func completedReasoningHasProgress(item gjson.Result) bool {
 	}
 	return false
 }
+
+func hasNonEmptyDelta(data []byte) bool {
+	delta := gjson.GetBytes(data, "delta")
+	return delta.Type == gjson.String && delta.Str != ""
+}
