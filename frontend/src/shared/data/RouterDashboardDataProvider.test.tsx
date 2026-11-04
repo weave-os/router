@@ -27,6 +27,7 @@ function dataSourceWith(summaryFn: RouterDashboardDataSource["metrics"]["summary
     metrics: {
       costTimeseries: vi.fn(),
       modelMix: vi.fn(),
+      people: vi.fn(),
       reportSummary: vi.fn(),
       series: vi.fn(),
       summary: summaryFn,

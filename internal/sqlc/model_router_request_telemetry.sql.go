@@ -787,7 +787,8 @@ func (q *Queries) GetTelemetryBySessionDesc(ctx context.Context, arg GetTelemetr
 
 const getTelemetryDashboardActiveUsers = `-- name: GetTelemetryDashboardActiveUsers :many
 SELECT
-    date_trunc($1::text, timestamp)::timestamptz AS bucket,
+    (CASE WHEN $1::text = 'total' THEN $2::timestamptz
+          ELSE date_trunc($1::text, timestamp) END)::timestamptz AS bucket,
     (router_user_id IS NOT NULL)::boolean AS linked,
     COUNT(DISTINCT COALESCE(router_user_id::text, api_key_id::text, installation_id::text))::bigint AS user_count
 FROM router.model_router_request_telemetry
@@ -812,11 +813,13 @@ type GetTelemetryDashboardActiveUsersRow struct {
 	UserCount int64
 }
 
-// Distinct people per bucket. Linked people carry a router user; unlinked
-// traffic counts once per API key.
+// Distinct people per bucket ('total' = one bucket for the window, so a person
+// counts once). Linked people carry a router user; unlinked traffic counts once
+// per API key.
 //
 //	SELECT
-//	    date_trunc($1::text, timestamp)::timestamptz AS bucket,
+//	    (CASE WHEN $1::text = 'total' THEN $2::timestamptz
+//	          ELSE date_trunc($1::text, timestamp) END)::timestamptz AS bucket,
 //	    (router_user_id IS NOT NULL)::boolean AS linked,
 //	    COUNT(DISTINCT COALESCE(router_user_id::text, api_key_id::text, installation_id::text))::bigint AS user_count
 //	FROM router.model_router_request_telemetry
@@ -961,6 +964,96 @@ func (q *Queries) GetTelemetryDashboardFacts(ctx context.Context, arg GetTelemet
 			&i.CacheCreationTokens,
 			&i.CacheReadTokens,
 			&i.ActualCostUsd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getTelemetryDashboardPeople = `-- name: GetTelemetryDashboardPeople :many
+SELECT
+    u.id::text AS person_id,
+    true AS linked,
+    COALESCE(NULLIF(u.display_name, ''), u.email, '')::text AS display_name,
+    COALESCE(u.email, '')::text AS email,
+    (SELECT MAX(t.timestamp) FROM router.model_router_request_telemetry t
+      WHERE t.installation_id = u.installation_id AND t.router_user_id = u.id
+        AND t.span_type = 'router.upstream')::timestamptz AS last_request_at
+FROM router.model_router_users u
+WHERE u.deleted_at IS NULL
+  AND ($1::uuid IS NULL OR u.installation_id = $1::uuid)
+UNION ALL
+SELECT
+    t.api_key_id::text AS person_id,
+    false AS linked,
+    COALESCE(MAX(k.name), '')::text AS display_name,
+    ''::text AS email,
+    MAX(t.timestamp)::timestamptz AS last_request_at
+FROM router.model_router_request_telemetry t
+LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
+WHERE t.span_type = 'router.upstream'
+  AND t.router_user_id IS NULL
+  AND t.api_key_id IS NOT NULL
+  AND ($1::uuid IS NULL OR t.installation_id = $1::uuid)
+GROUP BY t.api_key_id
+`
+
+type GetTelemetryDashboardPeopleRow struct {
+	PersonID      string
+	Linked        bool
+	DisplayName   string
+	Email         string
+	LastRequestAt pgtype.Timestamptz
+}
+
+// Everyone who could route: roster users (linked) and API keys that sent
+// traffic without a router user (unlinked), with their latest request ever.
+//
+//	SELECT
+//	    u.id::text AS person_id,
+//	    true AS linked,
+//	    COALESCE(NULLIF(u.display_name, ''), u.email, '')::text AS display_name,
+//	    COALESCE(u.email, '')::text AS email,
+//	    (SELECT MAX(t.timestamp) FROM router.model_router_request_telemetry t
+//	      WHERE t.installation_id = u.installation_id AND t.router_user_id = u.id
+//	        AND t.span_type = 'router.upstream')::timestamptz AS last_request_at
+//	FROM router.model_router_users u
+//	WHERE u.deleted_at IS NULL
+//	  AND ($1::uuid IS NULL OR u.installation_id = $1::uuid)
+//	UNION ALL
+//	SELECT
+//	    t.api_key_id::text AS person_id,
+//	    false AS linked,
+//	    COALESCE(MAX(k.name), '')::text AS display_name,
+//	    ''::text AS email,
+//	    MAX(t.timestamp)::timestamptz AS last_request_at
+//	FROM router.model_router_request_telemetry t
+//	LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
+//	WHERE t.span_type = 'router.upstream'
+//	  AND t.router_user_id IS NULL
+//	  AND t.api_key_id IS NOT NULL
+//	  AND ($1::uuid IS NULL OR t.installation_id = $1::uuid)
+//	GROUP BY t.api_key_id
+func (q *Queries) GetTelemetryDashboardPeople(ctx context.Context, installationID pgtype.UUID) ([]GetTelemetryDashboardPeopleRow, error) {
+	rows, err := q.db.Query(ctx, getTelemetryDashboardPeople, installationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetTelemetryDashboardPeopleRow
+	for rows.Next() {
+		var i GetTelemetryDashboardPeopleRow
+		if err := rows.Scan(
+			&i.PersonID,
+			&i.Linked,
+			&i.DisplayName,
+			&i.Email,
+			&i.LastRequestAt,
 		); err != nil {
 			return nil, err
 		}

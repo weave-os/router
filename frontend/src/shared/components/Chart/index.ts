@@ -5,3 +5,4 @@ export * from "./color";
 export * from "./constants";
 export * from "./helpers/getDefaultSeriesColor";
 export * from "./types";
+export * from "./Heatmap";

@@ -97,6 +97,7 @@ export const api = {
       params.set("to", range.to);
       return request<RouterMetricSeries>(`/metrics/series?${params.toString()}`);
     },
+    people: () => request<PeopleResponse>("/metrics/people"),
     reportSummary: (from: string, to: string) => {
       const params = new URLSearchParams({ from, to });
       return request<ReportSummaryResponse>(`/metrics/report-summary?${params.toString()}`);
@@ -199,6 +200,16 @@ export const api = {
       }),
   },
 };
+
+export interface PeopleResponse {
+  people: {
+    display_name: string;
+    email: string;
+    id: string;
+    last_request_at: string | null;
+    linked: boolean;
+  }[];
+}
 
 export interface ReportSummaryResponse {
   comparison_cost_usd: number;

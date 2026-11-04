@@ -99,7 +99,11 @@ func MetricsSeriesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		ctx := c.Request.Context()
 		var points []dashboardPoint
 		if metric == dashboardMetricActiveUsers {
-			users, err := proxySvc.MetricsActiveUsers(ctx, installationID, from, to, granularity)
+			bucket := granularity
+			if total {
+				bucket = totalGranularity
+			}
+			users, err := proxySvc.MetricsActiveUsers(ctx, installationID, from, to, bucket)
 			if err != nil {
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch active users."})
 				return
@@ -131,6 +135,44 @@ func MetricsReportSummaryHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, reportSummary(facts))
+	}
+}
+
+type dashboardPerson struct {
+	ID            string  `json:"id"`
+	Linked        bool    `json:"linked"`
+	DisplayName   string  `json:"display_name"`
+	Email         string  `json:"email"`
+	LastRequestAt *string `json:"last_request_at"`
+}
+
+type dashboardPeopleResponse struct {
+	People []dashboardPerson `json:"people"`
+}
+
+// MetricsPeopleHandler serves the adoption and inactive cards: everyone who
+// can route, independent of the date filter.
+func MetricsPeopleHandler(proxySvc *proxy.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		installationID, ok := dashboardScope(c)
+		if !ok {
+			return
+		}
+		people, err := proxySvc.MetricsPeople(c.Request.Context(), installationID)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch people."})
+			return
+		}
+		out := make([]dashboardPerson, 0, len(people))
+		for _, person := range people {
+			row := dashboardPerson{ID: person.ID, Linked: person.Linked, DisplayName: person.DisplayName, Email: person.Email}
+			if person.LastRequestAt != nil {
+				formatted := person.LastRequestAt.UTC().Format(time.RFC3339)
+				row.LastRequestAt = &formatted
+			}
+			out = append(out, row)
+		}
+		c.JSON(http.StatusOK, dashboardPeopleResponse{People: out})
 	}
 }
 

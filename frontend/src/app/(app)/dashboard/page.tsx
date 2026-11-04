@@ -2,6 +2,7 @@
 
 import { RouterOnboarding } from "@/components/RouterOnboarding";
 import { api } from "@/lib/api";
+import { SAVINGS_METHODOLOGY_URL } from "@/lib/links";
 import { RouterDashboardPage } from "@/shared/components/RouterDashboardPage";
 
 import { useEffect, useState } from "react";
@@ -74,5 +75,5 @@ export default function DashboardPage() {
     );
   }
 
-  return <RouterDashboardPage />;
+  return <RouterDashboardPage methodologyHref={SAVINGS_METHODOLOGY_URL} />;
 }

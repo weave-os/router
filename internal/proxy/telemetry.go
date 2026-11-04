@@ -36,6 +36,7 @@ type TelemetryRepository interface {
 	// Dashboard reads scope to installationID, or every installation when it is empty.
 	GetTelemetryDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryDashboardFact, error)
 	GetTelemetryDashboardActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryActiveUsers, error)
+	GetTelemetryDashboardPeople(ctx context.Context, installationID string) ([]TelemetryPerson, error)
 }
 
 // InferenceAttemptStore persists the ordered upstream attempts of an inference
@@ -455,6 +456,17 @@ type TelemetryActiveUsers struct {
 	Bucket    time.Time
 	Linked    bool
 	UserCount int64
+}
+
+// TelemetryPerson is someone who can route: a roster user (linked) or an API
+// key that sent traffic without one (unlinked). LastRequestAt is nil until
+// their first request.
+type TelemetryPerson struct {
+	ID            string
+	Linked        bool
+	DisplayName   string
+	Email         string
+	LastRequestAt *time.Time
 }
 
 // TelemetryModelBucket is one time-bucket entry for a single decision model,

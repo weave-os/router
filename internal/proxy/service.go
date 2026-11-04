@@ -3041,6 +3041,14 @@ func (s *Service) MetricsActiveUsers(ctx context.Context, installationID string,
 	return s.telemetry.GetTelemetryDashboardActiveUsers(ctx, installationID, from, to, granularity)
 }
 
+// MetricsPeople returns everyone who can route with their latest request ever.
+func (s *Service) MetricsPeople(ctx context.Context, installationID string) ([]TelemetryPerson, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetryDashboardPeople(ctx, installationID)
+}
+
 // MetricsModelBreakdown returns per-bucket totals grouped by decision model
 // for the dashboard's per-model usage and spend charts.
 func (s *Service) MetricsModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryModelBucket, error) {

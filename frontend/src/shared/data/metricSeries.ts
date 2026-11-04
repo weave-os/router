@@ -67,6 +67,15 @@ export interface RouterMetricSeries {
   values: readonly RouterMetricPoint[];
 }
 
+/** Someone who can route: a roster user (linked) or an API key used without one (unlinked). */
+export interface RouterPerson {
+  displayName: string;
+  email: string;
+  id: string;
+  lastRequestAt: string | null;
+  link: RouterUserLink;
+}
+
 /** Totals behind the dashboard's stat cards, priced against `comparisonModel`. */
 export interface RouterReportSummary {
   comparisonCostUSD: number;

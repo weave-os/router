@@ -9,7 +9,12 @@ import { RouterOverviewTab, RouterOverviewTabs, useRouterOverviewTab } from "../
 import { RouterOverviewTabPanel } from "./RouterOverviewTabPanel";
 
 /** The Router cost & savings dashboard: header, overview tabs, filters and the active tab's cards. */
-export function RouterDashboardPage() {
+export interface RouterDashboardPageProps {
+  /** Where the savings card's "How we measure" link goes. */
+  methodologyHref?: string;
+}
+
+export function RouterDashboardPage({ methodologyHref }: RouterDashboardPageProps) {
   const filters = useDashboardFilters();
   const tab = useRouterOverviewTab();
   const showSubscriptions = useHasRouterDashboardSlot(
@@ -39,7 +44,11 @@ export function RouterDashboardPage() {
       {tab !== RouterOverviewTab.Subscriptions && <DashboardPageFilters result={filters} />}
 
       <Page.Section className="pt-0">
-        <RouterOverviewTabPanel filters={filters.filters} tab={tab} />
+        <RouterOverviewTabPanel
+          filters={filters.filters}
+          methodologyHref={methodologyHref}
+          tab={tab}
+        />
       </Page.Section>
     </Page>
   );

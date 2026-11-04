@@ -615,6 +615,26 @@ func (r *TelemetryRepo) GetTelemetryDashboardActiveUsers(ctx context.Context, in
 	}), nil
 }
 
+// GetTelemetryDashboardPeople lists roster users and unlinked API keys.
+func (r *TelemetryRepo) GetTelemetryDashboardPeople(ctx context.Context, installationID string) ([]proxy.TelemetryPerson, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetryDashboardPeople(ctx, installation)
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardPeopleRow) proxy.TelemetryPerson {
+		person := proxy.TelemetryPerson{ID: row.PersonID, Linked: row.Linked, DisplayName: row.DisplayName, Email: row.Email}
+		if row.LastRequestAt.Valid {
+			last := row.LastRequestAt.Time
+			person.LastRequestAt = &last
+		}
+		return person
+	}), nil
+}
+
 // GetTelemetryTimeseriesAll is the admin-only counterpart to GetTelemetryTimeseries.
 func (r *TelemetryRepo) GetTelemetryTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryBucket, error) {
 	q := dbbudget.Queries(r.tx)

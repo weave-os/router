@@ -1,6 +1,7 @@
 import type { Capability } from "./availability";
 import type {
   RouterMetricSeries,
+  RouterPerson,
   RouterMetricSeriesRequest,
   RouterReportSummary,
 } from "./metricSeries";
@@ -36,6 +37,8 @@ export interface MetricsDataSource {
   /** Requests, tokens and cost per decision model per bucket. */
   modelMix(query: TimeseriesQuery): Promise<MetricsModelBreakdown>;
   /** Totals for the stat cards, with savings against the comparison model. */
+  /** Everyone who can route with their latest request ever; ignores the date filter. */
+  people(): Promise<readonly RouterPerson[]>;
   reportSummary(range: DateRange): Promise<RouterReportSummary>;
   /** One metric, optionally grouped, per bucket; feeds every dashboard chart card. */
   series(request: RouterMetricSeriesRequest): Promise<RouterMetricSeries>;

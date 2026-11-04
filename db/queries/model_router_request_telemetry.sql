@@ -954,11 +954,13 @@ WHERE span_type = 'router.upstream'
 GROUP BY 1, 2, 3, 4, 5
 ORDER BY 1;
 
--- Distinct people per bucket. Linked people carry a router user; unlinked
--- traffic counts once per API key.
+-- Distinct people per bucket ('total' = one bucket for the window, so a person
+-- counts once). Linked people carry a router user; unlinked traffic counts once
+-- per API key.
 -- name: GetTelemetryDashboardActiveUsers :many
 SELECT
-    date_trunc(@granularity::text, timestamp)::timestamptz AS bucket,
+    (CASE WHEN @granularity::text = 'total' THEN @from_time::timestamptz
+          ELSE date_trunc(@granularity::text, timestamp) END)::timestamptz AS bucket,
     (router_user_id IS NOT NULL)::boolean AS linked,
     COUNT(DISTINCT COALESCE(router_user_id::text, api_key_id::text, installation_id::text))::bigint AS user_count
 FROM router.model_router_request_telemetry
@@ -968,3 +970,32 @@ WHERE span_type = 'router.upstream'
   AND (sqlc.narg(installation_id)::uuid IS NULL OR installation_id = sqlc.narg(installation_id)::uuid)
 GROUP BY 1, 2
 ORDER BY 1;
+
+-- Everyone who could route: roster users (linked) and API keys that sent
+-- traffic without a router user (unlinked), with their latest request ever.
+-- name: GetTelemetryDashboardPeople :many
+SELECT
+    u.id::text AS person_id,
+    true AS linked,
+    COALESCE(NULLIF(u.display_name, ''), u.email, '')::text AS display_name,
+    COALESCE(u.email, '')::text AS email,
+    (SELECT MAX(t.timestamp) FROM router.model_router_request_telemetry t
+      WHERE t.installation_id = u.installation_id AND t.router_user_id = u.id
+        AND t.span_type = 'router.upstream')::timestamptz AS last_request_at
+FROM router.model_router_users u
+WHERE u.deleted_at IS NULL
+  AND (sqlc.narg(installation_id)::uuid IS NULL OR u.installation_id = sqlc.narg(installation_id)::uuid)
+UNION ALL
+SELECT
+    t.api_key_id::text AS person_id,
+    false AS linked,
+    COALESCE(MAX(k.name), '')::text AS display_name,
+    ''::text AS email,
+    MAX(t.timestamp)::timestamptz AS last_request_at
+FROM router.model_router_request_telemetry t
+LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
+WHERE t.span_type = 'router.upstream'
+  AND t.router_user_id IS NULL
+  AND t.api_key_id IS NOT NULL
+  AND (sqlc.narg(installation_id)::uuid IS NULL OR t.installation_id = sqlc.narg(installation_id)::uuid)
+GROUP BY t.api_key_id;

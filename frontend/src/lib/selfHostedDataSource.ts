@@ -1,5 +1,10 @@
 import { api } from "@/lib/api";
-import { type RouterDashboardDataSource, unavailable, UnavailableReason } from "@/shared/data";
+import {
+  type RouterDashboardDataSource,
+  RouterUserLink,
+  unavailable,
+  UnavailableReason,
+} from "@/shared/data";
 
 export const selfHostedDataSource: RouterDashboardDataSource = {
   individuals: unavailable(
@@ -12,6 +17,16 @@ export const selfHostedDataSource: RouterDashboardDataSource = {
     modelMix: ({ granularity, range }) =>
       api.metrics.modelBreakdown(granularity, range.from, range.to),
     summary: range => api.metrics.summary(range.from, range.to),
+    people: async () => {
+      const { people } = await api.metrics.people();
+      return people.map(person => ({
+        displayName: person.display_name,
+        email: person.email,
+        id: person.id,
+        lastRequestAt: person.last_request_at,
+        link: person.linked ? RouterUserLink.Linked : RouterUserLink.Unlinked,
+      }));
+    },
     reportSummary: async range => {
       const summary = await api.metrics.reportSummary(range.from, range.to);
       return {

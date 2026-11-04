@@ -64,3 +64,7 @@ func (stubTelemetryRepo) GetTelemetryDashboardFacts(context.Context, string, tim
 func (stubTelemetryRepo) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryActiveUsers, error) {
 	return nil, nil
 }
+
+func (stubTelemetryRepo) GetTelemetryDashboardPeople(context.Context, string) ([]proxy.TelemetryPerson, error) {
+	return nil, nil
+}

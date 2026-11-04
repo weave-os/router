@@ -3,3 +3,4 @@ export * from "./metricSeries";
 export * from "./RouterDashboardDataProvider";
 export * from "./RouterDashboardDataSource";
 export * from "./types";
+export * from "./useRouterMetricSeries";
