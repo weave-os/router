@@ -16,6 +16,7 @@ Index of Markdown documentation in the `router/` repo.
 | [POLICY_ROUTER_HARNESS.md](POLICY_ROUTER_HARNESS.md) | Contract for out-of-process policy sidecars. |
 | [LLM_CLASSIFIER_CONTEXT.md](LLM_CLASSIFIER_CONTEXT.md) | Staged atomic-response classifier input contract and unresolved admission/recovery requirements; not serving-enabled. |
 | [SERVING_CONTROL.md](SERVING_CONTROL.md) | Immutable managed releases, gateway admission, activation, rollback, and deployment prerequisites. |
+| [LOCAL_PINNED_RUNTIME.md](LOCAL_PINNED_RUNTIME.md) | Loopback composition of an immutable V3 HMM selection for bounded local evaluation. |
 | [HMM_GO_SELECTION.md](HMM_GO_SELECTION.md) | Architecture, `policy_router_v3` split, and rollback story for Go-owned HMM roster ownership and deterministic arm selection. |
 | [TRANSLATION_COMPATIBILITY.md](TRANSLATION_COMPATIBILITY.md) | Cross-format translation requirements and rollout modes. |
 | [ROUTER_NOTICES.md](ROUTER_NOTICES.md) | Typed router notices, client-protocol sinks, capabilities, and retry lifecycle. |
