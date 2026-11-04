@@ -225,7 +225,7 @@ export default function DashboardPage() {
             className={ResponsiveGrid.Small}
             label="Tokens"
             value={summary == null ? "—" : formatNumber(summary.total_tokens)}
-            sub={summary == null ? undefined : `${formatNumber(avgTokensPerReq)} avg / req`}
+            sub={summary == null ? undefined : `${formatNumber(Math.round(avgTokensPerReq))} avg / req`}
           />
 
           <ChartCard
