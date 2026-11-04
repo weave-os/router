@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 )
 
@@ -70,6 +71,12 @@ func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 // ExternalAPIKeysContextKey is the request-context key for external API keys
 // stashed by the auth middleware.
 type ExternalAPIKeysContextKey struct{}
+
+// Anthropic BYOK is an explicit funding preference. Probing Claude OAuth first
+// can already incur Enterprise overage before its response reveals the charge.
+func anthropicBYOKConfigured(ctx context.Context) bool {
+	return BuildCredentialsMap(externalKeysFromContext(ctx))[providers.ProviderAnthropic] != nil
+}
 
 // BuildCredentialsMap builds provider -> Credentials from external keys.
 // Empty-plaintext entries are dropped except explicit provider-scoped failures,

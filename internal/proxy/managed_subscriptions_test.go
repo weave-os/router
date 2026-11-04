@@ -255,21 +255,22 @@ func TestLeaseManagedCodexRefusesPaidFallbackAfterAllLinkedAccountsAreRejected(t
 	require.Len(t, leaser.providers, 2)
 }
 
-func TestManagedSubscriptionOverridesBYOKButNotInboundOAuth(t *testing.T) {
+func TestManagedSubscriptionPreservesAnthropicBYOKAndInboundOAuth(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-claude", AccessToken: "managed-token"}}}
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
 	base := managedSubscriptionTestContext()
 
-	byokCtx := context.WithValue(base, CredentialsContextKey{}, &Credentials{APIKey: []byte("byok-token"), Source: credSourceBYOK})
-	managedCtx, managedLease, managed, err := svc.leaseManagedSubscription(byokCtx, providers.ProviderAnthropic, "claude-opus-4-8")
+	byokCtx := context.WithValue(base, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, Plaintext: []byte("synthetic-byok")}})
+	byokCtx = svc.resolveCredentials(byokCtx, providers.ProviderAnthropic, "claude-opus-4-8", nil)
+	unchangedCtx, _, managed, err := svc.leaseManagedSubscription(byokCtx, providers.ProviderAnthropic, "claude-opus-4-8")
 	require.NoError(t, err)
-	require.True(t, managed)
-	require.Equal(t, "managed-token", string(CredentialsFromContext(managedCtx).APIKey))
-	managedLease.Release()
+	require.False(t, managed)
+	require.Same(t, CredentialsFromContext(byokCtx), CredentialsFromContext(unchangedCtx))
+	require.Empty(t, leaser.providers)
 
 	oauth := &Credentials{APIKey: []byte("inbound-oauth"), Source: credSourceSubscription, OAuth: true}
 	oauthCtx := context.WithValue(base, CredentialsContextKey{}, oauth)
-	unchangedCtx, _, managed, err := svc.leaseManagedSubscription(oauthCtx, providers.ProviderAnthropic, "claude-opus-4-8")
+	unchangedCtx, _, managed, err = svc.leaseManagedSubscription(oauthCtx, providers.ProviderAnthropic, "claude-opus-4-8")
 	require.NoError(t, err)
 	require.False(t, managed)
 	require.Same(t, oauth, CredentialsFromContext(unchangedCtx))

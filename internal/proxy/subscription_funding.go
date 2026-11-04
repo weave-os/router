@@ -77,6 +77,9 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 		if creds := CredentialsFromContext(callCtx); creds != nil && creds.OAuth {
 			return nil
 		}
+		if target.Provider == providers.ProviderAnthropic && anthropicBYOKConfigured(callCtx) {
+			return nil
+		}
 		pool, compatible := subscriptionPoolForModel(target)
 		if !compatible {
 			return nil
