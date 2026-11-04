@@ -190,7 +190,7 @@ def test_customer_model_package_rejects_an_unusable_reference_vector(
 
 
 @pytest.mark.parametrize(
-    ("data", "expected_error"),
+    ("response_data", "expected_error"),
     [
         (
             [{"index": 0, "embedding": [1.0]}, {"index": 0, "embedding": [2.0]}],
@@ -208,10 +208,10 @@ def test_customer_model_package_rejects_an_unusable_reference_vector(
 )
 @respx.mock
 async def test_rejects_response_indices_that_do_not_cover_each_input_once(
-    endpoint, data: list[dict[str, object]], expected_error: str
+    endpoint, response_data: list[dict[str, object]], expected_error: str
 ) -> None:
     respx.post(f"{BASE_URL}/embeddings").mock(
-        return_value=Response(200, json={"data": data})
+        return_value=Response(200, json={"data": response_data})
     )
     with pytest.raises(EmbeddingError, match=expected_error):
         await openai_compatible_embeddings.embed_texts_uncached(["a", "b"], model=MODEL)

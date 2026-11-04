@@ -66,18 +66,22 @@ async def request_embeddings(
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, list):
         raise EmbeddingError("OpenAI-compatible response lacks data")
-    by_index: dict[int, list[float]] = {}
+    vectors_by_index: dict[int, list[float]] = {}
     for item in data:
         index = item.get("index") if isinstance(item, dict) else None
-        if not isinstance(index, int) or isinstance(index, bool) or index in by_index:
+        if (
+            not isinstance(index, int)
+            or isinstance(index, bool)
+            or index in vectors_by_index
+        ):
             raise EmbeddingError("OpenAI-compatible response has an invalid index")
-        by_index[index] = list(item.get("embedding") or [])
-    if sorted(by_index) != list(range(len(texts))):
+        vectors_by_index[index] = list(item.get("embedding") or [])
+    if sorted(vectors_by_index) != list(range(len(texts))):
         raise EmbeddingError(
-            f"OpenAI-compatible endpoint returned {len(by_index)} vectors"
+            f"OpenAI-compatible endpoint returned {len(vectors_by_index)} vectors"
             f" for {len(texts)} inputs"
         )
-    return [by_index[index] for index in range(len(texts))]
+    return [vectors_by_index[index] for index in range(len(texts))]
 
 
 def _validate_vector(vector: list[float], expected_dim: int | None) -> None:
