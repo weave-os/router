@@ -936,7 +936,9 @@ non-debug, and non-learning.
 | `ROUTER_ALLOW_UNENCRYPTED_PROVIDER_KEYS` | `false` | Local development only: lets `selfhosted` mode boot without a keyset, storing BYOK secrets unencrypted. The bundled `docker-compose.yml` sets it. |
 
 In `selfhosted` mode the router **refuses to boot** without a keyset, so
-dashboard provider keys are never stored unencrypted. In `managed` mode an
+dashboard provider keys are never stored unencrypted. Keys an
+earlier unencrypted install stored are encrypted in place on the first boot
+with a keyset. In `managed` mode an
 unset keyset stores BYOK secrets unencrypted and logs a `WARN` at startup.
 Generate with:
 

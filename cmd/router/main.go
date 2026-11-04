@@ -191,6 +191,18 @@ func main() {
 	}
 
 	repo := postgres.NewRepository(pool, encryptor)
+	if _, unencrypted := encryptor.(auth.NoOpEncryptor); !unencrypted && deploymentMode == server.DeploymentModeSelfHosted {
+		upgradeCtx, upgradeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		n, err := postgres.NewExternalAPIKeyRepo(pool, encryptor).EncryptPlaintextKeys(upgradeCtx)
+		upgradeCancel()
+		if err != nil {
+			logger.Error("Encrypting previously unencrypted provider keys failed; refusing to boot", "err", err)
+			panic(err)
+		}
+		if n > 0 {
+			logger.Info("Encrypted provider keys stored before a keyset was configured", "count", n)
+		}
+	}
 	discoveryHTTPClient, err := providerHTTP.NewModelDiscoveryClient(config.GetOr("ROUTER_MODEL_DISCOVERY_PRIVATE_ORIGINS", ""))
 	if err != nil {
 		logger.Error("Invalid model discovery private-origin configuration", "err", err)

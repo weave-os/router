@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"fmt"
-	"strconv"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/server"
@@ -25,9 +24,12 @@ func newProviderKeyEncryptor(mode server.DeploymentMode, lookup func(string) (st
 	if mode != server.DeploymentModeSelfHosted {
 		return auth.NoOpEncryptor{}, nil
 	}
-	raw, _ := lookup(allowUnencryptedProviderKeysEnv)
-	if allow, _ := strconv.ParseBool(raw); allow {
+	switch raw, _ := lookup(allowUnencryptedProviderKeysEnv); raw {
+	case "true":
 		return auth.NoOpEncryptor{}, nil
+	case "", "false":
+	default:
+		return nil, fmt.Errorf("%s=%q: want true or false", allowUnencryptedProviderKeysEnv, raw)
 	}
 	return nil, errors.New("EXTERNAL_KEY_ENCRYPTION_KEY is required in selfhosted mode so dashboard provider keys are encrypted at rest; " +
 		"generate a keyset with `tinkey create-keyset --key-template AES256_GCM --out-format json` " +

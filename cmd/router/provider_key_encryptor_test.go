@@ -61,3 +61,16 @@ func TestProviderKeyEncryptor_MalformedKeysetFails(t *testing.T) {
 	}))
 	require.Error(t, err)
 }
+
+func TestProviderKeyEncryptor_OptOutAcceptsOnlyTrueOrFalse(t *testing.T) {
+	for _, raw := range []string{"1", "t", "yes", "TRUE"} {
+		_, err := newProviderKeyEncryptor(server.DeploymentModeSelfHosted, lookupFrom(map[string]string{
+			"ROUTER_ALLOW_UNENCRYPTED_PROVIDER_KEYS": raw,
+		}))
+		require.ErrorContains(t, err, `"`+raw+`"`, raw)
+	}
+	_, err := newProviderKeyEncryptor(server.DeploymentModeSelfHosted, lookupFrom(map[string]string{
+		"ROUTER_ALLOW_UNENCRYPTED_PROVIDER_KEYS": "false",
+	}))
+	require.ErrorContains(t, err, "EXTERNAL_KEY_ENCRYPTION_KEY is required")
+}
