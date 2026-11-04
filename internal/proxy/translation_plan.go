@@ -7,11 +7,10 @@ import (
 	"sort"
 	"time"
 
-	"weave-os/router/internal/observability/apm"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 )
 
@@ -319,17 +318,17 @@ func (s *Service) applyTranslationPlan(ctx context.Context, req router.Request) 
 		req.ExcludedModels = plan.ExcludedModels
 	}
 	for _, exclusion := range plan.Exclusions {
-		apm.RecordTranslationCompatibility(ctx,
+		telemetry.RecordTranslationCompatibility(ctx,
 			exclusion.Code,
 			string(req.TranslationRequirements.SourceFormat),
 			familyName(plan.TargetFamily),
 			string(s.translationCompatibilityMode),
 			exclusion.Enforced,
 		)
-		otel.RecordLog(ctx, otel.LogRecord{
+		telemetry.RecordLog(ctx, telemetry.LogRecord{
 			Name: "translation.compatibility",
 			Time: time.Now(),
-			Attrs: otel.NewAttrBuilder(7).
+			Attrs: telemetry.NewAttrBuilder(7).
 				String("translation.requirement", exclusion.Code).
 				String("translation.source_format", string(req.TranslationRequirements.SourceFormat)).
 				String("translation.target_family", familyName(plan.TargetFamily)).

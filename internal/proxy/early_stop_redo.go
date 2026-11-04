@@ -16,12 +16,12 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/flags"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/sse"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 )
 
@@ -375,7 +375,7 @@ type earlyStopServed struct {
 	bindings   *[]catalog.ProviderBinding
 	marker     *string
 	winnerIdx  *int
-	extractor  **otel.UsageExtractor
+	extractor  **telemetry.UsageExtractor
 	summary    *translate.ResponseSummary
 	reqStats   *providers.RequestMutationStats
 	fastServed *bool
@@ -387,7 +387,7 @@ type earlyStopServedSnapshot struct {
 	bindings   []catalog.ProviderBinding
 	marker     string
 	winnerIdx  int
-	extractor  *otel.UsageExtractor
+	extractor  *telemetry.UsageExtractor
 	summary    translate.ResponseSummary
 	reqStats   providers.RequestMutationStats
 	fastServed bool

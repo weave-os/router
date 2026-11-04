@@ -23,7 +23,6 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
@@ -48,6 +47,7 @@ import (
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/timing"
 	"weave-os/router/internal/translate"
 	providerusage "weave-os/router/internal/usage"
@@ -58,12 +58,10 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// TelemetryEmitter is the narrow interface proxy owns for OTel: a
-// request-scoped span/log buffer. Implemented by *otel.Emitter.
+// TelemetryEmitter is the narrow interface proxy owns for request-scoped
+// spans and logs. Implemented by *otel.Emitter.
 type TelemetryEmitter interface {
-	// NewBuffer returns a request-scoped span/log buffer, or nil when the
-	// emitter itself is disabled.
-	NewBuffer() *otel.Buffer
+	NewRecorder() telemetry.Recorder
 }
 
 // Service orchestrates routing decisions and provider dispatch.
@@ -2908,13 +2906,12 @@ func (s *Service) rememberGatewayRejectsPromptCacheKey(key string) {
 	s.noPromptCacheKeyGateways.Store(key, struct{}{})
 }
 
-// newTelemetryBuffer returns a request-scoped buffer, or nil when OTel is
-// disabled — guards against a nil-interface method-call panic.
-func (s *Service) newTelemetryBuffer() *otel.Buffer {
+// newTelemetryRecorder returns a request-scoped recorder, or nil when telemetry is disabled.
+func (s *Service) newTelemetryRecorder() telemetry.Recorder {
 	if s.emitter == nil {
 		return nil
 	}
-	return s.emitter.NewBuffer()
+	return s.emitter.NewRecorder()
 }
 
 // WithBillingService installs the credit-billing service. Nil disables the
@@ -3550,7 +3547,7 @@ func (s *Service) anthropicNativeAttempt(
 	preludeState *requestNoticeStream,
 	streamCut *streamCutObserver,
 	notice translate.RouterNotice,
-	setExtractor func(*otel.UsageExtractor),
+	setExtractor func(*telemetry.UsageExtractor),
 	setStreamCost func(router.Decision, bool, func() bool),
 ) dispatchAttempt {
 	return func(actx context.Context, d router.Decision, p providers.Client) error {
@@ -3560,7 +3557,7 @@ func (s *Service) anthropicNativeAttempt(
 		if noticeErr != nil {
 			return fmt.Errorf("emit Anthropic router notice: %w", noticeErr)
 		}
-		ex := otel.NewUsageExtractor(attemptSink, d.Provider)
+		ex := telemetry.NewUsageExtractor(attemptSink, d.Provider)
 		ex.SetRequestCacheTTL1h(requestCacheTTL1h)
 		var proxyWriter http.ResponseWriter = ex
 		setExtractor(ex)
@@ -3827,8 +3824,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
 	requestID := requestIDFor(ctx)
-	buf := s.newTelemetryBuffer()
-	ctx = buf.WithContext(ctx)
+	rec := s.newTelemetryRecorder()
+	ctx = telemetry.WithRecorder(ctx, rec)
 
 	// Strip the routing marker prior responses injected as assistant text —
 	// clients echo it back verbatim, so left in place it accumulates in
@@ -4433,11 +4430,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatAnthropic, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash, cacheProvenance); hit {
 			setContextEstimateHeaders(w.Header(), overflowEstimate, max(contextWindowOutputReserve, feats.MaxTokens))
 			s.writeCachedResponse(w, resp, decision)
-			otel.Record(ctx, otel.Span{
+			telemetry.Record(ctx, telemetry.Span{
 				Name:  "router.cache_hit",
 				Start: requestStart,
 				End:   time.Now(),
-				Attrs: otel.NewAttrBuilder(7).
+				Attrs: telemetry.NewAttrBuilder(7).
 					String("request_id", requestID).
 					String("external_id", externalID).
 					String("decision.model", decision.Model).
@@ -4447,7 +4444,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					Int64("latency.total_ms", time.Since(requestStart).Milliseconds()).
 					Build(),
 			})
-			otel.Flush(ctx)
+			telemetry.Flush(ctx)
 			log.Info("ProxyMessages cache hit", "requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "external_id", externalID, "total_ms", time.Since(requestStart).Milliseconds())
 			return nil
 		}
@@ -4467,11 +4464,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return err
 	}
 
-	reqPricing := otel.Lookup(s.baselineFor(ctx, feats.Model))
-	actPricing := otel.Lookup(decision.Model)
+	reqPricing, _ := catalog.PrimaryPriceFor(s.baselineFor(ctx, feats.Model))
+	actPricing, _ := catalog.PrimaryPriceFor(decision.Model)
 	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
 	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
-	decisionBuilder := otel.NewAttrBuilder(46).
+	decisionBuilder := telemetry.NewAttrBuilder(46).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("router_user_id", auth.UserIDFrom(ctx)).
@@ -4505,13 +4502,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	applyPlannerAttrs(decisionBuilder, routeRes)
 	applyRoutingStateAttrs(decisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, decisionBuilder)
-	otel.Record(ctx, otel.Span{
+	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.decision",
 		Start: requestStart,
 		End:   time.Now(),
 		Attrs: decisionBuilder.Build(),
 	})
-	otel.Flush(ctx)
+	telemetry.Flush(ctx)
 
 	opts := translate.EmitOptions{
 		TargetModel:                       decision.Model,
@@ -4643,7 +4640,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	defer inferenceSpan.End()
 	var proxyErr error
 	crossFormat := false
-	var extractor *otel.UsageExtractor
+	var extractor *telemetry.UsageExtractor
 	// respSummary captures the winning attempt's response signals for the
 	// completion log. Populated by translator-backed paths; on Anthropic-native
 	// passthrough (no translator) the stop reason and tool_use block count come
@@ -4666,7 +4663,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// toolValidator compiles the request's tool schemas once (LRU-cached);
 	// translators validate/repair model tool calls against it. Nil if no tools.
 	toolValidator := env.ToolValidator()
-	setExtractor := func(e *otel.UsageExtractor) { extractor = e }
+	setExtractor := func(e *telemetry.UsageExtractor) { extractor = e }
 	anthropicPrelude := &requestNoticeStream{}
 	// fastServed tracks whether the most recent attempt went out on the fast
 	// tier; each attempt closure sets it before dispatch so the stream cost
@@ -4777,7 +4774,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				logUpstreamBody(log, routeRes.SessionKey, d, feats, prep.Body)
 				var usage translate.UsageSink
 				if s.usageRequired() || streamCost != nil {
-					extractor = otel.NewUsageExtractor(nil, d.Provider)
+					extractor = telemetry.NewUsageExtractor(nil, d.Provider)
 					usage = extractor
 				}
 				var translator translate.ResponseTranslator
@@ -4909,7 +4906,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				respSummary = translate.ResponseSummary{}
 				var usage translate.UsageSink
 				if s.usageRequired() || streamCost != nil {
-					extractor = otel.NewUsageExtractor(nil, d.Provider)
+					extractor = telemetry.NewUsageExtractor(nil, d.Provider)
 					usage = extractor
 				}
 				// SSE chain: Gemini → OpenAI → Anthropic.
@@ -5676,7 +5673,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if responseBuffer != nil && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead, usageMods))
 	}
-	upstreamBuilder := otel.NewAttrBuilder(41).
+	upstreamBuilder := telemetry.NewAttrBuilder(41).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("router_user_id", auth.UserIDFrom(ctx)).
@@ -5737,7 +5734,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	obs := buildObservationContext(ctx, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
 	obs.applySpanAttrs(upstreamBuilder)
 
-	otel.Record(ctx, otel.Span{
+	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.upstream",
 		Start: proxyStart,
 		End:   time.Now(),
@@ -5748,7 +5745,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !agentShadowMode {
 		s.recordCallLog(ctx, upstreamBuilder.Build(), routeMs, proxyErr, body, respBody, respTrunc)
 	}
-	otel.Flush(ctx)
+	telemetry.Flush(ctx)
 
 	if !agentShadowMode {
 		s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
@@ -6018,7 +6015,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 // applyPlannerAttrs stamps planner and handover attributes onto a span
 // attribute builder. Planner details are omitted when the planner did not run
 // so downstream nullable columns do not turn zero values into false evidence.
-func applyPlannerAttrs(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilder {
+func applyPlannerAttrs(b *telemetry.AttrBuilder, res turnLoopResult) *telemetry.AttrBuilder {
 	if res.PlannerDecision.Reason != "" {
 		b.String("planner.outcome", plannerOutcomeAttr(res)).
 			String("planner.reason", res.PlannerDecision.Reason).
@@ -6061,7 +6058,7 @@ func plannerOutcome(outcome planner.Outcome) string {
 // STAY replaces the decision with a pin (nil Metadata) even when the sidecar ran this turn.
 // Timings and serving stats are independent, separately-nilable payloads on the same
 // Metadata, so each gets its own guard below.
-func applySidecarAttrs(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilder {
+func applySidecarAttrs(b *telemetry.AttrBuilder, res turnLoopResult) *telemetry.AttrBuilder {
 	if res.Fresh.Metadata == nil {
 		return b
 	}
@@ -6102,11 +6099,11 @@ func applySidecarAttrs(b *otel.AttrBuilder, res turnLoopResult) *otel.AttrBuilde
 // ("gpt-5.6-luna:xhigh"), so comparing it against a bare id reports a model
 // change on every effort-qualified turn.
 func applyRoutingStateAttrs(
-	b *otel.AttrBuilder,
+	b *telemetry.AttrBuilder,
 	res turnLoopResult,
 	servedIdentity string,
 	sessionKey [sessionpin.SessionKeyLen]byte,
-) *otel.AttrBuilder {
+) *telemetry.AttrBuilder {
 	return b.String("routing.session_key", sessionKeyHex(sessionKey)).
 		String("routing.pin_role", res.PinRole).
 		String("routing.prior_served_model", res.PriorServedModel).
@@ -6932,7 +6929,7 @@ func resolveAndInjectCredentials(ctx context.Context, provider, model string, he
 }
 
 // addTimingAttrs appends derived latency attributes from the request Timing.
-func addTimingAttrs(ctx context.Context, b *otel.AttrBuilder) {
+func addTimingAttrs(ctx context.Context, b *telemetry.AttrBuilder) {
 	applyServingSpanAttrs(ctx, b)
 	t := timing.TimingFrom(ctx)
 	if t == nil {
@@ -7244,8 +7241,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
 	requestID := requestIDFor(ctx)
-	buf := s.newTelemetryBuffer()
-	ctx = buf.WithContext(ctx)
+	rec := s.newTelemetryRecorder()
+	ctx = telemetry.WithRecorder(ctx, rec)
 
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
 	externalID, _ := ctx.Value(ExternalIDContextKey{}).(string)
@@ -7635,11 +7632,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatOpenAI, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash, cacheProvenance); hit {
 			setContextEstimateHeaders(w.Header(), env.ContextOverflowTokenEstimate(), max(contextWindowOutputReserve, feats.MaxTokens))
 			s.writeCachedResponse(w, resp, decision)
-			otel.Record(ctx, otel.Span{
+			telemetry.Record(ctx, telemetry.Span{
 				Name:  "router.cache_hit",
 				Start: requestStart,
 				End:   time.Now(),
-				Attrs: otel.NewAttrBuilder(7).
+				Attrs: telemetry.NewAttrBuilder(7).
 					String("request_id", requestID).
 					String("external_id", externalID).
 					String("decision.model", decision.Model).
@@ -7649,7 +7646,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					Int64("latency.total_ms", time.Since(requestStart).Milliseconds()).
 					Build(),
 			})
-			otel.Flush(ctx)
+			telemetry.Flush(ctx)
 			log.Info("ProxyOpenAIChatCompletion cache hit", "requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "external_id", externalID, "total_ms", time.Since(requestStart).Milliseconds())
 			return nil
 		}
@@ -7667,11 +7664,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	setContextEstimateHeaders(w.Header(), env.ContextOverflowTokenEstimate(), outputReserveOAI)
 	s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
 
-	reqPricing := otel.Lookup(s.baselineFor(ctx, feats.Model))
-	actPricing := otel.Lookup(decision.Model)
+	reqPricing, _ := catalog.PrimaryPriceFor(s.baselineFor(ctx, feats.Model))
+	actPricing, _ := catalog.PrimaryPriceFor(decision.Model)
 	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
 	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
-	openaiDecisionBuilder := otel.NewAttrBuilder(46).
+	openaiDecisionBuilder := telemetry.NewAttrBuilder(46).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("router_user_id", auth.UserIDFrom(ctx)).
@@ -7705,13 +7702,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	applyPlannerAttrs(openaiDecisionBuilder, routeRes)
 	applyRoutingStateAttrs(openaiDecisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, openaiDecisionBuilder)
-	otel.Record(ctx, otel.Span{
+	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.decision",
 		Start: requestStart,
 		End:   time.Now(),
 		Attrs: openaiDecisionBuilder.Build(),
 	})
-	otel.Flush(ctx)
+	telemetry.Flush(ctx)
 
 	opts := translate.EmitOptions{
 		TargetModel:              decision.Model,
@@ -7937,7 +7934,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	defer inferenceSpan.End()
 	var proxyErr error
 	crossFormat := false
-	var extractor *otel.UsageExtractor
+	var extractor *telemetry.UsageExtractor
 
 	// Overwritten per attempt, so it holds the winning attempt's signals.
 	var respSummary translate.ResponseSummary
@@ -8074,7 +8071,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				case surface == surfaceResponsesTranslated:
 					var usage translate.UsageSink
 					if s.usageRequired() {
-						extractor = otel.NewUsageExtractor(nil, d.Provider)
+						extractor = telemetry.NewUsageExtractor(nil, d.Provider)
 						usage = extractor
 					}
 					translator = translate.NewResponsesToOpenAIChatWriter(attemptSink, d.Model, usage).
@@ -8095,11 +8092,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					nativeTerminal = newResponsesTerminalObserver(attemptSink)
 					proxyWriter = nativeTerminal
 					if s.usageRequired() {
-						extractor = otel.NewUsageExtractor(nativeTerminal, d.Provider)
+						extractor = telemetry.NewUsageExtractor(nativeTerminal, d.Provider)
 						proxyWriter = extractor
 					}
 				case s.usageRequired() || isResponses:
-					extractor = otel.NewUsageExtractor(attemptSink, d.Provider)
+					extractor = telemetry.NewUsageExtractor(attemptSink, d.Provider)
 					proxyWriter = extractor
 				}
 				if surface == surfaceChat && isResponses {
@@ -8260,7 +8257,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (error, func(error) error) {
 				var usage translate.UsageSink
 				if s.usageRequired() {
-					extractor = otel.NewUsageExtractor(nil, d.Provider)
+					extractor = telemetry.NewUsageExtractor(nil, d.Provider)
 					usage = extractor
 				}
 				attemptSink, noticeErr := makeMarkerSink(targetNotice)
@@ -8330,7 +8327,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				}
 				var usage translate.UsageSink
 				if s.usageRequired() {
-					extractor = otel.NewUsageExtractor(nil, providers.ProviderAnthropic)
+					extractor = telemetry.NewUsageExtractor(nil, providers.ProviderAnthropic)
 					extractor.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(attemptPrep.Body) })
 					usage = extractor
 				}
@@ -8923,7 +8920,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			nativeRespSummary = true
 		}
 	}
-	openaiUpstreamBuilder := otel.NewAttrBuilder(41).
+	openaiUpstreamBuilder := telemetry.NewAttrBuilder(41).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("router_user_id", auth.UserIDFrom(ctx)).
@@ -8984,7 +8981,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	openaiObs := buildObservationContext(ctx, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
 	openaiObs.applySpanAttrs(openaiUpstreamBuilder)
 
-	otel.Record(ctx, otel.Span{
+	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.upstream",
 		Start: proxyStart,
 		End:   time.Now(),
@@ -8998,7 +8995,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 		respBody, respTrunc := capturedResponse(contentCap)
 		s.recordCallLog(ctx, callLogBase, routeMs, proxyErr, reqBody, respBody, respTrunc)
-		otel.Flush(ctx)
+		telemetry.Flush(ctx)
 	}
 	// The /v1/responses surface (ProxyOpenAIResponses) finalizes its
 	// ResponsesWriter only after this function returns, so the captured body

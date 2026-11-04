@@ -11,12 +11,12 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -204,7 +204,7 @@ func (s *Service) handleRouterFeedbackCommand(
 	}
 
 	now := time.Now()
-	attrs := otel.NewAttrBuilder(15).
+	attrs := telemetry.NewAttrBuilder(15).
 		String("external_id", externalID).
 		String("router_user_id", routerUserID).
 		String("client.device_id", clientID.DeviceID).
@@ -224,13 +224,13 @@ func (s *Service) handleRouterFeedbackCommand(
 	if telemetryRouteID != "" {
 		attrs = attrs.String("feedback.route_id", telemetryRouteID)
 	}
-	otel.Record(ctx, otel.Span{
+	telemetry.Record(ctx, telemetry.Span{
 		Name:  routerFeedbackCommandSpanName,
 		Start: now,
 		End:   now,
 		Attrs: attrs.Build(),
 	})
-	otel.Flush(ctx)
+	telemetry.Flush(ctx)
 
 	log.Info("router.feedback.command",
 		"rating", rating,
