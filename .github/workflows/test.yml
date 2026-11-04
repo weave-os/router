@@ -359,6 +359,33 @@ jobs:
             ROUTER_ONNX_LIBRARY_DIR="$native_fixture/native/lib" \
             go run ./scripts/legacy_runtime_check
 
+  # Advisory until proven stable: kept out of the required `Test` gate below
+  # so a slow or flaky race run cannot block merges.
+  go-race:
+    name: Go race detector (core packages)
+    needs: changed-paths
+    if: ${{ needs.changed-paths.outputs.go == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: go.sum
+
+      - name: Run core packages under the race detector
+        run: |
+          go test -race -count=1 \
+            ./internal/proxy/... \
+            ./internal/dispatch/... \
+            ./internal/router/... \
+            ./internal/translate/... \
+            ./internal/auth/...
+
   # Separate job: needs no Go toolchain, Postgres, or network. The statusline is
   # shipped to users as a standalone script, so a regression there is invisible
   # to `go test`.
