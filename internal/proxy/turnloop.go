@@ -712,6 +712,10 @@ func pinServesImages(pin sessionpin.Pin, req router.Request) bool {
 	return !req.HasImages || catalog.AcceptsImages(pin.Model) && catalog.AcceptsImageCount(pin.Model, req.ImageCount, req.EnabledProviders)
 }
 
+func forcedPinServesImages(pin sessionpin.Pin, req router.Request) bool {
+	return !req.HasImages || catalog.AcceptsImages(pin.Model)
+}
+
 // excludingModel returns excluded plus model, copying instead of mutating the
 // caller's map.
 func excludingModel(excluded map[string]struct{}, model string) map[string]struct{} {
@@ -768,7 +772,23 @@ func withAutomaticExclusions(req HardPinRequest, automaticExcluded map[string]st
 }
 
 func forcedPinEligible(pin sessionpin.Pin, req router.Request) bool {
-	return pinEligible(pin, readmitForcedContextEstimate(req, pin.Model))
+	if pin.Model == "" || pin.Provider == "" {
+		return false
+	}
+	req = readmitForcedContextEstimate(req, pin.Model)
+	if _, excluded := req.ExcludedModels[pin.Model]; excluded {
+		if _, imageLimitExcluded := req.ImageLimitExcludedModels[pin.Model]; !imageLimitExcluded {
+			return false
+		}
+	}
+	if !forcedPinServesImages(pin, req) {
+		return false
+	}
+	if req.EnabledProviders == nil {
+		return true
+	}
+	_, ok := req.EnabledProviders[pin.Provider]
+	return ok
 }
 
 func forcedPinIneligibilityReason(pin sessionpin.Pin, req router.Request) string {
@@ -777,7 +797,7 @@ func forcedPinIneligibilityReason(pin sessionpin.Pin, req router.Request) string
 			return "provider_not_enabled"
 		}
 	}
-	if !pinServesImages(pin, req) {
+	if !forcedPinServesImages(pin, req) {
 		return "not_image_capable"
 	}
 	return "excluded"
@@ -1488,7 +1508,7 @@ func (s *Service) runTurnLoop(
 		_, excluded := req.ExcludedModels[forceModelPin.Model]
 		_, providerEnabled := req.EnabledProviders[forceModelPin.Provider]
 		providerEligible := req.EnabledProviders == nil || providerEnabled
-		imageCapable := pinServesImages(forceModelPin, req)
+		imageCapable := forcedPinServesImages(forceModelPin, req)
 		// The pre-filter's ÷4 byte estimate is not a token count, so it alone
 		// never overrides the user's pick. A real overflow comes back from the
 		// provider as the client's native prompt-too-long error, which makes
@@ -1496,6 +1516,14 @@ func (s *Service) runTurnLoop(
 		// believes it has room never compacting.
 		if _, estimateOnly := req.ContextWindowExcludedModels[forceModelPin.Model]; excluded && estimateOnly {
 			log.Info("Forced session pin dispatched past the context-window estimate; the provider decides",
+				"pin_model", forceModelPin.Model,
+				"pin_provider", forceModelPin.Provider,
+				"role", res.PinRole,
+			)
+			excluded = false
+		}
+		if _, imageLimitExcluded := req.ImageLimitExcludedModels[forceModelPin.Model]; imageLimitExcluded {
+			log.Info("Forced session pin dispatched past the image-count cap; the provider decides",
 				"pin_model", forceModelPin.Model,
 				"pin_provider", forceModelPin.Provider,
 				"role", res.PinRole,

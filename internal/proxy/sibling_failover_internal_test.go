@@ -47,6 +47,51 @@ func siblingModels(decisions []router.Decision) []string {
 	return models
 }
 
+func TestSiblingFailoverSelectsImageCompatibleBinding(t *testing.T) {
+	const model = "xiaomi/mimo-v2.6-pro"
+	s := siblingService(providers.ProviderDeepInfra, providers.ProviderOpenRouter)
+	failed := overloadedDecision(&router.RoutingMetadata{
+		CandidateModels: []string{"claude-opus-5", model},
+		CandidateProviders: map[string]string{
+			model: providers.ProviderDeepInfra,
+		},
+	})
+
+	for _, tc := range []struct {
+		name         string
+		imageCount   int
+		wantProvider string
+	}{
+		{name: "over DeepInfra cap", imageCount: 17, wantProvider: providers.ProviderOpenRouter},
+		{name: "within DeepInfra cap", imageCount: 3, wantProvider: providers.ProviderDeepInfra},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := withRequestImageCount(context.Background(), tc.imageCount)
+			got, ok := firstSibling(s, ctx, failed, 1_000, 0, 0)
+			require.True(t, ok)
+			assert.Equal(t, model, got.Model)
+			assert.Equal(t, tc.wantProvider, got.Provider)
+		})
+	}
+}
+
+func TestSiblingProviderSelectsFirstImageCompatibleBinding(t *testing.T) {
+	const model = "xiaomi/mimo-v2.6-pro"
+	available := map[string]struct{}{
+		providers.ProviderDeepInfra:  {},
+		providers.ProviderOpenRouter: {},
+	}
+	resolved := map[string]string{model: providers.ProviderDeepInfra}
+
+	provider, ok := siblingProvider(model, resolved, available, 17)
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderOpenRouter, provider)
+
+	provider, ok = siblingProvider(model, resolved, available, 3)
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderDeepInfra, provider)
+}
+
 func TestRescueBasisForTurnKeepsHeldPrimaryIdentity(t *testing.T) {
 	primary := router.Decision{Provider: providers.ProviderOpenAIGateway, Model: "gpt-6-luna", Reason: "held_pin"}
 	fresh := &router.RoutingMetadata{

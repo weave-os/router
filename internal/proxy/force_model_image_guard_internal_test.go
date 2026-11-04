@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,6 +103,51 @@ func TestRunTurnLoop_ForcedTextOnlyModel_HonoredWithoutImages(t *testing.T) {
 	assert.Equal(t, textOnlyForcedModel, res.Decision.Model, "a text-only forced pin still serves text-only turns")
 	assert.True(t, res.StickyHit)
 	assert.Empty(t, fr.captured, "an honored forced pin must not invoke the scorer")
+}
+
+func TestRunTurnLoop_ForcedImageCapModel_ReachesProvider(t *testing.T) {
+	const model = "xiaomi/mimo-v2.6-pro"
+	const imageCount = 17
+	available := map[string]struct{}{model: {}}
+	fr := &tierProbeRouter{available: available}
+	svc := NewService(fr, nil, nil, false, nil, &forcedPinStore{}, false,
+		providers.ProviderDeepInfra, model, nil).
+		WithAvailableModels(available).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderDeepInfra: {}}).
+		WithPlannerEnabled(false)
+
+	const imageBlock = `{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAA"}}`
+	imageBlocks := strings.TrimSuffix(strings.Repeat(imageBlock+",", imageCount), ",")
+	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":[` + imageBlocks + `]}]}`))
+	require.NoError(t, err)
+	feats := env.RoutingFeatures(false)
+	require.Equal(t, imageCount, feats.ImageCount)
+
+	excluded := map[string]struct{}{model: {}}
+	req := router.Request{
+		RequestedModel:           feats.Model,
+		ForceModel:               model,
+		HasImages:                true,
+		ImageCount:               imageCount,
+		EnabledProviders:         map[string]struct{}{providers.ProviderDeepInfra: {}},
+		ExcludedModels:           excluded,
+		ImageLimitExcludedModels: excluded,
+		SafetyExcludedModels:     excluded,
+	}
+	pin := sessionpin.Pin{Provider: providers.ProviderDeepInfra, Model: model}
+	assert.True(t, forcedPinEligible(pin, req), "the explicit force must survive an image-count-only exclusion")
+
+	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, req)
+	require.NoError(t, err)
+	assert.Equal(t, model, res.Decision.Model)
+	assert.Equal(t, providers.ProviderDeepInfra, res.Decision.Provider)
+	assert.Equal(t, translate.ReasonUserForceModel, res.Decision.Reason)
+	assert.True(t, res.StickyHit)
+	assert.Empty(t, fr.captured, "an honored force must not invoke the scorer")
+
+	bindings := svc.resolveBindingsForDispatch(withRequestImageCount(context.Background(), imageCount), res.Decision)
+	require.Len(t, bindings, 1)
+	assert.Equal(t, providers.ProviderDeepInfra, bindings[0].Provider)
 }
 
 // forcedPinEligible is the gate for the hard-pinned-turn fast path, which is a

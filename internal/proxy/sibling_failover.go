@@ -125,8 +125,9 @@ func (s *Service) rescueDecisions(ctx context.Context, failed router.Decision, c
 	// The rescue picks a stand-in on the router's own initiative, so a disabled
 	// model must not be resurrected here after the pool already excluded it.
 	automaticExcluded := s.rescueExcludedModels(ctx)
+	imageCount := requestImageCountFromContext(ctx)
 	providerFor := func(id string) (string, bool) {
-		return siblingProvider(id, candidateProviders, available)
+		return siblingProvider(id, candidateProviders, available, imageCount)
 	}
 	return s.rescueWalkOrReadmitCooling(ctx, failed, candidates, reason, excludedModels, automaticExcluded, est, sigSavings, outputReserve, providerFor)
 }
@@ -487,10 +488,17 @@ func siblingCandidateOrder(md *router.RoutingMetadata) []string {
 	return order
 }
 
-// siblingProvider resolves the provider a candidate dispatches to, preferring
-// the one the routing decision resolved for it and falling back to catalog
-// binding order.
-func siblingProvider(model string, resolved map[string]string, available map[string]struct{}) (string, bool) {
+// siblingProvider resolves the first available binding that accepts the
+// request's images. Without images it preserves the router's resolved provider.
+func siblingProvider(model string, resolved map[string]string, available map[string]struct{}, imageCount int) (string, bool) {
+	if imageCount > 0 {
+		for _, binding := range catalog.EnumerateBindings(model, available) {
+			if binding.AcceptsImageCount(imageCount) {
+				return binding.Provider, true
+			}
+		}
+		return "", false
+	}
 	if p, ok := resolved[model]; ok && p != "" {
 		if _, keyed := available[p]; keyed {
 			return p, true
