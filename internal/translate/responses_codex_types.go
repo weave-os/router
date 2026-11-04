@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ErrCustomToolArguments marks model tool-call arguments that cannot be
@@ -13,8 +14,7 @@ var ErrCustomToolArguments = errors.New("decode custom tool arguments")
 // ResponsesToolMapping describes one Responses tool after it has been
 // projected into a flat Chat Completions function. Alias is the synthetic Chat
 // function name. Name and Namespace are restored on the way back to Codex;
-// Custom means the function's {"input":"..."} arguments must be emitted as a
-// raw Responses custom_tool_call rather than a function_call.
+// Custom marks a function projected from a Responses custom tool.
 type ResponsesToolMapping struct {
 	Alias     string
 	Name      string
@@ -23,6 +23,20 @@ type ResponsesToolMapping struct {
 }
 
 func customToolInput(arguments string) (string, error) {
+	if !json.Valid([]byte(arguments)) {
+		return arguments, nil
+	}
+	trimmed := strings.TrimSpace(arguments)
+	if !strings.HasPrefix(trimmed, "{") {
+		if strings.HasPrefix(trimmed, `"`) {
+			var input string
+			if err := json.Unmarshal([]byte(arguments), &input); err == nil {
+				return input, nil
+			}
+		}
+		return arguments, nil
+	}
+
 	var wrapper map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(arguments), &wrapper); err != nil {
 		return "", fmt.Errorf("%w: %w", ErrCustomToolArguments, err)
