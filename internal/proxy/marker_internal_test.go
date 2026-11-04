@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/inference"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/turntype"
@@ -554,7 +557,7 @@ func TestSubscriptionTargetMarker_UnchangedModelKeepsRoutedMarker(t *testing.T) 
 }
 
 func TestSubscriptionTargetMarker_SwitchedModelIsWordedAsRescue(t *testing.T) {
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), attemptTraceContextKey{}, traceOf(cortexAttempt("gpt-6-luna", cortexStatusError(529, `{}`, nil), TurnErrorRateLimited)))
 	picked := router.Decision{Model: "gpt-6-luna", Provider: "openai"}
 	target := router.Decision{Model: "gpt-6.1-sol", Provider: "openai"}
 	res := turnLoopResult{Decision: picked}
@@ -569,7 +572,7 @@ func TestSubscriptionTargetMarker_SwitchedModelIsWordedAsRescue(t *testing.T) {
 }
 
 func TestSubscriptionTargetMarker_RotationBackToPickRestoresRoutedMarker(t *testing.T) {
-	ctx := context.Background()
+	ctx := context.WithValue(context.Background(), attemptTraceContextKey{}, traceOf(cortexAttempt("gpt-6-luna", cortexStatusError(529, `{}`, nil), TurnErrorRateLimited)))
 	picked := router.Decision{Model: "gpt-6-luna", Provider: "openai"}
 	sibling := router.Decision{Model: "gpt-6.1-sol", Provider: "openai"}
 	res := turnLoopResult{Decision: picked, CallerModelPassthrough: true}
@@ -579,4 +582,20 @@ func TestSubscriptionTargetMarker_RotationBackToPickRestoresRoutedMarker(t *test
 	// rotation returning to the pick is not a rescue and must not be badged.
 	assert.Contains(t, subscriptionTargetMarker(ctx, http.Header{}, res, picked, sibling, pickedMarker), siblingMarkerReason(ctx, picked.Model))
 	assert.Empty(t, subscriptionTargetMarker(ctx, http.Header{}, res, picked, picked, pickedMarker))
+}
+
+func TestSubscriptionTargetMarker_UndispatchedPickIsNotCalledOverloaded(t *testing.T) {
+	picked := router.Decision{Model: "xiaomi/mimo-v2.6-pro", Provider: "deepinfra"}
+	target := router.Decision{Model: "claude-opus-5-5", Provider: "anthropic"}
+	res := turnLoopResult{Decision: picked}
+
+	got := subscriptionTargetMarker(context.Background(), http.Header{}, res, picked, target, routingMarkerFor(res))
+	assert.Equal(t, "✦ **Weave Router** → claude-opus-5-5 · "+markerReasonSubscriptionCovered+"\n\n", got,
+		"a pick that was never dispatched did not fail, so the badge must not blame it")
+
+	failed := tracedAttempt{Target: inference.Target{Provider: providers.ProviderOpenAI, CatalogID: "xiaomi/mimo-v2.6-pro"}, Err: errors.New("boom"),
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorUpstream5xx)}}
+	traced := context.WithValue(context.Background(), attemptTraceContextKey{}, &attemptTrace{attempts: []tracedAttempt{failed}})
+	assert.Contains(t, subscriptionTargetMarker(traced, http.Header{}, res, picked, target, routingMarkerFor(res)), "switched after xiaomi/mimo-v2.6-pro",
+		"a pick that did fail is still named as the failed model")
 }

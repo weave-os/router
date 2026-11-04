@@ -293,6 +293,12 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 			continue
 		}
+		if s.subscriptionModels.managedDenied(managedOverloadOwner(lease.AccountID), lease.AccountID, provider, model, s.clockNow()) {
+			s.markSubscriptionPoolUnavailable(ctx, poolProvider)
+			lease.Release()
+			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
+			continue
+		}
 		if s.subscriptionModels.managedDenied("account:"+lease.AccountID, lease.AccountID, provider, model, s.clockNow()) {
 			if poolProvider == subscriptions.ProviderCodex {
 				modelDenial = codexSubscriptionModelUnavailable(model)
@@ -417,9 +423,21 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 			"provider", poolProvider, "account_id", lease.AccountID, "upstream_status", status, "reconnect_required", reconnect)
 		return true
 	default:
+		if upstreamServerFailure(attemptErr) {
+			s.subscriptionModels.denyManaged(managedOverloadOwner(lease.AccountID), lease.AccountID, provider, model, s.clockNow().Add(managedOverloadCooldown))
+			observability.FromContext(ctx).Warn("Managed subscription account overloaded; skipping it briefly",
+				"provider", poolProvider, "account_id", lease.AccountID, "model", model, "upstream_status", status, "cooldown", managedOverloadCooldown)
+		}
 		return false
 	}
 }
+
+// managedOverloadCooldown keeps later requests off an account+model the
+// provider just answered with a 5xx, so each turn does not re-walk the same
+// overloaded seats. In-memory only: an overload says nothing about the login.
+const managedOverloadCooldown = 30 * time.Second
+
+func managedOverloadOwner(accountID string) string { return "overload:" + accountID }
 
 func recordManagedQuotaProof(ctx context.Context, accountID string, resetAt time.Time) {
 	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
