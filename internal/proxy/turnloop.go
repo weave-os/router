@@ -2391,7 +2391,7 @@ func (s *Service) runTurnLoop(
 				res.Handover.FallbackToFullHistory = true
 				log.Info("Handover summarizer skipped to preserve tenant boundary; preserved full history instead", "pin_model", pin.Model, "fresh_model", fresh.Model, "sum_provider", sumProvider)
 			default:
-				summCtx := ctx
+				var summCtx context.Context
 				if sumCreds != nil {
 					summCtx = context.WithValue(ctx, CredentialsContextKey{}, sumCreds)
 				} else {

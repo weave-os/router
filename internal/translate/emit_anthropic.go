@@ -406,16 +406,9 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 	}
 }
 
-// cacheControlMember is the router-generated Anthropic prompt-cache breakpoint.
-const cacheControlMember = `"cache_control":{"type":"ephemeral"}`
-
-// appendCacheControl inserts the cache_control marker into a raw JSON content
+// appendCacheControlRaw inserts a cache_control policy into a raw JSON content
 // block we constructed (final byte is the closing brace); guard fails open on
 // anything unexpected.
-func appendCacheControl(block string) string {
-	return appendCacheControlRaw(block, `{"type":"ephemeral"}`)
-}
-
 func appendCacheControlRaw(block, policy string) string {
 	if len(block) < 2 || block[len(block)-1] != '}' || !strings.Contains(block, ":") {
 		return block
@@ -426,13 +419,9 @@ func appendCacheControlRaw(block, policy string) string {
 	return block[:len(block)-1] + `,"cache_control":` + policy + "}"
 }
 
-// cacheControlOnLastBlock adds a cache_control breakpoint to a message's final
-// content block, promoting string content to a text block to carry it
-// (Anthropic treats "x" and [{"type":"text","text":"x"}] identically).
-func cacheControlOnLastBlock(msg string) string {
-	return cacheControlOnLastBlockWithPolicy(msg, `{"type":"ephemeral"}`)
-}
-
+// cacheControlOnLastBlockWithPolicy adds a cache_control breakpoint to a
+// message's final content block, promoting string content to a text block to
+// carry it (Anthropic treats "x" and [{"type":"text","text":"x"}] identically).
 func cacheControlOnLastBlockWithPolicy(msg, policy string) string {
 	if policy == "" {
 		return msg
