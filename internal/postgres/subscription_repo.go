@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -419,6 +420,34 @@ func (r *subscriptionAccountRepo) CooldownSubscriptionAccountIfRefreshHolder(ctx
 		return auth.ErrSubscriptionRefreshConflict
 	}
 	return nil
+}
+
+func (r *subscriptionAccountRepo) RecordSubscriptionCredentialRejection(ctx context.Context, accountID string, owner auth.SubscriptionOwner, reason string, rejectedAt time.Time, window time.Duration, invalidateAccessToken bool) (auth.SubscriptionCredentialRejection, error) {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return auth.SubscriptionCredentialRejection{}, err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return auth.SubscriptionCredentialRejection{}, err
+	}
+	row, err := dbbudget.Queries(r.tx).RecordModelRouterSubscriptionCredentialRejection(ctx, sqlc.RecordModelRouterSubscriptionCredentialRejectionParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, Reason: reason,
+		WindowStart:           pgtype.Timestamp{Time: rejectedAt.Add(-window).UTC(), Valid: true},
+		RejectedAt:            pgtype.Timestamp{Time: rejectedAt.UTC(), Valid: true},
+		InvalidateAccessToken: invalidateAccessToken,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return auth.SubscriptionCredentialRejection{}, auth.ErrSubscriptionAccountNotFound
+	}
+	if err != nil {
+		return auth.SubscriptionCredentialRejection{}, err
+	}
+	rejection := auth.SubscriptionCredentialRejection{Count: int(row.CredentialRejectionCount), FirstRejectedAt: row.CredentialFirstRejectedAt.Time}
+	if row.PreviousReason != nil {
+		rejection.PreviousReason = *row.PreviousReason
+	}
+	return rejection, nil
 }
 
 func subscriptionUpsertKind(inserted, adopted bool) auth.SubscriptionUpsertKind {

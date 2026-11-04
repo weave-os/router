@@ -292,7 +292,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 				}
 				return recovered, handleErr
 			}
-			if account.Provider == ProviderCodex && ((refreshed.AccountID != "" && refreshed.AccountID != account.AccountID) || (credentials.ProviderUserID != "" && (refreshed.UserID != credentials.ProviderUserID || refreshed.AccountID != account.AccountID))) {
+			if account.Provider == ProviderCodex && ((refreshed.AccountID != "" && refreshed.AccountID != account.AccountID) || (credentials.ProviderUserID != "" && ((refreshed.UserID != "" && refreshed.UserID != credentials.ProviderUserID) || refreshed.AccountID != account.AccountID))) {
 				recovered, handleErr := r.handleRefreshError(ctx, owner, account, credentials, holder, &providerAccountMismatchError{})
 				if errors.Is(handleErr, errRefreshLeaseLost) {
 					continue
@@ -386,7 +386,7 @@ func (r *Runtime) handleRefreshError(ctx context.Context, owner auth.Subscriptio
 	log := observability.FromContext(ctx).With("owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider)
 	var terminal terminalRefreshError
 	if errors.As(refreshErr, &terminal) && terminal.Terminal() {
-		log.Debug("Subscription credential refresh rejected", "err", refreshErr)
+		log.Warn("Subscription credential refresh rejected", "reason", refreshRejectionReason(refreshErr), "err", refreshErr)
 		latest, loadErr := r.store.LoadSubscriptionCredentials(ctx, owner, account.ID)
 		if loadErr == nil && (latest.TokenRefreshLeaseID != leaseID || latest.TokenRefreshVersion != credentials.TokenRefreshVersion || !bytes.Equal(latest.RefreshToken, credentials.RefreshToken)) {
 			if subscriptionCredentialAvailable(latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
@@ -471,6 +471,34 @@ func (r *Runtime) recordRefreshFailure(ctx context.Context, owner auth.Subscript
 	}
 	var terminal interface{ Terminal() bool }
 	if errors.As(refreshErr, &terminal) && terminal.Terminal() {
+		var mismatch *providerAccountMismatchError
+		if store, ok := r.store.(credentialRejectionStore); ok && !errors.As(refreshErr, &mismatch) {
+			now := r.clock()
+			reason := refreshRejectionReason(refreshErr)
+			rejection, err := store.RecordSubscriptionCredentialRejection(ctx, owner, accountID, reason, now, credentialRejectionWindow, false)
+			if err != nil {
+				observability.FromContext(ctx).Error("Failed to record subscription credential rejection",
+					"provider", provider, "account_id", accountID, "err", err)
+				return errors.Join(refreshErr, fmt.Errorf("record subscription credential rejection: %w", err))
+			}
+			if !reconnectWarranted(rejection, reason, now) {
+				cooldownUntil := now.Add(credentialRejectionCooldown(rejection.Count))
+				observability.FromContext(ctx).Warn("Subscription credential refresh rejected; cooling down",
+					"provider", provider, "account_id", accountID, "reason", reason, "strikes", rejection.Count,
+					"first_rejected_at", rejection.FirstRejectedAt, "cooldown_until", cooldownUntil)
+				if err := r.store.CooldownSubscriptionAccountIfRefreshHolder(ctx, owner, accountID, leaseID, expectedVersion, cooldownUntil); err != nil {
+					if errors.Is(err, auth.ErrSubscriptionRefreshConflict) {
+						return errRefreshLeaseLost
+					}
+					observability.FromContext(ctx).Error("Failed to persist subscription account cooldown after token rejection",
+						"provider", provider, "account_id", accountID, "err", err)
+					return errors.Join(refreshErr, fmt.Errorf("persist subscription account cooldown: %w", err))
+				}
+				return &credentialRejectionCooldownError{err: refreshErr, until: cooldownUntil}
+			}
+			observability.FromContext(ctx).Warn("Subscription account needs reconnect after repeated refresh rejections",
+				"provider", provider, "account_id", accountID, "reason", reason, "strikes", rejection.Count, "first_rejected_at", rejection.FirstRejectedAt)
+		}
 		if err := r.store.DisableSubscriptionAccountIfRefreshHolder(ctx, owner, accountID, leaseID, expectedVersion); err != nil {
 			if errors.Is(err, auth.ErrSubscriptionRefreshConflict) {
 				return errRefreshLeaseLost

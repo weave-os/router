@@ -586,6 +586,10 @@ func TestWithAuthMalformedPrefixStays401(t *testing.T) {
 func (r failingSubscriptionAccountRepository) DisableSubscriptionAccountIfRefreshHolder(context.Context, string, auth.SubscriptionOwner, string, int64) error {
 	return r.err
 }
+func (r failingSubscriptionAccountRepository) RecordSubscriptionCredentialRejection(context.Context, string, auth.SubscriptionOwner, string, time.Time, time.Duration, bool) (auth.SubscriptionCredentialRejection, error) {
+	return auth.SubscriptionCredentialRejection{}, nil
+}
+
 func (r failingSubscriptionAccountRepository) CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, auth.SubscriptionOwner, string, int64, time.Time) error {
 	return r.err
 }

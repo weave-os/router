@@ -563,6 +563,106 @@ func (q *Queries) PersistModelRouterSubscriptionTokens(ctx context.Context, arg 
 	return result.RowsAffected(), nil
 }
 
+const recordModelRouterSubscriptionCredentialRejection = `-- name: RecordModelRouterSubscriptionCredentialRejection :one
+WITH previous AS (
+  SELECT id, credential_last_rejection_reason
+  FROM router.model_router_subscription_accounts
+  WHERE id = $5::uuid
+    AND (subscriber_id = $6::uuid
+         OR (subscriber_id IS NULL AND api_key_id = $7::uuid))
+    AND enabled = TRUE
+  FOR UPDATE
+)
+UPDATE router.model_router_subscription_accounts AS account
+SET credential_rejection_count = CASE
+        WHEN account.credential_first_rejected_at IS NULL
+             OR account.credential_first_rejected_at < $1::timestamp
+        THEN 1
+        ELSE account.credential_rejection_count + 1
+    END,
+    credential_first_rejected_at = CASE
+        WHEN account.credential_first_rejected_at IS NULL
+             OR account.credential_first_rejected_at < $1::timestamp
+        THEN $2::timestamp
+        ELSE account.credential_first_rejected_at
+    END,
+    credential_last_rejection_reason = $3::varchar,
+    access_token_ciphertext = CASE WHEN $4::boolean THEN NULL ELSE account.access_token_ciphertext END,
+    access_token_expires_at = CASE WHEN $4::boolean THEN NULL ELSE account.access_token_expires_at END,
+    updated_at = CURRENT_TIMESTAMP
+FROM previous
+WHERE account.id = previous.id
+RETURNING account.credential_rejection_count,
+          account.credential_first_rejected_at,
+          previous.credential_last_rejection_reason AS previous_reason
+`
+
+type RecordModelRouterSubscriptionCredentialRejectionParams struct {
+	WindowStart           pgtype.Timestamp
+	RejectedAt            pgtype.Timestamp
+	Reason                string
+	InvalidateAccessToken bool
+	ID                    uuid.UUID
+	SubscriberID          pgtype.UUID
+	APIKeyID              pgtype.UUID
+}
+
+type RecordModelRouterSubscriptionCredentialRejectionRow struct {
+	CredentialRejectionCount  int32
+	CredentialFirstRejectedAt pgtype.Timestamp
+	PreviousReason            *string
+}
+
+// Counts one provider credential rejection inside a rolling window. Strikes
+// older than the window restart at one. The previous reason is returned so
+// the caller can recognise back-to-back explicit invalid_grant rejections.
+//
+//	WITH previous AS (
+//	  SELECT id, credential_last_rejection_reason
+//	  FROM router.model_router_subscription_accounts
+//	  WHERE id = $5::uuid
+//	    AND (subscriber_id = $6::uuid
+//	         OR (subscriber_id IS NULL AND api_key_id = $7::uuid))
+//	    AND enabled = TRUE
+//	  FOR UPDATE
+//	)
+//	UPDATE router.model_router_subscription_accounts AS account
+//	SET credential_rejection_count = CASE
+//	        WHEN account.credential_first_rejected_at IS NULL
+//	             OR account.credential_first_rejected_at < $1::timestamp
+//	        THEN 1
+//	        ELSE account.credential_rejection_count + 1
+//	    END,
+//	    credential_first_rejected_at = CASE
+//	        WHEN account.credential_first_rejected_at IS NULL
+//	             OR account.credential_first_rejected_at < $1::timestamp
+//	        THEN $2::timestamp
+//	        ELSE account.credential_first_rejected_at
+//	    END,
+//	    credential_last_rejection_reason = $3::varchar,
+//	    access_token_ciphertext = CASE WHEN $4::boolean THEN NULL ELSE account.access_token_ciphertext END,
+//	    access_token_expires_at = CASE WHEN $4::boolean THEN NULL ELSE account.access_token_expires_at END,
+//	    updated_at = CURRENT_TIMESTAMP
+//	FROM previous
+//	WHERE account.id = previous.id
+//	RETURNING account.credential_rejection_count,
+//	          account.credential_first_rejected_at,
+//	          previous.credential_last_rejection_reason AS previous_reason
+func (q *Queries) RecordModelRouterSubscriptionCredentialRejection(ctx context.Context, arg RecordModelRouterSubscriptionCredentialRejectionParams) (RecordModelRouterSubscriptionCredentialRejectionRow, error) {
+	row := q.db.QueryRow(ctx, recordModelRouterSubscriptionCredentialRejection,
+		arg.WindowStart,
+		arg.RejectedAt,
+		arg.Reason,
+		arg.InvalidateAccessToken,
+		arg.ID,
+		arg.SubscriberID,
+		arg.APIKeyID,
+	)
+	var i RecordModelRouterSubscriptionCredentialRejectionRow
+	err := row.Scan(&i.CredentialRejectionCount, &i.CredentialFirstRejectedAt, &i.PreviousReason)
+	return i, err
+}
+
 const releaseModelRouterSubscriptionRefreshLease = `-- name: ReleaseModelRouterSubscriptionRefreshLease :execrows
 UPDATE router.model_router_subscription_accounts
 SET token_refresh_lease_until = NULL,
@@ -797,6 +897,9 @@ const updateModelRouterSubscriptionAccountState = `-- name: UpdateModelRouterSub
 UPDATE router.model_router_subscription_accounts AS account
 SET enabled = $1::boolean,
     health_state = CASE WHEN $1::boolean THEN 'unknown' ELSE 'disabled' END,
+    credential_rejection_count = CASE WHEN $1::boolean THEN 0 ELSE account.credential_rejection_count END,
+    credential_first_rejected_at = CASE WHEN $1::boolean THEN NULL ELSE account.credential_first_rejected_at END,
+    credential_last_rejection_reason = CASE WHEN $1::boolean THEN NULL ELSE account.credential_last_rejection_reason END,
     cooldown_until = $2::timestamp,
     updated_at = CURRENT_TIMESTAMP
 WHERE account.id = $3::uuid
@@ -828,6 +931,9 @@ type UpdateModelRouterSubscriptionAccountStateParams struct {
 //	UPDATE router.model_router_subscription_accounts AS account
 //	SET enabled = $1::boolean,
 //	    health_state = CASE WHEN $1::boolean THEN 'unknown' ELSE 'disabled' END,
+//	    credential_rejection_count = CASE WHEN $1::boolean THEN 0 ELSE account.credential_rejection_count END,
+//	    credential_first_rejected_at = CASE WHEN $1::boolean THEN NULL ELSE account.credential_first_rejected_at END,
+//	    credential_last_rejection_reason = CASE WHEN $1::boolean THEN NULL ELSE account.credential_last_rejection_reason END,
 //	    cooldown_until = $2::timestamp,
 //	    updated_at = CURRENT_TIMESTAMP
 //	WHERE account.id = $3::uuid
@@ -862,6 +968,9 @@ const updateModelRouterSubscriptionRefreshToken = `-- name: UpdateModelRouterSub
 UPDATE router.model_router_subscription_accounts
 SET refresh_token_ciphertext = $1::bytea,
     health_state = 'unknown',
+    credential_rejection_count = 0,
+    credential_first_rejected_at = NULL,
+    credential_last_rejection_reason = NULL,
     access_token_ciphertext = NULL,
     access_token_expires_at = NULL,
     token_refresh_lease_until = NULL,
@@ -885,6 +994,9 @@ type UpdateModelRouterSubscriptionRefreshTokenParams struct {
 //	UPDATE router.model_router_subscription_accounts
 //	SET refresh_token_ciphertext = $1::bytea,
 //	    health_state = 'unknown',
+//	    credential_rejection_count = 0,
+//	    credential_first_rejected_at = NULL,
+//	    credential_last_rejection_reason = NULL,
 //	    access_token_ciphertext = NULL,
 //	    access_token_expires_at = NULL,
 //	    token_refresh_lease_until = NULL,
@@ -939,6 +1051,9 @@ adopted AS (
       cooldown_until = NULL,
       access_token_ciphertext = NULL,
       access_token_expires_at = NULL,
+      credential_rejection_count = 0,
+      credential_first_rejected_at = NULL,
+      credential_last_rejection_reason = NULL,
       token_refresh_lease_until = NULL,
       token_refresh_lease_id = NULL,
       token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
@@ -1050,6 +1165,9 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 //	      cooldown_until = NULL,
 //	      access_token_ciphertext = NULL,
 //	      access_token_expires_at = NULL,
+//	      credential_rejection_count = 0,
+//	      credential_first_rejected_at = NULL,
+//	      credential_last_rejection_reason = NULL,
 //	      token_refresh_lease_until = NULL,
 //	      token_refresh_lease_id = NULL,
 //	      token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,

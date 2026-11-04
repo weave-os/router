@@ -429,3 +429,43 @@ func TestSubscriptionCandidatesAdmitLiveSharedKeys(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, candidates, "a personal key never bypasses its revoked membership")
 }
+
+func TestSubscriptionCredentialRejectionStrikesRollAndResetOnReEnable(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude-strikes",
+		ProviderUserID: "synthetic-provider-user", RefreshToken: []byte("ciphertext"),
+	})
+	require.NoError(t, err)
+	_, err = fixture.pool.Exec(ctx, "UPDATE router.model_router_subscription_accounts SET access_token_ciphertext = 'live', access_token_expires_at = $2 WHERE id = $1",
+		account.ID, time.Now().Add(time.Hour).UTC())
+	require.NoError(t, err)
+
+	start := time.Now().UTC().Truncate(time.Microsecond)
+	first, err := repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, "invalid_grant", start, 24*time.Hour, false)
+	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionCredentialRejection{Count: 1, FirstRejectedAt: start}, first)
+
+	second, err := repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, "upstream_http_401", start.Add(time.Hour), 24*time.Hour, true)
+	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionCredentialRejection{Count: 2, FirstRejectedAt: start, PreviousReason: "invalid_grant"}, second)
+	record, err := repo.GetSubscriptionCredentialRecord(ctx, account.ID, owner)
+	require.NoError(t, err)
+	assert.Empty(t, record.AccessTokenCiphertext, "an upstream rejection drops the shared access token")
+
+	rolled, err := repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, "upstream_http_401", start.Add(30*time.Hour), 24*time.Hour, false)
+	require.NoError(t, err)
+	assert.Equal(t, 1, rolled.Count, "strikes older than the window restart the count")
+	assert.Equal(t, start.Add(30*time.Hour), rolled.FirstRejectedAt)
+
+	require.NoError(t, repo.UpdateSubscriptionAccountState(ctx, account.ID, owner, false, nil))
+	_, err = repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, "upstream_http_401", start.Add(31*time.Hour), 24*time.Hour, false)
+	require.ErrorIs(t, err, auth.ErrSubscriptionAccountNotFound, "a disabled account accrues no strikes")
+	require.NoError(t, repo.UpdateSubscriptionAccountState(ctx, account.ID, owner, true, nil))
+	afterReEnable, err := repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, "upstream_http_401", start.Add(31*time.Hour), 24*time.Hour, false)
+	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionCredentialRejection{Count: 1, FirstRejectedAt: start.Add(31 * time.Hour)}, afterReEnable)
+}

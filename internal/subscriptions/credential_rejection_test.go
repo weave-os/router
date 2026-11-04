@@ -1,0 +1,169 @@
+package subscriptions_test
+
+import (
+	"context"
+	"net/http"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/subscriptions"
+)
+
+func (s *runtimeStore) RecordSubscriptionCredentialRejection(_ context.Context, _ auth.SubscriptionOwner, accountID, reason string, at time.Time, window time.Duration, invalidateAccessToken bool) (auth.SubscriptionCredentialRejection, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.rejections == nil {
+		s.rejections = make(map[string]auth.SubscriptionCredentialRejection)
+		s.rejectionReasons = make(map[string]string)
+	}
+	current := s.rejections[accountID]
+	previous := s.rejectionReasons[accountID]
+	if current.Count == 0 || current.FirstRejectedAt.Before(at.Add(-window)) {
+		current = auth.SubscriptionCredentialRejection{Count: 1, FirstRejectedAt: at}
+	} else {
+		current.Count++
+	}
+	s.rejections[accountID] = current
+	s.rejectionReasons[accountID] = reason
+	if invalidateAccessToken {
+		delete(s.accessTokens, accountID)
+		delete(s.accessExpiry, accountID)
+	}
+	current.PreviousReason = previous
+	return current, nil
+}
+
+type steppedClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *steppedClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *steppedClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.now = c.now.Add(d)
+}
+
+func newRejectionStore(provider auth.SubscriptionProvider) *runtimeStore {
+	store := newRuntimeStore(&auth.SubscriptionAccount{
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: provider,
+		ExternalAccountID: "external-1", Enabled: true,
+	})
+	store.refreshTokens["account-1"] = []byte("refresh-secret")
+	return store
+}
+
+// expireStoreCooldown stands in for wall-clock time passing in the fake's
+// lease acquisition, which reads time.Now rather than the runtime clock.
+func expireStoreCooldown(store *runtimeStore) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.accounts[0].CooldownUntil = nil
+}
+
+func TestRuntimeSingleTerminalRefreshRejectionCoolsDownInsteadOfDisabling(t *testing.T) {
+	store := newRejectionStore(auth.SubscriptionProviderClaude)
+	clock := &steppedClock{now: time.Now()}
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: http.StatusBadRequest}
+	}), clock.Now)
+
+	_, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
+	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
+	require.True(t, present)
+	require.True(t, store.accounts[0].Enabled)
+	require.NotContains(t, store.enabledUpdates, "account-1")
+	require.Equal(t, clock.Now().Add(time.Minute), store.cooldowns["account-1"])
+}
+
+func TestRuntimeRepeatedInvalidGrantRequiresReconnect(t *testing.T) {
+	store := newRejectionStore(auth.SubscriptionProviderClaude)
+	clock := &steppedClock{now: time.Now()}
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: http.StatusBadRequest, Code: "invalid_grant"}
+	}), clock.Now)
+
+	_, _, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
+	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
+	require.True(t, store.accounts[0].Enabled)
+
+	clock.Advance(2 * time.Minute)
+	expireStoreCooldown(store)
+	_, _, err = runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
+	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
+	require.False(t, store.accounts[0].Enabled)
+	require.False(t, store.enabledUpdates["account-1"])
+}
+
+func TestRuntimeRejectedCredentialNeedsSustainedStrikesBeforeReconnect(t *testing.T) {
+	store := newRejectionStore(auth.SubscriptionProviderCodex)
+	store.accessTokens["account-1"] = []byte("access-live")
+	clock := &steppedClock{now: time.Now()}
+	runtime := subscriptions.NewRuntime(store, nil, clock.Now)
+
+	for strike := 1; strike <= 3; strike++ {
+		reconnect, err := runtime.RejectCredential(context.Background(), testOwner, subscriptions.ProviderCodex, "account-1", http.StatusUnauthorized)
+		require.NoError(t, err)
+		require.False(t, reconnect, "strike %d within a short burst must not require reconnect", strike)
+		clock.Advance(time.Hour)
+	}
+	require.Empty(t, store.accessTokens["account-1"], "a rejected access token must be dropped so the next lease refreshes")
+	require.NotEqual(t, auth.SubscriptionAccountStateReconnectRequired, store.healthStates["account-1"])
+
+	clock.Advance(4 * time.Hour)
+	reconnect, err := runtime.RejectCredential(context.Background(), testOwner, subscriptions.ProviderCodex, "account-1", http.StatusUnauthorized)
+	require.NoError(t, err)
+	require.True(t, reconnect)
+	require.Equal(t, auth.SubscriptionAccountStateReconnectRequired, store.healthStates["account-1"])
+	require.False(t, store.enabledUpdates["account-1"])
+}
+
+func TestRuntimeRejectionStrikesExpireAfterWindow(t *testing.T) {
+	store := newRejectionStore(auth.SubscriptionProviderCodex)
+	clock := &steppedClock{now: time.Now()}
+	runtime := subscriptions.NewRuntime(store, nil, clock.Now)
+
+	for range 2 {
+		_, err := runtime.RejectCredential(context.Background(), testOwner, subscriptions.ProviderCodex, "account-1", http.StatusUnauthorized)
+		require.NoError(t, err)
+		clock.Advance(13 * time.Hour)
+	}
+	reconnect, err := runtime.RejectCredential(context.Background(), testOwner, subscriptions.ProviderCodex, "account-1", http.StatusUnauthorized)
+	require.NoError(t, err)
+	require.False(t, reconnect)
+}
+
+func TestRuntimeCodexRefreshWithoutUserClaimKeepsAccount(t *testing.T) {
+	store := newRuntimeStore(&auth.SubscriptionAccount{
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderCodex,
+		ExternalAccountID: "workspace", ProviderUserID: "provider-user-a", Enabled: true,
+	})
+	store.refreshTokens["account-1"] = []byte("refresh-old")
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{AccessToken: "access", RefreshToken: "refresh-new", AccountID: "workspace", ExpiresAt: time.Now().Add(time.Hour)}, nil
+	}), nil)
+
+	lease, _, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderCodex, "")
+	require.NoError(t, err)
+	require.Equal(t, "access", lease.AccessToken)
+	require.True(t, store.accounts[0].Enabled)
+	lease.Release()
+}
+
+// seedSustainedRejections leaves the account one strike short of reconnect,
+// with strikes spanning longer than the minimum span.
+func seedSustainedRejections(store *runtimeStore, accountID string) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	store.rejections = map[string]auth.SubscriptionCredentialRejection{accountID: {Count: 2, FirstRejectedAt: time.Now().Add(-7 * time.Hour)}}
+	store.rejectionReasons = map[string]string{accountID: "refresh_http_401"}
+}

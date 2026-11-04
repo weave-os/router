@@ -755,8 +755,11 @@ type RouterModelRouterSubscriptionAccount struct {
 	SubscriberID           pgtype.UUID
 	HealthState            string
 	// Provider-supplied human-readable account label; never used for identity or deduplication.
-	DisplayName    *string
-	ProviderUserID *string
+	DisplayName                   *string
+	ProviderUserID                *string
+	CredentialRejectionCount      int32
+	CredentialFirstRejectedAt     pgtype.Timestamp
+	CredentialLastRejectionReason *string
 }
 
 type RouterModelRouterSubscriptionAccountInstallation struct {
