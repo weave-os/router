@@ -7,8 +7,11 @@ linters:
   default: none
   enable:
     - depguard
+    - dupl
     - errorlint
   settings:
+    dupl:
+      threshold: 100
     errorlint:
       comparison: true
       asserts: true
@@ -42,3 +45,12 @@ linters:
             - "!**/*_test.go"
           deny:
             - pkg: github.com/jackc/pgx
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - dupl
+
+issues:
+  # Duplicate-code findings apply to new code only; existing clones are tracked for removal.
+  new-from-merge-base: origin/main
