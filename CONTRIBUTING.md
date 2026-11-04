@@ -54,6 +54,24 @@ recipes for adding endpoints, providers, migrations, queries, and
 routing strategies — please read the relevant section before starting
 non-trivial work.
 
+## Where does my change go?
+
+`internal/proxy` is being split into five bounded contexts: Protocol &
+Ingress, Credential Brokerage, Routing Policy, Inference Execution and
+Conversation Lifecycle. Before writing code, find your change's row in
+the [decision table](internal/proxy/CLAUDE.md#where-new-behavior-goes).
+New behavior goes in a new focused file for that context, as a free
+function or small struct with explicit dependencies, never as a new
+method or field on `proxy.Service`. Model quirks are catalog data; new
+I/O is an interface in the owning context plus an adapter wired in
+`cmd/router`.
+
+CI enforces the limits: PRs fail when they grow `proxy.Service`, add
+context keys in `internal/proxy`, add or grow a function or file past
+the complexity limits, add model-name string matching outside the
+catalog, add `//nolint`, or add duplicated code. Split along a concept
+boundary to fix a failure; see [CLAUDE.md](CLAUDE.md#things-to-never-do).
+
 ## What we won't accept
 
 - **Silent fallbacks.** When the cluster scorer can't run, the router
