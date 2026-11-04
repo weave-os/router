@@ -14,8 +14,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/net/http2"
-
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -237,7 +235,8 @@ func newTransport(dialTimeout, tlsTimeout, responseHeaderTimeout time.Duration, 
 		dialer.Control = restrictDestination
 		proxy = nil
 	}
-	t := &http.Transport{
+	sendPing, pingTimeout := h2KeepaliveFor(responseHeaderTimeout)
+	return &http.Transport{
 		Proxy:                 proxy,
 		DialContext:           dialer.DialContext,
 		MaxIdleConnsPerHost:   64,
@@ -247,13 +246,11 @@ func newTransport(dialTimeout, tlsTimeout, responseHeaderTimeout time.Duration, 
 		ExpectContinueTimeout: 1 * time.Second,
 		ResponseHeaderTimeout: responseHeaderTimeout,
 		ForceAttemptHTTP2:     true,
+		HTTP2: &http.HTTP2Config{
+			SendPingTimeout: sendPing,
+			PingTimeout:     pingTimeout,
+		},
 	}
-	// ConfigureTransports is the only way to reach the h2 keepalive knobs;
-	// http.Transport exposes no fields for them. ForceAttemptHTTP2 still ensures h2 on error.
-	if h2, err := http2.ConfigureTransports(t); err == nil {
-		h2.ReadIdleTimeout, h2.PingTimeout = h2KeepaliveFor(responseHeaderTimeout)
-	}
-	return t
 }
 
 // ErrRefusedRedirect is returned when an upstream answers with a redirect.

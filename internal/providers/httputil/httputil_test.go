@@ -255,15 +255,14 @@ func TestResponsesSSEIdleTimeoutFromEnv_OverrideRespected(t *testing.T) {
 	assert.Equal(t, 120*time.Second, idleTimeoutFromEnv("ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS", 90*time.Second))
 }
 
-// TLSNextProto["h2"] is populated only by ConfigureTransports (ForceAttemptHTTP2
-// alone defers h2 setup to first use, leaving the map nil), so its presence
-// proves PING health checking was wired.
 func TestNewTransport_ConfiguresHTTP2Keepalives(t *testing.T) {
 	tr := NewTransport(10*time.Second, 10*time.Second)
 
-	require.NotNil(t, tr.TLSNextProto, "ConfigureTransports did not run: h2 keepalives are unset")
-	assert.Contains(t, tr.TLSNextProto, "h2")
-	assert.True(t, tr.ForceAttemptHTTP2, "h2 fallback must survive a ConfigureTransports failure")
+	readIdle, ping := h2KeepaliveFor(DefaultResponseHeaderTimeout)
+	require.NotNil(t, tr.HTTP2, "h2 keepalives are unset")
+	assert.Equal(t, readIdle, tr.HTTP2.SendPingTimeout)
+	assert.Equal(t, ping, tr.HTTP2.PingTimeout)
+	assert.True(t, tr.ForceAttemptHTTP2, "custom dialer disables h2 unless forced")
 }
 
 // Guards that ReadIdleTimeout + PingTimeout < ResponseHeaderTimeout so a dead
