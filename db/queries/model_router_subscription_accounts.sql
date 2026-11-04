@@ -278,6 +278,7 @@ SET refresh_token_ciphertext = @refresh_token_ciphertext::bytea,
     token_refresh_lease_until = NULL,
     token_refresh_lease_id = NULL,
     token_refresh_version = token_refresh_version + 1,
+    credential_last_rejection_reason = NULL,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = @id::uuid
   AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
@@ -337,7 +338,8 @@ WITH installation AS MATERIALIZED (
 SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
        account.external_account_id, account.provider_user_id, account.display_name, account.refresh_token_ciphertext,
        account.enabled, account.health_state, account.cooldown_until, account.created_at,
-       CASE WHEN account.subscriber_id = sqlc.narg(subscriber_id)::uuid THEN 'personal' ELSE 'shared' END AS tier
+       CASE WHEN account.subscriber_id = sqlc.narg(subscriber_id)::uuid THEN 'personal' ELSE 'shared' END AS tier,
+       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing
 FROM router.model_router_subscription_accounts AS account
 JOIN members ON members.subject_id = account.subscriber_id
 JOIN installation ON TRUE
@@ -361,7 +363,9 @@ FOR SHARE OF account;
 
 -- Counts one provider credential rejection inside a rolling window. Strikes
 -- older than the window restart at one. The previous reason is returned so
--- the caller can recognise back-to-back explicit invalid_grant rejections.
+-- the caller can recognise back-to-back explicit invalid_grant rejections; a
+-- successful refresh clears it. A refresh rejection passes its lease and
+-- version so a refresher that lost the lease records nothing.
 -- name: RecordModelRouterSubscriptionCredentialRejection :one
 WITH previous AS (
   SELECT id, credential_last_rejection_reason
@@ -370,6 +374,9 @@ WITH previous AS (
     AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
          OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid))
     AND enabled = TRUE
+  AND (sqlc.narg(lease_id)::uuid IS NULL
+       OR (token_refresh_lease_id = sqlc.narg(lease_id)::uuid
+           AND token_refresh_version = sqlc.narg(expected_version)::bigint))
   FOR UPDATE
 )
 UPDATE router.model_router_subscription_accounts AS account

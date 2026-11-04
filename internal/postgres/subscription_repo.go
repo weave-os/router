@@ -422,7 +422,7 @@ func (r *subscriptionAccountRepo) CooldownSubscriptionAccountIfRefreshHolder(ctx
 	return nil
 }
 
-func (r *subscriptionAccountRepo) RecordSubscriptionCredentialRejection(ctx context.Context, accountID string, owner auth.SubscriptionOwner, reason string, rejectedAt time.Time, window time.Duration, invalidateAccessToken bool) (auth.SubscriptionCredentialRejection, error) {
+func (r *subscriptionAccountRepo) RecordSubscriptionCredentialRejection(ctx context.Context, accountID string, owner auth.SubscriptionOwner, input auth.SubscriptionCredentialRejectionInput) (auth.SubscriptionCredentialRejection, error) {
 	accountUUID, err := uuid.Parse(accountID)
 	if err != nil {
 		return auth.SubscriptionCredentialRejection{}, err
@@ -431,13 +431,25 @@ func (r *subscriptionAccountRepo) RecordSubscriptionCredentialRejection(ctx cont
 	if err != nil {
 		return auth.SubscriptionCredentialRejection{}, err
 	}
-	row, err := dbbudget.Queries(r.tx).RecordModelRouterSubscriptionCredentialRejection(ctx, sqlc.RecordModelRouterSubscriptionCredentialRejectionParams{
-		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, Reason: reason,
-		WindowStart:           pgtype.Timestamp{Time: rejectedAt.Add(-window).UTC(), Valid: true},
-		RejectedAt:            pgtype.Timestamp{Time: rejectedAt.UTC(), Valid: true},
-		InvalidateAccessToken: invalidateAccessToken,
-	})
+	params := sqlc.RecordModelRouterSubscriptionCredentialRejectionParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, Reason: input.Reason,
+		WindowStart:           pgtype.Timestamp{Time: input.RejectedAt.Add(-input.Window).UTC(), Valid: true},
+		RejectedAt:            pgtype.Timestamp{Time: input.RejectedAt.UTC(), Valid: true},
+		InvalidateAccessToken: input.InvalidateAccessToken,
+	}
+	if input.LeaseID != "" {
+		leaseID, err := uuid.Parse(input.LeaseID)
+		if err != nil {
+			return auth.SubscriptionCredentialRejection{}, auth.ErrSubscriptionRefreshConflict
+		}
+		params.LeaseID = pgtype.UUID{Bytes: leaseID, Valid: true}
+		params.ExpectedVersion = &input.ExpectedVersion
+	}
+	row, err := dbbudget.Queries(r.tx).RecordModelRouterSubscriptionCredentialRejection(ctx, params)
 	if errors.Is(err, pgx.ErrNoRows) {
+		if input.LeaseID != "" {
+			return auth.SubscriptionCredentialRejection{}, auth.ErrSubscriptionRefreshConflict
+		}
 		return auth.SubscriptionCredentialRejection{}, auth.ErrSubscriptionAccountNotFound
 	}
 	if err != nil {
@@ -492,6 +504,7 @@ func (r *subscriptionAccountRepo) ListSubscriptionCandidates(ctx context.Context
 		account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID,
 			row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
 		account.Tier = auth.SubscriptionTier(row.Tier)
+		account.AccessTokenMissing = row.AccessTokenMissing
 		accounts = append(accounts, account)
 	}
 	return accounts, nil

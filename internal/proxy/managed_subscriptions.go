@@ -498,10 +498,10 @@ func (s *Service) recordManagedSubscriptionSuccess(ctx context.Context, provider
 }
 
 func rejectManagedSubscriptionCredential(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, accountID string, upstreamStatus int) (bool, error) {
-	if strikes, ok := leaser.(interface {
+	if rejector, ok := leaser.(interface {
 		RejectCredential(context.Context, auth.SubscriptionOwner, subscriptions.Provider, string, int) (bool, error)
 	}); ok {
-		return strikes.RejectCredential(ctx, owner, provider, accountID, upstreamStatus)
+		return rejector.RejectCredential(ctx, owner, provider, accountID, upstreamStatus)
 	}
 	return true, reconnectManagedSubscription(ctx, leaser, owner, provider, accountID)
 }

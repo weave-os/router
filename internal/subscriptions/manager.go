@@ -79,7 +79,7 @@ func (m *Manager) ReconnectRequired(ownerID string, provider Provider, accountID
 	return m.pool(ownerID, provider).ReconnectRequired(accountID)
 }
 
-// InvalidateAccessToken drops one owner's cached access token.
+// InvalidateAccessToken drops one owner's cached access token so the next lease refreshes it.
 func (m *Manager) InvalidateAccessToken(ownerID string, provider Provider, accountID string) bool {
 	return m.pool(ownerID, provider).InvalidateAccessToken(accountID)
 }

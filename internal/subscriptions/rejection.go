@@ -25,7 +25,7 @@ const (
 var credentialRejectionBackoff = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour}
 
 type credentialRejectionStore interface {
-	RecordSubscriptionCredentialRejection(context.Context, auth.SubscriptionOwner, string, string, time.Time, time.Duration, bool) (auth.SubscriptionCredentialRejection, error)
+	RecordSubscriptionCredentialRejection(context.Context, auth.SubscriptionOwner, string, auth.SubscriptionCredentialRejectionInput) (auth.SubscriptionCredentialRejection, error)
 }
 
 func reconnectWarranted(rejection auth.SubscriptionCredentialRejection, reason string, now time.Time) bool {
@@ -36,7 +36,7 @@ func reconnectWarranted(rejection auth.SubscriptionCredentialRejection, reason s
 }
 
 func credentialRejectionCooldown(strikes int) time.Duration {
-	index := min(max(strikes-1, 0), len(credentialRejectionBackoff)-1)
+	index := min(strikes-1, len(credentialRejectionBackoff)-1)
 	return credentialRejectionBackoff[index]
 }
 
@@ -80,7 +80,9 @@ func (r *Runtime) RejectCredential(ctx context.Context, owner auth.SubscriptionO
 	r.manager.InvalidateAccessToken("account:"+accountID, provider, accountID)
 	now := r.clock()
 	reason := fmt.Sprintf("upstream_http_%d", upstreamStatus)
-	rejection, err := store.RecordSubscriptionCredentialRejection(ctx, physicalOwner, accountID, reason, now, credentialRejectionWindow, true)
+	rejection, err := store.RecordSubscriptionCredentialRejection(ctx, physicalOwner, accountID, auth.SubscriptionCredentialRejectionInput{
+		Reason: reason, RejectedAt: now, Window: credentialRejectionWindow, InvalidateAccessToken: true,
+	})
 	if err != nil {
 		return false, err
 	}

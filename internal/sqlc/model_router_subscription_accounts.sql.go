@@ -380,7 +380,8 @@ WITH installation AS MATERIALIZED (
 SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
        account.external_account_id, account.provider_user_id, account.display_name, account.refresh_token_ciphertext,
        account.enabled, account.health_state, account.cooldown_until, account.created_at,
-       CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier
+       CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier,
+       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing
 FROM router.model_router_subscription_accounts AS account
 JOIN members ON members.subject_id = account.subscriber_id
 JOIN installation ON TRUE
@@ -423,6 +424,7 @@ type ListModelRouterSubscriptionCandidatesRow struct {
 	CooldownUntil          pgtype.Timestamp
 	CreatedAt              pgtype.Timestamp
 	Tier                   string
+	AccessTokenMissing     bool
 }
 
 // Read from the primary so admission observes current membership, key lifecycle and sharing settings.
@@ -444,7 +446,8 @@ type ListModelRouterSubscriptionCandidatesRow struct {
 //	SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
 //	       account.external_account_id, account.provider_user_id, account.display_name, account.refresh_token_ciphertext,
 //	       account.enabled, account.health_state, account.cooldown_until, account.created_at,
-//	       CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier
+//	       CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier,
+//	       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing
 //	FROM router.model_router_subscription_accounts AS account
 //	JOIN members ON members.subject_id = account.subscriber_id
 //	JOIN installation ON TRUE
@@ -488,6 +491,7 @@ func (q *Queries) ListModelRouterSubscriptionCandidates(ctx context.Context, arg
 			&i.CooldownUntil,
 			&i.CreatedAt,
 			&i.Tier,
+			&i.AccessTokenMissing,
 		); err != nil {
 			return nil, err
 		}
@@ -507,6 +511,7 @@ SET refresh_token_ciphertext = $1::bytea,
     token_refresh_lease_until = NULL,
     token_refresh_lease_id = NULL,
     token_refresh_version = token_refresh_version + 1,
+    credential_last_rejection_reason = NULL,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $4::uuid
   AND (subscriber_id = $5::uuid
@@ -539,6 +544,7 @@ type PersistModelRouterSubscriptionTokensParams struct {
 //	    token_refresh_lease_until = NULL,
 //	    token_refresh_lease_id = NULL,
 //	    token_refresh_version = token_refresh_version + 1,
+//	    credential_last_rejection_reason = NULL,
 //	    updated_at = CURRENT_TIMESTAMP
 //	WHERE id = $4::uuid
 //	  AND (subscriber_id = $5::uuid
@@ -571,6 +577,9 @@ WITH previous AS (
     AND (subscriber_id = $6::uuid
          OR (subscriber_id IS NULL AND api_key_id = $7::uuid))
     AND enabled = TRUE
+  AND ($8::uuid IS NULL
+       OR (token_refresh_lease_id = $8::uuid
+           AND token_refresh_version = $9::bigint))
   FOR UPDATE
 )
 UPDATE router.model_router_subscription_accounts AS account
@@ -605,6 +614,8 @@ type RecordModelRouterSubscriptionCredentialRejectionParams struct {
 	ID                    uuid.UUID
 	SubscriberID          pgtype.UUID
 	APIKeyID              pgtype.UUID
+	LeaseID               pgtype.UUID
+	ExpectedVersion       *int64
 }
 
 type RecordModelRouterSubscriptionCredentialRejectionRow struct {
@@ -615,7 +626,9 @@ type RecordModelRouterSubscriptionCredentialRejectionRow struct {
 
 // Counts one provider credential rejection inside a rolling window. Strikes
 // older than the window restart at one. The previous reason is returned so
-// the caller can recognise back-to-back explicit invalid_grant rejections.
+// the caller can recognise back-to-back explicit invalid_grant rejections; a
+// successful refresh clears it. A refresh rejection passes its lease and
+// version so a refresher that lost the lease records nothing.
 //
 //	WITH previous AS (
 //	  SELECT id, credential_last_rejection_reason
@@ -624,6 +637,9 @@ type RecordModelRouterSubscriptionCredentialRejectionRow struct {
 //	    AND (subscriber_id = $6::uuid
 //	         OR (subscriber_id IS NULL AND api_key_id = $7::uuid))
 //	    AND enabled = TRUE
+//	  AND ($8::uuid IS NULL
+//	       OR (token_refresh_lease_id = $8::uuid
+//	           AND token_refresh_version = $9::bigint))
 //	  FOR UPDATE
 //	)
 //	UPDATE router.model_router_subscription_accounts AS account
@@ -657,6 +673,8 @@ func (q *Queries) RecordModelRouterSubscriptionCredentialRejection(ctx context.C
 		arg.ID,
 		arg.SubscriberID,
 		arg.APIKeyID,
+		arg.LeaseID,
+		arg.ExpectedVersion,
 	)
 	var i RecordModelRouterSubscriptionCredentialRejectionRow
 	err := row.Scan(&i.CredentialRejectionCount, &i.CredentialFirstRejectedAt, &i.PreviousReason)

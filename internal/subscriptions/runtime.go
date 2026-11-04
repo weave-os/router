@@ -167,6 +167,9 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 		if err := r.manager.Upsert(account); err != nil {
 			return Lease{}, present, err
 		}
+		if candidate.AccessTokenMissing {
+			r.manager.InvalidateAccessToken(poolID, provider, candidate.ID)
+		}
 		// Each pool holds one account; r.affinity owns session preference.
 		leased, release, leaseErr := r.manager.Lease(ctx, poolID, provider, "", r.refresh(owner))
 		if errors.Is(leaseErr, ErrNoAvailableAccount) {
@@ -475,7 +478,12 @@ func (r *Runtime) recordRefreshFailure(ctx context.Context, owner auth.Subscript
 		if store, ok := r.store.(credentialRejectionStore); ok && !errors.As(refreshErr, &mismatch) {
 			now := r.clock()
 			reason := refreshRejectionReason(refreshErr)
-			rejection, err := store.RecordSubscriptionCredentialRejection(ctx, owner, accountID, reason, now, credentialRejectionWindow, false)
+			rejection, err := store.RecordSubscriptionCredentialRejection(ctx, owner, accountID, auth.SubscriptionCredentialRejectionInput{
+				Reason: reason, RejectedAt: now, Window: credentialRejectionWindow, LeaseID: leaseID, ExpectedVersion: expectedVersion,
+			})
+			if errors.Is(err, auth.ErrSubscriptionRefreshConflict) {
+				return errRefreshLeaseLost
+			}
 			if err != nil {
 				observability.FromContext(ctx).Error("Failed to record subscription credential rejection",
 					"provider", provider, "account_id", accountID, "err", err)

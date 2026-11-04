@@ -50,6 +50,8 @@ func (s *runtimeStore) ListSubscriptionCandidates(_ context.Context, owner auth.
 			continue
 		}
 		copied := *account
+		_, hasAccessToken := s.accessTokens[account.ID]
+		copied.AccessTokenMissing = !hasAccessToken
 		if account.SubscriberID == owner.SubscriberID {
 			copied.Tier = auth.SubscriptionTierPersonal
 			personal = append(personal, &copied)
@@ -191,6 +193,7 @@ func (s *runtimeStore) PersistSubscriptionTokens(_ context.Context, _ auth.Subsc
 	delete(s.leaseIDs, accountID)
 	delete(s.leaseUntil, accountID)
 	s.rotatedTokens[accountID] = append([]byte(nil), refreshToken...)
+	delete(s.rejectionReasons, accountID)
 	return nil
 }
 
