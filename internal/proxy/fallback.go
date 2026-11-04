@@ -509,7 +509,7 @@ func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 	status := http.StatusBadGateway
 	body, _ := sjson.SetBytes([]byte(`{"type":"error","error":{"type":"api_error","message":""}}`), "error.message", attributedStreamFailure(err))
 	switch cls, classified := ClassifyDispatchError(err); {
-	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
+	case classified && (cls.Kind == DispatchErrorContextWindowExceeded || cls.Kind == DispatchErrorQuotaVerificationUnavailable):
 		status = cls.Status
 		body = anthropicErrorFrameBody(cls)
 	case errors.As(err, &resp):
@@ -536,7 +536,7 @@ func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
 	status := http.StatusBadGateway
 	body, _ := sjson.SetBytes([]byte(`{"error":{"message":"","type":"server_error","code":"upstream_error"}}`), "error.message", attributedStreamFailure(err))
 	switch cls, classified := ClassifyDispatchError(err); {
-	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
+	case classified && (cls.Kind == DispatchErrorContextWindowExceeded || cls.Kind == DispatchErrorQuotaVerificationUnavailable):
 		status = cls.Status
 		body = openAIErrorFrameBody(cls)
 	case errors.As(err, &resp):

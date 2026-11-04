@@ -92,7 +92,17 @@ func TestQuotaVerificationFailureNeverBuysPaidCapacity(t *testing.T) {
 					if funding.reason != "" {
 						ctx = billing.WithSubscriptionOnly(ctx, funding.reason)
 					}
-					err := svc.ProxyOpenAIResponses(ctx, []byte(body), httptest.NewRecorder(), request)
+					rec := httptest.NewRecorder()
+					err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, request)
+					if funding.reason == billing.SubscriptionOnlyCreditsDepleted || funding.reason == billing.SubscriptionOnlySpendCapReached {
+						cls, ok := ClassifyDispatchError(err)
+						require.True(t, ok)
+						require.Equal(t, DispatchErrorQuotaVerificationUnavailable, cls.Kind, "unverified quota is not a funding refusal: %v", err)
+						require.Equal(t, http.StatusServiceUnavailable, cls.Status)
+						require.True(t, cls.RetryAfter)
+						require.Contains(t, rec.Body.String(), quotaVerificationUnavailableMessage)
+						require.NotContains(t, rec.Body.String(), topUpURL)
+					}
 					require.Positive(t, preflightCalls.Load())
 					require.Zero(t, includedCalls.Load())
 					require.Zero(t, paidCalls.Load(), "uncertainty must not buy inference")

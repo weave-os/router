@@ -100,7 +100,7 @@ func TestProxyMessages_OverEngineerCap_CoveringSubscription_ServesFreeNo402(t *t
 	require.Len(t, p.proxyBodies, 1, "the turn must serve on the subscription exactly once")
 	require.NotNil(t, p.proxyCreds[0], "the dispatch must carry the caller's subscription credential")
 	assert.True(t, p.proxyCreds[0].OAuth, "the turn must serve on the caller's own Claude subscription")
-	assert.Contains(t, rec.Body.String(), "spend cap has been reached",
+	assert.Contains(t, rec.Body.String(), "spend cap blocks paid fallback",
 		"a cap-driven subscription-only turn must name the spend cap")
 	assert.NotContains(t, rec.Body.String(), "credits are depleted",
 		"a reached cap must not claim the organization's credits are depleted")
@@ -137,7 +137,7 @@ func TestProxyMessages_OverEngineerCap_WarningAlreadyShown_NotRepeated(t *testin
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	req.Header.Set("Authorization", "Bearer "+subToken)
 	body := []byte(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hi"},` +
-		`{"role":"assistant","content":[{"type":"text","text":"✦ **Weave Router** → a Weave router spend cap has been reached, so this turn is running on your own Anthropic subscription and paid model fallback is disabled.\n\nhello"}]},` +
+		`{"role":"assistant","content":[{"type":"text","text":"✦ **Weave Router** → your linked Claude subscription is serving this turn. A configured spend cap blocks paid fallback.\n\nhello"}]},` +
 		`{"role":"user","content":"again"}]}`)
 
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req),
@@ -146,7 +146,7 @@ func TestProxyMessages_OverEngineerCap_WarningAlreadyShown_NotRepeated(t *testin
 	require.Len(t, p.proxyBodies, 1, "the turn must serve on the subscription exactly once")
 	require.NotNil(t, p.proxyCreds[0], "the dispatch must carry the caller's subscription credential")
 	assert.True(t, p.proxyCreds[0].OAuth, "the turn must serve on the caller's own Claude subscription")
-	assert.NotContains(t, rec.Body.String(), "spend cap has been reached",
+	assert.NotContains(t, rec.Body.String(), "spend cap blocks paid fallback",
 		"a warning the conversation already shows must not repeat every turn")
 
 	for _, d := range repo.recordedDebits() {

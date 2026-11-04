@@ -214,7 +214,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			}
 			if creds := CredentialsFromContext(credentialCtx); paidFallbackForbidden(ctx) && (creds == nil || !creds.OAuth) {
 				lease.Release()
-				return dispatchAbort{err: subscriptionOnlyUnavailable(ctx)}
+				return dispatchAbort{err: errors.Join(subscriptionOnlyUnavailable(ctx), lastSubscriptionErr)}
 			}
 			if creds := CredentialsFromContext(credentialCtx); creds != nil && creds.OAuth {
 				if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {

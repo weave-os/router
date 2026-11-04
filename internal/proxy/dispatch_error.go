@@ -51,6 +51,7 @@ const (
 	DispatchErrorCreditsExhausted
 	DispatchErrorSubscriptionPoolExhausted
 	DispatchErrorSubscriptionPoolUnavailable
+	DispatchErrorQuotaVerificationUnavailable
 	DispatchErrorTranslationIntrinsicallyIncompatible
 	DispatchErrorTranslationProviderUnavailable
 	DispatchErrorUserSpendLimitReached
@@ -148,6 +149,9 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Rejected forced Claude turn: subscriptions refused third-party client",
 		}, true
+	// Ahead of the funding refusals: unverified quota is not spent quota.
+	case quotaVerificationControlsRefusal(err):
+		return quotaVerificationUnavailableClass, true
 	// Ahead of the pool cases: a billing-gated pool refusal carries both.
 	case errors.As(err, &allowanceSpent):
 		kind := DispatchErrorCreditsExhausted

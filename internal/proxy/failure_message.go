@@ -311,6 +311,9 @@ func upstreamErrorText(err error) string {
 // handler renders generically: the owner-attributed message when dispatch
 // recorded one, else the generic upstream failure text.
 func TerminalErrorMessage(err error) string {
+	if quotaVerificationControlsRefusal(err) {
+		return quotaVerificationUnavailableMessage
+	}
 	var attributed attributedError
 	if errors.As(err, &attributed) && attributed.message != "" {
 		return attributed.message
