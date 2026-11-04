@@ -174,6 +174,12 @@ class SequenceRepresentation(str, Enum):
     GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT = (
         "gemini-embedding-2-raw-router-v5-element-v1"
     )
+    # The same per-message documents embedded by a customer-hosted model
+    # behind an OpenAI-compatible endpoint. Model id and width come from the
+    # package, so its encoder contract is built from the package declaration.
+    OPENAI_COMPATIBLE_RAW_ROUTER_V5_ELEMENT = (
+        "openai-compatible-raw-router-v5-element-v1"
+    )
 
 
 GEMINI_EMBEDDING_2_NON_CANONICAL_ALIAS = "gemini-embedding-2-non-canonical-v1"
@@ -249,7 +255,9 @@ GEMINI_RAW_ROUTER_REPRESENTATIONS = frozenset(
         GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT,
     )
 )
-ROUTER_REPRESENTATIONS = GEMINI_RAW_ROUTER_REPRESENTATIONS
+ROUTER_REPRESENTATIONS = GEMINI_RAW_ROUTER_REPRESENTATIONS | {
+    SequenceRepresentation.OPENAI_COMPATIBLE_RAW_ROUTER_V5_ELEMENT
+}
 
 
 def gemini_last_state_documents(texts: Sequence[str]) -> tuple[str, ...]:
