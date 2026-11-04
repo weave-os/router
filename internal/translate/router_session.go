@@ -3,7 +3,7 @@ package translate
 // routerSessionTokens are the spellings of the router-session directive.
 // Codex reserves `/…` for its own built-ins and exposes the directive as a
 // `$name` skill, so both sigils are accepted here for the same reason
-// parseForceModelCommand accepts both.
+// parseForceModelCommandFromSource accepts both.
 var routerSessionTokens = [...]string{
 	"/router-session",
 	"$router-session",

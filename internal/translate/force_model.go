@@ -354,18 +354,16 @@ func followsAssistantToolUse(messages []gjson.Result, userIdx int) bool {
 	return false
 }
 
-// parseForceModelCommand scans text for a /force-model (aliases /model and /fm)
-// or /unforce-model (alias /ufm) directive on the first non-empty line. The
-// dollar-prefixed forms are accepted for clients whose native skill namespace
-// is `$` (notably Codex) when they forward the token verbatim.
-func parseForceModelCommand(text string) (res ForceModelResult, found bool, stripped string) {
-	return parseForceModelCommandFromSource(text, false)
-}
-
-// parseForceModelCommandFromSource applies the trust boundary for the model
-// alias before the command text can be stripped. Tool results may contain
-// arbitrary model documentation or output, so only the established skill
-// commands are accepted from that provenance.
+// parseForceModelCommandFromSource scans text for a /force-model (aliases
+// /model and /fm) or /unforce-model (alias /ufm) directive on the first
+// non-empty line. The dollar-prefixed forms are accepted for clients whose
+// native skill namespace is `$` (notably Codex) when they forward the token
+// verbatim.
+//
+// It applies the trust boundary for the model alias before the command text
+// can be stripped. Tool results may contain arbitrary model documentation or
+// output, so only the established skill commands are accepted from that
+// provenance.
 //
 // Restricted to the leading line so pasted content (snippets, transcripts)
 // starting with "/" can't silently rewrite session routing. The short

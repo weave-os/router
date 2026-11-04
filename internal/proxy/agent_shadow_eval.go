@@ -92,8 +92,3 @@ func (s *Service) runAgentShadowEvaluationRoute(
 		StripThinkingBlocks: feats.Model != model || env.SignatureTokenSavings() > 0,
 	}, nil
 }
-
-func isAgentShadowEvaluation(ctx context.Context) bool {
-	_, ok := AgentShadowEvalFromContext(ctx)
-	return ok
-}
