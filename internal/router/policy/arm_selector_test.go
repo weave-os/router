@@ -273,3 +273,41 @@ func TestArmSelectorForceClusterPreservesPreferenceRanking(t *testing.T) {
 		"anthropic/claude-sonnet-5": 20,
 	}, decision.Metadata.ArmScores)
 }
+
+func TestArmSelectorPreviewAcceptsEffortSuffixedArm(t *testing.T) {
+	adapter := policy.NewSidecarRouter(policy.SidecarRouterConfig{
+		Strategy:    router.StrategyHMM,
+		Unavailable: errors.New("selection unavailable"),
+	}, &recordingPolicy{preview: policy.PreviewResult{
+		SchemaVersion:        policy.SchemaVersionV4,
+		PolicyArtifactID:     "hmm-prod",
+		PolicyArtifactSHA256: "sha256:artifact",
+		PredictedLabel:       "maximum",
+		ClassOrder:           []string{"maximum", "low"},
+		ClassProbabilities:   map[string]float64{"maximum": 0.8, "low": 0.2},
+	}}, policy.NewResolver(
+		set("claude-opus-4-8", "claude-sonnet-5"),
+		set(providers.ProviderAnthropic),
+		func(model catalog.Model) string { return "anthropic/" + model.ID },
+		policy.ManagedProviderPolicy(),
+	))
+	eligible := []string{"anthropic/claude-opus-4-8:high", "anthropic/claude-sonnet-5"}
+	adapter.WithArmSelector(func(_ context.Context, _ policy.SelectionInput) (policy.SelectionPick, error) {
+		return policy.SelectionPick{
+			Group: "maximum",
+			Arm:   "anthropic/claude-opus-4-8:high",
+			RankedFallback: []policy.PreviewGroup{{
+				Group:        "maximum",
+				Probability:  0.8,
+				RosterArms:   eligible,
+				EligibleArms: eligible,
+			}},
+		}, nil
+	})
+
+	result, err := adapter.PreviewRoute(context.Background(), router.Request{})
+
+	require.NoError(t, err)
+	assert.Equal(t, "maximum", result.SelectedGroup)
+	assert.Equal(t, eligible, result.EligibleRosterIDs)
+}
