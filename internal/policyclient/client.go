@@ -897,28 +897,28 @@ func (c *Client) decide(ctx context.Context, query policy.Query) (policy.Result,
 
 	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	resp, payload, err := c.doPolicyRequest(requestCtx, "/route", body)
+	status, payload, err := c.doPolicyRequest(requestCtx, "/route", body)
 	if err != nil {
 		return policy.Result{}, err
 	}
 
 	var parsed routeResponse
 	if err := json.Unmarshal(payload, &parsed); err != nil {
-		return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", resp.StatusCode, err)
+		return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", status, err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		if err := unknownArtifactErr(query, resp.StatusCode); err != nil {
+	if status != http.StatusOK {
+		if err := unknownArtifactErr(query, status); err != nil {
 			return policy.Result{}, err
 		}
 		if parsed.Error != "" {
-			return policy.Result{}, fmt.Errorf("policy sidecar status %d: %s", resp.StatusCode, parsed.Error)
+			return policy.Result{}, fmt.Errorf("policy sidecar status %d: %s", status, parsed.Error)
 		}
-		return policy.Result{}, fmt.Errorf("policy sidecar status %d", resp.StatusCode)
+		return policy.Result{}, fmt.Errorf("policy sidecar status %d", status)
 	}
 	if parsed.SchemaVersion == policy.SchemaVersionV4 {
 		classifier, decodeErr := decodeClassifierResponseV4(payload)
 		if decodeErr != nil {
-			return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", resp.StatusCode, decodeErr)
+			return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", status, decodeErr)
 		}
 		return policy.Result{
 			SchemaVersion:         classifier.SchemaVersion,
@@ -1034,27 +1034,27 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	resp, payload, err := c.doPolicyRequest(requestCtx, "/preview", body)
+	status, payload, err := c.doPolicyRequest(requestCtx, "/preview", body)
 	if err != nil {
 		return policy.PreviewResult{}, err
 	}
 	var parsed previewResponse
 	if err := json.Unmarshal(payload, &parsed); err != nil {
-		return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", resp.StatusCode, err)
+		return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", status, err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		if err := unknownArtifactErr(query, resp.StatusCode); err != nil {
+	if status != http.StatusOK {
+		if err := unknownArtifactErr(query, status); err != nil {
 			return policy.PreviewResult{}, err
 		}
 		if parsed.Error != "" {
-			return policy.PreviewResult{}, fmt.Errorf("policy preview status %d: %s", resp.StatusCode, parsed.Error)
+			return policy.PreviewResult{}, fmt.Errorf("policy preview status %d: %s", status, parsed.Error)
 		}
-		return policy.PreviewResult{}, fmt.Errorf("policy preview status %d", resp.StatusCode)
+		return policy.PreviewResult{}, fmt.Errorf("policy preview status %d", status)
 	}
 	if parsed.SchemaVersion == policy.SchemaVersionV4 {
 		classifier, decodeErr := decodeClassifierResponseV4(payload)
 		if decodeErr != nil {
-			return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", resp.StatusCode, decodeErr)
+			return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", status, decodeErr)
 		}
 		return policy.PreviewResult{
 			SchemaVersion: classifier.SchemaVersion, RouteID: classifier.RouteID,
@@ -1274,16 +1274,16 @@ func pointerTo[T any](value T) *T {
 	return &value
 }
 
-func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) (*http.Response, []byte, error) {
+func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) (int, []byte, error) {
 	// lastStatusErr is the sidecar's own diagnosis; it diverges from lastErr when the budget cuts a final attempt short.
 	var lastErr, lastStatusErr error
 	for attempt := 1; attempt <= defaultRouteAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
-			return nil, nil, exhaustedPolicyErr(lastStatusErr, lastErr, err)
+			return 0, nil, exhaustedPolicyErr(lastStatusErr, lastErr, err)
 		}
-		resp, payload, done, attemptErr := c.doPolicyAttempt(ctx, attempt, path, body)
+		status, payload, done, attemptErr := c.doPolicyAttempt(ctx, attempt, path, body)
 		if done {
-			return resp, payload, attemptErr
+			return status, payload, attemptErr
 		}
 		lastErr = attemptErr
 		var statusErr *PolicyStatusError
@@ -1297,11 +1297,11 @@ func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) 
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil, nil, exhaustedPolicyErr(lastStatusErr, lastErr, ctx.Err())
+			return 0, nil, exhaustedPolicyErr(lastStatusErr, lastErr, ctx.Err())
 		case <-timer.C:
 		}
 	}
-	return nil, nil, exhaustedPolicyErr(lastStatusErr, lastErr, nil)
+	return 0, nil, exhaustedPolicyErr(lastStatusErr, lastErr, nil)
 }
 
 // preferStatusErr picks the sidecar's own status over a transport failure, so an
@@ -1358,13 +1358,13 @@ func (c *Client) doPolicyAttempt(
 	attempt int,
 	path string,
 	body []byte,
-) (*http.Response, []byte, bool, error) {
+) (int, []byte, bool, error) {
 	attemptCtx, cancel := c.attemptContext(ctx)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
 	if err != nil {
-		return nil, nil, true, fmt.Errorf("build policy route request: %w", err)
+		return 0, nil, true, fmt.Errorf("build policy route request: %w", err)
 	}
 	req.Header.Set("content-type", "application/json")
 	if deadline, ok := attemptCtx.Deadline(); ok {
@@ -1373,11 +1373,11 @@ func (c *Client) doPolicyAttempt(
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("call policy sidecar: %w", err))
+		return 0, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("call policy sidecar: %w", err))
 	}
 	if resp.StatusCode == http.StatusRequestEntityTooLarge {
 		resp.Body.Close()
-		return nil, nil, true, fmt.Errorf(
+		return 0, nil, true, fmt.Errorf(
 			"policy sidecar rejected %d-byte %s request (status %d): %w",
 			len(body), path, resp.StatusCode, policy.ErrContextWindowExceeded,
 		)
@@ -1385,20 +1385,20 @@ func (c *Client) doPolicyAttempt(
 	payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	resp.Body.Close()
 	if readErr != nil {
-		return nil, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("read policy route response: %w", readErr))
+		return 0, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("read policy route response: %w", readErr))
 	}
 	if resp.StatusCode == http.StatusServiceUnavailable {
 		var failure struct {
 			Error policy.ClassifierErrorCode `json:"error"`
 		}
 		if json.Unmarshal(payload, &failure) == nil && failure.Error == policy.ClassifierWarmingCode {
-			return nil, nil, true, policy.ErrClassifierWarming
+			return 0, nil, true, policy.ErrClassifierWarming
 		}
 	}
 	if !isTransientPolicyStatus(resp.StatusCode) {
-		return resp, payload, true, nil
+		return resp.StatusCode, payload, true, nil
 	}
-	return nil, nil, false, policyStatusError(resp.StatusCode, payload)
+	return 0, nil, false, policyStatusError(resp.StatusCode, payload)
 }
 
 // attemptContext bounds one attempt so a single stalled instance cannot spend
