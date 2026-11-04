@@ -158,13 +158,13 @@ func activeDemotionCooldowns(cooldowns map[string]time.Time, now time.Time) map[
 // rescue may readmit this turn: a session-lifetime strike wins over a
 // leftover cooldown on the same model, and a text-only arm cannot take an
 // image-bearing turn the scorer already kept it out of.
-func readmittableCooldowns(cooling map[string]time.Time, permanent []string, hasImages bool) map[string]time.Time {
+func readmittableCooldowns(cooling map[string]time.Time, permanent []string, imageCount int) map[string]time.Time {
 	out := make(map[string]time.Time, len(cooling))
 	for model, until := range cooling {
 		if slices.Contains(permanent, model) {
 			continue
 		}
-		if hasImages && !catalog.AcceptsImages(model) {
+		if !catalog.AcceptsImageCount(model, imageCount, nil) {
 			continue
 		}
 		out[model] = until
@@ -177,13 +177,13 @@ func readmittableCooldowns(cooling map[string]time.Time, permanent []string, has
 
 // imageSafeModels drops the text-only models an image-bearing turn cannot
 // be rescued onto.
-func imageSafeModels(models []string, hasImages bool) []string {
-	if !hasImages {
+func imageSafeModels(models []string, imageCount int) []string {
+	if imageCount <= 0 {
 		return models
 	}
 	var out []string
 	for _, model := range models {
-		if catalog.AcceptsImages(model) {
+		if catalog.AcceptsImageCount(model, imageCount, nil) {
 			out = append(out, model)
 		}
 	}

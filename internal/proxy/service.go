@@ -1172,20 +1172,21 @@ func routingKnobsForRequest(ctx context.Context) *router.Overrides {
 }
 
 // safetyExcludedModels returns the hard request-time safety exclusion set
-// (context-overflow + gemini-unsigned-history + advisor pairing). It re-runs the filters
+// (context-overflow + image-limit + gemini-unsigned-history + advisor pairing). It re-runs the filters
 // against an EMPTY base — the routing-path filters skip models already in
 // excluded_models, so a policy-excluded overflow model would be absent from
 // those lists yet must still block bypass (it would 400 on the subscription).
 // Returns nil when neither filter fires.
-func (s *Service) safetyExcludedModels(env *translate.RequestEnvelope, outputReserve int, enabledProviders map[string]struct{}) map[string]struct{} {
+func (s *Service) safetyExcludedModels(env *translate.RequestEnvelope, outputReserve int, enabledProviders map[string]struct{}, customBindings map[string][]string) map[string]struct{} {
 	_, overflowed := excludeContextOverflowModels(env.ContextOverflowTokenEstimate(), env.SignatureTokenSavings(), outputReserve, enabledProviders, nil, s.availableModels)
+	_, imageLimited := excludeImageLimitModels(env.ImageCount(), enabledProviders, customBindings, nil, s.availableModels)
 	_, geminiUnsigned := excludeGemini3xOnUnsignedHistory(env, nil, s.availableModels)
 	_, advisorOutranking := excludeAdvisorOutrankingModels(env, nil, s.routableUniverse())
-	if len(overflowed) == 0 && len(geminiUnsigned) == 0 && len(advisorOutranking) == 0 {
+	if len(overflowed) == 0 && len(imageLimited) == 0 && len(geminiUnsigned) == 0 && len(advisorOutranking) == 0 {
 		return nil
 	}
-	out := make(map[string]struct{}, len(overflowed))
-	for _, models := range [][]string{overflowed, geminiUnsigned, advisorOutranking} {
+	out := make(map[string]struct{}, len(overflowed)+len(imageLimited)+len(geminiUnsigned)+len(advisorOutranking))
+	for _, models := range [][]string{overflowed, imageLimited, geminiUnsigned, advisorOutranking} {
 		for _, m := range models {
 			out[m] = struct{}{}
 		}
@@ -3937,6 +3938,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	feats := env.RoutingFeatures(embedFlag)
+	ctx = withRequestImageCount(ctx, feats.ImageCount)
 	if err := validateHandoffEnvelope(ctx, env, r.Header, body); err != nil {
 		return err
 	}
@@ -4045,6 +4047,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	if requestBodyChanged {
 		feats = env.RoutingFeatures(embedFlag)
+		ctx = withRequestImageCount(ctx, feats.ImageCount)
 		promptText = feats.PromptText
 		embedInput = "concatenated_stream"
 		if embedFlag && feats.OnlyUserMessageText != "" {
@@ -4157,8 +4160,15 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			"excluded_models", strings.Join(advisorOutranking, ","),
 		)
 	}
-	overflowEstimate := env.ContextOverflowTokenEstimate()
 	customBindings := s.customBindingsForRequest(ctx)
+	excluded, imageLimitExcluded := excludeImageLimitModels(feats.ImageCount, enabledProviders, customBindings, excluded, s.availableModels)
+	if len(imageLimitExcluded) > 0 {
+		log.Info("image limit pre-filter: excluded models whose bindings cap images below the request count",
+			"image_count", feats.ImageCount,
+			"excluded_models", strings.Join(imageLimitExcluded, ","),
+		)
+	}
+	overflowEstimate := env.ContextOverflowTokenEstimate()
 	gatewayProviders := s.gatewayProvidersForRequest(ctx)
 	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, excluded, s.availableModels)
 	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders, cluster.RequestBindings{Custom: customBindings, Gateways: gatewayProviders})
@@ -4172,7 +4182,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			"admitted_for_upstream", strings.Join(overflowAdmitted, ","),
 		)
 	}
-	hardExcluded := append(append([]string(nil), geminiUnsigned...), advisorOutranking...)
+	hardExcluded := append(append(append([]string(nil), geminiUnsigned...), advisorOutranking...), imageLimitExcluded...)
 
 	routeStart := time.Now()
 	req := router.Request{
@@ -4183,6 +4193,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		EstimatedInputTokens:         feats.Tokens,
 		HasTools:                     feats.HasTools,
 		HasImages:                    feats.HasImages,
+		ImageCount:                   feats.ImageCount,
 		TranslationRequirements:      env.TranslationRequirements(router.EndpointAnthropicMessages),
 		ReasoningConfigurationSHA256: env.ReasoningConfigurationSHA256(),
 		ToolConfigurationSHA256:      env.ToolConfigurationSHA256(),
@@ -4202,8 +4213,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excluded,
 		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders), overflowAdmitted, hardExcluded),
+		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders, customBindings), overflowAdmitted, hardExcluded),
 		ContextWindowExcludedModels:   contextWindowOnlyExclusions(ctxOverflowed, overflowAdmitted, hardExcluded),
+		ImageLimitExcludedModels:      modelSet(imageLimitExcluded),
 		UnsignedHistoryExcludedModels: modelSet(geminiUnsigned),
 		OverflowAdmittedModels:        modelSet(overflowAdmitted),
 		PreferredModels:               s.preferredModelsForRequest(ctx),
@@ -6542,7 +6554,7 @@ func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Deci
 // turn. Otherwise predicts the action from the embedding and serves the
 // matching band member (LARGE -> stronger, SMALL -> cheaper). The pin itself
 // stays anchored so the pair survives for the next turn's swap.
-func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, hasImages bool, enabledProviders, excludedModels map[string]struct{}) router.Decision {
+func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, hasImages bool, imageCount int, enabledProviders, excludedModels map[string]struct{}) router.Decision {
 	anchor := pinDecision(pin)
 	if s.bandSwap == nil || pin.PairedModel == "" || turnType != turntype.MainLoop {
 		return anchor
@@ -6571,7 +6583,7 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 		if _, available := s.availableModels[served.Model]; !available {
 			return anchor
 		}
-		if hasImages && !catalog.AcceptsImages(served.Model) {
+		if hasImages && (!catalog.AcceptsImages(served.Model) || imageCount > 0 && !catalog.AcceptsImageCount(served.Model, imageCount, enabledProviders)) {
 			return anchor
 		}
 		// The paired model may no longer fit this turn even when the anchor
@@ -7319,6 +7331,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	codexTitleGen, _ := ctx.Value(codexTitleGenerationContextKey{}).(bool)
 	feats := env.RoutingFeatures(embedFlag)
+	ctx = withRequestImageCount(ctx, feats.ImageCount)
 	if codexTitleGen {
 		feats.TitleGenHint = true
 	}
@@ -7421,6 +7434,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	if requestBodyChanged {
 		feats = env.RoutingFeatures(embedFlag)
+		ctx = withRequestImageCount(ctx, feats.ImageCount)
 		if codexTitleGen {
 			feats.TitleGenHint = true
 		}
@@ -7514,6 +7528,15 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			"excluded_models", strings.Join(geminiUnsignedOAI, ","),
 		)
 	}
+	customBindingsOAI := s.customBindingsForRequest(ctx)
+	excludedOAI, imageLimitExcludedOAI := excludeImageLimitModels(feats.ImageCount, enabledProviders, customBindingsOAI, excludedOAI, s.availableModels)
+	if len(imageLimitExcludedOAI) > 0 {
+		log.Info("image limit pre-filter: excluded models whose bindings cap images below the request count",
+			"image_count", feats.ImageCount,
+			"excluded_models", strings.Join(imageLimitExcludedOAI, ","),
+		)
+	}
+	hardExcludedOAI := append(append([]string(nil), geminiUnsignedOAI...), imageLimitExcludedOAI...)
 	overflowEstimateOAI := env.ContextOverflowTokenEstimate()
 	excludedOAI, ctxOverflowedOAI := excludeContextOverflowModels(overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI, enabledProviders, excludedOAI, s.availableModels)
 	overflowAdmittedOAI := admitWidestOnTotalOverflow(excludedOAI, ctxOverflowedOAI, s.availableModels, enabledProviders, cluster.RequestBindings{Custom: s.customBindingsForRequest(ctx), Gateways: s.gatewayProvidersForRequest(ctx)})
@@ -7535,6 +7558,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		EstimatedInputTokens:         feats.Tokens,
 		HasTools:                     feats.HasTools,
 		HasImages:                    feats.HasImages,
+		ImageCount:                   feats.ImageCount,
 		TranslationRequirements:      env.TranslationRequirements(router.EndpointOpenAIChat),
 		ReasoningConfigurationSHA256: reasoningConfigurationHash,
 		ToolConfigurationSHA256:      toolConfigurationHash,
@@ -7548,13 +7572,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		FeedbackRole:                  roleForTier(catalog.TierFor(feats.Model)),
 		ClientSessionID:               clientSessionIDForRequest(ctx, env),
 		EnabledProviders:              enabledProviders,
-		CustomBindings:                s.customBindingsForRequest(ctx),
+		CustomBindings:                customBindingsOAI,
 		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
 		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excludedOAI,
 		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserveOAI, enabledProviders), overflowAdmittedOAI, geminiUnsignedOAI),
-		ContextWindowExcludedModels:   contextWindowOnlyExclusions(ctxOverflowedOAI, overflowAdmittedOAI, geminiUnsignedOAI),
+		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserveOAI, enabledProviders, customBindingsOAI), overflowAdmittedOAI, hardExcludedOAI),
+		ContextWindowExcludedModels:   contextWindowOnlyExclusions(ctxOverflowedOAI, overflowAdmittedOAI, hardExcludedOAI),
+		ImageLimitExcludedModels:      modelSet(imageLimitExcludedOAI),
 		UnsignedHistoryExcludedModels: modelSet(geminiUnsignedOAI),
 		OverflowAdmittedModels:        modelSet(overflowAdmittedOAI),
 		PreferredModels:               s.preferredModelsForRequest(ctx),

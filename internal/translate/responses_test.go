@@ -48,6 +48,23 @@ func TestResponsesToChatCompletions_InstructionsAndInput(t *testing.T) {
 	assert.Equal(t, "hi", messages[1].Get("content").Str)
 }
 
+func TestResponsesToChatCompletions_ImageCount(t *testing.T) {
+	body := []byte(`{
+		"model": "gpt-5",
+		"input": [{"type":"message","role":"user","content":[
+			{"type":"input_image","image_url":"https://example.test/one.png"},
+			{"type":"input_image","image_url":"https://example.test/two.png"}
+		]}]
+	}`)
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{
+		PortableCodex: true,
+	})
+	require.NoError(t, err)
+	env, err := translate.ParseOpenAI(converted.Body)
+	require.NoError(t, err)
+	assert.Equal(t, 2, env.ImageCount())
+}
+
 func TestResponsesToChatCompletions_FunctionCallRoundTrip(t *testing.T) {
 	// Codex re-sends prior tool calls + their outputs in the input array.
 	body := []byte(`{

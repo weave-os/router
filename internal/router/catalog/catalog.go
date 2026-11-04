@@ -132,6 +132,9 @@ type ProviderBinding struct {
 	// CacheReadMultiplier inherits Price's. Routing always scores on Price;
 	// only post-dispatch billing sees the fast rate.
 	FastPrice Pricing
+	// MaxImagesPerRequest is the maximum image parts this deployment accepts
+	// in one request. Zero means no known limit.
+	MaxImagesPerRequest int
 	// ContextWindow overrides the model-level ContextWindow for this binding.
 	// Zero means inherit. Use when the served window differs by provider.
 	ContextWindow int
@@ -732,7 +735,9 @@ var Models = []Model{
 	// reserved for maximum-complexity Max requests.
 	{ID: "xiaomi/mimo-v2.6-pro", Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_048_576, ThinkTagReasoning: true, Providers: []ProviderBinding{
 		{Provider: providers.ProviderDeepInfra, UpstreamID: "XiaomiMiMo/MiMo-V2.6-Pro",
-			Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.00827586}},
+			// DeepInfra returns "Too many images in request: N > 4".
+			MaxImagesPerRequest: 4,
+			Price:               Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.00827586}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.10}},
 	}},
 	// Untiered: Makora EOL'd V4-Pro and recommends V4-Flash, which takes the

@@ -1,5 +1,22 @@
 # Router documentation
 
+Start with the task you need to complete:
+
+| Task | Documentation |
+|---|---|
+| Connect a coding tool to the hosted router | [Hosted setup](../README.md#get-started) and [installer flags](../install/npm/README.md) |
+| Run the router and database yourself | [Self-hosted setup](../README.md#run-it-yourself) |
+| Configure a client, choose models, or switch routing off | [Installation guide](../install/README.md) |
+| Find API endpoints | [API overview](../README.md#api) and [endpoint reference](ENDPOINTS.md) |
+| Understand per-action routing | [Canonical semantics](SEMANTICS.md) |
+| Configure providers, credentials, or telemetry | [Configuration reference](CONFIGURATION.md) |
+| Read session costs and routing decisions | [Session cost](SESSION_COST.md) and [analytics export](ANALYTICS_EXPORT.md) |
+| Inspect cross-format behavior | [Translation compatibility](TRANSLATION_COMPATIBILITY.md) |
+
+Use the instructions for your deployment: the hosted quickstart and self-hosted stack have different setup and credential requirements.
+
+## Engineering reference
+
 Index of Markdown documentation in the `router/` repo.
 
 | Doc | What it covers |
