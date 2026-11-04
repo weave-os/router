@@ -488,7 +488,7 @@ grep -q '^arch-ratchet:' Makefile && make arch-ratchet
 make check-changed
 ```
 
-Any failure blocks DONE, even if CI is green. Fix ratchet failures by splitting the code along a concept boundary (see `.agents/skills/fix-lint-gate-failure/SKILL.md`), then run Steps 4–6 again. Never raise a limit or baseline, add a ratchet exception or add `//nolint` to pass. If a split truly isn't possible, escalate to the user.
+Inspect `check-changed`'s per-suite receipts: actual `failed` outcomes block DONE, even if CI is green. An expected CI-owned integration suite reported as `blocked` is not a local failure; require its CI check to conclude successfully, and do not report it as locally passed. Other blocked outcomes remain blocked. Fix ratchet failures by splitting the code along a concept boundary (see `.agents/skills/fix-lint-gate-failure/SKILL.md`), then run Steps 4–6 again. Never raise a limit or baseline, add a ratchet exception or add `//nolint` to pass. If a split truly isn't possible, escalate to the user.
 
 ### Step 7: Stop
 
