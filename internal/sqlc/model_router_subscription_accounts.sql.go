@@ -279,7 +279,8 @@ SELECT id,
        health_state,
        cooldown_until,
        created_at,
-       updated_at
+       updated_at,
+       credential_rejection_count
 FROM router.model_router_subscription_accounts
 WHERE subscriber_id = $1::uuid
    OR (subscriber_id IS NULL AND api_key_id = $2::uuid)
@@ -292,19 +293,20 @@ type ListModelRouterSubscriptionAccountsParams struct {
 }
 
 type ListModelRouterSubscriptionAccountsRow struct {
-	ID                     uuid.UUID
-	SubscriberID           pgtype.UUID
-	APIKeyID               pgtype.UUID
-	Provider               string
-	ExternalAccountID      string
-	ProviderUserID         *string
-	DisplayName            *string
-	RefreshTokenCiphertext []byte
-	Enabled                bool
-	HealthState            string
-	CooldownUntil          pgtype.Timestamp
-	CreatedAt              pgtype.Timestamp
-	UpdatedAt              pgtype.Timestamp
+	ID                       uuid.UUID
+	SubscriberID             pgtype.UUID
+	APIKeyID                 pgtype.UUID
+	Provider                 string
+	ExternalAccountID        string
+	ProviderUserID           *string
+	DisplayName              *string
+	RefreshTokenCiphertext   []byte
+	Enabled                  bool
+	HealthState              string
+	CooldownUntil            pgtype.Timestamp
+	CreatedAt                pgtype.Timestamp
+	UpdatedAt                pgtype.Timestamp
+	CredentialRejectionCount int32
 }
 
 // Account state is scoped by owner so a router key can never manage another
@@ -324,7 +326,8 @@ type ListModelRouterSubscriptionAccountsRow struct {
 //	       health_state,
 //	       cooldown_until,
 //	       created_at,
-//	       updated_at
+//	       updated_at,
+//	       credential_rejection_count
 //	FROM router.model_router_subscription_accounts
 //	WHERE subscriber_id = $1::uuid
 //	   OR (subscriber_id IS NULL AND api_key_id = $2::uuid)
@@ -352,6 +355,7 @@ func (q *Queries) ListModelRouterSubscriptionAccounts(ctx context.Context, arg L
 			&i.CooldownUntil,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CredentialRejectionCount,
 		); err != nil {
 			return nil, err
 		}

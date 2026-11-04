@@ -21,6 +21,7 @@ type internalSubscriptionAccountResponse struct {
 	State             auth.SubscriptionAccountState `json:"state"`
 	CooldownUntil     *time.Time                    `json:"cooldown_until,omitempty"`
 	CreatedAt         time.Time                     `json:"created_at"`
+	RejectionStrikes  int                           `json:"rejection_strikes"`
 }
 
 type internalUpdateSubscriptionAccountRequest struct {
@@ -52,6 +53,7 @@ func InternalListSubscriptionAccountsHandler(authSvc *auth.Service) gin.HandlerF
 				State:             account.State,
 				CooldownUntil:     account.CooldownUntil,
 				CreatedAt:         account.CreatedAt,
+				RejectionStrikes:  account.CredentialRejections,
 			})
 		}
 		c.JSON(http.StatusOK, response)

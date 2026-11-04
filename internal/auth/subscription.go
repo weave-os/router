@@ -103,6 +103,9 @@ type SubscriptionAccount struct {
 	// AccessTokenMissing reports a dropped persisted access token, so replicas
 	// discard their cached copy instead of replaying a rejected token.
 	AccessTokenMissing bool
+	// CredentialRejections counts unresolved provider credential rejections,
+	// so owners can reconnect before the account is disabled.
+	CredentialRejections int
 }
 
 // CreateSubscriptionAccountParams describes an encrypted account enrollment.

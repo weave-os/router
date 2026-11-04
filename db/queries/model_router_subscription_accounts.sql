@@ -100,7 +100,8 @@ SELECT id,
        health_state,
        cooldown_until,
        created_at,
-       updated_at
+       updated_at,
+       credential_rejection_count
 FROM router.model_router_subscription_accounts
 WHERE subscriber_id = sqlc.narg(subscriber_id)::uuid
    OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid)
