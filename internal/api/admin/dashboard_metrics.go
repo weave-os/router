@@ -189,7 +189,7 @@ func validDashboardSeries(metric dashboardMetricType, group dashboardMetricGroup
 	case dashboardMetricActiveUsers:
 		return group == dashboardGroupNone || group == dashboardGroupUserLink
 	case dashboardMetricCost:
-		return group == dashboardGroupNone || group == dashboardGroupCostType
+		return group == dashboardGroupNone || group == dashboardGroupCostType || group == dashboardGroupRoutingState
 	case dashboardMetricModelUsage, dashboardMetricModelSpend, dashboardMetricAPIListPriceSpend:
 		switch group {
 		case dashboardGroupNone, dashboardGroupModel, dashboardGroupBilling, dashboardGroupDecisionType, dashboardGroupRoutingState:

@@ -24,6 +24,12 @@ import {
   RouterDashboardStats,
   SPEND_SUMMARY_CARDS,
 } from "../RouterDashboardStats";
+import {
+  ModelMixDisplay,
+  RouterModelMixShareChart,
+  RouterModelRequestsSmallMultiples,
+  RouterModelSpendRanking,
+} from "../RouterModels";
 import { RouterOverviewTab } from "../RouterOverviewTabs";
 import {
   RouterCostBreakdownChart,
@@ -122,7 +128,19 @@ export function RouterOverviewTabPanel({ filters, methodologyHref, tab }: Router
       );
 
     case RouterOverviewTab.Models:
-      return <ResponsiveGrid />;
+      return (
+        <ResponsiveGrid>
+          <RouterModelMixShareChart
+            className={ResponsiveGrid.Full}
+            display={ModelMixDisplay.Bands}
+            granularity={granularity}
+            hero
+            range={range}
+          />
+          <RouterModelRequestsSmallMultiples className={ResponsiveGrid.Medium} granularity={granularity} range={range} />
+          <RouterModelSpendRanking className={ResponsiveGrid.Medium} range={range} />
+        </ResponsiveGrid>
+      );
 
     case RouterOverviewTab.Subscriptions:
       return (
