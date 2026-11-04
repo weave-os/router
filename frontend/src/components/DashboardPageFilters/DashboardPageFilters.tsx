@@ -41,7 +41,7 @@ export function DashboardPageFilters({ className, result }: DashboardPageFilters
   );
 }
 
-function DateRangePill({ result }: { result: UseDashboardFiltersResult }) {
+export function DateRangePill({ result }: { result: UseDashboardFiltersResult }) {
   const [open, setOpen] = useState(false);
   const currentId = result.filters.range.id;
   return (

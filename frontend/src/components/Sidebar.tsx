@@ -6,7 +6,7 @@ import { Tooltip } from "@/components/molecules/Tooltip";
 import { Appearance } from "@/components/types";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import { BarChart2, LogOut, Settings } from "lucide-react";
+import { BarChart2, List, LogOut, Settings } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { type ReactNode } from "react";
@@ -20,6 +20,7 @@ interface NavItem {
 
 const PRIMARY_NAV: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: <BarChart2 size={16} /> },
+  { href: "/requests", label: "Requests", icon: <List size={16} /> },
 ];
 
 function NavLink({ item }: { item: NavItem }) {
