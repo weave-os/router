@@ -130,7 +130,20 @@ func TestResponsesTrailingAssistantDroppedForCurrentAnthropicModels(t *testing.T
 	body := []byte(`{"model":"gpt-6-astra","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Question"}]},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Partial reply"}]}],"stream":true}`)
 	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
 	require.NoError(t, err)
-	for _, model := range []string{"claude-haiku-5-5", "claude-sonnet-5-5", "claude-fable-5-1"} {
+	for _, model := range []string{
+		"claude-haiku-5-5",
+		"claude-sonnet-5-5",
+		"claude-fable-5-1",
+		"claude-opus-5-5",
+		"claude-opus-5",
+		"claude-fable-5",
+		"claude-sonnet-5",
+		"claude-opus-4-8",
+		"claude-opus-4-7",
+		"claude-opus-4-6",
+		"claude-sonnet-4-6",
+		"claude-future-9",
+	} {
 		t.Run(model, func(t *testing.T) {
 			envelope, err := translate.ParseOpenAI(conversion.Body)
 			require.NoError(t, err)
@@ -139,6 +152,23 @@ func TestResponsesTrailingAssistantDroppedForCurrentAnthropicModels(t *testing.T
 			messages := gjson.GetBytes(prepared.Body, "messages").Array()
 			require.Len(t, messages, 1)
 			assert.Equal(t, "user", messages[0].Get("role").String())
+		})
+	}
+}
+
+func TestResponsesTrailingAssistantKeptForCurrentAnthropicModels(t *testing.T) {
+	body := []byte(`{"model":"gpt-6-astra","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Question"}]},{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Partial reply"}]}],"stream":true}`)
+	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	for _, model := range []string{"claude-haiku-4-5", "claude-sonnet-4-5", "claude-opus-4-5"} {
+		t.Run(model, func(t *testing.T) {
+			envelope, err := translate.ParseOpenAI(conversion.Body)
+			require.NoError(t, err)
+			prepared, err := envelope.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: model, Capabilities: router.Lookup(model), TargetProvider: providers.ProviderAnthropic})
+			require.NoError(t, err)
+			messages := gjson.GetBytes(prepared.Body, "messages").Array()
+			require.Len(t, messages, 2)
+			assert.Equal(t, "assistant", messages[1].Get("role").String())
 		})
 	}
 }
