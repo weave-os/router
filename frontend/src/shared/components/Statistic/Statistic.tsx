@@ -1,29 +1,65 @@
-import { cn } from "../../tools/cn";
-import { LoadState } from "../../tools/LoadState";
-import { Text } from "../atoms/Text";
+"use client";
 
-export interface StatisticProps {
-  className?: string;
-  statistic: LoadState<{ total?: string }>;
+import { type ReactNode } from "react";
+
+import { Text } from "@/shared/components/atoms/Text";
+import { LoadStateWrapper } from "@/shared/components/LoadStateWrapper";
+import { MetricValue } from "@/shared/components/atoms/MetricValue";
+import { Skeleton } from "@/shared/components/atoms/Skeleton";
+import { cn } from "@/shared/tools/cn";
+import { LoadState } from "@/shared/tools/LoadState";
+import { GRANULARITY_NAME, type TimeGranularity } from "@/shared/tools/timeGranularity";
+
+export interface StatisticRate {
+  granularity: TimeGranularity;
+  rate: string;
 }
 
-export function Statistic({ className, statistic }: StatisticProps) {
-  const value = LoadState.unwrap(statistic);
-  const isLoading = LoadState.isLoading(statistic);
+export interface StatisticValue {
+  /** The total output to display in the statistic. */
+  total?: string;
+  /** The rate of the value, shown as `rate/granularity`. */
+  rate?: StatisticRate;
+}
 
+export interface StatisticProps {
+  change?: ReactNode;
+  className?: string;
+  statistic: LoadState<StatisticValue>;
+}
+
+/** A chart card's headline value with its change pill below. */
+export function Statistic({ change, className, statistic }: StatisticProps) {
   return (
-    <div className={cn("flex flex-col items-end", className)}>
-      {isLoading ? (
-        <div className="h-9 w-24 animate-pulse rounded bg-muted" />
-      ) : (
-        <Text
-          variant="h1"
-          as="p"
-          className="whitespace-nowrap text-xl font-semibold text-foreground @md:text-2xl @2xl:text-4xl"
-        >
-          {value?.total ?? "-"}
-        </Text>
-      )}
+    <div className={cn("flex flex-col items-start gap-0.5 empty:hidden", className)}>
+      <LoadStateWrapper
+        loading={
+          <>
+            <Skeleton.Text size="h2" className="w-16" />
+            <Skeleton.Text size="xs" className="w-28" />
+          </>
+        }
+        loadingDelayMs={0}
+        state={statistic}
+      >
+        {({ rate, total }) => (
+          <>
+            <div className="flex items-baseline">
+              {rate != null ? (
+                <div className="flex items-baseline whitespace-nowrap">
+                  <MetricValue className="text-display" value={rate.rate} />
+                  <Text variant="h4" as="p" className="text-base">
+                    /{GRANULARITY_NAME[rate.granularity].toLocaleLowerCase()}
+                  </Text>
+                </div>
+              ) : (
+                <MetricValue className="text-display" value={total != null ? total : "-"} />
+              )}
+            </div>
+            <div className="flex flex-wrap items-baseline gap-x-3">{change}</div>
+          </>
+        )}
+      </LoadStateWrapper>
     </div>
   );
 }
