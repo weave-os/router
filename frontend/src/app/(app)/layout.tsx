@@ -22,9 +22,10 @@ import { useEffect, useState } from "react";
 
 type AuthState = "checking" | "authed" | "anonymous";
 
-// Individuals and Experiments are hosted-only until self-hosted serves their data.
+// Experiments is hosted-only.
 const NAV_ITEMS: readonly RouterSidebarNavItem[] = [
   { href: "/dashboard", icon: "Zap", label: "Dashboard" },
+  { href: "/individuals", icon: "UsersRound", label: "Individuals" },
 ];
 
 const UTILITY_ITEMS: readonly RouterSidebarUtilityItem[] = [

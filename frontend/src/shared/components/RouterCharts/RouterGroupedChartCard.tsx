@@ -55,7 +55,6 @@ export interface RouterGroupedChartCardProps {
   seriesType: ChartSeriesType.Area | ChartSeriesType.Bar;
   /** Offers the Volume | Share toggle that renders each bucket's groups as percents. */
   shareToggle?: boolean;
-  subtitle: string;
   title: string;
 }
 
@@ -71,7 +70,6 @@ export function RouterGroupedChartCard({
   seriesConfigs,
   seriesType,
   shareToggle = false,
-  subtitle,
   title,
 }: RouterGroupedChartCardProps) {
   const [view, setView] = useState(GroupedMetricView.Volume);
@@ -114,7 +112,6 @@ export function RouterGroupedChartCard({
     <ChartCard
       className={className}
       title={title}
-      subtitle={subtitle}
       headline={
         <RouterChartHeadline
           percentChange={percentChange}
@@ -151,6 +148,7 @@ export function RouterGroupedChartCard({
         formatValue={formatShown}
         formatIndependentValue={value => formatTime(value, timeGranularity)}
         formatIndependentValueTooltip={value => formatInterval(value, timeGranularity)}
+        legend
       />
     </ChartCard>
   );

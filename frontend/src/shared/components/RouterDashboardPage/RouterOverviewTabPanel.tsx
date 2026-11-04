@@ -68,7 +68,6 @@ export function RouterOverviewTabPanel({ filters, methodologyHref, tab }: Router
             range={range}
             seriesConfigs={ROUTER_USER_LINK_SERIES_CONFIGS}
             seriesType={ChartSeriesType.Area}
-            subtitle="Distinct people who sent router requests per bucket, stacked as unlinked router users and linked Weave accounts."
             title="Active people"
           />
           <RouterInactiveCard className={ResponsiveGrid.Medium} />
@@ -109,7 +108,6 @@ export function RouterOverviewTabPanel({ filters, methodologyHref, tab }: Router
             seriesConfigs={ROUTER_DECISION_TYPE_SERIES_CONFIGS}
             seriesType={ChartSeriesType.Bar}
             shareToggle
-            subtitle="Router requests per bucket by how the model was chosen."
             title="Routing decisions"
           />
           <RouterGroupedChartCard
@@ -121,7 +119,6 @@ export function RouterOverviewTabPanel({ filters, methodologyHref, tab }: Router
             seriesConfigs={ROUTER_BILLING_SERIES_CONFIGS}
             seriesType={ChartSeriesType.Bar}
             shareToggle
-            subtitle="Router requests per bucket by subscription or API billing."
             title="Subscription vs API requests"
           />
         </ResponsiveGrid>
