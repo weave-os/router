@@ -328,7 +328,6 @@ class AgentFlowHMMSidecar:
         return self._embed_uncached_override or embed_texts_uncached
 
     async def probe_embeddings(self, texts: list[str]) -> list[EmbeddingVector]:
-        """Uncached embeddings through the exact live serving call."""
         vectors, _info = await self._embed_uncached(
             texts, **self._uncached_embedding_call_kwargs(self.embedding_model)
         )

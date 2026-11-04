@@ -368,7 +368,7 @@ def test_embedding_probe_rejects_an_unknown_transport_before_any_call(
 
 
 CUSTOMER_MODEL = "acme/embed-small"
-_REFERENCES = (
+_REFERENCE_PROBES = (
     ReferenceProbe(text="first probe", vector=(1.0, 0.0, 0.0, 0.0)),
     ReferenceProbe(text="second probe", vector=(0.0, 1.0, 0.0, 0.0)),
 )
@@ -379,7 +379,7 @@ def _customer_model_classifier(probe_result: object):
         probe_result,
         provider=EmbeddingProvider.OPENAI_COMPATIBLE,
         model=CUSTOMER_MODEL,
-        reference_probes=_REFERENCES,
+        reference_probes=_REFERENCE_PROBES,
     )
 
 

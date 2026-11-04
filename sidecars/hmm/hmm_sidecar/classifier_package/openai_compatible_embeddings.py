@@ -9,6 +9,7 @@ operator configured that same model.
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import random
 from typing import Any
@@ -65,11 +66,29 @@ async def request_embeddings(
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, list):
         raise EmbeddingError("OpenAI-compatible response lacks data")
-    ordered = sorted(
-        (item for item in data if isinstance(item, dict)),
-        key=lambda item: int(item.get("index") or 0),
-    )
-    return [list(item.get("embedding") or []) for item in ordered]
+    by_index: dict[int, list[float]] = {}
+    for item in data:
+        index = item.get("index") if isinstance(item, dict) else None
+        if not isinstance(index, int) or isinstance(index, bool) or index in by_index:
+            raise EmbeddingError("OpenAI-compatible response has an invalid index")
+        by_index[index] = list(item.get("embedding") or [])
+    if sorted(by_index) != list(range(len(texts))):
+        raise EmbeddingError(
+            f"OpenAI-compatible endpoint returned {len(by_index)} vectors"
+            f" for {len(texts)} inputs"
+        )
+    return [by_index[index] for index in range(len(texts))]
+
+
+def _validate_vector(vector: list[float], expected_dim: int | None) -> None:
+    """Reject a vector before it reaches the embedding cache."""
+    if not vector or (expected_dim is not None and len(vector) != expected_dim):
+        raise EmbeddingError(
+            f"OpenAI-compatible endpoint returned a {len(vector)}-dimension vector;"
+            f" expected {expected_dim}"
+        )
+    if not all(math.isfinite(value) for value in vector):
+        raise EmbeddingError("OpenAI-compatible endpoint returned a non-finite vector")
 
 
 def _retryable(exc: BaseException) -> bool:
@@ -113,6 +132,7 @@ async def embed_texts_uncached(
     max_retries: int = 6,
     vertex_request_timeout: float | None = None,
     return_info: bool = False,
+    expected_dim: int | None = None,
     **_unused_provider_options: Any,
 ) -> dict[str, EmbeddingVector] | tuple[dict[str, EmbeddingVector], EmbeddingRunInfo]:
     base_url, api_key = embedding_endpoint()
@@ -131,11 +151,8 @@ async def embed_texts_uncached(
                 texts=chunk,
                 max_retries=max_retries,
             )
-            if len(results) != len(chunk):
-                raise EmbeddingError(
-                    f"OpenAI-compatible endpoint returned {len(results)} vectors"
-                    f" for {len(chunk)} inputs"
-                )
+            for vector in results:
+                _validate_vector(vector, expected_dim)
             vectors.update(zip(chunk, results, strict=True))
     if not return_info:
         return vectors

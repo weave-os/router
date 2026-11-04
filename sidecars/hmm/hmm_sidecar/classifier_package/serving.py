@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import math
 import os
@@ -212,7 +213,10 @@ class PackageClassifier:
             embedding_inflight_max_age_seconds=options.infer_deadline_seconds,
             offload_posterior=True,
             embed_uncached=(
-                openai_compatible_embeddings.embed_texts_uncached
+                functools.partial(
+                    openai_compatible_embeddings.embed_texts_uncached,
+                    expected_dim=profile.embedding_dim,
+                )
                 if profile.config.provider is EmbeddingProvider.OPENAI_COMPATIBLE
                 else None
             ),
@@ -254,39 +258,43 @@ class PackageClassifier:
         or a wrong endpoint fail readiness instead of every route."""
         model = self.profile.embedding_model
         embedding_dim = self.profile.embedding_dim
-        endpoint = self._configured_embedding_endpoint()
+        endpoint = self._validated_embedding_endpoint_label()
         probe_texts = [probe.text for probe in self.reference_probes] or [
             EMBEDDING_PROBE_TEXT
         ]
-        failure = f"embedding probe for package model {model!r} over {endpoint}"
+        probe_error_prefix = (
+            f"embedding probe for package model {model!r} over {endpoint}"
+        )
         try:
             vectors = await self.hmm.probe_embeddings(probe_texts)
         except Exception as error:
             raise EmbeddingError(
-                f"{failure} failed: {type(error).__name__}: {error}"
+                f"{probe_error_prefix} failed: {type(error).__name__}: {error}"
             ) from error
         for vector in vectors:
             probe_values = np.asarray(vector, dtype=np.float64)
             if probe_values.shape != (embedding_dim,):
                 raise EmbeddingError(
-                    f"{failure} returned {probe_values.size} dimensions; the"
+                    f"{probe_error_prefix} returned {probe_values.size} dimensions; the"
                     f" package was trained on {embedding_dim}"
                 )
             if not np.all(np.isfinite(probe_values)) or not np.any(probe_values):
-                raise EmbeddingError(f"{failure} returned a zero or non-finite vector")
+                raise EmbeddingError(
+                    f"{probe_error_prefix} returned a zero or non-finite vector"
+                )
         for probe, vector in zip(self.reference_probes, vectors, strict=False):
             live = np.asarray(vector, dtype=np.float64)
             reference = np.asarray(probe.vector, dtype=np.float64)
             cosine = float(
                 live @ reference / (np.linalg.norm(live) * np.linalg.norm(reference))
             )
-            if cosine < REFERENCE_PROBE_MIN_COSINE:
+            if not math.isfinite(cosine) or cosine < REFERENCE_PROBE_MIN_COSINE:
                 raise EmbeddingError(
-                    f"{failure} does not reproduce the package's reference"
+                    f"{probe_error_prefix} does not reproduce the package's reference"
                     f" vectors (cosine {cosine:.4f} < {REFERENCE_PROBE_MIN_COSINE})"
                 )
 
-    def _configured_embedding_endpoint(self) -> str:
+    def _validated_embedding_endpoint_label(self) -> str:
         """Name the configured endpoint, or fail if it is not the package's provider."""
         model = self.profile.embedding_model
         configured_provider = (

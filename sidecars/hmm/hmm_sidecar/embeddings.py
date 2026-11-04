@@ -10,6 +10,7 @@ from typing import Protocol
 import httpx
 import numpy as np
 
+from .classifier_package import gemini_embeddings
 from .classifier_package.openai_compatible_embeddings import request_embeddings
 from .schemas import EmbeddingContract
 
@@ -86,14 +87,17 @@ class OpenAICompatibleEmbedder:
         self.model = os.environ.get("HMM_EMBEDDING_MODEL", contract.model).strip()
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            return await request_embeddings(
-                client,
-                base_url=self.base_url,
-                api_key=self.api_key,
-                model=self.model,
-                texts=texts,
-            )
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                return await request_embeddings(
+                    client,
+                    base_url=self.base_url,
+                    api_key=self.api_key,
+                    model=self.model,
+                    texts=texts,
+                )
+        except gemini_embeddings.EmbeddingError as error:
+            raise EmbeddingError(str(error)) from error
 
 
 def build_embedder(contract: EmbeddingContract) -> Embedder:

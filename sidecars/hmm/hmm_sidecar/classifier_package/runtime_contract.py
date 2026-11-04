@@ -12,10 +12,11 @@ here rather than serving a different geometry than the one that was trained.
 
 from __future__ import annotations
 
+import math
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from hmm_sidecar.classifier_package.complexity_classifier import (
     no_tool_context_feature_layout,
@@ -62,6 +63,13 @@ class ReferenceProbe(BaseModel):
 
     text: str = Field(min_length=1)
     vector: tuple[float, ...] = Field(min_length=1)
+
+    @field_validator("vector")
+    @classmethod
+    def _finite_and_nonzero(cls, vector: tuple[float, ...]) -> tuple[float, ...]:
+        if not all(math.isfinite(value) for value in vector) or not any(vector):
+            raise ValueError("a reference probe vector must be finite and non-zero")
+        return vector
 
 
 class RuntimeContract(BaseModel):
