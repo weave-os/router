@@ -1,8 +1,9 @@
 package main
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 )
 
 type violation struct {
@@ -104,10 +105,7 @@ func appendGrowth(violations []violation, subject string, m metric, before, afte
 }
 
 func sortViolations(violations []violation) {
-	sort.Slice(violations, func(i, j int) bool {
-		if violations[i].subject != violations[j].subject {
-			return violations[i].subject < violations[j].subject
-		}
-		return violations[i].metric < violations[j].metric
+	slices.SortFunc(violations, func(a, b violation) int {
+		return cmp.Or(cmp.Compare(a.subject, b.subject), cmp.Compare(a.metric, b.metric))
 	})
 }

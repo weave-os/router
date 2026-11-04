@@ -3,6 +3,7 @@ package main
 import (
 	"path"
 	"path/filepath"
+	"slices"
 )
 
 type runResult struct {
@@ -31,7 +32,7 @@ func run(r repo, base string) (runResult, error) {
 	violations := compareFuncs(baseFiles, headFiles, allowed)
 	violations = append(violations, compareFiles(baseFiles, headFiles, allowed)...)
 	violations = append(violations, compareTotals(baseFiles, headFiles, allowed)...)
-	if touchesDir(changed, proxyDir) {
+	if slices.ContainsFunc(changed, func(p string) bool { return path.Dir(p) == proxyDir }) {
 		surfaceViolations, err := compareProxySurface(r, baseRev, allowed)
 		if err != nil {
 			return runResult{}, err
@@ -85,13 +86,4 @@ func compareProxySurface(r repo, baseRev string, allowed exceptionSet) ([]violat
 		return nil, err
 	}
 	return compareSurface(baseSurface, headSurface, allowed), nil
-}
-
-func touchesDir(paths []string, dir string) bool {
-	for _, p := range paths {
-		if path.Dir(p) == dir {
-			return true
-		}
-	}
-	return false
 }

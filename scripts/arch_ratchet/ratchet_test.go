@@ -48,7 +48,7 @@ func (s *Service) Do(a, b, c, d int, e, f, g string, h bool) {
 	run()
 }
 `
-	metrics, err := measureFile("internal/x/service.go", []byte(src))
+	metrics, _, err := measureFile("internal/x/service.go", []byte(src))
 	require.NoError(t, err)
 	require.Len(t, metrics.funcs, 1)
 	fn := metrics.funcs[0]
@@ -79,17 +79,17 @@ func F(model, providerName, path, prefix string) bool {
 		strings.HasPrefix(model, prefix)
 }
 `
-	metrics, err := measureFile("internal/x/f.go", []byte(src))
+	metrics, _, err := measureFile("internal/x/f.go", []byte(src))
 	require.NoError(t, err)
 	assert.Equal(t, 2, metrics.modelMatching)
 
-	catalog, err := measureFile(catalogDir+"/f.go", []byte(src))
+	catalog, _, err := measureFile(catalogDir+"/f.go", []byte(src))
 	require.NoError(t, err)
 	assert.Zero(t, catalog.modelMatching)
 }
 
-func fileWith(path string, codeLines int, funcs ...funcMetrics) fileMetrics {
-	return fileMetrics{path: path, codeLines: codeLines, funcs: funcs}
+func fileWith(codeLines int, funcs ...funcMetrics) fileMetrics {
+	return fileMetrics{codeLines: codeLines, funcs: funcs}
 }
 
 func fn(key string, lines int) funcMetrics {
@@ -139,20 +139,20 @@ func TestCompareFuncs(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			base := map[string]fileMetrics{"a.go": fileWith("a.go", 0, tc.base...)}
-			head := map[string]fileMetrics{"a.go": fileWith("a.go", 0, tc.head...)}
+			base := map[string]fileMetrics{"a.go": fileWith(0, tc.base...)}
+			head := map[string]fileMetrics{"a.go": fileWith(0, tc.head...)}
 			assert.Equal(t, tc.want, compareFuncs(base, head, tc.allowed))
 		})
 	}
 }
 
 func TestCompareFilesFlagsNewAndGrowingLongFiles(t *testing.T) {
-	base := map[string]fileMetrics{"old.go": fileWith("old.go", 900), "shrinks.go": fileWith("shrinks.go", 900)}
+	base := map[string]fileMetrics{"old.go": fileWith(900), "shrinks.go": fileWith(900)}
 	head := map[string]fileMetrics{
-		"old.go":     fileWith("old.go", 901),
-		"shrinks.go": fileWith("shrinks.go", 800),
-		"new.go":     fileWith("new.go", 501),
-		"small.go":   fileWith("small.go", 500),
+		"old.go":     fileWith(901),
+		"shrinks.go": fileWith(800),
+		"new.go":     fileWith(501),
+		"small.go":   fileWith(500),
 	}
 	assert.Equal(t, []violation{
 		{subject: "new.go", metric: metricFileLines, before: 0, after: 501, limit: limitFileLines},

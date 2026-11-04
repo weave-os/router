@@ -21,12 +21,12 @@ func measureSurface(sources map[string][]byte) (proxySurface, error) {
 	surface := proxySurface{}
 	keys := map[string]bool{}
 	for _, filePath := range sortedKeys(sources) {
-		if isGenerated(sources[filePath]) {
-			continue
-		}
-		file, err := parser.ParseFile(token.NewFileSet(), filePath, sources[filePath], 0)
+		file, err := parser.ParseFile(token.NewFileSet(), filePath, sources[filePath], parser.ParseComments)
 		if err != nil {
 			return proxySurface{}, err
+		}
+		if ast.IsGenerated(file) {
+			continue
 		}
 		surface.serviceFields += serviceFieldCount(file)
 		surface.serviceMethods += serviceMethodCount(file)
@@ -44,7 +44,7 @@ func serviceFieldCount(file *ast.File) int {
 			return true
 		}
 		if structType, isStruct := spec.Type.(*ast.StructType); isStruct {
-			count += paramCount(structType.Fields)
+			count += fieldListSize(structType.Fields)
 		}
 		return false
 	})

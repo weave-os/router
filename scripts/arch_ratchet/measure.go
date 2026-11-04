@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -47,7 +46,6 @@ type funcMetrics struct {
 }
 
 type fileMetrics struct {
-	path          string
 	codeLines     int
 	nolint        int
 	modelMatching int
@@ -58,28 +56,28 @@ type fileMetrics struct {
 func measureFiles(sources map[string][]byte) (map[string]fileMetrics, error) {
 	measured := make(map[string]fileMetrics, len(sources))
 	for _, filePath := range sortedKeys(sources) {
-		src := sources[filePath]
-		if isGenerated(src) {
-			continue
-		}
-		metrics, err := measureFile(filePath, src)
+		metrics, generated, err := measureFile(filePath, sources[filePath])
 		if err != nil {
 			return nil, err
 		}
-		measured[filePath] = metrics
+		if !generated {
+			measured[filePath] = metrics
+		}
 	}
 	return measured, nil
 }
 
-func measureFile(filePath string, src []byte) (fileMetrics, error) {
+func measureFile(filePath string, src []byte) (metrics fileMetrics, generated bool, err error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, filePath, src, parser.ParseComments)
 	if err != nil {
-		return fileMetrics{}, fmt.Errorf("parse %s: %w", filePath, err)
+		return fileMetrics{}, false, fmt.Errorf("parse %s: %w", filePath, err)
+	}
+	if ast.IsGenerated(file) {
+		return fileMetrics{}, true, nil
 	}
 	codeLines := codeLineSet(src)
-	metrics := fileMetrics{
-		path:      filePath,
+	metrics = fileMetrics{
 		codeLines: len(codeLines),
 		nolint:    countNolint(file),
 	}
@@ -97,17 +95,12 @@ func measureFile(filePath string, src []byte) (fileMetrics, error) {
 			values: map[metric]int{
 				metricCognitive: gocognit.Complexity(fn),
 				metricLines:     linesWithin(fset, fn, codeLines),
-				metricParams:    paramCount(fn.Type.Params),
+				metricParams:    fieldListSize(fn.Type.Params),
 				metricNesting:   maxNesting(fn.Body),
 			},
 		})
 	}
-	return metrics, nil
-}
-
-func isGenerated(src []byte) bool {
-	head := src[:min(len(src), 2048)]
-	return bytes.Contains(head, []byte("Code generated")) && bytes.Contains(head, []byte("DO NOT EDIT"))
+	return metrics, false, nil
 }
 
 // codeLineSet returns the lines holding at least one non-comment token.
@@ -166,9 +159,10 @@ func receiverName(expr ast.Expr) string {
 	return "?"
 }
 
-func paramCount(params *ast.FieldList) int {
+// fieldListSize counts declared names, counting an unnamed or embedded field as one.
+func fieldListSize(fields *ast.FieldList) int {
 	count := 0
-	for _, field := range params.List {
+	for _, field := range fields.List {
 		count += max(len(field.Names), 1)
 	}
 	return count
@@ -217,18 +211,15 @@ func isStringsCall(call *ast.CallExpr, names map[string]bool) bool {
 var normalizers = map[string]bool{"ToLower": true, "ToUpper": true, "TrimSpace": true}
 
 func namesModelOrProvider(expr ast.Expr) bool {
+	var name string
 	switch e := expr.(type) {
 	case *ast.Ident:
-		return mentionsModelOrProvider(e.Name)
+		name = e.Name
 	case *ast.SelectorExpr:
-		return mentionsModelOrProvider(e.Sel.Name)
+		name = e.Sel.Name
 	case *ast.CallExpr:
 		return len(e.Args) == 1 && isStringsCall(e, normalizers) && namesModelOrProvider(e.Args[0])
 	}
-	return false
-}
-
-func mentionsModelOrProvider(name string) bool {
 	lower := strings.ToLower(name)
 	return strings.Contains(lower, "model") || strings.Contains(lower, "provider")
 }
