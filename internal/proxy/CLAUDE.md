@@ -110,7 +110,14 @@ it to `Pin.TurnStrikes` (skipped for hard pins and `/force-model`).
 `runTurnLoop` folds turn strikes into `AutomaticExcludedModels` for tool-result
 requests and clears them on the next real user prompt
 (`RequestEnvelope.EndsWithUserPrompt`), so the session doesn't swap back to the
-failing model mid-turn.
+failing model mid-turn. When the included lane drops a model because its
+subscription pool failed on provider capacity (5xx), the session is also held
+off that whole pool (every model it serves) for `subscriptionSessionHold`
+(5 min, in memory per replica, own cache), which the next user prompt does not
+clear; a held pool is still tried when the request admits nothing else; otherwise every prompt re-walked the
+overloaded pool and flipped families. Each managed account+model that answered
+a 5xx is skipped for `managedOverloadCooldown` (30s, in memory) by later
+requests, which still authorizes the same paid rescue as a live 5xx.
 
 **A model that keeps answering 529 is circuit-broken, per organization.** Under
 `provider_overloaded` (default on), `dispatchPlanned` reports each executor

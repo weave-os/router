@@ -74,6 +74,7 @@ type Service struct {
 
 	router             router.Router
 	subscriptionModels subscriptionModelAccess
+	sessionHolds       subscriptionSessionHolds
 	// strategies contains every non-default router and its optional lifecycle
 	// reporters. Adding a strategy does not require another Service field.
 	strategies map[router.Strategy]registeredStrategy
@@ -886,17 +887,18 @@ func sanitizeSidecarDisplayMarker(raw string) string {
 // the marker wording; tests assert the mapping against these constants rather
 // than re-spelling the literals.
 const (
-	markerReasonShadowEscalation = "escalation marked — shadow mode; no action taken"
-	markerReasonUserForced       = "pinned by force-model"
-	markerReasonLoopEscalated    = "escalated due to loop"
-	markerReasonSwitched         = "switched for positive EV after cache eviction"
-	markerReasonStayed           = "stayed on your last pick"
-	markerReasonTierUpgrade      = "upgraded to a stronger tier"
-	markerReasonBestPick         = "best pick for this turn"
-	markerReasonBaseline         = "fell back to baseline after provider outage"
-	markerReasonSibling          = "switched after the picked model was overloaded"
-	markerReasonCyberRefusal     = "switched after the picked model declined the request"
-	markerReasonForcedPinDropped = "your force-model pin could not be served this turn"
+	markerReasonShadowEscalation    = "escalation marked — shadow mode; no action taken"
+	markerReasonUserForced          = "pinned by force-model"
+	markerReasonLoopEscalated       = "escalated due to loop"
+	markerReasonSwitched            = "switched for positive EV after cache eviction"
+	markerReasonStayed              = "stayed on your last pick"
+	markerReasonTierUpgrade         = "upgraded to a stronger tier"
+	markerReasonBestPick            = "best pick for this turn"
+	markerReasonBaseline            = "fell back to baseline after provider outage"
+	markerReasonSibling             = "switched after the picked model was overloaded"
+	markerReasonSubscriptionCovered = "switched to a subscription-covered model"
+	markerReasonCyberRefusal        = "switched after the picked model declined the request"
+	markerReasonForcedPinDropped    = "your force-model pin could not be served this turn"
 )
 
 // baselineRoutingMarkerFor renders the routing badge for an in-turn baseline
@@ -932,7 +934,10 @@ func siblingMarkerReason(ctx context.Context, failedModel string) string {
 // siblingMarkerFor renders the full sibling-rescue badge, including the
 // optional model-selection reasoning line and the per-request opt-out.
 func siblingMarkerFor(ctx context.Context, h http.Header, res turnLoopResult, failedModel, siblingModel string) string {
-	reason := siblingMarkerReason(ctx, failedModel)
+	return switchMarkerFor(ctx, h, res, siblingMarkerReason(ctx, failedModel), siblingModel)
+}
+
+func switchMarkerFor(ctx context.Context, h http.Header, res turnLoopResult, reason, siblingModel string) string {
 	return suppressMarkerIfRequested(ctx, h, modelSelectionMarkerForRequest(ctx, res, siblingRoutingMarkerFor(res, reason, siblingModel), siblingModel, reason))
 }
 
@@ -952,6 +957,11 @@ func siblingRoutingMarkerFor(res turnLoopResult, reason, siblingModel string) st
 func subscriptionTargetMarker(ctx context.Context, h http.Header, res turnLoopResult, picked, target router.Decision, pickedMarker string) string {
 	if target.Model == picked.Model {
 		return pickedMarker
+	}
+	// A pick the subscription lane never dispatched did not fail; it was
+	// swapped for a model the subscription covers.
+	if !attemptTraceFromContext(ctx).failedOn(picked.Model) {
+		return switchMarkerFor(ctx, h, res, markerReasonSubscriptionCovered, target.Model)
 	}
 	return siblingMarkerFor(ctx, h, res, picked.Model, target.Model)
 }
