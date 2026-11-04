@@ -188,7 +188,7 @@ function SetupStep({ creating, onGetStarted }: { creating: boolean; onGetStarted
         appearance={Appearance.Tinted}
         onClick={onGetStarted}
         disabled={creating}
-        className="!text-white w-full justify-center !border-brand !bg-brand hover:!bg-brand/90"
+        className="w-full justify-center !border-brand !bg-brand !text-wv-on-action hover:!bg-brand/90"
       >
         {creating ? "Creating key…" : "Get started"}
         <ArrowRight className="size-4" />

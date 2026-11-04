@@ -231,7 +231,7 @@ function ModelAliasEditor({
               </Button>
             </div>
             {unlisted && (
-              <Text className="text-amber-600 text-2xs">
+              <Text className="text-2xs text-wv-status-warning">
                 “{alias}” is not in the endpoint&apos;s published model list.
               </Text>
             )}
@@ -722,7 +722,7 @@ export function ProviderKeysPanel() {
                   type="submit"
                   appearance={Appearance.Tinted}
                   intent={Intent.Primary}
-                  className="!text-white !border-brand !bg-brand hover:!bg-brand/90"
+                  className="!border-brand !bg-brand !text-wv-on-action hover:!bg-brand/90"
                   disabled={saveDisabled}
                 >
                   {saving ? "Saving…" : "Save key"}
@@ -857,7 +857,7 @@ export function ProviderKeysPanel() {
                         <Button
                           appearance={Appearance.Tinted}
                           intent={Intent.Primary}
-                          className="!text-white !border-brand !bg-brand hover:!bg-brand/90"
+                          className="!border-brand !bg-brand !text-wv-on-action hover:!bg-brand/90"
                           onClick={() => handleSaveAliases(k.id)}
                           disabled={savingAliases}
                         >

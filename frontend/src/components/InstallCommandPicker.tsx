@@ -56,7 +56,7 @@ export function InstallCommandPicker({ token }: InstallCommandPickerProps) {
             appearance={harnessID === h.id ? Appearance.Tinted : Appearance.Hollow}
             className={
               harnessID === h.id
-                ? "!text-white !border-brand !bg-brand hover:!bg-brand/90"
+                ? "!border-brand !bg-brand !text-wv-on-action hover:!bg-brand/90"
                 : undefined
             }
             onClick={() => setHarnessID(h.id)}

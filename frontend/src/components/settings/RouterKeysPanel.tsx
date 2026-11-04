@@ -219,7 +219,7 @@ export function RouterKeysPanel() {
                       appearance={scope === o.value ? Appearance.Tinted : Appearance.Hollow}
                       className={
                         scope === o.value
-                          ? "!text-white !border-brand !bg-brand hover:!bg-brand/90"
+                          ? "!border-brand !bg-brand !text-wv-on-action hover:!bg-brand/90"
                           : undefined
                       }
                       title={o.hint}
@@ -251,7 +251,7 @@ export function RouterKeysPanel() {
                   type="submit"
                   appearance={Appearance.Tinted}
                   intent={Intent.Primary}
-                  className="!text-white !border-brand !bg-brand hover:!bg-brand/90"
+                  className="!border-brand !bg-brand !text-wv-on-action hover:!bg-brand/90"
                   disabled={creating}
                 >
                   {creating ? "Creating…" : "Create key"}
