@@ -1755,6 +1755,9 @@ func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers h
 }
 
 func anthropicSubscriptionFromContext(ctx context.Context) string {
+	if anthropicBYOKConfigured(ctx) {
+		return ""
+	}
 	v, _ := ctx.Value(AnthropicSubscriptionContextKey{}).(string)
 	return v
 }
@@ -6849,7 +6852,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 // subscription-first fallback models. Other selections fall through to BYOK,
 // a client API key, or the deployment key.
 //
-// Subscription-first lets a caller's own Claude subscription pay for Claude
+// Without Anthropic BYOK, a caller's own Claude subscription pays for Claude
 // turns. Native harnesses leave a sk-ant-oat- bearer in Authorization (or
 // x-api-key) while the router key rides in X-Weave-Router-Key. Server-side
 // enrollment (`npx @weave-os/router login`) is a separate managed-account path.
@@ -6859,6 +6862,10 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 // the client's inbound key to a different upstream provider. The deployment
 // env key is the correct fallback there.
 func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
+	byok := BuildCredentialsMap(externalKeysFromContext(ctx))
+	if provider == providers.ProviderAnthropic && byok[provider] != nil {
+		return context.WithValue(ctx, CredentialsContextKey{}, byok[provider])
+	}
 	routerKeyed := installationIDFromContext(ctx) != (uuid.UUID{})
 	// Skip subscription OAuth (fall through to BYOK / deployment key):
 	// exhausted (Anthropic-only, avoid re-429), toggle off (provider-wide), or
@@ -6896,7 +6903,6 @@ func resolveAndInjectCredentials(ctx context.Context, provider, model string, he
 			return context.WithValue(ctx, CredentialsContextKey{}, inbound)
 		}
 	}
-	byok := BuildCredentialsMap(externalKeysFromContext(ctx))
 	var creds *Credentials
 	if byok != nil {
 		creds = byok[provider]

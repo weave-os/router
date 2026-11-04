@@ -285,7 +285,7 @@ func TestSubscriptionFailoverParity_ModelCoverage(t *testing.T) {
 
 	t.Run("anthropic has no coverage gate", func(t *testing.T) {
 		in := parityAnthropicIngress()
-		ctx := resolveAndInjectCredentials(in.byokCtx(in.subCtx()), in.provider, in.uncoveredModel, http.Header{})
+		ctx := resolveAndInjectCredentials(in.subCtx(), in.provider, in.uncoveredModel, http.Header{})
 		require.NotNil(t, CredentialsFromContext(ctx))
 		assert.True(t, servedOnSubscription(ctx),
 			"any Anthropic model the caller can reach serves on the Claude subscription (D2)")
