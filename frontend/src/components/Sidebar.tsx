@@ -1,15 +1,19 @@
 "use client";
 
-import { Logo } from "./Logo";
-import { Button } from "@/components/molecules/Button";
-import { Tooltip } from "@/components/molecules/Tooltip";
-import { Appearance } from "@/components/types";
 import { api } from "@/lib/api";
-import { cn } from "@/lib/cn";
+import { Button } from "@/shared/components/molecules/Button";
+import { Tooltip } from "@/shared/components/molecules/Tooltip";
+import { Appearance } from "@/shared/components/types";
+import { cn } from "@/shared/tools/cn";
+
 import { BarChart2, LogOut, Settings } from "lucide-react";
+
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+
 import { type ReactNode } from "react";
+
+import { Logo } from "./Logo";
 
 interface NavItem {
   href: string;
@@ -73,11 +77,7 @@ export function Sidebar() {
 
       <div className="relative z-10 flex w-full items-center justify-between gap-2 p-2">
         <Tooltip content="Settings" side="right" interactiveChild>
-          <Button
-            href="/settings"
-            appearance={Appearance.Hollow}
-            className={sidebarFooterButton}
-          >
+          <Button href="/settings" appearance={Appearance.Hollow} className={sidebarFooterButton}>
             <Settings className="size-4" />
           </Button>
         </Tooltip>

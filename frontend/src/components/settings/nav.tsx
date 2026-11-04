@@ -1,4 +1,5 @@
 import { KeyRound, Plug, SlidersHorizontal } from "lucide-react";
+
 import { type ReactNode } from "react";
 
 export interface SettingsNavItem {

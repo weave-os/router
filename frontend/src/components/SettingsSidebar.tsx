@@ -1,13 +1,16 @@
 "use client";
 
-import { Logo } from "./Logo";
-import { Button } from "@/components/molecules/Button";
 import { SETTINGS_NAV, type SettingsNavItem } from "@/components/settings/nav";
-import { Appearance } from "@/components/types";
-import { cn } from "@/lib/cn";
+import { Button } from "@/shared/components/molecules/Button";
+import { Appearance } from "@/shared/components/types";
+import { cn } from "@/shared/tools/cn";
+
 import { ChevronLeft } from "lucide-react";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+
+import { Logo } from "./Logo";
 
 function NavLink({ item }: { item: SettingsNavItem }) {
   const pathname = usePathname();

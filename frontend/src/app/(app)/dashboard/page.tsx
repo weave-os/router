@@ -1,30 +1,32 @@
 "use client";
 
-import { Text } from "@/components/atoms/Text";
-import { ChartCard } from "@/components/ChartCard";
 import { CostBreakdownChart } from "@/components/charts/CostBreakdownChart";
 import { CumulativeSavingsChart } from "@/components/charts/CumulativeSavingsChart";
 import { ModelBreakdownChart } from "@/components/charts/ModelBreakdownChart";
 import { RouterCostSavingsChart } from "@/components/charts/RouterCostSavingsChart";
 import { SavingsRateChart } from "@/components/charts/SavingsRateChart";
-import {
-  DashboardPageFilters,
-  useDashboardFilters,
-} from "@/components/DashboardPageFilters";
-import { Card } from "@/components/molecules/Card";
-import { Page } from "@/components/Page";
-import { PageHeader } from "@/components/PageHeader";
-import { ResponsiveGrid } from "@/components/ResponsiveGrid";
 import { RouterOnboarding } from "@/components/RouterOnboarding";
-import { Statistic } from "@/components/Statistic";
 import {
   api,
   type MetricsSummary,
   type ModelBreakdownBucket,
   type TimeseriesBucket,
 } from "@/lib/api";
-import { cn } from "@/lib/cn";
-import { LoadState } from "@/tools/LoadState";
+import { Text } from "@/shared/components/atoms/Text";
+import { ChartCard } from "@/shared/components/ChartCard";
+import {
+  DashboardPageFilters,
+  useDashboardFilters,
+} from "@/shared/components/DashboardPageFilters";
+import { Card } from "@/shared/components/molecules/Card";
+import { Page } from "@/shared/components/Page";
+import { PageHeader } from "@/shared/components/PageHeader";
+import { ResponsiveGrid } from "@/shared/components/ResponsiveGrid";
+import { Statistic } from "@/shared/components/Statistic";
+import { useRouterDashboardDataSource } from "@/shared/data";
+import { cn } from "@/shared/tools/cn";
+import { LoadState } from "@/shared/tools/LoadState";
+
 import { useEffect, useState } from "react";
 
 function formatUSD(v: number): string {
@@ -76,6 +78,7 @@ export default function DashboardPage() {
   const [modelBuckets, setModelBuckets] = useState<ModelBreakdownBucket[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingState>("checking");
+  const { metrics } = useRouterDashboardDataSource();
 
   // A router that has never served a request has nothing to chart, so a fresh
   // install lands in onboarding instead of on six empty charts. The gate is the
@@ -104,14 +107,15 @@ export default function DashboardPage() {
   useEffect(() => {
     if (onboarding !== "done") return;
     let cancelled = false;
-    setError(null);
+    const range = { from: fromISO, to: toISO };
     Promise.all([
-      api.metrics.summary(fromISO, toISO),
-      api.metrics.timeseries(granularity, fromISO, toISO),
-      api.metrics.modelBreakdown(granularity, fromISO, toISO),
+      metrics.summary(range),
+      metrics.costTimeseries({ granularity, range }),
+      metrics.modelMix({ granularity, range }),
     ])
       .then(([s, ts, mb]) => {
         if (cancelled) return;
+        setError(null);
         setSummary(s);
         setBuckets(ts.buckets ?? []);
         setModelBuckets(mb.buckets ?? []);
@@ -123,7 +127,7 @@ export default function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [fromISO, toISO, granularity, onboarding]);
+  }, [fromISO, toISO, granularity, metrics, onboarding]);
 
   if (onboarding === "checking") return null;
   if (onboarding === "needed") {
@@ -206,20 +210,14 @@ export default function DashboardPage() {
                   : "Over requested cost"
             }
             accent={
-              summary == null
-                ? "default"
-                : summary.total_savings_usd >= 0
-                  ? "success"
-                  : "danger"
+              summary == null ? "default" : summary.total_savings_usd >= 0 ? "success" : "danger"
             }
           />
           <MetricCard
             className={ResponsiveGrid.Small}
             label="Requests"
             value={summary == null ? "—" : formatNumber(summary.request_count)}
-            sub={
-              summary == null ? undefined : `actual ${formatUSD(summary.total_actual_cost_usd)}`
-            }
+            sub={summary == null ? undefined : `actual ${formatUSD(summary.total_actual_cost_usd)}`}
           />
           <MetricCard
             className={ResponsiveGrid.Small}
@@ -361,9 +359,7 @@ function MetricCard({ className, label, value, sub, accent = "default" }: Metric
         >
           {value}
         </Text>
-        {sub != null && (
-          <Text className="mt-1 text-2xs text-muted-foreground">{sub}</Text>
-        )}
+        {sub != null && <Text className="mt-1 text-2xs text-muted-foreground">{sub}</Text>}
       </Card.Content>
     </Card>
   );

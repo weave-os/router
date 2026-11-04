@@ -1,8 +1,8 @@
 "use client";
 
-import { Button } from "@/components/molecules/Button";
-import { Appearance } from "@/components/types";
 import { INSTALL_SHELLS, type InstallShell } from "@/lib/installCommands";
+import { Button } from "@/shared/components/molecules/Button";
+import { Appearance } from "@/shared/components/types";
 
 interface InstallShellPickerProps {
   shell: InstallShell;
@@ -20,7 +20,7 @@ export function InstallShellPicker({ shell, onChange }: InstallShellPickerProps)
           role="radio"
           aria-checked={shell === s.value}
           size="sm"
-          appearance={Appearance.Outlined}
+          appearance={Appearance.Hollow}
           className={shell === s.value ? "!border-foreground/40" : "text-muted-foreground"}
           onClick={() => onChange(s.value)}
         >

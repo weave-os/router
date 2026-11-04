@@ -1,13 +1,6 @@
 "use client";
 
-import { EmptyHint, ErrorBanner } from "./shared";
-import { Text } from "@/components/atoms/Text";
 import { Input } from "@/components/Input";
-import { Button } from "@/components/molecules/Button";
-import { Card } from "@/components/molecules/Card";
-import { Command } from "@/components/molecules/Command";
-import { Popover } from "@/components/molecules/Popover";
-import { Appearance, Intent } from "@/components/types";
 import {
   api,
   type DeployedModel,
@@ -15,8 +8,18 @@ import {
   type ProviderAuthType,
   type AnthropicFederationConfig,
 } from "@/lib/api";
+import { Text } from "@/shared/components/atoms/Text";
+import { Button } from "@/shared/components/molecules/Button";
+import { Card } from "@/shared/components/molecules/Card";
+import { Command } from "@/shared/components/molecules/Command";
+import { Popover } from "@/shared/components/molecules/Popover";
+import { Appearance, Intent } from "@/shared/components/types";
+
 import { ChevronDown, Trash2 } from "lucide-react";
+
 import { useEffect, useRef, useState } from "react";
+
+import { EmptyHint, ErrorBanner } from "./shared";
 
 const PROVIDERS = [
   "anthropic",
@@ -109,11 +112,11 @@ function autoMatchRows(
   endpointModels: string[],
   existing: AliasRow[],
 ): AliasRow[] {
-  const taken = new Set(existing.map((r) => r.model.trim()).filter((m) => m !== ""));
+  const taken = new Set(existing.map(r => r.model.trim()).filter(m => m !== ""));
   const added: AliasRow[] = [];
   for (const m of models) {
     if (taken.has(m.model)) continue;
-    const matches = endpointModels.filter((id) => matchesCatalogID(id, m.model));
+    const matches = endpointModels.filter(id => matchesCatalogID(id, m.model));
     if (matches.length === 1) added.push({ model: m.model, alias: matches[0] });
   }
   return added;
@@ -157,7 +160,7 @@ function ModelAliasEditor({
             )}
             <Button
               type="button"
-              appearance={Appearance.Outlined}
+              appearance={Appearance.Hollow}
               size="sm"
               onClick={onFetchModels}
               disabled={fetching || fetchHint != null}
@@ -168,13 +171,13 @@ function ModelAliasEditor({
         )}
       </div>
       <datalist id={listID}>
-        {models.map((m) => (
+        {models.map(m => (
           <option key={m.model} value={m.model} />
         ))}
       </datalist>
       {endpointModels != null && (
         <datalist id={endpointListID}>
-          {endpointModels.map((id) => (
+          {endpointModels.map(id => (
             <option key={id} value={id} />
           ))}
         </datalist>
@@ -200,7 +203,7 @@ function ModelAliasEditor({
                 autoComplete="off"
                 placeholder="gpt-5"
                 value={row.model}
-                onChange={(e) =>
+                onChange={e =>
                   onChange(rows.map((r, j) => (i === j ? { ...r, model: e.target.value } : r)))
                 }
               />
@@ -212,7 +215,7 @@ function ModelAliasEditor({
                 autoComplete="off"
                 placeholder="openai-gpt-5"
                 value={row.alias}
-                onChange={(e) =>
+                onChange={e =>
                   onChange(rows.map((r, j) => (i === j ? { ...r, alias: e.target.value } : r)))
                 }
               />
@@ -228,7 +231,7 @@ function ModelAliasEditor({
               </Button>
             </div>
             {unlisted && (
-              <Text className="text-2xs text-amber-600">
+              <Text className="text-amber-600 text-2xs">
                 “{alias}” is not in the endpoint&apos;s published model list.
               </Text>
             )}
@@ -238,7 +241,7 @@ function ModelAliasEditor({
       <div>
         <Button
           type="button"
-          appearance={Appearance.Outlined}
+          appearance={Appearance.Hollow}
           onClick={() => onChange([...rows, { model: "", alias: "" }])}
         >
           Add alias
@@ -288,7 +291,7 @@ export function ProviderKeysPanel() {
   function load() {
     api.providerKeys
       .list()
-      .then((r) => setKeys(r.keys ?? []))
+      .then(r => setKeys(r.keys ?? []))
       .catch((err: unknown) =>
         setError(err instanceof Error ? err.message : "Failed to load keys."),
       );
@@ -299,7 +302,7 @@ export function ProviderKeysPanel() {
   useEffect(() => {
     api.config
       .get()
-      .then((cfg) => {
+      .then(cfg => {
         const set = (cfg.env_provider_keys ?? []).filter((p): p is Provider =>
           (PROVIDERS as readonly string[]).includes(p),
         );
@@ -316,15 +319,15 @@ export function ProviderKeysPanel() {
     api.excludedModels
       .get()
       // Non-fatal: aliases stay typeable, just without catalog suggestions.
-      .then((r) => setCatalogModels(r.available ?? []))
+      .then(r => setCatalogModels(r.available ?? []))
       .catch(() => setCatalogModels([]));
   }, []);
 
   const taken = new Set<string>([
-    ...keys.map((k) => k.provider),
-    ...envKeyed.filter((provider) => provider !== ANTHROPIC_PROVIDER),
+    ...keys.map(k => k.provider),
+    ...envKeyed.filter(provider => provider !== ANTHROPIC_PROVIDER),
   ]);
-  const available: Provider[] = PROVIDERS.filter((p) => !taken.has(p));
+  const available: Provider[] = PROVIDERS.filter(p => !taken.has(p));
   const provider: Provider | null =
     pickedProvider != null && available.includes(pickedProvider)
       ? pickedProvider
@@ -370,7 +373,11 @@ export function ProviderKeysPanel() {
           : null;
 
   const canFetchNew =
-    provider != null && baseURLRequired && effectiveAuthType === "bearer" && !keyMissing && !baseURLMissing;
+    provider != null &&
+    baseURLRequired &&
+    effectiveAuthType === "bearer" &&
+    !keyMissing &&
+    !baseURLMissing;
 
   // Discover models as soon as a usable key + URL are entered, so endpoint IDs
   // and auto-matched aliases appear without an extra click.
@@ -406,7 +413,7 @@ export function ProviderKeysPanel() {
       if (seq !== newFetchSeqRef.current) return;
       const models = r.models ?? [];
       setNewEndpointModels(models);
-      setAliasRows((rows) => [...rows, ...autoMatchRows(catalogModels, models, rows)]);
+      setAliasRows(rows => [...rows, ...autoMatchRows(catalogModels, models, rows)]);
     } catch (err: unknown) {
       if (seq !== newFetchSeqRef.current) return;
       setError(err instanceof Error ? err.message : "Failed to fetch models from the endpoint.");
@@ -424,7 +431,7 @@ export function ProviderKeysPanel() {
       if (editFetchIDRef.current !== id) return;
       const models = r.models ?? [];
       setEditEndpointModels(models);
-      setEditAliasRows((rows) => [...rows, ...autoMatchRows(catalogModels, models, rows)]);
+      setEditAliasRows(rows => [...rows, ...autoMatchRows(catalogModels, models, rows)]);
     } catch (err: unknown) {
       if (editFetchIDRef.current !== id) return;
       setError(err instanceof Error ? err.message : "Failed to fetch models from the endpoint.");
@@ -447,7 +454,11 @@ export function ProviderKeysPanel() {
         usingKeypair || usingEntra
           ? { type: effectiveAuthType, account: authAccount.trim(), user: authUser.trim() }
           : {
-              type: usingFederation ? ANTHROPIC_FEDERATION : baseURLRequired ? effectiveAuthType : "bearer",
+              type: usingFederation
+                ? ANTHROPIC_FEDERATION
+                : baseURLRequired
+                  ? effectiveAuthType
+                  : "bearer",
               federationConfig: usingFederation
                 ? {
                     federation_rule_id: federation.federation_rule_id.trim(),
@@ -517,7 +528,7 @@ export function ProviderKeysPanel() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-[200px_1fr]">
                 <ProviderPicker
                   value={provider}
-                  onChange={(value) => {
+                  onChange={value => {
                     setPickedProvider(value);
                     setAuthType("bearer");
                     setBaseURL("");
@@ -547,7 +558,7 @@ export function ProviderKeysPanel() {
                       className="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-2xs shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                       placeholder="-----BEGIN PRIVATE KEY-----"
                       value={keyValue}
-                      onChange={(e) => setKeyValue(e.target.value)}
+                      onChange={e => setKeyValue(e.target.value)}
                       required
                     />
                   </div>
@@ -562,7 +573,7 @@ export function ProviderKeysPanel() {
                     data-form-type="other"
                     placeholder={usingEntra ? "Azure Entra client secret" : "sk-..."}
                     value={keyValue}
-                    onChange={(e) => setKeyValue(e.target.value)}
+                    onChange={e => setKeyValue(e.target.value)}
                     required
                   />
                 )}
@@ -580,12 +591,14 @@ export function ProviderKeysPanel() {
                     name="provider-auth-type"
                     className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
                     value={effectiveAuthType}
-                    onChange={(e) => {
+                    onChange={e => {
                       setAuthType(e.target.value as ProviderAuthType);
                       setKeyValue("");
                     }}
                   >
-                    <option value="bearer" disabled={deploymentAnthropicKey}>Token (sent as-is)</option>
+                    <option value="bearer" disabled={deploymentAnthropicKey}>
+                      Token (sent as-is)
+                    </option>
                     {nativeAnthropic ? (
                       <option value={ANTHROPIC_FEDERATION}>Anthropic workload identity</option>
                     ) : (
@@ -625,8 +638,8 @@ export function ProviderKeysPanel() {
                       placeholder={placeholder}
                       autoComplete="off"
                       value={federation[field]}
-                      onChange={(e) =>
-                        setFederation((current) => ({ ...current, [field]: e.target.value }))
+                      onChange={e =>
+                        setFederation(current => ({ ...current, [field]: e.target.value }))
                       }
                     />
                   ))}
@@ -642,7 +655,7 @@ export function ProviderKeysPanel() {
                       usingEntra ? "00000000-0000-0000-0000-000000000000" : "MYORG-MYACCOUNT"
                     }
                     value={authAccount}
-                    onChange={(e) => setAuthAccount(e.target.value)}
+                    onChange={e => setAuthAccount(e.target.value)}
                     required
                   />
                   <Input
@@ -653,7 +666,7 @@ export function ProviderKeysPanel() {
                       usingEntra ? "00000000-0000-0000-0000-000000000000" : "SERVICE_USER"
                     }
                     value={authUser}
-                    onChange={(e) => setAuthUser(e.target.value)}
+                    onChange={e => setAuthUser(e.target.value)}
                     required
                   />
                 </div>
@@ -674,7 +687,7 @@ export function ProviderKeysPanel() {
                   data-form-type="other"
                   placeholder="https://gateway.example.com/api"
                   value={baseURL}
-                  onChange={(e) => setBaseURL(e.target.value)}
+                  onChange={e => setBaseURL(e.target.value)}
                   required={baseURLRequired}
                 />
               )}
@@ -692,7 +705,7 @@ export function ProviderKeysPanel() {
                 data-form-type="other"
                 placeholder="My Anthropic key"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={e => setName(e.target.value)}
               />
               <ModelAliasEditor
                 rows={aliasRows}
@@ -707,9 +720,9 @@ export function ProviderKeysPanel() {
               <div>
                 <Button
                   type="submit"
-                  appearance={Appearance.Filled}
+                  appearance={Appearance.Tinted}
                   intent={Intent.Primary}
-                  className="!border-brand !bg-brand !text-white hover:!bg-brand/90"
+                  className="!text-white !border-brand !bg-brand hover:!bg-brand/90"
                   disabled={saveDisabled}
                 >
                   {saving ? "Saving…" : "Save key"}
@@ -727,7 +740,7 @@ export function ProviderKeysPanel() {
           </Card.Header>
           <Card.Content>
             <ul className="divide-y divide-border">
-              {envKeyed.map((p) => (
+              {envKeyed.map(p => (
                 <li key={`env-${p}`} className="flex items-center justify-between px-5 py-3">
                   <div>
                     <div className="flex items-center gap-2">
@@ -753,7 +766,7 @@ export function ProviderKeysPanel() {
                   </Button>
                 </li>
               ))}
-              {keys.map((k) => (
+              {keys.map(k => (
                 <li key={k.id} className="px-5 py-3">
                   <div className="flex items-center justify-between">
                     <div>
@@ -792,7 +805,7 @@ export function ProviderKeysPanel() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Button
-                        appearance={Appearance.Outlined}
+                        appearance={Appearance.Hollow}
                         size="sm"
                         onClick={() => {
                           if (editingAliases === k.id) {
@@ -842,9 +855,9 @@ export function ProviderKeysPanel() {
                       />
                       <div>
                         <Button
-                          appearance={Appearance.Filled}
+                          appearance={Appearance.Tinted}
                           intent={Intent.Primary}
-                          className="!border-brand !bg-brand !text-white hover:!bg-brand/90"
+                          className="!text-white !border-brand !bg-brand hover:!bg-brand/90"
                           onClick={() => handleSaveAliases(k.id)}
                           disabled={savingAliases}
                         >
@@ -885,7 +898,7 @@ function ProviderPicker({
           <Button
             id="provider-picker"
             type="button"
-            appearance={Appearance.Outlined}
+            appearance={Appearance.Hollow}
             className="h-9 w-full justify-between border-input px-3 text-sm font-normal"
           >
             <span>{providerLabel(value)}</span>
@@ -895,7 +908,7 @@ function ProviderPicker({
         <Popover.Content className="w-56 p-1" align="start">
           <Command>
             <Command.List>
-              {options.map((p) => (
+              {options.map(p => (
                 <Command.Item
                   key={p}
                   onSelect={() => {

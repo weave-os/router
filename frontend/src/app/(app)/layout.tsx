@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
-
 import { SettingsSidebar } from "@/components/SettingsSidebar";
 import { Sidebar } from "@/components/Sidebar";
 import { SidebarLayout } from "@/components/SidebarLayout";
 import { api } from "@/lib/api";
+import { selfHostedDataSource } from "@/lib/selfHostedDataSource";
+import { RouterDashboardDataProvider } from "@/shared/data";
+
+import { usePathname, useRouter } from "next/navigation";
+
+import { useEffect, useState } from "react";
 
 type AuthState = "checking" | "authed" | "anonymous";
 
@@ -19,7 +22,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     api.auth
       .me()
-      .then((res) => {
+      .then(res => {
         if (cancelled) return;
         if (res.authenticated) {
           setState("authed");
@@ -46,5 +49,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const sidebar = pathname.startsWith("/settings") ? <SettingsSidebar /> : <Sidebar />;
 
-  return <SidebarLayout sidebar={sidebar}>{children}</SidebarLayout>;
+  return (
+    <RouterDashboardDataProvider dataSource={selfHostedDataSource}>
+      <SidebarLayout sidebar={sidebar}>{children}</SidebarLayout>
+    </RouterDashboardDataProvider>
+  );
 }

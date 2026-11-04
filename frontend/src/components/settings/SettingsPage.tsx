@@ -1,10 +1,12 @@
 "use client";
 
-import { settingsNavItem } from "./nav";
-import { Text } from "@/components/atoms/Text";
-import { Page } from "@/components/Page";
-import { PageHeader } from "@/components/PageHeader";
+import { Text } from "@/shared/components/atoms/Text";
+import { Page } from "@/shared/components/Page";
+import { PageHeader } from "@/shared/components/PageHeader";
+
 import { type ReactNode } from "react";
+
+import { settingsNavItem } from "./nav";
 
 export interface SettingsPageProps {
   href: string;

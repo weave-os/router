@@ -3,11 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
     "build": "next build",
+    "dev": "next dev",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "lint": "oxlint --deny-warnings --report-unused-disable-directives .",
     "start": "next start",
-    "typegen": "next typegen",
-    "typecheck": "tsc --project tsconfig.json"
+    "test": "vitest run",
+    "typecheck": "tsc --project tsconfig.json",
+    "typegen": "next typegen"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",
@@ -29,17 +33,27 @@
   },
   "devDependencies": {
     "@tailwindcss/container-queries": "^0.1.1",
-    "@types/node": "^20",
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.8",
+    "@types/node": "^24.19.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^6.2.1",
     "autoprefixer": "^10.4.19",
+    "jsdom": "^26.1.0",
+    "oxfmt": "^0.72.0",
+    "oxlint": "^1.87.0",
     "postcss": "^8.5.23",
     "tailwindcss": "^3.4.6",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vite": "^8.3.5",
+    "vitest": "^5.1.0"
   },
   "overrides": {
-    "postcss": "^8.5.23",
     "js-yaml": "^4.3.2",
+    "postcss": "^8.5.23",
     "postcss-selector-parser": "^6.1.5"
   }
 }
