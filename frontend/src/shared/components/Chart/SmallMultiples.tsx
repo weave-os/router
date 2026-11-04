@@ -1,10 +1,9 @@
 "use client";
 
-import { Text } from "@/shared/components/atoms/Text";
-import { LoadState } from "@/shared/tools/LoadState";
-
 import { useMemo } from "react";
 
+import { LoadState } from "../../tools/LoadState";
+import { Text } from "../atoms/Text";
 import { Chart } from "./Chart";
 import { ChartAxisDomain, ChartAxisType, ChartSeriesConfig, ChartSeriesType } from "./types";
 

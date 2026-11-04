@@ -1,8 +1,8 @@
-import { Icon } from "@/shared/components/atoms/Icon";
-import { StackedBar } from "@/shared/components/molecules/StackedBar";
-import { Tooltip } from "@/shared/components/molecules/Tooltip";
-import { cn } from "@/shared/tools/cn";
-import { formatPercentage } from "@/shared/tools/format";
+import { cn } from "../../../tools/cn";
+import { formatPercentage } from "../../../tools/format";
+import { Icon } from "../../atoms/Icon";
+import { StackedBar } from "../StackedBar";
+import { Tooltip } from "../Tooltip";
 
 export interface BreakdownSlice {
   amount: number;

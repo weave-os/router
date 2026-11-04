@@ -1,6 +1,6 @@
-import { Tooltip } from "@/shared/components/molecules/Tooltip";
-import { cn } from "@/shared/tools/cn";
-import { formatHours, formatInteger } from "@/shared/tools/format";
+import { cn } from "../../../tools/cn";
+import { formatHours, formatInteger } from "../../../tools/format";
+import { Tooltip } from "../Tooltip";
 
 const DEFAULT_TOOLTIP = "Compared to the previous period";
 const DEFAULT_EMPTY_TOOLTIP = "Not enough data to compare";

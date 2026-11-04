@@ -1,9 +1,9 @@
 "use client";
 
-import { ChangeValue, type ChangeUnit } from "@/shared/components/molecules/ChangeValue";
-import { Statistic, type StatisticValue } from "@/shared/components/Statistic";
-import { type RouterMetricPoint } from "@/shared/data";
-import { LoadState } from "@/shared/tools/LoadState";
+import { type RouterMetricPoint } from "../../data";
+import { LoadState } from "../../tools/LoadState";
+import { ChangeValue, type ChangeUnit } from "../molecules/ChangeValue";
+import { Statistic, type StatisticValue } from "../Statistic";
 
 // These mirror the group names chmetric/router_cost.go emits. The comparison group keeps the
 // "expensive" wording deliberately: renaming it would silently empty charts on any bundle that
@@ -16,9 +16,7 @@ export const ROUTER_COMPARISON_COST_GROUP = "Expensive model cost";
  * backend omitted that group because the comparison model couldn't be priced, which is different
  * from traffic that reprices to $0.
  */
-export function routerCostTotals(
-  values: readonly Pick<RouterMetricPoint, "group" | "value">[],
-) {
+export function routerCostTotals(values: readonly Pick<RouterMetricPoint, "group" | "value">[]) {
   let actual = 0;
   let comparison = 0;
   let hasComparison = false;

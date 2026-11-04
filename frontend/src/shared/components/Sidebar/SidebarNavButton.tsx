@@ -1,8 +1,8 @@
+import { forwardRef } from "react";
+
+import { cn } from "../../tools/cn";
 import { Button, ButtonProps } from "../molecules/Button";
 import { Appearance } from "../types";
-import { cn } from "../../tools/cn";
-
-import { forwardRef } from "react";
 
 export const SidebarNavButton = forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, ...props }, ref) => (

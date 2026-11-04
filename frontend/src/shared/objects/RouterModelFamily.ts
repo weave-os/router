@@ -1,5 +1,8 @@
-import { RouterModelFamilyChartColor, RouterModelFamilyChartColorToken } from "@/shared/tools/chartColors";
-import { formatRouterModelName, ROUTER_MODEL_DISPLAY_NAMES } from "@/shared/tools/format";
+import {
+  RouterModelFamilyChartColor,
+  RouterModelFamilyChartColorToken,
+} from "../tools/chartColors";
+import { formatRouterModelName, ROUTER_MODEL_DISPLAY_NAMES } from "../tools/format";
 
 /** Who makes a model, which can differ from the provider that served it (e.g. a gateway). */
 export enum RouterModelFamily {

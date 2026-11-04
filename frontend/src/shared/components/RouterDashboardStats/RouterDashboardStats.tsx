@@ -2,24 +2,24 @@
 
 import { formatDistanceToNow } from "date-fns";
 
-import { Icon } from "@/shared/components/atoms/Icon";
-import { MetricValue } from "@/shared/components/atoms/MetricValue";
-import { Skeleton } from "@/shared/components/atoms/Skeleton";
-import { CHART_CARD_TITLE_CLASS } from "@/shared/components/ChartCard";
-import { ErrorCard } from "@/shared/components/ErrorCard";
-import { LoadStateWrapper } from "@/shared/components/LoadStateWrapper";
-import { Tooltip } from "@/shared/components/molecules/Tooltip";
 import {
   RouterMetricGroup,
   RouterMetricType,
   RouterRoutingState,
   type DateRange,
-} from "@/shared/data";
-import { useRouterMetricSeries, useRouterReportSummary } from "@/shared/data/useRouterMetricSeries";
-import { cn } from "@/shared/tools/cn";
-import { formatBigDecimal, formatUSD } from "@/shared/tools/format";
-import { LoadState } from "@/shared/tools/LoadState";
-import { TypographyRole } from "@/shared/tools/typography";
+} from "../../data";
+import { useRouterMetricSeries, useRouterReportSummary } from "../../data/useRouterMetricSeries";
+import { cn } from "../../tools/cn";
+import { formatBigDecimal, formatUSD } from "../../tools/format";
+import { LoadState } from "../../tools/LoadState";
+import { TypographyRole } from "../../tools/typography";
+import { Icon } from "../atoms/Icon";
+import { MetricValue } from "../atoms/MetricValue";
+import { Skeleton } from "../atoms/Skeleton";
+import { CHART_CARD_TITLE_CLASS } from "../ChartCard";
+import { ErrorCard } from "../ErrorCard";
+import { LoadStateWrapper } from "../LoadStateWrapper";
+import { Tooltip } from "../molecules/Tooltip";
 
 export enum RouterSummaryCard {
   RouterSpend = "router-spend",
@@ -92,8 +92,7 @@ export function RouterDashboardStats({
   });
   const routedSpend = LoadState.map(
     routingState,
-    series =>
-      series.values.find(point => point.group === RouterRoutingState.Routed)?.value ?? 0,
+    series => series.values.find(point => point.group === RouterRoutingState.Routed)?.value ?? 0,
   );
   const visible = CARD_ORDER.filter(card => cards.has(card));
 

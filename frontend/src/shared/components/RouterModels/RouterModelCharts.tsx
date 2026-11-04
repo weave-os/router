@@ -2,7 +2,24 @@
 
 import { useMemo, useState } from "react";
 
-import { Skeleton } from "@/shared/components/atoms/Skeleton";
+import {
+  type DateRange,
+  RouterMetricGroup,
+  type RouterMetricPoint,
+  RouterMetricType,
+} from "../../data";
+import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
+import { modelColorTokens } from "../../objects/RouterModelFamily";
+import { AccountChartColorToken, ChartColorToken } from "../../tools/chartColors";
+import {
+  formatBigDecimal,
+  formatPercentage,
+  formatRouterModelName,
+  formatUSD,
+} from "../../tools/format";
+import { LoadState } from "../../tools/LoadState";
+import { addGranularity, formatInterval, formatTime } from "../../tools/timeGranularity";
+import { Skeleton } from "../atoms/Skeleton";
 import {
   Chart,
   ChartAxisType,
@@ -12,23 +29,16 @@ import {
   ChartSeriesType,
   SmallMultiples,
   SmallMultiplesScale,
-} from "@/shared/components/Chart";
-import { ChartCard } from "@/shared/components/ChartCard";
-import { type Granularity } from "@/shared/components/DashboardPageFilters/useDashboardFilters";
-import { ErrorCard } from "@/shared/components/ErrorCard";
-import { LoadStateWrapper } from "@/shared/components/LoadStateWrapper";
-import { BreakdownBar, type BreakdownSlice } from "@/shared/components/molecules/BreakdownBar";
-import { Tabs } from "@/shared/components/molecules/Tabs";
-import { RouterChartHeadline } from "@/shared/components/RouterCharts/RouterChartHeadline";
-import { displayGranularity } from "@/shared/components/RouterCharts/chartRange";
-import { TIME_KEY } from "@/shared/components/RouterCharts/pivotSeries";
-import { type DateRange, RouterMetricGroup, type RouterMetricPoint, RouterMetricType } from "@/shared/data";
-import { useRouterMetricSeries } from "@/shared/data/useRouterMetricSeries";
-import { modelColorTokens } from "@/shared/objects/RouterModelFamily";
-import { AccountChartColorToken, ChartColorToken } from "@/shared/tools/chartColors";
-import { formatBigDecimal, formatPercentage, formatRouterModelName, formatUSD } from "@/shared/tools/format";
-import { LoadState } from "@/shared/tools/LoadState";
-import { addGranularity, formatInterval, formatTime } from "@/shared/tools/timeGranularity";
+} from "../Chart";
+import { ChartCard } from "../ChartCard";
+import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
+import { ErrorCard } from "../ErrorCard";
+import { LoadStateWrapper } from "../LoadStateWrapper";
+import { BreakdownBar, type BreakdownSlice } from "../molecules/BreakdownBar";
+import { Tabs } from "../molecules/Tabs";
+import { displayGranularity } from "../RouterCharts/chartRange";
+import { TIME_KEY } from "../RouterCharts/pivotSeries";
+import { RouterChartHeadline } from "../RouterCharts/RouterChartHeadline";
 
 interface ModelChartProps {
   className?: string;
@@ -58,7 +68,12 @@ const BAND_STYLE = { dot: false, fillOpacity: 1, stroke: "var(--wv-bg-surface)" 
 type MixShareRow = Record<string, number>;
 
 function useRequestsByModel(granularity: Granularity, range: DateRange) {
-  return useRouterMetricSeries({ granularity, group: RouterMetricGroup.Model, range, type: RouterMetricType.ModelUsage });
+  return useRouterMetricSeries({
+    granularity,
+    group: RouterMetricGroup.Model,
+    range,
+    type: RouterMetricType.ModelUsage,
+  });
 }
 
 function modelTotals(points: readonly RouterMetricPoint[]) {
@@ -111,7 +126,10 @@ export function RouterModelMixShareChart({
   const timeGranularity = displayGranularity(granularity);
   const seriesType = display === ModelMixDisplay.Bands ? ChartSeriesType.Area : ChartSeriesType.Bar;
   const requests = useRequestsByModel(granularity, range);
-  const mix = useMemo(() => LoadState.map(requests, ({ values }) => modelMixShareRows(values)), [requests]);
+  const mix = useMemo(
+    () => LoadState.map(requests, ({ values }) => modelMixShareRows(values)),
+    [requests],
+  );
   const models = useMemo(() => LoadState.map(mix, ({ models: list }) => list), [mix]);
   const groups = useMemo(() => LoadState.map(models, list => [list]), [models]);
   const config = useMemo(() => {
@@ -120,7 +138,12 @@ export function RouterModelMixShareChart({
     const colors = modelColorTokens(named);
     const entries: [string, ChartSeriesConfig<number, number>][] = named.map((model, index) => [
       model,
-      { color: colors[index], ...BAND_STYLE, label: formatRouterModelName(model), type: seriesType },
+      {
+        color: colors[index],
+        ...BAND_STYLE,
+        label: formatRouterModelName(model),
+        type: seriesType,
+      },
     ]);
     if (list.includes(OTHER_GROUP_ID)) {
       entries.push([
@@ -137,7 +160,10 @@ export function RouterModelMixShareChart({
     }
     return Object.fromEntries(entries);
   }, [models, seriesType]);
-  const rows = LoadState.map(mix, ({ rows: values }) => values as ChartData<typeof TIME_KEY, string, number, number>);
+  const rows = LoadState.map(
+    mix,
+    ({ rows: values }) => values as ChartData<typeof TIME_KEY, string, number, number>,
+  );
   const firstTime = LoadState.unwrap(mix)?.rows[0]?.[TIME_KEY];
   const isEmpty = LoadState.isLoaded(mix) && mix.value.rows.length === 0;
 
@@ -164,7 +190,11 @@ export function RouterModelMixShareChart({
           </Tabs>
         ) : undefined
       }
-      headline={hero && !isEmpty ? <div ref={setLegendPortal} className="mt-4 min-w-0 self-start" /> : undefined}
+      headline={
+        hero && !isEmpty ? (
+          <div ref={setLegendPortal} className="mt-4 min-w-0 self-start" />
+        ) : undefined
+      }
       title="Model mix share"
       subtitle={
         display === ModelMixDisplay.Bands
@@ -173,7 +203,10 @@ export function RouterModelMixShareChart({
       }
     >
       {isEmpty ? (
-        <ErrorCard title="No requests yet" description="Route requests through Weave Router to see your model mix." />
+        <ErrorCard
+          title="No requests yet"
+          description="Route requests through Weave Router to see your model mix."
+        />
       ) : (
         <Chart
           allowDependentTickDecimals
@@ -188,11 +221,16 @@ export function RouterModelMixShareChart({
           independentDomain={([min, max]) =>
             display === ModelMixDisplay.Bands
               ? [min, max]
-              : [addGranularity(min, timeGranularity, -1).getTime(), addGranularity(max, timeGranularity, 1).getTime()]
+              : [
+                  addGranularity(min, timeGranularity, -1).getTime(),
+                  addGranularity(max, timeGranularity, 1).getTime(),
+                ]
           }
           formatValue={formatPercentage}
           // The hero runs edge to edge, where the first date would sit clipped on the left edge.
-          formatIndependentValue={value => (hero && value === firstTime ? "" : formatTime(value, timeGranularity))}
+          formatIndependentValue={value =>
+            hero && value === firstTime ? "" : formatTime(value, timeGranularity)
+          }
           formatIndependentValueTooltip={value => formatInterval(value, timeGranularity)}
           hideDependentAxis={hero}
           legend={!hero || legendPortal != null}
@@ -206,9 +244,9 @@ export function RouterModelMixShareChart({
 
 /** One series per model over the range's buckets, busiest first; a missing bucket reads as 0. */
 export function modelRequestSeries(points: readonly RouterMetricPoint[]) {
-  const times = [...new Set(points.flatMap(({ time }) => (time == null ? [] : [new Date(time).getTime()])))].sort(
-    (a, b) => a - b,
-  );
+  const times = [
+    ...new Set(points.flatMap(({ time }) => (time == null ? [] : [new Date(time).getTime()]))),
+  ].sort((a, b) => a - b);
   const byModel = new Map<string, Map<number, number>>();
   for (const { group, time, value } of points) {
     if (group == null || group === "" || time == null) continue;
@@ -236,10 +274,17 @@ export function modelRequestSeries(points: readonly RouterMetricPoint[]) {
   };
 }
 
-export function RouterModelRequestsSmallMultiples({ className, granularity, range }: ModelChartProps) {
+export function RouterModelRequestsSmallMultiples({
+  className,
+  granularity,
+  range,
+}: ModelChartProps) {
   const timeGranularity = displayGranularity(granularity);
   const requests = useRequestsByModel(granularity, range);
-  const series = useMemo(() => LoadState.map(requests, ({ values }) => modelRequestSeries(values)), [requests]);
+  const series = useMemo(
+    () => LoadState.map(requests, ({ values }) => modelRequestSeries(values)),
+    [requests],
+  );
 
   return (
     <ChartCard
@@ -251,11 +296,19 @@ export function RouterModelRequestsSmallMultiples({ className, granularity, rang
       <LoadStateWrapper
         state={series}
         loading={<Skeleton className="h-64 w-full" />}
-        error={() => <ErrorCard title="Couldn't load requests by model" description="Try refreshing the page." />}
+        error={() => (
+          <ErrorCard
+            title="Couldn't load requests by model"
+            description="Try refreshing the page."
+          />
+        )}
       >
         {({ series: models, times }) =>
           models.length === 0 ? (
-            <ErrorCard title="No requests yet" description="Route requests through Weave Router to see requests by model." />
+            <ErrorCard
+              title="No requests yet"
+              description="Route requests through Weave Router to see requests by model."
+            />
           ) : (
             <SmallMultiples
               color={ChartColorToken.Scale2}
@@ -285,12 +338,21 @@ export function modelSpendSlices(points: readonly RouterMetricPoint[]): Breakdow
   }));
   const other = ranked.slice(MAX_MODELS).reduce((sum, [, value]) => sum + value, 0);
   if (other > 0) {
-    slices.push({ amount: other, color: OTHER_MODELS_COLOR, id: OTHER_GROUP_ID, isOther: true, label: "Other models" });
+    slices.push({
+      amount: other,
+      color: OTHER_MODELS_COLOR,
+      id: OTHER_GROUP_ID,
+      isOther: true,
+      label: "Other models",
+    });
   }
   return slices;
 }
 
-export function RouterModelSpendRanking({ className, range }: Omit<ModelChartProps, "granularity">) {
+export function RouterModelSpendRanking({
+  className,
+  range,
+}: Omit<ModelChartProps, "granularity">) {
   const spend = useRouterMetricSeries({
     granularity: null,
     group: RouterMetricGroup.Model,
@@ -325,11 +387,19 @@ export function RouterModelSpendRanking({ className, range }: Omit<ModelChartPro
         <LoadStateWrapper
           state={breakdown}
           loading={<Skeleton className="h-64 w-full" />}
-          error={() => <ErrorCard title="Couldn't load catalog cost by model" description="Try refreshing the page." />}
+          error={() => (
+            <ErrorCard
+              title="Couldn't load catalog cost by model"
+              description="Try refreshing the page."
+            />
+          )}
         >
           {({ slices, total }) =>
             slices.length === 0 ? (
-              <ErrorCard title="No API spend yet" description="Route requests through Weave Router to see catalog cost by model." />
+              <ErrorCard
+                title="No API spend yet"
+                description="Route requests through Weave Router to see catalog cost by model."
+              />
             ) : (
               <BreakdownBar formatAmount={formatUSD} slices={slices} total={total} />
             )

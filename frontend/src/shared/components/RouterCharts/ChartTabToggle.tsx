@@ -1,6 +1,6 @@
 "use client";
 
-import { Tabs } from "@/shared/components/molecules/Tabs";
+import { Tabs } from "../molecules/Tabs";
 
 export interface ChartTabToggleOption<T extends string> {
   label: string;

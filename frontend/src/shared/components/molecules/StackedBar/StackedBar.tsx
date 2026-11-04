@@ -1,6 +1,6 @@
-import { cn } from "@/shared/tools/cn";
-
 import { type HTMLAttributes } from "react";
+
+import { cn } from "../../../tools/cn";
 
 export interface StackedBarSegment {
   amount: number;

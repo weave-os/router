@@ -1,8 +1,8 @@
 "use client";
 
-import { cn } from "../../tools/cn";
-
 import Link from "next/link";
+
+import { cn } from "../../tools/cn";
 
 export interface ReportSectionTabItem {
   href: string;

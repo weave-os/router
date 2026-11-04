@@ -1,13 +1,12 @@
 "use client";
 
-import { Tooltip } from "@/shared/components/molecules/Tooltip";
-import { ChartColor, ChartContrastColor, ChartContrastColorToken } from "@/shared/tools/chartColors";
-import { cn } from "@/shared/tools/cn";
-
 import chroma from "chroma-js";
 
 import { type CSSProperties, type ReactNode } from "react";
 
+import { ChartColor, ChartContrastColor, ChartContrastColorToken } from "../../tools/chartColors";
+import { cn } from "../../tools/cn";
+import { Tooltip } from "../molecules/Tooltip";
 import { getSequentialIntensityColor } from "./helpers/getSequentialIntensityColor";
 
 // A calm blue ramp by default; a full grid of solid orange cells reads as an alert.

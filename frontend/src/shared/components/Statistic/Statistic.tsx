@@ -2,13 +2,13 @@
 
 import { type ReactNode } from "react";
 
-import { Text } from "@/shared/components/atoms/Text";
-import { LoadStateWrapper } from "@/shared/components/LoadStateWrapper";
-import { MetricValue } from "@/shared/components/atoms/MetricValue";
-import { Skeleton } from "@/shared/components/atoms/Skeleton";
-import { cn } from "@/shared/tools/cn";
-import { LoadState } from "@/shared/tools/LoadState";
-import { GRANULARITY_NAME, type TimeGranularity } from "@/shared/tools/timeGranularity";
+import { cn } from "../../tools/cn";
+import { LoadState } from "../../tools/LoadState";
+import { GRANULARITY_NAME, type TimeGranularity } from "../../tools/timeGranularity";
+import { MetricValue } from "../atoms/MetricValue";
+import { Skeleton } from "../atoms/Skeleton";
+import { Text } from "../atoms/Text";
+import { LoadStateWrapper } from "../LoadStateWrapper";
 
 export interface StatisticRate {
   granularity: TimeGranularity;

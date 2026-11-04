@@ -1,11 +1,6 @@
-import { type ChartSeriesConfig } from "@/shared/components/Chart";
-import {
-  RouterBilling,
-  RouterDecisionType,
-  RouterRoutingState,
-  RouterUserLink,
-} from "@/shared/data";
-import { AccountChartColorToken, ChartColorToken } from "@/shared/tools/chartColors";
+import { RouterBilling, RouterDecisionType, RouterRoutingState, RouterUserLink } from "../../data";
+import { AccountChartColorToken, ChartColorToken } from "../../tools/chartColors";
+import { type ChartSeriesConfig } from "../Chart";
 
 export type RouterSeriesConfigs = Readonly<Record<string, ChartSeriesConfig<number, number>>>;
 

@@ -1,9 +1,9 @@
-import { Skeleton } from "../Skeleton";
-import { cn } from "../../../tools/cn";
-
 import * as AvatarPrimitive from "@radix-ui/react-avatar";
 
 import React, { useMemo } from "react";
+
+import { cn } from "../../../tools/cn";
+import { Skeleton } from "../Skeleton";
 
 export interface AvatarProps extends React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Root> {
   /**

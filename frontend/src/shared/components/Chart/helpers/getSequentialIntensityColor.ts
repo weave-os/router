@@ -1,6 +1,6 @@
-import { ChartColor } from "@/shared/tools/chartColors";
-
 import chroma from "chroma-js";
+
+import { ChartColor } from "../../../tools/chartColors";
 
 /**
  * Single-hue sequential ramp (light -> dark, weave orange by default) for encoding a magnitude —

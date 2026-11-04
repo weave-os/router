@@ -3,9 +3,9 @@
 import { createContext, forwardRef, useContext } from "react";
 
 import { cn } from "../../tools/cn";
+import { SafeOmit } from "../../tools/types";
 import { Icon } from "../atoms/Icon";
 import { Button, type ButtonProps } from "../molecules/Button";
-import { SafeOmit } from "../../tools/types";
 import { Appearance } from "../types";
 
 export interface FilterPillProps extends React.PropsWithChildren {

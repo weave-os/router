@@ -1,7 +1,7 @@
 import type { ComponentProps } from "react";
 
-import { Icon } from "../atoms/Icon";
 import { cn } from "../../tools/cn";
+import { Icon } from "../atoms/Icon";
 
 interface SidebarNavIconProps extends ComponentProps<typeof Icon> {
   active?: boolean;

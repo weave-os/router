@@ -1,4 +1,4 @@
-import { type RouterMetricPoint } from "@/shared/data";
+import { type RouterMetricPoint } from "../../data";
 
 export const TIME_KEY = "time" as const;
 

@@ -1,11 +1,10 @@
 "use client";
 
-import { cn } from "@/shared/tools/cn";
-
 import * as TabsPrimitive from "@radix-ui/react-tabs";
 
 import { forwardRef, useCallback } from "react";
 
+import { cn } from "../../../tools/cn";
 import styles from "./TabsMotion.module.css";
 import { useActiveTabIndicator } from "./useActiveTabIndicator";
 

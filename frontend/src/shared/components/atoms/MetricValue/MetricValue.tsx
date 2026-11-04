@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
-import { cn } from "@/shared/tools/cn";
-import { TypographyRole } from "@/shared/tools/typography";
+import { cn } from "../../../tools/cn";
+import { TypographyRole } from "../../../tools/typography";
 
 export type MetricValueSize = TypographyRole.PageTitle | TypographyRole.Display;
 

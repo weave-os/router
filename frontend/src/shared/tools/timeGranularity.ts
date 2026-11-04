@@ -1,6 +1,3 @@
-import { DateFormat } from "@/shared/tools/time";
-import { unreachable } from "@/shared/tools/types";
-
 import { tz, TZDate } from "@date-fns/tz";
 import {
   addDays,
@@ -20,6 +17,9 @@ import {
   startOfWeek,
   startOfYear,
 } from "date-fns";
+
+import { DateFormat } from "./time";
+import { unreachable } from "./types";
 
 /** Week start day for date-fns: 0 = Sunday, 1 = Monday. */
 const UTC_TIMEZONE = "UTC";

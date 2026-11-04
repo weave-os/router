@@ -2,23 +2,24 @@
 
 import { tz } from "@date-fns/tz";
 import { format } from "date-fns";
+
 import { useMemo } from "react";
 
-import { Skeleton } from "@/shared/components/atoms/Skeleton";
-import { Heatmap, HeatmapDensity, HeatmapLegend, HeatmapTexture } from "@/shared/components/Chart";
-import { ChartCard } from "@/shared/components/ChartCard";
-import { ErrorCard } from "@/shared/components/ErrorCard";
-import { LoadStateWrapper } from "@/shared/components/LoadStateWrapper";
-import { type DateRange, type RouterMetricPoint, RouterMetricType } from "@/shared/data";
-import { useRouterMetricSeries } from "@/shared/data/useRouterMetricSeries";
-import { ChartColor } from "@/shared/tools/chartColors";
-import { formatBigDecimal } from "@/shared/tools/format";
-import { LoadState } from "@/shared/tools/LoadState";
+import { type DateRange, type RouterMetricPoint, RouterMetricType } from "../../data";
+import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
+import { ChartColor } from "../../tools/chartColors";
+import { formatBigDecimal } from "../../tools/format";
+import { LoadState } from "../../tools/LoadState";
 import {
   addGranularityUTC,
   startOfGranularityUTC,
   TimeGranularity,
-} from "@/shared/tools/timeGranularity";
+} from "../../tools/timeGranularity";
+import { Skeleton } from "../atoms/Skeleton";
+import { Heatmap, HeatmapDensity, HeatmapLegend, HeatmapTexture } from "../Chart";
+import { ChartCard } from "../ChartCard";
+import { ErrorCard } from "../ErrorCard";
+import { LoadStateWrapper } from "../LoadStateWrapper";
 
 const HEATMAP_COLOR = ChartColor.Scale2;
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -33,7 +34,9 @@ export function monthColumnLabels(weekStarts: readonly Date[]) {
       : "",
   );
   return labels.map((label, index) =>
-    labels.slice(index + 1, index + MONTH_LABEL_SPAN_COLUMNS).some(next => next !== "") ? "" : label,
+    labels.slice(index + 1, index + MONTH_LABEL_SPAN_COLUMNS).some(next => next !== "")
+      ? ""
+      : label,
   );
 }
 
@@ -81,14 +84,23 @@ function formatRequests(requests: number) {
 }
 
 /** Router requests per day by weekday. Always daily, whatever the page's bucket size. */
-export function RouterDailyRequestsHeatmap({ className, range }: { className?: string; range: DateRange }) {
+export function RouterDailyRequestsHeatmap({
+  className,
+  range,
+}: {
+  className?: string;
+  range: DateRange;
+}) {
   const daily = useRouterMetricSeries({
     granularity: "day",
     range,
     type: RouterMetricType.ModelUsage,
   });
   const grid = useMemo(
-    () => LoadState.map(daily, ({ values }) => (values.length === 0 ? null : dailyRequestsGrid(values, range))),
+    () =>
+      LoadState.map(daily, ({ values }) =>
+        values.length === 0 ? null : dailyRequestsGrid(values, range),
+      ),
     [daily, range],
   );
 
@@ -117,11 +129,16 @@ export function RouterDailyRequestsHeatmap({ className, range }: { className?: s
       <LoadStateWrapper
         state={grid}
         loading={<Skeleton className="h-48 w-full" />}
-        error={() => <ErrorCard title="Couldn't load daily requests" description="Try refreshing the page." />}
+        error={() => (
+          <ErrorCard title="Couldn't load daily requests" description="Try refreshing the page." />
+        )}
       >
         {dailyGrid =>
           dailyGrid == null ? (
-            <ErrorCard title="No requests yet" description="Route requests through Weave Router to see when people use it." />
+            <ErrorCard
+              title="No requests yet"
+              description="Route requests through Weave Router to see when people use it."
+            />
           ) : (
             <Heatmap
               baseColor={HEATMAP_COLOR}

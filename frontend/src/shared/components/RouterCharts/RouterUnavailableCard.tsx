@@ -1,7 +1,7 @@
-import { ChartCard } from "@/shared/components/ChartCard";
-import { ChartMessageCard } from "@/shared/components/Chart";
-import { Card } from "@/shared/components/molecules/Card";
-import { type Unavailable } from "@/shared/data";
+import { type Unavailable } from "../../data";
+import { ChartMessageCard } from "../Chart";
+import { ChartCard } from "../ChartCard";
+import { Card } from "../molecules/Card";
 
 export interface RouterUnavailableCardProps {
   className?: string;

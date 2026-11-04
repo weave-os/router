@@ -1,4 +1,4 @@
-import { TimeGranularity } from "@/shared/tools/timeGranularity";
+import { TimeGranularity } from "./timeGranularity";
 
 const INTEGER_FORMATTER = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
 

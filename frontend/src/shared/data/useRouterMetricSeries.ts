@@ -1,10 +1,9 @@
 "use client";
 
-import { type LoadState } from "@/shared/tools/LoadState";
-
+import { type LoadState } from "../tools/LoadState";
 import { type RouterMetricSeries, type RouterMetricSeriesRequest } from "./metricSeries";
-import { useRouterDashboardQuery } from "./RouterDashboardDataProvider";
 import { type RouterPerson, type RouterReportSummary } from "./metricSeries";
+import { useRouterDashboardQuery } from "./RouterDashboardDataProvider";
 import { type DateRange } from "./types";
 
 /** One dashboard metric from the host's data source; reloads when any request field changes. */

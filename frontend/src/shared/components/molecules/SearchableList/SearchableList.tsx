@@ -1,10 +1,10 @@
-import { Icon } from "@/shared/components/atoms/Icon";
-import { Input } from "@/shared/components/atoms/Input";
-import { Text } from "@/shared/components/atoms/Text";
-import { Button } from "@/shared/components/molecules/Button";
-import { Appearance } from "@/shared/components/types";
-
 import { type ReactNode, useMemo, useState } from "react";
+
+import { Icon } from "../../atoms/Icon";
+import { Input } from "../../atoms/Input";
+import { Text } from "../../atoms/Text";
+import { Appearance } from "../../types";
+import { Button } from "../Button";
 
 const DEFAULT_MAX_VISIBLE = 50;
 

@@ -1,8 +1,8 @@
-import { useIsMounted } from "@/shared/hooks/useIsMounted";
-import { LoadState } from "@/shared/tools/LoadState";
-import { unreachable } from "@/shared/tools/types";
-
 import { useEffect, useState } from "react";
+
+import { useIsMounted } from "../../hooks/useIsMounted";
+import { LoadState } from "../../tools/LoadState";
+import { unreachable } from "../../tools/types";
 
 export interface LoadStateWrapperProps<T> {
   /**

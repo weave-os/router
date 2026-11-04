@@ -1,6 +1,10 @@
 "use client";
 
-import { RouterDashboardSlot, RouterDashboardSlotName, useHasRouterDashboardSlot } from "../../slots";
+import {
+  RouterDashboardSlot,
+  RouterDashboardSlotName,
+  useHasRouterDashboardSlot,
+} from "../../slots";
 import { Text } from "../atoms/Text";
 import { DashboardPageFilters, useDashboardFilters } from "../DashboardPageFilters";
 import { Page } from "../Page";

@@ -1,11 +1,10 @@
 "use client";
 
-import { cn } from "../../tools/cn";
-
 import { usePathname } from "next/navigation";
 
 import { type ReactNode, type Ref, useLayoutEffect, useRef } from "react";
 
+import { cn } from "../../tools/cn";
 import styles from "./RouterSidebarSwap.module.css";
 
 export enum RouterSidebarPanel {

@@ -1,14 +1,14 @@
-import { Skeleton } from "@/shared/components/atoms/Skeleton";
-import { Tooltip } from "@/shared/components/molecules/Tooltip";
-import { Appearance, Intent } from "@/shared/components/types";
-import { cn } from "@/shared/tools/cn";
-import { SafeOmit } from "@/shared/tools/types";
-
 import { cva, type VariantProps } from "class-variance-authority";
 
 import Link from "next/link";
 
 import * as React from "react";
+
+import { cn } from "../../../tools/cn";
+import { SafeOmit } from "../../../tools/types";
+import { Skeleton } from "../../atoms/Skeleton";
+import { Appearance, Intent } from "../../types";
+import { Tooltip } from "../Tooltip";
 
 const badgeVariants = cva(
   "inline-flex shrink-0 grow-0 cursor-default items-center gap-1 truncate rounded-full px-2.5 py-0.5 text-body font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wv-focus focus-visible:ring-offset-2 focus-visible:ring-offset-wv-surface",

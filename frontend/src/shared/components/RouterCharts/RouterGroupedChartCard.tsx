@@ -2,6 +2,11 @@
 
 import { useMemo, useState } from "react";
 
+import { type DateRange, type RouterMetricGroup, type RouterMetricType } from "../../data";
+import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
+import { formatBigDecimal } from "../../tools/format";
+import { LoadState } from "../../tools/LoadState";
+import { addGranularity, formatInterval, formatTime } from "../../tools/timeGranularity";
 import {
   Chart,
   ChartAxisType,
@@ -9,25 +14,11 @@ import {
   type ChartFillPattern,
   type ChartSeriesConfig,
   ChartSeriesType,
-} from "@/shared/components/Chart";
-import { ChartCard } from "@/shared/components/ChartCard";
-import { type Granularity } from "@/shared/components/DashboardPageFilters/useDashboardFilters";
-import {
-  type DateRange,
-  type RouterMetricGroup,
-  type RouterMetricType,
-} from "@/shared/data";
-import { useRouterMetricSeries } from "@/shared/data/useRouterMetricSeries";
-import { formatBigDecimal } from "@/shared/tools/format";
-import { LoadState } from "@/shared/tools/LoadState";
-import {
-  addGranularity,
-  formatInterval,
-  formatTime,
-} from "@/shared/tools/timeGranularity";
-
-import { ChartTabToggle } from "./ChartTabToggle";
+} from "../Chart";
+import { ChartCard } from "../ChartCard";
+import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
 import { displayGranularity, previousRange } from "./chartRange";
+import { ChartTabToggle } from "./ChartTabToggle";
 import { pivotSeries, TIME_KEY, toShare } from "./pivotSeries";
 import { periodPercentChange, RouterChartHeadline } from "./RouterChartHeadline";
 import { type RouterSeriesConfigs } from "./routerSeriesConfigs";

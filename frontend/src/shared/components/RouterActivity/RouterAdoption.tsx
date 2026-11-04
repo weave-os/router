@@ -1,28 +1,29 @@
 "use client";
 
 import { format, formatDistanceToNowStrict } from "date-fns";
-import { type ReactNode, useMemo } from "react";
 
-import { Avatar } from "@/shared/components/atoms/Avatar";
-import { Icon } from "@/shared/components/atoms/Icon";
-import { MetricValue } from "@/shared/components/atoms/MetricValue";
-import { Skeleton } from "@/shared/components/atoms/Skeleton";
-import { Text } from "@/shared/components/atoms/Text";
-import { CHART_CARD_TITLE_CLASS } from "@/shared/components/ChartCard";
-import { LoadStateWrapper } from "@/shared/components/LoadStateWrapper";
-import { Badge } from "@/shared/components/molecules/Badge";
-import { Card } from "@/shared/components/molecules/Card";
-import { SearchableList } from "@/shared/components/molecules/SearchableList";
-import { StackedBar } from "@/shared/components/molecules/StackedBar";
-import { Tooltip } from "@/shared/components/molecules/Tooltip";
-import { type RouterPerson, RouterUserLink, useRouterPeople } from "@/shared/data";
-import { ChartColorToken } from "@/shared/tools/chartColors";
-import { cn } from "@/shared/tools/cn";
-import { formatInteger, formatPercentage } from "@/shared/tools/format";
-import { LoadState } from "@/shared/tools/LoadState";
-import { pluralize } from "@/shared/tools/strings";
-import { DateFormat } from "@/shared/tools/time";
-import { TypographyRole } from "@/shared/tools/typography";
+import { type ReactNode, useMemo, useState } from "react";
+
+import { type RouterPerson, RouterUserLink, useRouterPeople } from "../../data";
+import { ChartColorToken } from "../../tools/chartColors";
+import { cn } from "../../tools/cn";
+import { formatInteger, formatPercentage } from "../../tools/format";
+import { LoadState } from "../../tools/LoadState";
+import { pluralize } from "../../tools/strings";
+import { DateFormat } from "../../tools/time";
+import { TypographyRole } from "../../tools/typography";
+import { Avatar } from "../atoms/Avatar";
+import { Icon } from "../atoms/Icon";
+import { MetricValue } from "../atoms/MetricValue";
+import { Skeleton } from "../atoms/Skeleton";
+import { Text } from "../atoms/Text";
+import { CHART_CARD_TITLE_CLASS } from "../ChartCard";
+import { LoadStateWrapper } from "../LoadStateWrapper";
+import { Badge } from "../molecules/Badge";
+import { Card } from "../molecules/Card";
+import { SearchableList } from "../molecules/SearchableList";
+import { StackedBar } from "../molecules/StackedBar";
+import { Tooltip } from "../molecules/Tooltip";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_WINDOW_DAYS = 30;
@@ -69,7 +70,8 @@ export function adoptionCounts(people: readonly RouterPerson[], now: number): Ad
   );
   const linked = used.filter(({ link }) => link === RouterUserLink.Linked);
   const unlinked = used.filter(({ link }) => link === RouterUserLink.Unlinked);
-  const isActive = ({ lastRequestAt }: InactivePerson) => daysSince(lastRequestAt) <= ACTIVE_WINDOW_DAYS;
+  const isActive = ({ lastRequestAt }: InactivePerson) =>
+    daysSince(lastRequestAt) <= ACTIVE_WINDOW_DAYS;
   return {
     active: linked.filter(isActive).length,
     engineers: people.filter(({ link }) => link === RouterUserLink.Linked).length,
@@ -84,7 +86,8 @@ export function adoptionCounts(people: readonly RouterPerson[], now: number): Ad
 
 function useAdoptionCounts() {
   const people = useRouterPeople();
-  return useMemo(() => LoadState.map(people, rows => adoptionCounts(rows, Date.now())), [people]);
+  const [now] = useState(() => Date.now());
+  return useMemo(() => LoadState.map(people, rows => adoptionCounts(rows, now)), [now, people]);
 }
 
 function adoptionSlices({ active, engineers, routerUsers }: AdoptionCounts) {
@@ -139,7 +142,9 @@ function CardLoadState({
         </>
       }
       error={() => (
-        <Text className="mt-2 text-caption text-wv-secondary">Couldn&apos;t load. Try refreshing.</Text>
+        <Text className="mt-2 text-caption text-wv-secondary">
+          Couldn&apos;t load. Try refreshing.
+        </Text>
       )}
     >
       {children}
@@ -184,9 +189,14 @@ export function RouterAdoptionCard({ className }: { className?: string }) {
           <ul className="flex min-h-8 flex-wrap items-center justify-end gap-x-3 gap-y-1 text-caption text-wv-secondary">
             {adoptionSlices(counts).map(({ amount, color, id, label, shortLabel }) => (
               <li key={id} className="flex items-center gap-1.5" title={label}>
-                <span aria-hidden="true" className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: color }} />
+                <span
+                  aria-hidden="true"
+                  className="size-2.5 shrink-0 rounded-sm"
+                  style={{ backgroundColor: color }}
+                />
                 <span>
-                  <span className="tabular-nums text-wv-primary">{formatInteger(amount)}</span> {shortLabel}
+                  <span className="tabular-nums text-wv-primary">{formatInteger(amount)}</span>{" "}
+                  {shortLabel}
                   <span className="sr-only">: {label}</span>
                 </span>
               </li>
@@ -200,14 +210,23 @@ export function RouterAdoptionCard({ className }: { className?: string }) {
             <MetricValue
               className="mt-2 block tracking-tight"
               size={TypographyRole.Display}
-              value={adoption.engineers === 0 ? "—" : formatPercentage(adoption.routerUsers / adoption.engineers)}
+              value={
+                adoption.engineers === 0
+                  ? "—"
+                  : formatPercentage(adoption.routerUsers / adoption.engineers)
+              }
             />
             <Text className="mt-1 text-caption text-wv-secondary">
-              {formatInteger(adoption.routerUsers)} of {formatInteger(adoption.engineers)} engineers have used the
-              router · all time
+              {formatInteger(adoption.routerUsers)} of {formatInteger(adoption.engineers)} engineers
+              have used the router · all time
             </Text>
             {adoption.engineers > 0 && (
-              <StackedBar className="mt-4 gap-1" segments={adoptionSlices(adoption)} size="md" total={adoption.engineers} />
+              <StackedBar
+                className="mt-4 gap-1"
+                segments={adoptionSlices(adoption)}
+                size="md"
+                total={adoption.engineers}
+              />
             )}
           </>
         )}
@@ -231,14 +250,19 @@ export function RouterInactiveCard({ className }: { className?: string }) {
           const unlinked = inactive.length - linked;
           return (
             <>
-              <MetricValue className="mt-2 block" size={TypographyRole.Display} value={formatInteger(linked)} />
+              <MetricValue
+                className="mt-2 block"
+                size={TypographyRole.Display}
+                value={formatInteger(linked)}
+              />
               <Text className="mt-1 text-caption text-wv-secondary">
-                linked people with no request in {INACTIVE_AFTER_DAYS}+ days · {ALL_TIME_CAVEAT.toLowerCase()}
+                linked people with no request in {INACTIVE_AFTER_DAYS}+ days ·{" "}
+                {ALL_TIME_CAVEAT.toLowerCase()}
               </Text>
               {unlinked > 0 && (
                 <Text className="text-caption text-wv-secondary">
-                  {formatInteger(unlinked)} unlinked router {pluralize(unlinked, "user")} with no request in{" "}
-                  {INACTIVE_AFTER_DAYS}+ days
+                  {formatInteger(unlinked)} unlinked router {pluralize(unlinked, "user")} with no
+                  request in {INACTIVE_AFTER_DAYS}+ days
                 </Text>
               )}
               {inactive.length > 0 && (

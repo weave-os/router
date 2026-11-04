@@ -2,18 +2,18 @@
 
 import { useMemo } from "react";
 
-import { Chart, ChartAxisType, type ChartData, ChartSeriesType } from "@/shared/components/Chart";
-import { ChartCard } from "@/shared/components/ChartCard";
-import { type Granularity } from "@/shared/components/DashboardPageFilters/useDashboardFilters";
-import { displayGranularity, previousRange } from "@/shared/components/RouterCharts/chartRange";
-import { TIME_KEY } from "@/shared/components/RouterCharts/pivotSeries";
-import { periodPercentChange, RouterChartHeadline } from "@/shared/components/RouterCharts/RouterChartHeadline";
-import { type DateRange, type RouterMetricPoint, RouterMetricType } from "@/shared/data";
-import { useRouterMetricSeries } from "@/shared/data/useRouterMetricSeries";
-import { ChartColor } from "@/shared/tools/chartColors";
-import { formatBigDecimal } from "@/shared/tools/format";
-import { LoadState } from "@/shared/tools/LoadState";
-import { addGranularity, formatInterval, formatTime } from "@/shared/tools/timeGranularity";
+import { type DateRange, type RouterMetricPoint, RouterMetricType } from "../../data";
+import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
+import { ChartColor } from "../../tools/chartColors";
+import { formatBigDecimal } from "../../tools/format";
+import { LoadState } from "../../tools/LoadState";
+import { addGranularity, formatInterval, formatTime } from "../../tools/timeGranularity";
+import { Chart, ChartAxisType, type ChartData, ChartSeriesType } from "../Chart";
+import { ChartCard } from "../ChartCard";
+import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
+import { displayGranularity, previousRange } from "../RouterCharts/chartRange";
+import { TIME_KEY } from "../RouterCharts/pivotSeries";
+import { periodPercentChange, RouterChartHeadline } from "../RouterCharts/RouterChartHeadline";
 
 const PER_PERSON_KEY = "requests_per_person";
 const PER_PERSON_KEYS = LoadState.loaded([PER_PERSON_KEY] as const);
@@ -37,10 +37,16 @@ export function requestsPerActivePerson(
   return [...totalsByTime(activeUsers)]
     .filter(([, people]) => people > 0)
     .sort(([a], [b]) => a - b)
-    .map(([time, people]) => ({ [PER_PERSON_KEY]: (requestTotals.get(time) ?? 0) / people, [TIME_KEY]: time }));
+    .map(([time, people]) => ({
+      [PER_PERSON_KEY]: (requestTotals.get(time) ?? 0) / people,
+      [TIME_KEY]: time,
+    }));
 }
 
-function totalPerPerson(requests: readonly RouterMetricPoint[], activeUsers: readonly RouterMetricPoint[]) {
+function totalPerPerson(
+  requests: readonly RouterMetricPoint[],
+  activeUsers: readonly RouterMetricPoint[],
+) {
   const people = activeUsers.reduce((sum, { value }) => sum + value, 0);
   return people === 0 ? null : requests.reduce((sum, { value }) => sum + value, 0) / people;
 }
@@ -63,10 +69,22 @@ export function RouterRequestsPerActiveUserChart({
 }) {
   const timeGranularity = displayGranularity(granularity);
   const requests = useRouterMetricSeries({ granularity, range, type: RouterMetricType.ModelUsage });
-  const activeUsers = useRouterMetricSeries({ granularity, range, type: RouterMetricType.ActiveUsers });
+  const activeUsers = useRouterMetricSeries({
+    granularity,
+    range,
+    type: RouterMetricType.ActiveUsers,
+  });
   const previousWindow = useMemo(() => previousRange(range), [range]);
-  const totalRequests = useRouterMetricSeries({ granularity: null, range, type: RouterMetricType.ModelUsage });
-  const totalActive = useRouterMetricSeries({ granularity: null, range, type: RouterMetricType.ActiveUsers });
+  const totalRequests = useRouterMetricSeries({
+    granularity: null,
+    range,
+    type: RouterMetricType.ModelUsage,
+  });
+  const totalActive = useRouterMetricSeries({
+    granularity: null,
+    range,
+    type: RouterMetricType.ActiveUsers,
+  });
   const previousRequests = useRouterMetricSeries({
     granularity: null,
     range: previousWindow,
@@ -79,10 +97,13 @@ export function RouterRequestsPerActiveUserChart({
   });
 
   const rows = useMemo(
-    () => LoadState.map(requests, activeUsers, (r, a) => requestsPerActivePerson(r.values, a.values)),
+    () =>
+      LoadState.map(requests, activeUsers, (r, a) => requestsPerActivePerson(r.values, a.values)),
     [activeUsers, requests],
   );
-  const mean = LoadState.map(totalRequests, totalActive, (r, a) => totalPerPerson(r.values, a.values));
+  const mean = LoadState.map(totalRequests, totalActive, (r, a) =>
+    totalPerPerson(r.values, a.values),
+  );
   const percentChange = LoadState.map(
     totalRequests,
     totalActive,
@@ -90,7 +111,9 @@ export function RouterRequestsPerActiveUserChart({
     previousActive,
     (r, a, pr, pa) => {
       const now = totalPerPerson(r.values, a.values);
-      return now == null ? null : periodPercentChange(now, totalPerPerson(pr.values, pa.values) ?? 0);
+      return now == null
+        ? null
+        : periodPercentChange(now, totalPerPerson(pr.values, pa.values) ?? 0);
     },
   );
   const referenceLines = useMemo(
@@ -120,13 +143,24 @@ export function RouterRequestsPerActiveUserChart({
       headline={
         <RouterChartHeadline
           percentChange={percentChange}
-          statistic={LoadState.map(mean, value => (value == null ? {} : { total: `${formatBigDecimal(value)} avg` }))}
+          statistic={LoadState.map(mean, value =>
+            value == null ? {} : { total: `${formatBigDecimal(value)} avg` },
+          )}
         />
       }
     >
       <Chart
-        config={{ [PER_PERSON_KEY]: { color: ChartColor.Scale1, label: "Requests per person", type: ChartSeriesType.Bar } }}
-        data={LoadState.map(rows, values => values as ChartData<typeof TIME_KEY, string, number, number>)}
+        config={{
+          [PER_PERSON_KEY]: {
+            color: ChartColor.Scale1,
+            label: "Requests per person",
+            type: ChartSeriesType.Bar,
+          },
+        }}
+        data={LoadState.map(
+          rows,
+          values => values as ChartData<typeof TIME_KEY, string, number, number>,
+        )}
         dependentKeys={PER_PERSON_KEYS}
         independentKey={TIME_KEY}
         independentType={ChartAxisType.Time}

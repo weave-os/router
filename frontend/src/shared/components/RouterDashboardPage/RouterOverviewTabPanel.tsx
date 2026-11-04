@@ -2,9 +2,9 @@
 
 import { useMemo } from "react";
 
-import { ChartFillPattern, ChartSeriesType } from "../Chart";
 import { RouterMetricGroup, RouterMetricType } from "../../data";
 import { RouterDashboardSlot, RouterDashboardSlotName } from "../../slots";
+import { ChartFillPattern, ChartSeriesType } from "../Chart";
 import { type UseDashboardFiltersResult } from "../DashboardPageFilters";
 import { ResponsiveGrid } from "../ResponsiveGrid";
 import {
@@ -46,7 +46,11 @@ export interface RouterOverviewTabPanelProps {
 }
 
 /** Only the active tab mounts, so each tab's cards fetch only while visible. */
-export function RouterOverviewTabPanel({ filters, methodologyHref, tab }: RouterOverviewTabPanelProps) {
+export function RouterOverviewTabPanel({
+  filters,
+  methodologyHref,
+  tab,
+}: RouterOverviewTabPanelProps) {
   const { fromISO, granularity, toISO } = filters;
   const range = useMemo(() => ({ from: fromISO, to: toISO }), [fromISO, toISO]);
 
@@ -88,10 +92,26 @@ export function RouterOverviewTabPanel({ filters, methodologyHref, tab }: Router
             methodologyHref={methodologyHref}
             range={range}
           />
-          <RouterCostBreakdownChart className={ResponsiveGrid.Full} granularity={granularity} range={range} />
-          <RouterCumulativeSavingsChart className={ResponsiveGrid.Medium} granularity={granularity} range={range} />
-          <RouterSavingsRateChart className={ResponsiveGrid.Medium} granularity={granularity} range={range} />
-          <RouterCostPerRequestChart className={ResponsiveGrid.Medium} granularity={granularity} range={range} />
+          <RouterCostBreakdownChart
+            className={ResponsiveGrid.Full}
+            granularity={granularity}
+            range={range}
+          />
+          <RouterCumulativeSavingsChart
+            className={ResponsiveGrid.Medium}
+            granularity={granularity}
+            range={range}
+          />
+          <RouterSavingsRateChart
+            className={ResponsiveGrid.Medium}
+            granularity={granularity}
+            range={range}
+          />
+          <RouterCostPerRequestChart
+            className={ResponsiveGrid.Medium}
+            granularity={granularity}
+            range={range}
+          />
           <RouterSpendByMakerChart className={ResponsiveGrid.Medium} range={range} />
         </ResponsiveGrid>
       );
@@ -134,7 +154,11 @@ export function RouterOverviewTabPanel({ filters, methodologyHref, tab }: Router
             hero
             range={range}
           />
-          <RouterModelRequestsSmallMultiples className={ResponsiveGrid.Medium} granularity={granularity} range={range} />
+          <RouterModelRequestsSmallMultiples
+            className={ResponsiveGrid.Medium}
+            granularity={granularity}
+            range={range}
+          />
           <RouterModelSpendRanking className={ResponsiveGrid.Medium} range={range} />
         </ResponsiveGrid>
       );

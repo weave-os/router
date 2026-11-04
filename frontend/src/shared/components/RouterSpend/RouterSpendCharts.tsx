@@ -2,36 +2,41 @@
 
 import { type ReactNode, useMemo, useState } from "react";
 
-import { Skeleton } from "@/shared/components/atoms/Skeleton";
-import { Text } from "@/shared/components/atoms/Text";
-import {
-  Chart,
-  ChartAxisType,
-  type ChartData,
-  type ChartSeriesConfig,
-  ChartSeriesType,
-} from "@/shared/components/Chart";
-import { ChartCard } from "@/shared/components/ChartCard";
-import { type Granularity } from "@/shared/components/DashboardPageFilters/useDashboardFilters";
-import { ErrorCard } from "@/shared/components/ErrorCard";
-import { LoadStateWrapper } from "@/shared/components/LoadStateWrapper";
-import { ChartTabToggle } from "@/shared/components/RouterCharts/ChartTabToggle";
-import { displayGranularity, previousRange } from "@/shared/components/RouterCharts/chartRange";
-import { TIME_KEY } from "@/shared/components/RouterCharts/pivotSeries";
-import { periodPercentChange, RouterChartHeadline } from "@/shared/components/RouterCharts/RouterChartHeadline";
 import {
   type DateRange,
   RouterCostType,
   RouterMetricGroup,
   type RouterMetricPoint,
   RouterMetricType,
-} from "@/shared/data";
-import { useRouterMetricSeries, useRouterReportSummary } from "@/shared/data/useRouterMetricSeries";
-import { MODEL_FAMILY_COLOR, MODEL_FAMILY_LABEL, modelFamily, type RouterModelFamily } from "@/shared/objects/RouterModelFamily";
-import { ChartColorToken } from "@/shared/tools/chartColors";
-import { formatPercentage, formatUSD } from "@/shared/tools/format";
-import { LoadState } from "@/shared/tools/LoadState";
-import { addGranularity, formatInterval, formatTime } from "@/shared/tools/timeGranularity";
+} from "../../data";
+import { useRouterMetricSeries, useRouterReportSummary } from "../../data/useRouterMetricSeries";
+import {
+  MODEL_FAMILY_COLOR,
+  MODEL_FAMILY_LABEL,
+  modelFamily,
+  type RouterModelFamily,
+} from "../../objects/RouterModelFamily";
+import { ChartColorToken } from "../../tools/chartColors";
+import { formatPercentage, formatUSD } from "../../tools/format";
+import { LoadState } from "../../tools/LoadState";
+import { addGranularity, formatInterval, formatTime } from "../../tools/timeGranularity";
+import { Skeleton } from "../atoms/Skeleton";
+import { Text } from "../atoms/Text";
+import {
+  Chart,
+  ChartAxisType,
+  type ChartData,
+  type ChartSeriesConfig,
+  ChartSeriesType,
+} from "../Chart";
+import { ChartCard } from "../ChartCard";
+import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
+import { ErrorCard } from "../ErrorCard";
+import { LoadStateWrapper } from "../LoadStateWrapper";
+import { displayGranularity, previousRange } from "../RouterCharts/chartRange";
+import { ChartTabToggle } from "../RouterCharts/ChartTabToggle";
+import { TIME_KEY } from "../RouterCharts/pivotSeries";
+import { periodPercentChange, RouterChartHeadline } from "../RouterCharts/RouterChartHeadline";
 
 interface SpendChartProps {
   className?: string;
@@ -77,7 +82,10 @@ export function costBuckets(points: readonly RouterMetricPoint[]): CostBucket[] 
 
 function costTotals(points: readonly RouterMetricPoint[]) {
   return costBuckets(points).reduce(
-    (sum, { actual, comparison }) => ({ actual: sum.actual + actual, comparison: sum.comparison + comparison }),
+    (sum, { actual, comparison }) => ({
+      actual: sum.actual + actual,
+      comparison: sum.comparison + comparison,
+    }),
     { actual: 0, comparison: 0 },
   );
 }
@@ -162,13 +170,20 @@ export function RouterCostBreakdownChart({
   const [view, setView] = useState(defaultView);
   const comparisonModel = useComparisonLabel(range);
   const { current, previous } = useCostSeries(granularity, range);
-  const buckets = useMemo(() => LoadState.map(current, ({ values }) => costBuckets(values)), [current]);
+  const buckets = useMemo(
+    () => LoadState.map(current, ({ values }) => costBuckets(values)),
+    [current],
+  );
   const rows = useMemo(
     () =>
       LoadState.map(buckets, values =>
         values.map(({ actual, comparison, time }): Record<string, number> =>
           view === RouterCostView.Trend
-            ? { [RouterCostType.Actual]: actual, [RouterCostType.Comparison]: comparison, [TIME_KEY]: time }
+            ? {
+                [RouterCostType.Actual]: actual,
+                [RouterCostType.Comparison]: comparison,
+                [TIME_KEY]: time,
+              }
             : {
                 [EXTRA_COST_KEY]: Math.max(actual - comparison, 0),
                 [RouterCostType.Actual]: Math.min(actual, comparison),
@@ -179,26 +194,37 @@ export function RouterCostBreakdownChart({
       ),
     [buckets, view],
   );
-  const config: Record<string, ChartSeriesConfig<number, number>> =
-    view === RouterCostView.Trend
-      ? {
-          [RouterCostType.Actual]: { color: ChartColorToken.Blue, label: "Catalog cost", type: ChartSeriesType.Line },
-          [RouterCostType.Comparison]: {
-            color: ChartColorToken.Red,
-            label: `Comparison cost (${comparisonModel})`,
-            type: ChartSeriesType.Line,
-          },
-        }
-      : {
-          [EXTRA_COST_KEY]: {
-            color: ChartColorToken.Red,
-            dashed: true,
-            label: `Extra cost vs ${comparisonModel}`,
-            type: ChartSeriesType.Bar,
-          },
-          [RouterCostType.Actual]: { color: ChartColorToken.Scale1, label: "Catalog cost", type: ChartSeriesType.Bar },
-          [SAVINGS_KEY]: { color: ChartColorToken.Green, label: `Saved vs ${comparisonModel}`, type: ChartSeriesType.Bar },
-        };
+  const config: Record<string, ChartSeriesConfig<number, number>> = view === RouterCostView.Trend
+    ? {
+        [RouterCostType.Actual]: {
+          color: ChartColorToken.Blue,
+          label: "Catalog cost",
+          type: ChartSeriesType.Line,
+        },
+        [RouterCostType.Comparison]: {
+          color: ChartColorToken.Red,
+          label: `Comparison cost (${comparisonModel})`,
+          type: ChartSeriesType.Line,
+        },
+      }
+    : {
+        [EXTRA_COST_KEY]: {
+          color: ChartColorToken.Red,
+          dashed: true,
+          label: `Extra cost vs ${comparisonModel}`,
+          type: ChartSeriesType.Bar,
+        },
+        [RouterCostType.Actual]: {
+          color: ChartColorToken.Scale1,
+          label: "Catalog cost",
+          type: ChartSeriesType.Bar,
+        },
+        [SAVINGS_KEY]: {
+          color: ChartColorToken.Green,
+          label: `Saved vs ${comparisonModel}`,
+          type: ChartSeriesType.Bar,
+        },
+      };
   const savings = LoadState.map(current, ({ values }) => {
     const { actual, comparison } = costTotals(values);
     return comparison - actual;
@@ -206,7 +232,10 @@ export function RouterCostBreakdownChart({
   const percentChange = LoadState.map(current, previous, (now, before) => {
     const nowTotals = costTotals(now.values);
     const beforeTotals = costTotals(before.values);
-    return periodPercentChange(nowTotals.comparison - nowTotals.actual, beforeTotals.comparison - beforeTotals.actual);
+    return periodPercentChange(
+      nowTotals.comparison - nowTotals.actual,
+      beforeTotals.comparison - beforeTotals.actual,
+    );
   });
 
   return (
@@ -224,7 +253,14 @@ export function RouterCostBreakdownChart({
           statistic={LoadState.map(savings, value => ({ total: formatSavings(value) }))}
         />
       }
-      topRight={<ChartTabToggle ariaLabel="Cost view" onChange={setView} options={COST_VIEW_OPTIONS} value={view} />}
+      topRight={
+        <ChartTabToggle
+          ariaLabel="Cost view"
+          onChange={setView}
+          options={COST_VIEW_OPTIONS}
+          value={view}
+        />
+      }
     >
       <TimeChart
         config={config}
@@ -261,7 +297,12 @@ export function RouterCumulativeSavingsChart({ className, granularity, range }: 
       className={className}
       title="Cumulative savings"
       subtitle={`Running total of catalog cost saved vs ${comparisonModel} across the selected time range. Below $0, routing has cost more so far.`}
-      headline={<RouterChartHeadline percentChange={NO_PERIOD_CHANGE} statistic={LoadState.map(total, value => ({ total: formatSavings(value) }))} />}
+      headline={
+        <RouterChartHeadline
+          percentChange={NO_PERIOD_CHANGE}
+          statistic={LoadState.map(total, value => ({ total: formatSavings(value) }))}
+        />
+      }
     >
       <TimeChart
         config={{
@@ -315,12 +356,20 @@ export function RouterSavingsRateChart({ className, granularity, range }: SpendC
           changeTooltip="Percentage-point change from the previous period"
           changeUnit="pp"
           percentChange={rateChange}
-          statistic={LoadState.map(rate, value => (value == null ? {} : { total: formatPercentage(value) }))}
+          statistic={LoadState.map(rate, value =>
+            value == null ? {} : { total: formatPercentage(value) },
+          )}
         />
       }
     >
       <TimeChart
-        config={{ [RATE_KEY]: { color: ChartColorToken.Green, label: "Savings rate", type: ChartSeriesType.Line } }}
+        config={{
+          [RATE_KEY]: {
+            color: ChartColorToken.Green,
+            label: "Savings rate",
+            type: ChartSeriesType.Line,
+          },
+        }}
         dependentKeys={RATE_KEYS}
         formatValue={formatPercentage}
         granularity={granularity}
@@ -370,12 +419,20 @@ export function RouterCostPerRequestChart({ className, granularity, range }: Spe
       headline={
         <RouterChartHeadline
           percentChange={NO_PERIOD_CHANGE}
-          statistic={LoadState.map(average, value => (value == null ? {} : { total: `${formatUSD(value)} avg` }))}
+          statistic={LoadState.map(average, value =>
+            value == null ? {} : { total: `${formatUSD(value)} avg` },
+          )}
         />
       }
     >
       <TimeChart
-        config={{ [PER_REQUEST_KEY]: { color: ChartColorToken.Scale1, label: "Cost per request", type: ChartSeriesType.Line } }}
+        config={{
+          [PER_REQUEST_KEY]: {
+            color: ChartColorToken.Scale1,
+            label: "Cost per request",
+            type: ChartSeriesType.Line,
+          },
+        }}
         dependentKeys={PER_REQUEST_KEYS}
         formatValue={formatUSD}
         granularity={granularity}
@@ -395,7 +452,11 @@ export function spendByMaker(points: readonly RouterMetricPoint[]) {
   return [...totals].filter(([, spend]) => spend > 0).sort(([, a], [, b]) => b - a);
 }
 
-function RankedBars({ rows }: { rows: readonly (readonly [RouterModelFamily, number])[] }): ReactNode {
+function RankedBars({
+  rows,
+}: {
+  rows: readonly (readonly [RouterModelFamily, number])[];
+}): ReactNode {
   const max = rows[0]?.[1] ?? 0;
   return (
     <ul className="flex flex-col gap-3" aria-label="Catalog cost by model maker">
@@ -405,10 +466,13 @@ function RankedBars({ rows }: { rows: readonly (readonly [RouterModelFamily, num
             <Text className="text-body">{MODEL_FAMILY_LABEL[family]}</Text>
             <Text className="text-body tabular-nums">{formatUSD(spend)}</Text>
           </div>
-          <div className="h-2 rounded-sm bg-wv-gray-100">
+          <div className="bg-wv-gray-100 h-2 rounded-sm">
             <div
               className="h-full rounded-sm"
-              style={{ backgroundColor: MODEL_FAMILY_COLOR[family], width: `${max === 0 ? 0 : (spend / max) * 100}%` }}
+              style={{
+                backgroundColor: MODEL_FAMILY_COLOR[family],
+                width: `${max === 0 ? 0 : (spend / max) * 100}%`,
+              }}
             />
           </div>
         </li>
@@ -417,7 +481,10 @@ function RankedBars({ rows }: { rows: readonly (readonly [RouterModelFamily, num
   );
 }
 
-export function RouterSpendByMakerChart({ className, range }: Omit<SpendChartProps, "granularity">) {
+export function RouterSpendByMakerChart({
+  className,
+  range,
+}: Omit<SpendChartProps, "granularity">) {
   const spend = useRouterMetricSeries({
     granularity: null,
     group: RouterMetricGroup.Model,
@@ -433,16 +500,29 @@ export function RouterSpendByMakerChart({ className, range }: Omit<SpendChartPro
       className={className}
       title="Catalog cost by model maker"
       subtitle="Catalog cost over the range by model maker. Subscription requests contribute $0."
-      headline={<RouterChartHeadline percentChange={NO_PERIOD_CHANGE} statistic={LoadState.map(total, value => ({ total: formatUSD(value) }))} />}
+      headline={
+        <RouterChartHeadline
+          percentChange={NO_PERIOD_CHANGE}
+          statistic={LoadState.map(total, value => ({ total: formatUSD(value) }))}
+        />
+      }
     >
       <LoadStateWrapper
         state={rows}
         loading={<Skeleton className="h-40 w-full" />}
-        error={() => <ErrorCard title="Couldn't load catalog cost by maker" description="Try refreshing the page." />}
+        error={() => (
+          <ErrorCard
+            title="Couldn't load catalog cost by maker"
+            description="Try refreshing the page."
+          />
+        )}
       >
         {values =>
           values.length === 0 ? (
-            <ErrorCard title="No API spend yet" description="Route requests through Weave Router to see catalog cost by model maker." />
+            <ErrorCard
+              title="No API spend yet"
+              description="Route requests through Weave Router to see catalog cost by model maker."
+            />
           ) : (
             <RankedBars rows={values} />
           )

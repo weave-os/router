@@ -1,7 +1,7 @@
-import { Icon } from "@/shared/components/atoms/Icon";
-import { Card, CardProps } from "@/shared/components/molecules/Card";
-import { Intent } from "@/shared/components/types";
-import { cn } from "@/shared/tools/cn";
+import { cn } from "../../tools/cn";
+import { Icon } from "../atoms/Icon";
+import { Card, CardProps } from "../molecules/Card";
+import { Intent } from "../types";
 
 export interface ErrorCardProps extends CardProps {
   description: string;
