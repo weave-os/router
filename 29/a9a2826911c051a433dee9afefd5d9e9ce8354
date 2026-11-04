@@ -1,0 +1,80 @@
+internal/proxy/service.go
+  s_84d4be4e6bc25a::t_023cdc0219383a 35,97
+internal/router/escalationdashboard/contracts.go
+  s_af6bff81d5194a::t_97558d5b5f011e 91-92,94,114-128,130-131,136-139,141-145
+  s_84d4be4e6bc25a::t_3b8638b014e024 34
+  s_84d4be4e6bc25a::t_b44e3d8878f930 93,129
+  s_84d4be4e6bc25a::t_3c19c24f566c9e 65-69
+  s_84d4be4e6bc25a::t_b4844da04fd98f 1-33,35-64,70-90,95-113,132-135,140,146-151
+scripts/escalation_state_check/main.go
+  s_84d4be4e6bc25a::t_1c3f7b40a7ac39 20,104-110,208-212,216-229
+cmd/router/main.go
+  s_84d4be4e6bc25a::t_023cdc0219383a 1162,1179
+internal/proxy/escalation_dashboard_internal_test.go
+  s_84d4be4e6bc25a::t_625cf1bf11e194 1-55
+internal/proxy/escalation.go
+  s_84d4be4e6bc25a::t_b4844da04fd98f 149-155
+internal/sqlc/escalation_dashboard.sql.go
+  s_af6bff81d5194a::t_97558d5b5f011e 1-22,25-99,104-113,121-124,126-180,183-186,195-206,209-283,288-297,305-308,310-364,367-382
+  s_84d4be4e6bc25a::t_46e9a8495b3c10 23-24,181-182,207-208,365-366
+  s_84d4be4e6bc25a::t_74bd288c3439c6 100-103,114-116,118-120,125,187-194,284-287,298-300,302-304,309
+  s_84d4be4e6bc25a::t_f87f01067dd67a 117,301
+internal/proxy/llm_escalation_admin.go
+  s_84d4be4e6bc25a::t_023cdc0219383a 8,11,19-35
+  s_af6bff81d5194a::t_598835e8f86fc8 36
+internal/router/escalation/escalation.go
+  s_84d4be4e6bc25a::t_b4844da04fd98f 23-30,159-160
+internal/postgres/escalation_dashboard.go
+  s_84d4be4e6bc25a::t_88480d0c991c0e 8,27
+  s_84d4be4e6bc25a::t_023cdc0219383a 1-7,9-26,35-44
+  s_af6bff81d5194a::t_97558d5b5f011e 28-34
+scripts/llm_escalation_state_check/main.go
+  s_84d4be4e6bc25a::t_1c3f7b40a7ac39 22,206-220
+internal/server/server.go
+  s_84d4be4e6bc25a::t_4904b4de3ba827 191
+internal/api/admin/escalation_dashboard_test.go
+  s_84d4be4e6bc25a::t_625cf1bf11e194 1-72
+internal/proxy/escalation_internal_test.go
+  s_84d4be4e6bc25a::t_c824cd1959a932 129-131,154-156
+db/queries/escalation_dashboard.sql
+  s_84d4be4e6bc25a::t_a475d178b3cbcc 11-12,169-170
+  s_84d4be4e6bc25a::t_c445e17b8eae44 107-108,113
+  s_84d4be4e6bc25a::t_b44e3d8878f930 1-10,13-104,106,109-112,114-168,171
+  s_84d4be4e6bc25a::t_3b8638b014e024 105
+internal/api/admin/llm_escalation.go
+  s_84d4be4e6bc25a::t_4904b4de3ba827 15,19-66,68-69
+  s_84d4be4e6bc25a::t_3b8638b014e024 67
+  s_025b2c0c0b1d05::t_afcf45755769b6 70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "29a9a2826911c051a433dee9afefd5d9e9ce8354",
+  "prompts": {},
+  "sessions": {
+    "s_025b2c0c0b1d05": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ab37-1f35-7fa3-89f5-559d23f6f46d",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_84d4be4e6bc25a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b06a-e4ca-7013-8316-0a07835294a3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_af6bff81d5194a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0b06a-e4ca-7013-8316-0a07835294a3",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

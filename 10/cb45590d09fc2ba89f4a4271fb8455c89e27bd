@@ -1,0 +1,22 @@
+internal/proxy/compaction_strategy_internal_test.go
+  s_e900f107e431ef::t_c480c895b411dc 1-25,29-149
+  s_e900f107e431ef::t_5aab2adf3a761d 26-28
+internal/proxy/compaction.go
+  s_e900f107e431ef::t_8c0d02f6238459 7,9,225-237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "10cb45590d09fc2ba89f4a4271fb8455c89e27bd",
+  "prompts": {},
+  "sessions": {
+    "s_e900f107e431ef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18eaf-86aa-7370-b1c0-7da7d9f48545",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

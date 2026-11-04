@@ -1,0 +1,44 @@
+internal/router/router.go
+  s_3646222c89c9de::t_77560a687349f8 94-96
+internal/proxy/hmm_user_boundary_internal_test.go
+  s_3646222c89c9de::t_ef0f48b498217f 67
+  s_3646222c89c9de::t_a4f412bec95cc2 137,139-156
+  s_3646222c89c9de::t_53fdb6550748ee 37,48,65,80,82,102,107-108,111,118,125,128
+  s_3646222c89c9de::t_b0271c91252c79 83-85,99-101,103-106,109-110,112-117,119-124,126-127,129-136
+  s_3646222c89c9de::t_9f596c80b8e079 16-19,25-36,38-47,56,78,169
+  s_3646222c89c9de::t_dd35e9c886870c 138
+internal/router/policy/sidecar_router.go
+  s_3646222c89c9de::t_a8d8e207df0adc 7,687-695
+  s_3646222c89c9de::t_ef0f48b498217f 24-25,752
+  s_3646222c89c9de::t_3f72c2b7a6a621 678-686,696-702,704-721,741,743-746,748-751,753-754,756-758,760,762-765
+  s_3646222c89c9de::t_82f05b627877b6 703,722-740,742,747,755,759,761
+internal/router/policy/arm_selector.go
+  s_3646222c89c9de::t_77560a687349f8 8,33-37
+internal/router/hmm/selection/selector.go
+  s_3646222c89c9de::t_7c73a6b7c790cf 13,33,36-42,123-156
+  s_3646222c89c9de::t_0cb622fb9126bf 157-158
+internal/proxy/service.go
+  s_3646222c89c9de::t_77560a687349f8 2835-2841
+internal/proxy/turnloop.go
+  s_3646222c89c9de::t_77560a687349f8 1574-1576
+  s_3646222c89c9de::t_7c73a6b7c790cf 21
+internal/router/hmm/selection/selector_test.go
+  s_3646222c89c9de::t_4e300450ac1fca 39-55
+  s_3646222c89c9de::t_f57cc54c27ec2f 10,56-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dde4b6c167be4709ad6518e4c806d145ecf591de",
+  "prompts": {},
+  "sessions": {
+    "s_3646222c89c9de": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d48f-6a48-7bb3-993e-868143b73e5d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

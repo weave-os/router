@@ -1,0 +1,93 @@
+internal/proxy/force_parent_internal_test.go
+  s_9787581b6d9509::t_68e883e9052c3b 5,25,27
+  s_9787581b6d9509::t_2717fe32dc3876 1-4,6-24,26,28-34,37-49,52-54,56-57,59-60,63,65,68,70-76,81,84
+  s_9787581b6d9509::t_98ec16aea072a3 35-36,50-51,55,58,61-62,64,66-67,69,77-80,82-83
+internal/translate/force_parent_test.go
+  s_9787581b6d9509::t_2717fe32dc3876 1-36,42-45
+  s_9787581b6d9509::t_e6cdf3231d4161 37-41
+install/README.md
+  s_9787581b6d9509::t_68e883e9052c3b 355
+  s_9787581b6d9509::t_d28bcbaa83cb99 210,502
+internal/proxy/force_model.go
+  s_9787581b6d9509::t_2717fe32dc3876 571-576,578-580
+  s_9787581b6d9509::t_e7444ca6918c6d 562,577,587,603-607,771,888-894,907,912-914
+  s_9787581b6d9509::t_2b6a01de311c77 908-911
+db/migrations/0133_session-pin-force-thread.up.sql
+  s_9787581b6d9509::t_e7444ca6918c6d 1-6
+install/tests/registry_test.sh
+  s_9787581b6d9509::t_2717fe32dc3876 72,79,330,337
+install/pi-router/test/e2e.sh
+  s_9787581b6d9509::t_635115e61a61fd 182,185
+internal/sqlc/session_pins.sql.go
+  s_9787581b6d9509::t_2717fe32dc3876 24,45,81,380,398,437,814,819-824,830,958,1009,1014-1019,1025,1152
+internal/proxy/loop_detection.go
+  s_9787581b6d9509::t_e7444ca6918c6d 185
+db/queries/session_pins.sql
+  s_9787581b6d9509::t_e7444ca6918c6d 66,71,82
+internal/proxy/pi_handoff.go
+  s_9787581b6d9509::t_e7444ca6918c6d 196
+install/directives.tsv
+  s_9787581b6d9509::t_2717fe32dc3876 5
+internal/proxy/force_model_pin_ttl_internal_test.go
+  s_9787581b6d9509::t_e7444ca6918c6d 89,106
+db/migrations/0133_session-pin-force-thread.down.sql
+  s_9787581b6d9509::t_e7444ca6918c6d 1-2,9-11
+  s_9787581b6d9509::t_68e883e9052c3b 3-8
+install/tests/packaging_test.sh
+  s_9787581b6d9509::t_2717fe32dc3876 135
+install/pi-router/test/force-model.test.ts
+  s_9787581b6d9509::t_2717fe32dc3876 61
+  s_9787581b6d9509::t_42f072f4ecd646 173-182
+  s_9787581b6d9509::t_72fb079b221471 171-172,183
+internal/proxy/turnloop.go
+  s_9787581b6d9509::t_e7444ca6918c6d 859
+  s_9787581b6d9509::t_8939ecef2a9b3e 860-862
+install/uninstall.sh
+  s_9787581b6d9509::t_2717fe32dc3876 47
+internal/router/sessionpin/store.go
+  s_9787581b6d9509::t_e7444ca6918c6d 44-46
+internal/postgres/session_pin_repo.go
+  s_9787581b6d9509::t_e7444ca6918c6d 75,279
+install/tests/cc-statusline_test.sh
+  s_9787581b6d9509::t_68e883e9052c3b 192-197
+install/tests/context-status_test.sh
+  s_9787581b6d9509::t_68e883e9052c3b 77-80
+install/pi-router/src/force-model.ts
+  s_9787581b6d9509::t_2717fe32dc3876 47,53,120-129
+internal/translate/force_model.go
+  s_9787581b6d9509::t_e7444ca6918c6d 24-25,33,347,354
+docs/CONFIGURATION.md
+  s_9787581b6d9509::t_b8a2520a6b6c81 609-617
+install/cc-statusline.sh
+  s_9787581b6d9509::t_fdae51d754f3f9 822
+install/codex-skills/force-parent/SKILL.md
+  s_9787581b6d9509::t_8f8add01115aa7 1-23
+install/codex-skills/force-parent/scripts/emit.sh
+  s_9787581b6d9509::t_ef146bc5eeb001 1-7
+install/codex-status.sh
+  s_9787581b6d9509::t_e35815160d8c30 561-562
+install/commands/force-parent.md
+  s_9787581b6d9509::t_586537a06ccb8e 1-6
+install/install.sh
+  s_9787581b6d9509::t_c07261e77459f6 1949,4944-4945,6276
+internal/postgres/session_pin_repo_test.go
+  s_9787581b6d9509::t_d4a7d60823a119 85-91
+internal/sqlc/models.go
+  s_9787581b6d9509::t_df28e833e2ae55 1015
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8f65ea7d9de5b0e4ce1df9c48d1b86a907f46689",
+  "prompts": {},
+  "sessions": {
+    "s_9787581b6d9509": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b5c-c4e5-79b0-a71b-d246a7b010df",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,34 @@
+install/install.sh
+  s_5a60de30dd5573::t_79175abb25da17 5984,6166
+internal/router/policy/resolver_test.go
+  s_5a60de30dd5573::t_979fb6b0924fe6 17-50
+internal/router/catalog/catalog.go
+  s_5a60de30dd5573::t_979fb6b0924fe6 16-18
+  s_5a60de30dd5573::t_e390dad40fb74f 655-659,664-665
+cmd/router/mimo_provider_test.go
+  s_5a60de30dd5573::t_e390dad40fb74f 1-14
+internal/router/catalog/mimo_binding_test.go
+  s_5a60de30dd5573::t_979fb6b0924fe6 1-56
+bench/weave_bench/prices.generated.json
+  s_5a60de30dd5573::t_8f83cb3c1dc5d8 2,497,499
+install/cc-statusline.sh
+  s_5a60de30dd5573::t_90651d61d6f08e 566,748
+install/pi-router/src/pricing.generated.ts
+  s_5a60de30dd5573::t_f0223e3d78d293 10,95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e0b513f311219115b79a1b535b16301edc482a91",
+  "prompts": {},
+  "sessions": {
+    "s_5a60de30dd5573": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11c7b-38e7-77d0-893a-4926af75eb02",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

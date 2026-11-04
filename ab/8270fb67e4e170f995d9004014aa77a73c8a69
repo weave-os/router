@@ -1,0 +1,19 @@
+internal/postgres/poolconfig/application_name_test.go
+  s_02f120fd13d65c::t_8b4ac0b8ff3e1e 12-16,30-36,46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ab8270fb67e4e170f995d9004014aa77a73c8a69",
+  "prompts": {},
+  "sessions": {
+    "s_02f120fd13d65c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a164e0-f450-71e2-ac17-05bc785f68a4",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

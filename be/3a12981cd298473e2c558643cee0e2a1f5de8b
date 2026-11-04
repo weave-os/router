@@ -1,0 +1,38 @@
+internal/proxy/slow_start_tool_timing_test.go
+  s_3572388cffa64c::t_a4640762f96a6d 26,33
+  s_3572388cffa64c::t_e0235a6ab262d0 1-4,7-14,16-25,40-43,55
+  s_3572388cffa64c::t_d8801a39615119 34-37,44-54
+  s_3572388cffa64c::t_f0be4368b24994 5-6,15,27-32,38-39
+internal/proxy/provider_attribution_test.go
+  s_3572388cffa64c::t_a4640762f96a6d 178,189
+internal/proxy/slow_start.go
+  s_3572388cffa64c::t_ca99f6a2de8aa0 158,161-162,203
+  s_3572388cffa64c::t_a4640762f96a6d 113,159-160,195-201
+  s_3572388cffa64c::t_6795cec6de0691 180
+  s_3572388cffa64c::t_175480736735e5 108-112,204
+internal/translate/codex_tool_timing.go
+  s_3572388cffa64c::t_ca99f6a2de8aa0 1-4,6-16,18,25-26,28-29,38-40,42-43,45-46,48-50,52,55,59-62,64-68,70-73,75-76,80,82-83,85
+  s_3572388cffa64c::t_a4640762f96a6d 5,17,19-24,27,30-37,41,44,47,51,53-54,56-58,63,69,74,77-79,81,84
+internal/translate/codex_tool_timing_test.go
+  s_3572388cffa64c::t_6795cec6de0691 1-10,12-15,17-20,22-25,29-41,46,49-50,52-53,56-60,62-73,75-76,78-81
+  s_3572388cffa64c::t_a4640762f96a6d 11,16,21,26-28,42-45,47-48,51,54-55,61,74,77
+docs/ROUTER_NOTICES.md
+  s_3572388cffa64c::t_d8801a39615119 66-74
+  s_3572388cffa64c::t_6795cec6de0691 64-65,75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "be3a12981cd298473e2c558643cee0e2a1f5de8b",
+  "prompts": {},
+  "sessions": {
+    "s_3572388cffa64c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17a54-77ab-7a33-940f-e488048f4452",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

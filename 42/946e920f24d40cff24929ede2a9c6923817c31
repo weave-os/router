@@ -1,0 +1,19 @@
+README.md
+  s_e576ebba079b30::t_42def284590f25 167-170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "42946e920f24d40cff24929ede2a9c6923817c31",
+  "prompts": {},
+  "sessions": {
+    "s_e576ebba079b30": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a31e-2351-7683-82ae-ac5e8e311e17",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
