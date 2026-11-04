@@ -11,6 +11,7 @@ bin/
 *.out
 cover.html
 coverage.out
+.coverage
 
 # Vendor (we use modules, not vendoring)
 vendor/
@@ -70,6 +71,8 @@ tsconfig.tsbuildinfo
 eval/results/
 scripts/results/
 results/
+# Published evidence tables of the token-efficiency kit.
+!bench/token-efficiency/results/
 .claude/settings.local.json
 .claude/.credentials.json
 .claude/cc-statusline.sh

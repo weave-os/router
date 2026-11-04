@@ -90,3 +90,22 @@ func TestModelsHandler_CatalogFailureKeepsBundledModels(t *testing.T) {
 	engine.ServeHTTP(rec, req)
 	assert.JSONEq(t, `{"models":[]}`, rec.Body.String())
 }
+
+func TestCodexCatalogHandler_ServesCatalogForClientVersion(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.GET("/v1/codex/models", openai.CodexCatalogHandler(func(_ context.Context, _ http.Header, version string) ([]byte, error) {
+		if version != "0.164.0" {
+			return nil, errors.New("unexpected client version")
+		}
+		return []byte(`{"models":[{"slug":"gpt-6-sol"},{"slug":"weave-auto"}]}`), nil
+	}))
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/codex/models?client_version=0.164.0", nil))
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"models":[{"slug":"gpt-6-sol"},{"slug":"weave-auto"}]}`, rec.Body.String())
+
+	rec = httptest.NewRecorder()
+	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/codex/models", nil))
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+}

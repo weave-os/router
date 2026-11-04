@@ -51,6 +51,47 @@ func Higher(base, floor Group) Group {
 	return base
 }
 
+// Sliding upgrade threshold bands: a partial vote for a higher class steps
+// toward it, a majority vote reaches it.
+const (
+	slidingStepProbability         = 0.30
+	slidingFullProbability         = 0.50
+	slidingMediumToHighProbability = 0.40
+)
+
+// SlidingThresholdTarget maps a classification above a session's pinned group
+// to the group the session moves to. covered is false for transitions the
+// sliding threshold does not define; an empty target means it does not move
+// the session.
+func SlidingThresholdTarget(pinned, classified Group, probability float64) (target Group, covered bool) {
+	switch {
+	case classified == Maximum && (pinned == Low || pinned == Medium):
+		return slidingBand(probability, High, Maximum), true
+	case classified == Maximum && pinned == High:
+		return slidingBand(probability, "", Maximum), true
+	case classified == High && pinned == Low:
+		return slidingBand(probability, Medium, High), true
+	case classified == High && pinned == Medium:
+		if probability >= slidingMediumToHighProbability {
+			return High, true
+		}
+		return "", true
+	case classified == Medium && pinned == Low:
+		return slidingBand(probability, Medium, Medium), true
+	}
+	return "", false
+}
+
+func slidingBand(probability float64, step, full Group) Group {
+	switch {
+	case probability >= slidingFullProbability:
+		return full
+	case probability >= slidingStepProbability:
+		return step
+	}
+	return ""
+}
+
 // Constraint carries classifier intent without overriding user/provider restrictions.
 type Constraint struct {
 	Floor    Group

@@ -103,7 +103,7 @@ make setup                             # init schema + migrate + seed an rk_ key
 make dev                               # run the server with hot reload
 ```
 
-Prerequisites: Go 1.25+, [golang-migrate](https://github.com/golang-migrate/migrate),
+Prerequisites: Go 1.26+, [golang-migrate](https://github.com/golang-migrate/migrate),
 [CompileDaemon](https://github.com/githubnemo/CompileDaemon).
 
 The cluster scorer uses an ONNX embedder; on Apple Silicon you also need:

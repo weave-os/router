@@ -102,8 +102,11 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 		var apiKey *auth.APIKey
 		var externalKeys []*auth.ExternalAPIKey
 		var clusterModelLists []auth.ClusterModelList
+		var delegatedSession *auth.DelegatedSession
 		var err error
-		if testPlan != nil {
+		if auth.IsSessionToken(token) {
+			installation, apiKey, externalKeys, clusterModelLists, delegatedSession, err = svc.VerifySessionToken(authCtx, token, testPlan == nil)
+		} else if testPlan != nil {
 			installation, apiKey, clusterModelLists, err = svc.VerifyPlatformAPIKey(authCtx, token)
 		} else {
 			installation, apiKey, externalKeys, clusterModelLists, err = svc.VerifyAPIKey(authCtx, token)
@@ -130,6 +133,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 				return
 			}
 		}
+		ctx = auth.WithDelegatedSession(ctx, delegatedSession)
 		if apiKey != nil {
 			ctx = context.WithValue(ctx, proxy.APIKeyIDContextKey{}, apiKey.ID)
 			if apiKey.PaidFallbackOnSubscriptionRefusal {
@@ -195,6 +199,9 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			}
 			if installation.SubscriptionRoutingDisabled {
 				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionRoutingDisabledContextKey{}, true)
+			}
+			if installation.PickedModelCreditFallbackEnabled {
+				ctx = context.WithValue(ctx, proxy.InstallationPickedModelCreditFallbackContextKey{}, true)
 			}
 			if installation.HideTerminalSurfaces {
 				ctx = context.WithValue(ctx, proxy.InstallationHideTerminalSurfacesContextKey{}, true)

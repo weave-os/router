@@ -163,6 +163,37 @@ func TestWithBalanceCheck_PassesWhenAboveThreshold(t *testing.T) {
 	assert.True(t, reached, "request must reach handler when balance is healthy")
 }
 
+func TestWithBalanceCheck_FlagsOrganizationPrepaidAdmission(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		repo *stubBillingRepo
+		want bool
+	}{
+		{name: "funded balance", repo: &stubBillingRepo{balance: 50_000_000}, want: true},
+		{name: "billing override", repo: &stubBillingRepo{override: true}, want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			svc := billing.NewService(test.repo)
+			engine := gin.New()
+			var admitted bool
+			engine.GET("/probe", func(c *gin.Context) {
+				withInstallation(c, "org_x")
+				middleware.WithBalanceCheck(svc, 1_000_000)(c)
+				if c.IsAborted() {
+					return
+				}
+				admitted = billing.OrganizationPrepaidFromContext(c.Request.Context())
+				c.Status(http.StatusOK)
+			})
+			w := httptest.NewRecorder()
+			engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/probe", nil))
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, test.want, admitted)
+		})
+	}
+}
+
 func TestWithBalanceCheck_OverrideShortCircuitsAndFlagsContext(t *testing.T) {
 	// Override path must (a) reach the handler, (b) plant the override
 	// flag on the request context so the proxy's debit hook records a

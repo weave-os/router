@@ -69,14 +69,14 @@ check "every row declares a known capability and client support" "" "$bad_rows"
 dupes="$(weave_registry_names claude; weave_registry_names codex; weave_registry_names opencode)"
 dupes="$(printf '%s\n' "$dupes" | sort | uniq -d | tr '\n' ' ' | sed 's/ $//')"
 check "names shared across clients are the expected shared directives" \
-  "fm force-model models rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$dupes"
+  "fm force-model force-parent models rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$dupes"
 
 check "an alias resolves to its canonical directive" "force-model" "$(weave_registry_canonical_for fm)"
 check "a canonical name resolves to itself" "router-feedback" "$(weave_registry_canonical_for router-feedback)"
 
 # Pi implements /fm, /ufm and /beta in its extension rather than through
 # installed files. Its registered names must still match the shared registry.
-pi_registered="$(grep -hoE '"(fm|force-model|ufm|unforce-model|beta)"' \
+pi_registered="$(grep -hoE '"(fm|force-model|force-parent|ufm|unforce-model|beta)"' \
   "$install_dir/pi-router/src/force-model.ts" "$install_dir/pi-router/src/beta.ts" \
   | tr -d '"' | sort -u | tr '\n' ' ' | sed 's/ $//')"
 check "the pi extension registers exactly the registry's pi names" \
@@ -327,14 +327,14 @@ cx_home="$work/codex-user"; mkdir -p "$cx_home"
 run_install "$cx_home" --codex --scope user
 codex_skills="$(cd "$cx_home/.codex/skills" && ls -d */ 2>/dev/null | tr -d '/' | sort | tr '\n' ' ' | sed 's/ $//')"
 check "codex user install writes a skill per supported directive" \
-  "disable-routing fm force-model rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$codex_skills"
+  "disable-routing fm force-model force-parent rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$codex_skills"
 check "codex install writes no prompt wrappers" "" \
   "$(ls "$cx_home/.codex/prompts" 2>/dev/null | tr '\n' ' ' | sed 's/ $//')"
 
 # A Codex skill cannot author a user message, so each one execs emit.sh, whose
 # output carries the leading-space directive the router intercepts. Codex
 # reserves `/…` for its own built-ins, so a bare slash never reaches the router.
-for name in force-model unforce-model router-feedback fm ufm rf; do
+for name in force-model force-parent unforce-model router-feedback fm ufm rf; do
   emit="$cx_home/.codex/skills/$name/scripts/emit.sh"
   case "$name" in
     fm) command=force-model ;; ufm) command=unforce-model ;; rf) command=router-feedback ;; *) command="$name" ;;

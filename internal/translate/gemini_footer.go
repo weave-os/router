@@ -62,12 +62,13 @@ func (w *GeminiRoutingFooterWriter) WriteHeader(code int) {
 	ct := w.inner.Header().Get("Content-Type")
 	w.streaming = strings.Contains(ct, "text/event-stream") && code < 400
 	w.headersEmitted = true
+	sse.PrepareJSONResponse(w.inner)
 	w.inner.WriteHeader(code)
 }
 
 func (w *GeminiRoutingFooterWriter) Write(data []byte) (int, error) {
 	if !w.streaming || w.footer == "" {
-		return w.inner.Write(data)
+		return sse.WriteJSONChunk(w.inner, data)
 	}
 	return w.processUpstream(data)
 }

@@ -7,7 +7,6 @@ import (
 	"maps"
 	"math"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -107,6 +106,14 @@ func (r *SidecarRouter) CurrentCapabilities() Capabilities {
 	return r.capabilities
 }
 
+// classifierReadsInteractionStateInputs is keyed by this strategy's own
+// package, so an interaction-state alternate never changes the inputs another
+// strategy's classifier receives.
+func (r *SidecarRouter) classifierReadsInteractionStateInputs(capabilities Capabilities) bool {
+	return r.config.ClassifierArtifactSHA256 != "" &&
+		slices.Contains(capabilities.InteractionStatePackageSHA256s, r.config.ClassifierArtifactSHA256)
+}
+
 func (r *SidecarRouter) ReportOutcome(ctx context.Context, payload map[string]interface{}) error {
 	r.capabilitiesMu.RLock()
 	enabled := !r.capabilitiesSet || r.capabilities.ReportsOutcomes
@@ -142,6 +149,7 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 	strategy := r.config.Strategy
 	r.capabilitiesMu.RLock()
 	previewUnsupported := r.capabilitiesSet && !r.capabilities.SupportsPreview
+	interactionStateInputs := r.classifierReadsInteractionStateInputs(r.capabilities)
 	r.capabilitiesMu.RUnlock()
 	if previewUnsupported {
 		return PreviewResult{}, fmt.Errorf("%s: sidecar does not support preview: %w", strategy, r.config.Unavailable)
@@ -154,7 +162,7 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 	resolved := r.resolver.Resolve(req)
 	requestRouteID := uuid.NewString()
 	pin, pinned := router.HonouredPolicyPin(ctx)
-	result, err := previewer.Preview(ctx, Query{
+	query := Query{
 		ArtifactSHA256:       pin.ArtifactSHA256,
 		SchemaVersion:        r.resolver.SchemaVersion(),
 		Strategy:             strategy,
@@ -183,7 +191,9 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 		CaptureMode:          req.CaptureMode,
 		DebugEnabled:         true,
 		Candidates:           resolved.Candidates,
-	})
+	}
+	query.InteractionStateInputs = interactionStateInputs
+	result, err := previewer.Preview(ctx, query)
 	if err != nil {
 		if errors.Is(err, router.ErrPolicyPinUnavailable) {
 			return PreviewResult{}, fmt.Errorf("%s: sidecar preview: %w", strategy, err)
@@ -267,10 +277,11 @@ func validatePreviewResult(result PreviewResult, expectedSchemaVersion string) e
 	if result.SchemaVersion != SchemaVersionV4 && result.RosterSHA256 == "" {
 		return fmt.Errorf("missing frozen roster identity")
 	}
-	if len(result.HMMStatePath) == 0 || len(result.HMMStateProbabilities) == 0 || len(result.ClassOrder) == 0 {
+	if len(result.ClassOrder) == 0 {
 		return fmt.Errorf("missing state or class order")
 	}
-	if result.HMMStateID < 0 || result.HMMStateID >= len(result.HMMStateProbabilities) {
+	hasHMMState := len(result.HMMStatePath) > 0 || len(result.HMMStateProbabilities) > 0 || result.SchemaVersion != SchemaVersionV4
+	if hasHMMState && (len(result.HMMStatePath) == 0 || result.HMMStateID < 0 || result.HMMStateID >= len(result.HMMStateProbabilities)) {
 		return fmt.Errorf("HMM state id is outside the posterior vector")
 	}
 	hmmTotal := 0.0
@@ -280,7 +291,7 @@ func validatePreviewResult(result PreviewResult, expectedSchemaVersion string) e
 		}
 		hmmTotal += probability
 	}
-	if math.Abs(hmmTotal-1) > 1e-6 {
+	if hasHMMState && math.Abs(hmmTotal-1) > 1e-6 {
 		return fmt.Errorf("HMM state probabilities sum to %.9f", hmmTotal)
 	}
 	for index, stateID := range result.HMMStatePath {
@@ -380,7 +391,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	if pinned && r.armSelector == nil {
 		return router.Decision{}, fmt.Errorf("%s: roster pin requires router-owned arm selection: %w", strategy, router.ErrPolicyPinUnavailable)
 	}
-	res, err := r.decider.Decide(ctx, Query{
+	query := Query{
 		TaskDomain:           req.TaskDomain,
 		ClassifierPrediction: req.ClassifierPrediction,
 		ArtifactSHA256:       pin.ArtifactSHA256,
@@ -411,7 +422,9 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		CaptureMode:          req.CaptureMode,
 		DebugEnabled:         req.DebugEnabled,
 		Candidates:           resolved.Candidates,
-	})
+	}
+	query.InteractionStateInputs = r.classifierReadsInteractionStateInputs(capabilities)
+	res, err := r.decider.Decide(ctx, query)
 	if err != nil {
 		observability.FromContext(ctx).Error("Policy router sidecar decision failed",
 			append([]any{"strategy", strategy, "err", err}, candidateLogFields(resolved)...)...)
@@ -430,7 +443,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 
 	overrideArmID := res.ArmID
 	overrideRosterID := res.Model
-	overrideReasonSuffix := ""
+	overrideReason := router.SelectionOverrideNone
 	// reselected records that the served arm is the router's pick rather than the
 	// sidecar's, which is the only case where res.Provider legitimately names a
 	// different provider than the resolved binding.
@@ -444,12 +457,16 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		}
 		originalSelectionInput := selectionInputFor(strategy, executionMode, req, res, resolved)
 		originalSelectionInput.RosterSHA256 = pin.RosterSHA256
-		selectionInput, decision, constrained := constrainEscalation(req, originalSelectionInput, resolved)
+		slidingInput := slidingThresholdGroupInput(req, originalSelectionInput)
+		selectionInput, decision, constrained := constrainEscalation(req, slidingInput, resolved)
 		escalationDecision = decision
 		pick, selectErr := r.selectEscalationArm(ctx, req, selectionInput, resolved, constrained)
 		for selectErr != nil && constrained && errors.Is(selectErr, ErrNoEligibleArm) {
-			selectionInput, escalationDecision, constrained = fallbackEscalation(req, originalSelectionInput, resolved, escalationDecision)
+			selectionInput, escalationDecision, constrained = fallbackEscalation(req, slidingInput, resolved, escalationDecision)
 			pick, selectErr = r.selectEscalationArm(ctx, req, selectionInput, resolved, constrained)
+		}
+		if slidingInput.LeadGroup != "" && !constrained && pick.Group == slidingInput.LeadGroup {
+			overrideReason = router.SelectionOverrideSlidingThreshold
 		}
 		if selectErr != nil {
 			if errors.Is(selectErr, router.ErrPolicyPinUnavailable) {
@@ -502,7 +519,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		}
 		// Annotated even when the forced cluster is the one already selected,
 		// so telemetry can tell a constrained turn from a free one.
-		overrideReasonSuffix = ":force_cluster"
+		overrideReason = router.SelectionOverrideForceCluster
 		reselected = reselected || outcome.Changed || selectedForcedGroupWithPreference
 		observability.FromContext(ctx).Info("Forced cluster applied",
 			"strategy", strategy,
@@ -523,7 +540,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			overrideRosterID = outcome.RosterID
 			res.PolicyGroup = outcome.Group
 			if outcome.Changed {
-				overrideReasonSuffix = ":cluster_override"
+				overrideReason = router.SelectionOverrideCluster
 				reselected = true
 				observability.FromContext(ctx).Info("Cluster allowlist override applied",
 					"strategy", strategy,
@@ -548,7 +565,8 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	if selectionTrace.SelectedArm != "" {
 		selectionTrace.SelectedGroup = res.PolicyGroup
 		selectionTrace.SelectedArm = overrideRosterID
-		selectionTrace.OverrideReason = strings.TrimPrefix(overrideReasonSuffix, ":")
+		selectionTrace.OverrideReason = overrideReason
+		selectionTrace.ClusterOverridesPresent = len(req.ClusterArmOverrides) > 0
 		selectionTrace.ResolverExclusions = make([]router.SelectionExclusion, 0, len(resolved.Diagnostics))
 		for _, diagnostic := range resolved.Diagnostics {
 			selectionTrace.ResolverExclusions = append(selectionTrace.ResolverExclusions, router.SelectionExclusion{
@@ -588,7 +606,9 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	if selectionTrace.SelectedArm != "" {
 		reason = fmt.Sprintf("%s(group=%s,arm=%s,fallback_depth=%d)", reason, selectionTrace.SelectedGroup, selectionTrace.SelectedArm, selectionTrace.FallbackDepth)
 	}
-	reason += overrideReasonSuffix
+	if overrideReason != router.SelectionOverrideNone {
+		reason += ":" + string(overrideReason)
+	}
 
 	// The sidecar builds DisplayMarker from its own pre-override pick; once the
 	// router reselects a different arm, that string names the wrong model.

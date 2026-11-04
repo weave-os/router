@@ -41,6 +41,9 @@ type Pin struct {
 	// `:level` suffix of /force-model or x-weave-force-model); empty means the
 	// model's default. Persisted so later turns served from the pin carry it.
 	Effort string
+	// ForcedThreadKey restricts an explicit pin to this thread digest. Empty
+	// means the force applies to every thread in the client conversation.
+	ForcedThreadKey string
 	// PairedProvider/PairedModel are the scorer's runner-up pick, refreshed by
 	// Upsert on a genuine scorer re-run, preserved on a same-model refresh, and
 	// cleared on a model change without a fresh pair (force-model, loop-break,
@@ -114,6 +117,10 @@ type Pin struct {
 	// agent turn (see TurnStrikeStore). They stay out of the session until the
 	// next real user prompt clears them.
 	TurnStrikes []string
+	// TokenizerCalibration is this row's evidence for converting token counts
+	// between tokenizer families (see TokenizerCalibration). Only
+	// TokenizerCalibrationStore writes it; Upsert and UpdateUsage leave it.
+	TokenizerCalibration TokenizerCalibration
 }
 
 // DemotionReason names why a model was withdrawn from automatic selection for

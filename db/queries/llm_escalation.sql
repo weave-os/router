@@ -141,9 +141,31 @@ JOIN router.llm_escalation_sessions s ON s.lifetime = j.lifetime
 WHERE (@all_installations::boolean OR s.installation_id = @installation_id::uuid)
   AND s.expires_at > clock_timestamp();
 
--- name: DeleteExpiredLLMEscalationSessions :exec
--- Cascade operational metadata and continuation content together.
-DELETE FROM router.llm_escalation_sessions WHERE expires_at<=clock_timestamp();
+-- name: DeleteExpiredLLMEscalationContinuationBatch :execrows
+-- One expired session can hold hundreds of MB of history, so histories drain in bounded batches first.
+-- MATERIALIZED evaluates the locking LIMIT once, so a statement never deletes more than one batch.
+WITH batch AS MATERIALIZED (
+  SELECT c.activation, c.response_digest FROM router.llm_escalation_continuations c
+  JOIN router.llm_escalation_sessions s ON s.lifetime = c.lifetime
+  WHERE s.expires_at <= clock_timestamp()
+  LIMIT @batch_size::int
+  FOR UPDATE OF c SKIP LOCKED
+)
+DELETE FROM router.llm_escalation_continuations c
+USING batch b
+WHERE c.activation = b.activation AND c.response_digest = b.response_digest;
+
+-- name: DeleteExpiredLLMEscalationSessionBatch :execrows
+-- Skip rows a concurrent sweeper or request holds instead of waiting out the operation budget.
+WITH batch AS MATERIALIZED (
+  SELECT scope FROM router.llm_escalation_sessions
+  WHERE expires_at <= clock_timestamp()
+  LIMIT @batch_size::int
+  FOR UPDATE SKIP LOCKED
+)
+DELETE FROM router.llm_escalation_sessions s
+USING batch b
+WHERE s.scope = b.scope;
 
 -- name: ExpireLLMEscalationJobLeases :exec
 -- Process loss leaves no durable transcript to retry; close expired claims as missed checks.

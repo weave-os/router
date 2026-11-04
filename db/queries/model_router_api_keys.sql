@@ -1,5 +1,6 @@
 -- Creates a router API key. scope decides what the credential can do:
--- 'routing' proxies inference (and can spend), 'analytics_read' is read-only.
+-- 'routing' proxies inference (and can spend), 'analytics_read' is read-only,
+-- 'session_issuer' stores the public_jwk that verifies rs_ session tokens.
 -- name: CreateModelRouterAPIKey :one
 INSERT INTO router.model_router_api_keys (
     installation_id,
@@ -10,7 +11,8 @@ INSERT INTO router.model_router_api_keys (
     key_suffix,
     created_by,
     scope,
-    harness
+    harness,
+    public_jwk
 )
 VALUES (
     @installation_id::uuid,
@@ -21,7 +23,8 @@ VALUES (
     @key_suffix::varchar,
     @created_by,
     @scope::varchar,
-    @harness
+    @harness,
+    sqlc.narg(public_jwk)::jsonb
 )
 RETURNING *;
 

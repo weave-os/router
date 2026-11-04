@@ -149,6 +149,31 @@ and `configuration`), `requirements` (`runtime_contract`, `policy_schema`,
 `classifier_wire_schema`, `taxonomy_sha256`), and `provenance` (`router_revision`,
 `weave_revision`, `build_attestation`).
 
+The optional `strategy_policies` map pins an independent compiled policy for a
+beta classifier variant. Each key must identify a pinned classifier variant;
+the policy must share its schema and ordered taxonomy. Routing and model discovery
+use that policy only for the requested strategy, preserving the default policy.
+
+Clients can select an automatic router with the request `model` IDs
+`weave-auto`, `weave-hmm-20261019-0001v1`, `weave-hmm-beta`,
+`weave-qwen-20261008-0001v2`, and `weave-decision-model-20261019-0001v1`.
+`weave-auto` uses the configured default. `weave-hmm-20261019-0001v1` always
+selects the release's primary HMM classifier, which every managed release
+serves. The other IDs select the corresponding classifier variant and its pinned
+roster within the admitted release; when the admitted release (or, for the
+decision model, the worker) no longer provides a variant, the request is served
+by the primary HMM classifier of the same admitted release instead. The worker
+never changes the admitted release. Managed variant selection requires internal
+organization admission without a subscriber plan. Classifier variants use the
+existing classifier sidecar.
+
+`GET /v1/router/models?scope=selection` lists these IDs and upstream model IDs
+with a description and a `kind` of `router` or `direct`. Explicit router IDs take
+precedence over legacy session beta preferences. Legacy beta commands in those
+sessions direct clients to the model selector instead of changing hidden state.
+Signed atomic-classifier thread enrollment remains authoritative for `weave-auto`;
+selecting an alternate router requires a fresh thread.
+
 **`selection_set`** (`schema_version: router_serving_selection_set_v2`) — one per
 target per change: `target`, `default` lane, `profiles` (map of profile key → lane;
 explicit even when `{}`). A **lane** is `candidate` (`ObjectRef`), `project`, `region`, `router` and
@@ -517,7 +542,8 @@ reuse the already-published candidate and publish only the set and proposal.
 | `profile` | Register or change only `profile_key`'s policy; preserve default, all other profiles and exact code candidate/binding. `source_candidate` names shared code. |
 | `router` | Move all customers together to the source image/provenance and one new worker revision; retain effective policies, requirements and classifier. |
 | `classifier` | Reuse the worker and effective policies; validate the new classifier against every roster. |
-| `full` / `custom` | Existing forward profile-preservation rules apply; full promotion reuses the exact source candidate. |
+| `full` | Preserve the complete profile inventory; full promotion reuses the exact source candidate. |
+| `custom` | Use the exact reviewed selection set. It may retire only the legacy Boost profile key while preserving every remaining lane's exact policy. |
 | `rollback` | Restore the exact previously activated selection set on the same target. This may restore code as well as configuration. |
 
 To roll back only a roster while retaining current code, publish a `roster` or
@@ -526,11 +552,17 @@ revision is required. Existing eligible conversations retain their original poli
 classifier and worker selection across either forward promotion or rollback. New
 conversations use the current assignment. Preserve assignment generations during
 roster content updates: changing enrollment, authorization, entitlement or profile
-assignment generations deliberately triggers the existing rebind behavior.
+assignment generations deliberately triggers the existing rebind behavior. So does
+changing the installation's allowed models, excluded models, excluded providers or
+routing strategy: admission compares a digest of those controls, so a pinned
+conversation cannot keep a roster that no longer overlaps the customer's models.
+Bindings persisted before the digest existed keep their pin.
 
-Retention remains bounded by the existing session lifecycle: 24 hours idle, seven
-days from activation supersession, then at least 15 minutes drain grace. Explicit
-withdrawals still force rebind. Preserve every policy, selection set, candidate,
+A conversation keeps its activation while it stays active and rebinds to the
+current activation once it has been idle for one hour, the session-pin prompt-cache
+window. Supersession age alone never forces a rebind; explicit withdrawal is the way
+to move active conversations immediately. In-flight requests drain on the old worker
+revision for at least 15 minutes. Preserve every policy, selection set, candidate,
 classifier artifact, physical revision and bootstrap closure referenced by eligible
 sessions, feedback attribution or the supported rollback history. Cache eviction
 is not permission to delete an artifact. This runtime performs no history garbage
@@ -598,7 +630,8 @@ creates only the short-lived grant and never changes entitlements or issues keys
 
 Stable, Max and Boost are typed test selectors, separate from subscription plans.
 Every test targets `prod/stable`; enrollment authorizes access without projecting
-the ordinary internal lane. Max/Boost reuse their server-owned profile keys.
+the ordinary internal lane. Max uses its server-owned profile; Boost uses the
+target's default policy while retaining Boost as the test billing identity.
 Preparation re-resolves the preview, and each admission checks the grant digest,
 current eligibility, single bound session, expiry/revocation and exact retained
 activation/profile/policy. There is no fallback to a current head.

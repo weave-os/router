@@ -370,7 +370,7 @@ func resolveProviderWithCustom(modelID, registryProvider string, available map[s
 	if m.Tier == catalog.TierUnknown {
 		return ""
 	}
-	for _, b := range m.Providers {
+	for _, b := range catalog.RoutableBindings(m) {
 		if _, ok := available[b.Provider]; ok {
 			return b.Provider
 		}

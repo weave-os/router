@@ -81,6 +81,10 @@ const (
 	maxRouteTools              = 96
 	maxRouteToolCallInputKeys  = 24
 	maxRouteToolCallInputChars = 80
+	// Interaction-state classifiers embed up to 8,000 bytes of one message; a
+	// tighter clip serves a different document than they trained on.
+	interactionStateRouteMessageTextChars  = 8000
+	interactionStateRouteMessageTotalChars = 128000
 )
 
 // Client calls a versioned policy sidecar.
@@ -122,12 +126,13 @@ func New(baseURL string, client *http.Client, timeout time.Duration, opts ...Opt
 
 // ClassifierHealth is the immutable classifier identity reported by readiness.
 type ClassifierHealth struct {
-	SchemaVersion         string   `json:"schema_version"`
-	ClassifierArtifactID  string   `json:"classifier_artifact_id"`
-	ClassifierSHA256      string   `json:"classifier_artifact_sha256"`
-	ClassifierImageDigest string   `json:"classifier_image_digest"`
-	ClassifierClassOrder  []string `json:"classifier_class_order"`
-	ClassifierTaxonomySHA string   `json:"classifier_taxonomy_sha256"`
+	SchemaVersion         string                                        `json:"schema_version"`
+	ClassifierArtifactID  string                                        `json:"classifier_artifact_id"`
+	ClassifierSHA256      string                                        `json:"classifier_artifact_sha256"`
+	ClassifierImageDigest string                                        `json:"classifier_image_digest"`
+	ClassifierClassOrder  []string                                      `json:"classifier_class_order"`
+	ClassifierTaxonomySHA string                                        `json:"classifier_taxonomy_sha256"`
+	ClassifierVariants    map[router.Strategy]policy.ClassifierArtifact `json:"classifier_variants,omitempty"`
 }
 
 // ReadClassifierHealth returns the exact classifier identity behind a tagged revision.
@@ -328,6 +333,11 @@ type classifierRequestV4 struct {
 	TrainingAllowed           bool           `json:"training_allowed"`
 	CaptureMode               string         `json:"capture_mode,omitempty"`
 	DebugEnabled              bool           `json:"debug_enabled"`
+	// OmittedUserTurnCount is how many text-bearing user turns the route-message
+	// window dropped from the front of ConversationMessages, so a sidecar can
+	// number the visible turns as the full conversation does. Sent only to a
+	// classifier package that declared interaction-state inputs.
+	OmittedUserTurnCount *int `json:"omitted_user_turn_count,omitempty"`
 }
 
 type routeCandidate struct {
@@ -761,7 +771,12 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 		models = append(models, providerKey)
 		providerMap[providerKey] = candidate.Provider
 	}
-	messages := routeMessages(query.ConversationMessages)
+	routeLimits := classifierRouteMessageLimits(query)
+	messages := convertRouteMessages(query.ConversationMessages, routeLimits)
+	var omittedUserTurnCount *int
+	if query.InteractionStateInputs {
+		omittedUserTurnCount = pointerTo(userTextTurnCount(query.ConversationMessages) - routedUserTextTurnCount(messages))
+	}
 	wireTurnIndex := turnIndex(messages)
 	var visibleTurnIndex *int
 	var sessionTurnCount *int
@@ -779,7 +794,7 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 		sessionEverSwitched = pointerTo(query.TurnContext.SessionEverSwitched)
 		historyTruncated = pointerTo(
 			query.TurnContext.HistoryTruncated ||
-				routeMessagesTruncated(query.ConversationMessages),
+				routeMessagesExceedLimits(query.ConversationMessages, routeLimits),
 		)
 		turnType = query.TurnContext.TurnType
 		previousServedModel = query.TurnContext.PreviousServedModel
@@ -800,7 +815,8 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 			OrganizationID: query.OrganizationID, InstallationID: query.InstallationID, ClientApp: query.ClientApp, Harness: harness, RolloutID: query.RolloutID,
 			PromptText: query.PromptText, LatestUserText: latestUserText(messages), TurnIndex: wireTurnIndex, IsSubagent: turnType == "sub_agent_dispatch",
 			VisibleTurnIndex: visibleTurnIndex, SessionTurnCount: sessionTurnCount, TurnType: turnType, CacheState: cacheState, PriorOutputTokens: priorOutputTokens,
-			SessionEverSwitched: sessionEverSwitched, HistoryTruncated: historyTruncated, ConversationMessages: messages, TrainingConversationDelta: trainingDelta,
+			SessionEverSwitched: sessionEverSwitched, HistoryTruncated: historyTruncated, ConversationMessages: messages,
+			OmittedUserTurnCount: omittedUserTurnCount, TrainingConversationDelta: trainingDelta,
 			AvailableTools: availableTools, InvokedTools: invokedTools, Tools: routeTools(query.Tools),
 			FeedbackKey: query.FeedbackKey, FeedbackRole: query.FeedbackRole, ClientSessionID: query.ClientSessionID, EstimatedInputTokens: query.EstimatedInputTokens,
 			HasTools: query.HasTools, HasImages: query.HasImages, TrainingAllowed: query.TrainingAllowed, CaptureMode: query.CaptureMode, DebugEnabled: query.DebugEnabled,
@@ -1010,6 +1026,14 @@ func (c *Client) doPolicyAttempt(
 	if readErr != nil {
 		return nil, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("read policy route response: %w", readErr))
 	}
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		var failure struct {
+			Error policy.ClassifierErrorCode `json:"error"`
+		}
+		if json.Unmarshal(payload, &failure) == nil && failure.Error == policy.ClassifierWarmingCode {
+			return nil, nil, true, policy.ErrClassifierWarming
+		}
+	}
 	if !isTransientPolicyStatus(resp.StatusCode) {
 		return resp, payload, true, nil
 	}
@@ -1104,39 +1128,68 @@ type routeMessageLimits struct {
 	maxToolCallInputChars int
 	includeToolCallInput  bool
 	includeToolResultText bool
+	// dropTextAfterBudgetCut gives every message older than the first one the
+	// shared budget cuts no text, so the routed text-bearing user turns are
+	// always the newest ones and omitted_user_turn_count can locate them.
+	dropTextAfterBudgetCut bool
+}
+
+var defaultRouteMessageLimits = routeMessageLimits{
+	maxMessages:           maxRouteMessages,
+	maxTextChars:          maxRouteMessageTextChars,
+	maxTotalTextChars:     maxRouteMessageTotalChars,
+	maxToolCallInputKeys:  maxRouteToolCallInputKeys,
+	maxToolCallInputChars: maxRouteToolCallInputChars,
+}
+
+var interactionStateRouteMessageLimits = routeMessageLimits{
+	maxMessages:            maxRouteMessages,
+	maxTextChars:           interactionStateRouteMessageTextChars,
+	maxTotalTextChars:      interactionStateRouteMessageTotalChars,
+	maxToolCallInputKeys:   maxRouteToolCallInputKeys,
+	maxToolCallInputChars:  maxRouteToolCallInputChars,
+	dropTextAfterBudgetCut: true,
+}
+
+// classifierRouteMessageLimits keeps every classifier package on the history
+// clip it was trained on; only a package that declared interaction-state
+// inputs gets the wider one.
+func classifierRouteMessageLimits(query policy.Query) routeMessageLimits {
+	if query.InteractionStateInputs {
+		return interactionStateRouteMessageLimits
+	}
+	return defaultRouteMessageLimits
 }
 
 func routeMessages(messages []router.ConversationMessage) []routeMessage {
-	return convertRouteMessages(messages, routeMessageLimits{
-		maxMessages:           maxRouteMessages,
-		maxTextChars:          maxRouteMessageTextChars,
-		maxTotalTextChars:     maxRouteMessageTotalChars,
-		maxToolCallInputKeys:  maxRouteToolCallInputKeys,
-		maxToolCallInputChars: maxRouteToolCallInputChars,
-	})
+	return convertRouteMessages(messages, defaultRouteMessageLimits)
 }
 
 func routeMessagesTruncated(messages []router.ConversationMessage) bool {
-	if len(messages) > maxRouteMessages {
+	return routeMessagesExceedLimits(messages, defaultRouteMessageLimits)
+}
+
+func routeMessagesExceedLimits(messages []router.ConversationMessage, limits routeMessageLimits) bool {
+	if len(messages) > limits.maxMessages {
 		return true
 	}
 	totalText := 0
 	for _, message := range messages {
 		text := strings.TrimSpace(message.Text)
-		if len(text) > maxRouteMessageTextChars {
+		if len(text) > limits.maxTextChars {
 			return true
 		}
 		totalText += len(text)
-		if totalText > maxRouteMessageTotalChars {
+		if totalText > limits.maxTotalTextChars {
 			return true
 		}
 		for _, call := range message.ToolCalls {
-			if len(strings.TrimSpace(call.Name)) > maxRouteToolCallInputChars ||
-				len(call.InputKeys) > maxRouteToolCallInputKeys {
+			if len(strings.TrimSpace(call.Name)) > limits.maxToolCallInputChars ||
+				len(call.InputKeys) > limits.maxToolCallInputKeys {
 				return true
 			}
 			for _, key := range call.InputKeys {
-				if len(strings.TrimSpace(key)) > maxRouteToolCallInputChars {
+				if len(strings.TrimSpace(key)) > limits.maxToolCallInputChars {
 					return true
 				}
 			}
@@ -1219,6 +1272,7 @@ func convertRouteMessages(messages []router.ConversationMessage, limits routeMes
 	}
 	reversed := make([]routeMessage, 0, len(messages))
 	totalText := 0
+	budgetCut := false
 	for i := len(messages) - 1; i >= 0; i-- {
 		message := messages[i]
 		role := routeRole(message.Role)
@@ -1231,7 +1285,10 @@ func convertRouteMessages(messages []router.ConversationMessage, limits routeMes
 			if i > latestUserTextIndex {
 				budget -= boundaryReserve
 			}
-			if remaining := budget - totalText; remaining < len(text) {
+			if budgetCut && i != latestUserTextIndex {
+				text = ""
+			} else if remaining := budget - totalText; remaining < len(text) {
+				budgetCut = limits.dropTextAfterBudgetCut
 				text = ""
 				if remaining > 0 {
 					text = clipRouteText(message.Text, remaining)
@@ -1372,16 +1429,37 @@ func dedupeStrings(values []string) []string {
 }
 
 func turnIndex(messages []routeMessage) int {
+	count := routedUserTextTurnCount(messages)
+	if count <= 1 {
+		return 0
+	}
+	return count - 1
+}
+
+// routedUserTextTurnCount counts the text-bearing user turns a routed history
+// still carries after windowing and budget clipping.
+func routedUserTextTurnCount(messages []routeMessage) int {
 	count := 0
 	for _, message := range messages {
 		if message.Role == "user" && strings.TrimSpace(message.Text) != "" {
 			count++
 		}
 	}
-	if count <= 1 {
-		return 0
+	return count
+}
+
+// userTextTurnCount counts the text-bearing user turns of the full history.
+// Under interactionStateRouteMessageLimits clipping drops the oldest messages
+// first, so the difference from the routed count is the number of turns
+// missing from the front of the routed window.
+func userTextTurnCount(messages []router.ConversationMessage) int {
+	count := 0
+	for _, message := range messages {
+		if routeRole(message.Role) == "user" && strings.TrimSpace(message.Text) != "" {
+			count++
+		}
 	}
-	return count - 1
+	return count
 }
 
 func firstNonEmpty(values ...string) string {

@@ -164,7 +164,7 @@ func (v DestinationValidator) ValidatePreparedSelection(ctx context.Context, pre
 		return fmt.Errorf("attest classifier revision %q (full serving attestation is required): %w", prepared.Binding.Classifier.Name, err)
 	}
 	identity := prepared.Candidate.Classifier.Identity
-	if !classifier.Ready || classifier.Revision != prepared.Binding.Classifier.Name || classifier.Identity.ArtifactID != identity.ArtifactID || classifier.Identity.PackageSHA256 != identity.PackageSHA256 || classifier.Identity.ImageDigest != identity.ImageDigest || classifier.Identity.WireSchema != identity.WireSchema || classifier.Identity.TaxonomySHA256 != identity.TaxonomySHA256 || !slices.Equal(classifier.Identity.ClassOrder, identity.ClassOrder) {
+	if !classifier.Ready || classifier.Revision != prepared.Binding.Classifier.Name || !classifier.Identity.Equal(identity) {
 		return errors.New("classifier readiness, revision or core identity does not match the selected bundle")
 	}
 	if classifier.Package != prepared.Candidate.Classifier.Package || classifier.Configuration != prepared.Candidate.Classifier.Configuration || classifier.AuxiliaryModels == nil || !maps.Equal(classifier.AuxiliaryModels, prepared.Candidate.Classifier.AuxiliaryModels) {
@@ -181,6 +181,13 @@ func (v DestinationValidator) ValidatePreparedSelection(ctx context.Context, pre
 	for _, arm := range prepared.Policy.AllArms() {
 		if !slices.Contains(worker.CatalogArms, arm) {
 			return fmt.Errorf("selected policy arm %q is absent from the destination worker catalog", arm)
+		}
+	}
+	for strategy, strategyPolicy := range prepared.StrategyPolicies {
+		for _, arm := range strategyPolicy.Roster.AllArms() {
+			if !slices.Contains(worker.CatalogArms, arm) {
+				return fmt.Errorf("%s strategy policy arm %q is absent from the destination worker catalog", strategy, arm)
+			}
 		}
 	}
 	return nil

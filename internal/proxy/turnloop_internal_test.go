@@ -1040,7 +1040,7 @@ func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 		Metadata: &router.RoutingMetadata{
 			Strategy:    string(router.StrategyHMM),
 			RouteID:     "route-1",
-			ChosenScore: 0.84,
+			ChosenScore: 0.49,
 		},
 	}
 
@@ -1059,7 +1059,7 @@ func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 	assert.Equal(t, planner.OutcomeStay, plan.Outcome)
 	assert.Equal(t, hmmReasonUpgradeConfidenceLow, plan.Reason)
 
-	fresh.Metadata.ChosenScore = 0.85
+	fresh.Metadata.ChosenScore = 0.50
 	decision, plan, sticky, stayModel = svc.hmmCostGatedDecision(
 		router.Request{},
 		sessionpin.Pin{},
@@ -1105,7 +1105,7 @@ func TestHMMCostGate_LowConfidenceUpgradeKeepsIndependentPlannerSwitch(t *testin
 		Metadata: &router.RoutingMetadata{
 			Strategy:    string(router.StrategyHMM),
 			RouteID:     "route-1",
-			ChosenScore: 0.84,
+			ChosenScore: 0.49,
 		},
 	}
 
@@ -1526,7 +1526,7 @@ func TestService_NewService_HMMUpgradeConfidenceDefaults(t *testing.T) {
 		"anthropic", "claude-haiku-4-5",
 		nil,
 	)
-	assert.Equal(t, defaultHMMUpgradeConfidenceThreshold, svc.hmmUpgradeConfidenceThreshold)
+	assert.Equal(t, DefaultHMMUpgradeConfidenceThreshold, svc.hmmUpgradeConfidenceThreshold)
 }
 
 func TestService_WithHMMUpgradeConfidenceThreshold(t *testing.T) {

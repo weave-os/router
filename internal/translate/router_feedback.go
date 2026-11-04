@@ -185,7 +185,7 @@ func parseRouterFeedbackCommand(text string) (res RouterFeedbackResult, found bo
 func isRouterFeedbackCommandOnlyContent(content gjson.Result) bool {
 	switch {
 	case content.Type == gjson.String:
-		_, found, stripped := parseRouterFeedbackCommand(content.String())
+		_, found, stripped := parseInCursorQuery(content.String(), parseRouterFeedbackCommand)
 		return found && isOnlyInjectedCommandText(stripped)
 	case content.Type == gjson.JSON && content.IsArray():
 		seenCommand := false
@@ -196,12 +196,11 @@ func isRouterFeedbackCommandOnlyContent(content gjson.Result) bool {
 				return false
 			}
 			text := block.Get("text").String()
-			if strings.TrimSpace(text) == "" || isClaudeCodeInjectedBlock(text) {
+			if _, found, stripped := parseInCursorQuery(text, parseRouterFeedbackCommand); found && isOnlyInjectedCommandText(stripped) {
+				seenCommand = true
 				return true
 			}
-			_, found, stripped := parseRouterFeedbackCommand(text)
-			if found && isOnlyInjectedCommandText(stripped) {
-				seenCommand = true
+			if strings.TrimSpace(text) == "" || isClaudeCodeInjectedBlock(text) || isOnlyInjectedCommandText(text) {
 				return true
 			}
 			allSynthetic = false

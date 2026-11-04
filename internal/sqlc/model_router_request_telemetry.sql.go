@@ -111,6 +111,8 @@ SELECT
     t.sticky_hit,
     t.failover_used,
     t.cross_format,
+    t.error_class,
+    t.failure_owner,
     t.estimated_input_tokens,
     t.input_tokens,
     t.output_tokens,
@@ -239,6 +241,8 @@ type GetRoutingDecisionsForExportRow struct {
 	StickyHit                       *bool
 	FailoverUsed                    *bool
 	CrossFormat                     *bool
+	ErrorClass                      *string
+	FailureOwner                    *string
 	EstimatedInputTokens            *int32
 	InputTokens                     *int32
 	OutputTokens                    *int32
@@ -339,6 +343,8 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.sticky_hit,
 //	    t.failover_used,
 //	    t.cross_format,
+//	    t.error_class,
+//	    t.failure_owner,
 //	    t.estimated_input_tokens,
 //	    t.input_tokens,
 //	    t.output_tokens,
@@ -472,6 +478,8 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.StickyHit,
 			&i.FailoverUsed,
 			&i.CrossFormat,
+			&i.ErrorClass,
+			&i.FailureOwner,
 			&i.EstimatedInputTokens,
 			&i.InputTokens,
 			&i.OutputTokens,
@@ -2040,6 +2048,7 @@ INSERT INTO router.model_router_request_telemetry (
     intended_model_family,
     final_model_family,
     unified_limit_headers,
+    codex_limit_headers,
     policy_pin_requested,
     policy_pin_honoured,
     planner_outcome,
@@ -2111,6 +2120,7 @@ INSERT INTO router.model_router_request_telemetry (
     user_prompt_gap_ms,
     user_prompt_gap_prior_model,
     error_class,
+    failure_owner,
     latest_tool_call_counts,
     context_snapshot
 ) VALUES (
@@ -2215,44 +2225,44 @@ INSERT INTO router.model_router_request_telemetry (
     $99::varchar,
     $100::varchar,
     $101::jsonb,
-    $102::boolean,
+    $102::jsonb,
     $103::boolean,
-    $104::varchar,
+    $104::boolean,
     $105::varchar,
     $106::varchar,
     $107::varchar,
-    $108::bigint,
+    $108::varchar,
     $109::bigint,
-    $110::boolean,
-    $111::varchar,
-    $112::bigint,
-    $113::varchar,
-    $114::boolean,
-    $115::varchar,
+    $110::bigint,
+    $111::boolean,
+    $112::varchar,
+    $113::bigint,
+    $114::varchar,
+    $115::boolean,
     $116::varchar,
     $117::varchar,
-    $118::bigint,
+    $118::varchar,
     $119::bigint,
-    $120::boolean,
-    $121::varchar,
-    $122::bigint,
-    $123::double precision,
+    $120::bigint,
+    $121::boolean,
+    $122::varchar,
+    $123::bigint,
     $124::double precision,
-    $125::int,
+    $125::double precision,
     $126::int,
     $127::int,
     $128::int,
-    $129::varchar,
-    $130::double precision,
-    $131::int,
+    $129::int,
+    $130::varchar,
+    $131::double precision,
     $132::int,
     $133::int,
     $134::int,
     $135::int,
-    $136::boolean,
-    $137::varchar[],
+    $136::int,
+    $137::boolean,
     $138::varchar[],
-    $139::varchar,
+    $139::varchar[],
     $140::varchar,
     $141::varchar,
     $142::varchar,
@@ -2260,34 +2270,36 @@ INSERT INTO router.model_router_request_telemetry (
     $144::varchar,
     $145::varchar,
     $146::varchar,
-    $147::boolean,
-    $148::varchar,
+    $147::varchar,
+    $148::boolean,
     $149::varchar,
-    $150::boolean,
-    $151::varchar,
+    $150::varchar,
+    $151::boolean,
     $152::varchar,
     $153::varchar,
     $154::varchar,
     $155::varchar,
-    $156::bigint,
-    $157::varchar,
-    $158::bigint,
+    $156::varchar,
+    $157::bigint,
+    $158::varchar,
     $159::bigint,
     $160::bigint,
     $161::bigint,
-    $162::boolean,
-    $163::varchar,
+    $162::bigint,
+    $163::boolean,
     $164::varchar,
     $165::varchar,
     $166::varchar,
     $167::varchar,
     $168::varchar,
-    $169::boolean,
-    $170::bigint,
-    $171::varchar,
+    $169::varchar,
+    $170::boolean,
+    $171::bigint,
     $172::varchar,
-    $173::jsonb,
-    $174::jsonb
+    $173::varchar,
+    $174::varchar,
+    $175::jsonb,
+    $176::jsonb
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -2394,6 +2406,7 @@ type InsertRequestTelemetryParams struct {
 	IntendedModelFamily                      *string
 	FinalModelFamily                         *string
 	UnifiedLimitHeaders                      []byte
+	CodexLimitHeaders                        []byte
 	PolicyPinRequested                       *bool
 	PolicyPinHonoured                        *bool
 	PlannerOutcome                           *string
@@ -2465,6 +2478,7 @@ type InsertRequestTelemetryParams struct {
 	UserPromptGapMs                          *int64
 	UserPromptGapPriorModel                  *string
 	ErrorClass                               *string
+	FailureOwner                             *string
 	LatestToolCallCounts                     []byte
 	ContextSnapshot                          []byte
 }
@@ -2502,6 +2516,8 @@ type InsertRequestTelemetryParams struct {
 // set observed on this turn (Claude Code cost-observing-proxy Phase 0
 // instrumentation). NULL on non-subscription turns and on rows written before
 // the column existed. Nothing reads it yet.
+// codex_limit_headers is the verbatim x-codex-{primary,secondary,credits}-*
+// header set observed on a Codex-subscription-served turn. NULL otherwise.
 // inference_* / plan_* / fallback_reason / accounting_outcome / usage_known are
 // the inference-policy provenance of the operation (purpose, policy entry and
 // revisions, policy-selected target, why the served target differs, how usage
@@ -2521,7 +2537,7 @@ type InsertRequestTelemetryParams struct {
 // user_prompt_gap_prior_model is the model that served that response. The gap
 // is NULL on the session's first prompt and when the previous response
 // overlapped this one. error_class buckets how the turn failed (NULL on a
-// normal completion). latest_tool_call_counts is {tool: {calls, errors}} over
+// normal completion) and failure_owner names who owns that failure. latest_tool_call_counts is {tool: {calls, errors}} over
 // only the tool results this request delivered, unlike tool_error_counts,
 // which re-counts the whole history on every turn.
 // failover_used marks a turn a rescue served; failover_attempted marks any turn
@@ -2629,6 +2645,7 @@ type InsertRequestTelemetryParams struct {
 //	    intended_model_family,
 //	    final_model_family,
 //	    unified_limit_headers,
+//	    codex_limit_headers,
 //	    policy_pin_requested,
 //	    policy_pin_honoured,
 //	    planner_outcome,
@@ -2700,6 +2717,7 @@ type InsertRequestTelemetryParams struct {
 //	    user_prompt_gap_ms,
 //	    user_prompt_gap_prior_model,
 //	    error_class,
+//	    failure_owner,
 //	    latest_tool_call_counts,
 //	    context_snapshot
 //	) VALUES (
@@ -2804,44 +2822,44 @@ type InsertRequestTelemetryParams struct {
 //	    $99::varchar,
 //	    $100::varchar,
 //	    $101::jsonb,
-//	    $102::boolean,
+//	    $102::jsonb,
 //	    $103::boolean,
-//	    $104::varchar,
+//	    $104::boolean,
 //	    $105::varchar,
 //	    $106::varchar,
 //	    $107::varchar,
-//	    $108::bigint,
+//	    $108::varchar,
 //	    $109::bigint,
-//	    $110::boolean,
-//	    $111::varchar,
-//	    $112::bigint,
-//	    $113::varchar,
-//	    $114::boolean,
-//	    $115::varchar,
+//	    $110::bigint,
+//	    $111::boolean,
+//	    $112::varchar,
+//	    $113::bigint,
+//	    $114::varchar,
+//	    $115::boolean,
 //	    $116::varchar,
 //	    $117::varchar,
-//	    $118::bigint,
+//	    $118::varchar,
 //	    $119::bigint,
-//	    $120::boolean,
-//	    $121::varchar,
-//	    $122::bigint,
-//	    $123::double precision,
+//	    $120::bigint,
+//	    $121::boolean,
+//	    $122::varchar,
+//	    $123::bigint,
 //	    $124::double precision,
-//	    $125::int,
+//	    $125::double precision,
 //	    $126::int,
 //	    $127::int,
 //	    $128::int,
-//	    $129::varchar,
-//	    $130::double precision,
-//	    $131::int,
+//	    $129::int,
+//	    $130::varchar,
+//	    $131::double precision,
 //	    $132::int,
 //	    $133::int,
 //	    $134::int,
 //	    $135::int,
-//	    $136::boolean,
-//	    $137::varchar[],
+//	    $136::int,
+//	    $137::boolean,
 //	    $138::varchar[],
-//	    $139::varchar,
+//	    $139::varchar[],
 //	    $140::varchar,
 //	    $141::varchar,
 //	    $142::varchar,
@@ -2849,34 +2867,36 @@ type InsertRequestTelemetryParams struct {
 //	    $144::varchar,
 //	    $145::varchar,
 //	    $146::varchar,
-//	    $147::boolean,
-//	    $148::varchar,
+//	    $147::varchar,
+//	    $148::boolean,
 //	    $149::varchar,
-//	    $150::boolean,
-//	    $151::varchar,
+//	    $150::varchar,
+//	    $151::boolean,
 //	    $152::varchar,
 //	    $153::varchar,
 //	    $154::varchar,
 //	    $155::varchar,
-//	    $156::bigint,
-//	    $157::varchar,
-//	    $158::bigint,
+//	    $156::varchar,
+//	    $157::bigint,
+//	    $158::varchar,
 //	    $159::bigint,
 //	    $160::bigint,
 //	    $161::bigint,
-//	    $162::boolean,
-//	    $163::varchar,
+//	    $162::bigint,
+//	    $163::boolean,
 //	    $164::varchar,
 //	    $165::varchar,
 //	    $166::varchar,
 //	    $167::varchar,
 //	    $168::varchar,
-//	    $169::boolean,
-//	    $170::bigint,
-//	    $171::varchar,
+//	    $169::varchar,
+//	    $170::boolean,
+//	    $171::bigint,
 //	    $172::varchar,
-//	    $173::jsonb,
-//	    $174::jsonb
+//	    $173::varchar,
+//	    $174::varchar,
+//	    $175::jsonb,
+//	    $176::jsonb
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -2982,6 +3002,7 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.IntendedModelFamily,
 		arg.FinalModelFamily,
 		arg.UnifiedLimitHeaders,
+		arg.CodexLimitHeaders,
 		arg.PolicyPinRequested,
 		arg.PolicyPinHonoured,
 		arg.PlannerOutcome,
@@ -3053,6 +3074,7 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.UserPromptGapMs,
 		arg.UserPromptGapPriorModel,
 		arg.ErrorClass,
+		arg.FailureOwner,
 		arg.LatestToolCallCounts,
 		arg.ContextSnapshot,
 	)

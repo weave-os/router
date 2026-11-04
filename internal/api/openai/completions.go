@@ -28,9 +28,11 @@ func ChatCompletionHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handle
 			writeOpenAIError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body too large.")
 			return
 		}
+		observability.LogServerProxyRequestShape(c, body)
+		defer observability.RecordServerProxyResponseID(c)()
 
-		ctx := requestcontext.WithClientIdentity(c.Request.Context(), proxy.ClientIdentityFromHeaders(c.Request.Header))
-		ctx = proxy.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c))
+		ctx := requestcontext.WithClientIdentity(c.Request.Context(), proxy.ChatClientIdentity(c.Request.Header, body))
+		ctx = proxy.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c))
 		ctx, err = proxy.ResolveRoutingAssignment(ctx, authSvc, middleware.InstallationFrom(c))
 		if err != nil {
 			log.Error("Failed to resolve routing assignment", "installation_id", middleware.InstallationFrom(c).ID, "err", err)
@@ -58,11 +60,14 @@ func ChatCompletionHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handle
 				if cls.RetryAfter {
 					c.Header("Retry-After", "1")
 				}
+				if cls.NoClientRetry {
+					c.Header("x-should-retry", "false")
+				}
 				writeOpenAIErrorWithCode(c, cls.Status, openAIErrorType(cls.Kind), cls.Message, proxy.OpenAIErrorCode(cls.Kind))
 				return
 			}
 			log.Error("Proxy failed", "err", err)
-			writeOpenAIError(c, http.StatusBadGateway, "api_error", "Upstream call failed.")
+			writeOpenAIError(c, http.StatusBadGateway, "api_error", proxy.TerminalErrorMessage(err))
 			return
 		}
 	}

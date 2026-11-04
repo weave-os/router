@@ -65,6 +65,7 @@ type SessionCost struct {
 
 // InsertTelemetryParams mirrors one router.upstream span row.
 type InsertTelemetryParams struct {
+	agreementShadow *agreementShadowInput
 	ContextSnapshot []byte
 	InstallationID  string
 	// APIKeyID attributes the row to the authenticating api key (per-key spend
@@ -235,6 +236,9 @@ type InsertTelemetryParams struct {
 	// set, pre-marshaled JSON. Phase 0 instrumentation — nil on non-subscription
 	// turns. Nothing reads this yet.
 	UnifiedLimitHeaders []byte
+	// CodexLimitHeaders is the verbatim x-codex-{primary,secondary,credits}-*
+	// header set, pre-marshaled JSON. nil on turns no Codex subscription served.
+	CodexLimitHeaders []byte
 
 	// Planner* columns persist the per-turn verdict. nil/empty when planner did not run;
 	// a stored zero must not read as evidence. Cost fields are float64 USD; postgres adapter converts to micros.
@@ -311,8 +315,9 @@ type InsertTelemetryParams struct {
 	// from the session turn clock, never by the call site.
 	UserPromptGapMs         *int64
 	UserPromptGapPriorModel string
-	// ErrorClass is empty on a normal completion.
-	ErrorClass TurnErrorClass
+	// ErrorClass and FailureOwner are empty on a normal completion.
+	ErrorClass   TurnErrorClass
+	FailureOwner FailureOwner
 	// LatestToolCallCounts is pre-marshaled JSON {tool name: {calls, errors}}
 	// over incoming Anthropic tool results. {} marks an observed empty result;
 	// nil means outcomes were not collected, including unsupported input formats.

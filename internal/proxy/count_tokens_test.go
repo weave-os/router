@@ -37,6 +37,19 @@ func assertLocalEstimate(t *testing.T, rec *httptest.ResponseRecorder) {
 	assert.Positive(t, tokens.Int())
 }
 
+func TestCountTokens_RoutingModelNeverReachesUpstream(t *testing.T) {
+	provider := &fakeProvider{passthroughResponse: func(context.Context, http.ResponseWriter) error {
+		t.Fatal("virtual routing model reached upstream")
+		return nil
+	}}
+	for _, model := range []router.RoutingModel{router.ModelAutomatic, router.ModelHMM, router.ModelQwen} {
+		rec := httptest.NewRecorder()
+		body := strings.Replace(countTokensBody, "claude-sonnet-4-6", string(model), 1)
+		require.NoError(t, countTokensService(provider).PassthroughToProvider(context.Background(), []byte(body), rec, countTokensRequest()))
+		assertLocalEstimate(t, rec)
+	}
+}
+
 func TestCountTokens_UpstreamAnswerIsForwardedVerbatim(t *testing.T) {
 	provider := &fakeProvider{passthroughResponse: func(_ context.Context, w http.ResponseWriter) error {
 		w.Header().Set("content-type", "application/json")

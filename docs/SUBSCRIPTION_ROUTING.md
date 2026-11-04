@@ -43,6 +43,18 @@ original history is preserved; if a compaction summary is rejected, the already
 compacted body remains unchanged. Committed streams are never replayed, and
 terminal upstream failures are accounted as errors.
 
+A model the user picked in the client (sent with `X-Weave-Model-Passthrough: 1`
+and served as-is) funds the way the native client would. On the caller's own
+Claude/ChatGPT login it stays on that login: observed exhaustion or paid
+overage does not move it off, Codex may spend that login's own credits, and the
+provider's own refusal reaches the client instead of a metered rescue. Without
+a login for the served provider it funds like a routed request (the managed
+pool's included quota, then Weave credits). The installation setting
+`picked_model_credit_fallback_enabled` restores the routed funding rules for
+picks. A picked model the installation cannot serve as-is is routed instead and
+funds as routed traffic. A Codex `/model` pick (`X-Weave-Codex-Native-Model-Pin: 1`)
+served as selected funds the same way.
+
 Native OpenAI Codex and Anthropic adapters accept subscription OAuth credentials.
 Anthropic-compatible bearer gateways do not advertise native Claude subscription
 support.
@@ -80,9 +92,21 @@ primary candidate read. OAuth suppression, API-only model sets, BYOK, gateway
 bindings, and auxiliary calls cannot erase those facts. A non-OAuth call is
 permitted only when no compatible authorized pool exists, or every account in
 that pool has positive included-quota exhaustion evidence with an unexpired reset.
-Presented direct subscriptions require the same proof. Model compatibility is
+Presented direct subscriptions require the same proof. One exception is scoped
+to the turn: an eligible buffered upstream 5xx observed during plan inference
+marks that pool as unable to serve the turn for a bounded cooldown, and paid rescue of the same turn (the
+same model or a scored sibling) is admitted while the mark is live. The mark is
+not quota evidence and is never persisted to the account. Model compatibility is
 catalog-based; an unrelated provider's available subscription does not block an
-API-only model.
+API-only model. Rescue eligibility never overrides the final paid-credential
+funding guard: depleted credits and spend caps still prohibit paid dispatch.
+
+Quota-verification failures are not inference-capacity failures. Preflight
+timeouts, quota-endpoint errors, and unverifiable responses retain a shared typed
+cause even when normalized to a buffered 503. They never create a capacity mark
+or authorize paid rescue. Internal preflight timeouts remain retryable while the
+caller is live; caller cancellation remains nonretryable. Another included seat
+may serve, but uncertainty alone must surface an error rather than buy capacity.
 
 An enrollment-read error, lease contention, refresh/auth failure, model denial,
 third-party refusal, generic 429, transport failure, or spent admission budget

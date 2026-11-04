@@ -160,6 +160,7 @@ services:
         required: false
     environment:
       PORT: "8093"
+      CLASSIFIER_IMAGE_DIGEST: ${CLASSIFIER_IMAGE_DIGEST:-}
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8093/readyz >/dev/null || exit 1"]
       interval: 5s

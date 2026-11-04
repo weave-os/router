@@ -13,7 +13,17 @@ home="$work/home"
 install_dir="$work/opencode"
 fake_bin="$work/bin"
 mkdir -p "$home" "$install_dir" "$fake_bin"
-printf '%s\n' '#!/usr/bin/env bash' 'exit 22' >"$fake_bin/curl"
+cat >"$fake_bin/curl" <<'FAKE_CURL'
+#!/usr/bin/env bash
+[ "${!#}" = "http://127.0.0.1:9/validate" ] || exit 22
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) printf '%s' '{}' >"$2"; shift 2 ;;
+    -w) printf '200'; shift 2 ;;
+    *) shift ;;
+  esac
+done
+FAKE_CURL
 chmod +x "$fake_bin/curl"
 cat >"$fake_bin/opencode" <<'FAKE_OPENCODE'
 #!/usr/bin/env bash
@@ -111,7 +121,7 @@ grep -Fq "npx @weave-os/router login codex" <<<"$install_output" || fail "instal
 login_output="$(HOME="$home" XDG_CONFIG_HOME="$home/xdg" PATH="$test_path" NO_COLOR=1 \
   bash "$installer" login claude --dir "$install_dir" --non-interactive --quiet 2>&1 || true)"
 grep -Fq "Claude login requires an interactive terminal" <<<"$login_output" || fail "managed login did not reuse the OpenCode install"
-if grep -Fq "No Weave Router install found" <<<"$login_output"; then
+if grep -Fq "Weave Router is not installed" <<<"$login_output"; then
   fail "managed login ignored the OpenCode install endpoint"
 fi
 # A Claude install that already resolves an endpoint but carries no key must
