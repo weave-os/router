@@ -3,6 +3,8 @@ package otel
 import (
 	"context"
 	"sync"
+
+	"weave-os/router/internal/telemetry"
 )
 
 // Buffer accumulates spans for a single request and flushes them to an Emitter
@@ -69,36 +71,28 @@ func (b *Buffer) Flush() {
 	}
 }
 
-type bufferKey struct{}
-
 // WithContext returns a child context carrying this buffer.
 func (b *Buffer) WithContext(ctx context.Context) context.Context {
 	if b == nil {
 		return ctx
 	}
-	return context.WithValue(ctx, bufferKey{}, b)
+	return telemetry.WithRecorder(ctx, b)
 }
 
 // Record retrieves the Buffer from ctx and appends the span. No-op when the
 // context does not carry a buffer (OTel disabled or pre-buffer middleware).
 func Record(ctx context.Context, s Span) {
-	if buf, ok := ctx.Value(bufferKey{}).(*Buffer); ok {
-		buf.Record(s)
-	}
+	telemetry.Record(ctx, s)
 }
 
 // RecordLog retrieves the Buffer from ctx and appends the log record. No-op
 // when the context does not carry a buffer (OTel disabled or pre-buffer
 // middleware).
 func RecordLog(ctx context.Context, r LogRecord) {
-	if buf, ok := ctx.Value(bufferKey{}).(*Buffer); ok {
-		buf.RecordLog(r)
-	}
+	telemetry.RecordLog(ctx, r)
 }
 
 // Flush retrieves the Buffer from ctx and flushes all buffered spans and logs.
 func Flush(ctx context.Context) {
-	if buf, ok := ctx.Value(bufferKey{}).(*Buffer); ok {
-		buf.Flush()
-	}
+	telemetry.Flush(ctx)
 }

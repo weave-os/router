@@ -12,8 +12,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
 	"github.com/tidwall/gjson"
@@ -203,7 +203,7 @@ func (s *Service) recordCallLog(ctx context.Context, base []*commonv1.KeyValue, 
 		return
 	}
 
-	content := otel.NewAttrBuilder(7).
+	content := telemetry.NewAttrBuilder(7).
 		Int64("latency.route_ms", routeMs).
 		Int64("io.request_bytes", int64(len(reqBody))).
 		Int64("io.response_bytes", int64(len(respBody))).
@@ -219,11 +219,11 @@ func (s *Service) recordCallLog(ctx context.Context, base []*commonv1.KeyValue, 
 	}
 
 	attrs := append(slices.Clone(base), content.Build()...)
-	sev := otel.SeverityInfo
+	sev := telemetry.SeverityInfo
 	if proxyErr != nil {
-		sev = otel.SeverityError
+		sev = telemetry.SeverityError
 	}
-	otel.RecordLog(ctx, otel.LogRecord{
+	telemetry.RecordLog(ctx, telemetry.LogRecord{
 		Name:     "router.call",
 		Time:     time.Now(),
 		Severity: sev,
@@ -317,15 +317,15 @@ func (s *Service) recordPermanentError(ctx context.Context, base []*commonv1.Key
 		}
 	}
 	attrs = append(attrs, permanentErrorDiagnosticAttrs(proxyErr, requestBytes, s.redactor, responsesSurface)...)
-	otel.RecordLog(ctx, otel.LogRecord{
+	telemetry.RecordLog(ctx, telemetry.LogRecord{
 		Name: permanentErrorEventName, Time: time.Now(),
-		Severity: otel.SeverityError, Attrs: attrs,
+		Severity: telemetry.SeverityError, Attrs: attrs,
 	})
 }
 
 func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int, redact Redactor, responsesSurface ...bool) []*commonv1.KeyValue {
 	isResponsesSurface := len(responsesSurface) > 0 && responsesSurface[0]
-	attrs := otel.NewAttrBuilder(8).
+	attrs := telemetry.NewAttrBuilder(8).
 		String("upstream.error_class", string(classifyPermanentError(proxyErr, isResponsesSurface))).
 		String("request.size_bucket", string(requestSizeBucketFor(requestBytes)))
 
