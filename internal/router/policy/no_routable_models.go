@@ -40,7 +40,11 @@ func emptyCandidateError(diagnostics []Diagnostic) error {
 		return ErrContextWindowExceeded
 	}
 	if slices.ContainsFunc(diagnostics, isProviderExclusion) &&
-		!slices.ContainsFunc(diagnostics, func(d Diagnostic) bool { return !isProviderExclusion(d) && !isStructuralExclusion(d) }) {
+		!slices.ContainsFunc(diagnostics, func(d Diagnostic) bool {
+			// Unmapped/unknown roster drops are structural: no installation setting undoes them.
+			structural := d.Reason == ExclusionUnmappedRoster || d.Reason == ExclusionUnknownCatalogModel
+			return !isProviderExclusion(d) && !structural
+		}) {
 		return ErrNoProviderCredentials
 	}
 	return ErrNoRoutableModels
@@ -48,11 +52,6 @@ func emptyCandidateError(diagnostics []Diagnostic) error {
 
 func isProviderExclusion(d Diagnostic) bool {
 	return d.Reason == ExclusionNoProvider || d.Reason == ExclusionProviderPolicy
-}
-
-// isStructuralExclusion covers drops no installation setting can undo.
-func isStructuralExclusion(d Diagnostic) bool {
-	return d.Reason == ExclusionUnmappedRoster || d.Reason == ExclusionUnknownCatalogModel
 }
 
 // candidateLogFields flattens a resolution into slog fields so a failed

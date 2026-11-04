@@ -391,7 +391,8 @@ func TestClassifyDispatchError_NoProviderCredentials(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, proxy.DispatchErrorNoEligibleProvider, cls.Kind)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
-	assert.Contains(t, cls.Message, "No provider keys")
+	assert.Contains(t, cls.Message, "add a provider key")
+	assert.Contains(t, cls.Message, "re-enable an excluded provider")
 	assert.False(t, cls.RetryAfter)
 }
 

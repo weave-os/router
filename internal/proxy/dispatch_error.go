@@ -562,7 +562,7 @@ func noEligibleProviderClass() DispatchErrorClass {
 	return DispatchErrorClass{
 		Kind:       DispatchErrorNoEligibleProvider,
 		Status:     http.StatusBadRequest,
-		Message:    "No provider keys available for any deployed model: register a BYOK key or supply a provider Authorization header.",
+		Message:    "No enabled provider can serve any deployed model: add a provider key (BYOK or a provider Authorization header), or re-enable an excluded provider.",
 		LogLevel:   "warn",
 		LogMessage: "No eligible provider for request",
 	}
