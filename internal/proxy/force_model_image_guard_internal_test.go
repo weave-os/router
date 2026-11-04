@@ -123,16 +123,16 @@ func TestRunTurnLoop_ForcedImageCapModel_ReachesProvider(t *testing.T) {
 	feats := env.RoutingFeatures(false)
 	require.Equal(t, imageCount, feats.ImageCount)
 
-	excluded := map[string]struct{}{model: {}}
+	excludedModels := map[string]struct{}{model: {}}
 	req := router.Request{
 		RequestedModel:           feats.Model,
 		ForceModel:               model,
 		HasImages:                true,
 		ImageCount:               imageCount,
 		EnabledProviders:         map[string]struct{}{providers.ProviderDeepInfra: {}},
-		ExcludedModels:           excluded,
-		ImageLimitExcludedModels: excluded,
-		SafetyExcludedModels:     excluded,
+		ExcludedModels:           excludedModels,
+		ImageLimitExcludedModels: excludedModels,
+		SafetyExcludedModels:     excludedModels,
 	}
 	pin := sessionpin.Pin{Provider: providers.ProviderDeepInfra, Model: model}
 	assert.True(t, forcedPinEligible(pin, req), "the explicit force must survive an image-count-only exclusion")
