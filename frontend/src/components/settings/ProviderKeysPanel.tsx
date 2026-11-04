@@ -26,10 +26,7 @@ const PROVIDERS = [
   "fireworks",
   "together",
   "bedrock",
-  "deepinfra",
   "xai",
-  "minimax",
-  "meta",
   "anthropic_gateway",
   "openai_gateway",
 ] as const;
@@ -45,10 +42,7 @@ const PROVIDER_LABEL: Record<Provider, string> = {
   fireworks: "Fireworks",
   together: "Together",
   bedrock: "AWS Bedrock",
-  deepinfra: "DeepInfra",
   xai: "xAI",
-  minimax: "MiniMax",
-  meta: "Meta",
   anthropic_gateway: "Anthropic-compatible gateway",
   openai_gateway: "OpenAI-compatible gateway",
 };
@@ -61,10 +55,7 @@ const PROVIDER_ENV_VAR: Record<Provider, string> = {
   fireworks: "FIREWORKS_API_KEY",
   together: "TOGETHER_API_KEY",
   bedrock: "AWS_BEARER_TOKEN_BEDROCK",
-  deepinfra: "DEEPINFRA_API_KEY",
   xai: "XAI_API_KEY",
-  minimax: "MINIMAX_API_KEY",
-  meta: "META_API_KEY",
   anthropic_gateway: "ANTHROPIC_GATEWAY_TOKEN",
   openai_gateway: "OPENAI_GATEWAY_TOKEN",
 };
