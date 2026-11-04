@@ -488,9 +488,17 @@ func siblingCandidateOrder(md *router.RoutingMetadata) []string {
 	return order
 }
 
-// siblingProvider resolves the first available binding that accepts the
-// request's images. Without images it preserves the router's resolved provider.
+// siblingProvider preserves a compatible resolved binding before considering
+// available alternatives in catalog order.
 func siblingProvider(model string, resolved map[string]string, available map[string]struct{}, imageCount int) (string, bool) {
+	if p, ok := resolved[model]; ok && p != "" {
+		if _, keyed := available[p]; keyed {
+			binding, known := catalog.BindingFor(model, p)
+			if !known || binding.AcceptsImageCount(imageCount) {
+				return p, true
+			}
+		}
+	}
 	if imageCount > 0 {
 		for _, binding := range catalog.EnumerateBindings(model, available) {
 			if binding.AcceptsImageCount(imageCount) {
@@ -498,11 +506,6 @@ func siblingProvider(model string, resolved map[string]string, available map[str
 			}
 		}
 		return "", false
-	}
-	if p, ok := resolved[model]; ok && p != "" {
-		if _, keyed := available[p]; keyed {
-			return p, true
-		}
 	}
 	binding, ok := catalog.ResolveBinding(model, available)
 	if !ok {

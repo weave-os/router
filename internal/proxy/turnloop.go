@@ -772,23 +772,9 @@ func withAutomaticExclusions(req HardPinRequest, automaticExcluded map[string]st
 }
 
 func forcedPinEligible(pin sessionpin.Pin, req router.Request) bool {
-	if pin.Model == "" || pin.Provider == "" {
-		return false
-	}
 	req = readmitForcedContextEstimate(req, pin.Model)
-	if _, excluded := req.ExcludedModels[pin.Model]; excluded {
-		if _, imageLimitExcluded := req.ImageLimitExcludedModels[pin.Model]; !imageLimitExcluded {
-			return false
-		}
-	}
-	if !forcedPinServesImages(pin, req) {
-		return false
-	}
-	if req.EnabledProviders == nil {
-		return true
-	}
-	_, ok := req.EnabledProviders[pin.Provider]
-	return ok
+	req = readmitForcedImageLimit(req, pin.Model)
+	return pinEligible(pin, req)
 }
 
 func forcedPinIneligibilityReason(pin sessionpin.Pin, req router.Request) string {

@@ -75,21 +75,54 @@ func TestSiblingFailoverSelectsImageCompatibleBinding(t *testing.T) {
 	}
 }
 
-func TestSiblingProviderSelectsFirstImageCompatibleBinding(t *testing.T) {
-	const model = "xiaomi/mimo-v2.6-pro"
-	available := map[string]struct{}{
-		providers.ProviderDeepInfra:  {},
-		providers.ProviderOpenRouter: {},
+func TestSiblingProviderPreservesCompatibleResolvedBinding(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		model        string
+		resolved     map[string]string
+		available    map[string]struct{}
+		imageCount   int
+		wantProvider string
+	}{
+		{
+			name:         "resolved OpenRouter wins over catalog order",
+			model:        "moonshotai/kimi-k3",
+			resolved:     map[string]string{"moonshotai/kimi-k3": providers.ProviderOpenRouter},
+			available:    map[string]struct{}{providers.ProviderFireworks: {}, providers.ProviderOpenRouter: {}},
+			imageCount:   17,
+			wantProvider: providers.ProviderOpenRouter,
+		},
+		{
+			name:         "capped resolved binding falls back",
+			model:        "xiaomi/mimo-v2.6-pro",
+			resolved:     map[string]string{"xiaomi/mimo-v2.6-pro": providers.ProviderDeepInfra},
+			available:    map[string]struct{}{providers.ProviderDeepInfra: {}, providers.ProviderOpenRouter: {}},
+			imageCount:   17,
+			wantProvider: providers.ProviderOpenRouter,
+		},
+		{
+			name:         "compatible resolved binding stays selected",
+			model:        "xiaomi/mimo-v2.6-pro",
+			resolved:     map[string]string{"xiaomi/mimo-v2.6-pro": providers.ProviderDeepInfra},
+			available:    map[string]struct{}{providers.ProviderDeepInfra: {}, providers.ProviderOpenRouter: {}},
+			imageCount:   3,
+			wantProvider: providers.ProviderDeepInfra,
+		},
+		{
+			name:         "unknown binding has no known image cap",
+			model:        "custom-model",
+			resolved:     map[string]string{"custom-model": providers.ProviderAnthropicGateway},
+			available:    map[string]struct{}{providers.ProviderAnthropicGateway: {}},
+			imageCount:   17,
+			wantProvider: providers.ProviderAnthropicGateway,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider, ok := siblingProvider(tc.model, tc.resolved, tc.available, tc.imageCount)
+			require.True(t, ok)
+			assert.Equal(t, tc.wantProvider, provider)
+		})
 	}
-	resolved := map[string]string{model: providers.ProviderDeepInfra}
-
-	provider, ok := siblingProvider(model, resolved, available, 17)
-	require.True(t, ok)
-	assert.Equal(t, providers.ProviderOpenRouter, provider)
-
-	provider, ok = siblingProvider(model, resolved, available, 3)
-	require.True(t, ok)
-	assert.Equal(t, providers.ProviderDeepInfra, provider)
 }
 
 func TestRescueBasisForTurnKeepsHeldPrimaryIdentity(t *testing.T) {

@@ -150,6 +150,24 @@ func TestRunTurnLoop_ForcedImageCapModel_ReachesProvider(t *testing.T) {
 	assert.Equal(t, providers.ProviderDeepInfra, bindings[0].Provider)
 }
 
+func TestReadmitForcedImageLimitCopiesExcludedModels(t *testing.T) {
+	const model = "xiaomi/mimo-v2.6-pro"
+	excluded := map[string]struct{}{model: {}, "other-model": {}}
+	req := router.Request{
+		ImageCount:               17,
+		ExcludedModels:           excluded,
+		ImageLimitExcludedModels: map[string]struct{}{model: {}},
+	}
+
+	readmitted := readmitForcedImageLimit(req, model)
+
+	assert.Zero(t, readmitted.ImageCount)
+	assert.NotContains(t, readmitted.ExcludedModels, model)
+	assert.Contains(t, readmitted.ExcludedModels, "other-model")
+	assert.Contains(t, req.ExcludedModels, model, "readmission must not mutate the caller's exclusion set")
+	assert.Equal(t, 17, req.ImageCount, "readmission must not mutate the caller's request")
+}
+
 // forcedPinEligible is the gate for the hard-pinned-turn fast path, which is a
 // separate branch from the one above and needs the same guard.
 func TestForcedPinEligible_RejectsTextOnlyModelOnImageTurn(t *testing.T) {
