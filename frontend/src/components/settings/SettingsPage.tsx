@@ -1,5 +1,6 @@
 "use client";
 
+import { Icon } from "@/shared/components/atoms/Icon";
 import { Text } from "@/shared/components/atoms/Text";
 import { Page } from "@/shared/components/Page";
 import { PageHeader } from "@/shared/components/PageHeader";
@@ -26,7 +27,7 @@ export function SettingsPage({ href, children }: SettingsPageProps) {
               as="h2"
               className="flex flex-row items-center gap-2 whitespace-nowrap"
             >
-              {item.icon}
+              <Icon type={item.icon} className="size-4" />
               {item.label}
             </Text>
           }

@@ -10,6 +10,8 @@ export enum RouterDashboardSlotName {
   DashboardHeaderActions = "DashboardHeaderActions",
   DashboardBanner = "DashboardBanner",
   DashboardAside = "DashboardAside",
+  /** Panel for the hosted-only Subscriptions tab; the tab is hidden when the host leaves it empty. */
+  DashboardSubscriptionsTab = "DashboardSubscriptionsTab",
   IndividualsHeaderActions = "IndividualsHeaderActions",
   SettingsSections = "SettingsSections",
   SidebarFooter = "SidebarFooter",

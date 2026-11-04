@@ -6,25 +6,28 @@ export interface PageProps extends React.PropsWithChildren {
   className?: string;
   header: React.ReactNode;
   subheader?: React.ReactNode;
+  /** Section tab row under the header, e.g. ReportSectionTabs. */
+  tabs?: React.ReactNode;
 }
 
 /**
- * Renders a page (excluding the sidebar) with a header strip and an
- * optional sub-header row. Body is scrollable and constrained to a max
+ * Renders a page (excluding the sidebar) with a header strip, an
+ * optional sub-header row and an optional section tab row. Body is scrollable and constrained to a max
  * content width so dashboards don't sprawl on ultra-wide displays.
  */
-export function Page({ children, className, header, subheader }: PageProps) {
+export function Page({ children, className, header, subheader, tabs }: PageProps) {
   return (
     <div className="grid h-full w-full grid-cols-[minmax(0,_1fr)] grid-rows-[auto_minmax(0,1fr)]">
       <div>
-        <header className="flex min-h-12 w-full min-w-0 flex-row items-center border-b border-b-border px-6 py-2 pr-2">
+        <header className="flex min-h-12 w-full min-w-0 flex-row items-center px-6 py-2 pr-2">
           {header}
         </header>
         {subheader != null && (
-          <div className="flex w-full flex-row items-end border-b border-b-border px-3">
+          <div className="flex w-full flex-row items-end border-b border-b-wv-subtle px-3">
             {subheader}
           </div>
         )}
+        {tabs}
       </div>
       <div
         className={cn(

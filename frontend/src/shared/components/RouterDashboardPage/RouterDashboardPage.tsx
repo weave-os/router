@@ -1,0 +1,46 @@
+"use client";
+
+import { RouterDashboardSlot, RouterDashboardSlotName, useHasRouterDashboardSlot } from "../../slots";
+import { Text } from "../atoms/Text";
+import { DashboardPageFilters, useDashboardFilters } from "../DashboardPageFilters";
+import { Page } from "../Page";
+import { PageHeader } from "../PageHeader";
+import { RouterOverviewTab, RouterOverviewTabs, useRouterOverviewTab } from "../RouterOverviewTabs";
+import { RouterOverviewTabPanel } from "./RouterOverviewTabPanel";
+
+/** The Router cost & savings dashboard: header, overview tabs, filters and the active tab's cards. */
+export function RouterDashboardPage() {
+  const filters = useDashboardFilters();
+  const tab = useRouterOverviewTab();
+  const showSubscriptions = useHasRouterDashboardSlot(
+    RouterDashboardSlotName.DashboardSubscriptionsTab,
+  );
+
+  return (
+    <Page
+      header={
+        <PageHeader
+          left={
+            <Text tabIndex={-1} variant="h4" as="h2" className="truncate">
+              Router cost &amp; savings
+            </Text>
+          }
+          leftColumnClassName="truncate"
+          right={
+            <div className="flex animate-fade-in flex-row items-center gap-2 motion-reduce:animate-none">
+              <RouterDashboardSlot name={RouterDashboardSlotName.DashboardHeaderActions} />
+            </div>
+          }
+        />
+      }
+      tabs={<RouterOverviewTabs showSubscriptions={showSubscriptions} />}
+    >
+      {/* The subscription pool shows current limits, so date filters don't apply. */}
+      {tab !== RouterOverviewTab.Subscriptions && <DashboardPageFilters result={filters} />}
+
+      <Page.Section className="pt-0">
+        <RouterOverviewTabPanel filters={filters.filters} tab={tab} />
+      </Page.Section>
+    </Page>
+  );
+}

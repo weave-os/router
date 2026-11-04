@@ -83,7 +83,7 @@ export const DATE_RANGES: readonly DateRange[] = [
   },
 ] as const;
 
-const DEFAULT_RANGE_ID = "last-month";
+export const DEFAULT_RANGE_ID = "last-month";
 
 export interface UseDashboardFiltersResult {
   filters: {
