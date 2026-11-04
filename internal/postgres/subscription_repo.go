@@ -521,6 +521,18 @@ func subscriptionProviderUserID(providerUserID *string) string {
 	return *providerUserID
 }
 
+func (r *subscriptionAccountRepo) ListSubscriptionEnrollmentOwners(ctx context.Context) ([]auth.SubscriptionEnrollmentCandidate, error) {
+	rows, err := dbbudget.Queries(r.tx).ListSubscriptionEnrollmentOwners(ctx)
+	if err != nil {
+		return nil, err
+	}
+	owners := make([]auth.SubscriptionEnrollmentCandidate, 0, len(rows))
+	for _, row := range rows {
+		owners = append(owners, auth.SubscriptionEnrollmentCandidate{SubscriberID: row.SubscriberID.String(), DisplayName: row.DisplayName, Email: row.Email})
+	}
+	return owners, nil
+}
+
 func (r *subscriptionAccountRepo) SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (auth.SubscriptionOwner, error) {
 	subscriber, err := uuid.Parse(subscriberID)
 	if err != nil {

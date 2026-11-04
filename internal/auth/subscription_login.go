@@ -8,8 +8,15 @@ const subscriptionLoginAAD = "subscription-login"
 
 // SealSubscriptionLogin encrypts pending browser-login state (PKCE verifier,
 // device code) for the control plane to hold until the login completes.
+// CanSealSubscriptionLogins reports whether pending logins can be sealed; it
+// needs a real keyset, since a plaintext encryptor would expose the PKCE verifier.
+func (s *Service) CanSealSubscriptionLogins() bool {
+	_, plaintext := s.encryptor.(NoOpEncryptor)
+	return s.encryptor != nil && !plaintext
+}
+
 func (s *Service) SealSubscriptionLogin(subscriberID string, state []byte) ([]byte, error) {
-	if _, plaintext := s.encryptor.(NoOpEncryptor); s.encryptor == nil || plaintext {
+	if !s.CanSealSubscriptionLogins() {
 		return nil, errors.New("subscription login sealing is not configured")
 	}
 	return s.encryptor.Encrypt(state, subscriberID, subscriptionLoginAAD)
@@ -17,7 +24,7 @@ func (s *Service) SealSubscriptionLogin(subscriberID string, state []byte) ([]by
 
 // OpenSubscriptionLogin reverses SealSubscriptionLogin for the same subscriber.
 func (s *Service) OpenSubscriptionLogin(subscriberID string, sealed []byte) ([]byte, error) {
-	if _, plaintext := s.encryptor.(NoOpEncryptor); s.encryptor == nil || plaintext {
+	if !s.CanSealSubscriptionLogins() {
 		return nil, errors.New("subscription login sealing is not configured")
 	}
 	return s.encryptor.Decrypt(sealed, subscriberID, subscriptionLoginAAD)

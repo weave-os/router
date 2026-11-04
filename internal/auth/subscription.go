@@ -237,6 +237,27 @@ type SubscriptionEnrollmentOwnerResolver interface {
 	SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (SubscriptionOwner, error)
 }
 
+// SubscriptionEnrollmentOwnerLister lists the subjects an admin may enroll a subscription for.
+type SubscriptionEnrollmentOwnerLister interface {
+	ListSubscriptionEnrollmentOwners(ctx context.Context) ([]SubscriptionEnrollmentCandidate, error)
+}
+
+// SubscriptionEnrollmentCandidate is a person an admin can link a subscription for.
+type SubscriptionEnrollmentCandidate struct {
+	SubscriberID string
+	DisplayName  string
+	Email        string
+}
+
+// ListSubscriptionEnrollmentOwners lists subjects that hold a live routing key to enroll through.
+func (s *Service) ListSubscriptionEnrollmentOwners(ctx context.Context) ([]SubscriptionEnrollmentCandidate, error) {
+	lister, ok := s.subscriptionAccounts.(SubscriptionEnrollmentOwnerLister)
+	if !ok {
+		return nil, errors.New("subscription enrollment owner listing is not configured")
+	}
+	return lister.ListSubscriptionEnrollmentOwners(ctx)
+}
+
 // ErrSubscriptionEnrollmentKeyNotFound means the subscriber has no active
 // personal routing key to own a browser-enrolled account.
 var ErrSubscriptionEnrollmentKeyNotFound = errors.New("subscriber has no active routing key")

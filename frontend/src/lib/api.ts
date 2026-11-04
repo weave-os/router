@@ -194,6 +194,34 @@ export interface RoutingPreferencesResponse {
   is_default: boolean;
 }
 
+
+export type SubscriptionLoginProvider = "claude" | "codex";
+
+export interface SubscriptionOwner {
+  subscriber_id: string;
+  display_name: string;
+  email: string;
+}
+
+export interface SubscriptionOwnersResponse {
+  enabled: boolean;
+  owners: SubscriptionOwner[];
+}
+
+export interface StartedSubscriptionLogin {
+  login_token: string;
+  verification_url: string;
+  user_code?: string;
+  poll_interval_seconds?: number;
+  expires_at: string;
+}
+
+export interface LinkedSubscriptionAccount {
+  id: string;
+  provider: SubscriptionLoginProvider;
+  display_name?: string | null;
+}
+
 export const api = {
   auth: {
     me: () => request<MeResponse>("/auth/me"),
@@ -227,6 +255,22 @@ export const api = {
       if (from) params.set("from", from);
       if (to) params.set("to", to);
       return request<MetricsModelBreakdown>(`/metrics/model-breakdown?${params.toString()}`);
+    },
+  },
+  subscriptionLogins: {
+    owners: () => request<SubscriptionOwnersResponse>("/subscription-owners"),
+    start: (subscriberID: string, provider: SubscriptionLoginProvider) =>
+      request<StartedSubscriptionLogin>(`/subscription-logins/${subscriberID}`, {
+        method: "POST",
+        body: JSON.stringify({ provider }),
+      }),
+    /** Resolves to null while a Codex device login is still waiting for approval. */
+    complete: async (subscriberID: string, loginToken: string, code?: string) => {
+      const result = await request<LinkedSubscriptionAccount | { status: "pending" }>(
+        `/subscription-logins/${subscriberID}/complete`,
+        { method: "POST", body: JSON.stringify({ login_token: loginToken, code: code ?? "" }) },
+      );
+      return "status" in result ? null : result;
     },
   },
   keys: {

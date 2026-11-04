@@ -420,3 +420,24 @@ WHERE k.credential_subject_id = @subscriber_id::uuid
   AND access.access_enabled
 ORDER BY k.created_at DESC, k.id
 LIMIT 1;
+
+-- People an admin can link a subscription for: subjects holding a live
+-- routing key, the same rule GetSubscriberEnrollmentKey enforces.
+-- name: ListSubscriptionEnrollmentOwners :many
+SELECT DISTINCT ON (subject.id)
+    subject.id AS subscriber_id,
+    COALESCE(NULLIF(u.display_name, ''), u.email, k.name, '')::text AS display_name,
+    COALESCE(u.email, '')::text AS email
+FROM router.model_router_api_keys AS k
+JOIN router.credential_subjects AS subject ON subject.id = k.credential_subject_id
+JOIN router.credential_subject_installations AS access
+  ON access.subject_id = subject.id AND access.installation_id = k.installation_id
+JOIN router.model_router_installations AS installation ON installation.id = k.installation_id
+LEFT JOIN router.model_router_users AS u
+  ON u.credential_subject_id = subject.id AND u.installation_id = k.installation_id AND u.deleted_at IS NULL
+WHERE k.deleted_at IS NULL
+  AND installation.deleted_at IS NULL
+  AND subject.projection_complete
+  AND subject.revoked_at IS NULL
+  AND access.access_enabled
+ORDER BY subject.id, u.id IS NULL, k.created_at;
