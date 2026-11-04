@@ -4522,6 +4522,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// resolution falls through to the deployment/BYOK key at full cost.
 	if s.claudeSubscriptionExhausted(ctx, r.Header) {
 		ctx = withSuppressedClaudeSubscription(ctx)
+		ctx = withSubscriptionReconnectNudge(ctx, ownClaudePlanSpentNudge)
 	}
 	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
 	opts.FastMode = fastModeForAttempt(ctx, decision.Model, decision.Provider)

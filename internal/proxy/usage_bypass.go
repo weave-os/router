@@ -397,7 +397,13 @@ const ownCodexPlanSpentNudge = routingMarkerPrefix +
 	"your own ChatGPT (Codex) plan is out of usage for now. Connect or reconnect a Codex seat to keep this on a subscription: " +
 	SubscriptionsDashboardURL + "\n\n"
 
-var subscriptionReconnectNudges = []string{ownCodexPlanSpentNudge}
+// ownClaudePlanSpentNudge is the Claude Code counterpart, shown when the
+// caller's own Claude plan is spent or drawing overage.
+const ownClaudePlanSpentNudge = routingMarkerPrefix +
+	"your own Claude plan is out of usage for now. Connect or reconnect a Claude seat to keep this on a subscription: " +
+	SubscriptionsDashboardURL + "\n\n"
+
+var subscriptionReconnectNudges = []string{ownCodexPlanSpentNudge, ownClaudePlanSpentNudge}
 
 type subscriptionReconnectNudgeContextKey struct{}
 
