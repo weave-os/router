@@ -167,6 +167,9 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	ctx, rotationBudget := withSubscriptionAdmissionBudget(ctx)
 	hasFixedTarget := request.ForceModel != "" || callerModelPassthroughActive(ctx) ||
 		in.origin == policy.OverrideSourceDeployment || in.origin == policy.OverrideSourceRequest
+	if !hasFixedTarget {
+		includedModels = s.withoutHeldSubscriptionModels(ctx, includedModels)
+	}
 	readmitted := false
 	for len(includedModels) > 0 && rotationBudget.remaining > 0 {
 		attemptCtx, attemptReq := s.subscriptionStateRequest(ctx, request, includedModels)
@@ -219,6 +222,9 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		}
 		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider)
 		recordTurnFailure(ctx, target.Model)
+		if !hasFixedTarget {
+			s.holdSessionOffSubscriptionModel(ctx, target.Provider, target.Model)
+		}
 		remainingModels := includedModels[:0]
 		for _, model := range includedModels {
 			if model != target.Model {

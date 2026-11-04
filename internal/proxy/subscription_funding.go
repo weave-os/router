@@ -165,7 +165,16 @@ const subscriptionUnavailableCooldown = time.Minute
 // included quota is spent.
 func (s *Service) recordSubscriptionUnavailable(ctx context.Context, provider, model string, attemptErr error) {
 	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
-	if !compatible || !upstreamServerFailure(attemptErr) || callerModelPassthroughActive(ctx) {
+	if !compatible || !upstreamServerFailure(attemptErr) {
+		return
+	}
+	s.markSubscriptionPoolUnavailable(ctx, pool)
+}
+
+// markSubscriptionPoolUnavailable records a provider-capacity failure for this
+// turn, whether seen on this request or remembered from a recent one.
+func (s *Service) markSubscriptionPoolUnavailable(ctx context.Context, pool subscriptions.Provider) {
+	if callerModelPassthroughActive(ctx) {
 		return
 	}
 	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
