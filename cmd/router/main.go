@@ -186,12 +186,12 @@ func main() {
 		logger.Error("Provider key encryption is not configured; refusing to boot", "err", err)
 		panic(err)
 	}
-	if _, unencrypted := encryptor.(auth.NoOpEncryptor); unencrypted {
+	if _, isNoOp := encryptor.(auth.NoOpEncryptor); isNoOp {
 		logger.Warn("EXTERNAL_KEY_ENCRYPTION_KEY not set; BYOK secrets will be stored unencrypted at rest. Set EXTERNAL_KEY_ENCRYPTION_KEY to a Tink AES-256-GCM keyset to enable encryption.")
 	}
 
 	repo := postgres.NewRepository(pool, encryptor)
-	if _, unencrypted := encryptor.(auth.NoOpEncryptor); !unencrypted && deploymentMode == server.DeploymentModeSelfHosted {
+	if _, isNoOp := encryptor.(auth.NoOpEncryptor); !isNoOp && deploymentMode == server.DeploymentModeSelfHosted {
 		upgradeCtx, upgradeCancel := context.WithTimeout(context.Background(), 30*time.Second)
 		n, err := postgres.NewExternalAPIKeyRepo(pool, encryptor).EncryptPlaintextKeys(upgradeCtx)
 		upgradeCancel()
