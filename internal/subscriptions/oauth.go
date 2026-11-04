@@ -69,7 +69,9 @@ type OAuthClient struct {
 	httpClient     *http.Client
 	codexTokenURL  string
 	claudeTokenURL string
-	now            func() time.Time
+	// claudeAuthorizeURL is the browser login entry for StartLogin.
+	claudeAuthorizeURL string
+	now                func() time.Time
 }
 
 // NewOAuthClient constructs the provider token client. Empty URLs select the
@@ -88,7 +90,7 @@ func NewOAuthClient(httpClient *http.Client, codexTokenURL, claudeTokenURL strin
 	if now == nil {
 		now = time.Now
 	}
-	return &OAuthClient{httpClient: httpClient, codexTokenURL: codexTokenURL, claudeTokenURL: claudeTokenURL, now: now}
+	return &OAuthClient{httpClient: httpClient, codexTokenURL: codexTokenURL, claudeTokenURL: claudeTokenURL, claudeAuthorizeURL: DefaultClaudeAuthorizeURL, now: now}
 }
 
 // OAuthRefreshError classifies provider token failures without retaining a
