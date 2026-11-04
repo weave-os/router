@@ -82,7 +82,16 @@ export function RouterGroupedChartCard({
     type: metric,
   });
 
-  const pivoted = useMemo(() => LoadState.map(current, series => pivotSeries(series.values)), [current]);
+  const pivoted = useMemo(
+    () =>
+      LoadState.map(current, series => {
+        const pivot = pivotSeries(series.values);
+        const order = Object.keys(seriesConfigs);
+        const rank = (key: string) => (order.includes(key) ? order.indexOf(key) : order.length);
+        return { ...pivot, keys: [...pivot.keys].sort((a, b) => rank(a) - rank(b)) };
+      }),
+    [current, seriesConfigs],
+  );
   const shown = useMemo(
     () => (view === GroupedMetricView.Share ? LoadState.map(pivoted, toShare) : pivoted),
     [pivoted, view],

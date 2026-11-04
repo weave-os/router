@@ -25,7 +25,7 @@ type AuthState = "checking" | "authed" | "anonymous";
 // Experiments is hosted-only.
 const NAV_ITEMS: readonly RouterSidebarNavItem[] = [
   { href: "/dashboard", icon: "Zap", label: "Dashboard" },
-  { href: "/individuals", icon: "UsersRound", label: "Individuals" },
+  { href: "/individuals", icon: "Users", label: "Individuals" },
 ];
 
 const UTILITY_ITEMS: readonly RouterSidebarUtilityItem[] = [
