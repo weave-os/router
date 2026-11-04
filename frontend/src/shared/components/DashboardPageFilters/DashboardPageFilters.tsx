@@ -174,7 +174,10 @@ function DatePill({ onOpenChange, open, result }: FilterPillMenuProps) {
         <FilterPill.Label>Date</FilterPill.Label>
         <Popover open={open} onOpenChange={onOpenChange}>
           <Popover.Trigger>
-            <FilterPill.Button>{result.filters.range.label.toLowerCase()}</FilterPill.Button>
+            <FilterPill.Button>
+              {result.filters.range.pillLabel?.(new Date(result.filters.fromISO)) ??
+                result.filters.range.label.toLowerCase()}
+            </FilterPill.Button>
           </Popover.Trigger>
           <Popover.Content className="w-64 p-1" align="start">
             <Command>

@@ -190,7 +190,7 @@ export function RouterModelMixShareChart({
           </Tabs>
         ) : undefined
       }
-      headline={
+      headerBottom={
         hero && !isEmpty ? (
           <div ref={setLegendPortal} className="mt-4 min-w-0 self-start" />
         ) : undefined

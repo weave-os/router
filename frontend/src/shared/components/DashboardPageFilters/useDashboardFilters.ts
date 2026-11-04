@@ -8,6 +8,8 @@ export interface DateRange {
   /** Stable key used in the dropdown and persisted state. */
   id: string;
   label: string;
+  /** Pill text for the selected range, e.g. "since October 22"; defaults to the lowercased label. */
+  pillLabel?: (start: Date) => string;
   /** Default granularity if the user hasn't picked one explicitly. */
   defaultGranularity: Granularity;
   /** Computes the range start from the current `now`. */
@@ -29,6 +31,18 @@ function startOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
 }
 
+function addDays(d: Date, n: number): Date {
+  const out = new Date(d);
+  out.setHours(0, 0, 0, 0);
+  out.setDate(out.getDate() + n);
+  return out;
+}
+
+const MONTH_DAY = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "long" });
+
+/** Days the hosted Router dashboard looks back by default, today included. */
+const ROUTER_DASHBOARD_LOOKBACK_DAYS = 14;
+
 function addWeeks(d: Date, n: number): Date {
   const out = new Date(d);
   out.setDate(out.getDate() + n * 7);
@@ -45,6 +59,13 @@ function addMonths(d: Date, n: number): Date {
  * supports.
  */
 export const DATE_RANGES: readonly DateRange[] = [
+  {
+    id: "last-14-days",
+    label: "Last 14 days",
+    pillLabel: start => `since ${MONTH_DAY.format(start)}`,
+    defaultGranularity: "day",
+    start: now => addDays(now, -(ROUTER_DASHBOARD_LOOKBACK_DAYS - 1)),
+  },
   {
     id: "this-week",
     label: "This week",
@@ -83,7 +104,7 @@ export const DATE_RANGES: readonly DateRange[] = [
   },
 ] as const;
 
-export const DEFAULT_RANGE_ID = "last-month";
+export const DEFAULT_RANGE_ID = "last-14-days";
 
 export interface UseDashboardFiltersResult {
   filters: {

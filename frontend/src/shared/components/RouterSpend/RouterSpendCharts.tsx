@@ -125,10 +125,12 @@ function TimeChart({
   dependentKeys,
   formatValue,
   granularity,
+  legend = false,
   referenceLines,
   rows,
 }: {
   config: Record<string, ChartSeriesConfig<number, number>>;
+  legend?: boolean;
   dependentKeys: readonly string[];
   formatValue: (value: number) => string;
   granularity: Granularity;
@@ -153,6 +155,7 @@ function TimeChart({
       formatIndependentValue={value => formatTime(value, timeGranularity)}
       formatIndependentValueTooltip={value => formatInterval(value, timeGranularity)}
       referenceLines={referenceLines}
+      legend={legend}
     />
   );
 }
@@ -267,6 +270,7 @@ export function RouterCostBreakdownChart({
         dependentKeys={view === RouterCostView.Trend ? TREND_KEYS : BREAKDOWN_KEYS}
         formatValue={formatUSD}
         granularity={granularity}
+        legend
         rows={rows}
       />
     </ChartCard>
