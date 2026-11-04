@@ -1,0 +1,21 @@
+internal/proxy/subscription_overload_rescue_internal_test.go
+  s_297c592fd0ceca::t_a7f8a494ee8565 158-160
+internal/proxy/service.go
+  s_297c592fd0ceca::t_890e3b0e50e8ea 8378-8390
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "17f8e47272fabacb0cd4d9f6da56d83094f9e763",
+  "prompts": {},
+  "sessions": {
+    "s_297c592fd0ceca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a164ca-1fad-7291-aac4-6c9c6ab4361d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

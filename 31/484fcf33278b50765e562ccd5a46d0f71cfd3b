@@ -1,0 +1,23 @@
+internal/proxy/service.go
+  s_52a28238742fa1::t_eaa23415006372 2187-2192
+internal/translate/model_variant.go
+  s_52a28238742fa1::t_eaa23415006372 30-66
+internal/translate/model_variant_test.go
+  s_52a28238742fa1::t_eaa23415006372 64-136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "31484fcf33278b50765e562ccd5a46d0f71cfd3b",
+  "prompts": {},
+  "sessions": {
+    "s_52a28238742fa1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "49c121c2-72d8-4816-9773-69225ee9b9bf",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

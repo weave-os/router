@@ -1,0 +1,21 @@
+scripts/legacy_runtime_check/main.go
+  s_d35d7172a8b896::t_35aa1ca83f434a 55-56,103
+.github/workflows/test.yml
+  s_d35d7172a8b896::t_35aa1ca83f434a 275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7554975f75624ee3213e1e68a8772bc20fbce6a0",
+  "prompts": {},
+  "sessions": {
+    "s_d35d7172a8b896": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e49-64cc-77a3-af7c-11c7b4524e4a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

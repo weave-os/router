@@ -1,0 +1,85 @@
+install/pi-router/test/e2e.sh
+  s_bd59a1945f88f8::t_5fd9e6ccbb218a 182,185
+install/pi-router/test/routed-model.test.ts
+  s_bd59a1945f88f8::t_3463b071387db6 3,12,25,37,45,137-141
+  s_bd59a1945f88f8::t_90cc5ba48fa0fe 24,35-36,38,43,51-69
+  s_bd59a1945f88f8::t_dbf78798e0a38e 71-136,143
+  s_bd59a1945f88f8::t_6d032c29a34d1b 70,142,144-151,155
+install/pi-router/src/force-model.ts
+  s_bd59a1945f88f8::t_2040eab393df9f 6-7,17-36,44-79,81,86-87,100,102,107-109,111-112,114-128,135-145,150-152
+  s_bd59a1945f88f8::t_5410387d3fe819 155
+internal/translate/command_outcome.go
+  s_bd59a1945f88f8::t_37df4b3e11aff1 1-44
+install/pi-router/src/routed-model.ts
+  s_bd59a1945f88f8::t_2040eab393df9f 176,222-225
+  s_bd59a1945f88f8::t_86f1cfa0354afb 22-28,49-54,79,81-82,86,99,101-102,112-116,128,130-137,171-175,177-180,217-218,221
+install/pi-router/src/ui.ts
+  s_bd59a1945f88f8::t_86f1cfa0354afb 25,92,101
+install/pi-router/test/force-model.test.ts
+  s_bd59a1945f88f8::t_96339ff00655e7 9-12,51,58,120,124,127-140,150,165,168,182,185-224
+  s_bd59a1945f88f8::t_da9fb0086db9b9 225-226
+install/pi-router/README.md
+  s_bd59a1945f88f8::t_5fd9e6ccbb218a 35-38
+docs/SEMANTICS.md
+  s_bd59a1945f88f8::t_514e97bf6330aa 79-118
+install/cc-statusline.sh
+  s_bd59a1945f88f8::t_335df36d061ac4 795-825,928-935,1005-1017
+install/codex-status.sh
+  s_bd59a1945f88f8::t_0d9c5f12e2492e 128,130-131,140-141,151,225-245,431-443,461,541-554,563-565,589-590,602-604,606-642,687-689
+install/install.sh
+  s_bd59a1945f88f8::t_a002002a267ca8 928-932,4515,4517-4518,4527-4528,4538,4612-4632,4818-4830,4848,4928-4941,4950-4952,4976-4977,4989-4991,4993-5029,5074-5076,6330-6360,6463-6470,6540-6552
+install/tests/cc-statusline_test.sh
+  s_bd59a1945f88f8::t_372db1d5a13968 192-220
+install/tests/codex-status_test.sh
+  s_bd59a1945f88f8::t_bc09ab7875e437 105-153
+install/tests/codex_install_test.sh
+  s_bd59a1945f88f8::t_88057116bcfafb 101,589,909,939
+install/tests/context-status_test.sh
+  s_bd59a1945f88f8::t_6a4b3177f2c590 63-109,165-177
+internal/proxy/command_outcome.go
+  s_bd59a1945f88f8::t_fd407405cbda30 1-245
+internal/proxy/command_outcome_internal_test.go
+  s_bd59a1945f88f8::t_4d794e0d7b8afa 1-198
+internal/proxy/force_model.go
+  s_bd59a1945f88f8::t_2ae0cfe09b15e0 792,796,808,811,815,819,821,826,838-840,853-855,860,864,870-871,880
+internal/proxy/force_model_session_internal_test.go
+  s_bd59a1945f88f8::t_0abc1750c9380a 371,387,396
+internal/proxy/no_progress.go
+  s_bd59a1945f88f8::t_363d815c8a98e1 320-321
+internal/proxy/pin_effort_internal_test.go
+  s_bd59a1945f88f8::t_0f15446486e80a 47
+internal/proxy/plan_owned_controls_internal_test.go
+  s_bd59a1945f88f8::t_9e13519e2fd2e6 122,126-127,154,158
+internal/proxy/router_feedback.go
+  s_bd59a1945f88f8::t_8d13a1a5beb7b5 86-87,91-92,94,109-110,112,247-248
+internal/proxy/router_models.go
+  s_bd59a1945f88f8::t_472cc22d44dfa4 41-44
+internal/proxy/router_session.go
+  s_bd59a1945f88f8::t_1a843153ca33aa 27-28,35
+internal/proxy/service.go
+  s_bd59a1945f88f8::t_feefdff021cac4 3716-3718,3780,6910-6912,6968,8685-8689
+internal/proxy/text_repetition.go
+  s_bd59a1945f88f8::t_f630b70ab13028 130-131
+internal/translate/command_replay.go
+  s_bd59a1945f88f8::t_4ee70efe7d7f7c 1-125
+internal/translate/command_response.go
+  s_bd59a1945f88f8::t_14a46ce28b4520 5,12-39,44,46,49,65-67,77,84-90,93-94
+internal/translate/command_response_test.go
+  s_bd59a1945f88f8::t_edbbfba9399eae 1-119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "03331b7183ef71f123fb70654e90643c66259d3f",
+  "prompts": {},
+  "sessions": {
+    "s_bd59a1945f88f8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b22-d5d7-7610-91d8-24e088cd9c9e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

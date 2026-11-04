@@ -1,0 +1,31 @@
+internal/translate/strictify_openai.go
+  s_7597b41f89257c::t_5586b810e4fb5f 58-59,73-81,93-96,99-108,110-117,119-130,132-137,143-147,159-167
+  s_7597b41f89257c::t_a6ef80561eec4b 85-90,109,118,131
+  s_7597b41f89257c::t_fbfa73acfc409a 84
+  s_7597b41f89257c::t_9423f381df09e9 91,148-158
+  s_7597b41f89257c::t_165357ceffe26f 168
+internal/translate/strict_decode_emit_test.go
+  s_7597b41f89257c::t_cb9336856689ab 97
+  s_7597b41f89257c::t_022d7913f0793b 94-96,98-102,104-134,139-144
+  s_7597b41f89257c::t_81c4771e579baf 135
+  s_7597b41f89257c::t_5586b810e4fb5f 60-61
+  s_7597b41f89257c::t_a8442d622a280e 103,136-138
+internal/translate/schema_fidelity_test.go
+  s_7597b41f89257c::t_81c4771e579baf 19-23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "554f538cc1d4f8dc649c4b7d0901d84034c4647b",
+  "prompts": {},
+  "sessions": {
+    "s_7597b41f89257c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11859-0d8f-79d2-b65c-7f5de75d27f3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

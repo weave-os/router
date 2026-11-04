@@ -1,0 +1,39 @@
+internal/translate/AGENTS.md
+  s_980914d43580db::t_27159727bce139 80-83
+internal/translate/CLAUDE.md
+  s_980914d43580db::t_f1cdf675467014 80-83
+internal/translate/emit_gemini.go
+  s_980914d43580db::t_55efd52b74e4d9 44-47
+internal/translate/emit_openai.go
+  s_980914d43580db::t_0903172116061a 90-93
+internal/translate/emit_openai_responses.go
+  s_980914d43580db::t_ad9f8ce78bb1a1 31-34
+internal/translate/read_prefix.go
+  s_980914d43580db::t_fc9ec2b1b10943 1-115
+internal/translate/read_prefix_test.go
+  s_27d10642cc12f3::t_1e8b80892cda1e 1-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d451551afd411754ebdd230ac5148dfba789b977",
+  "prompts": {},
+  "sessions": {
+    "s_27d10642cc12f3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "36e853b3-f6d9-4ba5-8adc-82817ee523fe",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    },
+    "s_980914d43580db": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae5ab8c5-50a9-4ae6-930a-ff22188bfb75",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

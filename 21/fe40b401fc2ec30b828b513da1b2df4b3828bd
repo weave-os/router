@@ -1,0 +1,23 @@
+internal/server/middleware/capacity.go
+  s_d35d7172a8b896::t_f74d3d8dce7da7 13,16-19
+cmd/router/main.go
+  s_d35d7172a8b896::t_02afb6365110e8 521,1723,1870
+internal/gateway/gateway.go
+  s_d35d7172a8b896::t_7a2c785cfd960b 215
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "21fe40b401fc2ec30b828b513da1b2df4b3828bd",
+  "prompts": {},
+  "sessions": {
+    "s_d35d7172a8b896": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e49-64cc-77a3-af7c-11c7b4524e4a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+internal/server/middleware/session_token_auth_test.go
+  s_a156643a835fc6::t_92ea23580cffb3 31
+internal/auth/session_token.go
+  s_a156643a835fc6::t_92ea23580cffb3 21
+  s_a156643a835fc6::t_348cadcfcbcae9 24
+cmd/router/main.go
+  s_a156643a835fc6::t_92ea23580cffb3 596
+docs/DELEGATED_SESSION_TOKENS.md
+  s_a156643a835fc6::t_348cadcfcbcae9 23
+  s_a156643a835fc6::t_92ea23580cffb3 3,5-10,59-60
+internal/auth/api_key.go
+  s_a156643a835fc6::t_92ea23580cffb3 19
+db/migrations/0137_session-issuer.up.sql
+  s_a156643a835fc6::t_92ea23580cffb3 3
+docs/CONFIGURATION.md
+  s_a156643a835fc6::t_92ea23580cffb3 56
+internal/auth/session_token_test.go
+  s_a156643a835fc6::t_92ea23580cffb3 41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9d0bad03d3e1690780ec5b1a65951cd1c6cf5de5",
+  "prompts": {},
+  "sessions": {
+    "s_a156643a835fc6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1703c-0931-7662-93c5-c7d0404406b5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

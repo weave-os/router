@@ -1,0 +1,328 @@
+internal/proxy/attempt_sink.go
+  s_7cb53e052d677f::t_a65d880b2d8da0 102,118-135
+  s_7cb53e052d677f::t_1f444d5c3db415 1-101,103-117,136-148
+internal/proxy/force_model.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 307-309,344-346,465-467
+  s_7cb53e052d677f::t_ef324a17e2e4c7 300,356,378,430
+internal/proxy/router_feedback.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 171-174,191-193
+  s_7cb53e052d677f::t_ef324a17e2e4c7 138
+internal/observability/global_logger_budget_test.go
+  s_7cb53e052d677f::t_23e704076b34e5 42
+internal/proxy/turnloop.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 2396,2405-2407
+  s_7cb53e052d677f::t_ef324a17e2e4c7 1501,1790,1794,2222,2241
+  s_7cb53e052d677f::t_f0a417a27347a6 11,2398-2400
+internal/proxy/bookkeeping.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 1-9,13,19
+  s_7cb53e052d677f::t_23e704076b34e5 10-12,14-18
+internal/proxy/cost_response.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 57
+cmd/router/main.go
+  s_7cb53e052d677f::t_b1dc1a2737993e 455-462,464,1397,1400
+  s_7cb53e052d677f::t_ef324a17e2e4c7 1198
+  s_7cb53e052d677f::t_b2a8f610a36bfb 20
+  s_7cb53e052d677f::t_86c780ed89fedb 560-563
+  s_7cb53e052d677f::t_dd225c90ca8ac2 554
+  s_7cb53e052d677f::t_e0f4edde836ce4 550-553,555-559,565
+  s_7cb53e052d677f::t_0aee1d061097fd 521
+  s_7cb53e052d677f::t_61b0acb2828d59 77-81,511,607
+  s_7cb53e052d677f::t_f30aaaafe37a4a 482-491
+  s_7cb53e052d677f::t_06af50f45a8fd0 508-510
+  s_7cb53e052d677f::t_b6dbc97399208e 512-514,518-520
+  s_7cb53e052d677f::t_77b0eb2defbd91 522-524
+  s_7cb53e052d677f::t_cf00d6493b941f 604-606
+  s_7cb53e052d677f::t_f57aa8833e5318 608-610
+  s_7cb53e052d677f::t_8396d286739946 500-507,515-517,525-527,533,597-603,611-620
+  s_5d28f5b9f68c22::t_84b9ed4c95649f 1343,1348
+internal/proxy/attempt_sink_test.go
+  s_7cb53e052d677f::t_ca4134971b1199 1-209
+internal/proxy/CLAUDE.md
+  s_7cb53e052d677f::t_a65d880b2d8da0 249-262
+  s_7cb53e052d677f::t_6ec6913813b0d6 263-279,291
+  s_7cb53e052d677f::t_20cd755aab7240 280-287
+  s_7cb53e052d677f::t_667fc014f31a55 288-290
+internal/proxy/beta.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 100-101,104,114,164-165,177
+  s_7cb53e052d677f::t_f0a417a27347a6 7,57-59
+  s_7cb53e052d677f::t_ef324a17e2e4c7 61-62
+  s_7cb53e052d677f::t_7a97a8c4ebad4e 60
+internal/proxy/bookkeeping_completion_test.go
+  s_7cb53e052d677f::t_44dce0a33c98a6 1-71,73-103
+  s_d83a5c0ff34f9d::t_b84d3ac36a048f 72
+internal/proxy/provider_overload.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 54-56,66-68,83-85
+internal/proxy/spiral_detection.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 353-356
+internal/proxy/usage_bypass.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 367-371
+internal/proxy/gemini.go
+  s_7cb53e052d677f::t_f868e1db653470 350-351
+  s_7cb53e052d677f::t_8c441d1d60d4e5 352,396
+  s_7cb53e052d677f::t_ef324a17e2e4c7 38
+  s_7cb53e052d677f::t_f0a417a27347a6 39-41,186-188
+internal/proxy/struggle_escalation.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 191-193,245-247
+  s_7cb53e052d677f::t_ef324a17e2e4c7 85
+internal/proxy/struggle_detection.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 155-158
+internal/proxy/bookkeeping_internal_test.go
+  s_7cb53e052d677f::t_8ec9b076230be2 1-88
+  s_7cb53e052d677f::t_23e704076b34e5 89-102
+internal/proxy/service.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 2997-3000,4511,4958,4987-4990,4998,5007-5008,5036,5048,7198-7202
+  s_7cb53e052d677f::t_a65d880b2d8da0 7203-7209,7272-7273,7489,7491-7498,7504,7506-7514,7538
+  s_7cb53e052d677f::t_fe649beeafc2d7 7490
+  s_7cb53e052d677f::t_4225a0a116bcc5 4509-4510
+  s_7cb53e052d677f::t_ef324a17e2e4c7 63-64,2572-2577,2581,3017,5930,7426-7427
+  s_7cb53e052d677f::t_f0a417a27347a6 65,2558-2560,2568-2571,2578-2580,3018-3020,3406-3408,5931-5933,6280-6282,7428-7430
+internal/proxy/fire_telemetry_panic_internal_test.go
+  s_7cb53e052d677f::t_23e704076b34e5 8,16,19-35,91,98-101
+internal/proxy/loop_detection.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 271-274,295-297
+  s_7cb53e052d677f::t_ef324a17e2e4c7 167,256
+internal/proxy/command_continuation.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 93-95
+internal/proxy/pin_eviction.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 68-70,192-194,210-212
+internal/proxy/turn_logs.go
+  s_7cb53e052d677f::t_a65d880b2d8da0 134-136,138
+internal/proxy/openai_cyber_refusal.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 213-214,224-225
+  s_7cb53e052d677f::t_ef324a17e2e4c7 226
+internal/proxy/fail_open_translation.go
+  s_7cb53e052d677f::t_9822c1688e6d01 1-16,20-24,28-45,49-53,57,59-68,70-93,100,104-106
+  s_7cb53e052d677f::t_f0a417a27347a6 17-19,25-27,46-48,54-56,94-99,101-103
+  s_7cb53e052d677f::t_e6bd98ec7c25f8 58,69
+docs/README.md
+  s_7cb53e052d677f::t_12dc456e75d2f0 17
+internal/proxy/fallback.go
+  s_7cb53e052d677f::t_f0a417a27347a6 219-221
+internal/api/gemini/generate_content.go
+  s_7cb53e052d677f::t_ef324a17e2e4c7 51
+internal/proxy/fail_open_dependencies_test.go
+  s_7cb53e052d677f::t_0fae1f6b70dfa3 1-7,9-50,65-67,69,72-73,82-85,87-90,92-100,102-103,107-111,116-126
+  s_7cb53e052d677f::t_f0a417a27347a6 51-64,70,75-77,79-80,101,104-106,112-115
+  s_7cb53e052d677f::t_a390d91c50f01f 68
+  s_7cb53e052d677f::t_aff7e7d64e09eb 8,71,74,78,81,86,91
+docs/POLICY_INFERENCE.md
+  s_7cb53e052d677f::t_dde37525e7feb5 6,24
+docs/FAIL_OPEN_TESTING.md
+  s_7cb53e052d677f::t_f8d3d43caec39f 1-159
+internal/proxy/fail_open_test.go
+  s_7cb53e052d677f::t_8021892b2ac9f8 1-25,28-30,33-36,39-42,45-48,51-56,60-71,75-98,104-108,112-157,161,163-168,178
+  s_7cb53e052d677f::t_f0a417a27347a6 26-27,32,37-38,43-44,49-50,57-59,72-74,99,103,109-111,158-160,162,171,174-176
+  s_7cb53e052d677f::t_4f790e94ebf80e 169-170,172-173,177
+  s_7cb53e052d677f::t_a706fab68f0277 31,100-102
+internal/proxy/compaction.go
+  s_7cb53e052d677f::t_f0a417a27347a6 9,341-342
+  s_7cb53e052d677f::t_ef324a17e2e4c7 416,421
+  s_7cb53e052d677f::t_6cf5df1b275eb6 343
+docker-compose.fail-open.yml
+  s_7cb53e052d677f::t_f8d3d43caec39f 1-114
+internal/proxy/fail_open.go
+  s_7cb53e052d677f::t_f0a417a27347a6 47-53,77-79,104-106,121-123,134-141,153-158,161-163,167-174,179-181,187-189,207-209,212-214,229-231,244-246,249-251,253-255,257-259,270-272,280,304-305,307,311,321,334-336,340-342,353-358
+  s_7cb53e052d677f::t_e6bd98ec7c25f8 206,210-211,215,256,267-268,273-274
+  s_7cb53e052d677f::t_27d9e522cc087f 13,114,262,279,324
+  s_7cb53e052d677f::t_a8d350f2107f59 232-234
+  s_7cb53e052d677f::t_c6f6c969c977a2 288
+  s_7cb53e052d677f::t_42c3e4b4450291 312-320
+  s_7cb53e052d677f::t_4f790e94ebf80e 26,54,128-133,142-146,349-352,359
+  s_7cb53e052d677f::t_b3514cae467723 1-12,14-25,27-46,55-76,80-103,107-113,115-120,124-127,147-152,159-160,164-166,175-178,182-186,190-205,216-228,235-243,247-248,252,260-261,263-266,269,275-278,282-283,292,300,302,325-333,337-339,343-348,360
+  s_7cb53e052d677f::t_63a478dea48e42 281
+  s_7cb53e052d677f::t_ab215d430bd1ba 284-287
+  s_7cb53e052d677f::t_0d3c2094c0136d 289-291
+  s_7cb53e052d677f::t_826bd718c250d6 293-295,297-299
+  s_7cb53e052d677f::t_3b976e5efc53cc 301
+  s_7cb53e052d677f::t_27bf876d3a66aa 303
+  s_7cb53e052d677f::t_e730c4b38cfd8d 306
+  s_7cb53e052d677f::t_340636b07897fd 308-310
+  s_7cb53e052d677f::t_b7f748cbbd4e50 322-323
+  s_7cb53e052d677f::t_11ea27be2c8ee6 296
+internal/proxy/blind_experiment.go
+  s_7cb53e052d677f::t_ef324a17e2e4c7 25
+scripts/smoke/fail_open/controller.go
+  s_7cb53e052d677f::t_f8d3d43caec39f 1-38,50-273,279-367
+  s_7cb53e052d677f::t_8ddf0ada6bf21f 39-49,274-278
+internal/proxy/global_automatic_exclusions.go
+  s_7cb53e052d677f::t_f0a417a27347a6 7,60,62-64
+  s_7cb53e052d677f::t_ef324a17e2e4c7 61,65,69,73
+internal/proxy/handover.go
+  s_7cb53e052d677f::t_ef324a17e2e4c7 487,491
+  s_7cb53e052d677f::t_f0a417a27347a6 13,260-263
+  s_7cb53e052d677f::t_4f790e94ebf80e 259,264-265,298
+.env.example
+  s_7cb53e052d677f::t_6ec6913813b0d6 74,78-79
+  s_7cb53e052d677f::t_20cd755aab7240 75-77
+docs/POLICY_INFERENCE.json
+  s_7cb53e052d677f::t_dde37525e7feb5 3,391-415
+  s_7cb53e052d677f::t_c604f4243c842c 416-417
+internal/proxy/fail_open_compaction_internal_test.go
+  s_7cb53e052d677f::t_f0a417a27347a6 20,23-25
+  s_7cb53e052d677f::t_e66de218813f00 1-19,21-22,26-55
+internal/proxy/dispatch_error.go
+  s_7cb53e052d677f::t_f0a417a27347a6 7
+  s_7cb53e052d677f::t_ef324a17e2e4c7 65,104-105
+internal/requestcontext/fail_open_test.go
+  s_7cb53e052d677f::t_f0a417a27347a6 82-83,118
+  s_7cb53e052d677f::t_9dbab2e3ae43ad 1-81,84-117,119-130
+internal/proxy/AGENTS.md
+  s_7cb53e052d677f::t_dde37525e7feb5 263-279,290
+  s_7cb53e052d677f::t_20cd755aab7240 280-289
+internal/architecture/inference_boundary_baseline.json
+  s_7cb53e052d677f::t_12dc456e75d2f0 6-11,13-14,18-23,25-37,42-47,49,54-59,61,66,68-70,73-109,138-143,145-147,150-155,157,162-167,169,174-179,181,186,188-190,193-194,222-223,225-227,229,270-271,273-275,277
+internal/proxy/dispatch_plan.go
+  s_7cb53e052d677f::t_f0a417a27347a6 9
+  s_7cb53e052d677f::t_ef324a17e2e4c7 104,159-162
+internal/proxy/fail_open_authority_test.go
+  s_7cb53e052d677f::t_9d8184e148b67d 1-47,51-67,71-83
+  s_7cb53e052d677f::t_f0a417a27347a6 48-50,68-70
+scripts/smoke/fail_open/controller_test.go
+  s_7cb53e052d677f::t_f8d3d43caec39f 1-109
+scripts/smoke/fail_open.sh
+  s_7cb53e052d677f::t_f8d3d43caec39f 1-346
+internal/requestcontext/fail_open.go
+  s_7cb53e052d677f::t_c9037611b326b0 1-17,19-20,31-39,41,44,47-49,51-52,54,58,60-65,68,70-73,75-79,81,83-89,91-94,96-97,99-100,102-103,105-106,113-114,116-117,121-127,136-144,147-181,191-193,197,212-214,216-218,220,222-230,232-233,238-259,261,264-268,272-273
+  s_7cb53e052d677f::t_f0a417a27347a6 25-26,28,42,45,66-67,69,74,80,82,108-110,118-120,128-135,194-196,201-209,219,235-237,260,262-263,269-271
+  s_7cb53e052d677f::t_27d9e522cc087f 18,21-24,27,29-30,50,53,55-57,59,90,95,98,101,104,107,111-112,115,145-146,198-200,210-211,215,221,231,234
+  s_7cb53e052d677f::t_6ec6913813b0d6 40,43,46
+  s_7cb53e052d677f::t_40f8a584d9c9c2 182-190
+internal/proxy/session_reads.go
+  s_7cb53e052d677f::t_f0a417a27347a6 11-14,17-19
+  s_7cb53e052d677f::t_ef324a17e2e4c7 1-10,15-16,20-21
+scripts/smoke/fail_open/go.mod
+  s_7cb53e052d677f::t_f8d3d43caec39f 1-3
+internal/dispatch/native.go
+  s_7cb53e052d677f::t_722a0b944f27a1 1-99
+internal/dispatch/native_test.go
+  s_7cb53e052d677f::t_6cf78cf41af933 1-176
+internal/inference/request.go
+  s_7cb53e052d677f::t_398591d1b9b689 34
+internal/providers/anthropic/client.go
+  s_7cb53e052d677f::t_7ab4ee3605fcdb 310-313,323,326-328
+internal/providers/anthropic/preserve_native_test.go
+  s_7cb53e052d677f::t_51fccca8c16317 1-131
+internal/providers/google/native_client.go
+  s_7cb53e052d677f::t_694e1d0408eda4 9,13,97-102,173-206
+internal/providers/google/preserve_native_test.go
+  s_7cb53e052d677f::t_fbe72da90c2e3f 1-121
+internal/providers/openai/client.go
+  s_7cb53e052d677f::t_6126635bf18c86 280-283,285-286
+internal/providers/openai/preserve_native_codex_internal_test.go
+  s_7cb53e052d677f::t_eb229ea2eee1fc 1-64
+internal/providers/openai/preserve_native_test.go
+  s_7cb53e052d677f::t_115bc0e319ff87 1-111
+internal/providers/provider.go
+  s_7cb53e052d677f::t_38d50ca7b755c8 666-671
+internal/router/policy/inference_original.go
+  s_7cb53e052d677f::t_94df350d326c73 1-161
+internal/router/policy/inference_original_test.go
+  s_7cb53e052d677f::t_0d524b0c3baf64 1-305
+internal/router/policy/inference_purpose.go
+  s_7cb53e052d677f::t_659fb1e8c1503c 30,56
+internal/router/policy/inference_registry.go
+  s_7cb53e052d677f::t_aa4dea034cb2ce 676-690
+internal/auth/subscription.go
+  s_7cb53e052d677f::t_c4d4a6e7904d96 112
+  s_7cb53e052d677f::t_10977cf24b958e 124
+  s_7cb53e052d677f::t_875c9a99b41f7d 101-111,113-123,125-135
+internal/auth/AGENTS.md
+  s_7cb53e052d677f::t_20cd755aab7240 22-33
+internal/server/middleware/billing_fail_open_cache.go
+  s_7cb53e052d677f::t_b2c20ca95822a3 1-22,24-30,32-68,70,72-74,76-80,82-84
+  s_7cb53e052d677f::t_6be17c3a999df5 31
+  s_7cb53e052d677f::t_7dce799a5f0062 23
+  s_7cb53e052d677f::t_da115ec290629f 69,71,75,81
+internal/server/middleware/auth.go
+  s_7cb53e052d677f::t_8addbeff0910ad 95
+  s_7cb53e052d677f::t_7e5afc9604dc25 90-91
+  s_7cb53e052d677f::t_fa4baa8099b044 108
+internal/server/middleware/fail_open_test.go
+  s_7cb53e052d677f::t_49c750c04376fe 137
+  s_7cb53e052d677f::t_751a02981f731c 1-136,138-231
+internal/server/middleware/api_key_spend_cap.go
+  s_7cb53e052d677f::t_6be17c3a999df5 9
+  s_7cb53e052d677f::t_76b9c9189715f9 73-75
+  s_7cb53e052d677f::t_7c662017d0abe1 59-63
+  s_7cb53e052d677f::t_ec5b938a4ab1f5 28-37
+internal/auth/service_test.go
+  s_7cb53e052d677f::t_c68e8ed1c7649f 645
+  s_7cb53e052d677f::t_9edcc71ac6997f 609,628-644
+internal/auth/service.go
+  s_7cb53e052d677f::t_33f632ad732e98 730-732,734-738,740-752
+  s_7cb53e052d677f::t_5237518d76455c 739
+  s_7cb53e052d677f::t_8a88d44ba1b118 166-173
+  s_7cb53e052d677f::t_60378d4d2a0bed 111-112
+  s_7cb53e052d677f::t_16ee7cbf546c4d 183-187,189-190,192-193
+  s_7cb53e052d677f::t_d7f6923eab2c19 109-110
+  s_7cb53e052d677f::t_0860a2d0e586ef 155-165,177-182,188,191
+  s_7cb53e052d677f::t_d704792705dc41 174-176
+  s_7cb53e052d677f::t_a618ae517ddb05 151
+  s_7cb53e052d677f::t_7e0e11acdb2e5f 733
+internal/auth/apikey_cache.go
+  s_7cb53e052d677f::t_40f8a584d9c9c2 27-31,35-38,44-48,50-56,65-69,99-105,152-175
+internal/server/server.go
+  s_7cb53e052d677f::t_86c780ed89fedb 107-109,262-264,289-291,337-339
+internal/auth/CLAUDE.md
+  s_7cb53e052d677f::t_20cd755aab7240 22-33
+internal/server/middleware/org_monthly_spend_cap.go
+  s_7cb53e052d677f::t_561f93d412bba6 57-61
+  s_7cb53e052d677f::t_fcb78ae3a55eb9 17-26
+  s_7cb53e052d677f::t_6be17c3a999df5 9
+  s_7cb53e052d677f::t_d67efd2618bf36 72-73
+  s_7cb53e052d677f::t_99a55bfc59d28b 71
+internal/server/middleware/balance_check.go
+  s_7cb53e052d677f::t_6be17c3a999df5 11
+  s_7cb53e052d677f::t_022ef4e0c580d3 42-51
+  s_7cb53e052d677f::t_07261e0b7ddce8 78-82
+  s_7cb53e052d677f::t_6e617babc12c0d 115-117
+cmd/router/readiness_test.go
+  s_7cb53e052d677f::t_b474a9eb128c58 88-94
+  s_ace2df55a46234::t_5fbcced50a99dc 84-87
+  s_5d28f5b9f68c22::t_84b9ed4c95649f 42,59,68,74,83,95
+docs/CONFIGURATION.md
+  s_7cb53e052d677f::t_4c8921707a6d39 405
+cmd/router/readiness.go
+  s_7cb53e052d677f::t_48507c6c7815cf 44-46
+  s_5d28f5b9f68c22::t_84b9ed4c95649f 35-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a19a482dd2e834dd78b74b39d4656789fa89e07d",
+  "prompts": {},
+  "sessions": {
+    "s_5d28f5b9f68c22": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9f84dbed-bc3d-4c2c-ab46-c1b6451724d0",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_7cb53e052d677f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3d82f0-6aca-40b2-aca0-2547069ec7de",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_ace2df55a46234": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09172-428d-71a3-8281-2796cfb523fb",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_d83a5c0ff34f9d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d50-715f-7461-81c6-3225bf5909e7",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

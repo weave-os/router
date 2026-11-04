@@ -1,0 +1,19 @@
+internal/proxy/task_domain.go
+  s_1a913f258562e3::t_fba6c9e72c67b7 5,83-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8a8c8f3cb9df28703d7b23c53593475dc8c29387",
+  "prompts": {},
+  "sessions": {
+    "s_1a913f258562e3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1090f-cc58-7d93-ae92-99567d91de8b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,20 @@
+cmd/router/main.go
+  s_05332cfebfc6c9::t_572163c6801416 1336-1352
+  s_05332cfebfc6c9::t_5daf2459f14b17 86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "c0c24a9a7acf5d7dee331087080df5ff244a65d1",
+  "prompts": {},
+  "sessions": {
+    "s_05332cfebfc6c9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "85913535-0f0d-42ed-bbe1-807f1beee73e",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+install/install.sh
+  s_5d9f26d1d38d88::t_3977585ac7c1d5 3132,3145-3147
+scripts/subscription_enrollment_check/enrollment_test.go
+  s_5d9f26d1d38d88::t_3977585ac7c1d5 116,125-126
+install/tests/subscription_cli_test.sh
+  s_5d9f26d1d38d88::t_d83bf4a4651e90 103-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "16027f9747eb2fcc1d5185d560847b2eaaebbda0",
+  "prompts": {},
+  "sessions": {
+    "s_5d9f26d1d38d88": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15611-cfbe-77c3-9080-c28eb02d6a08",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
