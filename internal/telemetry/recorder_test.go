@@ -57,7 +57,6 @@ func TestRecorderContextWithoutRecorderIsNoOp(t *testing.T) {
 	RecordLog(ctx, record)
 	Flush(ctx)
 
-	recorder := &recordingRecorder{}
 	got := WithRecorder(ctx, nil)
 	if got != ctx {
 		t.Fatal("WithRecorder(ctx, nil) must return the original context")
@@ -65,5 +64,4 @@ func TestRecorderContextWithoutRecorderIsNoOp(t *testing.T) {
 	Record(got, span)
 	RecordLog(got, record)
 	Flush(got)
-	require.Empty(t, recorder.calls)
 }

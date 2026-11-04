@@ -3824,8 +3824,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
 	requestID := requestIDFor(ctx)
-	rec := s.newTelemetryRecorder()
-	ctx = telemetry.WithRecorder(ctx, rec)
+	ctx = telemetry.WithRecorder(ctx, s.newTelemetryRecorder())
 
 	// Strip the routing marker prior responses injected as assistant text —
 	// clients echo it back verbatim, so left in place it accumulates in
@@ -7241,8 +7240,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
 	requestID := requestIDFor(ctx)
-	rec := s.newTelemetryRecorder()
-	ctx = telemetry.WithRecorder(ctx, rec)
+	ctx = telemetry.WithRecorder(ctx, s.newTelemetryRecorder())
 
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
 	externalID, _ := ctx.Value(ExternalIDContextKey{}).(string)

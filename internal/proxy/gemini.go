@@ -60,8 +60,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
 	requestID := requestIDFor(ctx)
-	rec := s.newTelemetryRecorder()
-	ctx = telemetry.WithRecorder(ctx, rec)
+	ctx = telemetry.WithRecorder(ctx, s.newTelemetryRecorder())
 
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
 	externalID, _ := ctx.Value(ExternalIDContextKey{}).(string)
