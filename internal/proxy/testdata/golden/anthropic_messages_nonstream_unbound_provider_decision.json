@@ -1,0 +1,174 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "claude-sonnet-4-5",
+          "model": "claude-haiku-4-5",
+          "provider": "fireworks",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "fireworks",
+          "wire_model": "claude-haiku-4-5",
+          "outbound_body": {
+            "max_tokens": 4096,
+            "messages": [
+              {
+                "content": "Say hi",
+                "role": "user"
+              }
+            ],
+            "model": "claude-haiku-4-5",
+            "stream": false
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+          },
+          "Target": {
+            "BindingIndex": -1,
+            "CatalogID": "claude-haiku-4-5",
+            "Provider": "fireworks",
+            "UpstreamID": "claude-haiku-4-5"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "27",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "200000",
+          "X-Router-Cost-Input-Usd": "0.000012",
+          "X-Router-Cost-Output-Usd": "0.000035",
+          "X-Router-Cost-Usd": "0.000047",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "claude-haiku-4-5",
+          "X-Router-Provider": "fireworks"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "served",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "claude-haiku-4-5",
+          "role": "assistant",
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "type": "message",
+          "usage": {
+            "input_tokens": 12,
+            "output_tokens": 7
+          }
+        }
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_mid",
+          "detail": {
+            "Model": "claude-haiku-4-5",
+            "Provider": "fireworks",
+            "Reason": "golden_route",
+            "Role": "default_mid",
+            "Strategy": "cluster",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_mid",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "claude-haiku-4-5",
+            "ServedProvider": "fireworks",
+            "Strategy": "cluster"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -47,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 47,
+          "OrganizationID": "golden-org",
+          "RouterModel": "claude-haiku-4-5"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000012,
+          "ActualOutputCostUSD": 0.000035,
+          "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 200000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 27,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "claude-sonnet-4-5",
+            "served_model": "claude-haiku-4-5",
+            "version": 1
+          },
+          "CrossFormat": true,
+          "DecisionModel": "claude-haiku-4-5",
+          "DecisionProvider": "fireworks",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "concatenated_stream",
+          "EstimatedInputTokens": 1,
+          "FinalModelFamily": "claude-haiku",
+          "FreshDecisionModel": "claude-haiku-4-5",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "claude-haiku",
+          "LatestToolCallCounts": {},
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedInputCostUSD": 0.000036,
+          "RequestedModel": "claude-sonnet-4-5",
+          "RequestedOutputCostUSD": 0.000105,
+          "Role": "default_mid",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "Strategy": "cluster",
+          "TurnType": "main_loop",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "anthropic_messages_nonstream_unbound_provider_decision"
+}
