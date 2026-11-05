@@ -105,6 +105,10 @@ export const api = {
       return request<RouterMetricSeries>(`/metrics/series?${params.toString()}`);
     },
     people: () => request<PeopleResponse>("/metrics/people"),
+    individuals: (granularity: "hour" | "day" | "week", from: string, to: string) =>
+      request<IndividualsResponse>(
+        `/metrics/individuals?${new URLSearchParams({ from, granularity, to }).toString()}`,
+      ),
     drillDown: (params: URLSearchParams) =>
       request<DrillDownResponse>(`/metrics/drill-down?${params.toString()}`),
     reportSummary: (from: string, to: string, routingState?: RouterRoutingState) => {
@@ -219,6 +223,33 @@ export interface PeopleResponse {
     id: string;
     last_request_at: string | null;
     linked: boolean;
+  }[];
+}
+
+interface ActivityPoint {
+  time: number;
+  value: number;
+}
+
+export interface IndividualsResponse {
+  individuals: {
+    id: string;
+    linked: boolean;
+    display_name: string;
+    email: string;
+    last_request_at: string | null;
+    requests: number;
+    cost_usd: number;
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_creation_tokens: number;
+    passthrough_requests: number;
+    request_activity: ActivityPoint[];
+    cost_activity: ActivityPoint[];
+    passthrough_activity: ActivityPoint[];
+    models: { model: string; requests: number }[];
+    other_requests: number;
   }[];
 }
 

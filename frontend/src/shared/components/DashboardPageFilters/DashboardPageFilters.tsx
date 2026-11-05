@@ -34,12 +34,19 @@ enum FilterMenu {
 
 export interface DashboardPageFiltersProps {
   className?: string;
+  /** Hides the Interval pill on pages that pick their own buckets. */
+  hideGranularity?: boolean;
   result: UseDashboardFiltersResult;
   right?: React.ReactNode;
 }
 
 /** Sticky dashboard filter bar: Interval pill, Date pill and the add-filter button. */
-export function DashboardPageFilters({ className, result, right }: DashboardPageFiltersProps) {
+export function DashboardPageFilters({
+  className,
+  hideGranularity = false,
+  result,
+  right,
+}: DashboardPageFiltersProps) {
   const [openMenu, setOpenMenu] = useState<FilterMenu | null>(null);
   const menuOpenChange = (menu: FilterMenu) => (open: boolean) => setOpenMenu(open ? menu : null);
   const hasHostAddFilter = useHasRouterDashboardSlot(RouterDashboardSlotName.DashboardAddFilter);
@@ -53,11 +60,13 @@ export function DashboardPageFilters({ className, result, right }: DashboardPage
       )}
     >
       <div className="flex flex-row flex-wrap items-center gap-3 gap-y-2">
-        <GranularityPill
-          open={openMenu === FilterMenu.Granularity}
-          onOpenChange={menuOpenChange(FilterMenu.Granularity)}
-          result={result}
-        />
+        {!hideGranularity && (
+          <GranularityPill
+            open={openMenu === FilterMenu.Granularity}
+            onOpenChange={menuOpenChange(FilterMenu.Granularity)}
+            result={result}
+          />
+        )}
         <DatePill
           open={openMenu === FilterMenu.Date}
           onOpenChange={menuOpenChange(FilterMenu.Date)}

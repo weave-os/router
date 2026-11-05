@@ -51,10 +51,37 @@ export const selfHostedDataSource: RouterDashboardDataSource = {
   drillDown: {
     Modal: props => createElement(RouterDrillDownModal, { ...props, load: loadDrillDown }),
   },
-  individuals: unavailable(
-    UnavailableReason.NotSupportedByHost,
-    "Per-person usage is not available on self-hosted Router yet.",
-  ),
+  individuals: {
+    list: async ({ granularity, range }) => {
+      const { individuals } = await api.metrics.individuals(granularity, range.from, range.to);
+      const points = (activity: { time: number; value: number }[]) =>
+        activity.map(({ time, value }) => ({ x: time, y: value }));
+      return individuals.map(person => ({
+        avatarUrl: null,
+        email: person.email === "" ? null : person.email,
+        id: person.id,
+        lastRequestAt: person.last_request_at,
+        linked: person.linked,
+        modelMix:
+          person.models.length === 0
+            ? null
+            : { models: person.models, otherRequests: person.other_requests },
+        name: person.display_name || person.email || "Unknown router user",
+        usage: {
+          cacheCreationTokens: person.cache_creation_tokens,
+          cacheReadTokens: person.cache_read_tokens,
+          cost: person.cost_usd,
+          costActivity: points(person.cost_activity),
+          inputTokens: person.input_tokens,
+          outputTokens: person.output_tokens,
+          passthroughRequestActivity: points(person.passthrough_activity),
+          passthroughRequests: person.passthrough_requests,
+          requestActivity: points(person.request_activity),
+          requests: person.requests,
+        },
+      }));
+    },
+  },
   metrics: {
     costTimeseries: ({ granularity, range }) =>
       api.metrics.timeseries(granularity, range.from, range.to),

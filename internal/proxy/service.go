@@ -3061,6 +3061,14 @@ func (s *Service) MetricsDrillDown(ctx context.Context, installationID string, f
 	return s.telemetry.GetTelemetryDashboardDrillDown(ctx, installationID, from, to)
 }
 
+// MetricsIndividualFacts returns each person's dashboard facts per bucket.
+func (s *Service) MetricsIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryIndividualFact, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetryDashboardIndividualFacts(ctx, installationID, from, to, granularity)
+}
+
 // MetricsSubscriptionPool lists the pool's seats with their newest quota reading.
 func (s *Service) MetricsSubscriptionPool(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]TelemetrySubscriptionSeat, error) {
 	if s.telemetry == nil {

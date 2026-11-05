@@ -33,6 +33,8 @@ const (
 	dashboardGroupModel        dashboardMetricGroup = "model"
 	dashboardGroupRoutingState dashboardMetricGroup = "routing_state"
 	dashboardGroupUserLink     dashboardMetricGroup = "user_link"
+	// dashboardGroupPerson only narrows drill-downs, to one Individuals row.
+	dashboardGroupPerson dashboardMetricGroup = "person"
 )
 
 type dashboardDecisionType string

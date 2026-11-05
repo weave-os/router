@@ -352,3 +352,7 @@ func (*auxTelemetryRepo) GetTelemetrySubscriptionPoolSeats(context.Context, stri
 func (*auxTelemetryRepo) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]TelemetryDrillDownRow, error) {
 	return nil, nil
 }
+
+func (*auxTelemetryRepo) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryIndividualFact, error) {
+	return nil, nil
+}

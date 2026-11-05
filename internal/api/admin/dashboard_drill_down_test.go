@@ -40,6 +40,8 @@ func TestDrillDownMatchesClickedSeries(t *testing.T) {
 		{name: "other model key", group: dashboardGroupModel, key: "gpt-5", want: false},
 		{name: "unlinked", group: dashboardGroupUserLink, key: userLinkUnlinked, want: true},
 		{name: "linked", group: dashboardGroupUserLink, key: userLinkLinked, want: false},
+		{name: "same person", group: dashboardGroupPerson, key: "key", want: true},
+		{name: "other person", group: dashboardGroupPerson, key: "ada", want: false},
 		{name: "subscription billing", billing: billingSubscription, want: true},
 		{name: "api billing", billing: billingAPI, want: false},
 		{name: "passthrough only", routingState: routingStatePassthrough, want: false},

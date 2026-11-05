@@ -322,6 +322,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		metrics.GET("/metrics/report-summary", admin.MetricsReportSummaryHandler(proxySvc))
 		metrics.GET("/metrics/people", admin.MetricsPeopleHandler(proxySvc))
 		metrics.GET("/metrics/drill-down", admin.MetricsDrillDownHandler(proxySvc))
+		metrics.GET("/metrics/individuals", admin.MetricsIndividualsHandler(proxySvc))
 		metrics.GET("/subscription-pool", admin.SubscriptionPoolHandler(proxySvc, features.SubscriptionPoolsEnabled, time.Now))
 
 		// Mutations: admin cookie REQUIRED. rk_ tokens are rejected so a leaked data-plane key can't mint fresh router keys or rotate provider credentials.

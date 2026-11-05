@@ -16,8 +16,6 @@ import type {
   ExcludedModelsResponse,
   ExcludedProvidersResponse,
   ExternalKey,
-  IndividualMetrics,
-  IndividualModelMixRow,
   IssueAPIKeyResponse,
   MetricsDetails,
   MetricsGranularity,
@@ -27,6 +25,8 @@ import type {
   RoutingPreferencesResponse,
   UpsertProviderKeyInput,
 } from "./types";
+
+import { type RouterIndividual, type RouterIndividualsQuery } from "./individuals";
 
 export interface TimeseriesQuery {
   granularity: MetricsGranularity;
@@ -48,9 +48,8 @@ export interface MetricsDataSource {
 }
 
 export interface IndividualsDataSource {
-  /** One row per user email. */
-  list(range: DateRange): Promise<IndividualMetrics[]>;
-  modelMix(userEmail: string, range: DateRange): Promise<IndividualModelMixRow[]>;
+  /** Everyone who can route, with their usage over the range. */
+  list(query: RouterIndividualsQuery): Promise<readonly RouterIndividual[]>;
 }
 
 export interface RequestsQuery {

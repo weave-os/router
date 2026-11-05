@@ -1,5 +1,6 @@
 export * from "./availability";
 export * from "./drillDown";
+export * from "./individuals";
 export * from "./metricSeries";
 export * from "./RouterDashboardDataProvider";
 export * from "./RouterDashboardDataSource";

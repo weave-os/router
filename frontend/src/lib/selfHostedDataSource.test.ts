@@ -43,8 +43,47 @@ test("API key list unwraps the response envelope", async () => {
 });
 
 test("capabilities without an /admin/v1 endpoint are declared unavailable", () => {
-  expect(isUnavailable(selfHostedDataSource.individuals)).toBe(true);
   expect(isUnavailable(selfHostedDataSource.settings.usage)).toBe(true);
+});
+
+test("individuals read /admin/v1/metrics/individuals and map activity to points", async () => {
+  fetchMock.mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        individuals: [
+          {
+            cache_creation_tokens: 0,
+            cache_read_tokens: 0,
+            cost_activity: [{ time: 1, value: 2 }],
+            cost_usd: 2,
+            display_name: "",
+            email: "ada@example.com",
+            id: "ada",
+            input_tokens: 10,
+            last_request_at: null,
+            linked: true,
+            models: [],
+            other_requests: 0,
+            output_tokens: 5,
+            passthrough_activity: [],
+            passthrough_requests: 0,
+            request_activity: [{ time: 1, value: 3 }],
+            requests: 3,
+          },
+        ],
+      }),
+    ),
+  );
+  if (isUnavailable(selfHostedDataSource.individuals)) throw new Error("individuals unavailable");
+  const [person] = await selfHostedDataSource.individuals.list({
+    granularity: "day",
+    range: { from: "2026-11-01T00:00:00Z", to: "2026-11-02T00:00:00Z" },
+  });
+
+  expect(String(fetchMock.mock.calls[0][0])).toContain("/metrics/individuals?");
+  expect(person.name).toBe("ada@example.com");
+  expect(person.modelMix).toBeNull();
+  expect(person.usage.requestActivity).toEqual([{ x: 1, y: 3 }]);
 });
 
 test("subscription pool reads /admin/v1/subscription-pool and maps each seat", async () => {

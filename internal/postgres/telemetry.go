@@ -1245,3 +1245,41 @@ func (r *TelemetryRepo) GetTelemetryDashboardDrillDown(ctx context.Context, inst
 		}
 	}), nil
 }
+
+// GetTelemetryDashboardIndividualFacts returns each person's dashboard facts per bucket.
+func (r *TelemetryRepo) GetTelemetryDashboardIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryIndividualFact, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetryDashboardIndividualFacts(ctx, sqlc.GetTelemetryDashboardIndividualFactsParams{
+		Granularity:    granularity,
+		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
+		ToTime:         pgtype.Timestamptz{Time: to, Valid: true},
+		InstallationID: installation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardIndividualFactsRow) proxy.TelemetryIndividualFact {
+		return proxy.TelemetryIndividualFact{
+			TelemetryDashboardFact: proxy.TelemetryDashboardFact{
+				Bucket:              row.Bucket.Time,
+				DecisionModel:       row.DecisionModel,
+				SubscriptionServed:  row.SubscriptionServed,
+				DecisionType:        row.DecisionType,
+				AutomaticAlias:      row.AutomaticAlias,
+				RequestCount:        row.RequestCount,
+				InputTokens:         row.InputTokens,
+				OutputTokens:        row.OutputTokens,
+				CacheCreationTokens: row.CacheCreationTokens,
+				CacheReadTokens:     row.CacheReadTokens,
+				ActualCostUSD:       microsToUSD(row.ActualCostUsd),
+			},
+			PersonID:    row.PersonID,
+			Linked:      row.Linked,
+			DisplayName: row.DisplayName,
+			Email:       row.Email,
+		}
+	}), nil
+}

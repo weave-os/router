@@ -15,6 +15,8 @@ export enum RouterMetricGroup {
   CostType = "cost_type",
   DecisionType = "decision_type",
   Model = "model",
+  /** Narrows a drill-down to one Individuals row; not a chart series group. */
+  Person = "person",
   RoutingState = "routing_state",
   UserLink = "user_link",
 }

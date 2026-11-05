@@ -981,3 +981,7 @@ func (*captureTelemetry) GetTelemetrySubscriptionPoolSeats(context.Context, stri
 func (*captureTelemetry) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]proxy.TelemetryDrillDownRow, error) {
 	return nil, nil
 }
+
+func (*captureTelemetry) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryIndividualFact, error) {
+	return nil, nil
+}

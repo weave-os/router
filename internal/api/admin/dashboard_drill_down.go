@@ -95,6 +95,9 @@ func drillDownMatches(row proxy.TelemetryDrillDownRow, group dashboardMetricGrou
 	if key == "" {
 		return true
 	}
+	if group == dashboardGroupPerson {
+		return row.PersonID == key
+	}
 	if group == dashboardGroupUserLink {
 		return (key == userLinkLinked) == row.Linked
 	}
