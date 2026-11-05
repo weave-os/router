@@ -11,29 +11,9 @@ export type CalendarProps = React.ComponentProps<typeof DayPicker>;
 
 const threeYearsAgo = subYears(new Date(), 3);
 
-/** When startMonth/endMonth are not set, fallback year range for the dropdown (current ±6). */
-const SCHEDULE_YEARS_HALF = 6;
-
-function getScheduleYearOptions(): { endYear: number; startYear: number } {
-  const y = new Date().getFullYear();
-  return { endYear: y + SCHEDULE_YEARS_HALF, startYear: y - SCHEDULE_YEARS_HALF };
-}
-
 /** Year range derived from calendar navigation bounds so the dropdown only shows navigable years. */
-function getYearRangeFromBounds(
-  startMonth: Date | undefined,
-  endMonth: Date | undefined,
-): {
-  endYear: number;
-  startYear: number;
-} {
-  if (startMonth != null && endMonth != null) {
-    return {
-      endYear: endMonth.getFullYear(),
-      startYear: startMonth.getFullYear(),
-    };
-  }
-  return getScheduleYearOptions();
+function getYearRangeFromBounds(startMonth = threeYearsAgo, endMonth = new Date()) {
+  return { endYear: endMonth.getFullYear(), startYear: startMonth.getFullYear() };
 }
 
 interface DropdownOption {

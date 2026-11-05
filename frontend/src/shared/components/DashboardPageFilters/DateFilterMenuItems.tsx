@@ -346,106 +346,6 @@ function getWeekDateFilters(weekStartsOn: WeekStartsOn): readonly DateFilterOpti
 }
 
 /**
- * Generates quarter filter options: current quarter and previous 3 quarters.
- * For example, if currently in Q3 2025: Q4 2024, Q1 2025, Q2 2025, Q3 2025
- */
-function getQuarterDateFilters(): readonly DateFilterOption[] {
-  const now = new Date();
-  const currentQuarterStart = startOfGranularity(now, TimeGranularity.Quarter);
-
-  const quarters: DateFilterOption[] = [];
-
-  // Generate current quarter and previous 3 quarters (oldest first)
-  for (let i = -3; i <= 0; i++) {
-    const quarterStart = addGranularity(currentQuarterStart, TimeGranularity.Quarter, i);
-    const quarterEnd = addGranularity(quarterStart, TimeGranularity.Quarter, 1);
-
-    // Calculate Q number (1-4) and year
-    const quarterMonth = quarterStart.getMonth();
-    const quarterNumber = Math.floor(quarterMonth / 3) + 1;
-    const year = quarterStart.getFullYear();
-
-    quarters.push({
-      end: DateScalar.fromDate(quarterEnd),
-      start: DateScalar.fromDate(quarterStart),
-      title: `Q${quarterNumber} ${year}`,
-    });
-  }
-
-  return quarters;
-}
-
-/**
- * Generates month filter options: current month and previous 5 months.
- * For example, if currently in March 2026: Oct ‘25 through Mar ‘26.
- *
- * Not wired into `getDateFiltersForGranularity` — Month granularity keeps the default
- * rolling presets on regular dashboards. Pages that want closed calendar-month options
- * (e.g. R&D capitalization) pass these via the `dateFilterOptions` prop.
- */
-export function getMonthDateFilters(): readonly DateFilterOption[] {
-  const now = new Date();
-  const currentMonthStart = startOfGranularity(now, TimeGranularity.Month);
-
-  const months: DateFilterOption[] = [];
-
-  // Generate current month and previous 5 months (oldest first)
-  for (let i = -5; i <= 0; i++) {
-    const monthStart = addGranularity(currentMonthStart, TimeGranularity.Month, i);
-    const monthEnd = addGranularity(monthStart, TimeGranularity.Month, 1);
-
-    months.push({
-      end: DateScalar.fromDate(monthEnd),
-      start: DateScalar.fromDate(monthStart),
-      title: format(monthStart, DateFormat.MonthYear),
-    });
-  }
-
-  return months;
-}
-
-/**
- * Generates year filter options: previous 12 months, last year, current year.
- */
-function getYearDateFilters(): readonly DateFilterOption[] {
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const previousYear = currentYear - 1;
-
-  // Start of current year
-  const currentYearStart = startOfGranularity(now, TimeGranularity.Year);
-  const currentYearEnd = addGranularity(currentYearStart, TimeGranularity.Year, 1);
-
-  // Start of previous year
-  const previousYearStart = new Date(previousYear, 0, 1);
-  const previousYearEnd = new Date(currentYear, 0, 1);
-
-  // Previous 12 months (rolling)
-  const prev12MonthsStart = addGranularity(
-    startOfGranularity(now, TimeGranularity.Month),
-    TimeGranularity.Month,
-    -11,
-  );
-
-  return [
-    {
-      start: DateScalar.fromDate(prev12MonthsStart),
-      title: "Previous 12 months",
-    },
-    {
-      end: DateScalar.fromDate(previousYearEnd),
-      start: DateScalar.fromDate(previousYearStart),
-      title: `${previousYear}`,
-    },
-    {
-      end: DateScalar.fromDate(currentYearEnd),
-      start: DateScalar.fromDate(currentYearStart),
-      title: `${currentYear}`,
-    },
-  ];
-}
-
-/**
  * Gets date filter options based on the current granularity.
  */
 function getDateFiltersForGranularity(
@@ -455,18 +355,12 @@ function getDateFiltersForGranularity(
   switch (granularity) {
     case TimeGranularity.Week:
       return getWeekDateFilters(weekStartsOn);
-    case TimeGranularity.Quarter:
-      return getQuarterDateFilters();
-    case TimeGranularity.Year:
-      return getYearDateFilters();
     default:
       return getDefaultDateFilters(weekStartsOn);
   }
 }
 
 export interface DateFilterMenuItemsProps {
-  /** Custom date filter options. If provided, overrides granularity-based options. */
-  dateFilterOptions?: readonly DateFilterOption[];
   /** Current granularity, used to generate appropriate date options. */
   granularity?: TimeGranularity;
   onSelectDate: (start?: DateScalar, end?: DateScalar) => void;
@@ -478,12 +372,9 @@ export interface DateFilterMenuItemsProps {
  * Renders items allowing a user to select a date filter.
  * Options are generated based on the current granularity:
  * - Week: Shows this week, the previous 4 calendar weeks, then the month presets
- * - Quarter: Shows current quarter and previous 3 quarters
- * - Year: Shows previous 12 months, last year, current year
  * - Other: Shows default week/month-based options
  */
 export function DateFilterMenuItems({
-  dateFilterOptions,
   granularity,
   onSelectDate,
   search,
@@ -491,10 +382,9 @@ export function DateFilterMenuItems({
 }: DateFilterMenuItemsProps) {
   const parsed = parseDateFilterSearch(search);
 
-  // Use custom options if provided, otherwise generate based on granularity
   const options = useMemo(
-    () => dateFilterOptions ?? getDateFiltersForGranularity(granularity, weekStartsOn),
-    [dateFilterOptions, granularity, weekStartsOn],
+    () => getDateFiltersForGranularity(granularity, weekStartsOn),
+    [granularity, weekStartsOn],
   );
 
   return (

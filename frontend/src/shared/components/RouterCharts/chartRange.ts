@@ -1,4 +1,4 @@
-import { addDays, addHours, addWeeks, startOfDay, startOfHour, startOfWeek } from "date-fns";
+import { addDays, addHours, addWeeks, min, startOfDay, startOfHour, startOfWeek } from "date-fns";
 
 import { type DateRange } from "../../data";
 import { addGranularity, TimeGranularity, type WeekStartsOn } from "../../tools/timeGranularity";
@@ -44,7 +44,7 @@ const BUCKET_STEPS: Readonly<
 };
 
 /**
- * Buckets `range` spans, empty ones included, so per-bucket averages divide by every day in the
+ * Buckets `range` spans up to now, empty ones included, so per-bucket averages divide by every day in the
  * range the way hosted's mean statistic does.
  */
 export function bucketCount(
@@ -53,7 +53,7 @@ export function bucketCount(
   weekStartsOn: WeekStartsOn,
 ) {
   const { next, start } = BUCKET_STEPS[granularity];
-  const to = new Date(range.to);
+  const to = min([new Date(range.to), new Date()]);
   let count = 0;
   for (let bucket = start(new Date(range.from), weekStartsOn); bucket < to; bucket = next(bucket)) {
     count++;
