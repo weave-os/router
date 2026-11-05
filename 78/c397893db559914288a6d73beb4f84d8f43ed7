@@ -1,0 +1,25 @@
+install/install.sh
+  s_b1931d2e578d24::t_967e846e9e10ab 6189-6190,6193,6216-6217,6219-6225,6227,6229,6231-6238,6240-6287,6294-6295,6301,6303-6304,6310,6322-6333,6335,6339-6340,6342-6343,6345-6347,6352-6364,6367-6368,6431
+install/tests/organization_policy_hook_test.sh
+  s_b1931d2e578d24::t_32c6438466d542 5-9,26-27,30-57,60-61,64,67-68,70-71,73,77-78,87-90,92-97,102-113,115,117-118,122-131,134,136-137,147,149,151-153,157-165,167,171-215,217-230,233-234,236,239-243
+install/uninstall.sh
+  s_b1931d2e578d24::t_695b706d693235 1151,1154-1157,1190-1199,1202,1213-1216,1232,1241
+internal/router/handover/summarizer_test.go
+  s_b1931d2e578d24::t_385b9cef7a1800 70-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "78c397893db559914288a6d73beb4f84d8f43ed7",
+  "prompts": {},
+  "sessions": {
+    "s_b1931d2e578d24": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e2e-131f-7810-9724-179c8c8de9f4",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+internal/router/hmm/mapping.go
+  s_5d01cc1574f108::t_c20f2b3d493b42 17-22
+internal/router/hmm/roster_test.go
+  s_5d01cc1574f108::t_8d3c9962876208 20,30-32
+internal/router/hmm/hmm_test.go
+  s_5d01cc1574f108::t_de9e4802fa2809 209,215-227
+  s_5d01cc1574f108::t_e01eac74661a1e 228-229
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "c653f1e5a995cda189457c29ea693beccce05639",
+  "prompts": {},
+  "sessions": {
+    "s_5d01cc1574f108": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1a242049-9aab-4005-945f-27b010408801",
+        "model": "qwen/qwen3.8-max"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

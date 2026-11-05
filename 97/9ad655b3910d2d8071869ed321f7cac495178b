@@ -1,0 +1,23 @@
+README.md
+  s_e576ebba079b30::t_57a4040f247de0 6-7
+docs/badges/router-badge-light.svg
+  s_e576ebba079b30::t_5124dd2d9ad32c 1
+docs/badges/router-badge-dark.svg
+  s_e576ebba079b30::t_5124dd2d9ad32c 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "979ad655b3910d2d8071869ed321f7cac495178b",
+  "prompts": {},
+  "sessions": {
+    "s_e576ebba079b30": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a31e-2351-7683-82ae-ac5e8e311e17",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

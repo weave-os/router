@@ -1,0 +1,30 @@
+internal/translate/anthropic_final_assistant_test.go
+  s_f0e0d9ca379623::t_6500a4a803ee97 10-13,60
+  s_f0e0d9ca379623::t_9bad5e408ab46b 1-9,14-23,25-34,36-59,61-87,91,105-114
+  s_f0e0d9ca379623::t_09fdee715dbfff 35,92-104
+  s_f0e0d9ca379623::t_f4cbb393116644 88-90
+  s_f0e0d9ca379623::t_d03b3d8bab7133 24
+internal/translate/anthropic_final_assistant.go
+  s_f0e0d9ca379623::t_c5c66f61783052 1-68
+internal/translate/anthropic_final_assistant_cache_test.go
+  s_f0e0d9ca379623::t_e75816e2f38d96 1-42
+internal/translate/emit_anthropic.go
+  s_f0e0d9ca379623::t_d07ce4104ceb7b 62-66
+  s_f0e0d9ca379623::t_c5c66f61783052 67-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "05dc2923b394dbe437f85bbde10057d8c45beac2",
+  "prompts": {},
+  "sessions": {
+    "s_f0e0d9ca379623": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11c14-7bdd-7793-bdf4-59700bd23d06",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

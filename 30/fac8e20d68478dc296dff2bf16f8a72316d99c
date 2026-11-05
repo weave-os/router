@@ -1,0 +1,22 @@
+smoke/mitmproxy/startup_test.go
+  s_d35d7172a8b896::t_f40514f785cd7a 28,30-34,83,112,124
+smoke/mitmproxy/startup.go
+  s_d35d7172a8b896::t_f40514f785cd7a 11-20,65-75,81
+  s_d35d7172a8b896::t_d33b934b419103 76-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "30fac8e20d68478dc296dff2bf16f8a72316d99c",
+  "prompts": {},
+  "sessions": {
+    "s_d35d7172a8b896": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e49-64cc-77a3-af7c-11c7b4524e4a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

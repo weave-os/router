@@ -1,0 +1,117 @@
+internal/sqlc/models.go
+  s_c7e25d8bc46482::t_63c45f26b60732 77-78,106-107
+internal/providers/openaicompat/client.go
+  s_c7e25d8bc46482::t_72a153e5fafbd7 181-182
+  s_c7e25d8bc46482::t_61bb9e19752ae9 264
+  s_c7e25d8bc46482::t_3794c14f4df753 320
+  s_c7e25d8bc46482::t_a232bd99402211 217
+  s_c7e25d8bc46482::t_61f1df192dfcff 290-291
+internal/providers/google/native_client.go
+  s_c7e25d8bc46482::t_0f70a91a2aa373 171
+  s_c7e25d8bc46482::t_99804f029a17db 95
+internal/sqlc/model_router_api_keys.sql.go
+  s_c7e25d8bc46482::t_63c45f26b60732 97,116,160
+internal/providers/anthropic/client.go
+  s_c7e25d8bc46482::t_a1e2d5ead28c58 165-166
+  s_c7e25d8bc46482::t_da7255b7e4fff5 264
+internal/providers/openai/client.go
+  s_c7e25d8bc46482::t_9a741525957f1b 195-198
+  s_c7e25d8bc46482::t_b5340489fd8a7d 387
+internal/billing/service_test.go
+  s_c7e25d8bc46482::t_7a3f3d1568873e 88-90
+  s_c7e25d8bc46482::t_8986a290ce0ffd 194-291
+internal/auth/installation.go
+  s_c7e25d8bc46482::t_bc4f0d160aefa7 73-78
+db/migrations/0044_managed-byok.down.sql
+  s_c7e25d8bc46482::t_7bf210ea5da634 1-34
+internal/server/middleware/auth_test.go
+  s_c7e25d8bc46482::t_3f3c4d833b1276 187-223
+  s_c7e25d8bc46482::t_4c24ec64fd6f96 167,172
+  s_c7e25d8bc46482::t_ff6d4cc4d324a4 240-242
+db/queries/billing.sql
+  s_c7e25d8bc46482::t_88989e3feb10b3 45-49
+  s_c7e25d8bc46482::t_e7706104c2e5b2 53
+  s_c7e25d8bc46482::t_2e8f3a801d3564 72-74,81-98,101-102
+  s_c7e25d8bc46482::t_343ebf9cfe3128 99-100
+  s_c7e25d8bc46482::t_7358417682748d 105-112,118
+  s_c7e25d8bc46482::t_95e8cd73f3587e 24-27,40-42
+  s_c7e25d8bc46482::t_5b04893977147b 133,151
+  s_f1ddfc363ee6c2::t_40bee6aac0688f 103
+internal/sqlc/model_router_installations.sql.go
+  s_c7e25d8bc46482::t_63c45f26b60732 25,46,72,78,92,122,128,137,173
+CLAUDE.md
+  s_c7e25d8bc46482::t_5cb45d6b6704d5 208
+internal/postgres/billing_repo.go
+  s_c7e25d8bc46482::t_a954b662765da5 58-63,65-68,72-73
+internal/billing/repo.go
+  s_c7e25d8bc46482::t_197cfb1ea8ee8c 54-55
+  s_c7e25d8bc46482::t_de0d845110837d 51-53,56-57
+AGENTS.md
+  s_c7e25d8bc46482::t_3bc800cdb670f0 208
+internal/server/middleware/auth.go
+  s_c7e25d8bc46482::t_94e9c5a876ca1e 42-49,55-57
+  s_c7e25d8bc46482::t_6860805edbf452 153-154
+  s_c7e25d8bc46482::t_546122ab38e163 87-88,90-91
+internal/postgres/external_api_key_repo.go
+  s_c7e25d8bc46482::t_0e78a783fb8b30 39
+  s_c7e25d8bc46482::t_8c7077b92e6d10 119
+internal/proxy/credentials.go
+  s_c7e25d8bc46482::t_23cbff90b20a83 42-59
+  s_c7e25d8bc46482::t_4f0e008af55e10 79-81
+db/migrations/0044_managed-byok.up.sql
+  s_c7e25d8bc46482::t_10e01d14c6405b 1-50
+internal/postgres/converters.go
+  s_c7e25d8bc46482::t_77aa2004d3e6c3 49
+internal/sqlc/model_router_external_api_keys.sql.go
+  s_c7e25d8bc46482::t_63c45f26b60732 24,36-37,39,51,68,80-81,83,94,113,119,129,158
+docs/CONFIGURATION.md
+  s_c7e25d8bc46482::t_1c666fe079246d 38-41,44-50
+  s_c7e25d8bc46482::t_a249cb64e9a819 51
+db/queries/model_router_external_api_keys.sql
+  s_c7e25d8bc46482::t_c7b8b7a6c55044 14,26
+internal/auth/external_api_key.go
+  s_c7e25d8bc46482::t_63ea6724bdf3cf 12,17-22,36
+internal/billing/service.go
+  s_c7e25d8bc46482::t_b36cc3e22c1bdf 323-336
+  s_c7e25d8bc46482::t_2a6f23ee5d918e 206-209
+  s_c7e25d8bc46482::t_f15466b1991e1a 64-73
+  s_c7e25d8bc46482::t_5ba065239eb8e8 243
+  s_c7e25d8bc46482::t_86937620925550 223-228,235,240-242,250-251,260
+internal/providers/openaicompat/client_test.go
+  s_c7e25d8bc46482::t_8e7aa7d948fcd6 81-150
+internal/sqlc/billing.sql.go
+  s_c7e25d8bc46482::t_a967c0bf8ea120 78-84,88-110,112-119,126,138,142,146,169,171,173,177,202-206,228-234,238-260,262-269,276,288,292,296,318,320,322,326
+internal/proxy/service.go
+  s_c7e25d8bc46482::t_c8aae85fe287c1 4070
+  s_c7e25d8bc46482::t_54f5a255bf5d47 4134
+  s_c7e25d8bc46482::t_0e386cb79ec7d9 4075-4079,4084-4087,4099
+  s_c7e25d8bc46482::t_91ebf5bfe5d31a 916-924
+  s_c7e25d8bc46482::t_4545d29051fd36 4156
+internal/server/server.go
+  s_c7e25d8bc46482::t_43504b18e89059 126,141,170,190,216,224,243
+  s_c7e25d8bc46482::t_609f3fcb4610ca 76-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "da5f3eebe742aed3501c7e1e0c78ad45ea5781f8",
+  "prompts": {},
+  "sessions": {
+    "s_c7e25d8bc46482": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f7d534e7-28b1-46eb-a3d4-724bd5fb515d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_f1ddfc363ee6c2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8cda2423-38d2-448a-b281-0fd69c42cb07",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,36 @@
+internal/auth/session_token.go
+  s_a156643a835fc6::t_ccc6ca13bef064 232-234,253-255
+internal/auth/credential_subject_test.go
+  s_a156643a835fc6::t_3f840c800a5c6b 38-49
+internal/auth/credential_subject.go
+  s_a156643a835fc6::t_ccc6ca13bef064 44-56
+internal/postgres/serving/admission.go
+  s_a156643a835fc6::t_ccc6ca13bef064 92
+internal/auth/session_token_test.go
+  s_a156643a835fc6::t_3f840c800a5c6b 109,177,180-196,252-265
+  s_6d232f56a59ddc::t_dd97b2593afc35 266-267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2c5756e141e1eecd6763d86ff6993ea74d323fa2",
+  "prompts": {},
+  "sessions": {
+    "s_6d232f56a59ddc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16ce6-2111-7912-b058-c76cfb204a48",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_a156643a835fc6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1703c-0931-7662-93c5-c7d0404406b5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

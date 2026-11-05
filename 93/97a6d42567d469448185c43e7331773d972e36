@@ -1,0 +1,30 @@
+internal/auth/routing_policy_test.go
+  s_1dc0cf4eba8335::t_bb5e131f6a2862 98-114
+internal/proxy/turnloop.go
+  s_1dc0cf4eba8335::t_1d19150a7e9410 769-802
+internal/auth/routing_policy.go
+  s_1dc0cf4eba8335::t_4280ae5fcd7f56 38
+internal/auth/service.go
+  s_1dc0cf4eba8335::t_4280ae5fcd7f56 243,255-267
+  s_1dc0cf4eba8335::t_a7527fde253d18 253
+internal/api/anthropic/messages.go
+  s_1dc0cf4eba8335::t_4280ae5fcd7f56 59-65
+internal/proxy/routing_policy_internal_test.go
+  s_1dc0cf4eba8335::t_a26b384952a586 62-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9397a6d42567d469448185c43e7331773d972e36",
+  "prompts": {},
+  "sessions": {
+    "s_1dc0cf4eba8335": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e407-4296-7123-8715-f61d2e240e62",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

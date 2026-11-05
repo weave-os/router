@@ -1,0 +1,19 @@
+internal/auth/service.go
+  s_246ffb093e877e::t_ad87a632767f46 994
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6045f648f250e67789427730de95f70f5e981849",
+  "prompts": {},
+  "sessions": {
+    "s_246ffb093e877e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "07d947d2-9a43-4479-8bd0-2dee4392d4d0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

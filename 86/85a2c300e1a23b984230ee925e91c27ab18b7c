@@ -1,0 +1,19 @@
+internal/providers/provider.go
+  s_7905f8bae6feb5::t_3f4d3fd9f66b3f 237-241,243
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8685a2c300e1a23b984230ee925e91c27ab18b7c",
+  "prompts": {},
+  "sessions": {
+    "s_7905f8bae6feb5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d719a9c6-a7d7-4323-9ad5-076e7284ae84",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

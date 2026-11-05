@@ -1,0 +1,65 @@
+internal/proxy/context_snapshot_internal_test.go
+  s_527111cf8ce1b4::t_4411ccf1131e9d 73-79,81-83,85
+  s_527111cf8ce1b4::t_bd2c5e102d4d26 80,84
+internal/proxy/gemini.go
+  s_527111cf8ce1b4::t_38e7e42266f7e3 226
+install/codex-status.sh
+  s_527111cf8ce1b4::t_49e0a45486f42d 497
+  s_527111cf8ce1b4::t_8d07e0e395f7d1 583
+  s_527111cf8ce1b4::t_fea91c08cc8a5c 364-365,416
+  s_527111cf8ce1b4::t_a0151a55f20575 181,490-493,496,503,506
+  s_527111cf8ce1b4::t_7710bc858348f7 166-180,182-183,185-193,303,311-312,337-338,341-344,348-354,360-363,366-371,380-383,388-389,391-394,396-398,404-408,415,417-418,420-421
+  s_527111cf8ce1b4::t_81d8b266d4ac5b 339-340
+  s_527111cf8ce1b4::t_d1e358c754c58b 215,217
+  s_527111cf8ce1b4::t_5fc4ff0f58ab53 184,358,384-386,395,399-403,409-414
+install/tests/codex-status_test.sh
+  s_527111cf8ce1b4::t_1912bb3d8b1d1e 136-140,142-143
+install/cc-statusline.sh
+  s_527111cf8ce1b4::t_d8fe7f6a0af8a1 422
+  s_527111cf8ce1b4::t_e938918fdaf0df 424-425,988-989
+  s_527111cf8ce1b4::t_c4b43cde828a63 423,426-429
+  s_527111cf8ce1b4::t_b9bebc705839d3 965
+  s_527111cf8ce1b4::t_7710bc858348f7 985,987,994
+  s_527111cf8ce1b4::t_48c2261003fabb 943
+install/install.sh
+  s_527111cf8ce1b4::t_bb8cc7aec1cc05 4837-4840,4843,4850,4853
+  s_527111cf8ce1b4::t_0a8a9ec5b36aa0 4766,5834,5837-5840,6398,6405
+  s_527111cf8ce1b4::t_d22478c477cf56 5833
+  s_527111cf8ce1b4::t_804fde483060a2 4763
+  s_527111cf8ce1b4::t_0834455ab44574 4562,4564,4711-4712
+  s_527111cf8ce1b4::t_fb802424e1beed 4513-4530,4532-4540,4658-4659,4684-4685,4688-4691,4764-4765
+  s_527111cf8ce1b4::t_cfa4008c84a64d 4650,4695-4701,4707-4710,4713-4718,4727-4730,4735-4736,4738-4740,4743-4745,4751-4755,4762,4767-4768,4930
+  s_527111cf8ce1b4::t_b8c0a74505d3d4 4686-4687,5835-5836,6399-6400
+  s_527111cf8ce1b4::t_6094e699bb55aa 4844
+  s_527111cf8ce1b4::t_48c2261003fabb 6354
+  s_527111cf8ce1b4::t_0d7bcc4b9322e6 6396
+  s_527111cf8ce1b4::t_ef7f756d636e57 4531,4705,4731-4733,4742,4746-4750,4756-4761,6376
+install/tests/context-status_test.sh
+  s_527111cf8ce1b4::t_d30ea48ee71737 61,69-74
+internal/proxy/baseline_failover_integration_test.go
+  s_527111cf8ce1b4::t_770356506564e6 123,125
+  s_527111cf8ce1b4::t_7866f917210805 5,122,124
+install/README.md
+  s_527111cf8ce1b4::t_9b88f20b3c36ca 653
+internal/proxy/context_snapshot.go
+  s_527111cf8ce1b4::t_188debf2bf12ee 71-73,76,79
+  s_527111cf8ce1b4::t_8358a34402692b 74-75,83
+internal/proxy/service.go
+  s_527111cf8ce1b4::t_c056feb0f3159c 5190,8289
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b9976f6bbb654b077c86bfa4fa29a189ea39b38e",
+  "prompts": {},
+  "sessions": {
+    "s_527111cf8ce1b4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a117b4-a8de-70d0-9d4b-4f1c0d2f682e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}
