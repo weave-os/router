@@ -2,12 +2,15 @@
 
 import { useState } from "react";
 
+import { useRouterDashboardDataSource } from "../../data";
 import {
   RouterDashboardSlot,
   RouterDashboardSlotName,
   useHasRouterDashboardSlot,
 } from "../../slots";
 import { cn } from "../../tools/cn";
+import { getDateFilterTitle } from "../../tools/dateFilter";
+import { TimeGranularity } from "../../tools/timeGranularity";
 import { Icon } from "../atoms/Icon";
 import { Kbd } from "../atoms/Kbd";
 import { Button } from "../molecules/Button";
@@ -16,15 +19,13 @@ import { Popover } from "../molecules/Popover";
 import { Tooltip } from "../molecules/Tooltip";
 import { Page } from "../Page";
 import { Appearance } from "../types";
+import { DateFilterMenuItems } from "./DateFilterMenuItems";
 import { FilterPill } from "./FilterPill";
-import {
-  DATE_RANGES,
-  DEFAULT_RANGE_ID,
-  Granularity,
-  UseDashboardFiltersResult,
-} from "./useDashboardFilters";
+import { Granularity, isDefaultDateFilter, UseDashboardFiltersResult } from "./useDashboardFilters";
 
 const GRANULARITY_OPTIONS: readonly Granularity[] = ["hour", "day", "week"];
+
+const DATE_SEARCH_HINT = `(try "this year")`;
 
 enum FilterMenu {
   AddFilter = "add-filter",
@@ -189,39 +190,47 @@ function GranularityPill({ onOpenChange, open, result }: FilterPillMenuProps) {
 }
 
 function DatePill({ onOpenChange, open, result }: FilterPillMenuProps) {
+  const { weekStartsOn } = useRouterDashboardDataSource();
+  const [search, setSearch] = useState("");
+  const { dateFilter, granularity } = result.filters;
+
   return (
     <ShortcutTooltip label="Change date" shortcut="D">
       <FilterPill
         onRemove={() => {
-          if (result.filters.range.id !== DEFAULT_RANGE_ID) result.setRangeId(DEFAULT_RANGE_ID);
+          if (!isDefaultDateFilter(dateFilter)) result.resetDateFilter();
         }}
       >
         <FilterPill.Label>Date</FilterPill.Label>
-        <Popover open={open} onOpenChange={onOpenChange}>
+        <Popover
+          open={open}
+          onOpenChange={nextOpen => {
+            if (nextOpen) setSearch("");
+            onOpenChange(nextOpen);
+          }}
+        >
           <Popover.Trigger>
             <FilterPill.Button>
-              {result.filters.range.pillLabel?.(new Date(result.filters.fromISO)) ??
-                result.filters.range.label.toLowerCase()}
+              {getDateFilterTitle(dateFilter, { lowercase: true, weekStartsOn })}
             </FilterPill.Button>
           </Popover.Trigger>
-          <Popover.Content className="w-64 p-1" align="start">
+          <Popover.Content className="w-64 p-0" align="start">
             <Command>
-              <Command.Input placeholder="Search date range..." />
+              <Command.Input
+                value={search}
+                onValueChange={setSearch}
+                placeholder={DATE_SEARCH_HINT}
+              />
               <Command.List>
-                {DATE_RANGES.map(range => (
-                  <Command.Item
-                    key={range.id}
-                    value={range.label}
-                    onSelect={() => {
-                      result.setRangeId(range.id);
-                      onOpenChange(false);
-                    }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <CheckSlot checked={result.filters.range.id === range.id} /> {range.label}
-                    </div>
-                  </Command.Item>
-                ))}
+                <DateFilterMenuItems
+                  granularity={granularity === "week" ? TimeGranularity.Week : undefined}
+                  search={search}
+                  weekStartsOn={weekStartsOn}
+                  onSelectDate={(start, end) => {
+                    result.setDateFilter(start, end);
+                    onOpenChange(false);
+                  }}
+                />
               </Command.List>
             </Command>
           </Popover.Content>

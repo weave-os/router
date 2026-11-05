@@ -2,7 +2,12 @@
 
 import { useMemo, useState } from "react";
 
-import { type DateRange, type RouterMetricGroup, type RouterMetricType } from "../../data";
+import {
+  type DateRange,
+  type RouterMetricGroup,
+  type RouterMetricType,
+  useRouterDashboardDataSource,
+} from "../../data";
 import { useRouterDrillDown } from "../../data/useRouterDrillDown";
 import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
 import { formatBigDecimal, formatInteger } from "../../tools/format";
@@ -18,7 +23,7 @@ import {
 } from "../Chart";
 import { ChartCard } from "../ChartCard";
 import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
-import { displayGranularity, previousRange } from "./chartRange";
+import { bucketCount, displayGranularity, previousRange } from "./chartRange";
 import { ChartTabToggle } from "./ChartTabToggle";
 import { usePartialBucketTick } from "./partialBucketTick";
 import { pivotSeries, TIME_KEY, toShare } from "./pivotSeries";
@@ -30,6 +35,9 @@ enum GroupedMetricView {
   Share = "share",
   Volume = "volume",
 }
+
+const sumValues = (points: readonly { value: number }[]) =>
+  points.reduce((sum, point) => sum + point.value, 0);
 
 const VIEW_OPTIONS = [
   { label: "Volume", value: GroupedMetricView.Volume },
@@ -78,12 +86,9 @@ export function RouterGroupedChartCard({
   const [view, setView] = useState(GroupedMetricView.Volume);
   const timeGranularity = displayGranularity(granularity);
   const current = useRouterMetricSeries({ granularity, group, range, type: metric });
-  const previous = useRouterMetricSeries({
-    granularity: null,
-    group,
-    range: previousRange(range),
-    type: metric,
-  });
+  const { weekStartsOn } = useRouterDashboardDataSource();
+  const before = useMemo(() => previousRange(range), [range]);
+  const previous = useRouterMetricSeries({ granularity, group, range: before, type: metric });
 
   const pivoted = useMemo(
     () =>
@@ -99,14 +104,16 @@ export function RouterGroupedChartCard({
     () => (view === GroupedMetricView.Share ? LoadState.map(pivoted, toShare) : pivoted),
     [pivoted, view],
   );
-  const average = LoadState.map(pivoted, ({ totals }) =>
-    totals.length === 0 ? 0 : totals.reduce((sum, total) => sum + total, 0) / totals.length,
+  const average = LoadState.map(
+    current,
+    now => sumValues(now.values) / bucketCount(range, granularity, weekStartsOn),
   );
-  const percentChange = LoadState.map(current, previous, (now, before) => {
-    const nowTotal = now.values.reduce((sum, point) => sum + point.value, 0);
-    const beforeTotal = before.values.reduce((sum, point) => sum + point.value, 0);
-    return periodPercentChange(nowTotal, beforeTotal);
-  });
+  const percentChange = LoadState.map(average, previous, (nowAverage, then) =>
+    periodPercentChange(
+      nowAverage,
+      sumValues(then.values) / bucketCount(before, granularity, weekStartsOn),
+    ),
+  );
 
   const config = useMemo(() => {
     const keys = LoadState.unwrap(pivoted)?.keys ?? [];
