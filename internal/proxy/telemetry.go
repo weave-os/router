@@ -33,6 +33,13 @@ type TelemetryRepository interface {
 	GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]TelemetryModelBucket, error)
 	GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (TelemetryTurnResult, error)
 	GetSessionCost(ctx context.Context, installationID, sessionID string) (SessionCost, error)
+	// Dashboard reads scope to installationID, or every installation when it is empty.
+	GetTelemetryDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryDashboardFact, error)
+	GetTelemetryDashboardActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryActiveUsers, error)
+	GetTelemetryDashboardPeople(ctx context.Context, installationID string) ([]TelemetryPerson, error)
+	GetTelemetrySubscriptionPoolSeats(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]TelemetrySubscriptionSeat, error)
+	GetTelemetryDashboardDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]TelemetryDrillDownRow, error)
+	GetTelemetryDashboardIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryIndividualFact, error)
 }
 
 // InferenceAttemptStore persists the ordered upstream attempts of an inference
@@ -429,6 +436,81 @@ type TelemetryBucket struct {
 	Bucket           time.Time
 	RequestedCostUSD float64
 	ActualCostUSD    float64
+}
+
+// TelemetryDashboardFact sums upstream spans sharing a bucket, served model,
+// billing path and decision type.
+type TelemetryDashboardFact struct {
+	Bucket              time.Time
+	DecisionModel       string
+	SubscriptionServed  bool
+	DecisionType        string
+	AutomaticAlias      bool
+	RequestCount        int64
+	InputTokens         int64
+	OutputTokens        int64
+	CacheCreationTokens int64
+	CacheReadTokens     int64
+	ActualCostUSD       float64
+}
+
+// TelemetryDrillDownRow is one person's session and requested/decision model
+// pair; the embedded fact carries its tokens, cost and billing.
+type TelemetryDrillDownRow struct {
+	TelemetryDashboardFact
+	PersonID       string
+	Linked         bool
+	DisplayName    string
+	Email          string
+	SessionID      string
+	ClientApp      string
+	RequestedModel string
+	Providers      []string
+	StartedAt      time.Time
+	FinishedAt     time.Time
+}
+
+// TelemetryIndividualFact is one person's dashboard fact for a bucket.
+type TelemetryIndividualFact struct {
+	TelemetryDashboardFact
+	PersonID    string
+	Linked      bool
+	DisplayName string
+	Email       string
+}
+
+// TelemetryActiveUsers counts distinct people in one bucket.
+type TelemetryActiveUsers struct {
+	Bucket    time.Time
+	Linked    bool
+	UserCount int64
+}
+
+// TelemetryPerson is someone who can route: a roster user (linked) or an API
+// key that sent traffic without one (unlinked). LastRequestAt is nil until
+// their first request.
+type TelemetryPerson struct {
+	ID            string
+	Linked        bool
+	DisplayName   string
+	Email         string
+	LastRequestAt *time.Time
+}
+
+// TelemetrySubscriptionSeat is one pooled Claude/Codex subscription with the
+// raw limit headers of its newest served turn inside the reading lookback.
+type TelemetrySubscriptionSeat struct {
+	ID                 string
+	Provider           string
+	DisplayName        *string
+	OwnerName          *string
+	Enabled            bool
+	State              string
+	CooldownUntil      *time.Time
+	ServedRequests     int64
+	LimitsObservedAt   *time.Time
+	ClaudeLimitHeaders map[string]string
+	CodexLimitHeaders  map[string]string
 }
 
 // TelemetryModelBucket is one time-bucket entry for a single decision model,

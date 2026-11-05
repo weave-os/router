@@ -2,7 +2,9 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"weave-os/router/internal/inference"
@@ -552,6 +554,149 @@ func (r *TelemetryRepo) GetTelemetrySummaryAll(ctx context.Context, from, to tim
 	}, nil
 }
 
+func dashboardInstallationFilter(installationID string) (pgtype.UUID, error) {
+	if installationID == "" {
+		return pgtype.UUID{}, nil
+	}
+	id, err := uuid.Parse(installationID)
+	if err != nil {
+		return pgtype.UUID{}, err
+	}
+	return pgtype.UUID{Bytes: id, Valid: true}, nil
+}
+
+// GetTelemetryDashboardFacts reads the dashboard's per-dimension sums.
+func (r *TelemetryRepo) GetTelemetryDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryDashboardFact, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetryDashboardFacts(ctx, sqlc.GetTelemetryDashboardFactsParams{
+		Granularity:    granularity,
+		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
+		ToTime:         pgtype.Timestamptz{Time: to, Valid: true},
+		InstallationID: installation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardFactsRow) proxy.TelemetryDashboardFact {
+		return proxy.TelemetryDashboardFact{
+			Bucket:              row.Bucket.Time,
+			DecisionModel:       row.DecisionModel,
+			SubscriptionServed:  row.SubscriptionServed,
+			DecisionType:        row.DecisionType,
+			AutomaticAlias:      row.AutomaticAlias,
+			RequestCount:        row.RequestCount,
+			InputTokens:         row.InputTokens,
+			OutputTokens:        row.OutputTokens,
+			CacheCreationTokens: row.CacheCreationTokens,
+			CacheReadTokens:     row.CacheReadTokens,
+			ActualCostUSD:       microsToUSD(row.ActualCostUsd),
+		}
+	}), nil
+}
+
+// GetTelemetryDashboardActiveUsers counts distinct people per bucket.
+func (r *TelemetryRepo) GetTelemetryDashboardActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryActiveUsers, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetryDashboardActiveUsers(ctx, sqlc.GetTelemetryDashboardActiveUsersParams{
+		Granularity:    granularity,
+		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
+		ToTime:         pgtype.Timestamptz{Time: to, Valid: true},
+		InstallationID: installation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardActiveUsersRow) proxy.TelemetryActiveUsers {
+		return proxy.TelemetryActiveUsers{Bucket: row.Bucket.Time, Linked: row.Linked, UserCount: row.UserCount}
+	}), nil
+}
+
+// GetTelemetryDashboardPeople lists roster users and unlinked API keys.
+func (r *TelemetryRepo) GetTelemetryDashboardPeople(ctx context.Context, installationID string) ([]proxy.TelemetryPerson, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetryDashboardPeople(ctx, installation)
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardPeopleRow) proxy.TelemetryPerson {
+		person := proxy.TelemetryPerson{ID: row.PersonID, Linked: row.Linked, DisplayName: row.DisplayName, Email: row.Email}
+		if row.LastRequestAt.Valid {
+			last := row.LastRequestAt.Time
+			person.LastRequestAt = &last
+		}
+		return person
+	}), nil
+}
+
+// GetTelemetrySubscriptionPoolSeats lists pooled subscriptions and their newest limit headers.
+func (r *TelemetryRepo) GetTelemetrySubscriptionPoolSeats(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]proxy.TelemetrySubscriptionSeat, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetrySubscriptionPoolSeats(ctx, sqlc.GetTelemetrySubscriptionPoolSeatsParams{
+		ServedSince:    pgtype.Timestamptz{Time: servedSince, Valid: true},
+		ReadingsSince:  pgtype.Timestamptz{Time: readingsSince, Valid: true},
+		InstallationID: installation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	seats := make([]proxy.TelemetrySubscriptionSeat, 0, len(rows))
+	for _, row := range rows {
+		seat := proxy.TelemetrySubscriptionSeat{
+			ID:               row.ID.String(),
+			Provider:         row.Provider,
+			DisplayName:      row.DisplayName,
+			Enabled:          row.Enabled,
+			State:            row.HealthState,
+			ServedRequests:   row.ServedRequests,
+			CooldownUntil:    optionalTime(row.CooldownUntil),
+			LimitsObservedAt: optionalTime(row.LimitsObservedAt),
+		}
+		if row.OwnerName != "" {
+			owner := row.OwnerName
+			seat.OwnerName = &owner
+		}
+		if seat.ClaudeLimitHeaders, err = limitHeaders(row.UnifiedLimitHeaders); err != nil {
+			return nil, err
+		}
+		if seat.CodexLimitHeaders, err = limitHeaders(row.CodexLimitHeaders); err != nil {
+			return nil, err
+		}
+		seats = append(seats, seat)
+	}
+	return seats, nil
+}
+
+func optionalTime(value pgtype.Timestamptz) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	t := value.Time
+	return &t
+}
+
+func limitHeaders(raw []byte) (map[string]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var headers map[string]string
+	if err := json.Unmarshal(raw, &headers); err != nil {
+		return nil, fmt.Errorf("decode limit headers: %w", err)
+	}
+	return headers, nil
+}
+
 // GetTelemetryTimeseriesAll is the admin-only counterpart to GetTelemetryTimeseries.
 func (r *TelemetryRepo) GetTelemetryTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryBucket, error) {
 	q := dbbudget.Queries(r.tx)
@@ -1057,4 +1202,84 @@ func (r *TelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, insta
 		Strategy:         derefString(row.Strategy),
 		Timestamp:        row.Timestamp.Time,
 	}, nil
+}
+
+func (r *TelemetryRepo) GetTelemetryDashboardDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]proxy.TelemetryDrillDownRow, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetryDashboardDrillDown(ctx, sqlc.GetTelemetryDashboardDrillDownParams{
+		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
+		ToTime:         pgtype.Timestamptz{Time: to, Valid: true},
+		InstallationID: installation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardDrillDownRow) proxy.TelemetryDrillDownRow {
+		return proxy.TelemetryDrillDownRow{
+			TelemetryDashboardFact: proxy.TelemetryDashboardFact{
+				Bucket:              row.StartedAt.Time,
+				DecisionModel:       row.DecisionModel,
+				SubscriptionServed:  row.SubscriptionServed,
+				DecisionType:        row.DecisionType,
+				AutomaticAlias:      row.AutomaticAlias,
+				RequestCount:        row.RequestCount,
+				InputTokens:         row.InputTokens,
+				OutputTokens:        row.OutputTokens,
+				CacheCreationTokens: row.CacheCreationTokens,
+				CacheReadTokens:     row.CacheReadTokens,
+				ActualCostUSD:       microsToUSD(row.ActualCostUsd),
+			},
+			PersonID:       row.PersonID,
+			Linked:         row.Linked,
+			DisplayName:    row.DisplayName,
+			Email:          row.Email,
+			SessionID:      row.SessionID,
+			ClientApp:      row.ClientApp,
+			RequestedModel: row.RequestedModel,
+			Providers:      row.Providers,
+			StartedAt:      row.StartedAt.Time,
+			FinishedAt:     row.FinishedAt.Time,
+		}
+	}), nil
+}
+
+// GetTelemetryDashboardIndividualFacts returns each person's dashboard facts per bucket.
+func (r *TelemetryRepo) GetTelemetryDashboardIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryIndividualFact, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetryDashboardIndividualFacts(ctx, sqlc.GetTelemetryDashboardIndividualFactsParams{
+		Granularity:    granularity,
+		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
+		ToTime:         pgtype.Timestamptz{Time: to, Valid: true},
+		InstallationID: installation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardIndividualFactsRow) proxy.TelemetryIndividualFact {
+		return proxy.TelemetryIndividualFact{
+			TelemetryDashboardFact: proxy.TelemetryDashboardFact{
+				Bucket:              row.Bucket.Time,
+				DecisionModel:       row.DecisionModel,
+				SubscriptionServed:  row.SubscriptionServed,
+				DecisionType:        row.DecisionType,
+				AutomaticAlias:      row.AutomaticAlias,
+				RequestCount:        row.RequestCount,
+				InputTokens:         row.InputTokens,
+				OutputTokens:        row.OutputTokens,
+				CacheCreationTokens: row.CacheCreationTokens,
+				CacheReadTokens:     row.CacheReadTokens,
+				ActualCostUSD:       microsToUSD(row.ActualCostUsd),
+			},
+			PersonID:    row.PersonID,
+			Linked:      row.Linked,
+			DisplayName: row.DisplayName,
+			Email:       row.Email,
+		}
+	}), nil
 }
