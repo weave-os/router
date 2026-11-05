@@ -427,7 +427,7 @@ func withDeferredReconnectNudge(ctx context.Context, text string) context.Contex
 // ran out mid-dispatch.
 func reconnectNoticeForAttempt(ctx context.Context, headers http.Header, notice translate.RouterNotice) translate.RouterNotice {
 	nudge, _ := ctx.Value(deferredReconnectNudgeContextKey{}).(string)
-	if nudge == "" || notice.Kind != translate.NoticeModelSelection || notice.Text == "" || reconnectNudgeEchoed(ctx, nudge) {
+	if nudge == "" || notice.Kind != translate.NoticeModelSelection || reconnectNudgeEchoed(ctx, nudge) {
 		return notice
 	}
 	if creds := CredentialsFromContext(ctx); creds != nil && creds.OAuth {

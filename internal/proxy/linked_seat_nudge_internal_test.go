@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
+	"weave-os/router/internal/translate"
 )
 
 const ownClaudePlanSpentPhrase = "your own Claude plan is out of usage"
@@ -213,7 +214,7 @@ func TestSpentOwnCodexPlanNudgesWhenTheLastLinkedSeatRunsOutMidTurn(t *testing.T
 			}
 			// The first turn learns the plan is spent and lands on the seat; the
 			// second sees a healthy seat that runs out mid-turn.
-			var responses []string
+			var turnBodies []string
 			for turn = 0; turn < 2; turn++ {
 				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 				ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "teammate", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateActive, Enabled: true}})
@@ -225,11 +226,23 @@ func TestSpentOwnCodexPlanNudgesWhenTheLastLinkedSeatRunsOutMidTurn(t *testing.T
 					require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest(path, body)))
 				}
 				require.Contains(t, rec.Body.String(), "answer")
-				responses = append(responses, rec.Body.String())
+				turnBodies = append(turnBodies, rec.Body.String())
 			}
 			require.Equal(t, []string{"Bearer pool-seat", "Bearer pool-seat", "Bearer weave-capacity"}, bearers, "the spent seat hands the second turn to paid capacity")
-			require.NotContains(t, responses[0], "your own ChatGPT (Codex) plan is out of usage")
-			require.Contains(t, responses[1], "your own ChatGPT (Codex) plan is out of usage")
+			require.NotContains(t, turnBodies[0], "your own ChatGPT (Codex) plan is out of usage")
+			require.Contains(t, turnBodies[1], "your own ChatGPT (Codex) plan is out of usage")
 		})
 	}
+}
+
+func TestDeferredReconnectNudgeShowsOnAPaidTurnWithoutARoutingMarker(t *testing.T) {
+	ctx := withDeferredReconnectNudge(context.Background(), ownClaudePlanSpentNudge)
+	unmarked := translate.NewRouterNotice(translate.NoticeModelSelection, "", "claude-sonnet-4-6", "")
+	notice := reconnectNoticeForAttempt(ctx, http.Header{}, unmarked)
+	require.Equal(t, translate.NoticeSubscriptionReconnect, notice.Kind)
+	require.Equal(t, ownClaudePlanSpentNudge, notice.Text)
+	onSeat := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{OAuth: true})
+	require.Equal(t, unmarked, reconnectNoticeForAttempt(onSeat, http.Header{}, unmarked), "a linked seat keeps the turn on a subscription")
+	optedOut := http.Header{routingMarkerHeader: []string{"off"}}
+	require.Empty(t, reconnectNoticeForAttempt(ctx, optedOut, unmarked).Text, "an explicit marker opt-out still hides the nudge")
 }
