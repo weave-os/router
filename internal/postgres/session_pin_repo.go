@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/sqlc"
 
@@ -32,6 +33,38 @@ var _ sessionpin.CooldownStore = (*SessionPinRepo)(nil)
 var _ sessionpin.RecoveryProbeStore = (*SessionPinRepo)(nil)
 var _ sessionpin.TurnStrikeStore = (*SessionPinRepo)(nil)
 var _ sessionpin.TokenizerCalibrationStore = (*SessionPinRepo)(nil)
+var _ sessionpin.SiblingPreferenceStore = (*SessionPinRepo)(nil)
+
+func (r *SessionPinRepo) GetSiblingPreferences(ctx context.Context, installationID uuid.UUID, key [sessionpin.SessionKeyLen]byte, strategy router.Strategy) (map[escalation.Group]router.SiblingPreference, error) {
+	raw, err := dbbudget.Queries(r.tx).GetSessionSiblingPreferences(ctx, sqlc.GetSessionSiblingPreferencesParams{InstallationID: installationID, SessionKey: key[:], RoutingStrategy: string(strategy)})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var preferences map[escalation.Group]router.SiblingPreference
+	if err := json.Unmarshal(raw, &preferences); err != nil {
+		return nil, fmt.Errorf("decode sibling preferences: %w", err)
+	}
+	return preferences, nil
+}
+
+func (r *SessionPinRepo) RecordSiblingPreference(ctx context.Context, installationID uuid.UUID, key [sessionpin.SessionKeyLen]byte, strategy router.Strategy, group escalation.Group, preferred string, displaced []string, startedAt time.Time) (bool, error) {
+	encoded, err := json.Marshal(displaced)
+	if err != nil {
+		return false, err
+	}
+	rows, err := dbbudget.Queries(r.tx).RecordSessionSiblingPreference(ctx, sqlc.RecordSessionSiblingPreferenceParams{
+		InstallationID: installationID, SessionKey: key[:], RoutingStrategy: string(strategy), PolicyGroup: string(group),
+		PreferredModel: preferred, DisplacedModels: encoded, StartedAt: pgtype.Timestamptz{Time: startedAt.UTC(), Valid: true},
+	})
+	return rows > 0, err
+}
+
+func (r *SessionPinRepo) ClearSiblingWinnerExclusions(ctx context.Context, key [sessionpin.SessionKeyLen]byte, strategy router.Strategy, roles []string, preferred string) error {
+	return dbbudget.Queries(r.tx).ClearSiblingWinnerExclusions(ctx, sqlc.ClearSiblingWinnerExclusionsParams{SessionKey: key[:], Roles: roles, ExpectedRoutingStrategy: string(strategy), PreferredModel: preferred})
+}
 
 func (r *SessionPinRepo) Get(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
 	q := dbbudget.Queries(r.tx)

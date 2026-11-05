@@ -12,6 +12,43 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const clearSiblingWinnerExclusions = `-- name: ClearSiblingWinnerExclusions :exec
+UPDATE router.session_pins
+SET demoted_models = array_remove(demoted_models, $1::varchar),
+    demotion_cooldowns = demotion_cooldowns - $1::text,
+    turn_strikes = array_remove(turn_strikes, $1::varchar)
+WHERE session_key = $2::bytea
+  AND role = ANY($3::text[])
+  AND routing_strategy = $4::varchar
+`
+
+type ClearSiblingWinnerExclusionsParams struct {
+	PreferredModel          string
+	SessionKey              []byte
+	Roles                   []string
+	ExpectedRoutingStrategy string
+}
+
+// A successful last-resort winner must not remain session-demoted in the
+// active pin rows after its conversation-level preference is committed.
+//
+//	UPDATE router.session_pins
+//	SET demoted_models = array_remove(demoted_models, $1::varchar),
+//	    demotion_cooldowns = demotion_cooldowns - $1::text,
+//	    turn_strikes = array_remove(turn_strikes, $1::varchar)
+//	WHERE session_key = $2::bytea
+//	  AND role = ANY($3::text[])
+//	  AND routing_strategy = $4::varchar
+func (q *Queries) ClearSiblingWinnerExclusions(ctx context.Context, arg ClearSiblingWinnerExclusionsParams) error {
+	_, err := q.db.Exec(ctx, clearSiblingWinnerExclusions,
+		arg.PreferredModel,
+		arg.SessionKey,
+		arg.Roles,
+		arg.ExpectedRoutingStrategy,
+	)
+	return err
+}
+
 const deleteSessionPin = `-- name: DeleteSessionPin :one
 DELETE FROM router.session_pins
 WHERE session_key = $1::bytea

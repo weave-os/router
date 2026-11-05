@@ -1078,6 +1078,13 @@ type RouterSessionReleaseBinding struct {
 	LastAdmittedAt        pgtype.Timestamptz
 }
 
+type RouterSessionSiblingPreference struct {
+	InstallationID  uuid.UUID
+	SessionKey      []byte
+	RoutingStrategy string
+	Preferences     []byte
+}
+
 // Explicit per-session router strategy preferences
 type RouterSessionStrategyPreference struct {
 	InstallationID uuid.UUID

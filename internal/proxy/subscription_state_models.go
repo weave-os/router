@@ -227,7 +227,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			return winner, err
 		}
 		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider)
-		recordTurnFailure(ctx, target.Model)
+		recordSiblingFailure(ctx, target.Model)
 		if !hasFixedTarget {
 			s.holdSessionOffSubscriptionPool(ctx, target.Provider, target.Model)
 		}

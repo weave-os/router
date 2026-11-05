@@ -16,8 +16,9 @@ import (
 // handed to another target, so completion can keep them out of the session
 // for the rest of the agent turn.
 type turnFailures struct {
-	mu     sync.Mutex
-	models []string
+	mu       sync.Mutex
+	models   []string
+	siblings []string
 }
 
 type turnFailuresContextKey struct{}
@@ -43,6 +44,17 @@ func recordTurnFailure(ctx context.Context, model string) {
 	defer failures.mu.Unlock()
 	if !slices.Contains(failures.models, model) {
 		failures.models = append(failures.models, model)
+	}
+}
+
+func recordSiblingFailure(ctx context.Context, model string) {
+	recordTurnFailure(ctx, model)
+	if failures := turnFailuresFromContext(ctx); failures != nil {
+		failures.mu.Lock()
+		defer failures.mu.Unlock()
+		if !slices.Contains(failures.siblings, model) {
+			failures.siblings = append(failures.siblings, model)
+		}
 	}
 }
 

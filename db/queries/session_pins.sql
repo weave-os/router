@@ -487,3 +487,14 @@ WHERE session_key = @session_key::bytea
 -- name: SweepExpiredSessionPins :exec
 DELETE FROM router.session_pins
 WHERE pinned_until < now() - interval '24 hours';
+
+-- A successful last-resort winner must not remain session-demoted in the
+-- active pin rows after its conversation-level preference is committed.
+-- name: ClearSiblingWinnerExclusions :exec
+UPDATE router.session_pins
+SET demoted_models = array_remove(demoted_models, @preferred_model::varchar),
+    demotion_cooldowns = demotion_cooldowns - @preferred_model::text,
+    turn_strikes = array_remove(turn_strikes, @preferred_model::varchar)
+WHERE session_key = @session_key::bytea
+  AND role = ANY(@roles::text[])
+  AND routing_strategy = @expected_routing_strategy::varchar;

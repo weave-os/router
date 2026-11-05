@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/observability/apm"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/catalog"
@@ -196,9 +197,10 @@ type turnLoopResult struct {
 	escalationObservation  translate.EscalationObservation
 	llmEscalation          *llmEscalationTurn
 
-	Decision       router.Decision
-	SessionKey     [sessionpin.SessionKeyLen]byte
-	InstallationID uuid.UUID
+	Decision             router.Decision
+	SessionKey           [sessionpin.SessionKeyLen]byte
+	SiblingPreferenceKey [sessionpin.SessionKeyLen]byte
+	InstallationID       uuid.UUID
 	// Strategy is the effective request strategy, carried through the response
 	// path so async pin writes stay strategy-bound after ctx is cancelled.
 	Strategy   router.Strategy
@@ -761,7 +763,7 @@ func automaticallyDisabled(req router.Request, model string) bool {
 // explicit /force-model is the escape hatch that keeps a disabled model
 // reachable for debugging and evaluation.
 func automaticPinEligible(pin sessionpin.Pin, req router.Request) bool {
-	return pinEligible(pin, req) && !automaticallyDisabled(req, pin.Model)
+	return pinEligible(pin, req) && !automaticallyDisabled(req, pin.Model) && !supersededSiblingPin(pin, req)
 }
 
 // withAutomaticExclusions folds the deployment-wide soft set into the hard-pin
@@ -930,6 +932,15 @@ func (s *Service) runTurnLoop(
 			return res, err
 		}
 		return s.routeWithoutPin(ctx, req, res, reqHeaders, false, sessionpin.Pin{})
+	}
+	if store, supported := s.pinStore.(sessionpin.SiblingPreferenceStore); supported && installationID != uuid.Nil && threadSessionKey != ([sessionpin.SessionKeyLen]byte{}) {
+		res.SiblingPreferenceKey = deriveConversationSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey, requestcontext.SiblingPreferenceConversationKey)
+		var err error
+		req.SiblingPreferences, err = store.GetSiblingPreferences(ctx, installationID, res.SiblingPreferenceKey, res.Strategy)
+		if err != nil {
+			log.Error("Session sibling preferences unavailable", "err", err)
+			return res, fmt.Errorf("load session sibling preferences: %w", err)
+		}
 	}
 	// Resolve user-forced state before the policy's no-automatic-routing shortcut.
 	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey)
@@ -1635,6 +1646,11 @@ func (s *Service) runTurnLoop(
 			"disable_reason", reason,
 			"role", res.PinRole,
 		)
+		pinFound = false
+		pin = sessionpin.Pin{}
+	}
+	if pinFound && !isUserForcedReason(pin.Reason) && supersededSiblingPin(pin, req) {
+		log.Info("Session sibling preference supersedes automatic pin", "pin_model", pin.Model, "group", pin.PolicyGroup)
 		pinFound = false
 		pin = sessionpin.Pin{}
 	}

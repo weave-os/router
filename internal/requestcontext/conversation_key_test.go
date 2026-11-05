@@ -16,3 +16,17 @@ func TestConversationKeyPreservesLegacyGoldenBytes(t *testing.T) {
 	assert.NotEqual(t, key, requestcontext.ConversationKey("api-key-b", "session-a", requestcontext.LegacyBetaConversationKey, [16]byte{}))
 	assert.NotEqual(t, key, requestcontext.ConversationKey("api-key-a", "session-a", requestcontext.ForceModelConversationKey, [16]byte{}))
 }
+
+func TestSiblingPreferenceConversationIdentitySurvivesCompaction(t *testing.T) {
+	before := [16]byte{1}
+	after := [16]byte{2}
+	key := requestcontext.ConversationKey("credential-a", "session-a", requestcontext.SiblingPreferenceConversationKey, before)
+	assert.Equal(t, key, requestcontext.ConversationKey("credential-a", "session-a", requestcontext.SiblingPreferenceConversationKey, after))
+	assert.NotEqual(t, key, requestcontext.ConversationKey("credential-a", "session-b", requestcontext.SiblingPreferenceConversationKey, before))
+	assert.NotEqual(t, key, requestcontext.ConversationKey("credential-b", "session-a", requestcontext.SiblingPreferenceConversationKey, before))
+	assert.NotEqual(t, key, requestcontext.ConversationKey("credential-a", "session-a", requestcontext.ForceModelConversationKey, before))
+	assert.NotEqual(t,
+		requestcontext.ConversationKey("credential-a", "", requestcontext.SiblingPreferenceConversationKey, before),
+		requestcontext.ConversationKey("credential-a", "", requestcontext.SiblingPreferenceConversationKey, after),
+		"sessionless callers remain isolated by thread")
+}
