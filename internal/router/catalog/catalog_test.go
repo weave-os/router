@@ -729,6 +729,16 @@ func TestAnthropicGatewayPricesCacheReadsLikeDirectAnthropic(t *testing.T) {
 	}
 }
 
+func TestSonnet55AnthropicCacheReadMultiplier(t *testing.T) {
+	for _, provider := range []string{providers.ProviderAnthropic, providers.ProviderAnthropicGateway} {
+		t.Run(provider, func(t *testing.T) {
+			price, ok := PriceFor(provider, "claude-sonnet-5-5")
+			require.True(t, ok)
+			assert.InDelta(t, 0.05, price.EffectiveCacheReadMultiplier(), 1e-9)
+		})
+	}
+}
+
 func TestSubscriptionOverflowBindingsStayOutOfRouting(t *testing.T) {
 	openRouterOnly := map[string]struct{}{providers.ProviderOpenRouter: {}}
 	_, routable := RoutingTargetSet(openRouterOnly)["claude-opus-4-7"]

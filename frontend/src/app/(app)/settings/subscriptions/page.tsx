@@ -5,7 +5,9 @@ import {
   SubscriptionLoginPanel,
   SubscriptionSeatsPanel,
 } from "@/components/settings/SubscriptionLoginPanel";
+
 import { Link2, Users } from "lucide-react";
+
 import { useCallback, useState } from "react";
 
 export default function SubscriptionsSettingsPage() {

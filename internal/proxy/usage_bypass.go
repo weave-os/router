@@ -414,6 +414,28 @@ func withSubscriptionReconnectNudge(ctx context.Context, text string) context.Co
 	return context.WithValue(ctx, subscriptionReconnectNudgeContextKey{}, text)
 }
 
+type deferredReconnectNudgeContextKey struct{}
+
+// withDeferredReconnectNudge holds back a reconnect nudge because a linked seat
+// should take the turn; reconnectNoticeForAttempt shows it if none does.
+func withDeferredReconnectNudge(ctx context.Context, text string) context.Context {
+	return context.WithValue(ctx, deferredReconnectNudgeContextKey{}, text)
+}
+
+// reconnectNoticeForAttempt swaps the routing marker for a held-back reconnect
+// nudge when the attempt runs off-subscription, e.g. after the last linked seat
+// ran out mid-dispatch.
+func reconnectNoticeForAttempt(ctx context.Context, headers http.Header, notice translate.RouterNotice) translate.RouterNotice {
+	nudge, _ := ctx.Value(deferredReconnectNudgeContextKey{}).(string)
+	if nudge == "" || notice.Kind != translate.NoticeModelSelection || reconnectNudgeEchoed(ctx, nudge) {
+		return notice
+	}
+	if creds := CredentialsFromContext(ctx); creds != nil && creds.OAuth {
+		return notice
+	}
+	return translate.NewRouterNotice(translate.NoticeSubscriptionReconnect, suppressMarkerIfRequested(ctx, headers, nudge), notice.Model, notice.AttemptID)
+}
+
 func reconnectNudgeEchoed(ctx context.Context, text string) bool {
 	echoed, _ := ctx.Value(subscriptionReconnectNudgesEchoedContextKey{}).(map[string]bool)
 	return echoed[text]

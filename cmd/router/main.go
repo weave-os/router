@@ -1636,12 +1636,13 @@ func main() {
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
-		SubscriptionLogins:  subscriptionLogins,
-		StartupDatabasePing: pool.Ping,
-		TestPlans:           testPlans,
-		PolicyPinEnabled:    policyPinEnabled,
-		ServingAdmission:    servingAdmission,
-		SubscriberAllowance: subscriberAllowanceSvc,
+		SubscriptionLogins:       subscriptionLogins,
+		StartupDatabasePing:      pool.Ping,
+		TestPlans:                testPlans,
+		PolicyPinEnabled:         policyPinEnabled,
+		ServingAdmission:         servingAdmission,
+		SubscriberAllowance:      subscriberAllowanceSvc,
+		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
 	}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture

@@ -920,3 +920,210 @@ WHERE t.installation_id = @installation_id::uuid
   AND t.session_id = @session_id::varchar
   AND t.span_type IN ('router.upstream', 'router.auxiliary_inference')
 GROUP BY t.session_id;
+
+-- Dashboard facts per bucket and dimension; the admin layer derives every
+-- chart series from these sums. Reason markers mirror the hosted classifier:
+-- user_forced prefix, _hard_pin utility suffix, cluster_argmax passthrough.
+-- name: GetTelemetryDashboardFacts :many
+SELECT
+    date_trunc(@granularity::text, timestamp)::timestamptz AS bucket,
+    COALESCE(decision_model, '')::text AS decision_model,
+    (credential_source IN ('subscription', 'codex_subscription'))::boolean AS subscription_served,
+    (CASE
+        WHEN blind_experiment_arm = 'passthrough' OR decision_reason = 'cluster_argmax' THEN 'passthrough'
+        WHEN decision_reason LIKE 'user_forced%' THEN 'forced'
+        WHEN (decision_reason LIKE '%\_hard\_pin' OR decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough'))
+             AND credential_source IN ('subscription', 'codex_subscription')
+             AND COALESCE(requested_model, '') = COALESCE(decision_model, '') THEN 'subscription_bypass'
+        WHEN decision_reason LIKE '%\_hard\_pin' OR decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
+        ELSE 'router_pick'
+    END)::text AS decision_type,
+    (lower(COALESCE(requested_model, '')) IN ('weave', 'auto', 'weave-auto')
+        OR lower(COALESCE(requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+    COUNT(*)::bigint AS request_count,
+    COALESCE(SUM(input_tokens), 0)::bigint AS input_tokens,
+    COALESCE(SUM(output_tokens), 0)::bigint AS output_tokens,
+    COALESCE(SUM(cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+    COALESCE(SUM(cache_read_tokens), 0)::bigint AS cache_read_tokens,
+    COALESCE(SUM(actual_input_cost_usd + actual_output_cost_usd), 0)::bigint AS actual_cost_usd
+FROM router.model_router_request_telemetry
+WHERE span_type = 'router.upstream'
+  AND timestamp >= @from_time::timestamptz
+  AND timestamp < @to_time::timestamptz
+  AND (sqlc.narg(installation_id)::uuid IS NULL OR installation_id = sqlc.narg(installation_id)::uuid)
+GROUP BY 1, 2, 3, 4, 5
+ORDER BY 1;
+
+-- Distinct people per bucket ('total' = one bucket for the window, so a person
+-- counts once). Linked people carry a router user; unlinked traffic counts once
+-- per API key.
+-- name: GetTelemetryDashboardActiveUsers :many
+SELECT
+    (CASE WHEN @granularity::text = 'total' THEN @from_time::timestamptz
+          ELSE date_trunc(@granularity::text, timestamp) END)::timestamptz AS bucket,
+    (router_user_id IS NOT NULL)::boolean AS linked,
+    COUNT(DISTINCT COALESCE(router_user_id::text, api_key_id::text, installation_id::text))::bigint AS user_count
+FROM router.model_router_request_telemetry
+WHERE span_type = 'router.upstream'
+  AND timestamp >= @from_time::timestamptz
+  AND timestamp < @to_time::timestamptz
+  AND (sqlc.narg(installation_id)::uuid IS NULL OR installation_id = sqlc.narg(installation_id)::uuid)
+GROUP BY 1, 2
+ORDER BY 1;
+
+-- Everyone who could route: roster users (linked) and API keys that sent
+-- traffic without a router user (unlinked), with their latest request ever.
+-- name: GetTelemetryDashboardPeople :many
+SELECT
+    u.id::text AS person_id,
+    true AS linked,
+    COALESCE(NULLIF(u.display_name, ''), u.email, '')::text AS display_name,
+    COALESCE(u.email, '')::text AS email,
+    (SELECT MAX(t.timestamp) FROM router.model_router_request_telemetry t
+      WHERE t.installation_id = u.installation_id AND t.router_user_id = u.id
+        AND t.span_type = 'router.upstream')::timestamptz AS last_request_at
+FROM router.model_router_users u
+WHERE u.deleted_at IS NULL
+  AND (sqlc.narg(installation_id)::uuid IS NULL OR u.installation_id = sqlc.narg(installation_id)::uuid)
+UNION ALL
+SELECT
+    t.api_key_id::text AS person_id,
+    false AS linked,
+    COALESCE(MAX(k.name), '')::text AS display_name,
+    ''::text AS email,
+    MAX(t.timestamp)::timestamptz AS last_request_at
+FROM router.model_router_request_telemetry t
+LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
+WHERE t.span_type = 'router.upstream'
+  AND t.router_user_id IS NULL
+  AND t.api_key_id IS NOT NULL
+  AND (sqlc.narg(installation_id)::uuid IS NULL OR t.installation_id = sqlc.narg(installation_id)::uuid)
+GROUP BY t.api_key_id;
+
+-- Subscription accounts registered to the pool with their latest quota reading.
+-- A seat registered to several installations appears once; its quota is a
+-- property of the physical subscription, not of who borrowed it.
+-- name: GetTelemetrySubscriptionPoolSeats :many
+SELECT
+    account.id,
+    account.provider,
+    account.display_name,
+    account.enabled,
+    account.health_state,
+    account.cooldown_until::timestamptz AS cooldown_until,
+    COALESCE(owner.name, '')::text AS owner_name,
+    served.requests::bigint AS served_requests,
+    reading.timestamp::timestamptz AS limits_observed_at,
+    reading.unified_limit_headers,
+    reading.codex_limit_headers
+FROM router.model_router_subscription_accounts account
+LEFT JOIN LATERAL (
+    SELECT COALESCE(NULLIF(u.display_name, ''), u.email, k.name) AS name
+    FROM router.model_router_subscription_account_installations registration
+    LEFT JOIN router.model_router_users u
+      ON u.credential_subject_id = account.subscriber_id AND u.installation_id = registration.installation_id AND u.deleted_at IS NULL
+    LEFT JOIN router.model_router_api_keys k
+      ON k.credential_subject_id = account.subscriber_id AND k.installation_id = registration.installation_id AND k.deleted_at IS NULL
+    WHERE registration.subscription_account_id = account.id AND account.subscriber_id IS NOT NULL
+      AND COALESCE(NULLIF(u.display_name, ''), u.email, k.name) IS NOT NULL
+    ORDER BY u.id IS NULL, k.created_at
+    LIMIT 1
+) owner ON TRUE
+CROSS JOIN LATERAL (
+    SELECT COUNT(*) AS requests FROM router.model_router_request_telemetry t
+    WHERE t.subscription_account_id = account.id AND t.span_type = 'router.upstream' AND t.timestamp >= @served_since::timestamptz
+      AND t.upstream_status_code >= 200 AND t.upstream_status_code < 300
+) served
+LEFT JOIN LATERAL (
+    SELECT t.timestamp, t.unified_limit_headers, t.codex_limit_headers FROM router.model_router_request_telemetry t
+    WHERE t.subscription_account_id = account.id AND t.span_type = 'router.upstream' AND t.timestamp >= @readings_since::timestamptz
+      AND (t.unified_limit_headers IS NOT NULL OR t.codex_limit_headers IS NOT NULL)
+    ORDER BY t.timestamp DESC LIMIT 1
+) reading ON TRUE
+WHERE EXISTS (
+    SELECT 1 FROM router.model_router_subscription_account_installations registration
+    WHERE registration.subscription_account_id = account.id
+      AND (sqlc.narg(installation_id)::uuid IS NULL OR registration.installation_id = sqlc.narg(installation_id)::uuid)
+)
+ORDER BY account.provider, account.created_at, account.id;
+
+-- One row per person, session and requested/decision model pair, for the
+-- dashboard drill-down. Unlinked traffic is keyed by its API key.
+-- name: GetTelemetryDashboardDrillDown :many
+SELECT
+    COALESCE(t.router_user_id::text, t.api_key_id::text, t.installation_id::text)::text AS person_id,
+    (t.router_user_id IS NOT NULL)::boolean AS linked,
+    COALESCE(NULLIF(MAX(u.display_name), ''), MAX(u.email), MAX(k.name), '')::text AS display_name,
+    COALESCE(MAX(u.email), '')::text AS email,
+    COALESCE(t.session_id, '')::text AS session_id,
+    COALESCE(t.client_app, '')::text AS client_app,
+    COALESCE(t.requested_model, '')::text AS requested_model,
+    COALESCE(t.decision_model, '')::text AS decision_model,
+    COALESCE(array_agg(DISTINCT t.decision_provider) FILTER (WHERE COALESCE(t.decision_provider, '') <> ''), '{}')::text[] AS providers,
+    (t.credential_source IN ('subscription', 'codex_subscription'))::boolean AS subscription_served,
+    (CASE
+        WHEN t.blind_experiment_arm = 'passthrough' OR t.decision_reason = 'cluster_argmax' THEN 'passthrough'
+        WHEN t.decision_reason LIKE 'user_forced%' THEN 'forced'
+        WHEN (t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough'))
+             AND t.credential_source IN ('subscription', 'codex_subscription')
+             AND COALESCE(t.requested_model, '') = COALESCE(t.decision_model, '') THEN 'subscription_bypass'
+        WHEN t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
+        ELSE 'router_pick'
+    END)::text AS decision_type,
+    (lower(COALESCE(t.requested_model, '')) IN ('weave', 'auto', 'weave-auto')
+        OR lower(COALESCE(t.requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+    MIN(t.timestamp)::timestamptz AS started_at,
+    MAX(t.timestamp)::timestamptz AS finished_at,
+    COUNT(*)::bigint AS request_count,
+    COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
+    COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
+    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+    COALESCE(SUM(t.actual_input_cost_usd + t.actual_output_cost_usd), 0)::bigint AS actual_cost_usd
+FROM router.model_router_request_telemetry t
+LEFT JOIN router.model_router_users u ON u.id = t.router_user_id
+LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
+WHERE t.span_type = 'router.upstream'
+  AND t.timestamp >= @from_time::timestamptz
+  AND t.timestamp < @to_time::timestamptz
+  AND (sqlc.narg(installation_id)::uuid IS NULL OR t.installation_id = sqlc.narg(installation_id)::uuid)
+GROUP BY 1, 2, 5, 6, 7, 8, 10, 11, 12
+ORDER BY started_at DESC;
+
+-- Dashboard facts per person, bucket and dimension, for the Individuals page.
+-- Unlinked traffic is keyed by its API key, like the drill-down.
+-- name: GetTelemetryDashboardIndividualFacts :many
+SELECT
+    COALESCE(t.router_user_id::text, t.api_key_id::text, t.installation_id::text)::text AS person_id,
+    (t.router_user_id IS NOT NULL)::boolean AS linked,
+    COALESCE(NULLIF(MAX(u.display_name), ''), MAX(u.email), MAX(k.name), '')::text AS display_name,
+    COALESCE(MAX(u.email), '')::text AS email,
+    date_trunc(@granularity::text, t.timestamp)::timestamptz AS bucket,
+    COALESCE(t.decision_model, '')::text AS decision_model,
+    (t.credential_source IN ('subscription', 'codex_subscription'))::boolean AS subscription_served,
+    (CASE
+        WHEN t.blind_experiment_arm = 'passthrough' OR t.decision_reason = 'cluster_argmax' THEN 'passthrough'
+        WHEN t.decision_reason LIKE 'user_forced%' THEN 'forced'
+        WHEN (t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough'))
+             AND t.credential_source IN ('subscription', 'codex_subscription')
+             AND COALESCE(t.requested_model, '') = COALESCE(t.decision_model, '') THEN 'subscription_bypass'
+        WHEN t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
+        ELSE 'router_pick'
+    END)::text AS decision_type,
+    (lower(COALESCE(t.requested_model, '')) IN ('weave', 'auto', 'weave-auto')
+        OR lower(COALESCE(t.requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+    COUNT(*)::bigint AS request_count,
+    COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
+    COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
+    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+    COALESCE(SUM(t.actual_input_cost_usd + t.actual_output_cost_usd), 0)::bigint AS actual_cost_usd
+FROM router.model_router_request_telemetry t
+LEFT JOIN router.model_router_users u ON u.id = t.router_user_id
+LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
+WHERE t.span_type = 'router.upstream'
+  AND t.timestamp >= @from_time::timestamptz
+  AND t.timestamp < @to_time::timestamptz
+  AND (sqlc.narg(installation_id)::uuid IS NULL OR t.installation_id = sqlc.narg(installation_id)::uuid)
+GROUP BY 1, 2, 5, 6, 7, 8, 9
+ORDER BY 5;

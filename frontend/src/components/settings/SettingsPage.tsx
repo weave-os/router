@@ -1,10 +1,13 @@
 "use client";
 
-import { settingsNavItem } from "./nav";
-import { Text } from "@/components/atoms/Text";
-import { Page } from "@/components/Page";
-import { PageHeader } from "@/components/PageHeader";
+import { Icon } from "@/shared/components/atoms/Icon";
+import { Text } from "@/shared/components/atoms/Text";
+import { Page } from "@/shared/components/Page";
+import { PageHeader } from "@/shared/components/PageHeader";
+
 import { type ReactNode } from "react";
+
+import { settingsNavItem } from "./nav";
 
 export interface SettingsPageProps {
   href: string;
@@ -24,7 +27,7 @@ export function SettingsPage({ href, children }: SettingsPageProps) {
               as="h2"
               className="flex flex-row items-center gap-2 whitespace-nowrap"
             >
-              {item.icon}
+              <Icon type={item.icon} className="size-4" />
               {item.label}
             </Text>
           }

@@ -1,11 +1,6 @@
 "use client";
 
-import { EmptyHint, ErrorBanner } from "./shared";
-import { Text } from "@/components/atoms/Text";
 import { Input } from "@/components/Input";
-import { Button } from "@/components/molecules/Button";
-import { Card } from "@/components/molecules/Card";
-import { Appearance, Intent } from "@/components/types";
 import {
   api,
   type LinkedSubscriptionAccount,
@@ -15,8 +10,16 @@ import {
   type SubscriptionSeat,
   type SubscriptionOwnersResponse,
 } from "@/lib/api";
+import { Text } from "@/shared/components/atoms/Text";
+import { Button } from "@/shared/components/molecules/Button";
+import { Card } from "@/shared/components/molecules/Card";
+import { Appearance, Intent } from "@/shared/components/types";
+
 import { ExternalLink } from "lucide-react";
+
 import { useEffect, useState } from "react";
+
+import { EmptyHint, ErrorBanner } from "./shared";
 
 const PROVIDER_LABEL: Record<SubscriptionLoginProvider, string> = {
   claude: "Claude",
@@ -184,7 +187,7 @@ export function SubscriptionLoginPanel({ onLinked }: { onLinked?: () => void }) 
           {(Object.keys(PROVIDER_LABEL) as SubscriptionLoginProvider[]).map(provider => (
             <Button
               key={provider}
-              appearance={Appearance.Filled}
+              appearance={Appearance.Tinted}
               intent={Intent.Primary}
               size="sm"
               disabled={busy || subscriberID === ""}
@@ -222,7 +225,7 @@ export function SubscriptionLoginPanel({ onLinked }: { onLinked?: () => void }) 
                 onChange={event => setAuthCode(event.target.value)}
               />
               <Button
-                appearance={Appearance.Filled}
+                appearance={Appearance.Tinted}
                 intent={Intent.Primary}
                 size="sm"
                 disabled={busy || authCode.trim() === ""}
@@ -233,7 +236,7 @@ export function SubscriptionLoginPanel({ onLinked }: { onLinked?: () => void }) 
             </div>
           )}
           <Button
-            appearance={Appearance.Outlined}
+            appearance={Appearance.Hollow}
             size="sm"
             className="self-start"
             onClick={() => setLogin(null)}
@@ -295,7 +298,7 @@ export function SubscriptionSeatsPanel({ refreshKey }: { refreshKey: number }) {
             </Text>
           </div>
           <Button
-            appearance={Appearance.Outlined}
+            appearance={Appearance.Hollow}
             intent={Intent.Danger}
             size="sm"
             disabled={unlinking != null}
