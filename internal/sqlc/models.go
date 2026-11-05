@@ -1050,6 +1050,7 @@ type RouterSessionPin struct {
 	TurnStrikes               []string
 	ForcedThreadKey           string
 	TokenizerCalibration      []byte
+	ModelFailureAt            []byte
 }
 
 type RouterSessionPinRecoveryProbeLease struct {

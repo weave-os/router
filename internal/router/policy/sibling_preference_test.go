@@ -113,3 +113,15 @@ func TestSiblingPreferenceAppliesWithoutUserText(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
 	assert.Equal(t, []string{"claude-sonnet-5", catalog.ModelIDClaudeOpus48.String()}, decision.Metadata.RescueModels)
 }
+
+func TestSiblingPreferenceInitializesEffectiveOrderTrace(t *testing.T) {
+	adapter := newSelectorAdapter(classifierOnlyResult())
+	adapter.WithArmSelector(func(context.Context, policy.SelectionInput) (policy.SelectionPick, error) {
+		return policy.SelectionPick{Group: string(escalation.High), Arm: "anthropic/claude-opus-4-8", RankedFallback: classifierFallback(string(escalation.High)), Trace: policy.SelectionTrace{SelectedArm: "anthropic/claude-opus-4-8"}}, nil
+	})
+	decision, err := adapter.Route(context.Background(), router.Request{SiblingPreferences: map[escalation.Group]router.SiblingPreference{
+		escalation.High: {Model: "claude-sonnet-5"},
+	}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"anthropic/claude-sonnet-5", "anthropic/claude-opus-4-8"}, decision.Metadata.SelectionTrace.EffectiveOrders[string(escalation.High)])
+}

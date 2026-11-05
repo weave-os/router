@@ -62,8 +62,8 @@ func (r *SessionPinRepo) RecordSiblingPreference(ctx context.Context, installati
 	return rows > 0, err
 }
 
-func (r *SessionPinRepo) ClearSiblingWinnerExclusions(ctx context.Context, key [sessionpin.SessionKeyLen]byte, strategy router.Strategy, roles []string, preferred string) error {
-	return dbbudget.Queries(r.tx).ClearSiblingWinnerExclusions(ctx, sqlc.ClearSiblingWinnerExclusionsParams{SessionKey: key[:], Roles: roles, ExpectedRoutingStrategy: string(strategy), PreferredModel: preferred})
+func (r *SessionPinRepo) ClearSiblingWinnerExclusions(ctx context.Context, key [sessionpin.SessionKeyLen]byte, strategy router.Strategy, roles []string, preferred string, startedAt time.Time) error {
+	return dbbudget.Queries(r.tx).ClearSiblingWinnerExclusions(ctx, sqlc.ClearSiblingWinnerExclusionsParams{SessionKey: key[:], Roles: roles, ExpectedRoutingStrategy: string(strategy), PreferredModel: preferred, RequestStartedAt: pgtype.Timestamptz{Time: startedAt.UTC(), Valid: true}})
 }
 
 func (r *SessionPinRepo) Get(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {

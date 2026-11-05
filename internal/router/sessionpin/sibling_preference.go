@@ -14,5 +14,5 @@ import (
 type SiblingPreferenceStore interface {
 	GetSiblingPreferences(context.Context, uuid.UUID, [SessionKeyLen]byte, router.Strategy) (map[escalation.Group]router.SiblingPreference, error)
 	RecordSiblingPreference(context.Context, uuid.UUID, [SessionKeyLen]byte, router.Strategy, escalation.Group, string, []string, time.Time) (bool, error)
-	ClearSiblingWinnerExclusions(context.Context, [SessionKeyLen]byte, router.Strategy, []string, string) error
+	ClearSiblingWinnerExclusions(context.Context, [SessionKeyLen]byte, router.Strategy, []string, string, time.Time) error
 }

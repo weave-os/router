@@ -21,15 +21,19 @@ import (
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/translate"
 )
 
 type siblingPreferenceRecordingStore struct {
 	stubPinStore
 	preferences map[[sessionpin.SessionKeyLen]byte]map[escalation.Group]router.SiblingPreference
 	readErr     error
+	reads       int
 }
 
 func (s *siblingPreferenceRecordingStore) GetSiblingPreferences(_ context.Context, _ uuid.UUID, key [sessionpin.SessionKeyLen]byte, _ router.Strategy) (map[escalation.Group]router.SiblingPreference, error) {
+	s.reads++
 	return s.preferences[key], s.readErr
 }
 
@@ -53,7 +57,7 @@ func (s *siblingPreferenceRecordingStore) RecordSiblingPreference(_ context.Cont
 	return true, nil
 }
 
-func (*siblingPreferenceRecordingStore) ClearSiblingWinnerExclusions(context.Context, [sessionpin.SessionKeyLen]byte, router.Strategy, []string, string) error {
+func (*siblingPreferenceRecordingStore) ClearSiblingWinnerExclusions(context.Context, [sessionpin.SessionKeyLen]byte, router.Strategy, []string, string, time.Time) error {
 	return nil
 }
 
@@ -218,4 +222,62 @@ func TestSiblingPreferenceStoreFailureStopsAutomaticRouting(t *testing.T) {
 	require.ErrorContains(t, err, "load session sibling preferences")
 	assert.Zero(t, primary.calls)
 	assert.Zero(t, sibling.calls)
+}
+
+func TestSiblingPreferencesDoNotBlockExplicitModels(t *testing.T) {
+	for _, saved := range []bool{false, true} {
+		store := &siblingSequenceStore{pins: make(map[string]sessionpin.Pin)}
+		store.readErr = errors.New("synthetic preference outage")
+		svc := newRescuedFailureTurnService(store, rescuableDecision("cluster:v0.2", true), &failingClient{}, &servingClient{}, false)
+		env, features := demotionTurnLoopEnv(t)
+		req := router.Request{RequestedModel: features.Model, EstimatedInputTokens: features.Tokens}
+		if saved {
+			store.pins[forceModelSessionRole] = sessionpin.Pin{Provider: providers.ProviderOpenAI, Model: rescuerModel, Reason: translate.ReasonUserForceModel, PinnedUntil: time.Now().Add(time.Hour)}
+		} else {
+			req.ForceModel = rescuerModel
+		}
+		res, err := svc.runTurnLoop(context.Background(), env, features, "synthetic-key", uuid.New(), "", http.Header{}, req)
+		require.NoError(t, err)
+		assert.Equal(t, rescuerModel, res.Decision.Model)
+		assert.Zero(t, store.reads, "explicit model selection cannot depend on automatic sibling state")
+	}
+}
+
+func TestUtilityTurnsDoNotConsultSiblingPreferences(t *testing.T) {
+	for _, test := range []struct {
+		turn turntype.TurnType
+		body string
+	}{
+		{turntype.Probe, `{"model":"claude-opus-4-8","max_tokens":1,"messages":[{"role":"user","content":"probe"}]}`},
+		{turntype.Compaction, `{"model":"claude-opus-4-8","system":"Your task is to create a detailed summary","messages":[{"role":"user","content":"summarize"}]}`},
+		{turntype.TitleGen, `{"model":"claude-opus-4-8","output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}}},"messages":[{"role":"user","content":"title"}]}`},
+		{turntype.Classifier, `{"model":"claude-opus-4-8","max_tokens":64,"messages":[{"role":"user","content":"classify"}]}`},
+		{turntype.Recap, `{"model":"claude-opus-4-8","messages":[{"role":"user","content":"The user stepped away and is coming back. Recap in under 30 words."}]}`},
+	} {
+		t.Run(string(test.turn), func(t *testing.T) {
+			store := &siblingPreferenceRecordingStore{readErr: errors.New("synthetic preference outage")}
+			svc := newRescuedFailureTurnService(store, rescuableDecision("cluster:v0.2", true), &failingClient{}, &servingClient{}, false)
+			env, err := translate.ParseAnthropic([]byte(test.body))
+			require.NoError(t, err)
+			features := env.RoutingFeatures(false)
+			res, err := svc.runTurnLoop(context.Background(), env, features, "synthetic-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: features.Model, EstimatedInputTokens: features.Tokens})
+			require.NoError(t, err)
+			assert.Equal(t, test.turn, res.TurnType)
+			assert.Zero(t, store.reads)
+			assert.Zero(t, res.SiblingPreferenceKey)
+		})
+	}
+}
+
+func TestPolicyPinDoesNotConsultSiblingPreferences(t *testing.T) {
+	store := &siblingPreferenceRecordingStore{readErr: errors.New("synthetic preference outage")}
+	decision := rescuableDecision("hmm_policy", true)
+	decision.Metadata.PolicyPinHonoured = true
+	svc := newRescuedFailureTurnService(store, decision, &failingClient{}, &servingClient{}, false)
+	env, features := demotionTurnLoopEnv(t)
+	res, err := svc.runTurnLoop(pinnedContext(true), env, features, "synthetic-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: features.Model, EstimatedInputTokens: features.Tokens})
+	require.NoError(t, err)
+	assert.Equal(t, decision.Model, res.Decision.Model)
+	assert.Zero(t, store.reads)
+	assert.Zero(t, res.SiblingPreferenceKey)
 }

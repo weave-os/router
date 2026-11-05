@@ -391,6 +391,9 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	}
 	requestRouteID := uuid.NewString()
 	pin, pinned := router.HonouredPolicyPin(ctx)
+	if pinned {
+		req.SiblingPreferences = nil
+	}
 	if pinned && r.armSelector == nil {
 		return router.Decision{}, fmt.Errorf("%s: roster pin requires router-owned arm selection: %w", strategy, router.ErrPolicyPinUnavailable)
 	}
@@ -581,8 +584,11 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	if selectionTrace.SelectedArm != "" {
 		if len(req.SiblingPreferences) > 0 {
 			selectionTrace.EffectiveOrders = maps.Clone(selectionTrace.EffectiveOrders)
+			if selectionTrace.EffectiveOrders == nil {
+				selectionTrace.EffectiveOrders = make(map[string][]string)
+			}
 			for _, group := range res.RankedFallback {
-				if _, remembered := req.SiblingPreferences[escalation.Group(group.Group)]; remembered && selectionTrace.EffectiveOrders != nil {
+				if _, remembered := req.SiblingPreferences[escalation.Group(group.Group)]; remembered {
 					selectionTrace.EffectiveOrders[group.Group] = slices.Clone(group.EligibleArms)
 				}
 			}

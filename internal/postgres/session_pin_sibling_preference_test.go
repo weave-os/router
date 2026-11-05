@@ -36,20 +36,20 @@ func TestSessionSiblingPreferencePostgresMergeAndIsolation(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, written)
 	var wg sync.WaitGroup
-	errors := make(chan error, 3)
+	recordErrs := make(chan error, 3)
 	for _, displaced := range []string{catalog.ModelIDClaudeOpus47.String(), catalog.ModelIDClaudeSonnet46.String()} {
 		wg.Go(func() {
 			_, err := store.RecordSiblingPreference(ctx, installation, key, router.StrategyHMM, escalation.High, sibling, []string{displaced}, startedAt)
-			errors <- err
+			recordErrs <- err
 		})
 	}
 	wg.Go(func() {
 		_, err := store.RecordSiblingPreference(ctx, installation, key, router.StrategyHMM, escalation.Medium, primary, []string{sibling}, startedAt)
-		errors <- err
+		recordErrs <- err
 	})
 	wg.Wait()
-	close(errors)
-	for err := range errors {
+	close(recordErrs)
+	for err := range recordErrs {
 		require.NoError(t, err)
 	}
 	store = postgres.NewSessionPinRepo(pool)
@@ -86,7 +86,13 @@ func TestSessionSiblingPreferencePostgresMergeAndIsolation(t *testing.T) {
 	require.NoError(t, store.ExpireAndDemoteModel(ctx, pin, primary, sessionpin.DemotionReasonRescuedFailure))
 	require.NoError(t, store.ExpireAndCoolDownModel(ctx, pin, primary, time.Now().Add(time.Hour), sessionpin.DemotionReasonRateLimited))
 	require.NoError(t, store.StrikeTurnModel(ctx, key, pin.Role, primary))
-	require.NoError(t, store.ClearSiblingWinnerExclusions(ctx, key, pin.Strategy, []string{pin.Role}, primary))
+	require.NoError(t, store.ClearSiblingWinnerExclusions(ctx, key, pin.Strategy, []string{pin.Role}, primary, startedAt.Add(-time.Minute)))
+	newerFailure, _, err := store.Get(ctx, key, pin.Role)
+	require.NoError(t, err)
+	assert.Contains(t, newerFailure.DemotedModels, primary, "an older success cannot remove a later demotion")
+	assert.Contains(t, newerFailure.DemotionCooldowns, primary, "an older success cannot remove a later cooldown")
+	assert.Contains(t, newerFailure.TurnStrikes, primary, "an older success cannot remove a later turn strike")
+	require.NoError(t, store.ClearSiblingWinnerExclusions(ctx, key, pin.Strategy, []string{pin.Role}, primary, time.Now().Add(time.Minute)))
 	cleared, found, err := store.Get(ctx, key, pin.Role)
 	require.NoError(t, err)
 	require.True(t, found)

@@ -54,7 +54,7 @@ func (s *Service) rememberSuccessfulSibling(ctx context.Context, turn turnLoopRe
 	if !written {
 		return
 	}
-	if err := store.ClearSiblingWinnerExclusions(context.Background(), turn.SessionKey, strategyForTurnLoopResult(turn), demotionRoles(stickyStateRole(turn), turn.PinRole), served.Model); err != nil {
+	if err := store.ClearSiblingWinnerExclusions(context.Background(), turn.SessionKey, strategyForTurnLoopResult(turn), demotionRoles(stickyStateRole(turn), turn.PinRole), served.Model, startedAt); err != nil {
 		log.Error("Session sibling winner exclusion clear failed", "err", err, "group", group, "model", served.Model)
 	}
 

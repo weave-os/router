@@ -933,15 +933,6 @@ func (s *Service) runTurnLoop(
 		}
 		return s.routeWithoutPin(ctx, req, res, reqHeaders, false, sessionpin.Pin{})
 	}
-	if store, supported := s.pinStore.(sessionpin.SiblingPreferenceStore); supported && installationID != uuid.Nil && threadSessionKey != ([sessionpin.SessionKeyLen]byte{}) {
-		res.SiblingPreferenceKey = deriveConversationSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey, requestcontext.SiblingPreferenceConversationKey)
-		var err error
-		req.SiblingPreferences, err = store.GetSiblingPreferences(ctx, installationID, res.SiblingPreferenceKey, res.Strategy)
-		if err != nil {
-			log.Error("Session sibling preferences unavailable", "err", err)
-			return res, fmt.Errorf("load session sibling preferences: %w", err)
-		}
-	}
 	// Resolve user-forced state before the policy's no-automatic-routing shortcut.
 	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey)
 	forceModelPin := sessionpin.Pin{}
@@ -1629,6 +1620,16 @@ func (s *Service) runTurnLoop(
 		// with the forced provider enabled resumes serving it.
 		pinFound = false
 		pin = sessionpin.Pin{}
+	}
+
+	if store, supported := s.pinStore.(sessionpin.SiblingPreferenceStore); supported && installationID != uuid.Nil && threadSessionKey != ([sessionpin.SessionKeyLen]byte{}) {
+		res.SiblingPreferenceKey = deriveConversationSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey, requestcontext.SiblingPreferenceConversationKey)
+		var err error
+		req.SiblingPreferences, err = store.GetSiblingPreferences(ctx, installationID, res.SiblingPreferenceKey, res.Strategy)
+		if err != nil {
+			log.Error("Session sibling preferences unavailable", "err", err)
+			return res, fmt.Errorf("load session sibling preferences: %w", err)
+		}
 	}
 
 	// A pin the router chose itself stops being reusable the moment Weave
