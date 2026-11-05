@@ -291,6 +291,9 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 		Decision: in.initialDecision,
 		Bindings: in.bindings,
 		Origin:   in.origin,
+		// Without caller or BYOK credentials the walk runs on the declared
+		// deployment keys, which only serve catalog bindings.
+		CatalogBindingsOnly: s.deploymentKeyedProviders != nil && s.shouldFailover(ctx),
 	})
 	if err != nil {
 		return -1, err
