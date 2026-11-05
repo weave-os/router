@@ -8149,6 +8149,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					nativeRespSummary = false
 				} else if nativeTerminal != nil {
 					nativeTerminal.Finalize()
+					if nativeTerminal.observed && classifyStreamFailure(err, "") == streamFailureClientCanceled {
+						// Codex hangs up as soon as response.completed lands; the turn was served.
+						err = nil
+					}
 					if rw, ok := w.(*translate.ResponsesWriter); ok {
 						err = finalizeAfterProxy(err, rw.Finalize)
 					}
