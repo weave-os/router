@@ -25,13 +25,13 @@ export function pivotSeries(points: readonly RouterMetricPoint[]): PivotedSeries
     groupTotals.set(key, (groupTotals.get(key) ?? 0) + value);
   }
   const keys = [...groupTotals.entries()].sort((a, b) => b[1] - a[1]).map(([key]) => key);
-  const times = [...byTime.keys()].sort((a, b) => a - b);
-  const rows = times.map(time => {
-    const bucket = byTime.get(time);
-    const row: PivotRow = { [TIME_KEY]: time } as PivotRow;
-    for (const key of keys) row[key] = bucket?.get(key) ?? 0;
-    return row;
-  });
+  const rows = [...byTime]
+    .sort(([a], [b]) => a - b)
+    .map(([time, bucket]) => {
+      const row = { [TIME_KEY]: time } as PivotRow;
+      for (const key of keys) row[key] = bucket.get(key) ?? 0;
+      return row;
+    });
   const totals = rows.map(row => keys.reduce((sum, key) => sum + row[key], 0));
   return { keys, rows, totals };
 }
@@ -42,7 +42,7 @@ export function toShare({ keys, rows, totals }: PivotedSeries): PivotedSeries {
     keys,
     rows: rows.map((row, index) => {
       const total = totals[index];
-      const shared: PivotRow = { [TIME_KEY]: row[TIME_KEY] } as PivotRow;
+      const shared = { [TIME_KEY]: row[TIME_KEY] } as PivotRow;
       for (const key of keys) shared[key] = total > 0 ? (row[key] / total) * 100 : 0;
       return shared;
     }),

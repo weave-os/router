@@ -1,8 +1,4 @@
-import type {
-  RouterDrillDownModelPair,
-  RouterDrillDownPerson,
-  RouterDrillDownSession,
-} from "../../data/drillDown";
+import type { RouterDrillDownModelPair, RouterDrillDownPerson } from "../../data/drillDown";
 
 /** One table row: a person, one of their sessions, or one model pair within a session. */
 export interface RouterDrillDownTotals {
@@ -15,7 +11,7 @@ export interface RouterDrillDownTotals {
   subscriptionRequests: number;
 }
 
-function unique(values: Iterable<string>): string[] {
+function unique(values: Iterable<string>) {
   return [...new Set(values)].filter(value => value !== "").sort();
 }
 
@@ -31,12 +27,8 @@ export function totalPairs(pairs: readonly RouterDrillDownModelPair[]): RouterDr
   };
 }
 
-export function sessionPairs(sessions: readonly RouterDrillDownSession[]) {
-  return sessions.flatMap(session => session.models);
-}
-
 export function personTotals(person: RouterDrillDownPerson): RouterDrillDownTotals {
-  return totalPairs(sessionPairs(person.sessions));
+  return totalPairs(person.sessions.flatMap(session => session.models));
 }
 
 /** Hosted's "Usage type" cell: API, Subscription, or the split when a row mixes both. */

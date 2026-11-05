@@ -1,5 +1,7 @@
 "use client";
 
+import { addDays, addMonths, addWeeks, startOfDay, startOfMonth, startOfWeek } from "date-fns";
+
 import { useCallback, useMemo, useState } from "react";
 
 export type Granularity = "hour" | "day" | "week";
@@ -12,46 +14,13 @@ export interface DateRange {
   pillLabel?: (start: Date) => string;
   /** Default granularity if the user hasn't picked one explicitly. */
   defaultGranularity: Granularity;
-  /** Computes the range start from the current `now`. */
   start: (now: Date) => Date;
-}
-
-/** Start of the ISO week (Monday) containing `d`, at 00:00 local. */
-function startOfWeek(d: Date): Date {
-  const out = new Date(d);
-  out.setHours(0, 0, 0, 0);
-  // getDay: 0=Sun ... 6=Sat. Shift so Mon=0.
-  const day = (out.getDay() + 6) % 7;
-  out.setDate(out.getDate() - day);
-  return out;
-}
-
-/** Start of the month containing `d`, at 00:00 local. */
-function startOfMonth(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
-}
-
-function addDays(d: Date, n: number): Date {
-  const out = new Date(d);
-  out.setHours(0, 0, 0, 0);
-  out.setDate(out.getDate() + n);
-  return out;
 }
 
 const MONTH_DAY = new Intl.DateTimeFormat("en-US", { day: "numeric", month: "long" });
 
 /** Days the hosted Router dashboard looks back by default, today included. */
 const ROUTER_DASHBOARD_LOOKBACK_DAYS = 14;
-
-function addWeeks(d: Date, n: number): Date {
-  const out = new Date(d);
-  out.setDate(out.getDate() + n * 7);
-  return out;
-}
-
-function addMonths(d: Date, n: number): Date {
-  return new Date(d.getFullYear(), d.getMonth() + n, d.getDate(), 0, 0, 0, 0);
-}
 
 /**
  * Mirrors WorkWeave's default date filter set (week- and month-anchored
@@ -64,31 +33,31 @@ export const DATE_RANGES: readonly DateRange[] = [
     label: "Last 14 days",
     pillLabel: start => `since ${MONTH_DAY.format(start)}`,
     defaultGranularity: "day",
-    start: now => addDays(now, -(ROUTER_DASHBOARD_LOOKBACK_DAYS - 1)),
+    start: now => startOfDay(addDays(now, -(ROUTER_DASHBOARD_LOOKBACK_DAYS - 1))),
   },
   {
     id: "this-week",
     label: "This week",
     defaultGranularity: "day",
-    start: now => startOfWeek(now),
+    start: now => startOfWeek(now, { weekStartsOn: 1 }),
   },
   {
     id: "last-month",
     label: "Last month",
     defaultGranularity: "day",
-    start: now => addWeeks(startOfWeek(now), -4),
+    start: now => addWeeks(startOfWeek(now, { weekStartsOn: 1 }), -4),
   },
   {
     id: "last-2-months",
     label: "Last 2 months",
     defaultGranularity: "day",
-    start: now => addWeeks(startOfWeek(now), -8),
+    start: now => addWeeks(startOfWeek(now, { weekStartsOn: 1 }), -8),
   },
   {
     id: "last-3-months",
     label: "Last 3 months",
     defaultGranularity: "day",
-    start: now => addWeeks(startOfWeek(now), -12),
+    start: now => addWeeks(startOfWeek(now, { weekStartsOn: 1 }), -12),
   },
   {
     id: "last-5-months",
@@ -110,7 +79,6 @@ export interface UseDashboardFiltersResult {
   filters: {
     range: DateRange;
     granularity: Granularity;
-    /** ISO timestamp of the range start. */
     fromISO: string;
     /** ISO timestamp of the range end (now). */
     toISO: string;
@@ -129,16 +97,10 @@ export interface UseDashboardFiltersResult {
 export function useDashboardFilters(
   initialRangeId: string = DEFAULT_RANGE_ID,
 ): UseDashboardFiltersResult {
-  const [rangeId, setRangeIdState] = useState<string>(initialRangeId);
+  const [rangeId, setRangeIdState] = useState(initialRangeId);
   const [granularityOverride, setGranularityOverride] = useState<Granularity | null>(null);
 
-  const range = useMemo(
-    () =>
-      DATE_RANGES.find(r => r.id === rangeId) ??
-      DATE_RANGES.find(r => r.id === DEFAULT_RANGE_ID) ??
-      DATE_RANGES[0],
-    [rangeId],
-  );
+  const range = useMemo(() => DATE_RANGES.find(r => r.id === rangeId) ?? DATE_RANGES[0], [rangeId]);
   const granularity = granularityOverride ?? range.defaultGranularity;
 
   const setRangeId = useCallback((id: string) => {

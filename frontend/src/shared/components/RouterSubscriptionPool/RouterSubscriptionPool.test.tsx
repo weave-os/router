@@ -55,13 +55,13 @@ function dataSource(): RouterDashboardDataSource {
   };
 }
 
-function at(offsetHours: number) {
+function isoAtHoursFromNow(offsetHours: number) {
   return new Date(NOW + offsetHours * HOUR_MS).toISOString();
 }
 
 function limitWindow(windowMinutes: number, usedFraction: number, resetsInHours: number) {
   return {
-    resetsAt: at(resetsInHours),
+    resetsAt: isoAtHoursFromNow(resetsInHours),
     usedFraction: usedFraction,
     windowMinutes: windowMinutes,
   };
@@ -72,7 +72,7 @@ function seat(overrides: Partial<PoolSeat> & Pick<PoolSeat, "id" | "displayName"
     cooldownUntil: null,
     enabled: true,
     limitWindows: [],
-    limitsObservedAt: at(-1),
+    limitsObservedAt: isoAtHoursFromNow(-1),
     ownerName: "Ada Lovelace",
     provider: RouterSubscriptionProvider.Claude,
     servedRequests: 0,

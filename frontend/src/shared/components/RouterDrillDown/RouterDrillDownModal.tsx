@@ -62,14 +62,18 @@ export function RouterDrillDownModal({
   onClose,
   request,
 }: RouterDrillDownModalComponentProps) {
-  const [result, setResult] = useState<LoadState<RouterDrillDownResult>>(LoadState.loading);
+  const [drillDownState, setDrillDownState] = useState<LoadState<RouterDrillDownResult>>(
+    LoadState.loading,
+  );
   useEffect(() => {
     let isCurrent = true;
     load(request).then(
-      value => isCurrent && setResult(LoadState.loaded(value)),
+      value => isCurrent && setDrillDownState(LoadState.loaded(value)),
       (error: unknown) =>
         isCurrent &&
-        setResult(LoadState.error(error instanceof Error ? error : new Error(String(error)))),
+        setDrillDownState(
+          LoadState.error(error instanceof Error ? error : new Error(String(error))),
+        ),
     );
     return () => {
       isCurrent = false;
@@ -88,7 +92,7 @@ export function RouterDrillDownModal({
         </Modal.Title>
         <div className="min-h-0 flex-1 overflow-auto">
           <LoadStateWrapper
-            state={result}
+            state={drillDownState}
             loadingDelayMs={0}
             loading={<Skeleton className="m-4 h-64" />}
             error={error => (

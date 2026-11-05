@@ -1,4 +1,4 @@
-import { format, subDays } from "date-fns";
+import { format, isSameMonth, subDays } from "date-fns";
 
 import { type ReactNode, useCallback } from "react";
 
@@ -17,9 +17,7 @@ function partialBucketLabel(bucketStart: number, granularity: TimeGranularity, r
   const overlapEnd = subDays(Math.min(bucketEnd, to), 1);
   const start = format(overlapStart, DateFormat.MonthDayShort);
   if (overlapEnd <= overlapStart) return `This is a partial bucket for ${start}`;
-  const sameMonth =
-    overlapStart.getFullYear() === overlapEnd.getFullYear() &&
-    overlapStart.getMonth() === overlapEnd.getMonth();
+  const sameMonth = isSameMonth(overlapStart, overlapEnd);
   const end = format(overlapEnd, sameMonth ? "d" : DateFormat.MonthDayShort);
   return `This is a partial bucket for ${start}–${end}`;
 }
