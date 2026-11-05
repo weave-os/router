@@ -2,10 +2,14 @@ package proxy_test
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
+	"syscall"
 	"testing"
 
 	"weave-os/router/internal/billing"
@@ -167,6 +171,88 @@ func TestAbandonBillingNegativeCases(t *testing.T) {
 
 			_ = svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(),
 				httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body)))
+
+			assert.Len(t, repo.recordedDebits(), tt.wantDebits)
+		})
+	}
+}
+
+func TestAbandonBillingWithCanceledRequestErrors(t *testing.T) {
+	const messagesBody = `{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hi"}]}`
+	const chatBody = `{"model":"auto","stream":true,"messages":[{"role":"user","content":"hi"}]}`
+
+	brokenPipe := &net.OpError{
+		Op:  "write",
+		Net: "tcp",
+		Err: os.NewSyscallError("write", syscall.EPIPE),
+	}
+	tests := []struct {
+		name        string
+		call        abandonedBillingProxyCall
+		path        string
+		body        string
+		proxyErr    error
+		cancelCause error
+		wantDebits  int
+	}{
+		{
+			name:       "Messages downstream broken pipe",
+			call:       (*proxy.Service).ProxyMessages,
+			path:       "/v1/messages",
+			body:       messagesBody,
+			proxyErr:   brokenPipe,
+			wantDebits: 1,
+		},
+		{
+			name:       "OpenAI chat downstream broken pipe",
+			call:       (*proxy.Service).ProxyOpenAIChatCompletion,
+			path:       "/v1/chat/completions",
+			body:       chatBody,
+			proxyErr:   brokenPipe,
+			wantDebits: 1,
+		},
+		{
+			name:        "idle watchdog cancellation cause",
+			call:        (*proxy.Service).ProxyMessages,
+			path:        "/v1/messages",
+			body:        messagesBody,
+			proxyErr:    context.Canceled,
+			cancelCause: providers.ErrUpstreamIdleTimeout,
+		},
+		{
+			name:     "output stall watchdog error",
+			call:     (*proxy.Service).ProxyMessages,
+			path:     "/v1/messages",
+			body:     messagesBody,
+			proxyErr: fmt.Errorf("stream: %w", providers.ErrUpstreamOutputStall),
+		},
+		{
+			name:     "real upstream 500",
+			call:     (*proxy.Service).ProxyMessages,
+			path:     "/v1/messages",
+			body:     messagesBody,
+			proxyErr: &providers.UpstreamStatusError{Status: http.StatusInternalServerError},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-test")
+			repo := &capturingBillingRepo{}
+			upstream := &fakeProvider{
+				proxyErr: tt.proxyErr,
+				proxyResponse: func(w http.ResponseWriter) {
+					writeAbandonedBillingAnthropicStream(w)
+					cancel(tt.cancelCause)
+				},
+			}
+			svc := abandonedBillingService(providers.ProviderAnthropic, abandonedBillingAnthropicModel, upstream, repo)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, tt.path, strings.NewReader(tt.body))
+
+			_ = tt.call(svc, ctx, []byte(tt.body), rec, req)
 
 			assert.Len(t, repo.recordedDebits(), tt.wantDebits)
 		})
