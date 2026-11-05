@@ -2,7 +2,13 @@
 
 import { useMemo } from "react";
 
-import { type DateRange, type RouterMetricPoint, RouterMetricType } from "../../data";
+import {
+  type DateRange,
+  RouterMetricGroup,
+  type RouterMetricPoint,
+  RouterMetricType,
+  useRouterDrillDown,
+} from "../../data";
 import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
 import { AccountChartColor, ChartColor } from "../../tools/chartColors";
 import { formatBigDecimal } from "../../tools/format";
@@ -129,6 +135,12 @@ export function RouterRequestsPerActiveUserChart({
       }),
     [rows],
   );
+  const { drillDownModal, openDrillDown } = useRouterDrillDown({
+    granularity,
+    group: RouterMetricGroup.UserLink,
+    range,
+    type: RouterMetricType.ActiveUsers,
+  });
 
   return (
     <ChartCard
@@ -171,7 +183,11 @@ export function RouterRequestsPerActiveUserChart({
         )}
         mutedBarColor={AccountChartColor.Gray}
         referenceLines={referenceLines}
+        onClickDataPoint={
+          openDrillDown == null ? undefined : time => openDrillDown({ bucketStart: time })
+        }
       />
+      {drillDownModal}
     </ChartCard>
   );
 }

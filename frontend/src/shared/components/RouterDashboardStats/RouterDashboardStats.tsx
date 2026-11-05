@@ -2,7 +2,13 @@
 
 import { formatDistanceToNowStrict } from "date-fns";
 
-import { RouterRoutingState, type DateRange } from "../../data";
+import {
+  type DateRange,
+  RouterMetricGroup,
+  RouterMetricType,
+  RouterRoutingState,
+  useRouterDrillDown,
+} from "../../data";
 import { useRouterReportSummary } from "../../data/useRouterMetricSeries";
 import { cn } from "../../tools/cn";
 import { formatBigDecimal, formatRouterModelName, formatUSD } from "../../tools/format";
@@ -72,6 +78,12 @@ export interface RouterDashboardStatsProps {
 }
 
 /** The stat cards above each overview tab: totals for the selected range. */
+const SESSION_DRILL_DOWN = {
+  granularity: null,
+  group: RouterMetricGroup.CostType,
+  type: RouterMetricType.Cost,
+};
+
 export function RouterDashboardStats({
   cards,
   className,
@@ -84,101 +96,119 @@ export function RouterDashboardStats({
     routed => routed.totalCostUSD,
   );
   const visible = CARD_ORDER.filter(card => cards.has(card));
+  const sessionsDrillDown = useRouterDrillDown({ ...SESSION_DRILL_DOWN, range });
+  const routedDrillDown = useRouterDrillDown({
+    ...SESSION_DRILL_DOWN,
+    range,
+    routingState: RouterRoutingState.Routed,
+  });
+  const openSessions = sessionsDrillDown.openDrillDown;
+  const openRoutedSessions = routedDrillDown.openDrillDown;
 
   return (
-    <div
-      aria-live="polite"
-      className={cn(
-        "grid grid-cols-1 gap-2.5 @xl:grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]",
-        className,
-      )}
-    >
-      <LoadStateWrapper
-        state={summaryState}
-        loading={visible.map(card => (
-          <StatCard
-            key={card}
-            label={CARD_LABEL[card]}
-            loading
-            size={isDisplaySize(card) ? TypographyRole.Display : TypographyRole.PageTitle}
-            value="—"
-          />
-        ))}
-        error={() => (
-          <ErrorCard
-            className="col-span-full"
-            title="Could not load router totals"
-            description="Refresh to try again."
-          />
+    <>
+      <div
+        aria-live="polite"
+        className={cn(
+          "grid grid-cols-1 gap-2.5 @xl:grid-cols-[repeat(auto-fit,minmax(12rem,1fr))]",
+          className,
         )}
       >
-        {summary => {
-          const savingsRate =
-            summary.comparisonCostUSD > 0 ? summary.savingsUSD / summary.comparisonCostUSD : null;
-          const routed = LoadState.unwrap(routedSpend);
-          const comparisonModel = formatRouterModelName(summary.comparisonModel);
-          const avgTokens =
-            summary.requestCount > 0 ? summary.totalTokens / summary.requestCount : null;
-          return (
-            <>
-              {cards.has(RouterSummaryCard.TotalSpend) && (
-                <StatCard
-                  label="Total spend"
-                  sub="Estimated API cost; subscription requests $0"
-                  value={formatUSD(summary.totalCostUSD)}
-                />
-              )}
-              {cards.has(RouterSummaryCard.RouterSpend) && (
-                <StatCard
-                  label="Router spend"
-                  loading={routed == null}
-                  sub="Routed users only; passthrough users excluded"
-                  value={formatUSD(routed ?? 0)}
-                />
-              )}
-              {cards.has(RouterSummaryCard.Savings) && (
-                <StatCard
-                  accent={summary.savingsUSD < 0 ? "danger" : "success"}
-                  label={`Saved vs ${comparisonModel}`}
-                  methodologyHref={methodologyHref}
-                  sub={
-                    savingsRate == null
-                      ? undefined
-                      : `${(savingsRate * 100).toFixed(1)}% saved vs ${comparisonModel}`
-                  }
-                  tooltip={savingsExplanation(comparisonModel)}
-                  value={formatUSD(summary.savingsUSD)}
-                />
-              )}
-              {cards.has(RouterSummaryCard.Requests) && (
-                <StatCard
-                  label="Requests"
-                  note="Requests appear once they complete, usually within a minute"
-                  size={TypographyRole.Display}
-                  sub={
-                    summary.lastRequestAt == null
-                      ? undefined
-                      : `Latest request started ${formatDistanceToNowStrict(
-                          new Date(summary.lastRequestAt),
-                          { addSuffix: true },
-                        )}`
-                  }
-                  value={formatBigDecimal(summary.requestCount)}
-                />
-              )}
-              {cards.has(RouterSummaryCard.Tokens) && (
-                <StatCard
-                  label="Tokens"
-                  size={TypographyRole.Display}
-                  sub={avgTokens == null ? undefined : `${formatBigDecimal(avgTokens)} avg / req`}
-                  value={formatBigDecimal(summary.totalTokens)}
-                />
-              )}
-            </>
-          );
-        }}
-      </LoadStateWrapper>
-    </div>
+        <LoadStateWrapper
+          state={summaryState}
+          loading={visible.map(card => (
+            <StatCard
+              key={card}
+              label={CARD_LABEL[card]}
+              loading
+              onClick={card === RouterSummaryCard.RouterSpend ? openRoutedSessions : openSessions}
+              size={isDisplaySize(card) ? TypographyRole.Display : TypographyRole.PageTitle}
+              value="—"
+            />
+          ))}
+          error={() => (
+            <ErrorCard
+              className="col-span-full"
+              title="Could not load router totals"
+              description="Refresh to try again."
+            />
+          )}
+        >
+          {summary => {
+            const savingsRate =
+              summary.comparisonCostUSD > 0 ? summary.savingsUSD / summary.comparisonCostUSD : null;
+            const routed = LoadState.unwrap(routedSpend);
+            const comparisonModel = formatRouterModelName(summary.comparisonModel);
+            const avgTokens =
+              summary.requestCount > 0 ? summary.totalTokens / summary.requestCount : null;
+            return (
+              <>
+                {cards.has(RouterSummaryCard.TotalSpend) && (
+                  <StatCard
+                    label="Total spend"
+                    onClick={openSessions}
+                    sub="Estimated API cost; subscription requests $0"
+                    value={formatUSD(summary.totalCostUSD)}
+                  />
+                )}
+                {cards.has(RouterSummaryCard.RouterSpend) && (
+                  <StatCard
+                    label="Router spend"
+                    onClick={openRoutedSessions}
+                    loading={routed == null}
+                    sub="Routed users only; passthrough users excluded"
+                    value={formatUSD(routed ?? 0)}
+                  />
+                )}
+                {cards.has(RouterSummaryCard.Savings) && (
+                  <StatCard
+                    accent={summary.savingsUSD < 0 ? "danger" : "success"}
+                    label={`Saved vs ${comparisonModel}`}
+                    onClick={openSessions}
+                    methodologyHref={methodologyHref}
+                    sub={
+                      savingsRate == null
+                        ? undefined
+                        : `${(savingsRate * 100).toFixed(1)}% saved vs ${comparisonModel}`
+                    }
+                    tooltip={savingsExplanation(comparisonModel)}
+                    value={formatUSD(summary.savingsUSD)}
+                  />
+                )}
+                {cards.has(RouterSummaryCard.Requests) && (
+                  <StatCard
+                    label="Requests"
+                    onClick={openSessions}
+                    note="Requests appear once they complete, usually within a minute"
+                    size={TypographyRole.Display}
+                    sub={
+                      summary.lastRequestAt == null
+                        ? undefined
+                        : `Latest request started ${formatDistanceToNowStrict(
+                            new Date(summary.lastRequestAt),
+                            { addSuffix: true },
+                          )}`
+                    }
+                    value={formatBigDecimal(summary.requestCount)}
+                  />
+                )}
+                {cards.has(RouterSummaryCard.Tokens) && (
+                  <StatCard
+                    label="Tokens"
+                    onClick={openSessions}
+                    size={TypographyRole.Display}
+                    sub={avgTokens == null ? undefined : `${formatBigDecimal(avgTokens)} avg / req`}
+                    value={formatBigDecimal(summary.totalTokens)}
+                  />
+                )}
+              </>
+            );
+          }}
+        </LoadStateWrapper>
+      </div>
+      {sessionsDrillDown.drillDownModal}
+      {routedDrillDown.drillDownModal}
+    </>
   );
 }
 
@@ -188,6 +218,8 @@ interface StatCardProps {
   loading?: boolean;
   methodologyHref?: string;
   note?: string;
+  /** Opens the router sessions behind the card's total. */
+  onClick?: () => void;
   size?: TypographyRole.Display | TypographyRole.PageTitle;
   sub?: string;
   tooltip?: string;
@@ -200,6 +232,7 @@ function StatCard({
   loading = false,
   methodologyHref,
   note,
+  onClick,
   size = TypographyRole.PageTitle,
   sub,
   tooltip,
@@ -211,12 +244,17 @@ function StatCard({
       : accent === "danger"
         ? "text-wv-status-danger"
         : "text-wv-primary";
+  const Container = onClick == null ? "div" : "button";
+  // A card with a tooltip but no action still takes focus, so keyboard users can open the tooltip.
+  const focusableWithoutAction = onClick == null && tooltip != null;
   const card = (
-    <div
-      {...(tooltip == null ? {} : { tabIndex: 0 })}
+    <Container
+      {...(onClick == null ? {} : { onClick, type: "button" as const })}
+      {...(focusableWithoutAction ? { tabIndex: 0 } : {})}
       className={cn(
         "card-default surface-card flex flex-col rounded-lg p-4 text-left",
-        tooltip != null &&
+        onClick != null && "transition-colors hover:bg-wv-hover",
+        (onClick != null || focusableWithoutAction) &&
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wv-focus",
       )}
     >
@@ -255,7 +293,7 @@ function StatCard({
           </span>
         )}
       </span>
-    </div>
+    </Container>
   );
   const explainedCard =
     tooltip == null ? (

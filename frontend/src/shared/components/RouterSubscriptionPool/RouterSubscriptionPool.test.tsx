@@ -27,6 +27,7 @@ const poolQuery: { enabled: boolean; error?: Error; seats: PoolSeat[] } = {
 function dataSource(): RouterDashboardDataSource {
   const notSupported = unavailable(UnavailableReason.NotSupportedByHost, "n/a");
   return {
+    drillDown: notSupported,
     individuals: notSupported,
     metrics: {
       costTimeseries: vi.fn(),

@@ -1,12 +1,55 @@
 import { api } from "@/lib/api";
+import { RouterDrillDownModal } from "@/shared/components/RouterDrillDown";
 import {
+  drillDownRange,
   type RouterDashboardDataSource,
+  type RouterDrillDownRequest,
   RouterUserLink,
   unavailable,
   UnavailableReason,
 } from "@/shared/data";
 
+import { createElement } from "react";
+
+async function loadDrillDown(request: RouterDrillDownRequest) {
+  const { from, to } = drillDownRange(request);
+  const params = new URLSearchParams({ from, to });
+  if (request.group != null) params.set("group", request.group);
+  if (request.key != null) params.set("key", request.key);
+  if (request.models != null) params.set("models", request.models.join(","));
+  if (request.billing != null) params.set("billing", request.billing);
+  if (request.routingState != null) params.set("routing_state", request.routingState);
+  const { comparison_model, people } = await api.metrics.drillDown(params);
+  return {
+    comparisonModel: comparison_model,
+    people: people.map(person => ({
+      displayName: person.display_name,
+      email: person.email,
+      id: person.id,
+      linked: person.linked,
+      sessions: person.sessions.map(session => ({
+        clientApp: session.client_app,
+        finishedAt: Date.parse(session.finished_at),
+        models: session.models.map(pair => ({
+          catalogCostUsd: pair.catalog_cost_usd,
+          comparisonCostUsd: pair.comparison_cost_usd,
+          decisionModel: pair.decision_model,
+          providers: pair.providers ?? [],
+          requestedModel: pair.requested_model,
+          requests: pair.requests,
+          subscriptionRequests: pair.subscription_requests,
+        })),
+        sessionId: session.session_id,
+        startedAt: Date.parse(session.started_at),
+      })),
+    })),
+  };
+}
+
 export const selfHostedDataSource: RouterDashboardDataSource = {
+  drillDown: {
+    Modal: props => createElement(RouterDrillDownModal, { ...props, load: loadDrillDown }),
+  },
   individuals: unavailable(
     UnavailableReason.NotSupportedByHost,
     "Per-person usage is not available on self-hosted Router yet.",

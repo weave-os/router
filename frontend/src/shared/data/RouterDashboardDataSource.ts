@@ -1,4 +1,5 @@
 import type { Capability } from "./availability";
+import type { DrillDownDataSource } from "./drillDown";
 import type {
   RouterMetricSeries,
   RouterPerson,
@@ -126,4 +127,6 @@ export interface RouterDashboardDataSource {
   settings: SettingsDataSource;
   /** The Claude/Codex subscription-account pool; hosts without one hide the Subscriptions tab. */
   subscriptions: Capability<SubscriptionsDataSource>;
+  /** Explains a clicked chart point or stat card. */
+  drillDown: Capability<DrillDownDataSource>;
 }

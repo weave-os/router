@@ -7,6 +7,7 @@ import {
   RouterMetricGroup,
   type RouterMetricPoint,
   RouterMetricType,
+  useRouterDrillDown,
 } from "../../data";
 import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
 import { modelColorTokens } from "../../objects/RouterModelFamily";
@@ -167,6 +168,12 @@ export function RouterModelMixShareChart({
   );
   const firstTime = LoadState.unwrap(mix)?.rows[0]?.[TIME_KEY];
   const isEmpty = LoadState.isLoaded(mix) && mix.value.rows.length === 0;
+  const { drillDownModal, openDrillDown } = useRouterDrillDown({
+    granularity,
+    group: RouterMetricGroup.Model,
+    range,
+    type: RouterMetricType.ModelUsage,
+  });
 
   return (
     <ChartCard
@@ -238,8 +245,18 @@ export function RouterModelMixShareChart({
           legend={!hero || legendPortal != null}
           legendPortal={hero ? legendPortal : undefined}
           legendPortalClassName="-ml-2 flex flex-wrap items-center gap-x-1 text-caption"
+          onClickDataPoint={
+            openDrillDown == null
+              ? undefined
+              : (time, model) =>
+                  openDrillDown({
+                    bucketStart: time,
+                    key: model === OTHER_GROUP_ID ? undefined : model,
+                  })
+          }
         />
       )}
+      {drillDownModal}
     </ChartCard>
   );
 }
@@ -384,11 +401,24 @@ export function RouterModelSpendRanking({
     () =>
       LoadState.map(spend, ({ values }) => {
         const slices = modelSpendSlices(values);
-        return { slices, total: slices.reduce((sum, { amount }) => sum + amount, 0) };
+        return {
+          otherModels: modelTotals(values)
+            .filter(([, value]) => value > 0)
+            .slice(MAX_MODELS)
+            .map(([model]) => model),
+          slices,
+          total: slices.reduce((sum, { amount }) => sum + amount, 0),
+        };
       }),
     [spend],
   );
   const isEmpty = LoadState.isLoaded(breakdown) && breakdown.value.slices.length === 0;
+  const { drillDownModal, openDrillDown } = useRouterDrillDown({
+    granularity: null,
+    group: RouterMetricGroup.Model,
+    range,
+    type: RouterMetricType.ModelSpend,
+  });
 
   return (
     <ChartCard
@@ -417,18 +447,35 @@ export function RouterModelSpendRanking({
             />
           )}
         >
-          {({ slices, total }) =>
+          {({ otherModels, slices, total }) =>
             slices.length === 0 ? (
               <ErrorCard
                 title="No API spend yet"
                 description="Route requests through Weave Router to see catalog cost by model."
               />
             ) : (
-              <BreakdownBar formatAmount={formatUSD} slices={slices} total={total} />
+              <BreakdownBar
+                formatAmount={formatUSD}
+                sliceActions={
+                  openDrillDown == null
+                    ? undefined
+                    : {
+                        getActionLabel: ({ label }) => `View ${label} sessions`,
+                        isSliceInteractive: () => true,
+                        onSliceClick: model =>
+                          model === OTHER_GROUP_ID
+                            ? openDrillDown({ models: otherModels })
+                            : openDrillDown({ key: model }),
+                      }
+                }
+                slices={slices}
+                total={total}
+              />
             )
           }
         </LoadStateWrapper>
       </div>
+      {drillDownModal}
     </ChartCard>
   );
 }

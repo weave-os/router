@@ -105,6 +105,8 @@ export const api = {
       return request<RouterMetricSeries>(`/metrics/series?${params.toString()}`);
     },
     people: () => request<PeopleResponse>("/metrics/people"),
+    drillDown: (params: URLSearchParams) =>
+      request<DrillDownResponse>(`/metrics/drill-down?${params.toString()}`),
     reportSummary: (from: string, to: string, routingState?: RouterRoutingState) => {
       const params = new URLSearchParams({ from, to });
       if (routingState) params.set("routing_state", routingState);
@@ -217,6 +219,31 @@ export interface PeopleResponse {
     id: string;
     last_request_at: string | null;
     linked: boolean;
+  }[];
+}
+
+export interface DrillDownResponse {
+  comparison_model: string;
+  people: {
+    display_name: string;
+    email: string;
+    id: string;
+    linked: boolean;
+    sessions: {
+      client_app: string;
+      finished_at: string;
+      models: {
+        catalog_cost_usd: number;
+        comparison_cost_usd: number;
+        decision_model: string;
+        providers: string[] | null;
+        requested_model: string;
+        requests: number;
+        subscription_requests: number;
+      }[];
+      session_id: string;
+      started_at: string;
+    }[];
   }[];
 }
 

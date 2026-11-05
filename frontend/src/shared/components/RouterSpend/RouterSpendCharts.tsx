@@ -9,6 +9,7 @@ import {
   RouterMetricGroup,
   type RouterMetricPoint,
   RouterMetricType,
+  useRouterDrillDown,
 } from "../../data";
 import { useRouterMetricSeries, useRouterReportSummary } from "../../data/useRouterMetricSeries";
 import {
@@ -139,9 +140,11 @@ function TimeChart({
   annotations,
   highlightedIndependentValue,
   mutedBarColor,
+  onClickDataPoint,
   referenceLines,
   rows,
 }: {
+  onClickDataPoint?: (time: number) => void;
   /** Bars sit on one category per bucket instead of a padded time axis. */
   categorical?: boolean;
   highlightedIndependentValue?: number;
@@ -183,12 +186,37 @@ function TimeChart({
       mutedBarColor={mutedBarColor}
       referenceLines={referenceLines}
       legend={legend}
+      onClickDataPoint={onClickDataPoint}
     />
   );
 }
 
 const TREND_KEYS = [RouterCostType.Actual, RouterCostType.Comparison] as const;
 const BREAKDOWN_KEYS = [RouterCostType.Actual, SAVINGS_KEY, EXTRA_COST_KEY] as const;
+
+/** Hosted's cost drill-down: the sessions behind a clicked cost bucket. */
+function useRouterCostDrillDown({
+  cumulative,
+  granularity,
+  range,
+}: {
+  cumulative?: boolean;
+  granularity: Granularity;
+  range: DateRange;
+}) {
+  const { drillDownModal, openDrillDown } = useRouterDrillDown({
+    cumulative,
+    granularity,
+    group: RouterMetricGroup.CostType,
+    range,
+    type: RouterMetricType.Cost,
+  });
+  return {
+    drillDownModal,
+    onClickDataPoint:
+      openDrillDown == null ? undefined : (time: number) => openDrillDown({ bucketStart: time }),
+  };
+}
 
 /** Catalog cost against the comparison model: two lines, or bars split into cost and saving. */
 export function RouterCostBreakdownChart({
@@ -268,6 +296,8 @@ export function RouterCostBreakdownChart({
     );
   });
 
+  const { drillDownModal, onClickDataPoint } = useRouterCostDrillDown({ granularity, range });
+
   return (
     <ChartCard
       chartId="router_cost_breakdown"
@@ -295,6 +325,7 @@ export function RouterCostBreakdownChart({
       }
     >
       <TimeChart
+        onClickDataPoint={onClickDataPoint}
         categorical={view === RouterCostView.Breakdown}
         config={config}
         dependentKeys={view === RouterCostView.Trend ? TREND_KEYS : BREAKDOWN_KEYS}
@@ -303,6 +334,7 @@ export function RouterCostBreakdownChart({
         legend
         rows={rows}
       />
+      {drillDownModal}
     </ChartCard>
   );
 }
@@ -325,6 +357,12 @@ export function RouterCumulativeSavingsChart({ className, granularity, range }: 
     [current],
   );
 
+  const { drillDownModal, onClickDataPoint } = useRouterCostDrillDown({
+    granularity,
+    range,
+    cumulative: true,
+  });
+
   return (
     <ChartCard
       chartId="router_cumulative_savings"
@@ -334,6 +372,7 @@ export function RouterCumulativeSavingsChart({ className, granularity, range }: 
       subtitle={`Running total of catalog cost saved vs ${comparisonModel} across the selected time range. Below $0, routing has cost more so far.`}
     >
       <TimeChart
+        onClickDataPoint={onClickDataPoint}
         config={{
           [CUMULATIVE_KEY]: {
             color: ChartColorToken.Green,
@@ -347,6 +386,7 @@ export function RouterCumulativeSavingsChart({ className, granularity, range }: 
         granularity={granularity}
         rows={rows}
       />
+      {drillDownModal}
     </ChartCard>
   );
 }
@@ -394,6 +434,8 @@ export function RouterSavingsRateChart({ className, granularity, range }: SpendC
     return nowRate == null || beforeRate == null ? null : nowRate - beforeRate;
   });
 
+  const { drillDownModal, onClickDataPoint } = useRouterCostDrillDown({ granularity, range });
+
   return (
     <ChartCard
       chartId="router_savings_rate"
@@ -413,6 +455,7 @@ export function RouterSavingsRateChart({ className, granularity, range }: SpendC
       }
     >
       <TimeChart
+        onClickDataPoint={onClickDataPoint}
         config={{
           [RATE_KEY]: {
             color: ChartColorToken.Green,
@@ -433,6 +476,7 @@ export function RouterSavingsRateChart({ className, granularity, range }: SpendC
         referenceLines={referenceLines}
         rows={rows}
       />
+      {drillDownModal}
     </ChartCard>
   );
 }
@@ -566,6 +610,15 @@ export function RouterCostPerRequestChart({ className, granularity, range }: Spe
     },
   );
 
+  const { drillDownModal, openDrillDown } = useRouterDrillDown({
+    billing,
+    granularity,
+    range,
+    type: RouterMetricType.ModelSpend,
+  });
+  const onClickDataPoint =
+    openDrillDown == null ? undefined : (time: number) => openDrillDown({ bucketStart: time });
+
   return (
     <ChartCard
       chartId="router_cost_per_request"
@@ -592,6 +645,7 @@ export function RouterCostPerRequestChart({ className, granularity, range }: Spe
       }
     >
       <TimeChart
+        onClickDataPoint={onClickDataPoint}
         allowDependentTickDecimals
         annotations={annotations}
         config={{
@@ -606,6 +660,7 @@ export function RouterCostPerRequestChart({ className, granularity, range }: Spe
         granularity={granularity}
         rows={chartRows}
       />
+      {drillDownModal}
     </ChartCard>
   );
 }
@@ -640,6 +695,23 @@ export function RouterSpendByMakerChart({
     () => LoadState.map(spend, ({ values }) => spendByMaker(values)),
     [spend],
   );
+  const { drillDownModal, openDrillDown } = useRouterDrillDown({
+    granularity: null,
+    range,
+    type: RouterMetricType.ModelSpend,
+  });
+  // A maker's row stands for several models, so its drill-down lists that maker's models.
+  const openMaker = (family: RouterModelFamily) => {
+    if (openDrillDown == null || !LoadState.isLoaded(spend)) return undefined;
+    const models = [
+      ...new Set(
+        spend.value.values.flatMap(({ group }) =>
+          group != null && group !== "" && modelFamily(group) === family ? [group] : [],
+        ),
+      ),
+    ];
+    return () => openDrillDown({ models });
+  };
 
   return (
     <ChartCard
@@ -673,6 +745,7 @@ export function RouterSpendByMakerChart({
                     <Listogram.Row
                       formatValue={formatUSD}
                       maxValue={totals[0].spend}
+                      onClick={openMaker(family)}
                       value={makerSpend}
                     >
                       <Text className="truncate text-body">{MODEL_FAMILY_LABEL[family]}</Text>
@@ -684,6 +757,7 @@ export function RouterSpendByMakerChart({
           )
         }
       </LoadStateWrapper>
+      {drillDownModal}
     </ChartCard>
   );
 }

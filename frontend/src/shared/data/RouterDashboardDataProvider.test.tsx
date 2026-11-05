@@ -23,6 +23,7 @@ function summary(requestCount: number): MetricsSummary {
 function dataSourceWith(summaryFn: RouterDashboardDataSource["metrics"]["summary"]) {
   const notSupported = unavailable(UnavailableReason.NotSupportedByHost, "n/a");
   return {
+    drillDown: notSupported,
     individuals: notSupported,
     metrics: {
       costTimeseries: vi.fn(),
