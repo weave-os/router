@@ -131,6 +131,17 @@ func TestCompareFuncs(t *testing.T) {
 			want: []violation{{subject: "q.F", metric: metricLines, before: 0, after: 151, limit: 100}},
 		},
 		{
+			name: "one removed function covers only one move",
+			base: []funcMetrics{fn("p.F", 150)},
+			head: []funcMetrics{fn("q.F", 150), fn("q.G", 150)},
+			want: []violation{{subject: "q.G", metric: metricLines, before: 0, after: 150, limit: 100}},
+		},
+		{
+			name: "moves prefer the removed function with the same name",
+			base: []funcMetrics{fn("p.A", 150), fn("p.F", 300)},
+			head: []funcMetrics{fn("q.A", 150), fn("q.F", 300)},
+		},
+		{
 			name:    "reviewed exception",
 			base:    []funcMetrics{fn("p.F", 150)},
 			head:    []funcMetrics{fn("p.F", 160)},
@@ -144,6 +155,29 @@ func TestCompareFuncs(t *testing.T) {
 			assert.Equal(t, tc.want, compareFuncs(base, head, tc.allowed))
 		})
 	}
+}
+
+func TestCompareFuncsKeepsBuildTagVariantsApart(t *testing.T) {
+	base := map[string]fileMetrics{
+		"p/f_linux.go":  fileWith(0, fn("p.F", 150)),
+		"p/f_darwin.go": fileWith(0, fn("p.F", 150)),
+	}
+	head := map[string]fileMetrics{
+		"p/f_linux.go":  fileWith(0, fn("p.F", 160)),
+		"p/f_darwin.go": fileWith(0, fn("p.F", 150)),
+	}
+	assert.Equal(t, []violation{{subject: "p.F@p/f_linux.go", metric: metricLines, before: 150, after: 160, limit: 100}},
+		compareFuncs(base, head, exceptionSet{}))
+}
+
+func TestMeasureFileMeasuresPackageLevelFuncLiterals(t *testing.T) {
+	src := "package x\n\nvar handlers = map[string]func(){\n\t\"a\": func() {\n" + statements(120) + "\t},\n\t\"b\": func() {},\n}\n"
+	metrics, _, err := measureFile("internal/x/handlers.go", []byte(src))
+	require.NoError(t, err)
+	require.Len(t, metrics.funcs, 2)
+	assert.Equal(t, "internal/x.handlers.func1", metrics.funcs[0].key)
+	assert.Equal(t, 122, metrics.funcs[0].values[metricLines])
+	assert.Equal(t, "internal/x.handlers.func2", metrics.funcs[1].key)
 }
 
 func TestCompareFilesFlagsNewAndGrowingLongFiles(t *testing.T) {
@@ -231,4 +265,11 @@ func TestRunComparesWorkingTreeWithMergeBase(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.violations, 1)
 	assert.Equal(t, metricServiceMethods, result.violations[0].metric)
+
+	require.NoError(t, os.Remove(filepath.Join(root, "internal/proxy/extra.go")))
+	write("internal/other/ünïcode.go", "package other\n\nfunc Long() {\n"+statements(120)+"}\n")
+	result, err = run(repo{root: root}, "main")
+	require.NoError(t, err)
+	require.Len(t, result.violations, 1)
+	assert.Equal(t, "internal/other.Long", result.violations[0].subject)
 }

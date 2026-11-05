@@ -44,32 +44,32 @@ func (r repo) mergeBase(base string) (string, error) {
 // changedFiles lists measured Go files that differ between rev and the working tree,
 // including untracked files, so local runs see uncommitted work.
 func (r repo) changedFiles(rev string) ([]string, error) {
-	tracked, err := r.git("diff", "--name-only", "--no-renames", rev, "--")
+	tracked, err := r.git("diff", "--name-only", "--no-renames", "-z", rev, "--")
 	if err != nil {
 		return nil, err
 	}
-	untracked, err := r.git("ls-files", "--others", "--exclude-standard")
+	untracked, err := r.git("ls-files", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		return nil, err
 	}
 	seen := map[string]bool{}
-	for _, line := range strings.Split(string(tracked)+string(untracked), "\n") {
-		if isMeasuredPath(line) {
-			seen[line] = true
+	for _, path := range splitNul(tracked, untracked) {
+		if isMeasuredPath(path) {
+			seen[path] = true
 		}
 	}
 	return sortedKeys(seen), nil
 }
 
 func (r repo) listDirAt(rev, dir string) ([]string, error) {
-	out, err := r.git("ls-tree", "--name-only", rev, dir+"/")
+	out, err := r.git("ls-tree", "--name-only", "-z", rev, dir+"/")
 	if err != nil {
 		return nil, err
 	}
 	var paths []string
-	for _, line := range strings.Split(string(out), "\n") {
-		if isMeasuredPath(line) && filepath.Dir(line) == dir {
-			paths = append(paths, line)
+	for _, path := range splitNul(out) {
+		if isMeasuredPath(path) && filepath.Dir(path) == dir {
+			paths = append(paths, path)
 		}
 	}
 	return paths, nil
@@ -159,6 +159,20 @@ func (r repo) readWorktree(paths []string) (map[string][]byte, error) {
 		files[path] = content
 	}
 	return files, nil
+}
+
+// splitNul splits NUL-terminated git output. Paths are read with -z because git
+// otherwise quotes and escapes non-ASCII names.
+func splitNul(outputs ...[]byte) []string {
+	var paths []string
+	for _, out := range outputs {
+		for _, path := range strings.Split(string(out), "\x00") {
+			if path != "" {
+				paths = append(paths, path)
+			}
+		}
+	}
+	return paths
 }
 
 func isMeasuredPath(path string) bool {

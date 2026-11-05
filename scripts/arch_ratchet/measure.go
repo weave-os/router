@@ -86,21 +86,59 @@ func measureFile(filePath string, src []byte) (metrics fileMetrics, generated bo
 	}
 	dir := path.Dir(filePath)
 	for _, decl := range file.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Body == nil {
-			continue
+		switch d := decl.(type) {
+		case *ast.FuncDecl:
+			if d.Body != nil {
+				metrics.funcs = append(metrics.funcs, measureFunc(fset, codeLines, funcKey(dir, filePath, d), d))
+			}
+		case *ast.GenDecl:
+			metrics.funcs = append(metrics.funcs, measurePackageFuncLits(fset, codeLines, dir, d)...)
 		}
-		metrics.funcs = append(metrics.funcs, funcMetrics{
-			key: funcKey(dir, filePath, fn),
-			values: map[metric]int{
-				metricCognitive: gocognit.Complexity(fn),
-				metricLines:     linesWithin(fset, fn, codeLines),
-				metricParams:    fieldListSize(fn.Type.Params),
-				metricNesting:   maxNesting(fn.Body),
-			},
-		})
 	}
 	return metrics, false, nil
+}
+
+func measureFunc(fset *token.FileSet, codeLines map[int]bool, key string, fn *ast.FuncDecl) funcMetrics {
+	return funcMetrics{
+		key: key,
+		values: map[metric]int{
+			metricCognitive: gocognit.Complexity(fn),
+			metricLines:     linesWithin(fset, fn, codeLines),
+			metricParams:    fieldListSize(fn.Type.Params),
+			metricNesting:   maxNesting(fn.Body),
+		},
+	}
+}
+
+// measurePackageFuncLits measures function literals in package-level var and const
+// values, keyed like the compiler names them: <dir>.<var>.func<N>.
+func measurePackageFuncLits(fset *token.FileSet, codeLines map[int]bool, dir string, decl *ast.GenDecl) []funcMetrics {
+	var funcs []funcMetrics
+	for _, spec := range decl.Specs {
+		value, ok := spec.(*ast.ValueSpec)
+		if !ok {
+			continue
+		}
+		name := "_"
+		if len(value.Names) > 0 {
+			name = value.Names[0].Name
+		}
+		count := 0
+		for _, expr := range value.Values {
+			ast.Inspect(expr, func(node ast.Node) bool {
+				lit, ok := node.(*ast.FuncLit)
+				if !ok {
+					return true
+				}
+				count++
+				key := fmt.Sprintf("%s.%s.func%d", dir, name, count)
+				fn := &ast.FuncDecl{Name: ast.NewIdent(name), Type: lit.Type, Body: lit.Body}
+				funcs = append(funcs, measureFunc(fset, codeLines, key, fn))
+				return false
+			})
+		}
+	}
+	return funcs
 }
 
 // codeLineSet returns the lines holding at least one non-comment token.
