@@ -3028,6 +3028,55 @@ func (s *Service) MetricsTimeseriesAll(ctx context.Context, from, to time.Time, 
 	return s.telemetry.GetTelemetryTimeseriesAll(ctx, from, to, granularity)
 }
 
+// MetricsDashboardFacts returns the per-dimension sums behind the dashboard
+// chart cards; an empty installationID reads every installation.
+func (s *Service) MetricsDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryDashboardFact, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetryDashboardFacts(ctx, installationID, from, to, granularity)
+}
+
+// MetricsActiveUsers returns distinct people per bucket, split by link state.
+func (s *Service) MetricsActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryActiveUsers, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetryDashboardActiveUsers(ctx, installationID, from, to, granularity)
+}
+
+// MetricsPeople returns everyone who can route with their latest request ever.
+func (s *Service) MetricsPeople(ctx context.Context, installationID string) ([]TelemetryPerson, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetryDashboardPeople(ctx, installationID)
+}
+
+// Rows are one per person, session and requested/decision model pair.
+func (s *Service) MetricsDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]TelemetryDrillDownRow, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetryDashboardDrillDown(ctx, installationID, from, to)
+}
+
+// A nil telemetry repository yields no facts, not an error.
+func (s *Service) MetricsIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryIndividualFact, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetryDashboardIndividualFacts(ctx, installationID, from, to, granularity)
+}
+
+// Each seat appears once, even when registered to several installations.
+func (s *Service) MetricsSubscriptionPool(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]TelemetrySubscriptionSeat, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetrySubscriptionPoolSeats(ctx, installationID, servedSince, readingsSince)
+}
+
 // MetricsModelBreakdown returns per-bucket totals grouped by decision model
 // for the dashboard's per-model usage and spend charts.
 func (s *Service) MetricsModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryModelBucket, error) {

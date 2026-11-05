@@ -135,6 +135,9 @@ type Features struct {
 	// subscriber's included Router allowance. Nil leaves every request on the
 	// org/prepaid billing gates alone.
 	SubscriberAllowance *entitlement.Service
+	// SubscriptionPoolsEnabled mirrors ROUTER_SUBSCRIPTION_POOLS_ENABLED so the
+	// dashboard can tell a disabled pool from an empty one.
+	SubscriptionPoolsEnabled bool
 	// SubscriptionLogins runs browser reconnects for the control plane. Nil
 	// leaves enrollment on `router login` alone.
 	SubscriptionLogins admin.SubscriptionLoginFlow
@@ -315,6 +318,12 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		metrics.GET("/metrics/timeseries", admin.MetricsTimeseriesHandler(proxySvc))
 		metrics.GET("/metrics/details", admin.MetricsDetailsHandler(proxySvc))
 		metrics.GET("/metrics/model-breakdown", admin.MetricsModelBreakdownHandler(proxySvc))
+		metrics.GET("/metrics/series", admin.MetricsSeriesHandler(proxySvc))
+		metrics.GET("/metrics/report-summary", admin.MetricsReportSummaryHandler(proxySvc))
+		metrics.GET("/metrics/people", admin.MetricsPeopleHandler(proxySvc))
+		metrics.GET("/metrics/drill-down", admin.MetricsDrillDownHandler(proxySvc))
+		metrics.GET("/metrics/individuals", admin.MetricsIndividualsHandler(proxySvc))
+		metrics.GET("/subscription-pool", admin.SubscriptionPoolHandler(proxySvc, features.SubscriptionPoolsEnabled, time.Now))
 
 		// Mutations: admin cookie REQUIRED. rk_ tokens are rejected so a leaked data-plane key can't mint fresh router keys or rotate provider credentials.
 		mgmt := engine.Group("/admin/v1", middleware.WithTimeout(adminTimeout), middleware.WithAdminOnly(authSvc))
