@@ -74,6 +74,13 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 	}
 	admissionCtx := ctx
 	return dispatch.WithAuthorization(ctx, func(callCtx context.Context, target inference.Target) error {
+		if claudeEnterpriseTarget(callCtx, target) || claudeEnterpriseTurn(callCtx) {
+			creds := CredentialsFromContext(callCtx)
+			if creds == nil || !creds.OAuth || creds.Source != credSourceSubscription || target.Provider != providers.ProviderAnthropic {
+				return ErrClaudeEnterpriseSubscriptionUnavailable
+			}
+			return nil
+		}
 		if creds := CredentialsFromContext(callCtx); creds != nil && creds.OAuth {
 			return nil
 		}
@@ -278,6 +285,9 @@ func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate ma
 		if state.QuotaExhaustedAccounts[candidate.accountID].After(now) {
 			return true
 		}
+	}
+	if candidate.provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
+		return false
 	}
 	if s.usageObserver != nil {
 		snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte("subscription-account:" + candidate.accountID)))

@@ -80,8 +80,16 @@ The same check covers matching model-specific limits using the final upstream
 model after aliases. A model-specific rejection rotates the attempt without
 marking the whole account exhausted or placing it on cooldown. Claude accounts with no
 quota observation may serve; known exhausted or paid-overage accounts are
-excluded. Quota failures rotate to another eligible account before authorized
-Weave-funded API capacity serves the selected model. Depleted Weave credits
+excluded by default. An organization may opt into `claude_enterprise_only` to
+keep Claude requests on its linked Claude accounts, including provider-authorized
+overage. In that mode observed included-quota exhaustion does not suppress a
+Claude account, while an actual provider refusal remains authoritative. Claude
+turns fail if their account cannot serve them; retry, failover, and auxiliary
+dispatch cannot charge them to Weave credits or another provider. The setting
+is ignored while subscription routing is disabled and does not change funding
+for independently selected non-Claude models. With Enterprise-only off, quota
+failures rotate to another eligible account before authorized Weave-funded API
+capacity serves the selected model. Depleted Weave credits
 prohibit paid API fallback, not subscription use.
 
 ## Paid inference authorization

@@ -1304,6 +1304,7 @@ func main() {
 		flags.KeyEscalationXGBoostShadowMarkerEnabled: boolDefault(false),
 		flags.KeyEscalationXGBoostEpoch:               "0",
 		flags.KeySubscriptionPlanAwareRouting:         boolDefault(false),
+		flags.KeyClaudeEnterpriseOnly:                 boolDefault(false),
 		flags.KeySubscriptionExhaustedOpenRouterOnly:  boolDefault(false),
 		flags.KeyPlanUserClusterLists:                 boolDefault(false),
 		flags.KeyStruggleShadowEnabled:                boolDefault(struggleShadowEnabled),

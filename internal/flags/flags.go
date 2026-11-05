@@ -129,6 +129,7 @@ const (
 	KeyEarlyStopRedo                        Key = "early_stop_redo"
 	KeyCCWorkspaceSystemAppend              Key = "cc_workspace_system_append"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
+	KeyClaudeEnterpriseOnly                 Key = "claude_enterprise_only"
 	KeySubscriptionExhaustedOpenRouterOnly  Key = "subscription_exhausted_openrouter_only"
 	KeyCommittedStreamArmDemotion           Key = "committed_stream_arm_demotion"
 	KeyRescuedFailureArmDemotion            Key = "rescued_failure_arm_demotion"
@@ -192,6 +193,12 @@ var Registry = []Definition{
 	{Key: KeyEscalationXGBoostShadowEnabled, Kind: KindBool, Description: "Observe XGBoost escalation without changing routing. Off by default.", OrgOverridable: true},
 	{Key: KeyEscalationXGBoostShadowMarkerEnabled, Kind: KindBool, Description: "Show positive shadow escalation notices in assistant responses. Off by default.", OrgOverridable: true},
 	{Key: KeyEscalationXGBoostEpoch, Kind: KindInt, Description: "Observation generation; increment before enabling or resetting escalation.", OrgOverridable: true},
+	{
+		Key:            KeyClaudeEnterpriseOnly,
+		Kind:           KindBool,
+		Description:    "Fund Claude calls only through linked Claude accounts, including provider-authorized Enterprise overage. Never fall back to Weave credits for Claude. Off by default; ignored when subscription routing is disabled.",
+		OrgOverridable: true,
+	},
 	{
 		Key:            KeySubscriptionPlanAwareRouting,
 		Kind:           KindBool,
