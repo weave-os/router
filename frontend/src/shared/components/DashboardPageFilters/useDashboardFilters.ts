@@ -53,7 +53,10 @@ export function useDashboardFilters(): UseDashboardFiltersResult {
     // oxlint-disable-next-line react/purity -- an open range is anchored to the moment it was picked.
     const to = dateFilter.end != null ? DateScalar.toDate(dateFilter.end) : new Date();
     return {
-      fromISO: DateScalar.toDate(dateFilter.start ?? defaultStart()).toISOString(),
+      fromISO: (dateFilter.start != null
+        ? DateScalar.toDate(dateFilter.start)
+        : new Date(0)
+      ).toISOString(),
       toISO: to.toISOString(),
     };
   }, [dateFilter]);

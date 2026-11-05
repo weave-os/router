@@ -186,4 +186,19 @@ describe("parseDateFilterSearch", () => {
       Filter.date(date("2024-01-01"), date("2025-01-01")),
     ]);
   });
+
+  test("ends a December search at the following January", () => {
+    expect(parseDateFilterSearch("december 2023")).toEqual([
+      Filter.date(date("2023-12-01"), date("2024-01-01")),
+    ]);
+  });
+
+  test("starts week phrases on the configured week start", () => {
+    expect(parseDateFilterSearch("this week", 0)).toEqual([
+      Filter.date(date("2024-03-10"), date("2024-03-17")),
+    ]);
+    expect(parseDateFilterSearch("last 2 weeks", 0)).toEqual([
+      Filter.date(date("2024-02-25"), date("2024-03-10")),
+    ]);
+  });
 });

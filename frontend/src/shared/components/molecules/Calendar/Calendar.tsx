@@ -52,7 +52,7 @@ function Dropdown({ onChange, options, value }: DropdownProps) {
 function MonthCaption({ calendarMonth }: MonthCaptionProps) {
   const { dayPickerProps, goToMonth, months, nextMonth, previousMonth } = useDayPicker();
 
-  const monthOptions: DropdownOption[] = Array.from({ length: 12 }, (_, i) => ({
+  const monthOptions = Array.from({ length: 12 }, (_, i) => ({
     label: new Date(2000, i).toLocaleString("default", { month: "short" }),
     value: i,
   }));
@@ -62,7 +62,7 @@ function MonthCaption({ calendarMonth }: MonthCaptionProps) {
     dayPickerProps.startMonth,
     dayPickerProps.endMonth,
   );
-  const yearOptions: DropdownOption[] = Array.from({ length: endYear - startYear + 1 }, (_, i) => ({
+  const yearOptions = Array.from({ length: endYear - startYear + 1 }, (_, i) => ({
     label: String(startYear + i),
     value: startYear + i,
   }));
@@ -86,7 +86,7 @@ function MonthCaption({ calendarMonth }: MonthCaptionProps) {
       <button
         type="button"
         disabled={previousMonth == null}
-        onClick={() => previousMonth != null && goToMonth(previousMonth)}
+        onClick={previousMonth == null ? undefined : () => goToMonth(previousMonth)}
         className={cn(
           "flex size-7 items-center justify-center rounded-md border border-wv-default bg-wv-inset p-0 text-wv-secondary hover:border-wv-hover hover:bg-wv-hover hover:text-wv-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-wv-focus disabled:pointer-events-none disabled:opacity-25",
           !isFirstMonth && "invisible",
@@ -105,7 +105,7 @@ function MonthCaption({ calendarMonth }: MonthCaptionProps) {
       <button
         type="button"
         disabled={nextMonth == null}
-        onClick={() => nextMonth != null && goToMonth(nextMonth)}
+        onClick={nextMonth == null ? undefined : () => goToMonth(nextMonth)}
         className={cn(
           "flex size-7 items-center justify-center rounded-md border border-wv-default bg-wv-inset p-0 text-wv-secondary hover:border-wv-hover hover:bg-wv-hover hover:text-wv-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-wv-focus disabled:pointer-events-none disabled:opacity-25",
           !isFirstMonth && "invisible",
@@ -172,11 +172,11 @@ export function Calendar({
         weekdays: "flex",
         ...classNames,
       }}
+      {...props}
       components={{
         MonthCaption,
         ...props.components,
       }}
-      {...props}
     />
   );
 }

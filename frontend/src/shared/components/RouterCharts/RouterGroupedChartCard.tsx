@@ -98,8 +98,13 @@ export function RouterGroupedChartCard({
   const timeGranularity = displayGranularity(granularity);
   const current = useRouterMetricSeries({ granularity, group, range, type: metric });
   const { weekStartsOn } = useRouterDashboardDataSource();
-  const before = useMemo(() => previousRange(range), [range]);
-  const previous = useRouterMetricSeries({ granularity, group, range: before, type: metric });
+  const previousPeriodRange = useMemo(() => previousRange(range), [range]);
+  const previous = useRouterMetricSeries({
+    granularity,
+    group,
+    range: previousPeriodRange,
+    type: metric,
+  });
 
   const pivoted = useMemo(
     () =>
@@ -115,14 +120,14 @@ export function RouterGroupedChartCard({
     () => (view === GroupedMetricView.Share ? LoadState.map(pivoted, toShare) : pivoted),
     [pivoted, view],
   );
-  const perBucket = (points: readonly RouterMetricPoint[], window: DateRange) =>
+  const perBucket = (points: readonly RouterMetricPoint[], dateRange: DateRange) =>
     sumValues(points) /
     (statistic === GroupedStatistic.Mean
       ? Math.max(new Set(points.map(point => point.time)).size, 1)
-      : bucketCount(window, granularity, weekStartsOn));
+      : bucketCount(dateRange, granularity, weekStartsOn));
   const average = LoadState.map(current, now => perBucket(now.values, range));
   const percentChange = LoadState.map(average, previous, (nowAverage, previousSeries) =>
-    periodPercentChange(nowAverage, perBucket(previousSeries.values, before)),
+    periodPercentChange(nowAverage, perBucket(previousSeries.values, previousPeriodRange)),
   );
 
   const config = useMemo(() => {

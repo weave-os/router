@@ -1,5 +1,5 @@
 import * as PopoverPrimitive from "@radix-ui/react-popover";
-import { addYears, format, startOfMonth, subYears } from "date-fns";
+import { addDays, addYears, format, startOfMonth, subYears } from "date-fns";
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { type DateRange } from "react-day-picker";
@@ -35,7 +35,6 @@ interface DateFilterMenuItemProps extends Pick<DateFilterMenuItemsProps, "onSele
   weekStartsOn?: WeekStartsOn;
 }
 
-/** Renders an option for a date filter. */
 function DateFilterMenuItem({
   end,
   onSelectDate,
@@ -75,47 +74,46 @@ interface CustomRangePickerProps {
 /** How far back the custom range picker allows navigating. */
 const CUSTOM_RANGE_PAST_YEARS = 3;
 
-function calendarFloor() {
+// A function so lint keeps the clock read out of render.
+function customRangePastLimit() {
   return subYears(new Date(), CUSTOM_RANGE_PAST_YEARS);
 }
 
 /** How far into the future the custom range picker allows navigating (e.g. for release dates). */
 const CUSTOM_RANGE_FUTURE_YEARS = 3;
 
-/** Renders a custom date range picker that shows a calendar flyout. */
 type PopoverState = "closed" | "hover" | "sticky";
 
 function CustomRangePicker({ onSelectDate }: CustomRangePickerProps) {
-  const [state, setState] = useState<PopoverState>("closed");
+  const [popoverState, setPopoverState] = useState<PopoverState>("closed");
   const [range, setRange] = useState<DateRange | undefined>(undefined);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pastLimit = customRangePastLimit();
   const startMonth = startOfMonth(
-    range?.from != null && range.from < calendarFloor() ? range.from : calendarFloor(),
+    range?.from != null && range.from < pastLimit ? range.from : pastLimit,
   );
 
-  const isOpen = state !== "closed";
+  const isOpen = popoverState !== "closed";
+  const selectedRange =
+    range?.from != null && range.to != null ? { from: range.from, to: range.to } : null;
 
-  // Track if we're selecting the start or end date
   const isSelectingEnd = range?.from != null && range?.to == null;
 
   const handleDateSelect = useCallback(
-    (newRange: DateRange | undefined) => {
+    (newRange: DateRange | undefined, clickedDay: Date) => {
       // Keep the popover open while a selection is in progress
-      setState("sticky");
+      setPopoverState("sticky");
 
-      // First click: set start date only (clear any previous end date)
       if (!isSelectingEnd) {
-        setRange({ from: newRange?.from, to: undefined });
+        setRange({ from: clickedDay, to: undefined });
         return;
       }
 
-      // User clicked a date before the current start - reset start date
       if (newRange?.from != null && newRange?.to == null) {
         setRange({ from: newRange.from, to: undefined });
         return;
       }
 
-      // Second click: set end date (committed via Apply)
       if (newRange?.from != null && newRange?.to != null) {
         setRange({ from: newRange.from, to: newRange.to });
       }
@@ -123,31 +121,25 @@ function CustomRangePicker({ onSelectDate }: CustomRangePickerProps) {
     [isSelectingEnd],
   );
 
-  // Commit the selected range
-  const handleApply = useCallback(() => {
-    if (range?.from == null || range?.to == null) {
-      return;
-    }
+  const handleApply = useCallback(
+    (from: Date, to: Date) => {
+      // The filter's end is exclusive.
+      onSelectDate(DateScalar.fromDate(from), DateScalar.fromDate(addDays(to, 1)));
+      setPopoverState("closed");
+      setRange(undefined);
+    },
+    [onSelectDate],
+  );
 
-    // Add 1 day to end date since our filter uses exclusive end
-    const endDate = new Date(range.to);
-    endDate.setDate(endDate.getDate() + 1);
-
-    onSelectDate(DateScalar.fromDate(range.from), DateScalar.fromDate(endDate));
-    setState("closed");
-    setRange(undefined);
-  }, [onSelectDate, range]);
-
-  // Discard the selected range
   const handleCancel = useCallback(() => {
-    setState("closed");
+    setPopoverState("closed");
     setRange(undefined);
   }, []);
 
   // Click to toggle sticky state. Preserve an in-progress selection so a
   // re-click doesn't silently wipe it - Cancel is the way to discard.
   const handleClick = useCallback(() => {
-    setState(prev => {
+    setPopoverState(prev => {
       if (prev === "sticky") {
         if (range?.from == null) {
           setRange(undefined);
@@ -164,7 +156,7 @@ function CustomRangePicker({ onSelectDate }: CustomRangePickerProps) {
       clearTimeout(closeTimeoutRef.current);
       closeTimeoutRef.current = null;
     }
-    setState(prev => (prev === "closed" ? "hover" : prev));
+    setPopoverState(prev => (prev === "closed" ? "hover" : prev));
   }, []);
 
   // Mouse leave hides only if hovering (not sticky), with delay to allow crossing gap
@@ -173,7 +165,7 @@ function CustomRangePicker({ onSelectDate }: CustomRangePickerProps) {
       clearTimeout(closeTimeoutRef.current);
     }
     closeTimeoutRef.current = setTimeout(() => {
-      setState(prev => {
+      setPopoverState(prev => {
         if (prev === "hover") {
           setRange(undefined);
           return "closed";
@@ -184,10 +176,9 @@ function CustomRangePicker({ onSelectDate }: CustomRangePickerProps) {
     }, 100);
   }, []);
 
-  // Handle popover close (clicking outside)
   const handleOpenChange = useCallback((open: boolean) => {
     if (!open) {
-      setState("closed");
+      setPopoverState("closed");
       setRange(undefined);
     }
   }, []);
@@ -200,7 +191,7 @@ function CustomRangePicker({ onSelectDate }: CustomRangePickerProps) {
             value="Custom range"
             className={cn(
               "flex items-center justify-between gap-2",
-              state === "sticky" && "bg-wv-active text-wv-primary",
+              popoverState === "sticky" && "bg-wv-active text-wv-primary",
             )}
             onSelect={handleClick}
           >
@@ -288,8 +279,12 @@ function CustomRangePicker({ onSelectDate }: CustomRangePickerProps) {
                 size="sm"
                 appearance={Appearance.Tinted}
                 intent={Intent.Primary}
-                disabled={range?.from == null || range?.to == null}
-                onClick={handleApply}
+                disabled={selectedRange == null}
+                onClick={
+                  selectedRange == null
+                    ? undefined
+                    : () => handleApply(selectedRange.from, selectedRange.to)
+                }
               >
                 Apply
               </Button>
@@ -301,10 +296,7 @@ function CustomRangePicker({ onSelectDate }: CustomRangePickerProps) {
   );
 }
 
-/**
- * Generates the default date filter options (this week + last N calendar months).
- * Month presets are open-ended from the first day of the month `(N - 1)` months ago.
- */
+/** This week plus open-ended presets starting on the same day 1, 2, 3, 6 and 12 months ago. */
 function getDefaultDateFilters(weekStartsOn: WeekStartsOn = 1): readonly DateFilterOption[] {
   return [
     {
@@ -345,9 +337,6 @@ function getWeekDateFilters(weekStartsOn: WeekStartsOn): readonly DateFilterOpti
   return [thisWeek, ...previousWeeks, ...monthPresets];
 }
 
-/**
- * Gets date filter options based on the current granularity.
- */
 function getDateFiltersForGranularity(
   granularity: TimeGranularity | undefined,
   weekStartsOn: WeekStartsOn,
@@ -380,7 +369,7 @@ export function DateFilterMenuItems({
   search,
   weekStartsOn,
 }: DateFilterMenuItemsProps) {
-  const parsed = parseDateFilterSearch(search);
+  const parsed = parseDateFilterSearch(search, weekStartsOn);
 
   const options = useMemo(
     () => getDateFiltersForGranularity(granularity, weekStartsOn),

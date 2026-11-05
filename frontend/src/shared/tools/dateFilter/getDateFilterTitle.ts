@@ -30,56 +30,35 @@ export interface GetDateFilterTitleOptions {
   weekStartsOn?: WeekStartsOn;
 }
 
-/** Gets the year for a start date. */
 function getStartYear(date: Date): number {
   return date.getFullYear();
 }
 
-/** Gets the year for an end date. */
+/** The exclusive end day belongs to the previous year, hence the 1 ms shift. */
 function getEndYear(date: Date): number {
   return new Date(date.getTime() - 1).getFullYear();
 }
 
-/**
- * Returns a plain English description of the date filter.
- */
 export function getDateFilterTitle(filter: DateFilter, options: GetDateFilterTitleOptions = {}) {
   const { end, start } = filter;
   const { lowercase = false } = options;
 
-  // Check for invalid ranges
   if (start != null && end != null && start >= end) {
     return "(invalid)";
   }
 
-  // All time case
-  if (start == null && end == null) {
-    return lowercase ? "all time" : "All time";
+  if (start == null) {
+    return end == null ? (lowercase ? "all time" : "All time") : formatUntilDate(end, options);
   }
 
-  // Only end date specified - "Until X"
-  if (start == null && end != null) {
-    return formatUntilDate(end, options);
-  }
-
-  // Only start date specified - "Since X" or "Last X period"
-  if (start != null && end == null) {
+  if (end == null) {
     return formatSinceDate(start, options);
   }
 
-  // Both dates specified - date range
-  if (start != null && end != null) {
-    return formatDateRange(start, end, options);
-  }
-
-  // Should never reach here
-  return "(invalid)";
+  return formatDateRange(start, end, options);
 }
 
-/**
- * Formats "Until X" date strings
- */
-function formatUntilDate(to: DateScalar, { lowercase = false }: GetDateFilterTitleOptions): string {
+function formatUntilDate(to: DateScalar, { lowercase = false }: GetDateFilterTitleOptions) {
   const toDate = addGranularity(DateScalar.toDate(to), TimeGranularity.Day, -1);
   const currentYear = getStartYear(new Date());
   const toYear = getEndYear(toDate);
@@ -93,26 +72,21 @@ function formatUntilDate(to: DateScalar, { lowercase = false }: GetDateFilterTit
   return `${prefix} ${format(toDate, DateFormat.MonthDayYear)}`;
 }
 
-/**
- * Formats "Since X" or "Last X period" date strings
- */
 function formatSinceDate(
   from: DateScalar,
   { lowercase = false, weekStartsOn = 1 }: GetDateFilterTitleOptions,
-): string {
+) {
   const fromDate = DateScalar.toDate(from);
   const nowDate = new Date();
   const currentYear = getStartYear(nowDate);
   const fromYear = getStartYear(fromDate);
 
-  // Check if the date is at a breakpoint
   const isYearStart = from === DateScalar.fromDate(startOfYear(fromDate));
   const isMonthStart =
     from === DateScalar.fromDate(startOfGranularity(fromDate, TimeGranularity.Month, weekStartsOn));
   const isWeekStart =
     from === DateScalar.fromDate(startOfGranularity(fromDate, TimeGranularity.Week, weekStartsOn));
 
-  // For recent dates, use "Last X days/weeks/months/years"
   const daysDiff = expandedDifferenceInGranularity(nowDate, fromDate, TimeGranularity.Day);
   const weeksDiff = expandedDifferenceInGranularity(
     nowDate,
@@ -143,12 +117,11 @@ function formatSinceDate(
     }
   }
 
-  // Handle "last 2 weeks"
   if (isWeekStart && weeksDiff === 2) {
     return `${lastPrefix} 2 weeks`;
   }
 
-  if (daysDiff <= 5) {
+  if (daysDiff > 0 && daysDiff <= 5) {
     return `${lastPrefix} ${daysDiff} ${pluralize(daysDiff, "day")}`;
   }
 
@@ -162,14 +135,12 @@ function formatSinceDate(
     return `${lastPrefix} ${monthsDiff} ${pluralize(monthsDiff, "month")}`;
   }
 
-  // Handle years
   if (isYearStart && yearsDiff > 0) {
     return `${lastPrefix} ${yearsDiff} ${pluralize(yearsDiff, "year")}`;
   }
 
   const sincePrefix = lowercase ? "since" : "Since";
 
-  // For non-breakpoint dates, use "Since X"
   if (fromYear === currentYear) {
     return `${sincePrefix} ${format(fromDate, DateFormat.MonthDay)}`;
   }
@@ -177,14 +148,11 @@ function formatSinceDate(
   return `${sincePrefix} ${format(fromDate, DateFormat.MonthDayYear)}`;
 }
 
-/**
- * Formats date range strings
- */
 function formatDateRange(
   from: DateScalar,
   to: DateScalar,
   { lowercase = false, weekStartsOn = 1 }: GetDateFilterTitleOptions,
-): string {
+) {
   const fromDate = DateScalar.toDate(from);
   const toDate = DateScalar.toDate(to);
 
@@ -192,13 +160,11 @@ function formatDateRange(
   const fromYear = getStartYear(fromDate);
   const toYear = getEndYear(toDate);
 
-  // Check if dates are at year breakpoints
   const isFromYearStart =
     from === DateScalar.fromDate(startOfGranularity(fromDate, TimeGranularity.Year, weekStartsOn));
   const isToYearEnd =
     to === DateScalar.fromDate(startOfGranularity(toDate, TimeGranularity.Year, weekStartsOn));
 
-  // Full year(s) case
   if (isFromYearStart && isToYearEnd && fromYear === toYear) {
     return `${fromYear}`;
   }
@@ -207,17 +173,14 @@ function formatDateRange(
     return `${fromYear}-${toYear}`;
   }
 
-  // Check if dates are at week breakpoints
   const isFromWeekStart =
     from === DateScalar.fromDate(startOfGranularity(fromDate, TimeGranularity.Week, weekStartsOn));
   const isToWeekEnd =
     to === DateScalar.fromDate(startOfGranularity(toDate, TimeGranularity.Week, weekStartsOn));
 
-  // Week ranges - handle special case for "this week" and similar week-based filters
   if (isFromWeekStart && isToWeekEnd) {
     const weeksDiff = differenceInGranularity(toDate, fromDate, TimeGranularity.Week);
 
-    // If it's exactly one week, check if it's the current week
     if (weeksDiff === 1) {
       const now = new Date();
       const currentWeekStart = startOfGranularity(now, TimeGranularity.Week, weekStartsOn);
@@ -227,7 +190,6 @@ function formatDateRange(
       }
     }
 
-    // If it's exactly two weeks, check if it's "last 2 weeks" (last week + this week)
     if (weeksDiff === 2) {
       const now = new Date();
       const currentWeekStart = startOfGranularity(now, TimeGranularity.Week, weekStartsOn);
@@ -238,7 +200,6 @@ function formatDateRange(
       }
     }
 
-    // For other week ranges, show the date range without subtracting a day
     const toDateAdjusted = addGranularity(toDate, TimeGranularity.Day, -1);
 
     if (fromYear === toYear && fromYear === currentYear) {
@@ -248,13 +209,11 @@ function formatDateRange(
     return `${format(fromDate, DateFormat.MonthDayYear)} - ${format(toDateAdjusted, DateFormat.MonthDayYear)}`;
   }
 
-  // Check if dates are at month breakpoints
   const isFromMonthStart =
     from === DateScalar.fromDate(startOfGranularity(fromDate, TimeGranularity.Month, weekStartsOn));
   const isToMonthEnd =
     to === DateScalar.fromDate(startOfGranularity(toDate, TimeGranularity.Month, weekStartsOn));
 
-  // Month ranges
   if (isFromMonthStart && isToMonthEnd) {
     const fromMonth = format(fromDate, DateFormat.MonthName);
     const toMonth = format(addGranularity(toDate, TimeGranularity.Month, -1), DateFormat.MonthName);
@@ -274,13 +233,9 @@ function formatDateRange(
     return `${fromMonth} ${fromYear} - ${toMonth} ${toYear}`;
   }
 
-  // Arbitrary date ranges
   return formatArbitraryDateRange(fromDate, toDate);
 }
 
-/**
- * Formats arbitrary date range strings (non-breakpoint dates)
- */
 export function formatArbitraryDateRange(fromDate: Date, toDate: Date): string {
   const fromYear = getStartYear(fromDate);
   const toYear = getEndYear(toDate);
