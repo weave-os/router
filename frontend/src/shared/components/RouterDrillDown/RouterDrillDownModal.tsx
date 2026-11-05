@@ -190,7 +190,7 @@ function RouterDrillDownTable({ people }: { people: readonly RouterDrillDownPers
                     <span className="truncate">{personLabel(person)}</span>
                   </button>
                 }
-                session={`${formatInteger(person.sessions.length)} ${person.sessions.length === 1 ? "session" : "sessions"}`}
+                session={`${formatInteger(person.sessionCount)} ${person.sessionCount === 1 ? "session" : "sessions"}`}
               />,
               ...(isExpanded
                 ? person.sessions.flatMap(session => [

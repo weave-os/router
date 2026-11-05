@@ -6,18 +6,25 @@ import { Text } from "../atoms/Text";
 import { DashboardPageFilters, useDashboardFilters } from "../DashboardPageFilters";
 import { Page } from "../Page";
 import { PageHeader } from "../PageHeader";
+import { RouterConnectHrefProvider } from "../RouterConnectEmptyState";
 import { RouterOverviewTab, RouterOverviewTabs, useRouterOverviewTab } from "../RouterOverviewTabs";
 import { RouterOverviewTabPanel } from "./RouterOverviewTabPanel";
 
 /** The Router cost & savings dashboard: header, overview tabs, filters and the active tab's cards. */
 export interface RouterDashboardPageProps {
+  /** Where an empty chart's "Connect Weave Router" button goes. */
+  connectHref?: string;
   /** Where the savings card's "How we measure" link goes. */
   methodologyHref?: string;
   /** The "Router cost & savings" heading, for hosts that move focus to it. */
   headingRef?: React.Ref<HTMLHeadingElement>;
 }
 
-export function RouterDashboardPage({ headingRef, methodologyHref }: RouterDashboardPageProps) {
+export function RouterDashboardPage({
+  connectHref,
+  headingRef,
+  methodologyHref,
+}: RouterDashboardPageProps) {
   const filters = useDashboardFilters();
   const tab = useRouterOverviewTab();
   const showSubscriptions = !isUnavailable(useRouterDashboardDataSource().subscriptions);
@@ -45,11 +52,13 @@ export function RouterDashboardPage({ headingRef, methodologyHref }: RouterDashb
       {tab !== RouterOverviewTab.Subscriptions && <DashboardPageFilters result={filters} />}
 
       <Page.Section className="pt-0">
-        <RouterOverviewTabPanel
-          filters={filters.filters}
-          methodologyHref={methodologyHref}
-          tab={tab}
-        />
+        <RouterConnectHrefProvider value={connectHref}>
+          <RouterOverviewTabPanel
+            filters={filters.filters}
+            methodologyHref={methodologyHref}
+            tab={tab}
+          />
+        </RouterConnectHrefProvider>
       </Page.Section>
     </Page>
   );

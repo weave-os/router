@@ -75,5 +75,5 @@ export default function DashboardPage() {
     );
   }
 
-  return <RouterDashboardPage methodologyHref={SAVINGS_METHODOLOGY_URL} />;
+  return <RouterDashboardPage connectHref="/settings" methodologyHref={SAVINGS_METHODOLOGY_URL} />;
 }

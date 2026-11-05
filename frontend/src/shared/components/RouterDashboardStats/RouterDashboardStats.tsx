@@ -135,10 +135,22 @@ export function RouterDashboardStats({
           )}
         >
           {summary => {
+            const hasBenchmark = summary.comparisonModel !== "";
+            const comparisonModel = hasBenchmark
+              ? formatRouterModelName(summary.comparisonModel)
+              : "the comparison model";
             const savingsRate =
-              summary.comparisonCostUSD > 0 ? summary.savingsUSD / summary.comparisonCostUSD : null;
-            const routed = LoadState.unwrap(routedSpend);
-            const comparisonModel = formatRouterModelName(summary.comparisonModel);
+              hasBenchmark && summary.comparisonCostUSD > 0
+                ? (summary.savingsUSD / summary.comparisonCostUSD) * 100
+                : null;
+            let savingsSub = "Comparison model unavailable";
+            if (hasBenchmark && savingsRate == null) {
+              savingsSub = "No comparison API cost in this period";
+            } else if (savingsRate != null && summary.savingsUSD >= 0) {
+              savingsSub = `${savingsRate.toFixed(1)}% saved vs ${comparisonModel}`;
+            } else if (savingsRate != null) {
+              savingsSub = `${Math.abs(savingsRate).toFixed(1)}% extra vs ${comparisonModel}`;
+            }
             const avgTokens =
               summary.requestCount > 0 ? summary.totalTokens / summary.requestCount : null;
             return (
@@ -152,27 +164,48 @@ export function RouterDashboardStats({
                   />
                 )}
                 {cards.has(RouterSummaryCard.RouterSpend) && (
-                  <StatCard
-                    label="Router spend"
-                    onClick={openRoutedSessions}
-                    loading={routed == null}
-                    sub="Routed users only; passthrough users excluded"
-                    value={formatUSD(routed ?? 0)}
-                  />
+                  <LoadStateWrapper
+                    state={routedSpend}
+                    loading={
+                      <StatCard
+                        label="Router spend"
+                        loading
+                        onClick={openRoutedSessions}
+                        value="—"
+                      />
+                    }
+                    error={() => (
+                      <ErrorCard
+                        title="Could not load router spend"
+                        description="Refresh to try again."
+                      />
+                    )}
+                  >
+                    {routed => (
+                      <StatCard
+                        label="Router spend"
+                        onClick={openRoutedSessions}
+                        sub="Routed users only; passthrough users excluded"
+                        value={formatUSD(routed)}
+                      />
+                    )}
+                  </LoadStateWrapper>
                 )}
                 {cards.has(RouterSummaryCard.Savings) && (
                   <StatCard
-                    accent={summary.savingsUSD < 0 ? "danger" : "success"}
-                    label={`Saved vs ${comparisonModel}`}
+                    accent={
+                      !hasBenchmark ? "default" : summary.savingsUSD >= 0 ? "success" : "danger"
+                    }
+                    label={
+                      hasBenchmark
+                        ? `${summary.savingsUSD < 0 ? "Extra cost" : "Saved"} vs ${comparisonModel}`
+                        : "Saved vs comparison model"
+                    }
                     onClick={openSessions}
                     methodologyHref={methodologyHref}
-                    sub={
-                      savingsRate == null
-                        ? undefined
-                        : `${(savingsRate * 100).toFixed(1)}% saved vs ${comparisonModel}`
-                    }
+                    sub={savingsSub}
                     tooltip={savingsExplanation(comparisonModel)}
-                    value={formatUSD(summary.savingsUSD)}
+                    value={hasBenchmark ? formatUSD(Math.abs(summary.savingsUSD)) : "—"}
                   />
                 )}
                 {cards.has(RouterSummaryCard.Requests) && (

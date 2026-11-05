@@ -27,6 +27,7 @@ async function loadDrillDown(request: RouterDrillDownRequest) {
       email: person.email,
       id: person.id,
       linked: person.linked,
+      sessionCount: person.session_count,
       sessions: person.sessions.map(session => ({
         clientApp: session.client_app,
         finishedAt: Date.parse(session.finished_at),

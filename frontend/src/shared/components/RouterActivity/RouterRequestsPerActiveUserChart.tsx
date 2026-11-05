@@ -25,6 +25,7 @@ import {
 import { TIME_KEY } from "../RouterCharts/pivotSeries";
 import { periodPercentChange, RouterChartHeadline } from "../RouterCharts/RouterChartHeadline";
 import { ROUTER_SOURCE_MARK } from "../RouterCharts/routerSourceMark";
+import { RouterConnectEmptyState } from "../RouterConnectEmptyState";
 
 const PER_PERSON_KEY = "requests_per_person";
 const PER_PERSON_KEYS = LoadState.loaded([PER_PERSON_KEY] as const);
@@ -158,35 +159,39 @@ export function RouterRequestsPerActiveUserChart({
         />
       }
     >
-      <Chart
-        config={{
-          [PER_PERSON_KEY]: {
-            color: ChartColor.Scale1,
-            label: "Requests per person",
-            type: ChartSeriesType.Bar,
-          },
-        }}
-        data={LoadState.map(
-          rows,
-          values => values as ChartData<typeof TIME_KEY, string, number, number>,
-        )}
-        dependentKeys={PER_PERSON_KEYS}
-        independentKey={TIME_KEY}
-        independentType={ChartAxisType.Category}
-        formatValue={formatBigDecimal}
-        formatIndependentValue={value => formatTime(value, timeGranularity)}
-        formatIndependentValueTooltip={value => formatInterval(value, timeGranularity)}
-        highlightedIndependentValue={latestCompleteBucket(
-          (LoadState.unwrap(rows) ?? []).map(row => row[TIME_KEY]),
-          range,
-          timeGranularity,
-        )}
-        mutedBarColor={AccountChartColor.Gray}
-        referenceLines={referenceLines}
-        onClickDataPoint={
-          openDrillDown == null ? undefined : time => openDrillDown({ bucketStart: time })
-        }
-      />
+      {LoadState.isLoaded(rows) && rows.value.length === 0 ? (
+        <RouterConnectEmptyState message="Route requests through Weave Router to track usage per person." />
+      ) : (
+        <Chart
+          config={{
+            [PER_PERSON_KEY]: {
+              color: ChartColor.Scale1,
+              label: "Requests per active person",
+              type: ChartSeriesType.Bar,
+            },
+          }}
+          data={LoadState.map(
+            rows,
+            values => values as ChartData<typeof TIME_KEY, string, number, number>,
+          )}
+          dependentKeys={PER_PERSON_KEYS}
+          independentKey={TIME_KEY}
+          independentType={ChartAxisType.Category}
+          formatValue={formatBigDecimal}
+          formatIndependentValue={value => formatTime(value, timeGranularity)}
+          formatIndependentValueTooltip={value => formatInterval(value, timeGranularity)}
+          highlightedIndependentValue={latestCompleteBucket(
+            (LoadState.unwrap(rows) ?? []).map(row => row[TIME_KEY]),
+            range,
+            timeGranularity,
+          )}
+          mutedBarColor={AccountChartColor.Gray}
+          referenceLines={referenceLines}
+          onClickDataPoint={
+            openDrillDown == null ? undefined : time => openDrillDown({ bucketStart: time })
+          }
+        />
+      )}
       {drillDownModal}
     </ChartCard>
   );

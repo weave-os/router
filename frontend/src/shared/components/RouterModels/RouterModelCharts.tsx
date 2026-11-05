@@ -41,6 +41,7 @@ import { displayGranularity } from "../RouterCharts/chartRange";
 import { TIME_KEY } from "../RouterCharts/pivotSeries";
 import { RouterChartHeadline } from "../RouterCharts/RouterChartHeadline";
 import { ROUTER_SOURCE_MARK } from "../RouterCharts/routerSourceMark";
+import { RouterConnectEmptyState } from "../RouterConnectEmptyState";
 
 interface ModelChartProps {
   className?: string;
@@ -212,10 +213,7 @@ export function RouterModelMixShareChart({
       }
     >
       {isEmpty ? (
-        <ErrorCard
-          title="No requests yet"
-          description="Route requests through Weave Router to see your model mix."
-        />
+        <RouterConnectEmptyState message="Route requests through Weave Router to see your model mix." />
       ) : (
         <Chart
           allowDependentTickDecimals
@@ -343,10 +341,7 @@ export function RouterModelRequestsSmallMultiples({
       >
         {({ series: models, times }) =>
           models.length === 0 ? (
-            <ErrorCard
-              title="No requests yet"
-              description="Route requests through Weave Router to see requests by model."
-            />
+            <RouterConnectEmptyState message="Route requests through Weave Router to see requests by model." />
           ) : (
             <SmallMultiples
               color={ChartColorToken.Scale2}
@@ -449,10 +444,7 @@ export function RouterModelSpendRanking({
         >
           {({ otherModels, slices, total }) =>
             slices.length === 0 ? (
-              <ErrorCard
-                title="No API spend yet"
-                description="Route requests through Weave Router to see catalog cost by model."
-              />
+              <RouterConnectEmptyState message="Route requests through Weave Router to see catalog cost by model." />
             ) : (
               <BreakdownBar
                 formatAmount={formatUSD}

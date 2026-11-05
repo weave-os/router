@@ -43,6 +43,7 @@ import {
 import { TIME_KEY } from "../RouterCharts/pivotSeries";
 import { periodPercentChange, RouterChartHeadline } from "../RouterCharts/RouterChartHeadline";
 import { ROUTER_SOURCE_MARK } from "../RouterCharts/routerSourceMark";
+import { RouterConnectEmptyState } from "../RouterConnectEmptyState";
 
 interface SpendChartProps {
   className?: string;
@@ -371,24 +372,32 @@ export function RouterCumulativeSavingsChart({ className, granularity, range }: 
       title="Cumulative savings"
       subtitle={`Running total of catalog cost saved vs ${comparisonModel} across the selected time range. Below $0, routing has cost more so far.`}
     >
-      <TimeChart
-        onClickDataPoint={onClickDataPoint}
-        config={{
-          [CUMULATIVE_KEY]: {
-            color: ChartColorToken.Green,
-            label: `Cumulative savings vs ${comparisonModel}`,
-            opacity: 0.3,
-            type: ChartSeriesType.Area,
-          },
-        }}
-        dependentKeys={CUMULATIVE_KEYS}
-        formatValue={formatUSDCompact}
-        granularity={granularity}
-        rows={rows}
-      />
+      {isEmpty(rows) ? (
+        <RouterConnectEmptyState message="Route requests through Weave Router to track cumulative savings." />
+      ) : (
+        <TimeChart
+          onClickDataPoint={onClickDataPoint}
+          config={{
+            [CUMULATIVE_KEY]: {
+              color: ChartColorToken.Green,
+              label: `Cumulative savings vs ${comparisonModel}`,
+              opacity: 0.3,
+              type: ChartSeriesType.Area,
+            },
+          }}
+          dependentKeys={CUMULATIVE_KEYS}
+          formatValue={formatUSDCompact}
+          granularity={granularity}
+          rows={rows}
+        />
+      )}
       {drillDownModal}
     </ChartCard>
   );
+}
+
+function isEmpty(rows: LoadState<readonly unknown[]>) {
+  return LoadState.isLoaded(rows) && rows.value.length === 0;
 }
 
 const RATE_KEY = "savings_rate";
@@ -454,28 +463,32 @@ export function RouterSavingsRateChart({ className, granularity, range }: SpendC
         />
       }
     >
-      <TimeChart
-        onClickDataPoint={onClickDataPoint}
-        config={{
-          [RATE_KEY]: {
-            color: ChartColorToken.Green,
-            label: `Savings rate vs ${comparisonModel}`,
-            type: ChartSeriesType.Bar,
-          },
-        }}
-        categorical
-        dependentKeys={RATE_KEYS}
-        formatValue={formatSavingsRate}
-        granularity={granularity}
-        highlightedIndependentValue={latestCompleteBucket(
-          (LoadState.unwrap(rows) ?? []).map(row => row[TIME_KEY]),
-          range,
-          displayGranularity(granularity),
-        )}
-        mutedBarColor={AccountChartColorToken.Gray}
-        referenceLines={referenceLines}
-        rows={rows}
-      />
+      {isEmpty(rows) ? (
+        <RouterConnectEmptyState message="Route requests through Weave Router to track your savings rate." />
+      ) : (
+        <TimeChart
+          onClickDataPoint={onClickDataPoint}
+          config={{
+            [RATE_KEY]: {
+              color: ChartColorToken.Green,
+              label: `Savings rate vs ${comparisonModel}`,
+              type: ChartSeriesType.Bar,
+            },
+          }}
+          categorical
+          dependentKeys={RATE_KEYS}
+          formatValue={formatSavingsRate}
+          granularity={granularity}
+          highlightedIndependentValue={latestCompleteBucket(
+            (LoadState.unwrap(rows) ?? []).map(row => row[TIME_KEY]),
+            range,
+            displayGranularity(granularity),
+          )}
+          mutedBarColor={AccountChartColorToken.Gray}
+          referenceLines={referenceLines}
+          rows={rows}
+        />
+      )}
       {drillDownModal}
     </ChartCard>
   );
@@ -644,22 +657,26 @@ export function RouterCostPerRequestChart({ className, granularity, range }: Spe
         />
       }
     >
-      <TimeChart
-        onClickDataPoint={onClickDataPoint}
-        allowDependentTickDecimals
-        annotations={annotations}
-        config={{
-          [PER_REQUEST_KEY]: {
-            color: ChartColorToken.Scale1,
-            label: "Cost per request",
-            type: ChartSeriesType.Line,
-          },
-        }}
-        dependentKeys={PER_REQUEST_KEYS}
-        formatValue={formatUSDPerRequest}
-        granularity={granularity}
-        rows={chartRows}
-      />
+      {isEmpty(chartRows) ? (
+        <RouterConnectEmptyState message="Route requests through Weave Router to track cost per request." />
+      ) : (
+        <TimeChart
+          onClickDataPoint={onClickDataPoint}
+          allowDependentTickDecimals
+          annotations={annotations}
+          config={{
+            [PER_REQUEST_KEY]: {
+              color: ChartColorToken.Scale1,
+              label: "Cost per request",
+              type: ChartSeriesType.Line,
+            },
+          }}
+          dependentKeys={PER_REQUEST_KEYS}
+          formatValue={formatUSDPerRequest}
+          granularity={granularity}
+          rows={chartRows}
+        />
+      )}
       {drillDownModal}
     </ChartCard>
   );
@@ -733,10 +750,7 @@ export function RouterSpendByMakerChart({
       >
         {totals =>
           totals.length === 0 ? (
-            <ErrorCard
-              title="No requests yet"
-              description="Route requests through Weave Router to see catalog cost by model maker."
-            />
+            <RouterConnectEmptyState message="Route requests through Weave Router to see catalog cost by model maker." />
           ) : (
             <Listogram>
               <ul className="flex flex-col gap-1">

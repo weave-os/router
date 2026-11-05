@@ -61,6 +61,8 @@ export interface RouterDrillDownPerson {
   email: string;
   id: string;
   linked: boolean;
+  /** Every session, while `sessions` may stop at the host's per-person cap. */
+  sessionCount: number;
   sessions: readonly RouterDrillDownSession[];
 }
 

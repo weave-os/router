@@ -229,6 +229,7 @@ export interface DrillDownResponse {
     email: string;
     id: string;
     linked: boolean;
+    session_count: number;
     sessions: {
       client_app: string;
       finished_at: string;

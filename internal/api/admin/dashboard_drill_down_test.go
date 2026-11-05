@@ -65,6 +65,9 @@ func TestDrillDownPeopleGroupsSessionsAndSortsByCost(t *testing.T) {
 	if len(people) != 2 || people[0].ID != "pricey" {
 		t.Fatalf("people = %+v, want pricey first", people)
 	}
+	if people[0].SessionCount != 2 {
+		t.Fatalf("session count = %d, want 2", people[0].SessionCount)
+	}
 	sessions := people[0].Sessions
 	if len(sessions) != 2 || sessions[0].SessionID != "s3" {
 		t.Fatalf("sessions = %+v, want newest s3 first", sessions)

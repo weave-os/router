@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 
 import { type DateRange, type RouterMetricGroup, type RouterMetricType } from "../../data";
+import { useRouterDrillDown } from "../../data/useRouterDrillDown";
 import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
 import { formatBigDecimal, formatInteger } from "../../tools/format";
 import { LoadState } from "../../tools/LoadState";
@@ -117,6 +118,12 @@ export function RouterGroupedChartCard({
     );
   }, [fillPattern, pivoted, seriesConfigs, seriesType]);
   const partialBucketTick = usePartialBucketTick(range, timeGranularity);
+  const { drillDownModal, openDrillDown } = useRouterDrillDown({
+    granularity,
+    group,
+    range,
+    type: metric,
+  });
   const isShare = view === GroupedMetricView.Share;
   const formatShown = (value: number) => (isShare ? `${value.toFixed(0)}%` : formatValue(value));
 
@@ -172,7 +179,13 @@ export function RouterGroupedChartCard({
         formatIndependentValueTooltip={value => formatInterval(value, timeGranularity)}
         independentTick={markPartialBuckets ? partialBucketTick : undefined}
         legend
+        onClickDataPoint={
+          openDrillDown == null
+            ? undefined
+            : (time, key) => openDrillDown({ bucketStart: time, key })
+        }
       />
+      {drillDownModal}
     </ChartCard>
   );
 }

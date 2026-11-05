@@ -21,6 +21,7 @@ import { ChartCard } from "../ChartCard";
 import { ErrorCard } from "../ErrorCard";
 import { LoadStateWrapper } from "../LoadStateWrapper";
 import { ROUTER_SOURCE_MARK } from "../RouterCharts/routerSourceMark";
+import { RouterConnectEmptyState } from "../RouterConnectEmptyState";
 
 const HEATMAP_COLOR = ChartColor.Scale2;
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -145,10 +146,7 @@ export function RouterDailyRequestsHeatmap({
       >
         {dailyGrid =>
           dailyGrid == null ? (
-            <ErrorCard
-              title="No requests yet"
-              description="Route requests through Weave Router to see when people use it."
-            />
+            <RouterConnectEmptyState message="Route requests through Weave Router to see when people use it." />
           ) : (
             <Heatmap
               baseColor={HEATMAP_COLOR}

@@ -34,11 +34,13 @@ type dashboardDrillDownSession struct {
 }
 
 type dashboardDrillDownPerson struct {
-	ID          string                      `json:"id"`
-	Linked      bool                        `json:"linked"`
-	DisplayName string                      `json:"display_name"`
-	Email       string                      `json:"email"`
-	Sessions    []dashboardDrillDownSession `json:"sessions"`
+	ID          string `json:"id"`
+	Linked      bool   `json:"linked"`
+	DisplayName string `json:"display_name"`
+	Email       string `json:"email"`
+	// SessionCount counts every session, including those past the per-person cap on Sessions.
+	SessionCount int                         `json:"session_count"`
+	Sessions     []dashboardDrillDownSession `json:"sessions"`
 }
 
 type dashboardDrillDownResponse struct {
@@ -142,6 +144,7 @@ func drillDownPeople(rows []proxy.TelemetryDrillDownRow) []dashboardDrillDownPer
 		slices.SortFunc(person.Sessions, func(a, b dashboardDrillDownSession) int {
 			return b.StartedAt.Compare(a.StartedAt)
 		})
+		person.SessionCount = len(person.Sessions)
 		if len(person.Sessions) > drillDownSessionsPerPerson {
 			person.Sessions = person.Sessions[:drillDownSessionsPerPerson]
 		}
