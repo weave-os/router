@@ -132,9 +132,9 @@ var (
 // goldenMatrixScenarios run on both ingresses, streamed and not.
 func goldenMatrixScenarios(ingress string, stream bool) []goldenScenario {
 	prefix := ingress + "_" + streamName(stream) + "_"
-	one := []goldenRequest{{body: ingressBody(ingress, stream)}}
+	singleRequest := []goldenRequest{{body: ingressBody(ingress, stream)}}
 	sc := func(name string, d router.Decision, upstreams map[string][]goldenStep) goldenScenario {
-		return goldenScenario{name: prefix + name, ingress: ingress, decisions: []router.Decision{d}, upstreams: upstreams, requests: one}
+		return goldenScenario{name: prefix + name, ingress: ingress, decisions: []router.Decision{d}, upstreams: upstreams, requests: singleRequest}
 	}
 	return []goldenScenario{
 		sc("anthropic_success", goldenAnthropicDecision, map[string][]goldenStep{
@@ -165,10 +165,13 @@ func goldenMatrixScenarios(ingress string, stream bool) []goldenScenario {
 		{name: prefix + "prompt_past_primary_window", ingress: ingress,
 			decisions: []router.Decision{withCandidates(goldenAnthropicDecision,
 				map[string]string{goldenAnthropicModel: providers.ProviderAnthropic, goldenCompatModel: providers.ProviderFireworks},
-				goldenAnthropicModel, goldenCompatModel)},
+				goldenAnthropicModel, goldenCompatModel), goldenCompatDecision},
 			upstreams: map[string][]goldenStep{
 				providers.ProviderAnthropic: {anthropicOK(stream, "never")},
 				providers.ProviderFireworks: {compatOK(stream, "wide")}},
+			configure: func(svc *proxy.Service, _ *goldenHarness) *proxy.Service {
+				return svc.WithAvailableModels(map[string]struct{}{goldenAnthropicModel: {}, goldenCompatModel: {}})
+			},
 			requests: []goldenRequest{{body: strings.Replace(ingressBody(ingress, stream), "Say hi", strings.Repeat("overflow ", 120_000), 1)}}},
 	}
 }
@@ -176,29 +179,29 @@ func goldenMatrixScenarios(ingress string, stream bool) []goldenScenario {
 // goldenStreamScenarios exercise the stream-commit boundary.
 func goldenStreamScenarios(ingress string) []goldenScenario {
 	prefix := ingress + "_stream_"
-	one := []goldenRequest{{body: ingressBody(ingress, true)}}
+	singleRequest := []goldenRequest{{body: ingressBody(ingress, true)}}
 	compat := goldenCompatStream(goldenCompatWire, "partial")
 	native := goldenAnthropicStream(goldenAnthropicModel, "partial")
-	sse := map[string]string{"Content-Type": "text/event-stream"}
+	sseHeaders := map[string]string{"Content-Type": "text/event-stream"}
 	return []goldenScenario{
-		{name: prefix + "cut_after_role_chunk", ingress: ingress, requests: one,
+		{name: prefix + "cut_after_role_chunk", ingress: ingress, requests: singleRequest,
 			decisions: []router.Decision{goldenCompatDecision},
 			upstreams: map[string][]goldenStep{
-				providers.ProviderFireworks:  {{status: http.StatusOK, headers: sse, frames: compat[:1], err: io.ErrUnexpectedEOF}},
+				providers.ProviderFireworks:  {{status: http.StatusOK, headers: sseHeaders, frames: compat[:1], err: io.ErrUnexpectedEOF}},
 				providers.ProviderOpenRouter: {compatOK(true, "rescued")}}},
-		{name: prefix + "cut_after_content_chunk", ingress: ingress, requests: one,
+		{name: prefix + "cut_after_content_chunk", ingress: ingress, requests: singleRequest,
 			decisions: []router.Decision{goldenCompatDecision},
 			upstreams: map[string][]goldenStep{
-				providers.ProviderFireworks:  {{status: http.StatusOK, headers: sse, frames: compat[:2], err: io.ErrUnexpectedEOF}},
+				providers.ProviderFireworks:  {{status: http.StatusOK, headers: sseHeaders, frames: compat[:2], err: io.ErrUnexpectedEOF}},
 				providers.ProviderOpenRouter: {compatOK(true, "never")}}},
-		{name: prefix + "native_cut_after_content", ingress: ingress, requests: one,
+		{name: prefix + "native_cut_after_content", ingress: ingress, requests: singleRequest,
 			decisions: []router.Decision{goldenAnthropicDecision},
 			upstreams: map[string][]goldenStep{
-				providers.ProviderAnthropic: {{status: http.StatusOK, headers: sse, frames: native[:3], err: io.ErrUnexpectedEOF}}}},
-		{name: prefix + "client_cancel_mid_stream", ingress: ingress, requests: one,
+				providers.ProviderAnthropic: {{status: http.StatusOK, headers: sseHeaders, frames: native[:3], err: io.ErrUnexpectedEOF}}}},
+		{name: prefix + "client_cancel_mid_stream", ingress: ingress, requests: singleRequest,
 			decisions: []router.Decision{goldenAnthropicDecision},
 			upstreams: map[string][]goldenStep{
-				providers.ProviderAnthropic: {{status: http.StatusOK, headers: sse, frames: native[:3], cancel: true}}}},
+				providers.ProviderAnthropic: {{status: http.StatusOK, headers: sseHeaders, frames: native[:3], cancel: true}}}},
 	}
 }
 
@@ -231,7 +234,7 @@ func goldenClaudeCodeCtx(ctx context.Context) context.Context {
 // goldenAnthropicOnlyScenarios cover behavior that only the Messages ingress
 // or cross-request state exercises.
 func goldenAnthropicOnlyScenarios() []goldenScenario {
-	sse := map[string]string{"Content-Type": "text/event-stream"}
+	sseHeaders := map[string]string{"Content-Type": "text/event-stream"}
 	stopped := goldenAnthropicStream(goldenAnthropicModel, "Fixed test a. Next I will fix b and c.")
 	toolCall := []string{
 		goldenSSE("message_start", `{"type":"message_start","message":{"id":"msg_up","type":"message","role":"assistant","model":"`+goldenSiblingModel+`","content":[],"stop_reason":null,"usage":{"input_tokens":12,"output_tokens":1}}}`),
@@ -250,8 +253,8 @@ func goldenAnthropicOnlyScenarios() []goldenScenario {
 		{name: "anthropic_messages_stream_early_stop_redo", ingress: ingressAnthropic,
 			decisions: []router.Decision{earlyStop},
 			upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {
-				{status: http.StatusOK, headers: sse, frames: stopped},
-				{status: http.StatusOK, headers: sse, frames: toolCall}}},
+				{status: http.StatusOK, headers: sseHeaders, frames: stopped},
+				{status: http.StatusOK, headers: sseHeaders, frames: toolCall}}},
 			requests: []goldenRequest{{body: goldenToolResultBody, ctx: goldenClaudeCodeCtx}},
 			configure: func(svc *proxy.Service, _ *goldenHarness) *proxy.Service {
 				return svc.WithEarlyStopRedo(flags.EarlyStopRedoOn)
