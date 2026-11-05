@@ -267,7 +267,8 @@ type SubscriptionSeatLister interface {
 	ListSubscriptionSeats(ctx context.Context) ([]SubscriptionSeat, error)
 }
 
-// SubscriptionSeat is one linked account and the person who owns it.
+// SubscriptionSeat carries owner fields so the admin can tell whose seat to
+// unlink; OwnerHasRoutingKey is false once the owner's last key is deleted.
 type SubscriptionSeat struct {
 	AccountID          string
 	SubscriberID       string
@@ -279,7 +280,8 @@ type SubscriptionSeat struct {
 	OwnerHasRoutingKey bool
 }
 
-// ListSubscriptionSeats lists every linked seat for the dashboard admin.
+// ListSubscriptionSeats includes seats whose owner lost their last routing key,
+// which the owner picker hides, so the admin can still unlink them.
 func (s *Service) ListSubscriptionSeats(ctx context.Context) ([]SubscriptionSeat, error) {
 	lister, ok := s.subscriptionAccounts.(SubscriptionSeatLister)
 	if !ok {

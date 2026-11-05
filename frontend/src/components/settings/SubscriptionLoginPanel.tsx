@@ -30,7 +30,7 @@ interface ActiveLogin {
 }
 
 // The key identity disambiguates owners whose keys share a name or have none.
-function subscriptionOwnerLabel(owner: SubscriptionOwner): string {
+function subscriptionOwnerLabel(owner: SubscriptionOwner) {
   const key = `${owner.key_prefix}…${owner.key_suffix}`;
   if (owner.display_name === "" && owner.email === "") {
     return `Unnamed key ${key}`;
@@ -46,7 +46,7 @@ export function SubscriptionLoginPanel({ onLinked }: { onLinked?: () => void }) 
   const [owners, setOwners] = useState<SubscriptionOwnersResponse | null>(null);
   const [subscriberID, setSubscriberID] = useState("");
   const [login, setLogin] = useState<ActiveLogin | null>(null);
-  const [code, setCode] = useState("");
+  const [authCode, setAuthCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [linked, setLinked] = useState<LinkedSubscriptionAccount | null>(null);
@@ -97,7 +97,7 @@ export function SubscriptionLoginPanel({ onLinked }: { onLinked?: () => void }) 
     setBusy(true);
     setError(null);
     setLinked(null);
-    setCode("");
+    setAuthCode("");
     try {
       const started = await api.subscriptionLogins.start(subscriberID, provider);
       setLogin({ provider, started, subscriberID });
@@ -117,7 +117,7 @@ export function SubscriptionLoginPanel({ onLinked }: { onLinked?: () => void }) 
       const account = await api.subscriptionLogins.complete(
         login.subscriberID,
         login.started.login_token,
-        code.trim(),
+        authCode.trim(),
       );
       setLinked(account);
       setLogin(null);
@@ -218,14 +218,14 @@ export function SubscriptionLoginPanel({ onLinked }: { onLinked?: () => void }) 
                 id="subscription-login-code"
                 label="Paste the code Claude shows after you sign in"
                 autoComplete="off"
-                value={code}
-                onChange={event => setCode(event.target.value)}
+                value={authCode}
+                onChange={event => setAuthCode(event.target.value)}
               />
               <Button
                 appearance={Appearance.Filled}
                 intent={Intent.Primary}
                 size="sm"
-                disabled={busy || code.trim() === ""}
+                disabled={busy || authCode.trim() === ""}
                 onClick={() => void submitClaudeCode()}
               >
                 Link
