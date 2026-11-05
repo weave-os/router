@@ -235,7 +235,7 @@ func newTransport(dialTimeout, tlsTimeout, responseHeaderTimeout time.Duration, 
 		dialer.Control = restrictDestination
 		proxy = nil
 	}
-	sendPing, pingTimeout := h2KeepaliveFor(responseHeaderTimeout)
+	sendPingAfter, pingTimeout := h2KeepaliveFor(responseHeaderTimeout)
 	return &http.Transport{
 		Proxy:                 proxy,
 		DialContext:           dialer.DialContext,
@@ -247,7 +247,7 @@ func newTransport(dialTimeout, tlsTimeout, responseHeaderTimeout time.Duration, 
 		ResponseHeaderTimeout: responseHeaderTimeout,
 		ForceAttemptHTTP2:     true,
 		HTTP2: &http.HTTP2Config{
-			SendPingTimeout: sendPing,
+			SendPingTimeout: sendPingAfter,
 			PingTimeout:     pingTimeout,
 		},
 	}
