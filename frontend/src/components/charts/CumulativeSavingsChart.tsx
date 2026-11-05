@@ -18,6 +18,8 @@ import {
 import { DrillDownModal } from "@/shared/components/DrillDownModal";
 import { LoadState } from "@/shared/tools/LoadState";
 
+import { cumsum } from "d3-array";
+
 import { useMemo } from "react";
 
 import { useChartDrillDown } from "./useChartDrillDown";
@@ -70,8 +72,7 @@ export function CumulativeSavingsChart({ buckets, granularity }: Props) {
     const sorted = [...buckets].sort(
       (a, b) => new Date(a.bucket).getTime() - new Date(b.bucket).getTime(),
     );
-    const cumulative = sorted.map(b => b.requested_cost_usd - b.actual_cost_usd);
-    for (let i = 1; i < cumulative.length; i++) cumulative[i] += cumulative[i - 1];
+    const cumulative = cumsum(sorted.map(b => b.requested_cost_usd - b.actual_cost_usd));
     return LoadState.loaded(
       sorted.map((b, i) => ({
         [TIME_KEY]: new Date(b.bucket).getTime() as DateTime,

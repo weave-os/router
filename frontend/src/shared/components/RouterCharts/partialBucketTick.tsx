@@ -1,4 +1,4 @@
-import { format } from "date-fns";
+import { format, subDays } from "date-fns";
 
 import { type ReactNode, useCallback } from "react";
 
@@ -7,8 +7,6 @@ import { DateFormat } from "../../tools/time";
 import { addGranularity, formatTime, type TimeGranularity } from "../../tools/timeGranularity";
 import { Tooltip } from "../molecules/Tooltip";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 /** The days of a bucket the range covers, when the range cuts the bucket short. */
 function partialBucketLabel(bucketStart: number, granularity: TimeGranularity, range: DateRange) {
   const from = Date.parse(range.from);
@@ -16,7 +14,7 @@ function partialBucketLabel(bucketStart: number, granularity: TimeGranularity, r
   const bucketEnd = addGranularity(bucketStart, granularity, 1).getTime();
   if (bucketStart >= from && bucketEnd <= to) return null;
   const overlapStart = new Date(Math.max(bucketStart, from));
-  const overlapEnd = new Date(Math.min(bucketEnd, to) - DAY_MS);
+  const overlapEnd = subDays(Math.min(bucketEnd, to), 1);
   const start = format(overlapStart, DateFormat.MonthDayShort);
   if (overlapEnd <= overlapStart) return `This is a partial bucket for ${start}`;
   const sameMonth =

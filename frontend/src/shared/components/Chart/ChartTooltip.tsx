@@ -151,7 +151,6 @@ export function ChartTooltip<
   if (payload == null || payload.length === 0) return null;
   const independentValue = label as TIndependentValue | null | undefined;
 
-  // Use series-aware formatter if provided, otherwise fall back to basic formatter
   const title =
     independentValue != null && formatIndependentValueForSeries != null
       ? formatIndependentValueForSeries(independentValue, activeSeries ?? null)
@@ -200,7 +199,6 @@ export function ChartTooltip<
     });
   }
 
-  // Cap to at most MAX_TOOLTIP_SERIES_ROWS visible rows.
   const capped = capTooltipSeries<TDependentKey>({
     activeSeries: (activeSeries as TDependentKey | undefined) ?? null,
     entries: renderableEntries,

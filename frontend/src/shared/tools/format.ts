@@ -72,9 +72,6 @@ export function formatBigDecimal(value: number): string {
   return BIG_DECIMAL_FORMATTER.format(value);
 }
 
-/**
- * Formats a number with a sensible default.
- */
 export function formatNumber(value: number, maximumFractionDigits = 2): string {
   if (isNaN(value)) return "-";
 
@@ -88,9 +85,6 @@ export function formatHours(hours: number): string {
   return `${(hours / 24).toFixed(1)}d`;
 }
 
-/**
- * Formats a number as an integer.
- */
 export function formatInteger(value: number): string {
   if (isNaN(value)) return "-";
 
@@ -293,7 +287,7 @@ export function getExchangeRate(targetCurrency: string): number {
 const BREAKDOWN_WHOLE_UNITS_FROM = 10000;
 
 /** `wholeUnitsFrom` drops cents from that amount up; `null` always keeps them. */
-function formatLocaleCurrencyValue(usdValue: number, wholeUnitsFrom: number | null): string {
+function formatLocaleCurrencyValue(usdValue: number, wholeUnitsFrom: number | null) {
   if (isNaN(usdValue)) return "-";
 
   const fallbackFormatter =

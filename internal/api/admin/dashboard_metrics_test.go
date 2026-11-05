@@ -59,7 +59,7 @@ func TestFactsInGroupKeepsOnlyThatLabel(t *testing.T) {
 	if got := reportSummary(factsInGroup(slices.Clone(facts), dashboardGroupRoutingState, routingStateRouted)).TotalCostUSD; got != 5 {
 		t.Fatalf("routed cost = %v, want 5", got)
 	}
-	if got := reportSummary(factsInGroup(slices.Clone(facts), dashboardGroupRoutingState, routingStatePassthru)).TotalCostUSD; got != 2 {
+	if got := reportSummary(factsInGroup(slices.Clone(facts), dashboardGroupRoutingState, routingStatePassthrough)).TotalCostUSD; got != 2 {
 		t.Fatalf("passthrough cost = %v, want 2", got)
 	}
 	if got := len(factsInGroup(facts, dashboardGroupRoutingState, "")); got != 3 {

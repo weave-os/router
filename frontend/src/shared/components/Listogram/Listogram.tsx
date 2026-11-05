@@ -27,9 +27,6 @@ export function Listogram({ children, className, ...props }: ListogramProps) {
 Listogram.Row = ListogramRow;
 Listogram.Selector = ListogramSelector;
 
-/**
- * Renders a loading skeleton for a listogram.
- */
 Listogram.Loading = function ListogramLoading({ rows = 5 }: { rows?: number }) {
   return (
     <Listogram className="min-h-0 flex-1">

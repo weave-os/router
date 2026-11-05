@@ -10,7 +10,6 @@ import { useChartContext } from "./ChartContext";
 import { ChartSeriesSwatch, isDottedSeries, isHatchedBarSeries } from "./ChartSeriesSwatch";
 import { ChartDataKeyType, ChartSeriesType } from "./types";
 
-/** Maximum character length for legend labels before truncation */
 const LEGEND_TEXT_MAX_LENGTH = 40;
 
 /** Height of one legend row: the 20px line plus the item's vertical padding. */

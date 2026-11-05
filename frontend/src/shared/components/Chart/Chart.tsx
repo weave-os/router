@@ -865,7 +865,7 @@ export function Chart<
         : 0
       : undefined;
 
-  const maxAbsDataValueByAxis = useMemo((): Record<ChartDependentAxis, number> => {
+  const maxAbsDataValueByAxis = useMemo(() => {
     const maxValues = {
       [ChartDependentAxis.Left]: 0,
       [ChartDependentAxis.Right]: 0,
@@ -909,7 +909,7 @@ export function Chart<
   }, [config, dependentKeys, displayedData]);
 
   const computeAxisWidth = useCallback(
-    (formatter: (v: TDependentValue) => string, maxAbsDataValue: number): number => {
+    (formatter: (v: TDependentValue) => string, maxAbsDataValue: number) => {
       if (hideAxes) return 0;
       if (maxAbsDataValue === 0) return 40;
 

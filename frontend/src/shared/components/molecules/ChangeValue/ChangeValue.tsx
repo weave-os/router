@@ -109,9 +109,8 @@ function formatChange(change: number, unit: ChangeUnit) {
   const raw = Math.round(change);
   const rounded = Object.is(raw, -0) ? 0 : raw;
   const direction = Math.sign(rounded);
-  const suffix = CHANGE_UNIT_SUFFIX[unit];
   return {
     direction,
-    formattedChange: `${direction > 0 ? "+" : ""}${formatInteger(rounded)}${suffix}`,
+    formattedChange: `${direction > 0 ? "+" : ""}${formatInteger(rounded)}${CHANGE_UNIT_SUFFIX[unit]}`,
   };
 }

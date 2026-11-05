@@ -44,14 +44,14 @@ const (
 
 // Group labels match the hosted dashboard so shared cards read both hosts alike.
 const (
-	costTypeActual       = "Actual cost"
-	costTypeComparison   = "Expensive model cost"
-	billingSubscription  = "subscription"
-	billingAPI           = "api"
-	routingStateRouted   = "routed"
-	routingStatePassthru = "passthrough"
-	userLinkLinked       = "linked"
-	userLinkUnlinked     = "unlinked"
+	costTypeActual          = "Actual cost"
+	costTypeComparison      = "Expensive model cost"
+	billingSubscription     = "subscription"
+	billingAPI              = "api"
+	routingStateRouted      = "routed"
+	routingStatePassthrough = "passthrough"
+	userLinkLinked          = "linked"
+	userLinkUnlinked        = "unlinked"
 )
 
 // totalGranularity collapses the window into one value per group.
@@ -136,7 +136,7 @@ func MetricsReportSummaryHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 		routingState := c.Query("routing_state")
-		if routingState != "" && routingState != routingStateRouted && routingState != routingStatePassthru {
+		if routingState != "" && routingState != routingStateRouted && routingState != routingStatePassthrough {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Unsupported routing_state."})
 			return
 		}
@@ -299,7 +299,7 @@ func factGroup(fact proxy.TelemetryDashboardFact, group dashboardMetricGroup) *s
 	case dashboardGroupRoutingState:
 		label = routingStateRouted
 		if dashboardDecisionType(fact.DecisionType) == dashboardDecisionPassthrough {
-			label = routingStatePassthru
+			label = routingStatePassthrough
 		}
 	default:
 		return nil

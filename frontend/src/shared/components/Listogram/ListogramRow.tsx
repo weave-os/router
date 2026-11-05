@@ -55,7 +55,6 @@ export interface ListogramBarSegment {
   label: string;
 }
 
-/** Renders a single row in a listogram. */
 export function ListogramRow<TValue extends number>({
   children,
   className,
