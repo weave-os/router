@@ -105,6 +105,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	feats := env.RoutingFeatures(embedFlag)
+	ctx = withRequestImageCount(ctx, feats.ImageCount)
 	promptText := feats.PromptText
 	embedInput := "concatenated_stream"
 	if embedFlag && feats.OnlyUserMessageText != "" {
@@ -145,6 +146,15 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			"excluded_models", strings.Join(geminiUnsigned, ","),
 		)
 	}
+	customBindings := s.customBindingsForRequest(ctx)
+	excluded, imageLimitExcluded := excludeImageLimitModels(feats.ImageCount, enabledProviders, customBindings, excluded, s.availableModels)
+	if len(imageLimitExcluded) > 0 {
+		log.Info("image limit pre-filter: excluded models whose bindings cap images below the request count",
+			"image_count", feats.ImageCount,
+			"excluded_models", strings.Join(imageLimitExcluded, ","),
+		)
+	}
+	hardExcluded := append(append([]string(nil), geminiUnsigned...), imageLimitExcluded...)
 	overflowEstimate := env.ContextOverflowTokenEstimate()
 	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, excluded, s.availableModels)
 	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders, cluster.RequestBindings{Custom: s.customBindingsForRequest(ctx), Gateways: s.gatewayProvidersForRequest(ctx)})
@@ -165,6 +175,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		EstimatedInputTokens:          feats.Tokens,
 		HasTools:                      feats.HasTools,
 		HasImages:                     feats.HasImages,
+		ImageCount:                    feats.ImageCount,
 		TranslationRequirements:       env.TranslationRequirements(router.EndpointGeminiGenerate),
 		ReasoningConfigurationSHA256:  env.ReasoningConfigurationSHA256(),
 		ToolConfigurationSHA256:       env.ToolConfigurationSHA256(),
@@ -174,12 +185,13 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		Tools:                         toolsForRouting(env),
 		ClientSessionID:               clientSessionIDForRequest(ctx, env),
 		EnabledProviders:              enabledProviders,
-		CustomBindings:                s.customBindingsForRequest(ctx),
+		CustomBindings:                customBindings,
 		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
 		ExcludedModels:                excluded,
 		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders), overflowAdmitted, geminiUnsigned),
-		ContextWindowExcludedModels:   contextWindowOnlyExclusions(ctxOverflowed, overflowAdmitted, geminiUnsigned),
+		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders, customBindings), overflowAdmitted, hardExcluded),
+		ContextWindowExcludedModels:   contextWindowOnlyExclusions(ctxOverflowed, overflowAdmitted, hardExcluded),
+		ImageLimitExcludedModels:      modelSet(imageLimitExcluded),
 		UnsignedHistoryExcludedModels: modelSet(geminiUnsigned),
 		OverflowAdmittedModels:        modelSet(overflowAdmitted),
 		PreferredModels:               s.preferredModelsForRequest(ctx),

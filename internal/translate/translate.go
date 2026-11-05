@@ -303,6 +303,15 @@ func writeAnthropicContentFromOpenAI(jw *jsonWriter, reasoning, text string, cal
 }
 
 func acceptedChatToolCalls(toolCalls gjson.Result, validator *toolcheck.Validator, escapeNormalize bool) ([]AcceptedToolCall, []toolcheck.Issue) {
+	return acceptedChatToolCallsWithMappings(toolCalls, validator, escapeNormalize, nil)
+}
+
+func acceptedChatToolCallsWithMappings(
+	toolCalls gjson.Result,
+	validator *toolcheck.Validator,
+	escapeNormalize bool,
+	mappings map[string]ResponsesToolMapping,
+) ([]AcceptedToolCall, []toolcheck.Issue) {
 	ledger := NewToolCallLedger()
 	var calls []AcceptedToolCall
 	var issues []toolcheck.Issue
@@ -318,7 +327,13 @@ func acceptedChatToolCalls(toolCalls gjson.Result, validator *toolcheck.Validato
 				}
 			}
 		}
-		call := ledger.Close(index, toolCall.Get("id").String(), name, arguments).Accept(validator)
+		entry := ledger.Close(index, toolCall.Get("id").String(), name, arguments)
+		var call AcceptedToolCall
+		if mapping, mapped := mappings[name]; mapped && mapping.Custom {
+			call = entry.acceptRaw()
+		} else {
+			call = entry.Accept(validator)
+		}
 		if call.Suppression != ToolCallNotSuppressed {
 			continue
 		}

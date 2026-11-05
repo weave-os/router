@@ -13,6 +13,8 @@ Tracks the most recent rate-limit utilization each subscription backend reports 
 
 Quota observations guide temporary account cooldown and reset. Unknown quota permits an initial subscription attempt; known exhaustion or paid overage excludes the credential. These observations cannot guarantee that a request never crosses into provider-enabled extra usage.
 
+Configured native Anthropic BYOK takes precedence over both caller OAuth and linked Claude accounts, including unknown quota. It disables Claude subscription bypass and does not require subscription exhaustion proof to dispatch on that key. This prevents a cold OAuth probe from already billing Enterprise overage; a BYOK credential failure never authorizes a subscription fallback. Codex subscription precedence is unchanged.
+
 ## Consumers (both in package `proxy`)
 
 - **Subscription source selection** ([`../subscription_observation.go`](../subscription_observation.go)): observes quota to rotate eligible physical accounts in personal/shared order; no catalog cost discount or optimistic cold-start funding bonus.

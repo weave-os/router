@@ -139,7 +139,8 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 	if _, excluded := req.SafetyExcludedModels[req.RequestedModel]; excluded {
 		return router.Decision{}, fmt.Errorf("requested model %q cannot serve this request: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
 	}
-	if req.HasImages && !catalog.AcceptsImages(req.RequestedModel) {
+	if req.HasImages && (!catalog.AcceptsImages(req.RequestedModel) ||
+		req.ImageCount > 0 && !catalog.AcceptsImageCount(req.RequestedModel, req.ImageCount, req.EnabledProviders)) {
 		return router.Decision{}, fmt.Errorf("requested model %q cannot accept images: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
 	}
 	if len(req.GatewayProviders) > 0 {

@@ -132,6 +132,9 @@ type ProviderBinding struct {
 	// CacheReadMultiplier inherits Price's. Routing always scores on Price;
 	// only post-dispatch billing sees the fast rate.
 	FastPrice Pricing
+	// MaxImagesPerRequest is the maximum image parts this deployment accepts
+	// in one request. Zero means no known limit.
+	MaxImagesPerRequest int
 	// ContextWindow overrides the model-level ContextWindow for this binding.
 	// Zero means inherit. Use when the served window differs by provider.
 	ContextWindow int
@@ -314,12 +317,12 @@ var Models = []Model{
 		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10}},
 		{Provider: providers.ProviderOpenRouter, UpstreamID: "anthropic/claude-sonnet-5", SubscriptionOverflowOnly: true, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10}},
 	}},
-	// Sonnet 5.5: $2/$10, cache reads at $0.20/MTok (0.1x), no fast tier.
+	// Sonnet 5.5: $2/$10, cache reads at $0.10/MTok (0.05x), no fast tier.
 	// Native 1M context; thinking cannot be disabled (between_tools is the
 	// floor) and forced tool_choice is rejected, like Opus 5.5.
 	{ID: "claude-sonnet-5-5", Source: SourceClosedSource, Tier: TierMid, AdvisorRank: 6, ContextWindow: 1_000_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10, USInferenceGeoMultiplier: USInferenceGeoMultiplier}},
-		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.05, USInferenceGeoMultiplier: USInferenceGeoMultiplier}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.05}},
 		{Provider: providers.ProviderOpenRouter, UpstreamID: "anthropic/claude-sonnet-5.5", SubscriptionOverflowOnly: true, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.05}},
 	}},
 	// Legacy Opus IDs kept passthrough-priced (no Tier — not a routing
@@ -732,7 +735,9 @@ var Models = []Model{
 	// reserved for maximum-complexity Max requests.
 	{ID: "xiaomi/mimo-v2.6-pro", Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_048_576, ThinkTagReasoning: true, Providers: []ProviderBinding{
 		{Provider: providers.ProviderDeepInfra, UpstreamID: "XiaomiMiMo/MiMo-V2.6-Pro",
-			Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.00827586}},
+			// DeepInfra returns "Too many images in request: N > 4".
+			MaxImagesPerRequest: 4,
+			Price:               Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.00827586}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.10}},
 	}},
 	// Untiered: Makora EOL'd V4-Pro and recommends V4-Flash, which takes the

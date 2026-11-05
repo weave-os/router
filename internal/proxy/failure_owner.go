@@ -123,7 +123,7 @@ func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 		return FailureOwnerRouter
 	case DispatchErrorCompactionUnservable:
 		return FailureOwnerProvider
-	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorContextWindowExceeded,
+	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorContextWindowExceeded, DispatchErrorImageLimitExceeded,
 		DispatchErrorInvalidRoutingKnobs, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded,
 		DispatchErrorForcedModelUnknown, DispatchErrorPassthroughModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy,
 		DispatchErrorForcedClusterUnservable, DispatchErrorPlanOverrideRejected, DispatchErrorHandoff,

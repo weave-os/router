@@ -1,0 +1,59 @@
+{
+  "version": "1.1",
+  "durations": {
+    "default": 600,
+    "fast": 240,
+    "ui": 240,
+    "panel": 320,
+    "expressive": 480
+  },
+  "microanimations": {
+    "minimumDuration": 240,
+    "staggerStep": 60
+  },
+  "defaults": {
+    "reveal": "easeOutExpo",
+    "fade": "easeOutCubic",
+    "move": "easeInOutCubic"
+  },
+  "utilities": {
+    "linear": "linear"
+  },
+  "curves": [
+    {
+      "id": "easeOutExpo",
+      "name": "easeOutExpo",
+      "points": [0.16, 1, 0.3, 1],
+      "use": "Scroll reveals",
+      "cssVariable": "--wv-ease-out-expo"
+    },
+    {
+      "id": "easeOutQuart",
+      "name": "easeOutQuart",
+      "points": [0.25, 1, 0.5, 1],
+      "use": "Cards and text reveals",
+      "cssVariable": "--wv-ease-out-quart"
+    },
+    {
+      "id": "easeOutCubic",
+      "name": "easeOutCubic",
+      "points": [0.33, 1, 0.68, 1],
+      "use": "Subtle fades, badges, and logos",
+      "cssVariable": "--wv-ease-out-cubic"
+    },
+    {
+      "id": "easeInOutCubic",
+      "name": "easeInOutCubic",
+      "points": [0.65, 0, 0.35, 1],
+      "use": "Positional moves with travel and a stop",
+      "cssVariable": "--wv-ease-in-out-cubic"
+    },
+    {
+      "id": "easeInOutQuart",
+      "name": "easeInOutQuart",
+      "points": [0.76, 0, 0.24, 1],
+      "use": "Hero moments, used sparingly",
+      "cssVariable": "--wv-ease-in-out-quart"
+    }
+  ]
+}

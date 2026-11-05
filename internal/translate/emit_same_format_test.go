@@ -729,8 +729,8 @@ func TestAnthropicSameFormat_LeadingSystemMessageHoistedWhenNoSystemField(t *tes
 	// field, where it costs nothing to put it in front of the history.
 	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"system","content":"be terse"},{"role":"user","content":"hi"},{"role":"assistant","content":"ok"}],"max_tokens":1024}`)
 	opts := translate.EmitOptions{
-		TargetModel:  "claude-opus-4-7",
-		Capabilities: router.Lookup("claude-opus-4-7"),
+		TargetModel:  "claude-opus-4-5",
+		Capabilities: router.Lookup("claude-opus-4-5"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 
@@ -788,6 +788,22 @@ func TestAnthropicSameFormat_MidConversationSystemOutputConfigHoistedBeforeDemot
 	demoted, _ := msgs[1].(map[string]any)
 	assert.Equal(t, "user", demoted["role"])
 	assert.NotContains(t, demoted, "output_config", "role-scoped config must not remain on the demoted message")
+}
+
+func TestAnthropicSameFormat_DemotedSystemClearAtRemoved(t *testing.T) {
+	body := []byte(`{"model":"claude-fable-5-1","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"hello"},{"role":"user","content":"go"},{"role":"system","content":"turn note","clear_at":"next_user_message"}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 4)
+	demoted, _ := msgs[3].(map[string]any)
+	assert.Equal(t, "user", demoted["role"])
+	assert.Contains(t, fmt.Sprint(demoted["content"]), "turn note")
+	assert.NotContains(t, demoted, "clear_at", "system-only clear_at must not remain on a user message")
 }
 
 func TestAnthropicSameFormat_DemotedSystemNullOutputConfigRemoved(t *testing.T) {
@@ -860,8 +876,8 @@ func TestAnthropicSameFormat_NewSystemMessageLeavesEarlierTurnsInPlace(t *testin
 	// The cache-affecting property: a system reminder arriving on a later turn
 	// must not shift any earlier message, or the whole cached prefix moves.
 	opts := translate.EmitOptions{
-		TargetModel:  "claude-opus-4-7",
-		Capabilities: router.Lookup("claude-opus-4-7"),
+		TargetModel:  "claude-opus-4-5",
+		Capabilities: router.Lookup("claude-opus-4-5"),
 	}
 	head := `{"model":"claude-sonnet-4-20250514","system":"rules","messages":[{"role":"user","content":"hi"},{"role":"system","content":"reminder one"},{"role":"assistant","content":"ok"}`
 	before := parseAndEmit(t, []byte(head+`],"max_tokens":1024}`), "anthropic", opts)
@@ -956,14 +972,14 @@ func TestAnthropicSameFormat_ContextManagementDeletedForNonAdaptive(t *testing.T
 }
 
 func TestAnthropicSameFormat_ThinkingBlocksFiltered(t *testing.T) {
-	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"internal thought"},{"type":"text","text":"visible reply"}]}],"max_tokens":1024}`)
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"internal thought"},{"type":"text","text":"visible reply"}]},{"role":"user","content":"next"}],"max_tokens":1024}`)
 	opts := translate.EmitOptions{
 		TargetModel:  "claude-3-haiku-20240307",
 		Capabilities: router.Lookup("claude-3-haiku-20240307"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
+	require.Len(t, msgs, 3)
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 1, "thinking block should be filtered out")
@@ -973,14 +989,14 @@ func TestAnthropicSameFormat_ThinkingBlocksFiltered(t *testing.T) {
 }
 
 func TestAnthropicSameFormat_RedactedThinkingBlocksFiltered(t *testing.T) {
-	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"redacted_thinking","data":"abc"},{"type":"text","text":"reply"}]}],"max_tokens":1024}`)
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"redacted_thinking","data":"abc"},{"type":"text","text":"reply"}]},{"role":"user","content":"next"}],"max_tokens":1024}`)
 	opts := translate.EmitOptions{
 		TargetModel:  "claude-3-haiku-20240307",
 		Capabilities: router.Lookup("claude-3-haiku-20240307"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
+	require.Len(t, msgs, 3)
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 1)
@@ -991,14 +1007,14 @@ func TestAnthropicSameFormat_RedactedThinkingBlocksFiltered(t *testing.T) {
 func TestAnthropicSameFormat_ThinkingBlocksKeptForCapableModel(t *testing.T) {
 	// Signature present because every genuine Anthropic thinking block carries
 	// one; unsigned blocks are cross-format artifacts and get stripped (#860).
-	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"thought","signature":"sig"},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
+	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"thought","signature":"sig"},{"type":"text","text":"reply"}]},{"role":"user","content":"next"}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
 	opts := translate.EmitOptions{
 		TargetModel:  "claude-opus-4-7",
 		Capabilities: router.Lookup("claude-opus-4-7"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
+	require.Len(t, msgs, 3)
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 2, "thinking blocks should be preserved for capable models")
@@ -1145,7 +1161,7 @@ func TestAnthropicSameFormat_EnabledThinkingPreservesExplicitEffort(t *testing.T
 func TestAnthropicSameFormat_ThinkingBlocksStrippedOnModelSwitch(t *testing.T) {
 	// On a model switch, prior thinking blocks carry signatures from the old
 	// model; Anthropic 400s on those. ModelSwitched forces the strip.
-	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"thought","signature":"sig-from-other-model"},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
+	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"thought","signature":"sig-from-other-model"},{"type":"text","text":"reply"}]},{"role":"user","content":"next"}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
 	opts := translate.EmitOptions{
 		TargetModel:   "claude-opus-4-7",
 		Capabilities:  router.Lookup("claude-opus-4-7"),
@@ -1153,7 +1169,7 @@ func TestAnthropicSameFormat_ThinkingBlocksStrippedOnModelSwitch(t *testing.T) {
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
+	require.Len(t, msgs, 3)
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 1, "thinking block with stale signature must be stripped on a model switch")
@@ -1164,7 +1180,7 @@ func TestAnthropicSameFormat_ThinkingBlocksStrippedOnModelSwitch(t *testing.T) {
 func TestAnthropicSameFormat_ThinkingBlocksKeptWhenNoModelSwitch(t *testing.T) {
 	// Same-model turn (ModelSwitched=false): valid thinking blocks must survive
 	// to keep prompt-cache hits and reasoning continuity intact.
-	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"thought","signature":"valid-sig"},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
+	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"thought","signature":"valid-sig"},{"type":"text","text":"reply"}]},{"role":"user","content":"next"}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
 	opts := translate.EmitOptions{
 		TargetModel:   "claude-opus-4-7",
 		Capabilities:  router.Lookup("claude-opus-4-7"),
@@ -1172,7 +1188,7 @@ func TestAnthropicSameFormat_ThinkingBlocksKeptWhenNoModelSwitch(t *testing.T) {
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
+	require.Len(t, msgs, 3)
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 2, "thinking blocks must be preserved when the model did not change")
@@ -1182,7 +1198,7 @@ func TestAnthropicSameFormat_ThinkingBlocksKeptWhenNoModelSwitch(t *testing.T) {
 // #860: pin TTL can lapse before switch history does, so unsigned thinking
 // blocks must be stripped even when ModelSwitched is false.
 func TestAnthropicSameFormat_UnsignedThinkingStrippedWithoutModelSwitch(t *testing.T) {
-	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"from an OSS model"},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
+	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"from an OSS model"},{"type":"text","text":"reply"}]},{"role":"user","content":"next"}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
 	opts := translate.EmitOptions{
 		TargetModel:   "claude-opus-4-7",
 		Capabilities:  router.Lookup("claude-opus-4-7"),
@@ -1190,7 +1206,7 @@ func TestAnthropicSameFormat_UnsignedThinkingStrippedWithoutModelSwitch(t *testi
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
+	require.Len(t, msgs, 3)
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 1, "unsigned thinking block must be stripped even when the pin reports no switch")
@@ -1379,7 +1395,8 @@ func TestAnthropicSameFormat_MultipleThinkingBlocksAcrossMessages(t *testing.T) 
 				{"type": "thinking", "thinking": "thought2"},
 				{"type": "redacted_thinking", "data": "xyz"},
 				{"type": "text", "text": "reply2"}
-			]}
+			]},
+			{"role": "user", "content": "next"}
 		],
 		"max_tokens": 1024
 	}`)
@@ -1389,7 +1406,7 @@ func TestAnthropicSameFormat_MultipleThinkingBlocksAcrossMessages(t *testing.T) 
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 4)
+	require.Len(t, msgs, 5)
 
 	msg1, _ := msgs[1].(map[string]any)
 	content1, _ := msg1["content"].([]any)
@@ -1409,7 +1426,7 @@ func TestAnthropicSameFormat_ManyThinkingBlocksInSingleMessage(t *testing.T) {
 	}
 	blocks = append(blocks, `{"type":"text","text":"final"}`)
 	contentArray := "[" + joinStrings(blocks, ",") + "]"
-	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":` + contentArray + `}],"max_tokens":1024}`)
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":` + contentArray + `},{"role":"user","content":"next"}],"max_tokens":1024}`)
 
 	opts := translate.EmitOptions{
 		TargetModel:  "claude-3-haiku-20240307",
@@ -1417,7 +1434,7 @@ func TestAnthropicSameFormat_ManyThinkingBlocksInSingleMessage(t *testing.T) {
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
+	require.Len(t, msgs, 3)
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 1, "all 200 thinking blocks should be stripped, leaving only the text block")
@@ -1442,14 +1459,14 @@ func TestAnthropicSameFormat_AllThinkingBlocksRemoved(t *testing.T) {
 }
 
 func TestAnthropicSameFormat_StringContentPreserved(t *testing.T) {
-	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hello"},{"role":"assistant","content":"world"},{"role":"user","content":"again"},{"role":"assistant","content":[{"type":"thinking","thinking":"t"},{"type":"text","text":"reply"}]}],"max_tokens":1024}`)
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hello"},{"role":"assistant","content":"world"},{"role":"user","content":"again"},{"role":"assistant","content":[{"type":"thinking","thinking":"t"},{"type":"text","text":"reply"}]},{"role":"user","content":"next"}],"max_tokens":1024}`)
 	opts := translate.EmitOptions{
 		TargetModel:  "claude-3-haiku-20240307",
 		Capabilities: router.Lookup("claude-3-haiku-20240307"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 4)
+	require.Len(t, msgs, 5)
 
 	msg1, _ := msgs[1].(map[string]any)
 	assert.Equal(t, "world", msg1["content"], "string content should pass through unchanged")
@@ -1671,7 +1688,7 @@ func openAIReasoningSignature(t *testing.T, id, enc string) string {
 func TestAnthropicSameFormat_ForeignSignedThinkingStrippedWithoutModelSwitch(t *testing.T) {
 	sig := openAIReasoningSignature(t, "rs_abc123", "gAAAAA")
 	body := []byte(fmt.Sprintf(
-		`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"openai reasoning","signature":%q},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`,
+		`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"openai reasoning","signature":%q},{"type":"text","text":"reply"}]},{"role":"user","content":"next"}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`,
 		sig))
 	opts := translate.EmitOptions{
 		TargetModel:   "claude-opus-4-7",
@@ -1680,7 +1697,7 @@ func TestAnthropicSameFormat_ForeignSignedThinkingStrippedWithoutModelSwitch(t *
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
+	require.Len(t, msgs, 3)
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 1, "a foreign-signed thinking block must be stripped even when the pin reports no switch")

@@ -131,6 +131,8 @@ type Request struct {
 	// HasImages: scorer drops text-only models from the eligible pool; turn
 	// loop evicts a text-only session pin.
 	HasImages bool
+	// ImageCount is the number of image parts across the request history.
+	ImageCount int
 	// TranslationRequirements are hard semantic requirements inferred at
 	// ingress. Routing implementations must not turn their empty result into
 	// an incompatible fallback pool.
@@ -198,6 +200,9 @@ type Request struct {
 	// A /force-model pin on one of these is still dispatched, so the provider's
 	// exact token count decides instead of the estimate.
 	ContextWindowExcludedModels map[string]struct{}
+	// ImageLimitExcludedModels is the subset of ExcludedModels removed only
+	// because every binding caps images below ImageCount.
+	ImageLimitExcludedModels map[string]struct{}
 	// UnsignedHistoryExcludedModels holds models excluded because they cannot
 	// accept this request's unsigned tool-call history.
 	UnsignedHistoryExcludedModels map[string]struct{}

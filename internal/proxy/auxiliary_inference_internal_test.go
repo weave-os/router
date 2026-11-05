@@ -332,3 +332,27 @@ func TestBillAuxiliaryInferenceUsesSummarizerProviderForBYOK(t *testing.T) {
 		"a BYOK-served summary debits no inference cost — the customer paid their own upstream")
 	assert.NotZero(t, debits[0].FeeUsdMicros, "Weave still charges its platform fee")
 }
+
+func (*auxTelemetryRepo) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryDashboardFact, error) {
+	return nil, nil
+}
+
+func (*auxTelemetryRepo) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]TelemetryActiveUsers, error) {
+	return nil, nil
+}
+
+func (*auxTelemetryRepo) GetTelemetryDashboardPeople(context.Context, string) ([]TelemetryPerson, error) {
+	return nil, nil
+}
+
+func (*auxTelemetryRepo) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]TelemetrySubscriptionSeat, error) {
+	return nil, nil
+}
+
+func (*auxTelemetryRepo) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]TelemetryDrillDownRow, error) {
+	return nil, nil
+}
+
+func (*auxTelemetryRepo) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryIndividualFact, error) {
+	return nil, nil
+}

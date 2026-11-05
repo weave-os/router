@@ -78,6 +78,41 @@ func RoutableBindings(m Model) []ProviderBinding {
 	return out
 }
 
+// AcceptsImageCount reports whether this binding accepts n image parts in one
+// request. A zero cap means the limit is unknown.
+func (b ProviderBinding) AcceptsImageCount(n int) bool {
+	return b.MaxImagesPerRequest == 0 || n <= b.MaxImagesPerRequest
+}
+
+// AcceptsImageCount reports whether a model can accept n image parts through
+// any enabled routable binding. Unknown models and models without an enabled
+// catalog binding have no known limit.
+func AcceptsImageCount(id string, n int, enabledProviders map[string]struct{}) bool {
+	if n == 0 {
+		return true
+	}
+	m, ok := ByID(id)
+	if !ok {
+		return true
+	}
+	if m.ImageInput == ImageInputUnsupported {
+		return false
+	}
+	foundEnabledBinding := false
+	for _, binding := range RoutableBindings(m) {
+		if len(enabledProviders) > 0 {
+			if _, enabled := enabledProviders[binding.Provider]; !enabled {
+				continue
+			}
+		}
+		foundEnabledBinding = true
+		if binding.AcceptsImageCount(n) {
+			return true
+		}
+	}
+	return !foundEnabledBinding
+}
+
 // BindingFor returns the model's binding for provider, including a
 // subscription-overflow binding.
 func BindingFor(id, provider string) (ProviderBinding, bool) {
