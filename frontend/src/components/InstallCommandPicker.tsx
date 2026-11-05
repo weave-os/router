@@ -2,9 +2,6 @@
 
 import { CopyBlock } from "@/components/CopyBlock";
 import { InstallShellPicker } from "@/components/InstallShellPicker";
-import { Text } from "@/components/atoms/Text";
-import { Button } from "@/components/molecules/Button";
-import { Appearance } from "@/components/types";
 import {
   HARNESSES,
   type HarnessID,
@@ -14,7 +11,12 @@ import {
   installCommand,
   routerOrigin,
 } from "@/lib/installCommands";
+import { Text } from "@/shared/components/atoms/Text";
+import { Button } from "@/shared/components/molecules/Button";
+import { Appearance } from "@/shared/components/types";
+
 import { GitBranch, User } from "lucide-react";
+
 import { useState } from "react";
 
 const SCOPES: { value: InstallScope; label: string; icon: typeof User }[] = [
@@ -51,10 +53,10 @@ export function InstallCommandPicker({ token }: InstallCommandPickerProps) {
             role="tab"
             aria-selected={harnessID === h.id}
             size="sm"
-            appearance={harnessID === h.id ? Appearance.Filled : Appearance.Outlined}
+            appearance={harnessID === h.id ? Appearance.Tinted : Appearance.Hollow}
             className={
               harnessID === h.id
-                ? "!border-brand !bg-brand !text-white hover:!bg-brand/90"
+                ? "!border-brand !bg-brand !text-wv-on-action hover:!bg-brand/90"
                 : undefined
             }
             onClick={() => setHarnessID(h.id)}
@@ -74,7 +76,7 @@ export function InstallCommandPicker({ token }: InstallCommandPickerProps) {
               role="radio"
               aria-checked={scope === s.value}
               size="sm"
-              appearance={Appearance.Outlined}
+              appearance={Appearance.Hollow}
               className={scope === s.value ? "!border-foreground/40" : "text-muted-foreground"}
               onClick={() => setScope(s.value)}
             >

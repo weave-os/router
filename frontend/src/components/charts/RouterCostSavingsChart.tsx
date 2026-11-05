@@ -1,19 +1,25 @@
 "use client";
 
+import { type TimeseriesBucket } from "@/lib/api";
+import { DateTime } from "@/objects/scalars/DateTime";
+import {
+  TimeGranularity,
+  addGranularity,
+  formatInterval,
+  formatTime,
+} from "@/objects/TimeGranularity";
 import {
   Chart,
   ChartAxisType,
   ChartColor,
   ChartSeriesConfig,
   ChartSeriesType,
-} from "@/components/Chart";
-import { type TimeseriesBucket } from "@/lib/api";
-import { DateTime } from "@/objects/scalars/DateTime";
-import { TimeGranularity, addGranularity, formatInterval, formatTime } from "@/objects/TimeGranularity";
-import { LoadState } from "@/tools/LoadState";
+} from "@/shared/components/Chart";
+import { DrillDownModal } from "@/shared/components/DrillDownModal";
+import { LoadState } from "@/shared/tools/LoadState";
+
 import { useMemo } from "react";
 
-import { DrillDownModal } from "./DrillDownModal";
 import { useChartDrillDown } from "./useChartDrillDown";
 
 const TIME_KEY = "time" as const;
@@ -183,15 +189,15 @@ export function RouterCostSavingsChart({ buckets, granularity }: Props) {
 
   const config = useMemo(
     () =>
-      actualCostLegendColor === ChartColor.Green ?
-        SERIES_CONFIG
-      : {
-          ...SERIES_CONFIG,
-          [ACTUAL_COST_POS_KEY]: {
-            ...SERIES_CONFIG[ACTUAL_COST_POS_KEY],
-            color: actualCostLegendColor,
+      actualCostLegendColor === ChartColor.Green
+        ? SERIES_CONFIG
+        : {
+            ...SERIES_CONFIG,
+            [ACTUAL_COST_POS_KEY]: {
+              ...SERIES_CONFIG[ACTUAL_COST_POS_KEY],
+              color: actualCostLegendColor,
+            },
           },
-        },
     [actualCostLegendColor],
   );
 

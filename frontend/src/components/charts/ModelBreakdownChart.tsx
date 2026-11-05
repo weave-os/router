@@ -1,16 +1,17 @@
 "use client";
 
+import { type ModelBreakdownBucket } from "@/lib/api";
+import { DateTime } from "@/objects/scalars/DateTime";
+import { TimeGranularity, formatInterval, formatTime } from "@/objects/TimeGranularity";
 import {
   Chart,
   ChartAxisType,
   ChartColor,
   ChartSeriesConfig,
   ChartSeriesType,
-} from "@/components/Chart";
-import { type ModelBreakdownBucket } from "@/lib/api";
-import { DateTime } from "@/objects/scalars/DateTime";
-import { TimeGranularity, formatInterval, formatTime } from "@/objects/TimeGranularity";
-import { LoadState } from "@/tools/LoadState";
+} from "@/shared/components/Chart";
+import { LoadState } from "@/shared/tools/LoadState";
+
 import { useMemo } from "react";
 
 const TIME_KEY = "time" as const;
@@ -81,8 +82,7 @@ export function ModelBreakdownChart({ buckets, granularity, metric }: Props) {
       const t = new Date(b.bucket).getTime();
       const row = byTime.get(t) ?? {};
       row[b.decision_model] =
-        (row[b.decision_model] ?? 0) +
-        (metric === "spend" ? b.actual_cost_usd : b.request_count);
+        (row[b.decision_model] ?? 0) + (metric === "spend" ? b.actual_cost_usd : b.request_count);
       byTime.set(t, row);
     }
 

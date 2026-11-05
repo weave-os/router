@@ -1,15 +1,18 @@
 "use client";
 
-import { EmptyHint, ErrorBanner, formatDate } from "./shared";
-import { Text } from "@/components/atoms/Text";
 import { Input } from "@/components/Input";
 import { InstallCommandPicker } from "@/components/InstallCommandPicker";
-import { Button } from "@/components/molecules/Button";
-import { Card } from "@/components/molecules/Card";
-import { Appearance, Intent } from "@/components/types";
 import { api, type APIKey, type APIKeyScope, type IssueAPIKeyResponse } from "@/lib/api";
+import { Text } from "@/shared/components/atoms/Text";
+import { Button } from "@/shared/components/molecules/Button";
+import { Card } from "@/shared/components/molecules/Card";
+import { Appearance, Intent } from "@/shared/components/types";
+
 import { Copy, RotateCw, Search, Trash2 } from "lucide-react";
+
 import { useEffect, useState } from "react";
+
+import { EmptyHint, ErrorBanner, formatDate } from "./shared";
 
 // Show the search box only once the list is long enough that scanning it by eye
 // gets tedious; for a couple of keys a search bar is just noise.
@@ -166,7 +169,7 @@ export function RouterKeysPanel() {
               <code className="flex-1 rounded bg-muted px-3 py-1.5 font-mono text-2xs text-foreground">
                 {issued.token}
               </code>
-              <Button appearance={Appearance.Outlined} size="sm" onClick={handleCopy}>
+              <Button appearance={Appearance.Hollow} size="sm" onClick={handleCopy}>
                 <Copy className="size-3.5" />
                 {copied ? "Copied" : "Copy"}
               </Button>
@@ -213,9 +216,11 @@ export function RouterKeysPanel() {
                       role="radio"
                       aria-checked={scope === o.value}
                       size="sm"
-                      appearance={scope === o.value ? Appearance.Filled : Appearance.Outlined}
+                      appearance={scope === o.value ? Appearance.Tinted : Appearance.Hollow}
                       className={
-                        scope === o.value ? "!border-brand !bg-brand !text-white hover:!bg-brand/90" : undefined
+                        scope === o.value
+                          ? "!border-brand !bg-brand !text-wv-on-action hover:!bg-brand/90"
+                          : undefined
                       }
                       title={o.hint}
                       onClick={() => setScope(o.value)}
@@ -244,9 +249,9 @@ export function RouterKeysPanel() {
                 </div>
                 <Button
                   type="submit"
-                  appearance={Appearance.Filled}
+                  appearance={Appearance.Tinted}
                   intent={Intent.Primary}
-                  className="!border-brand !bg-brand !text-white hover:!bg-brand/90"
+                  className="!border-brand !bg-brand !text-wv-on-action hover:!bg-brand/90"
                   disabled={creating}
                 >
                   {creating ? "Creating…" : "Create key"}
@@ -281,50 +286,50 @@ export function RouterKeysPanel() {
                 No keys match “{query.trim()}”.
               </div>
             ) : (
-            <ul className="divide-y divide-border">
-              {visibleKeys.map(k => (
-                <li key={k.id} className="flex items-center justify-between gap-3 px-5 py-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 text-xs font-medium text-foreground">
-                      {k.name ?? UNNAMED_KEY_LABEL}
-                      {k.scope === "analytics_read" && (
-                        <span className="rounded bg-muted px-1.5 py-0.5 text-2xs font-normal text-muted-foreground">
-                          {scopeLabel(k.scope)}
+              <ul className="divide-y divide-border">
+                {visibleKeys.map(k => (
+                  <li key={k.id} className="flex items-center justify-between gap-3 px-5 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+                        {k.name ?? UNNAMED_KEY_LABEL}
+                        {k.scope === "analytics_read" && (
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-2xs font-normal text-muted-foreground">
+                            {scopeLabel(k.scope)}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 truncate font-mono text-2xs text-muted-foreground">
+                        {k.key_prefix}…{k.key_suffix}
+                        <span className="ml-2 font-sans">
+                          · created {formatDate(k.created_at)}
+                          {k.last_used_at != null && ` · last used ${formatDate(k.last_used_at)}`}
                         </span>
-                      )}
+                      </p>
                     </div>
-                    <p className="mt-0.5 truncate font-mono text-2xs text-muted-foreground">
-                      {k.key_prefix}…{k.key_suffix}
-                      <span className="ml-2 font-sans">
-                        · created {formatDate(k.created_at)}
-                        {k.last_used_at != null && ` · last used ${formatDate(k.last_used_at)}`}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      appearance={Appearance.Outlined}
-                      size="sm"
-                      onClick={() => handleRotate(k.id)}
-                      disabled={rotating != null || deleting != null}
-                    >
-                      <RotateCw className="size-3.5" />
-                      {rotating === k.id ? "Rotating…" : "Rotate"}
-                    </Button>
-                    <Button
-                      appearance={Appearance.Hollow}
-                      intent={Intent.Danger}
-                      size="icon"
-                      onClick={() => handleDelete(k.id)}
-                      disabled={deleting === k.id || rotating != null}
-                      title="Revoke key."
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        appearance={Appearance.Hollow}
+                        size="sm"
+                        onClick={() => handleRotate(k.id)}
+                        disabled={rotating != null || deleting != null}
+                      >
+                        <RotateCw className="size-3.5" />
+                        {rotating === k.id ? "Rotating…" : "Rotate"}
+                      </Button>
+                      <Button
+                        appearance={Appearance.Hollow}
+                        intent={Intent.Danger}
+                        size="icon"
+                        onClick={() => handleDelete(k.id)}
+                        disabled={deleting === k.id || rotating != null}
+                        title="Revoke key."
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             )}
           </Card.Content>
         </Card>

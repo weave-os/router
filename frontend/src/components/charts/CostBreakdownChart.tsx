@@ -1,19 +1,20 @@
 "use client";
 
+import { type TimeseriesBucket } from "@/lib/api";
+import { DateTime } from "@/objects/scalars/DateTime";
+import { TimeGranularity, formatInterval, formatTime } from "@/objects/TimeGranularity";
 import {
   Chart,
   ChartAxisType,
   ChartColor,
   ChartSeriesConfig,
   ChartSeriesType,
-} from "@/components/Chart";
-import { type TimeseriesBucket } from "@/lib/api";
-import { DateTime } from "@/objects/scalars/DateTime";
-import { TimeGranularity, formatInterval, formatTime } from "@/objects/TimeGranularity";
-import { LoadState } from "@/tools/LoadState";
+} from "@/shared/components/Chart";
+import { DrillDownModal } from "@/shared/components/DrillDownModal";
+import { LoadState } from "@/shared/tools/LoadState";
+
 import { useMemo } from "react";
 
-import { DrillDownModal } from "./DrillDownModal";
 import { useChartDrillDown } from "./useChartDrillDown";
 
 const TIME_KEY = "time" as const;
@@ -61,7 +62,9 @@ const SERIES_CONFIG: Partial<Record<DependentKey, ChartSeriesConfig<DateTime, nu
 const DEPENDENT_KEYS = LoadState.loaded([ACTUAL_KEY, SAVINGS_KEY] as readonly DependentKey[]);
 
 // Stack actual + savings into one bar per bucket.
-const GROUPS = LoadState.loaded([[ACTUAL_KEY, SAVINGS_KEY]] as readonly (readonly DependentKey[])[]);
+const GROUPS = LoadState.loaded([
+  [ACTUAL_KEY, SAVINGS_KEY],
+] as readonly (readonly DependentKey[])[]);
 
 function toTimeGranularity(g: RouterGranularity): TimeGranularity {
   return g === "week" ? TimeGranularity.Week : TimeGranularity.Day;

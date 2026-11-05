@@ -1,19 +1,27 @@
 "use client";
 
+import { type TimeseriesBucket } from "@/lib/api";
+import { DateTime } from "@/objects/scalars/DateTime";
+import {
+  TimeGranularity,
+  addGranularity,
+  formatInterval,
+  formatTime,
+} from "@/objects/TimeGranularity";
 import {
   Chart,
   ChartAxisType,
   ChartColor,
   ChartSeriesConfig,
   ChartSeriesType,
-} from "@/components/Chart";
-import { type TimeseriesBucket } from "@/lib/api";
-import { DateTime } from "@/objects/scalars/DateTime";
-import { TimeGranularity, addGranularity, formatInterval, formatTime } from "@/objects/TimeGranularity";
-import { LoadState } from "@/tools/LoadState";
+} from "@/shared/components/Chart";
+import { DrillDownModal } from "@/shared/components/DrillDownModal";
+import { LoadState } from "@/shared/tools/LoadState";
+
+import { cumsum } from "d3-array";
+
 import { useMemo } from "react";
 
-import { DrillDownModal } from "./DrillDownModal";
 import { useChartDrillDown } from "./useChartDrillDown";
 
 const TIME_KEY = "time" as const;
@@ -64,15 +72,12 @@ export function CumulativeSavingsChart({ buckets, granularity }: Props) {
     const sorted = [...buckets].sort(
       (a, b) => new Date(a.bucket).getTime() - new Date(b.bucket).getTime(),
     );
-    let cum = 0;
+    const cumulative = cumsum(sorted.map(b => b.requested_cost_usd - b.actual_cost_usd));
     return LoadState.loaded(
-      sorted.map(b => {
-        cum += b.requested_cost_usd - b.actual_cost_usd;
-        return {
-          [TIME_KEY]: new Date(b.bucket).getTime() as DateTime,
-          [CUMULATIVE_KEY]: cum,
-        };
-      }),
+      sorted.map((b, i) => ({
+        [TIME_KEY]: new Date(b.bucket).getTime() as DateTime,
+        [CUMULATIVE_KEY]: cumulative[i],
+      })),
     );
   }, [buckets]);
 
