@@ -15,6 +15,8 @@ type subscriptionOwnerResponse struct {
 	SubscriberID string `json:"subscriber_id"`
 	DisplayName  string `json:"display_name"`
 	Email        string `json:"email"`
+	KeyPrefix    string `json:"key_prefix"`
+	KeySuffix    string `json:"key_suffix"`
 }
 
 // ListSubscriptionOwnersHandler serves GET /admin/v1/subscription-owners: the
@@ -34,9 +36,38 @@ func ListSubscriptionOwnersHandler(authSvc *auth.Service, loginsEnabled bool) gi
 		}
 		response := make([]subscriptionOwnerResponse, 0, len(owners))
 		for _, owner := range owners {
-			response = append(response, subscriptionOwnerResponse{SubscriberID: owner.SubscriberID, DisplayName: owner.DisplayName, Email: owner.Email})
+			response = append(response, subscriptionOwnerResponse{SubscriberID: owner.SubscriberID, DisplayName: owner.DisplayName, Email: owner.Email, KeyPrefix: owner.KeyPrefix, KeySuffix: owner.KeySuffix})
 		}
 		c.JSON(http.StatusOK, gin.H{"enabled": true, "owners": response})
+	}
+}
+
+type subscriptionSeatResponse struct {
+	AccountID          string                    `json:"account_id"`
+	SubscriberID       string                    `json:"subscriber_id"`
+	Provider           auth.SubscriptionProvider `json:"provider"`
+	DisplayName        string                    `json:"display_name"`
+	Enabled            bool                      `json:"enabled"`
+	OwnerDisplayName   string                    `json:"owner_display_name"`
+	OwnerEmail         string                    `json:"owner_email"`
+	OwnerHasRoutingKey bool                      `json:"owner_has_routing_key"`
+}
+
+// ListSubscriptionSeatsHandler serves GET /admin/v1/subscription-accounts so an
+// admin can unlink any seat, including one whose owner lost every routing key.
+func ListSubscriptionSeatsHandler(authSvc *auth.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		seats, err := authSvc.ListSubscriptionSeats(c.Request.Context())
+		if err != nil {
+			observability.FromGin(c).Error("Failed to list subscription seats", "err", err)
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "subscription_accounts_unavailable"})
+			return
+		}
+		response := make([]subscriptionSeatResponse, 0, len(seats))
+		for _, seat := range seats {
+			response = append(response, subscriptionSeatResponse(seat))
+		}
+		c.JSON(http.StatusOK, gin.H{"seats": response})
 	}
 }
 

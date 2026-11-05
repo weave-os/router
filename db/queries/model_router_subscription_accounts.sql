@@ -427,7 +427,9 @@ LIMIT 1;
 SELECT DISTINCT ON (subject.id)
     subject.id AS subscriber_id,
     COALESCE(NULLIF(u.display_name, ''), u.email, k.name, '')::text AS display_name,
-    COALESCE(u.email, '')::text AS email
+    COALESCE(u.email, '')::text AS email,
+    k.key_prefix,
+    k.key_suffix
 FROM router.model_router_api_keys AS k
 JOIN router.credential_subjects AS subject ON subject.id = k.credential_subject_id
 JOIN router.credential_subject_installations AS access
@@ -441,3 +443,28 @@ WHERE k.deleted_at IS NULL
   AND subject.revoked_at IS NULL
   AND access.access_enabled
 ORDER BY subject.id, u.id IS NULL, k.created_at;
+
+-- Every subscriber-owned seat with its owner, including owners whose last
+-- routing key was deleted, so an admin can still unlink a stranded seat.
+-- name: ListSubscriptionSeatsWithOwners :many
+SELECT a.id,
+       a.subscriber_id::uuid AS subscriber_id,
+       a.provider,
+       COALESCE(a.display_name, '')::text AS display_name,
+       a.enabled,
+       COALESCE(NULLIF(owner_user.display_name, ''), owner_user.email, '')::text AS owner_display_name,
+       COALESCE(owner_user.email, '')::text AS owner_email,
+       EXISTS (
+           SELECT 1 FROM router.model_router_api_keys AS k
+           WHERE k.credential_subject_id = a.subscriber_id AND k.deleted_at IS NULL
+       )::boolean AS owner_has_routing_key
+FROM router.model_router_subscription_accounts AS a
+LEFT JOIN LATERAL (
+    SELECT u.display_name, u.email
+    FROM router.model_router_users AS u
+    WHERE u.credential_subject_id = a.subscriber_id AND u.deleted_at IS NULL
+    ORDER BY u.first_seen_at
+    LIMIT 1
+) AS owner_user ON true
+WHERE a.subscriber_id IS NOT NULL
+ORDER BY a.provider, a.created_at;

@@ -251,6 +251,9 @@ func insertPersonalCredential(ctx context.Context, queries *sqlc.Queries, instal
 
 func rotatePersonalCredential(ctx context.Context, queries *sqlc.Queries, installationID, subjectUUID, keyUUID uuid.UUID, replacement auth.CreateAPIKeyParams) (*auth.APIKey, error) {
 	key, err := queries.GetServingCredentialForAdmission(ctx, sqlc.GetServingCredentialForAdmissionParams{APIKeyID: keyUUID, InstallationID: installationID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, auth.ErrAPIKeyNotFound
+	}
 	if err != nil {
 		return nil, err
 	}

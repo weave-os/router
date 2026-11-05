@@ -11,6 +11,8 @@ import {
   type LinkedSubscriptionAccount,
   type StartedSubscriptionLogin,
   type SubscriptionLoginProvider,
+  type SubscriptionOwner,
+  type SubscriptionSeat,
   type SubscriptionOwnersResponse,
 } from "@/lib/api";
 import { ExternalLink } from "lucide-react";
@@ -27,7 +29,20 @@ interface ActiveLogin {
   started: StartedSubscriptionLogin;
 }
 
-export function SubscriptionLoginPanel() {
+// The key identity disambiguates owners whose keys share a name or have none.
+function subscriptionOwnerLabel(owner: SubscriptionOwner): string {
+  const key = `${owner.key_prefix}…${owner.key_suffix}`;
+  if (owner.display_name === "" && owner.email === "") {
+    return `Unnamed key ${key}`;
+  }
+  const name =
+    owner.email !== "" && owner.display_name !== "" && owner.email !== owner.display_name
+      ? `${owner.display_name} (${owner.email})`
+      : owner.display_name || owner.email;
+  return `${name} · ${key}`;
+}
+
+export function SubscriptionLoginPanel({ onLinked }: { onLinked?: () => void }) {
   const [owners, setOwners] = useState<SubscriptionOwnersResponse | null>(null);
   const [subscriberID, setSubscriberID] = useState("");
   const [login, setLogin] = useState<ActiveLogin | null>(null);
@@ -64,6 +79,7 @@ export function SubscriptionLoginPanel() {
         }
         setLinked(account);
         setLogin(null);
+        onLinked?.();
       } catch (err) {
         if (cancelled) return;
         setError(String(err));
@@ -75,7 +91,7 @@ export function SubscriptionLoginPanel() {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [login]);
+  }, [login, onLinked]);
 
   async function start(provider: SubscriptionLoginProvider) {
     setBusy(true);
@@ -105,6 +121,7 @@ export function SubscriptionLoginPanel() {
       );
       setLinked(account);
       setLogin(null);
+      onLinked?.();
     } catch (err) {
       setError(String(err));
     } finally {
@@ -157,9 +174,7 @@ export function SubscriptionLoginPanel() {
         >
           {owners.owners.map(owner => (
             <option key={owner.subscriber_id} value={owner.subscriber_id}>
-              {owner.email !== "" && owner.email !== owner.display_name
-                ? `${owner.display_name} (${owner.email})`
-                : owner.display_name}
+              {subscriptionOwnerLabel(owner)}
             </option>
           ))}
         </select>
@@ -227,6 +242,69 @@ export function SubscriptionLoginPanel() {
           </Button>
         </div>
       )}
+    </Card>
+  );
+}
+
+// Lists every linked seat, including ones whose owner lost their last routing
+// key, so an admin can always unlink a seat and let it be linked again.
+export function SubscriptionSeatsPanel({ refreshKey }: { refreshKey: number }) {
+  const [seats, setSeats] = useState<SubscriptionSeat[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [unlinking, setUnlinking] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.subscriptionLogins
+      .seats()
+      .then(response => setSeats(response.seats))
+      .catch((err: unknown) => setError(String(err)));
+  }, [refreshKey]);
+
+  async function unlink(seat: SubscriptionSeat) {
+    setUnlinking(seat.account_id);
+    setError(null);
+    try {
+      await api.subscriptionLogins.unlink(seat.subscriber_id, seat.account_id);
+      setSeats(current => current?.filter(other => other.account_id !== seat.account_id) ?? null);
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setUnlinking(null);
+    }
+  }
+
+  if (seats == null) {
+    return error != null ? <ErrorBanner>{error}</ErrorBanner> : null;
+  }
+  if (seats.length === 0) {
+    return <EmptyHint>No subscriptions are linked yet.</EmptyHint>;
+  }
+  return (
+    <Card className="flex flex-col divide-y divide-border">
+      {error != null && <ErrorBanner>{error}</ErrorBanner>}
+      {seats.map(seat => (
+        <div key={seat.account_id} className="flex flex-row items-center gap-3 p-3">
+          <div className="flex min-w-0 flex-1 flex-col">
+            <Text className="truncate text-sm">
+              {PROVIDER_LABEL[seat.provider]}
+              {seat.display_name !== "" ? ` · ${seat.display_name}` : ""}
+            </Text>
+            <Text className="truncate text-xs text-muted-foreground">
+              {seat.owner_display_name || seat.owner_email || "Unknown owner"}
+              {seat.owner_has_routing_key ? "" : " · no routing key, not serving requests"}
+            </Text>
+          </div>
+          <Button
+            appearance={Appearance.Outlined}
+            intent={Intent.Danger}
+            size="sm"
+            disabled={unlinking != null}
+            onClick={() => void unlink(seat)}
+          >
+            Unlink
+          </Button>
+        </div>
+      ))}
     </Card>
   );
 }

@@ -22,6 +22,11 @@ import (
 type adminLoginAccountRepo struct {
 	loginAccountRepo
 	owners []auth.SubscriptionEnrollmentCandidate
+	seats  []auth.SubscriptionSeat
+}
+
+func (r *adminLoginAccountRepo) ListSubscriptionSeats(context.Context) ([]auth.SubscriptionSeat, error) {
+	return r.seats, nil
 }
 
 func (r *adminLoginAccountRepo) ListSubscriptionEnrollmentOwners(context.Context) ([]auth.SubscriptionEnrollmentCandidate, error) {
@@ -42,6 +47,8 @@ func adminLoginTestEngine(t *testing.T, repo *adminLoginAccountRepo, flow *fakeL
 	engine := gin.New()
 	group := engine.Group("/admin/v1")
 	group.GET("/subscription-owners", admin.ListSubscriptionOwnersHandler(authSvc, true))
+	group.GET("/subscription-accounts", admin.ListSubscriptionSeatsHandler(authSvc))
+	group.DELETE("/subscription-accounts/:subscriberID/:accountID", admin.InternalDeleteSubscriptionAccountHandler(authSvc))
 	group.POST("/subscription-logins/:subscriberID", admin.AdminStartSubscriptionLoginHandler(authSvc, flow))
 	group.POST("/subscription-logins/:subscriberID/complete", admin.AdminCompleteSubscriptionLoginHandler(authSvc, flow))
 	return engine
@@ -103,13 +110,13 @@ func TestAdminLoginTokenOnlyCompletesForTheSubscriberItWasStartedFor(t *testing.
 }
 
 func TestAdminSubscriptionOwnersListsEnrollableSubjects(t *testing.T) {
-	repo := &adminLoginAccountRepo{owners: []auth.SubscriptionEnrollmentCandidate{{SubscriberID: testSubscriberID, DisplayName: "Ada", Email: "ada@example.com"}}}
+	repo := &adminLoginAccountRepo{owners: []auth.SubscriptionEnrollmentCandidate{{SubscriberID: testSubscriberID, DisplayName: "Ada", Email: "ada@example.com", KeyPrefix: "rk_abcde", KeySuffix: "wxyz"}}}
 	engine := adminLoginTestEngine(t, repo, &fakeLoginFlow{})
 
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/admin/v1/subscription-owners", nil))
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
-	require.JSONEq(t, `{"enabled":true,"owners":[{"subscriber_id":"`+testSubscriberID+`","display_name":"Ada","email":"ada@example.com"}]}`, recorder.Body.String())
+	require.JSONEq(t, `{"enabled":true,"owners":[{"subscriber_id":"`+testSubscriberID+`","display_name":"Ada","email":"ada@example.com","key_prefix":"rk_abcde","key_suffix":"wxyz"}]}`, recorder.Body.String())
 }
 
 func TestAdminSubscriptionOwnersReportsDisabledPools(t *testing.T) {
@@ -121,4 +128,24 @@ func TestAdminSubscriptionOwnersReportsDisabledPools(t *testing.T) {
 	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/admin/v1/subscription-owners", nil))
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.JSONEq(t, `{"enabled":false,"owners":[]}`, recorder.Body.String())
+}
+
+func TestAdminCanUnlinkSeatWhoseOwnerHasNoRoutingKey(t *testing.T) {
+	const accountID = "6f1c2c7e-3c35-4f4f-9d43-1d0a3d3e7c11"
+	repo := &adminLoginAccountRepo{seats: []auth.SubscriptionSeat{{
+		AccountID: accountID, SubscriberID: testSubscriberID, Provider: auth.SubscriptionProviderClaude,
+		DisplayName: "ada@claude", Enabled: true, OwnerDisplayName: "Ada", OwnerEmail: "ada@example.com",
+	}}}
+	engine := adminLoginTestEngine(t, repo, &fakeLoginFlow{})
+
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/admin/v1/subscription-accounts", nil))
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.JSONEq(t, `{"seats":[{"account_id":"`+accountID+`","subscriber_id":"`+testSubscriberID+`","provider":"claude","display_name":"ada@claude","enabled":true,"owner_display_name":"Ada","owner_email":"ada@example.com","owner_has_routing_key":false}]}`, recorder.Body.String())
+
+	recorder = httptest.NewRecorder()
+	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodDelete, "/admin/v1/subscription-accounts/"+testSubscriberID+"/"+accountID, nil))
+	require.Equal(t, http.StatusNoContent, recorder.Code, recorder.Body.String())
+	require.Equal(t, accountID, repo.deletedID)
+	require.Equal(t, auth.SubscriptionOwner{SubscriberID: testSubscriberID}, repo.deletedOwner)
 }

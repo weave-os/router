@@ -237,16 +237,19 @@ type SubscriptionEnrollmentOwnerResolver interface {
 	SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (SubscriptionOwner, error)
 }
 
-// SubscriptionEnrollmentOwnerLister lists the subjects an admin may enroll a subscription for.
+// SubscriptionEnrollmentOwnerLister returns only projected, unrevoked, access-enabled
+// subjects that still hold a live routing key, since enrollment owns the seat through that key.
 type SubscriptionEnrollmentOwnerLister interface {
 	ListSubscriptionEnrollmentOwners(ctx context.Context) ([]SubscriptionEnrollmentCandidate, error)
 }
 
-// SubscriptionEnrollmentCandidate is a person an admin can link a subscription for.
+// SubscriptionEnrollmentCandidate carries the key prefix/suffix so unnamed keys stay distinguishable.
 type SubscriptionEnrollmentCandidate struct {
 	SubscriberID string
 	DisplayName  string
 	Email        string
+	KeyPrefix    string
+	KeySuffix    string
 }
 
 // ListSubscriptionEnrollmentOwners lists subjects that hold a live routing key to enroll through.
@@ -256,6 +259,33 @@ func (s *Service) ListSubscriptionEnrollmentOwners(ctx context.Context) ([]Subsc
 		return nil, errors.New("subscription enrollment owner listing is not configured")
 	}
 	return lister.ListSubscriptionEnrollmentOwners(ctx)
+}
+
+// SubscriptionSeatLister lists every subscriber-owned seat, including seats
+// whose owner no longer holds a routing key, so they can still be unlinked.
+type SubscriptionSeatLister interface {
+	ListSubscriptionSeats(ctx context.Context) ([]SubscriptionSeat, error)
+}
+
+// SubscriptionSeat is one linked account and the person who owns it.
+type SubscriptionSeat struct {
+	AccountID          string
+	SubscriberID       string
+	Provider           SubscriptionProvider
+	DisplayName        string
+	Enabled            bool
+	OwnerDisplayName   string
+	OwnerEmail         string
+	OwnerHasRoutingKey bool
+}
+
+// ListSubscriptionSeats lists every linked seat for the dashboard admin.
+func (s *Service) ListSubscriptionSeats(ctx context.Context) ([]SubscriptionSeat, error) {
+	lister, ok := s.subscriptionAccounts.(SubscriptionSeatLister)
+	if !ok {
+		return nil, errors.New("subscription seat listing is not configured")
+	}
+	return lister.ListSubscriptionSeats(ctx)
 }
 
 // ErrSubscriptionEnrollmentKeyNotFound means the subscriber has no active

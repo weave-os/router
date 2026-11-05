@@ -323,6 +323,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			authSvc,
 			features.SubscriptionLogins != nil && authSvc.CanSealSubscriptionLogins(),
 		))
+		mgmt.GET("/subscription-accounts", admin.ListSubscriptionSeatsHandler(authSvc))
+		mgmt.DELETE("/subscription-accounts/:subscriberID/:accountID", admin.InternalDeleteSubscriptionAccountHandler(authSvc))
 		if features.SubscriptionLogins != nil {
 			mgmt.POST("/subscription-logins/:subscriberID", admin.AdminStartSubscriptionLoginHandler(authSvc, features.SubscriptionLogins))
 			mgmt.POST("/subscription-logins/:subscriberID/complete", admin.AdminCompleteSubscriptionLoginHandler(authSvc, features.SubscriptionLogins))

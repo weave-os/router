@@ -201,11 +201,24 @@ export interface SubscriptionOwner {
   subscriber_id: string;
   display_name: string;
   email: string;
+  key_prefix: string;
+  key_suffix: string;
 }
 
 export interface SubscriptionOwnersResponse {
   enabled: boolean;
   owners: SubscriptionOwner[];
+}
+
+export interface SubscriptionSeat {
+  account_id: string;
+  subscriber_id: string;
+  provider: SubscriptionLoginProvider;
+  display_name: string;
+  enabled: boolean;
+  owner_display_name: string;
+  owner_email: string;
+  owner_has_routing_key: boolean;
 }
 
 export interface StartedSubscriptionLogin {
@@ -266,12 +279,15 @@ export const api = {
       }),
     /** Resolves to null while a Codex device login is still waiting for approval. */
     complete: async (subscriberID: string, loginToken: string, code?: string) => {
-      const result = await request<LinkedSubscriptionAccount | { status: "pending" }>(
+      const outcome = await request<LinkedSubscriptionAccount | { status: "pending" }>(
         `/subscription-logins/${subscriberID}/complete`,
         { method: "POST", body: JSON.stringify({ login_token: loginToken, code: code ?? "" }) },
       );
-      return "status" in result ? null : result;
+      return "status" in outcome ? null : outcome;
     },
+    seats: () => request<{ seats: SubscriptionSeat[] }>("/subscription-accounts"),
+    unlink: (subscriberID: string, accountID: string) =>
+      request<void>(`/subscription-accounts/${subscriberID}/${accountID}`, { method: "DELETE" }),
   },
   keys: {
     list: () => request<{ keys: APIKey[] }>("/keys"),
