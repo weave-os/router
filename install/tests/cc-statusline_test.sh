@@ -745,71 +745,71 @@ check_contains "cache miss with an unreachable router renders normally" "$out" "
 sleep 1
 check "failed refresh writes no cache file" "$(test -f "$cache_file" && echo present || echo absent)" "absent"
 
-# Concurrent refreshes must never be in flight at the same time: two
-# overlapping requests can complete out of order, and the loser's write would
-# replace a newer setting with an older one AND stamp it fresh, pinning the
-# gate on a stale value for a whole TTL. The curl shim below stalls the first
-# responder on hide=true until a second answers hide=false, so an unserialized
-# implementation has both in flight together and ends on the stale "1".
+# Hold the first fetch until the second refresh has exited. Model mkdir's
+# false-success race (uutils 0.10.0): both callers can report success creating
+# the same directory. The lock must still exclude the second fetch.
 c="$work/g7"; mkdir -p "$c/proj/.claude" "$c/cache" "$c/bin"
 write_install "$c/proj" project "rk_key" "file://$c/ds.json"
 printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
 cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+real_mkdir="$(command -v mkdir)"
+cat > "$c/bin/mkdir" <<'SHIM'
+#!/usr/bin/env bash
+if [ "$#" -eq 1 ] && [ "$1" = "$WEAVE_TEST_LOCK" ]; then
+  "$WEAVE_TEST_REAL_MKDIR" "$@" 2>/dev/null || [ -d "$1" ] || exit 1
+  : > "$WEAVE_TEST_ATTEMPT"
+else
+  exec "$WEAVE_TEST_REAL_MKDIR" "$@"
+fi
+SHIM
 cat > "$c/bin/curl" <<'SHIM'
 #!/usr/bin/env bash
-# Claim a turn number atomically — mkdir is the test-and-set; a read-then-write
-# counter races here exactly as it would in the code under test.
-n=1
-while ! mkdir "$WEAVE_TEST_TURNS/$n" 2>/dev/null; do n=$((n + 1)); done
-echo "$n" >> "$WEAVE_TEST_CALLS"
-# Announce this fetch for its whole duration; a concurrent one records a
-# violation. This is what the mutex must make impossible.
-[ -e "$WEAVE_TEST_INFLIGHT" ] && echo overlap >> "$WEAVE_TEST_OVERLAP"
-: > "$WEAVE_TEST_INFLIGHT"
-if [ "$n" -eq 1 ]; then
-  # Stall the stale responder until the fresh one has written, or until the
-  # deadline passes (serialized runs never produce a second call, and this
-  # test must not hang waiting for one that will never come).
-  for _ in $(seq 1 60); do
-    [ -f "$WEAVE_TEST_RELEASE" ] && break
-    sleep 0.05
+echo fetch >> "$WEAVE_TEST_CALLS"
+if (set -C; : > "$WEAVE_TEST_INFLIGHT") 2>/dev/null; then
+  deadline=$(($(date +%s) + 15))
+  until [ -f "$WEAVE_TEST_RELEASE" ]; do
+    [ "$(date +%s)" -lt "$deadline" ] || exit 1
+    sleep 0.01
   done
   rm -f "$WEAVE_TEST_INFLIGHT"
   printf '{"hide_terminal_surfaces": true}'
 else
-  rm -f "$WEAVE_TEST_INFLIGHT"
+  echo overlap >> "$WEAVE_TEST_OVERLAP"
   printf '{"hide_terminal_surfaces": false}'
-  : > "$WEAVE_TEST_RELEASE"
 fi
 SHIM
-chmod +x "$c/bin/curl"
-mkdir -p "$c/turns"; : > "$c/calls"; : > "$c/overlap"; rm -f "$c/inflight"
-for _ in 1 2; do
+chmod +x "$c/bin/mkdir" "$c/bin/curl"
+: > "$c/calls"; : > "$c/overlap"
+concurrent_gate_refresh() {
   echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
     | PATH="$c/bin:$PATH" XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 \
       WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' \
-      WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' WEAVE_TEST_TURNS="$c/turns" \
+      WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' WEAVE_TEST_LOCK="$cache_file.lock" \
+      WEAVE_TEST_REAL_MKDIR="$real_mkdir" WEAVE_TEST_ATTEMPT="$c/$1-attempt" \
       WEAVE_TEST_CALLS="$c/calls" WEAVE_TEST_RELEASE="$c/release" \
       WEAVE_TEST_INFLIGHT="$c/inflight" WEAVE_TEST_OVERLAP="$c/overlap" \
-      bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1 &
-done
-wait
-# Both refreshes are detached, so the foreground exit says nothing about them.
-wait_for 15 test -f "$cache_file"
-sleep 3
-# Mutual exclusion is the property under test, so assert on overlap rather than
-# a fetch count: two invocations that happen to serialize (the first finishes
-# and releases before the second starts) fetch twice quite legitimately, and on
-# a slow runner that is what happens. Asserting the cached VALUE would be
-# tautological — with one fetch it is the first responder's either way.
+      bash "$c/proj/.claude/cc-statusline.sh" 3>&1 >/dev/null 2>&1
+}
+# FD 3 keeps each pipe open in detached descendants; cat exits only once the
+# entire refresh has finished, not merely its foreground statusline process.
+concurrent_gate_refresh first | cat >/dev/null &
+first_refresh=$!
+if wait_for 15 test -f "$c/inflight"; then
+  ok "first refresh is held in the fetch"
+else
+  no "first refresh is held in the fetch" "fetch started" "no fetch after 15s"
+fi
+concurrent_gate_refresh second | cat >/dev/null &
+wait "$!"
+check "second refresh attempted the held lock" \
+  "$(test -f "$c/second-attempt" && echo yes)" yes
 check "concurrent refreshes never fetch at the same time" \
   "$(wc -l < "$c/overlap" | tr -d ' ')" 0
-# Guard against the above passing vacuously because nothing ever fetched.
-if [ "$(wc -l < "$c/calls" | tr -d ' ')" -ge 1 ]; then
-  ok "a stale cache does trigger a background refresh"
-else
-  no "a stale cache does trigger a background refresh" "at least one fetch" "no fetch happened"
-fi
+check "only the lock owner fetches while held" "$(wc -l < "$c/calls" | tr -d ' ')" 1
+: > "$c/release"
+wait "$first_refresh"
+check "a stale cache does trigger a background refresh" "$(cat "$cache_file" 2>/dev/null)" 1
+check "the refresh owner releases the lock" "$(test -d "$cache_file.lock" && echo held)" ""
 
 # An ABANDONED lock (crashed holder) must not block refreshes forever: a
 # pre-seeded lock older than the reclaim threshold gets taken over, the fetch
