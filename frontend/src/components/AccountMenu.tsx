@@ -25,6 +25,7 @@ export function AccountMenu() {
           appearance={Appearance.Hollow}
           className="h-8 w-full justify-start gap-2 px-2 text-body"
           onClick={async () => {
+            // Best-effort: redirect to /login even if logout fails, so the UI is never left half-authed.
             await api.auth.logout().catch(() => undefined);
             router.replace("/login");
           }}

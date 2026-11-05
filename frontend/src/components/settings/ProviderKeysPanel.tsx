@@ -327,7 +327,7 @@ export function ProviderKeysPanel() {
     ...keys.map(k => k.provider),
     ...envKeyed.filter(provider => provider !== ANTHROPIC_PROVIDER),
   ]);
-  const available: Provider[] = PROVIDERS.filter(p => !taken.has(p));
+  const available = PROVIDERS.filter(p => !taken.has(p));
   const provider: Provider | null =
     pickedProvider != null && available.includes(pickedProvider)
       ? pickedProvider
