@@ -60,6 +60,42 @@ func TestNoticeContractAndCapabilities(t *testing.T) {
 	}
 }
 
+func TestStreamEventCommitsOutput(t *testing.T) {
+	tests := []struct {
+		name   string
+		format translate.Format
+		event  string
+		want   bool
+	}{
+		{
+			name:   "OpenAI role",
+			format: translate.FormatOpenAI,
+			event:  `data: {"choices":[{"delta":{"role":"assistant"},"finish_reason":null}]}` + "\n\n",
+		},
+		{
+			name:   "OpenAI content",
+			format: translate.FormatOpenAI,
+			event:  `data: {"choices":[{"delta":{"content":"hello"},"finish_reason":null}]}` + "\n\n",
+			want:   true,
+		},
+		{name: "OpenAI done", format: translate.FormatOpenAI, event: "data: [DONE]\n\n", want: true},
+		{
+			name:   "OpenAI error",
+			format: translate.FormatOpenAI,
+			event:  `data: {"error":{"message":"failed"}}` + "\n\n",
+			want:   true,
+		},
+		{name: "Anthropic message start", format: translate.FormatAnthropic, event: "event: message_start\ndata: {}\n\n"},
+		{name: "Anthropic stop", format: translate.FormatAnthropic, event: "event: message_stop\ndata: {}\n\n", want: true},
+		{name: "Anthropic error", format: translate.FormatAnthropic, event: "event: error\ndata: {}\n\n", want: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			assert.Equal(t, test.want, translate.StreamEventCommitsOutput(test.format, []byte(test.event)))
+		})
+	}
+}
+
 func TestNoticeWritersEscapeProviderHTMLWithoutChangingJSONText(t *testing.T) {
 	const providerText = "<script>alert('provider')</script>&"
 	for _, format := range noticeFormats {

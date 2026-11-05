@@ -170,6 +170,77 @@ func TestProxyMessages_FireworksFailureFallbackToOpenRouter(t *testing.T) {
 	assert.Equal(t, false, reasoning["enabled"], "reasoning.enabled must be false to avoid burning max_tokens on hidden thinking")
 }
 
+func TestProxyOpenAIChatCompletion_FireworksRoleChunkCutFallsBackToOpenRouter(t *testing.T) {
+	var (
+		mu                     sync.Mutex
+		fireworksRequestCount  int
+		openRouterRequestCount int
+	)
+
+	fireworks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		fireworksRequestCount++
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: " + `{"id":"fw-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}` + "\n\n"))
+		w.(http.Flusher).Flush()
+		panic(http.ErrAbortHandler)
+	}))
+	defer fireworks.Close()
+
+	openrouter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		openRouterRequestCount++
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		for _, chunk := range []string{
+			"data: " + `{"id":"or-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}` + "\n\n",
+			"data: " + `{"id":"or-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"rescued"},"finish_reason":null}]}` + "\n\n",
+			"data: " + `{"id":"or-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n",
+			"data: [DONE]\n\n",
+		} {
+			_, _ = w.Write([]byte(chunk))
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+	}))
+	defer openrouter.Close()
+
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: "fireworks", Model: "deepseek/deepseek-v4-pro"}},
+		map[string]providers.Client{
+			"fireworks":  openaicompat.NewClient("test-fw-key", fireworks.URL),
+			"openrouter": openaicompat.NewClient("test-or-key", openrouter.URL),
+		},
+		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{
+		"fireworks":  {},
+		"openrouter": {},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	body := []byte(`{"model":"deepseek/deepseek-v4-pro","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), body, rec, req))
+
+	mu.Lock()
+	assert.Equal(t, 1, fireworksRequestCount)
+	assert.Equal(t, 1, openRouterRequestCount)
+	mu.Unlock()
+
+	respBody := rec.Body.String()
+	assert.Contains(t, respBody, "rescued")
+	assert.NotContains(t, respBody, `"error":`)
+	assert.Equal(t, 1, strings.Count(respBody, `"delta":{"role":"assistant"}`), "only the rescued attempt's role chunk should reach the client")
+	assert.Less(t, strings.Index(respBody, `"delta":{"role":"assistant"}`), strings.Index(respBody, "rescued"))
+}
+
 // TestProxyMessages_BothBindingsFail asserts the format-specific
 // exhaustion renderer: when every binding returns an error, the
 // Anthropic client sees the upstream error envelope translated to
