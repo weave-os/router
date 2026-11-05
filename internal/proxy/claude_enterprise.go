@@ -2,7 +2,7 @@ package proxy
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
@@ -13,7 +13,7 @@ import (
 
 // ErrClaudeEnterpriseSubscriptionUnavailable refuses a Claude turn rather
 // than charging a different funding source when Enterprise-only is enabled.
-var ErrClaudeEnterpriseSubscriptionUnavailable = fmt.Errorf("%w: Claude Enterprise-only billing requires a usable Claude subscription", ErrSubscriptionPoolUnavailable)
+var ErrClaudeEnterpriseSubscriptionUnavailable = errors.New("Claude Enterprise-only billing requires a usable Claude subscription")
 
 type claudeEnterpriseTurnKey struct{}
 type claudeSubscriptionPresentKey struct{}
@@ -21,7 +21,7 @@ type claudeSubscriptionPresentKey struct{}
 // Claude account funding defaults on for linked accounts. Explicit BYOK and
 // credits-only configuration retain their existing authority over the default.
 func claudeEnterpriseOnly(ctx context.Context) bool {
-	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
+	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || anthropicBYOKConfigured(ctx) {
 		return false
 	}
 	if overrides, ok := flags.OverridesFromContext(ctx); ok {
@@ -35,7 +35,7 @@ func claudeEnterpriseOnly(ctx context.Context) bool {
 	if !present && !linked && anthropicSubscriptionFromContext(ctx) == "" {
 		return false
 	}
-	return !anthropicBYOKConfigured(ctx)
+	return true
 }
 
 func claudeEnterpriseTarget(ctx context.Context, target inference.Target) bool {

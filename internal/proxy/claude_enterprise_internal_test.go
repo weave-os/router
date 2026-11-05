@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -42,12 +43,20 @@ func TestClaudeEnterpriseOnlyDefaultsToLinkedAccounts(t *testing.T) {
 	require.False(t, claudeEnterpriseOnly(optedOut))
 	byok := parityAnthropicIngress().byokCtx(ctx)
 	require.False(t, claudeEnterpriseOnly(byok), "explicit native BYOK retains precedence over the inherited default")
+	require.False(t, claudeEnterpriseOnly(enterpriseOnlyContext(byok)), "explicit native BYOK retains precedence over a saved opt-in")
 
 	service := newServiceWithProviders(t, nil)
 	headers := http.Header{}
 	headers.Set("Authorization", "Bearer "+parityAnthropicToken)
 	headerOnly := service.withSubscriptionFundingAuthorization(routerKeyedCtx(), headers)
 	require.True(t, claudeEnterpriseOnly(headerOnly), "native header credentials have the same default as registered accounts")
+}
+
+func TestClaudeEnterpriseOnlyClassifiersKeepOverage(t *testing.T) {
+	ctx := context.WithValue(routerKeyedCtx(), AnthropicSubscriptionContextKey{}, classifierTestSubToken)
+	service := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: &parityUpstream{}}).WithUsageObserver(observerWithSnapshot(classifierTestSubToken, usage.Snapshot{OverageInUse: true}))
+	_, engaged := service.classifierPassthroughEngaged(ctx, http.Header{}, router.Request{RequestedModel: catalog.ModelIDClaudeSonnet46.String()}, turntype.Classifier)
+	require.True(t, engaged)
 }
 
 func TestClaudeEnterpriseOnlyKeepsQuotaAndOverageOnOAuth(t *testing.T) {
@@ -87,6 +96,20 @@ func TestClaudeEnterpriseOnlyLeasesOverageAccount(t *testing.T) {
 	require.Equal(t, "enterprise-seat", lease.AccountID)
 	require.Empty(t, leaser.exhaustedIDs)
 	lease.Release()
+}
+
+func TestClaudeEnterpriseOnlyPersistsActualQuotaRefusalAsCooldown(t *testing.T) {
+	leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{}}
+	service := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
+	ctx := enterpriseOnlyContext(managedSubscriptionTestContext())
+	err := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Headers: http.Header{
+		"Anthropic-Ratelimit-Unified-5h-Utilization": []string{"1"},
+		"Anthropic-Ratelimit-Unified-5h-Reset":       []string{"4102444800"},
+	}}
+	rotated := service.recordManagedSubscriptionFailure(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String(), subscriptions.Lease{AccountID: "enterprise-seat"}, err)
+	require.True(t, rotated)
+	require.Equal(t, []string{"enterprise-seat"}, leaser.cooldownIDs)
+	require.Empty(t, leaser.exhaustedIDs)
 }
 
 func TestClaudeEnterpriseOnlyDefaultMovesFromIncludedUsageToOverage(t *testing.T) {

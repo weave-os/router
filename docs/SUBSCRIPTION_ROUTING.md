@@ -82,8 +82,9 @@ marking the whole account exhausted or placing it on cooldown. Claude accounts w
 quota observation may serve. `claude_enterprise_only` defaults on for linked
 Claude accounts, keeping their requests on those accounts through provider-authorized
 overage. Organizations may explicitly disable it to permit Weave-funded fallback.
-Accounts with no linked Claude login continue to use their normal API funding;
-explicit Anthropic BYOK retains precedence over the inherited default.
+Requests with no registered or caller-presented Claude subscription credential
+continue to use normal API funding. Explicit Anthropic BYOK retains precedence
+over Enterprise-only billing, including an explicit organization override.
 In Enterprise-only mode observed included-quota exhaustion does not suppress a
 Claude account, while an actual provider refusal remains authoritative. Claude
 turns fail if their account cannot serve them; retry, failover, and auxiliary
@@ -141,6 +142,9 @@ the paid attempt. Routed turns and every other failure keep the
 rules above, and no request header can opt in. There is no admin API for the
 flag; an operator sets it directly and it takes effect within the five-minute
 API-key cache TTL:
+
+Enterprise-only Claude billing disables this paid-refusal opt-in. The request
+remains on the Claude account or returns the provider's refusal.
 
 ```sql
 UPDATE router.model_router_api_keys

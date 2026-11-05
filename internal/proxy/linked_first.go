@@ -22,6 +22,7 @@ func linkedFirst(ctx context.Context) bool {
 // through to, and a picked model stays on the caller's own login. Configured
 // subscription sets also forbid the ordinary same-model paid rescue; their
 // dispatcher separately authorizes the exhausted model set.
+// Enterprise-only Claude turns also forbid metered recovery after a refusal.
 func paidFallbackForbidden(ctx context.Context) bool {
 	return claudeEnterpriseTurn(ctx) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
 }

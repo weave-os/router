@@ -216,7 +216,8 @@ acquired AS (
     AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
          OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid))
     AND enabled = TRUE
-    AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP)
+    AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP
+         OR (@allow_claude_overage::boolean AND provider = 'claude' AND health_state = 'exhausted'))
     AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until <= CURRENT_TIMESTAMP)
   RETURNING id
 )

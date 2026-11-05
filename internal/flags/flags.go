@@ -177,7 +177,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 27
+const RegistryVersion = 28
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var

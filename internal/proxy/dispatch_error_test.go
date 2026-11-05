@@ -27,6 +27,16 @@ func TestClassifyDispatchError_UnknownErrorIsUnmatched(t *testing.T) {
 	assert.False(t, ok, "an error not matching any known sentinel must not be classified")
 }
 
+func TestClassifyDispatchError_ClaudeEnterpriseOnlyIsNotRetryable(t *testing.T) {
+	classification, ok := proxy.ClassifyDispatchError(fmt.Errorf("dispatch: %w", proxy.ErrClaudeEnterpriseSubscriptionUnavailable))
+	require.True(t, ok)
+	require.Equal(t, http.StatusPaymentRequired, classification.Status)
+	require.True(t, classification.NoClientRetry)
+	require.False(t, classification.RetryAfter)
+	require.Equal(t, "warn", classification.LogLevel)
+	require.Contains(t, classification.Message, "Enterprise-only billing")
+}
+
 func TestClassifyDispatchError_ImageLimitExceeded(t *testing.T) {
 	err := fmt.Errorf("route: %w", policy.ErrImageLimitExceeded)
 	classification, ok := proxy.ClassifyDispatchError(err)

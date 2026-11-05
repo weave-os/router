@@ -161,7 +161,7 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 		if candidate.CooldownUntil != nil {
 			account.CooldownTil = *candidate.CooldownUntil
 		}
-		if !candidate.Enabled || !subscriptionAccountStateRoutable(candidate.State, account.CooldownTil, r.clock()) {
+		if !candidate.Enabled || !subscriptionAccountEligible(ctx, provider, candidate.State, account.CooldownTil, r.clock()) {
 			continue
 		}
 		if err := r.manager.Upsert(account); err != nil {
@@ -255,7 +255,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 					observability.FromContext(ctx).Error("Failed to load subscription credentials while waiting for refresh", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", loadErr)
 					return Account{}, loadErr
 				}
-				if !subscriptionCredentialAvailable(credentials, r.clock()) {
+				if !subscriptionCredentialAvailable(ctx, account.Provider, credentials, r.clock()) {
 					return Account{}, ErrNoAvailableAccount
 				}
 				if subscriptionAccessTokenUsable(credentials, r.clock()) {
@@ -280,7 +280,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 				observability.FromContext(ctx).Error("Failed to load subscription credentials for refresh", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", err)
 				return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, err)
 			}
-			if !subscriptionCredentialAvailable(credentials, r.clock()) {
+			if !subscriptionCredentialAvailable(ctx, account.Provider, credentials, r.clock()) {
 				return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, ErrNoAvailableAccount)
 			}
 			if subscriptionAccessTokenUsable(credentials, r.clock()) {
@@ -309,7 +309,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 					return Account{}, err
 				}
 				latest, loadErr := r.store.LoadSubscriptionCredentials(ctx, owner, account.ID)
-				if loadErr == nil && subscriptionCredentialAvailable(latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
+				if loadErr == nil && subscriptionCredentialAvailable(ctx, account.Provider, latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
 					return applySubscriptionCredentials(account, latest), nil
 				}
 				if loadErr != nil {
@@ -392,7 +392,7 @@ func (r *Runtime) handleRefreshError(ctx context.Context, owner auth.Subscriptio
 		log.Warn("Subscription credential refresh rejected", "reason", refreshRejectionReason(refreshErr), "err", refreshErr)
 		latest, loadErr := r.store.LoadSubscriptionCredentials(ctx, owner, account.ID)
 		if loadErr == nil && (latest.TokenRefreshLeaseID != leaseID || latest.TokenRefreshVersion != credentials.TokenRefreshVersion || !bytes.Equal(latest.RefreshToken, credentials.RefreshToken)) {
-			if subscriptionCredentialAvailable(latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
+			if subscriptionCredentialAvailable(ctx, account.Provider, latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
 				return applySubscriptionCredentials(account, latest), r.releaseRefreshLease(ctx, owner, account.ID, leaseID, nil)
 			}
 			return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, errRefreshLeaseLost)
@@ -433,12 +433,12 @@ func subscriptionAccessTokenUsable(credentials auth.SubscriptionCredentials, now
 	return credentials.AccessTokenExpiresAt == nil || credentials.AccessTokenExpiresAt.IsZero() || credentials.AccessTokenExpiresAt.After(now.Add(time.Minute))
 }
 
-func subscriptionCredentialAvailable(credentials auth.SubscriptionCredentials, now time.Time) bool {
+func subscriptionCredentialAvailable(ctx context.Context, provider Provider, credentials auth.SubscriptionCredentials, now time.Time) bool {
 	var cooldownUntil time.Time
 	if credentials.CooldownUntil != nil {
 		cooldownUntil = *credentials.CooldownUntil
 	}
-	return credentials.Enabled && subscriptionAccountStateRoutable(credentials.State, cooldownUntil, now)
+	return credentials.Enabled && subscriptionAccountEligible(ctx, provider, credentials.State, cooldownUntil, now)
 }
 
 func applySubscriptionCredentials(account Account, credentials auth.SubscriptionCredentials) Account {
