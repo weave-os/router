@@ -1,11 +1,14 @@
 "use client";
 
+import { format } from "date-fns";
+
 import { isUnavailable } from "../data/availability";
 import {
   useRouterDashboardDataSource,
   useRouterDashboardQuery,
 } from "../data/RouterDashboardDataProvider";
 import { cn } from "../tools/cn";
+import { formatInteger } from "../tools/format";
 import { LoadState } from "../tools/LoadState";
 import { Modal } from "./molecules/Modal";
 
@@ -22,27 +25,10 @@ export interface DrillDownModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-function formatUSD(v: number): string {
+function formatUSD(v: number) {
   if (v === 0) return "$0.00";
   if (Math.abs(v) < 0.01) return `$${v.toFixed(4)}`;
   return `$${v.toFixed(2)}`;
-}
-
-function formatNumber(v: number): string {
-  return v.toLocaleString();
-}
-
-function formatTimestamp(iso: string): string {
-  const d = new Date(iso);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  let hours = d.getHours();
-  const minutes = String(d.getMinutes()).padStart(2, "0");
-  const ampm = hours >= 12 ? "pm" : "am";
-  hours = hours % 12;
-  if (hours === 0) hours = 12;
-  return `${year}-${month}-${day} ${hours}:${minutes}${ampm}`;
 }
 
 /** Provider name → display label + Tailwind classes for the badge. Mirrors
@@ -94,11 +80,6 @@ const CLIENT_APP_LABEL: Record<string, string> = {
   "gemini-cli": "Gemini CLI",
 };
 
-function ClientAppLabel({ clientApp }: { clientApp: string }) {
-  if (clientApp === "") return <>—</>;
-  return <>{CLIENT_APP_LABEL[clientApp] ?? clientApp}</>;
-}
-
 /** Turn-type value → display label. Mirrors `internal/router/turntype` on the
  *  Go side. System turn types (probe, title_gen, compaction, classifier, recap) are
  *  automated traffic — render them muted so user turns stand out. */
@@ -124,13 +105,6 @@ function TurnTypeLabel({ turnType }: { turnType: string }) {
   return <>{label}</>;
 }
 
-/** Renders the user identity for a drill-down row: the linked email when the
- *  router resolved one, otherwise an em dash. */
-function UserLabel({ email }: { email: string }) {
-  if (email === "") return <>—</>;
-  return <span className="font-medium">{email}</span>;
-}
-
 interface ColumnDef {
   key: string;
   label: string;
@@ -146,12 +120,12 @@ const COLUMNS: ColumnDef[] = [
   { key: "requested", label: "Requested model" },
   { key: "decision", label: "Decision model" },
   { key: "provider", label: "Provider" },
-  { key: "in_tok", label: "Input tokens", align: "right" },
-  { key: "out_tok", label: "Output tokens", align: "right" },
+  { key: "input_tokens", label: "Input tokens", align: "right" },
+  { key: "output_tokens", label: "Output tokens", align: "right" },
   { key: "cache_write", label: "Cache write", align: "right" },
   { key: "cache_read", label: "Cache read", align: "right" },
-  { key: "req_cost", label: "Requested $", align: "right" },
-  { key: "act_cost", label: "Actual $", align: "right" },
+  { key: "requested_cost_usd", label: "Requested $", align: "right" },
+  { key: "actual_cost_usd", label: "Actual $", align: "right" },
   { key: "latency", label: "Latency", align: "right" },
   { key: "status", label: "Status", align: "right" },
 ];
@@ -165,18 +139,18 @@ export function DrillDownModal({
   onOpenChange,
 }: DrillDownModalProps) {
   const { requests } = useRouterDashboardDataSource();
-  const details = useRouterDashboardQuery(
+  const requestsState = useRouterDashboardQuery(
     open && !isUnavailable(requests)
       ? () => requests.list({ limit: 200, range: { from: fromISO, to: toISO } })
       : null,
     [open, fromISO, toISO, requests],
   );
-  const rows = LoadState.isReady(details) ? details.value.rows : null;
-  const loading = LoadState.isLoading(details);
+  const rows = LoadState.isReady(requestsState) ? requestsState.value.rows : null;
+  const loading = LoadState.isLoading(requestsState);
   const error = isUnavailable(requests)
     ? requests.message
-    : LoadState.isError(details)
-      ? details.error.message
+    : LoadState.isError(requestsState)
+      ? requestsState.error.message
       : null;
 
   return (
@@ -228,13 +202,19 @@ export function DrillDownModal({
                       className="border-border/50 border-t hover:bg-muted/30"
                     >
                       <td className="whitespace-nowrap px-4 py-3">
-                        {formatTimestamp(r.timestamp)}
+                        {format(new Date(r.timestamp), "yyyy-MM-dd h:mmaaa")}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
-                        <UserLabel email={r.user_email} />
+                        {r.user_email === "" ? (
+                          "—"
+                        ) : (
+                          <span className="font-medium">{r.user_email}</span>
+                        )}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
-                        <ClientAppLabel clientApp={r.client_app} />
+                        {r.client_app === ""
+                          ? "—"
+                          : (CLIENT_APP_LABEL[r.client_app] ?? r.client_app)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
                         <TurnTypeLabel turnType={r.turn_type} />
@@ -249,18 +229,18 @@ export function DrillDownModal({
                         <ProviderBadge provider={r.decision_provider} />
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                        {formatNumber(r.input_tokens)}
+                        {formatInteger(r.input_tokens)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
-                        {formatNumber(r.output_tokens)}
+                        {formatInteger(r.output_tokens)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-muted-foreground">
                         {r.cache_creation_tokens == null
                           ? "—"
-                          : formatNumber(r.cache_creation_tokens)}
+                          : formatInteger(r.cache_creation_tokens)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-muted-foreground">
-                        {r.cache_read_tokens == null ? "—" : formatNumber(r.cache_read_tokens)}
+                        {r.cache_read_tokens == null ? "—" : formatInteger(r.cache_read_tokens)}
                       </td>
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">
                         {formatUSD(r.requested_cost_usd)}

@@ -151,14 +151,14 @@ function ShortcutTooltip({
 }
 
 function GranularityPill({ onOpenChange, open, result }: FilterPillMenuProps) {
-  const current = result.filters.granularity;
+  const currentGranularity = result.filters.granularity;
   return (
     <ShortcutTooltip label="Change granularity" shortcut="G">
       <FilterPill>
         <FilterPill.Label>Interval</FilterPill.Label>
         <Popover open={open} onOpenChange={onOpenChange}>
           <Popover.Trigger>
-            <FilterPill.Button>{current}</FilterPill.Button>
+            <FilterPill.Button>{currentGranularity}</FilterPill.Button>
           </Popover.Trigger>
           <Popover.Content className="w-64 p-1" align="start">
             <Command>
@@ -173,7 +173,7 @@ function GranularityPill({ onOpenChange, open, result }: FilterPillMenuProps) {
                     }}
                   >
                     <div className="flex items-center gap-2">
-                      <CheckSlot checked={current === option} /> {option}
+                      <CheckSlot checked={currentGranularity === option} /> {option}
                     </div>
                   </Command.Item>
                 ))}
@@ -187,7 +187,6 @@ function GranularityPill({ onOpenChange, open, result }: FilterPillMenuProps) {
 }
 
 function DatePill({ onOpenChange, open, result }: FilterPillMenuProps) {
-  const currentId = result.filters.range.id;
   return (
     <ShortcutTooltip label="Change date" shortcut="D">
       <FilterPill onRemove={() => result.setRangeId(DEFAULT_RANGE_ID)}>
@@ -213,7 +212,7 @@ function DatePill({ onOpenChange, open, result }: FilterPillMenuProps) {
                     }}
                   >
                     <div className="flex items-center gap-2">
-                      <CheckSlot checked={currentId === range.id} /> {range.label}
+                      <CheckSlot checked={result.filters.range.id === range.id} /> {range.label}
                     </div>
                   </Command.Item>
                 ))}

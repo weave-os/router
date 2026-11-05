@@ -22,7 +22,6 @@ export interface RouterDrillDownRequest {
   key?: string;
   /** Decision models to keep, e.g. every model of a clicked maker. */
   models?: readonly string[];
-  /** The chart's date range. */
   range: DateRange;
   routingState?: RouterRoutingState;
   type: RouterMetricType;
@@ -87,9 +86,8 @@ export function drillDownRange({
 }: RouterDrillDownRequest): DateRange {
   if (bucketStart == null || granularity == null) return range;
   const from = new Date(range.from);
-  const to = new Date(range.to);
   return {
     from: (cumulative === true ? from : max([from, new Date(bucketStart)])).toISOString(),
-    to: min([to, ADD_GRANULARITY[granularity](bucketStart, 1)]).toISOString(),
+    to: min([new Date(range.to), ADD_GRANULARITY[granularity](bucketStart, 1)]).toISOString(),
   };
 }
