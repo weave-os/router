@@ -596,8 +596,9 @@ func main() {
 		logger.Info("Per-organization flag overrides disabled deployment-wide (ROUTER_FLAG_OVERRIDES_DISABLED=true)")
 	}
 
+	credentialSubjects := postgres.NewCredentialSubjectRepo(pool)
 	authSvc := auth.NewService(repo.Installations, repo.APIKeys, repo.ExternalAPIKeys, repo.Users, cache, userCache, time.Now).
-		WithCredentialSubjectLookup(postgres.NewCredentialSubjectRepo(pool)).
+		WithCredentialSubjectLookup(credentialSubjects).
 		WithEncryptor(encryptor).
 		WithInstallationChangeNotifier(notifier).
 		WithClusterModelLists(repo.ClusterModelLists).
@@ -662,7 +663,7 @@ func main() {
 		if adminPassword == "" {
 			logger.Warn("ROUTER_ADMIN_PASSWORD not set; dashboard administration is disabled. Set ROUTER_ADMIN_PASSWORD to enable it.")
 		}
-		authSvc.WithAdminPassword(adminPassword)
+		authSvc.WithAdminPassword(adminPassword).WithPersonalCredentialIssuer(credentialSubjects)
 	}
 	embedOnlyUser := config.GetOr("ROUTER_EMBED_ONLY_USER_MESSAGE", "true") == "true"
 	if embedOnlyUser {

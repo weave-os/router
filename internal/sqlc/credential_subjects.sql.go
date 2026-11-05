@@ -150,6 +150,24 @@ func (q *Queries) InsertPersonalRoutingKey(ctx context.Context, arg InsertPerson
 	return i, err
 }
 
+const lockInstallationForPersonalIssuance = `-- name: LockInstallationForPersonalIssuance :one
+SELECT id FROM router.model_router_installations
+WHERE id = $1::uuid AND deleted_at IS NULL
+FOR UPDATE
+`
+
+// Self-hosted issuance locks the installation it projects a subject into.
+//
+//	SELECT id FROM router.model_router_installations
+//	WHERE id = $1::uuid AND deleted_at IS NULL
+//	FOR UPDATE
+func (q *Queries) LockInstallationForPersonalIssuance(ctx context.Context, installationID uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRow(ctx, lockInstallationForPersonalIssuance, installationID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
 const updateCredentialSubjectEnrollment = `-- name: UpdateCredentialSubjectEnrollment :execrows
 UPDATE router.credential_subjects
 SET internal_enrolled = $1::boolean, enrollment_generation = enrollment_generation + 1

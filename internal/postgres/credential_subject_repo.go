@@ -15,7 +15,7 @@ import (
 )
 
 // CredentialSubjectRepo owns atomic personal-key issuance and authenticated projection writes.
-// Only the private control plane maps subjects to accounts; no public router endpoint exposes these writes.
+// The private control plane maps subjects to accounts; a self-hosted router is its own control plane.
 type CredentialSubjectRepo struct{ pool *pgxpool.Pool }
 
 // NewCredentialSubjectRepo binds subject operations to the router primary.
@@ -69,19 +69,8 @@ func (r *CredentialSubjectRepo) CreatePending(ctx context.Context, externalID st
 		if len(installations) != 1 {
 			return auth.ErrInstallationNotFound
 		}
-		subject, err := queries.InsertCredentialSubject(ctx)
-		if err != nil {
-			return err
-		}
-		if err := queries.InsertCredentialSubjectInstallation(ctx, sqlc.InsertCredentialSubjectInstallationParams{SubjectID: subject.ID, InstallationID: installationID}); err != nil {
-			return err
-		}
-		row, err := queries.InsertPersonalRoutingKey(ctx, sqlc.InsertPersonalRoutingKeyParams{InstallationID: installationID, SubjectID: subject.ID, ExternalID: key.ExternalID, Name: key.Name, KeyPrefix: key.KeyPrefix, KeyHash: key.KeyHash, KeySuffix: key.KeySuffix})
-		if err != nil {
-			return err
-		}
-		created = toAuthAPIKey(row)
-		return nil
+		created, err = insertPersonalCredential(ctx, queries, installationID, key)
+		return err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create pending personal credential: %w", err)
@@ -116,33 +105,8 @@ func (r *CredentialSubjectRepo) Rotate(ctx context.Context, externalID, subjectI
 		if len(installations) != 1 {
 			return auth.ErrInstallationNotFound
 		}
-		key, err := queries.GetServingCredentialForAdmission(ctx, sqlc.GetServingCredentialForAdmissionParams{APIKeyID: keyUUID, InstallationID: installationID})
-		if err != nil {
-			return err
-		}
-		if !key.CredentialSubjectID.Valid || uuid.UUID(key.CredentialSubjectID.Bytes) != subjectUUID {
-			return auth.ErrPersonalCredentialRequired
-		}
-		projection, err := queries.GetServingSubjectForAdmission(ctx, sqlc.GetServingSubjectForAdmissionParams{SubjectID: subjectUUID, InstallationID: installationID})
-		if err != nil {
-			return err
-		}
-		if !projection.RouterCredentialSubject.ProjectionComplete || projection.RouterCredentialSubject.RevokedAt.Valid || !projection.AccessEnabled {
-			return auth.ErrPersonalCredentialRequired
-		}
-		changed, err := queries.SoftDeleteModelRouterAPIKey(ctx, sqlc.SoftDeleteModelRouterAPIKeyParams{ID: keyUUID, InstallationID: installationID})
-		if err != nil {
-			return err
-		}
-		if changed != 1 {
-			return auth.ErrAPIKeyNotFound
-		}
-		row, err := queries.InsertPersonalRoutingKey(ctx, sqlc.InsertPersonalRoutingKeyParams{InstallationID: installationID, SubjectID: subjectUUID, ExternalID: replacement.ExternalID, Name: replacement.Name, KeyPrefix: replacement.KeyPrefix, KeyHash: replacement.KeyHash, KeySuffix: replacement.KeySuffix})
-		if err != nil {
-			return err
-		}
-		created = toAuthAPIKey(row)
-		return nil
+		created, err = rotatePersonalCredential(ctx, queries, installationID, subjectUUID, keyUUID, replacement)
+		return err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("rotate personal credential: %w", err)
@@ -197,4 +161,119 @@ func (r *CredentialSubjectRepo) ProjectProfile(ctx context.Context, externalID s
 		return fmt.Errorf("project organization profile assignment: %w", err)
 	}
 	return nil
+}
+
+// CreateProjected issues a self-hosted personal key whose new subject is projected and enabled in the same transaction,
+// the end state the hosted control plane reaches for an account-owned key.
+func (r *CredentialSubjectRepo) CreateProjected(ctx context.Context, key auth.CreateAPIKeyParams) (*auth.APIKey, error) {
+	installationID, err := uuid.Parse(key.InstallationID)
+	if err != nil {
+		return nil, err
+	}
+	if key.Scope.Normalized() != auth.ScopeRouting {
+		return nil, auth.ErrInvalidKeyScope
+	}
+	var created *auth.APIKey
+	err = pgx.BeginFunc(ctx, dbbudget.NewDBTX(r.pool), func(tx pgx.Tx) error {
+		queries := dbbudget.Queries(tx)
+		if _, err := queries.LockInstallationForPersonalIssuance(ctx, installationID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return auth.ErrInstallationNotFound
+			}
+			return err
+		}
+		created, err = insertPersonalCredential(ctx, queries, installationID, key)
+		if err != nil {
+			return err
+		}
+		subjectID := uuid.MustParse(created.CredentialSubjectID)
+		if _, err := queries.UpdateCredentialSubjectInstallationAccess(ctx, sqlc.UpdateCredentialSubjectInstallationAccessParams{SubjectID: subjectID, InstallationID: installationID, AccessEnabled: true}); err != nil {
+			return err
+		}
+		_, err = queries.UpdateCredentialSubjectProjection(ctx, subjectID)
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("create projected personal credential: %w", err)
+	}
+	return created, nil
+}
+
+// RotateProjected replaces a self-hosted personal key; its subject and seat ownership survive rotation.
+func (r *CredentialSubjectRepo) RotateProjected(ctx context.Context, subjectID, previousKeyID string, replacement auth.CreateAPIKeyParams) (*auth.APIKey, error) {
+	installationID, err := uuid.Parse(replacement.InstallationID)
+	if err != nil {
+		return nil, err
+	}
+	subjectUUID, err := uuid.Parse(subjectID)
+	if err != nil {
+		return nil, err
+	}
+	keyUUID, err := uuid.Parse(previousKeyID)
+	if err != nil {
+		return nil, err
+	}
+	if replacement.Scope.Normalized() != auth.ScopeRouting {
+		return nil, auth.ErrInvalidKeyScope
+	}
+	var created *auth.APIKey
+	err = pgx.BeginFunc(ctx, dbbudget.NewDBTX(r.pool), func(tx pgx.Tx) error {
+		queries := dbbudget.Queries(tx)
+		if _, err := queries.LockInstallationForPersonalIssuance(ctx, installationID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return auth.ErrInstallationNotFound
+			}
+			return err
+		}
+		created, err = rotatePersonalCredential(ctx, queries, installationID, subjectUUID, keyUUID, replacement)
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("rotate projected personal credential: %w", err)
+	}
+	return created, nil
+}
+
+func insertPersonalCredential(ctx context.Context, queries *sqlc.Queries, installationID uuid.UUID, key auth.CreateAPIKeyParams) (*auth.APIKey, error) {
+	subject, err := queries.InsertCredentialSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := queries.InsertCredentialSubjectInstallation(ctx, sqlc.InsertCredentialSubjectInstallationParams{SubjectID: subject.ID, InstallationID: installationID}); err != nil {
+		return nil, err
+	}
+	row, err := queries.InsertPersonalRoutingKey(ctx, sqlc.InsertPersonalRoutingKeyParams{InstallationID: installationID, SubjectID: subject.ID, ExternalID: key.ExternalID, Name: key.Name, KeyPrefix: key.KeyPrefix, KeyHash: key.KeyHash, KeySuffix: key.KeySuffix})
+	if err != nil {
+		return nil, err
+	}
+	return toAuthAPIKey(row), nil
+}
+
+func rotatePersonalCredential(ctx context.Context, queries *sqlc.Queries, installationID, subjectUUID, keyUUID uuid.UUID, replacement auth.CreateAPIKeyParams) (*auth.APIKey, error) {
+	key, err := queries.GetServingCredentialForAdmission(ctx, sqlc.GetServingCredentialForAdmissionParams{APIKeyID: keyUUID, InstallationID: installationID})
+	if err != nil {
+		return nil, err
+	}
+	if !key.CredentialSubjectID.Valid || uuid.UUID(key.CredentialSubjectID.Bytes) != subjectUUID {
+		return nil, auth.ErrPersonalCredentialRequired
+	}
+	projection, err := queries.GetServingSubjectForAdmission(ctx, sqlc.GetServingSubjectForAdmissionParams{SubjectID: subjectUUID, InstallationID: installationID})
+	if err != nil {
+		return nil, err
+	}
+	if !projection.RouterCredentialSubject.ProjectionComplete || projection.RouterCredentialSubject.RevokedAt.Valid || !projection.AccessEnabled {
+		return nil, auth.ErrPersonalCredentialRequired
+	}
+	changed, err := queries.SoftDeleteModelRouterAPIKey(ctx, sqlc.SoftDeleteModelRouterAPIKeyParams{ID: keyUUID, InstallationID: installationID})
+	if err != nil {
+		return nil, err
+	}
+	if changed != 1 {
+		return nil, auth.ErrAPIKeyNotFound
+	}
+	row, err := queries.InsertPersonalRoutingKey(ctx, sqlc.InsertPersonalRoutingKeyParams{InstallationID: installationID, SubjectID: subjectUUID, ExternalID: replacement.ExternalID, Name: replacement.Name, KeyPrefix: replacement.KeyPrefix, KeyHash: replacement.KeyHash, KeySuffix: replacement.KeySuffix})
+	if err != nil {
+		return nil, err
+	}
+	return toAuthAPIKey(row), nil
 }
