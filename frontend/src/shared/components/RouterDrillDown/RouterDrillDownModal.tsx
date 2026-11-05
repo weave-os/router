@@ -12,12 +12,16 @@ import { useEffect, useState } from "react";
 import { cn } from "../../tools/cn";
 import { formatInteger, formatUSD } from "../../tools/format";
 import { LoadState } from "../../tools/LoadState";
+import { Avatar } from "../atoms/Avatar";
 import { Icon } from "../atoms/Icon";
 import { Skeleton } from "../atoms/Skeleton";
 import { Text } from "../atoms/Text";
 import { ErrorCard } from "../ErrorCard";
 import { LoadStateWrapper } from "../LoadStateWrapper";
+import { Badge } from "../molecules/Badge";
+import { Button } from "../molecules/Button";
 import { Modal } from "../molecules/Modal";
+import { Appearance, Intent } from "../types";
 import {
   personTotals,
   type RouterDrillDownTotals,
@@ -45,6 +49,11 @@ const COLUMNS = [
   "Finished at",
 ] as const;
 
+const COLUMN_WIDTH: Partial<Record<(typeof COLUMNS)[number], string>> = {
+  User: "min-w-48",
+  "Usage type": "min-w-52",
+};
+
 const DATE_TIME = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" });
 
 /** The hosted Router cost breakdown table, fed by a host loader instead of GraphQL. */
@@ -71,7 +80,7 @@ export function RouterDrillDownModal({
     <Modal open={true} onOpenChange={open => !open && onClose()}>
       <Modal.Backdrop />
       <Modal.Content
-        className="flex h-[80dvh] w-[90dvw] max-w-screen-2xl flex-col p-0"
+        className="flex h-[80dvh] w-[90dvw] max-w-screen-2xl flex-col gap-0 p-0"
         hideCloseButton
       >
         <Modal.Title className="shrink-0 border-b px-4 py-3 text-card-title font-semibold">
@@ -98,7 +107,18 @@ export function RouterDrillDownModal({
   );
 }
 
+// Hosted hides the per-request detail columns until "Model details" is pressed.
+const DETAIL_COLUMN_START = 7;
+const UNLINKED_LABEL = "Unlinked router user";
+
+function personLabel({ displayName, email }: RouterDrillDownPerson) {
+  if (displayName !== "") return displayName;
+  return email === "" ? UNLINKED_LABEL : email;
+}
+
 function RouterDrillDownTable({ people }: { people: readonly RouterDrillDownPerson[] }) {
+  const [showDetails, setShowDetails] = useState(false);
+  const visibleColumns = showDetails ? COLUMNS : COLUMNS.slice(0, DETAIL_COLUMN_START);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const toggle = (id: string) =>
     setExpanded(previous => {
@@ -115,66 +135,89 @@ function RouterDrillDownTable({ people }: { people: readonly RouterDrillDownPers
     );
   }
   return (
-    <table className="w-full border-collapse text-body">
-      <thead className="bg-wv-card sticky top-0 z-10 shadow-[inset_0_-1px_0_hsl(var(--border))]">
-        <tr>
-          {COLUMNS.map(column => (
-            <th
-              key={column}
-              scope="col"
-              className="whitespace-nowrap px-3 py-2 text-left text-caption font-medium text-wv-secondary"
-            >
-              {column}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {people.map(person => {
-          const isExpanded = expanded.has(person.id);
-          return [
-            <DrillDownRow
-              key={person.id}
-              totals={personTotals(person)}
-              user={
-                <button
-                  type="button"
-                  aria-expanded={isExpanded}
-                  className="flex items-center gap-1 font-medium"
-                  onClick={() => toggle(person.id)}
-                >
-                  <Icon
-                    type={isExpanded ? "ChevronDown" : "ChevronRight"}
-                    className="size-4 shrink-0"
-                  />
-                  {person.displayName === "" ? person.email : person.displayName}
-                </button>
-              }
-              session={`${formatInteger(person.sessions.length)} sessions`}
-            />,
-            ...(isExpanded
-              ? person.sessions.flatMap(session => [
-                  <DrillDownRow
-                    key={`${person.id}:${session.sessionId}`}
-                    className="bg-wv-subtle/40"
-                    totals={totalPairs(session.models)}
-                    session={session.sessionId === "" ? "No session" : session.sessionId}
-                    aiTool={session.clientApp}
-                    startedAt={session.startedAt}
-                    finishedAt={session.finishedAt}
-                  />,
-                ])
-              : []),
-          ];
-        })}
-      </tbody>
-    </table>
+    <>
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-3 py-2">
+        <Text variant="p" className="text-caption text-wv-secondary">
+          Estimated API costs at catalog rates. Subscription requests contribute $0.
+        </Text>
+        <Button
+          appearance={Appearance.Hollow}
+          className="min-h-11 shrink-0 px-3"
+          aria-label="Model details"
+          aria-pressed={showDetails}
+          onClick={() => setShowDetails(value => !value)}
+        >
+          Model details
+        </Button>
+      </div>
+      <table className="w-full border-collapse text-body">
+        <thead className="bg-wv-card sticky top-0 z-10 shadow-[inset_0_-1px_0_hsl(var(--border))]">
+          <tr>
+            {visibleColumns.map(column => (
+              <th
+                key={column}
+                scope="col"
+                className={cn(
+                  "whitespace-nowrap border-r border-wv-subtle px-3 py-3 text-left font-medium last:border-r-0",
+                  COLUMN_WIDTH[column] ?? "min-w-32",
+                )}
+              >
+                {column}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {people.map(person => {
+            const isExpanded = expanded.has(person.id);
+            return [
+              <DrillDownRow
+                key={person.id}
+                columns={visibleColumns.length}
+                totals={personTotals(person)}
+                user={
+                  <button
+                    type="button"
+                    aria-expanded={isExpanded}
+                    className="flex max-w-48 items-center gap-2"
+                    onClick={() => toggle(person.id)}
+                  >
+                    <Icon
+                      type={isExpanded ? "ChevronDown" : "ChevronRight"}
+                      className="size-4 shrink-0"
+                    />
+                    <Avatar name={personLabel(person)} className="size-6 shrink-0" />
+                    <span className="truncate">{personLabel(person)}</span>
+                  </button>
+                }
+                session={`${formatInteger(person.sessions.length)} ${person.sessions.length === 1 ? "session" : "sessions"}`}
+              />,
+              ...(isExpanded
+                ? person.sessions.flatMap(session => [
+                    <DrillDownRow
+                      key={`${person.id}:${session.sessionId}`}
+                      columns={visibleColumns.length}
+                      className="bg-wv-subtle/40"
+                      totals={totalPairs(session.models)}
+                      session={session.sessionId === "" ? "No session" : session.sessionId}
+                      aiTool={session.clientApp}
+                      startedAt={session.startedAt}
+                      finishedAt={session.finishedAt}
+                    />,
+                  ])
+                : []),
+            ];
+          })}
+        </tbody>
+      </table>
+    </>
   );
 }
 
 interface DrillDownRowProps {
   aiTool?: string;
   className?: string;
+  columns: number;
   finishedAt?: number;
   session: string;
   startedAt?: number;
@@ -185,6 +228,7 @@ interface DrillDownRowProps {
 function DrillDownRow({
   aiTool,
   className,
+  columns,
   finishedAt,
   session,
   startedAt,
@@ -197,7 +241,9 @@ function DrillDownRow({
     formatUSD(totals.comparisonCostUsd),
     formatUSD(totals.comparisonCostUsd - totals.catalogCostUsd),
     formatInteger(totals.requests),
-    usageType(totals),
+    <Badge key="usage" appearance={Appearance.Tinted} intent={Intent.Primary}>
+      {usageType(totals)}
+    </Badge>,
     session,
     aiTool,
     totals.requestedModels.join(", "),
@@ -208,7 +254,7 @@ function DrillDownRow({
   ];
   return (
     <tr className={cn("border-t border-wv-subtle", className)}>
-      {cells.map((cell, index) => (
+      {cells.slice(0, columns).map((cell, index) => (
         <td
           key={COLUMNS[index]}
           className={cn("whitespace-nowrap px-3 py-2", index > 0 && index < 5 && "tabular-nums")}
