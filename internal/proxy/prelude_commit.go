@@ -16,7 +16,7 @@ func (b *preludeBuffer) CommitOnOutput(format translate.Format) {
 
 func (b *preludeBuffer) writeCommitOnOutput(p []byte) (int, error) {
 	b.pending = append(b.pending, p...)
-	if b.held.Len() > maxHeldCommitBytes || len(b.pending) > maxHeldCommitBytes-b.held.Len() {
+	if len(b.pending) > maxHeldCommitBytes-b.held.Len() {
 		if err := b.commitAndWriteHeld(); err != nil {
 			return 0, err
 		}
