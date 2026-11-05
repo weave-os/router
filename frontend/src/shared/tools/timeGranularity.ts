@@ -21,7 +21,7 @@ import {
 import { DateFormat } from "./time";
 import { unreachable } from "./types";
 
-/** Week start day for date-fns: 0 = Sunday, 1 = Monday. */
+/** Default timezone for the formatting and bucketing helpers below. */
 const UTC_TIMEZONE = "UTC";
 
 /** Dashboard bucket sizes; values match the hosted GraphQL enum so filters round-trip. */
@@ -114,7 +114,7 @@ export const GRANULARITY_DAYS: Readonly<Record<TimeGranularity, number>> = {
  * Converts a daily rate to the specified granularity.
  * @param dailyValue - The value per day
  * @param granularity - The target granularity
- * @returns The value scaled for the target granularity, rounded to 1 decimal place
+ * @returns The value scaled for the target granularity, without rounding.
  */
 export function convertFromDailyRate(dailyValue: number, granularity: TimeGranularity): number {
   return dailyValue * GRANULARITY_DAYS[granularity];
