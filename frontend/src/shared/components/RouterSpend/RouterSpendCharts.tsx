@@ -20,6 +20,7 @@ import {
 import { AccountChartColorToken, ChartColorToken } from "../../tools/chartColors";
 import { formatRouterModelName, formatUSD, formatUSDCompact } from "../../tools/format";
 import { LoadState } from "../../tools/LoadState";
+import { routerSavingsRate } from "../../tools/routerCost";
 import { addGranularity, formatInterval, formatTime } from "../../tools/timeGranularity";
 import { Text } from "../atoms/Text";
 import {
@@ -53,7 +54,8 @@ interface SpendChartProps {
 
 interface CostBucket {
   actual: number;
-  comparison: number;
+  /** Null when the comparison model couldn't be priced, which is different from a $0 comparison. */
+  comparison: number | null;
   time: number;
 }
 
@@ -80,27 +82,63 @@ export function costBuckets(points: readonly RouterMetricPoint[]): CostBucket[] 
   const byTime = new Map<number, CostBucket>();
   for (const { group, time, value } of points) {
     const bucketTime = time == null ? 0 : new Date(time).getTime();
-    const bucket = byTime.get(bucketTime) ?? { actual: 0, comparison: 0, time: bucketTime };
+    const bucket = byTime.get(bucketTime) ?? { actual: 0, comparison: null, time: bucketTime };
     if (group === RouterCostType.Actual) bucket.actual += value;
-    else if (group === RouterCostType.Comparison) bucket.comparison += value;
+    else if (group === RouterCostType.Comparison)
+      bucket.comparison = (bucket.comparison ?? 0) + value;
     byTime.set(bucketTime, bucket);
   }
   return [...byTime.values()].sort((a, b) => a.time - b.time);
 }
 
-function costTotals(points: readonly RouterMetricPoint[]) {
-  return costBuckets(points).reduce(
+/** Range totals; the comparison is null when no bucket could be priced against the comparison model. */
+export function costTotals(points: readonly RouterMetricPoint[]) {
+  return costBuckets(points).reduce<{ actual: number; comparison: number | null }>(
     (sum, { actual, comparison }) => ({
       actual: sum.actual + actual,
-      comparison: sum.comparison + comparison,
+      comparison: comparison == null ? sum.comparison : (sum.comparison ?? 0) + comparison,
     }),
-    { actual: 0, comparison: 0 },
+    { actual: 0, comparison: null },
   );
 }
 
-/** Savings as a percentage of the comparison cost; null when nothing could be compared. */
-function savingsRate({ actual, comparison }: { actual: number; comparison: number }) {
-  return comparison === 0 ? null : ((comparison - actual) / comparison) * 100;
+/** Comparison cost minus catalog cost over the range; null when the comparison couldn't be priced. */
+export function rangeSavings(points: readonly RouterMetricPoint[]) {
+  const { actual, comparison } = costTotals(points);
+  return comparison == null ? null : comparison - actual;
+}
+
+function rangeSavingsRate(points: readonly RouterMetricPoint[]) {
+  const { actual, comparison } = costTotals(points);
+  return routerSavingsRate(actual, comparison);
+}
+
+/** Running savings across the priced buckets, oldest first. */
+export function cumulativeSavings(buckets: readonly CostBucket[]) {
+  let running = 0;
+  return buckets.flatMap(({ actual, comparison, time }) => {
+    if (comparison == null) return [];
+    running += comparison - actual;
+    return [{ savings: running, time }];
+  });
+}
+
+function isComparisonUnpriced(points: LoadState<{ values: readonly RouterMetricPoint[] }>) {
+  return (
+    LoadState.isLoaded(points) &&
+    points.value.values.length > 0 &&
+    costTotals(points.value.values).comparison == null
+  );
+}
+
+function UnpricedComparisonState({ comparisonModel }: { comparisonModel: string }) {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <Text variant="p" className="text-wv-secondary">
+        {`${comparisonModel.charAt(0).toUpperCase()}${comparisonModel.slice(1)} couldn't be priced for this range.`}
+      </Text>
+    </div>
+  );
 }
 
 function useComparisonLabel(range: DateRange) {
@@ -188,6 +226,7 @@ function TimeChart({
 }
 
 const TREND_KEYS = [RouterCostType.Actual, RouterCostType.Comparison] as const;
+const ACTUAL_ONLY_KEYS = [RouterCostType.Actual] as const;
 const BREAKDOWN_KEYS = [RouterCostType.Actual, SAVINGS_KEY, EXTRA_COST_KEY] as const;
 
 /** Hosted's cost drill-down: the sessions behind a clicked cost bucket. */
@@ -232,18 +271,20 @@ export function RouterCostBreakdownChart({
     () =>
       LoadState.map(buckets, values =>
         values.map(({ actual, comparison, time }): Record<string, number> =>
-          view === RouterCostView.Trend
-            ? {
-                [RouterCostType.Actual]: actual,
-                [RouterCostType.Comparison]: comparison,
-                [TIME_KEY]: time,
-              }
-            : {
-                [EXTRA_COST_KEY]: Math.max(actual - comparison, 0),
-                [RouterCostType.Actual]: Math.min(actual, comparison),
-                [SAVINGS_KEY]: Math.max(comparison - actual, 0),
-                [TIME_KEY]: time,
-              },
+          comparison == null
+            ? { [RouterCostType.Actual]: actual, [TIME_KEY]: time }
+            : view === RouterCostView.Trend
+              ? {
+                  [RouterCostType.Actual]: actual,
+                  [RouterCostType.Comparison]: comparison,
+                  [TIME_KEY]: time,
+                }
+              : {
+                  [EXTRA_COST_KEY]: Math.max(actual - comparison, 0),
+                  [RouterCostType.Actual]: Math.min(actual, comparison),
+                  [SAVINGS_KEY]: Math.max(comparison - actual, 0),
+                  [TIME_KEY]: time,
+                },
         ),
       ),
     [buckets, view],
@@ -279,17 +320,11 @@ export function RouterCostBreakdownChart({
           type: ChartSeriesType.Bar,
         },
       };
-  const savings = LoadState.map(current, ({ values }) => {
-    const { actual, comparison } = costTotals(values);
-    return comparison - actual;
-  });
+  const comparisonPriced = !isComparisonUnpriced(current);
+  const savings = LoadState.map(current, ({ values }) => rangeSavings(values));
   const percentChange = LoadState.map(current, previous, (now, before) => {
-    const nowTotals = costTotals(now.values);
-    const beforeTotals = costTotals(before.values);
-    return periodPercentChange(
-      nowTotals.comparison - nowTotals.actual,
-      beforeTotals.comparison - beforeTotals.actual,
-    );
+    const nowSavings = rangeSavings(now.values);
+    return nowSavings == null ? null : periodPercentChange(nowSavings, rangeSavings(before.values));
   });
 
   const { drillDownModal, onClickDataPoint } = useRouterCostDrillDown({ granularity, range });
@@ -308,9 +343,16 @@ export function RouterCostBreakdownChart({
       headline={
         <RouterChartHeadline
           percentChange={percentChange}
-          statistic={LoadState.map(savings, value => ({
-            total: value >= 0 ? `${formatUSD(value)} saved` : `${formatUSD(Math.abs(value))} extra`,
-          }))}
+          statistic={LoadState.map(savings, value =>
+            value == null
+              ? {}
+              : {
+                  total:
+                    value >= 0
+                      ? `${formatUSD(value)} saved`
+                      : `${formatUSD(Math.abs(value))} extra`,
+                },
+          )}
         />
       }
       topRight={
@@ -326,7 +368,13 @@ export function RouterCostBreakdownChart({
         onClickDataPoint={onClickDataPoint}
         categorical={view === RouterCostView.Breakdown}
         config={config}
-        dependentKeys={view === RouterCostView.Trend ? TREND_KEYS : BREAKDOWN_KEYS}
+        dependentKeys={
+          !comparisonPriced
+            ? ACTUAL_ONLY_KEYS
+            : view === RouterCostView.Trend
+              ? TREND_KEYS
+              : BREAKDOWN_KEYS
+        }
         formatValue={formatUSDCompact}
         granularity={granularity}
         legend
@@ -345,13 +393,12 @@ export function RouterCumulativeSavingsChart({ className, granularity, range }: 
   const { current } = useCostSeries(granularity, range);
   const rows = useMemo(
     () =>
-      LoadState.map(current, ({ values }) => {
-        let running = 0;
-        return costBuckets(values).map(({ actual, comparison, time }) => {
-          running += comparison - actual;
-          return { [CUMULATIVE_KEY]: running, [TIME_KEY]: time };
-        });
-      }),
+      LoadState.map(current, ({ values }) =>
+        cumulativeSavings(costBuckets(values)).map(({ savings, time }) => ({
+          [CUMULATIVE_KEY]: savings,
+          [TIME_KEY]: time,
+        })),
+      ),
     [current],
   );
 
@@ -369,7 +416,9 @@ export function RouterCumulativeSavingsChart({ className, granularity, range }: 
       title="Cumulative savings"
       subtitle={`Running total of catalog cost saved vs ${comparisonModel} across the selected time range. Below $0, routing has cost more so far.`}
     >
-      {isEmpty(rows) ? (
+      {isComparisonUnpriced(current) ? (
+        <UnpricedComparisonState comparisonModel={comparisonModel} />
+      ) : isEmpty(rows) ? (
         <RouterConnectEmptyState message="Route requests through Weave Router to track cumulative savings." />
       ) : (
         <TimeChart
@@ -412,13 +461,13 @@ export function RouterSavingsRateChart({ className, granularity, range }: SpendC
     () =>
       LoadState.map(current, ({ values }) =>
         costBuckets(values).flatMap(bucket => {
-          const rate = savingsRate(bucket);
+          const rate = routerSavingsRate(bucket.actual, bucket.comparison);
           return rate == null ? [] : [{ [RATE_KEY]: rate, [TIME_KEY]: bucket.time }];
         }),
       ),
     [current],
   );
-  const rate = LoadState.map(current, ({ values }) => savingsRate(costTotals(values)));
+  const rate = LoadState.map(current, ({ values }) => rangeSavingsRate(values));
   // The spend-weighted range rate rather than a mean of bucket rates, so the line matches the headline.
   const referenceLines = LoadState.map(rate, value =>
     value == null
@@ -435,8 +484,8 @@ export function RouterSavingsRateChart({ className, granularity, range }: SpendC
         ],
   );
   const rateChange = LoadState.map(current, previous, (now, before) => {
-    const nowRate = savingsRate(costTotals(now.values));
-    const beforeRate = savingsRate(costTotals(before.values));
+    const nowRate = rangeSavingsRate(now.values);
+    const beforeRate = rangeSavingsRate(before.values);
     return nowRate == null || beforeRate == null ? null : nowRate - beforeRate;
   });
 
@@ -460,7 +509,9 @@ export function RouterSavingsRateChart({ className, granularity, range }: SpendC
         />
       }
     >
-      {isEmpty(rows) ? (
+      {isComparisonUnpriced(current) ? (
+        <UnpricedComparisonState comparisonModel={comparisonModel} />
+      ) : isEmpty(rows) ? (
         <RouterConnectEmptyState message="Route requests through Weave Router to track your savings rate." />
       ) : (
         <TimeChart

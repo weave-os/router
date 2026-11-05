@@ -226,9 +226,14 @@ export function forecastProviderRunway(
 
 /** One sentence on where the pool bottoms out, plus how many seats the forecast skipped. */
 export function describeRunway(runway: ProviderRunway, now: Date): string {
-  const { lowestPoint, refillsAfterLowestPoint, uncountedSeats } = runway;
+  const { lowestPoint, refillHours, refillsAfterLowestPoint, uncountedSeats } = runway;
   let outlook: string;
-  if (
+  if (lowestPoint.hoursFromNow === 0 && lowestPoint.remainingFraction === 0) {
+    outlook =
+      refillHours.length === 0
+        ? "Out of limit now."
+        : `Out of limit now; first seat refills in ${formatDistanceStrict(addHours(now, refillHours[0]), now)}.`;
+  } else if (
     lowestPoint.hoursFromNow === 0 ||
     (lowestPoint.hoursFromNow < LOWEST_POINT_IS_NOW_HOURS &&
       lowestPoint.remainingFraction > 0 &&
