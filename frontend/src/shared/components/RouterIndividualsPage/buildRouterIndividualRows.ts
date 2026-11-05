@@ -75,7 +75,7 @@ export function routingStateOf({ passthroughRequests, requests }: RouterIndividu
 }
 
 /** Ranks each sparkline metric among people with usage, as the main Individuals table does. */
-function rankUsage(usages: readonly RouterIndividualUsage[]) {
+function buildUsageRanker(usages: readonly RouterIndividualUsage[]) {
   const rankLookups = Object.values(RouterRankedMetric).map(metric => {
     const field = RANKED_FIELD[metric];
     const values = usages
@@ -163,7 +163,9 @@ export function buildRouterIndividualRows(
     };
   });
   const rankAmong = (routingState: RouterRoutingState) =>
-    rankUsage(unranked.filter(row => row.routingState === routingState).map(row => row.usage));
+    buildUsageRanker(
+      unranked.filter(row => row.routingState === routingState).map(row => row.usage),
+    );
   const rankingByRoutingState = {
     [RouterRoutingState.Passthrough]: rankAmong(RouterRoutingState.Passthrough),
     [RouterRoutingState.Routed]: rankAmong(RouterRoutingState.Routed),
