@@ -3053,7 +3053,7 @@ func (s *Service) MetricsPeople(ctx context.Context, installationID string) ([]T
 	return s.telemetry.GetTelemetryDashboardPeople(ctx, installationID)
 }
 
-// MetricsDrillDown lists each person's sessions and model pairs in the window.
+// Rows are one per person, session and requested/decision model pair.
 func (s *Service) MetricsDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]TelemetryDrillDownRow, error) {
 	if s.telemetry == nil {
 		return nil, nil
@@ -3061,7 +3061,7 @@ func (s *Service) MetricsDrillDown(ctx context.Context, installationID string, f
 	return s.telemetry.GetTelemetryDashboardDrillDown(ctx, installationID, from, to)
 }
 
-// MetricsIndividualFacts returns each person's dashboard facts per bucket.
+// A nil telemetry repository yields no facts, not an error.
 func (s *Service) MetricsIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryIndividualFact, error) {
 	if s.telemetry == nil {
 		return nil, nil
@@ -3069,7 +3069,7 @@ func (s *Service) MetricsIndividualFacts(ctx context.Context, installationID str
 	return s.telemetry.GetTelemetryDashboardIndividualFacts(ctx, installationID, from, to, granularity)
 }
 
-// MetricsSubscriptionPool lists the pool's seats with their newest quota reading.
+// Each seat appears once, even when registered to several installations.
 func (s *Service) MetricsSubscriptionPool(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]TelemetrySubscriptionSeat, error) {
 	if s.telemetry == nil {
 		return nil, nil

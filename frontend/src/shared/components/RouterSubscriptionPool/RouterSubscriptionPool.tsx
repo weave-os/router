@@ -14,6 +14,7 @@ import {
 } from "../../data";
 import { cn } from "../../tools/cn";
 import { formatInteger, formatPercentage } from "../../tools/format";
+import { pluralize } from "../../tools/strings";
 import { DateFormat } from "../../tools/time";
 import { EXTERNAL_ICON_NAME, ExternalIcon, ExternalIconType } from "../atoms/ExternalIcon";
 import { MetricValue } from "../atoms/MetricValue";
@@ -413,13 +414,6 @@ function LimitMeter({
   );
 }
 
-/** Disabled wins over reconnect: re-enabling is the first thing a disabled seat needs. */
-function outOfPoolReason(seat: PoolSeat) {
-  return seat.enabled
-    ? RouterSubscriptionSeatState.ReconnectRequired
-    : RouterSubscriptionSeatState.Disabled;
-}
-
 const OUT_OF_POOL_REASON_ORDER = [
   RouterSubscriptionSeatState.ReconnectRequired,
   RouterSubscriptionSeatState.Disabled,
@@ -440,7 +434,7 @@ function OutOfPoolSeats({ seats }: { seats: readonly PoolSeat[] }) {
               <Accordion.TriggerIcon />
               Not serving
               <span className="text-caption font-normal text-wv-secondary">
-                {formatInteger(seats.length)} {seats.length === 1 ? "seat" : "seats"}
+                {formatInteger(seats.length)} {pluralize(seats.length, "seat")}
               </span>
             </Accordion.Trigger>
           </h4>
@@ -450,7 +444,13 @@ function OutOfPoolSeats({ seats }: { seats: readonly PoolSeat[] }) {
             These seats stay out of the pool until their owner reconnects or re-enables them.
           </Text>
           {OUT_OF_POOL_REASON_ORDER.map(reason => {
-            const reasonSeats = seats.filter(seat => outOfPoolReason(seat) === reason);
+            const reasonSeats = seats.filter(
+              // Disabled wins over reconnect: re-enabling is the first thing a disabled seat needs.
+              seat =>
+                (seat.enabled
+                  ? RouterSubscriptionSeatState.ReconnectRequired
+                  : RouterSubscriptionSeatState.Disabled) === reason,
+            );
             if (reasonSeats.length === 0) return null;
             const listId = `router-subscription-pool-out-of-pool-${reason}`;
             return (

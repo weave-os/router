@@ -1,34 +1,8 @@
 "use client";
 
-import { type RouterMetricPoint } from "../../data";
 import { LoadState } from "../../tools/LoadState";
 import { ChangeValue, type ChangeUnit } from "../molecules/ChangeValue";
 import { Statistic, type StatisticValue } from "../Statistic";
-
-// These mirror the group names chmetric/router_cost.go emits. The comparison group keeps the
-// "expensive" wording deliberately: renaming it would silently empty charts on any bundle that
-// has not reloaded.
-export const ROUTER_ACTUAL_COST_GROUP = "Actual cost";
-export const ROUTER_COMPARISON_COST_GROUP = "Expensive model cost";
-
-/**
- * Totals of a `router_cost` series grouped by cost type. The comparison total is null when the
- * backend omitted that group because the comparison model couldn't be priced, which is different
- * from traffic that reprices to $0.
- */
-export function routerCostTotals(values: readonly Pick<RouterMetricPoint, "group" | "value">[]) {
-  let actual = 0;
-  let comparison = 0;
-  let hasComparison = false;
-  for (const { group, value } of values) {
-    if (group === ROUTER_ACTUAL_COST_GROUP) actual += value;
-    if (group === ROUTER_COMPARISON_COST_GROUP) {
-      comparison += value;
-      hasComparison = true;
-    }
-  }
-  return { actual, comparison: hasComparison ? comparison : null };
-}
 
 /** Percent change from the previous period, or null when there is no baseline to compare to. */
 export function periodPercentChange(current: number, previous: number | null | undefined) {

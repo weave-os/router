@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"net/http"
 	"slices"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -98,14 +97,11 @@ func dashboardIndividuals(facts []proxy.TelemetryIndividualFact, people []proxy.
 	}
 	for _, person := range people {
 		individual := individualFor(person.ID, person.Linked, person.DisplayName, person.Email)
-		if person.LastRequestAt != nil {
-			formatted := person.LastRequestAt.UTC().Format(time.RFC3339)
-			individual.LastRequestAt = &formatted
-		}
+		individual.LastRequestAt = formatOptionalTime(person.LastRequestAt)
 	}
 	for _, fact := range facts {
 		individual := individualFor(fact.PersonID, fact.Linked, fact.DisplayName, fact.Email)
-		usage := activity[fact.PersonID]
+		personActivity := activity[fact.PersonID]
 		bucket := fact.Bucket.UnixMilli()
 		cost := billedCost(fact.TelemetryDashboardFact)
 		individual.Requests += fact.RequestCount
@@ -114,14 +110,14 @@ func dashboardIndividuals(facts []proxy.TelemetryIndividualFact, people []proxy.
 		individual.OutputTokens += fact.OutputTokens
 		individual.CacheReadTokens += fact.CacheReadTokens
 		individual.CacheCreationTokens += fact.CacheCreationTokens
-		usage.requests[bucket] += float64(fact.RequestCount)
-		usage.cost[bucket] += cost
+		personActivity.requests[bucket] += float64(fact.RequestCount)
+		personActivity.cost[bucket] += cost
 		switch dashboardDecisionType(fact.DecisionType) {
 		case dashboardDecisionPassthrough:
 			individual.PassthroughRequests += fact.RequestCount
-			usage.passthrough[bucket] += float64(fact.RequestCount)
+			personActivity.passthrough[bucket] += float64(fact.RequestCount)
 		case dashboardDecisionRouterPick:
-			usage.models[fact.DecisionModel] += fact.RequestCount
+			personActivity.models[fact.DecisionModel] += fact.RequestCount
 		}
 	}
 	out := make([]dashboardIndividual, 0, len(byID))

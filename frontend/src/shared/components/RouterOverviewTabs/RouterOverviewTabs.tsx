@@ -12,11 +12,12 @@ import {
   RouterOverviewTab,
 } from "./routerOverviewTab";
 
-export function useRouterOverviewTab(): RouterOverviewTab {
+export function useRouterOverviewTab(showSubscriptions: boolean): RouterOverviewTab {
   const searchParams = useSearchParams();
   return resolveRouterOverviewTab(
     searchParams.get(ROUTER_OVERVIEW_TAB_PARAM),
     searchParams.get(URLParam.Chart),
+    showSubscriptions,
   );
 }
 
@@ -27,7 +28,7 @@ export interface RouterOverviewTabsProps {
 export function RouterOverviewTabs({ showSubscriptions }: RouterOverviewTabsProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const activeTab = useRouterOverviewTab();
+  const activeTab = useRouterOverviewTab(showSubscriptions);
   const tabs = showSubscriptions
     ? [...ROUTER_OVERVIEW_BASE_TABS, RouterOverviewTab.Subscriptions]
     : ROUTER_OVERVIEW_BASE_TABS;

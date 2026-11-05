@@ -225,4 +225,13 @@ describe("describeRunway", () => {
     expect(runway).not.toBeNull();
     expect(describeRunway(runway!, NOW)).toBe("Drops to ~0% in 3 hours.");
   });
+
+  it("says an empty pool is out of limit until its first seat refills", () => {
+    const seats = [seat({ id: "a", limitWindows: [weekly(1, "2026-11-04T12:00:00Z")] })];
+
+    const runway = forecastProviderRunway(claude, seats, NOW);
+
+    expect(runway).not.toBeNull();
+    expect(describeRunway(runway!, NOW)).toBe("Out of limit now; first seat refills in 2 days.");
+  });
 });

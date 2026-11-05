@@ -1,5 +1,7 @@
 "use client";
 
+import { median } from "d3-array";
+
 import { useMemo } from "react";
 
 import {
@@ -65,13 +67,6 @@ function meanPerPerson(
   return perBucket.reduce((sum, row) => sum + row[PER_PERSON_KEY], 0) / perBucket.length;
 }
 
-function median(values: readonly number[]) {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
-}
-
 export function RouterRequestsPerActiveUserChart({
   className,
   granularity,
@@ -113,15 +108,13 @@ export function RouterRequestsPerActiveUserChart({
     previousActive,
     (r, a, pr, pa) => {
       const now = meanPerPerson(r.values, a.values);
-      return now == null
-        ? null
-        : periodPercentChange(now, meanPerPerson(pr.values, pa.values) ?? 0);
+      return now == null ? null : periodPercentChange(now, meanPerPerson(pr.values, pa.values));
     },
   );
   const referenceLines = useMemo(
     () =>
-      LoadState.map(rows, values => {
-        const middle = median(values.map(row => row[PER_PERSON_KEY]));
+      LoadState.map(rows, perBucket => {
+        const middle = median(perBucket.map(row => row[PER_PERSON_KEY]));
         return middle == null
           ? []
           : [
@@ -172,7 +165,7 @@ export function RouterRequestsPerActiveUserChart({
           }}
           data={LoadState.map(
             rows,
-            values => values as ChartData<typeof TIME_KEY, string, number, number>,
+            perBucket => perBucket as ChartData<typeof TIME_KEY, string, number, number>,
           )}
           dependentKeys={PER_PERSON_KEYS}
           independentKey={TIME_KEY}

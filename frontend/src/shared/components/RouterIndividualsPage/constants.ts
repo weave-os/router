@@ -48,7 +48,6 @@ export const LOWER_IS_BETTER: Readonly<Record<RouterRankedMetric, boolean>> = {
   [RouterRankedMetric.Requests]: false,
 };
 
-/** Sections by each person's routing status, routed first. */
 export const ROUTING_GROUP_ORDER: readonly RouterRoutingState[] = [
   RouterRoutingState.Routed,
   RouterRoutingState.Passthrough,

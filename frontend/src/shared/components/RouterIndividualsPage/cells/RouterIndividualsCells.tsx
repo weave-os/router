@@ -1,5 +1,6 @@
 "use client";
 
+import { tz } from "@date-fns/tz";
 import { type HeaderContext } from "@tanstack/react-table";
 import { format, formatDistanceToNowStrict } from "date-fns";
 
@@ -135,9 +136,13 @@ export function RouterExplainedEmptyCell({ explanation }: { explanation: string 
   );
 }
 
+const utc = tz("UTC");
+
 function formatPassthroughPeriod({ end, start }: RouterPassthroughPeriod) {
-  const startLabel = format(start, DateFormat.MonthDay);
-  return end === start ? startLabel : `${startLabel} – ${format(end, DateFormat.MonthDay)}`;
+  const startLabel = format(start, DateFormat.MonthDay, { in: utc });
+  return end === start
+    ? startLabel
+    : `${startLabel} – ${format(end, DateFormat.MonthDay, { in: utc })}`;
 }
 
 interface RouterTotalSparkline {
@@ -261,7 +266,7 @@ export function modelMixSegments(modelMix: RouterIndividualModelMix): RouterMode
     modelMix.models.reduce((sum, { requests }) => sum + requests, 0) + modelMix.otherRequests;
   if (totalRequests === 0) return [];
   const colors = modelColorTokens(modelMix.models.map(({ model }) => model));
-  const segments: RouterModelMixSegment[] = modelMix.models.map(({ model, requests }, rank) => ({
+  const segments = modelMix.models.map(({ model, requests }, rank) => ({
     color: colors[rank],
     key: `model:${model}`,
     label: model,
