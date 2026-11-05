@@ -24,8 +24,7 @@ func (b *preludeBuffer) writeCommitOnOutput(p []byte) (int, error) {
 			b.pending = b.pending[consumed:]
 			continue
 		}
-		output := make([]byte, 0, b.held.Len()+len(b.pending))
-		output = append(output, b.held.Bytes()...)
+		output := append([]byte(nil), b.held.Bytes()...)
 		output = append(output, b.pending...)
 		b.held.Reset()
 		b.pending = nil
@@ -44,8 +43,7 @@ func (b *preludeBuffer) releaseHeld() error {
 	if b.held.Len() == 0 && len(b.pending) == 0 {
 		return nil
 	}
-	output := make([]byte, 0, b.held.Len()+len(b.pending))
-	output = append(output, b.held.Bytes()...)
+	output := append([]byte(nil), b.held.Bytes()...)
 	output = append(output, b.pending...)
 	b.held.Reset()
 	b.pending = nil
