@@ -4682,6 +4682,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		contentSink, policyOutcomeCap = s.capturePolicyOutcomeResponse(ctx, contentSink, routeRes, decision)
 	}
 	preludeBuf := newPreludeBuffer(contentSink)
+	if env.Stream() {
+		preludeBuf.CommitOnOutput(translate.FormatAnthropic)
+	}
 	var rootSink http.ResponseWriter = preludeBuf
 	var captureW *captureWriter
 	var sink http.ResponseWriter = rootSink
@@ -7964,6 +7967,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		rootSink = contentSink
 	} else {
 		preludeBuf = newPreludeBuffer(contentSink)
+		if env.Stream() {
+			preludeBuf.CommitOnOutput(translate.FormatOpenAI)
+		}
 		rootSink = preludeBuf
 	}
 
