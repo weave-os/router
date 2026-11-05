@@ -93,3 +93,16 @@ async def test_wraps_an_aws_failure_and_rejects_unknown_models(bedrock) -> None:
         await bedrock_embeddings.embed_texts_uncached(["a"], model=TITAN)
     with pytest.raises(EmbeddingError, match="unsupported Bedrock embedding model"):
         await bedrock_embeddings.embed_texts_uncached(["a"], model="meta.llama")
+
+
+def test_client_reads_aws_region_and_fails_clearly_without_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.setenv("AWS_CONFIG_FILE", "/nonexistent")
+    monkeypatch.setenv("AWS_REGION", "us-west-2")
+    assert bedrock_embeddings._client().meta.region_name == "us-west-2"
+
+    monkeypatch.delenv("AWS_REGION")
+    with pytest.raises(EmbeddingError, match="need AWS_REGION"):
+        bedrock_embeddings._client()

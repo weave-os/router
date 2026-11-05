@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import os
 from typing import Any
 
 from hmm_sidecar.classifier_package.gemini_embeddings import (
@@ -28,8 +29,20 @@ COHERE_BATCH_SIZE = 96
 def _client() -> Any:
     import boto3
     from botocore.config import Config
+    from botocore.exceptions import NoRegionError
 
-    return boto3.client("bedrock-runtime", config=Config(retries={"mode": "adaptive"}))
+    # botocore itself only reads AWS_DEFAULT_REGION; honor AWS_REGION first.
+    region = os.environ.get("AWS_REGION", "").strip() or None
+    try:
+        return boto3.client(
+            "bedrock-runtime",
+            region_name=region,
+            config=Config(retries={"mode": "adaptive"}),
+        )
+    except NoRegionError as error:
+        raise EmbeddingError(
+            "Bedrock embeddings need AWS_REGION (or AWS_DEFAULT_REGION)"
+        ) from error
 
 
 def _request_body(model: str, texts: list[str], dim: int | None) -> dict[str, Any]:
