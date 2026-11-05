@@ -130,7 +130,7 @@ func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 		DispatchErrorClassifierHistory, DispatchErrorClassifierInputTooLong, DispatchErrorCreditsExhausted,
 		DispatchErrorUserSpendLimitReached, DispatchErrorSpendCapReached, DispatchErrorNoEligibleProvider,
 		DispatchErrorAllowlistEmptiesPool, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels,
-		DispatchErrorProductIneligible, DispatchErrorSubscriptionClientAppRefused:
+		DispatchErrorProductIneligible, DispatchErrorSubscriptionClientAppRefused, DispatchErrorClaudeEnterpriseOnly:
 		return FailureOwnerClient
 	default:
 		return FailureOwnerUnknown

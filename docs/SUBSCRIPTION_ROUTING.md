@@ -79,9 +79,20 @@ API-key fallback. Provider-side balances and spending limits remain authoritativ
 The same check covers matching model-specific limits using the final upstream
 model after aliases. A model-specific rejection rotates the attempt without
 marking the whole account exhausted or placing it on cooldown. Claude accounts with no
-quota observation may serve; known exhausted or paid-overage accounts are
-excluded. Quota failures rotate to another eligible account before authorized
-Weave-funded API capacity serves the selected model. Depleted Weave credits
+quota observation may serve. `claude_enterprise_only` defaults on for linked
+Claude accounts, keeping their requests on those accounts through provider-authorized
+overage. Organizations may explicitly disable it to permit Weave-funded fallback.
+Requests with no registered or caller-presented Claude subscription credential
+continue to use normal API funding. Explicit Anthropic BYOK retains precedence
+over Enterprise-only billing, including an explicit organization override.
+In Enterprise-only mode observed included-quota exhaustion does not suppress a
+Claude account, while an actual provider refusal remains authoritative. Claude
+turns fail if their account cannot serve them; retry, failover, and auxiliary
+dispatch cannot charge them to Weave credits or another provider. The setting
+is ignored while subscription routing is disabled and does not change funding
+for independently selected non-Claude models. With Enterprise-only off, quota
+failures rotate to another eligible account before authorized Weave-funded API
+capacity serves the selected model. Depleted Weave credits
 prohibit paid API fallback, not subscription use.
 
 ## Paid inference authorization
@@ -137,6 +148,9 @@ UPDATE router.model_router_api_keys
 SET paid_fallback_on_subscription_refusal = TRUE
 WHERE id = '<api-key-id>'::uuid AND deleted_at IS NULL;
 ```
+
+Enterprise-only Claude billing disables this paid-refusal opt-in. The request
+remains on the Claude account or returns the provider's refusal.
 
 Providers control extra usage through account settings and credits. Quota headers
 are observations, not an atomic included-only reservation: an unobserved Claude

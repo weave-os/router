@@ -129,6 +129,7 @@ const (
 	KeyEarlyStopRedo                        Key = "early_stop_redo"
 	KeyCCWorkspaceSystemAppend              Key = "cc_workspace_system_append"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
+	KeyClaudeEnterpriseOnly                 Key = "claude_enterprise_only"
 	KeySubscriptionExhaustedOpenRouterOnly  Key = "subscription_exhausted_openrouter_only"
 	KeyCommittedStreamArmDemotion           Key = "committed_stream_arm_demotion"
 	KeyRescuedFailureArmDemotion            Key = "rescued_failure_arm_demotion"
@@ -176,7 +177,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 27
+const RegistryVersion = 28
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -192,6 +193,12 @@ var Registry = []Definition{
 	{Key: KeyEscalationXGBoostShadowEnabled, Kind: KindBool, Description: "Observe XGBoost escalation without changing routing. Off by default.", OrgOverridable: true},
 	{Key: KeyEscalationXGBoostShadowMarkerEnabled, Kind: KindBool, Description: "Show positive shadow escalation notices in assistant responses. Off by default.", OrgOverridable: true},
 	{Key: KeyEscalationXGBoostEpoch, Kind: KindInt, Description: "Observation generation; increment before enabling or resetting escalation.", OrgOverridable: true},
+	{
+		Key:            KeyClaudeEnterpriseOnly,
+		Kind:           KindBool,
+		Description:    "Fund Claude calls through linked Claude accounts, including provider-authorized Enterprise overage, without Weave-credit fallback. On by default for linked accounts; explicit BYOK and disabled subscription routing retain precedence over the default.",
+		OrgOverridable: true,
+	},
 	{
 		Key:            KeySubscriptionPlanAwareRouting,
 		Kind:           KindBool,

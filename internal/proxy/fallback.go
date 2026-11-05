@@ -239,6 +239,7 @@ var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference p
 // error. On final-attempt error it flushes the upstream's own envelope to w
 // instead of a generic 502.
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
+	ctx = withClaudeEnterpriseTurn(ctx, in.initialDecision)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, in.subscriptionStateHeaders)
 	if in.subscriptionStateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.buildAlternative != nil {
 		return s.dispatchSubscriptionStateModels(ctx, in)

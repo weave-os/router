@@ -5099,6 +5099,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// normally disables failover, but a gateway-aliased sibling uses the same
 	// held credentials, so it stays eligible.
 	// The plan-capacity mark set during dispatch must be readable here.
+	ctx = withClaudeEnterpriseTurn(ctx, decision)
 	ctx = WithManagedSubscriptionUsage(ctx)
 	siblingDecisions := subscriptionStatePaidRescueDecisions(ctx, s.siblingFailoverDecisions(ctx, rescueBasisForTurn(decision, routeRes), overflowEstimate, env.SignatureTokenSavings(), outputReserve))
 	siblingViable := len(siblingDecisions) > 0 &&
@@ -8489,6 +8490,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		!paidFallbackForbiddenForModel(ctx, decision.Model) &&
 		s.anthropicFallbackKeyAvailable(ctx)
 
+	ctx = withClaudeEnterpriseTurn(ctx, decision)
 	ctx = WithManagedSubscriptionUsage(ctx)
 	siblingDecisions := subscriptionStatePaidRescueDecisions(ctx, s.siblingFailoverDecisions(ctx, rescueBasisForTurn(decision, routeRes), overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI))
 	siblingViable := len(siblingDecisions) > 0 &&

@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres/dbbudget"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
@@ -229,7 +230,8 @@ func (r *subscriptionAccountRepo) TryAcquireSubscriptionRefreshLease(ctx context
 	}
 	tookOver, err := dbbudget.Queries(r.tx).TryAcquireModelRouterSubscriptionRefreshLease(ctx, sqlc.TryAcquireModelRouterSubscriptionRefreshLeaseParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID,
-		LeaseSeconds: int64(leaseTTL / time.Second),
+		LeaseSeconds:       int64(leaseTTL / time.Second),
+		AllowClaudeOverage: requestcontext.SubscriptionExtraUsageFrom(ctx),
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

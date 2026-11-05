@@ -82,7 +82,7 @@ var (
 )
 
 func isSubscriptionPoolError(err error) bool {
-	return errors.Is(err, ErrSubscriptionPoolExhausted) || errors.Is(err, ErrSubscriptionPoolUnavailable)
+	return errors.Is(err, ErrSubscriptionPoolExhausted) || errors.Is(err, ErrSubscriptionPoolUnavailable) || errors.Is(err, ErrClaudeEnterpriseSubscriptionUnavailable)
 }
 
 // WithManagedSubscriptionUsage prepares request-local subscription attribution.
@@ -255,7 +255,11 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		if poolProvider == subscriptions.ProviderClaude && claudePoolRefusesClientApp(ctx) {
 			return poolSpent()
 		}
-		lease, present, err := s.managedSubscriptions.Lease(ctx, owner, poolProvider, ClientIdentityFrom(ctx).SessionID)
+		leaseCtx := ctx
+		if poolProvider == subscriptions.ProviderClaude && claudeEnterpriseOnly(ctx) {
+			leaseCtx = requestcontext.WithSubscriptionExtraUsage(ctx)
+		}
+		lease, present, err := s.managedSubscriptions.Lease(leaseCtx, owner, poolProvider, ClientIdentityFrom(ctx).SessionID)
 		if err != nil && !errors.Is(err, subscriptions.ErrNoAvailableAccount) {
 			if !unadmitted && !subscriptionAttemptOnly(ctx) && !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) && s.subscriptionAPIAuthorization(ctx, provider, model) == nil {
 				return ctx, subscriptions.Lease{}, false, nil
@@ -316,12 +320,13 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			continue
 		}
 		snapshot, observed := s.managedSubscriptionUsageSnapshot(lease.AccountID, lease.AccessToken)
-		if observed && snapshot.OverageInUse {
+		allowClaudeOverage := poolProvider == subscriptions.ProviderClaude && claudeEnterpriseOnly(ctx)
+		if observed && snapshot.OverageInUse && !allowClaudeOverage {
 			lease.Release()
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 			continue
 		}
-		if observed && snapshot.ExhaustedAsOf(s.clockNow()) && !(poolProvider == subscriptions.ProviderCodex && s.codexExtraCreditsAllowed()) {
+		if observed && snapshot.ExhaustedAsOf(s.clockNow()) && !allowClaudeOverage && !(poolProvider == subscriptions.ProviderCodex && s.codexExtraCreditsAllowed()) {
 			resetAt := linkedSubscriptionResetAt(snapshot, s.clockNow())
 			recordManagedQuotaProof(ctx, lease.AccountID, resetAt)
 			if err := exhaustManagedSubscription(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID, resetAt); err != nil {
@@ -406,6 +411,12 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 		if quotaReset, exhausted := s.subscriptionQuotaExhaustion(poolProvider, lease, attemptErr); exhausted {
 			resetAt = quotaReset
 			recordManagedQuotaProof(ctx, lease.AccountID, resetAt)
+			if poolProvider == subscriptions.ProviderClaude && claudeEnterpriseOnly(ctx) {
+				if err := s.managedSubscriptions.Cooldown(ctx, owner, poolProvider, lease.AccountID, resetAt); err != nil {
+					observability.FromContext(ctx).Error("Failed to persist Claude overage refusal cooldown", "account_id", lease.AccountID, "err", err)
+				}
+				return true
+			}
 			if err := exhaustManagedSubscription(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID, resetAt); err != nil {
 				observability.FromContext(ctx).Error("Failed to persist exhausted subscription account", "provider", poolProvider, "account_id", lease.AccountID, "err", err)
 			}

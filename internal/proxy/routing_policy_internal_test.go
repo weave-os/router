@@ -272,7 +272,7 @@ func TestPickedModelKeepsSpentPlanAndRefusesMeteredRescue(t *testing.T) {
 		deploymentKeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 		now:                      func() time.Time { return time.Unix(1_000_000, 0) },
 	}
-	routed := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken)
+	routed := withClaudeCreditFallback(context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken))
 	picked := withPickedModelFunding(auth.WithClientModelPassthrough(routed), true, providers.ProviderAnthropic)
 	model := catalog.ModelIDClaudeSonnet46.String()
 

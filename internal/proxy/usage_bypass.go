@@ -265,6 +265,9 @@ func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, he
 // overage still leaves the subscription. A picked model on the caller's own
 // login lets Anthropic decide, as the native client would.
 func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {
+	if claudeEnterpriseOnly(ctx) {
+		return false
+	}
 	if pickedModelOnOwnPlan(ctx) {
 		return false
 	}
@@ -578,6 +581,9 @@ func (s *Service) bypassToAnthropic(
 	// would, and so servedOnSubscription / the usage observer key off the same
 	// token the upstream call sends.
 	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
+	if claudeEnterpriseOnly(ctx) && !servedOnSubscription(ctx) {
+		return ErrClaudeEnterpriseSubscriptionUnavailable
+	}
 
 	outputReserve := contextWindowOutputReserve
 	if feats.MaxTokens > outputReserve {
@@ -676,10 +682,10 @@ func (s *Service) bypassToAnthropic(
 	}
 	if env.Stream() && proxyErr != nil && preludeBuf.Committed() {
 		proxyErr = emitAnthropicSSEErrorEvent(w, proxyErr)
-	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) {
+	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) && !claudeEnterpriseOnly(ctx) {
 		return errBypassRetryable
 	}
-	if !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) &&
+	if !claudeEnterpriseOnly(ctx) && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) &&
 		(!billing.SubscriptionOnlyFromContext(ctx) || linkedFirst(ctx)) {
 		return errBypassRetryable
 	}

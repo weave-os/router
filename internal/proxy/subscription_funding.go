@@ -72,8 +72,19 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 			claudeToken = string(creds.APIKey)
 		}
 	}
+	if claudeToken != "" {
+		ctx = context.WithValue(ctx, claudeSubscriptionPresentKey{}, true)
+	}
 	admissionCtx := ctx
 	return dispatch.WithAuthorization(ctx, func(callCtx context.Context, target inference.Target) error {
+		if claudeEnterpriseTarget(callCtx, target) || claudeEnterpriseTurn(callCtx) {
+			creds := CredentialsFromContext(callCtx)
+			pool, compatible := subscriptionPoolForModel(target)
+			if creds == nil || !creds.OAuth || creds.Source != credSourceSubscription || !compatible || pool != subscriptions.ProviderClaude || !s.supportsSubscriptionTransport(target.Provider) {
+				return ErrClaudeEnterpriseSubscriptionUnavailable
+			}
+			return nil
+		}
 		if creds := CredentialsFromContext(callCtx); creds != nil && creds.OAuth {
 			return nil
 		}
@@ -271,13 +282,16 @@ func (s *Service) linkedSeatCanCover(ctx context.Context, provider, model string
 }
 
 func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
-	if candidate.state == auth.SubscriptionAccountStateExhausted && candidate.resetAt.After(now) {
-		return true
-	}
 	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 		if state.QuotaExhaustedAccounts[candidate.accountID].After(now) {
 			return true
 		}
+	}
+	if candidate.provider == auth.SubscriptionProviderClaude && claudeEnterpriseOnly(ctx) {
+		return false
+	}
+	if candidate.state == auth.SubscriptionAccountStateExhausted && candidate.resetAt.After(now) {
+		return true
 	}
 	if s.usageObserver != nil {
 		snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte("subscription-account:" + candidate.accountID)))

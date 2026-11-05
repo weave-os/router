@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 )
@@ -21,12 +22,13 @@ func linkedFirst(ctx context.Context) bool {
 // through to, and a picked model stays on the caller's own login. Configured
 // subscription sets also forbid the ordinary same-model paid rescue; their
 // dispatcher separately authorizes the exhausted model set.
+// Enterprise-only Claude turns also forbid metered recovery after a refusal.
 func paidFallbackForbidden(ctx context.Context) bool {
-	return pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
+	return claudeEnterpriseTurn(ctx) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
 }
 
 func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
-	if pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
+	if claudeEnterpriseTarget(ctx, inference.Target{CatalogID: model}) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
 		return true
 	}
 	if !subscriptionStateModelsEnabled(ctx) || subscriptionAPIOnly(ctx) {
