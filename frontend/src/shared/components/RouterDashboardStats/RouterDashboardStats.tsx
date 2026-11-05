@@ -65,10 +65,6 @@ function savingsExplanation(comparisonModel: string) {
   );
 }
 
-function isDisplaySize(card: RouterSummaryCard) {
-  return card === RouterSummaryCard.Requests || card === RouterSummaryCard.Tokens;
-}
-
 export interface RouterDashboardStatsProps {
   cards: ReadonlySet<RouterSummaryCard>;
   className?: string;
@@ -77,13 +73,13 @@ export interface RouterDashboardStatsProps {
   range: DateRange;
 }
 
-/** The stat cards above each overview tab: totals for the selected range. */
 const SESSION_DRILL_DOWN = {
   granularity: null,
   group: RouterMetricGroup.CostType,
   type: RouterMetricType.Cost,
 };
 
+/** The stat cards above each overview tab: totals for the selected range. */
 export function RouterDashboardStats({
   cards,
   className,
@@ -122,7 +118,9 @@ export function RouterDashboardStats({
               label={CARD_LABEL[card]}
               loading
               onClick={card === RouterSummaryCard.RouterSpend ? openRoutedSessions : openSessions}
-              size={isDisplaySize(card) ? TypographyRole.Display : TypographyRole.PageTitle}
+              size={
+                ACTIVITY_SUMMARY_CARDS.has(card) ? TypographyRole.Display : TypographyRole.PageTitle
+              }
               value="—"
             />
           ))}

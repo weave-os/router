@@ -7,6 +7,6 @@ export enum KeyboardKey {
   Backspace = "Backspace",
   Enter = "Enter",
   Escape = "Escape",
-  Space = "Space",
+  Space = " ",
   Tab = "Tab",
 }

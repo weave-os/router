@@ -37,7 +37,7 @@ enum AdoptionSlice {
   UsedNotActive = "used_not_active",
 }
 
-interface InactivePerson {
+interface UsedPerson {
   id: string;
   lastRequestAt: Date;
   link: RouterUserLink;
@@ -47,7 +47,7 @@ interface InactivePerson {
 interface AdoptionCounts {
   active: number;
   engineers: number;
-  inactive: readonly InactivePerson[];
+  inactive: readonly UsedPerson[];
   routerUsers: number;
   unlinkedActive: number;
   unlinkedRouterUsers: number;
@@ -70,7 +70,7 @@ export function adoptionCounts(people: readonly RouterPerson[], now: number): Ad
   );
   const linked = used.filter(({ link }) => link === RouterUserLink.Linked);
   const unlinked = used.filter(({ link }) => link === RouterUserLink.Unlinked);
-  const isActive = ({ lastRequestAt }: InactivePerson) =>
+  const isActive = ({ lastRequestAt }: UsedPerson) =>
     daysSince(lastRequestAt) <= ACTIVE_WINDOW_DAYS;
   return {
     active: linked.filter(isActive).length,
@@ -287,7 +287,7 @@ export function RouterInactiveCard({ className }: { className?: string }) {
   );
 }
 
-function InactivePersonRow({ person: { lastRequestAt, link, name } }: { person: InactivePerson }) {
+function InactivePersonRow({ person: { lastRequestAt, link, name } }: { person: UsedPerson }) {
   return (
     <li className="flex min-h-10 items-center gap-3 py-1">
       <Avatar className="size-6 shrink-0" name={name} />

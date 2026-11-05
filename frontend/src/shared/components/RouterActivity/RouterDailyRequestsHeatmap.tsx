@@ -10,6 +10,7 @@ import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
 import { ChartColor } from "../../tools/chartColors";
 import { formatBigDecimal } from "../../tools/format";
 import { LoadState } from "../../tools/LoadState";
+import { pluralize } from "../../tools/strings";
 import {
   addGranularityUTC,
   startOfGranularityUTC,
@@ -82,7 +83,7 @@ export function dailyRequestsGrid(values: readonly RouterMetricPoint[], range: D
 }
 
 function formatRequests(requests: number) {
-  return `${formatBigDecimal(requests)} ${requests === 1 ? "request" : "requests"}`;
+  return `${formatBigDecimal(requests)} ${pluralize(requests, "request")}`;
 }
 
 /** Router requests per day by weekday. Always daily, whatever the page's bucket size. */

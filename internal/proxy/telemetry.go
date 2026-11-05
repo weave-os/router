@@ -470,7 +470,7 @@ type TelemetryDrillDownRow struct {
 	FinishedAt     time.Time
 }
 
-// TelemetryIndividualFact is one person's dashboard fact for a bucket.
+// Unlinked people are identified by their API key, not a router user.
 type TelemetryIndividualFact struct {
 	TelemetryDashboardFact
 	PersonID    string
