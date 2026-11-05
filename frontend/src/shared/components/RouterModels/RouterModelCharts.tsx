@@ -165,7 +165,7 @@ export function RouterModelMixShareChart({
   }, [models, seriesType]);
   const rows = LoadState.map(
     mix,
-    ({ rows: values }) => values as ChartData<typeof TIME_KEY, string, number, number>,
+    ({ rows: buckets }) => buckets as ChartData<typeof TIME_KEY, string, number, number>,
   );
   const firstTime = LoadState.unwrap(mix)?.rows[0]?.[TIME_KEY];
   const isEmpty = LoadState.isLoaded(mix) && mix.value.rows.length === 0;
