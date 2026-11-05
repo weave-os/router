@@ -94,6 +94,13 @@ for d in "$root"/codex-skills/*/; do
 done
 check "no packaged Codex skill lacks a registry entry" "" "$orphans"
 
+missing=""
+for rel in SKILL.md scripts/pin-coordinator.sh agents/build-researcher.md agents/build-implementer.md \
+  agents/build-verifier.md agents/build-reviewer.md; do
+  [ -f "$root/skills/build/$rel" ] || missing="$missing $rel"
+done
+check "the build skill tree is packaged" "" "$missing"
+
 # Pi adapters travel through the existing pi.skills bundle path, not the
 # installer, so assert the manifest still points at them.
 check "the package still declares its pi extension" "./pi-router/src/index.ts" \
@@ -132,7 +139,7 @@ check "the no-argument entrypoint says which page it opened" "yes" \
 HOME="$home" PATH="$home/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
   node "$root/bin.js" --codex --scope user --quiet --base-url http://127.0.0.1:9 >/dev/null 2>&1 || true
 
-installed="$(cd "$home/.codex/skills" 2>/dev/null && ls -d */ 2>/dev/null | tr -d '/' | sort | tr '\n' ' ' | sed 's/ $//')"
+installed="$(cd "$home/.codex/skills" 2>/dev/null && ls -d */ 2>/dev/null | tr -d '/' | grep -vx build | sort | tr '\n' ' ' | sed 's/ $//')"
 check "the packed entrypoint installs every Codex skill" \
   "disable-routing fm force-model force-parent rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$installed"
 

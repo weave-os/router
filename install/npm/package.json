@@ -27,6 +27,7 @@
     "directives.tsv",
     "commands/",
     "codex-skills/",
+    "skills/",
     "pi-router/",
     "README.md",
     "LICENSE",
