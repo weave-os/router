@@ -74,6 +74,7 @@ type Service struct {
 
 	router             router.Router
 	subscriptionModels subscriptionModelAccess
+	sessionHolds       subscriptionSessionHolds
 	// strategies contains every non-default router and its optional lifecycle
 	// reporters. Adding a strategy does not require another Service field.
 	strategies map[router.Strategy]registeredStrategy
@@ -886,17 +887,18 @@ func sanitizeSidecarDisplayMarker(raw string) string {
 // the marker wording; tests assert the mapping against these constants rather
 // than re-spelling the literals.
 const (
-	markerReasonShadowEscalation = "escalation marked — shadow mode; no action taken"
-	markerReasonUserForced       = "pinned by force-model"
-	markerReasonLoopEscalated    = "escalated due to loop"
-	markerReasonSwitched         = "switched for positive EV after cache eviction"
-	markerReasonStayed           = "stayed on your last pick"
-	markerReasonTierUpgrade      = "upgraded to a stronger tier"
-	markerReasonBestPick         = "best pick for this turn"
-	markerReasonBaseline         = "fell back to baseline after provider outage"
-	markerReasonSibling          = "switched after the picked model was overloaded"
-	markerReasonCyberRefusal     = "switched after the picked model declined the request"
-	markerReasonForcedPinDropped = "your force-model pin could not be served this turn"
+	markerReasonShadowEscalation    = "escalation marked — shadow mode; no action taken"
+	markerReasonUserForced          = "pinned by force-model"
+	markerReasonLoopEscalated       = "escalated due to loop"
+	markerReasonSwitched            = "switched for positive EV after cache eviction"
+	markerReasonStayed              = "stayed on your last pick"
+	markerReasonTierUpgrade         = "upgraded to a stronger tier"
+	markerReasonBestPick            = "best pick for this turn"
+	markerReasonBaseline            = "fell back to baseline after provider outage"
+	markerReasonSibling             = "switched after the picked model was overloaded"
+	markerReasonSubscriptionCovered = "switched to a subscription-covered model"
+	markerReasonCyberRefusal        = "switched after the picked model declined the request"
+	markerReasonForcedPinDropped    = "your force-model pin could not be served this turn"
 )
 
 // baselineRoutingMarkerFor renders the routing badge for an in-turn baseline
@@ -932,7 +934,10 @@ func siblingMarkerReason(ctx context.Context, failedModel string) string {
 // siblingMarkerFor renders the full sibling-rescue badge, including the
 // optional model-selection reasoning line and the per-request opt-out.
 func siblingMarkerFor(ctx context.Context, h http.Header, res turnLoopResult, failedModel, siblingModel string) string {
-	reason := siblingMarkerReason(ctx, failedModel)
+	return switchMarkerFor(ctx, h, res, siblingMarkerReason(ctx, failedModel), siblingModel)
+}
+
+func switchMarkerFor(ctx context.Context, h http.Header, res turnLoopResult, reason, siblingModel string) string {
 	return suppressMarkerIfRequested(ctx, h, modelSelectionMarkerForRequest(ctx, res, siblingRoutingMarkerFor(res, reason, siblingModel), siblingModel, reason))
 }
 
@@ -952,6 +957,11 @@ func siblingRoutingMarkerFor(res turnLoopResult, reason, siblingModel string) st
 func subscriptionTargetMarker(ctx context.Context, h http.Header, res turnLoopResult, picked, target router.Decision, pickedMarker string) string {
 	if target.Model == picked.Model {
 		return pickedMarker
+	}
+	// A pick the subscription lane never dispatched did not fail; it was
+	// swapped for a model the subscription covers.
+	if !attemptTraceFromContext(ctx).failedOn(picked.Model) {
+		return switchMarkerFor(ctx, h, res, markerReasonSubscriptionCovered, target.Model)
 	}
 	return siblingMarkerFor(ctx, h, res, picked.Model, target.Model)
 }
@@ -1162,20 +1172,21 @@ func routingKnobsForRequest(ctx context.Context) *router.Overrides {
 }
 
 // safetyExcludedModels returns the hard request-time safety exclusion set
-// (context-overflow + gemini-unsigned-history + advisor pairing). It re-runs the filters
+// (context-overflow + image-limit + gemini-unsigned-history + advisor pairing). It re-runs the filters
 // against an EMPTY base — the routing-path filters skip models already in
 // excluded_models, so a policy-excluded overflow model would be absent from
 // those lists yet must still block bypass (it would 400 on the subscription).
 // Returns nil when neither filter fires.
-func (s *Service) safetyExcludedModels(env *translate.RequestEnvelope, outputReserve int, enabledProviders map[string]struct{}) map[string]struct{} {
+func (s *Service) safetyExcludedModels(env *translate.RequestEnvelope, outputReserve int, enabledProviders map[string]struct{}, customBindings map[string][]string) map[string]struct{} {
 	_, overflowed := excludeContextOverflowModels(env.ContextOverflowTokenEstimate(), env.SignatureTokenSavings(), outputReserve, enabledProviders, nil, s.availableModels)
+	_, imageLimited := excludeImageLimitModels(env.ImageCount(), enabledProviders, customBindings, nil, s.availableModels)
 	_, geminiUnsigned := excludeGemini3xOnUnsignedHistory(env, nil, s.availableModels)
 	_, advisorOutranking := excludeAdvisorOutrankingModels(env, nil, s.routableUniverse())
-	if len(overflowed) == 0 && len(geminiUnsigned) == 0 && len(advisorOutranking) == 0 {
+	if len(overflowed) == 0 && len(imageLimited) == 0 && len(geminiUnsigned) == 0 && len(advisorOutranking) == 0 {
 		return nil
 	}
-	out := make(map[string]struct{}, len(overflowed))
-	for _, models := range [][]string{overflowed, geminiUnsigned, advisorOutranking} {
+	out := make(map[string]struct{}, len(overflowed)+len(imageLimited)+len(geminiUnsigned)+len(advisorOutranking))
+	for _, models := range [][]string{overflowed, imageLimited, geminiUnsigned, advisorOutranking} {
 		for _, m := range models {
 			out[m] = struct{}{}
 		}
@@ -1744,6 +1755,9 @@ func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers h
 }
 
 func anthropicSubscriptionFromContext(ctx context.Context) string {
+	if anthropicBYOKConfigured(ctx) {
+		return ""
+	}
 	v, _ := ctx.Value(AnthropicSubscriptionContextKey{}).(string)
 	return v
 }
@@ -3014,6 +3028,55 @@ func (s *Service) MetricsTimeseriesAll(ctx context.Context, from, to time.Time, 
 	return s.telemetry.GetTelemetryTimeseriesAll(ctx, from, to, granularity)
 }
 
+// MetricsDashboardFacts returns the per-dimension sums behind the dashboard
+// chart cards; an empty installationID reads every installation.
+func (s *Service) MetricsDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryDashboardFact, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetryDashboardFacts(ctx, installationID, from, to, granularity)
+}
+
+// MetricsActiveUsers returns distinct people per bucket, split by link state.
+func (s *Service) MetricsActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryActiveUsers, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetryDashboardActiveUsers(ctx, installationID, from, to, granularity)
+}
+
+// MetricsPeople returns everyone who can route with their latest request ever.
+func (s *Service) MetricsPeople(ctx context.Context, installationID string) ([]TelemetryPerson, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetryDashboardPeople(ctx, installationID)
+}
+
+// Rows are one per person, session and requested/decision model pair.
+func (s *Service) MetricsDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]TelemetryDrillDownRow, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetryDashboardDrillDown(ctx, installationID, from, to)
+}
+
+// A nil telemetry repository yields no facts, not an error.
+func (s *Service) MetricsIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryIndividualFact, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetryDashboardIndividualFacts(ctx, installationID, from, to, granularity)
+}
+
+// Each seat appears once, even when registered to several installations.
+func (s *Service) MetricsSubscriptionPool(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]TelemetrySubscriptionSeat, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetrySubscriptionPoolSeats(ctx, installationID, servedSince, readingsSince)
+}
+
 // MetricsModelBreakdown returns per-bucket totals grouped by decision model
 // for the dashboard's per-model usage and spend charts.
 func (s *Service) MetricsModelBreakdown(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryModelBucket, error) {
@@ -3542,7 +3605,7 @@ func (s *Service) anthropicNativeAttempt(
 	return func(actx context.Context, d router.Decision, p providers.Client) error {
 		requestCacheTTL1h := func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) }
 		setStreamCost(d, false, requestCacheTTL1h)
-		attemptSink, noticeErr := preludeState.prepare(r.Context(), sink, preludeBuf, translate.FormatAnthropic, env.Stream(), notice)
+		attemptSink, noticeErr := preludeState.prepare(r.Context(), sink, preludeBuf, translate.FormatAnthropic, env.Stream(), reconnectNoticeForAttempt(actx, r.Header, notice))
 		if noticeErr != nil {
 			return fmt.Errorf("emit Anthropic router notice: %w", noticeErr)
 		}
@@ -3902,6 +3965,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	feats := env.RoutingFeatures(embedFlag)
+	ctx = withRequestImageCount(ctx, feats.ImageCount)
 	if err := validateHandoffEnvelope(ctx, env, r.Header, body); err != nil {
 		return err
 	}
@@ -4010,6 +4074,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	if requestBodyChanged {
 		feats = env.RoutingFeatures(embedFlag)
+		ctx = withRequestImageCount(ctx, feats.ImageCount)
 		promptText = feats.PromptText
 		embedInput = "concatenated_stream"
 		if embedFlag && feats.OnlyUserMessageText != "" {
@@ -4122,8 +4187,15 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			"excluded_models", strings.Join(advisorOutranking, ","),
 		)
 	}
-	overflowEstimate := env.ContextOverflowTokenEstimate()
 	customBindings := s.customBindingsForRequest(ctx)
+	excluded, imageLimitExcluded := excludeImageLimitModels(feats.ImageCount, enabledProviders, customBindings, excluded, s.availableModels)
+	if len(imageLimitExcluded) > 0 {
+		log.Info("image limit pre-filter: excluded models whose bindings cap images below the request count",
+			"image_count", feats.ImageCount,
+			"excluded_models", strings.Join(imageLimitExcluded, ","),
+		)
+	}
+	overflowEstimate := env.ContextOverflowTokenEstimate()
 	gatewayProviders := s.gatewayProvidersForRequest(ctx)
 	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, excluded, s.availableModels)
 	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders, cluster.RequestBindings{Custom: customBindings, Gateways: gatewayProviders})
@@ -4137,7 +4209,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			"admitted_for_upstream", strings.Join(overflowAdmitted, ","),
 		)
 	}
-	hardExcluded := append(append([]string(nil), geminiUnsigned...), advisorOutranking...)
+	hardExcluded := append(append(append([]string(nil), geminiUnsigned...), advisorOutranking...), imageLimitExcluded...)
 
 	routeStart := time.Now()
 	req := router.Request{
@@ -4148,6 +4220,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		EstimatedInputTokens:         feats.Tokens,
 		HasTools:                     feats.HasTools,
 		HasImages:                    feats.HasImages,
+		ImageCount:                   feats.ImageCount,
 		TranslationRequirements:      env.TranslationRequirements(router.EndpointAnthropicMessages),
 		ReasoningConfigurationSHA256: env.ReasoningConfigurationSHA256(),
 		ToolConfigurationSHA256:      env.ToolConfigurationSHA256(),
@@ -4167,8 +4240,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excluded,
 		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders), overflowAdmitted, hardExcluded),
+		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders, customBindings), overflowAdmitted, hardExcluded),
 		ContextWindowExcludedModels:   contextWindowOnlyExclusions(ctxOverflowed, overflowAdmitted, hardExcluded),
+		ImageLimitExcludedModels:      modelSet(imageLimitExcluded),
 		UnsignedHistoryExcludedModels: modelSet(geminiUnsigned),
 		OverflowAdmittedModels:        modelSet(overflowAdmitted),
 		PreferredModels:               s.preferredModelsForRequest(ctx),
@@ -4512,6 +4586,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// resolution falls through to the deployment/BYOK key at full cost.
 	if s.claudeSubscriptionExhausted(ctx, r.Header) {
 		ctx = withSuppressedClaudeSubscription(ctx)
+		if s.linkedSeatCanCover(ctx, decision.Provider, decision.Model) {
+			ctx = withDeferredReconnectNudge(ctx, ownClaudePlanSpentNudge)
+		} else {
+			ctx = withSubscriptionReconnectNudge(ctx, ownClaudePlanSpentNudge)
+		}
 	}
 	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
 	opts.FastMode = fastModeForAttempt(ctx, decision.Model, decision.Provider)
@@ -4755,7 +4834,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					usage = extractor
 				}
 				var translator translate.ResponseTranslator
-				attemptSink, noticeErr := anthropicPrelude.prepare(r.Context(), sink, preludeBuf, translate.FormatAnthropic, env.Stream(), targetNotice)
+				attemptSink, noticeErr := anthropicPrelude.prepare(r.Context(), sink, preludeBuf, translate.FormatAnthropic, env.Stream(), reconnectNoticeForAttempt(actx, r.Header, targetNotice))
 				if noticeErr != nil {
 					return noticeErr, func(err error) error { return err }
 				}
@@ -4887,7 +4966,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					usage = extractor
 				}
 				// SSE chain: Gemini → OpenAI → Anthropic.
-				attemptSink, noticeErr := anthropicPrelude.prepare(r.Context(), sink, preludeBuf, translate.FormatAnthropic, env.Stream(), targetNotice)
+				attemptSink, noticeErr := anthropicPrelude.prepare(r.Context(), sink, preludeBuf, translate.FormatAnthropic, env.Stream(), reconnectNoticeForAttempt(actx, r.Header, targetNotice))
 				if noticeErr != nil {
 					return noticeErr, func(err error) error { return err }
 				}
@@ -6507,7 +6586,7 @@ func (s *Service) policyDeadlineDefaultDecision(req router.Request) (router.Deci
 // turn. Otherwise predicts the action from the embedding and serves the
 // matching band member (LARGE -> stronger, SMALL -> cheaper). The pin itself
 // stays anchored so the pair survives for the next turn's swap.
-func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, hasImages bool, enabledProviders, excludedModels map[string]struct{}) router.Decision {
+func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType, pin sessionpin.Pin, fresh router.Decision, hasImages bool, imageCount int, enabledProviders, excludedModels map[string]struct{}) router.Decision {
 	anchor := pinDecision(pin)
 	if s.bandSwap == nil || pin.PairedModel == "" || turnType != turntype.MainLoop {
 		return anchor
@@ -6536,7 +6615,7 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 		if _, available := s.availableModels[served.Model]; !available {
 			return anchor
 		}
-		if hasImages && !catalog.AcceptsImages(served.Model) {
+		if hasImages && (!catalog.AcceptsImages(served.Model) || imageCount > 0 && !catalog.AcceptsImageCount(served.Model, imageCount, enabledProviders)) {
 			return anchor
 		}
 		// The paired model may no longer fit this turn even when the anchor
@@ -6827,7 +6906,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 // subscription-first fallback models. Other selections fall through to BYOK,
 // a client API key, or the deployment key.
 //
-// Subscription-first lets a caller's own Claude subscription pay for Claude
+// Without Anthropic BYOK, a caller's own Claude subscription pays for Claude
 // turns. Native harnesses leave a sk-ant-oat- bearer in Authorization (or
 // x-api-key) while the router key rides in X-Weave-Router-Key. Server-side
 // enrollment (`npx @weave-os/router login`) is a separate managed-account path.
@@ -6837,6 +6916,10 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 // the client's inbound key to a different upstream provider. The deployment
 // env key is the correct fallback there.
 func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
+	byok := BuildCredentialsMap(externalKeysFromContext(ctx))
+	if provider == providers.ProviderAnthropic && byok[provider] != nil {
+		return context.WithValue(ctx, CredentialsContextKey{}, byok[provider])
+	}
 	routerKeyed := installationIDFromContext(ctx) != (uuid.UUID{})
 	// Skip subscription OAuth (fall through to BYOK / deployment key):
 	// exhausted (Anthropic-only, avoid re-429), toggle off (provider-wide), or
@@ -6874,7 +6957,6 @@ func resolveAndInjectCredentials(ctx context.Context, provider, model string, he
 			return context.WithValue(ctx, CredentialsContextKey{}, inbound)
 		}
 	}
-	byok := BuildCredentialsMap(externalKeysFromContext(ctx))
 	var creds *Credentials
 	if byok != nil {
 		creds = byok[provider]
@@ -7284,6 +7366,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	codexTitleGen, _ := ctx.Value(codexTitleGenerationContextKey{}).(bool)
 	feats := env.RoutingFeatures(embedFlag)
+	ctx = withRequestImageCount(ctx, feats.ImageCount)
 	if codexTitleGen {
 		feats.TitleGenHint = true
 	}
@@ -7386,6 +7469,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	if requestBodyChanged {
 		feats = env.RoutingFeatures(embedFlag)
+		ctx = withRequestImageCount(ctx, feats.ImageCount)
 		if codexTitleGen {
 			feats.TitleGenHint = true
 		}
@@ -7479,6 +7563,15 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			"excluded_models", strings.Join(geminiUnsignedOAI, ","),
 		)
 	}
+	customBindingsOAI := s.customBindingsForRequest(ctx)
+	excludedOAI, imageLimitExcludedOAI := excludeImageLimitModels(feats.ImageCount, enabledProviders, customBindingsOAI, excludedOAI, s.availableModels)
+	if len(imageLimitExcludedOAI) > 0 {
+		log.Info("image limit pre-filter: excluded models whose bindings cap images below the request count",
+			"image_count", feats.ImageCount,
+			"excluded_models", strings.Join(imageLimitExcludedOAI, ","),
+		)
+	}
+	hardExcludedOAI := append(append([]string(nil), geminiUnsignedOAI...), imageLimitExcludedOAI...)
 	overflowEstimateOAI := env.ContextOverflowTokenEstimate()
 	excludedOAI, ctxOverflowedOAI := excludeContextOverflowModels(overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI, enabledProviders, excludedOAI, s.availableModels)
 	overflowAdmittedOAI := admitWidestOnTotalOverflow(excludedOAI, ctxOverflowedOAI, s.availableModels, enabledProviders, cluster.RequestBindings{Custom: s.customBindingsForRequest(ctx), Gateways: s.gatewayProvidersForRequest(ctx)})
@@ -7500,6 +7593,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		EstimatedInputTokens:         feats.Tokens,
 		HasTools:                     feats.HasTools,
 		HasImages:                    feats.HasImages,
+		ImageCount:                   feats.ImageCount,
 		TranslationRequirements:      env.TranslationRequirements(router.EndpointOpenAIChat),
 		ReasoningConfigurationSHA256: reasoningConfigurationHash,
 		ToolConfigurationSHA256:      toolConfigurationHash,
@@ -7513,13 +7607,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		FeedbackRole:                  roleForTier(catalog.TierFor(feats.Model)),
 		ClientSessionID:               clientSessionIDForRequest(ctx, env),
 		EnabledProviders:              enabledProviders,
-		CustomBindings:                s.customBindingsForRequest(ctx),
+		CustomBindings:                customBindingsOAI,
 		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
 		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excludedOAI,
 		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserveOAI, enabledProviders), overflowAdmittedOAI, geminiUnsignedOAI),
-		ContextWindowExcludedModels:   contextWindowOnlyExclusions(ctxOverflowedOAI, overflowAdmittedOAI, geminiUnsignedOAI),
+		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserveOAI, enabledProviders, customBindingsOAI), overflowAdmittedOAI, hardExcludedOAI),
+		ContextWindowExcludedModels:   contextWindowOnlyExclusions(ctxOverflowedOAI, overflowAdmittedOAI, hardExcludedOAI),
+		ImageLimitExcludedModels:      modelSet(imageLimitExcludedOAI),
 		UnsignedHistoryExcludedModels: modelSet(geminiUnsignedOAI),
 		OverflowAdmittedModels:        modelSet(overflowAdmittedOAI),
 		PreferredModels:               s.preferredModelsForRequest(ctx),
@@ -7690,6 +7785,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// runs on Weave credits instead of hard-failing.
 	if s.codexSubscriptionExhausted(ctx, r.Header) {
 		ctx = withSuppressedCodexSubscription(ctx)
+		if s.linkedSeatCanCover(ctx, decision.Provider, decision.Model) {
+			ctx = withDeferredReconnectNudge(ctx, ownCodexPlanSpentNudge)
+		} else {
+			ctx = withSubscriptionReconnectNudge(ctx, ownCodexPlanSpentNudge)
+		}
 	}
 	resolvedCtx := s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
 	responsesEndpointKey := EffectiveBaseURL(resolvedCtx, decision.Provider)
@@ -7877,6 +7977,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	responsesWriter, isResponses := w.(*translate.ResponsesWriter)
 	makeMarkerSink := func(notice translate.RouterNotice) (http.ResponseWriter, error) {
 		if isResponses || verbatimPassthrough {
+			// Responses notices go out before dispatch; only a reconnect nudge
+			// raised by this attempt's funding still needs delivering.
+			if isResponses && responsesPreludeBuf != nil && notice.Kind == translate.NoticeSubscriptionReconnect && (!verbatimPassthrough || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
+				_, noticeErr := responsesNotices.prepare(r.Context(), responsesPreludeBuf, responsesPreludeBuf, translate.FormatOpenAIResponses, env.Stream(), notice)
+				return sink, noticeErr
+			}
 			return sink, nil
 		}
 		noticeSink, noticeErr := openAIPrelude.prepare(r.Context(), sink, preludeBuf, translate.FormatOpenAI, env.Stream(), notice)
@@ -8002,7 +8108,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				// only the response body identifies it. The gate withholds the
 				// pre-output frames so a refusal can be swallowed and the turn
 				// re-dispatched off-vendor while the client has seen nothing.
-				noticeSink, noticeErr := makeMarkerSink(targetNotice)
+				noticeSink, noticeErr := makeMarkerSink(reconnectNoticeForAttempt(actx, r.Header, targetNotice))
 				if noticeErr != nil {
 					return fmt.Errorf("emit OpenAI router notice: %w", noticeErr)
 				}
@@ -8220,7 +8326,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					extractor = otel.NewUsageExtractor(nil, d.Provider)
 					usage = extractor
 				}
-				attemptSink, noticeErr := makeMarkerSink(targetNotice)
+				attemptSink, noticeErr := makeMarkerSink(reconnectNoticeForAttempt(actx, r.Header, targetNotice))
 				if noticeErr != nil {
 					return noticeErr, func(err error) error { return err }
 				}
@@ -8291,7 +8397,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					extractor.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(attemptPrep.Body) })
 					usage = extractor
 				}
-				attemptSink, noticeErr := makeMarkerSink(targetNotice)
+				attemptSink, noticeErr := makeMarkerSink(reconnectNoticeForAttempt(actx, r.Header, targetNotice))
 				if noticeErr != nil {
 					return noticeErr, func(err error) error { return err }
 				}

@@ -106,3 +106,27 @@ func TestFireTelemetryRecoversFromPanic(t *testing.T) {
 	assert.Contains(t, buf.String(), "Background goroutine panicked")
 	assert.Contains(t, buf.String(), "fireTelemetry")
 }
+
+func (panicTelemetryRepo) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryDashboardFact, error) {
+	return nil, nil
+}
+
+func (panicTelemetryRepo) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]TelemetryActiveUsers, error) {
+	return nil, nil
+}
+
+func (panicTelemetryRepo) GetTelemetryDashboardPeople(context.Context, string) ([]TelemetryPerson, error) {
+	return nil, nil
+}
+
+func (panicTelemetryRepo) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]TelemetrySubscriptionSeat, error) {
+	return nil, nil
+}
+
+func (panicTelemetryRepo) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]TelemetryDrillDownRow, error) {
+	return nil, nil
+}
+
+func (panicTelemetryRepo) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryIndividualFact, error) {
+	return nil, nil
+}

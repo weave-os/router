@@ -42,7 +42,7 @@ func TestSafetyExcludedModelsIncludesAdvisorOutranking(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5-5","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"advisor_20260301","name":"advisor","model":"claude-opus-5-5"}]}`))
 	require.NoError(t, err)
 
-	assert.Equal(t, map[string]struct{}{"claude-fable-5-1": {}}, s.safetyExcludedModels(env, 0, nil))
+	assert.Equal(t, map[string]struct{}{"claude-fable-5-1": {}}, s.safetyExcludedModels(env, 0, nil, nil))
 }
 
 func TestAdvisorRejectsModel(t *testing.T) {

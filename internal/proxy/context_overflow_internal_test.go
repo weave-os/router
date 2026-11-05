@@ -108,7 +108,7 @@ func TestSafetyExcludedModels_CatchesPolicyExcludedOverflow(t *testing.T) {
 
 	// safetyExcludedModels re-runs against an empty base, so it DOES catch the
 	// overflow regardless of policy exclusion.
-	safety := s.safetyExcludedModels(env, 8_000, nil)
+	safety := s.safetyExcludedModels(env, 8_000, nil, nil)
 	_, blocked := safety["claude-haiku-4-5"]
 	assert.True(t, blocked, "a policy-excluded model that also overflows must land in the safety set so bypass blocks it")
 }

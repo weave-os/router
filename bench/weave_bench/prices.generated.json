@@ -1,5 +1,5 @@
 {
-  "pricing_version": "catalog-sha256:3b753718c0db1fdc",
+  "pricing_version": "catalog-sha256:4e5766ccc4a7082f",
   "models": {
     "claude-fable-5": {
       "input_usd_per_million": 10,
@@ -94,7 +94,7 @@
     "claude-sonnet-5-5": {
       "input_usd_per_million": 2,
       "output_usd_per_million": 10,
-      "cache_read_multiplier": 0.1,
+      "cache_read_multiplier": 0.05,
       "cache_write_multiplier": 1.25
     },
     "deepseek/deepseek-v4-flash": {

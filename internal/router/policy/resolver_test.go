@@ -660,3 +660,35 @@ func TestResolverKeepsVendorRoutingWhenNoGatewayConfigured(t *testing.T) {
 	require.Len(t, resolved.Candidates, 1)
 	assert.Equal(t, providers.ProviderAnthropic, resolved.Candidates[0].Provider)
 }
+
+func TestArmResolverFiltersBindingsByImageCount(t *testing.T) {
+	model := "xiaomi/mimo-v2.6-pro"
+	resolver := policy.NewArmResolver(
+		set(model),
+		set(providers.ProviderDeepInfra, providers.ProviderOpenRouter),
+		catalogRosterID,
+		policy.ProviderPolicy{},
+	)
+	for _, tc := range []struct {
+		name  string
+		count int
+		want  []string
+	}{
+		{name: "large image history", count: 17, want: []string{providers.ProviderOpenRouter}},
+		{name: "within provider cap", count: 3, want: []string{providers.ProviderDeepInfra, providers.ProviderOpenRouter}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resolved := resolver.Resolve(router.Request{
+				EnabledProviders: set(providers.ProviderDeepInfra, providers.ProviderOpenRouter),
+				ImageCount:       tc.count,
+			})
+			var got []string
+			for _, candidate := range resolved.Candidates {
+				if candidate.CatalogID == model {
+					got = append(got, candidate.Provider)
+				}
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}

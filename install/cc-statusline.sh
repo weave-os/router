@@ -360,7 +360,7 @@ weave_sync_commands 2>/dev/null || true
 # responses can land out of order, and the loser's mv would replace a newer
 # setting with an older one AND stamp it fresh, pinning the gate on a stale
 # value for a full TTL. Refreshes are therefore serialized per cache key on a
-# mkdir mutex (atomic everywhere; flock is absent on macOS), held across both
+# directory mutex (flock is absent on macOS), held across both
 # the fetch and the write. A refresh that finds the mutex held exits rather
 # than queueing — the in-flight one is at least as fresh as anything it would
 # fetch, so waiting only to overwrite it is the bug. The one path that is not
@@ -411,10 +411,9 @@ weave_hidden_gate() {
   (
     exec </dev/null
 
-    # Take the per-cache-key mutex, or bail. mkdir is the portable atomic
-    # test-and-set. A crashed holder would otherwise block refreshes forever,
-    # so a lock older than the fetch timeout is treated as abandoned and
-    # reclaimed. Releasing from a trap covers every exit path below.
+    # Take the per-cache-key mutex, or bail. Old locks are reclaimed so a
+    # crashed holder cannot block refreshes forever. Releasing from a trap
+    # covers every exit path below.
     lock="$cache.lock"
     if ! mkdir "$lock" 2>/dev/null; then
       lock_mtime="$(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null)" || lock_mtime=0
@@ -438,7 +437,10 @@ weave_hidden_gate() {
       rm -rf "$dead" 2>/dev/null
       mkdir "$lock" 2>/dev/null || exit 0
     fi
-    trap 'rmdir "$lock" 2>/dev/null' EXIT
+    # Some mkdir implementations return success to both racing creators.
+    # Shell noclobber supplies the exclusive claim independently of mkdir.
+    (set -C; : > "$lock/owner") 2>/dev/null || exit 0
+    trap 'rm -f "$lock/owner"; rmdir "$lock" 2>/dev/null' EXIT
 
     self_dir="$(cd "$(dirname "$self")" 2>/dev/null && pwd)"
     settings_base="$HOME"
@@ -735,7 +737,7 @@ prices='{
     "claude-sonnet-4-5":                0.1,
     "claude-sonnet-4-6":                0.1,
     "claude-sonnet-5":                  0.1,
-    "claude-sonnet-5-5":                0.1,
+    "claude-sonnet-5-5":                0.05,
     "deepseek/deepseek-v4-flash":       0.1,
     "deepseek/deepseek-v4-pro":         0.0862,
     "deepseek/deepseek-v4-pro-0813":    0.0862,

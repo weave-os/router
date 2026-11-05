@@ -176,6 +176,53 @@ refuse_if_symlink() {
   fi
 }
 
+# build_skill_entry_has_symlink reports whether any component of a manifest entry under the
+# skill dir is a symlink, so cleanup never follows a link out of the skill.
+build_skill_entry_has_symlink() {
+  local path="$1" rel="$2"
+  while [ -n "$rel" ]; do
+    path="$path/${rel%%/*}"
+    [ -L "$path" ] && return 0
+    case "$rel" in */*) rel="${rel#*/}" ;; *) rel="" ;; esac
+  done
+  return 1
+}
+
+# uninstall_build_skill removes the managed build skill tree recorded in its
+# manifest and any marker-bearing build agents, leaving user files in place.
+uninstall_build_skill() {
+  local skills_dir="$1" agents_dir="${2:-}" skill_dir rel agent_file name
+  skill_dir="$skills_dir/build"
+  if [ -L "$skills_dir" ] || [ -L "$skill_dir" ]; then
+    warn "$skill_dir is behind a symlink; leaving the build skill untouched."
+  elif [ -f "$skill_dir/SKILL.md" ] && ! grep -Fq "<!-- weave-router managed build skill -->" "$skill_dir/SKILL.md"; then
+    warn "Leaving user-owned build skill at $skill_dir untouched."
+  elif [ -L "$skill_dir/.weave-router-files" ]; then
+    rm -f "$skill_dir/.weave-router-files"
+    warn "Removed a symlinked build skill manifest at $skill_dir; leaving its files untouched."
+  elif [ -f "$skill_dir/.weave-router-files" ]; then
+    while IFS= read -r rel; do
+      case "$rel" in ""|/*|*..*) continue ;; esac
+      if build_skill_entry_has_symlink "$skill_dir" "$rel"; then continue; fi
+      rm -f "$skill_dir/$rel"
+    done <"$skill_dir/.weave-router-files"
+    rm -f "$skill_dir/.weave-router-files"
+    rmdir "$skill_dir/references" "$skill_dir/scripts" "$skill_dir" 2>/dev/null || true
+    ok "Removed $skill_dir"
+  fi
+  rmdir "$skills_dir" 2>/dev/null || true
+
+  if [ -z "$agents_dir" ] || [ ! -d "$agents_dir" ] || [ -L "$agents_dir" ]; then return 0; fi
+  for agent_file in "$agents_dir"/build-*.md; do
+    if [ ! -f "$agent_file" ] || [ -L "$agent_file" ]; then continue; fi
+    name="$(basename "$agent_file" .md)"
+    grep -Fq "<!-- weave-router managed agent: $name -->" "$agent_file" || continue
+    rm -f "$agent_file"
+    ok "Removed $agent_file"
+  done
+  rmdir "$agents_dir" 2>/dev/null || true
+}
+
 # weave_command_router_owned accepts legacy marker-bearing wrappers and
 # markerless wrappers written by current installers. Current wrappers carry a
 # body copy in a sidecar so ownership survives standalone and piped uninstall.
@@ -1292,6 +1339,7 @@ EOF
     # Drop skills/ when nothing is left in it, matching how the prompts and
     # Claude command paths clean up their now-empty directories. rmdir refuses
     # a non-empty dir, so an unrelated user skill keeps it.
+    uninstall_build_skill "$codex_dir/skills"
     rmdir "$codex_dir/skills" 2>/dev/null || true
   fi
 
@@ -1510,6 +1558,7 @@ EOF
   # Clean up the dir only if we left nothing behind.
   rmdir "$commands_dir" 2>/dev/null || true
 fi
+uninstall_build_skill "$(dirname "$settings_file")/skills" "$(dirname "$settings_file")/agents"
 
 if [ -n "$install_dir" ]; then
   ok "Weave Router uninstalled from $install_dir."

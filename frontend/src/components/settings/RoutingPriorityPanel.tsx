@@ -1,12 +1,14 @@
 "use client";
 
-import { ErrorBanner } from "./shared";
 import { Input } from "@/components/Input";
-import { Button } from "@/components/molecules/Button";
-import { Card } from "@/components/molecules/Card";
-import { Appearance, Intent } from "@/components/types";
 import { api } from "@/lib/api";
+import { Button } from "@/shared/components/molecules/Button";
+import { Card } from "@/shared/components/molecules/Card";
+import { Appearance, Intent } from "@/shared/components/types";
+
 import { useEffect, useState } from "react";
+
+import { ErrorBanner } from "./shared";
 
 // Routing dials, rendered as proportional weights (sum to 100%) — mirrors the
 // metric-weights editor in the main Weave app. Quality is the scorer's Alpha;
@@ -148,7 +150,9 @@ export function RoutingPriorityPanel() {
     setSaving(true);
     setError(null);
     try {
-      apply(await api.routingPreferences.update({ quality: weights.quality, price: weights.price }));
+      apply(
+        await api.routingPreferences.update({ quality: weights.quality, price: weights.price }),
+      );
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
@@ -259,7 +263,7 @@ export function RoutingPriorityPanel() {
           </span>
           <div className="flex items-center gap-2">
             {!isDefault && (
-              <Button appearance={Appearance.Outlined} onClick={reset} disabled={saving}>
+              <Button appearance={Appearance.Hollow} onClick={reset} disabled={saving}>
                 Reset to default
               </Button>
             )}
@@ -267,7 +271,7 @@ export function RoutingPriorityPanel() {
               onClick={save}
               disabled={!dirty || saving}
               intent={Intent.Primary}
-              appearance={Appearance.Filled}
+              appearance={Appearance.Tinted}
             >
               {saving ? "Saving…" : "Save"}
             </Button>

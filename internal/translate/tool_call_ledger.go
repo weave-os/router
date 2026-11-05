@@ -140,12 +140,22 @@ type AcceptedToolCall struct {
 
 // Accept finalizes a call once. Adapters must collect its issue and emit it once.
 func (e *ToolCallEntry) Accept(validator *toolcheck.Validator) AcceptedToolCall {
+	return e.accept(validator, false)
+}
+
+func (e *ToolCallEntry) acceptRaw() AcceptedToolCall {
+	return e.accept(nil, true)
+}
+
+func (e *ToolCallEntry) accept(validator *toolcheck.Validator, raw bool) AcceptedToolCall {
 	if e.accepted != nil {
 		return *e.accepted
 	}
 	call := AcceptedToolCall{ID: e.ExternalID, Name: e.Name}
 	if e.Name == "" {
 		call.Suppression = ToolCallMissingName
+	} else if raw {
+		call.Arguments = e.Arguments.String()
 	} else {
 		verdict := validator.Check(e.Name, e.Arguments.String())
 		call.Arguments, call.Issue = verdict.Args, verdict.Issue

@@ -616,6 +616,7 @@ func main() {
 		WithSessionSpendCaps(billingSvc != nil)
 	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
 	var subscriptionRuntime *subscriptions.Runtime
+	var subscriptionLogins admin.SubscriptionLoginFlow
 	if subscriptionPoolsEnabled {
 		authSvc.WithSubscriptionAccounts(repo.SubscriptionAccounts)
 		codexTokenURL := ""
@@ -627,6 +628,7 @@ func main() {
 			config.GetOr("WEAVE_ANTHROPIC_OAUTH_TOKEN", ""), time.Now,
 		)
 		authSvc.WithCodexEnrollmentVerifier(subscriptionOAuth)
+		subscriptionLogins = subscriptionOAuth
 		subscriptionRuntime = subscriptions.NewRuntime(authSvc, subscriptionOAuth, time.Now)
 		logger.Info("Server-side subscription account pools enabled")
 	} else {
@@ -1638,11 +1640,13 @@ func main() {
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
-		StartupDatabasePing: pool.Ping,
-		TestPlans:           testPlans,
-		PolicyPinEnabled:    policyPinEnabled,
-		ServingAdmission:    servingAdmission,
-		SubscriberAllowance: subscriberAllowanceSvc,
+		SubscriptionLogins:       subscriptionLogins,
+		StartupDatabasePing:      pool.Ping,
+		TestPlans:                testPlans,
+		PolicyPinEnabled:         policyPinEnabled,
+		ServingAdmission:         servingAdmission,
+		SubscriberAllowance:      subscriberAllowanceSvc,
+		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
 	}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
