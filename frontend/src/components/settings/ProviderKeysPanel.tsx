@@ -26,6 +26,10 @@ const PROVIDERS = [
   "openai",
   "google",
   "openrouter",
+  "fireworks",
+  "together",
+  "bedrock",
+  "xai",
   "anthropic_gateway",
   "openai_gateway",
 ] as const;
@@ -38,6 +42,10 @@ const PROVIDER_LABEL: Record<Provider, string> = {
   openai: "OpenAI",
   google: "Google",
   openrouter: "OpenRouter",
+  fireworks: "Fireworks",
+  together: "Together",
+  bedrock: "AWS Bedrock",
+  xai: "xAI",
   anthropic_gateway: "Anthropic-compatible gateway",
   openai_gateway: "OpenAI-compatible gateway",
 };
@@ -47,6 +55,10 @@ const PROVIDER_ENV_VAR: Record<Provider, string> = {
   openai: "OPENAI_API_KEY",
   google: "GOOGLE_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
+  fireworks: "FIREWORKS_API_KEY",
+  together: "TOGETHER_API_KEY",
+  bedrock: "AWS_BEARER_TOKEN_BEDROCK",
+  xai: "XAI_API_KEY",
   anthropic_gateway: "ANTHROPIC_GATEWAY_TOKEN",
   openai_gateway: "OPENAI_GATEWAY_TOKEN",
 };
