@@ -62,6 +62,24 @@ run "$home" "$installer" --claude --scope user --quiet --non-interactive --base-
 ! grep -Fxq edited "$skill/SKILL.md" || fail "reinstall did not refresh SKILL.md"
 [ -f "$skill/notes.md" ] || fail "reinstall removed a user file inside the skill"
 
+# Manifest entries behind a symlinked directory, and a symlinked manifest, never
+# reach outside the skill.
+outside="$work/outside"
+mkdir -p "$outside"
+printf 'keep\n' >"$outside/victim.md"
+mv "$skill/references" "$work/references.real"
+ln -s "$outside" "$skill/references"
+printf 'references/victim.md\n' >>"$skill/.weave-router-files"
+run "$home" "$installer" --claude --scope user --quiet --non-interactive --base-url http://127.0.0.1:9
+[ -f "$outside/victim.md" ] || fail "reinstall deleted a file through a symlinked directory"
+rm "$skill/references"
+mv "$work/references.real" "$skill/references"
+rm "$skill/.weave-router-files"
+ln -s "$outside/manifest" "$skill/.weave-router-files"
+run "$home" "$installer" --claude --scope user --quiet --non-interactive --base-url http://127.0.0.1:9
+[ ! -e "$outside/manifest" ] || fail "reinstall wrote the manifest through a symlink"
+[ ! -L "$skill/.weave-router-files" ] || fail "reinstall kept a symlinked manifest"
+
 run "$home" "$uninstaller" --claude --scope user
 [ ! -e "$skill/SKILL.md" ] || fail "uninstall left the managed SKILL.md"
 [ -f "$skill/notes.md" ] || fail "uninstall removed a user file inside the skill"

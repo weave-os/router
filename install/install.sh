@@ -5034,10 +5034,14 @@ build_skill_source_dir() {
 # the manifest, leaving anything the user added beside them.
 remove_build_skill_files() {
   local skill_dir="$1" rel
+  if [ -L "$skill_dir/$build_skill_manifest" ]; then
+    rm -f "$skill_dir/$build_skill_manifest"
+    return 0
+  fi
   [ -f "$skill_dir/$build_skill_manifest" ] || return 0
   while IFS= read -r rel; do
     case "$rel" in ""|/*|*..*) continue ;; esac
-    [ -L "$skill_dir/$rel" ] && continue
+    if [ -L "$skill_dir/$(dirname "$rel")" ] || [ -L "$skill_dir/$rel" ]; then continue; fi
     rm -f "$skill_dir/$rel"
   done <"$skill_dir/$build_skill_manifest"
   rm -f "$skill_dir/$build_skill_manifest"
@@ -5045,7 +5049,7 @@ remove_build_skill_files() {
 }
 
 install_build_skill() {
-  local skills_dir="$1" agents_dir="${2:-}" src dst rel name agent_dst
+  local skills_dir="$1" agents_dir="${2:-}" src dst rel name agent_src agent_dst
   src="$(build_skill_source_dir)" || return 0
   dst="$skills_dir/build"
   if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
@@ -5073,7 +5077,9 @@ install_build_skill() {
   done <<EOS
 $(cd "$src" && find . -type f ! -path './agents/*' | sed 's#^\./##' | LC_ALL=C sort)
 EOS
-  [ -f "$dst/scripts/pin-coordinator.sh" ] && chmod +x "$dst/scripts/pin-coordinator.sh"
+  if [ ! -L "$dst/scripts" ] && [ ! -L "$dst/scripts/pin-coordinator.sh" ]; then
+    chmod +x "$dst/scripts/pin-coordinator.sh"
+  fi
 
   if [ -n "$agents_dir" ] && [ -d "$src/agents" ]; then
     if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
@@ -5085,15 +5091,15 @@ EOS
   fi
   if [ -n "$agents_dir" ] && [ -d "$src/agents" ]; then
     mkdir -p "$agents_dir"
-    for rel in "$src"/agents/*.md; do
-      [ -f "$rel" ] || continue
-      name="$(basename "$rel" .md)"
+    for agent_src in "$src"/agents/*.md; do
+      [ -f "$agent_src" ] || continue
+      name="$(basename "$agent_src" .md)"
       agent_dst="$agents_dir/$name.md"
       if [ -L "$agent_dst" ] || { [ -e "$agent_dst" ] && ! grep -Fq "<!-- weave-router managed agent: $name -->" "$agent_dst"; }; then
         warn "A user-owned agent already exists at $agent_dst; leaving it untouched."
         continue
       fi
-      cp "$rel" "$agent_dst"
+      cp "$agent_src" "$agent_dst"
     done
   fi
   ok "Build skill installed at $dst"

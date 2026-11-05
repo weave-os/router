@@ -98,8 +98,7 @@ for (const line of registryText.split(/\r?\n/)) {
 
 // The build skill is a resource tree install.sh copies whole into Claude Code
 // and Codex skill dirs, so it ships as plain files with no links.
-const buildSkillSrc = path.join(installDir, "skills", "build");
-cpSync(buildSkillSrc, path.join(root, "skills", "build"), {
+cpSync(path.join(installDir, "skills", "build"), path.join(root, "skills", "build"), {
   recursive: true,
   filter: (src) => {
     if (lstatSync(src).isSymbolicLink()) throw new Error(`Refusing to package symlink: ${src}`);

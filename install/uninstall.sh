@@ -188,7 +188,7 @@ uninstall_build_skill() {
   elif [ -f "$skill_dir/.weave-router-files" ]; then
     while IFS= read -r rel; do
       case "$rel" in ""|/*|*..*) continue ;; esac
-      [ -L "$skill_dir/$(dirname "$rel")" ] || [ -L "$skill_dir/$rel" ] && continue
+      if [ -L "$skill_dir/$(dirname "$rel")" ] || [ -L "$skill_dir/$rel" ]; then continue; fi
       rm -f "$skill_dir/$rel"
     done <"$skill_dir/.weave-router-files"
     rm -f "$skill_dir/.weave-router-files"
@@ -197,9 +197,9 @@ uninstall_build_skill() {
   fi
   rmdir "$skills_dir" 2>/dev/null || true
 
-  [ -n "$agents_dir" ] && [ -d "$agents_dir" ] && [ ! -L "$agents_dir" ] || return 0
+  if [ -z "$agents_dir" ] || [ ! -d "$agents_dir" ] || [ -L "$agents_dir" ]; then return 0; fi
   for agent_file in "$agents_dir"/build-*.md; do
-    [ -f "$agent_file" ] && [ ! -L "$agent_file" ] || continue
+    if [ ! -f "$agent_file" ] || [ -L "$agent_file" ]; then continue; fi
     name="$(basename "$agent_file" .md)"
     grep -Fq "<!-- weave-router managed agent: $name -->" "$agent_file" || continue
     rm -f "$agent_file"
