@@ -250,7 +250,9 @@ print_uninstall_hint() {
 
 # offer_launch asks to start the client named in $1 (command in the remaining
 # args) so a working interactive install ends in the product. The client runs
-# as a child, not via exec, so the EXIT trap still removes the temp files.
+# as a child, not via exec, so the EXIT trap still removes the temp files. It
+# inherits the terminal stdin: Bun-based clients crash with EINVAL on macOS
+# when stdin is /dev/tty, which kqueue can't watch.
 offer_launch() {
   local label="$1"; shift
   [ "${WEAVE_SETUP_DEFER_LAUNCH:-}" != "1" ] && [ "$non_interactive" = "false" ] && [ "$quiet" != "true" ] \
@@ -263,7 +265,7 @@ offer_launch() {
     *) return 0 ;;
   esac
   local launch_status=0
-  "$@" </dev/tty || launch_status=$?
+  "$@" || launch_status=$?
   exit "$launch_status"
 }
 
