@@ -617,7 +617,7 @@ func (r *TelemetryRepo) GetTelemetryDashboardActiveUsers(ctx context.Context, in
 	}), nil
 }
 
-// GetTelemetryDashboardPeople lists roster users and unlinked API keys.
+// Deleted roster users are excluded; the date window does not apply.
 func (r *TelemetryRepo) GetTelemetryDashboardPeople(ctx context.Context, installationID string) ([]proxy.TelemetryPerson, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {

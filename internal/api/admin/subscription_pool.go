@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
-	"strings"
 	"time"
 
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/proxy/usage"
 
 	"github.com/gin-gonic/gin"
 )
@@ -172,16 +172,9 @@ func headerWindowMinutes(headers map[string]string, name string, fallback int) i
 	return minutes
 }
 
-// Reset headers arrive as RFC 3339 or unix seconds, like usage.parseResetTime accepts.
 func headerResetTime(headers map[string]string, name string) *string {
-	raw := strings.TrimSpace(headers[name])
-	if resetsAt, err := time.Parse(time.RFC3339, raw); err == nil {
+	if resetsAt, ok := usage.ParseResetTime(headers[name]); ok {
 		return formatOptionalTime(&resetsAt)
 	}
-	seconds, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || seconds <= 0 {
-		return nil
-	}
-	resetsAt := time.Unix(seconds, 0)
-	return formatOptionalTime(&resetsAt)
+	return nil
 }
