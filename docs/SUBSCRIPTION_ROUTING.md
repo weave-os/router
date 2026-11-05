@@ -143,14 +143,14 @@ rules above, and no request header can opt in. There is no admin API for the
 flag; an operator sets it directly and it takes effect within the five-minute
 API-key cache TTL:
 
-Enterprise-only Claude billing disables this paid-refusal opt-in. The request
-remains on the Claude account or returns the provider's refusal.
-
 ```sql
 UPDATE router.model_router_api_keys
 SET paid_fallback_on_subscription_refusal = TRUE
 WHERE id = '<api-key-id>'::uuid AND deleted_at IS NULL;
 ```
+
+Enterprise-only Claude billing disables this paid-refusal opt-in. The request
+remains on the Claude account or returns the provider's refusal.
 
 Providers control extra usage through account settings and credits. Quota headers
 are observations, not an atomic included-only reservation: an unobserved Claude
