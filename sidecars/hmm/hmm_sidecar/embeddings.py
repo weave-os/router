@@ -10,6 +10,8 @@ from typing import Protocol
 import httpx
 import numpy as np
 
+from .classifier_package import gemini_embeddings
+from .classifier_package.openai_compatible_embeddings import request_embeddings
 from .schemas import EmbeddingContract
 
 MAX_CACHE_ITEMS = 8192
@@ -85,29 +87,17 @@ class OpenAICompatibleEmbedder:
         self.model = os.environ.get("HMM_EMBEDDING_MODEL", contract.model).strip()
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        headers = {"content-type": "application/json"}
-        if self.api_key:
-            headers["authorization"] = f"Bearer {self.api_key}"
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{self.base_url}/embeddings",
-                headers=headers,
-                json={"model": self.model, "input": texts},
-            )
-            if response.is_error:
-                raise EmbeddingError(
-                    "OpenAI-compatible embedding request failed with status "
-                    f"{response.status_code}"
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                return await request_embeddings(
+                    client,
+                    base_url=self.base_url,
+                    api_key=self.api_key,
+                    model=self.model,
+                    texts=texts,
                 )
-            payload = response.json()
-        data = payload.get("data") if isinstance(payload, dict) else None
-        if not isinstance(data, list):
-            raise EmbeddingError("OpenAI-compatible response lacks data")
-        ordered = sorted(
-            (item for item in data if isinstance(item, dict)),
-            key=lambda item: int(item.get("index") or 0),
-        )
-        return [list(item.get("embedding") or []) for item in ordered]
+        except gemini_embeddings.EmbeddingError as error:
+            raise EmbeddingError(str(error)) from error
 
 
 def build_embedder(contract: EmbeddingContract) -> Embedder:

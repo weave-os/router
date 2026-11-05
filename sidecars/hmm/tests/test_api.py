@@ -480,3 +480,63 @@ def test_boot_probes_once_per_distinct_embedding_contract(
     assert policies["d" * 64].embedder is policies["e" * 64].embedder
     assert policies["f" * 64].embedder is not policies["d" * 64].embedder
     assert similarity == 0.5
+
+
+def _package_artifacts(sha: str) -> FrozenArtifacts:
+    return FrozenArtifacts(
+        Path("/nonexistent") / sha, None, sha, None, package_manifest={}
+    )
+
+
+def test_boot_fails_when_a_package_cannot_embed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    default = _package_artifacts("a" * 64)
+    registry = ArtifactRegistry(
+        default=default, by_sha256={default.package_sha256: default}
+    )
+    probed: list[str] = []
+
+    class FakePackagePolicy:
+        def __init__(self, artifacts: FrozenArtifacts) -> None:
+            self.artifacts = artifacts
+            self.runtime = self
+
+        async def verify_embedding_config(self) -> None:
+            probed.append(self.artifacts.package_sha256)
+            raise api_module.EmbeddingError("embedding probe failed")
+
+    monkeypatch.setattr(api_module, "PackagePolicy", FakePackagePolicy)
+
+    with pytest.raises(api_module.EmbeddingError, match="embedding probe failed"):
+        asyncio.run(api_module.load_policies(registry))
+    assert probed == [default.package_sha256]
+
+
+def test_readiness_fails_closed_when_the_embedding_probe_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    default = _package_artifacts("b" * 64)
+    registry = ArtifactRegistry(
+        default=default, by_sha256={default.package_sha256: default}
+    )
+
+    class FakePackagePolicy:
+        def __init__(self, artifacts: FrozenArtifacts) -> None:
+            self.artifacts = artifacts
+            self.runtime = self
+
+        async def verify_embedding_config(self) -> None:
+            raise api_module.EmbeddingError(
+                "Vertex embeddings need HMM_VERTEX_PROJECT or GOOGLE_CLOUD_PROJECT"
+            )
+
+    monkeypatch.setattr(api_module, "resolve_artifact_registry", lambda: registry)
+    monkeypatch.setattr(api_module, "PackagePolicy", FakePackagePolicy)
+
+    with TestClient(app) as client:
+        ready = client.get("/readyz")
+
+    assert ready.status_code == 503
+    assert ready.json()["ready"] is False
+    assert "HMM_VERTEX_PROJECT" in ready.json()["error"]

@@ -21,7 +21,7 @@ the values the corpus, trainer, and embedding caches already use.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Literal, Self
 
@@ -63,6 +63,9 @@ class EmbeddingProvider(StrEnum):
     """The embedding provider a raw-V5 candidate was trained against."""
 
     GEMINI = "gemini"
+    #: A customer-hosted model behind an OpenAI-compatible ``/embeddings``
+    #: endpoint; the package declares the model and width it was trained on.
+    OPENAI_COMPATIBLE = "openai_compatible"
 
 
 class ToolEvidenceMode(StrEnum):
@@ -176,9 +179,13 @@ class ServingProfile:
     raw_feature_matrix: RawFeatureMatrix
     hmm_training_contract_version: HMMTrainingContractVersion
     _model_input_contract: Callable[[], dict[str, object]]
+    #: Set when the encoder identity comes from the package, not the registry.
+    package_state_encoder: StateEncoderContract | None = None
 
     @property
     def state_encoder_contract(self) -> StateEncoderContract:
+        if self.package_state_encoder is not None:
+            return self.package_state_encoder
         return get_state_encoder_contract(self.representation)
 
     @property
@@ -236,16 +243,51 @@ _PROFILES_BY_CONFIG: Mapping[ServingConfig, ServingProfile] = {
     profile.config: profile for profile in _PROFILES
 }
 
+# Customer-model packages serve the Gemini per-message geometry and documents;
+# only the encoder (model id and width) differs, and the package declares it.
+_OPENAI_COMPATIBLE_ELEMENT_CONFIG = ServingConfig(
+    provider=EmbeddingProvider.OPENAI_COMPATIBLE,
+    tool_evidence=ToolEvidenceMode.USER_AGENT_ONLY,
+    document_window=DocumentWindow.PER_MESSAGE,
+    lookback_rounds=ONE_TURN_MAX_TURNS,
+)
 
-def _supported_configs_message() -> str:
-    return ", ".join(
-        f"{p.config.provider!s}/{p.config.tool_evidence!s}/"
-        f"{p.config.document_window!s}/{p.config.lookback_rounds}"
-        for p in _PROFILES
+
+def _openai_compatible_element_profile(
+    embedding_model: str, embedding_dim: int
+) -> ServingProfile:
+    representation = SequenceRepresentation.OPENAI_COMPATIBLE_RAW_ROUTER_V5_ELEMENT
+    encoder = replace(
+        get_state_encoder_contract(GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT),
+        representation=representation,
+        model_id=embedding_model,
+        hidden_dim=embedding_dim,
+        max_window_tokens=None,
+    )
+    return replace(
+        _GEMINI_ELEMENT_PROFILE,
+        config=_OPENAI_COMPATIBLE_ELEMENT_CONFIG,
+        representation=representation,
+        embedding_model=embedding_model,
+        embedding_dim=embedding_dim,
+        package_state_encoder=encoder,
     )
 
 
-def serving_profile(config: ServingConfig) -> ServingProfile:
+def _supported_configs_message() -> str:
+    return ", ".join(
+        f"{config.provider!s}/{config.tool_evidence!s}/"
+        f"{config.document_window!s}/{config.lookback_rounds}"
+        for config in (*_PROFILES_BY_CONFIG, _OPENAI_COMPATIBLE_ELEMENT_CONFIG)
+    )
+
+
+def serving_profile(
+    config: ServingConfig,
+    *,
+    embedding_model: str | None = None,
+    embedding_dim: int | None = None,
+) -> ServingProfile:
     """Resolve one servable configuration, or fail closed.
 
     An unsupported combination has no trained representation, corpus, or
@@ -253,6 +295,13 @@ def serving_profile(config: ServingConfig) -> ServingProfile:
     nearest configuration that happens to exist.
     """
 
+    if config == _OPENAI_COMPATIBLE_ELEMENT_CONFIG:
+        if not embedding_model or not embedding_dim or embedding_dim <= 0:
+            raise ServingInputError(
+                "an openai_compatible package must declare its embedding_model"
+                " and a positive embedding_dim"
+            )
+        return _openai_compatible_element_profile(embedding_model, embedding_dim)
     profile = _PROFILES_BY_CONFIG.get(config)
     if profile is None:
         raise ServingInputError(

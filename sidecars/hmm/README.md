@@ -55,7 +55,9 @@ list and reports `hmm_router_sidecar_package_<first 16 hex of the package
 sha256>` as `classifier_artifact_id`, which is the id a policy release pins.
 The serving code is in `hmm_sidecar/classifier_package/`.
 
-Only Gemini packages are served. Embeddings use `google-genai`:
+A package declares its embedding provider in
+`raw_v5_runtime_contract.serving_config.provider`. Gemini packages
+(`gemini`) embed with `google-genai`:
 
 | Variable | Meaning |
 |---|---|
@@ -64,8 +66,30 @@ Only Gemini packages are served. Embeddings use `google-genai`:
 | `HMM_VERTEX_PROJECT` / `GOOGLE_CLOUD_PROJECT` | Vertex project (ADC credentials) |
 | `HMM_VERTEX_LOCATION` | Vertex location |
 
-These packages carry no embedding probe vector, so `/readyz` reports no probe
-similarity for them. `tests/test_classifier_package.py` runs the production-parity check
+At startup the sidecar embeds one probe text through the configured transport
+and checks the vector has the package's declared width and is finite and
+non-zero. Missing credentials, an unknown `HMM_GEMINI_TRANSPORT`, a denied
+Vertex project or a wrong-width endpoint fail `/readyz` with the cause in
+`error`, instead of failing every route. Gemini packages carry no reference
+probe vector, so `/readyz` reports no probe similarity for them.
+
+A package retrained on a customer's own embedding model declares
+`provider: openai_compatible`, its `embedding_model` and `embedding_dim`,
+`sequence_representation: openai-compatible-raw-router-v5-element-v1`, and
+`reference_probes` (texts with the vectors that model returned when the package
+was built). The documents and HMM/classifier geometry are the same as the Gemini
+per-message profile; only the encoder differs. Configure the endpoint with:
+
+| Variable | Meaning |
+|---|---|
+| `HMM_EMBEDDING_PROVIDER` | `openai-compatible` (required; Gemini packages need it unset, `google` or `gemini`) |
+| `HMM_EMBEDDING_BASE_URL` | endpoint root serving `POST /embeddings`, e.g. `http://tei/v1` |
+| `HMM_EMBEDDING_MODEL` | must equal the package's `embedding_model` exactly |
+| `HMM_EMBEDDING_API_KEY` | optional bearer token |
+
+Startup fails `/readyz` unless the provider and model match the package and
+every reference probe re-embeds at cosine >= 0.999. Nothing falls back to
+Gemini or to another package. `tests/test_classifier_package.py` runs the production-parity check
 when `HMM_RAW_V5_PARITY_PACKAGE` names a package tarball; the fixtures under
 `tests/fixtures/classifier_package/` are synthetic conversations and the readouts Weave's
 production sidecar produced for them with deterministic stub embeddings.
@@ -87,8 +111,8 @@ HMM_EMBEDDING_MODEL=google/gemini-embedding-2
 ```
 
 It must expose the same underlying Google embedding model and pass the probe.
-Ollama, vLLM, or another local embedder requires an HMM/classifier package
-trained in that model's own vector space.
+Ollama, vLLM, or another local embedder requires a raw-V5 package
+trained in that model's own vector space (see above).
 
 ## Response contract: classification, not selection
 
@@ -113,7 +137,9 @@ raw-V5 `hmm_router_classifier_package_v1` archives. It verifies:
 - safe archive paths, member count, and size limits;
 - every file digest listed by the manifest;
 - classifier/HMM dimensions and class order (frozen v1 packages);
-- the live embedding endpoint against the stored probe (frozen v1 packages).
+- the live embedding endpoint against the stored probe (frozen v1 packages);
+- one live embedding of the declared width (raw-V5 packages), plus the
+  declared provider/model and reference vectors (customer-model packages).
 
 The public v1 package contains data arrays and XGBoost JSON only. The legacy
 training pickle, training rows, prompts, embedding cache, local filesystem
