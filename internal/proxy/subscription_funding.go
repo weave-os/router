@@ -241,6 +241,35 @@ func subscriptionProviderUnavailable(ctx context.Context, pool subscriptions.Pro
 	return state != nil && state.UnavailableProviders[pool].After(now)
 }
 
+// linkedSeatCanCover reports whether a linked seat in the caller's pool may
+// still take a turn their own plan cannot, so the turn stays on a subscription.
+func (s *Service) linkedSeatCanCover(ctx context.Context, provider, model string) bool {
+	if s.managedSubscriptions == nil || !managedSubscriptionCanServe(ctx, provider, model) || managedSubscriptionEnrollmentUnavailable(ctx) {
+		return false
+	}
+	pool, _ := managedSubscriptionProviderFromUpstream(provider, model)
+	now := s.clockNow()
+	if subscriptionProviderUnavailable(ctx, pool, now) {
+		return false
+	}
+	candidates, snapshotPresent := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
+	if !snapshotPresent {
+		return true
+	}
+	for _, candidate := range candidates {
+		if candidate.provider != auth.SubscriptionProvider(pool) || !candidate.enabled || candidate.state == auth.SubscriptionAccountStateDisabled || candidate.state == auth.SubscriptionAccountStateReconnectRequired {
+			continue
+		}
+		if candidate.state == auth.SubscriptionAccountStateCooldown && candidate.resetAt.After(now) {
+			continue
+		}
+		if !s.managedAccountQuotaExhausted(ctx, candidate, now) {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
 	if candidate.state == auth.SubscriptionAccountStateExhausted && candidate.resetAt.After(now) {
 		return true

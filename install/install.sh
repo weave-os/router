@@ -250,7 +250,9 @@ print_uninstall_hint() {
 
 # offer_launch asks to start the client named in $1 (command in the remaining
 # args) so a working interactive install ends in the product. The client runs
-# as a child, not via exec, so the EXIT trap still removes the temp files.
+# as a child, not via exec, so the EXIT trap still removes the temp files. It
+# inherits the terminal stdin: Bun-based clients crash with EINVAL on macOS
+# when stdin is /dev/tty, which kqueue can't watch.
 offer_launch() {
   local label="$1"; shift
   [ "${WEAVE_SETUP_DEFER_LAUNCH:-}" != "1" ] && [ "$non_interactive" = "false" ] && [ "$quiet" != "true" ] \
@@ -263,7 +265,7 @@ offer_launch() {
     *) return 0 ;;
   esac
   local launch_status=0
-  "$@" </dev/tty || launch_status=$?
+  "$@" || launch_status=$?
   exit "$launch_status"
 }
 
@@ -7125,7 +7127,7 @@ weave_sync_commands 2>/dev/null || true
 # responses can land out of order, and the loser's mv would replace a newer
 # setting with an older one AND stamp it fresh, pinning the gate on a stale
 # value for a full TTL. Refreshes are therefore serialized per cache key on a
-# mkdir mutex (atomic everywhere; flock is absent on macOS), held across both
+# directory mutex (flock is absent on macOS), held across both
 # the fetch and the write. A refresh that finds the mutex held exits rather
 # than queueing — the in-flight one is at least as fresh as anything it would
 # fetch, so waiting only to overwrite it is the bug. The one path that is not
@@ -7176,10 +7178,9 @@ weave_hidden_gate() {
   (
     exec </dev/null
 
-    # Take the per-cache-key mutex, or bail. mkdir is the portable atomic
-    # test-and-set. A crashed holder would otherwise block refreshes forever,
-    # so a lock older than the fetch timeout is treated as abandoned and
-    # reclaimed. Releasing from a trap covers every exit path below.
+    # Take the per-cache-key mutex, or bail. Old locks are reclaimed so a
+    # crashed holder cannot block refreshes forever. Releasing from a trap
+    # covers every exit path below.
     lock="$cache.lock"
     if ! mkdir "$lock" 2>/dev/null; then
       lock_mtime="$(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null)" || lock_mtime=0
@@ -7203,7 +7204,10 @@ weave_hidden_gate() {
       rm -rf "$dead" 2>/dev/null
       mkdir "$lock" 2>/dev/null || exit 0
     fi
-    trap 'rmdir "$lock" 2>/dev/null' EXIT
+    # Some mkdir implementations return success to both racing creators.
+    # Shell noclobber supplies the exclusive claim independently of mkdir.
+    (set -C; : > "$lock/owner") 2>/dev/null || exit 0
+    trap 'rm -f "$lock/owner"; rmdir "$lock" 2>/dev/null' EXIT
 
     self_dir="$(cd "$(dirname "$self")" 2>/dev/null && pwd)"
     settings_base="$HOME"
