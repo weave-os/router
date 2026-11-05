@@ -79,3 +79,27 @@ func TestCandidateLogFields_GroupsExclusionsByReason(t *testing.T) {
 		"excluded_" + string(ExclusionRequested), "claude-opus-5,gpt-5.6-terra",
 	}, fields)
 }
+
+func TestEmptyCandidateError_NamesMissingProviderCredentials(t *testing.T) {
+	// Unkeyed deployments drop every model for want of a provider; telling
+	// the caller to widen a model selection would send them to the wrong setting.
+	err := emptyCandidateError([]Diagnostic{
+		{CatalogID: "claude-opus-5", Reason: ExclusionNoProvider},
+		{CatalogID: "deepseek/deepseek-v4.1-flash", Reason: ExclusionProviderPolicy},
+		{CatalogID: "gpt-6-luna", Reason: ExclusionUnmappedRoster},
+	})
+	assert.ErrorIs(t, err, ErrNoProviderCredentials)
+	assert.ErrorIs(t, err, ErrNoRoutableModels)
+
+	err = emptyCandidateError([]Diagnostic{
+		{CatalogID: "claude-opus-5", Reason: ExclusionNoProvider},
+		{CatalogID: "gpt-5.5", Reason: ExclusionRequested},
+	})
+	assert.ErrorIs(t, err, ErrNoRoutableModels)
+	assert.NotErrorIs(t, err, ErrNoProviderCredentials, "an org exclusion is a model-selection cause")
+
+	err = emptyCandidateError([]Diagnostic{
+		{CatalogID: "gpt-6-luna", Reason: ExclusionUnmappedRoster},
+	})
+	assert.NotErrorIs(t, err, ErrNoProviderCredentials)
+}
