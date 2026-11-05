@@ -202,3 +202,8 @@ func noticeProviderContent(format Format, event []byte) bool {
 	}
 	return false
 }
+
+// StreamEventCommitsOutput reports whether an SSE event commits client output.
+func StreamEventCommitsOutput(format Format, event []byte) bool {
+	return noticeProviderContent(format, event) || noticeTerminal(format, event)
+}

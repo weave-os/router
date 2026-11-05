@@ -233,7 +233,12 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			}
 			attemptStarted := time.Now()
 			attemptErr := in.attempt(credentialCtx, decision, guarded)
-
+			if attemptErr == nil && in.buf != nil {
+				if releaseErr := in.buf.releaseHeld(); releaseErr != nil {
+					lease.Release()
+					return dispatchAbort{err: releaseErr}
+				}
+			}
 			// Health bookkeeping must persist even if the caller has gone.
 			bookkeepingCtx := context.WithoutCancel(credentialCtx)
 			if managedAttempt {
