@@ -176,6 +176,18 @@ refuse_if_symlink() {
   fi
 }
 
+# build_skill_entry_has_symlink reports whether any component of a manifest entry under the
+# skill dir is a symlink, so cleanup never follows a link out of the skill.
+build_skill_entry_has_symlink() {
+  local path="$1" rel="$2"
+  while [ -n "$rel" ]; do
+    path="$path/${rel%%/*}"
+    [ -L "$path" ] && return 0
+    case "$rel" in */*) rel="${rel#*/}" ;; *) rel="" ;; esac
+  done
+  return 1
+}
+
 # uninstall_build_skill removes the managed build skill tree recorded in its
 # manifest and any marker-bearing build agents, leaving user files in place.
 uninstall_build_skill() {
@@ -185,10 +197,13 @@ uninstall_build_skill() {
     warn "$skill_dir is behind a symlink; leaving the build skill untouched."
   elif [ -f "$skill_dir/SKILL.md" ] && ! grep -Fq "<!-- weave-router managed build skill -->" "$skill_dir/SKILL.md"; then
     warn "Leaving user-owned build skill at $skill_dir untouched."
+  elif [ -L "$skill_dir/.weave-router-files" ]; then
+    rm -f "$skill_dir/.weave-router-files"
+    warn "Removed a symlinked build skill manifest at $skill_dir; leaving its files untouched."
   elif [ -f "$skill_dir/.weave-router-files" ]; then
     while IFS= read -r rel; do
       case "$rel" in ""|/*|*..*) continue ;; esac
-      if [ -L "$skill_dir/$(dirname "$rel")" ] || [ -L "$skill_dir/$rel" ]; then continue; fi
+      if build_skill_entry_has_symlink "$skill_dir" "$rel"; then continue; fi
       rm -f "$skill_dir/$rel"
     done <"$skill_dir/.weave-router-files"
     rm -f "$skill_dir/.weave-router-files"

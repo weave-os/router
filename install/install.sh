@@ -5030,6 +5030,18 @@ build_skill_source_dir() {
   return 1
 }
 
+# build_skill_entry_has_symlink reports whether any component of a manifest entry under the
+# skill dir is a symlink, so cleanup never follows a link out of the skill.
+build_skill_entry_has_symlink() {
+  local path="$1" rel="$2"
+  while [ -n "$rel" ]; do
+    path="$path/${rel%%/*}"
+    [ -L "$path" ] && return 0
+    case "$rel" in */*) rel="${rel#*/}" ;; *) rel="" ;; esac
+  done
+  return 1
+}
+
 # remove_build_skill_files deletes the files a previous install recorded in
 # the manifest, leaving anything the user added beside them.
 remove_build_skill_files() {
@@ -5041,7 +5053,7 @@ remove_build_skill_files() {
   [ -f "$skill_dir/$build_skill_manifest" ] || return 0
   while IFS= read -r rel; do
     case "$rel" in ""|/*|*..*) continue ;; esac
-    if [ -L "$skill_dir/$(dirname "$rel")" ] || [ -L "$skill_dir/$rel" ]; then continue; fi
+    if build_skill_entry_has_symlink "$skill_dir" "$rel"; then continue; fi
     rm -f "$skill_dir/$rel"
   done <"$skill_dir/$build_skill_manifest"
   rm -f "$skill_dir/$build_skill_manifest"

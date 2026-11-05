@@ -69,9 +69,12 @@ mkdir -p "$outside"
 printf 'keep\n' >"$outside/victim.md"
 mv "$skill/references" "$work/references.real"
 ln -s "$outside" "$skill/references"
-printf 'references/victim.md\n' >>"$skill/.weave-router-files"
+printf 'references/victim.md\nreferences/deep/victim.md\n' >>"$skill/.weave-router-files"
+mkdir -p "$outside/deep"
+printf 'keep\n' >"$outside/deep/victim.md"
 run "$home" "$installer" --claude --scope user --quiet --non-interactive --base-url http://127.0.0.1:9
 [ -f "$outside/victim.md" ] || fail "reinstall deleted a file through a symlinked directory"
+[ -f "$outside/deep/victim.md" ] || fail "reinstall deleted a nested file through a symlinked directory"
 rm "$skill/references"
 mv "$work/references.real" "$skill/references"
 rm "$skill/.weave-router-files"
@@ -119,5 +122,21 @@ grep -Fq "$managed" "$skill/SKILL.md" || fail "Codex build skill not installed"
 [ ! -e "$skill/agents" ] || fail "agent definitions leaked into the Codex skill"
 run "$home" "$uninstaller" --codex --scope user
 [ ! -e "$skill" ] || fail "Codex uninstall left the build skill"
+
+# Uninstall never follows a symlinked directory or manifest out of the skill.
+home="$work/codex-symlink"
+mkdir -p "$home"
+run "$home" "$installer" --codex --scope user --quiet --non-interactive --base-url http://127.0.0.1:9
+skill="$home/.codex/skills/build"
+outside="$work/outside-uninstall"
+mkdir -p "$outside/deep"
+printf 'keep\n' >"$outside/victim.md"
+printf 'keep\n' >"$outside/deep/victim.md"
+rm -rf "$skill/references"
+ln -s "$outside" "$skill/references"
+printf 'references/victim.md\nreferences/deep/victim.md\n' >>"$skill/.weave-router-files"
+run "$home" "$uninstaller" --codex --scope user
+[ -f "$outside/victim.md" ] || fail "uninstall deleted a file through a symlinked directory"
+[ -f "$outside/deep/victim.md" ] || fail "uninstall deleted a nested file through a symlinked directory"
 
 echo "Build skill installer tests passed"
