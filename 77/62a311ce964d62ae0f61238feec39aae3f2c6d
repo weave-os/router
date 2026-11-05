@@ -1,0 +1,25 @@
+internal/proxy/observation.go
+  s_58629a25e850e2::t_79cd22bc85452e 46-47
+internal/timing/timing.go
+  s_58629a25e850e2::t_79cd22bc85452e 24-25
+internal/proxy/first_output_span_test.go
+  s_58629a25e850e2::t_79cd22bc85452e 36-37
+internal/timing/first_output_test.go
+  s_58629a25e850e2::t_79cd22bc85452e 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "7762a311ce964d62ae0f61238feec39aae3f2c6d",
+  "prompts": {},
+  "sessions": {
+    "s_58629a25e850e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c7c5ebb-d977-41dd-bbd9-5f8c3fecf2fe",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

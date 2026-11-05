@@ -1,0 +1,29 @@
+internal/billing/prepaid.go
+  s_394c7cb9fc8be4::t_3f549901890762 91-92
+internal/sqlc/billing.sql.go
+  s_394c7cb9fc8be4::t_c5359d17ee33f2 138-140,151-154,323-325,336-339
+docs/DELEGATED_SESSION_TOKENS.md
+  s_394c7cb9fc8be4::t_095acb690fa5af 47-50
+internal/auth/session_token.go
+  s_394c7cb9fc8be4::t_8589febf443759 31-33,235-236
+db/queries/billing.sql
+  s_394c7cb9fc8be4::t_8589febf443759 125-127,138-141
+internal/auth/session_token_test.go
+  s_394c7cb9fc8be4::t_8589febf443759 172-181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7ad3147ec67d97d9fdc369a247050637f1e90350",
+  "prompts": {},
+  "sessions": {
+    "s_394c7cb9fc8be4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16f2b-feba-72f3-a064-e0e2eff463af",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

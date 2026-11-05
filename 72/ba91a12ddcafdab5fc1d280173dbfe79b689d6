@@ -1,0 +1,48 @@
+install/install.sh
+  s_51de0142481bfd::t_ae1a44a51bac4a 1181-1182
+  s_51de0142481bfd::t_f3fb6b000740a6 5384,5466,5548
+internal/router/hmm/hmm_test.go
+  s_51de0142481bfd::t_ea255fda1a00ce 216,235-239
+install/pi-router/src/config.ts
+  s_51de0142481bfd::t_ae1a44a51bac4a 238
+internal/router/catalog/catalog.go
+  s_51de0142481bfd::t_ea255fda1a00ce 457-459
+internal/router/hmm/armid/mapping.go
+  s_51de0142481bfd::t_ea255fda1a00ce 27
+internal/proxy/force_model_internal_test.go
+  s_51de0142481bfd::t_e36212e3837051 311,316
+internal/router/model.go
+  s_51de0142481bfd::t_ea255fda1a00ce 145-146,204
+internal/proxy/force_model.go
+  s_51de0142481bfd::t_ea255fda1a00ce 107-108,111,114-116
+internal/observability/otel/pricing_test.go
+  s_51de0142481bfd::t_ea255fda1a00ce 42
+internal/router/catalog/token_scalars.go
+  s_51de0142481bfd::t_ea255fda1a00ce 104-111
+internal/translate/envelope.go
+  s_51de0142481bfd::t_ea255fda1a00ce 1409
+internal/router/hmm/roster_test.go
+  s_51de0142481bfd::t_ea255fda1a00ce 23,38
+install/cc-statusline.sh
+  s_51de0142481bfd::t_f3fb6b000740a6 525,607,689
+bench/weave_bench/prices.generated.json
+  s_51de0142481bfd::t_29945c556b4851 2,340-345
+install/pi-router/src/pricing.generated.ts
+  s_51de0142481bfd::t_9273679446bf36 10,69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "72ba91a12ddcafdab5fc1d280173dbfe79b689d6",
+  "prompts": {},
+  "sessions": {
+    "s_51de0142481bfd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c51f-15df-7390-b094-576d4fcf70db",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+internal/proxy/tokenizer_calibration.go
+  s_a0f1ea13c4297a::t_fb13cda741e1bf 123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dc85b118ff33c7f792e2dbecd3804f859d79e656",
+  "prompts": {},
+  "sessions": {
+    "s_a0f1ea13c4297a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16073-edcd-7953-a8d8-b101b425a421",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

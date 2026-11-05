@@ -1,0 +1,14 @@
+cmd/router/main.go
+  h_ab3cb0cf7fa1dd 1555-1557,1608-1609
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b26fcf130e49915ded7a60716448eb88bb2e69e1",
+  "prompts": {},
+  "humans": {
+    "h_ab3cb0cf7fa1dd": {
+      "author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

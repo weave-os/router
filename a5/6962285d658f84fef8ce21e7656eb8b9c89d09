@@ -1,0 +1,23 @@
+sidecars/task-domain/app.py
+  s_e81a08893a9ba2::t_d885c2cd2349be 34,37
+sidecars/task-domain/server.py
+  s_e81a08893a9ba2::t_6c1ed3db4dc2c0 54
+sidecars/task-domain/tests/test_app.py
+  s_e81a08893a9ba2::t_333fcc08aaf500 95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a56962285d658f84fef8ce21e7656eb8b9c89d09",
+  "prompts": {},
+  "sessions": {
+    "s_e81a08893a9ba2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9391cca-911c-46df-b82c-9f07d5d2219d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

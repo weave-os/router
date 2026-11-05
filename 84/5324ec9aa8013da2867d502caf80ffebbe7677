@@ -1,0 +1,19 @@
+internal/translate/default_max_tokens_test.go
+  s_12b3fc6089a15a::t_958f62092d7a4a 194-195
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "845324ec9aa8013da2867d502caf80ffebbe7677",
+  "prompts": {},
+  "sessions": {
+    "s_12b3fc6089a15a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5721e2d7-6090-4ab7-bf50-cce5f1385709",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

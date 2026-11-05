@@ -1,0 +1,19 @@
+internal/proxy/usage_bypass.go
+  s_a4e23a7d42c137::t_0edfec0a912db0 478-480
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4c21bbf0df4111de765bd0c90385083caad5a74a",
+  "prompts": {},
+  "sessions": {
+    "s_a4e23a7d42c137": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d42702a6-9ef3-4265-b4d2-278b83bc1f0b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

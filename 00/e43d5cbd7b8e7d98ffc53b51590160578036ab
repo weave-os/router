@@ -1,0 +1,42 @@
+internal/proxy/service.go
+  s_0970f7100c7e81::t_a0879b6c72a8e1 6019
+  s_0970f7100c7e81::t_1f77d419a889e3 5912
+  s_0970f7100c7e81::t_9f7f423aec79ec 5938
+  s_0970f7100c7e81::t_58ada7f6d20328 5904
+  s_0970f7100c7e81::t_2439756f6abe2e 5913
+  s_0970f7100c7e81::t_43ac044e0b14a2 5899-5902
+  s_0970f7100c7e81::t_c89005aafa5c25 6017-6018,6020-6022
+internal/translate/responses.go
+  s_0970f7100c7e81::t_08da980523fcb1 751,755,760
+internal/translate/envelope.go
+  s_0970f7100c7e81::t_bb70f5e32d73df 827
+internal/proxy/codex_receipt.go
+  s_0970f7100c7e81::t_1421d1d3c0befd 17,21-22,29
+  s_0970f7100c7e81::t_ee0872fb271176 13
+  s_0970f7100c7e81::t_e1c8f74f390f1e 18-20
+  s_0970f7100c7e81::t_3b126a8b9c3b4f 23-26
+  s_0970f7100c7e81::t_222a2e00a44e17 43-49
+  s_0970f7100c7e81::t_97bc60a3c91705 8
+internal/proxy/codex_receipt_test.go
+  s_0970f7100c7e81::t_b9f9bf3a7bf36b 26
+  s_0970f7100c7e81::t_88699d6d3a9a6d 92
+  s_0970f7100c7e81::t_964baab74c6095 39,63
+  s_0970f7100c7e81::t_e3a4ee1d4f178d 21-24
+  s_0970f7100c7e81::t_b390eea542b03b 49,76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "00e43d5cbd7b8e7d98ffc53b51590160578036ab",
+  "prompts": {},
+  "sessions": {
+    "s_0970f7100c7e81": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1a42406d-cdca-4da7-b104-db057e63607d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
