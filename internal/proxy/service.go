@@ -4789,6 +4789,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 				if useResponses {
 					responsesTranslator := translate.NewResponsesToAnthropicWriter(attemptSink, d.Model, usage).
+						WithLogger(log).
 						WithReasoningScope(attemptOpts.ReasoningReplayScope).
 						WithEstimatedInputTokens(feats.Tokens).
 						WithRequestHadTools(feats.HasTools).

@@ -1,7 +1,10 @@
 package translate_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http/httptest"
 	"testing"
 
@@ -147,4 +150,26 @@ func TestEmptyCompletionErrorUnwrapsRetrySentinel(t *testing.T) {
 	wrapped := &providers.UpstreamErrorResponse{Status: 502, Cause: errors.Join(providers.ErrUpstreamEmptyCompletion, err)}
 	assert.ErrorIs(t, wrapped, providers.ErrUpstreamEmptyCompletion)
 	assert.True(t, providers.IsRetryable(wrapped))
+}
+
+func TestResponsesToAnthropicWriter_EmptyCompletionLogsOnRequestLogger(t *testing.T) {
+	var logs bytes.Buffer
+	log := slog.New(slog.NewJSONHandler(&logs, nil)).With("request_id", "req_synthetic")
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesToAnthropicWriter(rec, "synthetic-model", nil).WithLogger(log)
+	require.NoError(t, w.Prelude(false))
+	_, err := w.Write([]byte(`event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_empty","status":"completed","output":[]}}
+
+`))
+	require.NoError(t, err)
+	require.ErrorIs(t, w.Finalize(), providers.ErrUpstreamEmptyCompletion)
+
+	var line map[string]any
+	require.NoError(t, json.Unmarshal(logs.Bytes(), &line))
+	assert.Equal(t, "ResponsesToAnthropic: upstream returned an empty completion", line["msg"])
+	assert.Equal(t, "req_synthetic", line["request_id"])
+	assert.Equal(t, "resp_empty", line["upstream_response_id"])
+	assert.Equal(t, "completed", line["upstream_status"])
+	assert.EqualValues(t, 502, line["error_status"])
 }
