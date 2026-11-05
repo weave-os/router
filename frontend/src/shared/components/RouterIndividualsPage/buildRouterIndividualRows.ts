@@ -10,7 +10,6 @@ import {
   type RouterIndividualUsage,
   type RouterMetricRank,
   type RouterPassthroughPeriod,
-  type RouterPersonRow,
   type RouterRanking,
 } from "./types";
 
@@ -170,7 +169,7 @@ export function buildRouterIndividualRows(
     [RouterRoutingState.Routed]: rankAmong(RouterRoutingState.Routed),
   };
   const query = normalizeSearchText(searchQuery);
-  const rows: RouterPersonRow[] = unranked
+  const rows = unranked
     .map(row => ({ ...row, ranking: rankingByRoutingState[row.routingState](row.usage) }))
     .filter(row => query === "" || normalizeSearchText(row.name).includes(query))
     .sort((a, b) => COLLATOR.compare(a.name, b.name));
