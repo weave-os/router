@@ -1,6 +1,9 @@
 package policy
 
 import (
+	"fmt"
+
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 )
@@ -21,12 +24,17 @@ type RoutedResolutionRequest struct {
 	// the router's own selection, which only a router-selected policy accepts.
 	Origin OverrideSource
 	Budget *BudgetOverride
+	// CatalogBindingsOnly marks a walk funded by deployment credentials,
+	// which exist only for the model's catalog bindings: a binding the
+	// catalog does not list for a catalog model then fails closed.
+	CatalogBindingsOnly bool
 }
 
 // ResolveRouted builds the immutable plan for a decision the turn loop made.
 // It fails closed on unregistered purposes, purposes whose policy neither
 // routes nor hard-pins, an empty model, an empty binding walk, a hard-pin
-// decision with no origin, or an origin the policy does not declare.
+// decision with no origin, an origin the policy does not declare, or a
+// deployment-funded binding the catalog does not list for the model.
 func (r *PlanResolver) ResolveRouted(request RoutedResolutionRequest) (ResolvedPlan, error) {
 	spec, found := r.registry.Spec(request.Purpose)
 	if !found {
@@ -56,6 +64,10 @@ func (r *PlanResolver) ResolveRouted(request RoutedResolutionRequest) (ResolvedP
 		if !allowed {
 			return ResolvedPlan{}, &ResolutionError{Code: ResolutionErrorOverrideNotAllowed, Purpose: request.Purpose, PolicyID: spec.PolicyID, CatalogID: model, Source: request.Origin, detail: "override source is not declared by the policy"}
 		}
+	}
+
+	if err := checkCatalogBound(request, spec); err != nil {
+		return ResolvedPlan{}, err
 	}
 
 	bindings := make([]Binding, 0, len(request.Bindings))
@@ -115,6 +127,27 @@ func acceptsRoutedDecision(spec PolicySpec) bool {
 		return spec.DispatchClass == DispatchClassAuxiliaryInference || spec.DispatchClass == DispatchClassClientAuthoritative
 	}
 	return false
+}
+
+// checkCatalogBound rejects a deployment-funded walk naming a provider the
+// catalog does not bind for a catalog model. Unknown models keep their
+// caller-supplied bindings.
+func checkCatalogBound(request RoutedResolutionRequest, spec PolicySpec) error {
+	model := request.Decision.Model
+	if _, known := catalog.ByID(model); !request.CatalogBindingsOnly || !known {
+		return nil
+	}
+	for _, providerBinding := range request.Bindings {
+		// Gateways serve whatever models their aliases name, not catalog rows.
+		if providers.IsGateway(providerBinding.Provider) {
+			continue
+		}
+		if index, _ := catalogBinding(model, providerBinding); index < 0 {
+			return &ResolutionError{Code: ResolutionErrorNoEligibleBinding, Purpose: request.Purpose, PolicyID: spec.PolicyID, CatalogID: model,
+				detail: fmt.Sprintf("provider %q has no catalog binding for the model", providerBinding.Provider)}
+		}
+	}
+	return nil
 }
 
 // catalogBinding locates the binding in the catalog entry so telemetry can
