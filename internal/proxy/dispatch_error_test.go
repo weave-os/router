@@ -392,6 +392,20 @@ func TestClassifyDispatchError_NoRoutableModels(t *testing.T) {
 	assert.False(t, cls.RetryAfter)
 }
 
+func TestClassifyDispatchError_NoProviderCredentials(t *testing.T) {
+	err := fmt.Errorf("hmm_embedding: no eligible candidate: %w: %w",
+		policy.ErrNoProviderCredentials, hmm.ErrHMMUnavailable)
+
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorNoEligibleProvider, cls.Kind)
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.Contains(t, cls.Message, "add a provider key")
+	assert.Contains(t, cls.Message, "re-enable an excluded provider")
+	assert.False(t, cls.RetryAfter)
+}
+
 func TestClassifyDispatchError_HMMUnavailableStaysAnOutage(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(fmt.Errorf("hmm: sidecar decide: %w", hmm.ErrHMMUnavailable))
 

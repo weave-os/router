@@ -343,13 +343,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "Model allowlist leaves no eligible candidates",
 		}, true
 	case errors.Is(err, cluster.ErrNoEligibleProvider):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorNoEligibleProvider,
-			Status:     http.StatusBadRequest,
-			Message:    "No provider keys available for any deployed model: register a BYOK key or supply a provider Authorization header.",
-			LogLevel:   "warn",
-			LogMessage: "No eligible provider for request",
-		}, true
+		return noEligibleProviderClass(), true
 	case errors.Is(err, billing.ErrUserMonthlySpendLimitReached):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorUserSpendLimitReached,
@@ -402,6 +396,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Request image count exceeds every eligible model's limit",
 		}, true
+	case errors.Is(err, policy.ErrNoProviderCredentials):
+		return noEligibleProviderClass(), true
 	case errors.Is(err, policy.ErrNoRoutableModels):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorNoRoutableModels,
@@ -569,4 +565,14 @@ func includedAllowanceSpentMessage(e *IncludedAllowanceSpentError) string {
 		return message + " A Weave router spend cap blocks paid routing until then."
 	}
 	return message + " To keep routing until then, add credits: " + topUpURL
+}
+
+func noEligibleProviderClass() DispatchErrorClass {
+	return DispatchErrorClass{
+		Kind:       DispatchErrorNoEligibleProvider,
+		Status:     http.StatusBadRequest,
+		Message:    "No enabled provider can serve any deployed model: add a provider key (BYOK or a provider Authorization header), or re-enable an excluded provider.",
+		LogLevel:   "warn",
+		LogMessage: "No eligible provider for request",
+	}
 }
