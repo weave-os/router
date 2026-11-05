@@ -6,18 +6,21 @@
       "routing_decisions": [
         {
           "requested_model": "claude-sonnet-4-5",
-          "model": "claude-haiku-4-5",
-          "provider": "anthropic",
+          "excluded": [
+            "claude-haiku-4-5"
+          ],
+          "model": "deepseek/deepseek-v4-pro",
+          "provider": "fireworks",
           "reason": "golden_route"
         }
       ],
       "dispatch_attempts": [
         {
-          "provider": "anthropic",
-          "wire_model": "claude-haiku-4-5",
+          "provider": "fireworks",
+          "wire_model": "deepseek/deepseek-v4-pro",
           "outbound_body": {
-            "bytes": 1080164,
-            "sha256": "9e79ecfea059cddd1343d30b75acabad4dc32ba8a86f4f2ca4f61eed296b64b3"
+            "bytes": 1080150,
+            "sha256": "b21ebaa8e32c761cd7e54331da6164e6794ffebf65aaad72f63822cdc94a753f"
           },
           "outcome": "ok"
         }
@@ -35,9 +38,9 @@
             "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
           },
           "Target": {
-            "CatalogID": "claude-haiku-4-5",
-            "Provider": "anthropic",
-            "UpstreamID": "claude-haiku-4-5"
+            "CatalogID": "deepseek/deepseek-v4-pro",
+            "Provider": "fireworks",
+            "UpstreamID": "accounts/fireworks/models/deepseek-v4-pro"
           }
         }
       ],
@@ -49,10 +52,10 @@
           "X-Router-Context-Estimate-Tokens": "270025",
           "X-Router-Context-Output-Reserve-Tokens": "8000",
           "X-Router-Context-Version": "1",
-          "X-Router-Context-Window": "200000",
+          "X-Router-Context-Window": "1048576",
           "X-Router-Decision": "golden_route",
-          "X-Router-Model": "claude-haiku-4-5",
-          "X-Router-Provider": "anthropic"
+          "X-Router-Model": "deepseek/deepseek-v4-pro",
+          "X-Router-Provider": "fireworks"
         },
         "events": [
           {
@@ -61,7 +64,7 @@
               "message": {
                 "content": [],
                 "id": "\u003cid\u003e",
-                "model": "claude-haiku-4-5",
+                "model": "deepseek/deepseek-v4-pro",
                 "role": "assistant",
                 "stop_reason": null,
                 "stop_sequence": null,
@@ -89,7 +92,7 @@
             "event": "content_block_delta",
             "data": {
               "delta": {
-                "text": "✦ **Weave Router** → claude-haiku-4-5 · best pick for this turn\n\n",
+                "text": "✦ **Weave Router** → deepseek/deepseek-v4-pro · best pick for this turn\n\n",
                 "type": "text_delta"
               },
               "index": 0,
@@ -118,7 +121,7 @@
             "event": "content_block_delta",
             "data": {
               "delta": {
-                "text": "never",
+                "text": "wide",
                 "type": "text_delta"
               },
               "index": 1,
@@ -136,7 +139,8 @@
             "event": "message_delta",
             "data": {
               "delta": {
-                "stop_reason": "end_turn"
+                "stop_reason": "end_turn",
+                "stop_sequence": null
               },
               "type": "message_delta",
               "usage": {
@@ -145,9 +149,9 @@
                 "weave_cost": {
                   "cache_creation_tokens": 0,
                   "cache_read_tokens": 0,
-                  "input_usd": 0.000012,
-                  "output_usd": 0.000035,
-                  "usd": 0.000047
+                  "input_usd": 0.00002088,
+                  "output_usd": 0.00002436,
+                  "usd": 0.00004524
                 }
               }
             }
@@ -165,9 +169,8 @@
           "op": "upsert",
           "role": "default_mid",
           "detail": {
-            "Model": "claude-haiku-4-5",
-            "PolicyGroup": "golden-group",
-            "Provider": "anthropic",
+            "Model": "deepseek/deepseek-v4-pro",
+            "Provider": "fireworks",
             "Reason": "golden_route",
             "Role": "default_mid",
             "Strategy": "cluster",
@@ -180,8 +183,8 @@
           "detail": {
             "InputTokens": 12,
             "OutputTokens": 7,
-            "ServedModel": "claude-haiku-4-5",
-            "ServedProvider": "anthropic",
+            "ServedModel": "deepseek/deepseek-v4-pro",
+            "ServedProvider": "fireworks",
             "Strategy": "cluster"
           }
         }
@@ -189,44 +192,42 @@
       "billing": [
         {
           "APIKeyID": "golden-key",
-          "DeltaUsdMicros": -47,
+          "DeltaUsdMicros": -45,
           "EntryType": "inference",
           "FeeEntryType": "byok_fee",
-          "NotionalCostMicros": 47,
+          "NotionalCostMicros": 45,
           "OrganizationID": "golden-org",
-          "RouterModel": "claude-haiku-4-5"
+          "RouterModel": "deepseek/deepseek-v4-pro"
         }
       ],
       "telemetry": [
         {
           "APIKeyID": "golden-key",
-          "ActualInputCostUSD": 0.000012,
-          "ActualOutputCostUSD": 0.000035,
-          "CandidateModels": [
-            "claude-haiku-4-5",
-            "deepseek/deepseek-v4-pro"
-          ],
+          "ActualInputCostUSD": 0.00002088,
+          "ActualOutputCostUSD": 0.00002436,
           "CaptureMode": "off",
           "ContextSnapshot": {
-            "context_window": 200000,
+            "context_window": 1048576,
             "estimate_kind": "approximate",
             "estimate_tokens": 270025,
             "output_reserve_tokens": 8000,
             "request_id": "\u003cuuid\u003e",
             "requested_model": "claude-sonnet-4-5",
-            "served_model": "claude-haiku-4-5",
+            "served_model": "deepseek/deepseek-v4-pro",
             "version": 1
           },
-          "DecisionModel": "claude-haiku-4-5",
-          "DecisionProvider": "anthropic",
+          "CrossFormat": true,
+          "DecisionModel": "deepseek/deepseek-v4-pro",
+          "DecisionProvider": "fireworks",
           "DecisionReason": "golden_route",
+          "DegenerateShadow": true,
           "EmbedInput": "concatenated_stream",
           "EstimatedInputTokens": 270000,
-          "FinalModelFamily": "claude-haiku",
-          "FreshDecisionModel": "claude-haiku-4-5",
+          "FinalModelFamily": "deepseek/deepseek-v-pro",
+          "FreshDecisionModel": "deepseek/deepseek-v4-pro",
           "InputTokens": 12,
           "InstallationID": "00000000-0000-4000-8000-000000000001",
-          "IntendedModelFamily": "claude-haiku",
+          "IntendedModelFamily": "deepseek/deepseek-v-pro",
           "LatestToolCallCounts": {},
           "OutputTokens": 7,
           "PinTier": "miss",
@@ -237,13 +238,13 @@
           "RequestedOutputCostUSD": 0.000105,
           "Role": "default_mid",
           "SelectionTrace": {
-            "served_group": "golden-group"
+            "served_group": ""
           },
           "SpanType": "router.upstream",
           "StopReason": "end_turn",
           "Strategy": "cluster",
           "TurnType": "main_loop",
-          "UpstreamFinishReason": "end_turn",
+          "UpstreamFinishReason": "stop",
           "UpstreamStatusCode": 200,
           "UserPrompt": true
         }

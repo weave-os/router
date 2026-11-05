@@ -74,6 +74,18 @@ type goldenRecorder struct {
 	cancel            context.CancelFunc
 }
 
+// goldenRecordLengths marks where one request's records start.
+type goldenRecordLengths struct {
+	routes, attempts, inferenceAttempts, pinEvents, debits, telemetry int
+}
+
+func (r *goldenRecorder) lengths() goldenRecordLengths {
+	return goldenRecordLengths{
+		routes: len(r.routes), attempts: len(r.attempts), inferenceAttempts: len(r.inferenceAttempts),
+		pinEvents: len(r.pinEvents), debits: len(r.debits), telemetry: len(r.telemetry),
+	}
+}
+
 func (r *goldenRecorder) nextStep(p *goldenProvider) goldenStep {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -189,7 +201,7 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 
 	h.rec.mu.Lock()
 	h.rec.cancel = cancel
-	mark := [6]int{len(h.rec.routes), len(h.rec.attempts), len(h.rec.inferenceAttempts), len(h.rec.pinEvents), len(h.rec.debits), len(h.rec.telemetry)}
+	before := h.rec.lengths()
 	h.rec.mu.Unlock()
 
 	path := "/v1/messages"
@@ -209,7 +221,7 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 		err = h.svc.ProxyMessages(ctx, []byte(req.body), rec, httpReq)
 	}
 	if !req.noTelemetry {
-		h.awaitTelemetry(t, mark[5])
+		h.awaitTelemetry(t, before.telemetry)
 	}
 
 	var parsed struct {
@@ -221,13 +233,13 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 	trace := goldenRequestTrace{
 		Ingress:           ingress,
 		Stream:            parsed.Stream,
-		Routes:            append([]goldenRouteCall{}, h.rec.routes[mark[0]:]...),
-		Attempts:          append([]goldenAttempt{}, h.rec.attempts[mark[1]:]...),
-		InferenceAttempts: h.rec.inferenceAttempts[mark[2]:],
+		Routes:            append([]goldenRouteCall{}, h.rec.routes[before.routes:]...),
+		Attempts:          append([]goldenAttempt{}, h.rec.attempts[before.attempts:]...),
+		InferenceAttempts: h.rec.inferenceAttempts[before.inferenceAttempts:],
 		Response:          goldenClientResponse(rec),
-		PinEvents:         h.rec.pinEvents[mark[3]:],
-		Billing:           h.rec.debits[mark[4]:],
-		Telemetry:         h.rec.telemetry[mark[5]:],
+		PinEvents:         h.rec.pinEvents[before.pinEvents:],
+		Billing:           h.rec.debits[before.debits:],
+		Telemetry:         h.rec.telemetry[before.telemetry:],
 	}
 	if err != nil {
 		trace.DispatchError = goldenClassify(err)
@@ -282,7 +294,8 @@ func goldenClientResponse(rec *httptest.ResponseRecorder) goldenResponse {
 	if rec.Body.Len() > 0 || rec.Code != http.StatusOK {
 		out.Status = rec.Code
 	}
-	for name, values := range rec.Header() {
+	sent := rec.Result().Header
+	for name, values := range sent {
 		canonical := http.CanonicalHeaderKey(name)
 		allowed := strings.HasPrefix(canonical, "X-Router-")
 		for _, a := range goldenHeaderAllowlist {
@@ -293,7 +306,7 @@ func goldenClientResponse(rec *httptest.ResponseRecorder) goldenResponse {
 		}
 	}
 	body := rec.Body.Bytes()
-	if strings.HasPrefix(rec.Header().Get("Content-Type"), "text/event-stream") {
+	if strings.HasPrefix(sent.Get("Content-Type"), "text/event-stream") {
 		for len(body) > 0 {
 			event, n := sse.SplitNext(body)
 			if n == 0 {
