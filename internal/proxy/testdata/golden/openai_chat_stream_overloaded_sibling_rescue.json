@@ -196,10 +196,10 @@
           "X-Router-Context-Estimate-Tokens": "19",
           "X-Router-Context-Output-Reserve-Tokens": "8000",
           "X-Router-Context-Version": "1",
-          "X-Router-Context-Window": "1048576",
+          "X-Router-Context-Window": "1000000",
           "X-Router-Decision": "golden_route",
-          "X-Router-Model": "deepseek/deepseek-v4-pro",
-          "X-Router-Provider": "fireworks"
+          "X-Router-Model": "claude-opus-4-7",
+          "X-Router-Provider": "anthropic"
         },
         "events": [
           {

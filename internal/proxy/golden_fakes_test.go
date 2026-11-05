@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -17,6 +19,8 @@ import (
 )
 
 // goldenEpoch anchors the fake clock; pins and cooldowns compare against it.
+var errGoldenAllExcluded = errors.New("golden router: every candidate excluded")
+
 var goldenEpoch = time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 
 type goldenClock struct {
@@ -170,16 +174,19 @@ func (g *goldenRouter) Route(_ context.Context, req router.Request) (router.Deci
 		g.rec.routes = append(g.rec.routes, call)
 		return router.Decision{}, g.err
 	}
-	d := g.decisions[len(g.decisions)-1]
+	var d router.Decision
 	for _, candidate := range g.decisions {
-		if _, skip := req.ExcludedModels[candidate.Model]; skip {
-			continue
+		_, excludedByCaller := req.ExcludedModels[candidate.Model]
+		_, excludedAutomatically := req.AutomaticExcludedModels[candidate.Model]
+		if !excludedByCaller && !excludedAutomatically {
+			d = candidate
+			break
 		}
-		if _, skip := req.AutomaticExcludedModels[candidate.Model]; skip {
-			continue
-		}
-		d = candidate
-		break
+	}
+	if d.Model == "" {
+		call.Error = errGoldenAllExcluded.Error()
+		g.rec.routes = append(g.rec.routes, call)
+		return router.Decision{}, errGoldenAllExcluded
 	}
 	call.Model, call.Provider, call.Reason = d.Model, d.Provider, d.Reason
 	g.rec.routes = append(g.rec.routes, call)
@@ -211,7 +218,7 @@ func (s *goldenPinStore) Get(_ context.Context, key [sessionpin.SessionKeyLen]by
 	s.rec.mu.Lock()
 	defer s.rec.mu.Unlock()
 	p, ok := s.pins[pinKey(key, role)]
-	if !ok || !p.PinnedUntil.After(time.Now()) {
+	if !ok || !p.PinnedUntil.After(s.clock.Now()) {
 		return sessionpin.Pin{}, false, nil
 	}
 	return p, true, nil
@@ -232,53 +239,99 @@ func (s *goldenPinStore) Consume(ctx context.Context, key [sessionpin.SessionKey
 func (s *goldenPinStore) Upsert(_ context.Context, p sessionpin.Pin) error {
 	s.rec.mu.Lock()
 	defer s.rec.mu.Unlock()
+	if prior, ok := s.pins[pinKey(p.SessionKey, p.Role)]; ok {
+		preservePinHistory(&p, prior)
+	}
 	s.pins[pinKey(p.SessionKey, p.Role)] = p
 	s.event("upsert", p.Role, p)
 	return nil
 }
 
-func (s *goldenPinStore) UpdateUsage(_ context.Context, _ [sessionpin.SessionKeyLen]byte, role string, usage sessionpin.Usage) error {
+// preservePinHistory carries the fields sessionpin.Store.Upsert leaves
+// untouched from the stored row into a refreshed pin.
+func preservePinHistory(p *sessionpin.Pin, prior sessionpin.Pin) {
+	p.LastInputTokens, p.LastCachedReadTokens = prior.LastInputTokens, prior.LastCachedReadTokens
+	p.LastCachedWriteTokens, p.LastOutputTokens = prior.LastCachedWriteTokens, prior.LastOutputTokens
+	p.LastTurnEndedAt, p.LastServedModel, p.HasEverSwitched = prior.LastTurnEndedAt, prior.LastServedModel, prior.HasEverSwitched
+	p.DisabledProviders, p.DemotedModels, p.DemotionCooldowns = prior.DisabledProviders, prior.DemotedModels, prior.DemotionCooldowns
+	p.TurnStrikes, p.TokenizerCalibration = prior.TurnStrikes, prior.TokenizerCalibration
+	if prior.Strategy == p.Strategy {
+		p.LastOutputLimitAt = prior.LastOutputLimitAt
+	}
+	if prior.Model == p.Model {
+		p.ConsecutiveUpstreamErrors, p.ConsecutiveOverloadErrors = prior.ConsecutiveUpstreamErrors, prior.ConsecutiveOverloadErrors
+	}
+}
+
+func (s *goldenPinStore) UpdateUsage(_ context.Context, key [sessionpin.SessionKeyLen]byte, role string, usage sessionpin.Usage) error {
 	s.rec.mu.Lock()
 	defer s.rec.mu.Unlock()
 	s.event("update_usage", role, usage)
+	p, ok := s.pins[pinKey(key, role)]
+	if !ok || p.Strategy != usage.Strategy {
+		return nil
+	}
+	p.HasEverSwitched = p.HasEverSwitched || usage.SessionEverSwitched ||
+		(p.LastServedModel != "" && p.LastServedModel != usage.ServedModel) ||
+		(usage.PriorServedModel != "" && usage.PriorServedModel != usage.ServedModel)
+	if !p.LastTurnEndedAt.IsZero() && usage.EndedAt.Before(p.LastTurnEndedAt) {
+		s.pins[pinKey(key, role)] = p
+		return nil
+	}
+	p.LastInputTokens, p.LastCachedReadTokens = usage.InputTokens, usage.CachedReadTokens
+	p.LastCachedWriteTokens, p.LastOutputTokens = usage.CachedWriteTokens, usage.OutputTokens
+	p.LastTurnEndedAt, p.LastServedModel = usage.EndedAt, usage.ServedModel
+	p.LastOutputLimitAt = time.Time{}
+	if usage.OutputLimitReached {
+		p.LastOutputLimitAt = usage.EndedAt
+	}
+	p.Provider = usage.ServedProvider
+	s.pins[pinKey(key, role)] = p
 	return nil
 }
 
-func (s *goldenPinStore) bump(key [sessionpin.SessionKeyLen]byte, role, op string, field func(*sessionpin.Pin) *int) int {
+// adjustCounter applies change to one counter of a stored pin and returns the
+// new value; a missing pin is left absent and reports 0.
+func (s *goldenPinStore) adjustCounter(key [sessionpin.SessionKeyLen]byte, role string, counter func(*sessionpin.Pin) *int, change func(int) int) int {
 	s.rec.mu.Lock()
 	defer s.rec.mu.Unlock()
-	p := s.pins[pinKey(key, role)]
-	n := field(&p)
-	if op == "reset" {
-		*n = 0
-	} else {
-		*n++
+	p, ok := s.pins[pinKey(key, role)]
+	if !ok {
+		return 0
 	}
-	if _, ok := s.pins[pinKey(key, role)]; ok {
-		s.pins[pinKey(key, role)] = p
-	}
+	n := counter(&p)
+	*n = change(*n)
+	s.pins[pinKey(key, role)] = p
 	return *n
 }
 
+func incrementCount(n int) int { return n + 1 }
+
+func resetCount(int) int { return 0 }
+
+func upstreamErrorCount(p *sessionpin.Pin) *int { return &p.ConsecutiveUpstreamErrors }
+
+func overloadErrorCount(p *sessionpin.Pin) *int { return &p.ConsecutiveOverloadErrors }
+
 func (s *goldenPinStore) IncrementUpstreamErrors(_ context.Context, key [sessionpin.SessionKeyLen]byte, role string, _ router.Strategy) (int, error) {
-	n := s.bump(key, role, "increment", func(p *sessionpin.Pin) *int { return &p.ConsecutiveUpstreamErrors })
+	n := s.adjustCounter(key, role, upstreamErrorCount, incrementCount)
 	s.recordEvent("increment_upstream_errors", role, n)
 	return n, nil
 }
 
 func (s *goldenPinStore) ResetUpstreamErrors(_ context.Context, key [sessionpin.SessionKeyLen]byte, role string, _ router.Strategy) error {
-	s.bump(key, role, "reset", func(p *sessionpin.Pin) *int { return &p.ConsecutiveUpstreamErrors })
+	s.adjustCounter(key, role, upstreamErrorCount, resetCount)
 	return nil
 }
 
 func (s *goldenPinStore) IncrementOverloadErrors(_ context.Context, key [sessionpin.SessionKeyLen]byte, role string, _ router.Strategy) (int, error) {
-	n := s.bump(key, role, "increment", func(p *sessionpin.Pin) *int { return &p.ConsecutiveOverloadErrors })
+	n := s.adjustCounter(key, role, overloadErrorCount, incrementCount)
 	s.recordEvent("increment_overload_errors", role, n)
 	return n, nil
 }
 
 func (s *goldenPinStore) ResetOverloadErrors(_ context.Context, key [sessionpin.SessionKeyLen]byte, role string, _ router.Strategy) error {
-	s.bump(key, role, "reset", func(p *sessionpin.Pin) *int { return &p.ConsecutiveOverloadErrors })
+	s.adjustCounter(key, role, overloadErrorCount, resetCount)
 	return nil
 }
 
@@ -288,15 +341,43 @@ func (s *goldenPinStore) recordEvent(op, role string, detail any) {
 	s.event(op, role, detail)
 }
 
-func (s *goldenPinStore) DisableProvider(_ context.Context, _ [sessionpin.SessionKeyLen]byte, role, provider string, _ router.Strategy) error {
-	s.recordEvent("disable_provider", role, provider)
+func (s *goldenPinStore) DisableProvider(_ context.Context, key [sessionpin.SessionKeyLen]byte, role, provider string, strategy router.Strategy) error {
+	s.rec.mu.Lock()
+	defer s.rec.mu.Unlock()
+	if p, ok := s.pins[pinKey(key, role)]; ok && p.Strategy == strategy {
+		if !slices.Contains(p.DisabledProviders, provider) {
+			p.DisabledProviders = append(slices.Clone(p.DisabledProviders), provider)
+		}
+		p.ConsecutiveOverloadErrors = 0
+		s.pins[pinKey(key, role)] = p
+	}
+	s.event("disable_provider", role, provider)
 	return nil
+}
+
+// expireRow writes the expired marker, seeding an absent row and leaving a row
+// another strategy has since replaced untouched.
+func (s *goldenPinStore) expireRow(expired sessionpin.Pin, mark func(*sessionpin.Pin)) {
+	k := pinKey(expired.SessionKey, expired.Role)
+	prior, ok := s.pins[k]
+	if ok && prior.Strategy != expired.Strategy {
+		return
+	}
+	if ok {
+		preservePinHistory(&expired, prior)
+	}
+	mark(&expired)
+	s.pins[k] = expired
 }
 
 func (s *goldenPinStore) ExpireAndDemoteModel(_ context.Context, expired sessionpin.Pin, model string, reason sessionpin.DemotionReason) error {
 	s.rec.mu.Lock()
 	defer s.rec.mu.Unlock()
-	delete(s.pins, pinKey(expired.SessionKey, expired.Role))
+	s.expireRow(expired, func(p *sessionpin.Pin) {
+		if !slices.Contains(p.DemotedModels, model) {
+			p.DemotedModels = append(slices.Clone(p.DemotedModels), model)
+		}
+	})
 	s.event("expire_and_demote", expired.Role, map[string]any{"model": model, "reason": reason})
 	return nil
 }
@@ -304,7 +385,13 @@ func (s *goldenPinStore) ExpireAndDemoteModel(_ context.Context, expired session
 func (s *goldenPinStore) ExpireAndCoolDownModel(_ context.Context, expired sessionpin.Pin, model string, until time.Time, reason sessionpin.DemotionReason) error {
 	s.rec.mu.Lock()
 	defer s.rec.mu.Unlock()
-	delete(s.pins, pinKey(expired.SessionKey, expired.Role))
+	s.expireRow(expired, func(p *sessionpin.Pin) {
+		p.DemotionCooldowns = maps.Clone(p.DemotionCooldowns)
+		if p.DemotionCooldowns == nil {
+			p.DemotionCooldowns = map[string]time.Time{}
+		}
+		p.DemotionCooldowns[model] = until
+	})
 	s.event("expire_and_cool_down", expired.Role, map[string]any{"model": model, "reason": reason, "cooldown": until.Sub(s.clock.Now()).String()})
 	return nil
 }
