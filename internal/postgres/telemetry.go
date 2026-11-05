@@ -565,7 +565,7 @@ func dashboardInstallationFilter(installationID string) (pgtype.UUID, error) {
 	return pgtype.UUID{Bytes: id, Valid: true}, nil
 }
 
-// GetTelemetryDashboardFacts reads the dashboard's per-dimension sums.
+// Empty installationID reads every installation.
 func (r *TelemetryRepo) GetTelemetryDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryDashboardFact, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {
@@ -597,7 +597,7 @@ func (r *TelemetryRepo) GetTelemetryDashboardFacts(ctx context.Context, installa
 	}), nil
 }
 
-// GetTelemetryDashboardActiveUsers counts distinct people per bucket.
+// Granularity "total" returns one bucket for the whole window.
 func (r *TelemetryRepo) GetTelemetryDashboardActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryActiveUsers, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {
@@ -637,7 +637,7 @@ func (r *TelemetryRepo) GetTelemetryDashboardPeople(ctx context.Context, install
 	}), nil
 }
 
-// GetTelemetrySubscriptionPoolSeats lists pooled subscriptions and their newest limit headers.
+// Readings come only from turns after readingsSince, so an idle seat has none.
 func (r *TelemetryRepo) GetTelemetrySubscriptionPoolSeats(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]proxy.TelemetrySubscriptionSeat, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {
@@ -1246,7 +1246,7 @@ func (r *TelemetryRepo) GetTelemetryDashboardDrillDown(ctx context.Context, inst
 	}), nil
 }
 
-// GetTelemetryDashboardIndividualFacts returns each person's dashboard facts per bucket.
+// Unlinked traffic is keyed by its API key, matching the drill-down.
 func (r *TelemetryRepo) GetTelemetryDashboardIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryIndividualFact, error) {
 	installation, err := dashboardInstallationFilter(installationID)
 	if err != nil {

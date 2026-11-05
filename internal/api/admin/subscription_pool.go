@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"weave-os/router/internal/proxy"
@@ -122,23 +123,23 @@ func subscriptionLimitWindows(provider string, claudeHeaders, codexHeaders map[s
 		}
 		windows = append(windows, subscriptionLimitWindow{
 			WindowMinutes: windowMinutes,
-			UsedFraction:  math.Min(math.Max(usedFraction, 0), 1),
+			UsedFraction:  min(max(usedFraction, 0), 1),
 			ResetsAt:      resetsAt,
 		})
 	}
 	switch provider {
 	case subscriptionProviderClaude:
 		sessionUsed, isSessionReported := headerFloat(claudeHeaders, claudeSessionUtilizationHeader)
-		appendWindow(sessionLimitWindowMinutes, sessionUsed, isSessionReported, headerUnixTime(claudeHeaders, claudeSessionResetHeader))
+		appendWindow(sessionLimitWindowMinutes, sessionUsed, isSessionReported, headerResetTime(claudeHeaders, claudeSessionResetHeader))
 		weeklyUsed, isWeeklyReported := headerFloat(claudeHeaders, claudeWeeklyUtilizationHeader)
-		appendWindow(weeklyLimitWindowMinutes, weeklyUsed, isWeeklyReported, headerUnixTime(claudeHeaders, claudeWeeklyResetHeader))
+		appendWindow(weeklyLimitWindowMinutes, weeklyUsed, isWeeklyReported, headerResetTime(claudeHeaders, claudeWeeklyResetHeader))
 	case subscriptionProviderCodex:
 		primaryPercent, isPrimaryReported := headerFloat(codexHeaders, codexPrimaryUsedPercentHeader)
 		appendWindow(headerWindowMinutes(codexHeaders, codexPrimaryWindowMinutesHeader, sessionLimitWindowMinutes),
-			primaryPercent/100, isPrimaryReported, headerUnixTime(codexHeaders, codexPrimaryResetAtHeader))
+			primaryPercent/100, isPrimaryReported, headerResetTime(codexHeaders, codexPrimaryResetAtHeader))
 		secondaryPercent, isSecondaryReported := headerFloat(codexHeaders, codexSecondaryUsedPercentHeader)
 		appendWindow(headerWindowMinutes(codexHeaders, codexSecondaryWindowMinutesHeader, weeklyLimitWindowMinutes),
-			secondaryPercent/100, isSecondaryReported, headerUnixTime(codexHeaders, codexSecondaryResetAtHeader))
+			secondaryPercent/100, isSecondaryReported, headerResetTime(codexHeaders, codexSecondaryResetAtHeader))
 	}
 	slices.SortStableFunc(windows, func(left, right subscriptionLimitWindow) int {
 		return cmp.Compare(left.WindowMinutes, right.WindowMinutes)
@@ -171,11 +172,16 @@ func headerWindowMinutes(headers map[string]string, name string, fallback int) i
 	return minutes
 }
 
-func headerUnixTime(headers map[string]string, name string) *string {
-	seconds, err := strconv.ParseInt(headers[name], 10, 64)
+// Reset headers arrive as RFC 3339 or unix seconds, like usage.parseResetTime accepts.
+func headerResetTime(headers map[string]string, name string) *string {
+	raw := strings.TrimSpace(headers[name])
+	if resetsAt, err := time.Parse(time.RFC3339, raw); err == nil {
+		return formatOptionalTime(&resetsAt)
+	}
+	seconds, err := strconv.ParseInt(raw, 10, 64)
 	if err != nil || seconds <= 0 {
 		return nil
 	}
-	formatted := time.Unix(seconds, 0).UTC().Format(time.RFC3339)
-	return &formatted
+	resetsAt := time.Unix(seconds, 0)
+	return formatOptionalTime(&resetsAt)
 }

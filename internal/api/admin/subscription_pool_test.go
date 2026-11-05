@@ -39,3 +39,14 @@ func TestSubscriptionLimitWindowsIgnoresOtherProvidersHeaders(t *testing.T) {
 		t.Fatalf("windows = %+v, want none", windows)
 	}
 }
+
+func TestSubscriptionLimitWindowsClaudeAcceptsRFC3339Reset(t *testing.T) {
+	windows := subscriptionLimitWindows(subscriptionProviderClaude, map[string]string{
+		claudeSessionUtilizationHeader: "0.2",
+		claudeSessionResetHeader:       "2026-11-05T22:00:00+02:00",
+	}, nil)
+
+	if len(windows) != 1 || windows[0].ResetsAt == nil || *windows[0].ResetsAt != "2026-11-05T20:00:00Z" {
+		t.Fatalf("windows = %+v, want the session reset normalized to UTC", windows)
+	}
+}

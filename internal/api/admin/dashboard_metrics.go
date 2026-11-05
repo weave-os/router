@@ -1,9 +1,9 @@
 package admin
 
 import (
+	"cmp"
 	"net/http"
 	"slices"
-	"sort"
 	"time"
 
 	"weave-os/router/internal/proxy"
@@ -79,7 +79,7 @@ type dashboardReportSummaryResponse struct {
 	LastRequestAt     *string `json:"last_request_at"`
 }
 
-// MetricsSeriesHandler serves one dashboard metric per bucket, optionally grouped.
+// The billing filter does not apply to active users; unknown granularity falls back to day.
 func MetricsSeriesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		metric := dashboardMetricType(c.Query("type"))
@@ -94,8 +94,8 @@ func MetricsSeriesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 		granularity := c.DefaultQuery("granularity", "day")
-		total := granularity == totalGranularity
-		if total || (granularity != "hour" && granularity != "day" && granularity != "week") {
+		collapseBuckets := granularity == totalGranularity
+		if collapseBuckets || (granularity != "hour" && granularity != "day" && granularity != "week") {
 			granularity = "day"
 		}
 		from, to := parseTimeWindow(c)
@@ -107,29 +107,29 @@ func MetricsSeriesHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		ctx := c.Request.Context()
 		var points []dashboardPoint
 		if metric == dashboardMetricActiveUsers {
-			bucket := granularity
-			if total {
-				bucket = totalGranularity
+			activeUsersGranularity := granularity
+			if collapseBuckets {
+				activeUsersGranularity = totalGranularity
 			}
-			users, err := proxySvc.MetricsActiveUsers(ctx, installationID, from, to, bucket)
+			users, err := proxySvc.MetricsActiveUsers(ctx, installationID, from, to, activeUsersGranularity)
 			if err != nil {
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch active users."})
 				return
 			}
-			points = activeUserPoints(users, group, total)
+			points = activeUserPoints(users, group, collapseBuckets)
 		} else {
 			facts, err := proxySvc.MetricsDashboardFacts(ctx, installationID, from, to, granularity)
 			if err != nil {
 				c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch metric series."})
 				return
 			}
-			points = factPoints(factsInGroup(facts, dashboardGroupBilling, billing), metric, group, total)
+			points = factPoints(factsInGroup(facts, dashboardGroupBilling, billing), metric, group, collapseBuckets)
 		}
 		c.JSON(http.StatusOK, dashboardSeriesResponse{Values: points})
 	}
 }
 
-// MetricsReportSummaryHandler serves the dashboard's stat-card totals.
+// Sums the routed or passthrough facts for the stat cards; the window is read at hour granularity.
 func MetricsReportSummaryHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		from, to := parseTimeWindow(c)
@@ -179,10 +179,7 @@ func MetricsPeopleHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		peopleResponse := make([]dashboardPerson, 0, len(people))
 		for _, person := range people {
 			row := dashboardPerson{ID: person.ID, Linked: person.Linked, DisplayName: person.DisplayName, Email: person.Email}
-			if person.LastRequestAt != nil {
-				formatted := person.LastRequestAt.UTC().Format(time.RFC3339)
-				row.LastRequestAt = &formatted
-			}
+			row.LastRequestAt = formatOptionalTime(person.LastRequestAt)
 			peopleResponse = append(peopleResponse, row)
 		}
 		c.JSON(http.StatusOK, dashboardPeopleResponse{People: peopleResponse})
@@ -236,8 +233,7 @@ func reportSummary(facts []proxy.TelemetryDashboardFact) dashboardReportSummaryR
 	}
 	summary.SavingsUSD = summary.ComparisonCostUSD - summary.TotalCostUSD
 	if !last.IsZero() {
-		formatted := last.UTC().Format(time.RFC3339)
-		summary.LastRequestAt = &formatted
+		summary.LastRequestAt = formatOptionalTime(&last)
 	}
 	return summary
 }
@@ -280,10 +276,13 @@ func catalogCost(modelID string, fact proxy.TelemetryDashboardFact) (float64, bo
 	}
 	binding := model.Providers[0]
 	provider := string(binding.Provider)
+	// Facts are bucket sums, so a per-request long-context threshold does not apply.
+	price := binding.Price
+	price.LongContext = nil
 	input, cacheCreation, cacheRead := int(fact.InputTokens), int(fact.CacheCreationTokens), int(fact.CacheReadTokens)
-	inputCost := catalog.EffectiveInputCost(input, cacheCreation, cacheRead, binding.Price, provider, catalog.UsageModifiers{})
+	inputCost := catalog.EffectiveInputCost(input, cacheCreation, cacheRead, price, provider, catalog.UsageModifiers{})
 	prompt := catalog.PromptTokens(input, cacheCreation, cacheRead, provider)
-	return inputCost + catalog.EffectiveOutputCost(prompt, int(fact.OutputTokens), binding.Price, catalog.UsageModifiers{}), true
+	return inputCost + catalog.EffectiveOutputCost(prompt, int(fact.OutputTokens), price, catalog.UsageModifiers{}), true
 }
 
 func factGroup(fact proxy.TelemetryDashboardFact, group dashboardMetricGroup) *string {
@@ -320,8 +319,8 @@ func factValue(fact proxy.TelemetryDashboardFact, metric dashboardMetricType) fl
 	}
 }
 
-func factPoints(facts []proxy.TelemetryDashboardFact, metric dashboardMetricType, group dashboardMetricGroup, total bool) []dashboardPoint {
-	accumulator := newPointAccumulator(total)
+func factPoints(facts []proxy.TelemetryDashboardFact, metric dashboardMetricType, group dashboardMetricGroup, collapseBuckets bool) []dashboardPoint {
+	accumulator := newPointAccumulator(collapseBuckets)
 	for _, fact := range facts {
 		if metric == dashboardMetricCost && group == dashboardGroupCostType {
 			actual, comparison := costTypeActual, costTypeComparison
@@ -334,8 +333,8 @@ func factPoints(facts []proxy.TelemetryDashboardFact, metric dashboardMetricType
 	return accumulator.points()
 }
 
-func activeUserPoints(users []proxy.TelemetryActiveUsers, group dashboardMetricGroup, total bool) []dashboardPoint {
-	accumulator := newPointAccumulator(total)
+func activeUserPoints(users []proxy.TelemetryActiveUsers, group dashboardMetricGroup, collapseBuckets bool) []dashboardPoint {
+	accumulator := newPointAccumulator(collapseBuckets)
 	for _, row := range users {
 		var label *string
 		if group == dashboardGroupUserLink {
@@ -356,19 +355,19 @@ type pointKey struct {
 }
 
 type pointAccumulator struct {
-	total  bool
-	order  []pointKey
-	groups map[pointKey]*string
-	values map[pointKey]float64
+	collapseBuckets bool
+	order           []pointKey
+	groups          map[pointKey]*string
+	values          map[pointKey]float64
 }
 
-func newPointAccumulator(total bool) *pointAccumulator {
-	return &pointAccumulator{total: total, groups: map[pointKey]*string{}, values: map[pointKey]float64{}}
+func newPointAccumulator(collapseBuckets bool) *pointAccumulator {
+	return &pointAccumulator{collapseBuckets: collapseBuckets, groups: map[pointKey]*string{}, values: map[pointKey]float64{}}
 }
 
 func (a *pointAccumulator) add(bucket time.Time, group *string, value float64) {
 	key := pointKey{}
-	if !a.total {
+	if !a.collapseBuckets {
 		key.time = bucket.UnixMilli()
 	}
 	if group != nil {
@@ -382,16 +381,13 @@ func (a *pointAccumulator) add(bucket time.Time, group *string, value float64) {
 }
 
 func (a *pointAccumulator) points() []dashboardPoint {
-	sort.SliceStable(a.order, func(i, j int) bool {
-		if a.order[i].time != a.order[j].time {
-			return a.order[i].time < a.order[j].time
-		}
-		return a.order[i].group < a.order[j].group
+	slices.SortStableFunc(a.order, func(x, y pointKey) int {
+		return cmp.Or(cmp.Compare(x.time, y.time), cmp.Compare(x.group, y.group))
 	})
 	points := make([]dashboardPoint, 0, len(a.order))
 	for _, key := range a.order {
 		point := dashboardPoint{Group: a.groups[key], Value: a.values[key]}
-		if !a.total {
+		if !a.collapseBuckets {
 			bucket := key.time
 			point.Time = &bucket
 		}

@@ -122,8 +122,12 @@ func drillDownPeople(rows []proxy.TelemetryDrillDownRow) []dashboardDrillDownPer
 			session = &dashboardDrillDownSession{SessionID: row.SessionID, ClientApp: row.ClientApp, StartedAt: row.StartedAt, FinishedAt: row.FinishedAt}
 			sessions[sessionKey] = session
 		}
-		session.StartedAt = minTime(session.StartedAt, row.StartedAt)
-		session.FinishedAt = maxTime(session.FinishedAt, row.FinishedAt)
+		if row.StartedAt.Before(session.StartedAt) {
+			session.StartedAt = row.StartedAt
+		}
+		if row.FinishedAt.After(session.FinishedAt) {
+			session.FinishedAt = row.FinishedAt
+		}
 		var subscriptionRequests int64
 		if row.SubscriptionServed {
 			subscriptionRequests = row.RequestCount
@@ -153,32 +157,17 @@ func drillDownPeople(rows []proxy.TelemetryDrillDownRow) []dashboardDrillDownPer
 		}
 		out = append(out, *person)
 	}
+	personCost := func(person dashboardDrillDownPerson) float64 {
+		var total float64
+		for _, session := range person.Sessions {
+			for _, model := range session.Models {
+				total += model.CatalogCostUSD
+			}
+		}
+		return total
+	}
 	slices.SortFunc(out, func(a, b dashboardDrillDownPerson) int {
 		return cmp.Compare(personCost(b), personCost(a))
 	})
 	return out
-}
-
-func personCost(person dashboardDrillDownPerson) float64 {
-	var total float64
-	for _, session := range person.Sessions {
-		for _, model := range session.Models {
-			total += model.CatalogCostUSD
-		}
-	}
-	return total
-}
-
-func minTime(a, b time.Time) time.Time {
-	if b.Before(a) {
-		return b
-	}
-	return a
-}
-
-func maxTime(a, b time.Time) time.Time {
-	if b.After(a) {
-		return b
-	}
-	return a
 }
