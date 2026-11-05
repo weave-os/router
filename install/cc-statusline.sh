@@ -737,7 +737,7 @@ prices='{
     "claude-sonnet-4-5":                0.1,
     "claude-sonnet-4-6":                0.1,
     "claude-sonnet-5":                  0.1,
-    "claude-sonnet-5-5":                0.1,
+    "claude-sonnet-5-5":                0.05,
     "deepseek/deepseek-v4-flash":       0.1,
     "deepseek/deepseek-v4-pro":         0.0862,
     "deepseek/deepseek-v4-pro-0813":    0.0862,
