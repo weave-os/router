@@ -528,13 +528,18 @@ func main() {
 		panic(err)
 	}
 
-	rtr, defaultEmbedderID, err := buildClusterScorer(availableProviders)
+	localPinnedConfigured := strings.TrimSpace(config.GetOr("ROUTER_LOCAL_POLICY_TARGET", "")) != ""
+	rtr, defaultEmbedderID, err := buildInitialRoutingStrategy(availableProviders, localPinnedConfigured)
 	if err != nil {
 		// Ops alerts on Cloud Run boot failures; silent degradation would mask quality regressions.
 		logger.Error("Cluster scorer failed to build; refusing to boot", "err", err)
 		panic(err)
 	}
-	logger.Info("Routing via cluster scorer", "embedder", defaultEmbedderID)
+	if localPinnedConfigured {
+		logger.Info("Local pinned mode requires selected HMM routing; cluster fallback unavailable")
+	} else {
+		logger.Info("Routing via cluster scorer", "embedder", defaultEmbedderID)
+	}
 
 	var admissionDecisions *policyregistry.AdmissionDecisionCache
 	if managedServingEnabled(deploymentMode) {
@@ -1071,6 +1076,7 @@ func main() {
 	var hmmRosterModels admin.HMMRosterSource
 	var hmmBetaCapabilities policy.Capabilities
 	var servingAdmission *middleware.ServingAdmissionConfig
+	var localPinnedRuntime *policyregistry.PinnedRuntime
 	testPlansEnabled := strings.EqualFold(config.GetOr("ROUTER_TEST_PLANS_ENABLED", "false"), "true")
 	policyEnvironmentRaw := strings.TrimSpace(config.GetOr("ROUTER_POLICY_ENVIRONMENT", ""))
 	policyReleaseDir := strings.TrimSpace(config.GetOr("ROUTER_POLICY_RELEASE_DIR", ""))
@@ -1084,7 +1090,35 @@ func main() {
 		defer cancelTaskSweep()
 		safeGo(logger, "task-domain-sweep", func() { taskRuntime.sweep(taskSweepCtx) })
 	}
-	if managedServingEnabled(deploymentMode) {
+	if strings.TrimSpace(config.GetOr("ROUTER_LOCAL_POLICY_TARGET", "")) != "" {
+		prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), 60*time.Second)
+		loaded, closeRegistry, err := buildLocalServingRuntime(prepareCtx, deploymentMode, availableProviders, taskRuntime)
+		cancelPrepare()
+		if err != nil {
+			logger.Error("Local pinned policy composition failed; refusing to boot", "err", err)
+			panic(err)
+		}
+		defer closeRegistry()
+		warmCtx, cancelWarm := context.WithTimeout(context.Background(), 15*time.Second)
+		warmErr := warmLocalHMMRoute(warmCtx, loaded)
+		cancelWarm()
+		if warmErr != nil {
+			logger.Error("Local pinned classification readiness failed", "err", warmErr)
+			panic(warmErr)
+		}
+		localPinnedRuntime = loaded
+		admittedRouter := policyregistry.NewAdmittedRouter(router.StrategyHMM, loaded.Snapshot)
+		hmmRouter = admittedRouter
+		hmmEmbeddingRouter = policyregistry.NewAdmittedRouter(router.StrategyHMMEmbedding, loaded.Snapshot)
+		hmmCapabilities = admittedRouter.CurrentCapabilities()
+		escalationObserver = admittedRouter
+		rosterSource := policyregistry.AdmittedRosterSource{}
+		hmmRosterSources = map[router.Strategy]policy.RosterSource{
+			router.StrategyHMM: rosterSource, router.StrategyHMMEmbedding: rosterSource,
+		}
+		hmmRosterModels = admittedHMMRosterSource{}
+		logger.Info("Local immutable policy composed", "source_target", loaded.Target, "profile_key", loaded.ProfileKey, "selection_sha256", loaded.Selection.Binding.SHA256, "policy_sha256", loaded.Snapshot.Release.Policy.SHA256)
+	} else if managedServingEnabled(deploymentMode) {
 		prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), 60*time.Second)
 		admission, baseline, closeRegistry, err := buildManagedServingRuntime(prepareCtx, availableProviders, taskRuntime)
 		cancelPrepare()
@@ -1640,6 +1674,7 @@ func main() {
 		TestPlans:           testPlans,
 		PolicyPinEnabled:    policyPinEnabled,
 		ServingAdmission:    servingAdmission,
+		PinnedRuntime:       localPinnedRuntime,
 		SubscriberAllowance: subscriberAllowanceSvc,
 	}
 	if trafficCapture != nil {
@@ -1649,7 +1684,9 @@ func main() {
 
 	port := config.GetOr("PORT", "8080")
 	address := ":" + port
-	if trafficCapture != nil {
+	if localPinnedRuntime != nil {
+		address = net.JoinHostPort("127.0.0.1", port)
+	} else if trafficCapture != nil {
 		captureListenHost := config.GetOr("ROUTER_HTTP_CAPTURE_LISTEN_HOST", "127.0.0.1")
 		address = net.JoinHostPort(captureListenHost, port)
 	}

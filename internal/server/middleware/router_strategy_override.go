@@ -67,6 +67,16 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 			return
 		}
 
+		if pinned, _ := c.Request.Context().Value(pinnedRuntimeContextKey{}).(bool); pinned {
+			if !selectable(router.StrategyHMMEmbedding) {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "pinned_strategy_unavailable"})
+				return
+			}
+			c.Request = c.Request.WithContext(router.WithStrategy(c.Request.Context(), router.StrategyHMMEmbedding))
+			c.Next()
+			return
+		}
+
 		strategy := router.Strategy(strings.ToLower(strings.TrimSpace(string(installation.RoutingStrategy))))
 		identity, managedServing := requestcontext.ServingIdentityFromContext(c.Request.Context())
 		if managedServing && identity.Plan != "" {
