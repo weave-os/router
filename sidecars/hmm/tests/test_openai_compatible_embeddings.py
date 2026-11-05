@@ -238,3 +238,26 @@ async def test_rejects_an_unusable_vector_before_it_can_be_cached(
         await openai_compatible_embeddings.embed_texts_uncached(
             ["a"], model=MODEL, expected_dim=DIM
         )
+
+
+def test_bedrock_package_resolves_its_declared_encoder() -> None:
+    profile = parse_runtime_contract(
+        _runtime_contract(
+            serving_config={
+                "provider": "bedrock",
+                "tool_evidence": "user_agent_only",
+                "document_window": "per_message",
+                "lookback_rounds": 1,
+            },
+            sequence_representation=(
+                SequenceRepresentation.BEDROCK_RAW_ROUTER_V5_ELEMENT.value
+            ),
+            embedding_model="amazon.titan-embed-text-v2:0",
+        )
+    ).resolved_profile()
+
+    assert profile.state_encoder_contract.model_id == "amazon.titan-embed-text-v2:0"
+    assert (
+        profile.state_encoder_contract.representation
+        is SequenceRepresentation.BEDROCK_RAW_ROUTER_V5_ELEMENT
+    )

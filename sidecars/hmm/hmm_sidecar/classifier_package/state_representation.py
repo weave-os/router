@@ -180,6 +180,8 @@ class SequenceRepresentation(str, Enum):
     OPENAI_COMPATIBLE_RAW_ROUTER_V5_ELEMENT = (
         "openai-compatible-raw-router-v5-element-v1"
     )
+    # The same documents embedded by an Amazon Bedrock model the package names.
+    BEDROCK_RAW_ROUTER_V5_ELEMENT = "bedrock-raw-router-v5-element-v1"
 
 
 GEMINI_EMBEDDING_2_NON_CANONICAL_ALIAS = "gemini-embedding-2-non-canonical-v1"
@@ -256,7 +258,8 @@ GEMINI_RAW_ROUTER_REPRESENTATIONS = frozenset(
     )
 )
 ROUTER_REPRESENTATIONS = GEMINI_RAW_ROUTER_REPRESENTATIONS | {
-    SequenceRepresentation.OPENAI_COMPATIBLE_RAW_ROUTER_V5_ELEMENT
+    SequenceRepresentation.OPENAI_COMPATIBLE_RAW_ROUTER_V5_ELEMENT,
+    SequenceRepresentation.BEDROCK_RAW_ROUTER_V5_ELEMENT,
 }
 
 
