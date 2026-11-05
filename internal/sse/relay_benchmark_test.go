@@ -38,9 +38,9 @@ func relayStream(n int) []byte {
 // event through a ChunkedWriter with one flush per event, as a passthrough
 // writer does. It returns the number of events relayed.
 func relay(w http.ResponseWriter, stream []byte, chunk int, pending []byte) (int, []byte) {
-	cw := sse.NewChunkedWriter(w, 4096)
-	cw.Header().Set("Content-Type", "text/event-stream")
-	cw.WriteHeader(http.StatusOK)
+	chunked := sse.NewChunkedWriter(w, 4096)
+	chunked.Header().Set("Content-Type", "text/event-stream")
+	chunked.WriteHeader(http.StatusOK)
 	var scanner sse.Scanner
 	pending = pending[:0]
 	events := 0
@@ -54,9 +54,9 @@ func relay(w http.ResponseWriter, stream []byte, chunk int, pending []byte) (int
 			if eventType, data := sse.ParseEvent(event); len(eventType) == 0 || len(data) == 0 {
 				return -1, pending
 			}
-			_, _ = cw.BW.Write(event)
-			_, _ = cw.BW.WriteString("\n\n")
-			_ = cw.FlushEvent()
+			_, _ = chunked.BW.Write(event)
+			_, _ = chunked.BW.WriteString("\n\n")
+			_ = chunked.FlushEvent()
 			events++
 			pending = pending[:copy(pending, pending[consumed:])]
 		}
