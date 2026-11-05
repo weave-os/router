@@ -92,12 +92,12 @@ func TestProxyMessages_CrossModelRescueKeepsNextTurnOnPinnedBinding(t *testing.T
 		providers.ProviderAnthropic: {}, providers.ProviderFireworks: {},
 	}).WithRetrySleep(noRetrySleep).WithRescuedFailureArmDemotion(false)
 
-	first := runRescueTurn(t, svc, rescueFirstTurnBody())
+	first := runRescueTurn(t, svc, []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"start this session"}]}`))
 	require.Equal(t, providers.ProviderFireworks, first.Header().Get(proxy.HeaderRouterProvider))
 	require.Equal(t, "deepseek/deepseek-v4-pro", first.Header().Get(proxy.HeaderRouterModel))
 	requireRescueUsage(t, store)
 
-	second := runRescueTurn(t, svc, rescueSecondTurnBody())
+	second := runRescueTurn(t, svc, []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"start this session"},{"role":"assistant","content":"first answer"},{"role":"user","content":"continue with a new prompt"}]}`))
 	mu.Lock()
 	gotAnthropic, gotFireworks := append([]string(nil), anthropicModels...), append([]string(nil), fireworksModels...)
 	mu.Unlock()
@@ -130,14 +130,6 @@ func requireRescueUsage(t *testing.T, store *providerRescuePinStore) {
 	defer store.mu.Unlock()
 	require.NotEmpty(t, store.usages, "the rescued turn must write usage to its pin")
 	assert.Equal(t, providers.ProviderFireworks, store.usages[len(store.usages)-1].ServedProvider)
-}
-
-func rescueFirstTurnBody() []byte {
-	return []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"start this session"}]}`)
-}
-
-func rescueSecondTurnBody() []byte {
-	return []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"start this session"},{"role":"assistant","content":"first answer"},{"role":"user","content":"continue with a new prompt"}]}`)
 }
 
 func writeOverloadedResponse(w http.ResponseWriter) {

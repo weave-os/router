@@ -60,7 +60,9 @@ func TestSessionPinRepo_UpdateUsageProviderTracksPinnedModel(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			key := sessionPinTestKey()
+			id := uuid.New()
+			var key [sessionpin.SessionKeyLen]byte
+			copy(key[:], id[:sessionpin.SessionKeyLen])
 			pin := sessionpin.Pin{
 				SessionKey: key, Role: sessionpin.DefaultRole, InstallationID: installationID,
 				Provider: tc.pinnedProvider, Model: tc.pinnedModel, Reason: "test",
@@ -80,11 +82,4 @@ func TestSessionPinRepo_UpdateUsageProviderTracksPinnedModel(t *testing.T) {
 			assert.Equal(t, tc.servedModel, got.LastServedModel)
 		})
 	}
-}
-
-func sessionPinTestKey() [sessionpin.SessionKeyLen]byte {
-	id := uuid.New()
-	var key [sessionpin.SessionKeyLen]byte
-	copy(key[:], id[:sessionpin.SessionKeyLen])
-	return key
 }
