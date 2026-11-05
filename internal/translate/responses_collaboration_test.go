@@ -91,11 +91,15 @@ func TestResponsesWriterPreservesNativeEncryptedCollaboration(t *testing.T) {
 }
 
 func TestPortableCodexMixedEncryptedAgentDeliveryRequiresNative(t *testing.T) {
-	body := []byte(`{"input":[{"type":"agent_message","author":"parent","recipient":"child","content":[{"type":"input_text","text":"Message Type: NEW_TASK\nPayload:\n"},{"type":"encrypted_content","encrypted_content":"opaque-task"}]}]}`)
+	body := []byte(`{"input":[{"type":"agent_message","author":"/root","recipient":"/root/research_cli_entrypoint","content":[{"type":"input_text","text":"Message Type: NEW_TASK\nTask name: /root/research_cli_entrypoint\nSender: /root\nPayload:\n"},{"type":"encrypted_content","encrypted_content":"opaque-task"}]}]}`)
 	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
 	require.NoError(t, err)
 	assert.True(t, converted.Requirements.NativeOnly, "a plaintext routing header cannot replace the encrypted task")
-	assert.Empty(t, gjson.GetBytes(converted.Body, "messages").Array())
+	messages := gjson.GetBytes(converted.Body, "messages").Array()
+	require.Len(t, messages, 1, "the plaintext delivery header stays visible to routing")
+	assert.Equal(t, string(translate.EscalationRoleUser), messages[0].Get("role").Str)
+	assert.Equal(t, "Message Type: NEW_TASK\nTask name: /root/research_cli_entrypoint\nSender: /root\nPayload:", messages[0].Get("content").Str)
+	assert.NotContains(t, string(converted.Body), "opaque-task")
 	assert.Equal(t, body, converted.OriginalBody)
 	assertReportCode(t, converted.Report, "responses_agent_message_native_only")
 }
