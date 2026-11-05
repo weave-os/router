@@ -21,10 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const geminiPassthroughBody = `{
-	"contents":[{"role":"user","parts":[{"text":"hello"}]}]
-}`
-
 // Post-injection body shape: handler adds "model" and "stream" before calling.
 const geminiInjectedBody = `{
 	"model":"gemini-1.5-pro",

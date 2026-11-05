@@ -217,7 +217,7 @@ func supportsResponsesTerminalSurfaces(clientApp string) bool {
 // "/" through untouched.
 //
 // Ingress accepts both spellings from every client regardless (see
-// translate.parseForceModelCommand) -- this only decides which one we print
+// translate.parseForceModelCommandFromSource) -- this only decides which one we print
 // back. Unknown clients get "/", the form the docs and every non-Codex client
 // use.
 func directivePrefix(clientApp string) string {
