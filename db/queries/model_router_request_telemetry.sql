@@ -1014,7 +1014,6 @@ SELECT
 FROM activity a
 LEFT JOIN router.model_router_api_keys k ON k.id = a.api_key_id
 WHERE a.router_user_id IS NULL
-  AND a.api_key_id IS NOT NULL
 GROUP BY a.api_key_id;
 
 -- Subscription accounts registered to the pool with their latest quota reading.
