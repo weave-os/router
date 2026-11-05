@@ -325,7 +325,7 @@ check "opencode gets no Claude-only local toggle" "" "$absent"
 # Codex, user scope: skills (not prompt wrappers) for every prompt directive.
 cx_home="$work/codex-user"; mkdir -p "$cx_home"
 run_install "$cx_home" --codex --scope user
-codex_skills="$(cd "$cx_home/.codex/skills" && ls -d */ 2>/dev/null | tr -d '/' | sort | tr '\n' ' ' | sed 's/ $//')"
+codex_skills="$(cd "$cx_home/.codex/skills" && ls -d */ 2>/dev/null | tr -d '/' | grep -vx build | sort | tr '\n' ' ' | sed 's/ $//')"
 check "codex user install writes a skill per supported directive" \
   "disable-routing fm force-model force-parent rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$codex_skills"
 check "codex install writes no prompt wrappers" "" \

@@ -5013,6 +5013,110 @@ $(weave_registry_skill_assets codex)
 EOF
 }
 
+# The build workflow skill is a resource tree (SKILL.md, references, scripts)
+# plus Claude Code agent definitions, so it is copied whole rather than through
+# the directive registry. It ships with the packaged installer and repo
+# checkouts; a standalone `curl | sh` install has no copy and skips it.
+build_skill_marker="<!-- weave-router managed build skill -->"
+build_skill_manifest=".weave-router-files"
+
+build_skill_source_dir() {
+  local candidate
+  for candidate in "$script_dir/skills/build" "$script_dir/../skills/build"; do
+    [ -f "$candidate/SKILL.md" ] || continue
+    printf '%s' "$candidate"
+    return 0
+  done
+  return 1
+}
+
+# build_skill_entry_has_symlink reports whether any component of a manifest entry under the
+# skill dir is a symlink, so cleanup never follows a link out of the skill.
+build_skill_entry_has_symlink() {
+  local path="$1" rel="$2"
+  while [ -n "$rel" ]; do
+    path="$path/${rel%%/*}"
+    [ -L "$path" ] && return 0
+    case "$rel" in */*) rel="${rel#*/}" ;; *) rel="" ;; esac
+  done
+  return 1
+}
+
+# remove_build_skill_files deletes the files a previous install recorded in
+# the manifest, leaving anything the user added beside them.
+remove_build_skill_files() {
+  local skill_dir="$1" rel
+  if [ -L "$skill_dir/$build_skill_manifest" ]; then
+    rm -f "$skill_dir/$build_skill_manifest"
+    return 0
+  fi
+  [ -f "$skill_dir/$build_skill_manifest" ] || return 0
+  while IFS= read -r rel; do
+    case "$rel" in ""|/*|*..*) continue ;; esac
+    if build_skill_entry_has_symlink "$skill_dir" "$rel"; then continue; fi
+    rm -f "$skill_dir/$rel"
+  done <"$skill_dir/$build_skill_manifest"
+  rm -f "$skill_dir/$build_skill_manifest"
+  rmdir "$skill_dir/references" "$skill_dir/scripts" 2>/dev/null || true
+}
+
+install_build_skill() {
+  local skills_dir="$1" agents_dir="${2:-}" src dst rel name agent_src agent_dst
+  src="$(build_skill_source_dir)" || return 0
+  dst="$skills_dir/build"
+  if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+    refuse_if_symlink "$skills_dir"
+    refuse_if_symlink "$dst"
+  elif [ -L "$skills_dir" ] || [ -L "$dst" ]; then
+    warn "Build skill path contains a symlink; leaving the build skill untouched."
+    return 0
+  fi
+  if [ -e "$dst/SKILL.md" ] && { [ ! -f "$dst/SKILL.md" ] || ! grep -Fq "$build_skill_marker" "$dst/SKILL.md"; }; then
+    warn "A user-owned build skill already exists at $dst; leaving it untouched."
+    return 0
+  fi
+  remove_build_skill_files "$dst"
+  mkdir -p "$dst"
+  : >"$dst/$build_skill_manifest"
+  while IFS= read -r rel; do
+    if [ -L "$dst/$(dirname "$rel")" ] || [ -L "$dst/$rel" ]; then
+      warn "Build skill file $dst/$rel is a symlink; leaving it untouched."
+      continue
+    fi
+    mkdir -p "$dst/$(dirname "$rel")"
+    cp "$src/$rel" "$dst/$rel"
+    printf '%s\n' "$rel" >>"$dst/$build_skill_manifest"
+  done <<EOS
+$(cd "$src" && find . -type f ! -path './agents/*' | sed 's#^\./##' | LC_ALL=C sort)
+EOS
+  if [ ! -L "$dst/scripts" ] && [ ! -L "$dst/scripts/pin-coordinator.sh" ]; then
+    chmod +x "$dst/scripts/pin-coordinator.sh"
+  fi
+
+  if [ -n "$agents_dir" ] && [ -d "$src/agents" ]; then
+    if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+      refuse_if_symlink "$agents_dir"
+    elif [ -L "$agents_dir" ]; then
+      warn "$agents_dir is a symlink; leaving build agents untouched."
+      agents_dir=""
+    fi
+  fi
+  if [ -n "$agents_dir" ] && [ -d "$src/agents" ]; then
+    mkdir -p "$agents_dir"
+    for agent_src in "$src"/agents/*.md; do
+      [ -f "$agent_src" ] || continue
+      name="$(basename "$agent_src" .md)"
+      agent_dst="$agents_dir/$name.md"
+      if [ -L "$agent_dst" ] || { [ -e "$agent_dst" ] && ! grep -Fq "<!-- weave-router managed agent: $name -->" "$agent_dst"; }; then
+        warn "A user-owned agent already exists at $agent_dst; leaving it untouched."
+        continue
+      fi
+      cp "$agent_src" "$agent_dst"
+    done
+  fi
+  ok "Build skill installed at $dst"
+}
+
 # ---------- post-install verification (shared by every target) ----------
 #
 # Every client gets the same two probes — reach the router, then prove the key
@@ -6291,6 +6395,7 @@ if [ "$target" = "codex" ]; then
   ok "Codex config written to $codex_config_file"
   remove_obsolete_codex_prompt_wrappers "$codex_dir/prompts"
   install_codex_prompt_skills
+  install_build_skill "$codex_dir/skills"
 
   # Project scope: ensure the per-teammate config (which holds the router key)
   # is gitignored. The base URL is the same for every teammate, so a
@@ -8105,6 +8210,7 @@ fi
 
 # Slash command wrappers — see install_slash_commands() below for the why.
 install_slash_commands "$settings_dir/commands"
+install_build_skill "$settings_dir/skills" "$settings_dir/agents"
 
 # ---------- gitignore for project scope ----------
 

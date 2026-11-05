@@ -96,6 +96,17 @@ for (const line of registryText.split(/\r?\n/)) {
   }
 }
 
+// The build skill is a resource tree install.sh copies whole into Claude Code
+// and Codex skill dirs, so it ships as plain files with no links.
+cpSync(path.join(installDir, "skills", "build"), path.join(root, "skills", "build"), {
+  recursive: true,
+  filter: (src) => {
+    if (lstatSync(src).isSymbolicLink()) throw new Error(`Refusing to package symlink: ${src}`);
+    return true;
+  },
+});
+console.log("Copied skills/build/.");
+
 // installer and the pi-router extension: pi loads it via the "pi.extensions"
 // field in package.json, and install.sh adds `npm:@weave-os/router` to pi's
 // settings. Source of truth lives at install/pi-router/src.
