@@ -38,6 +38,7 @@ type TelemetryRepository interface {
 	GetTelemetryDashboardActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryActiveUsers, error)
 	GetTelemetryDashboardPeople(ctx context.Context, installationID string) ([]TelemetryPerson, error)
 	GetTelemetrySubscriptionPoolSeats(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]TelemetrySubscriptionSeat, error)
+	GetTelemetryDashboardDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]TelemetryDrillDownRow, error)
 }
 
 // InferenceAttemptStore persists the ordered upstream attempts of an inference
@@ -450,6 +451,22 @@ type TelemetryDashboardFact struct {
 	CacheCreationTokens int64
 	CacheReadTokens     int64
 	ActualCostUSD       float64
+}
+
+// TelemetryDrillDownRow is one person's session and requested/decision model
+// pair; the embedded fact carries its tokens, cost and billing.
+type TelemetryDrillDownRow struct {
+	TelemetryDashboardFact
+	PersonID       string
+	Linked         bool
+	DisplayName    string
+	Email          string
+	SessionID      string
+	ClientApp      string
+	RequestedModel string
+	Providers      []string
+	StartedAt      time.Time
+	FinishedAt     time.Time
 }
 
 // TelemetryActiveUsers counts distinct people in one bucket.

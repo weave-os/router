@@ -72,3 +72,7 @@ func (stubTelemetryRepo) GetTelemetryDashboardPeople(context.Context, string) ([
 func (stubTelemetryRepo) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]proxy.TelemetrySubscriptionSeat, error) {
 	return nil, nil
 }
+
+func (stubTelemetryRepo) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]proxy.TelemetryDrillDownRow, error) {
+	return nil, nil
+}

@@ -3053,6 +3053,14 @@ func (s *Service) MetricsPeople(ctx context.Context, installationID string) ([]T
 	return s.telemetry.GetTelemetryDashboardPeople(ctx, installationID)
 }
 
+// MetricsDrillDown lists each person's sessions and model pairs in the window.
+func (s *Service) MetricsDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]TelemetryDrillDownRow, error) {
+	if s.telemetry == nil {
+		return nil, nil
+	}
+	return s.telemetry.GetTelemetryDashboardDrillDown(ctx, installationID, from, to)
+}
+
 // MetricsSubscriptionPool lists the pool's seats with their newest quota reading.
 func (s *Service) MetricsSubscriptionPool(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]TelemetrySubscriptionSeat, error) {
 	if s.telemetry == nil {

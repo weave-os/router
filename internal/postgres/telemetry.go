@@ -1203,3 +1203,45 @@ func (r *TelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, insta
 		Timestamp:        row.Timestamp.Time,
 	}, nil
 }
+
+func (r *TelemetryRepo) GetTelemetryDashboardDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]proxy.TelemetryDrillDownRow, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetryDashboardDrillDown(ctx, sqlc.GetTelemetryDashboardDrillDownParams{
+		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
+		ToTime:         pgtype.Timestamptz{Time: to, Valid: true},
+		InstallationID: installation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardDrillDownRow) proxy.TelemetryDrillDownRow {
+		return proxy.TelemetryDrillDownRow{
+			TelemetryDashboardFact: proxy.TelemetryDashboardFact{
+				Bucket:              row.StartedAt.Time,
+				DecisionModel:       row.DecisionModel,
+				SubscriptionServed:  row.SubscriptionServed,
+				DecisionType:        row.DecisionType,
+				AutomaticAlias:      row.AutomaticAlias,
+				RequestCount:        row.RequestCount,
+				InputTokens:         row.InputTokens,
+				OutputTokens:        row.OutputTokens,
+				CacheCreationTokens: row.CacheCreationTokens,
+				CacheReadTokens:     row.CacheReadTokens,
+				ActualCostUSD:       microsToUSD(row.ActualCostUsd),
+			},
+			PersonID:       row.PersonID,
+			Linked:         row.Linked,
+			DisplayName:    row.DisplayName,
+			Email:          row.Email,
+			SessionID:      row.SessionID,
+			ClientApp:      row.ClientApp,
+			RequestedModel: row.RequestedModel,
+			Providers:      row.Providers,
+			StartedAt:      row.StartedAt.Time,
+			FinishedAt:     row.FinishedAt.Time,
+		}
+	}), nil
+}
