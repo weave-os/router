@@ -973,32 +973,49 @@ ORDER BY 1;
 
 -- Everyone who could route: roster users (linked) and API keys that sent
 -- traffic without a router user (unlinked), with their latest request ever.
+-- One telemetry scan feeds both halves; idle users would otherwise walk the
+-- installation's full history once each.
 -- name: GetTelemetryDashboardPeople :many
+WITH activity AS MATERIALIZED (
+    SELECT
+        t.installation_id,
+        t.router_user_id,
+        t.api_key_id,
+        MAX(t.timestamp) AS last_request_at
+    FROM router.model_router_request_telemetry t
+    WHERE t.span_type = 'router.upstream'
+      AND (t.router_user_id IS NOT NULL OR t.api_key_id IS NOT NULL)
+      AND (sqlc.narg(installation_id)::uuid IS NULL OR t.installation_id = sqlc.narg(installation_id)::uuid)
+    GROUP BY t.installation_id, t.router_user_id, t.api_key_id
+)
 SELECT
     u.id::text AS person_id,
     true AS linked,
     COALESCE(NULLIF(u.display_name, ''), u.email, '')::text AS display_name,
     COALESCE(u.email, '')::text AS email,
-    (SELECT MAX(t.timestamp) FROM router.model_router_request_telemetry t
-      WHERE t.installation_id = u.installation_id AND t.router_user_id = u.id
-        AND t.span_type = 'router.upstream')::timestamptz AS last_request_at
+    linked_activity.last_request_at::timestamptz AS last_request_at
 FROM router.model_router_users u
+LEFT JOIN (
+    SELECT a.installation_id, a.router_user_id, MAX(a.last_request_at) AS last_request_at
+    FROM activity a
+    WHERE a.router_user_id IS NOT NULL
+    GROUP BY a.installation_id, a.router_user_id
+) linked_activity ON linked_activity.installation_id = u.installation_id
+    AND linked_activity.router_user_id = u.id
 WHERE u.deleted_at IS NULL
   AND (sqlc.narg(installation_id)::uuid IS NULL OR u.installation_id = sqlc.narg(installation_id)::uuid)
 UNION ALL
 SELECT
-    t.api_key_id::text AS person_id,
+    a.api_key_id::text AS person_id,
     false AS linked,
     COALESCE(MAX(k.name), '')::text AS display_name,
     ''::text AS email,
-    MAX(t.timestamp)::timestamptz AS last_request_at
-FROM router.model_router_request_telemetry t
-LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
-WHERE t.span_type = 'router.upstream'
-  AND t.router_user_id IS NULL
-  AND t.api_key_id IS NOT NULL
-  AND (sqlc.narg(installation_id)::uuid IS NULL OR t.installation_id = sqlc.narg(installation_id)::uuid)
-GROUP BY t.api_key_id;
+    MAX(a.last_request_at)::timestamptz AS last_request_at
+FROM activity a
+LEFT JOIN router.model_router_api_keys k ON k.id = a.api_key_id
+WHERE a.router_user_id IS NULL
+  AND a.api_key_id IS NOT NULL
+GROUP BY a.api_key_id;
 
 -- Subscription accounts registered to the pool with their latest quota reading.
 -- A seat registered to several installations appears once; its quota is a
