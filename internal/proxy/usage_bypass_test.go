@@ -3,6 +3,7 @@ package proxy_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
@@ -27,6 +29,16 @@ const (
 	bypassRequestedMdl  = "claude-sonnet-4-6"
 	bypassScorerPickMdl = "claude-haiku-4-5"
 )
+
+func claudeCreditFallbackContext(ctx context.Context) context.Context {
+	overrides, _ := flags.OverridesFromContext(ctx)
+	overrides.Bools = maps.Clone(overrides.Bools)
+	if overrides.Bools == nil {
+		overrides.Bools = make(map[flags.Key]bool)
+	}
+	overrides.Bools[flags.KeyClaudeEnterpriseOnly] = false
+	return flags.WithOverrides(ctx, overrides)
+}
 
 // bypassFixture builds a service whose fake scorer would route to
 // bypassScorerPickMdl, with the subscription usage observer wired and a fake
@@ -56,6 +68,7 @@ func bypassFixture(t *testing.T, seedUtil float64) (*proxy.Service, *fakeRouter,
 // per-installation usage-bypass config at the given threshold.
 func bypassCtx(threshold float64) context.Context {
 	ctx := context.WithValue(context.Background(), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken)
+	ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: false}})
 	return context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
@@ -674,7 +687,7 @@ func TestSubscriptionOnly_PlanOverage_Refuses402(t *testing.T) {
 	ctx := billing.WithSubscriptionOnly(
 		context.WithValue(context.Background(), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken),
 		billing.SubscriptionOnlyCreditsDepleted)
-	err := svc.ProxyMessages(ctx, body, rec, req)
+	err := svc.ProxyMessages(claudeCreditFallbackContext(ctx), body, rec, req)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, proxy.ErrCreditsExhaustedSubscriptionUnavailable))
 	assert.Empty(t, p.proxyBodies, "plan overage must not be spent in subscription-only mode")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/router"
@@ -15,12 +16,26 @@ import (
 var ErrClaudeEnterpriseSubscriptionUnavailable = fmt.Errorf("%w: Claude Enterprise-only billing requires a usable Claude subscription", ErrSubscriptionPoolUnavailable)
 
 type claudeEnterpriseTurnKey struct{}
+type claudeSubscriptionPresentKey struct{}
 
-// claudeEnterpriseOnly is an explicit organization preference. The existing
-// credits-only mode takes precedence when subscriptions are disabled.
+// Claude account funding defaults on for linked accounts. Explicit BYOK and
+// credits-only configuration retain their existing authority over the default.
 func claudeEnterpriseOnly(ctx context.Context) bool {
-	return !subscriptionRoutingDisabledForRequest(ctx) && !subscriptionFundingOutOfPlayForRequest(ctx) &&
-		flags.BoolOr(ctx, flags.KeyClaudeEnterpriseOnly, false)
+	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
+		return false
+	}
+	if overrides, ok := flags.OverridesFromContext(ctx); ok {
+		if enabled, configured := overrides.Bools[flags.KeyClaudeEnterpriseOnly]; configured {
+			return enabled
+		}
+	}
+	present, _ := ctx.Value(claudeSubscriptionPresentKey{}).(bool)
+	enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
+	_, linked := enrolled[auth.SubscriptionProviderClaude]
+	if !present && !linked && anthropicSubscriptionFromContext(ctx) == "" {
+		return false
+	}
+	return !anthropicBYOKConfigured(ctx)
 }
 
 func claudeEnterpriseTarget(ctx context.Context, target inference.Target) bool {

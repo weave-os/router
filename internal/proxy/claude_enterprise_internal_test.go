@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,6 +20,34 @@ import (
 
 func enterpriseOnlyContext(ctx context.Context) context.Context {
 	return flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: true}})
+}
+
+func withClaudeCreditFallback(ctx context.Context) context.Context {
+	overrides, _ := flags.OverridesFromContext(ctx)
+	overrides.Bools = maps.Clone(overrides.Bools)
+	if overrides.Bools == nil {
+		overrides.Bools = make(map[flags.Key]bool)
+	}
+	overrides.Bools[flags.KeyClaudeEnterpriseOnly] = false
+	return flags.WithOverrides(ctx, overrides)
+}
+
+func TestClaudeEnterpriseOnlyDefaultsToLinkedAccounts(t *testing.T) {
+	ctx := context.WithValue(routerKeyedCtx(), AnthropicSubscriptionContextKey{}, parityAnthropicToken)
+	require.True(t, claudeEnterpriseOnly(ctx))
+	managed := context.WithValue(routerKeyedCtx(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	require.True(t, claudeEnterpriseOnly(managed))
+	require.False(t, claudeEnterpriseOnly(routerKeyedCtx()), "API-only accounts have no Claude subscription to fund requests")
+	optedOut := flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: false}})
+	require.False(t, claudeEnterpriseOnly(optedOut))
+	byok := parityAnthropicIngress().byokCtx(ctx)
+	require.False(t, claudeEnterpriseOnly(byok), "explicit native BYOK retains precedence over the inherited default")
+
+	service := newServiceWithProviders(t, nil)
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer "+parityAnthropicToken)
+	headerOnly := service.withSubscriptionFundingAuthorization(routerKeyedCtx(), headers)
+	require.True(t, claudeEnterpriseOnly(headerOnly), "native header credentials have the same default as registered accounts")
 }
 
 func TestClaudeEnterpriseOnlyKeepsQuotaAndOverageOnOAuth(t *testing.T) {
@@ -60,7 +89,7 @@ func TestClaudeEnterpriseOnlyLeasesOverageAccount(t *testing.T) {
 	lease.Release()
 }
 
-func TestClaudeEnterpriseOnlyMovesFromIncludedUsageToOverage(t *testing.T) {
+func TestClaudeEnterpriseOnlyDefaultMovesFromIncludedUsageToOverage(t *testing.T) {
 	ingress := parityAnthropicIngress()
 	upstream := &parityUpstream{okBody: ingress.upstreamOK(false), subHeaders: http.Header{
 		"Anthropic-Ratelimit-Unified-Representative-Claim": []string{string(usage.AnthropicClaimOverage)},
@@ -70,7 +99,7 @@ func TestClaudeEnterpriseOnlyMovesFromIncludedUsageToOverage(t *testing.T) {
 	service.usageObserver.Record(service.usageObserver.Key([]byte(ingress.token)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.5, WindowMinutes: 300},
 	})
-	ctx := enterpriseOnlyContext(ingress.subCtx())
+	ctx := context.WithValue(routerKeyedCtx(), AnthropicSubscriptionContextKey{}, ingress.token)
 	for range 2 {
 		recorder, request, body := ingress.request(t, false)
 		require.NoError(t, ingress.call(service, ctx, body, recorder, request))
@@ -81,6 +110,16 @@ func TestClaudeEnterpriseOnlyMovesFromIncludedUsageToOverage(t *testing.T) {
 	}
 	require.Equal(t, 2, upstream.subDispatches)
 	require.Zero(t, upstream.paidDispatches)
+}
+
+func TestClaudeEnterpriseOnlyDefaultKeepsUnlinkedAPIRequestsFunded(t *testing.T) {
+	ingress := parityAnthropicIngress()
+	upstream := &parityUpstream{okBody: ingress.upstreamOK(false)}
+	service := ingress.parityService(upstream)
+	recorder, request, body := ingress.request(t, false)
+	require.NoError(t, ingress.call(service, routerKeyedCtx(), body, recorder, request))
+	require.Equal(t, 1, upstream.paidDispatches)
+	require.Zero(t, upstream.subDispatches)
 }
 
 func TestClaudeEnterpriseOnlyManagedFailureCannotBuyPaidRescue(t *testing.T) {

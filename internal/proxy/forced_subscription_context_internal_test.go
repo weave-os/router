@@ -125,7 +125,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})).
 				WithCompactionHardPin(true).
 				WithRetrySleep(func(context.Context, time.Duration) error { return nil })
-			ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "synthetic-key")
+			ctx := context.WithValue(withClaudeCreditFallback(context.Background()), APIKeyIDContextKey{}, "synthetic-key")
 			ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
 			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode, SessionID: "synthetic-session"})
 			ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})

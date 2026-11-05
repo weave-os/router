@@ -26,7 +26,7 @@ const classifierTestSubToken = "sk-ant-oat01-classifier-subscription-token"
 
 func TestClassifierPassthroughEngaged(t *testing.T) {
 	const claude = "claude-sonnet-4-6"
-	subCtx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, classifierTestSubToken)
+	subCtx := withClaudeCreditFallback(context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, classifierTestSubToken))
 	observerAt := func(snap usage.Snapshot) *usage.Observer {
 		obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 		obs.Record(obs.Key([]byte(classifierTestSubToken)), snap)

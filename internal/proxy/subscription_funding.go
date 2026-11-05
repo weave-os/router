@@ -72,6 +72,9 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 			claudeToken = string(creds.APIKey)
 		}
 	}
+	if claudeToken != "" {
+		ctx = context.WithValue(ctx, claudeSubscriptionPresentKey{}, true)
+	}
 	admissionCtx := ctx
 	return dispatch.WithAuthorization(ctx, func(callCtx context.Context, target inference.Target) error {
 		if claudeEnterpriseTarget(callCtx, target) || claudeEnterpriseTurn(callCtx) {

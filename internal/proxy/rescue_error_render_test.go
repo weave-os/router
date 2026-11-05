@@ -61,7 +61,7 @@ func TestProxyMessages_SubscriptionRescueFailurePreservesHTTPError(t *testing.T)
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
-	err := svc.ProxyMessages(ctx, body, rec, req)
+	err := svc.ProxyMessages(claudeCreditFallbackContext(ctx), body, rec, req)
 	require.Error(t, err, "every attempt failed, so the turn surfaces the upstream error")
 	assert.Equal(t, int32(dispatch.MaxSameBindingRetries+1), subscriptionAttempts.Load(), "direct Claude retains its bounded same-binding retries")
 	assert.Positive(t, paidAttempts.Load(), "confirmed exhaustion authorizes the failed API rescue under test")

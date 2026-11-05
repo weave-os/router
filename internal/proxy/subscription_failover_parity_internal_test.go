@@ -89,7 +89,8 @@ func parityAnthropicIngress() parityIngress {
 		byokKey:        parityAnthropicBYOK,
 		subCtx: func() context.Context {
 			ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, parityAnthropicToken)
-			return context.WithValue(ctx, InstallationIDContextKey{}, parityInstallationID)
+			// These parity cases exercise the explicitly enabled API fallback.
+			return withClaudeCreditFallback(context.WithValue(ctx, InstallationIDContextKey{}, parityInstallationID))
 		},
 		servedOnSub:       servedOnSubscription,
 		fallbackAvailable: (*Service).anthropicFallbackKeyAvailable,

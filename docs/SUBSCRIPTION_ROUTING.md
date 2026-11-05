@@ -79,10 +79,12 @@ API-key fallback. Provider-side balances and spending limits remain authoritativ
 The same check covers matching model-specific limits using the final upstream
 model after aliases. A model-specific rejection rotates the attempt without
 marking the whole account exhausted or placing it on cooldown. Claude accounts with no
-quota observation may serve; known exhausted or paid-overage accounts are
-excluded by default. An organization may opt into `claude_enterprise_only` to
-keep Claude requests on its linked Claude accounts, including provider-authorized
-overage. In that mode observed included-quota exhaustion does not suppress a
+quota observation may serve. `claude_enterprise_only` defaults on for linked
+Claude accounts, keeping their requests on those accounts through provider-authorized
+overage. Organizations may explicitly disable it to permit Weave-funded fallback.
+Accounts with no linked Claude login continue to use their normal API funding;
+explicit Anthropic BYOK retains precedence over the inherited default.
+In Enterprise-only mode observed included-quota exhaustion does not suppress a
 Claude account, while an actual provider refusal remains authoritative. Claude
 turns fail if their account cannot serve them; retry, failover, and auxiliary
 dispatch cannot charge them to Weave credits or another provider. The setting
