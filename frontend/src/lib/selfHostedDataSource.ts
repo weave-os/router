@@ -66,7 +66,7 @@ export const selfHostedDataSource: RouterDashboardDataSource = {
           person.models.length === 0
             ? null
             : { models: person.models, otherRequests: person.other_requests },
-        name: person.display_name || person.email || "Unknown router user",
+        name: person.display_name || person.email || "Unlinked router user",
         usage: {
           cacheCreationTokens: person.cache_creation_tokens,
           cacheReadTokens: person.cache_read_tokens,
