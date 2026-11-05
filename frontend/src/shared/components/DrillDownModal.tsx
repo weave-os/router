@@ -145,8 +145,8 @@ export function DrillDownModal({
       : null,
     [open, fromISO, toISO, requests],
   );
-  const rows = LoadState.isReady(requestsState) ? requestsState.value.rows : null;
-  const loading = LoadState.isLoading(requestsState);
+  const rows = LoadState.isLoaded(requestsState) ? requestsState.value.rows : null;
+  const loading = LoadState.isLoading(requestsState) || LoadState.isReloading(requestsState);
   const error = isUnavailable(requests)
     ? requests.message
     : LoadState.isError(requestsState)

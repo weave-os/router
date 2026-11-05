@@ -94,10 +94,12 @@ export function DashboardPageFilters({
               <Command>
                 <Command.Input placeholder="Filter by..." />
                 <Command.List>
-                  <Command.Item onSelect={() => setOpenMenu(FilterMenu.Granularity)}>
-                    <Icon type="Clock" />
-                    Interval
-                  </Command.Item>
+                  {!hideGranularity && (
+                    <Command.Item onSelect={() => setOpenMenu(FilterMenu.Granularity)}>
+                      <Icon type="Clock" />
+                      Interval
+                    </Command.Item>
+                  )}
                   <Command.Item onSelect={() => setOpenMenu(FilterMenu.Date)}>
                     <Icon type="Calendar" />
                     Date
@@ -189,7 +191,11 @@ function GranularityPill({ onOpenChange, open, result }: FilterPillMenuProps) {
 function DatePill({ onOpenChange, open, result }: FilterPillMenuProps) {
   return (
     <ShortcutTooltip label="Change date" shortcut="D">
-      <FilterPill onRemove={() => result.setRangeId(DEFAULT_RANGE_ID)}>
+      <FilterPill
+        onRemove={() => {
+          if (result.filters.range.id !== DEFAULT_RANGE_ID) result.setRangeId(DEFAULT_RANGE_ID);
+        }}
+      >
         <FilterPill.Label>Date</FilterPill.Label>
         <Popover open={open} onOpenChange={onOpenChange}>
           <Popover.Trigger>
