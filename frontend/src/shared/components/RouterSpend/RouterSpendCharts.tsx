@@ -103,13 +103,8 @@ function savingsRate({ actual, comparison }: { actual: number; comparison: numbe
   return comparison === 0 ? null : ((comparison - actual) / comparison) * 100;
 }
 
-function formatSavings(savings: number) {
-  return savings >= 0 ? `${formatUSD(savings)} saved` : `${formatUSD(Math.abs(savings))} extra`;
-}
-
 function useComparisonLabel(range: DateRange) {
-  const summary = useRouterReportSummary(range);
-  const comparisonModel = LoadState.unwrap(summary)?.comparisonModel;
+  const comparisonModel = LoadState.unwrap(useRouterReportSummary(range))?.comparisonModel;
   return comparisonModel ? formatRouterModelName(comparisonModel) : COMPARISON_FALLBACK;
 }
 
@@ -313,7 +308,9 @@ export function RouterCostBreakdownChart({
       headline={
         <RouterChartHeadline
           percentChange={percentChange}
-          statistic={LoadState.map(savings, value => ({ total: formatSavings(value) }))}
+          statistic={LoadState.map(savings, value => ({
+            total: value >= 0 ? `${formatUSD(value)} saved` : `${formatUSD(Math.abs(value))} extra`,
+          }))}
         />
       }
       topRight={
@@ -527,7 +524,7 @@ function rangeCostPerRequest(
   return count === 0 ? null : spend.reduce((sum, { value }) => sum + value, 0) / count;
 }
 
-/** Buckets whose cost per request is at least {@link UNUSUAL_BUCKET_RATIO} × the median bucket. */
+/** Buckets to annotate as unusual, each with its cost per request as a multiple of the range median. */
 export function unusualCostPerRequestBuckets(rows: readonly { ratio: number; time: number }[]) {
   if (rows.length < MIN_BUCKETS_FOR_UNUSUAL) return [];
   const sorted = rows.map(({ ratio }) => ratio).sort((a, b) => a - b);
@@ -564,27 +561,24 @@ export function RouterCostPerRequestChart({ className, granularity, range }: Spe
   // Pay-per-use leaves out subscription-served requests, which count as $0 and pull the figure down.
   const billing = scope === CostPerRequestScope.PayPerUse ? RouterBilling.API : undefined;
   const previousWindow = useMemo(() => previousRange(range), [range]);
+  const shared = { billing, granularity };
   const spend = useRouterMetricSeries({
-    billing,
-    granularity,
+    ...shared,
     range,
     type: RouterMetricType.ModelSpend,
   });
   const requests = useRouterMetricSeries({
-    billing,
-    granularity,
+    ...shared,
     range,
     type: RouterMetricType.ModelUsage,
   });
   const previousSpend = useRouterMetricSeries({
-    billing,
-    granularity,
+    ...shared,
     range: previousWindow,
     type: RouterMetricType.ModelSpend,
   });
   const previousRequests = useRouterMetricSeries({
-    billing,
-    granularity,
+    ...shared,
     range: previousWindow,
     type: RouterMetricType.ModelUsage,
   });
@@ -609,17 +603,22 @@ export function RouterCostPerRequestChart({ className, granularity, range }: Spe
       label: `${multiple.toFixed(1)}× median`,
     }),
   );
-  const average = LoadState.map(spend, requests, (s, r) => rangeCostPerRequest(s.values, r.values));
+  const average = LoadState.map(spend, requests, (spendSeries, requestSeries) =>
+    rangeCostPerRequest(spendSeries.values, requestSeries.values),
+  );
   const percentChange = LoadState.map(
     spend,
     requests,
     previousSpend,
     previousRequests,
-    (s, r, ps, pr) => {
-      const now = rangeCostPerRequest(s.values, r.values);
+    (spendSeries, requestSeries, previousSpendSeries, previousRequestSeries) => {
+      const now = rangeCostPerRequest(spendSeries.values, requestSeries.values);
       return now == null
         ? null
-        : periodPercentChange(now, rangeCostPerRequest(ps.values, pr.values) ?? 0);
+        : periodPercentChange(
+            now,
+            rangeCostPerRequest(previousSpendSeries.values, previousRequestSeries.values),
+          );
     },
   );
 
