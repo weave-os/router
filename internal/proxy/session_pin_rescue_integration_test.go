@@ -95,7 +95,7 @@ func TestProxyMessages_CrossModelRescueKeepsNextTurnOnPinnedBinding(t *testing.T
 	first := runRescueTurn(t, svc, rescueFirstTurnBody())
 	require.Equal(t, providers.ProviderFireworks, first.Header().Get(proxy.HeaderRouterProvider))
 	require.Equal(t, "deepseek/deepseek-v4-pro", first.Header().Get(proxy.HeaderRouterModel))
-	waitForRescueUsage(t, store)
+	requireRescueUsage(t, store)
 
 	second := runRescueTurn(t, svc, rescueSecondTurnBody())
 	mu.Lock()
@@ -124,7 +124,7 @@ func runRescueTurn(t *testing.T, svc *proxy.Service, body []byte) *httptest.Resp
 	return recorder
 }
 
-func waitForRescueUsage(t *testing.T, store *providerRescuePinStore) {
+func requireRescueUsage(t *testing.T, store *providerRescuePinStore) {
 	t.Helper()
 	store.mu.Lock()
 	defer store.mu.Unlock()
