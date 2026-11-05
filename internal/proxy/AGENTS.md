@@ -128,8 +128,9 @@ model, provider, request-compatibility, and cluster restrictions still apply.
 Preferences use a credential-scoped conversation digest and are stored
 independently of expiring pins; installation deletion removes them. The
 database write rejects an older-started request that completes after a newer
-preference was recorded. A preference-store read failure stops the automatic
-turn: routing without the state could silently select a displaced model.
+preference was recorded. A preference-store read failure stops the session
+turn before model-pin resolution: routing without the state could silently
+select a displaced model.
 
 **A model that keeps answering 529 is circuit-broken, per organization.** Under
 `provider_overloaded` (default on), `dispatchPlanned` reports each executor
