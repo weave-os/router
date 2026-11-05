@@ -43,13 +43,16 @@ const ROUTER_OVERVIEW_TAB_BY_CHART: ReadonlyMap<string, RouterOverviewTab> = new
   ["router_spend_by_maker", RouterOverviewTab.Spend],
 ]);
 
-/** A chart deep link overrides the tab already in the URL. */
+/** A chart deep link overrides the tab already in the URL; a hidden Subscriptions tab lands on Activity. */
 export function resolveRouterOverviewTab(
   tab: string | null,
   chart: string | null,
+  showSubscriptions: boolean,
 ): RouterOverviewTab {
-  return (
+  const resolved =
     (chart == null ? undefined : ROUTER_OVERVIEW_TAB_BY_CHART.get(chart)) ??
-    parseRouterOverviewTab(tab)
-  );
+    parseRouterOverviewTab(tab);
+  return resolved === RouterOverviewTab.Subscriptions && !showSubscriptions
+    ? RouterOverviewTab.Activity
+    : resolved;
 }

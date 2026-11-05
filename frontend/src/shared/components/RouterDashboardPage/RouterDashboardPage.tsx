@@ -26,8 +26,8 @@ export function RouterDashboardPage({
   methodologyHref,
 }: RouterDashboardPageProps) {
   const filters = useDashboardFilters();
-  const tab = useRouterOverviewTab();
   const showSubscriptions = !isUnavailable(useRouterDashboardDataSource().subscriptions);
+  const tab = useRouterOverviewTab(showSubscriptions);
 
   return (
     <Page
