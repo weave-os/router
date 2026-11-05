@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 	"weave-os/router/internal/dispatch"
@@ -155,6 +156,32 @@ func TestPreludeBuffer_CommitOnOutput(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, buf.Committed())
 	assert.Equal(t, prelude+role+content, rec.Body.String())
+}
+
+func TestPreludeBuffer_CommitOnOutputCapsHeldBytes(t *testing.T) {
+	const (
+		prelude = "router notice"
+		role    = "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
+	)
+	chunks := maxHeldCommitBytes/len(role) + 1
+
+	rec := httptest.NewRecorder()
+	buf := newPreludeBuffer(rec)
+	buf.Header().Set("Content-Type", "text/event-stream")
+	buf.WriteHeader(http.StatusOK)
+	_, err := buf.Write([]byte(prelude))
+	require.NoError(t, err)
+	require.NoError(t, buf.CommitPrelude())
+	buf.CommitOnOutput(translate.FormatOpenAI)
+	buf.Seal()
+
+	for i := 0; i < chunks; i++ {
+		_, err = buf.Write([]byte(role))
+		require.NoError(t, err)
+	}
+
+	assert.True(t, buf.Committed())
+	assert.Equal(t, prelude+strings.Repeat(role, chunks), rec.Body.String())
 }
 
 func TestDispatchWithFallback_PrimarySucceedsNoRetry(t *testing.T) {
