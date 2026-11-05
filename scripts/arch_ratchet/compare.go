@@ -99,7 +99,8 @@ func (p movePool) claim(fn funcMetrics) bool {
 	}
 	best := ""
 	for _, key := range sortedKeys(p) {
-		if covers(p[key], fn, over) && (best == "" || betterMove(fn, key, best, p)) {
+		tooSmall := slices.ContainsFunc(over, func(m metric) bool { return p[key].values[m] < fn.values[m] })
+		if !tooSmall && (best == "" || betterMove(fn, key, best, p)) {
 			best = key
 		}
 	}
@@ -110,35 +111,26 @@ func (p movePool) claim(fn funcMetrics) bool {
 	return true
 }
 
-func covers(removed, fn funcMetrics, over []metric) bool {
-	for _, m := range over {
-		if removed.values[m] < fn.values[m] {
-			return false
-		}
-	}
-	return true
-}
-
 func betterMove(fn funcMetrics, candidate, current string, p movePool) bool {
 	name := shortName(fn.key)
 	candidateSame, currentSame := shortName(candidate) == name, shortName(current) == name
 	if candidateSame != currentSame {
 		return candidateSame
 	}
-	return size(p[candidate]) < size(p[current])
+	return sum(p[candidate].values) < sum(p[current].values)
 }
 
-// shortName strips the package directory and any file qualifier from a function key.
+// shortName returns the bare function name from a funcKey such as "<dir>.<Recv>.<Name>"
+// or "<dir>.<Name>@<file>".
 func shortName(key string) string {
 	key, _, _ = strings.Cut(key, "@")
-	rest := key[strings.LastIndex(key, "/")+1:]
-	_, name, _ := strings.Cut(rest, ".")
+	_, name, _ := strings.Cut(key[strings.LastIndex(key, "/")+1:], ".")
 	return name
 }
 
-func size(fn funcMetrics) int {
+func sum(values map[metric]int) int {
 	total := 0
-	for _, value := range fn.values {
+	for _, value := range values {
 		total += value
 	}
 	return total

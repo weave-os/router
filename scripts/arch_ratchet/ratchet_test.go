@@ -138,8 +138,9 @@ func TestCompareFuncs(t *testing.T) {
 		},
 		{
 			name: "moves prefer the removed function with the same name",
-			base: []funcMetrics{fn("p.A", 150), fn("p.F", 300)},
-			head: []funcMetrics{fn("q.A", 150), fn("q.F", 300)},
+			base: []funcMetrics{fn("p.A", 200), fn("p.B", 150)},
+			head: []funcMetrics{fn("q.A", 150), fn("q.C", 180)},
+			want: []violation{{subject: "q.C", metric: metricLines, before: 0, after: 180, limit: 100}},
 		},
 		{
 			name:    "reviewed exception",
