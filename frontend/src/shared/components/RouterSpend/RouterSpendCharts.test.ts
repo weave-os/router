@@ -1,7 +1,7 @@
-import { RouterCostType, type RouterMetricPoint } from "../../data";
+import { RouterCostType } from "../../data";
 import { costBuckets, costTotals, cumulativeSavings, rangeSavings } from "./RouterSpendCharts";
 
-function point(group: RouterCostType, time: number, value: number): RouterMetricPoint {
+function point(group: RouterCostType, time: number, value: number) {
   return { group, time, value };
 }
 

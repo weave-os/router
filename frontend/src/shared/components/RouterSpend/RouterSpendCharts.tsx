@@ -123,11 +123,11 @@ export function cumulativeSavings(buckets: readonly CostBucket[]) {
   });
 }
 
-function isComparisonUnpriced(points: LoadState<{ values: readonly RouterMetricPoint[] }>) {
+function isComparisonUnpriced(current: LoadState<{ values: readonly RouterMetricPoint[] }>) {
   return (
-    LoadState.isLoaded(points) &&
-    points.value.values.length > 0 &&
-    costTotals(points.value.values).comparison == null
+    LoadState.isLoaded(current) &&
+    current.value.values.length > 0 &&
+    costTotals(current.value.values).comparison == null
   );
 }
 
