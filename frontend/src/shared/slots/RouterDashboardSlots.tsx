@@ -10,6 +10,10 @@ export enum RouterDashboardSlotName {
   DashboardHeaderActions = "DashboardHeaderActions",
   DashboardBanner = "DashboardBanner",
   DashboardAside = "DashboardAside",
+  /** Host filter pills after Interval and Date, e.g. hosted account and credential filters. */
+  DashboardFilterPills = "DashboardFilterPills",
+  /** Replaces the add-filter button with the host's own menu of filter types. */
+  DashboardAddFilter = "DashboardAddFilter",
   IndividualsHeaderActions = "IndividualsHeaderActions",
   SettingsSections = "SettingsSections",
   SidebarFooter = "SidebarFooter",

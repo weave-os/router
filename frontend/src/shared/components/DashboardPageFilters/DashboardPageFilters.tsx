@@ -2,6 +2,11 @@
 
 import { useState } from "react";
 
+import {
+  RouterDashboardSlot,
+  RouterDashboardSlotName,
+  useHasRouterDashboardSlot,
+} from "../../slots";
 import { cn } from "../../tools/cn";
 import { Icon } from "../atoms/Icon";
 import { Kbd } from "../atoms/Kbd";
@@ -37,6 +42,7 @@ export interface DashboardPageFiltersProps {
 export function DashboardPageFilters({ className, result, right }: DashboardPageFiltersProps) {
   const [openMenu, setOpenMenu] = useState<FilterMenu | null>(null);
   const menuOpenChange = (menu: FilterMenu) => (open: boolean) => setOpenMenu(open ? menu : null);
+  const hasHostAddFilter = useHasRouterDashboardSlot(RouterDashboardSlotName.DashboardAddFilter);
 
   return (
     <Page.Section
@@ -57,36 +63,41 @@ export function DashboardPageFilters({ className, result, right }: DashboardPage
           onOpenChange={menuOpenChange(FilterMenu.Date)}
           result={result}
         />
-        <Popover
-          open={openMenu === FilterMenu.AddFilter}
-          onOpenChange={menuOpenChange(FilterMenu.AddFilter)}
-        >
-          <Popover.Trigger>
-            <Button
-              size="icon"
-              appearance={Appearance.Hollow}
-              className="size-9 shrink-0"
-              aria-label="Add filter"
-            >
-              <Icon type="Plus" />
-            </Button>
-          </Popover.Trigger>
-          <Popover.Content className="w-64 p-1" align="start">
-            <Command>
-              <Command.Input placeholder="Filter by..." />
-              <Command.List>
-                <Command.Item onSelect={() => setOpenMenu(FilterMenu.Granularity)}>
-                  <Icon type="Clock" />
-                  Interval
-                </Command.Item>
-                <Command.Item onSelect={() => setOpenMenu(FilterMenu.Date)}>
-                  <Icon type="Calendar" />
-                  Date
-                </Command.Item>
-              </Command.List>
-            </Command>
-          </Popover.Content>
-        </Popover>
+        <RouterDashboardSlot name={RouterDashboardSlotName.DashboardFilterPills} />
+        {hasHostAddFilter ? (
+          <RouterDashboardSlot name={RouterDashboardSlotName.DashboardAddFilter} />
+        ) : (
+          <Popover
+            open={openMenu === FilterMenu.AddFilter}
+            onOpenChange={menuOpenChange(FilterMenu.AddFilter)}
+          >
+            <Popover.Trigger>
+              <Button
+                size="icon"
+                appearance={Appearance.Hollow}
+                className="size-9 shrink-0"
+                aria-label="Add filter"
+              >
+                <Icon type="Plus" />
+              </Button>
+            </Popover.Trigger>
+            <Popover.Content className="w-64 p-1" align="start">
+              <Command>
+                <Command.Input placeholder="Filter by..." />
+                <Command.List>
+                  <Command.Item onSelect={() => setOpenMenu(FilterMenu.Granularity)}>
+                    <Icon type="Clock" />
+                    Interval
+                  </Command.Item>
+                  <Command.Item onSelect={() => setOpenMenu(FilterMenu.Date)}>
+                    <Icon type="Calendar" />
+                    Date
+                  </Command.Item>
+                </Command.List>
+              </Command>
+            </Popover.Content>
+          </Popover>
+        )}
       </div>
 
       {right}
