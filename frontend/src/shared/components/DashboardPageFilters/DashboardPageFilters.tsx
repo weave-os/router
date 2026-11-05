@@ -33,8 +33,15 @@ enum FilterMenu {
   Granularity = "granularity",
 }
 
+/** A host-controlled Date menu, so host shortcuts can open it. */
+export interface DashboardDateMenuControl {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
 export interface DashboardPageFiltersProps {
   className?: string;
+  dateMenu?: DashboardDateMenuControl;
   /** Hides the Interval pill on pages that pick their own buckets. */
   hideGranularity?: boolean;
   result: UseDashboardFiltersResult;
@@ -44,6 +51,7 @@ export interface DashboardPageFiltersProps {
 /** Sticky dashboard filter bar: Interval pill, Date pill and the add-filter button. */
 export function DashboardPageFilters({
   className,
+  dateMenu,
   hideGranularity = false,
   result,
   right,
@@ -69,8 +77,11 @@ export function DashboardPageFilters({
           />
         )}
         <DatePill
-          open={openMenu === FilterMenu.Date}
-          onOpenChange={menuOpenChange(FilterMenu.Date)}
+          open={dateMenu?.open ?? openMenu === FilterMenu.Date}
+          onOpenChange={open => {
+            menuOpenChange(FilterMenu.Date)(open);
+            dateMenu?.onOpenChange(open);
+          }}
           result={result}
         />
         <RouterDashboardSlot name={RouterDashboardSlotName.DashboardFilterPills} />
