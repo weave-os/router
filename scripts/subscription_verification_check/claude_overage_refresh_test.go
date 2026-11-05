@@ -42,28 +42,29 @@ func TestVerificationSQLClaudeOverageRefreshGate(t *testing.T) {
 		provider   auth.SubscriptionProvider
 		state      auth.SubscriptionAccountState
 		extraUsage bool
+		disabled   bool
 		allowed    bool
 	}{
 		{name: "included quota only", provider: auth.SubscriptionProviderClaude, state: auth.SubscriptionAccountStateExhausted},
 		{name: "Enterprise overage", provider: auth.SubscriptionProviderClaude, state: auth.SubscriptionAccountStateExhausted, extraUsage: true, allowed: true},
 		{name: "provider cooldown", provider: auth.SubscriptionProviderClaude, state: auth.SubscriptionAccountStateCooldown, extraUsage: true},
-		{name: "disabled", provider: auth.SubscriptionProviderClaude, state: auth.SubscriptionAccountStateDisabled, extraUsage: true},
+		{name: "disabled", provider: auth.SubscriptionProviderClaude, state: auth.SubscriptionAccountStateExhausted, extraUsage: true, disabled: true},
 		{name: "Codex exhaustion", provider: auth.SubscriptionProviderCodex, state: auth.SubscriptionAccountStateExhausted, extraUsage: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			accountID := uuid.New()
-			_, err := tx.Exec(ctx, `INSERT INTO router.model_router_subscription_accounts(id,api_key_id,provider,external_account_id,refresh_token_ciphertext,health_state,cooldown_until) VALUES($1,$2,$3,$4,'synthetic-ciphertext',$5,CURRENT_TIMESTAMP+INTERVAL '1 hour')`, accountID, keyID, string(test.provider), accountID.String(), string(test.state))
+			_, err := tx.Exec(ctx, `INSERT INTO router.model_router_subscription_accounts(id,api_key_id,provider,external_account_id,refresh_token_ciphertext,health_state,enabled,cooldown_until) VALUES($1,$2,$3,$4,'synthetic-ciphertext',$5,$6,CASE WHEN $6 THEN CURRENT_TIMESTAMP+INTERVAL '1 hour' ELSE NULL END)`, accountID, keyID, string(test.provider), accountID.String(), string(test.state), !test.disabled)
 			require.NoError(t, err)
-			leaseCtx := ctx
+			extraUsageCtx := ctx
 			if test.extraUsage {
-				leaseCtx = requestcontext.WithSubscriptionExtraUsage(ctx)
+				extraUsageCtx = requestcontext.WithSubscriptionExtraUsage(ctx)
 			}
 			leaseID := uuid.NewString()
-			acquisition, err := repo.TryAcquireSubscriptionRefreshLease(leaseCtx, accountID.String(), owner, leaseID, time.Minute)
+			acquisition, err := repo.TryAcquireSubscriptionRefreshLease(extraUsageCtx, accountID.String(), owner, leaseID, time.Minute)
 			require.NoError(t, err)
 			require.Equal(t, test.allowed, acquisition.Acquired)
 			if acquisition.Acquired {
-				duplicate, err := repo.TryAcquireSubscriptionRefreshLease(leaseCtx, accountID.String(), owner, uuid.NewString(), time.Minute)
+				duplicate, err := repo.TryAcquireSubscriptionRefreshLease(extraUsageCtx, accountID.String(), owner, uuid.NewString(), time.Minute)
 				require.NoError(t, err)
 				require.False(t, duplicate.Acquired, "overage permission must not bypass an active refresh lease")
 			}
