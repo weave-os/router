@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import {
   type DateRange,
   type RouterMetricGroup,
+  type RouterMetricPoint,
   type RouterMetricType,
   useRouterDashboardDataSource,
 } from "../../data";
@@ -36,7 +37,15 @@ enum GroupedMetricView {
   Volume = "volume",
 }
 
-const sumValues = (points: readonly { value: number }[]) =>
+/** How a grouped card's headline averages its buckets, as in hosted's chart registry. */
+export enum GroupedStatistic {
+  /** Averages only buckets with data; distinct counts like active people stay per-bucket. */
+  Mean = "mean",
+  /** Divides the total by every bucket in the range, empty ones included. */
+  Sum = "sum",
+}
+
+const sumValues = (points: readonly RouterMetricPoint[]) =>
   points.reduce((sum, point) => sum + point.value, 0);
 
 const VIEW_OPTIONS = [
@@ -61,6 +70,7 @@ export interface RouterGroupedChartCardProps {
   seriesType: ChartSeriesType.Area | ChartSeriesType.Bar;
   /** Offers the Volume | Share toggle that renders each bucket's groups as percents. */
   shareToggle?: boolean;
+  statistic: GroupedStatistic;
   /** Headlines the average as whole `<unit>/<bucket>`, e.g. "7 users/day". */
   statisticUnit?: string;
   title: string;
@@ -80,6 +90,7 @@ export function RouterGroupedChartCard({
   seriesConfigs,
   seriesType,
   shareToggle = false,
+  statistic,
   statisticUnit,
   title,
 }: RouterGroupedChartCardProps) {
@@ -104,15 +115,14 @@ export function RouterGroupedChartCard({
     () => (view === GroupedMetricView.Share ? LoadState.map(pivoted, toShare) : pivoted),
     [pivoted, view],
   );
-  const average = LoadState.map(
-    current,
-    now => sumValues(now.values) / bucketCount(range, granularity, weekStartsOn),
-  );
-  const percentChange = LoadState.map(average, previous, (nowAverage, then) =>
-    periodPercentChange(
-      nowAverage,
-      sumValues(then.values) / bucketCount(before, granularity, weekStartsOn),
-    ),
+  const perBucket = (points: readonly RouterMetricPoint[], window: DateRange) =>
+    sumValues(points) /
+    (statistic === GroupedStatistic.Mean
+      ? Math.max(new Set(points.map(point => point.time)).size, 1)
+      : bucketCount(window, granularity, weekStartsOn));
+  const average = LoadState.map(current, now => perBucket(now.values, range));
+  const percentChange = LoadState.map(average, previous, (nowAverage, previousSeries) =>
+    periodPercentChange(nowAverage, perBucket(previousSeries.values, before)),
   );
 
   const config = useMemo(() => {
