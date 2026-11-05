@@ -66,3 +66,16 @@ func TestFactsInGroupKeepsOnlyThatLabel(t *testing.T) {
 		t.Fatalf("unfiltered facts = %d, want 3", got)
 	}
 }
+
+func TestListPriceSpendIgnoresLongContextTierForBucketSums(t *testing.T) {
+	facts := []proxy.TelemetryDashboardFact{
+		{DecisionModel: "claude-haiku-5-5", RequestCount: 20, InputTokens: 1_000_000},
+	}
+
+	points := factPoints(facts, dashboardMetricAPIListPriceSpend, dashboardGroupNone, true)
+
+	// 1M fresh input tokens across 20 turns at the $0.10/MTok base rate, not the $0.50 long-context rate.
+	if len(points) != 1 || points[0].Value != 0.10 {
+		t.Fatalf("points = %+v, want 0.10", points)
+	}
+}
