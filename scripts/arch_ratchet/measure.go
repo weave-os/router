@@ -119,10 +119,7 @@ func measurePackageFuncLits(fset *token.FileSet, codeLines map[int]bool, dir str
 		if !ok {
 			continue
 		}
-		name := "_"
-		if len(value.Names) > 0 {
-			name = value.Names[0].Name
-		}
+		name := value.Names[0].Name
 		count := 0
 		for _, expr := range value.Values {
 			ast.Inspect(expr, func(node ast.Node) bool {
