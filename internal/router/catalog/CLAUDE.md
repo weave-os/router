@@ -7,7 +7,7 @@ Single source of truth for per-model data: capability tier, subscription coverag
 ## What's here
 
 - `Model` — one struct per logical model. Fields include `ID`, `Tier`, `ContextWindow`, `CodexSubscription`, and `Providers []ProviderBinding`.
-- `ProviderBinding` — one `(Provider, UpstreamID, Price, FastPrice)` tuple. `FastPrice` is the provider's paid fast tier (OpenAI priority / Anthropic fast) and is zero on bindings without one; `FastPricing()` / `FastPriceFor` / `SupportsFastMode` read it. Routing scores on `Price` only — `FastPrice` is a post-dispatch billing rate. A model's bindings are ordered: the first whose `Provider` name is in the deploy's available set wins.
+- `ProviderBinding` — one `(Provider, UpstreamID, Price, FastPrice)` tuple, with an optional `MaxImagesPerRequest` cap (zero means unknown). `FastPrice` is the provider's paid fast tier (OpenAI priority / Anthropic fast) and is zero on bindings without one; `FastPricing()` / `FastPriceFor` / `SupportsFastMode` read it. Routing scores on `Price` only — `FastPrice` is a post-dispatch billing rate. A model's bindings are ordered: the first whose `Provider` name is in the deploy's available set wins.
 - `Pricing` — per-binding input / output / cache pricing, with an optional prompt-size tier.
 - `Tier` — Low / Mid / High.
 - `ContextWindow` — model's total input+output token budget in tokens. 0 falls back to `DefaultContextWindow` (128K).

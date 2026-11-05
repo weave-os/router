@@ -3,6 +3,7 @@
 import { ConfigPanel } from "@/components/settings/ConfigPanel";
 import { RouterKeysPanel } from "@/components/settings/RouterKeysPanel";
 import { SettingsPage, SettingsSection } from "@/components/settings/SettingsPage";
+
 import { KeyRound, Settings as SettingsIcon } from "lucide-react";
 
 export default function GeneralSettingsPage() {

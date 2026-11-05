@@ -36,6 +36,7 @@ if [ "$*" = "auth status --json" ]; then
   echo '{"loggedIn":false}'; exit 1
 fi
 echo "FAKE CLAUDE STARTED"
+echo "FAKE CLAUDE STDIN $(readlink /proc/self/fd/0 2>/dev/null)"
 FAKE_CLAUDE
 cat >"$fake_bin/codex" <<'FAKE_CODEX'
 #!/usr/bin/env bash
@@ -154,6 +155,7 @@ check "a failed install skips the everyday commands" lacks "$out" "Check routing
 if script --version 2>/dev/null | grep -q util-linux; then
   out="$(pty_install "$work/pty-yes" "" -- --claude)"
   check "pressing Enter at the offer starts Claude Code" has "$out" "FAKE CLAUDE STARTED"
+  check "the started client keeps the terminal as stdin instead of /dev/tty" lacks "$out" "FAKE CLAUDE STDIN /dev/tty"
   out="$(pty_install "$work/pty-no" n -- --claude)"
   check "answering n leaves Claude Code closed" lacks "$out" "FAKE CLAUDE STARTED"
   check "the offer is shown on a terminal" has "$out" "Start Claude Code now? [Y/n]"

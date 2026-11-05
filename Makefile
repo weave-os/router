@@ -73,6 +73,7 @@ test-install: ## Run offline installer regression tests (after make setup-instal
 	@bash install/tests/jq_bootstrap_test.sh
 	@bash install/tests/claude-status_test.sh
 	@bash install/tests/codex_install_test.sh
+	@bash install/tests/build_skill_install_test.sh
 	@bash install/tests/opencode_install_test.sh
 	@bash install/tests/copilot_install_test.sh
 	@bash install/tests/claude_desktop_install_test.sh

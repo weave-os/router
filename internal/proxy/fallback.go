@@ -356,13 +356,22 @@ func (s *Service) shouldFailover(ctx context.Context) bool {
 // slice carrying the already-resolved decision provider.
 func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision router.Decision) []catalog.ProviderBinding {
 	primary := catalog.ProviderBinding{Provider: decision.Provider}
+	imageCount := requestImageCountFromContext(ctx)
 	if !s.shouldFailover(ctx) {
+		if binding, ok := catalog.BindingFor(decision.Model, decision.Provider); ok &&
+			!binding.AcceptsImageCount(imageCount) && !isUserForcedReason(decision.Reason) {
+			return nil
+		}
 		return []catalog.ProviderBinding{primary}
 	}
 	available := s.deploymentKeyedProviders
 	if available == nil {
 		// Legacy "all registered" mode — fall back to single-attempt to
 		// avoid retrying on providers whose keys aren't actually wired.
+		if binding, ok := catalog.BindingFor(decision.Model, decision.Provider); ok &&
+			!binding.AcceptsImageCount(imageCount) && !isUserForcedReason(decision.Reason) {
+			return nil
+		}
 		return []catalog.ProviderBinding{primary}
 	}
 	// A linked subscription makes the selected native binding available
@@ -386,6 +395,32 @@ func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision route
 	}
 	_, primaryExcluded := excluded[decision.Provider]
 	indexedBindings := catalog.EnumerateBindings(decision.Model, available)
+	unfilteredBindings := indexedBindings
+	imagePrimaryExcluded := false
+	imageFiltered := false
+	if imageCount > 0 {
+		filtered := make([]catalog.IndexedBinding, 0, len(indexedBindings))
+		for _, binding := range indexedBindings {
+			if binding.AcceptsImageCount(imageCount) {
+				filtered = append(filtered, binding)
+				continue
+			}
+			imageFiltered = true
+			if binding.Provider == decision.Provider {
+				imagePrimaryExcluded = true
+			}
+		}
+		indexedBindings = filtered
+	}
+	if imageFiltered && len(indexedBindings) == 0 {
+		if isUserForcedReason(decision.Reason) {
+			indexedBindings = unfilteredBindings
+		} else {
+			return nil
+		}
+	} else {
+		primaryExcluded = primaryExcluded || imagePrimaryExcluded
+	}
 	bindings := make([]catalog.ProviderBinding, 0, len(indexedBindings))
 	for _, binding := range indexedBindings {
 		bindings = append(bindings, binding.ProviderBinding)

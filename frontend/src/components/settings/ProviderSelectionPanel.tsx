@@ -1,11 +1,13 @@
 "use client";
 
-import { EmptyHint, ErrorBanner } from "./shared";
-import { Button } from "@/components/molecules/Button";
-import { Card } from "@/components/molecules/Card";
-import { Appearance, Intent } from "@/components/types";
 import { api } from "@/lib/api";
+import { Button } from "@/shared/components/molecules/Button";
+import { Card } from "@/shared/components/molecules/Card";
+import { Appearance, Intent } from "@/shared/components/types";
+
 import { useEffect, useState } from "react";
+
+import { EmptyHint, ErrorBanner } from "./shared";
 
 export function ProviderSelectionPanel() {
   const [available, setAvailable] = useState<string[] | null>(null);
@@ -31,8 +33,7 @@ export function ProviderSelectionPanel() {
   }, []);
 
   const dirty =
-    excluded.size !== savedExcluded.size ||
-    Array.from(excluded).some(p => !savedExcluded.has(p));
+    excluded.size !== savedExcluded.size || Array.from(excluded).some(p => !savedExcluded.has(p));
 
   function toggle(provider: string) {
     if (envOverrideActive) return;
@@ -83,7 +84,9 @@ export function ProviderSelectionPanel() {
       <Card className="p-0">
         <Card.Content>
           {available.length === 0 ? (
-            <EmptyHint>No deployed providers. Check ROUTER_CLUSTER_VERSION and provider keys.</EmptyHint>
+            <EmptyHint>
+              No deployed providers. Check ROUTER_CLUSTER_VERSION and provider keys.
+            </EmptyHint>
           ) : (
             <ul className="space-y-1 px-5 py-3">
               {available.map(p => {
@@ -115,7 +118,7 @@ export function ProviderSelectionPanel() {
             onClick={save}
             disabled={!dirty || saving || envOverrideActive}
             intent={Intent.Primary}
-            appearance={Appearance.Filled}
+            appearance={Appearance.Tinted}
           >
             {saving ? "Saving…" : "Save"}
           </Button>

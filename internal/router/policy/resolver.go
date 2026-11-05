@@ -61,6 +61,8 @@ const (
 	ExclusionAmbiguousRoster ExclusionReason = "ambiguous_roster_id"
 	// ExclusionContextWindow means the estimated input cannot fit the model.
 	ExclusionContextWindow ExclusionReason = "context_window"
+	// ExclusionImageLimit means every available binding caps below the request image count.
+	ExclusionImageLimit ExclusionReason = "image_limit"
 	// ExclusionUnsignedHistory means the model cannot accept this request's unsigned tool-call history.
 	ExclusionUnsignedHistory ExclusionReason = "unsigned_history"
 	// ExclusionGatewayNotServed means the installation routes exclusively through
@@ -328,7 +330,8 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 		}
 		_, unsignedHistoryExcluded := req.UnsignedHistoryExcludedModels[id]
 		_, contextWindowExcluded := req.ContextWindowExcludedModels[id]
-		if _, excluded := req.ExcludedModels[id]; excluded && !unsignedHistoryExcluded && !contextWindowExcluded {
+		_, imageLimitExcluded := req.ImageLimitExcludedModels[id]
+		if _, excluded := req.ExcludedModels[id]; excluded && !unsignedHistoryExcluded && !contextWindowExcluded && !imageLimitExcluded {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionRequested})
 			continue
 		}
@@ -345,6 +348,10 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionContextWindow})
 			continue
 		}
+		if imageLimitExcluded {
+			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionImageLimit})
+			continue
+		}
 		contextWindow := catalog.ContextWindowFor(id)
 		if exceedsContextWindow(req, id, contextWindow) {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionContextWindow})
@@ -355,6 +362,11 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			allowedBindings := gatewayBindings(id, gateways, req.CustomBindings)
 			if len(allowedBindings) == 0 {
 				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionGatewayNotServed})
+				continue
+			}
+			allowedBindings = imageEligibleBindings(allowedBindings, req.ImageCount)
+			if len(allowedBindings) == 0 {
+				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionImageLimit})
 				continue
 			}
 			base = r.appendCandidates(base, candidateContext{
@@ -380,6 +392,11 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 				reason = ExclusionProviderPolicy
 			}
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: reason})
+			continue
+		}
+		allowedBindings = imageEligibleBindings(allowedBindings, req.ImageCount)
+		if len(allowedBindings) == 0 {
+			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionImageLimit})
 			continue
 		}
 
@@ -440,6 +457,19 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 		}
 	}
 	return resolved
+}
+
+func imageEligibleBindings(bindings []catalog.IndexedBinding, imageCount int) []catalog.IndexedBinding {
+	if imageCount <= 0 {
+		return bindings
+	}
+	filtered := make([]catalog.IndexedBinding, 0, len(bindings))
+	for _, binding := range bindings {
+		if binding.AcceptsImageCount(imageCount) {
+			filtered = append(filtered, binding)
+		}
+	}
+	return filtered
 }
 
 // BindingForSelection resolves a sidecar selection by arm ID first, then

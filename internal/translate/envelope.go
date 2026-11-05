@@ -335,21 +335,23 @@ func anthropicToolShapeFromOpenAI(tools gjson.Result) []byte {
 	return jw.Bytes()
 }
 
-// HasImages reports whether any message carries image content. Used to keep
-// such turns off text-only models, which 4xx on image parts (e.g. GLM-5.1).
-// Checks the whole history since clients like Cursor re-send earlier
-// screenshots on every turn.
-func (e *RequestEnvelope) HasImages() bool {
+// ImageCount counts image parts across the whole history.
+func (e *RequestEnvelope) ImageCount() int {
 	switch e.format {
 	case FormatAnthropic:
-		return anthropicHasImages(e.body)
+		return anthropicImageCount(e.body)
 	case FormatOpenAI:
-		return openAIHasImages(e.body)
+		return openAIImageCount(e.body)
 	case FormatGemini:
-		return geminiHasImages(e.body)
+		return geminiImageCount(e.body)
 	default:
-		return false
+		return 0
 	}
+}
+
+// HasImages reports whether any message carries image content.
+func (e *RequestEnvelope) HasImages() bool {
+	return e.ImageCount() > 0
 }
 
 // RequestsTitleSchema reports whether the request asks for a JSON-schema response

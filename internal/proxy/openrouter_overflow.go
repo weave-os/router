@@ -81,6 +81,9 @@ func (s *Service) openRouterOverflowBindings(ctx context.Context, target router.
 	if !ok {
 		return nil
 	}
+	if !binding.AcceptsImageCount(requestImageCountFromContext(ctx)) {
+		return nil
+	}
 	if _, excluded := s.excludedProvidersForRequest(ctx)[providers.ProviderOpenRouter]; excluded {
 		return nil
 	}
