@@ -32,6 +32,8 @@ type runtimeStore struct {
 	stateErr             error
 	extendErr            error
 	extendCount          atomic.Int32
+	rejections           map[string]auth.SubscriptionCredentialRejection
+	rejectionReasons     map[string]string
 }
 
 // ListSubscriptionCandidates mirrors the candidate SQL: every subscriber-assigned
@@ -48,6 +50,8 @@ func (s *runtimeStore) ListSubscriptionCandidates(_ context.Context, owner auth.
 			continue
 		}
 		copied := *account
+		_, hasAccessToken := s.accessTokens[account.ID]
+		copied.AccessTokenMissing = !hasAccessToken
 		if account.SubscriberID == owner.SubscriberID {
 			copied.Tier = auth.SubscriptionTierPersonal
 			personal = append(personal, &copied)
@@ -189,6 +193,7 @@ func (s *runtimeStore) PersistSubscriptionTokens(_ context.Context, _ auth.Subsc
 	delete(s.leaseIDs, accountID)
 	delete(s.leaseUntil, accountID)
 	s.rotatedTokens[accountID] = append([]byte(nil), refreshToken...)
+	delete(s.rejectionReasons, accountID)
 	return nil
 }
 
@@ -422,6 +427,7 @@ func TestRuntimeTakesOverExpiredRefreshLease(t *testing.T) {
 	store.refreshTokens["account-1"] = []byte("refresh-old")
 	store.leaseIDs["account-1"] = "expired-holder"
 	store.leaseUntil["account-1"] = time.Now().Add(-time.Second)
+	seedSustainedRejections(store, "account-1")
 	var refreshes atomic.Int32
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		refreshes.Add(1)
@@ -462,12 +468,13 @@ func TestRuntimeDoesNotDisableAfterStaleTerminalRefresh(t *testing.T) {
 	lease.Release()
 }
 
-func TestRuntimeDisablesTerminallyRejectedAccount(t *testing.T) {
+func TestRuntimeDisablesAccountAfterSustainedRefreshRejections(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
 		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude,
 		ExternalAccountID: "claude-1", Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("rejected")
+	seedSustainedRejections(store, "account-1")
 	refresher := runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: 401}
 	})
@@ -500,6 +507,7 @@ func TestRuntimePreservesTerminalClassificationWhenStatePersistenceFails(t *test
 		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-secret")
+	seedSustainedRejections(store, "account-1")
 	store.stateErr = errors.New("database unavailable")
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: 401}
@@ -877,6 +885,7 @@ func TestRuntimeTakeoverTerminalRefreshDoesNotDisable(t *testing.T) {
 	store.refreshTokens["account-1"] = []byte("refresh-spent")
 	store.leaseIDs["account-1"] = "crashed-holder"
 	store.leaseUntil["account-1"] = time.Now().Add(-time.Second)
+	seedSustainedRejections(store, "account-1")
 	var refreshes atomic.Int32
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		refreshes.Add(1)
@@ -889,7 +898,7 @@ func TestRuntimeTakeoverTerminalRefreshDoesNotDisable(t *testing.T) {
 	require.True(t, present)
 	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
 	// First attempt took over and failed closed; the retry acquired cleanly and
-	// disabled with certainty. In-memory pool state must not have disabled after
+	// completed the strike that requires reconnect. In-memory pool state must not have disabled after
 	// the first attempt, or the second would never have run.
 	require.Equal(t, int32(2), refreshes.Load())
 	require.Contains(t, store.enabledUpdates, "account-1")
@@ -904,6 +913,7 @@ func TestRuntimeTakeoverTerminalRefreshAdoptsWinnerOnRetry(t *testing.T) {
 	store.refreshTokens["account-1"] = []byte("refresh-spent")
 	store.leaseIDs["account-1"] = "slow-holder"
 	store.leaseUntil["account-1"] = time.Now().Add(-time.Second)
+	seedSustainedRejections(store, "account-1")
 	var refreshes atomic.Int32
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		refreshes.Add(1)

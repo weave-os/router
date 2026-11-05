@@ -26,9 +26,10 @@ const (
 	// CapTemperatureUnsupported marks Anthropic models that reject the
 	// temperature parameter even though they accept other sampling controls.
 	CapTemperatureUnsupported ModelCapability = "temperature_unsupported"
-	// CapAssistantPrefillUnsupported marks models that 400 when the
-	// conversation ends on an assistant message.
-	CapAssistantPrefillUnsupported ModelCapability = "assistant_prefill_unsupported"
+	// CapAssistantPrefill marks models that accept a conversation ending on an
+	// assistant message (prefill); everything else, including unknown models,
+	// gets the trailing assistant turn dropped.
+	CapAssistantPrefill ModelCapability = "assistant_prefill"
 )
 
 // ModelGemini4Argon is the canonical Google Gemini 4 Argon model ID.
@@ -138,7 +139,7 @@ var (
 	// Fable 5.1, Opus 5.5, and Sonnet 5.5 additionally reject tool_choice
 	// any/tool ("not supported for this model"); opus-5 and fable-5 accept them.
 	anthropicAdaptiveFallbackAutoTools = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly)
-	anthropicExtended                  = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapExtendedThinking)
+	anthropicExtended                  = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapExtendedThinking, CapAssistantPrefill)
 )
 
 var (
@@ -186,7 +187,7 @@ var registry = map[string]ModelSpec{
 	"claude-opus-5-5": NewSpecWithReasoning(
 		ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true},
 		CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback,
-		CapAutoToolChoiceOnly, CapAssistantPrefillUnsupported,
+		CapAutoToolChoiceOnly,
 	),
 	// Sonnet 5.5 accepts xhigh, unlike Sonnet 5.
 	"claude-sonnet-5-5": anthropicAdaptiveFallbackAutoTools,
@@ -216,8 +217,8 @@ var registry = map[string]ModelSpec{
 		CapServerSideFallback,
 	),
 
-	"claude-sonnet-4-5": NewSpec(),
-	"claude-sonnet-4-0": NewSpec(),
+	"claude-sonnet-4-5": NewSpec(CapAssistantPrefill),
+	"claude-sonnet-4-0": NewSpec(CapAssistantPrefill),
 
 	"gpt-6-astra":     openaiAstra,
 	"gpt-6-sol":       openai6,

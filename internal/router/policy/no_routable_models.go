@@ -27,17 +27,25 @@ var ErrNoProviderCredentials = fmt.Errorf(
 // error and compacts rather than being told to change its configuration.
 var ErrContextWindowExceeded = errors.New("policy: request context exceeds every eligible model's window")
 
+// ErrImageLimitExceeded signals that no eligible binding can accept the
+// request's image count while preserving ErrNoRoutableModels matching.
+var ErrImageLimitExceeded = fmt.Errorf(
+	"policy: request images exceed every eligible model's per-request image limit: %w", ErrNoRoutableModels)
+
 // emptyCandidateError names why resolution produced no candidate, so the
 // caller reports the configuration that has to change rather than a generic
 // routing failure. Only a model diagnosed as excluded by size makes this a
 // context-window error; later request constraints can still empty an
 // overflow-admitted pool for an unrelated reason.
 func emptyCandidateError(diagnostics []Diagnostic) error {
-	if len(diagnostics) > 0 && !slices.ContainsFunc(diagnostics, func(d Diagnostic) bool { return d.Reason != ExclusionGatewayNotServed }) {
-		return ErrGatewayServesNoDeployedModel
-	}
 	if slices.ContainsFunc(diagnostics, func(d Diagnostic) bool { return d.Reason == ExclusionContextWindow }) {
 		return ErrContextWindowExceeded
+	}
+	if slices.ContainsFunc(diagnostics, func(d Diagnostic) bool { return d.Reason == ExclusionImageLimit }) {
+		return ErrImageLimitExceeded
+	}
+	if len(diagnostics) > 0 && !slices.ContainsFunc(diagnostics, func(d Diagnostic) bool { return d.Reason != ExclusionGatewayNotServed }) {
+		return ErrGatewayServesNoDeployedModel
 	}
 	if slices.ContainsFunc(diagnostics, isProviderExclusion) &&
 		!slices.ContainsFunc(diagnostics, func(d Diagnostic) bool {

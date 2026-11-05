@@ -252,7 +252,10 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 			return PreviewResult{}, fmt.Errorf("%s: preview returned duplicate roster id %q: %w", strategy, rosterID, r.config.Unavailable)
 		}
 		seen[rosterID] = struct{}{}
-		if _, offered := eligibleCandidates[rosterID]; !offered {
+		// The Go arm selector matches candidates by base ID and keeps the effort suffix
+		// (":high"); serving strips it the same way in BindingForSelection.
+		baseID, _ := splitEffort(rosterID)
+		if _, offered := eligibleCandidates[baseID]; !offered {
 			return PreviewResult{}, fmt.Errorf("%s: preview returned unknown roster id %q: %w", strategy, rosterID, r.config.Unavailable)
 		}
 	}

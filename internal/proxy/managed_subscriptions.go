@@ -106,6 +106,9 @@ func managedSubscriptionProviderFromUpstream(provider, model string) (subscripti
 }
 
 func managedSubscriptionEnrolled(ctx context.Context, provider subscriptions.Provider) bool {
+	if provider == subscriptions.ProviderClaude && anthropicBYOKConfigured(ctx) {
+		return false
+	}
 	if subscriptionAPIOnly(ctx) || subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
 		return false
 	}
@@ -193,6 +196,9 @@ func (s *Service) costNeutralSubscriptionServed(ctx context.Context) bool {
 }
 
 func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model string) (context.Context, subscriptions.Lease, bool, error) {
+	if provider == providers.ProviderAnthropic && anthropicBYOKConfigured(ctx) {
+		return ctx, subscriptions.Lease{}, false, nil
+	}
 	poolProvider, eligible := managedSubscriptionProviderFromUpstream(provider, model)
 	if eligible && managedSubscriptionEnrollmentUnavailable(ctx) {
 		if credentials := CredentialsFromContext(ctx); credentials != nil && credentials.OAuth && s.supportsSubscriptionTransport(provider) {
@@ -289,6 +295,12 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		}
 		if poolProvider == subscriptions.ProviderClaude && s.subscriptionModels.managedClientAppDenied(lease.AccountID, provider, ClientIdentityFrom(ctx).ClientApp, s.clockNow()) {
 			markSubscriptionClientAppRefused(ctx)
+			lease.Release()
+			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
+			continue
+		}
+		if s.subscriptionModels.managedDenied(managedOverloadOwner(lease.AccountID), lease.AccountID, provider, model, s.clockNow()) {
+			s.markSubscriptionPoolUnavailable(ctx, poolProvider)
 			lease.Release()
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 			continue
@@ -408,17 +420,30 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 			"provider", poolProvider, "account_id", lease.AccountID, "cooldown_until", resetAt)
 		return true
 	case http.StatusUnauthorized, http.StatusForbidden:
-		if err := reconnectManagedSubscription(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID); err != nil {
-			observability.FromContext(ctx).Error("Failed to disable rejected subscription account",
+		reconnect, err := rejectManagedSubscriptionCredential(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID, status)
+		if err != nil {
+			observability.FromContext(ctx).Error("Failed to record rejected subscription account",
 				"provider", poolProvider, "account_id", lease.AccountID, "err", err)
 		}
 		observability.FromContext(ctx).Warn("Subscription account credential rejected",
-			"provider", poolProvider, "account_id", lease.AccountID, "upstream_status", status)
+			"provider", poolProvider, "account_id", lease.AccountID, "upstream_status", status, "reconnect_required", reconnect)
 		return true
 	default:
+		if upstreamServerFailure(attemptErr) {
+			s.subscriptionModels.denyManaged(managedOverloadOwner(lease.AccountID), lease.AccountID, provider, model, s.clockNow().Add(managedOverloadCooldown))
+			observability.FromContext(ctx).Warn("Managed subscription account overloaded; skipping it briefly",
+				"provider", poolProvider, "account_id", lease.AccountID, "model", model, "upstream_status", status, "cooldown", managedOverloadCooldown)
+		}
 		return false
 	}
 }
+
+// managedOverloadCooldown keeps later requests off an account+model the
+// provider just answered with a 5xx, so each turn does not re-walk the same
+// overloaded seats. In-memory only: an overload says nothing about the login.
+const managedOverloadCooldown = 30 * time.Second
+
+func managedOverloadOwner(accountID string) string { return "overload:" + accountID }
 
 func recordManagedQuotaProof(ctx context.Context, accountID string, resetAt time.Time) {
 	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
@@ -494,6 +519,15 @@ func (s *Service) recordManagedSubscriptionSuccess(ctx context.Context, provider
 		observability.FromContext(ctx).Error("Failed to mark subscription account active",
 			"provider", poolProvider, "account_id", lease.AccountID, "err", err)
 	}
+}
+
+func rejectManagedSubscriptionCredential(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, accountID string, upstreamStatus int) (bool, error) {
+	if rejector, ok := leaser.(interface {
+		RejectCredential(context.Context, auth.SubscriptionOwner, subscriptions.Provider, string, int) (bool, error)
+	}); ok {
+		return rejector.RejectCredential(ctx, owner, provider, accountID, upstreamStatus)
+	}
+	return true, reconnectManagedSubscription(ctx, leaser, owner, provider, accountID)
 }
 
 func reconnectManagedSubscription(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, accountID string) error {
@@ -601,7 +635,9 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 			continue
 		}
 		entry, known := catalog.ByID(model)
-		if !known || entry.Tier < selectedEntry.Tier || req.HasTools && (entry.ToolUseQuality == catalog.ToolUseLow || entry.AgenticUse == catalog.AgenticLow) || req.HasImages && entry.ImageInput == catalog.ImageInputUnsupported {
+		if !known || entry.Tier < selectedEntry.Tier || req.HasTools && (entry.ToolUseQuality == catalog.ToolUseLow || entry.AgenticUse == catalog.AgenticLow) ||
+			req.HasImages && entry.ImageInput == catalog.ImageInputUnsupported ||
+			req.ImageCount > 0 && !catalog.AcceptsImageCount(model, req.ImageCount, req.EnabledProviders) {
 			continue
 		}
 		if entry.ContextWindow > 0 && req.EstimatedInputTokens > entry.ContextWindow {

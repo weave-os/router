@@ -27,6 +27,16 @@ func TestClassifyDispatchError_UnknownErrorIsUnmatched(t *testing.T) {
 	assert.False(t, ok, "an error not matching any known sentinel must not be classified")
 }
 
+func TestClassifyDispatchError_ImageLimitExceeded(t *testing.T) {
+	err := fmt.Errorf("route: %w", policy.ErrImageLimitExceeded)
+	classification, ok := proxy.ClassifyDispatchError(err)
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorImageLimitExceeded, classification.Kind)
+	assert.Equal(t, http.StatusBadRequest, classification.Status)
+	assert.True(t, classification.Kind.IsClientError())
+	assert.Equal(t, "Request image count exceeds every eligible model's limit", classification.LogMessage)
+}
+
 func TestClassifyDispatchError_SubscriptionPoolFailures(t *testing.T) {
 	tests := []struct {
 		name       string

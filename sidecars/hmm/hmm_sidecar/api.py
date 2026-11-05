@@ -72,10 +72,14 @@ async def load_policies(
     """
     policies: dict[str, FrozenPolicy | PackagePolicy] = {}
     probed: dict[tuple[object, ...], tuple[Embedder, float]] = {}
+    package_probes = 0
     similarity = None
     for package_sha256, artifacts in registry.by_sha256.items():
         if artifacts.package_manifest is not None:
-            policies[package_sha256] = PackagePolicy(artifacts)
+            package_policy = PackagePolicy(artifacts)
+            await package_policy.runtime.verify_embedding_config()
+            policies[package_sha256] = package_policy
+            package_probes += 1
             continue
         key = _probe_key(artifacts)
         if key not in probed:
@@ -94,7 +98,7 @@ async def load_policies(
         raise RuntimeError("artifact registry default is not among its packages")
     log.info(
         "HMM sidecar probed %d embedding contract(s) for %d package(s)",
-        len(probed),
+        len(probed) + package_probes,
         len(policies),
     )
     return policies, similarity

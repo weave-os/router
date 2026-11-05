@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import math
 import os
@@ -11,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 
 from hmm_sidecar.artifacts import is_classifier_package_manifest
 from hmm_sidecar.classifier_package.agent_flow_sidecar import (
@@ -18,6 +20,11 @@ from hmm_sidecar.classifier_package.agent_flow_sidecar import (
     AgentFlowHMMSidecar,
 )
 from hmm_sidecar.classifier_package.complexity_classifier import ComplexityClassifier
+from hmm_sidecar.classifier_package import openai_compatible_embeddings
+from hmm_sidecar.classifier_package.gemini_embeddings import (
+    EmbeddingError,
+    resolve_gemini_transport,
+)
 from hmm_sidecar.classifier_package.hmm_feature_arms import ElementLookbackSource
 from hmm_sidecar.classifier_package.live_sequence import (
     DEFAULT_LIVE_FLOW_MAX_ELEMENTS,
@@ -33,6 +40,7 @@ from hmm_sidecar.classifier_package.runtime_contract import (
     parse_runtime_contract,
 )
 from hmm_sidecar.classifier_package.serving_profile import (
+    EmbeddingProvider,
     validate_configured_hmm_bundle,
 )
 from hmm_sidecar.classifier_package.route_selector import ComplexityRouteSelector
@@ -46,6 +54,11 @@ from hmm_sidecar.classifier_package.serving_features import current_text_has_too
 from hmm_sidecar.inference_deadline import LastReadoutStore, infer_within_deadline
 
 EMBEDDING_BATCH_SIZE = 8
+EMBEDDING_PROBE_TEXT = "Weave Router embedding probe"
+REFERENCE_PROBE_MIN_COSINE = 0.999
+OPENAI_COMPATIBLE_PROVIDER = openai_compatible_embeddings.PROVIDER
+# Unset keeps the pre-existing Gemini deployments valid.
+GEMINI_PROVIDER_SETTINGS = ("", "google", "gemini")
 
 
 @dataclass(frozen=True)
@@ -151,7 +164,7 @@ def _posterior_diagnostics(readout: Any) -> dict[str, Any]:
 
 
 class PackageClassifier:
-    """Raw-V5 live sequence -> Gemini embeddings -> HMM -> complexity classifier."""
+    """Raw-V5 live sequence -> package's embedding model -> HMM -> complexity classifier."""
 
     def __init__(
         self,
@@ -199,7 +212,17 @@ class PackageClassifier:
             # joins it, so later requests fetch anew instead of inheriting it.
             embedding_inflight_max_age_seconds=options.infer_deadline_seconds,
             offload_posterior=True,
+            embed_uncached=(
+                functools.partial(
+                    openai_compatible_embeddings.embed_texts_uncached,
+                    expected_dim=profile.embedding_dim,
+                )
+                if profile.config.provider is EmbeddingProvider.OPENAI_COMPATIBLE
+                else None
+            ),
+            state_encoder_contract=profile.state_encoder_contract,
         )
+        self.reference_probes = contract.reference_probes
         self.infer_deadline_seconds = options.infer_deadline_seconds
         self.last_readouts = LastReadoutStore(
             weigh=lambda readout: sum(len(row) for row in readout.hmm.embedding_prefix),
@@ -229,6 +252,82 @@ class PackageClassifier:
     @property
     def classes(self) -> tuple[str, ...]:
         return tuple(self.classifier.classes)
+
+    async def verify_embedding_config(self) -> None:
+        """Embed probes at boot so bad credentials, a different embedding model
+        or a wrong endpoint fail readiness instead of every route."""
+        model = self.profile.embedding_model
+        embedding_dim = self.profile.embedding_dim
+        endpoint = self._validated_embedding_endpoint_label()
+        probe_texts = [probe.text for probe in self.reference_probes] or [
+            EMBEDDING_PROBE_TEXT
+        ]
+        probe_error_prefix = (
+            f"embedding probe for package model {model!r} over {endpoint}"
+        )
+        try:
+            vectors = await self.hmm.probe_embeddings(probe_texts)
+        except Exception as error:
+            raise EmbeddingError(
+                f"{probe_error_prefix} failed: {type(error).__name__}: {error}"
+            ) from error
+        for vector in vectors:
+            probe_values = np.asarray(vector, dtype=np.float64)
+            if probe_values.shape != (embedding_dim,):
+                raise EmbeddingError(
+                    f"{probe_error_prefix} returned {probe_values.size} dimensions; the"
+                    f" package was trained on {embedding_dim}"
+                )
+            if not np.all(np.isfinite(probe_values)) or not np.any(probe_values):
+                raise EmbeddingError(
+                    f"{probe_error_prefix} returned a zero or non-finite vector"
+                )
+        for probe, vector in zip(self.reference_probes, vectors, strict=False):
+            live = np.asarray(vector, dtype=np.float64)
+            reference = np.asarray(probe.vector, dtype=np.float64)
+            cosine = float(
+                live @ reference / (np.linalg.norm(live) * np.linalg.norm(reference))
+            )
+            if not math.isfinite(cosine) or cosine < REFERENCE_PROBE_MIN_COSINE:
+                raise EmbeddingError(
+                    f"{probe_error_prefix} does not reproduce the package's reference"
+                    f" vectors (cosine {cosine:.4f} < {REFERENCE_PROBE_MIN_COSINE})"
+                )
+
+    def _validated_embedding_endpoint_label(self) -> str:
+        """Name the configured endpoint, or fail if it is not the package's provider."""
+        model = self.profile.embedding_model
+        configured_provider = (
+            os.environ.get("HMM_EMBEDDING_PROVIDER", "").strip().lower()
+        )
+        if self.profile.config.provider is EmbeddingProvider.GEMINI:
+            if configured_provider not in GEMINI_PROVIDER_SETTINGS:
+                raise EmbeddingError(
+                    f"package model {model!r} is served by Gemini, but"
+                    f" HMM_EMBEDDING_PROVIDER is {configured_provider!r}"
+                )
+            configured_transport = (
+                os.environ.get("HMM_GEMINI_TRANSPORT", "").strip() or "auto"
+            )
+            try:
+                return f"transport {resolve_gemini_transport().value!r}"
+            except EmbeddingError as error:
+                raise EmbeddingError(
+                    f"embedding probe for package model {model!r} over transport"
+                    f" {configured_transport!r} failed: {error}"
+                ) from error
+        if configured_provider != OPENAI_COMPATIBLE_PROVIDER:
+            raise EmbeddingError(
+                f"package model {model!r} needs HMM_EMBEDDING_PROVIDER="
+                f"{OPENAI_COMPATIBLE_PROVIDER}, got {configured_provider or 'unset'!r}"
+            )
+        configured_model = os.environ.get("HMM_EMBEDDING_MODEL", "").strip()
+        if configured_model != model:
+            raise EmbeddingError(
+                f"HMM_EMBEDDING_MODEL {configured_model or 'unset'!r} is not the"
+                f" package's embedding model {model!r}"
+            )
+        return f"provider {OPENAI_COMPATIBLE_PROVIDER!r}"
 
     async def classify(
         self, payload: dict[str, Any], *, session_id: str | None = None

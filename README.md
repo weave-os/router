@@ -47,6 +47,10 @@ For example, to switch Codex back to its previous provider, run
 or `--uninstall --codex` to remove the configuration. See the [installation guide](install/README.md) for
 what changes for each tool, project-level setup, and all available options.
 
+For client-specific setup, connection checks, switching back, and uninstall, see the
+[Router quickstart](https://weaveos.com/router/quickstart), [Claude Code guide](https://weaveos.com/router/claude-code),
+and [Codex CLI guide](https://weaveos.com/router/codex).
+
 ## Run it yourself
 
 You'll need Docker, Go 1.26 or later, a provider API key, and a local checkout.

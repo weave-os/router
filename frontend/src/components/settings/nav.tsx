@@ -1,10 +1,9 @@
-import { KeyRound, Plug, SlidersHorizontal } from "lucide-react";
-import { type ReactNode } from "react";
+import { type IconType } from "@/shared/components/atoms/Icon";
 
 export interface SettingsNavItem {
   href: string;
   label: string;
-  icon: ReactNode;
+  icon: IconType;
 }
 
 /**
@@ -13,9 +12,9 @@ export interface SettingsNavItem {
  * and uninstall are hosted-only, so self-hosted stops at three tabs.
  */
 export const SETTINGS_NAV: SettingsNavItem[] = [
-  { href: "/settings", label: "General", icon: <KeyRound size={16} /> },
-  { href: "/settings/providers", label: "Provider keys", icon: <Plug size={16} /> },
-  { href: "/settings/models", label: "Models & routing", icon: <SlidersHorizontal size={16} /> },
+  { href: "/settings", label: "General", icon: "Key" },
+  { href: "/settings/providers", label: "Provider keys", icon: "Server" },
+  { href: "/settings/models", label: "Models & routing", icon: "SlidersHorizontal" },
 ];
 
 export function settingsNavItem(href: string): SettingsNavItem {

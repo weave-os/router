@@ -597,7 +597,7 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 		return nil, false
 	}
 	textParts := make([]string, 0, len(content.Array()))
-	hasPlainText := false
+	hasPlainText, encrypted := false, false
 	for index, part := range content.Array() {
 		partPath := path + ".content." + strconv.Itoa(index)
 		switch part.Get("type").Str {
@@ -609,7 +609,7 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 			// Unlike a reasoning digest, plaintext here can be only the delivery
 			// header. The encrypted block contains the task itself.
 			c.markNativeOnly("responses_agent_message_native_only", partPath)
-			return nil, false
+			encrypted = true
 		default:
 			c.markNativeOnly("responses_agent_message_native_only", partPath)
 			return nil, false
@@ -618,6 +618,12 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 	if !hasPlainText {
 		c.markNativeOnly("responses_agent_message_native_only", path)
 		return nil, false
+	}
+	if encrypted {
+		// Native-only dispatch forwards the original bytes, so this header
+		// (message type and task name) only feeds routing features.
+		c.report("responses_agent_message_header_projected", "projected", path)
+		return map[string]any{"role": EscalationRoleUser, "content": strings.TrimSpace(strings.Join(textParts, "\n"))}, true
 	}
 	c.report("responses_agent_message_projected", "projected", path)
 	// This is communication delivered to the receiving agent, not its own

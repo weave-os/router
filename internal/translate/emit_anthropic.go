@@ -74,7 +74,7 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, fmt.Errorf("normalize anthropic final assistant: %w", err)
 	}
-	if opts.Capabilities.Supports(router.CapAssistantPrefillUnsupported) {
+	if !opts.Capabilities.Supports(router.CapAssistantPrefill) {
 		body, err = dropAnthropicFinalAssistant(body)
 		if err != nil {
 			return providers.PreparedRequest{}, fmt.Errorf("drop anthropic final assistant: %w", err)
@@ -944,8 +944,8 @@ func containsAnthropicSystemOnlyContentBlocks(body []byte) bool {
 // (Anthropic's API 400s on them after a mid-session model switch). Only the
 // leading run is hoisted; mid-conversation ones are rewritten as user messages
 // in place to keep the cached prefix stable. Message-scoped output_config is
-// moved to the request-level field before demotion so role-specific options are
-// not left on a user message.
+// moved to the request-level field and system-only clear_at is dropped before
+// demotion, since Anthropic 400s on either field on a user message.
 func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
@@ -982,6 +982,13 @@ func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 				}
 				if config.Type != gjson.Null && hoistedOutputConfig == "" {
 					hoistedOutputConfig = config.Raw
+				}
+			}
+			if gjson.GetBytes(demoted, "clear_at").Exists() {
+				var err error
+				demoted, err = sjson.DeleteBytes(demoted, "clear_at")
+				if err != nil {
+					return nil, fmt.Errorf("remove demoted system clear_at: %w", err)
 				}
 			}
 			demoted, err := sjson.SetBytes(demoted, "role", "user")

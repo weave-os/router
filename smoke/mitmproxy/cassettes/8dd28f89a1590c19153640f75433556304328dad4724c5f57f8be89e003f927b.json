@@ -7,13 +7,13 @@
     "Cf-Cache-Status": "DYNAMIC",
     "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
     "Content-Type": "application/json",
-    "Date": "Tue, 03 Nov 2026 07:26:03 GMT",
+    "Date": "Thu, 05 Nov 2026 07:26:22 GMT",
     "Server": "cloudflare",
-    "Server-Timing": "x-originResponse;dur=736",
+    "Server-Timing": "x-originResponse;dur=913",
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
-    "Traceresponse": "00-ff3d6e16df0e8de1a3ea311e13cfe0b0-c1e3804fc9ac73aa-01",
+    "Traceresponse": "00-5ccce197cb8beb5f64489b903c4ec6a1-16e2e23afe2773e5-01",
     "Vary": "Accept-Encoding",
     "X-Robots-Tag": "none"
   },
-  "body": "{\"model\":\"claude-opus-5\",\"id\":\"msg_011Cgfbb9pDaA98LuqBdRXY3\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"container\":null,\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":12657,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":12657,\"ephemeral_1h_input_tokens\":0},\"iterations\":[{\"input_tokens\":2,\"output_tokens\":4,\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":12657,\"cache_creation\":{\"ephemeral_5m_input_tokens\":12657,\"ephemeral_1h_input_tokens\":0},\"type\":\"message\",\"model\":null}],\"output_tokens\":4,\"output_tokens_details\":{\"thinking_tokens\":0},\"service_tier\":\"standard\",\"inference_geo\":\"global\",\"speed\":\"standard\"},\"diagnostics\":null}"
+  "body": "{\"model\":\"claude-opus-5\",\"id\":\"msg_011CgjPENzWwJvduY7axTwjA\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],\"container\":null,\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"stop_details\":null,\"usage\":{\"input_tokens\":2,\"cache_creation_input_tokens\":12657,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":12657,\"ephemeral_1h_input_tokens\":0},\"iterations\":[{\"input_tokens\":2,\"output_tokens\":4,\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":12657,\"cache_creation\":{\"ephemeral_5m_input_tokens\":12657,\"ephemeral_1h_input_tokens\":0},\"type\":\"message\",\"model\":null}],\"output_tokens\":4,\"output_tokens_details\":{\"thinking_tokens\":0},\"service_tier\":\"standard\",\"inference_geo\":\"global\",\"speed\":\"standard\"},\"diagnostics\":null}"
 }

@@ -1,8 +1,10 @@
 "use client";
 
-import { Button } from "@/components/molecules/Button";
-import { Appearance } from "@/components/types";
+import { Button } from "@/shared/components/molecules/Button";
+import { Appearance } from "@/shared/components/types";
+
 import { Check, Copy } from "lucide-react";
+
 import { useState } from "react";
 
 interface CopyBlockProps {
@@ -38,7 +40,7 @@ export function CopyBlock({ value, title }: CopyBlockProps) {
         <code>{value}</code>
       </pre>
       <Button
-        appearance={Appearance.Outlined}
+        appearance={Appearance.Hollow}
         size="sm"
         onClick={handleCopy}
         title={title ?? "Copy"}
