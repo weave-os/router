@@ -41,7 +41,7 @@ type preludeBuffer struct {
 	sealed         bool
 	preludeSent    bool
 	committed      atomic.Bool
-	commitOutput   func([]byte) bool
+	isCommitEvent  func([]byte) bool
 	held           bytes.Buffer
 	pending        []byte
 	// onDiscard lets a writer holding output above this buffer drop it with
@@ -68,7 +68,7 @@ func (b *preludeBuffer) Write(p []byte) (int, error) {
 		return sse.WriteJSONChunk(b.inner, p)
 	}
 	if b.sealed {
-		if b.commitOutput != nil && !b.Committed() {
+		if b.isCommitEvent != nil && !b.Committed() {
 			return b.writeCommitOnOutput(p)
 		}
 		// Post-Seal first write: commit buffered prelude, then pass through.
@@ -151,7 +151,8 @@ func (b *preludeBuffer) Discard() {
 	b.bufStatus = 0
 	b.bufBody.Reset()
 	b.sealed = false
-	b.discardCommitOnOutput()
+	b.held.Reset()
+	b.pending = nil
 	if b.preludeSent {
 		return
 	}

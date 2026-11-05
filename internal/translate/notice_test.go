@@ -78,6 +78,29 @@ func TestStreamEventCommitsOutput(t *testing.T) {
 			event:  `data: {"choices":[{"delta":{"content":"hello"},"finish_reason":null}]}` + "\n\n",
 			want:   true,
 		},
+		{
+			name:   "OpenAI refusal",
+			format: translate.FormatOpenAI,
+			event:  `data: {"choices":[{"delta":{"refusal":"blocked"},"finish_reason":null}]}` + "\n\n",
+			want:   true,
+		},
+		{
+			name:   "OpenAI refusal null",
+			format: translate.FormatOpenAI,
+			event:  `data: {"choices":[{"delta":{"refusal":null},"finish_reason":null}]}` + "\n\n",
+		},
+		{
+			name:   "OpenAI legacy function_call",
+			format: translate.FormatOpenAI,
+			event:  `data: {"choices":[{"delta":{"function_call":{"name":"tool","arguments":"{}"}},"finish_reason":null}]}` + "\n\n",
+			want:   true,
+		},
+		{
+			name:   "OpenAI audio",
+			format: translate.FormatOpenAI,
+			event:  `data: {"choices":[{"delta":{"audio":{"data":"abc"}},"finish_reason":null}]}` + "\n\n",
+			want:   true,
+		},
 		{name: "OpenAI done", format: translate.FormatOpenAI, event: "data: [DONE]\n\n", want: true},
 		{
 			name:   "OpenAI error",
