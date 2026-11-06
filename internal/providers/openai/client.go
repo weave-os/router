@@ -22,6 +22,7 @@ import (
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"golang.org/x/net/http/httpguts"
 )
 
 const DefaultBaseURL = "https://api.openai.com"
@@ -40,6 +41,7 @@ const (
 	codexOpenAIBetaValue  = "responses=experimental"
 	codexOriginatorHeader = "originator"
 	codexOriginatorValue  = "codex_cli_rs"
+	codexSessionIDHeader  = "Session-Id"
 	codexUserAgentHeader  = "User-Agent"
 	codexUserAgentValue   = "codex_cli_rs"
 )
@@ -103,9 +105,10 @@ func codexSubscriptionCreds(ctx context.Context) *requestcontext.Credentials {
 const responseHeaderTimeout = 120 * time.Second
 
 type Client struct {
-	apiKey  string
-	baseURL string
-	http    *http.Client
+	allowCodexExtraCredits bool
+	apiKey                 string
+	baseURL                string
+	http                   *http.Client
 	// modelIDMap rewrites routed catalog IDs to the upstream model IDs.
 	modelIDMap map[string]string
 	// sseIdleTimeout, when > 0, overrides the per-endpoint idle-progress
@@ -129,6 +132,10 @@ func NewClient(apiKey, baseURL string) *Client {
 func NewClientWithModelIDMap(apiKey, baseURL string, modelIDMap map[string]string) *Client {
 	return newClientWithModelIDMap(apiKey, baseURL, responseHeaderTimeout, modelIDMap)
 }
+
+// SetCodexExtraCreditsAllowed enables use of available ChatGPT subscription credits.
+// Configure before serving requests; it does not enable OpenAI API fallback.
+func (c *Client) SetCodexExtraCreditsAllowed(allowed bool) { c.allowCodexExtraCredits = allowed }
 
 // SetCodexBaseURL overrides the Codex subscription endpoint for local testing.
 func (c *Client) SetCodexBaseURL(baseURL string) {
@@ -293,10 +300,20 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		path = "/v1/responses"
 	}
 	reqBody := rewriteModelField(prep.Body, c.modelIDMap)
+	collectCodexResponse := false
 	if useCodex {
 		baseURL = c.codexBaseURL
 		path = codexResponsesPath
 		reqBody = stripCodexUnsupportedParams(reqBody)
+		if !gjson.GetBytes(reqBody, "stream").Bool() {
+			// The Codex backend 400s unless stream is true.
+			streamed, err := sjson.SetBytes(reqBody, "stream", true)
+			if err != nil {
+				return fmt.Errorf("force Codex stream: %w", err)
+			}
+			reqBody = streamed
+			collectCodexResponse = true
+		}
 	} else if prep.Endpoint == providers.EndpointResponses {
 		// Only the direct api.openai.com Responses path needs the clamp; the
 		// Codex backend branch above understands "max" natively.
@@ -323,12 +340,20 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	if v := r.Header.Get("Accept"); v != "" {
 		upstream.Header.Set("Accept", v)
 	}
+	if collectCodexResponse {
+		upstream.Header.Set("Accept", "text/event-stream")
+	}
 	// Set after the prep.Headers copy so these can't be clobbered.
 	if useCodex {
 		upstream.Header.Set(codexAccountIDHeader, string(codexCreds.AccountID))
 		upstream.Header.Set(codexOpenAIBetaHeader, codexOpenAIBetaValue)
 		upstream.Header.Set(codexOriginatorHeader, codexOriginatorValue)
 		upstream.Header.Set(codexUserAgentHeader, codexUserAgentValue)
+		// Codex uses session-id for cache affinity; the API body hint alone is insufficient.
+		affinity := requestcontext.NormalizeClientIdentifier(gjson.GetBytes(reqBody, "prompt_cache_key").String())
+		if affinity != "" && httpguts.ValidHeaderFieldValue(affinity) {
+			upstream.Header.Set(codexSessionIDHeader, affinity)
+		}
 	}
 
 	t := timing.TimingFrom(ctx)
@@ -395,6 +420,11 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		}
 	}
 
+	var collector *codexResponseCollector
+	if collectCodexResponse {
+		collector = newCodexResponseCollector(w)
+		w = collector
+	}
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	status := resp.StatusCode
@@ -468,6 +498,9 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	}
 	if streamErr == nil && terminalResponseError != nil {
 		streamErr = terminalResponseError
+	}
+	if streamErr == nil && collector != nil {
+		streamErr = collector.finish()
 	}
 	switch {
 	case errors.Is(streamErr, httputil.ErrUpstreamIdleTimeout), errors.Is(streamErr, httputil.ErrUpstreamOutputStall):

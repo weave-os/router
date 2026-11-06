@@ -48,6 +48,23 @@ func TestResponsesToChatCompletions_InstructionsAndInput(t *testing.T) {
 	assert.Equal(t, "hi", messages[1].Get("content").Str)
 }
 
+func TestResponsesToChatCompletions_ImageCount(t *testing.T) {
+	body := []byte(`{
+		"model": "gpt-5",
+		"input": [{"type":"message","role":"user","content":[
+			{"type":"input_image","image_url":"https://example.test/one.png"},
+			{"type":"input_image","image_url":"https://example.test/two.png"}
+		]}]
+	}`)
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{
+		PortableCodex: true,
+	})
+	require.NoError(t, err)
+	env, err := translate.ParseOpenAI(converted.Body)
+	require.NoError(t, err)
+	assert.Equal(t, 2, env.ImageCount())
+}
+
 func TestResponsesToChatCompletions_FunctionCallRoundTrip(t *testing.T) {
 	// Codex re-sends prior tool calls + their outputs in the input array.
 	body := []byte(`{
@@ -488,7 +505,10 @@ func TestResponsesWriter_NativePreludeFallbackAndFailureStaySequenced(t *testing
 	assert.Equal(t, "failed", failed["status"])
 	assert.Equal(t, "claude-opus-4-8", failed["model"])
 	output := failed["output"].([]any)
-	content := output[0].(map[string]any)["content"].([]any)
+	require.Len(t, output, 2)
+	initialContent := output[0].(map[string]any)["content"].([]any)
+	assert.Contains(t, initialContent[0].(map[string]any)["text"], "initial decision")
+	content := output[1].(map[string]any)["content"].([]any)
 	assert.Contains(t, content[0].(map[string]any)["text"], "fallback decision")
 }
 

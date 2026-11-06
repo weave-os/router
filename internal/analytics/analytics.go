@@ -62,6 +62,9 @@ type Decision struct {
 	StickyHit          bool  `json:"sticky_hit"`
 	FailoverUsed       bool  `json:"failover_used"`
 	CrossFormat        bool  `json:"cross_format"`
+	// ErrorClass and FailureOwner are null on a normal completion.
+	ErrorClass   *string `json:"error_class"`
+	FailureOwner *string `json:"failure_owner"`
 
 	EstimatedInputTokens *int64 `json:"estimated_input_tokens"`
 	InputTokens          *int64 `json:"input_tokens"`
@@ -69,9 +72,11 @@ type Decision struct {
 	CacheCreationTokens  *int64 `json:"cache_creation_tokens"`
 	CacheReadTokens      *int64 `json:"cache_read_tokens"`
 	// CacheCreation1hTokens is the 1-hour-TTL share of CacheCreationTokens.
-	CacheCreation1hTokens *int64  `json:"cache_creation_1h_tokens"`
-	Speed                 *string `json:"speed"`
-	InferenceGeo          *string `json:"inference_geo"`
+	CacheCreation1hTokens *int64 `json:"cache_creation_1h_tokens"`
+	// ReasoningTokens is the reasoning share already counted inside OutputTokens.
+	ReasoningTokens *int64  `json:"reasoning_tokens"`
+	Speed           *string `json:"speed"`
+	InferenceGeo    *string `json:"inference_geo"`
 
 	// SubscriptionServed turns use included personal or shared quota; Actual* export as $0 while token counts stay real.
 	SubscriptionServed    bool                   `json:"subscription_served"`
@@ -84,6 +89,10 @@ type Decision struct {
 	// Actual* price the served turn; counterfactual not exported — consumers reprice via RequestedModel + /v1/analytics/models.
 	ActualInputCostUSD  *float64 `json:"actual_input_cost_usd"`
 	ActualOutputCostUSD *float64 `json:"actual_output_cost_usd"`
+	// APIRate* price the served turn at API rates even when SubscriptionServed, so
+	// evaluations can compare model usage cost regardless of who paid for it.
+	APIRateInputCostUSD  *float64 `json:"api_rate_input_cost_usd"`
+	APIRateOutputCostUSD *float64 `json:"api_rate_output_cost_usd"`
 
 	RouteLatencyMs           *int64  `json:"route_latency_ms"`
 	UpstreamLatencyMs        *int64  `json:"upstream_latency_ms"`

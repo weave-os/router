@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/bandit"
 	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rl"
@@ -24,6 +25,26 @@ import (
 func TestClassifyDispatchError_UnknownErrorIsUnmatched(t *testing.T) {
 	_, ok := proxy.ClassifyDispatchError(errors.New("boom"))
 	assert.False(t, ok, "an error not matching any known sentinel must not be classified")
+}
+
+func TestClassifyDispatchError_ClaudeEnterpriseOnlyIsNotRetryable(t *testing.T) {
+	classification, ok := proxy.ClassifyDispatchError(fmt.Errorf("dispatch: %w", proxy.ErrClaudeEnterpriseSubscriptionUnavailable))
+	require.True(t, ok)
+	require.Equal(t, http.StatusPaymentRequired, classification.Status)
+	require.True(t, classification.NoClientRetry)
+	require.False(t, classification.RetryAfter)
+	require.Equal(t, "warn", classification.LogLevel)
+	require.Contains(t, classification.Message, "Enterprise-only billing")
+}
+
+func TestClassifyDispatchError_ImageLimitExceeded(t *testing.T) {
+	err := fmt.Errorf("route: %w", policy.ErrImageLimitExceeded)
+	classification, ok := proxy.ClassifyDispatchError(err)
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorImageLimitExceeded, classification.Kind)
+	assert.Equal(t, http.StatusBadRequest, classification.Status)
+	assert.True(t, classification.Kind.IsClientError())
+	assert.Equal(t, "Request image count exceeds every eligible model's limit", classification.LogMessage)
 }
 
 func TestClassifyDispatchError_SubscriptionPoolFailures(t *testing.T) {
@@ -153,7 +174,7 @@ func TestClassifyDispatchError_AllowlistEmptiesPoolPrecedesNoEligibleProvider(t 
 }
 
 func TestClassifyDispatchError_BanditRLandHMMUnavailableRetry(t *testing.T) {
-	for _, err := range []error{bandit.ErrBanditUnavailable, rl.ErrPolicyUnavailable, hmm.ErrHMMUnavailable} {
+	for _, err := range []error{bandit.ErrBanditUnavailable, rl.ErrPolicyUnavailable, hmm.ErrHMMUnavailable, decisionmodel.ErrUnavailable} {
 		cls, ok := proxy.ClassifyDispatchError(err)
 		require.True(t, ok, "expected %v to be classified", err)
 		assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
@@ -381,6 +402,20 @@ func TestClassifyDispatchError_NoRoutableModels(t *testing.T) {
 	assert.False(t, cls.RetryAfter)
 }
 
+func TestClassifyDispatchError_NoProviderCredentials(t *testing.T) {
+	err := fmt.Errorf("hmm_embedding: no eligible candidate: %w: %w",
+		policy.ErrNoProviderCredentials, hmm.ErrHMMUnavailable)
+
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorNoEligibleProvider, cls.Kind)
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.Contains(t, cls.Message, "add a provider key")
+	assert.Contains(t, cls.Message, "re-enable an excluded provider")
+	assert.False(t, cls.RetryAfter)
+}
+
 func TestClassifyDispatchError_HMMUnavailableStaysAnOutage(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(fmt.Errorf("hmm: sidecar decide: %w", hmm.ErrHMMUnavailable))
 
@@ -411,4 +446,12 @@ func TestClassifyDispatchError_ResponsesChatCompletionsBodyIs400ClientError(t *t
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.Contains(t, cls.Message, "moved to 'input'")
 	assert.True(t, cls.Kind.IsClientError(), "the caller sent the wrong wire format; not an upstream failure")
+}
+
+func TestClassifyDispatchError_QwenWarmingIsActionable(t *testing.T) {
+	classification, found := proxy.ClassifyDispatchError(fmt.Errorf("route: %w: %w", policy.ErrClassifierWarming, hmm.ErrHMMUnavailable))
+	require.True(t, found)
+	assert.Equal(t, http.StatusServiceUnavailable, classification.Status)
+	assert.Contains(t, classification.Message, "prepare-model")
+	assert.True(t, classification.RetryAfter)
 }

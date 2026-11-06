@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestNormalizeSnowflakeCortexOpenAIBaseURL(t *testing.T) {
+func TestNormalizeCortexOpenAIBaseURL(t *testing.T) {
 	tests := []struct {
 		name     string
 		baseURL  string
@@ -34,6 +34,29 @@ func TestNormalizeSnowflakeCortexOpenAIBaseURL(t *testing.T) {
 			isCortex: true,
 		},
 		{
+			name:     "ai gateway root",
+			baseURL:  "https://ACME-PROD1.snowflakecomputing.com/api/v2/aigateways/ENG",
+			want:     "https://ACME-PROD1.snowflakecomputing.com/api/v2/aigateways/ENG/v1",
+			isCortex: true,
+		},
+		{
+			name:     "ai gateway root on a private-connectivity host",
+			baseURL:  "https://acme.privatelink.snowflakecomputing.com/api/v2/aigateways/ENG/",
+			want:     "https://acme.privatelink.snowflakecomputing.com/api/v2/aigateways/ENG/v1",
+			isCortex: true,
+		},
+		{
+			name:     "ai gateway already versioned",
+			baseURL:  "https://acme.snowflakecomputing.com/api/v2/aigateways/ENG/v1",
+			want:     "https://acme.snowflakecomputing.com/api/v2/aigateways/ENG/v1",
+			isCortex: true,
+		},
+		{
+			name:    "ai gateway collection without a name is left alone",
+			baseURL: "https://acme.snowflakecomputing.com/api/v2/aigateways",
+			want:    "https://acme.snowflakecomputing.com/api/v2/aigateways",
+		},
+		{
 			name:    "other snowflake path is left alone",
 			baseURL: "https://acme.snowflakecomputing.com/api/v2/databases",
 			want:    "https://acme.snowflakecomputing.com/api/v2/databases",
@@ -56,8 +79,8 @@ func TestNormalizeSnowflakeCortexOpenAIBaseURL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, providers.NormalizeSnowflakeCortexOpenAIBaseURL(tt.baseURL))
-			assert.Equal(t, tt.isCortex, providers.IsSnowflakeCortexBaseURL(tt.baseURL))
+			assert.Equal(t, tt.want, providers.NormalizeCortexOpenAIBaseURL(tt.baseURL))
+			assert.Equal(t, tt.isCortex, providers.IsCortexBaseURL(tt.baseURL))
 		})
 	}
 }

@@ -26,7 +26,14 @@ const (
 	// CapTemperatureUnsupported marks Anthropic models that reject the
 	// temperature parameter even though they accept other sampling controls.
 	CapTemperatureUnsupported ModelCapability = "temperature_unsupported"
+	// CapAssistantPrefill marks models that accept a conversation ending on an
+	// assistant message (prefill); everything else, including unknown models,
+	// gets the trailing assistant turn dropped.
+	CapAssistantPrefill ModelCapability = "assistant_prefill"
 )
+
+// ModelGemini4Argon is the canonical Google Gemini 4 Argon model ID.
+const ModelGemini4Argon = "gemini-4-argon"
 
 // ModelSpec describes what a model supports. Zero value is safe: provider
 // adapters strip all capability-gated fields when Supports reports false.
@@ -132,7 +139,7 @@ var (
 	// Fable 5.1, Opus 5.5, and Sonnet 5.5 additionally reject tool_choice
 	// any/tool ("not supported for this model"); opus-5 and fable-5 accept them.
 	anthropicAdaptiveFallbackAutoTools = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly)
-	anthropicExtended                  = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapExtendedThinking)
+	anthropicExtended                  = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapExtendedThinking, CapAssistantPrefill)
 )
 
 var (
@@ -157,6 +164,10 @@ var (
 	museSpark = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true, AlwaysOn: true}, CapReasoning, CapXhighEffort)
 )
 
+// MiniMax M3.1 Flash always reasons (disable is a 400), so AlwaysOn maps a
+// disable to the floor level.
+var minimaxM31Flash = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh", "max"}, AlwaysOn: true}, CapReasoning, CapXhighEffort)
+
 // Gemini's OpenAI-compatible endpoint does not honor reasoning_effort or
 // Anthropic thinking fields, so the base spec strips both.
 var googleBase = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true})
@@ -173,7 +184,11 @@ var registry = map[string]ModelSpec{
 		CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback,
 		CapAutoToolChoiceOnly, CapTemperatureUnsupported,
 	),
-	"claude-opus-5-5": anthropicAdaptiveFallbackAutoTools,
+	"claude-opus-5-5": NewSpecWithReasoning(
+		ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true},
+		CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback,
+		CapAutoToolChoiceOnly,
+	),
 	// Sonnet 5.5 accepts xhigh, unlike Sonnet 5.
 	"claude-sonnet-5-5": anthropicAdaptiveFallbackAutoTools,
 	"claude-opus-5":     anthropicAdaptiveFallback,
@@ -202,13 +217,15 @@ var registry = map[string]ModelSpec{
 		CapServerSideFallback,
 	),
 
-	"claude-sonnet-4-5": NewSpec(),
-	"claude-sonnet-4-0": NewSpec(),
+	"claude-sonnet-4-5": NewSpec(CapAssistantPrefill),
+	"claude-sonnet-4-0": NewSpec(CapAssistantPrefill),
 
-	"gpt-6-astra": openaiAstra,
-	"gpt-6-sol":   openai6,
-	"gpt-6.1-sol": openai61,
-	"gpt-6-luna":  openai6,
+	"gpt-6-astra":     openaiAstra,
+	"gpt-6-sol":       openai6,
+	"gpt-6.1-sol":     openai61,
+	"gpt-6.1-terra":   openai61,
+	"gpt-6-luna":      openai6,
+	ModelGemini4Argon: google3Base,
 
 	"gpt-5.6-sol":      openai56,
 	"gpt-5.6-sol-pro":  openai56,
@@ -287,6 +304,8 @@ var registry = map[string]ModelSpec{
 	"qwen/qwen3-coder-next":            openAICompatBase,
 	"qwen/qwen3-next-80b-a3b-instruct": openAICompatBase,
 	"qwen/qwen3.8-max":                 openAICompatBase,
+
+	"minimax/minimax-m3.1-flash": minimaxM31Flash,
 }
 
 // ValidateCatalogReasoningCapabilities validates every declared model at

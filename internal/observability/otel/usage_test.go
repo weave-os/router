@@ -6,11 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/usage"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestUsageExtractor_AnthropicNonStreaming(t *testing.T) {
@@ -133,6 +134,43 @@ func TestUsageExtractor_ReasoningTokens(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 21, ext.ReasoningTokens(), name)
 	}
+}
+
+func TestUsageExtractor_BilledOutputIncludesReasoningExactlyOnce(t *testing.T) {
+	// xAI reports reasoning beside completion_tokens (663 + 50 + 124 = 837),
+	// OpenAI reports it inside; both must yield the billed output count.
+	xaiChat := "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":663,\"completion_tokens\":50,\"total_tokens\":837,\"completion_tokens_details\":{\"reasoning_tokens\":124}}}\n\n"
+	openAIChat := "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":663,\"completion_tokens\":174,\"total_tokens\":837,\"completion_tokens_details\":{\"reasoning_tokens\":124}}}\n\n"
+	for name, tc := range map[string]struct {
+		provider string
+		body     string
+	}{
+		"xai":                {providers.ProviderXAI, xaiChat},
+		"xai_via_openrouter": {providers.ProviderOpenRouter, openAIChat},
+		"openai":             {providers.ProviderOpenAI, openAIChat},
+	} {
+		ext := otel.NewUsageExtractor(httptest.NewRecorder(), tc.provider)
+		_, err := ext.Write([]byte(tc.body))
+		require.NoError(t, err)
+		in, out := ext.Tokens()
+		assert.Equal(t, 663, in, name)
+		assert.Equal(t, 174, out, name)
+		assert.Equal(t, 124, ext.ReasoningTokens(), name)
+	}
+}
+
+func TestUsageExtractor_RecordedXAIUsageIncludesReasoning(t *testing.T) {
+	// Cross-format turns record usage from the translator rather than sniffing
+	// the client-bound bytes; the xAI correction must apply on that path too.
+	ext := otel.NewUsageExtractor(nil, providers.ProviderXAI)
+	ext.RecordProviderUsage(usage.Facts{Present: true, Input: usage.Reported(663), Output: usage.Reported(50), Reasoning: usage.Reported(124)})
+	_, out := ext.Tokens()
+	assert.Equal(t, 174, out)
+
+	nonReasoning := otel.NewUsageExtractor(nil, providers.ProviderXAI)
+	nonReasoning.RecordProviderUsage(usage.Facts{Present: true, Input: usage.Reported(663), Output: usage.Reported(50)})
+	_, out = nonReasoning.Tokens()
+	assert.Equal(t, 50, out)
 }
 
 func TestUsageExtractor_OpenAIResponsesNonStreaming(t *testing.T) {

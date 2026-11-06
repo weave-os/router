@@ -51,6 +51,9 @@ type Window struct {
 	// exhaustion suppression keyed off it) expires at the real refill, not a full
 	// window length from when it was observed.
 	ResetAt time.Time
+	// ObservedAt belongs to this window, so a sibling-only response cannot
+	// renew its exhaustion evidence when Record merges partial observations.
+	ObservedAt time.Time
 }
 
 func (w Window) present() bool { return w.WindowMinutes > 0 || w.UsedPercent > 0 }
@@ -63,8 +66,11 @@ type Snapshot struct {
 	Secondary           Window
 	RepresentativeClaim AnthropicClaim
 	OverageInUse        bool
-	UnifiedResetAt      time.Time
-	ObservedAt          time.Time
+	// QuotaWindowsSeen records that the credential has ever reported a 5h/7d
+	// window, i.e. it has an included plan quota rather than usage billing.
+	QuotaWindowsSeen bool
+	UnifiedResetAt   time.Time
+	ObservedAt       time.Time
 }
 
 func (s Snapshot) hasData() bool {
@@ -87,6 +93,12 @@ func PaidAnthropicOverage(claim AnthropicClaim, overageInUse string) bool {
 // BillableOrExhausted reports when a Claude subscription should not be treated
 // as free capacity. Overage still serves requests, but draws paid credits.
 func (s Snapshot) BillableOrExhausted() bool { return s.OverageInUse || s.Exhausted() }
+
+// UsageBilled reports overage on a credential that has never reported an
+// included-quota window: a usage-billed seat with no plan to exhaust. Inferred
+// from in-memory history, so a fresh observer can misread a plan seat already
+// on overage.
+func (s Snapshot) UsageBilled() bool { return s.OverageInUse && !s.QuotaWindowsSeen }
 
 // exhaustedFraction is the per-window utilization at/above which a subscription
 // window is spent: the upstream 429s any further turn until the window resets.
@@ -113,17 +125,24 @@ func (s Snapshot) ExhaustedAsOf(now time.Time) bool {
 	if !s.hasData() {
 		return false
 	}
-	return windowExhausted(s.Primary, now) || windowExhausted(s.Secondary, now)
+	return windowExhausted(s.Primary, s.ObservedAt, now) || windowExhausted(s.Secondary, s.ObservedAt, now)
 }
 
-func windowExhausted(window Window, now time.Time) bool {
-	if window.UsedPercent < exhaustedFraction {
+func windowExhausted(window Window, observedAt, now time.Time) bool {
+	return window.UsedPercent >= exhaustedFraction && window.currentAsOf(observedAt, now)
+}
+
+func (w Window) currentAsOf(observedAt, now time.Time) bool {
+	if !w.ResetAt.IsZero() {
+		return w.ResetAt.After(now)
+	}
+	if w.WindowMinutes <= 0 {
 		return false
 	}
-	if !window.ResetAt.IsZero() && !window.ResetAt.After(now) {
-		return false
+	if !w.ObservedAt.IsZero() {
+		observedAt = w.ObservedAt
 	}
-	return true
+	return observedAt.Add(time.Duration(w.WindowMinutes) * time.Minute).After(now)
 }
 
 // Observer stores the most recent Snapshot per credential. Concurrency-safe;
@@ -222,6 +241,17 @@ func (o *Observer) Record(key CredentialKey, snap Snapshot) {
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
+	now := o.now()
+	if snap.Primary.present() {
+		snap.Primary.ObservedAt = now
+	}
+	if snap.Secondary.present() {
+		snap.Secondary.ObservedAt = now
+	}
+	snap.QuotaWindowsSeen = snap.Primary.present() || snap.Secondary.present()
+	if prev, ok := o.data[key]; ok && prev.QuotaWindowsSeen {
+		snap.QuotaWindowsSeen = true
+	}
 	// Merge per-window with the prior (non-stale) observation: a single response
 	// may report only one window, and replacing the whole snapshot would erase
 	// the other window's last-known utilization — making the account look slack
@@ -236,7 +266,7 @@ func (o *Observer) Record(key CredentialKey, snap Snapshot) {
 			snap.Secondary = prev.Secondary
 		}
 	}
-	snap.ObservedAt = o.now()
+	snap.ObservedAt = now
 	o.data[key] = snap
 }
 
@@ -262,6 +292,12 @@ func (o *Observer) Snapshot(key CredentialKey) (Snapshot, bool) {
 	// reported plan reset. Stop treating its earlier overage flag as current.
 	if snap.OverageInUse && snap.UnifiedResetAt.After(snap.ObservedAt) && !snap.UnifiedResetAt.After(now) {
 		snap.OverageInUse = false
+	}
+	if !snap.Primary.currentAsOf(snap.ObservedAt, now) {
+		snap.Primary = Window{}
+	}
+	if !snap.Secondary.currentAsOf(snap.ObservedAt, now) {
+		snap.Secondary = Window{}
 	}
 	return snap, true
 }
@@ -336,7 +372,7 @@ func ParseAnthropicUnifiedHeaders(h http.Header) (Snapshot, bool) {
 	if !pOK && !sOK && claim == "" {
 		return Snapshot{}, false
 	}
-	resetAt, _ := parseResetTime(h.Get("anthropic-ratelimit-unified-reset"))
+	resetAt, _ := ParseResetTime(h.Get("anthropic-ratelimit-unified-reset"))
 	return Snapshot{
 		Primary: primary, Secondary: secondary, RepresentativeClaim: claim,
 		OverageInUse:   PaidAnthropicOverage(claim, h.Get("anthropic-ratelimit-unified-overage-in-use")),
@@ -346,7 +382,7 @@ func ParseAnthropicUnifiedHeaders(h http.Header) (Snapshot, bool) {
 
 func parseAnthropicWindow(h http.Header, which string, windowMinutes int) (Window, bool) {
 	prefix := "anthropic-ratelimit-unified-" + which + "-"
-	resetAt, _ := parseResetTime(h.Get(prefix + "reset"))
+	resetAt, _ := ParseResetTime(h.Get(prefix + "reset"))
 	if used, ok := parseFraction(h.Get(prefix + "utilization")); ok {
 		return Window{UsedPercent: used, WindowMinutes: windowMinutes, ResetAt: resetAt}, true
 	}
@@ -359,13 +395,13 @@ func parseAnthropicWindow(h http.Header, which string, windowMinutes int) (Windo
 	return Window{UsedPercent: used, WindowMinutes: windowMinutes, ResetAt: resetAt}, true
 }
 
-// parseResetTime parses a rate-limit *-reset header into an absolute instant.
+// ParseResetTime parses a rate-limit *-reset header into an absolute instant.
 // Anthropic emits these as RFC 3339 timestamps (the standard
 // anthropic-ratelimit-*-reset format); a bare unix-seconds value is accepted as
 // a fallback so a format shift doesn't silently disable reset-aware retention.
 // Returns (zero, false) when absent or unparseable — callers then fall back to
 // the window-length horizon.
-func parseResetTime(s string) (time.Time, bool) {
+func ParseResetTime(s string) (time.Time, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return time.Time{}, false

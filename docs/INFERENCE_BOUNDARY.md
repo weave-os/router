@@ -21,7 +21,7 @@ Router PRs [#884](https://github.com/weave-os/router/pull/884) and [#792](https:
 | Post-trim compaction handover | `compaction_handover_summary` | auxiliary inference | `proxy.Service.runCompactionHandover` | Phase 7 |
 | Title generation | ingress purpose by default; `title_generation` for explicit hard pin | auxiliary inference | request-aware scorer without conversation state, or explicit deployment override | Phase 7 |
 | Classifier turn | `classifier` | main inference (scored, no session pin) | ingress surface purpose; `aux-classifier` policy retained but no longer dispatched | Phase 7 |
-| Probe turn | ingress purpose for auto/empty models; `probe` for concrete requested target or explicit override | auxiliary inference | independent scorer without conversation state, concrete requested target, or explicit override | Phase 7 |
+| Probe turn | ingress purpose for auto/empty/`weave-*` routing models; `probe` for concrete requested target or explicit override | auxiliary inference | independent scorer without conversation state, concrete requested target, or explicit override | Phase 7 |
 | Sub-agent dispatch | `sub_agent_dispatch` | auxiliary inference | turn-type/operator hard pin | Phase 7 |
 | Client compaction turn | `client_compaction` | client authoritative | client body plus current compaction hard-pin path | Phase 7 |
 | Agent shadow evaluation | `agent_shadow_evaluation` | auxiliary inference | request-scoped explicit catalog target | Phase 8 |
@@ -31,6 +31,7 @@ Router PRs [#884](https://github.com/weave-os/router/pull/884) and [#792](https:
 | Initial-task domain classification | `task_domain_classification` | control plane | `internal/policyclient.TaskDomainClassifier` with bounded `proxy.TaskDomainResolver` orchestration | remains non-inference |
 | Cluster/cache embeddings | `cluster_embedding`, `semantic_cache_embedding` | local support | local embedder/cache packages | remains local-only |
 | Native/Cortex web search | `native_web_search` | web-search tool | explicit `websearch.Executor` | remains separate from generic inference |
+| Codex subscription search bridge | `openai_responses` | main inference | isolated Claude Code helper projected into the existing Responses entry point | uses existing policy, subscription admission and dispatch |
 
 The generated static registry in [`POLICY_INFERENCE.md`](POLICY_INFERENCE.md) is the authoritative review projection for policy IDs, rationale, constraints, budgets, fallback, owner, and migration status.
 
@@ -98,6 +99,13 @@ Feature orchestration describes a logical operation with `inference.InvocationRe
 Target overrides must identify a typed source declared in the policy's precedence list. Invalid, disallowed, duplicated, over-budget, or ineligible explicit targets return a typed `policy.ResolutionError`; they never fall through to a lower-precedence override or default model. `Registry.ValidateDeployment` applies the corresponding fail-closed checks to boot-time targets.
 
 ## Enforcement
+
+Funding authorization is a separate executor boundary from target selection.
+[The funding guard](../internal/dispatch/authorization.go) retains request admission policy; `Executor.Run`
+captures it before transport preparation and checks final credentials immediately
+before `Client.Proxy`. A funding denial terminates the operation without retry or
+binding failover. Main inference and buffered auxiliary operations inherit this
+guard, so clearing OAuth credentials never silently authorizes paid inference.
 
 Run `make inference-boundary`. The check uses Go type information, so import aliases, provider-client type aliases, and named string constants are resolved rather than matched only as text. Negative fixtures cover direct and named-constant targets, aliased clients, raw inference HTTP, concrete provider imports, unregistered purposes, and baseline expansion.
 

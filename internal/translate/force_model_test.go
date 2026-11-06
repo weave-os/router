@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -732,7 +733,10 @@ func lastUserMessageArrayText(t *testing.T, env *translate.RequestEnvelope) stri
 func anthropicMessages(t *testing.T, env *translate.RequestEnvelope) []map[string]any {
 	t.Helper()
 	var body map[string]any
-	raw, _ := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-sonnet-4-6"})
+	raw, _ := env.PrepareAnthropic(nil, translate.EmitOptions{
+		TargetModel:  "claude-sonnet-4-5",
+		Capabilities: router.Lookup("claude-sonnet-4-5"),
+	})
 	require.NoError(t, json.Unmarshal(raw.Body, &body))
 	raws, _ := body["messages"].([]any)
 	msgs := make([]map[string]any, 0, len(raws))

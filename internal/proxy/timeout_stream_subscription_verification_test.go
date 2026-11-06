@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -20,7 +21,9 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
-func TestVerificationSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
+const hungSeatHeaderTimeout = 200 * time.Millisecond
+
+func TestVerificationSubscriptionTimeoutRefusesAPIWithoutQuotaProof(t *testing.T) {
 	var bearers []string
 	var bearersMu sync.Mutex
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -45,28 +48,32 @@ func TestVerificationSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"synthetic\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n")
 	}))
 	defer upstream.Close()
-	client := openai.NewClient("synthetic-api-key", upstream.URL)
+	// A short header timeout stands in for the provider watchdog that now owns a hung subscription attempt.
+	client := openai.NewClientWithTimeouts("synthetic-api-key", upstream.URL, hungSeatHeaderTimeout, time.Minute)
 	client.SetCodexBaseURL(upstream.URL)
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "timeout-account", AccessToken: "timeout-seat", ProviderAccount: "timeout-provider"}}}
 	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 	body := []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic timeout"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`)
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "timeout-account", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateActive, Enabled: true}})
 	rec := httptest.NewRecorder()
 	started := time.Now()
 	err := svc.ProxyOpenAIChatCompletion(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	var timeoutErr net.Error
+	require.ErrorAs(t, err, &timeoutErr, "the original provider timeout must survive pool failure")
+	require.True(t, timeoutErr.Timeout())
 	elapsed := time.Since(started)
-	require.GreaterOrEqual(t, elapsed, 9*time.Second)
-	require.Less(t, elapsed, 15*time.Second, "API fallback must follow the ten-second rotation budget promptly")
+	require.Less(t, elapsed, 5*time.Second, "the request terminates after the provider timeout, not a ten-second router deadline")
 	bearersMu.Lock()
-	require.Equal(t, []string{"Bearer timeout-seat", "Bearer synthetic-api-key"}, bearers)
+	require.Equal(t, []string{"Bearer timeout-seat"}, bearers)
 	bearersMu.Unlock()
-	require.Contains(t, rec.Body.String(), "api answer")
+	require.NotContains(t, rec.Body.String(), "api answer")
 	winner := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
-	require.False(t, winner.Served, "API fallback must not be billed as subscription")
+	require.False(t, winner.Served, "a failed subscription attempt cannot count as a winner")
 }
 
-func TestVerificationResponsesSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
+func TestVerificationResponsesSubscriptionTimeoutRefusesAPIWithoutQuotaProof(t *testing.T) {
 	var bearers []string
 	var bearersMu sync.Mutex
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -91,25 +98,29 @@ func TestVerificationResponsesSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T)
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"synthetic\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n")
 	}))
 	defer upstream.Close()
-	client := openai.NewClient("synthetic-api-key", upstream.URL)
+	// A short header timeout stands in for the provider watchdog that now owns a hung subscription attempt.
+	client := openai.NewClientWithTimeouts("synthetic-api-key", upstream.URL, hungSeatHeaderTimeout, time.Minute)
 	client.SetCodexBaseURL(upstream.URL)
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "timeout-account", AccessToken: "timeout-seat", ProviderAccount: "timeout-provider"}}}
 	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 	body := []byte(`{"model":"auto","stream":true,"input":"synthetic timeout","tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`)
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "timeout-account", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateActive, Enabled: true}})
 	rec := httptest.NewRecorder()
 	started := time.Now()
 	err := svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body))))
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	var timeoutErr net.Error
+	require.ErrorAs(t, err, &timeoutErr, "the original provider timeout must survive pool failure")
+	require.True(t, timeoutErr.Timeout())
 	elapsed := time.Since(started)
-	require.GreaterOrEqual(t, elapsed, 9*time.Second)
-	require.Less(t, elapsed, 15*time.Second, "API fallback must follow the ten-second rotation budget promptly")
+	require.Less(t, elapsed, 5*time.Second, "the request terminates after the provider timeout, not a ten-second router deadline")
 	bearersMu.Lock()
-	require.Equal(t, []string{"Bearer timeout-seat", "Bearer synthetic-api-key"}, bearers)
+	require.Equal(t, []string{"Bearer timeout-seat"}, bearers)
 	bearersMu.Unlock()
-	require.Contains(t, rec.Body.String(), "api answer")
+	require.NotContains(t, rec.Body.String(), "api answer")
 	winner := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
-	require.False(t, winner.Served, "API fallback must not be billed as subscription")
+	require.False(t, winner.Served, "a failed subscription attempt cannot count as a winner")
 }
 
 func TestVerificationCommittedSubscriptionStreamNeverReplayed(t *testing.T) {
@@ -291,7 +302,7 @@ func TestVerificationCommittedSubscriptionStreamOutlivesRotationBudget(t *testin
 		select {
 		case <-r.Context().Done():
 			return
-		case <-time.After(sameBindingRetryBudget + time.Second):
+		case <-time.After(subscriptionRotationBudget + time.Second):
 		}
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"late output\"}\n\n")
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"synthetic\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n")

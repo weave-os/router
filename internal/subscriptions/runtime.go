@@ -161,11 +161,14 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 		if candidate.CooldownUntil != nil {
 			account.CooldownTil = *candidate.CooldownUntil
 		}
-		if !candidate.Enabled || !subscriptionAccountStateRoutable(candidate.State, account.CooldownTil, r.clock()) {
+		if !candidate.Enabled || !subscriptionAccountEligible(ctx, provider, candidate.State, account.CooldownTil, r.clock()) {
 			continue
 		}
 		if err := r.manager.Upsert(account); err != nil {
 			return Lease{}, present, err
+		}
+		if candidate.AccessTokenMissing {
+			r.manager.InvalidateAccessToken(poolID, provider, candidate.ID)
 		}
 		// Each pool holds one account; r.affinity owns session preference.
 		leased, release, leaseErr := r.manager.Lease(ctx, poolID, provider, "", r.refresh(owner))
@@ -252,7 +255,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 					observability.FromContext(ctx).Error("Failed to load subscription credentials while waiting for refresh", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", loadErr)
 					return Account{}, loadErr
 				}
-				if !subscriptionCredentialAvailable(credentials, r.clock()) {
+				if !subscriptionCredentialAvailable(ctx, account.Provider, credentials, r.clock()) {
 					return Account{}, ErrNoAvailableAccount
 				}
 				if subscriptionAccessTokenUsable(credentials, r.clock()) {
@@ -277,7 +280,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 				observability.FromContext(ctx).Error("Failed to load subscription credentials for refresh", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", err)
 				return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, err)
 			}
-			if !subscriptionCredentialAvailable(credentials, r.clock()) {
+			if !subscriptionCredentialAvailable(ctx, account.Provider, credentials, r.clock()) {
 				return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, ErrNoAvailableAccount)
 			}
 			if subscriptionAccessTokenUsable(credentials, r.clock()) {
@@ -292,7 +295,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 				}
 				return recovered, handleErr
 			}
-			if account.Provider == ProviderCodex && ((refreshed.AccountID != "" && refreshed.AccountID != account.AccountID) || (credentials.ProviderUserID != "" && (refreshed.UserID != credentials.ProviderUserID || refreshed.AccountID != account.AccountID))) {
+			if account.Provider == ProviderCodex && ((refreshed.AccountID != "" && refreshed.AccountID != account.AccountID) || (credentials.ProviderUserID != "" && ((refreshed.UserID != "" && refreshed.UserID != credentials.ProviderUserID) || refreshed.AccountID != account.AccountID))) {
 				recovered, handleErr := r.handleRefreshError(ctx, owner, account, credentials, holder, &providerAccountMismatchError{})
 				if errors.Is(handleErr, errRefreshLeaseLost) {
 					continue
@@ -306,7 +309,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 					return Account{}, err
 				}
 				latest, loadErr := r.store.LoadSubscriptionCredentials(ctx, owner, account.ID)
-				if loadErr == nil && subscriptionCredentialAvailable(latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
+				if loadErr == nil && subscriptionCredentialAvailable(ctx, account.Provider, latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
 					return applySubscriptionCredentials(account, latest), nil
 				}
 				if loadErr != nil {
@@ -386,10 +389,10 @@ func (r *Runtime) handleRefreshError(ctx context.Context, owner auth.Subscriptio
 	log := observability.FromContext(ctx).With("owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider)
 	var terminal terminalRefreshError
 	if errors.As(refreshErr, &terminal) && terminal.Terminal() {
-		log.Debug("Subscription credential refresh rejected", "err", refreshErr)
+		log.Warn("Subscription credential refresh rejected", "reason", refreshRejectionReason(refreshErr), "err", refreshErr)
 		latest, loadErr := r.store.LoadSubscriptionCredentials(ctx, owner, account.ID)
 		if loadErr == nil && (latest.TokenRefreshLeaseID != leaseID || latest.TokenRefreshVersion != credentials.TokenRefreshVersion || !bytes.Equal(latest.RefreshToken, credentials.RefreshToken)) {
-			if subscriptionCredentialAvailable(latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
+			if subscriptionCredentialAvailable(ctx, account.Provider, latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
 				return applySubscriptionCredentials(account, latest), r.releaseRefreshLease(ctx, owner, account.ID, leaseID, nil)
 			}
 			return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, errRefreshLeaseLost)
@@ -430,12 +433,12 @@ func subscriptionAccessTokenUsable(credentials auth.SubscriptionCredentials, now
 	return credentials.AccessTokenExpiresAt == nil || credentials.AccessTokenExpiresAt.IsZero() || credentials.AccessTokenExpiresAt.After(now.Add(time.Minute))
 }
 
-func subscriptionCredentialAvailable(credentials auth.SubscriptionCredentials, now time.Time) bool {
+func subscriptionCredentialAvailable(ctx context.Context, provider Provider, credentials auth.SubscriptionCredentials, now time.Time) bool {
 	var cooldownUntil time.Time
 	if credentials.CooldownUntil != nil {
 		cooldownUntil = *credentials.CooldownUntil
 	}
-	return credentials.Enabled && subscriptionAccountStateRoutable(credentials.State, cooldownUntil, now)
+	return credentials.Enabled && subscriptionAccountEligible(ctx, provider, credentials.State, cooldownUntil, now)
 }
 
 func applySubscriptionCredentials(account Account, credentials auth.SubscriptionCredentials) Account {
@@ -471,6 +474,39 @@ func (r *Runtime) recordRefreshFailure(ctx context.Context, owner auth.Subscript
 	}
 	var terminal interface{ Terminal() bool }
 	if errors.As(refreshErr, &terminal) && terminal.Terminal() {
+		var mismatch *providerAccountMismatchError
+		if store, ok := r.store.(credentialRejectionStore); ok && !errors.As(refreshErr, &mismatch) {
+			now := r.clock()
+			reason := refreshRejectionReason(refreshErr)
+			rejection, err := store.RecordSubscriptionCredentialRejection(ctx, owner, accountID, auth.SubscriptionCredentialRejectionInput{
+				Reason: reason, RejectedAt: now, Window: credentialRejectionWindow, LeaseID: leaseID, ExpectedVersion: expectedVersion,
+			})
+			if errors.Is(err, auth.ErrSubscriptionRefreshConflict) {
+				return errRefreshLeaseLost
+			}
+			if err != nil {
+				observability.FromContext(ctx).Error("Failed to record subscription credential rejection",
+					"provider", provider, "account_id", accountID, "err", err)
+				return errors.Join(refreshErr, fmt.Errorf("record subscription credential rejection: %w", err))
+			}
+			if !reconnectWarranted(rejection, reason, now) {
+				cooldownUntil := now.Add(credentialRejectionCooldown(rejection.Count))
+				observability.FromContext(ctx).Warn("Subscription credential refresh rejected; cooling down",
+					"provider", provider, "account_id", accountID, "reason", reason, "strikes", rejection.Count,
+					"first_rejected_at", rejection.FirstRejectedAt, "cooldown_until", cooldownUntil)
+				if err := r.store.CooldownSubscriptionAccountIfRefreshHolder(ctx, owner, accountID, leaseID, expectedVersion, cooldownUntil); err != nil {
+					if errors.Is(err, auth.ErrSubscriptionRefreshConflict) {
+						return errRefreshLeaseLost
+					}
+					observability.FromContext(ctx).Error("Failed to persist subscription account cooldown after token rejection",
+						"provider", provider, "account_id", accountID, "err", err)
+					return errors.Join(refreshErr, fmt.Errorf("persist subscription account cooldown: %w", err))
+				}
+				return &credentialRejectionCooldownError{err: refreshErr, until: cooldownUntil}
+			}
+			observability.FromContext(ctx).Warn("Subscription account needs reconnect after repeated refresh rejections",
+				"provider", provider, "account_id", accountID, "reason", reason, "strikes", rejection.Count, "first_rejected_at", rejection.FirstRejectedAt)
+		}
 		if err := r.store.DisableSubscriptionAccountIfRefreshHolder(ctx, owner, accountID, leaseID, expectedVersion); err != nil {
 			if errors.Is(err, auth.ErrSubscriptionRefreshConflict) {
 				return errRefreshLeaseLost

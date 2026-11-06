@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,16 +15,14 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
-func TestVerificationUnrepresentableChatUsesAPIOnly(t *testing.T) {
+func TestVerificationUnrepresentableChatRefusesAPIWithoutQuotaProof(t *testing.T) {
 	var bearers, paths []string
-	var sent []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if serveSyntheticCodexQuota(w, r) {
 			return
 		}
 		bearers = append(bearers, r.Header.Get("Authorization"))
 		paths = append(paths, r.URL.Path)
-		sent, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: {\"id\":\"synthetic\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"chat answer\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"synthetic\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":7}}\n\ndata: [DONE]\n\n")
 	}))
@@ -37,11 +34,9 @@ func TestVerificationUnrepresentableChatUsesAPIOnly(t *testing.T) {
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	body := `{"model":"auto","n":2,"logprobs":true,"stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))))
-	require.Equal(t, []string{"Bearer synthetic-api-key"}, bearers)
-	require.Equal(t, []string{"/v1/chat/completions"}, paths)
-	require.Equal(t, int64(2), gjson.GetBytes(sent, "n").Int())
-	require.True(t, gjson.GetBytes(sent, "logprobs").Bool())
-	require.Contains(t, rec.Body.String(), "chat answer")
+	require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))), ErrSubscriptionPoolUnavailable)
+	require.Empty(t, bearers)
+	require.Empty(t, paths)
+	require.NotContains(t, rec.Body.String(), "chat answer")
 	require.False(t, servedOnSubscription(ctx))
 }

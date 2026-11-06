@@ -6,9 +6,11 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -20,6 +22,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/analytics"
+	"weave-os/router/internal/anthropicfederation"
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -51,9 +54,11 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandit"
 	"weave-os/router/internal/router/banditexplore"
+	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
@@ -156,6 +161,13 @@ func main() {
 		panic(err)
 	}
 	logger.Info("Router deployment mode", "mode", deploymentMode)
+	allowCodexCredits, creditsErr := config.CodexExtraCreditsAllowed()
+	if creditsErr != nil {
+		panic(creditsErr)
+	}
+	if allowCodexCredits && deploymentMode != server.DeploymentModeSelfHosted {
+		panic("ROUTER_CODEX_ALLOW_EXTRA_CREDITS is supported only in selfhosted mode")
+	}
 
 	if err := validateManagedServingBoot(deploymentMode, osEnvLookup); err != nil {
 		logger.Error("Managed serving configuration is incomplete; refusing to boot", "mode", deploymentMode, "err", err)
@@ -231,6 +243,7 @@ func main() {
 	// platform-key mode gated by balance checks. Self-hosted is never BYOK-only.
 	if billingSvc != nil {
 		billingSvc.WithInternalTestPrepaid(servingpostgres.NewInternalTestBook(pool))
+		billingSvc.WithDelegatedSpend(postgres.NewBillingRepo(pool))
 	}
 	byokOnly := deploymentMode == server.DeploymentModeManaged && billingSvc == nil
 
@@ -266,6 +279,8 @@ func main() {
 			openaiBaseURL,
 			upstreamIDsForProvider(providers.ProviderOpenAI),
 		)
+		openaiClient.SetCodexExtraCreditsAllowed(allowCodexCredits)
+		logger.Info("Codex subscription credit policy configured", "allow_extra_credits", allowCodexCredits)
 		// Local tests can point the subscription branch at a deterministic native
 		// Responses mock without changing the production ChatGPT endpoint.
 		if deploymentMode == server.DeploymentModeSelfHosted {
@@ -299,7 +314,7 @@ func main() {
 		if !byokOnly && openRouterPlatformEnabled {
 			openRouterKey = config.GetOr("OPENROUTER_API_KEY", "")
 		}
-		openRouterModelIDMap, err := config.ParseModelIDMap(os.Getenv("ROUTER_MODEL_ID_MAP"))
+		openRouterModelIDMap, err := openRouterModelIDs(os.Getenv("ROUTER_MODEL_ID_MAP"))
 		if err != nil {
 			panic(fmt.Sprintf("ROUTER_MODEL_ID_MAP: %v", err))
 		}
@@ -608,10 +623,13 @@ func main() {
 		WithBlindExperiments(repo.BlindExperiments, blindExperimentCache).
 		WithRoutingPolicies(repo.RoutingPolicies, routingPolicyCache).
 		WithWIFTokenSource(buildWIFTokenSource(logger)).
+		WithAnthropicFederationTokenSource(buildAnthropicFederationTokenSource(deploymentMode)).
 		WithEntraTokenSource(buildEntraTokenSource(logger)).
-		WithFlagOverridesDisabled(flagOverridesDisabled)
+		WithFlagOverridesDisabled(flagOverridesDisabled).
+		WithSessionSpendCaps(billingSvc != nil)
 	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
 	var subscriptionRuntime *subscriptions.Runtime
+	var subscriptionLogins admin.SubscriptionLoginFlow
 	if subscriptionPoolsEnabled {
 		authSvc.WithSubscriptionAccounts(repo.SubscriptionAccounts)
 		codexTokenURL := ""
@@ -623,6 +641,7 @@ func main() {
 			config.GetOr("WEAVE_ANTHROPIC_OAUTH_TOKEN", ""), time.Now,
 		)
 		authSvc.WithCodexEnrollmentVerifier(subscriptionOAuth)
+		subscriptionLogins = subscriptionOAuth
 		subscriptionRuntime = subscriptions.NewRuntime(authSvc, subscriptionOAuth, time.Now)
 		logger.Info("Server-side subscription account pools enabled")
 	} else {
@@ -816,6 +835,9 @@ func main() {
 	// rescue and Retry-After-aware same-binding retry. Off until baked off.
 	transientRateLimit := config.GetOr("ROUTER_TRANSIENT_RATE_LIMIT", "false") == "true"
 	rateLimitCooldownSeconds := parseEnvInt("ROUTER_RATE_LIMIT_COOLDOWN_SECONDS", proxy.DefaultRateLimitCooldownSeconds)
+	// Per-model 529 circuit breaker. Its thresholds are fixed in
+	// internal/router/breaker/thresholds.go.
+	providerOverloaded := config.GetOr("ROUTER_PROVIDER_OVERLOADED", "true") == "true"
 	// nativeAnthropicResponseSignals records the stop reason and tool_use block
 	// count an Anthropic-native turn already streams past the usage extractor;
 	// kill switch for that extraction and the telemetry columns it fills.
@@ -827,6 +849,11 @@ func main() {
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
 	ccTaskToolsCrossVendor := config.GetOr("ROUTER_CC_TASK_TOOLS_CROSSVENDOR", "false") == "true"
 	ccAutonomySystemAppend := config.GetOr("ROUTER_CC_AUTONOMY_SYSTEM_APPEND", "false") == "true"
+	earlyStopRedo, err := flags.ParseEarlyStopRedoMode(config.GetOr("ROUTER_EARLY_STOP_REDO", string(flags.EarlyStopRedoOff)))
+	if err != nil {
+		logger.Error("Invalid ROUTER_EARLY_STOP_REDO; refusing to boot", "err", err)
+		panic(err)
+	}
 	ccWorkspaceSystemAppend := config.GetOr("ROUTER_CC_WORKSPACE_SYSTEM_APPEND", "false") == "true"
 	// Per-turn large-vs-small action-classifier swap. Off by default until the
 	// Layer-2 extrinsic validation clears it; enabling loads the compiled-in head.
@@ -868,14 +895,14 @@ func main() {
 		CorrectedEconomics:     config.GetOr("ROUTER_SWITCH_CORRECTED_ECONOMICS", boolDefault(proxy.DefaultPlannerCorrectedEconomics)) == "true",
 	}
 	prefixTrimFreeSwitch := config.GetOr("ROUTER_PREFIX_TRIM_FREE_SWITCH", "true") == "true"
-	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", 0.85)
+	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", proxy.DefaultHMMUpgradeConfidenceThreshold)
 	upgradeConfig, err := authoritativeUpgradeConfigFromEnv()
 	if err != nil {
 		logger.Error("Invalid authoritative upgrade shadow configuration; refusing to boot", "err", err)
 		panic(err)
 	}
 	hmmSameTierPin := config.GetOr("ROUTER_HMM_SAME_TIER_PIN", "false") == "true"
-	// authoritativeUpgradeGate keeps the 0.85 escalation floor active for authoritative-per-turn
+	// authoritativeUpgradeGate keeps the upgrade-confidence floor active for authoritative-per-turn
 	// policies; kill switch for a return to verbatim policy selection.
 	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
 	authoritativeUpgradePolicy := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_POLICY", string(flags.AuthoritativeUpgradePolicyScore))
@@ -892,9 +919,10 @@ func main() {
 	authoritativeUpgradeVotes := parseEnvNonNegativeInt("ROUTER_AUTHORITATIVE_UPGRADE_VOTES", 3)
 	// authoritativeDowngradeGate mirrors the floor for cheaper-than-pin picks; off by default.
 	authoritativeDowngradeGate := config.GetOr("ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", "false") == "true"
+	authoritativeUpgradeSlidingThreshold := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD", "false") == "true"
 	// hmmDowngradeHysteresisTurns requires N consecutive cheaper-than-pin authoritative
-	// votes before the downgrade is served; 0 keeps today's switch-on-first-vote behavior.
-	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", 0)
+	// votes before the downgrade is served; 0 switches on the first vote.
+	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", proxy.DefaultHMMDowngradeHysteresisTurns)
 	// hmmDowngradeHysteresisShadowTurns is the threshold every served authoritative
 	// downgrade is shadow-scored against; telemetry only, 0 silences it.
 	hmmDowngradeHysteresisShadowTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS", 2)
@@ -1054,6 +1082,7 @@ func main() {
 	var hmmRouter router.Router
 	var hmmEmbeddingRouter router.Router
 	var hmmBetaRouter router.Router
+	var hmmQwenRouter router.Router
 	var hmmCapabilities policy.Capabilities
 	var hmmReadinessChecker admin.HealthChecker
 	var hmmRosterSources map[router.Strategy]policy.RosterSource
@@ -1062,6 +1091,7 @@ func main() {
 	var servingAdmission *middleware.ServingAdmissionConfig
 	testPlansEnabled := strings.EqualFold(config.GetOr("ROUTER_TEST_PLANS_ENABLED", "false"), "true")
 	policyEnvironmentRaw := strings.TrimSpace(config.GetOr("ROUTER_POLICY_ENVIRONMENT", ""))
+	policyReleaseDir := strings.TrimSpace(config.GetOr("ROUTER_POLICY_RELEASE_DIR", ""))
 	taskRuntime, taskErr := loadTaskDomainRuntime(pool)
 	if taskErr != nil {
 		logger.Error("Task classifier configuration invalid; refusing to boot", "err", taskErr)
@@ -1091,11 +1121,19 @@ func main() {
 		admittedRouter := policyregistry.NewAdmittedRouter(router.StrategyHMM, baseline)
 		hmmRouter = admittedRouter
 		hmmEmbeddingRouter = policyregistry.NewAdmittedRouter(router.StrategyHMMEmbedding, baseline)
+		if admission.Identity.Target == policyregistry.TargetInternal {
+			hmmBetaRouter = policyregistry.NewAdmittedRouter(router.StrategyHMMBeta, baseline)
+			hmmQwenRouter = policyregistry.NewAdmittedRouter(router.StrategyHMMQwen, baseline)
+		}
 		hmmCapabilities = admittedRouter.CurrentCapabilities()
 		escalationObserver = admittedRouter
 		rosterSource := policyregistry.AdmittedRosterSource{}
 		hmmRosterSources = map[router.Strategy]policy.RosterSource{
 			router.StrategyHMM: rosterSource, router.StrategyHMMEmbedding: rosterSource,
+		}
+		if admission.Identity.Target == policyregistry.TargetInternal {
+			hmmRosterSources[router.StrategyHMMBeta] = rosterSource
+			hmmRosterSources[router.StrategyHMMQwen] = rosterSource
 		}
 		hmmRosterModels = admittedHMMRosterSource{}
 		if topic := strings.TrimSpace(config.GetOr("PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION", "")); topic != "" {
@@ -1113,22 +1151,38 @@ func main() {
 			}
 		}
 		logger.Info("Managed serving admission enabled", "target", admission.Identity.Target, "revision", admission.Identity.Revision)
-	} else if policyEnvironmentRaw != "" {
-		registryURI := strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry"))
-		policyRegistry, registryErr := policyregistry.NewGCSRegistry(context.Background(), registryURI)
-		if registryErr != nil {
-			logger.Error("Router policy registry failed to initialize; refusing to boot", "err", registryErr)
-			panic(registryErr)
+	} else if policyEnvironmentRaw != "" || policyReleaseDir != "" {
+		var policyRegistry policyregistry.Loader
+		var policyEnvironment policyregistry.Environment
+		policyLane := policyregistry.LaneStable
+		defaultSidecarAuth := policySidecarAuthGoogleIDToken
+		if policyReleaseDir != "" {
+			directoryRegistry, registryErr := policyregistry.NewDirectoryRegistry(policyReleaseDir, config.GetOr("ROUTER_HMM_SIDECAR_URL", ""))
+			if registryErr != nil {
+				logger.Error("Local router policy release is invalid; refusing to boot", "dir", policyReleaseDir, "err", registryErr)
+				panic(registryErr)
+			}
+			policyRegistry = directoryRegistry
+			policyEnvironment = directoryRegistry.Environment()
+			policyLane = directoryRegistry.Lane()
+			defaultSidecarAuth = policySidecarAuthNone
+		} else {
+			gcsRegistry, registryErr := policyregistry.NewGCSRegistry(context.Background(), strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry")))
+			if registryErr != nil {
+				logger.Error("Router policy registry failed to initialize; refusing to boot", "err", registryErr)
+				panic(registryErr)
+			}
+			defer gcsRegistry.Close()
+			policyRegistry = gcsRegistry
+			policyEnvironment = policyregistry.Environment(policyEnvironmentRaw)
 		}
-		defer policyRegistry.Close()
-		policyEnvironment := policyregistry.Environment(policyEnvironmentRaw)
 		hmmTimeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
 		hmmAttemptTimeout := parseEnvAttemptTimeoutMs("ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS", policyclient.DeriveAttemptTimeout(hmmTimeout))
-		hmmAuthMode := config.GetOr("ROUTER_HMM_SIDECAR_AUTH", policySidecarAuthGoogleIDToken)
+		hmmAuthMode := config.GetOr("ROUTER_HMM_SIDECAR_AUTH", defaultSidecarAuth)
 		stableManager, managerErr := policyregistry.NewManager(
 			policyRegistry,
 			policyEnvironment,
-			policyregistry.LaneStable,
+			policyLane,
 			hmmPolicySnapshotBuilder(availableProviders, []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding}, hmmAuthMode, hmmTimeout, hmmAttemptTimeout),
 			logger,
 		)
@@ -1159,14 +1213,20 @@ func main() {
 		hmmRosterModels = newHMMRosterSource(stableManager, hmmTimeout)
 		escalationObserver = stableDynamicRouter
 
-		betaManager, betaManagerErr := policyregistry.NewManager(
-			policyRegistry,
-			policyEnvironment,
-			policyregistry.LaneBeta,
-			hmmPolicySnapshotBuilder(availableProviders, []router.Strategy{router.StrategyHMMBeta}, hmmAuthMode, hmmTimeout, hmmAttemptTimeout),
-			logger,
-		)
-		if betaManagerErr != nil {
+		var betaManager *policyregistry.Manager
+		var betaManagerErr error
+		if policyReleaseDir == "" {
+			betaManager, betaManagerErr = policyregistry.NewManager(
+				policyRegistry,
+				policyEnvironment,
+				policyregistry.LaneBeta,
+				hmmPolicySnapshotBuilder(availableProviders, []router.Strategy{router.StrategyHMMBeta}, hmmAuthMode, hmmTimeout, hmmAttemptTimeout),
+				logger,
+			)
+		}
+		if policyReleaseDir != "" {
+			logger.Info("Serving the local router policy release; beta lane disabled", "dir", policyReleaseDir)
+		} else if betaManagerErr != nil {
 			logger.Error("Beta router policy manager is invalid; beta disabled", "err", betaManagerErr)
 		} else {
 			hmmBetaRouter = policyregistry.NewDynamicRouter(betaManager, router.StrategyHMMBeta)
@@ -1207,9 +1267,9 @@ func main() {
 				safeGo(logger, "policy-invalidation-listener", func() { policyListener.Run(policyListenerCtx) })
 			}
 		}
-		logger.Info("HMM policy managers wired", "registry_uri", registryURI, "environment", policyEnvironment, "candidate_models", len(routingTargets))
+		logger.Info("HMM policy managers wired", "registry_uri", policyRegistry.RootURI(), "environment", policyEnvironment, "candidate_models", len(routingTargets))
 	} else {
-		logger.Info("HMM policy routers disabled (ROUTER_POLICY_ENVIRONMENT unset); HMM strategies will return 503")
+		logger.Info("HMM policy routers disabled (ROUTER_POLICY_ENVIRONMENT and ROUTER_POLICY_RELEASE_DIR unset); HMM strategies will return 503")
 	}
 
 	// Wired only when ROUTER_BANDIT_POSTERIOR_FILE points at a ts_posterior.json;
@@ -1262,6 +1322,9 @@ func main() {
 		flags.KeyEscalationXGBoostShadowMarkerEnabled: boolDefault(false),
 		flags.KeyEscalationXGBoostEpoch:               "0",
 		flags.KeySubscriptionPlanAwareRouting:         boolDefault(false),
+		flags.KeyClaudeEnterpriseOnly:                 boolDefault(true),
+		flags.KeySubscriptionExhaustedOpenRouterOnly:  boolDefault(false),
+		flags.KeyPlanUserClusterLists:                 boolDefault(false),
 		flags.KeyStruggleShadowEnabled:                boolDefault(struggleShadowEnabled),
 		flags.KeySpiralShadowEnabled:                  boolDefault(spiralShadowEnabled),
 		flags.KeyTurnSignalCapture:                    boolDefault(turnSignalCaptureEnabled),
@@ -1276,19 +1339,23 @@ func main() {
 		flags.KeyAuthoritativeUpgradeHoldoutPct:       strconv.Itoa(authoritativeUpgradeHoldoutPct),
 		flags.KeyAuthoritativeUpgradeVotes:            strconv.Itoa(authoritativeUpgradeVotes),
 		flags.KeyAuthoritativeDowngradeGate:           boolDefault(authoritativeDowngradeGate),
+		flags.KeyAuthoritativeUpgradeSlidingThreshold: boolDefault(authoritativeUpgradeSlidingThreshold),
 		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmDowngradeHysteresisTurns),
 		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmDowngradeHysteresisShadowTurns),
 		flags.KeyAuthorityCacheShadow:                 boolDefault(authorityCacheShadow),
+		flags.KeyAgreementShadowEpoch:                 "0",
 		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
 		flags.KeyOpenAIResponsesBroad:                 boolDefault(openAIResponsesBroad),
 		flags.KeyAllowedModelsHeader:                  boolDefault(allowedModelsHeader),
 		flags.KeyCCTaskToolsCrossVendor:               boolDefault(ccTaskToolsCrossVendor),
 		flags.KeyCCAutonomySystemAppend:               boolDefault(ccAutonomySystemAppend),
+		flags.KeyEarlyStopRedo:                        string(earlyStopRedo),
 		flags.KeyCCWorkspaceSystemAppend:              boolDefault(ccWorkspaceSystemAppend),
 		flags.KeyCommittedStreamArmDemotion:           boolDefault(committedStreamArmDemotion),
 		flags.KeyRescuedFailureArmDemotion:            boolDefault(rescuedFailureArmDemotion),
 		flags.KeyTransientRateLimit:                   boolDefault(transientRateLimit),
 		flags.KeyRateLimitCooldownSeconds:             strconv.Itoa(rateLimitCooldownSeconds),
+		flags.KeyProviderOverloaded:                   boolDefault(providerOverloaded),
 		flags.KeyNativeAnthropicResponseSignals:       boolDefault(nativeAnthropicResponseSignals),
 		flags.KeyNativeOpenAIResponseSignals:          boolDefault(nativeOpenAIResponseSignals),
 		flags.KeyEffortEscalation:                     boolDefault(effortEscalation),
@@ -1329,6 +1396,7 @@ func main() {
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+		WithCodexExtraCredits(allowCodexCredits).
 		WithSessionStrategyStore(sessionStrategyStore).
 		WithSessionTurnClock(sessionTurnClock).
 		WithEscalation(escalationStore, escalationObserver).
@@ -1350,6 +1418,14 @@ func main() {
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: router.StrategyHMMBeta, Router: hmmBetaRouter, Unavailable: hmm.ErrHMMUnavailable,
 			Capabilities: hmmBetaCapabilities,
+		}).
+		WithPolicyStrategy(policy.StrategySpec{
+			Strategy: router.StrategyHMMQwen, Router: hmmQwenRouter, Unavailable: hmm.ErrHMMUnavailable,
+			Capabilities: hmmCapabilities,
+		}).
+		WithPolicyStrategy(policy.StrategySpec{
+			Strategy: router.StrategyDecisionModel, Router: buildDecisionModelRouter(logger), Unavailable: decisionmodel.ErrUnavailable,
+			Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true},
 		}).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyBandit, Router: banditRouter, Unavailable: bandit.ErrBanditUnavailable}).
 		WithContentCapture(captureMode, captureMaxBytes, nil).
@@ -1373,6 +1449,7 @@ func main() {
 		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
 		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
 		WithTransientRateLimit(transientRateLimit, rateLimitCooldownSeconds).
+		WithProviderOverloaded(providerOverloaded, breaker.New(breaker.Defaults(), nil)).
 		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
 		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
 		WithSSEKeepalive(sseKeepalive).
@@ -1385,6 +1462,7 @@ func main() {
 		WithAuthoritativeUpgradeHoldoutPct(authoritativeUpgradeHoldoutPct).
 		WithAuthoritativeUpgradeVotes(authoritativeUpgradeVotes).
 		WithAuthoritativeDowngradeGate(authoritativeDowngradeGate).
+		WithAuthoritativeUpgradeSlidingThreshold(authoritativeUpgradeSlidingThreshold).
 		WithHMMDowngradeHysteresisTurns(hmmDowngradeHysteresisTurns).
 		WithHMMDowngradeHysteresisShadowTurns(hmmDowngradeHysteresisShadowTurns).
 		WithAuthorityCacheShadow(authorityCacheShadow).
@@ -1395,6 +1473,7 @@ func main() {
 		WithCCOrchestrationToolsCrossVendor(ccOrchToolsCrossVendor).
 		WithCCTaskToolsCrossVendor(ccTaskToolsCrossVendor).
 		WithCCAutonomySystemAppend(ccAutonomySystemAppend).
+		WithEarlyStopRedo(earlyStopRedo).
 		WithCCWorkspaceSystemAppend(ccWorkspaceSystemAppend).
 		WithBandSwap(bandSwapEnabled).
 		WithLoopEscalationConfig(loopEscalationEnabled, loopEscalationHoldoutPct).
@@ -1575,11 +1654,13 @@ func main() {
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
-		StartupDatabasePing: pool.Ping,
-		TestPlans:           testPlans,
-		PolicyPinEnabled:    policyPinEnabled,
-		ServingAdmission:    servingAdmission,
-		SubscriberAllowance: subscriberAllowanceSvc,
+		SubscriptionLogins:       subscriptionLogins,
+		StartupDatabasePing:      pool.Ping,
+		TestPlans:                testPlans,
+		PolicyPinEnabled:         policyPinEnabled,
+		ServingAdmission:         servingAdmission,
+		SubscriberAllowance:      subscriberAllowanceSvc,
+		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
 	}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
@@ -2315,6 +2396,21 @@ func registerDeploymentKeyedProvider(
 	}
 }
 
+// openRouterModelIDs layers ROUTER_MODEL_ID_MAP over the catalog's OpenRouter
+// upstream IDs so operator overrides still win.
+func openRouterModelIDs(raw string) (map[string]string, error) {
+	overrides, err := config.ParseModelIDMap(raw)
+	if err != nil {
+		return nil, err
+	}
+	ids := upstreamIDsForProvider(providers.ProviderOpenRouter)
+	if ids == nil {
+		return overrides, nil
+	}
+	maps.Copy(ids, overrides)
+	return ids, nil
+}
+
 func upstreamIDsForProvider(provider string) map[string]string {
 	out := make(map[string]string)
 	for _, m := range catalog.Models {
@@ -2349,4 +2445,28 @@ func runEscalationSweep(ctx context.Context, store escalationStateSweeper) {
 			cancel()
 		}
 	}
+}
+
+func buildAnthropicFederationTokenSource(deploymentMode server.DeploymentMode) auth.AnthropicFederationTokenSource {
+	tokenFile := config.GetOr("ANTHROPIC_IDENTITY_TOKEN_FILE", "")
+	identityToken := wif.GoogleIdentityToken
+	if tokenFile != "" {
+		identityToken = func(ctx context.Context, _ string) (string, error) {
+			return wif.ReadAnthropicIdentityToken(ctx, tokenFile)
+		}
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	source := anthropicfederation.NewSource(client, identityToken, time.Now)
+	if deploymentMode != server.DeploymentModeManaged {
+		return source
+	}
+	bindingsJSON, err := base64.StdEncoding.DecodeString(config.GetOr("ROUTER_ANTHROPIC_FEDERATION_BINDINGS_B64", "e30="))
+	if err != nil {
+		panic("invalid base64 managed Anthropic federation bindings")
+	}
+	bindings, err := anthropicfederation.ParseInstallationBindings(string(bindingsJSON))
+	if err != nil {
+		panic(fmt.Errorf("invalid managed Anthropic federation configuration: %w", err))
+	}
+	return source.RequireInstallationBindings(bindings)
 }

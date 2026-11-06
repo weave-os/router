@@ -67,12 +67,16 @@ func TestVerificationRealResolverWeakToolExclusionPreventsHTTP(t *testing.T) {
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic tools"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))))
+	dispatchErr := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body)))
+	require.ErrorIs(t, dispatchErr, ErrSubscriptionPoolExhausted)
+	var upstreamErr *providers.UpstreamErrorResponse
+	require.ErrorAs(t, dispatchErr, &upstreamErr)
+	require.Equal(t, http.StatusNotFound, upstreamErr.Status)
 	require.True(t, routed.observedRequest.HasTools, "actual parsed tool request must drive Resolver")
 	require.Contains(t, routed.resolved.Diagnostics, policy.Diagnostic{CatalogID: verificationWeakToolModel, RosterID: verificationWeakToolModel, Reason: policy.ExclusionToolCapability})
 	require.NotContains(t, routed.resolved.CandidateModels(), verificationWeakToolModel)
 	require.Zero(t, incompatibleRequests)
-	require.Equal(t, []string{"Bearer alternative-seat", "Bearer synthetic-api-key"}, bearers)
-	require.Equal(t, models[0], models[1])
-	require.Contains(t, rec.Body.String(), "compatible tool answer")
+	require.Equal(t, []string{"Bearer alternative-seat"}, bearers)
+	require.Equal(t, []string{codexCoveredModel}, models)
+	require.NotContains(t, rec.Body.String(), "compatible tool answer")
 }

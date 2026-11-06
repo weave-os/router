@@ -60,7 +60,7 @@ func (w *OpenAIRoutingMarkerWriter) Write(data []byte) (int, error) {
 	if w.Streaming && w.onOutputProgress != nil {
 		w.scanOutputProgress(data)
 	}
-	return w.Inner.Write(data)
+	return sse.WriteJSONChunk(w.Inner, data)
 }
 
 // ArmOutputProgress installs the output-progress watchdog mark. The writer

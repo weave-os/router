@@ -121,6 +121,26 @@ func TestSearchDropsInferenceVersionSegmentFromBaseURL(t *testing.T) {
 	}
 }
 
+func TestSearchRunsAgentOnCortexRootForAIGatewayBaseURL(t *testing.T) {
+	var gotPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		io.WriteString(w, `{"content":[]}`)
+	}))
+	defer srv.Close()
+
+	// The AI Gateway serves inference only; agent:run stays on the account's Cortex REST root.
+	for _, base := range []string{"/api/v2/aigateways/ENG", "/api/v2/aigateways/ENG/v1/"} {
+		gotPath = ""
+		if _, err := cortexagents.NewClient("", cortexagents.WithHostSuffix("127.0.0.1")).Search(wifContext(srv.URL+base), websearch.Query{Text: "q"}); err != nil {
+			t.Fatalf("Search(%s): %v", base, err)
+		}
+		if gotPath != "/api/v2/cortex/agent:run" {
+			t.Fatalf("Search(%s) path = %q", base, gotPath)
+		}
+	}
+}
+
 func TestSearchCapsResultsAtRequestedMax(t *testing.T) {
 	hits := make([]map[string]string, 0, 8)
 	for i := 0; i < 8; i++ {

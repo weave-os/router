@@ -112,7 +112,7 @@ func (s *Service) maybeStrikeArmAfterRescuedFailure(
 	role string,
 	pinRole string,
 ) (string, sessionpin.DemotionReason) {
-	if !s.ResolveRescuedFailureArmDemotion(ctx) || s.pinStore == nil || installationID == uuid.Nil {
+	if s.pinStore == nil || installationID == uuid.Nil {
 		return "", ""
 	}
 	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) || primary.Model == "" || hardPinned {
@@ -123,6 +123,12 @@ func (s *Service) maybeStrikeArmAfterRescuedFailure(
 	}
 	headerTimeout := providers.IsResponseHeaderTimeout(primaryErr)
 	if (!rescueRan && !headerTimeout) || (rescueRan && !isRescuedPrimaryFailure(primaryErr)) {
+		return "", ""
+	}
+	if !s.ResolveRescuedFailureArmDemotion(ctx) {
+		if rescueRan {
+			recordTurnFailure(ctx, primary.Model)
+		}
 		return "", ""
 	}
 	reason, cooldownUntil := sessionpin.DemotionReasonRescuedFailure, time.Time{}

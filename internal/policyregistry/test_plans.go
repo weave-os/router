@@ -205,9 +205,7 @@ func (s *TestPlanTools) retainedSelection(ctx context.Context, launch TestPlanLa
 		return SessionReleaseBinding{}, err
 	}
 	activation, ok := snapshot.State.Activations[admission.ActivationID]
-	if !ok || activation.WithdrawnAt != nil || now.Before(activation.ActivatedAt) ||
-		(activation.SupersededAt != nil && !now.Before(activation.SupersededAt.Add(ServingRetirementLifetime))) ||
-		!now.Before(admission.LastAdmittedAt.Add(ServingIdleLifetime)) {
+	if !ok || activation.WithdrawnAt != nil || now.Before(activation.ActivatedAt) {
 		return SessionReleaseBinding{}, errors.New("pinned test activation is no longer eligible; prepare a new launch")
 	}
 	selectionSet, err := readSelectionSetView(ctx, s.Store, activation.SelectionSet)

@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"slices"
 	"strings"
 	"time"
+
+	"weave-os/router/internal/router"
 )
 
 // v2 kinds fold the seven v1 objects into three content-addressed artifacts. Their singular
@@ -41,11 +42,12 @@ type ClassifierComponent struct {
 // CandidateComposition is the environment-neutral effective tuple. A v1 release plus its
 // classifier bundle and a v2 candidate both normalize to it.
 type CandidateComposition struct {
-	RouterImageDigest string              `json:"router_image_digest"`
-	Policy            PolicyObject        `json:"selection_policy"`
-	Classifier        ClassifierComponent `json:"classifier"`
-	Requirements      ServingRequirements `json:"requirements"`
-	Provenance        ServingProvenance   `json:"provenance"`
+	RouterImageDigest string                           `json:"router_image_digest"`
+	Policy            PolicyObject                     `json:"selection_policy"`
+	StrategyPolicies  map[router.Strategy]PolicyObject `json:"strategy_policies,omitempty"`
+	Classifier        ClassifierComponent              `json:"classifier"`
+	Requirements      ServingRequirements              `json:"requirements"`
+	Provenance        ServingProvenance                `json:"provenance"`
 }
 
 // CandidateV2 is one published build: the v1 release and classifier bundle folded together.
@@ -114,13 +116,16 @@ func (b DeploymentBinding) lane() LaneBinding {
 
 // Equal compares every behavior-affecting classifier object, including the auxiliary inventory.
 func (c ClassifierComponent) Equal(other ClassifierComponent) bool {
-	return c.Identity.ArtifactID == other.Identity.ArtifactID && c.Identity.PackageSHA256 == other.Identity.PackageSHA256 && c.Identity.ImageDigest == other.Identity.ImageDigest && c.Identity.WireSchema == other.Identity.WireSchema && c.Identity.TaxonomySHA256 == other.Identity.TaxonomySHA256 && slices.Equal(c.Identity.ClassOrder, other.Identity.ClassOrder) && c.Package == other.Package && c.Configuration == other.Configuration && maps.Equal(c.AuxiliaryModels, other.AuxiliaryModels)
+	return c.Identity.Equal(other.Identity) && c.Package == other.Package && c.Configuration == other.Configuration && maps.Equal(c.AuxiliaryModels, other.AuxiliaryModels)
 }
 
 func (c ClassifierComponent) validate() error {
 	identity := c.Identity
 	if strings.TrimSpace(identity.ArtifactID) == "" || !validImageDigest(identity.ImageDigest) || identity.WireSchema != ClassifierWireSchemaV4 || len(identity.ClassOrder) == 0 || TaxonomyDigest(identity.ClassOrder) != identity.TaxonomySHA256 {
 		return errors.New("invalid classifier bundle identity or schema")
+	}
+	if err := identity.validateVariants(); err != nil {
+		return err
 	}
 	if err := validateArtifactRef(c.Package); err != nil {
 		return err
@@ -151,7 +156,7 @@ func (p ServingProvenance) validate() error {
 
 // Equal compares the effective composition; classifier equality includes the auxiliary inventory.
 func (c CandidateComposition) Equal(other CandidateComposition) bool {
-	return c.RouterImageDigest == other.RouterImageDigest && c.Policy == other.Policy && c.Requirements == other.Requirements && c.Provenance == other.Provenance && c.Classifier.Equal(other.Classifier)
+	return c.RouterImageDigest == other.RouterImageDigest && c.Policy == other.Policy && maps.Equal(c.StrategyPolicies, other.StrategyPolicies) && c.Requirements == other.Requirements && c.Provenance == other.Provenance && c.Classifier.Equal(other.Classifier)
 }
 
 func (c CandidateComposition) validate(root string) error {
@@ -169,6 +174,20 @@ func (c CandidateComposition) validate(root string) error {
 	}
 	if c.Requirements.ClassifierWireSchema != c.Classifier.Identity.WireSchema || c.Requirements.TaxonomySHA256 != c.Classifier.Identity.TaxonomySHA256 {
 		return errors.New("candidate requirements do not match its classifier identity")
+	}
+	for strategy, policy := range c.StrategyPolicies {
+		if !router.IsBetaStrategy(strategy) {
+			return fmt.Errorf("candidate strategy policy %q is not a beta strategy", strategy)
+		}
+		if _, found := c.Classifier.Identity.Variants[strategy]; !found {
+			return fmt.Errorf("candidate strategy policy %q has no classifier variant", strategy)
+		}
+		if err := validateServingPolicy(policy, root); err != nil {
+			return fmt.Errorf("candidate strategy policy %q: %w", strategy, err)
+		}
+		if policy.SchemaVersion != c.Requirements.PolicySchema {
+			return fmt.Errorf("candidate strategy policy %q schema does not match runtime requirements", strategy)
+		}
 	}
 	return c.Provenance.validate()
 }

@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"time"
 
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/subscriptions/entitlement"
 )
 
 // ServingStore is shared by admission, proposal validation and the single activation controller.
@@ -35,13 +38,14 @@ type ServingValidationStore interface {
 // as a lane embedded in a v2/v3 selection set. PolicyReference is the effective
 // policy; Candidate retains the immutable build composition.
 type PreparedSelection struct {
-	Selection       ServingSelection
-	ProfileKey      string
-	Target          ServingTarget
-	Candidate       CandidateComposition
-	Binding         LaneBinding
-	Policy          *rosterdata.Roster
-	PolicyReference PolicyObject
+	Selection        ServingSelection
+	ProfileKey       string
+	Target           ServingTarget
+	Candidate        CandidateComposition
+	Binding          LaneBinding
+	Policy           *rosterdata.Roster
+	PolicyReference  PolicyObject
+	StrategyPolicies map[router.Strategy]StrategyPolicy
 }
 
 // ServingValidator verifies exact revision attestations, catalog compatibility and private endpoint smoke.
@@ -321,6 +325,9 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 	for key, lane := range previous.Profiles {
 		next, exists := set.Profiles[key]
 		if !exists {
+			if proposal.Scope == ChangeCustom && key == entitlement.LegacyBoostProfileKey {
+				continue
+			}
 			return errors.New("registered profile keys cannot be removed")
 		}
 		if proposal.Scope != ChangeProfile && !sameLaneProfile(lane.Profile, next.Profile) {
@@ -381,8 +388,8 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 			return errors.New("roster-only promotion must retain destination image and classifier")
 		}
 	case ChangeClassifier:
-		if !base.Classifier.Equal(source.Classifier) || base.RouterImageDigest != oldBase.RouterImageDigest || base.Policy != oldBase.Policy {
-			return errors.New("classifier-only promotion must retain destination image and policy")
+		if !base.Classifier.Equal(source.Classifier) || base.RouterImageDigest != oldBase.RouterImageDigest || base.Policy != oldBase.Policy || !maps.Equal(base.StrategyPolicies, oldBase.StrategyPolicies) {
+			return errors.New("classifier-only promotion must retain destination image, policy and strategy policies")
 		}
 	}
 	return nil
@@ -819,5 +826,12 @@ func ReadPreparedSelection(ctx context.Context, store ServingStore, target Servi
 	if policy.SchemaVersion != candidate.Requirements.PolicySchema || !slices.Equal(policy.ClassOrder, candidate.Classifier.Identity.ClassOrder) {
 		return PreparedSelection{}, errors.New("compiled policy does not match classifier schema/taxonomy")
 	}
-	return PreparedSelection{Selection: selection, ProfileKey: profileKey, Target: target, Candidate: candidate, Binding: binding, Policy: policy, PolicyReference: policyReference}, nil
+	strategyPolicies, err := loadStrategyPolicies(ctx, store, candidate)
+	if err != nil {
+		return PreparedSelection{}, err
+	}
+	return PreparedSelection{
+		Selection: selection, ProfileKey: profileKey, Target: target, Candidate: candidate,
+		Binding: binding, Policy: policy, PolicyReference: policyReference, StrategyPolicies: strategyPolicies,
+	}, nil
 }

@@ -63,12 +63,16 @@ func (s *Service) openaiFallbackKeyAvailable(ctx context.Context) bool {
 
 // codexSubscriptionExhausted reports whether the caller's present Codex
 // subscription has bound its plan window or is drawing billable overage per the
-// usage observer, regardless of whether an OpenAI fallback key exists. When true the
+// usage observer, when extra credits are disabled and regardless of whether an
+// OpenAI fallback key exists. With extra credits enabled, cached included usage
+// does not suppress the token; the provider freshly checks quota and credits. When true the
 // caller suppresses the spent token pre-dispatch (withSuppressedCodexSubscription)
 // so the turn tries an eligible shared subscription or API fallback, and is
 // refused when neither is available.
 func (s *Service) codexSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
-	if s.usageObserver == nil {
+	if s.usageObserver == nil || s.codexExtraCreditsAllowed() || pickedModelOnOwnPlan(ctx) {
+		// Included usage observations cannot rule out fresh purchased credits.
+		// The provider still verifies quota and credit availability per attempt.
 		return false
 	}
 	codexTok, _ := presentSubscriptionTokens(ctx, headers)
@@ -170,6 +174,24 @@ func (s *Service) recordCodexQuotaExhaustion(ctx context.Context, headers http.H
 		return
 	}
 	codexTok, _ := presentSubscriptionTokens(ctx, headers)
+	s.recordCodexPlanSpent(ctx, codexTok, resetAt)
+}
+
+// recordCodexQuotaExhaustionForCredentials records the spent plan under the
+// token the rejected attempt carried. Dispatch has no inbound headers, and the
+// caller's ChatGPT login usually arrives only on them.
+func (s *Service) recordCodexQuotaExhaustionForCredentials(ctx context.Context, creds *Credentials, err error) {
+	if s.usageObserver == nil || creds == nil || !creds.OAuth {
+		return
+	}
+	resetAt, exhausted := codexQuotaExhaustion(err)
+	if !exhausted {
+		return
+	}
+	s.recordCodexPlanSpent(ctx, string(creds.APIKey), resetAt)
+}
+
+func (s *Service) recordCodexPlanSpent(ctx context.Context, codexTok string, resetAt time.Time) {
 	if codexTok == "" {
 		return
 	}
@@ -179,3 +201,5 @@ func (s *Service) recordCodexQuotaExhaustion(ctx context.Context, headers http.H
 	observability.FromContext(ctx).Info("Codex subscription reported its plan spent; suppressing it until reset",
 		"resets_at", resetAt)
 }
+
+func (s *Service) codexExtraCreditsAllowed() bool { return s.codexExtraCredits }

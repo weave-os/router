@@ -38,7 +38,7 @@ func TestPrepareOpenAI_AnthropicSource_InjectsDeepSeekProviderHint(t *testing.T)
 	order, _ := p["order"].([]any)
 	require.Len(t, order, 1)
 	assert.Equal(t, "deepseek", order[0])
-	assert.Equal(t, false, p["allow_fallbacks"])
+	assert.Equal(t, true, p["allow_fallbacks"], "a missing first-party endpoint must not 404 the request")
 }
 
 func TestPrepareOpenAI_AnthropicSource_InjectsMoonshotProviderHint(t *testing.T) {
@@ -56,7 +56,7 @@ func TestPrepareOpenAI_AnthropicSource_InjectsMoonshotProviderHint(t *testing.T)
 	order, _ := p["order"].([]any)
 	require.Len(t, order, 1)
 	assert.Equal(t, "moonshotai", order[0])
-	assert.Equal(t, false, p["allow_fallbacks"])
+	assert.Equal(t, true, p["allow_fallbacks"], "a missing first-party endpoint must not 404 the request")
 }
 
 func TestPrepareOpenAI_OpenAISource_InjectsProviderHint(t *testing.T) {

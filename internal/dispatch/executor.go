@@ -54,6 +54,9 @@ type Transport struct {
 	// OperationID distinguishes this operation from others in the same
 	// request; empty means the purpose is used.
 	OperationID string
+	// Describe, when set, diagnoses each recorded attempt for its event; err
+	// is nil on a served attempt.
+	Describe func(attempt Attempt, err error) inference.AttemptDiagnosis
 }
 
 // AttemptSink receives ordered attempt events. Sinks must not block dispatch
@@ -79,18 +82,21 @@ const (
 	sameBindingRetryBudget = 10 * time.Second
 )
 
-// Bounded failure reasons recorded on attempt events.
+// FailureReason is a bounded machine reason recorded on attempt events.
+type FailureReason string
+
 const (
-	FailureReasonProviderNotConfigured = "provider_not_configured"
-	FailureReasonTargetMismatch        = "target_mismatch"
-	FailureReasonUpstreamStatus        = "upstream_status"
-	FailureReasonUpstreamModelNotFound = "upstream_model_not_found"
-	FailureReasonUpstreamBilling       = "upstream_billing_blocked"
-	FailureReasonTransport             = "transport"
-	FailureReasonCanceled              = "canceled"
-	FailureReasonCommitted             = "committed"
-	FailureReasonPrepare               = "prepare"
-	FailureReasonAttemptBudget         = "attempt_budget_exhausted"
+	FailureReasonProviderNotConfigured               = "provider_not_configured"
+	FailureReasonTargetMismatch                      = "target_mismatch"
+	FailureReasonUpstreamStatus                      = "upstream_status"
+	FailureReasonUpstreamModelNotFound               = "upstream_model_not_found"
+	FailureReasonUpstreamBilling                     = "upstream_billing_blocked"
+	FailureReasonTransport                           = "transport"
+	FailureReasonCanceled                            = "canceled"
+	FailureReasonCommitted                           = "committed"
+	FailureReasonPrepare                             = "prepare"
+	FailureReasonAttemptBudget                       = "attempt_budget_exhausted"
+	FailureReasonAuthorization         FailureReason = "funding_authorization"
 )
 
 // Result is the executor's report for one operation.
@@ -192,14 +198,25 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 			AccountingOutcome: inference.AccountingOutcomeFailed,
 		},
 	}
-	record := func(attempt Attempt, outcome inference.AttemptOutcome, reason string, status int, started time.Time) {
+	record := func(attempt Attempt, outcome inference.AttemptOutcome, reason string, attemptErr error, started time.Time) {
 		result.Outcome.AttemptCount++
-		if e.sink == nil {
+		if e.sink == nil && transport.Describe == nil {
 			return
 		}
 		var latency time.Duration
 		if !started.IsZero() {
 			latency = e.now().Sub(started)
+		}
+		var diagnosis inference.AttemptDiagnosis
+		if transport.Describe != nil {
+			diagnosis = transport.Describe(attempt, attemptErr)
+		}
+		if e.sink == nil {
+			return
+		}
+		status := 0
+		if outcome == inference.AttemptOutcomeFailed {
+			status = upstreamStatus(attemptErr)
 		}
 		e.sink.RecordAttempt(ctx, inference.AttemptEvent{
 			Provenance:         provenance,
@@ -211,6 +228,7 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 			FailureReason:      reason,
 			UpstreamStatusCode: status,
 			Latency:            latency,
+			Diagnosis:          diagnosis,
 		})
 	}
 	fail := func(err error, reason string) (Result, error) {
@@ -222,6 +240,7 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 	}
 
 	var lastErr error
+	authorize := AuthorizationFromContext(ctx)
 	for i, target := range targets {
 		attempt := Attempt{Index: i, Target: target}
 		if i > 0 {
@@ -229,12 +248,15 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 		}
 		client, err := e.clients.Client(target.Provider)
 		if err != nil {
-			record(attempt, inference.AttemptOutcomeSkipped, FailureReasonProviderNotConfigured, 0, time.Time{})
+			record(attempt, inference.AttemptOutcomeSkipped, FailureReasonProviderNotConfigured, err, time.Time{})
 			lastErr = err
 			if i < len(targets)-1 {
 				continue
 			}
 			return fail(err, FailureReasonProviderNotConfigured)
+		}
+		if authorize != nil {
+			client = authorizationGuard{Client: client, target: target, authorize: authorize}
 		}
 
 		retryStart := e.now()
@@ -245,7 +267,7 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 			if transport.Prepare != nil {
 				prepared, prepErr := transport.Prepare(ctx, attempt)
 				if prepErr != nil {
-					record(attempt, inference.AttemptOutcomeAborted, FailureReasonPrepare, 0, time.Time{})
+					record(attempt, inference.AttemptOutcomeAborted, FailureReasonPrepare, prepErr, time.Time{})
 					transport.reset()
 					return fail(prepErr, FailureReasonPrepare)
 				}
@@ -254,7 +276,7 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 			started := e.now()
 			attemptErr = transport.Attempt(attemptCtx, attempt, client)
 			if attemptErr == nil {
-				record(attempt, inference.AttemptOutcomeServed, "", 0, started)
+				record(attempt, inference.AttemptOutcomeServed, "", nil, started)
 				result.Outcome.ServedTarget = target
 				result.Outcome.FallbackUsed = i > 0
 				result.Outcome.ResponseCommitted = transport.committed()
@@ -268,13 +290,17 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 			lastErr = attemptErr
 			reason := failureReason(attemptErr)
 			if transport.committed() {
-				record(attempt, inference.AttemptOutcomeFailed, reason, upstreamStatus(attemptErr), started)
+				record(attempt, inference.AttemptOutcomeFailed, reason, attemptErr, started)
 				return fail(attemptErr, FailureReasonCommitted)
 			}
-			record(attempt, inference.AttemptOutcomeFailed, reason, upstreamStatus(attemptErr), started)
+			record(attempt, inference.AttemptOutcomeFailed, reason, attemptErr, started)
 			if errors.Is(attemptErr, ErrTargetMismatch) {
 				transport.reset()
 				return fail(attemptErr, FailureReasonTargetMismatch)
+			}
+			if errors.Is(attemptErr, ErrAuthorizationDenied) {
+				transport.reset()
+				return fail(attemptErr, string(FailureReasonAuthorization))
 			}
 			if transport.Terminal != nil && transport.Terminal(attempt, attemptErr) {
 				break
@@ -341,6 +367,8 @@ func failureReason(err error) string {
 		return ""
 	case errors.Is(err, ErrTargetMismatch):
 		return FailureReasonTargetMismatch
+	case errors.Is(err, ErrAuthorizationDenied):
+		return string(FailureReasonAuthorization)
 	case errors.Is(err, ErrProviderNotConfigured):
 		return FailureReasonProviderNotConfigured
 	case providers.IsUpstreamModelNotFound(err):

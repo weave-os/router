@@ -61,10 +61,12 @@ func presentSubscriptionTokens(ctx context.Context, headers http.Header) (codex,
 	} else if c := ExtractClientCredentials(providers.ProviderOpenAI, headers); c != nil && c.OAuth {
 		codex = string(c.APIKey)
 	}
-	if creds := subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)); creds != nil {
-		anthropic = string(creds.APIKey)
-	} else if c := ExtractClientCredentials(providers.ProviderAnthropic, headers); c != nil && c.OAuth {
-		anthropic = string(c.APIKey)
+	if !anthropicBYOKConfigured(ctx) {
+		if creds := subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)); creds != nil {
+			anthropic = string(creds.APIKey)
+		} else if c := ExtractClientCredentials(providers.ProviderAnthropic, headers); c != nil && c.OAuth {
+			anthropic = string(c.APIKey)
+		}
 	}
 	return codex, anthropic
 }
@@ -133,8 +135,8 @@ func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Heade
 // Managed accounts use physical identity so token refresh and shared borrowers
 // observe the same quota windows. Direct OAuth retains token-keyed observation.
 func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) context.Context {
-	_, anthroTok := presentSubscriptionTokens(ctx, headers)
-	if s.usageObserver == nil && anthroTok == "" && !managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) {
+	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)
+	if s.usageObserver == nil && anthroTok == "" && codexTok == "" && !managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) {
 		return ctx
 	}
 	ctx = withUnifiedLimitCapture(ctx)

@@ -3,7 +3,9 @@ package proxy
 import (
 	"context"
 	"errors"
+	"maps"
 	"net/http"
+	"slices"
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
@@ -18,14 +20,17 @@ import (
 type subscriptionStateAllowedModelsKey struct{}
 
 func subscriptionStateModelsEnabled(ctx context.Context) bool {
+	enabled, _ := ctx.Value(InstallationSubscriptionStateModelsEnabledContextKey{}).(bool)
 	return !subscriptionFundingOutOfPlayForRequest(ctx) &&
-		(len(installationSubscriptionModelsWhenActiveFromContext(ctx)) > 0 ||
+		(enabled || openRouterOverflowEnabled(ctx) ||
+			len(installationSubscriptionModelsWhenActiveFromContext(ctx)) > 0 ||
 			len(installationSubscriptionModelsWhenInactiveFromContext(ctx)) > 0)
 }
 
 // subscriptionStateRequest preserves all request safety constraints while
 // narrowing eligibility. An empty configured state refuses rather than widening.
 func (s *Service) subscriptionStateRequest(ctx context.Context, req router.Request, models []string) (context.Context, router.Request) {
+	req = readmitForcedContextEstimate(req, req.ForceModel)
 	allowed := make(map[string]struct{})
 	for _, model := range models {
 		if _, excluded := req.ExcludedModels[model]; excluded {
@@ -51,6 +56,32 @@ func (s *Service) subscriptionStateRequest(ctx context.Context, req router.Reque
 	req.AllowedModels = allowed
 	req.ExcludedModels = mergeExcludedModels(req.ExcludedModels, s.excludedModelsForRequest(ctx))
 	return ctx, req
+}
+
+// memberPickPaidContext admits a member's own tier pick to this request's paid
+// set when no included subscription target serves it. It reports false, leaving
+// the included lane in charge, unless the paid lane below can actually serve the
+// pick: the exhausted set (after any OpenRouter-overflow narrowing) holds it, the
+// request's exclusions admit it, and a funded paid binding exists.
+func (s *Service) memberPickPaidContext(ctx context.Context, req router.Request, headers http.Header, pick router.Decision, includedModels []string) (context.Context, bool) {
+	if slices.Contains(includedModels, pick.Model) || !memberSelectedModel(ctx, pick.Model) {
+		return ctx, false
+	}
+	if !slices.Contains(installationSubscriptionModelsWhenInactiveFromContext(ctx), pick.Model) {
+		paidModels, _ := ctx.Value(InstallationSubscriptionModelsWhenInactiveContextKey{}).([]string)
+		ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, append(slices.Clone(paidModels), pick.Model))
+	}
+	paidModels := installationSubscriptionModelsWhenInactiveFromContext(ctx)
+	if !slices.Contains(paidModels, pick.Model) {
+		return ctx, false
+	}
+	paidCtx, paidReq := s.subscriptionStateRequest(ctx, req, paidModels)
+	if _, admitted := paidReq.AllowedModels[pick.Model]; !admitted {
+		return ctx, false
+	}
+	paidCtx = context.WithValue(billing.ReleaseLinkedFirst(paidCtx), subscriptionAPIOnlyKey{}, true)
+	paidCtx = withSuppressedClaudeSubscription(withSuppressedCodexSubscription(paidCtx))
+	return ctx, s.subscriptionStatePaidTargetAvailable(paidCtx, headers, openRouterOverflowTarget(paidCtx, pick))
 }
 
 func (s *Service) subscriptionStateModelAvailable(ctx context.Context, req router.Request, headers http.Header, model string) bool {
@@ -88,8 +119,26 @@ func (s *Service) subscriptionStateModelAvailable(ctx context.Context, req route
 // dispatchSubscriptionStateModels keeps model eligibility separate from funding:
 // each active target must actually use a subscription. Only the exhausted set
 // authorizes a paid attempt, even after a live quota rejection or stale pin.
+// readmitSessionStrikes drops the session's struck models from the request's
+// exclusions: the last resort once every healthy included model failed,
+// mirroring sibling rescue's readmission.
+func readmitSessionStrikes(ctx context.Context, request *router.Request) bool {
+	readmit := sessionStrikeReadmitModelsFromContext(ctx)
+	if len(readmit) == 0 {
+		return false
+	}
+	excluded := maps.Clone(request.AutomaticExcludedModels)
+	for _, model := range readmit {
+		delete(excluded, model)
+	}
+	request.AutomaticExcludedModels = excluded
+	return true
+}
+
 func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failoverInputs) (int, error) {
 	request := *in.subscriptionStateRequest
+	// The paid-target check below authorizes before dispatchPlanned marks the turn.
+	ctx = withClientAppRefusalPaidFallback(ctx, in.initialDecision)
 	sessionUnavailableModels := modelSet(sessionDemotedModelsFromContext(ctx))
 	if sessionUnavailableModels == nil {
 		sessionUnavailableModels = make(map[string]struct{})
@@ -100,26 +149,36 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		}
 	}
 	request.AutomaticExcludedModels = mergeExcludedModels(request.AutomaticExcludedModels, sessionUnavailableModels)
-	if request.ForceModel == "" && in.initialDecision.Reason == translate.ReasonUserForceModel {
-		// runTurnLoop already validated and readmitted a strict force-model pin;
-		// preserve that exception when rebuilding the request for state routing.
+	if in.initialDecision.Reason == translate.ReasonUserForceModel {
+		// The validated decision carries the catalog ID separately from effort;
+		// the original request can still contain an effort-qualified model spec.
 		request.ForceModel = in.initialDecision.Model
 	}
 	in.subscriptionStateRequest = nil
 	in.alternatives = nil
-	activeModels := make([]string, 0)
-	for _, model := range installationSubscriptionModelsWhenActiveFromContext(ctx) {
-		if s.subscriptionStateModelAvailable(ctx, request, in.subscriptionStateHeaders, model) {
-			activeModels = append(activeModels, model)
-		}
+	includedModels := s.includedSubscriptionModels(ctx, request, in.subscriptionStateHeaders)
+	if pickCtx, served := s.memberPickPaidContext(ctx, request, in.subscriptionStateHeaders, in.initialDecision, includedModels); served {
+		// No linked subscription serves the member's own pick: skip the included
+		// lane and serve the pick on paid capacity instead of swapping it for a
+		// covered model.
+		ctx = pickCtx
+		includedModels = nil
 	}
-	rotationBudget, cancel := context.WithTimeout(ctx, sameBindingRetryBudget)
-	defer cancel()
-	ctx = context.WithValue(ctx, subscriptionRotationBudgetKey{}, rotationBudget)
+	ctx, rotationBudget := withSubscriptionAdmissionBudget(ctx)
 	hasFixedTarget := request.ForceModel != "" || callerModelPassthroughActive(ctx) ||
 		in.origin == policy.OverrideSourceDeployment || in.origin == policy.OverrideSourceRequest
-	for len(activeModels) > 0 && rotationBudget.Err() == nil {
-		attemptCtx, attemptReq := s.subscriptionStateRequest(ctx, request, activeModels)
+	readmitted := false
+	for len(includedModels) > 0 && rotationBudget.remaining > 0 {
+		attemptModels := includedModels
+		if !hasFixedTarget {
+			attemptModels = s.withoutHeldSubscriptionModels(ctx, includedModels)
+		}
+		attemptCtx, attemptReq := s.subscriptionStateRequest(ctx, request, attemptModels)
+		// A held pool is the last resort: if nothing else this request admits
+		// remains, try it rather than leave the included lane untried.
+		if len(attemptReq.AllowedModels) == 0 && len(attemptModels) < len(includedModels) {
+			attemptCtx, attemptReq = s.subscriptionStateRequest(ctx, request, includedModels)
+		}
 		attemptCtx = context.WithValue(attemptCtx, subscriptionOnlyAttemptKey{}, true)
 		attemptReq.EnabledProviders = make(map[string]struct{})
 		excludedProviders := s.excludedProvidersForRequest(ctx)
@@ -144,7 +203,11 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			var err error
 			target, err = s.Route(attemptCtx, attemptReq)
 			if err != nil {
-				if errors.Is(err, policy.ErrNoEligibleArm) || errors.Is(err, cluster.ErrAllowlistEmptiesPool) {
+				if errors.Is(err, policy.ErrNoEligibleArm) || errors.Is(err, cluster.ErrAllowlistEmptiesPool) || errors.Is(err, policy.ErrNoRoutableModels) {
+					if !readmitted && readmitSessionStrikes(ctx, &request) {
+						readmitted = true
+						continue
+					}
 					break
 				}
 				return -1, err
@@ -157,36 +220,42 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		if err == nil || committed(in.buf) || ctx.Err() != nil {
 			return winner, err
 		}
-		internalRotationExpired := subscriptionRotationExpired(ctx, rotationBudget)
-		if !internalRotationExpired && !isSubscriptionPoolError(err) && !errors.Is(err, ErrCreditsExhaustedSubscriptionUnavailable) && !providers.IsRetryable(err) &&
+		// An attempt may outlive the rotation budget; its own error, not the
+		// elapsed clock, decides whether another target may serve the turn.
+		if !isSubscriptionPoolError(err) && !errors.Is(err, ErrCreditsExhaustedSubscriptionUnavailable) && !providers.IsRetryable(err) &&
 			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !anthropicSubscriptionThirdPartyRefused(err) {
 			return winner, err
 		}
 		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider)
-		remainingModels := activeModels[:0]
-		for _, model := range activeModels {
+		recordTurnFailure(ctx, target.Model)
+		if !hasFixedTarget {
+			s.holdSessionOffSubscriptionPool(ctx, target.Provider, target.Model)
+		}
+		remainingModels := includedModels[:0]
+		for _, model := range includedModels {
 			if model != target.Model {
 				remainingModels = append(remainingModels, model)
 			}
 		}
-		activeModels = remainingModels
+		includedModels = remainingModels
 		if hasFixedTarget {
 			break
 		}
 	}
 	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
-		return -1, ErrSubscriptionPoolExhausted
+		return -1, subscriptionPoolExhausted(ctx)
+	}
+	if ctx.Err() != nil {
+		return -1, ctx.Err()
 	}
 	paidModels := installationSubscriptionModelsWhenInactiveFromContext(ctx)
 	paidCtx, paidReq := s.subscriptionStateRequest(ctx, request, paidModels)
 	paidCtx = billing.ReleaseLinkedFirst(paidCtx)
 	paidCtx = context.WithValue(paidCtx, subscriptionAPIOnlyKey{}, true)
-	if subscriptionRotationExpired(ctx, rotationBudget) {
-		paidCtx = context.WithValue(paidCtx, subscriptionRotationBudgetDisabledKey{}, true)
-	}
 	paidCtx = withSuppressedClaudeSubscription(withSuppressedCodexSubscription(paidCtx))
 	target := in.initialDecision
 	for {
+		target = openRouterOverflowTarget(paidCtx, target)
 		_, permitted := paidReq.AllowedModels[target.Model]
 		if permitted && s.subscriptionStatePaidTargetAvailable(paidCtx, in.subscriptionStateHeaders, target) {
 			break
@@ -204,15 +273,40 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		var err error
 		target, err = s.Route(paidCtx, paidReq)
 		if err != nil {
-			return -1, err
+			fallback, ok := s.openRouterOverflowFallbackTarget(paidCtx, paidReq, paidModels, in.initialDecision)
+			if !ok {
+				return -1, err
+			}
+			target = fallback
 		}
 	}
 	observability.FromContext(ctx).Info("Included subscription targets unavailable; using exhausted model set", "model", target.Model, "provider", target.Provider)
 	return s.dispatchSubscriptionStateTarget(paidCtx, in, target, false)
 }
 
-func subscriptionRotationExpired(ctx, rotationBudget context.Context) bool {
-	return ctx.Err() == nil && rotationBudget.Err() != nil
+// includedSubscriptionModels lists every model a live subscription can serve,
+// active-set models first. The active set is a preference, not a limit: a model
+// outside it may still rescue a failed active model on included capacity.
+func (s *Service) includedSubscriptionModels(ctx context.Context, req router.Request, headers http.Header) []string {
+	preferred := installationSubscriptionModelsWhenActiveFromContext(ctx)
+	candidates := append([]string{}, preferred...)
+	for _, entry := range catalog.Models {
+		if !slices.Contains(preferred, entry.ID) {
+			candidates = append(candidates, entry.ID)
+		}
+	}
+	models := make([]string, 0, len(candidates))
+	for _, model := range candidates {
+		if req.AllowedModels != nil && model != req.ForceModel {
+			if _, permitted := req.AllowedModels[model]; !permitted {
+				continue
+			}
+		}
+		if s.subscriptionStateModelAvailable(ctx, req, headers, model) {
+			models = append(models, model)
+		}
+	}
+	return models
 }
 
 func (s *Service) subscriptionStatePaidTargetAvailable(ctx context.Context, headers http.Header, target router.Decision) bool {
@@ -220,12 +314,15 @@ func (s *Service) subscriptionStatePaidTargetAvailable(ctx context.Context, head
 	if servedOnSubscription(resolvedCredentials) || servedOnCodexSubscription(resolvedCredentials) {
 		return false
 	}
-	return len(s.resolveBindingsForDispatch(resolvedCredentials, target)) > 0
+	if s.subscriptionAPIAuthorization(s.withSubscriptionFundingAuthorization(ctx, headers), target.Provider, target.Model) != nil {
+		return false
+	}
+	return len(s.subscriptionStateTargetBindings(resolvedCredentials, target)) > 0
 }
 
 func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failoverInputs, target router.Decision, usesIncludedSubscription bool) (int, error) {
 	ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.subscriptionStateHeaders)
-	resolvedTargetBindings := s.resolveBindingsForDispatch(ctx, target)
+	resolvedTargetBindings := s.subscriptionStateTargetBindings(ctx, target)
 	if !usesIncludedSubscription && in.onSubscriptionStatePaidTarget != nil {
 		in.onSubscriptionStatePaidTarget(target, resolvedTargetBindings)
 	}

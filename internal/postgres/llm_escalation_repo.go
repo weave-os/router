@@ -517,11 +517,30 @@ func decodeLLMJobs(rows [][]byte) ([]llmescalation.Job, error) {
 	return jobs, nil
 }
 
-// SweepExpired deletes operational state and all attached histories together.
+const (
+	llmEscalationSweepBatchSize        = 64
+	llmEscalationSweepOperationTimeout = 5 * time.Second
+)
+
+// SweepExpired deletes expired histories, then their sessions, in bounded batches.
 func (r *LLMEscalationRepo) SweepExpired(ctx context.Context) error {
-	queries := dbbudget.Queries(r.pool)
-	if err := queries.ExpireLLMEscalationJobLeases(ctx); err != nil {
+	if err := dbbudget.Queries(r.pool).ExpireLLMEscalationJobLeases(ctx); err != nil {
 		return err
 	}
-	return queries.DeleteExpiredLLMEscalationSessions(ctx)
+	queries := dbbudget.QueriesWithTimeout(r.pool, llmEscalationSweepOperationTimeout)
+	for _, deleteBatch := range []func(context.Context, int32) (int64, error){
+		queries.DeleteExpiredLLMEscalationContinuationBatch,
+		queries.DeleteExpiredLLMEscalationSessionBatch,
+	} {
+		for {
+			deleted, err := deleteBatch(ctx, llmEscalationSweepBatchSize)
+			if err != nil {
+				return fmt.Errorf("sweep expired LLM escalation state: %w", err)
+			}
+			if deleted < llmEscalationSweepBatchSize {
+				break
+			}
+		}
+	}
+	return nil
 }

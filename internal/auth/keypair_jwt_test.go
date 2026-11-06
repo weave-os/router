@@ -154,7 +154,7 @@ func TestNormalizeAuthType_UppercasesPrincipalAndStripsRegion(t *testing.T) {
 func TestNormalizeAuthType_Rejects(t *testing.T) {
 	value := "MYORG-MYACCOUNT"
 	cases := map[string]struct {
-		authType      string
+		authType      auth.AuthType
 		account, user *string
 	}{
 		"unknown type":                {authType: "oauth"},

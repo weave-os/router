@@ -58,8 +58,70 @@ func ResolveBinding(id string, available map[string]struct{}) (ProviderBinding, 
 	if !ok {
 		return ProviderBinding{}, false
 	}
-	for _, b := range m.Providers {
+	for _, b := range RoutableBindings(m) {
 		if _, ok := available[b.Provider]; ok {
+			return b, true
+		}
+	}
+	return ProviderBinding{}, false
+}
+
+// RoutableBindings returns the model's bindings that routing and failover may
+// use, in catalog order. Subscription-overflow bindings are omitted.
+func RoutableBindings(m Model) []ProviderBinding {
+	out := make([]ProviderBinding, 0, len(m.Providers))
+	for _, b := range m.Providers {
+		if !b.SubscriptionOverflowOnly {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// AcceptsImageCount reports whether this binding accepts n image parts in one
+// request. A zero cap means the limit is unknown.
+func (b ProviderBinding) AcceptsImageCount(n int) bool {
+	return b.MaxImagesPerRequest == 0 || n <= b.MaxImagesPerRequest
+}
+
+// AcceptsImageCount reports whether a model can accept n image parts through
+// any enabled routable binding. Unknown models and models without an enabled
+// catalog binding have no known limit.
+func AcceptsImageCount(id string, n int, enabledProviders map[string]struct{}) bool {
+	if n == 0 {
+		return true
+	}
+	m, ok := ByID(id)
+	if !ok {
+		return true
+	}
+	if m.ImageInput == ImageInputUnsupported {
+		return false
+	}
+	foundEnabledBinding := false
+	for _, binding := range RoutableBindings(m) {
+		if len(enabledProviders) > 0 {
+			if _, enabled := enabledProviders[binding.Provider]; !enabled {
+				continue
+			}
+		}
+		foundEnabledBinding = true
+		if binding.AcceptsImageCount(n) {
+			return true
+		}
+	}
+	return !foundEnabledBinding
+}
+
+// BindingFor returns the model's binding for provider, including a
+// subscription-overflow binding.
+func BindingFor(id, provider string) (ProviderBinding, bool) {
+	m, ok := ByID(id)
+	if !ok {
+		return ProviderBinding{}, false
+	}
+	for _, b := range m.Providers {
+		if b.Provider == provider {
 			return b, true
 		}
 	}
@@ -109,7 +171,7 @@ func customProvidersFor(id string, available map[string]struct{}, custom map[str
 		return nil
 	}
 	bound := make(map[string]struct{}, len(m.Providers))
-	for _, b := range m.Providers {
+	for _, b := range RoutableBindings(m) {
 		bound[b.Provider] = struct{}{}
 	}
 	var out []string
@@ -173,7 +235,7 @@ func EnumerateBindings(id string, available map[string]struct{}) []IndexedBindin
 	}
 	out := make([]IndexedBinding, 0, len(m.Providers))
 	for index, b := range m.Providers {
-		if _, ok := available[b.Provider]; ok {
+		if _, ok := available[b.Provider]; ok && !b.SubscriptionOverflowOnly {
 			out = append(out, IndexedBinding{Index: index, ProviderBinding: b})
 		}
 	}

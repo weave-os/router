@@ -54,6 +54,7 @@ func (s *Service) anthropicRoutingRequest(
 	if clientIdentity.UserAgent == "" {
 		clientIdentity.UserAgent = headerIdentity.UserAgent
 	}
+	ctx = requestcontext.WithClientIdentity(ctx, clientIdentity)
 	ctx = requestcontext.WithClientBudget(ctx, resolveClientBudget(clientIdentity, headers, env.Model(), modelVariant1M))
 
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
@@ -71,6 +72,7 @@ func (s *Service) anthropicRoutingRequest(
 	}
 	embedOnlyUser := s.ResolveEmbedOnlyUserMessage(ctx)
 	features := env.RoutingFeatures(embedOnlyUser)
+	ctx = withRequestImageCount(ctx, features.ImageCount)
 	promptText := features.PromptText
 	if embedOnlyUser && features.OnlyUserMessageText != "" {
 		promptText = features.OnlyUserMessageText
@@ -101,17 +103,19 @@ func (s *Service) anthropicRoutingRequest(
 	if id := installationIDFromContext(ctx); id != uuid.Nil {
 		installationID = id.String()
 	}
+	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText, embedOnlyUser)
 	return ctx, router.Request{
 		RequestedModel:               features.Model,
 		ClientBudget:                 requestcontext.ClientBudgetFrom(ctx),
 		EstimatedInputTokens:         features.Tokens,
 		HasTools:                     features.HasTools,
 		HasImages:                    features.HasImages,
+		ImageCount:                   features.ImageCount,
 		TranslationRequirements:      env.TranslationRequirements(router.EndpointAnthropicMessages),
 		ReasoningConfigurationSHA256: env.ReasoningConfigurationSHA256(),
 		ToolConfigurationSHA256:      env.ToolConfigurationSHA256(),
-		PromptText:                   promptText,
-		ConversationMessages:         conversationMessagesForRouting(env),
+		PromptText:                   routingPromptText,
+		ConversationMessages:         routingMessages,
 		AvailableTools:               availableToolsForRouting(env),
 		Tools:                        toolsForRouting(env),
 		OrganizationID:               organizationID,

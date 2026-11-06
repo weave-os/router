@@ -8,9 +8,11 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres/dbbudget"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -228,7 +230,8 @@ func (r *subscriptionAccountRepo) TryAcquireSubscriptionRefreshLease(ctx context
 	}
 	tookOver, err := dbbudget.Queries(r.tx).TryAcquireModelRouterSubscriptionRefreshLease(ctx, sqlc.TryAcquireModelRouterSubscriptionRefreshLeaseParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID,
-		LeaseSeconds: int64(leaseTTL / time.Second),
+		LeaseSeconds:       int64(leaseTTL / time.Second),
+		AllowClaudeOverage: requestcontext.SubscriptionExtraUsageFrom(ctx),
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -342,11 +345,15 @@ func (r *subscriptionAccountRepo) PersistSubscriptionTokens(ctx context.Context,
 }
 
 func toAuthSubscriptionAccount(row sqlc.RouterModelRouterSubscriptionAccount) *auth.SubscriptionAccount {
-	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+	account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+	account.CredentialRejections = int(row.CredentialRejectionCount)
+	return account
 }
 
 func toAuthSubscriptionAccountListRow(row sqlc.ListModelRouterSubscriptionAccountsRow) *auth.SubscriptionAccount {
-	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+	account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+	account.CredentialRejections = int(row.CredentialRejectionCount)
+	return account
 }
 
 func toAuthSubscriptionAccountFields(id uuid.UUID, subscriberID, apiKeyID pgtype.UUID, provider, externalAccountID string, providerUserID, displayName *string, refreshTokenCiphertext []byte, enabled bool, healthState string, cooldownUntil, createdAt pgtype.Timestamp) *auth.SubscriptionAccount {
@@ -421,6 +428,46 @@ func (r *subscriptionAccountRepo) CooldownSubscriptionAccountIfRefreshHolder(ctx
 	return nil
 }
 
+func (r *subscriptionAccountRepo) RecordSubscriptionCredentialRejection(ctx context.Context, accountID string, owner auth.SubscriptionOwner, input auth.SubscriptionCredentialRejectionInput) (auth.SubscriptionCredentialRejection, error) {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return auth.SubscriptionCredentialRejection{}, err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return auth.SubscriptionCredentialRejection{}, err
+	}
+	params := sqlc.RecordModelRouterSubscriptionCredentialRejectionParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, Reason: input.Reason,
+		WindowStart:           pgtype.Timestamp{Time: input.RejectedAt.Add(-input.Window).UTC(), Valid: true},
+		RejectedAt:            pgtype.Timestamp{Time: input.RejectedAt.UTC(), Valid: true},
+		InvalidateAccessToken: input.InvalidateAccessToken,
+	}
+	if input.LeaseID != "" {
+		leaseID, err := uuid.Parse(input.LeaseID)
+		if err != nil {
+			return auth.SubscriptionCredentialRejection{}, auth.ErrSubscriptionRefreshConflict
+		}
+		params.LeaseID = pgtype.UUID{Bytes: leaseID, Valid: true}
+		params.ExpectedVersion = &input.ExpectedVersion
+	}
+	row, err := dbbudget.Queries(r.tx).RecordModelRouterSubscriptionCredentialRejection(ctx, params)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if input.LeaseID != "" {
+			return auth.SubscriptionCredentialRejection{}, auth.ErrSubscriptionRefreshConflict
+		}
+		return auth.SubscriptionCredentialRejection{}, auth.ErrSubscriptionAccountNotFound
+	}
+	if err != nil {
+		return auth.SubscriptionCredentialRejection{}, err
+	}
+	rejection := auth.SubscriptionCredentialRejection{Count: int(row.CredentialRejectionCount), FirstRejectedAt: row.CredentialFirstRejectedAt.Time}
+	if row.PreviousReason != nil {
+		rejection.PreviousReason = *row.PreviousReason
+	}
+	return rejection, nil
+}
+
 func subscriptionUpsertKind(inserted, adopted bool) auth.SubscriptionUpsertKind {
 	switch {
 	case inserted:
@@ -437,17 +484,24 @@ func (r *subscriptionAccountRepo) ListSubscriptionCandidates(ctx context.Context
 	if err != nil {
 		return nil, auth.ErrSubscriptionAccountNotFound
 	}
-	// Serving requires a verified requester; subject-less keys get no capacity.
-	if owner.SubscriberID == "" {
+	params := sqlc.ListModelRouterSubscriptionCandidatesParams{InstallationID: installationID}
+	switch {
+	case owner.SubscriberID != "":
+		subscriberID, err := uuid.Parse(owner.SubscriberID)
+		if err != nil {
+			return nil, auth.ErrSubscriptionAccountNotFound
+		}
+		params.SubscriberID = pgtype.UUID{Bytes: subscriberID, Valid: true}
+	case owner.APIKeyID != "":
+		apiKeyID, err := uuid.Parse(owner.APIKeyID)
+		if err != nil {
+			return nil, auth.ErrSubscriptionAccountNotFound
+		}
+		params.APIKeyID = pgtype.UUID{Bytes: apiKeyID, Valid: true}
+	default:
 		return nil, nil
 	}
-	subscriberID, err := uuid.Parse(owner.SubscriberID)
-	if err != nil {
-		return nil, auth.ErrSubscriptionAccountNotFound
-	}
-	rows, err := dbbudget.Queries(r.tx).ListModelRouterSubscriptionCandidates(ctx, sqlc.ListModelRouterSubscriptionCandidatesParams{
-		InstallationID: installationID, SubscriberID: pgtype.UUID{Bytes: subscriberID, Valid: true},
-	})
+	rows, err := dbbudget.Queries(r.tx).ListModelRouterSubscriptionCandidates(ctx, params)
 	if err != nil {
 		return nil, err
 	}
@@ -456,6 +510,7 @@ func (r *subscriptionAccountRepo) ListSubscriptionCandidates(ctx context.Context
 		account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID,
 			row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
 		account.Tier = auth.SubscriptionTier(row.Tier)
+		account.AccessTokenMissing = row.AccessTokenMissing
 		accounts = append(accounts, account)
 	}
 	return accounts, nil
@@ -466,4 +521,19 @@ func subscriptionProviderUserID(providerUserID *string) string {
 		return ""
 	}
 	return *providerUserID
+}
+
+func (r *subscriptionAccountRepo) SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (auth.SubscriptionOwner, error) {
+	subscriber, err := uuid.Parse(subscriberID)
+	if err != nil {
+		return auth.SubscriptionOwner{}, err
+	}
+	row, err := dbbudget.Queries(r.tx).GetSubscriberEnrollmentKey(ctx, subscriber)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return auth.SubscriptionOwner{}, auth.ErrSubscriptionEnrollmentKeyNotFound
+	}
+	if err != nil {
+		return auth.SubscriptionOwner{}, err
+	}
+	return auth.SubscriptionOwner{SubscriberID: subscriberID, APIKeyID: row.APIKeyID.String(), InstallationID: row.InstallationID.String()}, nil
 }

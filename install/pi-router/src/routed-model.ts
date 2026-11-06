@@ -19,7 +19,13 @@ import {
 	PROVIDER_NAME,
 } from "./config.js";
 import { parseRoutedContextWindow } from "./context-window.js";
-import { forcedModelFromBranch } from "./force-model.js";
+import {
+	lastPinFromBranch,
+	parseRouterCommandHeader,
+	ROUTER_COMMAND_ENTRY_TYPE,
+	ROUTER_COMMAND_HEADER,
+	type RouterCommandOutcome,
+} from "./force-model.js";
 import { registerWeave } from "./provider.js";
 import {
 	aggregateSavings,
@@ -38,6 +44,12 @@ interface PendingRoute {
 	routedModel: string;
 	provider?: string;
 	decision?: string;
+}
+
+interface PendingCommand {
+	turnIndex: number;
+	sessionId: string;
+	outcome?: RouterCommandOutcome;
 }
 
 function savingsFromBranch(ctx: ExtensionContext): { entries: SavingsEntryData[]; aggregate: SavingsAggregate } {
@@ -64,12 +76,14 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 	let savings = aggregateSavings(entries);
 	let requestedModel: string | undefined;
 	let routedModel: string | undefined;
-	let forcedModel: string | undefined;
+	let lastPinModel: string | undefined;
 	let lastNotifiedModel: string | undefined;
+	let activeTurnIndex: number | undefined;
+	let pendingCommand: PendingCommand | undefined;
 
 	const refresh = (ctx: ExtensionContext) => {
 		if (isSubagent()) return;
-		updateRouterStatus(ctx, { requestedModel, routedModel, forcedModel, savings });
+		updateRouterStatus(ctx, { requestedModel, routedModel, lastPinModel, savings });
 	};
 
 	const restore = (ctx: ExtensionContext) => {
@@ -82,8 +96,10 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 			lastEntry && requestedModel && normalizeModelId(requestedModel) === lastEntry.requestedModel
 				? lastEntry.routedModel
 				: undefined;
-		forcedModel = forcedModelFromBranch(ctx.sessionManager.getBranch());
+		lastPinModel = lastPinFromBranch(ctx.sessionManager.getBranch());
 		pendingRoutes = [];
+		pendingCommand = undefined;
+		activeTurnIndex = undefined;
 		lastNotifiedModel = undefined;
 	};
 
@@ -91,6 +107,11 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 		restore(ctx);
 		if (!isSubagent()) installLoomUi(ctx);
 		refresh(ctx);
+	});
+
+	pi.on("turn_start", (event) => {
+		activeTurnIndex = event.turnIndex;
+		pendingCommand = undefined;
 	});
 
 	pi.on("model_select", (event, ctx: ExtensionContext) => {
@@ -104,7 +125,16 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 	});
 
 	pi.on("after_provider_response", (event, ctx: ExtensionContext) => {
+		pendingCommand = undefined;
 		if (event.status < 200 || event.status >= 300) return;
+		const commandHeader = event.headers?.[ROUTER_COMMAND_HEADER];
+		if (commandHeader !== undefined && activeTurnIndex !== undefined && ctx.model?.provider === PROVIDER_NAME) {
+			pendingCommand = {
+				turnIndex: activeTurnIndex,
+				sessionId: ctx.sessionManager.getSessionId(),
+				outcome: parseRouterCommandHeader(commandHeader),
+			};
+		}
 		const model = event.headers?.[ROUTED_MODEL_HEADER];
 		if (!model) return;
 		const contextWindow = parseRoutedContextWindow(event.headers?.[ROUTED_CONTEXT_WINDOW_HEADER]);
@@ -138,9 +168,16 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 
 	pi.on("turn_end", (event, ctx: ExtensionContext) => {
 		if (isSubagent() || event.message.role !== "assistant") return;
-		const restoredForcedModel = forcedModelFromBranch(ctx.sessionManager.getBranch());
-		if (restoredForcedModel !== forcedModel) {
-			forcedModel = restoredForcedModel;
+		const command = pendingCommand;
+		pendingCommand = undefined;
+		if (command && command.turnIndex === event.turnIndex && command.sessionId === ctx.sessionManager.getSessionId() && event.message.stopReason === "stop") {
+			const outcome = command.outcome;
+			const matchingResponse = outcome && event.message.responseId === `msg_router_cmd_${outcome.id}`;
+			pi.appendEntry(ROUTER_COMMAND_ENTRY_TYPE, matchingResponse ? outcome : { responseId: event.message.responseId, outcome: null });
+		}
+		const restoredLastPin = lastPinFromBranch(ctx.sessionManager.getBranch());
+		if (restoredLastPin !== lastPinModel) {
+			lastPinModel = restoredLastPin;
 			// Force-model directives take effect between responses, before the next
 			// served-window header can arrive. Fall back to the conservative value.
 			registerWeave(pi);
@@ -177,6 +214,13 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 
 	pi.on("session_shutdown", (_event, ctx: ExtensionContext) => {
 		pendingRoutes = [];
+		pendingCommand = undefined;
+		activeTurnIndex = undefined;
 		if (!isSubagent()) clearLoomUi(ctx);
+	});
+
+	pi.on("agent_end", () => {
+		pendingCommand = undefined;
+		activeTurnIndex = undefined;
 	});
 }

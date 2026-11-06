@@ -37,6 +37,7 @@ type RoutingFeatures struct {
 	Model        string
 	HasTools     bool
 	HasImages    bool
+	ImageCount   int
 	PromptText   string
 	MessageCount int
 	// MaxTokens is the caller's requested output cap. 0 means unset.
@@ -191,11 +192,13 @@ func (e *RequestEnvelope) anthropicRoutingFeatures(extractOnlyUser bool) Routing
 	})
 	text := b.String()
 
+	imageCount := e.ImageCount()
 	feats := RoutingFeatures{
 		Tokens:       len(text) / 4,
 		Model:        e.Model(),
 		HasTools:     e.HasTools(),
-		HasImages:    e.HasImages(),
+		HasImages:    imageCount > 0,
+		ImageCount:   imageCount,
 		PromptText:   text,
 		MessageCount: msgCount,
 		MaxTokens:    intGJSON(gjson.GetBytes(e.body, "max_tokens")),
@@ -235,11 +238,13 @@ func (e *RequestEnvelope) openAIRoutingFeatures(extractOnlyUser bool) RoutingFea
 	})
 	text := b.String()
 
+	imageCount := e.ImageCount()
 	feats := RoutingFeatures{
 		Tokens:       len(text) / 4,
 		Model:        e.Model(),
 		HasTools:     e.HasTools(),
-		HasImages:    e.HasImages(),
+		HasImages:    imageCount > 0,
+		ImageCount:   imageCount,
 		PromptText:   text,
 		MessageCount: msgCount,
 		MaxTokens:    openAIMaxTokens(e.body),
@@ -472,10 +477,17 @@ func previewGJSON(content gjson.Result) string {
 }
 
 func userPromptTextGJSON(content gjson.Result) string {
+	return userPromptTextWithClientWrappers(content, false)
+}
+
+func userPromptTextWithClientWrappers(content gjson.Result, normalizeKnownWrappers bool) string {
 	if !content.Exists() {
 		return ""
 	}
 	if content.Type == gjson.String {
+		if normalizeKnownWrappers {
+			return WithoutLeadingClientInjectedText(content.String())
+		}
 		return content.String()
 	}
 	if !content.IsArray() {
@@ -491,7 +503,13 @@ func userPromptTextGJSON(content gjson.Result) string {
 			return true
 		}
 		if isClaudeCodeInjectedBlock(text) {
-			return true
+			if !normalizeKnownWrappers {
+				return true
+			}
+			text = WithoutLeadingClientInjectedText(text)
+			if text == "" {
+				return true
+			}
 		}
 		if b.Len() > 0 {
 			b.WriteByte('\n')
@@ -512,6 +530,8 @@ var claudeCodeInjectedBlockPrefixes = []string{
 	"<local-command-stdout>",
 	"<local-command-stderr>",
 	"<local-command-caveat>",
+	"<task-notification>",
+	"</summary>\n<result>",
 }
 
 func isClaudeCodeInjectedBlock(text string) bool {
@@ -522,6 +542,42 @@ func isClaudeCodeInjectedBlock(text string) bool {
 		}
 	}
 	return false
+}
+
+// leadingClaudeCodeInjectedBlockEnd returns the end of a complete known
+// injected block at the start of trimmed text. The quoted-result envelope is
+// a continuation fragment rather than an opening tag, so it needs its own
+// closing-tag handling instead of the ordinary tag-name rule.
+func leadingClaudeCodeInjectedBlockEnd(trimmed string) int {
+	if strings.HasPrefix(trimmed, "</summary>\n<result>") {
+		resultEnd := strings.Index(trimmed, "</result>")
+		if resultEnd < 0 {
+			return 0
+		}
+		blockEnd := resultEnd + len("</result>")
+		remainder := strings.TrimLeft(trimmed[blockEnd:], " \t\r\n")
+		if strings.HasPrefix(remainder, "<usage>") {
+			usageEnd := strings.Index(remainder, "</usage>")
+			if usageEnd < 0 {
+				return 0
+			}
+			blockEnd = len(trimmed) - len(remainder) + usageEnd + len("</usage>")
+		}
+		return blockEnd
+	}
+	if !isClaudeCodeInjectedBlock(trimmed) {
+		return 0
+	}
+	openingTagEnd := strings.IndexByte(trimmed, '>')
+	if openingTagEnd < 0 {
+		return 0
+	}
+	closingTag := "</" + trimmed[1:openingTagEnd] + ">"
+	closingTagStart := strings.Index(trimmed[openingTagEnd+1:], closingTag)
+	if closingTagStart < 0 {
+		return 0
+	}
+	return openingTagEnd + 1 + closingTagStart + len(closingTag)
 }
 
 func openAIContentTextGJSON(v gjson.Result) string {
@@ -562,13 +618,10 @@ func appendText(b *strings.Builder, s string) {
 	b.WriteString(s)
 }
 
-// anthropicHasImages reports whether any content block is
-// {"type":"image",...}, including images nested in a tool_result — the shape an
-// agent produces when a tool hands back a screenshot, and the dominant one in
-// practice. Kept in sync with anthropicImageBytes, which walks the same two
-// positions. String content never has an image.
-func anthropicHasImages(body []byte) bool {
-	found := false
+// anthropicImageCount counts image blocks, including images nested in a
+// tool_result. String content never has an image.
+func anthropicImageCount(body []byte) int {
+	count := 0
 	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
 		content := msg.Get("content")
 		if !content.IsArray() {
@@ -577,26 +630,26 @@ func anthropicHasImages(body []byte) bool {
 		content.ForEach(func(_, block gjson.Result) bool {
 			switch block.Get("type").String() {
 			case "image":
-				found = true
+				count++
 			case "tool_result":
 				block.Get("content").ForEach(func(_, inner gjson.Result) bool {
 					if inner.Get("type").String() == "image" {
-						found = true
+						count++
 					}
-					return !found
+					return true
 				})
 			}
-			return !found
+			return true
 		})
-		return !found
+		return true
 	})
-	return found
+	return count
 }
 
-// openAIHasImages reports whether any content part is
-// {"type":"image_url",...}. String content never has an image.
-func openAIHasImages(body []byte) bool {
-	found := false
+// openAIImageCount counts image_url content parts. String content never has
+// an image.
+func openAIImageCount(body []byte) int {
+	count := 0
 	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
 		content := msg.Get("content")
 		if !content.IsArray() {
@@ -604,12 +657,11 @@ func openAIHasImages(body []byte) bool {
 		}
 		content.ForEach(func(_, part gjson.Result) bool {
 			if part.Get("type").String() == "image_url" {
-				found = true
-				return false
+				count++
 			}
 			return true
 		})
-		return !found
+		return true
 	})
-	return found
+	return count
 }

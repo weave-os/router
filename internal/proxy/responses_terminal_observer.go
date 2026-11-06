@@ -45,12 +45,15 @@ func newResponsesTerminalObserver(inner http.ResponseWriter) *responsesTerminalO
 
 func (o *responsesTerminalObserver) Header() http.Header { return o.inner.Header() }
 
-func (o *responsesTerminalObserver) WriteHeader(status int) { o.inner.WriteHeader(status) }
+func (o *responsesTerminalObserver) WriteHeader(status int) {
+	sse.PrepareJSONResponse(o.inner)
+	o.inner.WriteHeader(status)
+}
 
 func (o *responsesTerminalObserver) Write(p []byte) (int, error) {
 	o.state.wrote = o.state.wrote || len(p) > 0
 	o.scan(p)
-	return o.inner.Write(p)
+	return sse.WriteJSONChunk(o.inner, p)
 }
 
 func (o *responsesTerminalObserver) Flush() {

@@ -51,7 +51,8 @@ const (
 	subscriptionAccountTimeout = 30 * time.Second
 	// catalogModelsTimeout bounds GET /v1/router/models; must exceed the HMM
 	// sidecar client budget (policyclient.DefaultTimeout) or a cold cache 503s.
-	catalogModelsTimeout = policyclient.DefaultTimeout * 2
+	catalogModelsTimeout    = policyclient.DefaultTimeout * 2
+	modelPreparationTimeout = 10 * time.Second
 	// feedbackTimeout bounds the no-login feedback link reads/writes. Both are
 	// single-row Postgres ops plus an async span emit, so 5s is generous.
 	feedbackTimeout = 5 * time.Second
@@ -134,6 +135,12 @@ type Features struct {
 	// subscriber's included Router allowance. Nil leaves every request on the
 	// org/prepaid billing gates alone.
 	SubscriberAllowance *entitlement.Service
+	// SubscriptionPoolsEnabled mirrors ROUTER_SUBSCRIPTION_POOLS_ENABLED so the
+	// dashboard can tell a disabled pool from an empty one.
+	SubscriptionPoolsEnabled bool
+	// SubscriptionLogins runs browser reconnects for the control plane. Nil
+	// leaves enrollment on `router login` alone.
+	SubscriptionLogins admin.SubscriptionLoginFlow
 }
 
 // RegisterWithFeatures is Register with optional request features enabled.
@@ -186,6 +193,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		discoveryMiddleware = append(discoveryMiddleware, servingAdmissionMiddleware...)
 	}
 	discovery := engine.Group("", discoveryMiddleware...)
+	if features.ServingAdmission != nil && mode == DeploymentModeManaged {
+		discovery.POST("/v1/router/models/:model/prepare", middleware.WithTimeout(modelPreparationTimeout), classifierapi.PrepareModelHandler(proxySvc))
+		discovery.GET("/v1/router/models/:model/prepare/:operation", middleware.WithTimeout(modelPreparationTimeout), classifierapi.PrepareModelHandler(proxySvc))
+	}
 	if features.ServingAdmission != nil {
 		discovery.GET("/v1/test-plan/validate", middleware.WithTimeout(catalogModelsTimeout), admin.TestPlanValidationHandler)
 	}
@@ -249,10 +260,16 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			internalGroup.DELETE("/test-plans/launches/:id", admin.InternalTestPlanRevokeHandler(features.TestPlans))
 		}
 		internalGroup.POST("/provider-keys/models", admin.InternalListUpstreamModelsHandler(authSvc, proxySvc))
+		internalGroup.POST("/session-issuers", admin.InternalRegisterSessionIssuerHandler(authSvc))
+		internalGroup.DELETE("/session-issuers/:installationID/:kid", admin.InternalRevokeSessionIssuerHandler(authSvc))
 		if authSvc.SubscriptionAccountsEnabled() {
 			internalGroup.GET("/subscription-accounts/:subscriberID", admin.InternalListSubscriptionAccountsHandler(authSvc))
 			internalGroup.PATCH("/subscription-accounts/:subscriberID/:accountID", admin.InternalUpdateSubscriptionAccountHandler(authSvc))
 			internalGroup.DELETE("/subscription-accounts/:subscriberID/:accountID", admin.InternalDeleteSubscriptionAccountHandler(authSvc))
+			if features.SubscriptionLogins != nil {
+				internalGroup.POST("/subscription-logins/:subscriberID", admin.InternalStartSubscriptionLoginHandler(authSvc, features.SubscriptionLogins))
+				internalGroup.POST("/subscription-logins/:subscriberID/complete", admin.InternalCompleteSubscriptionLoginHandler(authSvc, features.SubscriptionLogins))
+			}
 		}
 		// Inference-policy inspection: the reviewed registry, the deployment's
 		// view of it, and a resolution preview. Read-only and content-free; the
@@ -301,6 +318,12 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		metrics.GET("/metrics/timeseries", admin.MetricsTimeseriesHandler(proxySvc))
 		metrics.GET("/metrics/details", admin.MetricsDetailsHandler(proxySvc))
 		metrics.GET("/metrics/model-breakdown", admin.MetricsModelBreakdownHandler(proxySvc))
+		metrics.GET("/metrics/series", admin.MetricsSeriesHandler(proxySvc))
+		metrics.GET("/metrics/report-summary", admin.MetricsReportSummaryHandler(proxySvc))
+		metrics.GET("/metrics/people", admin.MetricsPeopleHandler(proxySvc))
+		metrics.GET("/metrics/drill-down", admin.MetricsDrillDownHandler(proxySvc))
+		metrics.GET("/metrics/individuals", admin.MetricsIndividualsHandler(proxySvc))
+		metrics.GET("/subscription-pool", admin.SubscriptionPoolHandler(proxySvc, features.SubscriptionPoolsEnabled, time.Now))
 
 		// Mutations: admin cookie REQUIRED. rk_ tokens are rejected so a leaked data-plane key can't mint fresh router keys or rotate provider credentials.
 		mgmt := engine.Group("/admin/v1", middleware.WithTimeout(adminTimeout), middleware.WithAdminOnly(authSvc))
@@ -347,6 +370,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			middleware.WithBillingSpan(),
 			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
 			middleware.WithAPIKeySpendCap(billingSvc),
+			middleware.WithDelegatedSpendCap(billingSvc),
 			middleware.WithOrgMonthlySpendCap(billingSvc),
 			middleware.WithBillingSpanEnd(),
 		)
@@ -361,7 +385,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithForceEffortOverride(),
 	)
 	messagesMiddleware = append(messagesMiddleware, policyPinMiddleware...)
-	messagesMiddleware = append(messagesMiddleware, middleware.WithClassifierThread(proxySvc))
+	messagesMiddleware = append(messagesMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
 	messagesGroup := engine.Group("", messagesMiddleware...)
 	messagesGroup.POST("/v1/messages", anthropicapi.MessagesHandler(proxySvc, authSvc))
 	messagesGroup.POST("/v1/route/handoff", anthropicapi.PrepareHandoffHandler(proxySvc, authSvc))
@@ -378,6 +402,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			middleware.WithBillingSpan(),
 			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
 			middleware.WithAPIKeySpendCap(billingSvc),
+			middleware.WithDelegatedSpendCap(billingSvc),
 			middleware.WithOrgMonthlySpendCap(billingSvc),
 			middleware.WithBillingSpanEnd(),
 		)
@@ -391,7 +416,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
 	)
-	chatCompletionMiddleware = append(chatCompletionMiddleware, middleware.WithClassifierThread(proxySvc))
+	chatCompletionMiddleware = append(chatCompletionMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
 	chatCompletionWithoutPolicyPin := append([]gin.HandlerFunc(nil), chatCompletionMiddleware...)
 	chatCompletionMiddleware = append(chatCompletionMiddleware, policyPinMiddleware...)
 	chatCompletionGroup := engine.Group("", chatCompletionMiddleware...)
@@ -414,8 +439,9 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	passthroughGroup.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(proxySvc))
 	passthroughGroup.GET("/v1/models", openaiapi.ModelsHandler(anthropicapi.PassthroughHandler(proxySvc), proxySvc.CodexModelCatalog))
 	passthroughGroup.GET("/v1/models/:model", anthropicapi.PassthroughHandler(proxySvc))
+	passthroughGroup.GET("/v1/codex/models", openaiapi.CodexCatalogHandler(proxySvc.CodexSelectionCatalog))
 	// Rides the passthrough group (cheap, no billing middleware) — read-only, no routing side-effects.
-	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler)
+	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler(authSvc))
 
 	// Read-only product surface: the Codex status hook's rk_ key and API clients'
 	// ra_ keys read one installation's committed cost. Deliberately outside
@@ -438,6 +464,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			middleware.WithBillingSpan(),
 			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
 			middleware.WithAPIKeySpendCap(billingSvc),
+			middleware.WithDelegatedSpendCap(billingSvc),
 			middleware.WithOrgMonthlySpendCap(billingSvc),
 			middleware.WithBillingSpanEnd(),
 		)
@@ -452,7 +479,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithForceEffortOverride(),
 	)
 	routeMiddleware = append(routeMiddleware, policyPinMiddleware...)
-	routeMiddleware = append(routeMiddleware, middleware.WithClassifierThread(proxySvc))
+	routeMiddleware = append(routeMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
 	routeGroup := engine.Group("", routeMiddleware...)
 	routeGroup.POST("/v1/route", anthropicapi.RouteHandler(proxySvc))
 
@@ -471,7 +498,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithRoutingKnobsOverride(),
 	)
 	previewMiddleware = append(previewMiddleware, policyPinMiddleware...)
-	previewMiddleware = append(previewMiddleware, middleware.WithClassifierThread(proxySvc))
+	previewMiddleware = append(previewMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
 	previewGroup := engine.Group("", previewMiddleware...)
 	previewGroup.POST("/v1/route/preview", anthropicapi.PreviewRouteHandler(proxySvc))
 

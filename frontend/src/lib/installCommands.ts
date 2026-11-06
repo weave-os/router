@@ -12,6 +12,20 @@ export type HarnessID = "claude" | "codex" | "pi";
 /** Whether the installer writes machine-wide config or repo-local config. */
 export type InstallScope = "user" | "project";
 
+/** Terminal the install command is pasted into; selects the env-var syntax in installCommand. */
+export type InstallShell = "posix" | "powershell";
+
+export const INSTALL_SHELLS: { value: InstallShell; label: string }[] = [
+  { value: "posix", label: "macOS / Linux" },
+  { value: "powershell", label: "Windows PowerShell" },
+];
+
+/** PowerShell for Windows browsers, the POSIX shell everywhere else and during SSR. */
+export function defaultInstallShell(): InstallShell {
+  if (typeof navigator === "undefined") return "posix";
+  return /windows/i.test(navigator.userAgent) ? "powershell" : "posix";
+}
+
 export interface HarnessInfo {
   id: HarnessID;
   label: string;
@@ -60,8 +74,11 @@ export function routerOrigin(): string {
 
 /**
  * The npx one-liner that configures `harnessID` against this router. The token
- * rides in as a WEAVE_ROUTER_KEY env prefix, which install.sh reads to skip its
- * interactive prompt.
+ * rides in as WEAVE_ROUTER_KEY, which the installer reads to skip its
+ * interactive prompt: a per-command env prefix in POSIX shells, a session
+ * variable in PowerShell (which has no prefix form), removed after the run.
+ * PowerShell calls npx.cmd because npx.ps1 is blocked by the Restricted
+ * execution policy.
  *
  * `--package … -- <bin>` rather than `npx -y @weave-os/router`: npm <= 6's
  * bundled npx treats an undeclared flag as consuming the next token, so the
@@ -73,9 +90,14 @@ export function installCommand(
   scope: InstallScope,
   token: string,
   origin: string,
+  shell: InstallShell,
 ): string {
-  const flags = [`--${harnessID}`, `--scope ${scope}`, `--base-url ${shellSingleQuote(origin)}`];
-  return `WEAVE_ROUTER_KEY=${shellSingleQuote(token)} npx --package @weave-os/router -y -- weave-router ${flags.join(" ")}`;
+  const quote = shell === "powershell" ? powerShellSingleQuote : shellSingleQuote;
+  const flags = [`--${harnessID}`, `--scope ${scope}`, `--base-url ${quote(origin)}`];
+  const npxArgs = `--package @weave-os/router -y -- weave-router ${flags.join(" ")}`;
+  return shell === "powershell"
+    ? `$env:WEAVE_ROUTER_KEY=${quote(token)}; npx.cmd ${npxArgs}; Remove-Item Env:WEAVE_ROUTER_KEY`
+    : `WEAVE_ROUTER_KEY=${quote(token)} npx ${npxArgs}`;
 }
 
 /**
@@ -84,4 +106,9 @@ export function installCommand(
  */
 function shellSingleQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+/** Wraps a value in PowerShell single quotes, where an embedded quote is doubled. */
+function powerShellSingleQuote(value: string) {
+  return `'${value.replaceAll("'", "''")}'`;
 }

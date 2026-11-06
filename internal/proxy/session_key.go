@@ -78,18 +78,9 @@ func bindRequestLogger(
 		log = log.With("request_id", requestID)
 	}
 	// The client's own session id, bound when present so operators can grep
-	// by the id the user actually sees. Envelope first (Claude Code packs it
-	// in metadata.user_id); header identity covers Codex, which sends
-	// Session-Id and never a Chat Completions `user` field.
-	cs := ""
-	if env != nil {
-		cs = env.ClientSessionID()
-	}
-	if cs == "" {
-		cs = ClientIdentityFrom(ctx).SessionID
-	}
-	if cs != "" {
-		log = log.With("client_session_id", cs)
+	// by the id the user actually sees; same precedence as the session key.
+	if clientSessionID != "" {
+		log = log.With("client_session_id", clientSessionID)
 	}
 	// Promote rather than merely attach: the access log and any FromGin caller
 	// read the gin-bound logger, so session_key would otherwise never reach
@@ -140,6 +131,12 @@ func deriveSessionKeyForRequest(ctx context.Context, env *translate.RequestEnvel
 		return claims.SessionKey
 	}
 	key := deriveSessionKey(env, sessionCredentialIdentity(ctx, apiKeyID), clientSessionIDForRequest(ctx, env))
+	if path := codexSubagentPath(ctx); path != "" {
+		// Codex full-history forks inherit both the session ID and the first
+		// user message. Keep their automatic state out of the parent's pin.
+		digest := sha256.Sum256([]byte("codex_agent:" + sessionKeyHex(key) + ":" + path))
+		copy(key[:], digest[:sessionpin.SessionKeyLen])
+	}
 	copy(key[:], requestcontext.ServingStateKey(ctx, key[:]))
 	return key
 }

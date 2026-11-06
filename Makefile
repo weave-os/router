@@ -73,18 +73,26 @@ test-install: ## Run offline installer regression tests (after make setup-instal
 	@bash install/tests/jq_bootstrap_test.sh
 	@bash install/tests/claude-status_test.sh
 	@bash install/tests/codex_install_test.sh
+	@bash install/tests/build_skill_install_test.sh
 	@bash install/tests/opencode_install_test.sh
+	@bash install/tests/copilot_install_test.sh
+	@bash install/tests/claude_desktop_install_test.sh
+	@node --test install/tests/desktop_shim_test.js
 	@python3 -m unittest discover -s install/pi-router/test -p 'test_*.py'
 	@bash install/tests/codex-status_test.sh
 	@bash install/tests/codex-toggle_test.sh
 	@bash install/tests/key_reuse_test.sh
+	@bash install/tests/install_verdict_test.sh
+	@bash install/tests/attribution_uninstall_test.sh
 	@bash install/tests/return_url_test.sh
+	@bash install/tests/statusline_windows_path_test.sh
 	@bash install/tests/subscription_cli_test.sh
 	@bash install/tests/models_test.sh
 	@bash install/tests/registry_test.sh
 	@bash install/tests/packaging_test.sh
 	@bash install/tests/tool_search_test.sh
 	@bash install/tests/context_window_test.sh
+	@bash install/tests/claude_weave_auto_test.sh
 	@bash install/tests/client_events_test.sh
 
 embed-registry: ## Re-embed install/directives.tsv + registry.sh into install.sh
@@ -202,6 +210,11 @@ up: ## Start the compose stack in the background (no install.sh wiring)
 
 up-hmm: ## Start the stack with the opt-in frozen HMM policy sidecar
 	docker compose -f docker-compose.yml -f sidecars/hmm/docker-compose.yml \
+		--profile hmm build hmm-sidecar
+	CLASSIFIER_IMAGE_DIGEST=$$(docker image inspect --format '{{.Id}}' \
+		$$(docker compose -f docker-compose.yml -f sidecars/hmm/docker-compose.yml \
+			--profile hmm config --images hmm-sidecar)) \
+		docker compose -f docker-compose.yml -f sidecars/hmm/docker-compose.yml \
 		--profile hmm up --build -d
 
 down: ## Stop the compose stack, including the optional HMM sidecar (keeps the postgres volume)

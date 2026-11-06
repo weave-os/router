@@ -53,11 +53,8 @@ func TestVerificationNonstreamFailedJSONCannotWin(t *testing.T) {
 			assert.Error(t, err, "failed provider JSON must not become successful request")
 			capturesMu.Lock()
 			defer capturesMu.Unlock()
-			require.GreaterOrEqual(t, len(bearers), 3, "uncommitted failed JSON rotates personal, shared, then API")
-			require.Equal(t, []string{"Bearer first-seat", "Bearer second-seat"}, bearers[:2])
-			for _, bearer := range bearers[2:] {
-				require.Equal(t, "Bearer synthetic-api-key", bearer)
-			}
+			require.Equal(t, []string{"Bearer first-seat", "Bearer second-seat"}, bearers,
+				"uncommitted failed JSON rotates included seats without authorizing API")
 			require.Equal(t, "/responses", paths[0], "the personal subscription attempt uses the Codex Responses endpoint")
 			require.Equal(t, "first-provider", providerAccounts[0], "the personal lease keeps its provider account identity")
 			winner := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)

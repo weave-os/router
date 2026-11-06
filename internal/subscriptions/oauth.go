@@ -66,10 +66,11 @@ type TokenRefresher interface {
 
 // OAuthClient refreshes Claude and Codex subscription credentials.
 type OAuthClient struct {
-	httpClient     *http.Client
-	codexTokenURL  string
-	claudeTokenURL string
-	now            func() time.Time
+	httpClient         *http.Client
+	codexTokenURL      string
+	claudeTokenURL     string
+	claudeAuthorizeURL string
+	now                func() time.Time
 }
 
 // NewOAuthClient constructs the provider token client. Empty URLs select the
@@ -88,7 +89,7 @@ func NewOAuthClient(httpClient *http.Client, codexTokenURL, claudeTokenURL strin
 	if now == nil {
 		now = time.Now
 	}
-	return &OAuthClient{httpClient: httpClient, codexTokenURL: codexTokenURL, claudeTokenURL: claudeTokenURL, now: now}
+	return &OAuthClient{httpClient: httpClient, codexTokenURL: codexTokenURL, claudeTokenURL: claudeTokenURL, claudeAuthorizeURL: DefaultClaudeAuthorizeURL, now: now}
 }
 
 // OAuthRefreshError classifies provider token failures without retaining a
@@ -96,10 +97,36 @@ func NewOAuthClient(httpClient *http.Client, codexTokenURL, claudeTokenURL strin
 type OAuthRefreshError struct {
 	Provider Provider
 	Status   int
+	Code     string
 }
 
 func (e *OAuthRefreshError) Error() string {
+	if e.Code != "" {
+		return fmt.Sprintf("%s subscription token refresh failed with status %d (%s)", e.Provider, e.Status, e.Code)
+	}
 	return fmt.Sprintf("%s subscription token refresh failed with status %d", e.Provider, e.Status)
+}
+
+// oauthErrorCode extracts only the machine-readable error code from a token
+// endpoint rejection; descriptions may echo request details and are dropped.
+func oauthErrorCode(body []byte) string {
+	var envelope struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if json.Unmarshal(body, &envelope) != nil || len(envelope.Error) == 0 {
+		return ""
+	}
+	var code string
+	if json.Unmarshal(envelope.Error, &code) == nil {
+		return sanitizeOAuthErrorCode(code)
+	}
+	var typed struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(envelope.Error, &typed) == nil {
+		return sanitizeOAuthErrorCode(typed.Type)
+	}
+	return ""
 }
 
 // Terminal reports whether retrying the same refresh token is unsafe or futile.
@@ -202,8 +229,8 @@ func (c *OAuthClient) doTokenRequest(req *http.Request, provider Provider, respo
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxTokenResponseBytes))
-		return &OAuthRefreshError{Provider: provider, Status: resp.StatusCode}
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxTokenResponseBytes))
+		return &OAuthRefreshError{Provider: provider, Status: resp.StatusCode, Code: oauthErrorCode(body)}
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, maxTokenResponseBytes)).Decode(response)
 }

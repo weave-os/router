@@ -19,7 +19,7 @@ import (
 
 // TestProxyMessages_ManagedPoolStreamingFailureLeavesRenderingToHandler: the
 // Anthropic prelude stays buffered until provider output, so even a streaming
-// request retains the classified HTTP error path when the pool is exhausted.
+// request retains the classified HTTP error path when the pool is unavailable.
 func TestProxyMessages_ManagedPoolStreamingFailureLeavesRenderingToHandler(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "token-a"}}}
 	anthropic := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{
@@ -50,6 +50,10 @@ func TestProxyMessages_ManagedPoolStreamingFailureLeavesRenderingToHandler(t *te
 
 	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted,
 		"the pool sentinel must survive for the handler to classify and log")
+	var upstreamErr *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &upstreamErr)
+	require.Equal(t, http.StatusTooManyRequests, upstreamErr.Status)
+	require.Equal(t, 1, anthropic.calls, "generic throttling must not authorize a paid retry")
 	assert.Empty(t, rec.Body.String(),
 		"the handler still owns the classified HTTP error response")
 }
@@ -86,6 +90,10 @@ func TestProxyMessages_ManagedPoolFailureBeforeAnyBytesLeavesRenderingToHandler(
 	err := svc.ProxyMessages(ctx, body, rec, req)
 
 	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	var upstreamErr *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &upstreamErr)
+	require.Equal(t, http.StatusTooManyRequests, upstreamErr.Status)
+	require.Equal(t, 1, anthropic.calls, "generic throttling must not authorize a paid retry")
 	assert.Empty(t, rec.Body.String(),
 		"a pre-commit pool failure is the handler's envelope to render")
 }

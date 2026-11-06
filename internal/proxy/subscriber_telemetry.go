@@ -188,3 +188,12 @@ func applySubscriptionDecisionSpanTelemetry(ctx context.Context, attrs *otel.Att
 		attrs.String("model.intended_family", family)
 	}
 }
+
+// servedCredentialLogValues names the credential that served the turn for the
+// completion log line. An empty source means the deployment key.
+func (s *Service) servedCredentialLogValues(ctx context.Context) (source, tier string) {
+	_, _, source = s.credentialKeyParts(ctx)
+	var telemetry InsertTelemetryParams
+	applySubscriptionWinnerTelemetry(ctx, &telemetry)
+	return source, string(telemetry.SubscriptionTier)
+}

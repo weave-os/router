@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# Offline tests for the install's closing verdict, first-launch guidance, and
+# the key/identity handoff between the clients a multi-client `setup` installs.
+set -uo pipefail
+unset WEAVE_ROUTER_KEY WEAVE_USER_EMAIL
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+installer="${INSTALLER:-$script_dir/../install.sh}"
+[ -f "$installer" ] || { echo "cannot find installer at $installer" >&2; exit 1; }
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+fake_bin="$work/bin"
+mkdir -p "$fake_bin" "$work/tmp"
+# /validate answers FAKE_VALIDATE_STATUS (000 = unreachable) the way curl -f -w does.
+cat >"$fake_bin/curl" <<'FAKE_CURL'
+#!/usr/bin/env bash
+url="${!#}"
+case "$url" in
+  */health) [ "${FAKE_VALIDATE_STATUS:-200}" != 000 ] ;;
+  */validate)
+    status="${FAKE_VALIDATE_STATUS:-200}"
+    while [ $# -gt 0 ]; do
+      case "$1" in -w) printf '%s' "$status"; shift 2 ;; *) shift ;; esac
+    done
+    case "$status" in 2*) exit 0 ;; 000) exit 7 ;; *) echo "curl: (22) The requested URL returned error: $status" >&2; exit 22 ;; esac
+    ;;
+  *) exit 0 ;;
+esac
+FAKE_CURL
+cat >"$fake_bin/claude" <<'FAKE_CLAUDE'
+#!/usr/bin/env bash
+if [ "$*" = "auth status --json" ]; then
+  if [ "${FAKE_CLIENT_LOGGED_IN:-0}" = 1 ]; then echo '{"loggedIn":true}'; exit 0; fi
+  echo '{"loggedIn":false}'; exit 1
+fi
+echo "FAKE CLAUDE STARTED"
+echo "FAKE CLAUDE STDIN $(readlink /proc/self/fd/0 2>/dev/null)"
+FAKE_CLAUDE
+cat >"$fake_bin/codex" <<'FAKE_CODEX'
+#!/usr/bin/env bash
+case "$*" in
+  "login status")
+    if [ "${FAKE_CLIENT_LOGGED_IN:-0}" = 1 ]; then echo "Logged in using an API key"; exit 0; fi
+    [ "${FAKE_CLIENT_HOLDS_STDOUT:-0}" = 1 ] && sleep 30 &
+    echo "Not logged in" >&2; exit 1 ;;
+  --version) echo "codex-cli 0.164.0" ;;
+  *) echo "FAKE CODEX STARTED CODEX_HOME=${CODEX_HOME:-}" ;;
+esac
+FAKE_CODEX
+chmod +x "$fake_bin/curl" "$fake_bin/claude" "$fake_bin/codex"
+test_path="$fake_bin:$PATH"
+
+pass=0
+fail=0
+check() { # check <name> <command...>
+  local name="$1"; shift
+  if "$@"; then echo "  ok   $name"; pass=$((pass + 1)); else echo "  FAIL $name"; fail=$((fail + 1)); fi
+}
+handoff_key_empty() { [ -s "$1" ] && [ -z "$(sed -n 1p "$1")" ]; }
+no_setup_handoff_left() { ! compgen -G "$work/tmp/weave-setup.*" >/dev/null; }
+no_temp_files_left() { ! compgen -G "$work/tmp/weave-validate.*" >/dev/null && ! compgen -G "$work/tmp/weave-capture.*" >/dev/null; }
+has() { grep -Fq -- "$2" <<<"$1"; }
+lacks() { ! grep -Fq -- "$2" <<<"$1"; }
+
+# install <home> <validate-status> [env KEY=VAL ...] -- <installer args...>
+install() {
+  local home="$1" status="$2"; shift 2
+  local extra_env=()
+  while [ "${1:-}" != "--" ]; do extra_env+=("$1"); shift; done
+  shift
+  mkdir -p "$home"
+  env HOME="$home" XDG_CACHE_HOME="$home/.cache" TMPDIR="$work/tmp" PATH="$test_path" NO_COLOR=1 \
+    FAKE_VALIDATE_STATUS="$status" "${extra_env[@]}" \
+    bash "$installer" "$@" --scope user --base-url http://127.0.0.1:9 </dev/null 2>&1
+}
+
+# pty_install <home> <answer> -- <installer args...> runs the installer on a
+# terminal, typing <answer> at its prompts.
+pty_install() {
+  local home="$1" answer="$2"; shift 3
+  mkdir -p "$home"
+  printf '%s\n' "$answer" | env HOME="$home" XDG_CACHE_HOME="$home/.cache" TMPDIR="$work/tmp" PATH="$test_path" NO_COLOR=1 \
+    WEAVE_ROUTER_KEY=rk_pty FAKE_CLIENT_LOGGED_IN=1 \
+    script -qe -c "bash $(printf '%q' "$installer") $* --scope user --email dev@example.com --base-url http://127.0.0.1:9" /dev/null 2>&1 \
+    | tr -d '\r'
+}
+
+codex_key() {
+  sed -n 's/.*"X-Weave-Router-Key"[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$1" 2>/dev/null | head -n 1
+}
+codex_email() {
+  sed -n 's/.*"X-Weave-User-Email"[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$1" 2>/dev/null | head -n 1
+}
+
+echo "install.sh closing verdict"
+
+out="$(install "$work/wrong-fleet" 403 WEAVE_ROUTER_KEY=rk_secret_403 -- --claude)"
+check "a key the router refuses (403) is not announced as installed" lacks "$out" "Weave Router installed"
+check "a 403 explains the deployment mismatch" has "$out" "✗ Weave Router is configured for Claude Code, but not working yet: http://127.0.0.1:9 does not serve this key"
+check "a 403 points at --base-url" has "$out" "Fix: re-run with the router URL shown next to your key: npx @weave-os/router --claude --base-url <url>"
+check "raw curl errors are not shown" lacks "$out" "curl: (22)"
+check "the key never appears in output" lacks "$out" "rk_secret_403"
+check "a failed check skips first-launch guidance" lacks "$out" "Next:"
+
+out="$(install "$work/bad-key" 401 WEAVE_ROUTER_KEY=rk_secret_401 -- --claude)"
+check "a 401 says the key was not recognized" has "$out" "not working yet: the router did not recognize this key"
+check "a 401 suggests --rotate-key" has "$out" "npx @weave-os/router --claude --rotate-key"
+
+out="$(install "$work/offline" 000 WEAVE_ROUTER_KEY=rk_secret_offline -- --codex)"
+check "an unreachable router is not announced as installed" lacks "$out" "Weave Router installed"
+check "an unreachable router says so" has "$out" "not working yet: could not reach http://127.0.0.1:9"
+check "an unreachable router suggests update" has "$out" "npx @weave-os/router update --codex"
+
+install "$work/outage" 200 WEAVE_ROUTER_KEY=rk_saved -- --claude >/dev/null
+out="$(install "$work/outage" 503 -- --claude)"
+check "a router outage is not announced as installed" lacks "$out" "Weave Router installed"
+check "a router outage reports the HTTP status" has "$out" "not working yet: http://127.0.0.1:9 answered HTTP 503"
+check "a router outage does not call the saved key rejected" lacks "$out" "was rejected"
+
+out="$(install "$work/claude-new" 200 WEAVE_ROUTER_KEY=rk_ok -- --claude)"
+check "a valid key is announced as installed" has "$out" "✓ Weave Router installed for Claude Code."
+check "a signed-out Claude Code user is told to /login" has "$out" "Next: Claude Code isn't signed in yet. Run claude and type /login"
+
+out="$(install "$work/claude-ready" 200 WEAVE_ROUTER_KEY=rk_ok FAKE_CLIENT_LOGGED_IN=1 -- --claude)"
+check "a signed-in Claude Code user is told to just run claude" has "$out" "Next: run claude; your next prompt goes through Weave Router."
+
+out="$(install "$work/codex-new" 200 WEAVE_ROUTER_KEY=rk_ok -- --codex)"
+check "a signed-out Codex user is told to codex login" has "$out" "Next: Codex isn't signed in yet. Run codex login first"
+check "Codex users are warned about the hook review" has "$out" "Choose Trust all"
+
+started=$SECONDS
+out="$(install "$work/codex-stuck" 200 WEAVE_ROUTER_KEY=rk_ok FAKE_CLIENT_HOLDS_STDOUT=1 -- --codex)"
+check "a client CLI that leaves a child holding stdout does not stall the install" test $((SECONDS - started)) -lt 20
+check "the login hint still shows when the client leaves a child behind" has "$out" "Next: Codex isn't signed in yet."
+
+out="$(install "$work/codex-ready" 200 WEAVE_ROUTER_KEY=rk_ok FAKE_CLIENT_LOGGED_IN=1 -- --codex)"
+check "a signed-in Codex user is told to just run codex" has "$out" "Next: run codex; your next prompt goes through Weave Router."
+
+echo "install.sh closing commands and launch offer"
+
+out="$(install "$work/daily" 200 WEAVE_ROUTER_KEY=rk_daily -- --claude)"
+check "a working install lists how to check routing" has "$out" "Check routing  npx @weave-os/router status --claude"
+check "a working install lists how to turn routing off" has "$out" "Turn off       npx @weave-os/router off --claude"
+check "a working install says how to give feedback" has "$out" "type /rf <what happened> in Claude Code"
+check "a working install folds the uninstall command into the list" lacks "$out" "To uninstall:"
+check "without a terminal the client is not launched" lacks "$out" "Start Claude Code now?"
+out="$(install "$work/daily-codex" 200 WEAVE_ROUTER_KEY=rk_daily -- --codex)"
+check "Codex feedback uses its skill syntax" has "$out" "type \$rf <what happened> in Codex"
+out="$(install "$work/daily-bad" 401 WEAVE_ROUTER_KEY=rk_daily -- --claude)"
+check "a failed install still prints the uninstall command" has "$out" "To uninstall:"
+check "a failed install skips the everyday commands" lacks "$out" "Check routing"
+
+if script --version 2>/dev/null | grep -q util-linux; then
+  out="$(pty_install "$work/pty-yes" "" -- --claude)"
+  check "pressing Enter at the offer starts Claude Code" has "$out" "FAKE CLAUDE STARTED"
+  check "the started client keeps the terminal as stdin instead of /dev/tty" lacks "$out" "FAKE CLAUDE STDIN /dev/tty"
+  out="$(pty_install "$work/pty-no" n -- --claude)"
+  check "answering n leaves Claude Code closed" lacks "$out" "FAKE CLAUDE STARTED"
+  check "the offer is shown on a terminal" has "$out" "Start Claude Code now? [Y/n]"
+  out="$(pty_install "$work/pty-update" "" -- update --claude)"
+  check "update does not offer to start the client" lacks "$out" "Start Claude Code now?"
+  out="$(pty_install "$work/pty-setup" "" -- setup)"
+  check "setup with both clients offers to start once" test "$(grep -c 'now? \[Y/n\]' <<<"$out")" = 1
+  check "setup offers Claude Code after both installs" has "$out" "FAKE CLAUDE STARTED"
+  check "setup does not start Codex" lacks "$out" "FAKE CODEX STARTED"
+else
+  echo "  skip terminal launch checks (needs util-linux script)"
+fi
+
+echo "setup key and identity handoff"
+
+handoff="$work/handoff-ok"; : >"$handoff"
+install "$work/handoff-ok-home" 200 WEAVE_ROUTER_KEY=rk_shared WEAVE_USER_EMAIL=dev@example.com \
+  WEAVE_SETUP_HANDOFF_FILE="$handoff" -- --claude >/dev/null
+check "the first client hands its validated key to the next" test "$(sed -n 1p "$handoff")" = rk_shared
+check "the first client hands its identity choice to the next" test "$(sed -n 2p "$handoff")" = dev@example.com
+
+handoff="$work/handoff-bad"; : >"$handoff"
+install "$work/handoff-bad-home" 401 WEAVE_ROUTER_KEY=rk_rejected WEAVE_SETUP_HANDOFF_FILE="$handoff" -- --claude >/dev/null
+check "a rejected key is not handed on" handoff_key_empty "$handoff"
+
+home="$work/shared"
+out="$(install "$home" 200 WEAVE_SETUP_SHARED_KEY=rk_from_claude WEAVE_SETUP_IDENTITY_RESOLVED=1 \
+  WEAVE_SETUP_SHARED_EMAIL=dev@example.com -- --codex)"
+check "the next client installs with the shared key and no prompt" test "$(codex_key "$home/.codex/config.toml")" = rk_from_claude
+check "the next client reuses the identity choice" test "$(codex_email "$home/.codex/config.toml")" = dev@example.com
+check "the next client says where the key came from" has "$out" "Using the router key from the Claude Code setup above."
+
+home="$work/shared-optout"
+install "$home" 200 WEAVE_SETUP_SHARED_KEY=rk_from_claude WEAVE_SETUP_IDENTITY_RESOLVED=1 \
+  WEAVE_USER_EMAIL=env@example.com -- --codex >/dev/null
+check "an identity opt-out carries over instead of falling back to the environment" \
+  test -z "$(codex_email "$home/.codex/config.toml")"
+
+home="$work/setup"
+out="$(install "$home" 200 WEAVE_ROUTER_KEY=rk_setup -- setup --non-interactive)"
+check "setup installs Claude Code" has "$out" "✓ Weave Router installed for Claude Code."
+check "setup installs Codex" has "$out" "✓ Weave Router installed for Codex."
+check "setup removes its handoff file" no_setup_handoff_left
+check "installs leave no validation or capture temp files behind" no_temp_files_left
+
+echo
+echo "$pass passed, $fail failed"
+[ "$fail" -eq 0 ]

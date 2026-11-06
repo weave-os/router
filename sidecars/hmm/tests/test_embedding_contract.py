@@ -117,6 +117,17 @@ async def test_openai_compatible_provider_restores_response_order(
     assert vectors == [[1, 2, 3], [4, 5, 6]]
 
 
+@respx.mock
+async def test_openai_compatible_provider_failure_raises_the_frozen_embedding_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HMM_EMBEDDING_BASE_URL", "https://embed.example/v1")
+    respx.post("https://embed.example/v1/embeddings").mock(return_value=Response(503))
+
+    with pytest.raises(EmbeddingError, match="status 503"):
+        await OpenAICompatibleEmbedder(contract()).embed(["a"])
+
+
 async def test_cache_returns_hits_that_are_evicted_during_a_concurrent_fetch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

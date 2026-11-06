@@ -168,12 +168,12 @@ for response_model in claude-sonnet-4-5 deepseek/deepseek-v4-pro; do
     WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
     render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/transcript.jsonl")"
   check_not_contains "$response_model does not show a routing warning" "$out" "routing unverified"
-  check_contains "$response_model has a clear response label" "$out" "response model: $response_model"
+  check_contains "$response_model has a clear response label" "$out" "served ${response_model#claude-}"
   check_not_contains "$response_model does not use transcript jargon" "$out" "transcript model:"
   check_not_contains "$response_model omits input/output token totals" "$out" " in / "
   check_not_contains "$response_model omits cache read totals" "$out" "cache read"
   check_not_contains "$response_model omits cache write totals" "$out" "cache write"
-  check_not_contains "$response_model does not claim realized savings" "$out" "saved "
+  check_not_contains "$response_model never states savings as exact" "$out" "saved \$"
   check_not_contains "$response_model does not imply a verified model swap" "$out" "←"
 done
 
@@ -186,8 +186,52 @@ out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/pin.jsonl")"
 check_not_contains "historical pin does not show a routing warning" "$out" "routing unverified"
 check_contains "historical pin is labeled as historical" "$out" "last pin: claude-opus-4-7"
-check_contains "historical pin does not replace the latest response model" "$out" "response model: claude-sonnet-4-5"
+check_contains "historical pin does not replace the latest response model" "$out" "served sonnet-4-5"
 check_not_contains "historical pin does not claim an active force" "$out" "[forced]"
+
+# Control acknowledgments and rejected commands do not clear an acknowledged pin.
+for ack in 'session id: synthetic-session' 'models this installation can be routed to' 'Feedback recorded' 'force-model rejected: provider is excluded'; do
+  head -n 1 "$c/pin.jsonl" > "$c/control.jsonl"
+  jq -cn --arg ack "$ack" '{type:"assistant",message:{model:"weave-router",content:[{type:"text",text:$ack}]}}' >> "$c/control.jsonl"
+  out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_STATUSLINE_CONTEXT=0 render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/control.jsonl")"
+  check_contains "$ack preserves the historical pin" "$out" "last pin: claude-opus-4-7"
+done
+
+# A partially written or corrupt JSONL record does not erase valid history.
+for malformed_position in before after; do
+  : > "$c/partial.jsonl"
+  if [ "$malformed_position" = before ]; then printf 'not-json\n' >> "$c/partial.jsonl"; fi
+  head -n 1 "$c/pin.jsonl" >> "$c/partial.jsonl"
+  if [ "$malformed_position" = after ]; then printf '{"partial":\n' >> "$c/partial.jsonl"; fi
+  out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_STATUSLINE_CONTEXT=0 render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/partial.jsonl")"
+  check_contains "malformed line $malformed_position acknowledgment preserves history" "$out" "last pin: claude-opus-4-7"
+done
+
+for transition in unchanged applied cleared malformed unsupported duplicate; do
+  head -n 1 "$c/pin.jsonl" > "$c/typed.jsonl"
+  case "$transition" in
+    applied) envelope='{"version":1,"id":"11111111-2222-4333-8444-555555555555","command":"force_model","disposition":"accepted","pin":{"transition":"applied","model":"synthetic-model","provider":"synthetic"}}' ;;
+    cleared) envelope='{"version":1,"id":"11111111-2222-4333-8444-555555555555","command":"force_model","disposition":"accepted","pin":{"transition":"cleared"}}' ;;
+    malformed) envelope='{"version":1,"id":"bad","pin":{"transition":"cleared"}}' ;;
+    unsupported) envelope='{"version":2,"id":"future","command":"force_model","disposition":"accepted","pin":{"transition":"cleared"}}' ;;
+    *) envelope='{"version":1,"id":"11111111-2222-4333-8444-555555555555","command":"router_session","disposition":"accepted","pin":{"transition":"unchanged"}}' ;;
+  esac
+  jq -cn --argjson outcome "$envelope" '{type:"assistant",message:{model:"weave-router",router_command:$outcome,content:[{type:"text",text:"force-model cleared (contradictory prose)"}]}}' >> "$c/typed.jsonl"
+  if [ "$transition" = duplicate ]; then
+    jq -cn '{type:"assistant",message:{model:"weave-router",router_command:{version:1,id:"11111111-2222-4333-8444-555555555555",command:"force_model",disposition:"accepted",pin:{transition:"cleared"}},content:[]}}' >> "$c/typed.jsonl"
+  fi
+  out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_STATUSLINE_CONTEXT=0 render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/typed.jsonl")"
+  case "$transition" in
+    applied) check_contains "structured apply ignores prose" "$out" "last pin: synthetic-model" ;;
+    cleared) check_not_contains "structured clear removes pin" "$out" "last pin:" ;;
+    *) check_contains "$transition metadata preserves prior pin" "$out" "last pin: claude-opus-4-7" ;;
+  esac
+done
+sed 's/force-model applied:/force-parent applied:/' "$c/pin.jsonl" > "$c/parent-pin.jsonl"
+out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
+  WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
+  render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/parent-pin.jsonl")"
+check_contains "parent pin is shown in the statusline" "$out" "last pin: claude-opus-4-7"
 
 printf '{"type":"assistant","message":{"model":"<synthetic>"}}\n' >> "$c/pin.jsonl"
 out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
@@ -200,8 +244,8 @@ out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
   render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/missing.jsonl")"
 check_not_contains "missing transcript does not show a routing warning" "$out" "routing unverified"
-check_contains "missing transcript labels the selected model" "$out" "selected: claude-sonnet-4-5"
-check_not_contains "missing transcript does not invent a response model" "$out" "response model:"
+check_contains "missing transcript labels the selected model" "$out" "you picked sonnet-4-5"
+check_not_contains "missing transcript does not invent a response model" "$out" "served "
 
 for transcript_state in empty malformed; do
   : > "$c/$transcript_state.jsonl"
@@ -210,8 +254,8 @@ for transcript_state in empty malformed; do
     WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
     render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/$transcript_state.jsonl")"
   check_not_contains "$transcript_state transcript does not show a routing warning" "$out" "routing unverified"
-  check_not_contains "$transcript_state transcript does not invent a price comparison" "$out" "est. cost difference"
-  check_not_contains "$transcript_state transcript does not invent a response model" "$out" "response model:"
+  check_not_contains "$transcript_state transcript does not invent a price comparison" "$out" "this session"
+  check_not_contains "$transcript_state transcript does not invent a response model" "$out" "served "
 done
 
 head -n 1 "$c/pin.jsonl" > "$c/ack.jsonl"
@@ -229,19 +273,19 @@ JSONL
 out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
   render "$c/cc.sh" "$c/cache" "file://$upstream" deepseek/deepseek-v4-pro "$c/duplicate.jsonl")"
-check_contains "more expensive transcript preserves a signed comparison" "$out" "est. cost difference -\$0.08"
+check_contains "more expensive transcript preserves a signed comparison" "$out" "cost ~\$0.08 more than deepseek/deepseek-v4-pro this session"
 check_not_contains "content-block copies do not display token totals" "$out" " in / "
 
 jq -c '.message.usage = {input_tokens:100,output_tokens:20}' "$c/duplicate.jsonl" > "$c/tiny-difference.jsonl"
 out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
   render "$c/cc.sh" "$c/cache" "file://$upstream" deepseek/deepseek-v4-pro "$c/tiny-difference.jsonl")"
-check_contains "sub-cent negative comparison keeps its sign" "$out" "est. cost difference -<\$0.01"
+check_contains "sub-cent negative comparison keeps its sign" "$out" "cost <\$0.01 more than deepseek/deepseek-v4-pro this session"
 
 # Pin the hypothetical price comparison independently of routing verification.
 c="$work/c1"; mkdir -p "$c/cache"; make_installed "$c/cc.sh"
 out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"
-check_contains "priced selection reports the estimated difference" "$out" "est. cost difference \$0.08"
+check_contains "priced selection reports the estimated difference" "$out" "saved ~\$0.08 this session"
 check_contains "priced selection still names the routed model" "$out" "deepseek/deepseek-v4-pro"
 check "priced selection writes no miss stamp" "$(count_stamps "$c/cache" .miss.)" 0
 
@@ -249,44 +293,44 @@ for sentinel_model in '<synthetic>' weave-router; do
   jq -cn --arg model "$sentinel_model" '{type:"assistant",message:{id:"msg_control",model:$model,usage:{input_tokens:5000,output_tokens:3000}}}' > "$c/sentinel.jsonl"
   cat "$transcript" >> "$c/sentinel.jsonl"
   out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL" "$c/sentinel.jsonl")"
-  check_contains "$sentinel_model does not poison later inference estimates" "$out" "est. cost difference \$0.08"
+  check_contains "$sentinel_model does not poison later inference estimates" "$out" "saved ~\$0.08 this session"
   check_not_contains "$sentinel_model followed by inference does not display token totals" "$out" " in / "
   check_not_contains "$sentinel_model followed by inference does not show a routing warning" "$out" "routing unverified"
 
   head -n 1 "$c/sentinel.jsonl" > "$c/sentinel-only.jsonl"
   out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL" "$c/sentinel-only.jsonl")"
-  check_not_contains "$sentinel_model alone does not invent an estimate" "$out" "est. cost difference"
+  check_not_contains "$sentinel_model alone does not invent an estimate" "$out" "this session"
   check_not_contains "$sentinel_model alone does not count as inference tokens" "$out" " in / "
 done
 
 jq -c 'select(.type == "assistant") | .message.model = "model-nobody-prices"' "$transcript" > "$c/unpriced.jsonl"
 out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream" model-nobody-prices "$c/unpriced.jsonl")"
-check_not_contains "same unpriced model does not invent a zero comparison" "$out" "est. cost difference"
-check_contains "same unpriced model still names the response model" "$out" "response model: model-nobody-prices"
+check_not_contains "same unpriced model does not invent a zero comparison" "$out" "this session"
+check_contains "same unpriced model still names the response model" "$out" "served model-nobody-prices"
 check_not_contains "same unpriced model does not display token totals" "$out" " in / "
 
 cat "$transcript" >> "$c/unpriced.jsonl"
 out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL" "$c/unpriced.jsonl")"
-check_not_contains "unpriced inference still prevents a session estimate" "$out" "est. cost difference"
+check_not_contains "unpriced inference still prevents a session estimate" "$out" "this session"
 
 out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream" deepseek/deepseek-v4-pro)"
-check_contains "same priced model retains a zero comparison" "$out" "est. cost difference \$0.00"
+check_contains "same priced model retains a zero comparison" "$out" "no savings yet this session"
 
 # Cache-heavy routes must price each side with its own catalog multiplier.
 c="$work/c-cache"; mkdir -p "$c/cache"; make_installed "$c/cc.sh"
 out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "gpt-5.4-pro" "$cache_transcript")"
-check_contains "cache reads use per-model multipliers" "$out" "est. cost difference \$29.75"
+check_contains "cache reads use per-model multipliers" "$out" "saved ~\$29.75 this session"
 
 # The bug this path exists for: an unpriced selection renders $0.00, and the
 # script restores the missing comparison instead of waiting out the interval.
 c="$work/c2"; mkdir -p "$c/cache"; make_installed "$c/cc.sh" stale
 seed_periodic_stamp "$c/cache" "$c/cc.sh"
 out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"
-check_not_contains "unpriced selection does not invent a price comparison" "$out" "est. cost difference"
+check_not_contains "unpriced selection does not invent a price comparison" "$out" "this session"
 if wait_for 20 grep -q "\"$STALE_MODEL\":" "$c/cc.sh"; then
   ok "unpriced selection refreshes the on-disk copy"
   out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"
-  check_contains "next turn reports the estimated difference" "$out" "est. cost difference \$0.08"
+  check_contains "next turn reports the estimated difference" "$out" "saved ~\$0.08 this session"
 else
   no "unpriced selection refreshes the on-disk copy" "price entries restored" "still missing after 20s"
 fi
@@ -366,7 +410,7 @@ fi
 c="$work/c5"; mkdir -p "$c/cache"; make_installed_bad_prices "$c/cc.sh"
 out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"
 check_contains "malformed prices still render the routed model" "$out" "deepseek/deepseek-v4-pro"
-check_not_contains "malformed prices do not invent a price comparison" "$out" "est. cost difference"
+check_not_contains "malformed prices do not invent a price comparison" "$out" "this session"
 sleep 1
 check "malformed prices trigger no refresh" "$(count_stamps "$c/cache" .miss.)" 0
 
@@ -631,6 +675,32 @@ out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcr
 check_contains "visible org still renders the statusline" "$out" "deepseek/deepseek-v4-pro"
 check_not_contains "successful display-settings fetch does not show a routing warning" "$out" "routing unverified"
 
+# A disconnected linked plan is cached from display-settings and named with its reconnect command.
+c="$work/g3plans"; mkdir -p "$c/proj/.claude" "$c/cache"
+printf '{"hide_terminal_surfaces": false, "disconnected_plans": ["claude", "bad plan"]}' > "$c/ds.json"
+write_install "$c/proj" project "rk_proj_plans" "file://$c/ds.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
+    bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
+wait_for 5 test -f "$cache_file.plans"
+check "disconnected plans are cached without invalid names" "$(cat "$cache_file.plans" 2>/dev/null)" "claude"
+out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
+    bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
+check_contains "statusline names the disconnected plan and its reconnect command" "$out" "Claude plan disconnected: run npx @weave-os/router login claude --scope project --dir $c/proj"
+check_not_contains "statusline omits plans that are not disconnected" "$out" "Codex plan disconnected"
+printf '{"hide_terminal_surfaces": false, "disconnected_plans": []}' > "$c/ds.json"
+touch -d '2 hours ago' "$cache_file" 2>/dev/null || touch -t "$(date -d '2 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-2H +%Y%m%d%H%M)" "$cache_file"
+echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
+    bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
+wait_for 5 test ! -s "$cache_file.plans"
+check "a reconnected plan clears the cached warning" "$(cat "$cache_file.plans" 2>/dev/null)" ""
+
 # A fresh hidden cache decides without any network access: the install points
 # at an unreachable endpoint, but the pre-seeded fresh cache blanks the
 # statusline on the very first run.
@@ -675,71 +745,71 @@ check_contains "cache miss with an unreachable router renders normally" "$out" "
 sleep 1
 check "failed refresh writes no cache file" "$(test -f "$cache_file" && echo present || echo absent)" "absent"
 
-# Concurrent refreshes must never be in flight at the same time: two
-# overlapping requests can complete out of order, and the loser's write would
-# replace a newer setting with an older one AND stamp it fresh, pinning the
-# gate on a stale value for a whole TTL. The curl shim below stalls the first
-# responder on hide=true until a second answers hide=false, so an unserialized
-# implementation has both in flight together and ends on the stale "1".
+# Hold the first fetch until the second refresh has exited. Model mkdir's
+# false-success race (uutils 0.10.0): both callers can report success creating
+# the same directory. The lock must still exclude the second fetch.
 c="$work/g7"; mkdir -p "$c/proj/.claude" "$c/cache" "$c/bin"
 write_install "$c/proj" project "rk_key" "file://$c/ds.json"
 printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
 cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+real_mkdir="$(command -v mkdir)"
+cat > "$c/bin/mkdir" <<'SHIM'
+#!/usr/bin/env bash
+if [ "$#" -eq 1 ] && [ "$1" = "$WEAVE_TEST_LOCK" ]; then
+  "$WEAVE_TEST_REAL_MKDIR" "$@" 2>/dev/null || [ -d "$1" ] || exit 1
+  : > "$WEAVE_TEST_ATTEMPT"
+else
+  exec "$WEAVE_TEST_REAL_MKDIR" "$@"
+fi
+SHIM
 cat > "$c/bin/curl" <<'SHIM'
 #!/usr/bin/env bash
-# Claim a turn number atomically — mkdir is the test-and-set; a read-then-write
-# counter races here exactly as it would in the code under test.
-n=1
-while ! mkdir "$WEAVE_TEST_TURNS/$n" 2>/dev/null; do n=$((n + 1)); done
-echo "$n" >> "$WEAVE_TEST_CALLS"
-# Announce this fetch for its whole duration; a concurrent one records a
-# violation. This is what the mutex must make impossible.
-[ -e "$WEAVE_TEST_INFLIGHT" ] && echo overlap >> "$WEAVE_TEST_OVERLAP"
-: > "$WEAVE_TEST_INFLIGHT"
-if [ "$n" -eq 1 ]; then
-  # Stall the stale responder until the fresh one has written, or until the
-  # deadline passes (serialized runs never produce a second call, and this
-  # test must not hang waiting for one that will never come).
-  for _ in $(seq 1 60); do
-    [ -f "$WEAVE_TEST_RELEASE" ] && break
-    sleep 0.05
+echo fetch >> "$WEAVE_TEST_CALLS"
+if (set -C; : > "$WEAVE_TEST_INFLIGHT") 2>/dev/null; then
+  deadline=$(($(date +%s) + 15))
+  until [ -f "$WEAVE_TEST_RELEASE" ]; do
+    [ "$(date +%s)" -lt "$deadline" ] || exit 1
+    sleep 0.01
   done
   rm -f "$WEAVE_TEST_INFLIGHT"
   printf '{"hide_terminal_surfaces": true}'
 else
-  rm -f "$WEAVE_TEST_INFLIGHT"
+  echo overlap >> "$WEAVE_TEST_OVERLAP"
   printf '{"hide_terminal_surfaces": false}'
-  : > "$WEAVE_TEST_RELEASE"
 fi
 SHIM
-chmod +x "$c/bin/curl"
-mkdir -p "$c/turns"; : > "$c/calls"; : > "$c/overlap"; rm -f "$c/inflight"
-for _ in 1 2; do
+chmod +x "$c/bin/mkdir" "$c/bin/curl"
+: > "$c/calls"; : > "$c/overlap"
+concurrent_gate_refresh() {
   echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
     | PATH="$c/bin:$PATH" XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 \
       WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' \
-      WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' WEAVE_TEST_TURNS="$c/turns" \
+      WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' WEAVE_TEST_LOCK="$cache_file.lock" \
+      WEAVE_TEST_REAL_MKDIR="$real_mkdir" WEAVE_TEST_ATTEMPT="$c/$1-attempt" \
       WEAVE_TEST_CALLS="$c/calls" WEAVE_TEST_RELEASE="$c/release" \
       WEAVE_TEST_INFLIGHT="$c/inflight" WEAVE_TEST_OVERLAP="$c/overlap" \
-      bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1 &
-done
-wait
-# Both refreshes are detached, so the foreground exit says nothing about them.
-wait_for 15 test -f "$cache_file"
-sleep 3
-# Mutual exclusion is the property under test, so assert on overlap rather than
-# a fetch count: two invocations that happen to serialize (the first finishes
-# and releases before the second starts) fetch twice quite legitimately, and on
-# a slow runner that is what happens. Asserting the cached VALUE would be
-# tautological — with one fetch it is the first responder's either way.
+      bash "$c/proj/.claude/cc-statusline.sh" 3>&1 >/dev/null 2>&1
+}
+# FD 3 keeps each pipe open in detached descendants; cat exits only once the
+# entire refresh has finished, not merely its foreground statusline process.
+concurrent_gate_refresh first | cat >/dev/null &
+first_refresh=$!
+if wait_for 15 test -f "$c/inflight"; then
+  ok "first refresh is held in the fetch"
+else
+  no "first refresh is held in the fetch" "fetch started" "no fetch after 15s"
+fi
+concurrent_gate_refresh second | cat >/dev/null &
+wait "$!"
+check "second refresh attempted the held lock" \
+  "$(test -f "$c/second-attempt" && echo yes)" yes
 check "concurrent refreshes never fetch at the same time" \
   "$(wc -l < "$c/overlap" | tr -d ' ')" 0
-# Guard against the above passing vacuously because nothing ever fetched.
-if [ "$(wc -l < "$c/calls" | tr -d ' ')" -ge 1 ]; then
-  ok "a stale cache does trigger a background refresh"
-else
-  no "a stale cache does trigger a background refresh" "at least one fetch" "no fetch happened"
-fi
+check "only the lock owner fetches while held" "$(wc -l < "$c/calls" | tr -d ' ')" 1
+: > "$c/release"
+wait "$first_refresh"
+check "a stale cache does trigger a background refresh" "$(cat "$cache_file" 2>/dev/null)" 1
+check "the refresh owner releases the lock" "$(test -d "$cache_file.lock" && echo held)" ""
 
 # An ABANDONED lock (crashed holder) must not block refreshes forever: a
 # pre-seeded lock older than the reclaim threshold gets taken over, the fetch
@@ -781,6 +851,45 @@ echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}"
 sleep 2
 check "a lock a live holder owns is left alone" \
   "$(test -f "$cache_file" && echo wrote || echo skipped)" "skipped"
+
+# /router-status is answered by the prompt hook without a model turn.
+h="$work/prompt-hook"; mkdir -p "$h/cache"; make_installed "$h/cc.sh"
+jq -cn '{type:"assistant",message:{id:"msg_1",model:"claude-haiku-4-5",usage:{input_tokens:1000,output_tokens:200}}}' > "$h/transcript.jsonl"
+jq -cn --arg t "$h/transcript.jsonl" '{session_id:"sess-1",model:{id:"claude-opus-4-7"},transcript_path:$t}' \
+  | XDG_CACHE_HOME="$h/cache" WEAVE_STATUSLINE_UPDATE=0 bash "$h/cc.sh" >/dev/null 2>&1
+cached="$(cat "$h/cache/weave-router/claude-status/sess-1.line" 2>/dev/null || true)"
+check_contains "statusline caches its session line for /router-status" "$cached" "you picked opus-4-7 → served haiku-4-5"
+jq -cn --arg t "$h/transcript.jsonl" '{session_id:"sess-auto",model:{id:"weave-auto[1m]"},transcript_path:$t}' \
+  | XDG_CACHE_HOME="$h/cache" WEAVE_STATUSLINE_UPDATE=0 bash "$h/cc.sh" >/dev/null 2>&1
+cached="$(cat "$h/cache/weave-router/claude-status/sess-auto.line" 2>/dev/null || true)"
+check_contains "Weave Auto shows only the served model" "$cached" "served haiku-4-5"
+check_not_contains "Weave Auto is not labeled as a picked model" "$cached" "you picked"
+jq -cn '{session_id:"sess-fresh",model:{id:"claude-opus-4-7"},transcript_path:"/nonexistent"}' \
+  | XDG_CACHE_HOME="$h/cache" WEAVE_STATUSLINE_UPDATE=0 bash "$h/cc.sh" >/dev/null 2>&1
+if [ ! -e "$h/cache/weave-router/claude-status/sess-fresh.line" ]; then ok "a session with no response yet caches nothing"; else no "a session with no response yet caches nothing" "no cache file" "$(cat "$h/cache/weave-router/claude-status/sess-fresh.line")"; fi
+hook_out() { # hook_out <prompt> [env...]
+  local prompt="$1"; shift
+  jq -cn --arg p "$prompt" '{session_id:"sess-1",hook_event_name:"UserPromptSubmit",prompt:$p}' \
+    | env -u ANTHROPIC_BASE_URL -u ANTHROPIC_CUSTOM_HEADERS XDG_CACHE_HOME="$h/cache" WEAVE_STATUSLINE_UPDATE=0 "$@" bash "$h/cc.sh" --prompt-hook 2>&1
+}
+out="$(hook_out '/router-status' ANTHROPIC_BASE_URL=https://router.example ANTHROPIC_CUSTOM_HEADERS=$'X-Weave-Router-Key: rk_x\nX-App: claude-code')"
+check_contains "/router-status stops the prompt before a model turn" "$(jq -r '.continue' <<<"$out")" "false"
+reason="$(jq -r '.stopReason' <<<"$out")"
+check_contains "/router-status reports routing on" "$reason" "Weave Router is on: Claude Code sends requests to https://router.example."
+check_contains "/router-status shows this session's line" "$reason" "This session: you picked opus-4-7 → served haiku-4-5"
+check_not_contains "/router-status never echoes the router key" "$reason" "rk_x"
+out="$(hook_out ' /router-status ')"
+check_contains "/router-status reports routing off without the router env" "$(jq -r '.stopReason' <<<"$out")" "Weave Router is off"
+out="$(printf '{"prompt":"/router-status"}' | XDG_CACHE_HOME="$h/cache" ANTHROPIC_BASE_URL=https://api.anthropic.com bash "$h/cc.sh" --prompt-hook --dir '/tmp/my proj')"
+check_contains "a --dir install suggests commands for that install" "$(jq -r '.stopReason' <<<"$out")" "status --claude --dir /tmp/my\\ proj"
+out="$(hook_out '/router-status' ANTHROPIC_BASE_URL=https://api.anthropic.com)"
+check_contains "project-scope off (base URL back at Anthropic) reports off" "$(jq -r '.stopReason' <<<"$out")" "Weave Router is off"
+out="$(hook_out '/router-status' ANTHROPIC_BASE_URL=https://other.example)"
+check_contains "a base URL without a router key is called out" "$(jq -r '.stopReason' <<<"$out")" "no Weave Router key is set"
+out="$(hook_out 'please explain /router-status')"
+if [ -z "$out" ]; then ok "other prompts pass through the hook untouched"; else no "other prompts pass through the hook untouched" "no output" "$out"; fi
+out="$(jq -cn '{session_id:"../x",prompt:"/router-status"}' | env -u ANTHROPIC_BASE_URL XDG_CACHE_HOME="$h/cache" bash "$h/cc.sh" --prompt-hook 2>&1)"
+check_contains "an unsafe session id falls back to no session line" "$(jq -r '.stopReason' <<<"$out")" "No routed turn yet in this session."
 
 # install.sh ships the statusline as a heredoc; genprices keeps only the price
 # block in sync, so a code edit to one copy silently diverges from the other.

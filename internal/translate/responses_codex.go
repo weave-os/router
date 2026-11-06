@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"strconv"
 	"strings"
@@ -44,6 +45,9 @@ type portableCodexResponsesConverter struct {
 	toolAliases     map[responsesToolIdentity]string
 	declaredAliases map[string]struct{}
 	tools           []map[string]any
+	agentPath       string
+	routingRoles    map[int]EscalationRole
+	hostedWebSearch bool
 }
 
 func codexFeedbackSkillInvocation(input gjson.Result) bool {
@@ -99,6 +103,17 @@ func codexFeedbackSkillInstructions(content gjson.Result) bool {
 // Codex records a /model switch as a retained developer message wrapped in
 // <model_switch> markers; the model it launched with leaves no such trace.
 func codexModelSwitchPresent(input gjson.Result) bool {
+	return codexDeveloperMarkerPresent(input, "<model_switch>", "</model_switch>")
+}
+
+// A Codex session whose catalog came from model_catalog_url records a /model
+// switch as <model_instructions>. Other base-instruction changes reuse the
+// marker, so it is only a switch for clients that loaded that catalog.
+func codexModelInstructionsPresent(input gjson.Result) bool {
+	return codexDeveloperMarkerPresent(input, "<model_instructions>", "</model_instructions>")
+}
+
+func codexDeveloperMarkerPresent(input gjson.Result, open, close string) bool {
 	if !input.IsArray() {
 		return false
 	}
@@ -110,7 +125,7 @@ func codexModelSwitchPresent(input gjson.Result) bool {
 		if item.Get("role").Str != "developer" {
 			continue
 		}
-		if codexDeveloperMarkerContent(item.Get("content"), "<model_switch>", "</model_switch>") {
+		if codexDeveloperMarkerContent(item.Get("content"), open, close) {
 			return true
 		}
 	}
@@ -178,6 +193,8 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 		},
 		toolAliases:     make(map[responsesToolIdentity]string),
 		declaredAliases: make(map[string]struct{}),
+		agentPath:       codexCurrentAgentPath(root.Get("input")),
+		routingRoles:    make(map[int]EscalationRole),
 	}
 	converter.result.TitleGeneration = requestRootRequestsCodexTitle(root)
 	converter.result.Requirements.Images = root.Get("input").Exists() && containsAnyKey(body, "image_url", "input_image")
@@ -198,8 +215,10 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 	}
 
 	converter.collectDeclaredTools(root)
+	converter.requireNativeForForcedWebSearch(root.Get("tool_choice"))
 	converter.result.CodexFeedbackSkill = codexFeedbackSkillInvocation(root.Get("input"))
 	converter.result.CodexModelSwitch = codexModelSwitchPresent(root.Get("input"))
+	converter.result.CodexModelInstructions = codexModelInstructionsPresent(root.Get("input"))
 	messages := converter.convertInput(root.Get("input"))
 	var systemMessages []map[string]any
 	if instructions := root.Get("instructions").Str; instructions != "" {
@@ -224,6 +243,19 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 		return ResponsesConversion{}, fmt.Errorf("marshal portable Codex chat completions: %w", err)
 	}
 	converter.result.Body = bodyOut
+	if len(converter.routingRoles) > 0 {
+		routingMessages := append([]map[string]any(nil), messages...)
+		for index, role := range converter.routingRoles {
+			index += len(systemMessages)
+			routingMessages[index] = maps.Clone(messages[index])
+			routingMessages[index]["role"] = role
+		}
+		out["messages"] = routingMessages
+		converter.result.RoutingBody, err = json.Marshal(out)
+		if err != nil {
+			return ResponsesConversion{}, fmt.Errorf("marshal Codex routing history: %w", err)
+		}
+	}
 	if len(converter.result.ToolMappings) == 0 {
 		converter.result.ToolMappings = nil
 	}
@@ -268,6 +300,11 @@ func (c *portableCodexResponsesConverter) collectToolArray(tools gjson.Result, n
 			c.collectFunctionTool(tool, namespace, toolPath)
 		case "custom":
 			c.collectCustomTool(tool, namespace, toolPath)
+		case "web_search", "web_search_preview":
+			// OpenAI executes hosted search itself; scoped CitationsOrSearch keeps
+			// turns that actually searched on OpenAI, so other targets drop it.
+			c.hostedWebSearch = true
+			c.report("responses_hosted_web_search_dropped", "dropped", toolPath)
 		default:
 			c.result.Requirements.CustomTools = true
 			c.markNativeOnly("responses_unknown_tool_native_only", toolPath)
@@ -411,6 +448,9 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 		case "agent_message":
 			if message, ok := c.convertAgentMessage(item, path); ok {
 				messages = append(messages, message)
+				if role := codexAgentMessageRoutingRole(c.agentPath, item); role != EscalationRoleUser {
+					c.routingRoles[len(messages)-1] = role
+				}
 			}
 		case "reasoning":
 			c.convertReasoning(item, path)
@@ -418,6 +458,8 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 			c.appendToolCall(&messages, item, path, false)
 		case "custom_tool_call":
 			c.appendToolCall(&messages, item, path, true)
+		case "web_search_call":
+			c.report("responses_web_search_call_dropped", "dropped", path)
 		case "function_call_output", "custom_tool_call_output":
 			if message, images, ok := c.convertToolOutput(item, path); ok {
 				messages = append(messages, message)
@@ -448,7 +490,8 @@ func (c *portableCodexResponsesConverter) convertReasoning(item gjson.Result, pa
 	// it is dropped with that reasoning rather than pinning the session to
 	// OpenAI. Native OpenAI dispatch still forwards the original body.
 	content := item.Get("content")
-	if content.Exists() && (!content.IsArray() || len(content.Array()) > 0) {
+	// Codex can serialize an empty optional content field as null.
+	if content.Type != gjson.Null && (!content.IsArray() || len(content.Array()) > 0) {
 		c.result.Requirements.ReasoningReplay = true
 		c.markNativeOnly("responses_reasoning_content_native_only", path+".content")
 		return
@@ -510,7 +553,7 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 	if content.Type == gjson.String {
 		text := content.Str
 		if role == "assistant" {
-			text = responsesTerminalBadgePattern.ReplaceAllString(text, "")
+			text = stripResponsesTerminalBadges(text)
 			text = feedbackFooterPattern.ReplaceAllString(text, "")
 		}
 		if text == "" {
@@ -533,7 +576,7 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 		case "input_text", "output_text", "text":
 			text := part.Get("text").Str
 			if role == "assistant" && firstAssistantText {
-				text = responsesTerminalBadgePattern.ReplaceAllString(text, "")
+				text = stripResponsesTerminalBadges(text)
 				firstAssistantText = false
 			}
 			if role == "assistant" {
@@ -547,6 +590,16 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 			if text := part.Get("refusal").Str; text != "" {
 				parts = append(parts, map[string]any{"type": "text", "text": text})
 			}
+		case "input_image":
+			// Only a user's inline image has a portable Chat equivalent; a file_id
+			// reference or an assistant-authored image stays on the native wire.
+			image, ok := portableResponsesImage(part)
+			if role != "user" || !ok {
+				c.markNativeOnly("responses_message_content_native_only", partPath)
+				return nil, false
+			}
+			parts = append(parts, image)
+			c.report("responses_message_image_projected", "projected", partPath)
 		default:
 			c.markNativeOnly("responses_message_content_native_only", partPath)
 			return nil, false
@@ -565,7 +618,7 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 		return nil, false
 	}
 	textParts := make([]string, 0, len(content.Array()))
-	hasPlainText := false
+	hasPlainText, encrypted := false, false
 	for index, part := range content.Array() {
 		partPath := path + ".content." + strconv.Itoa(index)
 		switch part.Get("type").Str {
@@ -574,7 +627,10 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 			textParts = append(textParts, text)
 			hasPlainText = hasPlainText || strings.TrimSpace(text) != ""
 		case "encrypted_content":
-			c.report("responses_encrypted_agent_content_dropped", "dropped", partPath)
+			// Unlike a reasoning digest, plaintext here can be only the delivery
+			// header. The encrypted block contains the task itself.
+			c.markNativeOnly("responses_agent_message_native_only", partPath)
+			encrypted = true
 		default:
 			c.markNativeOnly("responses_agent_message_native_only", partPath)
 			return nil, false
@@ -584,8 +640,16 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 		c.markNativeOnly("responses_agent_message_native_only", path)
 		return nil, false
 	}
+	if encrypted {
+		// Native-only dispatch forwards the original bytes, so this header
+		// (message type and task name) only feeds routing features.
+		c.report("responses_agent_message_header_projected", "projected", path)
+		return map[string]any{"role": EscalationRoleUser, "content": strings.TrimSpace(strings.Join(textParts, "\n"))}, true
+	}
 	c.report("responses_agent_message_projected", "projected", path)
-	return map[string]any{"role": "assistant", "content": strings.Join(textParts, "\n")}, true
+	// This is communication delivered to the receiving agent, not its own
+	// generated answer. Preserve the supplied attribution and task verbatim.
+	return map[string]any{"role": EscalationRoleUser, "content": strings.Join(textParts, "\n")}, true
 }
 
 func (c *portableCodexResponsesConverter) appendToolCall(messages *[]map[string]any, item gjson.Result, path string, custom bool) {
@@ -670,17 +734,12 @@ func (c *portableCodexResponsesConverter) convertToolOutputContent(output gjson.
 		case "input_text":
 			parts = append(parts, part.Get("text").Str)
 		case "input_image":
-			// A file_id reference has no Chat equivalent; only inline URLs project.
-			url := part.Get("image_url")
-			if url.Type != gjson.String || url.Str == "" {
+			image, ok := portableResponsesImage(part)
+			if !ok {
 				c.markNativeOnly("responses_tool_output_native_only", partPath)
 				return "", nil, true, false
 			}
-			image := map[string]any{"url": url.Str}
-			if detail := part.Get("detail").Str; detail != "" {
-				image["detail"] = detail
-			}
-			images = append(images, map[string]any{"type": "image_url", "image_url": image})
+			images = append(images, image)
 			c.report("responses_tool_output_image_hoisted", "projected", partPath)
 		default:
 			c.markNativeOnly("responses_tool_output_native_only", partPath)
@@ -688,6 +747,21 @@ func (c *portableCodexResponsesConverter) convertToolOutputContent(output gjson.
 		}
 	}
 	return strings.Join(parts, "\n"), images, true, true
+}
+
+// portableResponsesImage projects a Responses input_image part to a Chat
+// image_url part. A file_id reference has no Chat equivalent; only inline URLs
+// project.
+func portableResponsesImage(part gjson.Result) (map[string]any, bool) {
+	url := part.Get("image_url")
+	if url.Type != gjson.String || url.Str == "" {
+		return nil, false
+	}
+	image := map[string]any{"url": url.Str}
+	if detail := part.Get("detail").Str; detail != "" {
+		image["detail"] = detail
+	}
+	return map[string]any{"type": "image_url", "image_url": image}, true
 }
 
 func (c *portableCodexResponsesConverter) copyRequestControls(root gjson.Result, out map[string]any) {
@@ -839,6 +913,19 @@ func (c *portableCodexResponsesConverter) ensureToolMapping(name, namespace stri
 
 func (c *portableCodexResponsesConverter) report(code, action, path string) {
 	c.result.Report = append(c.result.Report, ResponseTransform{Code: code, Action: action, Path: path})
+}
+
+// requireNativeForForcedWebSearch keeps a turn native when its tool choice can
+// only be satisfied by the hosted search the portable projection drops.
+func (c *portableCodexResponsesConverter) requireNativeForForcedWebSearch(toolChoice gjson.Result) {
+	if !c.hostedWebSearch {
+		return
+	}
+	forcesSearch := strings.HasPrefix(toolChoice.Get("type").Str, "web_search")
+	requiresDroppedTool := toolChoice.Str == "required" && len(c.tools) == 0
+	if forcesSearch || requiresDroppedTool {
+		c.markNativeOnly("responses_forced_web_search_native_only", "tool_choice")
+	}
 }
 
 func (c *portableCodexResponsesConverter) markNativeOnly(code, path string) {

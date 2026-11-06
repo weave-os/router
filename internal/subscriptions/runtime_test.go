@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -32,6 +33,8 @@ type runtimeStore struct {
 	stateErr             error
 	extendErr            error
 	extendCount          atomic.Int32
+	rejections           map[string]auth.SubscriptionCredentialRejection
+	rejectionReasons     map[string]string
 }
 
 // ListSubscriptionCandidates mirrors the candidate SQL: every subscriber-assigned
@@ -48,6 +51,8 @@ func (s *runtimeStore) ListSubscriptionCandidates(_ context.Context, owner auth.
 			continue
 		}
 		copied := *account
+		_, hasAccessToken := s.accessTokens[account.ID]
+		copied.AccessTokenMissing = !hasAccessToken
 		if account.SubscriberID == owner.SubscriberID {
 			copied.Tier = auth.SubscriptionTierPersonal
 			personal = append(personal, &copied)
@@ -91,12 +96,13 @@ func (s *runtimeStore) UpdateSubscriptionRefreshToken(_ context.Context, _ auth.
 	return nil
 }
 
-func (s *runtimeStore) TryAcquireSubscriptionRefreshLease(_ context.Context, _ auth.SubscriptionOwner, accountID, leaseID string, leaseTTL time.Duration) (auth.RefreshLeaseAcquisition, error) {
+func (s *runtimeStore) TryAcquireSubscriptionRefreshLease(ctx context.Context, _ auth.SubscriptionOwner, accountID, leaseID string, leaseTTL time.Duration) (auth.RefreshLeaseAcquisition, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
 	for _, account := range s.accounts {
-		if account.ID == accountID && (!account.Enabled || (account.CooldownUntil != nil && account.CooldownUntil.After(now))) {
+		allowOverage := requestcontext.SubscriptionExtraUsageFrom(ctx) && account.Provider == auth.SubscriptionProviderClaude && account.State == auth.SubscriptionAccountStateExhausted
+		if account.ID == accountID && (!account.Enabled || (!allowOverage && account.CooldownUntil != nil && account.CooldownUntil.After(now))) {
 			return auth.RefreshLeaseAcquisition{}, nil
 		}
 	}
@@ -147,9 +153,11 @@ func (s *runtimeStore) LoadSubscriptionCredentials(_ context.Context, _ auth.Sub
 	enabled := true
 	var cooldownUntil *time.Time
 	var providerUserID string
+	var state auth.SubscriptionAccountState
 	for _, account := range s.accounts {
 		if account.ID == accountID {
 			providerUserID = account.ProviderUserID
+			state = account.State
 			enabled = account.Enabled
 			cooldownUntil = account.CooldownUntil
 			break
@@ -162,6 +170,7 @@ func (s *runtimeStore) LoadSubscriptionCredentials(_ context.Context, _ auth.Sub
 		TokenRefreshVersion: s.tokenRefreshVersions[accountID],
 		TokenRefreshLeaseID: s.leaseIDs[accountID],
 		Enabled:             enabled,
+		State:               state,
 		CooldownUntil:       cooldownUntil,
 	}
 	if expiry := s.accessExpiry[accountID]; !expiry.IsZero() {
@@ -189,6 +198,7 @@ func (s *runtimeStore) PersistSubscriptionTokens(_ context.Context, _ auth.Subsc
 	delete(s.leaseIDs, accountID)
 	delete(s.leaseUntil, accountID)
 	s.rotatedTokens[accountID] = append([]byte(nil), refreshToken...)
+	delete(s.rejectionReasons, accountID)
 	return nil
 }
 
@@ -243,6 +253,43 @@ func newRuntimeStore(accounts ...*auth.SubscriptionAccount) *runtimeStore {
 		tokenRefreshVersions: make(map[string]int64), leaseIDs: make(map[string]string), leaseUntil: make(map[string]time.Time),
 		rotatedTokens: make(map[string][]byte), enabledUpdates: make(map[string]bool), cooldowns: make(map[string]time.Time),
 		healthStates: make(map[string]auth.SubscriptionAccountState),
+	}
+}
+
+func TestRuntimeClaudeOverageCanLeasePersistedExhaustion(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		state      auth.SubscriptionAccountState
+		provider   auth.SubscriptionProvider
+		extraUsage bool
+		allowed    bool
+	}{
+		{name: "included quota only", state: auth.SubscriptionAccountStateExhausted, provider: auth.SubscriptionProviderClaude},
+		{name: "Enterprise overage", state: auth.SubscriptionAccountStateExhausted, provider: auth.SubscriptionProviderClaude, extraUsage: true, allowed: true},
+		{name: "real cooldown stays blocked", state: auth.SubscriptionAccountStateCooldown, provider: auth.SubscriptionProviderClaude, extraUsage: true},
+		{name: "revoked credentials stay blocked", state: auth.SubscriptionAccountStateReconnectRequired, provider: auth.SubscriptionProviderClaude, extraUsage: true},
+		{name: "Codex exhaustion stays blocked", state: auth.SubscriptionAccountStateExhausted, provider: auth.SubscriptionProviderCodex, extraUsage: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resetAt := time.Now().Add(time.Hour)
+			store := newRuntimeStore(&auth.SubscriptionAccount{ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: test.provider, State: test.state, Enabled: true, CooldownUntil: &resetAt})
+			store.refreshTokens["account-1"] = []byte("synthetic-refresh-token")
+			runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+				return subscriptions.RefreshedToken{AccessToken: "synthetic-overage-token", RefreshToken: "synthetic-refresh-token", ExpiresAt: time.Now().Add(time.Hour)}, nil
+			}), nil)
+			ctx := context.Background()
+			if test.extraUsage {
+				ctx = requestcontext.WithSubscriptionExtraUsage(ctx)
+			}
+			lease, _, err := runtime.Lease(ctx, testOwner, subscriptions.Provider(test.provider), "")
+			if test.allowed {
+				require.NoError(t, err)
+				require.Equal(t, "synthetic-overage-token", lease.AccessToken)
+				lease.Release()
+			} else {
+				require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
+			}
+		})
 	}
 }
 
@@ -422,6 +469,7 @@ func TestRuntimeTakesOverExpiredRefreshLease(t *testing.T) {
 	store.refreshTokens["account-1"] = []byte("refresh-old")
 	store.leaseIDs["account-1"] = "expired-holder"
 	store.leaseUntil["account-1"] = time.Now().Add(-time.Second)
+	seedSustainedRejections(store, "account-1")
 	var refreshes atomic.Int32
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		refreshes.Add(1)
@@ -462,12 +510,13 @@ func TestRuntimeDoesNotDisableAfterStaleTerminalRefresh(t *testing.T) {
 	lease.Release()
 }
 
-func TestRuntimeDisablesTerminallyRejectedAccount(t *testing.T) {
+func TestRuntimeDisablesAccountAfterSustainedRefreshRejections(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
 		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude,
 		ExternalAccountID: "claude-1", Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("rejected")
+	seedSustainedRejections(store, "account-1")
 	refresher := runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: 401}
 	})
@@ -500,6 +549,7 @@ func TestRuntimePreservesTerminalClassificationWhenStatePersistenceFails(t *test
 		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-secret")
+	seedSustainedRejections(store, "account-1")
 	store.stateErr = errors.New("database unavailable")
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: 401}
@@ -877,6 +927,7 @@ func TestRuntimeTakeoverTerminalRefreshDoesNotDisable(t *testing.T) {
 	store.refreshTokens["account-1"] = []byte("refresh-spent")
 	store.leaseIDs["account-1"] = "crashed-holder"
 	store.leaseUntil["account-1"] = time.Now().Add(-time.Second)
+	seedSustainedRejections(store, "account-1")
 	var refreshes atomic.Int32
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		refreshes.Add(1)
@@ -889,7 +940,7 @@ func TestRuntimeTakeoverTerminalRefreshDoesNotDisable(t *testing.T) {
 	require.True(t, present)
 	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
 	// First attempt took over and failed closed; the retry acquired cleanly and
-	// disabled with certainty. In-memory pool state must not have disabled after
+	// completed the strike that requires reconnect. In-memory pool state must not have disabled after
 	// the first attempt, or the second would never have run.
 	require.Equal(t, int32(2), refreshes.Load())
 	require.Contains(t, store.enabledUpdates, "account-1")
@@ -904,6 +955,7 @@ func TestRuntimeTakeoverTerminalRefreshAdoptsWinnerOnRetry(t *testing.T) {
 	store.refreshTokens["account-1"] = []byte("refresh-spent")
 	store.leaseIDs["account-1"] = "slow-holder"
 	store.leaseUntil["account-1"] = time.Now().Add(-time.Second)
+	seedSustainedRejections(store, "account-1")
 	var refreshes atomic.Int32
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		refreshes.Add(1)

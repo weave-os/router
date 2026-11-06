@@ -32,6 +32,10 @@ type HMMRosterSource interface {
 // RouterArena leaderboard) so there is no leak risk from leaving this open.
 func CatalogModelsHandler(models DeployedModelsSource, hmmModels HMMRosterSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if strings.EqualFold(strings.TrimSpace(c.Query("scope")), string(catalog.ScopeSelection)) {
+			c.JSON(http.StatusOK, catalog.ModelChoicesResponse{Models: catalog.ModelChoices()})
+			return
+		}
 		if strings.EqualFold(strings.TrimSpace(c.Query("scope")), catalog.ScopeCatalog) {
 			c.JSON(http.StatusOK, CatalogModelsResponse{Models: catalog.Listing()})
 			return

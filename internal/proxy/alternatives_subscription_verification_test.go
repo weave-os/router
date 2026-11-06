@@ -107,9 +107,9 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 				require.Empty(t, bearers)
 				return
 			}
-			require.NoError(t, dispatchErr)
-			require.Contains(t, rec.Body.String(), "alternative answer")
 			if scenario.alternative {
+				require.NoError(t, dispatchErr)
+				require.Contains(t, rec.Body.String(), "alternative answer")
 				require.Equal(t, []string{"Bearer alternative-seat", "Bearer alternative-seat"}, bearers)
 				require.Contains(t, models[1], "6")
 				require.True(t, servedOnSubscription(ctx))
@@ -122,8 +122,9 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 				require.Equal(t, "alternative-account", winner.SubscriptionAccountID)
 				require.Equal(t, "synthetic-owner", winner.SubscriptionOwnerID)
 			} else {
-				require.Equal(t, []string{"Bearer alternative-seat", "Bearer synthetic-api-key"}, bearers)
-				require.Equal(t, models[0], models[1])
+				require.Error(t, dispatchErr, "model denial or an ineligible alternative does not prove quota exhaustion")
+				require.Equal(t, []string{"Bearer alternative-seat"}, bearers)
+				require.NotContains(t, rec.Body.String(), "alternative answer")
 				require.False(t, servedOnSubscription(ctx))
 			}
 		})

@@ -4,8 +4,10 @@ import (
 	"crypto/sha1"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -64,9 +66,19 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
+	body, err = dropUnsupportedCacheControlFields(body, opts.TargetProvider == providers.ProviderAnthropic, in.Get("anthropic-beta"))
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
 	body, err = normalizeAnthropicFinalAssistant(body)
 	if err != nil {
 		return providers.PreparedRequest{}, fmt.Errorf("normalize anthropic final assistant: %w", err)
+	}
+	if !opts.Capabilities.Supports(router.CapAssistantPrefill) {
+		body, err = dropAnthropicFinalAssistant(body)
+		if err != nil {
+			return providers.PreparedRequest{}, fmt.Errorf("drop anthropic final assistant: %w", err)
+		}
 	}
 	body, err = applyAnthropicCachePolicy(body, true)
 	if err != nil {
@@ -743,31 +755,57 @@ func writeAnthropicTools(jw *jsonWriter, body []byte) {
 	jw.EndArr()
 }
 
+// hasAnthropicFunctionTools reports whether writeAnthropicTools emits at least
+// one tool; entries without a function member are skipped there.
+func hasAnthropicFunctionTools(body []byte) bool {
+	found := false
+	gjson.GetBytes(body, "tools").ForEach(func(_, tool gjson.Result) bool {
+		found = tool.Get("function").Exists()
+		return !found
+	})
+	return found
+}
+
 func writeAnthropicToolChoice(jw *jsonWriter, body []byte, autoOnly bool) {
 	kind, name := openAIToolChoice(body)
 	if autoOnly && (kind == toolChoiceRequired || kind == toolChoiceNamed) {
 		kind = toolChoiceAuto
 	}
+	// Anthropic carries the parallel limit on tool_choice, so a bare
+	// parallel_tool_calls:false still needs an explicit auto choice to ride on.
+	parallel := gjson.GetBytes(body, "parallel_tool_calls")
+	disableParallel := isJSONBool(parallel) && !parallel.Bool() && hasAnthropicFunctionTools(body)
+	if disableParallel && kind == toolChoiceAbsent {
+		kind = toolChoiceAuto
+	}
+	var choiceType string
 	switch kind {
 	case toolChoiceAuto:
-		jw.Key("tool_choice")
-		jw.Raw(`{"type":"auto"}`)
+		choiceType = "auto"
 	case toolChoiceRequired:
-		jw.Key("tool_choice")
-		jw.Raw(`{"type":"any"}`)
-	case toolChoiceNone:
-		// Handled upstream — tools and tool_choice both suppressed.
+		choiceType = "any"
 	case toolChoiceNamed:
-		tw := newJSONWriter()
-		tw.Obj()
-		tw.Key("type")
-		tw.Str("tool")
+		choiceType = "tool"
+	default:
+		// none is handled upstream (tools and tool_choice both suppressed);
+		// absent and unrecognized write nothing.
+		return
+	}
+	tw := newJSONWriter()
+	tw.Obj()
+	tw.Key("type")
+	tw.Str(choiceType)
+	if kind == toolChoiceNamed {
 		tw.Key("name")
 		tw.Str(name)
-		tw.EndObj()
-		jw.Key("tool_choice")
-		jw.Raw(string(tw.Bytes()))
 	}
+	if disableParallel {
+		tw.Key("disable_parallel_tool_use")
+		tw.Bool(true)
+	}
+	tw.EndObj()
+	jw.Key("tool_choice")
+	jw.Raw(string(tw.Bytes()))
 }
 
 func writeAnthropicSamplingParams(jw *jsonWriter, body []byte, capabilities router.ModelSpec) {
@@ -906,8 +944,8 @@ func containsAnthropicSystemOnlyContentBlocks(body []byte) bool {
 // (Anthropic's API 400s on them after a mid-session model switch). Only the
 // leading run is hoisted; mid-conversation ones are rewritten as user messages
 // in place to keep the cached prefix stable. Message-scoped output_config is
-// moved to the request-level field before demotion so role-specific options are
-// not left on a user message.
+// moved to the request-level field and system-only clear_at is dropped before
+// demotion, since Anthropic 400s on either field on a user message.
 func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
@@ -944,6 +982,13 @@ func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 				}
 				if config.Type != gjson.Null && hoistedOutputConfig == "" {
 					hoistedOutputConfig = config.Raw
+				}
+			}
+			if gjson.GetBytes(demoted, "clear_at").Exists() {
+				var err error
+				demoted, err = sjson.DeleteBytes(demoted, "clear_at")
+				if err != nil {
+					return nil, fmt.Errorf("remove demoted system clear_at: %w", err)
 				}
 			}
 			demoted, err := sjson.SetBytes(demoted, "role", "user")
@@ -1128,7 +1173,7 @@ func uniqueSanitizedAnthropicToolName(name string, reservedNames map[string]stru
 }
 
 func anthropicToolSchemaRaw(schema gjson.Result) string {
-	raw, err := json.Marshal(sanitizeAnthropicSchema(schema.Value()))
+	raw, err := json.Marshal(sanitizeAnthropicInputSchema(schema.Value()))
 	if err != nil {
 		return schema.Raw
 	}
@@ -1151,7 +1196,7 @@ func sanitizeAnthropicTools(v any) any {
 		nativeDomainFilter := isAnthropicNativeDomainFilterTool(tool)
 		for k, child := range tool {
 			if k == "input_schema" {
-				copied[k] = sanitizeAnthropicSchema(child)
+				copied[k] = sanitizeAnthropicInputSchema(child)
 				continue
 			}
 			// Anthropic 400s empty allowed_domains/blocked_domains ("Empty list of
@@ -1180,6 +1225,117 @@ func isEmptyDomainList(v any) bool {
 	default:
 		return false
 	}
+}
+
+// sanitizeAnthropicInputSchema also lifts top-level allOf/anyOf/oneOf, which
+// Anthropic rejects on input_schema, into one object schema.
+func sanitizeAnthropicInputSchema(v any) any {
+	sanitized := sanitizeAnthropicSchema(v)
+	root, ok := sanitized.(map[string]any)
+	if !ok {
+		return sanitized
+	}
+	return liftAnthropicTopLevelComposition(root)
+}
+
+// liftAnthropicTopLevelComposition merges the object branches of top-level
+// allOf/anyOf/oneOf (resolving local $refs) into the root's properties. A
+// property is required when allOf requires it or every anyOf/oneOf alternative
+// does; the branch constraints themselves cannot be expressed and are dropped.
+func liftAnthropicTopLevelComposition(root map[string]any) map[string]any {
+	keywords := []string{"allOf", "anyOf", "oneOf"}
+	if !slices.ContainsFunc(keywords, func(k string) bool { _, ok := root[k]; return ok }) {
+		return root
+	}
+	out := make(map[string]any, len(root))
+	for k, v := range root {
+		if !slices.Contains(keywords, k) {
+			out[k] = v
+		}
+	}
+	mergedProps, _ := out["properties"].(map[string]any)
+	mergedProps = maps.Clone(mergedProps)
+	if mergedProps == nil {
+		mergedProps = map[string]any{}
+	}
+	required := schemaRequiredSet(out)
+	for _, k := range keywords {
+		branches, _ := root[k].([]any)
+		var requiredInAll map[string]struct{}
+		for _, b := range branches {
+			branch, ok := resolveLocalSchemaRef(root, b).(map[string]any)
+			if !ok {
+				// A boolean (or unreadable) alternative requires nothing.
+				requiredInAll = map[string]struct{}{}
+				continue
+			}
+			branch = liftAnthropicTopLevelComposition(branch)
+			if branchProps, ok := branch["properties"].(map[string]any); ok {
+				for name, schema := range branchProps {
+					if _, exists := mergedProps[name]; !exists {
+						mergedProps[name] = schema
+					}
+				}
+			}
+			branchRequired := schemaRequiredSet(branch)
+			switch {
+			case k == "allOf":
+				maps.Copy(required, branchRequired)
+			case requiredInAll == nil:
+				requiredInAll = branchRequired
+			default:
+				maps.DeleteFunc(requiredInAll, func(name string, _ struct{}) bool {
+					_, ok := branchRequired[name]
+					return !ok
+				})
+			}
+		}
+		maps.Copy(required, requiredInAll)
+	}
+	out["type"] = "object"
+	out["properties"] = mergedProps
+	delete(out, "required")
+	if len(required) > 0 {
+		names := slices.Sorted(maps.Keys(required))
+		requiredNames := make([]any, len(names))
+		for i, name := range names {
+			requiredNames[i] = name
+		}
+		out["required"] = requiredNames
+	}
+	return out
+}
+
+// resolveLocalSchemaRef follows a "#/$defs/X" or "#/definitions/X" branch to
+// its definition on root; any other value is returned unchanged.
+func resolveLocalSchemaRef(root map[string]any, branch any) any {
+	node, ok := branch.(map[string]any)
+	if !ok {
+		return branch
+	}
+	ref, _ := node["$ref"].(string)
+	for _, defsKey := range []string{"$defs", "definitions"} {
+		name, found := strings.CutPrefix(ref, "#/"+defsKey+"/")
+		if !found {
+			continue
+		}
+		defs, _ := root[defsKey].(map[string]any)
+		if target, exists := defs[name]; exists {
+			return target
+		}
+	}
+	return branch
+}
+
+func schemaRequiredSet(schema map[string]any) map[string]struct{} {
+	set := map[string]struct{}{}
+	requiredValues, _ := schema["required"].([]any)
+	for _, v := range requiredValues {
+		if name, ok := v.(string); ok {
+			set[name] = struct{}{}
+		}
+	}
+	return set
 }
 
 func sanitizeAnthropicSchema(v any) any {

@@ -41,6 +41,10 @@ const (
 	// the cluster bundle cannot supply its fastest available model.
 	UtilityHardPinDefaultProvider = providers.ProviderAnthropic
 	UtilityHardPinDefaultModel    = "claude-haiku-4-5"
+	// ClassifierModel serves API-billed client classifier turns (Claude Code's
+	// auto-mode security monitor): a one-token verdict over a long transcript,
+	// where input price dominates.
+	ClassifierModel = "claude-haiku-5-5"
 )
 
 // compactionSummarizerModels is the reviewed set both compaction purposes may

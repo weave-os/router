@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"weave-os/router/internal/requestcontext"
@@ -28,6 +29,7 @@ const (
 	FormatOpenAI Format = iota
 	FormatAnthropic
 	FormatGemini
+	FormatOpenAIResponses
 )
 
 // EmitOptions parameterizes output-body construction.
@@ -333,21 +335,23 @@ func anthropicToolShapeFromOpenAI(tools gjson.Result) []byte {
 	return jw.Bytes()
 }
 
-// HasImages reports whether any message carries image content. Used to keep
-// such turns off text-only models, which 4xx on image parts (e.g. GLM-5.1).
-// Checks the whole history since clients like Cursor re-send earlier
-// screenshots on every turn.
-func (e *RequestEnvelope) HasImages() bool {
+// ImageCount counts image parts across the whole history.
+func (e *RequestEnvelope) ImageCount() int {
 	switch e.format {
 	case FormatAnthropic:
-		return anthropicHasImages(e.body)
+		return anthropicImageCount(e.body)
 	case FormatOpenAI:
-		return openAIHasImages(e.body)
+		return openAIImageCount(e.body)
 	case FormatGemini:
-		return geminiHasImages(e.body)
+		return geminiImageCount(e.body)
 	default:
-		return false
+		return 0
 	}
+}
+
+// HasImages reports whether any message carries image content.
+func (e *RequestEnvelope) HasImages() bool {
+	return e.ImageCount() > 0
 }
 
 // RequestsTitleSchema reports whether the request asks for a JSON-schema response
@@ -502,6 +506,10 @@ type EmitOverrides struct {
 	// model only accepts adaptive thinking (claude-opus-4-6+ / sonnet-4-6+).
 	RewriteThinkingAdaptive bool
 	OutputConfigEffort      string
+	// FloorMaxTokensValue raises an inbound max_tokens below it to this value.
+	// Set when the router turns thinking on for a caller that disabled it, so
+	// hidden reasoning cannot exhaust a budget sized for a visible-only answer.
+	FloorMaxTokensValue int64
 	// ForceOutputConfigEffort, when set, overrides any inbound output_config.effort
 	// and the heuristic OutputConfigEffort — user knob beats request-derived default.
 	// Value is already cap-applied (xhigh→max) by resolveForceEffort upstream.
@@ -584,6 +592,14 @@ func applyOverrides(body []byte, ov EmitOverrides) ([]byte, error) {
 		}
 	}
 
+	if ov.FloorMaxTokensValue > 0 {
+		if r := gjson.GetBytes(out, "max_tokens"); r.Type == gjson.Number && r.Int() < ov.FloorMaxTokensValue {
+			out, err = sjson.SetBytes(out, "max_tokens", ov.FloorMaxTokensValue)
+			if err != nil {
+				return nil, fmt.Errorf("floor max_tokens: %w", err)
+			}
+		}
+	}
 	if ov.ClampMaxTokensKey != "" && ov.ClampMaxTokensValue > 0 {
 		out = clampFieldBytes(out, ov.ClampMaxTokensKey, ov.ClampMaxTokensValue)
 	}
@@ -756,6 +772,7 @@ func rewriteMessageBlocks(
 	}
 
 	anyChanged := false
+	droppedMessage := false
 	var msgRaws []string
 	var walkErr error
 
@@ -804,6 +821,7 @@ func rewriteMessageBlocks(
 		if len(kept) == 0 {
 			// Every block in this message was dropped; drop the message itself
 			// rather than emit an empty content array.
+			droppedMessage = true
 			return true
 		}
 
@@ -822,8 +840,32 @@ func rewriteMessageBlocks(
 	if !anyChanged {
 		return body, nil
 	}
+	if droppedMessage {
+		msgRaws = keepSystemMessagesBeforeAssistant(msgRaws)
+	}
 
 	return sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(msgRaws, ",")+"]"))
+}
+
+// keepSystemMessagesBeforeAssistant moves each run of role:"system" messages
+// that no longer directly precedes an assistant turn to just before the next
+// one, or to the end. Anthropic 400s on a system message followed by a user
+// message, which a dropped assistant turn can leave behind.
+func keepSystemMessagesBeforeAssistant(msgRaws []string) []string {
+	out := make([]string, 0, len(msgRaws))
+	var pending []string
+	for _, raw := range msgRaws {
+		switch gjson.Get(raw, "role").String() {
+		case "system":
+			pending = append(pending, raw)
+			continue
+		case "assistant":
+			out = append(out, pending...)
+			pending = pending[:0]
+		}
+		out = append(out, raw)
+	}
+	return append(out, pending...)
 }
 
 // stripThinkingBlocksBytes removes thinking/redacted_thinking blocks from
@@ -953,7 +995,7 @@ func encodeJSONStringNoHTMLEscape(s string) ([]byte, error) {
 
 // routingMarkerPattern matches the "✦ **Weave Router** → ..." snippet
 // injected in cross-format responses.
-var routingMarkerPattern = regexp.MustCompile(`(?s)✦ \*\*Weave Router\*\* → .*?\n\n`)
+var routingMarkerPattern = replayedNoticePattern
 
 // feedbackFooterPattern matches the rating footer appended to streamed
 // responses (see proxy.Service.feedbackFooter), absorbing leading newlines
@@ -1350,8 +1392,14 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 				// Adaptive models are always-on and 400 on thinking.type=disabled
 				// (e.g. claude-fable-5); map the "no thinking" intent to the
 				// lowest adaptive effort instead of forwarding the rejected shape.
+				// The caller sized max_tokens and sampling for a visible-only
+				// answer (Claude Code's 64-token auto-mode verdict).
 				ov.RewriteThinkingAdaptive = true
 				ov.OutputConfigEffort = effortLow
+				ov.FloorMaxTokensValue = minReasoningOutputTokens
+				if gjson.GetBytes(body, "temperature").Exists() && !slices.Contains(ov.DeleteKeys, "temperature") {
+					ov.DeleteKeys = append(ov.DeleteKeys, "temperature")
+				}
 			} else {
 				shouldDelete = true
 			}
@@ -1439,7 +1487,7 @@ var modelMaxOutputTokens = map[string]int{
 	"gpt-5.5-nano": 128000,
 	"gpt-5.6-sol":  128000, "gpt-5.6-sol-pro": 128000,
 	"gpt-5.6-terra": 128000, "gpt-5.6-luna": 128000, "gpt-5.6-luna-pro": 128000,
-	"gpt-6-astra": 128000, "gpt-6-sol": 128000, "gpt-6.1-sol": 128000, "gpt-6-luna": 128000,
+	"gpt-6-astra": 128000, "gpt-6-sol": 128000, "gpt-6.1-sol": 128000, "gpt-6.1-terra": 128000, "gpt-6-luna": 128000,
 	"grok-4.5": 131072, "grok-4.6": 131072, "grok-4.7": 131072,
 	"muse-spark-1.3": 131072, // Meta documents a 128K max output; always-on reasoning shares the budget
 	"o1":             100000, "o1-pro": 100000, "o1-mini": 65536,
@@ -1450,13 +1498,15 @@ var modelMaxOutputTokens = map[string]int{
 	"gemini-3.1-flash-live-preview": 65536,
 	"gemini-3.5-flash-lite":         65536, "gemini-3.6-flash": 65536,
 	"gemini-3.7-flash": 65536, "gemini-3.8-flash": 65536,
-	"gemini-2.5-pro": 65536, "gemini-2.5-flash": 65536,
+	router.ModelGemini4Argon: 32768,
+	"gemini-2.5-pro":         65536, "gemini-2.5-flash": 65536,
 	"gemini-2.5-flash-lite": 65536,
 	"gemini-2.0-flash":      8192, "gemini-2.0-flash-lite": 8192,
 	// Keyed by full catalog ID, since decision.Model keeps the vendor prefix.
 	// OSS models accept far more than the 8192 fallback; leaving them unlisted
 	// clamped Claude Code's 64K output request, truncating every long turn.
 	"moonshotai/kimi-k3":               131072,
+	"moonshotai/kimi-k3.1":             131072,
 	"qwen/qwen3.8-max":                 64000, // Fireworks reports a 64000 output token ceiling
 	"qwen/qwen3-coder-next":            16384, // Bedrock (primary) caps Qwen models at 16K output
 	"qwen/qwen3-235b-a22b-2507":        16384,
@@ -1465,6 +1515,7 @@ var modelMaxOutputTokens = map[string]int{
 	"deepseek/deepseek-v4.1-flash":     131072,
 	"deepseek/deepseek-v4-pro":         131072,
 	"deepseek/deepseek-v4-pro-0813":    131072,
+	"minimax/minimax-m3.1-flash":       131072,
 	"minimax/minimax-m3":               131072, // 512K context, output up to the window
 	"minimax/minimax-m2.7":             65536,
 	"z-ai/glm-5":                       65536,

@@ -1,20 +1,24 @@
 "use client";
 
 import { CopyBlock } from "@/components/CopyBlock";
-import { Text } from "@/components/atoms/Text";
-import { Button } from "@/components/molecules/Button";
-import { Appearance } from "@/components/types";
+import { InstallShellPicker } from "@/components/InstallShellPicker";
 import { api, type IssueAPIKeyResponse } from "@/lib/api";
 import {
   HARNESSES,
   type HarnessID,
   type InstallScope,
+  defaultInstallShell,
   harness,
   installCommand,
   routerOrigin,
 } from "@/lib/installCommands";
-import { cn } from "@/lib/cn";
+import { Text } from "@/shared/components/atoms/Text";
+import { Button } from "@/shared/components/molecules/Button";
+import { Appearance } from "@/shared/components/types";
+import { cn } from "@/shared/tools/cn";
+
 import { ArrowRight, ChevronRight, GitBranch, Loader2, User, Zap } from "lucide-react";
+
 import { useEffect, useState } from "react";
 
 const POLL_INTERVAL_MS = 3000;
@@ -44,7 +48,7 @@ interface RouterOnboardingProps {
  * idle until the router serves its first request and hand off to the
  * dashboard.
  *
- * Deliberately mirrors the hosted flow at router.workweave.ai so the two
+ * Deliberately mirrors the hosted flow at router.weaveos.com so the two
  * surfaces teach the same mental model, but the base URL comes from this
  * deployment's own origin rather than the hosted endpoint.
  */
@@ -166,13 +170,7 @@ function StepDots({ currentIndex }: { currentIndex: number }) {
   );
 }
 
-function SetupStep({
-  creating,
-  onGetStarted,
-}: {
-  creating: boolean;
-  onGetStarted: () => void;
-}) {
+function SetupStep({ creating, onGetStarted }: { creating: boolean; onGetStarted: () => void }) {
   return (
     <div className="flex w-full max-w-sm flex-col items-center gap-6 rounded-2xl bg-background p-10 shadow-lg ring-1 ring-border">
       <div className="flex size-14 items-center justify-center rounded-2xl bg-brand/10">
@@ -187,10 +185,10 @@ function SetupStep({
         </Text>
       </div>
       <Button
-        appearance={Appearance.Filled}
+        appearance={Appearance.Tinted}
         onClick={onGetStarted}
         disabled={creating}
-        className="w-full justify-center !border-brand !bg-brand !text-white hover:!bg-brand/90"
+        className="w-full justify-center !border-brand !bg-brand !text-wv-on-action hover:!bg-brand/90"
       >
         {creating ? "Creating key…" : "Get started"}
         <ArrowRight className="size-4" />
@@ -285,7 +283,11 @@ function ScopeStep({
           );
         })}
       </div>
-      <Button appearance={Appearance.Hollow} onClick={onBack} className="text-xs text-muted-foreground">
+      <Button
+        appearance={Appearance.Hollow}
+        onClick={onBack}
+        className="text-xs text-muted-foreground"
+      >
         Back
       </Button>
     </div>
@@ -313,6 +315,7 @@ function InstallStep({
   const origin = routerOrigin();
   const selected = harness(harnessID);
   const pinged = useFirstRequest();
+  const [shell, setShell] = useState(defaultInstallShell);
 
   useEffect(() => {
     if (pinged) onComplete();
@@ -332,11 +335,12 @@ function InstallStep({
       </div>
 
       <div className="flex w-full flex-col gap-2">
+        <InstallShellPicker shell={shell} onChange={setShell} />
         {origin === "" ? (
           <Text className="text-2xs text-muted-foreground">Preparing install command…</Text>
         ) : (
           <CopyBlock
-            value={installCommand(harnessID, scope, token ?? KEY_PLACEHOLDER, origin)}
+            value={installCommand(harnessID, scope, token ?? KEY_PLACEHOLDER, origin, shell)}
             title="Copy install command"
           />
         )}
@@ -370,10 +374,14 @@ function InstallStep({
       </div>
 
       <div className="flex items-center gap-2">
-        <Button appearance={Appearance.Hollow} onClick={onBack} className="text-xs text-muted-foreground">
+        <Button
+          appearance={Appearance.Hollow}
+          onClick={onBack}
+          className="text-xs text-muted-foreground"
+        >
           Back
         </Button>
-        <Button appearance={Appearance.Outlined} size="sm" onClick={onSkip}>
+        <Button appearance={Appearance.Hollow} size="sm" onClick={onSkip}>
           Skip to dashboard
         </Button>
       </div>

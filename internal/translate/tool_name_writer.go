@@ -63,6 +63,7 @@ func (w *ToolNameWriter) WriteHeader(status int) {
 		w.Header().Del("Content-Length")
 	}
 	w.headersEmitted = true
+	sse.PrepareJSONResponse(w.inner)
 	w.inner.WriteHeader(status)
 }
 
@@ -95,15 +96,7 @@ func (w *ToolNameWriter) Write(chunk []byte) (int, error) {
 		w.WriteHeader(http.StatusOK)
 	}
 	if len(w.names) == 0 || w.status >= 400 {
-		if w.streaming || isJSONMediaType(w.inner.Header().Get("Content-Type")) {
-			consumed := len(chunk)
-			var escaped bytes.Buffer
-			json.HTMLEscape(&escaped, chunk)
-			chunk = escaped.Bytes()
-			_, err := w.inner.Write(chunk)
-			return consumed, err
-		}
-		return w.inner.Write(chunk)
+		return sse.WriteJSONChunk(w.inner, chunk)
 	}
 	w.pending.Write(chunk)
 	if !w.streaming {
