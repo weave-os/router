@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"github.com/tidwall/gjson"
 	"io"
 	"net/http"
@@ -218,6 +219,59 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			}
 		})
 	}
+}
+
+// exhaustedPaidLaneRouter reproduces the HMM sidecar's answer when every paid
+// arm is ineligible: ErrNoEligibleArm wrapped as policy unavailable.
+type exhaustedPaidLaneRouter struct{}
+
+func (exhaustedPaidLaneRouter) Route(ctx context.Context, req router.Request) (router.Decision, error) {
+	decision, err := stateModelRouter{}.Route(ctx, req)
+	if err != nil {
+		return router.Decision{}, fmt.Errorf("hmm_embedding: arm selection: %w: %w", policy.ErrNoEligibleArm, router.ErrStrategyUnavailable)
+	}
+	return decision, nil
+}
+
+func TestSubscriptionStateRateLimitedIncludedLaneKeepsUpstreamStatus(t *testing.T) {
+	rateLimit := &providers.UpstreamErrorResponse{
+		Status:  http.StatusTooManyRequests,
+		Headers: http.Header{"Retry-After": []string{"30"}},
+		Body:    []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`),
+	}
+	claude := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{err: rateLimit}}}
+	svc := NewService(exhaustedPaidLaneRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude}, nil, false, nil, nil, false, "", "", nil).
+		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true}})
+	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+	ctx = withTurnFailures(ctx)
+	req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderAnthropic})}
+	rec := httptest.NewRecorder()
+	buffer := newPreludeBuffer(rec)
+	inputs := failoverInputs{
+		w: rec, buf: buffer, subscriptionStateRequest: &req,
+		subscriptionStateWinnerProvider: new(string),
+		initialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+		purpose:                         inference.PurposeAnthropicMessages,
+		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
+			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+				buffer.Seal()
+				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			}, nil
+		},
+	}
+
+	_, err := svc.dispatchWithFallback(ctx, inputs)
+
+	require.Error(t, err)
+	require.NotErrorIs(t, err, router.ErrStrategyUnavailable, "an exhausted rate-limited pool is not a policy outage")
+	class, ok := ClassifyDispatchError(err)
+	require.True(t, ok)
+	require.Equal(t, http.StatusTooManyRequests, class.Status)
+	var upstream *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &upstream)
+	require.Equal(t, "30", upstream.Headers.Get("Retry-After"))
 }
 
 func TestSubscriptionStateModelsIntersectGlobalAllowlist(t *testing.T) {
