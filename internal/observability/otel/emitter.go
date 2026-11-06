@@ -11,6 +11,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"weave-os/router/internal/telemetry"
+
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
@@ -106,6 +108,13 @@ func NewEmitter(cfg EmitterConfig) (*Emitter, error) {
 // NewBuffer returns a request-scoped span/log buffer wrapping e, or nil when e
 // is nil (OTel disabled).
 func (e *Emitter) NewBuffer() *Buffer {
+	return NewBuffer(e)
+}
+
+func (e *Emitter) NewRecorder() telemetry.Recorder {
+	if e == nil {
+		return nil
+	}
 	return NewBuffer(e)
 }
 

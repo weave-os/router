@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/telemetry"
 
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -101,9 +101,9 @@ func (s *Service) semanticCacheStoreAllowed(ctx context.Context, provenance cach
 func (s *Service) recordSemanticCacheMiss(ctx context.Context) {
 	stats := s.semanticCache.Stats()
 	now := time.Now()
-	otel.Record(ctx, otel.Span{
+	telemetry.Record(ctx, telemetry.Span{
 		Name: "router.cache_miss", Start: now, End: now,
-		Attrs: otel.NewAttrBuilder(6).
+		Attrs: telemetry.NewAttrBuilder(6).
 			Bool("cache.hit", false).
 			String("cache.reason", string(cacheMissNoCompatibleEntry)).
 			Int64("cache.hits", int64(stats.Hits)).
