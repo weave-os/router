@@ -169,3 +169,74 @@ func TestRoute_UsesPerRequestProviderBinding(t *testing.T) {
 		t.Fatalf("expected haiku via openrouter, got model=%q provider=%q", dec.Model, dec.Provider)
 	}
 }
+
+
+func TestRoute_RepairsBandPairWhenServingRunnerUp(t *testing.T) {
+	// Scorer picks sonnet (argmax 0.90) with haiku (0.50) as runner-up.
+	// Thompson sampling serves haiku (higher posterior mean).
+	// The pair must not collapse to {haiku, haiku}: it recomputes to the best
+	// remaining peer, sonnet.
+	scores := map[string]float32{"claude-haiku-4-5": 0.5, "claude-sonnet-4-6": 0.9}
+	inner := clusterDecision(scores, []int{0}, "claude-sonnet-4-6", "anthropic")
+	inner.Metadata.PairedModel = "claude-haiku-4-5"
+	inner.Metadata.PairedProvider = "anthropic"
+	inner.Metadata.PairedScore = 0.5
+
+	post, err := LoadPosterior("testdata/ts_posterior.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := New(&fakeInner{dec: inner}, post)
+	b.norm = func() float64 { return 0 }
+
+	dec, err := b.Route(context.Background(), router.Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec.Model != "claude-haiku-4-5" {
+		t.Fatalf("expected Thompson pick haiku, got %q", dec.Model)
+	}
+	if dec.Metadata.PairedModel == dec.Model {
+		t.Fatalf("band pair collapsed: Model and PairedModel are both %q", dec.Model)
+	}
+	if dec.Metadata.PairedModel != "claude-sonnet-4-6" {
+		t.Fatalf("expected runner-up recomputed to claude-sonnet-4-6, got %q", dec.Metadata.PairedModel)
+	}
+	if dec.Metadata.PairedProvider != "anthropic" {
+		t.Fatalf("expected paired provider anthropic, got %q", dec.Metadata.PairedProvider)
+	}
+	if dec.Metadata.PairedScore != 0.9 {
+		t.Fatalf("expected paired score 0.9, got %v", dec.Metadata.PairedScore)
+	}
+}
+
+func TestRoute_ServingArgmaxPreservesScorerPair(t *testing.T) {
+	// When Thompson sampling serves the argmax, the scorer's runner-up metadata
+	// must be preserved intact rather than recomputed.
+	scores := map[string]float32{"claude-haiku-4-5": 0.9, "claude-sonnet-4-6": 0.5}
+	inner := clusterDecision(scores, []int{0}, "claude-haiku-4-5", "anthropic")
+	inner.Metadata.PairedModel = "claude-sonnet-4-6"
+	inner.Metadata.PairedProvider = "anthropic"
+	inner.Metadata.PairedScore = 0.5
+
+	post, err := LoadPosterior("testdata/ts_posterior.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := New(&fakeInner{dec: inner}, post)
+	b.norm = func() float64 { return 0 } // serves haiku (argmax)
+
+	dec, err := b.Route(context.Background(), router.Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dec.Model != "claude-haiku-4-5" {
+		t.Fatalf("expected haiku, got %q", dec.Model)
+	}
+	if dec.Metadata.PairedModel != "claude-sonnet-4-6" {
+		t.Fatalf("argmax pick must preserve scorer's runner-up, got %q", dec.Metadata.PairedModel)
+	}
+	if dec.Metadata.PairedScore != 0.5 {
+		t.Fatalf("argmax pick must preserve scorer's paired score, got %v", dec.Metadata.PairedScore)
+	}
+}
