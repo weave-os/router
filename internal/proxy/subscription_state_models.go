@@ -237,6 +237,9 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		if providers.IsUpstreamRateLimited(err) {
 			includedFailure = err
 		}
+		if refused, _ := claudeAttemptRefusesPlanQuota(err, s.clockNow()); refused {
+			markClaudePlanQuotaRefused(ctx)
+		}
 		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider)
 		recordTurnFailure(ctx, target.Model)
 		if !hasFixedTarget {

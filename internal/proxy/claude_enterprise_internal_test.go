@@ -365,3 +365,26 @@ func TestClaudeEnterpriseOnlyDefaultKeepsSiblingOverageSeat(t *testing.T) {
 	require.Equal(t, []string{"spent-seat"}, leaser.exhaustedIDs)
 	lease.Release()
 }
+
+func TestClaudeEnterpriseOnlyDefaultReleasesSpentPresentedPlanToken(t *testing.T) {
+	weekly := usage.Window{UsedPercent: 1, WindowMinutes: 7 * 24 * 60, ResetAt: time.Now().Add(time.Hour)}
+	for _, scenario := range []struct {
+		name     string
+		snapshot usage.Snapshot
+		want     bool
+	}{
+		{name: "spent plan token releases the default", snapshot: usage.Snapshot{Secondary: weekly}},
+		{name: "plan token on overage keeps the default", snapshot: usage.Snapshot{Secondary: weekly, OverageInUse: true}, want: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			observer := usage.NewObserver([]byte("enterprise-test-salt"), time.Hour, time.Now)
+			observer.Record(observer.Key([]byte(parityAnthropicToken)), scenario.snapshot)
+			service := newServiceWithProviders(t, nil).WithUsageObserver(observer)
+			headers := http.Header{}
+			headers.Set("Authorization", "Bearer "+parityAnthropicToken)
+			ctx := service.withSubscriptionFundingAuthorization(routerKeyedCtx(), headers)
+			require.Equal(t, scenario.want, claudeEnterpriseOnly(ctx))
+			require.True(t, claudeEnterpriseOnly(service.withSubscriptionFundingAuthorization(enterpriseOnlyContext(routerKeyedCtx()), headers)), "an explicit opt-in stays strict")
+		})
+	}
+}

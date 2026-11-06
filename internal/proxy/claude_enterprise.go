@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"net/http"
 	"time"
 
 	"weave-os/router/internal/auth"
@@ -84,20 +85,29 @@ func claudePlanQuotaRefusal(snapshot usage.Snapshot, now time.Time) bool {
 
 func (s *Service) claudeLeaseRefusesPlanQuota(lease subscriptions.Lease, attemptErr error) bool {
 	now := s.clockNow()
-	var upstream *providers.UpstreamErrorResponse
-	if errors.As(attemptErr, &upstream) {
-		if snapshot, observed := usage.ParseAnthropicUnifiedHeaders(upstream.Headers); observed {
-			snapshot.ObservedAt = now
-			if claudePlanQuotaRefusal(snapshot, now) {
-				return true
-			}
-			if snapshot.OverageInUse {
-				return false
-			}
-		}
+	if refused, observed := claudeAttemptRefusesPlanQuota(attemptErr, now); observed {
+		return refused
 	}
 	snapshot, observed := s.managedSubscriptionUsageSnapshot(lease.AccountID, lease.AccessToken)
 	return observed && claudePlanQuotaRefusal(snapshot, now)
+}
+
+// claudeAttemptRefusesPlanQuota reads a Claude 429's unified headers. It reports
+// observed only when they settle the question: a refusal or overage serving.
+func claudeAttemptRefusesPlanQuota(attemptErr error, now time.Time) (refused, observed bool) {
+	var upstream *providers.UpstreamErrorResponse
+	if !errors.As(attemptErr, &upstream) || upstream.Status != http.StatusTooManyRequests {
+		return false, false
+	}
+	snapshot, parsed := usage.ParseAnthropicUnifiedHeaders(upstream.Headers)
+	if !parsed {
+		return false, false
+	}
+	snapshot.ObservedAt = now
+	if claudePlanQuotaRefusal(snapshot, now) {
+		return true, true
+	}
+	return false, snapshot.OverageInUse
 }
 
 func markClaudePlanQuotaRefused(ctx context.Context) {

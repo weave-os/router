@@ -74,6 +74,11 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 	}
 	if claudeToken != "" {
 		ctx = context.WithValue(ctx, claudeSubscriptionPresentKey{}, true)
+		if s.usageObserver != nil {
+			if snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(claudeToken))); observed && claudePlanQuotaRefusal(snapshot, s.clockNow()) {
+				markClaudePlanQuotaRefused(ctx)
+			}
+		}
 	}
 	admissionCtx := ctx
 	return dispatch.WithAuthorization(ctx, func(callCtx context.Context, target inference.Target) error {
