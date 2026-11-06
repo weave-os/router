@@ -38,25 +38,29 @@ func (t ServingTarget) Environment() (Environment, error) {
 type ServingKind string
 
 const (
-	ServingReleases      ServingKind = "releases"
-	ServingClassifiers   ServingKind = "classifiers"
-	ServingBindings      ServingKind = "bindings"
-	ServingProfiles      ServingKind = "profiles"
-	ServingSelectionSets ServingKind = "selection_sets"
-	ServingProposals     ServingKind = "proposals"
+	ServingReleases           ServingKind = "releases"
+	ServingClassifiers        ServingKind = "classifiers"
+	ServingBindings           ServingKind = "bindings"
+	ServingProfiles           ServingKind = "profiles"
+	ServingSelectionSets      ServingKind = "selection_sets"
+	ServingProposals          ServingKind = "proposals"
+	ServingClassifierReleases ServingKind = "classifier_releases"
 )
 
 // ServingSchema versions managed contracts without changing published policy v1 bytes.
 type ServingSchema string
 
 const (
-	ServingReleaseV1      ServingSchema = "router_serving_release_v1"
-	ServingClassifierV1   ServingSchema = "router_serving_classifier_v1"
-	ServingBindingV1      ServingSchema = "router_serving_binding_v1"
-	ServingProfileV1      ServingSchema = "router_serving_profile_v1"
-	ServingSelectionSetV1 ServingSchema = "router_serving_selection_set_v1"
-	ServingProposalV1     ServingSchema = "router_serving_proposal_v1"
-	ServingControlStateV1 ServingSchema = "router_serving_control_state_v1"
+	ServingReleaseV1           ServingSchema = "router_serving_release_v1"
+	ServingClassifierV1        ServingSchema = "router_serving_classifier_v1"
+	ServingBindingV1           ServingSchema = "router_serving_binding_v1"
+	ServingProfileV1           ServingSchema = "router_serving_profile_v1"
+	ServingSelectionSetV1      ServingSchema = "router_serving_selection_set_v1"
+	ServingProposalV1          ServingSchema = "router_serving_proposal_v1"
+	ServingControlStateV1      ServingSchema = "router_serving_control_state_v1"
+	ServingClassifierReleaseV1 ServingSchema = "router_classifier_release_v1"
+	ServingCandidateV3         ServingSchema = "router_serving_candidate_v3"
+	ServingSelectionSetV4      ServingSchema = "router_serving_selection_set_v4"
 )
 
 // ChangeScope specifies which destination components a proposal may replace.
@@ -209,6 +213,8 @@ func servingNamespaces(kind ServingKind) ([]string, error) {
 	switch kind {
 	case ServingReleases, ServingClassifiers, ServingBindings, ServingProfiles, ServingSelectionSets, ServingProposals:
 		return []string{servingLegacyNamespace(kind)}, nil
+	case ServingClassifierReleases:
+		return []string{servingArtifactsNamespace}, nil
 	case ServingCandidate:
 		return []string{servingArtifactsNamespace, servingLegacyNamespace(ServingReleases)}, nil
 	case ServingSelectionSet:
@@ -488,7 +494,25 @@ func DecodeServingManifest(payload []byte, root string, kind ServingKind) (Servi
 		manifest = &SelectionSet{}
 	case ServingProposals:
 		manifest = &DeploymentProposal{}
-	case ServingCandidate, ServingSelectionSet, ServingProposal:
+	case ServingClassifierReleases:
+		manifest = &ClassifierReleaseManifestV1{}
+	case ServingCandidate:
+		schema, err := servingSchemaOf(payload)
+		if err != nil {
+			return nil, err
+		}
+		if manifest, err = servingFamilyManifest(ServingCandidate, schema); err != nil {
+			return nil, err
+		}
+	case ServingSelectionSet:
+		schema, err := servingSchemaOf(payload)
+		if err != nil {
+			return nil, err
+		}
+		if manifest, err = servingFamilyManifest(ServingSelectionSet, schema); err != nil {
+			return nil, err
+		}
+	case ServingProposal:
 		schema, err := servingSchemaOf(payload)
 		if err != nil {
 			return nil, err

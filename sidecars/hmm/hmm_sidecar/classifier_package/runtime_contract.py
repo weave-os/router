@@ -29,15 +29,11 @@ from hmm_sidecar.classifier_package.serving_profile import (
     serving_profile,
 )
 from hmm_sidecar.classifier_package.core import canonical_json, sha256_text
+from hmm_sidecar.classifier_package.manifest import CONFIGURED_INPUT_MODE
 
 #: v2 adds the round-level HMM and lookback geometry of a per-message package.
 #: v1 stays byte-identical so every published package keeps resolving.
 INTERACTION_STATE_RUNTIME_CONTRACT_VERSION = "hmm_router_raw_v5_runtime_contract_v2"
-
-#: The ``runtime_contract.input_mode`` value a configuration-driven raw-V5
-#: package declares. The two fixed legacy modes stay exactly as published so
-#: the deployed packages remain explicit rollback targets.
-CONFIGURED_INPUT_MODE = "raw_v5_configured_serving_v1"
 
 
 class RuntimeContractError(ValueError):

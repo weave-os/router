@@ -14,7 +14,7 @@ from typing import Any
 
 import numpy as np
 
-from hmm_sidecar.artifacts import is_classifier_package_manifest
+from hmm_sidecar.classifier_package.manifest import is_classifier_package_manifest
 from hmm_sidecar.classifier_package.agent_flow_sidecar import (
     AgentFlowHMMReadout,
     AgentFlowHMMSidecar,

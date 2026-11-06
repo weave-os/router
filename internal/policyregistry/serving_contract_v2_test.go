@@ -316,7 +316,7 @@ func TestPreparedSelectionNormalizesV1TraversalAndV2LanesIdentically(t *testing.
 		driftedRef := store.publishArtifact(t, policyregistry.ServingSelectionSet, drifted)
 		selection := policyregistry.ServingSelection{Release: fixture.candidate, Binding: driftedRef}
 		_, err := policyregistry.ReadPreparedSelection(ctx, store, policyregistry.TargetStable, "", selection)
-		assert.ErrorContains(t, err, "differs from release or classifier")
+		assert.ErrorContains(t, err, "worker binding differs from candidate Router image")
 	})
 	t.Run("profile lane must pin the candidate policy", func(t *testing.T) {
 		drifted := fixture.set

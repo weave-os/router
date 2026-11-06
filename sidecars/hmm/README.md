@@ -46,6 +46,49 @@ package, so a router honouring an `x-weave-policy-pin` header fails closed.
 
 ## Configured raw-V5 packages
 
+### Versioned classifier API for self-hosted deployments
+
+The existing sidecar mounts `/v5/classify`, `/v5/preview`, and
+`/v5/capabilities` alongside its legacy routes. Self-hosted deployments can
+enable them with two local JSON files; no WorkWeave registry, GCS resolver, or
+managed-service credentials are used. The release file is a
+`router_classifier_release_v1` manifest whose exact stored bytes determine
+`classifier_release_id`. For self-hosted deployments, the
+`storage_uri` fields document artifact provenance; package bytes are read only
+from the already configured local HMM package registry. The selection file is a strict object with
+`schema_version: "router_classifier_selection_v1"`, that exact
+`classifier_release_id`, and a sorted `enabled_variants` array; its exact bytes
+determine `classifier_selection_id`.
+
+Create the selection after writing the release file, using the release file's
+exact byte hash (do not reformat either file afterward):
+
+```json
+{"schema_version":"router_classifier_selection_v1","classifier_release_id":"<sha256-of-release-file>","enabled_variants":["primary"]}
+```
+
+Then record both identities with `sha256sum classifier-release.json classifier-selection.json`.
+The router sends those digests with `classifier_variant_id` and the
+classification evidence to `/v5/classify` or `/v5/preview`. The classifier
+returns labels, probabilities, confidence/margin, nullable HMM state facts,
+and the exact release/selection/variant/artifact/taxonomy identities; it never
+chooses a provider or model. `/v5/capabilities` accepts the same two digests
+and reports the release taxonomy and enabled variants. Unknown or mismatched
+identities fail closed. The opaque session identifier is used only for
+in-memory inference continuity.
+
+| Variable | Meaning |
+|---|---|
+| `HMM_CLASSIFIER_RELEASE_MANIFEST_PATH` | Path to the immutable classifier release JSON |
+| `HMM_CLASSIFIER_SELECTION_PATH` | Path to the immutable local selection JSON |
+
+Both variables are required together. Every enabled HMM package must already
+be present in the boot-loaded `HMM_PACKAGE_PATH` / `HMM_PACKAGE_REGISTRY`, and
+its artifact, semantic configuration, and embedding-contract hashes must
+match the release manifest. The local resolver rejects digest drift or an
+enabled variant without a loaded package during startup. Qwen bundles are not
+supported by this self-hosted package runtime.
+
 The sidecar also serves `hmm_router_classifier_package_v1` packages whose
 `runtime_contract.input_mode` is `raw_v5_configured_serving_v1`: the format
 Weave's managed router publishes. They use the same variables
