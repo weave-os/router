@@ -2,6 +2,7 @@ package pubsub
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,6 +13,9 @@ import (
 	gcppubsub "cloud.google.com/go/pubsub/v2"
 	"cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"github.com/google/uuid"
+	"github.com/googleapis/gax-go/v2"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -134,14 +138,48 @@ func (l *InvalidationListener) Run(ctx context.Context) {
 // Wait blocks until Run has returned. Intended for shutdown coordination.
 func (l *InvalidationListener) Wait() { <-l.done }
 
+// replicaSubscriptionAttemptTimeout bounds one CreateSubscription call so a
+// single hung admin RPC leaves room in the caller's budget for a retry.
+const replicaSubscriptionAttemptTimeout = 10 * time.Second
+
+// replicaSubscriptionRetryBackoff is the pause between create attempts.
+const replicaSubscriptionRetryBackoff = time.Second
+
+// subscriptionAdmin is the narrow seam CreateReplicaSubscription needs from
+// the Pub/Sub subscription admin client.
+type subscriptionAdmin interface {
+	CreateSubscription(ctx context.Context, req *pubsubpb.Subscription, opts ...gax.CallOption) (*pubsubpb.Subscription, error)
+	DeleteSubscription(ctx context.Context, req *pubsubpb.DeleteSubscriptionRequest, opts ...gax.CallOption) error
+}
+
+type replicaSubscriptionRetry struct {
+	attemptTimeout time.Duration
+	backoff        time.Duration
+}
+
 // CreateReplicaSubscription provisions a per-replica subscription on topicID so
 // every replica sees every invalidation message — a shared subscription would
-// load-balance and defeat the broadcast. Returns the subscription name and a
-// cleanup func; cleanup uses context.Background() so it still runs if the
-// caller's context is already canceled at shutdown.
+// load-balance and defeat the broadcast. Transient admin API failures are
+// retried until ctx expires. Returns the subscription name and a cleanup func;
+// cleanup uses context.Background() so it still runs if the caller's context is
+// already canceled at shutdown.
 func CreateReplicaSubscription(
 	ctx context.Context,
 	client *gcppubsub.Client,
+	projectID string,
+	topicID string,
+	prefix string,
+) (subscriptionName string, cleanup func(), err error) {
+	return createReplicaSubscription(ctx, client.SubscriptionAdminClient, replicaSubscriptionRetry{
+		attemptTimeout: replicaSubscriptionAttemptTimeout,
+		backoff:        replicaSubscriptionRetryBackoff,
+	}, projectID, topicID, prefix)
+}
+
+func createReplicaSubscription(
+	ctx context.Context,
+	admin subscriptionAdmin,
+	retry replicaSubscriptionRetry,
 	projectID string,
 	topicID string,
 	prefix string,
@@ -152,22 +190,43 @@ func CreateReplicaSubscription(
 	subID := fmt.Sprintf("%s-%s", strings.TrimRight(prefix, "-"), uuid.NewString())
 	subscriptionName = fmt.Sprintf("projects/%s/subscriptions/%s", projectID, subID)
 	topicName := fmt.Sprintf("projects/%s/topics/%s", projectID, topicID)
-
-	_, err = client.SubscriptionAdminClient.CreateSubscription(ctx, &pubsubpb.Subscription{
+	subscription := &pubsubpb.Subscription{
 		Name:  subscriptionName,
 		Topic: topicName,
 		ExpirationPolicy: &pubsubpb.ExpirationPolicy{
 			Ttl: durationpb.New(replicaSubscriptionTTL),
 		},
-	})
-	if err != nil {
-		return "", nil, fmt.Errorf("create per-replica subscription: %w", err)
+	}
+
+	for attempt := 1; ; attempt++ {
+		attemptCtx, cancel := context.WithTimeout(ctx, retry.attemptTimeout)
+		_, err = admin.CreateSubscription(attemptCtx, subscription)
+		cancel()
+		// The name is reused across attempts, so AlreadyExists means an
+		// earlier attempt that timed out client-side did create it.
+		if err == nil || (attempt > 1 && status.Code(err) == codes.AlreadyExists) {
+			break
+		}
+		if !retryableSubscriptionCreateError(err) || ctx.Err() != nil {
+			return "", nil, fmt.Errorf("create per-replica subscription after %d attempt(s): %w", attempt, err)
+		}
+		observability.FromContext(ctx).Warn(
+			"Retrying per-replica invalidation subscription create",
+			"subscription", subscriptionName,
+			"attempt", attempt,
+			"err", err,
+		)
+		select {
+		case <-ctx.Done():
+			return "", nil, fmt.Errorf("create per-replica subscription after %d attempt(s): %w", attempt, err)
+		case <-time.After(retry.backoff):
+		}
 	}
 
 	cleanup = func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), subscriptionDeleteTimeout)
 		defer cancel()
-		delErr := client.SubscriptionAdminClient.DeleteSubscription(cleanupCtx, &pubsubpb.DeleteSubscriptionRequest{
+		delErr := admin.DeleteSubscription(cleanupCtx, &pubsubpb.DeleteSubscriptionRequest{
 			Subscription: subscriptionName,
 		})
 		if delErr != nil {
@@ -179,4 +238,16 @@ func CreateReplicaSubscription(
 		}
 	}
 	return subscriptionName, cleanup, nil
+}
+
+func retryableSubscriptionCreateError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	switch status.Code(err) {
+	case codes.DeadlineExceeded, codes.Unavailable, codes.ResourceExhausted, codes.Aborted, codes.Internal:
+		return true
+	default:
+		return false
+	}
 }
