@@ -25,24 +25,34 @@ type claudeSubscriptionPresentKey struct{}
 // credits-only configuration retain their existing authority over the default,
 // and the default yields once a plan seat proves it cannot serve the request.
 func claudeEnterpriseOnly(ctx context.Context) bool {
+	enabled, explicit := claudeEnterpriseSetting(ctx)
+	if !enabled || explicit {
+		return enabled
+	}
+	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	return state == nil || !state.ClaudePlanQuotaRefused
+}
+
+// claudeSeatOverageAllowed keeps linked seats on provider-authorized overage
+// even after a sibling plan seat released the request's funding default.
+func claudeSeatOverageAllowed(ctx context.Context) bool {
+	enabled, _ := claudeEnterpriseSetting(ctx)
+	return enabled
+}
+
+func claudeEnterpriseSetting(ctx context.Context) (enabled, explicit bool) {
 	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || anthropicBYOKConfigured(ctx) {
-		return false
+		return false, false
 	}
 	if overrides, ok := flags.OverridesFromContext(ctx); ok {
 		if enabled, configured := overrides.Bools[flags.KeyClaudeEnterpriseOnly]; configured {
-			return enabled
+			return enabled, true
 		}
-	}
-	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && state.ClaudePlanQuotaRefused {
-		return false
 	}
 	present, _ := ctx.Value(claudeSubscriptionPresentKey{}).(bool)
 	enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
 	_, linked := enrolled[auth.SubscriptionProviderClaude]
-	if !present && !linked && anthropicSubscriptionFromContext(ctx) == "" {
-		return false
-	}
-	return true
+	return present || linked || anthropicSubscriptionFromContext(ctx) != "", false
 }
 
 func claudeEnterpriseTarget(ctx context.Context, target inference.Target) bool {
@@ -78,7 +88,12 @@ func (s *Service) claudeLeaseRefusesPlanQuota(lease subscriptions.Lease, attempt
 	if errors.As(attemptErr, &upstream) {
 		if snapshot, observed := usage.ParseAnthropicUnifiedHeaders(upstream.Headers); observed {
 			snapshot.ObservedAt = now
-			return claudePlanQuotaRefusal(snapshot, now)
+			if claudePlanQuotaRefusal(snapshot, now) {
+				return true
+			}
+			if snapshot.OverageInUse {
+				return false
+			}
 		}
 	}
 	snapshot, observed := s.managedSubscriptionUsageSnapshot(lease.AccountID, lease.AccessToken)

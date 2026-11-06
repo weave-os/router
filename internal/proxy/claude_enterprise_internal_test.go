@@ -343,3 +343,25 @@ func TestClaudeEnterpriseOnlyDefaultSkipsObservedSpentPlanSeat(t *testing.T) {
 		})
 	}
 }
+
+func TestClaudeEnterpriseOnlyDefaultKeepsSiblingOverageSeat(t *testing.T) {
+	leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
+		{AccountID: "spent-seat", AccessToken: "spent-token"},
+		{AccountID: "overage-seat", AccessToken: "overage-token"},
+	}}}
+	observer := usage.NewObserver([]byte("enterprise-test-salt"), time.Hour, time.Now)
+	weekly := usage.Window{UsedPercent: 1, WindowMinutes: 7 * 24 * 60, ResetAt: time.Now().Add(time.Hour)}
+	observer.Record(observer.Key([]byte("spent-token")), usage.Snapshot{Secondary: weekly})
+	observer.Record(observer.Key([]byte("overage-token")), usage.Snapshot{Secondary: weekly, OverageInUse: true})
+	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser).WithUsageObserver(observer)
+	ctx := WithManagedSubscriptionUsage(context.WithValue(context.WithValue(context.Background(), APIKeyIDContextKey{}, "key-1"),
+		ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}}))
+
+	_, lease, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String())
+
+	require.NoError(t, err)
+	require.True(t, managed)
+	require.Equal(t, "overage-seat", lease.AccountID, "a sibling on provider-authorized overage still serves before any fallback")
+	require.Equal(t, []string{"spent-seat"}, leaser.exhaustedIDs)
+	lease.Release()
+}

@@ -196,7 +196,7 @@ var Registry = []Definition{
 	{
 		Key:            KeyClaudeEnterpriseOnly,
 		Kind:           KindBool,
-		Description:    "Fund Claude calls through linked Claude accounts, including provider-authorized Enterprise overage, without Weave-credit fallback. On by default for linked accounts until a plan seat reports its included quota spent with no overage serving; explicit BYOK and disabled subscription routing retain precedence over the default.",
+		Description:    "Fund Claude calls through linked Claude accounts, including provider-authorized Enterprise overage, without Weave-credit fallback. On by default for linked accounts; the inherited default yields for a request once a plan seat reports its included quota spent with no overage serving, while an explicit opt-in stays strict. Explicit BYOK and disabled subscription routing retain precedence over the default.",
 		OrgOverridable: true,
 	},
 	{

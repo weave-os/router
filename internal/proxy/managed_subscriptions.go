@@ -260,7 +260,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			return poolSpent()
 		}
 		leaseCtx := ctx
-		if poolProvider == subscriptions.ProviderClaude && claudeEnterpriseOnly(ctx) {
+		if poolProvider == subscriptions.ProviderClaude && claudeSeatOverageAllowed(ctx) {
 			leaseCtx = requestcontext.WithSubscriptionExtraUsage(ctx)
 		}
 		lease, present, err := s.managedSubscriptions.Lease(leaseCtx, owner, poolProvider, ClientIdentityFrom(ctx).SessionID)
@@ -324,10 +324,11 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			continue
 		}
 		snapshot, observed := s.managedSubscriptionUsageSnapshot(lease.AccountID, lease.AccessToken)
-		if poolProvider == subscriptions.ProviderClaude && observed && claudePlanQuotaRefusal(snapshot, s.clockNow()) {
+		spentPlanSeat := poolProvider == subscriptions.ProviderClaude && observed && claudePlanQuotaRefusal(snapshot, s.clockNow())
+		if spentPlanSeat {
 			markClaudePlanQuotaRefused(ctx)
 		}
-		allowClaudeOverage := poolProvider == subscriptions.ProviderClaude && claudeEnterpriseOnly(ctx)
+		allowClaudeOverage := poolProvider == subscriptions.ProviderClaude && claudeSeatOverageAllowed(ctx) && (!spentPlanSeat || claudeEnterpriseOnly(ctx))
 		if observed && snapshot.OverageInUse && !allowClaudeOverage {
 			lease.Release()
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
@@ -418,10 +419,11 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 		if quotaReset, exhausted := s.subscriptionQuotaExhaustion(poolProvider, lease, attemptErr); exhausted {
 			resetAt = quotaReset
 			recordManagedQuotaProof(ctx, lease.AccountID, resetAt)
-			if poolProvider == subscriptions.ProviderClaude && s.claudeLeaseRefusesPlanQuota(lease, attemptErr) {
+			spentPlanSeat := poolProvider == subscriptions.ProviderClaude && s.claudeLeaseRefusesPlanQuota(lease, attemptErr)
+			if spentPlanSeat {
 				markClaudePlanQuotaRefused(ctx)
 			}
-			if poolProvider == subscriptions.ProviderClaude && claudeEnterpriseOnly(ctx) {
+			if poolProvider == subscriptions.ProviderClaude && claudeSeatOverageAllowed(ctx) && (!spentPlanSeat || claudeEnterpriseOnly(ctx)) {
 				if err := s.managedSubscriptions.Cooldown(ctx, owner, poolProvider, lease.AccountID, resetAt); err != nil {
 					observability.FromContext(ctx).Error("Failed to persist Claude overage refusal cooldown", "account_id", lease.AccountID, "err", err)
 				}
