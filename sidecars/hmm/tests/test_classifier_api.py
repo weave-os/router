@@ -6,7 +6,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hmm_sidecar.classifier_api import (
-    ClassifierAPIError,
     ClassifierAPIVersion,
     ClassifierFactsV5,
     ClassifierRequestV5,
@@ -16,8 +15,6 @@ from hmm_sidecar.classifier_api import (
     ResolvedClassifierRelease,
     ResolvedClassifierSelection,
     ResolvedClassifierVariant,
-    UnknownClassifierRelease,
-    UnknownClassifierVariant,
     create_classifier_router,
 )
 

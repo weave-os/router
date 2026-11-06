@@ -117,3 +117,16 @@ def test_qwen_bundle_has_no_fabricated_package_or_embedding_reference() -> None:
         ValidationError, match="must not claim an HMM package or embedding"
     ):
         ClassifierReleaseManifestV1.model_validate(fake_embedding)
+
+
+def test_hmm_package_rejects_unconsumed_auxiliary_model_refs() -> None:
+    manifest = _release_payload()
+    manifest["variants"]["primary"]["auxiliary_models"] = {
+        "classifier": {
+            "uri": "gs://model-artifacts/auxiliary.json",
+            "sha256": "f" * 64,
+            "generation": 1,
+        }
+    }
+    with pytest.raises(ValidationError, match="unsupported auxiliary model refs"):
+        ClassifierReleaseManifestV1.model_validate(manifest)

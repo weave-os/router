@@ -89,6 +89,12 @@ func TestClassifierReleaseV1SupportsWeaveDataAndQwenBundleSources(t *testing.T) 
 	qwenVariant.PackageWeaveDataRef = wrongVariant.PackageWeaveDataRef
 	fakeQwenRef.Variants[policy.ClassifierVariantQwen] = qwenVariant
 	require.ErrorContains(t, fakeQwenRef.Validate(classifierContractRegistryRoot), "Qwen variant")
+
+	unsupportedAuxiliaryRef := classifierContractRelease()
+	primary := unsupportedAuxiliaryRef.Variants[policy.ClassifierVariantPrimary]
+	primary.AuxiliaryModels = map[string]ObjectRef{"classifier": classifierContractArtifactRef("auxiliary-classifier")}
+	unsupportedAuxiliaryRef.Variants[policy.ClassifierVariantPrimary] = primary
+	require.ErrorContains(t, unsupportedAuxiliaryRef.Validate(classifierContractRegistryRoot), "unsupported auxiliary model refs")
 }
 
 func TestCandidateV3AndSelectionSetV4KeepPhysicalClassifierOutOfTargetSet(t *testing.T) {
@@ -127,6 +133,13 @@ func TestCandidateV3AndSelectionSetV4KeepPhysicalClassifierOutOfTargetSet(t *tes
 	}
 	require.NoError(t, candidate.Validate(classifierContractRegistryRoot))
 	require.NoError(t, selectionSet.Validate(classifierContractRegistryRoot))
+
+	selectionSet.Classifier.EnabledVariants = []policy.ClassifierVariantID{
+		policy.ClassifierVariantPrimary, policy.ClassifierVariantQwen,
+	}
+	require.ErrorContains(t, selectionSet.Validate(classifierContractRegistryRoot), "internal-only variant")
+	selectionSet.Classifier.EnabledVariants = []policy.ClassifierVariantID{policy.ClassifierVariantPrimary}
+
 	selectionSetRef := objectReferenceForTest(t, ServingSelectionSet, selectionSet)
 	sessionSelection := selectionSet.View(selectionSetRef).Default
 	require.Equal(t, candidateRef, sessionSelection.Release)

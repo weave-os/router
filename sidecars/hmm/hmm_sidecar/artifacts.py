@@ -16,14 +16,10 @@ import numpy as np
 
 from .schemas import FrozenPackageManifest
 from .classifier_package.manifest import (
-    CLASSIFIER_PACKAGE_SCHEMA_VERSION,
-    CONFIGURED_INPUT_MODE,
     is_classifier_package_manifest,
 )
 from .classifier_package.package_loader import (
     MAX_ARCHIVE_BYTES,
-    MAX_ARCHIVE_MEMBERS,
-    MAX_MEMBER_BYTES,
     extract_classifier_archive,
     verify_classifier_package,
 )

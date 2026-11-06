@@ -110,6 +110,10 @@ class ClassifierVariantManifest(FrozenModel):
                 raise ValueError(
                     "HMM package requires an embedding contract digest only"
                 )
+            if self.auxiliary_models:
+                raise ValueError(
+                    "HMM packages cannot declare unsupported auxiliary model refs"
+                )
         if self.kind is ClassifierVariantKind.QWEN_BUNDLE:
             if (
                 self.package_weavedata_ref is not None

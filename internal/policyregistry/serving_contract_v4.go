@@ -118,6 +118,9 @@ func (m ClassifierReleaseManifestV1) Validate(root string) error {
 			if variantID == policy.ClassifierVariantQwen || variant.PackageWeaveDataRef == nil || variant.BundleSHA256 != "" || !validDigest(variant.EmbeddingContractSHA256) {
 				return fmt.Errorf("HMM variant %q requires a WeaveData package ref and embedding contract digest", variantID)
 			}
+			if len(variant.AuxiliaryModels) != 0 {
+				return fmt.Errorf("HMM variant %q cannot declare unsupported auxiliary model refs", variantID)
+			}
 			ref := variant.PackageWeaveDataRef
 			if ref.DataID == "" || ref.DataKind != ClassifierModelArtifactDataKind || ref.SchemaVersion == "" || ref.Version == "" || !validDigest(ref.ContentSHA256) || ref.Role != ClassifierModelArtifactRoleTrainedPolicy || !ref.Required || (ref.RowCount != nil && *ref.RowCount < 0) {
 				return fmt.Errorf("classifier variant %q WeaveDataRef is incomplete or not required", variantID)
@@ -251,6 +254,13 @@ func (s SelectionSetV4) Validate(root string) error {
 	}
 	if err := s.Classifier.validate(root); err != nil {
 		return fmt.Errorf("selection set classifier binding: %w", err)
+	}
+	if s.Target != TargetInternal {
+		for _, variantID := range s.Classifier.EnabledVariants {
+			if variantID != policy.ClassifierVariantPrimary {
+				return fmt.Errorf("classifier binding enables internal-only variant %q for target %q", variantID, s.Target)
+			}
+		}
 	}
 	if err := validateServingPolicy(s.DefaultPolicy, root); err != nil {
 		return fmt.Errorf("selection set default policy: %w", err)
