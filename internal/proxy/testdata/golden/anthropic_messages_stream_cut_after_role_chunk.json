@@ -1,0 +1,316 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "claude-sonnet-4-5",
+          "model": "deepseek/deepseek-v4-pro",
+          "provider": "fireworks",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "fireworks",
+          "wire_model": "deepseek/deepseek-v4-pro",
+          "outbound_body": {
+            "max_tokens": 4096,
+            "messages": [
+              {
+                "content": "Say hi",
+                "role": "user"
+              }
+            ],
+            "model": "deepseek/deepseek-v4-pro",
+            "stream": true,
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "outcome": "error: unexpected EOF"
+        },
+        {
+          "provider": "openrouter",
+          "wire_model": "deepseek/deepseek-v4-pro",
+          "outbound_body": {
+            "max_tokens": 4096,
+            "messages": [
+              {
+                "content": "Say hi",
+                "role": "user"
+              }
+            ],
+            "model": "deepseek/deepseek-v4-pro",
+            "provider": {
+              "allow_fallbacks": true,
+              "order": [
+                "deepseek"
+              ]
+            },
+            "reasoning": {
+              "enabled": false
+            },
+            "stream": true,
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true,
+            "ErrorClass": "stream_cut",
+            "FailureOwner": "provider"
+          },
+          "FailureReason": "transport",
+          "Outcome": "failed",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+          },
+          "Target": {
+            "CatalogID": "deepseek/deepseek-v4-pro",
+            "Provider": "fireworks",
+            "UpstreamID": "accounts/fireworks/models/deepseek-v4-pro"
+          }
+        },
+        {
+          "AttemptIndex": 1,
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+          },
+          "Target": {
+            "BindingIndex": 1,
+            "CatalogID": "deepseek/deepseek-v4-pro",
+            "Provider": "openrouter",
+            "UpstreamID": "deepseek/deepseek-v4-pro"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "27",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1048576",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Fallback-Attempt": "1",
+          "X-Router-Fallback-From": "fireworks",
+          "X-Router-Model": "deepseek/deepseek-v4-pro",
+          "X-Router-Provider": "openrouter"
+        },
+        "events": [
+          {
+            "event": "message_start",
+            "data": {
+              "message": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "model": "deepseek/deepseek-v4-pro",
+                "role": "assistant",
+                "stop_reason": null,
+                "stop_sequence": null,
+                "type": "message",
+                "usage": {
+                  "input_tokens": 0,
+                  "output_tokens": 0
+                }
+              },
+              "type": "message_start"
+            }
+          },
+          {
+            "event": "content_block_start",
+            "data": {
+              "content_block": {
+                "text": "",
+                "type": "text"
+              },
+              "index": 0,
+              "type": "content_block_start"
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "delta": {
+                "text": "✦ **Weave Router** → deepseek/deepseek-v4-pro · best pick for this turn\n\n",
+                "type": "text_delta"
+              },
+              "index": 0,
+              "type": "content_block_delta"
+            }
+          },
+          {
+            "event": "content_block_stop",
+            "data": {
+              "index": 0,
+              "type": "content_block_stop"
+            }
+          },
+          {
+            "event": "content_block_start",
+            "data": {
+              "content_block": {
+                "text": "",
+                "type": "text"
+              },
+              "index": 1,
+              "type": "content_block_start"
+            }
+          },
+          {
+            "event": "content_block_delta",
+            "data": {
+              "delta": {
+                "text": "rescued",
+                "type": "text_delta"
+              },
+              "index": 1,
+              "type": "content_block_delta"
+            }
+          },
+          {
+            "event": "content_block_stop",
+            "data": {
+              "index": 1,
+              "type": "content_block_stop"
+            }
+          },
+          {
+            "event": "message_delta",
+            "data": {
+              "delta": {
+                "stop_reason": "end_turn",
+                "stop_sequence": null
+              },
+              "type": "message_delta",
+              "usage": {
+                "input_tokens": 12,
+                "output_tokens": 7,
+                "weave_cost": {
+                  "cache_creation_tokens": 0,
+                  "cache_read_tokens": 0,
+                  "input_usd": 0.00000522,
+                  "output_usd": 0.00000609,
+                  "usd": 0.00001131
+                }
+              }
+            }
+          },
+          {
+            "event": "message_stop",
+            "data": {
+              "type": "message_stop"
+            }
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_mid",
+          "detail": {
+            "Model": "deepseek/deepseek-v4-pro",
+            "Provider": "fireworks",
+            "Reason": "golden_route",
+            "Role": "default_mid",
+            "Strategy": "cluster",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_mid",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "deepseek/deepseek-v4-pro",
+            "ServedProvider": "openrouter",
+            "Strategy": "cluster"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -11,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 11,
+          "OrganizationID": "golden-org",
+          "RouterModel": "deepseek/deepseek-v4-pro"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.00000522,
+          "ActualOutputCostUSD": 0.00000609,
+          "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 1048576,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 27,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "claude-sonnet-4-5",
+            "served_model": "deepseek/deepseek-v4-pro",
+            "version": 1
+          },
+          "CrossFormat": true,
+          "DecisionModel": "deepseek/deepseek-v4-pro",
+          "DecisionProvider": "openrouter",
+          "DecisionReason": "golden_route",
+          "DegenerateShadow": true,
+          "EmbedInput": "concatenated_stream",
+          "EstimatedInputTokens": 1,
+          "FailoverAttempted": true,
+          "FailoverUsed": true,
+          "FinalModelFamily": "deepseek/deepseek-v-pro",
+          "FreshDecisionModel": "deepseek/deepseek-v4-pro",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "deepseek/deepseek-v-pro",
+          "LatestToolCallCounts": {},
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedInputCostUSD": 0.000036,
+          "RequestedModel": "claude-sonnet-4-5",
+          "RequestedOutputCostUSD": 0.000105,
+          "Role": "default_mid",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StopReason": "end_turn",
+          "Strategy": "cluster",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "anthropic_messages_stream_cut_after_role_chunk"
+}

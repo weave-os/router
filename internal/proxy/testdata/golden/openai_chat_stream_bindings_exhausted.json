@@ -1,0 +1,204 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_chat",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "gpt-5",
+          "model": "deepseek/deepseek-v4-pro",
+          "provider": "fireworks",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "fireworks",
+          "wire_model": "deepseek/deepseek-v4-pro",
+          "outbound_body": {
+            "max_tokens": 8192,
+            "messages": [
+              {
+                "content": "Say hi",
+                "role": "user"
+              }
+            ],
+            "model": "deepseek/deepseek-v4-pro",
+            "stream": true,
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "outcome": "upstream_status_502"
+        },
+        {
+          "provider": "openrouter",
+          "wire_model": "deepseek/deepseek-v4-pro",
+          "outbound_body": {
+            "max_tokens": 8192,
+            "messages": [
+              {
+                "content": "Say hi",
+                "role": "user"
+              }
+            ],
+            "model": "deepseek/deepseek-v4-pro",
+            "provider": {
+              "allow_fallbacks": true,
+              "order": [
+                "deepseek"
+              ]
+            },
+            "reasoning": {
+              "enabled": false
+            },
+            "stream": true,
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "outcome": "upstream_status_503"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true,
+            "ErrorClass": "upstream_5xx",
+            "FailureOwner": "provider"
+          },
+          "FailureReason": "upstream_status",
+          "Outcome": "failed",
+          "Provenance": {
+            "PolicyID": "main-openai-chat-completions",
+            "PolicyRevision": "3",
+            "Purpose": "openai_chat_completions",
+            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+          },
+          "Target": {
+            "CatalogID": "deepseek/deepseek-v4-pro",
+            "Provider": "fireworks",
+            "UpstreamID": "accounts/fireworks/models/deepseek-v4-pro"
+          },
+          "UpstreamStatusCode": 502
+        },
+        {
+          "AttemptIndex": 1,
+          "Diagnosis": {
+            "BodyTranslated": true,
+            "ErrorClass": "upstream_5xx",
+            "FailureOwner": "provider"
+          },
+          "FailureReason": "upstream_status",
+          "Outcome": "failed",
+          "Provenance": {
+            "PolicyID": "main-openai-chat-completions",
+            "PolicyRevision": "3",
+            "Purpose": "openai_chat_completions",
+            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+          },
+          "Target": {
+            "BindingIndex": 1,
+            "CatalogID": "deepseek/deepseek-v4-pro",
+            "Provider": "openrouter",
+            "UpstreamID": "deepseek/deepseek-v4-pro"
+          },
+          "UpstreamStatusCode": 503
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "19",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1048576",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "deepseek/deepseek-v4-pro",
+          "X-Router-Provider": "fireworks"
+        },
+        "events": [
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "✦ **Weave Router** → deepseek/deepseek-v4-pro · best pick for this turn\n\n",
+                    "role": "assistant"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-\u003cid\u003e",
+              "model": "deepseek/deepseek-v4-pro",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "error": {
+                "message": "OpenRouter returned 503 (server error): unavailable"
+              }
+            }
+          }
+        ]
+      },
+      "dispatch_error": {
+        "outcome": "upstream_status_503",
+        "kind": 1,
+        "status": 503,
+        "message": "OpenRouter returned 503 (server error): unavailable"
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_high",
+          "detail": {
+            "Model": "deepseek/deepseek-v4-pro",
+            "Provider": "fireworks",
+            "Reason": "golden_route",
+            "Role": "default_high",
+            "Strategy": "cluster",
+            "TurnCount": 1
+          }
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "CaptureMode": "off",
+          "DecisionModel": "deepseek/deepseek-v4-pro",
+          "DecisionProvider": "openrouter",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "concatenated_stream",
+          "ErrorClass": "upstream_5xx",
+          "EstimatedInputTokens": 1,
+          "FailoverAttempted": true,
+          "FailoverUsed": true,
+          "FailureOwner": "provider",
+          "FinalModelFamily": "deepseek/deepseek-v-pro",
+          "FreshDecisionModel": "deepseek/deepseek-v4-pro",
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "deepseek/deepseek-v-pro",
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedModel": "gpt-5",
+          "Role": "default_high",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "Strategy": "cluster",
+          "TurnType": "main_loop",
+          "UpstreamStatusCode": 503,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "openai_chat_stream_bindings_exhausted"
+}
