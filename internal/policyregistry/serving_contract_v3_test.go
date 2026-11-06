@@ -3,12 +3,19 @@ package policyregistry_test
 import (
 	"bytes"
 	"context"
+	"io"
+	"log/slog"
 	"maps"
+	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/policy"
 )
 
 const alternateRosterArm = "openai/gpt-6-sol"
@@ -136,4 +143,153 @@ func TestSelectionSetV3TransitionPreservesV2ProfilePolicies(t *testing.T) {
 	set.Profiles[profileKeyTwo] = set.DefaultPolicy
 	proposal.SelectionSet = store.publishArtifact(t, policyregistry.ServingSelectionSet, set)
 	require.ErrorContains(t, controller.ValidateProposal(context.Background(), proposal), "retain destination profile revisions")
+}
+
+func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOldPin(t *testing.T) {
+	ctx := context.Background()
+	store, v3Set := cohortFixture(t)
+	v3Set.Target = policyregistry.TargetInternal
+	legacyCandidate := *store.object(t, policyregistry.ServingCandidate, v3Set.Code.Candidate).(*policyregistry.CandidateV2)
+	qwenPolicy := publishRosterArm(t, store, legacyCandidate.Policy, alternateRosterArm)
+	legacyQwen := policy.ClassifierArtifact{
+		ArtifactID:      "hmm_router_qwen_turn_classifier_3a14c1f5a005c039",
+		PackageSHA256:   strings.Repeat("d", 64),
+		Endpoint:        "https://qwen-test.modal.run/",
+		Audience:        "https://weave-router/qwen-classifier",
+		ServingRevision: strings.Repeat("e", 64),
+	}
+	legacyCandidate.StrategyPolicies = map[router.Strategy]policyregistry.PolicyObject{
+		router.StrategyHMMQwen: qwenPolicy,
+	}
+	legacyCandidate.Classifier.Identity.Variants = map[router.Strategy]policy.ClassifierArtifact{
+		router.StrategyHMMQwen: legacyQwen,
+	}
+	legacyCandidateRef := store.publishArtifact(t, policyregistry.ServingCandidate, legacyCandidate)
+	v3Set.Code.Candidate = legacyCandidateRef
+	v3Ref := store.publishArtifact(t, policyregistry.ServingSelectionSet, v3Set)
+	controller, err := policyregistry.NewServingController(
+		store,
+		preparedValidator(func(context.Context, policyregistry.PreparedSelection) error { return nil }),
+		func() time.Time { return servingEpoch.Add(2 * time.Second) },
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	require.NoError(t, err)
+	activateV3 := policyregistry.DeploymentProposalV2{
+		SchemaVersion: policyregistry.ServingProposalV2, Target: v3Set.Target,
+		SelectionSet: v3Ref, SourceCandidate: legacyCandidateRef, Scope: policyregistry.ChangeFull,
+		Actor: "test-operator", Reason: "seed v3 before atomic classifier migration",
+		RequestID: "seed-v3-selection", CreatedAt: servingEpoch,
+		Evidence: []policyregistry.ObjectRef{artifactRef("evidence")}, WithdrawActivations: []string{},
+	}
+	activatedV3, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, activateV3), "test-operator")
+	require.NoError(t, err)
+
+	classOrder := slices.Clone(legacyCandidate.Classifier.Identity.ClassOrder)
+	packageSHA := strings.Repeat("b", 64)
+	classer := policyregistry.CandidateV3{
+		SchemaVersion:     policyregistry.ServingCandidateV3,
+		RouterImageDigest: "sha256:" + strings.Repeat("9", 64),
+		Requirements: policyregistry.CandidateRequirementsV3{
+			RuntimeContract:    policyregistry.ManagedRuntimeContractV1,
+			PolicySchema:       rosterdata.SchemaVersionPolicyV1,
+			SupportedAPIMajors: []policy.ClassifierAPIMajor{policy.ClassifierAPIMajorV5},
+		},
+		Provenance: policyregistry.ServingProvenance{
+			RouterRevision: strings.Repeat("7", 40), WeaveRevision: strings.Repeat("8", 40),
+			BuildAttestation: artifactRef("build-attestation"),
+		},
+	}
+	candidateV3Ref := store.publishArtifact(t, policyregistry.ServingCandidate, classer)
+	release := policyregistry.ClassifierReleaseManifestV1{
+		SchemaVersion: policyregistry.ServingClassifierReleaseV1,
+		APIMajor:      policy.ClassifierAPIMajorV5, WireSchema: policy.SchemaVersionV5,
+		Taxonomy: policyregistry.ClassifierTaxonomy{ClassOrder: classOrder, SHA256: policyregistry.TaxonomyDigest(classOrder)},
+		Variants: map[policy.ClassifierVariantID]policyregistry.ClassifierVariantManifest{
+			policy.ClassifierVariantPrimary: {
+				Kind:       policyregistry.ClassifierVariantKindHMMPackage,
+				ArtifactID: "hmm_router_sidecar_package_bbbbbbbbbbbbbbbb", ArtifactSHA256: packageSHA,
+				PackageWeaveDataRef: &policyregistry.WeaveDataModelArtifactRef{
+					DataID: "weave_model_artifact_test", DataKind: policyregistry.ClassifierModelArtifactDataKind,
+					SchemaVersion: "hmm_router_classifier_package_v1", Version: "v1",
+					StorageURI: "gs://model-artifacts/classifier.tar.gz", ContentSHA256: packageSHA,
+					Role: policyregistry.ClassifierModelArtifactRoleTrainedPolicy, Required: true,
+				},
+				AuxiliaryModels:             map[string]policyregistry.ObjectRef{},
+				SemanticConfigurationSHA256: strings.Repeat("a", 64),
+				EmbeddingContractSHA256:     strings.Repeat("c", 64),
+			},
+			policy.ClassifierVariantQwen: {
+				Kind:           policyregistry.ClassifierVariantKindQwenBundle,
+				ArtifactID:     legacyQwen.ArtifactID,
+				ArtifactSHA256: legacyQwen.PackageSHA256, BundleSHA256: legacyQwen.PackageSHA256,
+				AuxiliaryModels:             map[string]policyregistry.ObjectRef{},
+				SemanticConfigurationSHA256: strings.Repeat("f", 64),
+			},
+		},
+		RuntimeImageDigest: "sha256:" + strings.Repeat("4", 64),
+		Provenance: policyregistry.ClassifierReleaseProvenance{
+			RouterRevision: strings.Repeat("7", 40), WeaveRevision: strings.Repeat("8", 40),
+			BuildAttestation: artifactRef("build-attestation"),
+		},
+	}
+	releaseRef := store.publishArtifact(t, policyregistry.ServingClassifierReleases, release)
+	selectionV4 := policyregistry.SelectionSetV4{
+		SchemaVersion: policyregistry.ServingSelectionSetV4, Target: v3Set.Target,
+		Code: policyregistry.CandidateCodeV4{
+			Candidate: candidateV3Ref, Project: v3Set.Code.Project, Region: v3Set.Code.Region,
+			Router: policyregistry.RevisionBinding{
+				Name: "router-worker-internal-v5", URL: "https://router-worker-internal-test.a.run.app",
+				Audience: "https://router-worker-internal-test.a.run.app", ImageDigest: classer.RouterImageDigest,
+				Configuration: artifactRef("v5-worker-config"),
+			},
+			Attestation: artifactRef("binding-attestation"),
+		},
+		Classifier: policyregistry.ClassifierServiceBinding{
+			Release:         releaseRef,
+			ServiceURL:      "https://router-classifier-gateway-test.a.run.app",
+			Audience:        "https://router-classifier-gateway-test.a.run.app",
+			EnabledVariants: []policy.ClassifierVariantID{policy.ClassifierVariantPrimary, policy.ClassifierVariantQwen},
+		},
+		DefaultPolicy: v3Set.DefaultPolicy,
+		Profiles:      maps.Clone(v3Set.Profiles),
+		StrategyPolicies: map[router.Strategy]policyregistry.PolicyObject{
+			router.StrategyHMMQwen: qwenPolicy,
+		},
+	}
+	v4Ref := store.publishArtifact(t, policyregistry.ServingSelectionSet, selectionV4)
+	activateV4 := policyregistry.DeploymentProposalV2{
+		SchemaVersion: policyregistry.ServingProposalV2, Target: v3Set.Target,
+		PreviousSelectionSet: &activatedV3.Activation.SelectionSet,
+		SelectionSet:         v4Ref, SourceCandidate: candidateV3Ref, Scope: policyregistry.ChangeFull,
+		Actor: "test-operator", Reason: "atomically migrate to classifier service v5",
+		RequestID: "migrate-v3-to-v4", CreatedAt: servingEpoch.Add(time.Second),
+		Evidence: []policyregistry.ObjectRef{artifactRef("evidence")}, WithdrawActivations: []string{},
+	}
+	require.NoError(t, controller.ValidateProposal(ctx, activateV4))
+	mutatedProfileSet := selectionV4
+	mutatedProfileSet.Profiles = maps.Clone(selectionV4.Profiles)
+	mutatedProfileSet.Profiles[profileKeyTwo] = selectionV4.DefaultPolicy
+	mutatedProposal := activateV4
+	mutatedProposal.SelectionSet = store.publishArtifact(t, policyregistry.ServingSelectionSet, mutatedProfileSet)
+	mutatedProposal.RequestID = "migrate-v3-to-v4-mutated-profile"
+	require.ErrorContains(t, controller.ValidateProposal(ctx, mutatedProposal), "retain destination profile revisions")
+	activatedV4, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, activateV4), "test-operator")
+	require.NoError(t, err)
+	require.Equal(t, activatedV3.Snapshot.Generation+1, activatedV4.Snapshot.Generation)
+
+	oldSelection := v3Set.View(v3Ref).Default
+	oldPrepared, err := policyregistry.ReadPreparedSelection(ctx, store, v3Set.Target, "", oldSelection)
+	require.NoError(t, err, "retained session pins still decode the historical CandidateV2/V3 set")
+	require.Equal(t, legacyQwen.PackageSHA256, oldPrepared.Candidate.Classifier.Identity.Variants[router.StrategyHMMQwen].PackageSHA256)
+
+	newSelection := selectionV4.View(v4Ref).Default
+	newPrepared, err := policyregistry.ReadPreparedSelection(ctx, store, v3Set.Target, "", newSelection)
+	require.NoError(t, err)
+	require.Equal(t, artifactRef("build-attestation"), newPrepared.Candidate.ClassifierReleaseV5.Provenance.BuildAttestation)
+	require.Equal(t, releaseRef.SHA256, newPrepared.ClassifierServiceBinding.Release.SHA256)
+	qwenVariant := newPrepared.ClassifierReleaseV5.Variants[policy.ClassifierVariantQwen]
+	require.Equal(t, legacyQwen.ArtifactID, qwenVariant.ArtifactID)
+	require.Equal(t, legacyQwen.PackageSHA256, qwenVariant.BundleSHA256)
+	require.Equal(t, qwenPolicy.SHA256, newPrepared.StrategyPolicies[router.StrategyHMMQwen].Reference.SHA256)
+	require.Equal(t, v3Set.Profiles, selectionV4.Profiles, "V3 policy profiles remain assigned during the V4 migration")
 }

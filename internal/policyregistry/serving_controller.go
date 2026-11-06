@@ -334,7 +334,17 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 			return errors.New("registered profile keys cannot be removed")
 		}
 		if proposal.Scope != ChangeProfile && !sameLaneProfile(lane.Profile, next.Profile) {
-			return errors.New("base promotion must retain destination profile revisions")
+			// V3 stores only each profile's policy; its requirements are inherited
+			// from CandidateV2. V4 keeps the same policy assignment while moving
+			// classifier API/taxonomy requirements into the new worker candidate and
+			// classifier release, so compare the persisted V3 profile contract.
+			v3ToV4ClassifierMigration := proposal.Scope == ChangeFull &&
+				previous.SchemaVersion == ServingSelectionSetV3 &&
+				set.SchemaVersion == ServingSelectionSetV4 &&
+				sameLaneProfilePolicy(lane.Profile, next.Profile)
+			if !v3ToV4ClassifierMigration {
+				return errors.New("base promotion must retain destination profile revisions")
+			}
 		}
 		if proposal.Scope == ChangeProfile && key != proposal.ProfileKey || proposal.Scope == ChangeRoster {
 			same, err := lanes.sameLane(ctx, lane, next)
@@ -484,6 +494,7 @@ type laneProfile struct {
 }
 
 type resolvedSelectionSet struct {
+	SchemaVersion     ServingSchema
 	Target            ServingTarget
 	Default           resolvedLane
 	Profiles          map[string]resolvedLane
@@ -495,6 +506,13 @@ func sameLaneProfile(left, right *laneProfile) bool {
 		return false
 	}
 	return left == nil || *left == *right
+}
+
+func sameLaneProfilePolicy(left, right *laneProfile) bool {
+	if (left == nil) != (right == nil) {
+		return false
+	}
+	return left == nil || left.Key == right.Key && left.Policy == right.Policy
 }
 
 // sameLane holds when two lanes serve the same tuple. Candidates are compared by composition so a
@@ -585,7 +603,7 @@ func (r *laneReader) selectionSet(ctx context.Context, ref ObjectRef) (resolvedS
 		for key, policy := range typed.Profiles {
 			profiles[key] = resolvedLane{Selection: view.Profiles[key], Candidate: typed.Code.Candidate, Binding: typed.Code.LaneBinding, Profile: &laneProfile{Key: key, Policy: policy, Requirements: candidate.Requirements}, PolicyReference: policy}
 		}
-		return resolvedSelectionSet{Target: typed.Target, Default: resolvedLane{Selection: view.Default, Candidate: typed.Code.Candidate, Binding: typed.Code.LaneBinding, PolicyReference: typed.DefaultPolicy}, Profiles: profiles, ConfigurationOnly: true}, nil
+		return resolvedSelectionSet{SchemaVersion: typed.SchemaVersion, Target: typed.Target, Default: resolvedLane{Selection: view.Default, Candidate: typed.Code.Candidate, Binding: typed.Code.LaneBinding, PolicyReference: typed.DefaultPolicy}, Profiles: profiles, ConfigurationOnly: true}, nil
 	case *SelectionSetV4:
 		candidate, err := readServing[*CandidateV3](ctx, r.store, ServingCandidate, typed.Code.Candidate)
 		if err != nil {
@@ -608,14 +626,14 @@ func (r *laneReader) selectionSet(ctx context.Context, ref ObjectRef) (resolvedS
 		if err != nil {
 			return resolvedSelectionSet{}, fmt.Errorf("default classifier selection: %w", err)
 		}
-		return resolvedSelectionSet{Target: typed.Target, Default: resolvedLane{Selection: view.Default, Candidate: typed.Code.Candidate, Binding: v4WorkerBinding(typed.Code), PolicyReference: typed.DefaultPolicy, ClassifierService: &typed.Classifier, ClassifierRelease: release, ClassifierSelectionID: ref.SHA256, CandidateComposition: &defaultComposition}, Profiles: profiles}, nil
+		return resolvedSelectionSet{SchemaVersion: typed.SchemaVersion, Target: typed.Target, Default: resolvedLane{Selection: view.Default, Candidate: typed.Code.Candidate, Binding: v4WorkerBinding(typed.Code), PolicyReference: typed.DefaultPolicy, ClassifierService: &typed.Classifier, ClassifierRelease: release, ClassifierSelectionID: ref.SHA256, CandidateComposition: &defaultComposition}, Profiles: profiles}, nil
 	case *SelectionSetV2:
 		view := typed.View(ref)
 		profiles := make(map[string]resolvedLane, len(typed.Profiles))
 		for key, lane := range typed.Profiles {
 			profiles[key] = resolvedLane{Selection: view.Profiles[key], Candidate: lane.Candidate, Binding: lane.LaneBinding, Profile: &laneProfile{Key: lane.ProfileKey, Policy: *lane.ProfilePolicy, Requirements: *lane.ProfileRequirements}}
 		}
-		return resolvedSelectionSet{Target: typed.Target, Default: resolvedLane{Selection: view.Default, Candidate: typed.Default.Candidate, Binding: typed.Default.LaneBinding}, Profiles: profiles}, nil
+		return resolvedSelectionSet{SchemaVersion: typed.SchemaVersion, Target: typed.Target, Default: resolvedLane{Selection: view.Default, Candidate: typed.Default.Candidate, Binding: typed.Default.LaneBinding}, Profiles: profiles}, nil
 	case *SelectionSet:
 		defaultLane, err := r.v1Lane(ctx, typed.Default)
 		if err != nil {
@@ -629,7 +647,7 @@ func (r *laneReader) selectionSet(ctx context.Context, ref ObjectRef) (resolvedS
 			}
 			profiles[key] = lane
 		}
-		return resolvedSelectionSet{Target: typed.Target, Default: defaultLane, Profiles: profiles}, nil
+		return resolvedSelectionSet{SchemaVersion: typed.SchemaVersion, Target: typed.Target, Default: defaultLane, Profiles: profiles}, nil
 	default:
 		return resolvedSelectionSet{}, errors.New("registry returned the wrong manifest kind")
 	}
