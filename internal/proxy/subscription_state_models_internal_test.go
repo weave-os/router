@@ -613,7 +613,7 @@ func TestSubscriptionStateModelsCodexCustomToolAfterCrossFamilyPick(t *testing.T
 	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
 
 	require.NoError(t, err)
-	require.Len(t, toolTypes, 1)
+	require.Equal(t, []string{"function"}, toolTypes, "the swapped attempt is emitted onto Responses from the chat projection")
 	out := rec.Body.String()
 	assert.Contains(t, out, `"type":"custom_tool_call"`)
 	assert.Contains(t, out, "ls -la")
