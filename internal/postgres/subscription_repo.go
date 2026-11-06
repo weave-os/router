@@ -69,10 +69,26 @@ func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context,
 			return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID,
 				row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt), subscriptionUpsertKind(row.Inserted, row.Adopted), nil
 		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, auth.SubscriptionUpsertUpdated, r.explainRefusedEnrollment(ctx, subscriberID, params, err)
+		}
 		if attempt == subscriberEnrollmentMaxAttempts-1 || !isSubscriberAccountConflict(err) {
 			return nil, auth.SubscriptionUpsertUpdated, err
 		}
 	}
+}
+
+func (r *subscriptionAccountRepo) explainRefusedEnrollment(ctx context.Context, subscriberID uuid.UUID, params auth.CreateSubscriptionAccountParams, refused error) error {
+	held, err := dbbudget.Queries(r.tx).ModelRouterSubscriptionAccountHeldByAnotherOwner(ctx, sqlc.ModelRouterSubscriptionAccountHeldByAnotherOwnerParams{
+		Provider: string(params.Provider), ExternalAccountID: params.ExternalAccountID, ProviderUserID: params.ProviderUserID, SubscriberID: subscriberID,
+	})
+	if err != nil {
+		return errors.Join(refused, err)
+	}
+	if held {
+		return auth.ErrSubscriptionAccountHeldByAnotherOwner
+	}
+	return refused
 }
 
 func isSubscriberAccountConflict(err error) bool {
