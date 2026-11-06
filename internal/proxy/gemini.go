@@ -92,7 +92,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		return fmt.Errorf("parse request: %w", parseErr)
 	}
 	inboundLastUser := env.LastUserMessage()
-	inboundUserPrompt := env.EndsWithUserPrompt()
+	inboundUserPrompt := routingEndsWithUserPrompt(ctx, env)
 	var responseBuffer *responseCostBuffer
 	if !env.Stream() {
 		responseBuffer = newResponseCostBuffer(w)
@@ -169,6 +169,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		)
 	}
 
+	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText, embedFlag)
 	routeRequest := router.Request{
 		RequestedModel:                feats.Model,
 		ForceCluster:                  forceCluster,
@@ -179,8 +180,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		TranslationRequirements:       env.TranslationRequirements(router.EndpointGeminiGenerate),
 		ReasoningConfigurationSHA256:  env.ReasoningConfigurationSHA256(),
 		ToolConfigurationSHA256:       env.ToolConfigurationSHA256(),
-		PromptText:                    promptText,
-		ConversationMessages:          conversationMessagesForRouting(env),
+		PromptText:                    routingPromptText,
+		ConversationMessages:          routingMessages,
 		AvailableTools:                availableToolsForRouting(env),
 		Tools:                         toolsForRouting(env),
 		ClientSessionID:               clientSessionIDForRequest(ctx, env),

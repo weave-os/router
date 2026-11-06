@@ -4169,7 +4169,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// runTurnLoop's switch-handover rewrite.
 	inboundToolCallCount := len(env.AssistantToolCallSignatures())
 	inboundLastUser := env.LastUserMessage()
-	inboundUserPrompt := env.EndsWithUserPrompt()
+	inboundUserPrompt := routingEndsWithUserPrompt(ctx, env)
 	inboundLatestToolCalls := latestToolCallCountsJSON(env)
 
 	// Hard exclusions run first so a model the request can never use does not
@@ -4212,6 +4212,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	hardExcluded := append(append(append([]string(nil), geminiUnsigned...), advisorOutranking...), imageLimitExcluded...)
 
 	routeStart := time.Now()
+	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText, embedFlag)
 	req := router.Request{
 		RequestedModel:               feats.Model,
 		ClientBudget:                 clientBudget,
@@ -4224,8 +4225,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		TranslationRequirements:      env.TranslationRequirements(router.EndpointAnthropicMessages),
 		ReasoningConfigurationSHA256: env.ReasoningConfigurationSHA256(),
 		ToolConfigurationSHA256:      env.ToolConfigurationSHA256(),
-		PromptText:                   promptText,
-		ConversationMessages:         conversationMessagesForRouting(env),
+		PromptText:                   routingPromptText,
+		ConversationMessages:         routingMessages,
 		AvailableTools:               availableToolsForRouting(env),
 		Tools:                        toolsForRouting(env),
 		OrganizationID:               externalID,
@@ -7410,6 +7411,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	requestBodyChanged := false
 	if s.pinStore != nil {
 		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
+			if routingEnv := routingEnvelopeForRequest(ctx, env); routingEnv != env {
+				routingEnv.ExtractForceModelCommand()
+			}
 			log.Info("ProxyOpenAIChatCompletion force-model command", "force_model_cmd", cmd)
 			if cmd.FromToolResult {
 				var err error
@@ -7428,6 +7432,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 	if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
+		if routingEnv := routingEnvelopeForRequest(ctx, env); routingEnv != env {
+			routingEnv.ExtractRouterFeedbackCommand()
+		}
 		log.Info("ProxyOpenAIChatCompletion router-feedback command")
 		skillFeedback, _ := ctx.Value(codexFeedbackSkillContextKey{}).(bool)
 		synthetic := !cmd.FromToolResult || skillFeedback
@@ -7467,6 +7474,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
 		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
 		requestBodyChanged = true
+	}
+	if routingEnv := routingEnvelopeForRequest(ctx, env); routingEnv != env {
+		routingEnv.CoalesceDuplicateToolResults()
+		routingEnv.SanitizeOrphanedToolCalls()
 	}
 	if requestBodyChanged {
 		feats = env.RoutingFeatures(embedFlag)
@@ -7556,7 +7567,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Snapshot the inbound tool-output size before any env rewrite
 	// (runTurnLoop's switch handover); see toolResultBytesPtr.
 	inboundLastUser := env.LastUserMessage()
-	inboundUserPromptOAI := env.EndsWithUserPrompt()
+	inboundUserPromptOAI := routingEndsWithUserPrompt(ctx, env)
 
 	excludedOAI, geminiUnsignedOAI := excludeGemini3xOnUnsignedHistory(env, baseExcludedOAI, s.availableModels)
 	if len(geminiUnsignedOAI) > 0 {
@@ -7587,6 +7598,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		)
 	}
 
+	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText, embedFlag)
 	routeRequest := router.Request{
 		RequestedModel:               feats.Model,
 		ForceModel:                   forceModel,
@@ -7598,8 +7610,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		TranslationRequirements:      env.TranslationRequirements(router.EndpointOpenAIChat),
 		ReasoningConfigurationSHA256: reasoningConfigurationHash,
 		ToolConfigurationSHA256:      toolConfigurationHash,
-		PromptText:                   promptText,
-		ConversationMessages:         conversationMessagesForRouting(env),
+		PromptText:                   routingPromptText,
+		ConversationMessages:         routingMessages,
 		AvailableTools:               availableToolsForRouting(env),
 		Tools:                        toolsForRouting(env),
 		// Keep this tied to client-visible history so a later feedback command
@@ -9338,6 +9350,12 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		return fmt.Errorf("translate responses request: %w", err)
 	}
 	chatBody, model := conversion.Body, conversion.Model
+	if len(conversion.RoutingBody) > 0 {
+		ctx, err = withResponsesRoutingEnvelope(ctx, conversion.RoutingBody)
+		if err != nil {
+			return err
+		}
+	}
 	if conversion.Requirements.NativeOnly {
 		observability.FromContext(ctx).Info("Responses request restricted to its native wire family",
 			"native_only_reasons", nativeOnlyReasons(conversion.Report, conversionBody))
