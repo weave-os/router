@@ -1,7 +1,7 @@
-import { addDays, addHours, addWeeks, min, startOfDay, startOfHour, startOfWeek } from "date-fns";
+import { addDays, differenceInCalendarDays, differenceInHours, min, startOfDay } from "date-fns";
 
 import { type DateRange } from "../../data";
-import { addGranularity, TimeGranularity, type WeekStartsOn } from "../../tools/timeGranularity";
+import { addGranularity, TimeGranularity } from "../../tools/timeGranularity";
 import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
 
 /** The equally long range just before `range`, for period-over-period change pills. */
@@ -29,34 +29,20 @@ export function latestCompleteBucket(
   );
 }
 
-const BUCKET_STEPS: Readonly<
-  Record<
-    Granularity,
-    { next: (date: Date) => Date; start: (date: Date, weekStartsOn: WeekStartsOn) => Date }
-  >
-> = {
-  day: { next: date => addDays(date, 1), start: date => startOfDay(date) },
-  hour: { next: date => addHours(date, 1), start: date => startOfHour(date) },
-  week: {
-    next: date => addWeeks(date, 1),
-    start: (date, weekStartsOn) => startOfWeek(date, { weekStartsOn }),
-  },
-};
+const DAYS_PER_BUCKET: Readonly<Record<Exclude<Granularity, "hour">, number>> = { day: 1, week: 7 };
 
 /**
- * Buckets `range` spans up to now, empty ones included, so per-bucket averages divide by every day in the
- * range the way hosted's mean statistic does.
+ * Buckets `range` spans, in fractional buckets of whole days, like hosted's rate divisor
+ * (`getFilterDayBasedDivisor`): empty days count, and a range reaching today ends at the end of
+ * today so future days don't lower the average.
  */
-export function bucketCount(
-  range: DateRange,
-  granularity: Granularity,
-  weekStartsOn: WeekStartsOn,
-) {
-  const { next, start } = BUCKET_STEPS[granularity];
-  const to = min([new Date(range.to), new Date()]);
-  let count = 0;
-  for (let bucket = start(new Date(range.from), weekStartsOn); bucket < to; bucket = next(bucket)) {
-    count++;
+export function rateDivisor(range: DateRange, granularity: Granularity) {
+  const from = new Date(range.from);
+  const to = new Date(range.to);
+  if (granularity === "hour") {
+    return Math.max(differenceInHours(min([to, new Date()]), from), 1);
   }
-  return Math.max(count, 1);
+  const startOfToday = startOfDay(new Date());
+  const end = to >= startOfToday ? addDays(startOfToday, 1) : to;
+  return Math.max(differenceInCalendarDays(end, from) / DAYS_PER_BUCKET[granularity], 1);
 }

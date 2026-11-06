@@ -7,7 +7,6 @@ import {
   type RouterMetricGroup,
   type RouterMetricPoint,
   type RouterMetricType,
-  useRouterDashboardDataSource,
 } from "../../data";
 import { useRouterDrillDown } from "../../data/useRouterDrillDown";
 import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
@@ -24,7 +23,7 @@ import {
 } from "../Chart";
 import { ChartCard } from "../ChartCard";
 import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
-import { bucketCount, displayGranularity, previousRange } from "./chartRange";
+import { displayGranularity, previousRange, rateDivisor } from "./chartRange";
 import { ChartTabToggle } from "./ChartTabToggle";
 import { usePartialBucketTick } from "./partialBucketTick";
 import { pivotSeries, TIME_KEY, toShare } from "./pivotSeries";
@@ -97,7 +96,6 @@ export function RouterGroupedChartCard({
   const [view, setView] = useState(GroupedMetricView.Volume);
   const timeGranularity = displayGranularity(granularity);
   const current = useRouterMetricSeries({ granularity, group, range, type: metric });
-  const { weekStartsOn } = useRouterDashboardDataSource();
   const previousPeriodRange = useMemo(() => previousRange(range), [range]);
   const previous = useRouterMetricSeries({
     granularity,
@@ -124,7 +122,7 @@ export function RouterGroupedChartCard({
     sumValues(points) /
     (statistic === GroupedStatistic.Mean
       ? Math.max(new Set(points.map(point => point.time)).size, 1)
-      : bucketCount(dateRange, granularity, weekStartsOn));
+      : rateDivisor(dateRange, granularity));
   const average = LoadState.map(current, now => perBucket(now.values, range));
   const percentChange = LoadState.map(average, previous, (nowAverage, previousSeries) =>
     periodPercentChange(nowAverage, perBucket(previousSeries.values, previousPeriodRange)),

@@ -21,9 +21,7 @@ import { Page } from "../Page";
 import { Appearance } from "../types";
 import { DateFilterMenuItems } from "./DateFilterMenuItems";
 import { FilterPill } from "./FilterPill";
-import { Granularity, isDefaultDateFilter, UseDashboardFiltersResult } from "./useDashboardFilters";
-
-const GRANULARITY_OPTIONS: readonly Granularity[] = ["hour", "day", "week"];
+import { isDefaultDateFilter, UseDashboardFiltersResult } from "./useDashboardFilters";
 
 const DATE_SEARCH_HINT = `(try "this year")`;
 
@@ -178,7 +176,7 @@ function GranularityPill({ onOpenChange, open, result }: FilterPillMenuProps) {
             <Command>
               <Command.Input placeholder="Search granularity..." />
               <Command.List>
-                {GRANULARITY_OPTIONS.map(option => (
+                {result.granularityOptions.map(option => (
                   <Command.Item
                     key={option}
                     onSelect={() => {

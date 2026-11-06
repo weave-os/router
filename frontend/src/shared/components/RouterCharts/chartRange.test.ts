@@ -1,32 +1,38 @@
+import { addDays, startOfDay } from "date-fns";
+
 import { describe, expect, it } from "vitest";
 
-import { bucketCount } from "./chartRange";
+import { rateDivisor } from "./chartRange";
 
-describe("bucketCount", () => {
-  it("counts every day in the range, empty days included", () => {
+describe("rateDivisor", () => {
+  it("counts every day in a past range, empty days included", () => {
     const range = {
       from: new Date(2025, 9, 23).toISOString(),
-      to: new Date(2025, 10, 5, 15).toISOString(),
+      to: new Date(2025, 10, 6).toISOString(),
     };
-    expect(bucketCount(range, "day", 1)).toBe(14);
+    expect(rateDivisor(range, "day")).toBe(14);
   });
 
-  it("counts weeks from the configured week start", () => {
-    // Sunday Oct 5 through Saturday Oct 18, 2025.
+  it("counts weeks as fractional days / 7, like hosted", () => {
     const range = {
-      from: new Date(2025, 9, 5).toISOString(),
-      to: new Date(2025, 9, 19).toISOString(),
+      from: new Date(2025, 0, 1).toISOString(),
+      to: new Date(2025, 0, 11).toISOString(),
     };
-    expect(bucketCount(range, "week", 0)).toBe(2);
-    expect(bucketCount(range, "week", 1)).toBe(3);
+    expect(rateDivisor(range, "week")).toBeCloseTo(10 / 7);
   });
 
-  it("stops at now so ranges ending in the future don't count empty future days", () => {
-    const now = new Date();
+  it("ends a range that reaches today at the end of today", () => {
+    const today = startOfDay(new Date());
     const range = {
-      from: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 2).toISOString(),
-      to: new Date(now.getFullYear() + 1, 0, 1).toISOString(),
+      from: addDays(today, -2).toISOString(),
+      to: new Date(today.getFullYear() + 1, 0, 1).toISOString(),
     };
-    expect(bucketCount(range, "day", 1)).toBe(3);
+    expect(rateDivisor(range, "day")).toBe(3);
+  });
+
+  it("never returns less than one bucket", () => {
+    const today = startOfDay(new Date());
+    const range = { from: today.toISOString(), to: new Date().toISOString() };
+    expect(rateDivisor(range, "week")).toBe(1);
   });
 });
