@@ -69,7 +69,7 @@ is mounted only when `ROUTER_INTERNAL_SERVICE_TOKEN` is set.
   active subject in that installation. Omitting it retains legacy issuer-key identity.
   Only an OKP Ed25519 public JWK is accepted. Registering the same key again
   returns the same issuer when both installation and subject binding match;
-  a different binding returns 409. An unavailable or inactive subject returns 403.
+  a different binding, unavailable subject, or inactive subject returns 409.
 - `DELETE /internal/v1/session-issuers/:installationID/:kid` revokes the issuer.
 
 Issuers never appear in key lists, cannot be minted, rotated or used as a bearer,
