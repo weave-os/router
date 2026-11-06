@@ -6,6 +6,7 @@ import (
 	"weave-os/router/internal/analytics"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres/dbbudget"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
@@ -67,6 +68,10 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		RequestedModel:                  row.RequestedModel,
 		DecisionModel:                   row.DecisionModel,
 		DecisionProvider:                row.DecisionProvider,
+		EffortArm:                       (*router.EffortLevel)(row.EffortArm),
+		EffortSelected:                  (*router.EffortLevel)(row.EffortSelected),
+		EffortSent:                      (*router.EffortLevel)(row.EffortSent),
+		EffortSource:                    (*router.EffortSource)(row.EffortSource),
 		RouteID:                         row.RouteID,
 		RoutingStrategy:                 row.Strategy,
 		PolicyRouteKey:                  row.PolicyRouteKey,

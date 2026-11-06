@@ -11,10 +11,10 @@ import (
 
 // Effort sources, ordered by the precedence resolveEffort applies.
 const (
-	effortSourceUser        = "user"
-	effortSourceEscalation  = "escalation"
-	effortSourceArm         = "arm"
-	effortSourceModelPolicy = "model_policy"
+	effortSourceUser        = string(router.EffortSourceUser)
+	effortSourceEscalation  = string(router.EffortSourceEscalation)
+	effortSourceArm         = string(router.EffortSourceArm)
+	effortSourceModelPolicy = string(router.EffortSourceModelPolicy)
 )
 
 // effortResolution is one dispatch target's effort: the arm's own level, the

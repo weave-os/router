@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
@@ -23,6 +24,30 @@ import (
 type telemetryInsertCapture struct {
 	query string
 	args  []interface{}
+}
+
+func TestEffortExportPreservesSelectedAndSentLevels(t *testing.T) {
+	arm := string(router.EffortHigh)
+	selected := string(router.EffortXhigh)
+	sent := string(router.EffortMax)
+	source := string(router.EffortSourceUser)
+	decision := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{
+		EffortArm: &arm, EffortSelected: &selected, EffortSent: &sent, EffortSource: &source,
+	})
+	payload, err := json.Marshal(decision)
+	require.NoError(t, err)
+	var exported map[string]any
+	require.NoError(t, json.Unmarshal(payload, &exported))
+	assert.Equal(t, string(router.EffortHigh), exported["effort_arm"])
+	assert.Equal(t, string(router.EffortXhigh), exported["effort_selected"])
+	assert.Equal(t, string(router.EffortMax), exported["effort_sent"])
+	assert.Equal(t, string(router.EffortSourceUser), exported["effort_source"])
+
+	missing := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{})
+	assert.Nil(t, missing.EffortArm)
+	assert.Nil(t, missing.EffortSelected)
+	assert.Nil(t, missing.EffortSent)
+	assert.Nil(t, missing.EffortSource)
 }
 
 func (c *telemetryInsertCapture) Exec(_ context.Context, query string, args ...interface{}) (pgconn.CommandTag, error) {

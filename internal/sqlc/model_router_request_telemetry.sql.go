@@ -89,6 +89,10 @@ SELECT
     t.requested_model,
     t.decision_model,
     t.decision_provider,
+    t.effort_arm,
+    t.effort_selected,
+    t.effort_sent,
+    t.effort_source,
     t.route_id,
     t.strategy,
     t.policy_route_key,
@@ -219,6 +223,10 @@ type GetRoutingDecisionsForExportRow struct {
 	RequestedModel                  *string
 	DecisionModel                   *string
 	DecisionProvider                *string
+	EffortArm                       *string
+	EffortSelected                  *string
+	EffortSent                      *string
+	EffortSource                    *string
 	RouteID                         *string
 	Strategy                        *string
 	PolicyRouteKey                  *string
@@ -321,6 +329,10 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.requested_model,
 //	    t.decision_model,
 //	    t.decision_provider,
+//	    t.effort_arm,
+//	    t.effort_selected,
+//	    t.effort_sent,
+//	    t.effort_source,
 //	    t.route_id,
 //	    t.strategy,
 //	    t.policy_route_key,
@@ -456,6 +468,10 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.RequestedModel,
 			&i.DecisionModel,
 			&i.DecisionProvider,
+			&i.EffortArm,
+			&i.EffortSelected,
+			&i.EffortSent,
+			&i.EffortSource,
 			&i.RouteID,
 			&i.Strategy,
 			&i.PolicyRouteKey,
