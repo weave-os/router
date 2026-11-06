@@ -249,7 +249,7 @@ func TestSubscriptionStateRateLimitedIncludedLaneKeepsUpstreamStatus(t *testing.
 	req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderAnthropic})}
 	rec := httptest.NewRecorder()
 	buffer := newPreludeBuffer(rec)
-	dispatch := failoverInputs{
+	inputs := failoverInputs{
 		w: rec, buf: buffer, subscriptionStateRequest: &req,
 		subscriptionStateWinnerProvider: new(string),
 		initialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
@@ -262,7 +262,7 @@ func TestSubscriptionStateRateLimitedIncludedLaneKeepsUpstreamStatus(t *testing.
 		},
 	}
 
-	_, err := svc.dispatchWithFallback(ctx, dispatch)
+	_, err := svc.dispatchWithFallback(ctx, inputs)
 
 	require.Error(t, err)
 	require.NotErrorIs(t, err, router.ErrStrategyUnavailable, "an exhausted rate-limited pool is not a policy outage")
