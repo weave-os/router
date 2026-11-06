@@ -540,11 +540,11 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 
 	var subscriberSettlement subscriberSettlementState
-	if proxyErr == nil {
+	if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
 		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead, usageMods)
 	}
 	if subscriberTelemetry != nil {
-		if proxyErr == nil {
+		if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
 			applySubscriberSettlementTelemetry(subscriberSettlement, subscriberTelemetry)
 		} else {
 			markSubscriberTelemetryUnsettled(subscriberTelemetry)

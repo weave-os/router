@@ -5969,14 +5969,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// No-op when billing is unwired (selfhosted); only reached on a real
 	// upstream call since the cache-hit branch above already returned.
 	var subscriberSettlement subscriberSettlementState
-	if proxyErr == nil && !agentShadowMode {
+	if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) && !agentShadowMode {
 		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead, usageMods)
 		if compactionHandoverOutcome.Invoked && !compactionHandoverOutcome.FallbackToFullHistory {
 			s.billAuxiliaryInference(ctx, requestID, auxSuffixCompactionHandoverSummry, externalID, compactionHandoverOutcome.SummaryUsage)
 		}
 	}
 	if subscriberTelemetry != nil {
-		if proxyErr == nil {
+		if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
 			applySubscriberSettlementTelemetry(subscriberSettlement, subscriberTelemetry)
 		} else {
 			markSubscriberTelemetryUnsettled(subscriberTelemetry)
@@ -9094,7 +9094,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	s.clearRecoveredCooldown(ctx, routeRes, decision.Model, proxyErr)
 
 	var subscriberSettlement subscriberSettlementState
-	if proxyErr == nil {
+	if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
 		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead, usageMods)
 	}
 
@@ -9240,7 +9240,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		applyPolicyPinTelemetry(ctx, &telOAI, decision.Metadata)
 		applySubscriberTelemetry(ctx, &telOAI)
 		applyAgreementShadowTelemetry(ctx, &telOAI, routeRes)
-		if proxyErr == nil {
+		if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
 			applySubscriberSettlementTelemetry(subscriberSettlement, &telOAI)
 		} else {
 			markSubscriberTelemetryUnsettled(&telOAI)
