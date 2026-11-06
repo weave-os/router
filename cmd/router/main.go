@@ -1067,6 +1067,7 @@ func main() {
 	var hmmQwenRouter router.Router
 	var hmmCapabilities policy.Capabilities
 	var hmmReadinessChecker admin.HealthChecker
+	var policyStatus admin.PolicyStatusSource
 	var hmmRosterSources map[router.Strategy]policy.RosterSource
 	var hmmRosterModels admin.HMMRosterSource
 	var hmmBetaCapabilities policy.Capabilities
@@ -1188,6 +1189,7 @@ func main() {
 		hmmEmbeddingRouter = policyregistry.NewDynamicRouter(stableManager, router.StrategyHMMEmbedding)
 		hmmCapabilities = hmmRouter.(policy.CapabilitySource).CurrentCapabilities()
 		hmmReadinessChecker = stableManager
+		policyStatus = stableManager
 		hmmRosterSources = map[router.Strategy]policy.RosterSource{
 			router.StrategyHMM:          stableManager,
 			router.StrategyHMMEmbedding: stableManager,
@@ -1643,6 +1645,7 @@ func main() {
 		ServingAdmission:         servingAdmission,
 		SubscriberAllowance:      subscriberAllowanceSvc,
 		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
+		PolicyStatus:             policyStatus,
 	}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
