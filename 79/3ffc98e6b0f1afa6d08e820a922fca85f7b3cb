@@ -1,0 +1,21 @@
+internal/proxy/CLAUDE.md
+  s_66434e2133ecee::t_1c50565bfcb890 131-133
+internal/proxy/AGENTS.md
+  s_66434e2133ecee::t_2d1387c3477f40 131-133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "793ffc98e6b0f1afa6d08e820a922fca85f7b3cb",
+  "prompts": {},
+  "sessions": {
+    "s_66434e2133ecee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a8c9-c6b5-7623-9b18-98533fc1ae6c",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

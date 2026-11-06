@@ -1,0 +1,19 @@
+install/npm/package.json
+  s_b4396bbd5b50ad::t_2147866311f600 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e1df3d0e83a235eb2329be8652d7fed0c7e6de80",
+  "prompts": {},
+  "sessions": {
+    "s_b4396bbd5b50ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1a9a3-26b0-7883-b0d9-965a2a262714",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
