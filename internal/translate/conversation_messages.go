@@ -61,7 +61,7 @@ func (e *RequestEnvelope) ConversationMessagesWithClientText() []ConversationMes
 // ClaudeCodeRoutingMessages excludes complete client wrappers only for an
 // identified Claude Code request, without changing its provider envelope.
 func (e *RequestEnvelope) ClaudeCodeRoutingMessages() ([]ConversationMessage, bool) {
-	if e == nil || e.format != FormatAnthropic {
+	if e.format != FormatAnthropic {
 		return e.ConversationMessages(), false
 	}
 	return e.anthropicConversationMessages(false, true)

@@ -7411,6 +7411,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	requestBodyChanged := false
 	if s.pinStore != nil {
 		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
+			if routingEnv := routingEnvelopeForRequest(ctx, env); routingEnv != env {
+				routingEnv.ExtractForceModelCommand()
+			}
 			log.Info("ProxyOpenAIChatCompletion force-model command", "force_model_cmd", cmd)
 			if cmd.FromToolResult {
 				var err error
@@ -7429,6 +7432,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 	if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
+		if routingEnv := routingEnvelopeForRequest(ctx, env); routingEnv != env {
+			routingEnv.ExtractRouterFeedbackCommand()
+		}
 		log.Info("ProxyOpenAIChatCompletion router-feedback command")
 		skillFeedback, _ := ctx.Value(codexFeedbackSkillContextKey{}).(bool)
 		synthetic := !cmd.FromToolResult || skillFeedback
@@ -7468,6 +7474,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
 		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
 		requestBodyChanged = true
+	}
+	if routingEnv := routingEnvelopeForRequest(ctx, env); routingEnv != env {
+		routingEnv.CoalesceDuplicateToolResults()
+		routingEnv.SanitizeOrphanedToolCalls()
 	}
 	if requestBodyChanged {
 		feats = env.RoutingFeatures(embedFlag)

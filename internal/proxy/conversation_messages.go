@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"fmt"
-	"strings"
 	"unicode/utf8"
 
 	"weave-os/router/internal/router"
@@ -22,8 +21,6 @@ func withResponsesRoutingEnvelope(ctx context.Context, body []byte) (context.Con
 	}
 	env.StripRouterFeedbackArtifacts()
 	env.StripBetaArtifacts()
-	env.CoalesceDuplicateToolResults()
-	env.SanitizeOrphanedToolCalls()
 	return context.WithValue(ctx, responsesRoutingEnvelopeContextKey{}, env), nil
 }
 
@@ -43,47 +40,23 @@ func routingInputForRequest(ctx context.Context, env *translate.RequestEnvelope,
 			promptText = features.OnlyUserMessageText
 		}
 	}
-	clientApp := ClientIdentityFrom(ctx).ClientApp
-	var projectedMessages []translate.ConversationMessage
-	var projected bool
-	if clientApp == ClientAppClaudeCode {
-		projectedMessages, projected = routingEnv.ClaudeCodeRoutingMessages()
-	} else {
-		projectedMessages = routingEnv.ConversationMessages()
-		if clientApp == ClientAppOpencode {
-			projected = projectOpenCodeBackgroundCompletions(projectedMessages)
-		}
+	promptText, messages := routingEnv.RoutingInput(routingHistoryProfile(ctx), promptText, onlyUser)
+	return promptText, routingConversationMessages(messages)
+}
+
+func routingHistoryProfile(ctx context.Context) translate.RoutingHistoryProfile {
+	switch ClientIdentityFrom(ctx).ClientApp {
+	case ClientAppClaudeCode:
+		return translate.RoutingHistoryClaudeCode
+	case ClientAppOpencode:
+		return translate.RoutingHistoryOpenCode
+	default:
+		return translate.RoutingHistoryDefault
 	}
-	if projected && onlyUser {
-		var userText []string
-		for _, message := range projectedMessages {
-			if message.Role == string(translate.EscalationRoleUser) && message.Text != "" {
-				userText = append(userText, message.Text)
-			}
-		}
-		promptText = strings.Join(userText, "\n")
-	}
-	return promptText, routingConversationMessages(projectedMessages)
 }
 
 func routingEndsWithUserPrompt(ctx context.Context, env *translate.RequestEnvelope) bool {
-	routingEnv := routingEnvelopeForRequest(ctx, env)
-	if ClientIdentityFrom(ctx).ClientApp == ClientAppOpencode {
-		messages := routingEnv.ConversationMessages()
-		if projectOpenCodeBackgroundCompletions(messages) {
-			for index := len(messages) - 1; index >= 0; index-- {
-				last := messages[index]
-				if last.Role == string(translate.EscalationRoleSystem) || last.Role == string(translate.EscalationRoleDeveloper) {
-					continue
-				}
-				if _, completion := openCodeBackgroundCompletion(last.Text); last.Role == string(translate.EscalationRoleAssistant) && completion {
-					return false
-				}
-				break
-			}
-		}
-	}
-	return routingEnv.EndsWithUserPrompt()
+	return routingEnvelopeForRequest(ctx, env).RoutingEndsWithUserPrompt(routingHistoryProfile(ctx))
 }
 
 func conversationMessagesForRouting(env *translate.RequestEnvelope) []router.ConversationMessage {

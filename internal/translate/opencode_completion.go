@@ -1,9 +1,9 @@
-package proxy
+package translate
 
 import (
 	"strings"
 
-	"weave-os/router/internal/translate"
+	"weave-os/router/internal/requestcontext"
 )
 
 type openCodeCompletionState string
@@ -93,7 +93,7 @@ func openCodeSubagentReceipt(text string) (string, bool) {
 }
 
 func validOpenCodeCompletionSession(id string) bool {
-	if !strings.HasPrefix(id, openCodeSessionPrefix) || len(id) == len(openCodeSessionPrefix) || len(id) > MaxClientIdentifierLen {
+	if !strings.HasPrefix(id, openCodeSessionPrefix) || len(id) == len(openCodeSessionPrefix) || len(id) > requestcontext.MaxClientIdentifierLen {
 		return false
 	}
 	for _, char := range id[len(openCodeSessionPrefix):] {
@@ -104,7 +104,7 @@ func validOpenCodeCompletionSession(id string) bool {
 	return true
 }
 
-func projectOpenCodeBackgroundCompletions(messages []translate.ConversationMessage) bool {
+func projectOpenCodeBackgroundCompletions(messages []ConversationMessage) bool {
 	changed := false
 	toolCalls := make(map[string]openCodeBackgroundTool)
 	started := make(map[string]struct{})
@@ -131,7 +131,7 @@ func projectOpenCodeBackgroundCompletions(messages []translate.ConversationMessa
 				}
 			}
 		}
-		if message.Role != string(translate.EscalationRoleUser) || len(message.ToolCalls) > 0 || len(message.ToolResults) > 0 {
+		if message.Role != string(EscalationRoleUser) || len(message.ToolCalls) > 0 || len(message.ToolResults) > 0 {
 			continue
 		}
 		id, completion := openCodeBackgroundCompletion(message.Text)
@@ -139,7 +139,7 @@ func projectOpenCodeBackgroundCompletions(messages []translate.ConversationMessa
 			continue
 		}
 		delete(started, id)
-		message.Role = string(translate.EscalationRoleAssistant)
+		message.Role = string(EscalationRoleAssistant)
 		changed = true
 	}
 	return changed
