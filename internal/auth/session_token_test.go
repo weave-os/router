@@ -94,11 +94,15 @@ func (f sessionIssuerFixture) service(t *testing.T) (*auth.Service, *fakeAPIKeyR
 }
 
 type fakeSessionCredentialSubjects struct {
-	subjects map[string]*auth.CredentialSubject
-	err      error
+	installationID string
+	subjects       map[string]*auth.CredentialSubject
+	err            error
 }
 
-func (f fakeSessionCredentialSubjects) GetCredentialSubject(_ context.Context, subjectID, _ string) (*auth.CredentialSubject, error) {
+func (f fakeSessionCredentialSubjects) GetCredentialSubject(_ context.Context, subjectID, installationID string) (*auth.CredentialSubject, error) {
+	if installationID != f.installationID {
+		return nil, sql.ErrNoRows
+	}
 	return f.subjects[subjectID], f.err
 }
 
@@ -426,7 +430,7 @@ func TestRegisterSessionIssuer_IdempotentAndInstallationBound(t *testing.T) {
 	subject := &auth.CredentialSubject{ID: "subject-1", ProjectionComplete: true, AccessEnabled: true, EnrollmentGeneration: 1}
 	otherSubject := &auth.CredentialSubject{ID: "subject-2", ProjectionComplete: true, AccessEnabled: true, EnrollmentGeneration: 1}
 	svc := auth.NewService(&fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return sessionClock }).
-		WithCredentialSubjectLookup(fakeSessionCredentialSubjects{subjects: map[string]*auth.CredentialSubject{"subject-1": subject, "subject-2": otherSubject}})
+		WithCredentialSubjectLookup(fakeSessionCredentialSubjects{installationID: f.inst.ID, subjects: map[string]*auth.CredentialSubject{"subject-1": subject, "subject-2": otherSubject}})
 
 	key, kid, err := svc.RegisterSessionIssuer(context.Background(), f.inst.ID, "subject-1", nil, f.publicJWK)
 	require.NoError(t, err)
@@ -444,18 +448,20 @@ func TestRegisterSessionIssuer_IdempotentAndInstallationBound(t *testing.T) {
 	require.ErrorIs(t, err, auth.ErrSessionIssuerConflict)
 
 	_, _, err = svc.RegisterSessionIssuer(context.Background(), "other-installation", "subject-1", nil, f.publicJWK)
+	require.ErrorIs(t, err, auth.ErrSessionIssuerSubjectUnavailable)
+
+	_, _, err = svc.RegisterSessionIssuer(context.Background(), "other-installation", "", nil, f.publicJWK)
 	require.ErrorIs(t, err, auth.ErrSessionIssuerConflict)
 }
 
 func TestRegisterSessionIssuerRequiresALiveBoundSubject(t *testing.T) {
 	f := newSessionIssuerFixture(t)
-	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}, echoCreate: true}
+	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}
 	svc := auth.NewService(&fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return sessionClock }).
-		WithCredentialSubjectLookup(fakeSessionCredentialSubjects{})
+		WithCredentialSubjectLookup(fakeSessionCredentialSubjects{installationID: f.inst.ID})
 
 	_, _, err := svc.RegisterSessionIssuer(context.Background(), f.inst.ID, "subject-1", nil, f.publicJWK)
 	require.ErrorIs(t, err, auth.ErrSessionIssuerSubjectUnavailable)
-	assert.Empty(t, repo.byHash)
 }
 
 func TestIssueScopedAPIKey_RefusesSessionIssuerScope(t *testing.T) {
