@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"math"
 	"errors"
 	"log/slog"
 	"strings"
@@ -378,6 +379,103 @@ func TestScorer_ReturnsErrOnDimMismatch(t *testing.T) {
 	_, err := s.Route(context.Background(), router.Request{PromptText: strings.Repeat("x", 100)})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, ErrClusterUnavailable))
+}
+
+func TestScorer_RejectsInvalidEmbeddings(t *testing.T) {
+	dim := EmbedDim
+	nanAt := func(idx int) []float32 {
+		v := makeOpusVec()
+		v[idx] = float32(math.NaN())
+		return v
+	}
+	posInfAt := func(idx int) []float32 {
+		v := makeOpusVec()
+		v[idx] = float32(math.Inf(1))
+		return v
+	}
+	negInfAt := func(idx int) []float32 {
+		v := makeOpusVec()
+		v[idx] = float32(math.Inf(-1))
+		return v
+	}
+	tinyVec := func() []float32 {
+		v := make([]float32, dim)
+		v[0] = 1e-20
+		return v
+	}
+
+	tests := []struct {
+		name      string
+		vec       []float32
+		wantErr   bool
+		errSubstr string
+	}{
+		{
+			name:      "all zero vector",
+			vec:       make([]float32, dim),
+			wantErr:   true,
+			errSubstr: "zero_norm",
+		},
+		{
+			name:      "nan at beginning",
+			vec:       nanAt(0),
+			wantErr:   true,
+			errSubstr: "nan",
+		},
+		{
+			name:      "nan in middle",
+			vec:       nanAt(dim / 2),
+			wantErr:   true,
+			errSubstr: "nan",
+		},
+		{
+			name:      "nan at end",
+			vec:       nanAt(dim - 1),
+			wantErr:   true,
+			errSubstr: "nan",
+		},
+		{
+			name:      "positive inf",
+			vec:       posInfAt(dim / 2),
+			wantErr:   true,
+			errSubstr: "positive_inf",
+		},
+		{
+			name:      "negative inf",
+			vec:       negInfAt(dim / 2),
+			wantErr:   true,
+			errSubstr: "negative_inf",
+		},
+		{
+			name:    "valid finite vector",
+			vec:     makeOpusVec(),
+			wantErr: false,
+		},
+		{
+			name:    "tiny nonzero finite vector",
+			vec:     tinyVec(),
+			wantErr: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			emb := &fakeEmbedder{vec: tc.vec}
+			s := newScorerForTest(t, emb, cfgForTest())
+
+			dec, err := s.Route(context.Background(), router.Request{PromptText: "test prompt"})
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.True(t, errors.Is(err, ErrClusterUnavailable))
+				if tc.errSubstr != "" {
+					assert.Contains(t, err.Error(), tc.errSubstr)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.NotEmpty(t, dec.Model)
+			}
+		})
+	}
 }
 
 func TestScorer_TailTruncatesBeforeEmbed(t *testing.T) {

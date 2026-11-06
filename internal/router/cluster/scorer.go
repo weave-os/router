@@ -460,6 +460,30 @@ func sortedKeys(m map[string]struct{}) []string {
 }
 
 // Route embeds the prompt, scores clusters, returns the argmax decision.
+func validateEmbedding(vec []float32, wantDim int) error {
+	if len(vec) != wantDim {
+		return fmt.Errorf("wrong_dimension: embedding dim %d != expected %d", len(vec), wantDim)
+	}
+	var normSq float64
+	for i, v := range vec {
+		x := float64(v)
+		if math.IsNaN(x) {
+			return fmt.Errorf("nan: embedding contains NaN at index %d", i)
+		}
+		if math.IsInf(x, 1) {
+			return fmt.Errorf("positive_inf: embedding contains +Inf at index %d", i)
+		}
+		if math.IsInf(x, -1) {
+			return fmt.Errorf("negative_inf: embedding contains -Inf at index %d", i)
+		}
+		normSq += x * x
+	}
+	if normSq == 0 {
+		return errors.New("zero_norm: embedding has zero norm")
+	}
+	return nil
+}
+
 func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision, error) {
 	start := time.Now()
 	log := observability.FromContext(ctx)
@@ -507,14 +531,17 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 		)
 		return router.Decision{}, fmt.Errorf("embed failed after %dms: %w (cause: %v)", embedMs, ErrClusterUnavailable, err)
 	}
-	if len(vec) != s.centroids.Dim {
+	if err := validateEmbedding(vec, s.centroids.Dim); err != nil {
 		log.Error(
-			"Cluster scorer: embedding dim mismatch; returning ErrClusterUnavailable",
+			"Cluster scorer: invalid embedding; returning ErrClusterUnavailable",
+			"err", err,
 			"got_dim", len(vec),
 			"want_dim", s.centroids.Dim,
+			"embedder_id", s.embed.ID(),
 			"embed_ms", embedMs,
+			"requested_model", req.RequestedModel,
 		)
-		return router.Decision{}, fmt.Errorf("embedding dim %d != expected %d: %w", len(vec), s.centroids.Dim, ErrClusterUnavailable)
+		return router.Decision{}, fmt.Errorf("invalid embedding: %w (cause: %v)", ErrClusterUnavailable, err)
 	}
 
 	// Re-walk multi-binding rows under the per-request EnabledProviders set: a
