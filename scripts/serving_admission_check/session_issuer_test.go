@@ -60,9 +60,9 @@ func TestSubjectBoundIssuersPreserveSpendAcrossSubjectsAndKeyRotation(t *testing
 		require.NoError(t, queries.InsertCredentialSubjectInstallation(ctx, sqlc.InsertCredentialSubjectInstallationParams{SubjectID: subject.ID, InstallationID: uuid.MustParse(installation.ID)}))
 		return subject.ID.String()
 	}
-	firstSubject := createSubject()
-	original := createIssuer(installation.ID, firstSubject)
-	rotated := createIssuer(installation.ID, firstSubject)
+	originalSubject := createSubject()
+	original := createIssuer(installation.ID, originalSubject)
+	rotated := createIssuer(installation.ID, originalSubject)
 	differentSubjectIssuer := createIssuer(installation.ID, createSubject())
 	legacy := createIssuer(installation.ID, "")
 	otherInstallationIssuer := createIssuer(otherInstallation.ID, "")
