@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 	"weave-os/router/internal/dispatch"
@@ -118,6 +119,71 @@ func TestPreludeBuffer_CommitsEagerPreludeAndBuffersProviderOutput(t *testing.T)
 	assert.Equal(t, "markerfallback-markerprovider-output", rec.Body.String())
 }
 
+func TestPreludeBuffer_CommitOnOutput(t *testing.T) {
+	const (
+		prelude = "router notice"
+		role    = "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
+		content = "data: {\"choices\":[{\"delta\":{\"content\":\"rescued\"},\"finish_reason\":null}]}\n\n"
+	)
+
+	rec := httptest.NewRecorder()
+	buf := newPreludeBuffer(rec)
+	buf.Header().Set("Content-Type", "text/event-stream")
+	buf.WriteHeader(http.StatusOK)
+	_, err := buf.Write([]byte(prelude))
+	require.NoError(t, err)
+	require.NoError(t, buf.CommitPrelude())
+	buf.CommitOnOutput(translate.FormatOpenAI)
+	buf.Seal()
+
+	_, err = buf.Write([]byte(role))
+	require.NoError(t, err)
+	assert.False(t, buf.Committed())
+	assert.Equal(t, prelude, rec.Body.String())
+
+	buf.Discard()
+	assert.Equal(t, prelude, rec.Body.String())
+
+	buf.Seal()
+	_, err = buf.Write([]byte(role[:len(role)/2]))
+	require.NoError(t, err)
+	_, err = buf.Write([]byte(role[len(role)/2:]))
+	require.NoError(t, err)
+	assert.False(t, buf.Committed())
+	assert.Equal(t, prelude, rec.Body.String())
+
+	_, err = buf.Write([]byte(content))
+	require.NoError(t, err)
+	assert.True(t, buf.Committed())
+	assert.Equal(t, prelude+role+content, rec.Body.String())
+}
+
+func TestPreludeBuffer_CommitOnOutputCapsHeldBytes(t *testing.T) {
+	const (
+		prelude = "router notice"
+		role    = "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
+	)
+	chunks := maxHeldCommitBytes/len(role) + 1
+
+	rec := httptest.NewRecorder()
+	buf := newPreludeBuffer(rec)
+	buf.Header().Set("Content-Type", "text/event-stream")
+	buf.WriteHeader(http.StatusOK)
+	_, err := buf.Write([]byte(prelude))
+	require.NoError(t, err)
+	require.NoError(t, buf.CommitPrelude())
+	buf.CommitOnOutput(translate.FormatOpenAI)
+	buf.Seal()
+
+	for i := 0; i < chunks; i++ {
+		_, err = buf.Write([]byte(role))
+		require.NoError(t, err)
+	}
+
+	assert.True(t, buf.Committed())
+	assert.Equal(t, prelude+strings.Repeat(role, chunks), rec.Body.String())
+}
+
 func TestDispatchWithFallback_PrimarySucceedsNoRetry(t *testing.T) {
 	primary := &fakeClient{name: "fireworks", outcomes: []fakeOutcome{{writeBytes: []byte("ok")}}}
 	fallback := &fakeClient{name: "openrouter"} // should never be called
@@ -152,6 +218,34 @@ func TestDispatchWithFallback_PrimarySucceedsNoRetry(t *testing.T) {
 	assert.Equal(t, 1, primary.calls, "primary called exactly once")
 	assert.Equal(t, 0, fallback.calls, "fallback must not be called when primary succeeds")
 	assert.Equal(t, "ok", rec.Body.String())
+}
+
+func TestDispatchWithFallback_ReleasesHeldBytesForServedAttempt(t *testing.T) {
+	const role = "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
+	primary := &fakeClient{name: "fireworks", outcomes: []fakeOutcome{{writeBytes: []byte(role)}}}
+	s := newServiceWithProviders(t, map[string]providers.Client{"fireworks": primary})
+
+	rec := httptest.NewRecorder()
+	rec.Header().Set("Content-Type", "text/event-stream")
+	buf := newPreludeBuffer(rec)
+	buf.CommitOnOutput(translate.FormatOpenAI)
+	r := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	_, err := s.dispatchWithFallback(context.Background(), failoverInputs{
+		w:               rec,
+		buf:             buf,
+		initialDecision: router.Decision{Provider: "fireworks", Model: "deepseek/deepseek-v4-pro"},
+		purpose:         inference.PurposeOpenAIChatCompletions,
+		bindings:        []catalog.ProviderBinding{{Provider: "fireworks"}},
+		attempt: func(ctx context.Context, d router.Decision, p providers.Client) error {
+			buf.Seal()
+			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
+		},
+	})
+
+	require.NoError(t, err)
+	assert.True(t, buf.Committed())
+	assert.Equal(t, role, rec.Body.String())
 }
 
 func TestDispatchWithFallback_RejectsMissingPurposeBeforeAnyAttempt(t *testing.T) {
