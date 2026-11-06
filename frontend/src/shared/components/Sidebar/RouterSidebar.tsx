@@ -1,10 +1,11 @@
 "use client";
 
+import { Icon, type IconType } from "@weave-os/ui/components/atoms/Icon";
+import { Button } from "@weave-os/ui/components/molecules/Button";
+import { Appearance } from "@weave-os/ui/components/types";
+
 import { usePathname } from "next/navigation";
 
-import { Icon, type IconType } from "../atoms/Icon";
-import { Button } from "../molecules/Button";
-import { Appearance } from "../types";
 import { SidebarNavButton } from "./SidebarNavButton";
 import { SidebarNavIcon } from "./SidebarNavIcon";
 

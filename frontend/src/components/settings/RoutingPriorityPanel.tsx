@@ -2,9 +2,10 @@
 
 import { Input } from "@/components/Input";
 import { api } from "@/lib/api";
-import { Button } from "@/shared/components/molecules/Button";
-import { Card } from "@/shared/components/molecules/Card";
-import { Appearance, Intent } from "@/shared/components/types";
+
+import { Button } from "@weave-os/ui/components/molecules/Button";
+import { Card } from "@weave-os/ui/components/molecules/Card";
+import { Appearance, Intent } from "@weave-os/ui/components/types";
 
 import { useEffect, useState } from "react";
 

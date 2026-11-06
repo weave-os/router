@@ -24,6 +24,7 @@
     "@radix-ui/react-tooltip": "1.2.8",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.14.26",
+    "@weave-os/ui": "0.1.0",
     "chroma-js": "^3.2.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",

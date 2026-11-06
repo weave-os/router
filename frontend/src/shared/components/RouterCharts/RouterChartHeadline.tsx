@@ -1,7 +1,8 @@
 "use client";
 
-import { LoadState } from "../../tools/LoadState";
-import { ChangeValue, type ChangeUnit } from "../molecules/ChangeValue";
+import { ChangeValue, type ChangeUnit } from "@weave-os/ui/components/molecules/ChangeValue";
+import { LoadState } from "@weave-os/ui/tools/LoadState";
+
 import { Statistic, type StatisticValue } from "../Statistic";
 
 /** Percent change from the previous period, or null when there is no baseline to compare to. */

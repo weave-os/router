@@ -7,7 +7,8 @@ Host-neutral UI used by both Router dashboards: self-hosted (`frontend/src/app`,
 - Relative imports only. `@/` means a different root in each host, so `oxlint` rejects it here, along with `urql`, `graphql` and anything under a `graphql/` directory.
 - Pages read and write through `RouterDashboardDataSource` (`data/`), never through `fetch` or a GraphQL client.
 - Host-only UI (credits, plan, subscriptions) goes in a slot (`slots/`); shared code never names it.
-- Styling comes from `theme/tailwindPreset.ts` and `theme/tokens.css`. Hosts add the preset and list `src/shared/**/*.{ts,tsx}` in Tailwind `content`.
+- Generic design-system code (atoms, molecules, charts, chart cards, generic tools, theme, motion) comes from the `@weave-os/ui` npm package, which is published from the Weave repo. Only Router product UI lives here.
+- Styling comes from `@weave-os/ui/theme/tailwindPreset` and `@weave-os/ui/theme/tokens.css`. Hosts add the preset and list `src/shared/**/*.{ts,tsx}` and `node_modules/@weave-os/ui/**/*.js` in Tailwind `content`.
 
 ## Data source
 

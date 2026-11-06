@@ -1,29 +1,29 @@
 "use client";
 
+import { Avatar } from "@weave-os/ui/components/atoms/Avatar";
+import { Icon } from "@weave-os/ui/components/atoms/Icon";
+import { MetricValue } from "@weave-os/ui/components/atoms/MetricValue";
+import { Skeleton } from "@weave-os/ui/components/atoms/Skeleton";
+import { Text } from "@weave-os/ui/components/atoms/Text";
+import { CHART_CARD_TITLE_CLASS } from "@weave-os/ui/components/ChartCard";
+import { Badge } from "@weave-os/ui/components/molecules/Badge";
+import { Card } from "@weave-os/ui/components/molecules/Card";
+import { SearchableList } from "@weave-os/ui/components/molecules/SearchableList";
+import { StackedBar } from "@weave-os/ui/components/molecules/StackedBar";
+import { Tooltip } from "@weave-os/ui/components/molecules/Tooltip";
+import { ChartColorToken } from "@weave-os/ui/tools/chartColors";
+import { cn } from "@weave-os/ui/tools/cn";
+import { formatInteger, formatPercentage } from "@weave-os/ui/tools/format";
+import { LoadState } from "@weave-os/ui/tools/LoadState";
+import { pluralize } from "@weave-os/ui/tools/strings";
+import { DateFormat } from "@weave-os/ui/tools/time";
+import { TypographyRole } from "@weave-os/ui/tools/typography";
 import { format, formatDistanceToNowStrict } from "date-fns";
 
 import { type ReactNode, useMemo, useState } from "react";
 
 import { type RouterPerson, RouterUserLink, useRouterPeople } from "../../data";
-import { ChartColorToken } from "../../tools/chartColors";
-import { cn } from "../../tools/cn";
-import { formatInteger, formatPercentage } from "../../tools/format";
-import { LoadState } from "../../tools/LoadState";
-import { pluralize } from "../../tools/strings";
-import { DateFormat } from "../../tools/time";
-import { TypographyRole } from "../../tools/typography";
-import { Avatar } from "../atoms/Avatar";
-import { Icon } from "../atoms/Icon";
-import { MetricValue } from "../atoms/MetricValue";
-import { Skeleton } from "../atoms/Skeleton";
-import { Text } from "../atoms/Text";
-import { CHART_CARD_TITLE_CLASS } from "../ChartCard";
 import { LoadStateWrapper } from "../LoadStateWrapper";
-import { Badge } from "../molecules/Badge";
-import { Card } from "../molecules/Card";
-import { SearchableList } from "../molecules/SearchableList";
-import { StackedBar } from "../molecules/StackedBar";
-import { Tooltip } from "../molecules/Tooltip";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_WINDOW_DAYS = 30;

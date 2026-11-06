@@ -1,11 +1,12 @@
 "use client";
 
+import { Text } from "@weave-os/ui/components/atoms/Text";
+import { PageHeader } from "@weave-os/ui/components/PageHeader";
+
 import { isUnavailable, useRouterDashboardDataSource } from "../../data";
 import { RouterDashboardSlot, RouterDashboardSlotName } from "../../slots";
-import { Text } from "../atoms/Text";
 import { DashboardPageFilters, useDashboardFilters } from "../DashboardPageFilters";
 import { Page } from "../Page";
-import { PageHeader } from "../PageHeader";
 import { RouterConnectHrefProvider } from "../RouterConnectEmptyState";
 import { RouterOverviewTab, RouterOverviewTabs, useRouterOverviewTab } from "../RouterOverviewTabs";
 import { RouterOverviewTabPanel } from "./RouterOverviewTabPanel";

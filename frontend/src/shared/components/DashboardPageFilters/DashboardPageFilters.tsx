@@ -1,5 +1,14 @@
 "use client";
 
+import { Icon } from "@weave-os/ui/components/atoms/Icon";
+import { Kbd } from "@weave-os/ui/components/atoms/Kbd";
+import { Button } from "@weave-os/ui/components/molecules/Button";
+import { Command } from "@weave-os/ui/components/molecules/Command";
+import { Popover } from "@weave-os/ui/components/molecules/Popover";
+import { Tooltip } from "@weave-os/ui/components/molecules/Tooltip";
+import { Appearance } from "@weave-os/ui/components/types";
+import { cn } from "@weave-os/ui/tools/cn";
+
 import { useState } from "react";
 
 import {
@@ -7,15 +16,7 @@ import {
   RouterDashboardSlotName,
   useHasRouterDashboardSlot,
 } from "../../slots";
-import { cn } from "../../tools/cn";
-import { Icon } from "../atoms/Icon";
-import { Kbd } from "../atoms/Kbd";
-import { Button } from "../molecules/Button";
-import { Command } from "../molecules/Command";
-import { Popover } from "../molecules/Popover";
-import { Tooltip } from "../molecules/Tooltip";
 import { Page } from "../Page";
-import { Appearance } from "../types";
 import { FilterPill } from "./FilterPill";
 import {
   DATE_RANGES,

@@ -1,6 +1,7 @@
+import { type ChartSeriesConfig } from "@weave-os/ui/components/Chart";
+import { AccountChartColorToken, ChartColorToken } from "@weave-os/ui/tools/chartColors";
+
 import { RouterBilling, RouterDecisionType, RouterRoutingState, RouterUserLink } from "../../data";
-import { AccountChartColorToken, ChartColorToken } from "../../tools/chartColors";
-import { type ChartSeriesConfig } from "../Chart";
 
 export type RouterSeriesConfigs = Readonly<Record<string, ChartSeriesConfig<number, number>>>;
 

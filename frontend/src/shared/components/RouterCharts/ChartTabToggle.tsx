@@ -1,6 +1,6 @@
 "use client";
 
-import { Tabs } from "../molecules/Tabs";
+import { Tabs } from "@weave-os/ui/components/molecules/Tabs";
 
 export interface ChartTabToggleOption<T extends string> {
   label: string;

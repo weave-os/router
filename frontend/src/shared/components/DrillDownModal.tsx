@@ -1,5 +1,9 @@
 "use client";
 
+import { Modal } from "@weave-os/ui/components/molecules/Modal";
+import { cn } from "@weave-os/ui/tools/cn";
+import { formatInteger } from "@weave-os/ui/tools/format";
+import { LoadState } from "@weave-os/ui/tools/LoadState";
 import { format } from "date-fns";
 
 import { isUnavailable } from "../data/availability";
@@ -7,10 +11,6 @@ import {
   useRouterDashboardDataSource,
   useRouterDashboardQuery,
 } from "../data/RouterDashboardDataProvider";
-import { cn } from "../tools/cn";
-import { formatInteger } from "../tools/format";
-import { LoadState } from "../tools/LoadState";
-import { Modal } from "./molecules/Modal";
 
 export interface DrillDownModalProps {
   /** ISO start of the bucket window (inclusive). */

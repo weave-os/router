@@ -1,11 +1,12 @@
 "use client";
 
+import { ChartFillPattern, ChartSeriesType } from "@weave-os/ui/components/Chart";
+import { ResponsiveGrid } from "@weave-os/ui/components/ResponsiveGrid";
+
 import { useMemo } from "react";
 
 import { RouterMetricGroup, RouterMetricType } from "../../data";
-import { ChartFillPattern, ChartSeriesType } from "../Chart";
 import { type UseDashboardFiltersResult } from "../DashboardPageFilters";
-import { ResponsiveGrid } from "../ResponsiveGrid";
 import {
   RouterAdoptionCard,
   RouterDailyRequestsHeatmap,

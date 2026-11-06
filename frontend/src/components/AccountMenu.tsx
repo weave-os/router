@@ -1,11 +1,12 @@
 "use client";
 
 import { api } from "@/lib/api";
-import { Avatar } from "@/shared/components/atoms/Avatar";
-import { Icon } from "@/shared/components/atoms/Icon";
-import { Button } from "@/shared/components/molecules/Button";
-import { Popover } from "@/shared/components/molecules/Popover";
-import { Appearance } from "@/shared/components/types";
+
+import { Avatar } from "@weave-os/ui/components/atoms/Avatar";
+import { Icon } from "@weave-os/ui/components/atoms/Icon";
+import { Button } from "@weave-os/ui/components/molecules/Button";
+import { Popover } from "@weave-os/ui/components/molecules/Popover";
+import { Appearance } from "@weave-os/ui/components/types";
 
 import { useRouter } from "next/navigation";
 

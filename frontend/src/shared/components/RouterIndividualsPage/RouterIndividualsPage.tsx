@@ -1,16 +1,16 @@
 "use client";
 
 import { type ExpandedState, type SortingState } from "@tanstack/react-table";
+import { Text } from "@weave-os/ui/components/atoms/Text";
+import { ErrorCard } from "@weave-os/ui/components/ErrorCard";
+import { DataTable } from "@weave-os/ui/components/molecules/DataTable";
+import { LoadState } from "@weave-os/ui/tools/LoadState";
 
 import { useMemo, useState } from "react";
 
 import { isUnavailable, useRouterDashboardDataSource, useRouterDashboardQuery } from "../../data";
-import { LoadState } from "../../tools/LoadState";
-import { Text } from "../atoms/Text";
 import { DashboardPageFilters, useDashboardFilters } from "../DashboardPageFilters";
-import { ErrorCard } from "../ErrorCard";
 import { LoadStateWrapper } from "../LoadStateWrapper";
-import { DataTable } from "../molecules/DataTable";
 import { Page } from "../Page";
 import { RouterUnavailableCard } from "../RouterCharts/RouterUnavailableCard";
 import { buildRouterIndividualRows } from "./buildRouterIndividualRows";

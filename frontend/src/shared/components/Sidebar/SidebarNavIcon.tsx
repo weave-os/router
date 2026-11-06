@@ -1,7 +1,7 @@
 import type { ComponentProps } from "react";
 
-import { cn } from "../../tools/cn";
-import { Icon } from "../atoms/Icon";
+import { Icon } from "@weave-os/ui/components/atoms/Icon";
+import { cn } from "@weave-os/ui/tools/cn";
 
 interface SidebarNavIconProps extends ComponentProps<typeof Icon> {
   active?: boolean;

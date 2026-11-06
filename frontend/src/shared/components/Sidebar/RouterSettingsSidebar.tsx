@@ -1,9 +1,10 @@
 "use client";
 
+import { Icon, type IconType } from "@weave-os/ui/components/atoms/Icon";
+import { Text } from "@weave-os/ui/components/atoms/Text";
+
 import { usePathname } from "next/navigation";
 
-import { Icon, type IconType } from "../atoms/Icon";
-import { Text } from "../atoms/Text";
 import { SidebarNavButton } from "./SidebarNavButton";
 import { SidebarNavIcon } from "./SidebarNavIcon";
 

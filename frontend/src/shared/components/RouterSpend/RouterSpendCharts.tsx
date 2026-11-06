@@ -1,5 +1,22 @@
 "use client";
 
+import { Text } from "@weave-os/ui/components/atoms/Text";
+import {
+  Chart,
+  ChartAxisType,
+  type ChartData,
+  type ChartReferenceLine,
+  type ChartSeriesConfig,
+  ChartSeriesType,
+} from "@weave-os/ui/components/Chart";
+import { ChartCard } from "@weave-os/ui/components/ChartCard";
+import { ErrorCard } from "@weave-os/ui/components/ErrorCard";
+import { Listogram, ListogramSelector } from "@weave-os/ui/components/Listogram";
+import { AccountChartColorToken, ChartColorToken } from "@weave-os/ui/tools/chartColors";
+import { formatRouterModelName, formatUSD, formatUSDCompact } from "@weave-os/ui/tools/format";
+import { LoadState } from "@weave-os/ui/tools/LoadState";
+import { addGranularity, formatInterval, formatTime } from "@weave-os/ui/tools/timeGranularity";
+
 import { useMemo, useState } from "react";
 
 import {
@@ -17,24 +34,8 @@ import {
   modelFamily,
   type RouterModelFamily,
 } from "../../objects/RouterModelFamily";
-import { AccountChartColorToken, ChartColorToken } from "../../tools/chartColors";
-import { formatRouterModelName, formatUSD, formatUSDCompact } from "../../tools/format";
-import { LoadState } from "../../tools/LoadState";
 import { routerSavingsRate } from "../../tools/routerCost";
-import { addGranularity, formatInterval, formatTime } from "../../tools/timeGranularity";
-import { Text } from "../atoms/Text";
-import {
-  Chart,
-  ChartAxisType,
-  type ChartData,
-  type ChartReferenceLine,
-  type ChartSeriesConfig,
-  ChartSeriesType,
-} from "../Chart";
-import { ChartCard } from "../ChartCard";
 import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
-import { ErrorCard } from "../ErrorCard";
-import { Listogram, ListogramSelector } from "../Listogram";
 import { LoadStateWrapper } from "../LoadStateWrapper";
 import {
   displayGranularity,

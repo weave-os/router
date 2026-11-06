@@ -2,9 +2,9 @@
 
 import type { RouterDashboardDataSource } from "./RouterDashboardDataSource";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { LoadState } from "@weave-os/ui/tools/LoadState";
 
-import { LoadState } from "../tools/LoadState";
+import { createContext, useContext, useEffect, useState } from "react";
 
 const RouterDashboardDataContext = createContext<RouterDashboardDataSource | null>(null);
 

@@ -1,4 +1,4 @@
-import { type IconType } from "@/shared/components/atoms/Icon";
+import { type IconType } from "@weave-os/ui/components/atoms/Icon";
 
 export interface SettingsNavItem {
   href: string;

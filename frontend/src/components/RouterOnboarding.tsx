@@ -12,11 +12,11 @@ import {
   installCommand,
   routerOrigin,
 } from "@/lib/installCommands";
-import { Text } from "@/shared/components/atoms/Text";
-import { Button } from "@/shared/components/molecules/Button";
-import { Appearance } from "@/shared/components/types";
-import { cn } from "@/shared/tools/cn";
 
+import { Text } from "@weave-os/ui/components/atoms/Text";
+import { Button } from "@weave-os/ui/components/molecules/Button";
+import { Appearance } from "@weave-os/ui/components/types";
+import { cn } from "@weave-os/ui/tools/cn";
 import { ArrowRight, ChevronRight, GitBranch, Loader2, User, Zap } from "lucide-react";
 
 import { useEffect, useState } from "react";
