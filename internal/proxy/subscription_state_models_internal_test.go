@@ -516,3 +516,107 @@ func TestSubscriptionStateModelsEnabledByFlagWithEmptySets(t *testing.T) {
 	assert.True(t, subscriptionStateModelsEnabled(ctx))
 	assert.Empty(t, installationAllowedModelSet(context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(nil))))
 }
+
+// A Codex turn whose routed pick is another family can still be served by a
+// native Responses attempt on the included Codex plan. That attempt's stream
+// must reach the caller intact instead of failing as a cut stream.
+func TestSubscriptionStateModelsCodexNativeAttemptAfterCrossFamilyPick(t *testing.T) {
+	const nativeStream = "data: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_synthetic\",\"status\":\"in_progress\",\"output\":[]}}\n\n" +
+		"data: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"in_progress\",\"content\":[]}}\n\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":2,\"item_id\":\"msg_synthetic\",\"output_index\":0,\"content_index\":0,\"delta\":\"synthetic answer\"}\n\n" +
+		"data: {\"type\":\"response.output_item.done\",\"sequence_number\":3,\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"synthetic answer\"}]}}\n\n" +
+		"data: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"resp_synthetic\",\"status\":\"completed\",\"output\":[{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"synthetic answer\"}]}],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n"
+	var models []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		models = append(models, gjson.GetBytes(body, "model").String())
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, nativeStream)
+	}))
+	defer upstream.Close()
+	codexClient := openai.NewClient("expensive-paid-key", upstream.URL)
+	codexClient.SetCodexBaseURL(upstream.URL)
+	svc := NewService(stateModelRouter{}, map[string]providers.Client{
+		providers.ProviderAnthropic:  anthropic.NewClient("expensive-paid-key", upstream.URL),
+		providers.ProviderOpenAI:     codexClient,
+		providers.ProviderOpenRouter: openaicompat.NewClient("cheap-paid-key", upstream.URL),
+	}, nil, false, nil, nil, false, "", "", nil).
+		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderCodex: true}}).
+		WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}))
+	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+	ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestToken)
+	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, codexTestAccountID)
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+
+	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}],"tools":[{"type":"custom","name":"exec"}]}`
+	rec := httptest.NewRecorder()
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
+
+	require.NoError(t, err)
+	require.Equal(t, []string{stateCodexModel}, models, "the included Codex plan serves the turn")
+	out := rec.Body.String()
+	assert.Contains(t, out, "synthetic answer")
+	assert.Contains(t, out, `"type":"response.completed"`)
+	assert.NotContains(t, out, "response.failed")
+}
+
+// The same swap must keep a Codex freeform tool call intact: the caller asked
+// for a custom tool and must get a custom_tool_call back.
+func TestSubscriptionStateModelsCodexCustomToolAfterCrossFamilyPick(t *testing.T) {
+	var toolTypes []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		toolType := gjson.GetBytes(body, "tools.0.type").String()
+		toolTypes = append(toolTypes, toolType)
+		item := `{"id":"ctc_synthetic","type":"custom_tool_call","status":"completed","call_id":"call_synthetic","name":"exec","input":"ls -la"}`
+		added := `{"id":"ctc_synthetic","type":"custom_tool_call","status":"in_progress","call_id":"call_synthetic","name":"exec","input":""}`
+		delta := `{"type":"response.custom_tool_call_input.delta","sequence_number":2,"item_id":"ctc_synthetic","output_index":0,"delta":"ls -la"}`
+		if toolType == "function" {
+			item = `{"id":"fc_synthetic","type":"function_call","status":"completed","call_id":"call_synthetic","name":"exec","arguments":"{\"input\":\"ls -la\"}"}`
+			added = `{"id":"fc_synthetic","type":"function_call","status":"in_progress","call_id":"call_synthetic","name":"exec","arguments":""}`
+			delta = `{"type":"response.function_call_arguments.delta","sequence_number":2,"item_id":"fc_synthetic","output_index":0,"delta":"{\"input\":\"ls -la\"}"}`
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_synthetic\",\"status\":\"in_progress\",\"output\":[]}}\n\n"+
+			"data: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":"+added+"}\n\n"+
+			"data: "+delta+"\n\n"+
+			"data: {\"type\":\"response.output_item.done\",\"sequence_number\":3,\"output_index\":0,\"item\":"+item+"}\n\n"+
+			"data: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"resp_synthetic\",\"status\":\"completed\",\"output\":["+item+"],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n")
+	}))
+	defer upstream.Close()
+	codexClient := openai.NewClient("expensive-paid-key", upstream.URL)
+	codexClient.SetCodexBaseURL(upstream.URL)
+	svc := NewService(stateModelRouter{}, map[string]providers.Client{
+		providers.ProviderAnthropic:  anthropic.NewClient("expensive-paid-key", upstream.URL),
+		providers.ProviderOpenAI:     codexClient,
+		providers.ProviderOpenRouter: openaicompat.NewClient("cheap-paid-key", upstream.URL),
+	}, nil, false, nil, nil, false, "", "", nil).
+		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderCodex: true}}).
+		WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}))
+	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+	ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestToken)
+	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, codexTestAccountID)
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+
+	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"list files"}]}],"tools":[{"type":"custom","name":"exec","description":"run a script"}]}`
+	rec := httptest.NewRecorder()
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"function"}, toolTypes, "the swapped attempt is emitted onto Responses from the chat projection")
+	out := rec.Body.String()
+	assert.Contains(t, out, `"type":"custom_tool_call"`)
+	assert.Contains(t, out, "ls -la")
+	assert.Contains(t, out, `"type":"response.completed"`)
+	assert.NotContains(t, out, "response.failed")
+}

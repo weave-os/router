@@ -888,6 +888,10 @@ func (t *ResponsesWriter) SetPassthrough() {
 	t.passthrough = true
 }
 
+// Passthrough reports whether the writer forwards native Responses events
+// rather than translating Chat Completions chunks.
+func (t *ResponsesWriter) Passthrough() bool { return t.passthrough }
+
 // ClearPassthrough returns the writer to translation mode, reporting false
 // after provider output prevents a clean continuation. A visible synthetic
 // prelude remains valid and seeds the translated sequence and output indexes.
