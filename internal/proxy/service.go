@@ -8271,9 +8271,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				surface := surfaceChat
 				if d.Provider == providers.ProviderOpenAI {
 					switch {
-					case responsesPassthrough:
+					// Native bytes need a passthrough writer. One set up for a
+					// cross-family pick only parses Chat Completions chunks, so an
+					// OpenAI attempt that replaces it is translated back instead.
+					case responsesPassthrough && (!isResponses || responsesWriter.Passthrough()):
 						surface = surfaceResponsesNative
-					case translateToResponses || servedOnCodexSubscription(actx):
+					case responsesPassthrough || translateToResponses || servedOnCodexSubscription(actx):
 						surface = surfaceResponsesTranslated
 					}
 				}
