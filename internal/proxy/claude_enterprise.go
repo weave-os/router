@@ -33,7 +33,7 @@ func claudeEnterpriseOnly(ctx context.Context) bool {
 			return enabled
 		}
 	}
-	if claudePlanQuotaRefused(ctx) {
+	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && state.ClaudePlanQuotaRefused {
 		return false
 	}
 	present, _ := ctx.Value(claudeSubscriptionPresentKey{}).(bool)
@@ -89,11 +89,6 @@ func markClaudePlanQuotaRefused(ctx context.Context) {
 	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 		state.ClaudePlanQuotaRefused = true
 	}
-}
-
-func claudePlanQuotaRefused(ctx context.Context) bool {
-	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
-	return state != nil && state.ClaudePlanQuotaRefused
 }
 
 func claudePoolModels(models []string) []string {

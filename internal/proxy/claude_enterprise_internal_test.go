@@ -247,14 +247,14 @@ func TestClaudeEnterpriseOnlyDefaultSubscriptionStateRefusal(t *testing.T) {
 	}}
 	usageBilledRefusal := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: rateLimitBody, Headers: http.Header{"Retry-After": []string{"30"}}}
 	for _, scenario := range []struct {
-		name    string
-		refusal error
-		codex   bool
-		want    string
+		name        string
+		refusal     error
+		codexLinked bool
+		want        string
 	}{
-		{name: "spent plan seat rotates to included Codex", refusal: planRefusal, codex: true, want: stateCodexModel},
+		{name: "spent plan seat rotates to included Codex", refusal: planRefusal, codexLinked: true, want: stateCodexModel},
 		{name: "spent plan seat uses the paid set", refusal: planRefusal, want: statePaidModel},
-		{name: "usage-billed seat returns its rate limit without a denied rescue walk", refusal: usageBilledRefusal, codex: true},
+		{name: "usage-billed seat returns its rate limit without a denied rescue walk", refusal: usageBilledRefusal, codexLinked: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			claude := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{err: scenario.refusal}, {err: scenario.refusal}, {err: scenario.refusal}}}
@@ -262,7 +262,7 @@ func TestClaudeEnterpriseOnlyDefaultSubscriptionStateRefusal(t *testing.T) {
 			paid := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("paid answer")}}}
 			var routed []string
 			svc := NewService(routedModelRecorder{routed: &routed}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}, nil, false, nil, nil, false, "", "", nil).
-				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true, subscriptions.ProviderCodex: scenario.codex}})
+				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true, subscriptions.ProviderCodex: scenario.codexLinked}})
 			ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "key-1")
 			ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
 			ctx = WithManagedSubscriptionUsage(ctx)
