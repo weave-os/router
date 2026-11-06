@@ -170,15 +170,22 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	readmitted := false
 	var includedFailure error
 	for len(includedModels) > 0 && rotationBudget.remaining > 0 {
-		attemptModels := includedModels
+		candidateModels := includedModels
+		if claudeEnterpriseTurn(ctx) {
+			// Funding authorization denies every other pool on this turn.
+			if candidateModels = claudePoolModels(includedModels); len(candidateModels) == 0 {
+				break
+			}
+		}
+		attemptModels := candidateModels
 		if !hasFixedTarget {
-			attemptModels = s.withoutHeldSubscriptionModels(ctx, includedModels)
+			attemptModels = s.withoutHeldSubscriptionModels(ctx, candidateModels)
 		}
 		attemptCtx, attemptReq := s.subscriptionStateRequest(ctx, request, attemptModels)
 		// A held pool is the last resort: if nothing else this request admits
 		// remains, try it rather than leave the included lane untried.
-		if len(attemptReq.AllowedModels) == 0 && len(attemptModels) < len(includedModels) {
-			attemptCtx, attemptReq = s.subscriptionStateRequest(ctx, request, includedModels)
+		if len(attemptReq.AllowedModels) == 0 && len(attemptModels) < len(candidateModels) {
+			attemptCtx, attemptReq = s.subscriptionStateRequest(ctx, request, candidateModels)
 		}
 		attemptCtx = context.WithValue(attemptCtx, subscriptionOnlyAttemptKey{}, true)
 		attemptReq.EnabledProviders = make(map[string]struct{})
@@ -273,6 +280,13 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		}
 		if len(paidReq.AllowedModels) == 0 {
 			return -1, includedFailureOr(includedFailure, cluster.ErrAllowlistEmptiesPool)
+		}
+		if claudeEnterpriseTurn(ctx) {
+			// Funding authorization denies every paid target on this turn.
+			if includedFailure != nil {
+				return -1, includedFailure
+			}
+			return -1, ErrClaudeEnterpriseSubscriptionUnavailable
 		}
 		var err error
 		target, err = s.Route(paidCtx, paidReq)
