@@ -142,8 +142,9 @@ func (l *InvalidationListener) Wait() { <-l.done }
 // single hung admin RPC leaves room in the caller's budget for a retry.
 const replicaSubscriptionAttemptTimeout = 10 * time.Second
 
-// replicaSubscriptionRetryBackoff is the pause between create attempts.
-const replicaSubscriptionRetryBackoff = time.Second
+// replicaSubscriptionRetryBackoff jitters retries so replicas that restart
+// together don't hit the admin API in lockstep.
+var replicaSubscriptionRetryBackoff = gax.Backoff{Initial: time.Second, Max: 8 * time.Second, Multiplier: 2}
 
 // subscriptionAdmin is the narrow seam CreateReplicaSubscription needs from
 // the Pub/Sub subscription admin client.
@@ -154,7 +155,7 @@ type subscriptionAdmin interface {
 
 type replicaSubscriptionRetry struct {
 	attemptTimeout time.Duration
-	backoff        time.Duration
+	backoff        gax.Backoff
 }
 
 // CreateReplicaSubscription provisions a per-replica subscription on topicID so
@@ -198,13 +199,14 @@ func createReplicaSubscription(
 		},
 	}
 
+	backoff := retry.backoff
 	for attempt := 1; ; attempt++ {
 		attemptCtx, cancel := context.WithTimeout(ctx, retry.attemptTimeout)
 		_, err = admin.CreateSubscription(attemptCtx, subscription)
 		cancel()
-		// The name is reused across attempts, so AlreadyExists means an
-		// earlier attempt that timed out client-side did create it.
-		if err == nil || (attempt > 1 && status.Code(err) == codes.AlreadyExists) {
+		// The name embeds a fresh UUID and is reused across attempts (ours and
+		// the client's internal retries), so AlreadyExists means we created it.
+		if err == nil || status.Code(err) == codes.AlreadyExists {
 			break
 		}
 		if !retryableSubscriptionCreateError(err) || ctx.Err() != nil {
@@ -219,7 +221,7 @@ func createReplicaSubscription(
 		select {
 		case <-ctx.Done():
 			return "", nil, fmt.Errorf("create per-replica subscription after %d attempt(s): %w", attempt, err)
-		case <-time.After(retry.backoff):
+		case <-time.After(backoff.Pause()):
 		}
 	}
 

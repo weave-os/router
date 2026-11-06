@@ -16,22 +16,31 @@ import (
 )
 
 type fakeSubscriptionAdmin struct {
-	mu        sync.Mutex
-	createErr []error
-	created   []string
-	deleted   []string
+	mu          sync.Mutex
+	createErr   []error
+	stallFirstN int
+	created     []string
+	deleted     []string
 }
 
-func (f *fakeSubscriptionAdmin) CreateSubscription(_ context.Context, req *pubsubpb.Subscription, _ ...gax.CallOption) (*pubsubpb.Subscription, error) {
+func (f *fakeSubscriptionAdmin) CreateSubscription(ctx context.Context, req *pubsubpb.Subscription, _ ...gax.CallOption) (*pubsubpb.Subscription, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.created = append(f.created, req.GetName())
-	if len(f.createErr) == 0 {
-		return req, nil
+	stall := len(f.created) <= f.stallFirstN
+	var err error
+	if !stall && len(f.createErr) > 0 {
+		err = f.createErr[0]
+		f.createErr = f.createErr[1:]
 	}
-	err := f.createErr[0]
-	f.createErr = f.createErr[1:]
-	return nil, err
+	f.mu.Unlock()
+	if stall {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	if err != nil {
+		return nil, err
+	}
+	return req, nil
 }
 
 func (f *fakeSubscriptionAdmin) DeleteSubscription(_ context.Context, req *pubsubpb.DeleteSubscriptionRequest, _ ...gax.CallOption) error {
@@ -41,7 +50,7 @@ func (f *fakeSubscriptionAdmin) DeleteSubscription(_ context.Context, req *pubsu
 	return nil
 }
 
-var fastReplicaRetry = replicaSubscriptionRetry{attemptTimeout: time.Second, backoff: time.Millisecond}
+var fastReplicaRetry = replicaSubscriptionRetry{attemptTimeout: time.Second, backoff: gax.Backoff{Initial: time.Millisecond, Max: time.Millisecond}}
 
 func TestCreateReplicaSubscription_RetriesTransientFailuresUnderOneName(t *testing.T) {
 	admin := &fakeSubscriptionAdmin{createErr: []error{
@@ -81,13 +90,25 @@ func TestCreateReplicaSubscription_PermanentFailureIsNotRetried(t *testing.T) {
 	assert.Len(t, admin.created, 1)
 }
 
-func TestCreateReplicaSubscription_AlreadyExistsOnFirstAttemptIsAnError(t *testing.T) {
+func TestCreateReplicaSubscription_AlreadyExistsOnFirstAttemptMeansClientRetryCreatedIt(t *testing.T) {
 	admin := &fakeSubscriptionAdmin{createErr: []error{status.Error(codes.AlreadyExists, "already exists")}}
 
-	_, _, err := createReplicaSubscription(context.Background(), admin, fastReplicaRetry, "proj", "topic", "prefix")
+	name, _, err := createReplicaSubscription(context.Background(), admin, fastReplicaRetry, "proj", "topic", "prefix")
 
-	require.Error(t, err)
-	assert.Len(t, admin.created, 1)
+	require.NoError(t, err)
+	assert.Equal(t, []string{name}, admin.created)
+}
+
+func TestCreateReplicaSubscription_StalledAttemptIsCutOffAndRetried(t *testing.T) {
+	admin := &fakeSubscriptionAdmin{stallFirstN: 1}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	retry := replicaSubscriptionRetry{attemptTimeout: 20 * time.Millisecond, backoff: fastReplicaRetry.backoff}
+
+	name, _, err := createReplicaSubscription(ctx, admin, retry, "proj", "topic", "prefix")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{name, name}, admin.created)
 }
 
 func TestCreateReplicaSubscription_StopsWhenCallerBudgetExpires(t *testing.T) {
@@ -98,7 +119,7 @@ func TestCreateReplicaSubscription_StopsWhenCallerBudgetExpires(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	_, _, err := createReplicaSubscription(ctx, admin, replicaSubscriptionRetry{attemptTimeout: time.Second, backoff: 10 * time.Millisecond}, "proj", "topic", "prefix")
+	_, _, err := createReplicaSubscription(ctx, admin, replicaSubscriptionRetry{attemptTimeout: time.Second, backoff: gax.Backoff{Initial: 10 * time.Millisecond, Max: 10 * time.Millisecond}}, "proj", "topic", "prefix")
 
 	require.Error(t, err)
 	assert.Equal(t, codes.Unavailable, status.Code(errors.Unwrap(err)))
