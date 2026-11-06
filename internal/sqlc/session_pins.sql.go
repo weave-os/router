@@ -721,17 +721,20 @@ SET last_input_tokens        = CASE
       ELSE last_output_limit_at
     END,
     pinned_provider          = CASE
-      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
-        THEN $7::varchar
+      WHEN (last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at)
+        AND (pinned_model = ''
+          OR pinned_model = $7::varchar
+          OR starts_with($7::varchar, pinned_model || ':'))
+        THEN $8::varchar
       ELSE pinned_provider
     END,
     has_ever_switched        = has_ever_switched
-      OR $8::boolean
-      OR (last_served_model <> '' AND last_served_model <> $9::varchar)
-      OR ($10::varchar <> '' AND $10::varchar <> $9::varchar),
+      OR $9::boolean
+      OR (last_served_model <> '' AND last_served_model <> $7::varchar)
+      OR ($10::varchar <> '' AND $10::varchar <> $7::varchar),
     last_served_model        = CASE
       WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
-        THEN $9::varchar
+        THEN $7::varchar
       ELSE last_served_model
     END
 WHERE session_key = $11::bytea
@@ -749,9 +752,9 @@ type UpdateSessionPinUsageParams struct {
 	LastCachedWriteTokens   int32
 	LastOutputTokens        int32
 	OutputLimitReached      bool
+	LastServedModel         string
 	LastServedProvider      string
 	SessionEverSwitched     bool
-	LastServedModel         string
 	PriorServedModel        string
 	SessionKey              []byte
 	Role                    string
@@ -769,8 +772,9 @@ type UpdateSessionPinUsageParams struct {
 // served this turn; it lives here (not in UpsertSessionPin) so a
 // /force-model upsert cannot overwrite the genuinely-last-served model
 // before the next turn reads it to detect a mid-session model switch.
-// pinned_provider is updated to the binding that actually served so per-turn
-// policies receive correct previous-provider cache affinity after fallback.
+// pinned_provider follows the serving binding only when the pinned model (or
+// no model) served, preventing a cross-model rescue from pairing the pinned
+// model with the rescuer's provider.
 // has_ever_switched latches true the first time the just-served model
 // differs from a prior non-empty last_served_model. Caller-supplied model and
 // latch evidence preserves history when the stored role row is new.
@@ -815,17 +819,20 @@ type UpdateSessionPinUsageParams struct {
 //	      ELSE last_output_limit_at
 //	    END,
 //	    pinned_provider          = CASE
-//	      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
-//	        THEN $7::varchar
+//	      WHEN (last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at)
+//	        AND (pinned_model = ''
+//	          OR pinned_model = $7::varchar
+//	          OR starts_with($7::varchar, pinned_model || ':'))
+//	        THEN $8::varchar
 //	      ELSE pinned_provider
 //	    END,
 //	    has_ever_switched        = has_ever_switched
-//	      OR $8::boolean
-//	      OR (last_served_model <> '' AND last_served_model <> $9::varchar)
-//	      OR ($10::varchar <> '' AND $10::varchar <> $9::varchar),
+//	      OR $9::boolean
+//	      OR (last_served_model <> '' AND last_served_model <> $7::varchar)
+//	      OR ($10::varchar <> '' AND $10::varchar <> $7::varchar),
 //	    last_served_model        = CASE
 //	      WHEN last_turn_ended_at IS NULL OR $1::timestamptz >= last_turn_ended_at
-//	        THEN $9::varchar
+//	        THEN $7::varchar
 //	      ELSE last_served_model
 //	    END
 //	WHERE session_key = $11::bytea
@@ -842,9 +849,9 @@ func (q *Queries) UpdateSessionPinUsage(ctx context.Context, arg UpdateSessionPi
 		arg.LastCachedWriteTokens,
 		arg.LastOutputTokens,
 		arg.OutputLimitReached,
+		arg.LastServedModel,
 		arg.LastServedProvider,
 		arg.SessionEverSwitched,
-		arg.LastServedModel,
 		arg.PriorServedModel,
 		arg.SessionKey,
 		arg.Role,
