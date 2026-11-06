@@ -184,14 +184,15 @@ class PackageClassifier:
             raise PackageError(
                 "raw-V5 packages serve only the live conversation snapshot"
             )
-        if (
-            contract.interaction_state.element_lookback_source
+        interaction_state = getattr(contract, "interaction_state", None)
+        if interaction_state is not None and (
+            interaction_state.element_lookback_source
             is ElementLookbackSource.STORED_VECTORS
         ):
             raise PackageError("raw-V5 stored-vector element lookback is not servable")
         profile = contract.resolved_profile()
         self.profile = profile
-        self.interaction_state = contract.interaction_state
+        self.interaction_state = interaction_state
         self.classifier = ComplexityClassifier.load(
             root / "classifier", profile=profile
         )

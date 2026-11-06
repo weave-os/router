@@ -11,6 +11,7 @@ from hmm_sidecar.classifier_release import (
     ClassifierVariantKind,
     ClassifierVariantID,
     classifier_release_id,
+    classifier_taxonomy_bytes,
 )
 
 
@@ -91,6 +92,16 @@ def test_release_manifest_rejects_taxonomy_tampering_and_unknown_fields() -> Non
     unknown_field["mutable_default"] = True
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         ClassifierReleaseManifestV1.model_validate(unknown_field)
+
+
+def test_taxonomy_bytes_match_go_encoding_json_html_escaping() -> None:
+    assert classifier_taxonomy_bytes(["<&>\u2028\u2029"]) == (
+        b'["\\u003c\\u0026\\u003e\\u2028\\u2029"]'
+    )
+    assert (
+        hashlib.sha256(classifier_taxonomy_bytes(["<&>\u2028\u2029"])).hexdigest()
+        == "bf1f62894c7640c81ac0fdaa084c86a1e39d5886f11df541f8617cca246b5058"
+    )
 
 
 def test_qwen_bundle_has_no_fabricated_package_or_embedding_reference() -> None:

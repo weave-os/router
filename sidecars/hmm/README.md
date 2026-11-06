@@ -89,6 +89,24 @@ match the release manifest. The local resolver rejects digest drift or an
 enabled variant without a loaded package during startup. Qwen bundles are not
 supported by this self-hosted package runtime.
 
+### Converting a pinned legacy v8 package
+
+The public helper
+`hmm_sidecar.classifier_package.legacy_conversion.convert_legacy_classifier_package(archive_bytes, expected_sha256)`
+converts a verified `hmm_router_sidecar_package_v8` archive to the
+classifier-only v1 format. It preserves every classifier and HMM file byte,
+the raw-V5 runtime contract, and classifier/HMM training-privacy attestations;
+it removes the roster and arm selector, verifies their source digests, and
+returns a deterministic archive with its SHA-256 and source archive/manifest
+digests. It performs no registry writes or model inference. The v1 runtime
+support is intentionally limited to the frozen Gemini, user-agent-only,
+one-turn window geometry; other raw-v5 v1 shapes fail closed.
+
+Callers must resolve the archive through its canonical `MODEL_ARTIFACT`
+WeaveDataRef and pass that exact `content_sha256` as `expected_sha256`. The
+private publisher then registers the returned bytes as a new artifact and
+records lineage to the source model and WeaveDataRef.
+
 The sidecar also serves `hmm_router_classifier_package_v1` packages whose
 `runtime_contract.input_mode` is `raw_v5_configured_serving_v1`: the format
 Weave's managed router publishes. They use the same variables

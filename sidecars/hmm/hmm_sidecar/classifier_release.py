@@ -72,14 +72,26 @@ class ClassifierTaxonomy(FrozenModel):
 
     @model_validator(mode="after")
     def validate_digest(self) -> ClassifierTaxonomy:
-        encoded = json.dumps(
-            list(self.class_order), separators=(",", ":"), ensure_ascii=False
-        ).encode()
+        encoded = classifier_taxonomy_bytes(self.class_order)
         if hashlib.sha256(encoded).hexdigest() != self.sha256:
             raise ValueError("taxonomy digest does not match class_order")
         if len(set(self.class_order)) != len(self.class_order):
             raise ValueError("taxonomy class_order must not contain duplicates")
         return self
+
+
+def classifier_taxonomy_bytes(class_order: tuple[str, ...] | list[str]) -> bytes:
+    """Encode taxonomy bytes identically to Go encoding/json's HTML escaping."""
+    encoded = json.dumps(list(class_order), separators=(",", ":"), ensure_ascii=False)
+    for character, escape in (
+        ("<", r"\u003c"),
+        (">", r"\u003e"),
+        ("&", r"\u0026"),
+        ("\u2028", r"\u2028"),
+        ("\u2029", r"\u2029"),
+    ):
+        encoded = encoded.replace(character, escape)
+    return encoded.encode("utf-8")
 
 
 class ClassifierVariantManifest(FrozenModel):

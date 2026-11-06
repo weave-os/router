@@ -97,6 +97,11 @@ func TestClassifierReleaseV1SupportsWeaveDataAndQwenBundleSources(t *testing.T) 
 	require.ErrorContains(t, unsupportedAuxiliaryRef.Validate(classifierContractRegistryRoot), "unsupported auxiliary model refs")
 }
 
+func TestClassifierTaxonomyDigestUsesGoJSONHTMLEscaping(t *testing.T) {
+	classOrder := []string{"<&>\u2028\u2029"}
+	require.Equal(t, "bf1f62894c7640c81ac0fdaa084c86a1e39d5886f11df541f8617cca246b5058", TaxonomyDigest(classOrder))
+}
+
 func TestCandidateV3AndSelectionSetV4KeepPhysicalClassifierOutOfTargetSet(t *testing.T) {
 	policyObject := classifierContractPolicy()
 	candidate := CandidateV3{
