@@ -38,10 +38,7 @@ func (s *Service) withClaudeSubscriptionProfile(ctx context.Context, headers htt
 	if len(token) == 0 {
 		return ctx
 	}
-	plan, err := s.claudePlans.Resolve(ctx, token)
-	if err != nil {
-		plan = providers.SubscriptionPlanUnknown
-	}
+	plan := s.claudePlans.Resolve(ctx, token) // Resolver returns Unknown and logs lookup failures.
 	ctx = context.WithValue(ctx, claudeSubscriptionPlanKey{}, plan)
 	if creds != nil {
 		verified := *creds

@@ -2,7 +2,6 @@ package subscriptions
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,7 +14,6 @@ import (
 
 type subscriptionPlanReading struct {
 	plan      providers.SubscriptionPlan
-	err       error
 	expiresAt time.Time
 }
 
@@ -38,21 +36,21 @@ func NewPlanResolver(reader providers.SubscriptionPlanReader, now func() time.Ti
 	return &PlanResolver{reader: reader, now: now, salt: []byte(uuid.NewString()), entries: entries}
 }
 
-// Resolve returns only provider-verified identity; quota observations never
-// classify a plan. Caller cancellation is not cached across requests.
-func (r *PlanResolver) Resolve(ctx context.Context, token []byte) (providers.SubscriptionPlan, error) {
+// Resolve returns Unknown on lookup failure; quota observations never classify
+// a plan. Caller cancellation is not cached across requests.
+func (r *PlanResolver) Resolve(ctx context.Context, token []byte) providers.SubscriptionPlan {
 	if err := ctx.Err(); err != nil {
-		return providers.SubscriptionPlanUnknown, err
+		return providers.SubscriptionPlanUnknown
 	}
 	key := usage.KeyFor(r.salt, token)
 	if reading, cached := r.entries.Get(key); cached && reading.expiresAt.After(r.now()) {
-		return reading.plan, reading.err
+		return reading.plan
 	}
 	result := r.lookups.DoChan(string(key), func() (lookupReading any, lookupErr error) {
 		defer func() {
 			if recover() != nil {
 				observability.FromContext(ctx).Error("Claude subscription profile lookup panicked")
-				reading := subscriptionPlanReading{plan: providers.SubscriptionPlanUnknown, err: errors.New("subscription profile lookup panicked"), expiresAt: r.now().Add(15 * time.Second)}
+				reading := subscriptionPlanReading{plan: providers.SubscriptionPlanUnknown, expiresAt: r.now().Add(15 * time.Second)}
 				r.entries.Add(key, reading)
 				lookupReading, lookupErr = reading, nil
 			}
@@ -71,15 +69,15 @@ func (r *PlanResolver) Resolve(ctx context.Context, token []byte) (providers.Sub
 			plan = providers.SubscriptionPlanUnknown
 			ttl = 15 * time.Second
 		}
-		reading := subscriptionPlanReading{plan: plan, err: err, expiresAt: r.now().Add(ttl)}
+		reading := subscriptionPlanReading{plan: plan, expiresAt: r.now().Add(ttl)}
 		r.entries.Add(key, reading)
 		return reading, nil
 	})
 	select {
 	case <-ctx.Done():
-		return providers.SubscriptionPlanUnknown, ctx.Err()
+		return providers.SubscriptionPlanUnknown
 	case outcome := <-result:
 		reading := outcome.Val.(subscriptionPlanReading)
-		return reading.plan, reading.err
+		return reading.plan
 	}
 }
