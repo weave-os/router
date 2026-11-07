@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 
 	"weave-os/router/internal/trafficcapture"
 )
@@ -42,11 +41,7 @@ func newTrafficCaptureFromEnvironment() (*jsonlTrafficCapture, error) {
 	if err := os.MkdirAll(directory, trafficCaptureDirectoryPermissions); err != nil {
 		return nil, fmt.Errorf("create HTTP capture directory: %w", err)
 	}
-	file, err := os.OpenFile(
-		path,
-		os.O_CREATE|os.O_WRONLY|os.O_APPEND|syscall.O_NOFOLLOW|syscall.O_NONBLOCK,
-		trafficCaptureFilePermissions,
-	)
+	file, err := openCaptureFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("open HTTP capture file: %w", err)
 	}
