@@ -1,0 +1,159 @@
+package policyclient
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
+)
+
+const (
+	classifierV5SelectionID = "a111111111111111111111111111111111111111111111111111111111111111"
+	classifierV5ReleaseID   = "b222222222222222222222222222222222222222222222222222222222222222"
+	classifierV5ArtifactSHA = "c333333333333333333333333333333333333333333333333333333333333333"
+)
+
+func TestClassifierV5ClientPinsReleaseAndKeepsCallbacksOnIntegrationClient(t *testing.T) {
+	var routeRequests []map[string]any
+	classifierServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodGet {
+			require.Equal(t, "/v5/capabilities", request.URL.Path)
+			assert.Equal(t, classifierV5SelectionID, request.URL.Query().Get("classifier_selection_id"))
+			assert.Equal(t, classifierV5ReleaseID, request.URL.Query().Get("classifier_release_id"))
+			_ = json.NewEncoder(w).Encode(ClassifierCapabilitiesV5{
+				SchemaVersion: policy.SchemaVersionV5, APIMajor: policy.ClassifierAPIMajorV5,
+				ClassifierSelectionID: classifierV5SelectionID, ClassifierReleaseID: classifierV5ReleaseID,
+				WireSchema: policy.SchemaVersionV5, ClassOrder: []string{"fast", "maximum"},
+				TaxonomySHA256:     taxonomyDigest([]string{"fast", "maximum"}),
+				ClassifierVariants: []policy.ClassifierVariantID{policy.ClassifierVariantPrimary, policy.ClassifierVariantQwen},
+				SupportsPreview:    true,
+			})
+			return
+		}
+		var requestPayload map[string]any
+		require.NoError(t, json.NewDecoder(request.Body).Decode(&requestPayload))
+		routeRequests = append(routeRequests, requestPayload)
+		assert.Contains(t, []string{"/v5/classify", "/v5/preview"}, request.URL.Path)
+		_ = json.NewEncoder(w).Encode(classifierResponseV5{
+			SchemaVersion: policy.SchemaVersionV5, RequestID: requestPayload["request_id"].(string),
+			ClassifierSelectionID: classifierV5SelectionID, ClassifierReleaseID: classifierV5ReleaseID,
+			ClassifierVariantID: policy.ClassifierVariantQwen, ClassifierArtifactID: "qwen-v5",
+			ClassifierArtifactSHA256: classifierV5ArtifactSHA, ClassifierTaxonomySHA256: taxonomyDigest([]string{"fast", "maximum"}),
+			PredictedLabel: "fast", ClassOrder: []string{"fast", "maximum"},
+			ClassProbabilities:   map[string]float64{"fast": 0.7, "maximum": 0.3},
+			ClassifierConfidence: 0.7, ClassifierMargin: 0.4,
+		})
+	}))
+	defer classifierServer.Close()
+
+	var integrationPaths []string
+	integrationServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		integrationPaths = append(integrationPaths, request.URL.Path)
+		if request.URL.Path == "/capabilities" {
+			_ = json.NewEncoder(w).Encode(policy.Capabilities{
+				SchemaVersion: policy.SchemaVersionV4, ReportsOutcomes: true, ReportsFeedback: true,
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer integrationServer.Close()
+
+	integrationClient := New(integrationServer.URL, nil, time.Second)
+	classifierClient := New(classifierServer.URL, nil, time.Second)
+	combined, err := NewWithClassifierService(integrationClient, classifierClient)
+	require.NoError(t, err)
+
+	capabilities, err := combined.CapabilitiesForClassifierRelease(context.Background(), classifierV5SelectionID, classifierV5ReleaseID)
+	require.NoError(t, err)
+	assert.Equal(t, policy.SchemaVersionV5, capabilities.SchemaVersion)
+	assert.Equal(t, []string{"fast", "maximum"}, capabilities.ClassOrder)
+	assert.True(t, capabilities.ReportsOutcomes)
+	assert.True(t, capabilities.ReportsFeedback)
+
+	query := policy.Query{
+		SchemaVersion: policy.SchemaVersionV5, ExecutionMode: policy.ExecutionModeServing,
+		ClassifierReleaseID: classifierV5ReleaseID, ClassifierSelectionID: classifierV5SelectionID,
+		ClassifierVariantID: policy.ClassifierVariantQwen, RouteID: "route-v5",
+		ClientSessionID: "opaque-client-session", PromptText: "fix this",
+		Candidates:      []policy.Candidate{{RosterID: "openai/gpt-6-sol", Provider: "openai"}},
+		PreferredModels: []string{"openai/gpt-6-sol"}, TrainingAllowed: true,
+	}
+	decision, err := combined.Decide(context.Background(), query)
+	require.NoError(t, err)
+	assert.Equal(t, "qwen-v5", decision.PolicyArtifactID)
+	assert.Equal(t, classifierV5ReleaseID, decision.ClassifierReleaseID)
+	assert.Equal(t, classifierV5SelectionID, decision.ClassifierSelectionID)
+	assert.Equal(t, policy.ClassifierVariantQwen, decision.ClassifierVariantID)
+	assert.Nil(t, decision.HMMStatePath, "non-HMM variants do not receive fabricated state facts")
+
+	query.ExecutionMode = policy.ExecutionModePreview
+	preview, err := combined.Preview(context.Background(), query)
+	require.NoError(t, err)
+	assert.Equal(t, classifierV5ReleaseID, preview.ClassifierReleaseID)
+	assert.Equal(t, classifierV5SelectionID, preview.ClassifierSelectionID)
+
+	require.Len(t, routeRequests, 2)
+	for _, requestPayload := range routeRequests {
+		assert.Equal(t, classifierV5ReleaseID, requestPayload["classifier_release_id"])
+		assert.Equal(t, classifierV5SelectionID, requestPayload["classifier_selection_id"])
+		assert.Equal(t, "qwen", requestPayload["classifier_variant_id"])
+		assert.Equal(t, "opaque-client-session", requestPayload["session_id"])
+		assert.NotContains(t, requestPayload, "candidates")
+		assert.NotContains(t, requestPayload, "candidate_models")
+		assert.NotContains(t, requestPayload, "preferred_models")
+		assert.NotContains(t, requestPayload, "training_allowed")
+	}
+
+	require.NoError(t, combined.ReportOutcome(context.Background(), map[string]interface{}{"status": "ok"}))
+	assert.Equal(t, []string{"/capabilities", "/outcome"}, integrationPaths)
+}
+
+func TestClassifierV5WrongReleaseIdentityIsAPinError(t *testing.T) {
+	classifierServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(w).Encode(classifierResponseV5{
+			SchemaVersion: policy.SchemaVersionV5, RequestID: "route-v5",
+			ClassifierSelectionID: "d" + strings.Repeat("1", 63), ClassifierReleaseID: classifierV5ReleaseID,
+			ClassifierVariantID: policy.ClassifierVariantPrimary, ClassifierArtifactID: "hmm-v5",
+			ClassifierArtifactSHA256: classifierV5ArtifactSHA, ClassifierTaxonomySHA256: taxonomyDigest([]string{"fast", "maximum"}),
+			PredictedLabel: "fast", ClassOrder: []string{"fast", "maximum"},
+			ClassProbabilities:   map[string]float64{"fast": 0.7, "maximum": 0.3},
+			ClassifierConfidence: 0.7, ClassifierMargin: 0.4,
+		})
+	}))
+	defer classifierServer.Close()
+	client, err := NewWithClassifierService(New(classifierServer.URL, nil, time.Second), New(classifierServer.URL, nil, time.Second))
+	require.NoError(t, err)
+	_, err = client.Decide(context.Background(), policy.Query{
+		SchemaVersion: policy.SchemaVersionV5, ClassifierReleaseID: classifierV5ReleaseID,
+		ClassifierSelectionID: classifierV5SelectionID, ClassifierVariantID: policy.ClassifierVariantPrimary,
+		RouteID: "route-v5", ExecutionMode: policy.ExecutionModeServing,
+	})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, router.ErrPolicyPinUnavailable))
+}
+
+func TestClassifierV5UnknownReleaseIsAPinError(t *testing.T) {
+	classifierServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"detail":"unknown classifier release"}`))
+	}))
+	defer classifierServer.Close()
+	client := New(classifierServer.URL, nil, time.Second)
+	_, err := client.Decide(context.Background(), policy.Query{
+		SchemaVersion: policy.SchemaVersionV5, ClassifierReleaseID: classifierV5ReleaseID,
+		ClassifierSelectionID: classifierV5SelectionID, ClassifierVariantID: policy.ClassifierVariantPrimary,
+		RouteID: "route-v5", ExecutionMode: policy.ExecutionModeServing,
+	})
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, router.ErrPolicyPinUnavailable))
+}

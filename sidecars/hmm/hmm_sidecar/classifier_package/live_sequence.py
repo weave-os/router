@@ -34,11 +34,15 @@ from hmm_sidecar.classifier_package.documents import (
     # Intentionally share the trainer's one exact budget/window implementation;
     # reproducing it here would create a second model-input serializer.
     _bounded_gemini_agent_message_document,
+    _bounded_gemini_turn_window_document,
     _bounded_gemini_user_message_document,
     format_router_agent_response_only_document,
 )
 from hmm_sidecar.classifier_package.serving_profile import (
+    DocumentWindow,
+    EmbeddingProvider,
     ServingProfile,
+    ToolEvidenceMode,
 )
 from hmm_sidecar.classifier_package.serving_features import CATEGORICAL_DIM
 
@@ -448,8 +452,9 @@ def _agent_document(
 
 def _window_turns(
     source_turns: list[LiveFlowTurn],
+    profile: ServingProfile,
 ) -> list[LiveFlowTurn]:
-    """Validate the causal U/A order and embed each element alone.
+    """Validate causal U/A order and apply the pinned window representation.
 
     ``source_turns`` are the per-element raw documents in causal order, ending
     at the routed user boundary.
@@ -466,7 +471,55 @@ def _window_turns(
             )
     if source_turns[-1].categorical != user_categorical():
         raise DocumentError("raw V5 live sequence final element is not a user boundary")
-    return _per_message_turns(source_turns)
+    if profile.config.document_window is DocumentWindow.PER_MESSAGE:
+        return _per_message_turns(source_turns)
+    if (
+        profile.config.provider is not EmbeddingProvider.GEMINI
+        or profile.config.tool_evidence is not ToolEvidenceMode.USER_AGENT_ONLY
+        or profile.config.document_window is not DocumentWindow.TURN_WINDOW
+        or profile.config.lookback_rounds != 1
+    ):
+        raise DocumentError("unsupported legacy raw-V5 turn-window geometry")
+
+    output: list[LiveFlowTurn] = []
+    for offset in range(0, len(source_turns) - 1, 2):
+        user_turn = source_turns[offset]
+        agent_turn = source_turns[offset + 1]
+        output.extend(
+            (
+                LiveFlowTurn(
+                    turn_text=_bounded_gemini_turn_window_document(
+                        previous_turns=(),
+                        current_user_text=user_turn.turn_text,
+                        current_agent_text=None,
+                        max_turns=profile.config.lookback_rounds,
+                    ),
+                    categorical=user_turn.categorical,
+                ),
+                LiveFlowTurn(
+                    turn_text=_bounded_gemini_turn_window_document(
+                        previous_turns=(),
+                        current_user_text=user_turn.turn_text,
+                        current_agent_text=agent_turn.turn_text,
+                        max_turns=profile.config.lookback_rounds,
+                    ),
+                    categorical=agent_turn.categorical,
+                ),
+            )
+        )
+    final_user = source_turns[-1]
+    output.append(
+        LiveFlowTurn(
+            turn_text=_bounded_gemini_turn_window_document(
+                previous_turns=(),
+                current_user_text=final_user.turn_text,
+                current_agent_text=None,
+                max_turns=profile.config.lookback_rounds,
+            ),
+            categorical=final_user.categorical,
+        )
+    )
+    return output
 
 
 def _per_message_turns(source_turns: list[LiveFlowTurn]) -> list[LiveFlowTurn]:
@@ -581,6 +634,7 @@ def conversation_sequence_turns(
                             categorical=user_categorical(),
                         )
                     ],
+                    package_profile,
                 ),
                 {
                     "history_message_count": 0,
@@ -910,6 +964,7 @@ def conversation_sequence_turns(
                             categorical=user_categorical(),
                         )
                     ],
+                    package_profile,
                 ),
                 {
                     "history_message_count": len(messages),
@@ -942,7 +997,7 @@ def conversation_sequence_turns(
     elements = truncate_sequence_elements(elements, max_elements)
     if package_profile is not None:
         return _finalize_live_turns(
-            _window_turns(elements),
+            _window_turns(elements, package_profile),
             {
                 "history_message_count": len(messages),
                 "hmm_sequence_length_before_truncation": (

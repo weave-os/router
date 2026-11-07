@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+
+	"weave-os/router/internal/router/policy"
 )
 
 const (
@@ -24,11 +26,25 @@ type WorkerValidationRequest struct {
 
 // WorkerAttestation reports capabilities from the selected destination binary after snapshot smoke.
 type WorkerAttestation struct {
-	Identity     WorkerIdentity      `json:"identity"`
-	Requirements ServingRequirements `json:"requirements"`
-	CatalogArms  []string            `json:"catalog_arms"`
-	Selection    ServingSelection    `json:"selection"`
-	Ready        bool                `json:"ready"`
+	Identity           WorkerIdentity              `json:"identity"`
+	Requirements       ServingRequirements         `json:"requirements"`
+	SupportedAPIMajors []policy.ClassifierAPIMajor `json:"supported_api_majors,omitempty"`
+	CatalogArms        []string                    `json:"catalog_arms"`
+	Selection          ServingSelection            `json:"selection"`
+	Ready              bool                        `json:"ready"`
+}
+
+// ClassifierServiceAttestation is the strict v5 capability contract returned by the stable gateway.
+type ClassifierServiceAttestation struct {
+	SchemaVersion         string                       `json:"schema_version"`
+	APIMajor              policy.ClassifierAPIMajor    `json:"api_major"`
+	ClassifierSelectionID string                       `json:"classifier_selection_id"`
+	ClassifierReleaseID   string                       `json:"classifier_release_id"`
+	WireSchema            string                       `json:"wire_schema"`
+	ClassOrder            []string                     `json:"class_order"`
+	TaxonomySHA256        string                       `json:"classifier_taxonomy_sha256"`
+	ClassifierVariants    []policy.ClassifierVariantID `json:"classifier_variants"`
+	SupportsPreview       bool                         `json:"supports_preview"`
 }
 
 // ClassifierAttestation includes the complete loaded bundle so auxiliary/config changes cannot hide behind image reuse.
@@ -45,6 +61,11 @@ type ClassifierAttestation struct {
 type DestinationEndpoints interface {
 	ValidateWorker(context.Context, RevisionBinding, WorkerValidationRequest) (WorkerAttestation, error)
 	AttestClassifier(context.Context, RevisionBinding) (ClassifierAttestation, error)
+}
+
+// ClassifierServiceAttestationEndpoints validates a logical release through the stable gateway.
+type ClassifierServiceAttestationEndpoints interface {
+	AttestClassifierService(context.Context, ClassifierServiceBinding, string, string) (ClassifierServiceAttestation, error)
 }
 
 // DestinationValidator validates destination runtime capabilities rather than the controller's catalog.
@@ -115,10 +136,21 @@ type workerAttestationResult struct {
 // failure keeps the activation closed instead of admitting a lane on an endpoint retry. Every
 // per-lane comparison still runs against each lane's own candidate composition.
 type activationValidator struct {
-	endpoints   DestinationEndpoints
-	classifiers map[RevisionBinding]classifierAttestationResult
-	workers     map[workerAttestationKey]workerAttestationResult
-	stats       ValidationStats
+	endpoints          DestinationEndpoints
+	classifiers        map[RevisionBinding]classifierAttestationResult
+	classifierServices map[classifierServiceAttestationKey]classifierServiceAttestationResult
+	workers            map[workerAttestationKey]workerAttestationResult
+	stats              ValidationStats
+}
+
+type classifierServiceAttestationKey struct {
+	SelectionID string
+	ReleaseID   string
+}
+
+type classifierServiceAttestationResult struct {
+	attestation ClassifierServiceAttestation
+	err         error
 }
 
 func (a *activationValidator) ValidatePreparedSelection(ctx context.Context, prepared PreparedSelection) error {
@@ -141,6 +173,22 @@ func (a *activationValidator) AttestClassifier(ctx context.Context, binding Revi
 	return attestation, err
 }
 
+func (a *activationValidator) AttestClassifierService(ctx context.Context, binding ClassifierServiceBinding, selectionID, releaseID string) (ClassifierServiceAttestation, error) {
+	key := classifierServiceAttestationKey{SelectionID: selectionID, ReleaseID: releaseID}
+	if memoized, exists := a.classifierServices[key]; exists {
+		a.stats.CacheHits++
+		return memoized.attestation, memoized.err
+	}
+	endpoints, ok := a.endpoints.(ClassifierServiceAttestationEndpoints)
+	if !ok {
+		return ClassifierServiceAttestation{}, errors.New("classifier service attestation endpoint is required for v5 selections")
+	}
+	a.stats.HTTPCalls++
+	attestation, err := endpoints.AttestClassifierService(ctx, binding, selectionID, releaseID)
+	a.classifierServices[key] = classifierServiceAttestationResult{attestation: attestation, err: err}
+	return attestation, err
+}
+
 func (a *activationValidator) ValidateWorker(ctx context.Context, binding RevisionBinding, request WorkerValidationRequest) (WorkerAttestation, error) {
 	key := newWorkerAttestationKey(binding, request)
 	if memoized, exists := a.workers[key]; exists {
@@ -159,16 +207,22 @@ func (v DestinationValidator) ValidatePreparedSelection(ctx context.Context, pre
 	if v.Endpoints == nil {
 		return errors.New("destination validator requires private revision endpoints")
 	}
-	classifier, err := v.Endpoints.AttestClassifier(ctx, prepared.Binding.Classifier)
-	if err != nil {
-		return fmt.Errorf("attest classifier revision %q (full serving attestation is required): %w", prepared.Binding.Classifier.Name, err)
-	}
-	identity := prepared.Candidate.Classifier.Identity
-	if !classifier.Ready || classifier.Revision != prepared.Binding.Classifier.Name || !classifier.Identity.Equal(identity) {
-		return errors.New("classifier readiness, revision or core identity does not match the selected bundle")
-	}
-	if classifier.Package != prepared.Candidate.Classifier.Package || classifier.Configuration != prepared.Candidate.Classifier.Configuration || classifier.AuxiliaryModels == nil || !maps.Equal(classifier.AuxiliaryModels, prepared.Candidate.Classifier.AuxiliaryModels) {
-		return errors.New("classifier loaded package, auxiliary model inventory or configuration differs from the selected bundle")
+	if prepared.ClassifierServiceBinding != nil {
+		if err := validateClassifierServiceAttestation(ctx, v.Endpoints, prepared); err != nil {
+			return err
+		}
+	} else {
+		classifier, err := v.Endpoints.AttestClassifier(ctx, prepared.Binding.Classifier)
+		if err != nil {
+			return fmt.Errorf("attest classifier revision %q (full serving attestation is required): %w", prepared.Binding.Classifier.Name, err)
+		}
+		identity := prepared.Candidate.Classifier.Identity
+		if !classifier.Ready || classifier.Revision != prepared.Binding.Classifier.Name || !classifier.Identity.Equal(identity) {
+			return errors.New("classifier readiness, revision or core identity does not match the selected bundle")
+		}
+		if classifier.Package != prepared.Candidate.Classifier.Package || classifier.Configuration != prepared.Candidate.Classifier.Configuration || classifier.AuxiliaryModels == nil || !maps.Equal(classifier.AuxiliaryModels, prepared.Candidate.Classifier.AuxiliaryModels) {
+			return errors.New("classifier loaded package, auxiliary model inventory or configuration differs from the selected bundle")
+		}
 	}
 	worker, err := v.Endpoints.ValidateWorker(ctx, prepared.Binding.Router, WorkerValidationRequest{Target: prepared.Target, ProfileKey: prepared.ProfileKey, Selection: prepared.Selection})
 	if err != nil {
@@ -177,6 +231,9 @@ func (v DestinationValidator) ValidatePreparedSelection(ctx context.Context, pre
 	expected := WorkerIdentity{Target: prepared.Target, Project: prepared.Binding.Project, Region: prepared.Binding.Region, Revision: prepared.Binding.Router.Name, ImageDigest: prepared.Binding.Router.ImageDigest, Configuration: prepared.Binding.Router.Configuration}
 	if !worker.Ready || worker.Identity != expected || worker.Requirements != prepared.Candidate.Requirements || !sameSelection(worker.Selection, prepared.Selection) {
 		return errors.New("worker readiness, identity, requirements or validated snapshot differs from the prepared selection")
+	}
+	if len(prepared.Candidate.SupportedAPIMajors) > 0 && !slices.Equal(worker.SupportedAPIMajors, prepared.Candidate.SupportedAPIMajors) {
+		return errors.New("worker supported classifier APIs differ from candidate requirements")
 	}
 	for _, arm := range prepared.Policy.AllArms() {
 		if !slices.Contains(worker.CatalogArms, arm) {
@@ -189,6 +246,29 @@ func (v DestinationValidator) ValidatePreparedSelection(ctx context.Context, pre
 				return fmt.Errorf("%s strategy policy arm %q is absent from the destination worker catalog", strategy, arm)
 			}
 		}
+	}
+	return nil
+}
+
+func validateClassifierServiceAttestation(ctx context.Context, endpoints DestinationEndpoints, prepared PreparedSelection) error {
+	if prepared.ClassifierReleaseV5 == nil {
+		return errors.New("v5 selection has no logical classifier release")
+	}
+	attestor, ok := endpoints.(ClassifierServiceAttestationEndpoints)
+	if !ok {
+		return errors.New("classifier service attestation endpoint is required for v5 selections")
+	}
+	selectionID := prepared.Selection.Binding.SHA256
+	release := prepared.ClassifierReleaseV5
+	attestation, err := attestor.AttestClassifierService(ctx, *prepared.ClassifierServiceBinding, selectionID, prepared.ClassifierServiceBinding.Release.SHA256)
+	if err != nil {
+		return fmt.Errorf("attest logical classifier service release %q: %w", prepared.ClassifierServiceBinding.Release.SHA256, err)
+	}
+	if attestation.SchemaVersion != policy.SchemaVersionV5 || attestation.APIMajor != release.APIMajor || attestation.WireSchema != release.WireSchema ||
+		attestation.ClassifierSelectionID != selectionID || attestation.ClassifierReleaseID != prepared.ClassifierServiceBinding.Release.SHA256 ||
+		attestation.TaxonomySHA256 != release.Taxonomy.SHA256 || !slices.Equal(attestation.ClassOrder, release.Taxonomy.ClassOrder) ||
+		!slices.Equal(attestation.ClassifierVariants, prepared.ClassifierServiceBinding.EnabledVariants) || !attestation.SupportsPreview {
+		return errors.New("classifier gateway readiness or v5 capabilities differ from the selected release binding")
 	}
 	return nil
 }

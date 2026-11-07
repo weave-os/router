@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"slices"
 
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/armid"
+	routerpolicy "weave-os/router/internal/router/policy"
 )
 
 type servingSnapshotContextKey struct{}
@@ -144,6 +146,20 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 		},
 		Policy:             prepared.Policy,
 		ClassifierAudience: prepared.Binding.Classifier.Audience,
+	}
+	if prepared.ClassifierReleaseV5 != nil && prepared.ClassifierServiceBinding != nil {
+		candidate.ClassifierReleaseV5 = prepared.ClassifierReleaseV5
+		candidate.ClassifierReleaseID = prepared.ClassifierServiceBinding.Release.SHA256
+		candidate.ClassifierSelectionID = admission.Selection.Binding.SHA256
+		candidate.ClassifierServiceURL = prepared.ClassifierServiceBinding.ServiceURL
+		candidate.ClassifierAudience = prepared.ClassifierServiceBinding.Audience
+		candidate.ClassifierEnabledVariants = slices.Clone(prepared.ClassifierServiceBinding.EnabledVariants)
+		candidate.SupportedAPIMajors = slices.Clone(prepared.Candidate.SupportedAPIMajors)
+		candidate.ClassifierSupportedVariants = make([]routerpolicy.ClassifierVariantID, 0, len(prepared.ClassifierReleaseV5.Variants))
+		for variantID := range prepared.ClassifierReleaseV5.Variants {
+			candidate.ClassifierSupportedVariants = append(candidate.ClassifierSupportedVariants, variantID)
+		}
+		slices.Sort(candidate.ClassifierSupportedVariants)
 	}
 	candidate.StrategyPolicies = prepared.StrategyPolicies
 	routers, err := c.builder(ctx, candidate)
