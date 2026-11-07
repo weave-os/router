@@ -255,6 +255,10 @@ func (s *Service) SubscriberEnrollmentOwner(ctx context.Context, subscriberID st
 // authenticated owner.
 var ErrSubscriptionAccountNotFound = errors.New("subscription account not found")
 
+// ErrSubscriptionAccountHeldByAnotherOwner means the provider account is
+// already linked under a different owner, so enrollment cannot claim it.
+var ErrSubscriptionAccountHeldByAnotherOwner = errors.New("subscription account is linked to another owner")
+
 // ErrSubscriptionRefreshConflict means the lease or credential version no longer
 // permits this refresher to publish tokens or record a failure.
 var ErrSubscriptionRefreshConflict = errors.New("subscription refresh lost race")

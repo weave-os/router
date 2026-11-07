@@ -27,6 +27,7 @@ type loginAccountRepo struct {
 	internalSubscriptionAccountRepo
 	enrolled          *auth.CreateSubscriptionAccountParams
 	withoutRoutingKey bool
+	upsertErr         error
 }
 
 const (
@@ -43,6 +44,9 @@ func (r *loginAccountRepo) SubscriberEnrollmentOwner(_ context.Context, subscrib
 
 func (r *loginAccountRepo) UpsertSubscriptionAccount(_ context.Context, params auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, auth.SubscriptionUpsertKind, error) {
 	r.enrolled = &params
+	if r.upsertErr != nil {
+		return nil, auth.SubscriptionUpsertUpdated, r.upsertErr
+	}
 	return &auth.SubscriptionAccount{ID: testAccountID, Provider: params.Provider, ExternalAccountID: params.ExternalAccountID, Enabled: true, State: "unknown"}, auth.SubscriptionUpsertKind(""), nil
 }
 
@@ -160,4 +164,15 @@ func TestBrowserLoginWithoutRoutingKeyKeepsTheProviderCodeUnspent(t *testing.T) 
 	require.Contains(t, recorder.Body.String(), "routing_key_required")
 	require.Empty(t, flow.completionAttempts)
 	require.Nil(t, repo.enrolled)
+}
+
+func TestBrowserLoginReportsAccountLinkedToAnotherOwner(t *testing.T) {
+	repo := &loginAccountRepo{upsertErr: auth.ErrSubscriptionAccountHeldByAnotherOwner}
+	flow := &fakeLoginFlow{}
+	engine := loginTestEngine(t, repo, flow)
+	token := startLogin(t, engine)
+
+	recorder := postLogin(t, engine, "/internal/v1/subscription-logins/"+testSubscriberID+"/complete", map[string]string{"login_token": token, "code": "code#state-1"})
+	require.Equal(t, http.StatusConflict, recorder.Code, recorder.Body.String())
+	require.Contains(t, recorder.Body.String(), "subscription_account_linked_elsewhere")
 }
