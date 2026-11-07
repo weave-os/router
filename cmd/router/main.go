@@ -632,8 +632,9 @@ func main() {
 	}
 
 	// Fans out Pub/Sub invalidations to this replica's cache; the 5-min TTL
-	// is the safety net if the listener falls behind.
-	subCtx, subCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// is the safety net if the listener falls behind. The budget covers a few
+	// create retries and stays inside the 3-minute Cloud Run startup probe.
+	subCtx, subCancel := context.WithTimeout(context.Background(), 90*time.Second)
 	subscriptionName, deleteSubscription, err := routerpubsub.CreateReplicaSubscription(
 		subCtx, pubsubClient, pubsubProjectID, pubsubTopicID, pubsubSubscriptionPrefix,
 	)
