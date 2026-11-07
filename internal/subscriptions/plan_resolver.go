@@ -1,4 +1,4 @@
-package auth
+package subscriptions
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/sync/singleflight"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 )
@@ -17,8 +18,8 @@ type subscriptionPlanReading struct {
 	expiresAt time.Time
 }
 
-// SubscriptionPlans owns credential-scoped provider identity and lookup freshness.
-type SubscriptionPlans struct {
+// PlanResolver owns credential-scoped provider identity and lookup freshness.
+type PlanResolver struct {
 	reader  providers.SubscriptionPlanReader
 	now     func() time.Time
 	salt    []byte
@@ -26,19 +27,19 @@ type SubscriptionPlans struct {
 	lookups singleflight.Group
 }
 
-// NewSubscriptionPlans keeps successful readings for five minutes and failures
+// NewPlanResolver keeps successful readings for five minutes and failures
 // for fifteen seconds. Cache keys use the subscription observer's keyed index.
-func NewSubscriptionPlans(reader providers.SubscriptionPlanReader, now func() time.Time) *SubscriptionPlans {
+func NewPlanResolver(reader providers.SubscriptionPlanReader, now func() time.Time) *PlanResolver {
 	if now == nil {
 		now = time.Now
 	}
 	entries, _ := lru.New[usage.CredentialKey, subscriptionPlanReading](4096)
-	return &SubscriptionPlans{reader: reader, now: now, salt: []byte(uuid.NewString()), entries: entries}
+	return &PlanResolver{reader: reader, now: now, salt: []byte(uuid.NewString()), entries: entries}
 }
 
 // Resolve returns only provider-verified identity; quota observations never
 // classify a plan. Caller cancellation is not cached across requests.
-func (r *SubscriptionPlans) Resolve(ctx context.Context, token []byte) (providers.SubscriptionPlan, error) {
+func (r *PlanResolver) Resolve(ctx context.Context, token []byte) (providers.SubscriptionPlan, error) {
 	if err := ctx.Err(); err != nil {
 		return providers.SubscriptionPlanUnknown, err
 	}
@@ -53,6 +54,9 @@ func (r *SubscriptionPlans) Resolve(ctx context.Context, token []byte) (provider
 		profileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		defer cancel()
 		plan, err := r.reader.SubscriptionPlan(profileCtx, token)
+		if err != nil {
+			observability.FromContext(ctx).Warn("Claude subscription profile unavailable", "err", err)
+		}
 		ttl := 5 * time.Minute
 		if err != nil || plan == providers.SubscriptionPlanUnknown {
 			plan = providers.SubscriptionPlanUnknown

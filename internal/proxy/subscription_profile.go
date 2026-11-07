@@ -4,9 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"weave-os/router/internal/auth"
-	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/subscriptions"
 )
 
 type claudeSubscriptionPlanKey struct{}
@@ -16,7 +15,7 @@ type claudeSubscriptionPlanKey struct{}
 func (s *Service) WithClaudeSubscriptionPlanReader(reader providers.SubscriptionPlanReader) *Service {
 	s.claudePlans = nil
 	if reader != nil {
-		s.claudePlans = auth.NewSubscriptionPlans(reader, s.clockNow)
+		s.claudePlans = subscriptions.NewPlanResolver(reader, s.clockNow)
 	}
 	return s
 }
@@ -41,7 +40,7 @@ func (s *Service) withClaudeSubscriptionProfile(ctx context.Context, headers htt
 	}
 	plan, err := s.claudePlans.Resolve(ctx, token)
 	if err != nil {
-		observability.FromContext(ctx).Warn("Claude subscription profile unavailable", "err", err)
+		plan = providers.SubscriptionPlanUnknown
 	}
 	ctx = context.WithValue(ctx, claudeSubscriptionPlanKey{}, plan)
 	if creds != nil {

@@ -1,16 +1,20 @@
-package auth_test
+package subscriptions_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/subscriptions"
 )
 
 type planReaderFunc func(context.Context, []byte) (providers.SubscriptionPlan, error)
@@ -23,18 +27,21 @@ func TestSubscriptionPlansRetryUnknownIdentityAfterNegativeTTL(t *testing.T) {
 	now := time.Unix(1_790_000_000, 0)
 	lookupErr := errors.New("synthetic profile failure")
 	calls := 0
-	plans := auth.NewSubscriptionPlans(planReaderFunc(func(context.Context, []byte) (providers.SubscriptionPlan, error) {
+	plans := subscriptions.NewPlanResolver(planReaderFunc(func(context.Context, []byte) (providers.SubscriptionPlan, error) {
 		calls++
 		if calls == 1 {
 			return providers.SubscriptionPlanUnknown, lookupErr
 		}
 		return providers.SubscriptionPlanEnterprise, nil
 	}), func() time.Time { return now })
+	var logs bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&logs, nil)))
 	for range 2 {
-		plan, err := plans.Resolve(context.Background(), []byte("synthetic-token"))
+		plan, err := plans.Resolve(ctx, []byte("synthetic-token"))
 		require.ErrorIs(t, err, lookupErr)
 		require.Equal(t, providers.SubscriptionPlanUnknown, plan)
 	}
+	require.Equal(t, 1, strings.Count(logs.String(), "Claude subscription profile unavailable"), "negative-cache hits must not repeat the provider failure log")
 	now = now.Add(16 * time.Second)
 	plan, err := plans.Resolve(context.Background(), []byte("synthetic-token"))
 	require.NoError(t, err)
@@ -43,7 +50,7 @@ func TestSubscriptionPlansRetryUnknownIdentityAfterNegativeTTL(t *testing.T) {
 }
 
 func TestCanceledProfileLookupDoesNotPoisonOtherRequests(t *testing.T) {
-	plans := auth.NewSubscriptionPlans(planReaderFunc(func(ctx context.Context, token []byte) (providers.SubscriptionPlan, error) {
+	plans := subscriptions.NewPlanResolver(planReaderFunc(func(ctx context.Context, token []byte) (providers.SubscriptionPlan, error) {
 		return providers.SubscriptionPlanMax, nil
 	}), time.Now)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -60,7 +67,7 @@ func TestConcurrentProfileLookupsShareOneRequest(t *testing.T) {
 	var calls atomic.Int32
 	var once sync.Once
 	started, release := make(chan struct{}), make(chan struct{})
-	plans := auth.NewSubscriptionPlans(planReaderFunc(func(context.Context, []byte) (providers.SubscriptionPlan, error) {
+	plans := subscriptions.NewPlanResolver(planReaderFunc(func(context.Context, []byte) (providers.SubscriptionPlan, error) {
 		calls.Add(1)
 		once.Do(func() { close(started) })
 		<-release
