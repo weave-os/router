@@ -100,13 +100,17 @@ func TestConcurrentProfileLookupsShareOneRequest(t *testing.T) {
 
 func TestProfileReaderPanicReturnsUnknownWithoutLeakingPanicValue(t *testing.T) {
 	var calls atomic.Int32
+	var logs bytes.Buffer
 	plans := subscriptions.NewPlanResolver(planReaderFunc(func(context.Context, []byte) (providers.SubscriptionPlan, error) {
 		calls.Add(1)
 		panic("synthetic-sensitive-panic")
 	}), time.Now)
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&logs, nil)))
 	for range 2 {
-		plan := plans.Resolve(context.Background(), []byte("synthetic-token"))
+		plan := plans.Resolve(ctx, []byte("synthetic-token"))
 		require.Equal(t, providers.SubscriptionPlanUnknown, plan)
 	}
 	require.EqualValues(t, 1, calls.Load(), "the recovered failure is cached briefly")
+	require.Contains(t, logs.String(), "Claude subscription profile lookup panicked")
+	require.NotContains(t, logs.String(), "synthetic-sensitive-panic")
 }
