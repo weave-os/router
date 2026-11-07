@@ -213,7 +213,7 @@ func TestClassifier_SubscriptionOnly_Exhausted_Refuses402(t *testing.T) {
 	assert.Empty(t, p.proxyBodies, "no paid dispatch may occur when the subscription cannot serve the classifier")
 }
 
-func TestClassifier_SubscriptionOnly_UsageBilledOverage_PassesThrough(t *testing.T) {
+func TestClassifier_SubscriptionOnly_VerifiedEnterpriseOverage_PassesThrough(t *testing.T) {
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
 		RepresentativeClaim: usage.AnthropicClaimOverage,
@@ -221,6 +221,7 @@ func TestClassifier_SubscriptionOnly_UsageBilledOverage_PassesThrough(t *testing
 		UnifiedResetAt:      time.Now().Add(72 * time.Hour),
 	})
 	svc, fr, p, _ := classifierPassthroughFixture(t, obs)
+	svc.WithClaudeSubscriptionPlanReader(fixedSubscriptionPlanReader{providers.SubscriptionPlanEnterprise})
 	rec, req := classifierRequest()
 
 	require.NoError(t, svc.ProxyMessages(billing.WithSubscriptionOnly(classifierSubscriptionCtx(), billing.SubscriptionOnlyCreditsDepleted), []byte(classifierBody), rec, req))

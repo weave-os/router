@@ -72,9 +72,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 			claudeToken = string(creds.APIKey)
 		}
 	}
-	if claudeToken != "" {
-		ctx = context.WithValue(ctx, claudeSubscriptionPresentKey{}, true)
-	}
+	ctx = s.withClaudeSubscriptionProfile(ctx, headers)
 	admissionCtx := ctx
 	return dispatch.WithAuthorization(ctx, func(callCtx context.Context, target inference.Target) error {
 		if claudeEnterpriseTarget(callCtx, target) || claudeEnterpriseTurn(callCtx) {
@@ -94,6 +92,9 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 		pool, compatible := subscriptionPoolForModel(target)
 		if !compatible {
 			return nil
+		}
+		if pool == subscriptions.ProviderClaude && claudeEnterpriseEnabled(callCtx) && claudeSubscriptionPlan(callCtx) == providers.SubscriptionPlanUnknown {
+			return fmt.Errorf("%w: Claude subscription plan could not be verified before paid fallback", ErrSubscriptionPoolUnavailable)
 		}
 		if pickedModelOnOwnPlan(callCtx) {
 			return fmt.Errorf("%w: picked model runs on the caller's own plan", ErrSubscriptionPoolUnavailable)

@@ -135,6 +135,7 @@ func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Heade
 // Managed accounts use physical identity so token refresh and shared borrowers
 // observe the same quota windows. Direct OAuth retains token-keyed observation.
 func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) context.Context {
+	ctx = s.withClaudeSubscriptionProfile(ctx, headers)
 	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)
 	if s.usageObserver == nil && anthroTok == "" && codexTok == "" && !managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) {
 		return ctx

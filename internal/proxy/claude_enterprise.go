@@ -4,9 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 )
@@ -16,11 +16,14 @@ import (
 var ErrClaudeEnterpriseSubscriptionUnavailable = errors.New("Claude Enterprise-only billing requires a usable Claude subscription")
 
 type claudeEnterpriseTurnKey struct{}
-type claudeSubscriptionPresentKey struct{}
 
-// Claude account funding defaults on for linked accounts. Explicit BYOK and
-// credits-only configuration retain their existing authority over the default.
+// Enterprise billing applies only to a provider-verified Enterprise account.
+// An organization flag cannot turn a Pro, Max, Team or unknown plan into one.
 func claudeEnterpriseOnly(ctx context.Context) bool {
+	return claudeEnterpriseEnabled(ctx) && claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise
+}
+
+func claudeEnterpriseEnabled(ctx context.Context) bool {
 	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || anthropicBYOKConfigured(ctx) {
 		return false
 	}
@@ -28,12 +31,6 @@ func claudeEnterpriseOnly(ctx context.Context) bool {
 		if enabled, configured := overrides.Bools[flags.KeyClaudeEnterpriseOnly]; configured {
 			return enabled
 		}
-	}
-	present, _ := ctx.Value(claudeSubscriptionPresentKey{}).(bool)
-	enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
-	_, linked := enrolled[auth.SubscriptionProviderClaude]
-	if !present && !linked && anthropicSubscriptionFromContext(ctx) == "" {
-		return false
 	}
 	return true
 }
@@ -55,5 +52,8 @@ func withClaudeEnterpriseTurn(ctx context.Context, decision router.Decision) con
 
 func claudeEnterpriseTurn(ctx context.Context) bool {
 	onEnterprise, _ := ctx.Value(claudeEnterpriseTurnKey{}).(bool)
-	return onEnterprise
+	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && state.ClaudeSubscriptionPlan == providers.SubscriptionPlanEnterprise {
+		onEnterprise = true
+	}
+	return onEnterprise && claudeEnterpriseOnly(ctx)
 }

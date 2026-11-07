@@ -202,6 +202,8 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				credentialCtx = context.WithValue(attemptCtx, CredentialsContextKey{}, requestcontext.CredentialsFromContext(credentialCtx))
 			}
 			managedBinding = managedBinding || managedAttempt
+			credentialCtx = s.withClaudeSubscriptionProfile(credentialCtx, nil)
+			credentialCtx = withClaudeEnterpriseTurn(credentialCtx, decision)
 			if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && managedAttempt {
 				if usage.AttemptedAccounts == nil {
 					usage.AttemptedAccounts = make(map[string]struct{})

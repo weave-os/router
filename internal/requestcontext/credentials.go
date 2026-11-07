@@ -40,6 +40,8 @@ const (
 
 // Credentials holds the API key to use for an upstream request.
 type Credentials struct {
+	// SubscriptionPlan comes only from an authenticated provider profile.
+	SubscriptionPlan      providers.SubscriptionPlan
 	SubscriptionAccountID string
 	APIKey                []byte // never logged
 	Source                string // SourceBYOK | SourceClient | SourceSubscription | SourceCodexSubscription
