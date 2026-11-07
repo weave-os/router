@@ -9,12 +9,14 @@ import (
 	"weave-os/router/internal/observability"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 type internalRegisterSessionIssuerRequest struct {
-	InstallationID string          `json:"installation_id" binding:"required"`
-	Name           string          `json:"name"`
-	PublicJWK      json.RawMessage `json:"public_jwk" binding:"required"`
+	InstallationID      string          `json:"installation_id" binding:"required"`
+	CredentialSubjectID string          `json:"credential_subject_id"`
+	Name                string          `json:"name"`
+	PublicJWK           json.RawMessage `json:"public_jwk" binding:"required"`
 }
 
 type internalSessionIssuerResponse struct {
@@ -31,17 +33,28 @@ func InternalRegisterSessionIssuerHandler(authSvc *auth.Service) gin.HandlerFunc
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Installation ID and public JWK are required."})
 			return
 		}
+		if req.CredentialSubjectID != "" {
+			subjectID, err := uuid.Parse(req.CredentialSubjectID)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Credential subject ID must be a UUID."})
+				return
+			}
+			req.CredentialSubjectID = subjectID.String()
+		}
 		var name *string
 		if req.Name != "" {
 			name = &req.Name
 		}
-		key, kid, err := authSvc.RegisterSessionIssuer(c.Request.Context(), req.InstallationID, name, req.PublicJWK)
+		key, kid, err := authSvc.RegisterSessionIssuer(c.Request.Context(), req.InstallationID, req.CredentialSubjectID, name, req.PublicJWK)
 		switch {
 		case errors.Is(err, auth.ErrInvalidSessionIssuerKey):
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Public JWK must be an Ed25519 public key."})
 			return
 		case errors.Is(err, auth.ErrSessionIssuerConflict):
-			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Public key is registered to another installation."})
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Public key is registered to another installation or credential subject."})
+			return
+		case errors.Is(err, auth.ErrSessionIssuerSubjectUnavailable):
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Credential subject is unavailable for session issuer registration."})
 			return
 		case err != nil:
 			observability.FromGin(c).Error("Failed to register session issuer", "installation_id", req.InstallationID, "err", err)

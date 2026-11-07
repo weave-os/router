@@ -64,10 +64,12 @@ The control plane registers and revokes issuers through the internal API, which
 is mounted only when `ROUTER_INTERNAL_SERVICE_TOKEN` is set.
 
 - `POST /internal/v1/session-issuers` with
-  `{"installation_id", "name", "public_jwk"}` returns `{"issuer_id", "kid"}`.
+  `{"installation_id", "credential_subject_id", "name", "public_jwk"}` returns `{"issuer_id", "kid"}`.
+  Optional `credential_subject_id` binds attribution, billing, and subscription access to an
+  active subject in that installation. Omitting it retains legacy issuer-key identity.
   Only an OKP Ed25519 public JWK is accepted. Registering the same key again
-  returns the same issuer; a key already registered to another installation
-  returns 409.
+  returns the same issuer when both installation and subject binding match;
+  a different binding, unavailable subject, or inactive subject returns 409.
 - `DELETE /internal/v1/session-issuers/:installationID/:kid` revokes the issuer.
 
 Issuers never appear in key lists, cannot be minted, rotated or used as a bearer,
