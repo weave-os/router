@@ -11,12 +11,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/subscriptions"
 )
 
 // A caller whose own ChatGPT plan is spent must not be re-preflighted on every
@@ -45,15 +43,12 @@ func TestCodexOwnPlanSpentIsRememberedAcrossTurns(t *testing.T) {
 	defer server.Close()
 	client := openai.NewClient("weave-capacity", server.URL)
 	client.SetCodexBaseURL(server.URL)
-	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "pool", AccessToken: "pool-seat", ProviderAccount: "pool-provider"}}, repeatLast: true}
 	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).
-		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 		WithUsageObserver(usage.NewObserver([]byte("test-salt"), time.Hour, time.Now))
 
 	for turn := 0; turn < 2; turn++ {
-		ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
-		ctx = WithManagedSubscriptionCandidates(ctx, []*auth.SubscriptionAccount{{ID: "pool", Provider: auth.SubscriptionProviderCodex, State: auth.SubscriptionAccountStateActive, Enabled: true}})
+		ctx := WithManagedSubscriptionUsage(context.WithValue(context.Background(), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111"))
 		body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 		rec := httptest.NewRecorder()
 		require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body)))

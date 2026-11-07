@@ -12,6 +12,10 @@ personal capacity. A personal key borrows shared capacity only while its owner
 is still an active member; a live installation-shared key (no credential
 subject) borrows it whenever sharing is on. Enrollment keys are attribution only and do not partition
 serving pools. Refresh, quota, cooldown, and rotation use physical account identity.
+For routed requests, resolving a caller-presented OAuth credential does not bypass
+linked-account selection: the authorized pool serves first and rotates accounts
+on failure. The caller's credential remains available if no admitted linked seat
+can serve. Explicit own-plan model picks retain their caller-login funding rule.
 The ten-second admission budget is shared across account and model alternatives,
 including executor re-entry. Only credential leasing consumes it; time spent
 running provider inference does not prevent another eligible seat from being tried.

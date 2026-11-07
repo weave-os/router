@@ -22,7 +22,7 @@ import (
 // This exercises ingress, translation, provider HTTP dispatch, and response
 // translation. An exhausted request-local token must not strand linked capacity
 // merely because the requester has no API credential.
-func TestVerificationSafeTransportDirectExhaustionUsesLinkedWithoutAPI(t *testing.T) {
+func TestVerificationSafeTransportInboundOAuthUsesLinkedWithoutAPI(t *testing.T) {
 	var bearers, accountIDs, paths []string
 	var sent [][]byte
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,13 +60,13 @@ func TestVerificationSafeTransportDirectExhaustionUsesLinkedWithoutAPI(t *testin
 	recorder := httptest.NewRecorder()
 	err := svc.ProxyOpenAIChatCompletion(ctx, body, recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
 	require.NoError(t, err)
-	require.Equal(t, []string{"Bearer " + codexTestToken, "Bearer linked-token"}, bearers)
-	require.Equal(t, []string{codexTestAccountID, "linked-provider-account"}, accountIDs)
-	require.Equal(t, []string{"/responses", "/responses"}, paths)
+	require.Equal(t, []string{"Bearer linked-token"}, bearers)
+	require.Equal(t, []string{"linked-provider-account"}, accountIDs)
+	require.Equal(t, []string{"/responses"}, paths)
 	require.Contains(t, recorder.Body.String(), "linked answer")
 	require.True(t, servedOnSubscription(ctx), "winning subscription must be cost-neutral")
-	require.Equal(t, "read_file", gjson.GetBytes(sent[1], "tools.0.name").String())
-	require.Equal(t, "medium", gjson.GetBytes(sent[1], "reasoning.effort").String())
+	require.Equal(t, "read_file", gjson.GetBytes(sent[0], "tools.0.name").String())
+	require.Equal(t, "medium", gjson.GetBytes(sent[0], "reasoning.effort").String())
 }
 
 func TestVerificationSafeTransportManagedWinnerQuotaObservedFromHTTP(t *testing.T) {

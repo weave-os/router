@@ -222,7 +222,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	if !s.supportsSubscriptionTransport(provider) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
-	if current := CredentialsFromContext(ctx); current != nil && current.OAuth {
+	if current := CredentialsFromContext(ctx); current != nil && current.OAuth && pickedModelOnOwnPlan(ctx) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 
@@ -240,6 +240,11 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	// quota still forbids paid recovery and an exhausted verdict.
 	unadmitted := false
 	poolSpent := func() (context.Context, subscriptions.Lease, bool, error) {
+		// A caller login remains usable when no admitted linked seat can serve,
+		// but must not bypass the pool's account selection and rotation.
+		if current := CredentialsFromContext(ctx); !unadmitted && current != nil && current.OAuth {
+			return ctx, subscriptions.Lease{}, false, nil
+		}
 		if !unadmitted && !subscriptionAttemptOnly(ctx) && !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) && s.subscriptionAPIAuthorization(ctx, provider, model) == nil {
 			return ctx, subscriptions.Lease{}, false, nil
 		}

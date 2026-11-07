@@ -204,16 +204,18 @@ func TestSpentOwnCodexPlanNudgesWhenTheLastLinkedSeatRunsOutMidTurn(t *testing.T
 			defer server.Close()
 			client := openai.NewClient("weave-capacity", server.URL)
 			client.SetCodexBaseURL(server.URL)
+			observer := usage.NewObserver([]byte("test-salt"), time.Hour, time.Now)
+			observer.Record(observer.Key([]byte(codexTestToken)), usage.Snapshot{Primary: usage.Window{UsedPercent: 1, WindowMinutes: codexQuotaWindowMinutes, ResetAt: time.Now().Add(3 * time.Hour)}})
 			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).
 				WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "teammate", AccessToken: "pool-seat", ProviderAccount: "teammate-provider", Tier: auth.SubscriptionTierShared}}, repeatLast: true}).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
-				WithUsageObserver(usage.NewObserver([]byte("test-salt"), time.Hour, time.Now))
+				WithUsageObserver(observer)
 			path, body := "/v1/chat/completions", `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 			if ingress == "responses" {
 				path, body = "/v1/responses", `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic"}]}],"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`
 			}
-			// The first turn learns the plan is spent and lands on the seat; the
-			// second sees a healthy seat that runs out mid-turn.
+			// The caller's plan is already known spent. The first turn uses the
+			// linked seat; the second sees that seat run out mid-turn.
 			var turnBodies []string
 			for turn = 0; turn < 2; turn++ {
 				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
