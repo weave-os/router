@@ -685,21 +685,81 @@ echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}"
     WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
     bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
 wait_for 5 test -f "$cache_file.plans"
-check "disconnected plans are cached without invalid names" "$(cat "$cache_file.plans" 2>/dev/null)" "claude"
+check "disconnected plans are cached from the server" "$(jq -r '.disconnected_plans[0]' "$cache_file.plans" 2>/dev/null)" "claude"
 out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
     WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
     bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
 check_contains "statusline names the disconnected plan and its reconnect command" "$out" "Claude plan disconnected: run npx @weave-os/router login claude --scope project --dir $c/proj"
 check_not_contains "statusline omits plans that are not disconnected" "$out" "Codex plan disconnected"
+check_not_contains "statusline omits invalid provider names" "$out" "bad plan"
+# An old login warning must expire even when the router cannot refresh it.
+python3 - "$cache_file" "$cache_file.plans" <<'PY'
+import os, sys, time
+for path in sys.argv[1:]:
+    os.utime(path, (time.time() - 120, time.time() - 120))
+PY
+out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL="file://$c/unreachable.json" ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' \
+    bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
+check_not_contains "expired account warnings are not presented as current when offline" "$out" "Claude plan disconnected"
+wait_for 5 not_a_dir "$cache_file.lock"
 printf '{"hide_terminal_surfaces": false, "disconnected_plans": []}' > "$c/ds.json"
 touch -d '2 hours ago' "$cache_file" 2>/dev/null || touch -t "$(date -d '2 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-2H +%Y%m%d%H%M)" "$cache_file"
 echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
     WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
     bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
-wait_for 5 test ! -s "$cache_file.plans"
-check "a reconnected plan clears the cached warning" "$(cat "$cache_file.plans" 2>/dev/null)" ""
+wait_for 5 jq -e '.disconnected_plans == []' "$cache_file.plans" >/dev/null
+check "a reconnected plan clears the cached warning" "$(jq -r '.disconnected_plans | length' "$cache_file.plans" 2>/dev/null)" "0"
+
+# Exercise state transitions while the ordinary display cache is only a minute
+# old, well inside the previous one-hour TTL.
+c="$work/g3state"; mkdir -p "$c/proj/.claude" "$c/cache"
+write_install "$c/proj" project "rk_proj_states" "file://$c/ds.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+plan_state_render() {
+  echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+    | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+      WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' \
+      bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g'
+}
+for state in cooldown exhausted active; do
+  if [ -f "$cache_file" ]; then
+    python3 - "$cache_file" <<'PY'
+import os, sys, time
+os.utime(sys.argv[1], (time.time() - 60, time.time() - 60))
+PY
+  fi
+  printf '{"hide_terminal_surfaces": false, "disconnected_plans": ["claude"], "plan_statuses": [{"provider": "claude", "state": "%s", "cooldown_until": "2030-01-10T18:00:00.123Z"}]}' "$state" > "$c/ds.json"
+  plan_state_render >/dev/null
+  wait_for 5 jq -e --arg state "$state" '.plan_statuses[0].state == $state' "$cache_file.plans" >/dev/null
+  wait_for 5 not_a_dir "$cache_file.lock"
+  out="$(plan_state_render)"
+  check_not_contains "$state supersedes a legacy disconnected warning" "$out" "plan disconnected"
+  case "$state" in
+    cooldown) check_contains "cooldown shows a temporary limit and reset time" "$out" "Claude plan cooling down until" ;;
+    exhausted) check_contains "exhaustion shows a limit and reset time" "$out" "Claude plan limit reached until" ;;
+    active) check_not_contains "active plans clear the limit warning" "$out" "Claude plan" ;;
+  esac
+done
+printf '{"plan_statuses":[{"provider":"claude","state":"cooldown","cooldown_until":"2001-01-01T00:00:00Z"}]}' > "$cache_file.plans"
+out="$(plan_state_render)"
+check_not_contains "a passed reset deadline clears the limit immediately" "$out" "Claude plan cooling down"
+
+# A malformed response cannot renew an expired reconnect warning.
+printf '{"disconnected_plans":["claude"]}' > "$cache_file.plans"
+python3 - "$cache_file" <<'PY'
+import os, sys, time
+os.utime(sys.argv[1], (time.time() - 60, time.time() - 60))
+PY
+printf 'not JSON' > "$c/ds.json"
+out="$(plan_state_render)"
+check_not_contains "malformed refresh does not keep a login warning alive" "$out" "plan disconnected"
+wait_for 5 not_a_dir "$cache_file.lock"
+out="$(plan_state_render)"
+check_not_contains "malformed refresh does not mark stale plan state fresh" "$out" "plan disconnected"
 
 # A fresh hidden cache decides without any network access: the install points
 # at an unreachable endpoint, but the pre-seeded fresh cache blanks the

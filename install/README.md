@@ -550,9 +550,15 @@ nothing lands in a repo working tree.
 | `WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS`     | `7`     | How often either check may run.                                |
 | `WEAVE_STATUSLINE_URL`                      | GitHub raw | Source for the statusline (self-hosters who fork).          |
 | `WEAVE_COMMANDS_URL_BASE`                   | GitHub raw | Source directory for the slash-command wrappers.            |
+| `WEAVE_DISPLAY_SETTINGS_TTL_SECONDS`        | `30`    | Cache lifetime for terminal visibility and linked-plan status. |
 | `WEAVE_CODEX_STATUS_UPDATE=0`               | on      | Disable the Codex status helper's self-refresh.                |
 | `WEAVE_CODEX_STATUS_UPDATE_INTERVAL_DAYS`   | `7`     | How often the Codex helper may check for a new copy.           |
 | `WEAVE_CODEX_STATUS_URL`                    | GitHub raw | Source for the Codex status helper (self-hosters who fork). |
+
+Linked-plan status refreshes in the background after the cache expires and
+appears on the next status-line render. Cooldown and exhausted plans show a
+reset time when known; only disconnected credentials suggest logging in.
+Expired snapshots stop showing plan warnings even if the refresh fails.
 
 **Codex refreshes itself too.** The status helper checks for a newer copy of
 itself on the same schedule and swaps it in atomically, so an install picks up
