@@ -23,6 +23,21 @@ func TestEscalationSelectorPreservesLegacyUntilExplicit(t *testing.T) {
 	assert.Equal(t, 9, explicit.Epoch)
 }
 
+func TestEscalationDeploymentShadowAppliesOnlyWithoutSelection(t *testing.T) {
+	withOverrides := func(o flags.Overrides) flags.EscalationConfig {
+		return flags.EscalationFromContext(flags.WithOverrides(context.Background(), o)).WithDeploymentShadow(flags.EscalationClassifierLLM)
+	}
+	assert.Equal(t, flags.EscalationClassifierLLM, flags.EscalationFromContext(context.Background()).WithDeploymentShadow(flags.EscalationClassifierLLM).Shadow)
+	legacyShadow := withOverrides(flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostShadowEnabled: true}})
+	assert.Equal(t, flags.EscalationClassifierLLM, legacyShadow.Shadow)
+	legacyActive := withOverrides(flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostEnabled: true}})
+	assert.Equal(t, flags.EscalationClassifierXGB, legacyActive.Active)
+	assert.Equal(t, flags.EscalationClassifierNone, legacyActive.Shadow)
+	optedOut := withOverrides(flags.Overrides{Strings: map[flags.Key]string{flags.KeyEscalationActiveClassifier: string(flags.EscalationClassifierNone)}})
+	assert.Equal(t, flags.EscalationClassifierNone, optedOut.Shadow, "an explicit selection is never widened")
+	assert.Equal(t, flags.EscalationClassifierNone, flags.EscalationFromContext(context.Background()).WithDeploymentShadow(flags.EscalationClassifierNone).Shadow)
+}
+
 func TestEscalationOverrideValidation(t *testing.T) {
 	for _, raw := range []string{
 		`{"escalation_active_classifier":"unknown"}`,

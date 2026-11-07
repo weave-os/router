@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -19,6 +20,7 @@ const (
 )
 
 type qwenTurn struct {
+	typedPrompt bool
 	userText    []string
 	assistant   []string
 	toolCalls   []string
@@ -66,7 +68,7 @@ const MinTurnsAfterUserPrompt = 3
 func TurnsSinceUserPrompt(messages []translate.EscalationMessage) int {
 	turns := qwenTurns(messages, false)
 	for index := len(turns) - 1; index >= 0; index-- {
-		if len(turns[index].userText) > 0 && len(turns[index].toolResults) == 0 {
+		if turns[index].typedPrompt && len(turns[index].toolResults) == 0 {
 			return len(turns) - 1 - index
 		}
 	}
@@ -77,6 +79,7 @@ func qwenTurns(messages []translate.EscalationMessage, codexToolResults bool) []
 	turns := make([]qwenTurn, 0)
 	toolCalls := make(map[string]translate.EscalationBlock)
 	var inboundText, inboundResults []string
+	inboundTyped := false
 	for _, message := range messages {
 		switch message.Role {
 		case translate.EscalationRoleUser, translate.EscalationRoleTool:
@@ -86,6 +89,7 @@ func qwenTurns(messages []translate.EscalationMessage, codexToolResults bool) []
 				case translate.EscalationBlockText:
 					if message.Role == translate.EscalationRoleUser {
 						userParts = append(userParts, block.Text)
+						inboundTyped = inboundTyped || isTypedPrompt(block.Text)
 					}
 				case translate.EscalationBlockToolResult:
 					inboundResults = append(inboundResults, qwenToolResult(block, toolCalls[block.CallID], codexToolResults))
@@ -96,8 +100,8 @@ func qwenTurns(messages []translate.EscalationMessage, codexToolResults bool) []
 			}
 		case translate.EscalationRoleAssistant:
 			if len(turns) == 0 || len(inboundText) > 0 || len(inboundResults) > 0 {
-				turns = append(turns, qwenTurn{userText: inboundText, toolResults: inboundResults})
-				inboundText, inboundResults = nil, nil
+				turns = append(turns, qwenTurn{typedPrompt: inboundTyped, userText: inboundText, toolResults: inboundResults})
+				inboundText, inboundResults, inboundTyped = nil, nil, false
 			}
 			turn := &turns[len(turns)-1]
 			for _, block := range message.Blocks {
@@ -112,6 +116,28 @@ func qwenTurns(messages []translate.EscalationMessage, codexToolResults bool) []
 		}
 	}
 	return turns
+}
+
+const (
+	systemReminderOpen  = "<system-reminder>"
+	systemReminderClose = "</system-reminder>"
+)
+
+// harnessHookFeedback matches the "<Event> hook feedback:" header Claude Code
+// puts on the user message it injects when a hook (e.g. a /goal Stop hook)
+// blocks the turn from ending.
+var harnessHookFeedback = regexp.MustCompile(`^[A-Z][A-Za-z]* hook feedback:`)
+
+func isTypedPrompt(text string) bool {
+	text = strings.TrimSpace(text)
+	for strings.HasPrefix(text, systemReminderOpen) {
+		end := strings.Index(text, systemReminderClose)
+		if end == -1 {
+			return false
+		}
+		text = strings.TrimSpace(text[end+len(systemReminderClose):])
+	}
+	return text != "" && !harnessHookFeedback.MatchString(text)
 }
 
 func qwenTruncate(value string, limit int) string {

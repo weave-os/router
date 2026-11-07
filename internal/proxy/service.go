@@ -112,6 +112,8 @@ type Service struct {
 	llmEscalationJudge         llmescalation.Judge
 	qwenEscalationJudge        llmescalation.Judge
 	llmEscalationSlots         chan struct{}
+	llmEscalationShadowSlots   chan struct{}
+	escalationShadowDefault    flags.EscalationClassifier
 	llmEscalationConfiguration llmescalation.ConfigurationStore
 	llmEscalationInvalidate    func(string)
 	llmEscalationActiveEnabled bool

@@ -116,3 +116,19 @@ func TestTurnsSinceUserPromptSkipsTextRidingWithToolResults(t *testing.T) {
 	messages = append(messages, prompt("use the staging config instead"), act)
 	require.Equal(t, 0, llmescalation.TurnsSinceUserPrompt(messages), "the turn answering a new prompt is not an agent-only turn")
 }
+
+func TestTurnsSinceUserPromptSkipsHarnessHookFeedback(t *testing.T) {
+	userText := func(text string) translate.EscalationMessage {
+		return translate.EscalationMessage{Role: translate.EscalationRoleUser, Blocks: []translate.EscalationBlock{{Type: translate.EscalationBlockText, Text: text}}}
+	}
+	reply := translate.EscalationMessage{Role: translate.EscalationRoleAssistant, Blocks: []translate.EscalationBlock{{Type: translate.EscalationBlockText, Text: "Still waiting on your approval."}}}
+	hookFeedback := userText("Stop hook feedback:\nThe deployment is not live yet.")
+	remindedHookFeedback := userText("<system-reminder>todo list is empty</system-reminder>\nStop hook feedback:\nThe deployment is not live yet.")
+	reminderOnly := userText("<system-reminder>todo list is empty</system-reminder>")
+
+	messages := []translate.EscalationMessage{userText("ship it"), reply, hookFeedback, reply, remindedHookFeedback, reply, reminderOnly, reply}
+	require.Equal(t, 3, llmescalation.TurnsSinceUserPrompt(messages), "harness hook feedback and reminders do not reset the prompt boundary")
+
+	messages = append(messages, userText("Stop hook feedback is noisy; disable the hook"), reply)
+	require.Equal(t, 0, llmescalation.TurnsSinceUserPrompt(messages), "a typed prompt that mentions hook feedback is still a prompt")
+}

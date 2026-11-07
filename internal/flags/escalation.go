@@ -24,6 +24,17 @@ type EscalationConfig struct {
 	Explicit bool
 }
 
+// WithDeploymentShadow shadows classifier for installations that select no
+// classifier explicitly and run none actively; legacy XGB shadow yields to it.
+// Only LLM classifiers can be a deployment shadow.
+func (c EscalationConfig) WithDeploymentShadow(classifier EscalationClassifier) EscalationConfig {
+	if c.Explicit || c.Active != EscalationClassifierNone || !IsLLMEscalationClassifier(classifier) {
+		return c
+	}
+	c.Shadow = classifier
+	return c
+}
+
 // EscalationFromContext preserves legacy behavior until an active selector is set.
 func EscalationFromContext(ctx context.Context) EscalationConfig {
 	overrides, _ := OverridesFromContext(ctx)
