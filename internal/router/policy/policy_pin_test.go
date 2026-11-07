@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -72,6 +73,22 @@ func TestPolicyPinHonouredServesExactlyThePinnedArtifactAndRoster(t *testing.T) 
 	assert.True(t, decision.Metadata.PolicyPinHonoured)
 	assert.Equal(t, pinnedArtifactSHA, decision.Metadata.PolicyArtifactSHA256)
 	assert.Equal(t, pinnedRosterSHA, decision.Metadata.RosterVersion, "the served roster identity must be the pinned digest")
+}
+
+func TestPolicyPinIgnoresConversationSiblingPreference(t *testing.T) {
+	adapter, _ := newPinnedAdapter(t, pinnedArtifactSHA)
+	adapter.WithArmSelector(func(context.Context, policy.SelectionInput) (policy.SelectionPick, error) {
+		return policy.SelectionPick{Group: string(escalation.High), Arm: "anthropic/claude-sonnet-5", RosterSHA256: pinnedRosterSHA, RankedFallback: classifierFallback(string(escalation.High))}, nil
+	})
+	req := router.Request{SiblingPreferences: map[escalation.Group]router.SiblingPreference{
+		escalation.High: {Model: catalog.ModelIDClaudeOpus48.String()},
+	}}
+	decision, err := adapter.Route(honouredPinContext(), req)
+	require.NoError(t, err)
+	assert.Equal(t, "claude-sonnet-5", decision.Model)
+	assert.True(t, decision.Metadata.PolicyPinHonoured)
+	_, err = adapter.RouteWithoutUserText(honouredPinContext(), req)
+	assert.ErrorIs(t, err, router.ErrPolicyPinUnavailable, "an unscorable turn cannot replace the pinned artifact's choice")
 }
 
 func TestPolicyPinUnknownRosterFailsClosed(t *testing.T) {

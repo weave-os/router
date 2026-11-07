@@ -119,6 +119,21 @@ overloaded pool and flipped families. Each managed account+model that answered
 a 5xx is skipped for `managedOverloadCooldown` (30s, in memory) by later
 requests, which still authorizes the same paid rescue as a live 5xx.
 
+**A successful sibling rescue changes that conversation's group order.** A
+same-group winner leads its complexity group on later prompts, after compaction,
+and after routing to other groups. Failed siblings move behind other eligible
+arms and remain last-resort candidates; a later last-resort success becomes the
+new group preference. Cross-group rescues do not change this order, and hard
+model, provider, request-compatibility, and cluster restrictions still apply.
+Preferences use a credential-scoped conversation digest and are stored
+independently of expiring pins; installation deletion removes them. The
+database write rejects an older-started request that completes after a newer
+preference was recorded. Model pins, honoured policy pins, and utility turns
+bypass sibling-preference reads. For ordinary automatic conversation turns, a
+preference-store read failure stops routing rather than silently selecting a
+displaced model. Exclusion clears preserve failure markers written after the
+successful request started.
+
 **A model that keeps answering 529 is circuit-broken, per organization.** Under
 `provider_overloaded` (default on), `dispatchPlanned` reports each executor
 operation to [`internal/router/breaker`](../router/breaker): an operation that

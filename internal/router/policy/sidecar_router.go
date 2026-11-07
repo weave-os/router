@@ -391,6 +391,9 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	}
 	requestRouteID := uuid.NewString()
 	pin, pinned := router.HonouredPolicyPin(ctx)
+	if pinned {
+		req.SiblingPreferences = nil
+	}
 	if pinned && r.armSelector == nil {
 		return router.Decision{}, fmt.Errorf("%s: roster pin requires router-owned arm selection: %w", strategy, router.ErrPolicyPinUnavailable)
 	}
@@ -555,6 +558,19 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		}
 	}
 
+	res.RankedFallback = applySiblingPreferences(req, resolved, res.RankedFallback)
+	// Overrides have already constrained the group. Its remembered order may
+	// replace the selected arm, but may not move the request to another group.
+	if arm := preferredSiblingArm(req, res.RankedFallback, res.PolicyGroup, overrideRosterID); arm != overrideRosterID {
+		overrideRosterID = arm
+		overrideArmID = siblingArmID(indexCandidates(resolved), arm)
+		if overrideReason == router.SelectionOverrideNone {
+			overrideReason = router.SelectionOverrideSibling
+		}
+		reselected = true
+		observability.FromContext(ctx).Info("Session sibling preference applied", "group", res.PolicyGroup, "arm", arm)
+	}
+	effectiveOverrides := siblingPreferenceOverrides(req)
 	if escalationDecision != nil {
 		escalationDecision.Effective = escalation.Group(res.PolicyGroup)
 	}
@@ -566,6 +582,17 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		res.ArmScores = routerArmScoresByGroup[res.PolicyGroup]
 	}
 	if selectionTrace.SelectedArm != "" {
+		if len(req.SiblingPreferences) > 0 {
+			selectionTrace.EffectiveOrders = maps.Clone(selectionTrace.EffectiveOrders)
+			if selectionTrace.EffectiveOrders == nil {
+				selectionTrace.EffectiveOrders = make(map[string][]string)
+			}
+			for _, group := range res.RankedFallback {
+				if _, remembered := req.SiblingPreferences[escalation.Group(group.Group)]; remembered {
+					selectionTrace.EffectiveOrders[group.Group] = slices.Clone(group.EligibleArms)
+				}
+			}
+		}
 		selectionTrace.SelectedGroup = res.PolicyGroup
 		selectionTrace.SelectedArm = overrideRosterID
 		selectionTrace.OverrideReason = overrideReason
@@ -660,9 +687,10 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		Effort:   binding.Effort,
 		Reason:   reason,
 		Metadata: &router.RoutingMetadata{
+			SiblingModels:                 siblingModelsForGroup(res.PolicyGroup, res.RankedFallback, effectiveOverrides, req.ClusterArmOverrides, resolved),
 			Escalation:                    escalationDecision,
 			CandidateModels:               resolved.CandidateModels(),
-			RescueModels:                  RescueModelOrder(req.ClusterArmOverrides, rescueGroups, resolved),
+			RescueModels:                  RescueModelOrder(effectiveOverrides, rescueGroups, resolved),
 			SidecarRescuePool:             RescueCoolingPool(req.ClusterArmOverrides, rescueGroups, resolved),
 			RosterFailover:                len(res.RankedFallback) > 0 && (req.ForceCluster != "" || escalation.Rank(escalation.Group(res.PolicyGroup)) >= 0),
 			CandidateProviders:            resolved.CandidateProviders(),
@@ -778,6 +806,9 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 			selectedArm, selectedGroup = override.RosterID, override.Group
 		}
 	}
+	pick.RankedFallback = applySiblingPreferences(req, resolved, pick.RankedFallback)
+	selectedArm = preferredSiblingArm(req, pick.RankedFallback, selectedGroup, selectedArm)
+	effectiveOverrides := siblingPreferenceOverrides(req)
 	binding, found := resolved.BindingForSelection("", selectedArm)
 	if !found {
 		return router.Decision{}, fmt.Errorf("%s: unscorable roster selected an ineligible arm: %w: %w", r.config.Strategy, ErrNoEligibleArm, r.config.Unavailable)
@@ -791,10 +822,11 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 		Effort:   binding.Effort,
 		Reason:   UnscorableHMMDecisionReason,
 		Metadata: &router.RoutingMetadata{
+			SiblingModels:       siblingModelsForGroup(selectedGroup, pick.RankedFallback, effectiveOverrides, req.ClusterArmOverrides, resolved),
 			Strategy:            string(r.config.Strategy),
 			PolicyGroup:         selectedGroup,
 			CandidateModels:     resolved.CandidateModels(),
-			RescueModels:        RescueModelOrder(req.ClusterArmOverrides, rescueGroups, resolved),
+			RescueModels:        RescueModelOrder(effectiveOverrides, rescueGroups, resolved),
 			SidecarRescuePool:   RescueCoolingPool(req.ClusterArmOverrides, rescueGroups, resolved),
 			RosterFailover:      len(pick.RankedFallback) > 0 && (req.ForceCluster != "" || escalation.Rank(escalation.Group(selectedGroup)) >= 0),
 			CandidateProviders:  resolved.CandidateProviders(),
