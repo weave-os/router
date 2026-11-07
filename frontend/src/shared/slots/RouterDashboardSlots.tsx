@@ -7,6 +7,8 @@ import { createContext, useContext } from "react";
  * Shared pages render whatever the host supplies and nothing otherwise.
  */
 export enum RouterDashboardSlotName {
+  /** Beside the dashboard title, e.g. hosted's router explanation button. */
+  DashboardTitleAccessory = "DashboardTitleAccessory",
   DashboardHeaderActions = "DashboardHeaderActions",
   DashboardBanner = "DashboardBanner",
   DashboardAside = "DashboardAside",

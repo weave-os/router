@@ -2,7 +2,12 @@
 
 import { useMemo, useState } from "react";
 
-import { type DateRange, type RouterMetricGroup, type RouterMetricType } from "../../data";
+import {
+  type DateRange,
+  type RouterMetricGroup,
+  type RouterMetricPoint,
+  type RouterMetricType,
+} from "../../data";
 import { useRouterDrillDown } from "../../data/useRouterDrillDown";
 import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
 import { formatBigDecimal, formatInteger } from "../../tools/format";
@@ -18,7 +23,7 @@ import {
 } from "../Chart";
 import { ChartCard } from "../ChartCard";
 import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
-import { displayGranularity, previousRange } from "./chartRange";
+import { displayGranularity, previousRange, rateDivisor } from "./chartRange";
 import { ChartTabToggle } from "./ChartTabToggle";
 import { usePartialBucketTick } from "./partialBucketTick";
 import { pivotSeries, TIME_KEY, toShare } from "./pivotSeries";
@@ -30,6 +35,17 @@ enum GroupedMetricView {
   Share = "share",
   Volume = "volume",
 }
+
+/** How a grouped card's headline averages its buckets, as in hosted's chart registry. */
+export enum GroupedStatistic {
+  /** Averages only buckets with data; distinct counts like active people stay per-bucket. */
+  Mean = "mean",
+  /** Divides the total by every bucket in the range, empty ones included. */
+  Sum = "sum",
+}
+
+const sumValues = (points: readonly RouterMetricPoint[]) =>
+  points.reduce((sum, point) => sum + point.value, 0);
 
 const VIEW_OPTIONS = [
   { label: "Volume", value: GroupedMetricView.Volume },
@@ -53,6 +69,7 @@ export interface RouterGroupedChartCardProps {
   seriesType: ChartSeriesType.Area | ChartSeriesType.Bar;
   /** Offers the Volume | Share toggle that renders each bucket's groups as percents. */
   shareToggle?: boolean;
+  statistic: GroupedStatistic;
   /** Headlines the average as whole `<unit>/<bucket>`, e.g. "7 users/day". */
   statisticUnit?: string;
   title: string;
@@ -72,16 +89,18 @@ export function RouterGroupedChartCard({
   seriesConfigs,
   seriesType,
   shareToggle = false,
+  statistic,
   statisticUnit,
   title,
 }: RouterGroupedChartCardProps) {
   const [view, setView] = useState(GroupedMetricView.Volume);
   const timeGranularity = displayGranularity(granularity);
   const current = useRouterMetricSeries({ granularity, group, range, type: metric });
+  const previousPeriodRange = useMemo(() => previousRange(range), [range]);
   const previous = useRouterMetricSeries({
-    granularity: null,
+    granularity,
     group,
-    range: previousRange(range),
+    range: previousPeriodRange,
     type: metric,
   });
 
@@ -99,14 +118,15 @@ export function RouterGroupedChartCard({
     () => (view === GroupedMetricView.Share ? LoadState.map(pivoted, toShare) : pivoted),
     [pivoted, view],
   );
-  const average = LoadState.map(pivoted, ({ totals }) =>
-    totals.length === 0 ? 0 : totals.reduce((sum, total) => sum + total, 0) / totals.length,
+  const perBucket = (points: readonly RouterMetricPoint[], dateRange: DateRange) =>
+    sumValues(points) /
+    (statistic === GroupedStatistic.Mean
+      ? Math.max(new Set(points.map(point => point.time)).size, 1)
+      : rateDivisor(dateRange, granularity));
+  const average = LoadState.map(current, now => perBucket(now.values, range));
+  const percentChange = LoadState.map(average, previous, (nowAverage, previousSeries) =>
+    periodPercentChange(nowAverage, perBucket(previousSeries.values, previousPeriodRange)),
   );
-  const percentChange = LoadState.map(current, previous, (now, before) => {
-    const nowTotal = now.values.reduce((sum, point) => sum + point.value, 0);
-    const beforeTotal = before.values.reduce((sum, point) => sum + point.value, 0);
-    return periodPercentChange(nowTotal, beforeTotal);
-  });
 
   const config = useMemo(() => {
     const keys = LoadState.unwrap(pivoted)?.keys ?? [];

@@ -12,7 +12,7 @@ import {
   RouterInactiveCard,
   RouterRequestsPerActiveUserChart,
 } from "../RouterActivity";
-import { RouterGroupedChartCard } from "../RouterCharts/RouterGroupedChartCard";
+import { GroupedStatistic, RouterGroupedChartCard } from "../RouterCharts/RouterGroupedChartCard";
 import {
   ROUTER_BILLING_SERIES_CONFIGS,
   ROUTER_DECISION_TYPE_SERIES_CONFIGS,
@@ -70,6 +70,7 @@ export function RouterOverviewTabPanel({
             granularity={granularity}
             group={RouterMetricGroup.UserLink}
             metric={RouterMetricType.ActiveUsers}
+            statistic={GroupedStatistic.Mean}
             range={range}
             seriesConfigs={ROUTER_USER_LINK_SERIES_CONFIGS}
             seriesType={ChartSeriesType.Area}
@@ -132,6 +133,7 @@ export function RouterOverviewTabPanel({
             seriesConfigs={ROUTER_DECISION_TYPE_SERIES_CONFIGS}
             seriesType={ChartSeriesType.Bar}
             shareToggle
+            statistic={GroupedStatistic.Sum}
             title="Routing decisions"
           />
           <RouterGroupedChartCard
@@ -144,6 +146,7 @@ export function RouterOverviewTabPanel({
             seriesConfigs={ROUTER_BILLING_SERIES_CONFIGS}
             seriesType={ChartSeriesType.Bar}
             shareToggle
+            statistic={GroupedStatistic.Sum}
             title="Subscription vs API requests"
           />
         </ResponsiveGrid>

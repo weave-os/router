@@ -34,6 +34,7 @@ function dataSourceWith(summaryFn: RouterDashboardDataSource["metrics"]["summary
       summary: summaryFn,
     },
     requests: notSupported,
+    weekStartsOn: 1,
     settings: {
       apiKeys: notSupported,
       models: notSupported,

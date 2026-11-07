@@ -1,3 +1,4 @@
+import type { WeekStartsOn } from "../tools/timeGranularity";
 import type { Capability } from "./availability";
 import type { DrillDownDataSource } from "./drillDown";
 import type {
@@ -128,4 +129,6 @@ export interface RouterDashboardDataSource {
   subscriptions: Capability<SubscriptionsDataSource>;
   /** Explains a clicked chart point or stat card. */
   drillDown: Capability<DrillDownDataSource>;
+  /** First day of the week for "This week" and week presets; hosted reads the org setting. */
+  weekStartsOn: WeekStartsOn;
 }
