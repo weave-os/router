@@ -22,8 +22,9 @@ import (
 )
 
 const (
-	DefaultBaseURL   = "https://openrouter.ai/api/v1"
-	FireworksBaseURL = "https://api.fireworks.ai/inference/v1"
+	DefaultBaseURL       = "https://openrouter.ai/api/v1"
+	TrustedRouterBaseURL = "https://api.trustedrouter.com/v1"
+	FireworksBaseURL     = "https://api.fireworks.ai/inference/v1"
 	// DeepInfraBaseURL serves OpenAI-compatible inference for the OSS catalog.
 	DeepInfraBaseURL = "https://api.deepinfra.com/v1/openai"
 	// MakoraBaseURL serves the OSS catalog at higher throughput than commodity
