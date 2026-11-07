@@ -349,7 +349,7 @@ weave_sync_commands 2>/dev/null || true
 # The setting comes from GET /v1/display-settings with the install's own
 # router key, but the foreground path NEVER touches the network: it decides
 # solely from a per-install cache file (TTL WEAVE_DISPLAY_SETTINGS_TTL_SECONDS,
-# default 1h), and a missing or stale cache fails open — the statusline
+# default 30s), and a missing or stale cache fails open — the statusline
 # renders normally. When the cache is missing or stale a detached background
 # refresh re-fetches the setting and rewrites the cache atomically, so the
 # next turn picks up the fresh value; a refresh failure simply leaves the
@@ -375,24 +375,37 @@ weave_hidden_gate() {
   local script_slug
   script_slug="$(printf '%s' "$self" | tr -c 'A-Za-z0-9._-' '_')"
   local cache="$cache_dir/display-settings${script_slug}"
-  local ttl="${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-3600}"
+  local ttl="${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-30}"
+  weave_plan_statuses=""
+  weave_plan_status_suffix=""
 
-  # Linked plans that need a fresh login, from the last successful refresh.
-  weave_disconnected_plans="$(cat "$cache.plans" 2>/dev/null)"
-
-  local now mtime fresh="false"
+  local now mtime cache_age=-1 fresh="false"
   now="$(date +%s 2>/dev/null)" || now=0
   if [ -f "$cache" ]; then
     mtime="$(stat -c %Y "$cache" 2>/dev/null || stat -f %m "$cache" 2>/dev/null)" || mtime=0
-    if [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
-      fresh="true"
+    if [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ]; then
+      cache_age=$(( now - mtime ))
+      if [ "$cache_age" -lt "$ttl" ] 2>/dev/null; then
+        fresh="true"
+      fi
     fi
   fi
 
-  # Foreground decision: only a fresh cache hides the surfaces. Anything else
-  # (no cache, stale cache, unreadable cache) renders normally so a slow or
-  # unreachable router can never stall a turn or wedge the statusline blank.
-  if [ "$fresh" = "true" ]; then
+  # Keep last-known warnings through the refresh-triggering render, but cap
+  # their age independently so failed refreshes cannot preserve them forever.
+  if [ "$cache_age" -ge 0 ] && [ "$cache_age" -lt 120 ]; then
+    weave_plan_statuses="$(jq -r '
+      (.plan_statuses // [.disconnected_plans[]? | {provider: ., state: "reconnect_required"}])[]
+      | select(.provider == "claude" or .provider == "codex")
+      | [.provider, .state, ((.cooldown_until // "" | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601?) // 0)]
+      | @tsv
+    ' "$cache.plans" 2>/dev/null)" || weave_plan_statuses=""
+    [ "$fresh" = "true" ] || weave_plan_status_suffix=" (checking…)"
+  fi
+
+  # Only a fresh cache hides surfaces. A visible cache with expired plans
+  # also refreshes, even when a longer display-settings TTL was configured.
+  if [ "$fresh" = "true" ] && { [ "$cache_age" -lt 120 ] || [ "$(cat "$cache" 2>/dev/null)" = "1" ]; }; then
     [ "$(cat "$cache" 2>/dev/null)" = "1" ]
     return
   fi
@@ -474,15 +487,20 @@ weave_hidden_gate() {
       exit 0
     fi
     rm -f "$header_file"
+    # Publish the plan snapshot before stamping the cache fresh. Malformed
+    # responses must not extend the life of an old reconnect warning.
+    plans="$(printf '%s' "$body" | jq -ce '
+      select(type == "object" and (.hide_terminal_surfaces | type == "boolean"))
+      | {plan_statuses, disconnected_plans}
+    ' 2>/dev/null)" || exit 0
     hidden="$(printf '%s' "$body" | jq -r '.hide_terminal_surfaces // false' 2>/dev/null)"
     tmp="$cache.tmp.$$"
+    printf '%s' "$plans" >"$tmp" 2>/dev/null && mv "$tmp" "$cache.plans" 2>/dev/null || exit 0
     if [ "$hidden" = "true" ]; then
       printf '1' >"$tmp" 2>/dev/null && mv "$tmp" "$cache" 2>/dev/null
     else
       printf '0' >"$tmp" 2>/dev/null && mv "$tmp" "$cache" 2>/dev/null
     fi
-    plans="$(printf '%s' "$body" | jq -r '[.disconnected_plans[]? | select(type == "string" and test("^[a-z]+$"))] | join(" ")' 2>/dev/null)"
-    printf '%s' "$plans" >"$tmp" 2>/dev/null && mv "$tmp" "$cache.plans" 2>/dev/null
     rm -f "$tmp" 2>/dev/null
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
@@ -1127,7 +1145,7 @@ fi
 # Point the reconnect command at this install: a bare login reads the
 # user-scope config, which a project or --dir install doesn't use.
 weave_login_scope=""
-if [ -n "${weave_disconnected_plans:-}" ]; then
+if [ -n "${weave_plan_statuses:-}" ]; then
   weave_sl_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
   case "$weave_sl_dir" in
     */.claude)
@@ -1138,12 +1156,30 @@ if [ -n "${weave_disconnected_plans:-}" ]; then
       ;;
   esac
 fi
-for weave_plan in ${weave_disconnected_plans:-}; do
+while IFS=$'\t' read -r weave_plan weave_plan_state weave_plan_reset_epoch; do
   case "$weave_plan" in
-    claude) status_text="$status_text · Claude plan disconnected: run npx @weave-os/router login claude$weave_login_scope" ;;
-    codex) status_text="$status_text · Codex plan disconnected: run npx @weave-os/router login codex$weave_login_scope" ;;
+    claude) weave_plan_name="Claude" ;;
+    codex) weave_plan_name="Codex" ;;
+    *) continue ;;
   esac
-done
+  case "$weave_plan_state" in
+    reconnect_required)
+      status_text="$status_text · $weave_plan_name plan disconnected${weave_plan_status_suffix}: run npx @weave-os/router login $weave_plan$weave_login_scope"
+      ;;
+    cooldown|exhausted)
+      weave_reset_text=""
+      if [ "$weave_plan_reset_epoch" -gt 0 ]; then
+        [ "$weave_plan_reset_epoch" -gt "$(date +%s)" ] || continue
+        weave_reset_date="$(date -d "@$weave_plan_reset_epoch" '+%b %d %H:%M %Z' 2>/dev/null || date -r "$weave_plan_reset_epoch" '+%b %d %H:%M %Z' 2>/dev/null)" || weave_reset_date=""
+        [ -z "$weave_reset_date" ] || weave_reset_text=" until $weave_reset_date"
+      fi
+      case "$weave_plan_state" in
+        cooldown) status_text="$status_text · $weave_plan_name plan cooling down$weave_reset_text$weave_plan_status_suffix" ;;
+        exhausted) status_text="$status_text · $weave_plan_name plan limit reached$weave_reset_text$weave_plan_status_suffix" ;;
+      esac
+      ;;
+  esac
+done <<< "${weave_plan_statuses:-}"
 
 # /router-status reads this back through the prompt hook, so it can answer
 # without a model turn.
