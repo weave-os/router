@@ -271,7 +271,7 @@ func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {
 	if pickedModelOnOwnPlan(ctx) {
 		return false
 	}
-	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst && snap.UsageBilled() {
+	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst && claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise {
 		return false
 	}
 	return snap.BillableOrExhausted()

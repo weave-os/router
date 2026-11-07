@@ -196,7 +196,7 @@ var Registry = []Definition{
 	{
 		Key:            KeyClaudeEnterpriseOnly,
 		Kind:           KindBool,
-		Description:    "Fund Claude calls through linked Claude accounts, including provider-authorized Enterprise overage, without Weave-credit fallback. On by default for linked accounts; explicit BYOK and disabled subscription routing retain precedence over the default.",
+		Description:    "Keep provider-verified Claude Enterprise subscriptions on their own billing, including authorized overage, without Weave-credit fallback. Pro, Max, Team and unknown plans are never classified as Enterprise by this flag. Explicit BYOK and disabled subscription routing retain precedence.",
 		OrgOverridable: true,
 	},
 	{

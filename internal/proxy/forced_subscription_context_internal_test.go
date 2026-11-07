@@ -70,7 +70,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 		forceWithEffort    bool
 	}{
 		{name: "estimate exceeds window but provider accepts"},
-		{name: "direct subscription survives estimated overflow", directSubscription: true},
+		{name: "inbound subscription does not bypass pool during estimated overflow", directSubscription: true},
 		{name: "effort-qualified force header survives estimated overflow", forceWithEffort: true},
 		{name: "transient provider failure retries same model", transient: true},
 		{name: "real overflow allows compaction and continuation", overflow: true},
@@ -188,9 +188,6 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 					continue
 				}
 				wantCredential := "Bearer synthetic-token"
-				if scenario.directSubscription {
-					wantCredential = "Bearer sk-ant-oat01-synthetic-token"
-				}
 				assert.Equal(t, wantCredential, credentials[i], "context estimation must not force a paid attempt")
 				if scenario.forceWithEffort {
 					assert.Equal(t, "high", efforts[i], "canonicalizing the model must preserve the requested wire effort")
