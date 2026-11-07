@@ -166,13 +166,15 @@ env "${common_env[@]}" bash "$installer" login codex --base-url https://router.e
   || { echo 'login did not clear its provider from the statusline warning cache' >&2; exit 1; }
 [ ! -s "$plans_dir/display-settings_project.plans" ] \
   || { echo 'login left a stale warning in a second install cache' >&2; exit 1; }
+[ "$(cat "$plans_dir/display-settings_other.plans")" = "claude" ] \
+  || { echo 'login changed a cache that did not list its provider' >&2; exit 1; }
 touch -t 202001010001 "$work/plans-age"
 for f in "$plans_dir"/display-settings_*.plans; do
   [ "$f" -ot "$work/plans-age" ] \
     || { echo "login made the cached warnings in $f look fresh" >&2; exit 1; }
+  [ ! -e "${f%.plans}.lock" ] \
+    || { echo "login left the statusline refresh lock for $f behind" >&2; exit 1; }
 done
-[ ! -e "$plans_dir/display-settings_user.lock" ] \
-  || { echo 'login left the statusline refresh lock behind' >&2; exit 1; }
 
 # Login is interactive for OAuth, but it does not install a client config and
 # therefore must not ask the unrelated user-vs-project scope question. Run it
