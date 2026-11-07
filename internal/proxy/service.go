@@ -74,8 +74,7 @@ type Service struct {
 
 	router             router.Router
 	subscriptionModels subscriptionModelAccess
-	claudeProfiles     subscriptionProfileCache
-	claudePlanReader   providers.SubscriptionPlanReader
+	claudePlans        *auth.SubscriptionPlans
 	sessionHolds       subscriptionSessionHolds
 	// strategies contains every non-default router and its optional lifecycle
 	// reporters. Adding a strategy does not require another Service field.

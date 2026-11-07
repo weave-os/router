@@ -90,11 +90,18 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 			return nil
 		}
 		pool, compatible := subscriptionPoolForModel(target)
+		claudeTurn, _ := callCtx.Value(claudeSubscriptionTurnKey{}).(bool)
+		presentedPlan, _ := callCtx.Value(claudeSubscriptionPlanKey{}).(providers.SubscriptionPlan)
+		unverified := claudeSubscriptionPlan(callCtx) == providers.SubscriptionPlanUnknown && (claudeTurn || compatible && pool == subscriptions.ProviderClaude) || claudeTurn && presentedPlan == providers.SubscriptionPlanUnknown
+		if state, _ := callCtx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+			unverified = unverified || state.ClaudePlanUnverified
+		}
+		if claudeEnterpriseEnabled(callCtx) && unverified {
+			observability.FromContext(callCtx).Warn("Blocked paid recovery while Claude subscription identity is unverified", "provider", target.Provider, "model", target.CatalogID)
+			return fmt.Errorf("%w: Claude subscription plan could not be verified before paid fallback", ErrSubscriptionPoolUnavailable)
+		}
 		if !compatible {
 			return nil
-		}
-		if pool == subscriptions.ProviderClaude && claudeEnterpriseEnabled(callCtx) && claudeSubscriptionPlan(callCtx) == providers.SubscriptionPlanUnknown {
-			return fmt.Errorf("%w: Claude subscription plan could not be verified before paid fallback", ErrSubscriptionPoolUnavailable)
 		}
 		if pickedModelOnOwnPlan(callCtx) {
 			return fmt.Errorf("%w: picked model runs on the caller's own plan", ErrSubscriptionPoolUnavailable)

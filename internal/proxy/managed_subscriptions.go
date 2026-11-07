@@ -75,6 +75,7 @@ type ManagedSubscriptionUsage struct {
 	Finished               bool
 	WinningCredentials     *Credentials
 	ClaudeSubscriptionPlan providers.SubscriptionPlan
+	ClaudePlanUnverified   bool
 }
 
 var (
@@ -341,7 +342,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		}
 		snapshot, observed := s.managedSubscriptionUsageSnapshot(lease.AccountID, lease.AccessToken)
 		allowClaudeOverage := poolProvider == subscriptions.ProviderClaude && claudeEnterpriseOnly(credentialCtx)
-		if poolProvider == subscriptions.ProviderClaude && lease.State == auth.SubscriptionAccountStateExhausted && !allowClaudeOverage {
+		if poolProvider == subscriptions.ProviderClaude && !lease.AllowsPlanAttempt(claudeSubscriptionPlan(credentialCtx), claudeEnterpriseEnabled(ctx)) {
 			lease.Release()
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 			continue

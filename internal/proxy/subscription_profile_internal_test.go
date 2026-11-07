@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
 )
@@ -66,6 +67,9 @@ func TestProfileFailureCannotIdentifyEnterpriseOrAuthorizePaidFallback(t *testin
 	ctx = service.withSubscriptionFundingAuthorization(ctx, nil)
 	require.False(t, claudeEnterpriseOnly(ctx))
 	require.ErrorIs(t, service.subscriptionAPIAuthorization(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String()), ErrSubscriptionPoolUnavailable)
+	claudeTurn := withClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()})
+	require.ErrorIs(t, service.subscriptionAPIAuthorization(claudeTurn, providers.ProviderGoogle, catalog.ModelIDGemini31ProPreview.String()), ErrSubscriptionPoolUnavailable, "unknown Claude identity cannot authorize paid rescue on another provider")
+	require.NoError(t, service.subscriptionAPIAuthorization(ctx, providers.ProviderGoogle, catalog.ModelIDGemini31ProPreview.String()), "an independently selected Google model does not use Claude funding")
 }
 
 func TestOrdinaryClaudePlanRetainsPaidRecoveryWithEnterpriseFlag(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 var ErrClaudeEnterpriseSubscriptionUnavailable = errors.New("Claude Enterprise-only billing requires a usable Claude subscription")
 
 type claudeEnterpriseTurnKey struct{}
+type claudeSubscriptionTurnKey struct{}
 
 // Enterprise billing applies only to a provider-verified Enterprise account.
 // An organization flag cannot turn a Pro, Max, Team or unknown plan into one.
@@ -44,6 +45,9 @@ func claudeEnterpriseTarget(ctx context.Context, target inference.Target) bool {
 }
 
 func withClaudeEnterpriseTurn(ctx context.Context, decision router.Decision) context.Context {
+	if pool, compatible := subscriptionPoolForModel(inference.Target{Provider: decision.Provider, CatalogID: decision.Model}); compatible && pool == subscriptions.ProviderClaude {
+		ctx = context.WithValue(ctx, claudeSubscriptionTurnKey{}, true)
+	}
 	if !claudeEnterpriseTarget(ctx, inference.Target{Provider: decision.Provider, CatalogID: decision.Model}) {
 		return ctx
 	}

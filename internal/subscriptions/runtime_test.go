@@ -11,11 +11,20 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 )
 
 var testOwner = auth.SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}
+
+func TestExhaustedLeaseRequiresVerifiedEnterpriseOverage(t *testing.T) {
+	lease := subscriptions.Lease{State: auth.SubscriptionAccountStateExhausted}
+	for _, plan := range []providers.SubscriptionPlan{providers.SubscriptionPlanPro, providers.SubscriptionPlanMax, providers.SubscriptionPlanTeam, providers.SubscriptionPlanEnterprise, providers.SubscriptionPlanUnknown} {
+		require.False(t, lease.AllowsPlanAttempt(plan, false))
+		require.Equal(t, plan == providers.SubscriptionPlanEnterprise, lease.AllowsPlanAttempt(plan, true))
+	}
+}
 
 type runtimeStore struct {
 	mu                   sync.Mutex

@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/golang-lru/v2/expirable"
@@ -59,6 +60,12 @@ type Lease struct {
 	ProviderAccount string
 	State           auth.SubscriptionAccountState
 	release         func()
+}
+
+// AllowsPlanAttempt admits an exhausted lease only for verified Enterprise
+// overage when the caller's funding policy permits it.
+func (l Lease) AllowsPlanAttempt(plan providers.SubscriptionPlan, allowEnterpriseOverage bool) bool {
+	return l.State != auth.SubscriptionAccountStateExhausted || plan == providers.SubscriptionPlanEnterprise && allowEnterpriseOverage
 }
 
 // Release returns this account to the concurrent selector.
