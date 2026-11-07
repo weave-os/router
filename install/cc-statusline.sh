@@ -377,11 +377,18 @@ weave_hidden_gate() {
   local cache="$cache_dir/display-settings${script_slug}"
   local ttl="${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-3600}"
 
-  # Linked plans that need a fresh login, from the last successful refresh.
-  weave_disconnected_plans="$(cat "$cache.plans" 2>/dev/null)"
-
   local now mtime fresh="false"
   now="$(date +%s 2>/dev/null)" || now=0
+
+  # Linked plans that need a fresh login. Only a refresh within the TTL is
+  # trusted: an older list may name a plan that has since recovered.
+  weave_disconnected_plans=""
+  if [ -f "$cache.plans" ]; then
+    mtime="$(stat -c %Y "$cache.plans" 2>/dev/null || stat -f %m "$cache.plans" 2>/dev/null)" || mtime=0
+    if [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
+      weave_disconnected_plans="$(cat "$cache.plans" 2>/dev/null)"
+    fi
+  fi
   if [ -f "$cache" ]; then
     mtime="$(stat -c %Y "$cache" 2>/dev/null || stat -f %m "$cache" 2>/dev/null)" || mtime=0
     if [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
@@ -1140,8 +1147,8 @@ if [ -n "${weave_disconnected_plans:-}" ]; then
 fi
 for weave_plan in ${weave_disconnected_plans:-}; do
   case "$weave_plan" in
-    claude) status_text="$status_text · Claude plan disconnected: run npx @weave-os/router login claude$weave_login_scope" ;;
-    codex) status_text="$status_text · Codex plan disconnected: run npx @weave-os/router login codex$weave_login_scope" ;;
+    claude) status_text="$status_text · Claude plan needs login: npx @weave-os/router login claude$weave_login_scope" ;;
+    codex) status_text="$status_text · Codex plan needs login: npx @weave-os/router login codex$weave_login_scope" ;;
   esac
 done
 
