@@ -2,6 +2,7 @@ package subscriptions
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
@@ -47,7 +48,15 @@ func (r *PlanResolver) Resolve(ctx context.Context, token []byte) (providers.Sub
 	if reading, cached := r.entries.Get(key); cached && reading.expiresAt.After(r.now()) {
 		return reading.plan, reading.err
 	}
-	result := r.lookups.DoChan(string(key), func() (any, error) {
+	result := r.lookups.DoChan(string(key), func() (value any, lookupErr error) {
+		defer func() {
+			if recover() != nil {
+				observability.FromContext(ctx).Error("Claude subscription profile lookup panicked")
+				reading := subscriptionPlanReading{plan: providers.SubscriptionPlanUnknown, err: errors.New("subscription profile lookup panicked"), expiresAt: r.now().Add(15 * time.Second)}
+				r.entries.Add(key, reading)
+				value, lookupErr = reading, nil
+			}
+		}()
 		if reading, cached := r.entries.Get(key); cached && reading.expiresAt.After(r.now()) {
 			return reading, nil
 		}

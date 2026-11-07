@@ -102,3 +102,18 @@ func TestConcurrentProfileLookupsShareOneRequest(t *testing.T) {
 	}
 	require.EqualValues(t, 1, calls.Load())
 }
+
+func TestProfileReaderPanicReturnsUnknownWithoutLeakingPanicValue(t *testing.T) {
+	var calls atomic.Int32
+	plans := subscriptions.NewPlanResolver(planReaderFunc(func(context.Context, []byte) (providers.SubscriptionPlan, error) {
+		calls.Add(1)
+		panic("synthetic-sensitive-panic")
+	}), time.Now)
+	for range 2 {
+		plan, err := plans.Resolve(context.Background(), []byte("synthetic-token"))
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "synthetic-sensitive-panic")
+		require.Equal(t, providers.SubscriptionPlanUnknown, plan)
+	}
+	require.EqualValues(t, 1, calls.Load(), "the recovered failure is cached briefly")
+}
