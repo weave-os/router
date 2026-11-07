@@ -19,9 +19,8 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
-// This exercises ingress, translation, provider HTTP dispatch, and response
-// translation. An exhausted request-local token must not strand linked capacity
-// merely because the requester has no API credential.
+// Pool-first dispatch must preserve translation without a paid API credential.
+// Direct-login fallback is covered by TestResolvedOAuthRemainsAvailableWithoutManagedCapacity.
 func TestVerificationSafeTransportInboundOAuthUsesLinkedWithoutAPI(t *testing.T) {
 	var bearers, accountIDs, paths []string
 	var sent [][]byte
@@ -35,11 +34,6 @@ func TestVerificationSafeTransportInboundOAuthUsesLinkedWithoutAPI(t *testing.T)
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		sent = append(sent, body)
-		if r.Header.Get("Authorization") == "Bearer "+codexTestToken {
-			w.WriteHeader(http.StatusTooManyRequests)
-			_, _ = io.WriteString(w, `{"error":{"type":"usage_limit_reached"}}`)
-			return
-		}
 		if r.Header.Get("Authorization") != "Bearer linked-token" {
 			w.WriteHeader(http.StatusForbidden)
 			return

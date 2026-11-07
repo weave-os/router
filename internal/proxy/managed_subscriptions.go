@@ -242,7 +242,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	poolSpent := func() (context.Context, subscriptions.Lease, bool, error) {
 		// A caller login remains usable when no admitted linked seat can serve,
 		// but must not bypass the pool's account selection and rotation.
-		if current := CredentialsFromContext(ctx); !unadmitted && current != nil && current.OAuth {
+		if current := CredentialsFromContext(ctx); ctx.Err() == nil && current != nil && current.OAuth {
 			return ctx, subscriptions.Lease{}, false, nil
 		}
 		if !unadmitted && !subscriptionAttemptOnly(ctx) && !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) && s.subscriptionAPIAuthorization(ctx, provider, model) == nil {
@@ -266,6 +266,10 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		}
 		lease, present, err := s.managedSubscriptions.Lease(leaseCtx, owner, poolProvider, ClientIdentityFrom(ctx).SessionID)
 		if err != nil && !errors.Is(err, subscriptions.ErrNoAvailableAccount) {
+			if current := CredentialsFromContext(ctx); ctx.Err() == nil && current != nil && current.OAuth {
+				observability.FromContext(ctx).Warn("Subscription pool lease failed; using caller subscription", "provider", poolProvider, "err", err)
+				return ctx, subscriptions.Lease{}, false, nil
+			}
 			if !unadmitted && !subscriptionAttemptOnly(ctx) && !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) && s.subscriptionAPIAuthorization(ctx, provider, model) == nil {
 				return ctx, subscriptions.Lease{}, false, nil
 			}
