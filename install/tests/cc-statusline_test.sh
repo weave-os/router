@@ -797,6 +797,13 @@ out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcr
     WEAVE_DISPLAY_SETTINGS_TTL_SECONDS=0 \
     bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
 check_contains "stale hidden cache fails open when the router is unreachable" "$out" "deepseek/deepseek-v4-pro"
+out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
+    WEAVE_DISPLAY_SETTINGS_TTL_SECONDS=invalid \
+    bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
+check_contains "a malformed refresh interval cannot pin the statusline hidden" "$out" "deepseek/deepseek-v4-pro"
+check_not_contains "a malformed refresh interval does not leak shell diagnostics" "$out" "integer"
 sleep 1
 check "failed refresh leaves the stale cache untouched" "$(cat "$cache_file" 2>/dev/null)" "1"
 

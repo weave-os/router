@@ -385,7 +385,9 @@ weave_hidden_gate() {
     mtime="$(stat -c %Y "$cache" 2>/dev/null || stat -f %m "$cache" 2>/dev/null)" || mtime=0
     if [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ]; then
       cache_age=$(( now - mtime ))
-      [ "$cache_age" -ge "$ttl" ] || fresh="true"
+      if [ "$cache_age" -lt "$ttl" ] 2>/dev/null; then
+        fresh="true"
+      fi
     fi
   fi
 
@@ -398,7 +400,7 @@ weave_hidden_gate() {
       | [.provider, .state, ((.cooldown_until // "" | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601?) // 0)]
       | @tsv
     ' "$cache.plans" 2>/dev/null)" || weave_plan_statuses=""
-    [ "$cache_age" -lt "$ttl" ] || weave_plan_status_suffix=" (checking…)"
+    [ "$fresh" = "true" ] || weave_plan_status_suffix=" (checking…)"
   fi
 
   # Only a fresh cache hides surfaces. A visible cache with expired plans
