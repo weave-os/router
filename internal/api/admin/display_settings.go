@@ -68,7 +68,7 @@ func linkedPlanStatuses(c *gin.Context, accounts SubscriptionAccountLister) []di
 		observability.FromContext(c.Request.Context()).Warn("Failed to list linked plans for display settings", "err", err)
 		return plans
 	}
-	priority := []auth.SubscriptionAccountState{
+	statePrecedence := []auth.SubscriptionAccountState{
 		auth.SubscriptionAccountStateActive,
 		auth.SubscriptionAccountStateUnknown,
 		auth.SubscriptionAccountStateCooldown,
@@ -88,7 +88,7 @@ func linkedPlanStatuses(c *gin.Context, accounts SubscriptionAccountLister) []di
 			continue
 		}
 		existing := plans[index]
-		if slices.Index(priority, plan.State) < slices.Index(priority, existing.State) ||
+		if slices.Index(statePrecedence, plan.State) < slices.Index(statePrecedence, existing.State) ||
 			(plan.State == existing.State && plan.CooldownUntil != nil &&
 				(existing.CooldownUntil == nil || plan.CooldownUntil.Before(*existing.CooldownUntil))) {
 			plans[index] = plan

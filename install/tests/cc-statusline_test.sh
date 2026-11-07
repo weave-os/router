@@ -725,6 +725,9 @@ plan_state_render() {
       WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' \
       bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g'
 }
+cached_plan_state_is() {
+  [ "$(jq -r '.plan_statuses[0].state' "$cache_file.plans" 2>/dev/null)" = "$1" ]
+}
 for state in cooldown exhausted active; do
   if [ -f "$cache_file" ]; then
     python3 - "$cache_file" <<'PY'
@@ -734,7 +737,7 @@ PY
   fi
   printf '{"hide_terminal_surfaces": false, "disconnected_plans": ["claude"], "plan_statuses": [{"provider": "claude", "state": "%s", "cooldown_until": "2030-01-10T18:00:00.123Z"}]}' "$state" > "$c/ds.json"
   plan_state_render >/dev/null
-  wait_for 5 jq -e --arg state "$state" '.plan_statuses[0].state == $state' "$cache_file.plans" >/dev/null
+  wait_for 5 cached_plan_state_is "$state"
   wait_for 5 not_a_dir "$cache_file.lock"
   out="$(plan_state_render)"
   check_not_contains "$state supersedes a legacy disconnected warning" "$out" "plan disconnected"

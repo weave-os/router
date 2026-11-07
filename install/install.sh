@@ -8019,7 +8019,7 @@ if [ -n "${weave_plan_statuses:-}" ]; then
       ;;
   esac
 fi
-while IFS=$'\t' read -r weave_plan weave_plan_state weave_plan_reset; do
+while IFS=$'\t' read -r weave_plan weave_plan_state weave_plan_reset_epoch; do
   case "$weave_plan" in
     claude) weave_plan_name="Claude" ;;
     codex) weave_plan_name="Codex" ;;
@@ -8031,9 +8031,9 @@ while IFS=$'\t' read -r weave_plan weave_plan_state weave_plan_reset; do
       ;;
     cooldown|exhausted)
       weave_reset_text=""
-      if [ "${weave_plan_reset:-0}" -gt 0 ]; then
-        [ "$weave_plan_reset" -gt "$(date +%s)" ] || continue
-        weave_reset_date="$(date -d "@$weave_plan_reset" '+%b %d %H:%M %Z' 2>/dev/null || date -r "$weave_plan_reset" '+%b %d %H:%M %Z' 2>/dev/null)" || weave_reset_date=""
+      if [ "$weave_plan_reset_epoch" -gt 0 ]; then
+        [ "$weave_plan_reset_epoch" -gt "$(date +%s)" ] || continue
+        weave_reset_date="$(date -d "@$weave_plan_reset_epoch" '+%b %d %H:%M %Z' 2>/dev/null || date -r "$weave_plan_reset_epoch" '+%b %d %H:%M %Z' 2>/dev/null)" || weave_reset_date=""
         [ -z "$weave_reset_date" ] || weave_reset_text=" until $weave_reset_date"
       fi
       case "$weave_plan_state" in
