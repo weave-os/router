@@ -70,6 +70,23 @@ func TestDisplaySettingsHandler(t *testing.T) {
 		require.Equal(t, "subscriber-1", lister.owner.SubscriberID)
 	})
 
+	t.Run("does not list plans that are usable or only out of quota", func(t *testing.T) {
+		var accounts []*auth.SubscriptionAccount
+		for _, provider := range []auth.SubscriptionProvider{auth.SubscriptionProviderClaude, auth.SubscriptionProviderCodex} {
+			for _, state := range []auth.SubscriptionAccountState{
+				auth.SubscriptionAccountStateActive,
+				auth.SubscriptionAccountStateExhausted,
+				auth.SubscriptionAccountStateCooldown,
+				auth.SubscriptionAccountStateDisabled,
+				auth.SubscriptionAccountStateUnknown,
+			} {
+				accounts = append(accounts, &auth.SubscriptionAccount{Provider: provider, State: state})
+			}
+		}
+		body := getDisplaySettings(t, &fakeAccountLister{accounts: accounts})
+		require.Equal(t, []string{}, body.DisconnectedPlans)
+	})
+
 	t.Run("fails open to no disconnected plans", func(t *testing.T) {
 		body := getDisplaySettings(t, &fakeAccountLister{err: errors.New("database down")})
 		require.Equal(t, []string{}, body.DisconnectedPlans)

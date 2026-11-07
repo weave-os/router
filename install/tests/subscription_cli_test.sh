@@ -151,6 +151,18 @@ done
 env "${common_env[@]}" bash "$installer" login codex --base-url https://router.example.test --non-interactive --quiet \
   | grep -Fq 'Codex subscription enrolled.'
 
+# A successful login withdraws that provider from every cached statusline
+# warning at once, keeping the warnings for other providers.
+plans_dir="$work/home/.cache/weave-router"
+mkdir -p "$plans_dir"
+printf 'claude codex' >"$plans_dir/display-settings_user.plans"
+printf 'codex' >"$plans_dir/display-settings_project.plans"
+env "${common_env[@]}" bash "$installer" login codex --base-url https://router.example.test --non-interactive --quiet >/dev/null
+[ "$(cat "$plans_dir/display-settings_user.plans")" = "claude" ] \
+  || { echo 'login did not clear its provider from the statusline warning cache' >&2; exit 1; }
+[ ! -s "$plans_dir/display-settings_project.plans" ] \
+  || { echo 'login left a stale warning in a second install cache' >&2; exit 1; }
+
 # Login is interactive for OAuth, but it does not install a client config and
 # therefore must not ask the unrelated user-vs-project scope question. Run it
 # under a real TTY so the regression catches the prompt that a pipe would hide.

@@ -690,8 +690,8 @@ out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcr
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
     WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
     bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
-check_contains "statusline names the disconnected plan and its reconnect command" "$out" "Claude plan disconnected: run npx @weave-os/router login claude --scope project --dir $c/proj"
-check_not_contains "statusline omits plans that are not disconnected" "$out" "Codex plan disconnected"
+check_contains "statusline names the disconnected plan and its reconnect command" "$out" "Claude plan needs login: npx @weave-os/router login claude --scope project --dir $c/proj"
+check_not_contains "statusline omits plans that are not disconnected" "$out" "Codex plan needs login"
 printf '{"hide_terminal_surfaces": false, "disconnected_plans": []}' > "$c/ds.json"
 touch -d '2 hours ago' "$cache_file" 2>/dev/null || touch -t "$(date -d '2 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-2H +%Y%m%d%H%M)" "$cache_file"
 echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
@@ -700,6 +700,25 @@ echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}"
     bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
 wait_for 5 test ! -s "$cache_file.plans"
 check "a reconnected plan clears the cached warning" "$(cat "$cache_file.plans" 2>/dev/null)" ""
+
+# A plans list older than the TTL is not shown: a statusline that has not
+# refreshed in days (unreachable router, idle install) must not report a plan
+# state the account may have left long ago.
+c="$work/g3stale"; mkdir -p "$c/proj/.claude" "$c/cache"
+write_install "$c/proj" project "rk_proj_stale" "file://$c/missing.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+mkdir -p "$(dirname "$cache_file")"
+printf '0' > "$cache_file"
+printf 'claude' > "$cache_file.plans"
+for f in "$cache_file" "$cache_file.plans"; do
+  touch -d '2 days ago' "$f" 2>/dev/null || touch -t "$(date -d '2 days ago' +%Y%m%d%H%M 2>/dev/null || date -v-2d +%Y%m%d%H%M)" "$f"
+done
+out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
+    bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
+check_contains "stale plans cache still renders the statusline" "$out" "deepseek/deepseek-v4-pro"
+check_not_contains "a plans list older than the TTL is not shown" "$out" "Claude plan"
 
 # A fresh hidden cache decides without any network access: the install points
 # at an unreachable endpoint, but the pre-seeded fresh cache blanks the
