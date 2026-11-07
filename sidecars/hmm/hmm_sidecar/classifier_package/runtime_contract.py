@@ -114,11 +114,12 @@ class RuntimeContract(BaseModel):
         except ValueError as error:
             raise RuntimeContractError(str(error)) from error
         if (
-            self.serving_config.provider is EmbeddingProvider.OPENAI_COMPATIBLE
+            self.serving_config.provider is not EmbeddingProvider.GEMINI
             and not self.reference_probes
         ):
             raise RuntimeContractError(
-                "an openai_compatible package must declare reference_probes"
+                f"a {self.serving_config.provider!s} package must declare"
+                " reference_probes"
             )
         if any(
             len(probe.vector) != self.embedding_dim for probe in self.reference_probes

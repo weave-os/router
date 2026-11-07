@@ -20,7 +20,10 @@ from hmm_sidecar.classifier_package.agent_flow_sidecar import (
     AgentFlowHMMSidecar,
 )
 from hmm_sidecar.classifier_package.complexity_classifier import ComplexityClassifier
-from hmm_sidecar.classifier_package import openai_compatible_embeddings
+from hmm_sidecar.classifier_package import (
+    bedrock_embeddings,
+    openai_compatible_embeddings,
+)
 from hmm_sidecar.classifier_package.gemini_embeddings import (
     EmbeddingError,
     resolve_gemini_transport,
@@ -56,7 +59,17 @@ from hmm_sidecar.inference_deadline import LastReadoutStore, infer_within_deadli
 EMBEDDING_BATCH_SIZE = 8
 EMBEDDING_PROBE_TEXT = "Weave Router embedding probe"
 REFERENCE_PROBE_MIN_COSINE = 0.999
-OPENAI_COMPATIBLE_PROVIDER = openai_compatible_embeddings.PROVIDER
+# HMM_EMBEDDING_PROVIDER value and embedder for each customer-model provider.
+CUSTOMER_MODEL_EMBEDDERS = {
+    EmbeddingProvider.OPENAI_COMPATIBLE: (
+        openai_compatible_embeddings.PROVIDER,
+        openai_compatible_embeddings.embed_texts_uncached,
+    ),
+    EmbeddingProvider.BEDROCK: (
+        bedrock_embeddings.PROVIDER,
+        bedrock_embeddings.embed_texts_uncached,
+    ),
+}
 # Unset keeps the pre-existing Gemini deployments valid.
 GEMINI_PROVIDER_SETTINGS = ("", "google", "gemini")
 
@@ -214,10 +227,10 @@ class PackageClassifier:
             offload_posterior=True,
             embed_uncached=(
                 functools.partial(
-                    openai_compatible_embeddings.embed_texts_uncached,
+                    CUSTOMER_MODEL_EMBEDDERS[profile.config.provider][1],
                     expected_dim=profile.embedding_dim,
                 )
-                if profile.config.provider is EmbeddingProvider.OPENAI_COMPATIBLE
+                if profile.config.provider in CUSTOMER_MODEL_EMBEDDERS
                 else None
             ),
             state_encoder_contract=profile.state_encoder_contract,
@@ -316,10 +329,11 @@ class PackageClassifier:
                     f"embedding probe for package model {model!r} over transport"
                     f" {configured_transport!r} failed: {error}"
                 ) from error
-        if configured_provider != OPENAI_COMPATIBLE_PROVIDER:
+        package_provider = CUSTOMER_MODEL_EMBEDDERS[self.profile.config.provider][0]
+        if configured_provider != package_provider:
             raise EmbeddingError(
                 f"package model {model!r} needs HMM_EMBEDDING_PROVIDER="
-                f"{OPENAI_COMPATIBLE_PROVIDER}, got {configured_provider or 'unset'!r}"
+                f"{package_provider}, got {configured_provider or 'unset'!r}"
             )
         configured_model = os.environ.get("HMM_EMBEDDING_MODEL", "").strip()
         if configured_model != model:
@@ -327,7 +341,7 @@ class PackageClassifier:
                 f"HMM_EMBEDDING_MODEL {configured_model or 'unset'!r} is not the"
                 f" package's embedding model {model!r}"
             )
-        return f"provider {OPENAI_COMPATIBLE_PROVIDER!r}"
+        return f"provider {package_provider!r}"
 
     async def classify(
         self, payload: dict[str, Any], *, session_id: str | None = None

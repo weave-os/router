@@ -20,6 +20,7 @@ dependencies = [
     # package was fitted with so the projection is bit-identical.
     "scikit-learn==1.9.0",
     "google-genai==2.20.0",
+    "boto3>=1.35,<2",
 ]
 
 [dependency-groups]

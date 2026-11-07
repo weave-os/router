@@ -66,6 +66,9 @@ class EmbeddingProvider(StrEnum):
     #: A customer-hosted model behind an OpenAI-compatible ``/embeddings``
     #: endpoint; the package declares the model and width it was trained on.
     OPENAI_COMPATIBLE = "openai_compatible"
+    #: An Amazon Bedrock embedding model invoked natively; the package declares
+    #: the model id and width it was trained on.
+    BEDROCK = "bedrock"
 
 
 class ToolEvidenceMode(StrEnum):
@@ -245,18 +248,30 @@ _PROFILES_BY_CONFIG: Mapping[ServingConfig, ServingProfile] = {
 
 # Customer-model packages serve the Gemini per-message geometry and documents;
 # only the encoder (model id and width) differs, and the package declares it.
-_OPENAI_COMPATIBLE_ELEMENT_CONFIG = ServingConfig(
-    provider=EmbeddingProvider.OPENAI_COMPATIBLE,
-    tool_evidence=ToolEvidenceMode.USER_AGENT_ONLY,
-    document_window=DocumentWindow.PER_MESSAGE,
-    lookback_rounds=ONE_TURN_MAX_TURNS,
-)
+_CUSTOMER_MODEL_REPRESENTATIONS: Mapping[ServingConfig, SequenceRepresentation] = {
+    ServingConfig(
+        provider=provider,
+        tool_evidence=ToolEvidenceMode.USER_AGENT_ONLY,
+        document_window=DocumentWindow.PER_MESSAGE,
+        lookback_rounds=ONE_TURN_MAX_TURNS,
+    ): representation
+    for provider, representation in (
+        (
+            EmbeddingProvider.OPENAI_COMPATIBLE,
+            SequenceRepresentation.OPENAI_COMPATIBLE_RAW_ROUTER_V5_ELEMENT,
+        ),
+        (
+            EmbeddingProvider.BEDROCK,
+            SequenceRepresentation.BEDROCK_RAW_ROUTER_V5_ELEMENT,
+        ),
+    )
+}
 
 
-def _openai_compatible_element_profile(
-    embedding_model: str, embedding_dim: int
+def _customer_model_element_profile(
+    config: ServingConfig, embedding_model: str, embedding_dim: int
 ) -> ServingProfile:
-    representation = SequenceRepresentation.OPENAI_COMPATIBLE_RAW_ROUTER_V5_ELEMENT
+    representation = _CUSTOMER_MODEL_REPRESENTATIONS[config]
     encoder = replace(
         get_state_encoder_contract(GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT),
         representation=representation,
@@ -266,7 +281,7 @@ def _openai_compatible_element_profile(
     )
     return replace(
         _GEMINI_ELEMENT_PROFILE,
-        config=_OPENAI_COMPATIBLE_ELEMENT_CONFIG,
+        config=config,
         representation=representation,
         embedding_model=embedding_model,
         embedding_dim=embedding_dim,
@@ -278,7 +293,7 @@ def _supported_configs_message() -> str:
     return ", ".join(
         f"{config.provider!s}/{config.tool_evidence!s}/"
         f"{config.document_window!s}/{config.lookback_rounds}"
-        for config in (*_PROFILES_BY_CONFIG, _OPENAI_COMPATIBLE_ELEMENT_CONFIG)
+        for config in (*_PROFILES_BY_CONFIG, *_CUSTOMER_MODEL_REPRESENTATIONS)
     )
 
 
@@ -295,13 +310,13 @@ def serving_profile(
     nearest configuration that happens to exist.
     """
 
-    if config == _OPENAI_COMPATIBLE_ELEMENT_CONFIG:
+    if config in _CUSTOMER_MODEL_REPRESENTATIONS:
         if not embedding_model or not embedding_dim or embedding_dim <= 0:
             raise ServingInputError(
-                "an openai_compatible package must declare its embedding_model"
+                f"a {config.provider!s} package must declare its embedding_model"
                 " and a positive embedding_dim"
             )
-        return _openai_compatible_element_profile(embedding_model, embedding_dim)
+        return _customer_model_element_profile(config, embedding_model, embedding_dim)
     profile = _PROFILES_BY_CONFIG.get(config)
     if profile is None:
         raise ServingInputError(
