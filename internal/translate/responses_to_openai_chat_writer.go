@@ -524,7 +524,10 @@ func (t *ResponsesToOpenAIChatWriter) finalizeBuffered() error {
 	}
 	if !chatCompletionHasUsableOutput(chat) && !chatCompletionHasReasoningOutput(chat) {
 		t.log().Error("ResponsesToOpenAIChat: upstream returned an empty completion",
-			"request_model", t.requestModel)
+			"request_model", t.requestModel,
+			"upstream_response_id", resp.Get("id").String(),
+			"upstream_status", resp.Get("status").String(),
+			"error_status", http.StatusBadGateway)
 		recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
 		return t.finalizeEmptyCompletion()
 	}

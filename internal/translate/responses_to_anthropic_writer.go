@@ -85,6 +85,10 @@ type ResponsesToAnthropicWriter struct {
 	emittedStopReason string
 	lifecycle         *StreamLifecycle
 	toolLedger        *ToolCallLedger
+
+	// logger is the request-scoped logger (nil until WithLogger); log() falls
+	// back to the global default so direct test construction works without one.
+	logger *slog.Logger
 }
 
 // NewResponsesToAnthropicWriter wraps w to translate a streaming Responses
@@ -283,9 +287,18 @@ func (t *ResponsesToAnthropicWriter) processFinalResponsesSSETail() error {
 	return t.translateResponsesEvent(event)
 }
 
-// log routes this translator's diagnostics through one observability.Get()
-// call site (see internal/observability's global-logger budget).
+// WithLogger installs the request-scoped logger for this translator's lines.
+func (t *ResponsesToAnthropicWriter) WithLogger(log *slog.Logger) *ResponsesToAnthropicWriter {
+	t.logger = log
+	return t
+}
+
+// log returns the request-scoped logger, or the global default when none was
+// installed.
 func (t *ResponsesToAnthropicWriter) log() *slog.Logger {
+	if t.logger != nil {
+		return t.logger
+	}
 	return observability.Get()
 }
 
@@ -681,7 +694,10 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 	}
 	if !anthropicResponseHasUsableOutput(anthropic) {
 		t.log().Error("ResponsesToAnthropic: upstream returned an empty completion",
-			"request_model", t.requestModel)
+			"request_model", t.requestModel,
+			"upstream_response_id", resp.Get("id").String(),
+			"upstream_status", resp.Get("status").String(),
+			"error_status", http.StatusBadGateway)
 		recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
 		return t.finalizeEmptyCompletion()
 	}
