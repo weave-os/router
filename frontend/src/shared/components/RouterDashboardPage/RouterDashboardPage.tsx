@@ -40,9 +40,12 @@ export function RouterDashboardPage({
       header={
         <PageHeader
           left={
-            <Text ref={headingRef} tabIndex={-1} variant="h4" as="h2" className="truncate">
-              Router cost &amp; savings
-            </Text>
+            <div className="flex min-w-0 items-center gap-2">
+              <Text ref={headingRef} tabIndex={-1} variant="h4" as="h2" className="truncate">
+                Router cost &amp; savings
+              </Text>
+              <RouterDashboardSlot name={RouterDashboardSlotName.DashboardTitleAccessory} />
+            </div>
           }
           leftColumnClassName="truncate"
           right={
