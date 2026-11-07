@@ -241,6 +241,52 @@ func (q *Queries) GetActiveExternalAPIKeysForInstallation(ctx context.Context, i
 	return items, nil
 }
 
+const listActiveExternalAPIKeySecrets = `-- name: ListActiveExternalAPIKeySecrets :many
+SELECT id, external_id, provider, key_ciphertext
+FROM router.model_router_external_api_keys
+WHERE deleted_at IS NULL
+  AND octet_length(key_ciphertext) > 0
+`
+
+type ListActiveExternalAPIKeySecretsRow struct {
+	ID            uuid.UUID
+	ExternalID    string
+	Provider      string
+	KeyCiphertext []byte
+}
+
+// Every active stored secret, across installations, for the boot-time
+// plaintext-to-ciphertext upgrade. Workload-identity rows hold no secret.
+//
+//	SELECT id, external_id, provider, key_ciphertext
+//	FROM router.model_router_external_api_keys
+//	WHERE deleted_at IS NULL
+//	  AND octet_length(key_ciphertext) > 0
+func (q *Queries) ListActiveExternalAPIKeySecrets(ctx context.Context) ([]ListActiveExternalAPIKeySecretsRow, error) {
+	rows, err := q.db.Query(ctx, listActiveExternalAPIKeySecrets)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListActiveExternalAPIKeySecretsRow
+	for rows.Next() {
+		var i ListActiveExternalAPIKeySecretsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ExternalID,
+			&i.Provider,
+			&i.KeyCiphertext,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markExternalAPIKeyUsed = `-- name: MarkExternalAPIKeyUsed :exec
 UPDATE router.model_router_external_api_keys
 SET last_used_at = NOW()
@@ -257,6 +303,35 @@ WHERE id = $1::uuid
 func (q *Queries) MarkExternalAPIKeyUsed(ctx context.Context, id uuid.UUID) error {
 	_, err := q.db.Exec(ctx, markExternalAPIKeyUsed, id)
 	return err
+}
+
+const replaceExternalAPIKeyCiphertext = `-- name: ReplaceExternalAPIKeyCiphertext :execrows
+UPDATE router.model_router_external_api_keys
+SET key_ciphertext = $1::bytea, updated_at = CURRENT_TIMESTAMP
+WHERE id = $2::uuid
+  AND key_ciphertext = $3::bytea
+  AND deleted_at IS NULL
+`
+
+type ReplaceExternalAPIKeyCiphertextParams struct {
+	KeyCiphertext      []byte
+	ID                 uuid.UUID
+	PreviousCiphertext []byte
+}
+
+// Compare-and-swap on the old bytes so a concurrent rotation is not clobbered.
+//
+//	UPDATE router.model_router_external_api_keys
+//	SET key_ciphertext = $1::bytea, updated_at = CURRENT_TIMESTAMP
+//	WHERE id = $2::uuid
+//	  AND key_ciphertext = $3::bytea
+//	  AND deleted_at IS NULL
+func (q *Queries) ReplaceExternalAPIKeyCiphertext(ctx context.Context, arg ReplaceExternalAPIKeyCiphertextParams) (int64, error) {
+	result, err := q.db.Exec(ctx, replaceExternalAPIKeyCiphertext, arg.KeyCiphertext, arg.ID, arg.PreviousCiphertext)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const softDeleteExternalAPIKey = `-- name: SoftDeleteExternalAPIKey :exec

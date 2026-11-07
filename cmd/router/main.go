@@ -181,23 +181,28 @@ func main() {
 	}
 	logger.Info("Translation compatibility configured", "mode", translationCompatibilityMode)
 
-	// EXTERNAL_KEY_ENCRYPTION_KEY is optional: unset falls back to a no-op
-	// encryptor (BYOK secrets stored unencrypted, fine for self-hosted/local).
-	// A malformed keyset still fails closed — only a genuinely absent var bypasses.
-	keysetJSON := config.GetOr("EXTERNAL_KEY_ENCRYPTION_KEY", "")
-	var encryptor auth.Encryptor
-	if keysetJSON == "" {
+	encryptor, err := newProviderKeyEncryptor(deploymentMode, osEnvLookup)
+	if err != nil {
+		logger.Error("Provider key encryption is not configured; refusing to boot", "err", err)
+		panic(err)
+	}
+	if _, isNoOp := encryptor.(auth.NoOpEncryptor); isNoOp {
 		logger.Warn("EXTERNAL_KEY_ENCRYPTION_KEY not set; BYOK secrets will be stored unencrypted at rest. Set EXTERNAL_KEY_ENCRYPTION_KEY to a Tink AES-256-GCM keyset to enable encryption.")
-		encryptor = auth.NoOpEncryptor{}
-	} else {
-		encryptor, err = auth.NewTinkEncryptor(keysetJSON)
-		if err != nil {
-			logger.Error("Failed to create Tink encryptor from keyset", "err", err)
-			panic(err)
-		}
 	}
 
 	repo := postgres.NewRepository(pool, encryptor)
+	if _, isNoOp := encryptor.(auth.NoOpEncryptor); !isNoOp && deploymentMode == server.DeploymentModeSelfHosted {
+		upgradeCtx, upgradeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		n, err := postgres.NewExternalAPIKeyRepo(pool, encryptor).EncryptPlaintextKeys(upgradeCtx)
+		upgradeCancel()
+		if err != nil {
+			logger.Error("Encrypting previously unencrypted provider keys failed; refusing to boot", "err", err)
+			panic(err)
+		}
+		if n > 0 {
+			logger.Info("Encrypted provider keys stored before a keyset was configured", "count", n)
+		}
+	}
 	discoveryHTTPClient, err := providerHTTP.NewModelDiscoveryClient(config.GetOr("ROUTER_MODEL_DISCOVERY_PRIVATE_ORIGINS", ""))
 	if err != nil {
 		logger.Error("Invalid model discovery private-origin configuration", "err", err)

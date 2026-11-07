@@ -88,3 +88,19 @@ UPDATE router.model_router_external_api_keys
 SET last_used_at = NOW()
 WHERE id = @id::uuid
   AND deleted_at IS NULL;
+
+-- Every active stored secret, across installations, for the boot-time
+-- plaintext-to-ciphertext upgrade. Workload-identity rows hold no secret.
+-- name: ListActiveExternalAPIKeySecrets :many
+SELECT id, external_id, provider, key_ciphertext
+FROM router.model_router_external_api_keys
+WHERE deleted_at IS NULL
+  AND octet_length(key_ciphertext) > 0;
+
+-- Compare-and-swap on the old bytes so a concurrent rotation is not clobbered.
+-- name: ReplaceExternalAPIKeyCiphertext :execrows
+UPDATE router.model_router_external_api_keys
+SET key_ciphertext = @key_ciphertext::bytea, updated_at = CURRENT_TIMESTAMP
+WHERE id = @id::uuid
+  AND key_ciphertext = @previous_ciphertext::bytea
+  AND deleted_at IS NULL;
