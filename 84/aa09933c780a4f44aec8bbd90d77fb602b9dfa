@@ -1,0 +1,19 @@
+.claude/skills/test-claude-locally/SKILL.md
+  s_f1ddfc363ee6c2::t_143876958b4792 16,19-20,143-162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "84aa09933c780a4f44aec8bbd90d77fb602b9dfa",
+  "prompts": {},
+  "sessions": {
+    "s_f1ddfc363ee6c2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8cda2423-38d2-448a-b281-0fd69c42cb07",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

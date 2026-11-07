@@ -1,0 +1,23 @@
+internal/translate/responses_codex_egress_test.go
+  s_4cd249a6e2e116::t_7dca0564cfdd0e 190
+  s_4cd249a6e2e116::t_96c4986fd823e9 67
+internal/translate/responses.go
+  s_4cd249a6e2e116::t_352812a9ec6bd4 1196-1197
+  s_4cd249a6e2e116::t_d4f5e2b99314c2 474-476
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "239d073a0465597ce71a92323ea561264ae24a56",
+  "prompts": {},
+  "sessions": {
+    "s_4cd249a6e2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "aa67b391-849b-473c-8bd2-f1c2b633482d",
+        "model": "minimax/minimax-m3"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

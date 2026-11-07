@@ -1,0 +1,35 @@
+install/pi-router/src/lsp-client.ts
+  s_928d18cf622157::t_3558a98b677c74 186-190
+install/pi-router/test/e2e.sh
+  s_928d18cf622157::t_7d0a9f0804ed26 136,138
+install/pi-router/test/lsp.test.ts
+  s_928d18cf622157::t_1ed30be0be1c49 295-304,306-360
+  s_928d18cf622157::t_d2779f3ebe208d 855-885
+  s_928d18cf622157::t_f14b6b58761798 305
+install/pi-router/src/lsp-servers.ts
+  s_928d18cf622157::t_3b61d8223151bf 274-282,293
+  s_928d18cf622157::t_44b777ffc700f7 330-335,348-350
+  s_928d18cf622157::t_2b73e8371b874e 226-227
+install/pi-router/src/lsp-install.ts
+  s_928d18cf622157::t_925cbfd1ce53cb 196-198,200-201
+  s_928d18cf622157::t_7610863510d0d6 26
+  s_928d18cf622157::t_51494be7a6e689 142,144,148-149,154,156,161-166,168-171,173-174
+  s_928d18cf622157::t_4be5360b4cf794 199
+  s_928d18cf622157::t_5708737d21df54 121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "122b8cd318dd7cadc79d35dff95ae056a8d4f524",
+  "prompts": {},
+  "sessions": {
+    "s_928d18cf622157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1a744bfb-f40f-4395-b5ba-cd37866e6b0a",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

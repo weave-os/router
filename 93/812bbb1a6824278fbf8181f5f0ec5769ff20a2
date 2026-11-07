@@ -1,0 +1,37 @@
+internal/router/breaker/breaker.go
+  s_820054ea85251d::t_05f45dc0ab3941 69-72,121-124,137-138,150-155,158-169,185-187,200,209-210,212-217,224-232,234
+internal/proxy/AGENTS.md
+  s_820054ea85251d::t_1bd44054ca5995 108-113
+internal/proxy/overload_breaker_internal_test.go
+  s_820054ea85251d::t_eb6ddc35b80685 232-239,241,243-250
+  s_820054ea85251d::t_f4d17ab39ecbfa 240,242
+internal/proxy/service.go
+  s_820054ea85251d::t_f4d17ab39ecbfa 4050,7212
+internal/proxy/gemini.go
+  s_820054ea85251d::t_f4d17ab39ecbfa 204
+internal/proxy/overload_breaker.go
+  s_820054ea85251d::t_7ca4e9ce00830e 103-109,114-121,124-125
+  s_820054ea85251d::t_f4d17ab39ecbfa 60,62,70,74-89
+internal/proxy/turnloop.go
+  s_820054ea85251d::t_f4d17ab39ecbfa 22,322-325,881-883
+internal/router/breaker/breaker_test.go
+  s_820054ea85251d::t_cc92029ed8322b 14-17,21-31,43,46,48-55,90,102,129,132,144,149,159-161,164,166,168-180,186-188,191-193,196-217,223,225,234,241
+internal/proxy/CLAUDE.md
+  s_820054ea85251d::t_1bd44054ca5995 108-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "93812bbb1a6824278fbf8181f5f0ec5769ff20a2",
+  "prompts": {},
+  "sessions": {
+    "s_820054ea85251d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15795-f71b-71b3-a470-34c0f2ed2beb",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

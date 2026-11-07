@@ -1,0 +1,64 @@
+internal/proxy/turnloop_test.go
+  s_b606a0b04ceeb1::t_b90577cb05ef58 1081-1084
+internal/api/admin/telemetry_stub_test.go
+  s_b606a0b04ceeb1::t_c7ac83c947d1b8 1-58
+internal/proxy/service.go
+  s_b606a0b04ceeb1::t_2c4fde41ea96a8 1976-1994
+internal/server/server_test.go
+  s_b606a0b04ceeb1::t_b8b815776e8d88 56-58
+internal/proxy/fire_telemetry_panic_internal_test.go
+  s_b606a0b04ceeb1::t_f0c22261eaf322 57-60
+internal/postgres/telemetry.go
+  s_b606a0b04ceeb1::t_5881c67917b42e 5
+  s_b606a0b04ceeb1::t_dd694f23203348 13
+  s_b606a0b04ceeb1::t_98076fed957edd 702-707,709
+  s_b606a0b04ceeb1::t_51dab9d468800e 682-701,708,710-720
+internal/proxy/auxiliary_inference_internal_test.go
+  s_b606a0b04ceeb1::t_2b55cb5c34d51e 87-90
+internal/api/admin/session_cost_test.go
+  s_b606a0b04ceeb1::t_2e2d8c1713f226 1-144
+README.md
+  s_b606a0b04ceeb1::t_78897774b7abd8 239
+internal/proxy/service_observation_test.go
+  s_b606a0b04ceeb1::t_2a61c3111058cb 100-103
+internal/proxy/telemetry.go
+  s_b606a0b04ceeb1::t_0b8de96abbf2b7 25-45
+install/tests/codex-status_test.sh
+  s_b606a0b04ceeb1::t_2fd7d0667f0ae1 76-126,144-145,147-153,155-158,160-165,167-182
+  s_b606a0b04ceeb1::t_cf6cef0afa3232 127-143,146,154,159,166
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_b606a0b04ceeb1::t_81332be8503a64 319-398
+install/codex-status.sh
+  s_b606a0b04ceeb1::t_e075b93382a503 187
+  s_b606a0b04ceeb1::t_9d9ba00b9dc22d 103-105
+  s_b606a0b04ceeb1::t_73c49a96089e15 10-18
+  s_b606a0b04ceeb1::t_37b99fa40499c8 136-138
+  s_b606a0b04ceeb1::t_1d88ce4eea8682 26-30
+  s_b606a0b04ceeb1::t_cee38258924e79 109
+  s_b606a0b04ceeb1::t_f0146134a55a54 286-296,298,300,302,304
+  s_b606a0b04ceeb1::t_2c8727fead58f8 80-102,106-108,110-135,139-186,188-200
+db/queries/model_router_request_telemetry.sql
+  s_b606a0b04ceeb1::t_a2f65dc4ba274a 629-651
+install/README.md
+  s_b606a0b04ceeb1::t_002b3741351902 284-285
+internal/server/server.go
+  s_b606a0b04ceeb1::t_b7e240261f18ef 246-250
+internal/api/admin/session_cost.go
+  s_b606a0b04ceeb1::t_8e06d9975d6b1e 1-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "19639c7d40bcb125f62d3f98b0796c0dff2aa9fc",
+  "prompts": {},
+  "sessions": {
+    "s_b606a0b04ceeb1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c1bb7a0-3852-4d27-8741-6a344a196cc3",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

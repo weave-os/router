@@ -1,0 +1,61 @@
+internal/server/middleware/serving_discovery_test.go
+  s_e8da6067fe904f::t_286fa8dc944ad2 29
+  s_e8da6067fe904f::t_61e8a064f20bf9 18
+  s_e8da6067fe904f::t_c45b304c8a1935 1-17,19-28,30-161
+internal/gateway/gateway.go
+  s_e8da6067fe904f::t_cb366b166b78c7 135,138,164-165
+  s_e8da6067fe904f::t_7695b01f0b9892 166
+internal/policyregistry/serving_readiness.go
+  s_e8da6067fe904f::t_11ca614fecf1ef 48-49,52,61
+internal/server/serving_distribution_test.go
+  s_e8da6067fe904f::t_9b51a31911f65f 15,23
+internal/policyregistry/serving_discovery.go
+  s_e8da6067fe904f::t_11ca614fecf1ef 1-60
+internal/gateway/products.go
+  s_e8da6067fe904f::t_b4079f3a48a293 72
+  s_e8da6067fe904f::t_d31b2feea36440 81-92,235
+  s_e8da6067fe904f::t_cb366b166b78c7 175-199,213,224,230-234
+  s_e8da6067fe904f::t_1fb5e9d89c32eb 70-71
+internal/server/server.go
+  s_e8da6067fe904f::t_11ca614fecf1ef 159-160
+internal/server/middleware/serving_discovery.go
+  s_e8da6067fe904f::t_11ca614fecf1ef 1-59
+internal/gateway/discovery_integration_test.go
+  s_e8da6067fe904f::t_48460a891eff7f 54-57,125,146,151-153,176,204-213,265,271,287,289,353,356-361,365,367-370,386,494-497,507,530-533,541-542
+  s_e8da6067fe904f::t_e25bd6ccaa60c8 114,228-237,312
+  s_e8da6067fe904f::t_03f5b8ff4d4c77 33,47-51,263,291,321
+  s_e8da6067fe904f::t_9fddea50d50abb 355,362-363,392,447-457,459-463
+  s_e8da6067fe904f::t_b46a16584bf2df 31,43
+  s_e8da6067fe904f::t_f696f5948f0ef1 1-30,32,34-40,45-46,52-53,58-113,115-124,126-145,147-150,154-175,177-203,214-227,238-262,264,266-270,272-286,288,290,292-296,301,305-311,313-320,322-352,354,364,366,371-384,387-388,390-391,393-405,407-413,415-435,437-438,440-441,443-445,464-472,474-480,482-483,485-493,498-506,508-529,540,543-545
+  s_e8da6067fe904f::t_286fa8dc944ad2 41-42,44,385,389,406,414,436,439,442,446,458,473,481,484,534-539
+  s_e8da6067fe904f::t_dca0d52638159c 297-300,302-304
+internal/policyregistry/serving_discovery_test.go
+  s_e8da6067fe904f::t_48460a891eff7f 41-51,53-59,82-87,89-90
+  s_e8da6067fe904f::t_c45b304c8a1935 1-14,17-18,21-40,52,60-81,88,91-98
+  s_e8da6067fe904f::t_370f7153b0c9fd 15-16,19-20
+docs/SERVING_CONTROL.md
+  s_e8da6067fe904f::t_766e535d7f8ea0 347
+  s_e8da6067fe904f::t_c1ee343e59b06e 321-346
+internal/gateway/products_test.go
+  s_e8da6067fe904f::t_766e535d7f8ea0 236-267
+  s_e8da6067fe904f::t_ccbada37f461e9 233-235
+  s_e8da6067fe904f::t_5ae570ea4e7400 184-216,219-232
+  s_e8da6067fe904f::t_03f5b8ff4d4c77 22-23
+  s_e8da6067fe904f::t_286fa8dc944ad2 217-218
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bab77c04089419ff1eb9806ea8584e3458af4d37",
+  "prompts": {},
+  "sessions": {
+    "s_e8da6067fe904f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0da23-0e01-7511-a735-9fd7440e0689",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

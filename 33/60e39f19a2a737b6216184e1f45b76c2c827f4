@@ -1,0 +1,23 @@
+internal/auth/installation.go
+  s_2f40bb97923467::t_eba598fb8b0e1d 104-105
+internal/router/cluster/scorer.go
+  s_2f40bb97923467::t_eba598fb8b0e1d 534-535
+internal/proxy/allowlist_internal_test.go
+  s_2f40bb97923467::t_eba598fb8b0e1d 76-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "3360e39f19a2a737b6216184e1f45b76c2c827f4",
+  "prompts": {},
+  "sessions": {
+    "s_2f40bb97923467": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "94fcecb7-2f4d-43f6-bda6-f33d59ff2276",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
