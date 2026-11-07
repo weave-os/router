@@ -25,6 +25,12 @@ type CredentialSubjectLookup interface {
 	GetCredentialSubject(context.Context, string, string) (*CredentialSubject, error)
 }
 
+// PersonalCredentialIssuer gives every routing key its own projected subject where the router is its own control plane.
+type PersonalCredentialIssuer interface {
+	CreateProjected(ctx context.Context, key CreateAPIKeyParams) (*APIKey, error)
+	RotateProjected(ctx context.Context, subjectID, previousKeyID string, replacement CreateAPIKeyParams) (*APIKey, error)
+}
+
 // ValidateCredentialSubject fails closed on pending/revoked ownership and rejects a shared-key subject.
 func ValidateCredentialSubject(key APIKey, subject *CredentialSubject) error {
 	if key.Scope.Normalized() != ScopeRouting {

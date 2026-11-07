@@ -553,6 +553,172 @@ func (q *Queries) ListModelRouterSubscriptionCandidates(ctx context.Context, arg
 	return items, nil
 }
 
+const listSubscriptionEnrollmentOwners = `-- name: ListSubscriptionEnrollmentOwners :many
+SELECT DISTINCT ON (subject.id)
+    subject.id AS subscriber_id,
+    COALESCE(NULLIF(u.display_name, ''), u.email, k.name, '')::text AS display_name,
+    COALESCE(u.email, '')::text AS email,
+    k.key_prefix,
+    k.key_suffix
+FROM router.model_router_api_keys AS k
+JOIN router.credential_subjects AS subject ON subject.id = k.credential_subject_id
+JOIN router.credential_subject_installations AS access
+  ON access.subject_id = subject.id AND access.installation_id = k.installation_id
+JOIN router.model_router_installations AS installation ON installation.id = k.installation_id
+LEFT JOIN router.model_router_users AS u
+  ON u.credential_subject_id = subject.id AND u.installation_id = k.installation_id AND u.deleted_at IS NULL
+WHERE k.deleted_at IS NULL
+  AND installation.deleted_at IS NULL
+  AND subject.projection_complete
+  AND subject.revoked_at IS NULL
+  AND access.access_enabled
+ORDER BY subject.id, u.id IS NULL, k.created_at
+`
+
+type ListSubscriptionEnrollmentOwnersRow struct {
+	SubscriberID uuid.UUID
+	DisplayName  string
+	Email        string
+	KeyPrefix    string
+	KeySuffix    string
+}
+
+// People an admin can link a subscription for: subjects holding a live
+// routing key, the same rule GetSubscriberEnrollmentKey enforces.
+//
+//	SELECT DISTINCT ON (subject.id)
+//	    subject.id AS subscriber_id,
+//	    COALESCE(NULLIF(u.display_name, ''), u.email, k.name, '')::text AS display_name,
+//	    COALESCE(u.email, '')::text AS email,
+//	    k.key_prefix,
+//	    k.key_suffix
+//	FROM router.model_router_api_keys AS k
+//	JOIN router.credential_subjects AS subject ON subject.id = k.credential_subject_id
+//	JOIN router.credential_subject_installations AS access
+//	  ON access.subject_id = subject.id AND access.installation_id = k.installation_id
+//	JOIN router.model_router_installations AS installation ON installation.id = k.installation_id
+//	LEFT JOIN router.model_router_users AS u
+//	  ON u.credential_subject_id = subject.id AND u.installation_id = k.installation_id AND u.deleted_at IS NULL
+//	WHERE k.deleted_at IS NULL
+//	  AND installation.deleted_at IS NULL
+//	  AND subject.projection_complete
+//	  AND subject.revoked_at IS NULL
+//	  AND access.access_enabled
+//	ORDER BY subject.id, u.id IS NULL, k.created_at
+func (q *Queries) ListSubscriptionEnrollmentOwners(ctx context.Context) ([]ListSubscriptionEnrollmentOwnersRow, error) {
+	rows, err := q.db.Query(ctx, listSubscriptionEnrollmentOwners)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSubscriptionEnrollmentOwnersRow
+	for rows.Next() {
+		var i ListSubscriptionEnrollmentOwnersRow
+		if err := rows.Scan(
+			&i.SubscriberID,
+			&i.DisplayName,
+			&i.Email,
+			&i.KeyPrefix,
+			&i.KeySuffix,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSubscriptionSeatsWithOwners = `-- name: ListSubscriptionSeatsWithOwners :many
+SELECT a.id,
+       a.subscriber_id::uuid AS subscriber_id,
+       a.provider,
+       COALESCE(a.display_name, '')::text AS display_name,
+       a.enabled,
+       COALESCE(NULLIF(owner_user.display_name, ''), owner_user.email, '')::text AS owner_display_name,
+       COALESCE(owner_user.email, '')::text AS owner_email,
+       EXISTS (
+           SELECT 1 FROM router.model_router_api_keys AS k
+           WHERE k.credential_subject_id = a.subscriber_id AND k.deleted_at IS NULL
+       )::boolean AS owner_has_routing_key
+FROM router.model_router_subscription_accounts AS a
+LEFT JOIN LATERAL (
+    SELECT u.display_name, u.email
+    FROM router.model_router_users AS u
+    WHERE u.credential_subject_id = a.subscriber_id AND u.deleted_at IS NULL
+    ORDER BY u.first_seen_at
+    LIMIT 1
+) AS owner_user ON true
+WHERE a.subscriber_id IS NOT NULL
+ORDER BY a.provider, a.created_at
+`
+
+type ListSubscriptionSeatsWithOwnersRow struct {
+	ID                 uuid.UUID
+	SubscriberID       uuid.UUID
+	Provider           string
+	DisplayName        string
+	Enabled            bool
+	OwnerDisplayName   string
+	OwnerEmail         string
+	OwnerHasRoutingKey bool
+}
+
+// Every subscriber-owned seat with its owner, including owners whose last
+// routing key was deleted, so an admin can still unlink a stranded seat.
+//
+//	SELECT a.id,
+//	       a.subscriber_id::uuid AS subscriber_id,
+//	       a.provider,
+//	       COALESCE(a.display_name, '')::text AS display_name,
+//	       a.enabled,
+//	       COALESCE(NULLIF(owner_user.display_name, ''), owner_user.email, '')::text AS owner_display_name,
+//	       COALESCE(owner_user.email, '')::text AS owner_email,
+//	       EXISTS (
+//	           SELECT 1 FROM router.model_router_api_keys AS k
+//	           WHERE k.credential_subject_id = a.subscriber_id AND k.deleted_at IS NULL
+//	       )::boolean AS owner_has_routing_key
+//	FROM router.model_router_subscription_accounts AS a
+//	LEFT JOIN LATERAL (
+//	    SELECT u.display_name, u.email
+//	    FROM router.model_router_users AS u
+//	    WHERE u.credential_subject_id = a.subscriber_id AND u.deleted_at IS NULL
+//	    ORDER BY u.first_seen_at
+//	    LIMIT 1
+//	) AS owner_user ON true
+//	WHERE a.subscriber_id IS NOT NULL
+//	ORDER BY a.provider, a.created_at
+func (q *Queries) ListSubscriptionSeatsWithOwners(ctx context.Context) ([]ListSubscriptionSeatsWithOwnersRow, error) {
+	rows, err := q.db.Query(ctx, listSubscriptionSeatsWithOwners)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListSubscriptionSeatsWithOwnersRow
+	for rows.Next() {
+		var i ListSubscriptionSeatsWithOwnersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.SubscriberID,
+			&i.Provider,
+			&i.DisplayName,
+			&i.Enabled,
+			&i.OwnerDisplayName,
+			&i.OwnerEmail,
+			&i.OwnerHasRoutingKey,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const persistModelRouterSubscriptionTokens = `-- name: PersistModelRouterSubscriptionTokens :execrows
 UPDATE router.model_router_subscription_accounts
 SET refresh_token_ciphertext = $1::bytea,

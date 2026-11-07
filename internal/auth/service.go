@@ -75,6 +75,7 @@ type Service struct {
 	installations             InstallationRepository
 	apiKeys                   APIKeyRepository
 	credentialSubjects        CredentialSubjectLookup
+	personalCredentials       PersonalCredentialIssuer
 	externalKeys              ExternalAPIKeyRepository
 	users                     UserRepository
 	clusterModelLists         ClusterModelListRepository
@@ -137,6 +138,12 @@ func (s *Service) WithCodexEnrollmentVerifier(verifier CodexEnrollmentVerifier) 
 // WithCredentialSubjectLookup wires the current eligibility projection used by read-only key checks.
 func (s *Service) WithCredentialSubjectLookup(lookup CredentialSubjectLookup) *Service {
 	s.credentialSubjects = lookup
+	return s
+}
+
+// WithPersonalCredentialIssuer makes routing-key issuance and rotation subject-owned, mirroring hosted account-owned keys.
+func (s *Service) WithPersonalCredentialIssuer(issuer PersonalCredentialIssuer) *Service {
+	s.personalCredentials = issuer
 	return s
 }
 
@@ -356,24 +363,31 @@ func (s *Service) IssueScopedAPIKey(ctx context.Context, installationID string, 
 	if !scope.UserIssuable() {
 		return nil, "", fmt.Errorf("%w: %q", ErrInvalidKeyScope, scope)
 	}
-	scope = scope.Normalized()
+	params, rawToken := newAPIKeyParams(installationID, scope.Normalized(), name, createdBy)
+	create := s.apiKeys.Create
+	if params.Scope == ScopeRouting && s.personalCredentials != nil {
+		create = s.personalCredentials.CreateProjected
+	}
+	key, err := create(ctx, params)
+	if err != nil {
+		return nil, "", err
+	}
+	return key, rawToken, nil
+}
+
+func newAPIKeyParams(installationID string, scope APIKeyScope, name, createdBy *string) (CreateAPIKeyParams, string) {
 	rawToken := GenerateID(scope.TokenPrefix())
 	keyHash, keyPrefix, keySuffix := APITokenFingerprint(rawToken)
-	externalID := GenerateID("kid")
-	key, err := s.apiKeys.Create(ctx, CreateAPIKeyParams{
+	return CreateAPIKeyParams{
 		InstallationID: installationID,
-		ExternalID:     externalID,
+		ExternalID:     GenerateID("kid"),
 		Name:           name,
 		KeyPrefix:      keyPrefix,
 		KeyHash:        keyHash,
 		KeySuffix:      keySuffix,
 		Scope:          scope,
 		CreatedBy:      createdBy,
-	})
-	if err != nil {
-		return nil, "", err
-	}
-	return key, rawToken, nil
+	}, rawToken
 }
 
 // ListAPIKeys returns the installation's active user-facing API keys. Session
@@ -413,7 +427,7 @@ func (s *Service) RotateAPIKey(ctx context.Context, installationID, keyID string
 		return nil, "", ErrAPIKeyNotFound
 	}
 	if target.CredentialSubjectID != "" {
-		return nil, "", ErrPersonalCredentialRequired
+		return s.rotatePersonalAPIKey(ctx, target, createdBy)
 	}
 	n, err := s.apiKeys.SoftDelete(ctx, installationID, target.ID)
 	if err != nil {
@@ -427,6 +441,19 @@ func (s *Service) RotateAPIKey(ctx context.Context, installationID, keyID string
 		return nil, "", err
 	}
 	s.invalidateInstallation(installationID)
+	return key, raw, nil
+}
+
+func (s *Service) rotatePersonalAPIKey(ctx context.Context, target *APIKey, createdBy *string) (*APIKey, string, error) {
+	if s.personalCredentials == nil {
+		return nil, "", ErrPersonalCredentialRequired
+	}
+	params, raw := newAPIKeyParams(target.InstallationID, target.Scope, target.Name, createdBy)
+	key, err := s.personalCredentials.RotateProjected(ctx, target.CredentialSubjectID, target.ID, params)
+	if err != nil {
+		return nil, "", err
+	}
+	s.invalidateInstallation(target.InstallationID)
 	return key, raw, nil
 }
 

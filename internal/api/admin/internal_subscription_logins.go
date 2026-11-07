@@ -43,8 +43,15 @@ type internalCompleteSubscriptionLoginRequest struct {
 // subscriber. The pending provider state is sealed into the returned token, so
 // any replica can complete it.
 func InternalStartSubscriptionLoginHandler(authSvc *auth.Service, flow SubscriptionLoginFlow) gin.HandlerFunc {
+	return startSubscriptionLoginHandler(authSvc, flow, internalSubscriptionOwner)
+}
+
+// subscriptionOwnerResolver reads the subscriber a login enrolls for, aborting the request when it cannot.
+type subscriptionOwnerResolver func(*gin.Context) (auth.SubscriptionOwner, bool)
+
+func startSubscriptionLoginHandler(authSvc *auth.Service, flow SubscriptionLoginFlow, resolveOwner subscriptionOwnerResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		owner, ok := internalSubscriptionOwner(c)
+		owner, ok := resolveOwner(c)
 		if !ok {
 			return
 		}
@@ -80,8 +87,12 @@ func InternalStartSubscriptionLoginHandler(authSvc *auth.Service, flow Subscript
 // enrolls (or reconnects) the account through the same path as `router login`.
 // A Codex login the user has not approved yet answers 202 so the caller polls.
 func InternalCompleteSubscriptionLoginHandler(authSvc *auth.Service, flow SubscriptionLoginFlow) gin.HandlerFunc {
+	return completeSubscriptionLoginHandler(authSvc, flow, internalSubscriptionOwner)
+}
+
+func completeSubscriptionLoginHandler(authSvc *auth.Service, flow SubscriptionLoginFlow, resolveOwner subscriptionOwnerResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		owner, ok := internalSubscriptionOwner(c)
+		owner, ok := resolveOwner(c)
 		if !ok {
 			return
 		}
