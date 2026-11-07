@@ -209,6 +209,12 @@ jobs:
         with:
           version: v2.15.0
 
+      - name: Architecture ratchet
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: go run ./scripts/arch_ratchet -base "origin/$BASE_REF"
+
       - name: Run tests with vetting
         run: go test -vet=all -count=1 ./...
 
