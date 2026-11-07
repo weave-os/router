@@ -29,7 +29,7 @@ type PlanResolver struct {
 }
 
 // NewPlanResolver keeps successful readings for five minutes and failures
-// for fifteen seconds. Cache keys use the subscription observer's keyed index.
+// for fifteen seconds. Cache keys use this resolver's private credential salt.
 func NewPlanResolver(reader providers.SubscriptionPlanReader, now func() time.Time) *PlanResolver {
 	if now == nil {
 		now = time.Now
@@ -48,13 +48,13 @@ func (r *PlanResolver) Resolve(ctx context.Context, token []byte) (providers.Sub
 	if reading, cached := r.entries.Get(key); cached && reading.expiresAt.After(r.now()) {
 		return reading.plan, reading.err
 	}
-	result := r.lookups.DoChan(string(key), func() (value any, lookupErr error) {
+	result := r.lookups.DoChan(string(key), func() (lookupReading any, lookupErr error) {
 		defer func() {
 			if recover() != nil {
 				observability.FromContext(ctx).Error("Claude subscription profile lookup panicked")
 				reading := subscriptionPlanReading{plan: providers.SubscriptionPlanUnknown, err: errors.New("subscription profile lookup panicked"), expiresAt: r.now().Add(15 * time.Second)}
 				r.entries.Add(key, reading)
-				value, lookupErr = reading, nil
+				lookupReading, lookupErr = reading, nil
 			}
 		}()
 		if reading, cached := r.entries.Get(key); cached && reading.expiresAt.After(r.now()) {
