@@ -48,10 +48,6 @@ func (s *Service) withClaudeSubscriptionProfile(ctx context.Context, headers htt
 		verified := *creds
 		verified.SubscriptionPlan = plan
 		ctx = context.WithValue(ctx, CredentialsContextKey{}, &verified)
-		if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
-			state.ClaudeSubscriptionPlan = plan
-			state.ClaudePlanUnverified = state.ClaudePlanUnverified || plan == providers.SubscriptionPlanUnknown
-		}
 	}
 	return ctx
 }

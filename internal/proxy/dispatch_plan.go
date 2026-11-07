@@ -224,6 +224,10 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			if creds := CredentialsFromContext(credentialCtx); creds != nil && creds.OAuth {
 				if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 					state.SubscriptionAttempted = true
+					if creds.Source == credSourceSubscription && creds.SubscriptionPlan != "" {
+						state.ClaudeSubscriptionPlan = creds.SubscriptionPlan
+						state.ClaudePlanUnverified = state.ClaudePlanUnverified || creds.SubscriptionPlan == providers.SubscriptionPlanUnknown
+					}
 				}
 			}
 			attemptErr := in.attempt(credentialCtx, decision, guarded)

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/providers"
 )
@@ -25,8 +27,8 @@ func TestSubscriptionPlanUsesOnlyOrganizationType(t *testing.T) {
 	} {
 		t.Run(string(scenario.want)+"/"+string(scenario.organization), func(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				require.Equal(t, "/api/oauth/profile", r.URL.Path)
-				require.Equal(t, "Bearer synthetic-token", r.Header.Get("Authorization"))
+				assert.Equal(t, "/api/oauth/profile", r.URL.Path)
+				assert.Equal(t, "Bearer synthetic-token", r.Header.Get("Authorization"))
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = fmt.Fprintf(w, `{"organization":{"organization_type":%q,"name":"Enterprise","billing_type":"usage"},"subscription_type":"enterprise","overage_in_use":true}`, scenario.organization)
 			}))
@@ -58,8 +60,8 @@ func TestSubscriptionPlanProfileFailures(t *testing.T) {
 }
 
 func TestSubscriptionPlanDoesNotForwardTokenOnRedirect(t *testing.T) {
-	var leaked bool
-	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { leaked = true }))
+	var leaked atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { leaked.Store(true) }))
 	defer target.Close()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
@@ -67,5 +69,5 @@ func TestSubscriptionPlanDoesNotForwardTokenOnRedirect(t *testing.T) {
 	defer upstream.Close()
 	_, err := NewClient("", upstream.URL).SubscriptionPlan(context.Background(), []byte("synthetic-token"))
 	require.Error(t, err)
-	require.False(t, leaked)
+	require.False(t, leaked.Load())
 }

@@ -59,13 +59,16 @@ type Lease struct {
 	AccessToken     string
 	ProviderAccount string
 	State           auth.SubscriptionAccountState
+	CooldownUntil   time.Time
 	release         func()
 }
 
 // AllowsPlanAttempt admits an exhausted lease only for verified Enterprise
 // overage when the caller's funding policy permits it.
-func (l Lease) AllowsPlanAttempt(plan providers.SubscriptionPlan, allowEnterpriseOverage bool) bool {
-	return l.State != auth.SubscriptionAccountStateExhausted || plan == providers.SubscriptionPlanEnterprise && allowEnterpriseOverage
+func (l Lease) AllowsPlanAttempt(plan providers.SubscriptionPlan, allowEnterpriseOverage bool, now time.Time) bool {
+	return l.State != auth.SubscriptionAccountStateExhausted ||
+		!l.CooldownUntil.IsZero() && !l.CooldownUntil.After(now) ||
+		plan == providers.SubscriptionPlanEnterprise && allowEnterpriseOverage
 }
 
 // Release returns this account to the concurrent selector.
@@ -189,7 +192,7 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 			r.affinity.Add(affinityKey, leased.ID)
 		}
 		return Lease{AccountID: leased.ID, OwnerID: candidate.SubscriberID, Tier: candidate.Tier, AccessToken: leased.AccessToken,
-			ProviderAccount: leased.AccountID, State: leased.State, release: release}, true, nil
+			ProviderAccount: leased.AccountID, State: leased.State, CooldownUntil: leased.CooldownTil, release: release}, true, nil
 	}
 	if present {
 		return Lease{}, true, ErrNoAvailableAccount

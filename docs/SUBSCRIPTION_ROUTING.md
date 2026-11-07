@@ -88,8 +88,9 @@ the authenticated `/api/oauth/profile` response's `organization.organization_typ
 `claude_pro`, `claude_max`, `claude_team`, or `claude_enterprise`. OAuth presence,
 organization names, rate-limit tiers, quota windows and overage headers never
 establish identity. Profile readings are cached per credential for five minutes;
-failed reads are retried after fifteen seconds. Unknown profiles cannot authorize
-paid fallback.
+unknown or failed reads are retried after fifteen seconds. While
+`claude_enterprise_only` is enabled, an unknown Claude profile cannot authorize
+paid fallback for that Claude turn.
 
 `claude_enterprise_only` applies only to a provider-verified Enterprise account,
 keeping its requests on that account through provider-authorized overage. The

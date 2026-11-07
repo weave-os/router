@@ -6,6 +6,7 @@ import (
 
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
+	"golang.org/x/sync/singleflight"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 )
@@ -22,6 +23,7 @@ type SubscriptionPlans struct {
 	now     func() time.Time
 	salt    []byte
 	entries *lru.Cache[usage.CredentialKey, subscriptionPlanReading]
+	lookups singleflight.Group
 }
 
 // NewSubscriptionPlans keeps successful readings for five minutes and failures
@@ -44,17 +46,27 @@ func (r *SubscriptionPlans) Resolve(ctx context.Context, token []byte) (provider
 	if reading, cached := r.entries.Get(key); cached && reading.expiresAt.After(r.now()) {
 		return reading.plan, reading.err
 	}
-	profileCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	plan, err := r.reader.SubscriptionPlan(profileCtx, token)
-	cancel()
-	if ctx.Err() != nil {
+	result := r.lookups.DoChan(string(key), func() (any, error) {
+		if reading, cached := r.entries.Get(key); cached && reading.expiresAt.After(r.now()) {
+			return reading, nil
+		}
+		profileCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+		defer cancel()
+		plan, err := r.reader.SubscriptionPlan(profileCtx, token)
+		ttl := 5 * time.Minute
+		if err != nil || plan == providers.SubscriptionPlanUnknown {
+			plan = providers.SubscriptionPlanUnknown
+			ttl = 15 * time.Second
+		}
+		reading := subscriptionPlanReading{plan: plan, err: err, expiresAt: r.now().Add(ttl)}
+		r.entries.Add(key, reading)
+		return reading, nil
+	})
+	select {
+	case <-ctx.Done():
 		return providers.SubscriptionPlanUnknown, ctx.Err()
+	case outcome := <-result:
+		reading := outcome.Val.(subscriptionPlanReading)
+		return reading.plan, reading.err
 	}
-	ttl := 5 * time.Minute
-	if err != nil || plan == providers.SubscriptionPlanUnknown {
-		plan = providers.SubscriptionPlanUnknown
-		ttl = 15 * time.Second
-	}
-	r.entries.Add(key, subscriptionPlanReading{plan: plan, err: err, expiresAt: r.now().Add(ttl)})
-	return plan, err
 }

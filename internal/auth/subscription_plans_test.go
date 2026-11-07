@@ -3,6 +3,8 @@ package auth_test
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -52,4 +54,44 @@ func TestCanceledProfileLookupDoesNotPoisonOtherRequests(t *testing.T) {
 	plan, err = plans.Resolve(context.Background(), []byte("synthetic-token"))
 	require.NoError(t, err)
 	require.Equal(t, providers.SubscriptionPlanMax, plan)
+}
+
+func TestConcurrentProfileLookupsShareOneRequest(t *testing.T) {
+	var calls atomic.Int32
+	var once sync.Once
+	started, release := make(chan struct{}), make(chan struct{})
+	plans := auth.NewSubscriptionPlans(planReaderFunc(func(context.Context, []byte) (providers.SubscriptionPlan, error) {
+		calls.Add(1)
+		once.Do(func() { close(started) })
+		<-release
+		return providers.SubscriptionPlanMax, nil
+	}), time.Now)
+	type outcome struct {
+		plan providers.SubscriptionPlan
+		err  error
+	}
+	const callers = 12
+	results := make(chan outcome, callers)
+	var ready sync.WaitGroup
+	ready.Add(callers)
+	begin := make(chan struct{})
+	for range callers {
+		go func() {
+			ready.Done()
+			<-begin
+			plan, err := plans.Resolve(context.Background(), []byte("synthetic-token"))
+			results <- outcome{plan, err}
+		}()
+	}
+	ready.Wait()
+	close(begin)
+	<-started
+	time.Sleep(25 * time.Millisecond)
+	close(release)
+	for range callers {
+		got := <-results
+		require.NoError(t, got.err)
+		require.Equal(t, providers.SubscriptionPlanMax, got.plan)
+	}
+	require.EqualValues(t, 1, calls.Load())
 }

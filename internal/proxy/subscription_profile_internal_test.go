@@ -113,3 +113,29 @@ func TestMixedPoolClassifiesTheLeasedAccount(t *testing.T) {
 		})
 	}
 }
+
+func TestSkippedPoolSeatDoesNotSetTheServedPlan(t *testing.T) {
+	for _, plan := range []providers.SubscriptionPlan{providers.SubscriptionPlanMax, providers.SubscriptionPlanUnknown} {
+		t.Run(string(plan), func(t *testing.T) {
+			leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "spent-seat", AccessToken: "spent-token", State: auth.SubscriptionAccountStateExhausted, CooldownUntil: time.Now().Add(time.Hour)}}}
+			service := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser).
+				WithClaudeSubscriptionPlanReader(subscriptionPlanReaderFunc(func(context.Context, []byte) (providers.SubscriptionPlan, error) { return plan, nil }))
+			ctx := managedSubscriptionTestContext()
+			_, _, _, err := service.leaseManagedSubscription(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String())
+			require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+			state := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+			require.Empty(t, state.ClaudeSubscriptionPlan, "a seat excluded before dispatch cannot become the request's served plan")
+			require.Equal(t, plan == providers.SubscriptionPlanUnknown, state.ClaudePlanUnverified)
+		})
+	}
+}
+
+func TestEnterpriseSeatDoesNotMarkAnIndependentNonClaudeTurn(t *testing.T) {
+	ctx := WithManagedSubscriptionUsage(context.Background())
+	state := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	state.ClaudeSubscriptionPlan = providers.SubscriptionPlanEnterprise
+	nonClaude := withClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderGoogle, Model: catalog.ModelIDGemini31ProPreview.String()})
+	require.False(t, claudeEnterpriseTurn(nonClaude))
+	claude := withClaudeEnterpriseTurn(ctx, router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()})
+	require.True(t, claudeEnterpriseTurn(claude))
+}

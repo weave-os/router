@@ -19,10 +19,12 @@ import (
 var testOwner = auth.SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}
 
 func TestExhaustedLeaseRequiresVerifiedEnterpriseOverage(t *testing.T) {
-	lease := subscriptions.Lease{State: auth.SubscriptionAccountStateExhausted}
+	now := time.Now()
+	lease := subscriptions.Lease{State: auth.SubscriptionAccountStateExhausted, CooldownUntil: now.Add(time.Hour)}
 	for _, plan := range []providers.SubscriptionPlan{providers.SubscriptionPlanPro, providers.SubscriptionPlanMax, providers.SubscriptionPlanTeam, providers.SubscriptionPlanEnterprise, providers.SubscriptionPlanUnknown} {
-		require.False(t, lease.AllowsPlanAttempt(plan, false))
-		require.Equal(t, plan == providers.SubscriptionPlanEnterprise, lease.AllowsPlanAttempt(plan, true))
+		require.False(t, lease.AllowsPlanAttempt(plan, false, now))
+		require.Equal(t, plan == providers.SubscriptionPlanEnterprise, lease.AllowsPlanAttempt(plan, true, now))
+		require.True(t, lease.AllowsPlanAttempt(plan, false, now.Add(2*time.Hour)), "an expired cooldown is routable for every plan")
 	}
 }
 
