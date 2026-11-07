@@ -3,10 +3,14 @@ package proxy
 import (
 	"context"
 	"errors"
+	"net/http"
+	"time"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
 )
@@ -19,23 +23,37 @@ type claudeEnterpriseTurnKey struct{}
 type claudeSubscriptionPresentKey struct{}
 
 // Claude account funding defaults on for linked accounts. Explicit BYOK and
-// credits-only configuration retain their existing authority over the default.
+// credits-only configuration retain their existing authority over the default,
+// and the default yields once a plan seat proves it cannot serve the request.
 func claudeEnterpriseOnly(ctx context.Context) bool {
+	enabled, explicit := claudeEnterpriseSetting(ctx)
+	if !enabled || explicit {
+		return enabled
+	}
+	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	return state == nil || !state.ClaudePlanQuotaRefused
+}
+
+// claudeSeatOverageAllowed keeps linked seats on provider-authorized overage
+// even after a sibling plan seat released the request's funding default.
+func claudeSeatOverageAllowed(ctx context.Context) bool {
+	enabled, _ := claudeEnterpriseSetting(ctx)
+	return enabled
+}
+
+func claudeEnterpriseSetting(ctx context.Context) (enabled, explicit bool) {
 	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || anthropicBYOKConfigured(ctx) {
-		return false
+		return false, false
 	}
 	if overrides, ok := flags.OverridesFromContext(ctx); ok {
 		if enabled, configured := overrides.Bools[flags.KeyClaudeEnterpriseOnly]; configured {
-			return enabled
+			return enabled, true
 		}
 	}
 	present, _ := ctx.Value(claudeSubscriptionPresentKey{}).(bool)
 	enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
 	_, linked := enrolled[auth.SubscriptionProviderClaude]
-	if !present && !linked && anthropicSubscriptionFromContext(ctx) == "" {
-		return false
-	}
-	return true
+	return present || linked || anthropicSubscriptionFromContext(ctx) != "", false
 }
 
 func claudeEnterpriseTarget(ctx context.Context, target inference.Target) bool {
@@ -55,5 +73,55 @@ func withClaudeEnterpriseTurn(ctx context.Context, decision router.Decision) con
 
 func claudeEnterpriseTurn(ctx context.Context) bool {
 	onEnterprise, _ := ctx.Value(claudeEnterpriseTurnKey{}).(bool)
-	return onEnterprise
+	return onEnterprise && claudeEnterpriseOnly(ctx)
+}
+
+// claudePlanQuotaRefusal reports a spent included-plan window with no overage
+// serving. Usage-billed seats report no plan window, so only a plan seat that
+// cannot serve the request matches.
+func claudePlanQuotaRefusal(snapshot usage.Snapshot, now time.Time) bool {
+	return snapshot.ExhaustedAsOf(now) && !snapshot.OverageInUse
+}
+
+func (s *Service) claudeLeaseRefusesPlanQuota(lease subscriptions.Lease, attemptErr error) bool {
+	now := s.clockNow()
+	if refused, observed := claudeAttemptRefusesPlanQuota(attemptErr, now); observed {
+		return refused
+	}
+	snapshot, observed := s.managedSubscriptionUsageSnapshot(lease.AccountID, lease.AccessToken)
+	return observed && claudePlanQuotaRefusal(snapshot, now)
+}
+
+// claudeAttemptRefusesPlanQuota reads a Claude 429's unified headers. It reports
+// observed only when they settle the question: a refusal or overage serving.
+func claudeAttemptRefusesPlanQuota(attemptErr error, now time.Time) (refused, observed bool) {
+	var upstream *providers.UpstreamErrorResponse
+	if !errors.As(attemptErr, &upstream) || upstream.Status != http.StatusTooManyRequests {
+		return false, false
+	}
+	snapshot, parsed := usage.ParseAnthropicUnifiedHeaders(upstream.Headers)
+	if !parsed {
+		return false, false
+	}
+	snapshot.ObservedAt = now
+	if claudePlanQuotaRefusal(snapshot, now) {
+		return true, true
+	}
+	return false, snapshot.OverageInUse
+}
+
+func markClaudePlanQuotaRefused(ctx context.Context) {
+	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+		state.ClaudePlanQuotaRefused = true
+	}
+}
+
+func claudePoolModels(models []string) []string {
+	var claudeModels []string
+	for _, model := range models {
+		if pool, compatible := subscriptionPoolForModel(inference.Target{CatalogID: model}); compatible && pool == subscriptions.ProviderClaude {
+			claudeModels = append(claudeModels, model)
+		}
+	}
+	return claudeModels
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
@@ -224,4 +225,166 @@ func TestClaudeEnterpriseOnlyBypassRefusalDoesNotReroute(t *testing.T) {
 func TestClaudeEnterpriseOnlyDisabledWithSubscriptionRouting(t *testing.T) {
 	ctx := enterpriseOnlyContext(subscriptionDisabledCtx())
 	require.False(t, claudeEnterpriseOnly(ctx))
+}
+
+type routedModelRecorder struct{ routed *[]string }
+
+func (r routedModelRecorder) Route(ctx context.Context, req router.Request) (router.Decision, error) {
+	decision, err := stateModelRouter{}.Route(ctx, req)
+	if err == nil {
+		*r.routed = append(*r.routed, decision.Model)
+	}
+	return decision, err
+}
+
+func TestClaudeEnterpriseOnlyDefaultSubscriptionStateRefusal(t *testing.T) {
+	rateLimitBody := []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`)
+	planRefusal := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: rateLimitBody, Headers: http.Header{
+		"Anthropic-Ratelimit-Unified-Representative-Claim": []string{string(usage.AnthropicClaimSevenDay)},
+		"Anthropic-Ratelimit-Unified-7d-Utilization":       []string{"1.0"},
+		"Anthropic-Ratelimit-Unified-7d-Reset":             []string{"4102444800"},
+		"Anthropic-Ratelimit-Unified-Overage-Status":       []string{"rejected"},
+	}}
+	usageBilledRefusal := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: rateLimitBody, Headers: http.Header{"Retry-After": []string{"30"}}}
+	for _, scenario := range []struct {
+		name        string
+		refusal     error
+		codexLinked bool
+		want        string
+	}{
+		{name: "spent plan seat rotates to included Codex", refusal: planRefusal, codexLinked: true, want: stateCodexModel},
+		{name: "spent plan seat uses the paid set", refusal: planRefusal, want: statePaidModel},
+		{name: "usage-billed seat returns its rate limit without a denied rescue walk", refusal: usageBilledRefusal, codexLinked: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			claude := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{err: scenario.refusal}, {err: scenario.refusal}, {err: scenario.refusal}}}
+			codex := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{{writeBytes: []byte("included Codex answer")}}}
+			paid := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("paid answer")}}}
+			var routed []string
+			svc := NewService(routedModelRecorder{routed: &routed}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}, nil, false, nil, nil, false, "", "", nil).
+				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true, subscriptions.ProviderCodex: scenario.codexLinked}})
+			ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "key-1")
+			ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+			ctx = WithManagedSubscriptionUsage(ctx)
+			require.True(t, claudeEnterpriseOnly(ctx), "linked accounts inherit the Enterprise-only default")
+			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
+			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+			ctx = withTurnFailures(ctx)
+			req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter})}
+			rec := httptest.NewRecorder()
+			buffer := newPreludeBuffer(rec)
+			var winner router.Decision
+			dispatch := failoverInputs{
+				w: rec, buf: buffer, subscriptionStateRequest: &req,
+				subscriptionStateWinnerProvider: new(string),
+				initialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+				purpose:                         inference.PurposeAnthropicMessages,
+				buildAlternative: func(router.Decision) (dispatchAttempt, error) {
+					return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+						buffer.Seal()
+						return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+					}, nil
+				},
+				onAlternative: func(decision router.Decision) { winner = decision },
+			}
+
+			_, err := svc.dispatchWithFallback(ctx, dispatch)
+
+			if scenario.want == "" {
+				require.Error(t, err)
+				class, ok := ClassifyDispatchError(err)
+				require.True(t, ok)
+				require.Equal(t, http.StatusTooManyRequests, class.Status)
+				require.NotContains(t, routed, stateCodexModel, "Enterprise-only denies every non-Claude target")
+				require.NotContains(t, routed, statePaidModel, "Enterprise-only denies every non-Claude target")
+				require.Zero(t, codex.calls+paid.calls)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, scenario.want, winner.Model)
+			require.Contains(t, rec.Body.String(), "answer")
+		})
+	}
+}
+
+func TestClaudeEnterpriseOnlyDefaultSkipsObservedSpentPlanSeat(t *testing.T) {
+	spent := usage.Snapshot{Secondary: usage.Window{UsedPercent: 1, WindowMinutes: 7 * 24 * 60, ResetAt: time.Now().Add(time.Hour)}}
+	for _, scenario := range []struct {
+		name      string
+		snapshot  usage.Snapshot
+		optedIn   bool
+		wantLease bool
+	}{
+		{name: "spent plan seat releases the default", snapshot: spent},
+		{name: "plan seat on overage stays leased", snapshot: usage.Snapshot{OverageInUse: true, Secondary: spent.Secondary}, wantLease: true},
+		{name: "explicit opt-in keeps the spent seat", snapshot: spent, optedIn: true, wantLease: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{
+				leases: []subscriptions.Lease{{AccountID: "plan-seat", AccessToken: "plan-token"}},
+			}}
+			svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser).
+				WithUsageObserver(observerWithSnapshot("plan-token", scenario.snapshot))
+			ctx := WithManagedSubscriptionUsage(context.WithValue(context.WithValue(context.Background(), APIKeyIDContextKey{}, "key-1"),
+				ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}}))
+			if scenario.optedIn {
+				ctx = enterpriseOnlyContext(ctx)
+			}
+			_, lease, _, _ := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String())
+			if scenario.wantLease {
+				require.Equal(t, "plan-seat", lease.AccountID)
+				require.True(t, claudeEnterpriseOnly(ctx))
+				lease.Release()
+				return
+			}
+			require.Empty(t, lease.AccountID)
+			require.Equal(t, []string{"plan-seat"}, leaser.exhaustedIDs)
+			require.False(t, claudeEnterpriseOnly(ctx), "a plan seat that cannot serve releases the inherited default")
+		})
+	}
+}
+
+func TestClaudeEnterpriseOnlyDefaultKeepsSiblingOverageSeat(t *testing.T) {
+	leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
+		{AccountID: "spent-seat", AccessToken: "spent-token"},
+		{AccountID: "overage-seat", AccessToken: "overage-token"},
+	}}}
+	observer := usage.NewObserver([]byte("enterprise-test-salt"), time.Hour, time.Now)
+	weekly := usage.Window{UsedPercent: 1, WindowMinutes: 7 * 24 * 60, ResetAt: time.Now().Add(time.Hour)}
+	observer.Record(observer.Key([]byte("spent-token")), usage.Snapshot{Secondary: weekly})
+	observer.Record(observer.Key([]byte("overage-token")), usage.Snapshot{Secondary: weekly, OverageInUse: true})
+	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser).WithUsageObserver(observer)
+	ctx := WithManagedSubscriptionUsage(context.WithValue(context.WithValue(context.Background(), APIKeyIDContextKey{}, "key-1"),
+		ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}}))
+
+	_, lease, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String())
+
+	require.NoError(t, err)
+	require.True(t, managed)
+	require.Equal(t, "overage-seat", lease.AccountID, "a sibling on provider-authorized overage still serves before any fallback")
+	require.Equal(t, []string{"spent-seat"}, leaser.exhaustedIDs)
+	lease.Release()
+}
+
+func TestClaudeEnterpriseOnlyDefaultReleasesSpentPresentedPlanToken(t *testing.T) {
+	weekly := usage.Window{UsedPercent: 1, WindowMinutes: 7 * 24 * 60, ResetAt: time.Now().Add(time.Hour)}
+	for _, scenario := range []struct {
+		name     string
+		snapshot usage.Snapshot
+		want     bool
+	}{
+		{name: "spent plan token releases the default", snapshot: usage.Snapshot{Secondary: weekly}},
+		{name: "plan token on overage keeps the default", snapshot: usage.Snapshot{Secondary: weekly, OverageInUse: true}, want: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			observer := usage.NewObserver([]byte("enterprise-test-salt"), time.Hour, time.Now)
+			observer.Record(observer.Key([]byte(parityAnthropicToken)), scenario.snapshot)
+			service := newServiceWithProviders(t, nil).WithUsageObserver(observer)
+			headers := http.Header{}
+			headers.Set("Authorization", "Bearer "+parityAnthropicToken)
+			ctx := service.withSubscriptionFundingAuthorization(routerKeyedCtx(), headers)
+			require.Equal(t, scenario.want, claudeEnterpriseOnly(ctx))
+			require.True(t, claudeEnterpriseOnly(service.withSubscriptionFundingAuthorization(enterpriseOnlyContext(routerKeyedCtx()), headers)), "an explicit opt-in stays strict")
+		})
+	}
 }

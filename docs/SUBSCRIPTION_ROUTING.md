@@ -82,13 +82,23 @@ marking the whole account exhausted or placing it on cooldown. Claude accounts w
 quota observation may serve. `claude_enterprise_only` defaults on for linked
 Claude accounts, keeping their requests on those accounts through provider-authorized
 overage. Organizations may explicitly disable it to permit Weave-funded fallback.
+The inherited default yields for the rest of a request once a linked plan seat
+reports a spent 5h or 7d window with no overage serving (an upstream 429 or a
+live observation): usage-billed seats report no plan window, so this only
+releases seats that cannot serve. Sibling seats on provider-authorized overage
+are still leased first, and paid fallback still requires every linked seat to
+be spent. An explicit opt-in keeps the strict behavior.
 Requests with no registered or caller-presented Claude subscription credential
 continue to use normal API funding. Explicit Anthropic BYOK retains precedence
 over Enterprise-only billing, including an explicit organization override.
 In Enterprise-only mode observed included-quota exhaustion does not suppress a
 Claude account, while an actual provider refusal remains authoritative. Claude
 turns fail if their account cannot serve them; retry, failover, and auxiliary
-dispatch cannot charge them to Weave credits or another provider. The setting
+dispatch cannot charge them to Weave credits or another provider. While
+Enterprise-only remains enabled, the subscription-state lane walks only Claude
+targets and returns the
+account's own refusal (its 429 when it was rate limited) rather than walking
+targets funding authorization would deny. The setting
 is ignored while subscription routing is disabled and does not change funding
 for independently selected non-Claude models. With Enterprise-only off, quota
 failures rotate to another eligible account before authorized Weave-funded API
