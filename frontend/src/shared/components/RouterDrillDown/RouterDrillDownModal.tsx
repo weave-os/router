@@ -7,21 +7,22 @@ import type {
   RouterDrillDownResult,
 } from "../../data/drillDown";
 
+import { Avatar } from "@weave-os/ui/components/atoms/Avatar";
+import { Icon } from "@weave-os/ui/components/atoms/Icon";
+import { Skeleton } from "@weave-os/ui/components/atoms/Skeleton";
+import { Text } from "@weave-os/ui/components/atoms/Text";
+import { ErrorCard } from "@weave-os/ui/components/ErrorCard";
+import { Badge } from "@weave-os/ui/components/molecules/Badge";
+import { Button } from "@weave-os/ui/components/molecules/Button";
+import { Modal } from "@weave-os/ui/components/molecules/Modal";
+import { Appearance, Intent } from "@weave-os/ui/components/types";
+import { cn } from "@weave-os/ui/tools/cn";
+import { formatInteger, formatUSD } from "@weave-os/ui/tools/format";
+import { LoadState } from "@weave-os/ui/tools/LoadState";
+
 import { useEffect, useState } from "react";
 
-import { cn } from "../../tools/cn";
-import { formatInteger, formatUSD } from "../../tools/format";
-import { LoadState } from "../../tools/LoadState";
-import { Avatar } from "../atoms/Avatar";
-import { Icon } from "../atoms/Icon";
-import { Skeleton } from "../atoms/Skeleton";
-import { Text } from "../atoms/Text";
-import { ErrorCard } from "../ErrorCard";
 import { LoadStateWrapper } from "../LoadStateWrapper";
-import { Badge } from "../molecules/Badge";
-import { Button } from "../molecules/Button";
-import { Modal } from "../molecules/Modal";
-import { Appearance, Intent } from "../types";
 import {
   personTotals,
   type RouterDrillDownTotals,

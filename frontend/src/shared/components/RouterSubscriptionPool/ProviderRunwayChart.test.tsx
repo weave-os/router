@@ -1,11 +1,11 @@
 import { cleanup, render } from "@testing-library/react";
+import { Chart } from "@weave-os/ui/components/Chart";
+import { LoadState } from "@weave-os/ui/tools/LoadState";
 
-import { LoadState } from "../../tools/LoadState";
-import { Chart } from "../Chart";
 import { ProviderRunwayChart } from "./ProviderRunwayChart";
 
-vi.mock("../Chart", async importOriginal => ({
-  ...(await importOriginal<typeof import("../Chart")>()),
+vi.mock("@weave-os/ui/components/Chart", async importOriginal => ({
+  ...(await importOriginal<typeof import("@weave-os/ui/components/Chart")>()),
   Chart: vi.fn(() => null),
 }));
 

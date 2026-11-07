@@ -1,11 +1,15 @@
+import { Tooltip } from "@weave-os/ui/components/molecules/Tooltip";
+import { DateFormat } from "@weave-os/ui/tools/time";
+import {
+  addGranularity,
+  formatTime,
+  type TimeGranularity,
+} from "@weave-os/ui/tools/timeGranularity";
 import { format, isSameMonth, subDays } from "date-fns";
 
 import { type ReactNode, useCallback } from "react";
 
 import { type DateRange } from "../../data";
-import { DateFormat } from "../../tools/time";
-import { addGranularity, formatTime, type TimeGranularity } from "../../tools/timeGranularity";
-import { Tooltip } from "../molecules/Tooltip";
 
 /** The days of a bucket the range covers, when the range cuts the bucket short. */
 function partialBucketLabel(bucketStart: number, granularity: TimeGranularity, range: DateRange) {

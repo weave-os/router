@@ -1,12 +1,12 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import { Icon } from "@weave-os/ui/components/atoms/Icon";
+import { Text } from "@weave-os/ui/components/atoms/Text";
+import { Button } from "@weave-os/ui/components/molecules/Button";
+import { Card } from "@weave-os/ui/components/molecules/Card";
+import { Appearance } from "@weave-os/ui/components/types";
 
-import { Icon } from "../atoms/Icon";
-import { Text } from "../atoms/Text";
-import { Button } from "../molecules/Button";
-import { Card } from "../molecules/Card";
-import { Appearance } from "../types";
+import { createContext, useContext } from "react";
 
 const RouterConnectHrefContext = createContext<string | undefined>(undefined);
 

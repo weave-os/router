@@ -1,13 +1,18 @@
 "use client";
 
+import {
+  Chart,
+  ChartAxisType,
+  type ChartConfig,
+  ChartSeriesType,
+} from "@weave-os/ui/components/Chart";
+import { formatPercentage } from "@weave-os/ui/tools/format";
+import { LoadState } from "@weave-os/ui/tools/LoadState";
+import { DateFormat } from "@weave-os/ui/tools/time";
 import { addHours, format } from "date-fns";
 
 import { useMemo } from "react";
 
-import { formatPercentage } from "../../tools/format";
-import { LoadState } from "../../tools/LoadState";
-import { DateFormat } from "../../tools/time";
-import { Chart, ChartAxisType, type ChartConfig, ChartSeriesType } from "../Chart";
 import {
   HOURS_PER_DAY,
   type ProviderRunway,

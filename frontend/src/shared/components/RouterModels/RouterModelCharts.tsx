@@ -1,5 +1,30 @@
 "use client";
 
+import { Skeleton } from "@weave-os/ui/components/atoms/Skeleton";
+import {
+  Chart,
+  ChartAxisType,
+  type ChartData,
+  ChartFillPattern,
+  type ChartSeriesConfig,
+  ChartSeriesType,
+  SmallMultiples,
+  SmallMultiplesScale,
+} from "@weave-os/ui/components/Chart";
+import { ChartCard } from "@weave-os/ui/components/ChartCard";
+import { ErrorCard } from "@weave-os/ui/components/ErrorCard";
+import { BreakdownBar, type BreakdownSlice } from "@weave-os/ui/components/molecules/BreakdownBar";
+import { Tabs } from "@weave-os/ui/components/molecules/Tabs";
+import { AccountChartColorToken, ChartColorToken } from "@weave-os/ui/tools/chartColors";
+import {
+  formatBigDecimal,
+  formatPercentage,
+  formatRouterModelName,
+  formatUSD,
+} from "@weave-os/ui/tools/format";
+import { LoadState } from "@weave-os/ui/tools/LoadState";
+import { addGranularity, formatInterval, formatTime } from "@weave-os/ui/tools/timeGranularity";
+
 import { useMemo, useState } from "react";
 
 import {
@@ -11,32 +36,8 @@ import {
 } from "../../data";
 import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
 import { modelColorTokens } from "../../objects/RouterModelFamily";
-import { AccountChartColorToken, ChartColorToken } from "../../tools/chartColors";
-import {
-  formatBigDecimal,
-  formatPercentage,
-  formatRouterModelName,
-  formatUSD,
-} from "../../tools/format";
-import { LoadState } from "../../tools/LoadState";
-import { addGranularity, formatInterval, formatTime } from "../../tools/timeGranularity";
-import { Skeleton } from "../atoms/Skeleton";
-import {
-  Chart,
-  ChartAxisType,
-  type ChartData,
-  ChartFillPattern,
-  type ChartSeriesConfig,
-  ChartSeriesType,
-  SmallMultiples,
-  SmallMultiplesScale,
-} from "../Chart";
-import { ChartCard } from "../ChartCard";
 import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
-import { ErrorCard } from "../ErrorCard";
 import { LoadStateWrapper } from "../LoadStateWrapper";
-import { BreakdownBar, type BreakdownSlice } from "../molecules/BreakdownBar";
-import { Tabs } from "../molecules/Tabs";
 import { displayGranularity } from "../RouterCharts/chartRange";
 import { TIME_KEY } from "../RouterCharts/pivotSeries";
 import { RouterChartHeadline } from "../RouterCharts/RouterChartHeadline";

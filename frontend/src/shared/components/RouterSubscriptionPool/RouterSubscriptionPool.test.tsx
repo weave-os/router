@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { TooltipProvider } from "@weave-os/ui/components/molecules/Tooltip";
 
 import {
   RouterDashboardDataProvider,
@@ -11,7 +12,6 @@ import {
   unavailable,
   UnavailableReason,
 } from "../../data";
-import { TooltipProvider } from "../molecules/Tooltip";
 import { RouterSubscriptionPool } from "./RouterSubscriptionPool";
 
 const NOW = Date.parse("2026-11-02T12:00:00Z");

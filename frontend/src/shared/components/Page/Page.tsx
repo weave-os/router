@@ -1,7 +1,7 @@
-import React from "react";
+import { ElementClassName } from "@weave-os/ui/ids";
+import { cn } from "@weave-os/ui/tools/cn";
 
-import { ElementClassName } from "../../ids";
-import { cn } from "../../tools/cn";
+import React from "react";
 
 export interface PageProps extends React.PropsWithChildren {
   className?: string;

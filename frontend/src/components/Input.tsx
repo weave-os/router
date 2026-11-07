@@ -1,4 +1,4 @@
-import { cn } from "@/shared/tools/cn";
+import { cn } from "@weave-os/ui/tools/cn";
 
 import { forwardRef, type InputHTMLAttributes } from "react";
 

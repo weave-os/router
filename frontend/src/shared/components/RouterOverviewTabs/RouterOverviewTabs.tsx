@@ -1,9 +1,10 @@
 "use client";
 
+import { ReportSectionTabs } from "@weave-os/ui/components/ReportSectionTabs";
+import { URLParam } from "@weave-os/ui/tools/shareUrl";
+
 import { usePathname, useSearchParams } from "next/navigation";
 
-import { URLParam } from "../../tools/shareUrl";
-import { ReportSectionTabs } from "../ReportSectionTabs";
 import {
   resolveRouterOverviewTab,
   ROUTER_OVERVIEW_BASE_TABS,

@@ -1,8 +1,8 @@
-import { forwardRef } from "react";
+import { Button, ButtonProps } from "@weave-os/ui/components/molecules/Button";
+import { Appearance } from "@weave-os/ui/components/types";
+import { cn } from "@weave-os/ui/tools/cn";
 
-import { cn } from "../../tools/cn";
-import { Button, ButtonProps } from "../molecules/Button";
-import { Appearance } from "../types";
+import { forwardRef } from "react";
 
 export const SidebarNavButton = forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, ...props }, ref) => (

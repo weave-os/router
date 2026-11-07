@@ -1,6 +1,7 @@
 "use client";
 
-import { cn } from "../../../tools/cn";
+import { cn } from "@weave-os/ui/tools/cn";
+
 import { ROUTER_MARK_DARK_SRC, ROUTER_MARK_LIGHT_SRC } from "./routerMarkImages";
 
 export enum ExternalIconType {

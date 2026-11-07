@@ -1,8 +1,7 @@
 "use client";
 
-import { Button } from "@/shared/components/molecules/Button";
-import { Appearance } from "@/shared/components/types";
-
+import { Button } from "@weave-os/ui/components/molecules/Button";
+import { Appearance } from "@weave-os/ui/components/types";
 import { Check, Copy } from "lucide-react";
 
 import { useState } from "react";

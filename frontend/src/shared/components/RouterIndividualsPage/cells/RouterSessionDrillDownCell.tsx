@@ -1,5 +1,9 @@
 "use client";
 
+import { Button } from "@weave-os/ui/components/molecules/Button";
+import { Tooltip } from "@weave-os/ui/components/molecules/Tooltip";
+import { Appearance } from "@weave-os/ui/components/types";
+
 import { type ReactNode } from "react";
 
 import {
@@ -8,9 +12,6 @@ import {
   RouterMetricType,
   useRouterDrillDown,
 } from "../../../data";
-import { Button } from "../../molecules/Button";
-import { Tooltip } from "../../molecules/Tooltip";
-import { Appearance } from "../../types";
 import { type RouterIndividualRow, RouterIndividualRowKind } from "../types";
 
 interface RouterSessionDrillDownCellProps {

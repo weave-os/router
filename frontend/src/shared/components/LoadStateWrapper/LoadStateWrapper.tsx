@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useIsMounted } from "@weave-os/ui/hooks/useIsMounted";
+import { LoadState } from "@weave-os/ui/tools/LoadState";
+import { unreachable } from "@weave-os/ui/tools/types";
 
-import { useIsMounted } from "../../hooks/useIsMounted";
-import { LoadState } from "../../tools/LoadState";
-import { unreachable } from "../../tools/types";
+import { useEffect, useState } from "react";
 
 export interface LoadStateWrapperProps<T> {
   /**

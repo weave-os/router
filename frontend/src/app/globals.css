@@ -1,4 +1,4 @@
-@import "../shared/theme/tokens.css";
+@import "@weave-os/ui/theme/tokens.css";
 
 @tailwind base;
 @tailwind components;

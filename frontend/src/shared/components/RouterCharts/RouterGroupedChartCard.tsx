@@ -1,13 +1,5 @@
 "use client";
 
-import { useMemo, useState } from "react";
-
-import { type DateRange, type RouterMetricGroup, type RouterMetricType } from "../../data";
-import { useRouterDrillDown } from "../../data/useRouterDrillDown";
-import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
-import { formatBigDecimal, formatInteger } from "../../tools/format";
-import { LoadState } from "../../tools/LoadState";
-import { addGranularity, formatInterval, formatTime } from "../../tools/timeGranularity";
 import {
   Chart,
   ChartAxisType,
@@ -15,8 +7,17 @@ import {
   type ChartFillPattern,
   type ChartSeriesConfig,
   ChartSeriesType,
-} from "../Chart";
-import { ChartCard } from "../ChartCard";
+} from "@weave-os/ui/components/Chart";
+import { ChartCard } from "@weave-os/ui/components/ChartCard";
+import { formatBigDecimal, formatInteger } from "@weave-os/ui/tools/format";
+import { LoadState } from "@weave-os/ui/tools/LoadState";
+import { addGranularity, formatInterval, formatTime } from "@weave-os/ui/tools/timeGranularity";
+
+import { useMemo, useState } from "react";
+
+import { type DateRange, type RouterMetricGroup, type RouterMetricType } from "../../data";
+import { useRouterDrillDown } from "../../data/useRouterDrillDown";
+import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
 import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
 import { displayGranularity, previousRange } from "./chartRange";
 import { ChartTabToggle } from "./ChartTabToggle";

@@ -1,3 +1,4 @@
+import { pluralize } from "@weave-os/ui/tools/strings";
 import { addHours, formatDistanceStrict } from "date-fns";
 
 import {
@@ -6,7 +7,6 @@ import {
   RouterSubscriptionProvider,
   RouterSubscriptionSeatState,
 } from "../../data";
-import { pluralize } from "../../tools/strings";
 
 export type PoolSeat = RouterSubscriptionPoolSeat;
 export type PoolLimitWindow = RouterSubscriptionLimitWindow;

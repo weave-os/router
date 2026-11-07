@@ -1,5 +1,16 @@
 "use client";
 
+import {
+  Chart,
+  ChartAxisType,
+  type ChartData,
+  ChartSeriesType,
+} from "@weave-os/ui/components/Chart";
+import { ChartCard } from "@weave-os/ui/components/ChartCard";
+import { AccountChartColor, ChartColor } from "@weave-os/ui/tools/chartColors";
+import { formatBigDecimal } from "@weave-os/ui/tools/format";
+import { LoadState } from "@weave-os/ui/tools/LoadState";
+import { formatInterval, formatTime } from "@weave-os/ui/tools/timeGranularity";
 import { median } from "d3-array";
 
 import { useMemo } from "react";
@@ -12,12 +23,6 @@ import {
   useRouterDrillDown,
 } from "../../data";
 import { useRouterMetricSeries } from "../../data/useRouterMetricSeries";
-import { AccountChartColor, ChartColor } from "../../tools/chartColors";
-import { formatBigDecimal } from "../../tools/format";
-import { LoadState } from "../../tools/LoadState";
-import { formatInterval, formatTime } from "../../tools/timeGranularity";
-import { Chart, ChartAxisType, type ChartData, ChartSeriesType } from "../Chart";
-import { ChartCard } from "../ChartCard";
 import { type Granularity } from "../DashboardPageFilters/useDashboardFilters";
 import {
   displayGranularity,

@@ -1,6 +1,7 @@
+import { Icon } from "@weave-os/ui/components/atoms/Icon";
+import { Tooltip } from "@weave-os/ui/components/molecules/Tooltip";
+
 import { ExternalIcon, ExternalIconType } from "../atoms/ExternalIcon";
-import { Icon } from "../atoms/Icon";
-import { Tooltip } from "../molecules/Tooltip";
 
 /** Marks a card's figures as Weave Router data, next to the card title. */
 export const ROUTER_SOURCE_MARK = (

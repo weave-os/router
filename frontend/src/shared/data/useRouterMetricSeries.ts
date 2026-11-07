@@ -1,6 +1,7 @@
 "use client";
 
-import { type LoadState } from "../tools/LoadState";
+import { type LoadState } from "@weave-os/ui/tools/LoadState";
+
 import { type RouterMetricSeries, type RouterMetricSeriesRequest } from "./metricSeries";
 import {
   type RouterPerson,

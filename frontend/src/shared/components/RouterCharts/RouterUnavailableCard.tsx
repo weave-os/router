@@ -1,7 +1,8 @@
+import { ChartMessageCard } from "@weave-os/ui/components/Chart";
+import { ChartCard } from "@weave-os/ui/components/ChartCard";
+import { Card } from "@weave-os/ui/components/molecules/Card";
+
 import { type Unavailable } from "../../data";
-import { ChartMessageCard } from "../Chart";
-import { ChartCard } from "../ChartCard";
-import { Card } from "../molecules/Card";
 
 export interface RouterUnavailableCardProps {
   className?: string;
