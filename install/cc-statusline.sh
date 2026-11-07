@@ -385,7 +385,7 @@ weave_hidden_gate() {
   weave_disconnected_plans=""
   if [ -f "$cache.plans" ]; then
     mtime="$(stat -c %Y "$cache.plans" 2>/dev/null || stat -f %m "$cache.plans" 2>/dev/null)" || mtime=0
-    if [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
+    if [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
       weave_disconnected_plans="$(cat "$cache.plans" 2>/dev/null)"
     fi
   fi

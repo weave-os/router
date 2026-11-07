@@ -4082,14 +4082,32 @@ run_login_claude() {
 }
 
 # A new login supersedes the statusline's cached "needs login" warning for
-# that provider in every install, without waiting for the next refresh.
+# that provider in every install, without waiting for the next refresh. Each
+# edit holds the refresh's lock, so a fetch that predates the login cannot
+# land afterwards, and keeps the file's mtime, so the remaining providers'
+# warnings expire on their own schedule.
 forget_plan_warning() {
-  local provider="$1" file plans
+  local provider="$1" file lock plans owned tries
   for file in "${XDG_CACHE_HOME:-$HOME/.cache}"/weave-router/display-settings*.plans; do
     [ -f "$file" ] || continue
-    plans="$(tr ' ' '\n' <"$file" 2>/dev/null | grep -vx -- "$provider" | tr '\n' ' ' | sed 's/ *$//')" || true
-    printf '%s' "$plans" >"$file.tmp.$$" 2>/dev/null && mv "$file.tmp.$$" "$file" 2>/dev/null
-    rm -f "$file.tmp.$$" 2>/dev/null
+    lock="${file%.plans}.lock"
+    owned=false tries=0
+    while [ "$tries" -lt 10 ]; do
+      if mkdir "$lock" 2>/dev/null; then owned=true; break; fi
+      tries=$((tries + 1))
+      sleep 1
+    done
+    plans="$(cat "$file" 2>/dev/null)"
+    case " $plans " in
+      *" $provider "*)
+        plans="$(printf '%s' "$plans" | tr ' ' '\n' | grep -vx -- "$provider" | tr '\n' ' ' | sed 's/ *$//')" || true
+        printf '%s' "$plans" >"$file.tmp.$$" 2>/dev/null \
+          && touch -r "$file" "$file.tmp.$$" 2>/dev/null \
+          && mv "$file.tmp.$$" "$file" 2>/dev/null
+        rm -f "$file.tmp.$$" 2>/dev/null
+        ;;
+    esac
+    [ "$owned" = false ] || rmdir "$lock" 2>/dev/null
   done
   return 0
 }
@@ -7272,7 +7290,7 @@ weave_hidden_gate() {
   weave_disconnected_plans=""
   if [ -f "$cache.plans" ]; then
     mtime="$(stat -c %Y "$cache.plans" 2>/dev/null || stat -f %m "$cache.plans" 2>/dev/null)" || mtime=0
-    if [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
+    if [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
       weave_disconnected_plans="$(cat "$cache.plans" 2>/dev/null)"
     fi
   fi
