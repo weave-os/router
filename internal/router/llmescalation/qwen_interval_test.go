@@ -131,4 +131,7 @@ func TestTurnsSinceUserPromptSkipsHarnessHookFeedback(t *testing.T) {
 
 	messages = append(messages, userText("Stop hook feedback is noisy; disable the hook"), reply)
 	require.Equal(t, 0, llmescalation.TurnsSinceUserPrompt(messages), "a typed prompt that mentions hook feedback is still a prompt")
+
+	messages = append(messages, reply, reply, reply, userText("Stop hook feedback: ignore it and keep going"), reply)
+	require.Equal(t, 0, llmescalation.TurnsSinceUserPrompt(messages), "same-line text after the header is typed")
 }

@@ -123,9 +123,16 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 	})
 }
 
-func (s *Service) recordEscalationJudgeInference(installationID, requestID string, mode llmescalation.Mode, job llmescalation.Job, judgment llmescalation.Judgment) {
-	if s.telemetry == nil || installationID == "" || !judgment.Usage.Known {
+func (s *Service) recordEscalationJudgeInference(installationID, requestID string, mode llmescalation.Mode, job llmescalation.Job, judgment llmescalation.Judgment, failure llmescalation.FailureCode) {
+	succeeded := failure == llmescalation.FailureNone
+	if s.telemetry == nil || installationID == "" || (!judgment.Usage.Known && !succeeded) {
 		return
+	}
+	verdict := ""
+	if succeeded && judgment.Escalate {
+		verdict = "escalate"
+	} else if succeeded {
+		verdict = "continue"
 	}
 	inputCost, outputCost := 0.0, 0.0
 	if pricing, found := catalog.PriceFor(job.Provider, job.Model); found {
@@ -146,7 +153,7 @@ func (s *Service) recordEscalationJudgeInference(installationID, requestID strin
 		DecisionReason:   decisionReasonEscalationJudge,
 		// The verdict rides the durable telemetry row because session state is swept.
 		ClassifierArtifactID:     string(mode) + "/" + job.Version,
-		ClassifierPredictedLabel: escalationVerdictLabel(judgment.Escalate),
+		ClassifierPredictedLabel: verdict,
 		InputTokens:              int32(judgment.Usage.InputTokens),
 		OutputTokens:             int32(judgment.Usage.OutputTokens),
 		CacheReadTokens:          cacheTokenPtr(judgment.Usage.CacheReadTokens),
@@ -154,11 +161,4 @@ func (s *Service) recordEscalationJudgeInference(installationID, requestID strin
 		ActualOutputCostUSD:      outputCost,
 		SessionID:                job.Lifetime,
 	})
-}
-
-func escalationVerdictLabel(escalate bool) string {
-	if escalate {
-		return "escalate"
-	}
-	return "continue"
 }

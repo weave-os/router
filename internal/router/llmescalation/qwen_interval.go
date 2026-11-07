@@ -118,25 +118,13 @@ func qwenTurns(messages []translate.EscalationMessage, codexToolResults bool) []
 	return turns
 }
 
-const (
-	systemReminderOpen  = "<system-reminder>"
-	systemReminderClose = "</system-reminder>"
-)
-
 // harnessHookFeedback matches the "<Event> hook feedback:" header Claude Code
 // puts on the user message it injects when a hook (e.g. a /goal Stop hook)
 // blocks the turn from ending.
-var harnessHookFeedback = regexp.MustCompile(`^[A-Z][A-Za-z]* hook feedback:`)
+var harnessHookFeedback = regexp.MustCompile(`^[A-Z][A-Za-z]* hook feedback:(\n|$)`)
 
 func isTypedPrompt(text string) bool {
-	text = strings.TrimSpace(text)
-	for strings.HasPrefix(text, systemReminderOpen) {
-		end := strings.Index(text, systemReminderClose)
-		if end == -1 {
-			return false
-		}
-		text = strings.TrimSpace(text[end+len(systemReminderClose):])
-	}
+	text = strings.TrimSpace(translate.WithoutLeadingClientInjectedText(text))
 	return text != "" && !harnessHookFeedback.MatchString(text)
 }
 

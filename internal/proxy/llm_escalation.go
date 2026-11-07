@@ -64,15 +64,7 @@ func (s *Service) WithEscalationShadowDefault(classifier flags.EscalationClassif
 }
 
 func (s *Service) escalationSelection(ctx context.Context) flags.EscalationConfig {
-	return flags.EscalationFromContext(ctx).WithDeploymentShadow(s.escalationShadowDefault)
-}
-
-// llmEscalationSlotsFor keeps shadow judging from starving active checkpoints.
-func (s *Service) llmEscalationSlotsFor(active bool) chan struct{} {
-	if active {
-		return s.llmEscalationSlots
-	}
-	return s.llmEscalationShadowSlots
+	return flags.EscalationWithDeploymentShadow(ctx, s.escalationShadowDefault)
 }
 
 func (t *llmEscalationTurn) constraint() *escalation.Constraint {
@@ -269,7 +261,11 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 		ready = false
 		intervalFailure = llmescalation.FailureRecentUserPrompt
 	}
-	slots := s.llmEscalationSlotsFor(turn.active)
+	// Separate pools keep shadow judging from starving active checkpoints.
+	slots := s.llmEscalationShadowSlots
+	if turn.active {
+		slots = s.llmEscalationSlots
+	}
 	capacity := false
 	if ready {
 		select {
@@ -314,7 +310,7 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 		if err := s.llmEscalationStore.FinishJob(persistCtx, job, judgment, failure); err != nil {
 			log.Warn("LLM escalation verdict persistence failed", "err", err)
 		}
-		s.recordEscalationJudgeInference(turn.session.InstallationID, turn.requestID, turn.session.Config.Mode, job, judgment)
+		s.recordEscalationJudgeInference(turn.session.InstallationID, turn.requestID, turn.session.Config.Mode, job, judgment, failure)
 		log.Info("LLM escalation checkpoint finished", "failure", failure, "escalate", judgment.Escalate, "usage_known", judgment.Usage.Known, "input_tokens", judgment.Usage.InputTokens, "output_tokens", judgment.Usage.OutputTokens, "cost_usd", judgment.CostUSD)
 	})
 }

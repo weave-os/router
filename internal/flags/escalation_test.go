@@ -25,17 +25,22 @@ func TestEscalationSelectorPreservesLegacyUntilExplicit(t *testing.T) {
 
 func TestEscalationDeploymentShadowAppliesOnlyWithoutSelection(t *testing.T) {
 	withOverrides := func(o flags.Overrides) flags.EscalationConfig {
-		return flags.EscalationFromContext(flags.WithOverrides(context.Background(), o)).WithDeploymentShadow(flags.EscalationClassifierLLM)
+		return flags.EscalationWithDeploymentShadow(flags.WithOverrides(context.Background(), o), flags.EscalationClassifierLLM)
 	}
-	assert.Equal(t, flags.EscalationClassifierLLM, flags.EscalationFromContext(context.Background()).WithDeploymentShadow(flags.EscalationClassifierLLM).Shadow)
-	legacyShadow := withOverrides(flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostShadowEnabled: true}})
+	assert.Equal(t, flags.EscalationClassifierLLM, flags.EscalationWithDeploymentShadow(context.Background(), flags.EscalationClassifierLLM).Shadow)
+	assert.Equal(t, flags.EscalationClassifierSwitchyard, flags.EscalationWithDeploymentShadow(context.Background(), flags.EscalationClassifierSwitchyard).Shadow)
+	legacyShadow := withOverrides(flags.Overrides{
+		Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostShadowEnabled: true},
+		Ints:  map[flags.Key]int{flags.KeyEscalationXGBoostEpoch: 4, flags.KeyEscalationEpoch: 9},
+	})
 	assert.Equal(t, flags.EscalationClassifierLLM, legacyShadow.Shadow)
+	assert.Equal(t, 9, legacyShadow.Epoch, "an LLM shadow is scoped by the generic escalation epoch")
 	legacyActive := withOverrides(flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostEnabled: true}})
 	assert.Equal(t, flags.EscalationClassifierXGB, legacyActive.Active)
 	assert.Equal(t, flags.EscalationClassifierNone, legacyActive.Shadow)
 	optedOut := withOverrides(flags.Overrides{Strings: map[flags.Key]string{flags.KeyEscalationActiveClassifier: string(flags.EscalationClassifierNone)}})
 	assert.Equal(t, flags.EscalationClassifierNone, optedOut.Shadow, "an explicit selection is never widened")
-	assert.Equal(t, flags.EscalationClassifierNone, flags.EscalationFromContext(context.Background()).WithDeploymentShadow(flags.EscalationClassifierNone).Shadow)
+	assert.Equal(t, flags.EscalationClassifierNone, flags.EscalationWithDeploymentShadow(context.Background(), flags.EscalationClassifierNone).Shadow)
 }
 
 func TestEscalationOverrideValidation(t *testing.T) {
