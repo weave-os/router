@@ -141,6 +141,8 @@ type Features struct {
 	// SubscriptionLogins runs browser reconnects for the control plane. Nil
 	// leaves enrollment on `router login` alone.
 	SubscriptionLogins admin.SubscriptionLoginFlow
+	// PolicyStatus adds the active stable policy release to /v1/version.
+	PolicyStatus admin.PolicyStatusSource
 }
 
 // RegisterWithFeatures is Register with optional request features enabled.
@@ -209,7 +211,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 
 	// /v1/version reports the binary's git commit + build time (via -ldflags),
 	// used by the README's managed-deployment badge. Public build metadata, unauthed like /health.
-	engine.GET("/v1/version", middleware.WithTimeout(healthTimeout), admin.VersionHandler)
+	engine.GET("/v1/version", middleware.WithTimeout(healthTimeout), admin.VersionHandler(features.PolicyStatus))
 	var registeredStrategies []router.Strategy
 	var strategyAvailability middleware.StrategyAvailability
 	if proxySvc != nil {
