@@ -545,7 +545,7 @@ nothing lands in a repo working tree.
 
 | Environment variable                       | Default | Effect                                                        |
 | ------------------------------------------ | ------- | ------------------------------------------------------------- |
-| `WEAVE_STATUSLINE_UPDATE=0`                 | on      | Disable statusline and slash-command self-updates.       |
+| `WEAVE_STATUSLINE_UPDATE=0`                 | on      | Disable statusline and slash-command self-updates; also Codex helper updates unless `WEAVE_CODEX_STATUS_UPDATE` is set.       |
 | `WEAVE_COMMANDS_UPDATE=0`                   | on      | Disable only the slash-command refresh.                        |
 | `WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS`     | `7`     | How often either check may run.                                |
 | `WEAVE_STATUSLINE_URL`                      | GitHub raw | Source for the statusline (self-hosters who fork).          |
@@ -560,7 +560,8 @@ Linked-plan status refreshes in the background after the cache expires;
 refreshed status appears on a later render after a successful request.
 With an updated server and status helper, cooldown and exhausted plans show
 a reset time when known; only disconnected credentials suggest logging in.
-Expired snapshots stop showing plan warnings even if the refresh fails.
+While refreshing, last-known plan warnings are marked “checking…” for up to
+two minutes. Older snapshots stop showing plan warnings even if refresh fails.
 
 **Codex refreshes itself too.** The status helper checks for a newer copy of
 itself on the same schedule and swaps it in atomically, so an install picks up

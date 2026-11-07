@@ -700,6 +700,13 @@ out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcr
 check_contains "statusline names the disconnected plan and its reconnect command" "$out" "Claude plan disconnected: run npx @weave-os/router login claude --scope project --dir $c/proj"
 check_not_contains "statusline omits plans that are not disconnected" "$out" "Codex plan disconnected"
 check_not_contains "statusline omits invalid provider names" "$out" "bad plan"
+age_files 60 "$cache_file" "$cache_file.plans"
+out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL="file://$c/unreachable.json" ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' \
+    bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
+check_contains "last-known plan status remains marked while refreshing" "$out" "Claude plan disconnected (checking…)"
+wait_for 5 not_a_dir "$cache_file.lock"
 # An old login warning must expire even when the router cannot refresh it.
 age_files 120 "$cache_file" "$cache_file.plans"
 out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
@@ -741,6 +748,7 @@ for state in cooldown exhausted active; do
   wait_for 5 not_a_dir "$cache_file.lock"
   out="$(plan_state_render)"
   check_not_contains "$state supersedes a legacy disconnected warning" "$out" "plan disconnected"
+  check_not_contains "fresh $state status clears the checking marker" "$out" "(checking…)"
   case "$state" in
     cooldown) check_contains "cooldown shows a temporary limit and reset time" "$out" "Claude plan cooling down until" ;;
     exhausted) check_contains "exhaustion shows a limit and reset time" "$out" "Claude plan limit reached until" ;;
@@ -753,7 +761,7 @@ check_not_contains "a passed reset deadline clears the limit immediately" "$out"
 
 # A malformed response cannot renew an expired reconnect warning.
 printf '{"disconnected_plans":["claude"]}' > "$cache_file.plans"
-age_files 60 "$cache_file"
+age_files 180 "$cache_file" "$cache_file.plans"
 printf 'not JSON' > "$c/ds.json"
 out="$(plan_state_render)"
 check_not_contains "malformed refresh does not keep a login warning alive" "$out" "plan disconnected"

@@ -377,26 +377,33 @@ weave_hidden_gate() {
   local cache="$cache_dir/display-settings${script_slug}"
   local ttl="${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-30}"
   weave_plan_statuses=""
+  weave_plan_status_suffix=""
 
-  local now mtime fresh="false"
+  local now mtime cache_age=-1 fresh="false"
   now="$(date +%s 2>/dev/null)" || now=0
   if [ -f "$cache" ]; then
     mtime="$(stat -c %Y "$cache" 2>/dev/null || stat -f %m "$cache" 2>/dev/null)" || mtime=0
-    if [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
-      fresh="true"
+    if [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ]; then
+      cache_age=$(( now - mtime ))
+      [ "$cache_age" -ge "$ttl" ] || fresh="true"
     fi
   fi
 
-  # Foreground decision: only a fresh cache hides the surfaces. Anything else
-  # (no cache, stale cache, unreadable cache) renders normally so a slow or
-  # unreachable router can never stall a turn or wedge the statusline blank.
-  if [ "$fresh" = "true" ]; then
+  # Keep last-known warnings through the refresh-triggering render, but cap
+  # their age independently so failed refreshes cannot preserve them forever.
+  if [ "$cache_age" -ge 0 ] && [ "$cache_age" -lt 120 ]; then
     weave_plan_statuses="$(jq -r '
       (.plan_statuses // [.disconnected_plans[]? | {provider: ., state: "reconnect_required"}])[]
       | select(.provider == "claude" or .provider == "codex")
       | [.provider, .state, ((.cooldown_until // "" | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601?) // 0)]
       | @tsv
     ' "$cache.plans" 2>/dev/null)" || weave_plan_statuses=""
+    [ "$cache_age" -lt "$ttl" ] || weave_plan_status_suffix=" (checking…)"
+  fi
+
+  # Only a fresh cache hides surfaces. A visible cache with expired plans
+  # also refreshes, even when a longer display-settings TTL was configured.
+  if [ "$fresh" = "true" ] && { [ "$cache_age" -lt 120 ] || [ "$(cat "$cache" 2>/dev/null)" = "1" ]; }; then
     [ "$(cat "$cache" 2>/dev/null)" = "1" ]
     return
   fi
@@ -1155,7 +1162,7 @@ while IFS=$'\t' read -r weave_plan weave_plan_state weave_plan_reset_epoch; do
   esac
   case "$weave_plan_state" in
     reconnect_required)
-      status_text="$status_text · $weave_plan_name plan disconnected: run npx @weave-os/router login $weave_plan$weave_login_scope"
+      status_text="$status_text · $weave_plan_name plan disconnected${weave_plan_status_suffix}: run npx @weave-os/router login $weave_plan$weave_login_scope"
       ;;
     cooldown|exhausted)
       weave_reset_text=""
@@ -1165,8 +1172,8 @@ while IFS=$'\t' read -r weave_plan weave_plan_state weave_plan_reset_epoch; do
         [ -z "$weave_reset_date" ] || weave_reset_text=" until $weave_reset_date"
       fi
       case "$weave_plan_state" in
-        cooldown) status_text="$status_text · $weave_plan_name plan cooling down$weave_reset_text" ;;
-        exhausted) status_text="$status_text · $weave_plan_name plan limit reached$weave_reset_text" ;;
+        cooldown) status_text="$status_text · $weave_plan_name plan cooling down$weave_reset_text$weave_plan_status_suffix" ;;
+        exhausted) status_text="$status_text · $weave_plan_name plan limit reached$weave_reset_text$weave_plan_status_suffix" ;;
       esac
       ;;
   esac
