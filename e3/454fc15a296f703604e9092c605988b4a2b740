@@ -1,0 +1,26 @@
+smoke/mitmproxy/store_test.go
+  s_e6524cf447461a::t_d48a7fb0ece428 3-7,52,57-72,74-75
+  s_e6524cf447461a::t_840e9f7e74bd7c 53-56,73
+smoke/mitmproxy/store.go
+  s_e6524cf447461a::t_02f4b67e56b6df 137-142,145
+  s_e6524cf447461a::t_f786eb406c1ff6 143-144
+smoke/mitmproxy/cassettes/README.md
+  s_e6524cf447461a::t_564ab44138085f 27-32,34-35
+  s_e6524cf447461a::t_613d4b9c5a854a 33,36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e3454fc15a296f703604e9092c605988b4a2b740",
+  "prompts": {},
+  "sessions": {
+    "s_e6524cf447461a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "289cc397-1de0-4dc4-a113-48ef21d2d347",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

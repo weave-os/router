@@ -1,0 +1,19 @@
+docs/DELEGATED_SESSION_TOKENS.md
+  s_4a2c66a824762c::t_c6608d024293a7 72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c29d8af50050127b5c5811a1175ec16a864e4b1c",
+  "prompts": {},
+  "sessions": {
+    "s_4a2c66a824762c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ae57-6dd7-7f20-939b-e5078546d18e",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

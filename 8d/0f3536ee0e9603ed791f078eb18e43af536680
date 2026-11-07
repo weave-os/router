@@ -1,0 +1,23 @@
+internal/proxy/subscription_funding.go
+  s_6c0f50e29c46d2::t_8f05de96828f50 80-81,94-102,116
+internal/proxy/subscription_funding_internal_test.go
+  s_6c0f50e29c46d2::t_38c428c189cb6e 219,223,270,274
+internal/proxy/subscription_third_party_internal_test.go
+  s_6c0f50e29c46d2::t_91fcf3bc32a669 242-245,252,282-292
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8d0f3536ee0e9603ed791f078eb18e43af536680",
+  "prompts": {},
+  "sessions": {
+    "s_6c0f50e29c46d2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b54c56cc-92ac-41fe-b45b-e32ecd1479d6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

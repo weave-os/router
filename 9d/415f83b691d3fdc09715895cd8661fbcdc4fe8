@@ -1,0 +1,55 @@
+internal/translate/incompatible.go
+  s_8219cfeb5127fb::t_62940670ab96c8 1-14
+internal/translate/fidelity_test.go
+  s_8219cfeb5127fb::t_58a4117003e721 18-24
+  s_8219cfeb5127fb::t_96a48ee4549ef2 94-100,103-105
+  s_8219cfeb5127fb::t_5db21668bcbb3b 132-137
+  s_8219cfeb5127fb::t_4e89c96d85631f 54-84
+internal/translate/gemini_test.go
+  s_8219cfeb5127fb::t_2baae5f3cdaa27 712-716,728,733,739-751
+  s_8219cfeb5127fb::t_d1faeb29688365 827-833
+  s_8219cfeb5127fb::t_d682f4d35ecaff 954-957
+  s_8219cfeb5127fb::t_96452d2ea18ad4 6-7
+  s_8219cfeb5127fb::t_04435776680e23 794-798
+  s_8219cfeb5127fb::t_c368ab7dc8f272 939-946,958-972
+  s_8219cfeb5127fb::t_1f5f2a2f5d56ed 917-921
+  s_8219cfeb5127fb::t_f2a28e11e5070a 949,1281-1411
+  s_8219cfeb5127fb::t_0a4572b202e5b8 947-948
+internal/proxy/dispatch_error.go
+  s_8219cfeb5127fb::t_e7a593d301bfe7 175-185
+  s_8219cfeb5127fb::t_42ad809abd89b7 53
+internal/proxy/dispatch_error_test.go
+  s_8219cfeb5127fb::t_d3731116601c8c 231-255
+internal/translate/emit_gemini.go
+  s_8219cfeb5127fb::t_9c0408bbf80dfe 1548-1558,1587-1588
+  s_8219cfeb5127fb::t_1ce9272967d578 13
+  s_8219cfeb5127fb::t_657b59291badd7 1326,1334-1343
+  s_8219cfeb5127fb::t_ae51d3f88a3ebb 990-994
+  s_8219cfeb5127fb::t_083a49de0fb1c2 1589-1590,1598-1665
+  s_8219cfeb5127fb::t_6114f538875020 493-499
+  s_8219cfeb5127fb::t_280a4ecd06bc01 1478-1486,1489,1491-1495,1497-1505,1507-1515,1517,1519-1524,1526-1530,1532
+internal/proxy/service.go
+  s_8219cfeb5127fb::t_b4a92cd3b9a783 3159-3175
+  s_8219cfeb5127fb::t_75b5bf6db63608 3090-3094
+  s_8219cfeb5127fb::t_3551f345dd92ad 3207-3208
+  s_8219cfeb5127fb::t_78776ad6d72690 3233
+internal/proxy/gemini_schema_failover_integration_test.go
+  s_8219cfeb5127fb::t_12ec79f5eba8c8 82
+  s_8219cfeb5127fb::t_65071dd99e7bfd 1-81,83-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "9d415f83b691d3fdc09715895cd8661fbcdc4fe8",
+  "prompts": {},
+  "sessions": {
+    "s_8219cfeb5127fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc96782f-4c33-41e7-861a-0dbf7d16449b",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

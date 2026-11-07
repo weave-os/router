@@ -1,0 +1,24 @@
+cmd/router/local_serving_runtime.go
+  s_b9214c2cae82d1::t_42742b7789c9d4 20-24,26-27
+cmd/router/local_runtime_dispatch_test.go
+  s_b9214c2cae82d1::t_42742b7789c9d4 23,26-33
+  s_b9214c2cae82d1::t_2a617e257df9cd 34
+docs/LOCAL_PINNED_RUNTIME.md
+  s_b9214c2cae82d1::t_42742b7789c9d4 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3aa35dd8d8b9d816742a5595a6c8040f4ba950b7",
+  "prompts": {},
+  "sessions": {
+    "s_b9214c2cae82d1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19e45-021f-7f23-9e0f-a8359a4fc275",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

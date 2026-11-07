@@ -1,0 +1,27 @@
+internal/proxy/turnloop.go
+  s_09edbb821b9872::t_1a9bacad28bd6f 173-180,196
+  s_09edbb821b9872::t_3f8907b2840c0b 351-353
+cmd/router/main.go
+  s_09edbb821b9872::t_4191497017a460 482-483
+internal/proxy/service_session_pin_test.go
+  s_09edbb821b9872::t_0929a8c41390b7 783-811
+internal/proxy/service.go
+  s_09edbb821b9872::t_00669e2acc4610 92-95
+  s_09edbb821b9872::t_8760834d402f57 1242-1244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "4c140f7b57d6d81c64ab6550c9284e3ff5c28ad3",
+  "prompts": {},
+  "sessions": {
+    "s_09edbb821b9872": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "447128a0-53a8-407d-9e55-94b925e335bd",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

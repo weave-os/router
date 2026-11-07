@@ -1,0 +1,19 @@
+.gitignore
+  s_2cdf095f803427::t_d2499629118338 53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "aff5db7f1e71308709883d23f294d6f077ace968",
+  "prompts": {},
+  "sessions": {
+    "s_2cdf095f803427": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ea16-2bea-7652-8478-21c9418c36ac",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

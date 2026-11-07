@@ -1,0 +1,21 @@
+internal/proxy/service.go
+  s_fbb2a600456c7f::t_cab054e4fe30c4 1687-1688
+internal/api/admin/allowed_models.go
+  s_fbb2a600456c7f::t_cab054e4fe30c4 107-109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "f9b382bb0e06fa1eb6fc1aced905329924a480ca",
+  "prompts": {},
+  "sessions": {
+    "s_fbb2a600456c7f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8086e78c-443c-4f17-9403-bd977911194e",
+        "model": "grok-4.6"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

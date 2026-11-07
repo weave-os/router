@@ -1,0 +1,19 @@
+internal/proxy/sibling_failover.go
+  s_820054ea85251d::t_5c5a07f59f8c55 5,156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8eeae7a390006695a6a3e8941d6599361e96ff08",
+  "prompts": {},
+  "sessions": {
+    "s_820054ea85251d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15795-f71b-71b3-a470-34c0f2ed2beb",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
