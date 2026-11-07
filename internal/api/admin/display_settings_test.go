@@ -104,6 +104,26 @@ func TestDisplaySettingsHandler(t *testing.T) {
 		require.Equal(t, auth.SubscriptionAccountStateCooldown, body.PlanStatuses[0].State)
 		require.Equal(t, &reset, body.PlanStatuses[0].CooldownUntil)
 	})
+	t.Run("expired limits take precedence over future limits", func(t *testing.T) {
+		pastReset, futureReset := time.Now().Add(-time.Hour), time.Now().Add(time.Hour)
+		for _, state := range []auth.SubscriptionAccountState{auth.SubscriptionAccountStateExhausted, auth.SubscriptionAccountStateCooldown} {
+			t.Run(string(state), func(t *testing.T) {
+				for _, expiredFirst := range []bool{true, false} {
+					accounts := []*auth.SubscriptionAccount{
+						{Provider: auth.SubscriptionProviderClaude, State: state, Enabled: true, CooldownUntil: &pastReset},
+						{Provider: auth.SubscriptionProviderClaude, State: auth.SubscriptionAccountStateCooldown, Enabled: true, CooldownUntil: &futureReset},
+					}
+					if !expiredFirst {
+						accounts[0], accounts[1] = accounts[1], accounts[0]
+					}
+					body := getDisplaySettings(t, &fakeAccountLister{accounts: accounts})
+					require.Len(t, body.PlanStatuses, 1)
+					require.Equal(t, auth.SubscriptionAccountStateUnknown, body.PlanStatuses[0].State)
+					require.Nil(t, body.PlanStatuses[0].CooldownUntil)
+				}
+			})
+		}
+	})
 }
 
 type displaySettingsBody struct {

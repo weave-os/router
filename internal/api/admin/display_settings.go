@@ -76,10 +76,15 @@ func linkedPlanStatuses(c *gin.Context, accounts SubscriptionAccountLister) []di
 		auth.SubscriptionAccountStateReconnectRequired,
 		auth.SubscriptionAccountStateDisabled,
 	}
+	now := time.Now()
 	for _, account := range linked {
 		plan := displayPlanStatus{Provider: account.Provider, State: account.State, CooldownUntil: account.CooldownUntil}
 		if !account.Enabled && account.State != auth.SubscriptionAccountStateReconnectRequired {
 			plan.State = auth.SubscriptionAccountStateDisabled
+			plan.CooldownUntil = nil
+		} else if account.Enabled && plan.CooldownUntil != nil && !plan.CooldownUntil.After(now) &&
+			(plan.State == auth.SubscriptionAccountStateCooldown || plan.State == auth.SubscriptionAccountStateExhausted) {
+			plan.State = auth.SubscriptionAccountStateUnknown
 			plan.CooldownUntil = nil
 		}
 		index := slices.IndexFunc(plans, func(existing displayPlanStatus) bool { return existing.Provider == plan.Provider })

@@ -545,7 +545,7 @@ nothing lands in a repo working tree.
 
 | Environment variable                       | Default | Effect                                                        |
 | ------------------------------------------ | ------- | ------------------------------------------------------------- |
-| `WEAVE_STATUSLINE_UPDATE=0`                 | on      | Disable every background network path in the statusline.       |
+| `WEAVE_STATUSLINE_UPDATE=0`                 | on      | Disable statusline and slash-command self-updates.       |
 | `WEAVE_COMMANDS_UPDATE=0`                   | on      | Disable only the slash-command refresh.                        |
 | `WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS`     | `7`     | How often either check may run.                                |
 | `WEAVE_STATUSLINE_URL`                      | GitHub raw | Source for the statusline (self-hosters who fork).          |
@@ -555,6 +555,7 @@ nothing lands in a repo working tree.
 | `WEAVE_CODEX_STATUS_UPDATE_INTERVAL_DAYS`   | `7`     | How often the Codex helper may check for a new copy.           |
 | `WEAVE_CODEX_STATUS_URL`                    | GitHub raw | Source for the Codex status helper (self-hosters who fork). |
 
+The display-settings refresh runs independently of `WEAVE_STATUSLINE_UPDATE`.
 Linked-plan status refreshes in the background after the cache expires and
 appears on the next status-line render. Cooldown and exhausted plans show a
 reset time when known; only disconnected credentials suggest logging in.

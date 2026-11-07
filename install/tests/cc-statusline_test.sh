@@ -56,6 +56,13 @@ wait_for() { # wait_for <timeout_seconds> <command...>
   done
 }
 
+age_files() { # age_files <seconds> <path...>
+  local seconds="$1" stamp
+  shift
+  stamp="$(date -d "$seconds seconds ago" +%Y%m%d%H%M.%S 2>/dev/null || date -v-"${seconds}"S +%Y%m%d%H%M.%S)"
+  touch -t "$stamp" "$@"
+}
+
 # On a cold cache the periodic check fires too and would refresh the copy on its
 # own, masking whether the price-miss path did anything. Pre-seeding its stamp
 # puts it inside its interval so the miss path is the only thing that can act.
@@ -694,11 +701,7 @@ check_contains "statusline names the disconnected plan and its reconnect command
 check_not_contains "statusline omits plans that are not disconnected" "$out" "Codex plan disconnected"
 check_not_contains "statusline omits invalid provider names" "$out" "bad plan"
 # An old login warning must expire even when the router cannot refresh it.
-python3 - "$cache_file" "$cache_file.plans" <<'PY'
-import os, sys, time
-for path in sys.argv[1:]:
-    os.utime(path, (time.time() - 120, time.time() - 120))
-PY
+age_files 120 "$cache_file" "$cache_file.plans"
 out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
     WEAVE_ROUTER_BASE_URL="file://$c/unreachable.json" ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' \
@@ -730,10 +733,7 @@ cached_plan_state_is() {
 }
 for state in cooldown exhausted active; do
   if [ -f "$cache_file" ]; then
-    python3 - "$cache_file" <<'PY'
-import os, sys, time
-os.utime(sys.argv[1], (time.time() - 60, time.time() - 60))
-PY
+    age_files 60 "$cache_file"
   fi
   printf '{"hide_terminal_surfaces": false, "disconnected_plans": ["claude"], "plan_statuses": [{"provider": "claude", "state": "%s", "cooldown_until": "2030-01-10T18:00:00.123Z"}]}' "$state" > "$c/ds.json"
   plan_state_render >/dev/null
@@ -753,10 +753,7 @@ check_not_contains "a passed reset deadline clears the limit immediately" "$out"
 
 # A malformed response cannot renew an expired reconnect warning.
 printf '{"disconnected_plans":["claude"]}' > "$cache_file.plans"
-python3 - "$cache_file" <<'PY'
-import os, sys, time
-os.utime(sys.argv[1], (time.time() - 60, time.time() - 60))
-PY
+age_files 60 "$cache_file"
 printf 'not JSON' > "$c/ds.json"
 out="$(plan_state_render)"
 check_not_contains "malformed refresh does not keep a login warning alive" "$out" "plan disconnected"
