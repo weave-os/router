@@ -68,13 +68,13 @@ func linkedPlanStatuses(c *gin.Context, accounts SubscriptionAccountLister) []di
 		observability.FromContext(c.Request.Context()).Warn("Failed to list linked plans for display settings", "err", err)
 		return plans
 	}
-	statePrecedence := []auth.SubscriptionAccountState{
-		auth.SubscriptionAccountStateActive,
-		auth.SubscriptionAccountStateUnknown,
-		auth.SubscriptionAccountStateCooldown,
-		auth.SubscriptionAccountStateExhausted,
-		auth.SubscriptionAccountStateReconnectRequired,
-		auth.SubscriptionAccountStateDisabled,
+	statePrecedence := map[auth.SubscriptionAccountState]int{
+		auth.SubscriptionAccountStateActive:            0,
+		auth.SubscriptionAccountStateUnknown:           1,
+		auth.SubscriptionAccountStateCooldown:          2,
+		auth.SubscriptionAccountStateExhausted:         2,
+		auth.SubscriptionAccountStateReconnectRequired: 3,
+		auth.SubscriptionAccountStateDisabled:          4,
 	}
 	now := time.Now()
 	for _, account := range linked {
@@ -93,8 +93,8 @@ func linkedPlanStatuses(c *gin.Context, accounts SubscriptionAccountLister) []di
 			continue
 		}
 		existing := plans[index]
-		if slices.Index(statePrecedence, plan.State) < slices.Index(statePrecedence, existing.State) ||
-			(plan.State == existing.State && plan.CooldownUntil != nil &&
+		if statePrecedence[plan.State] < statePrecedence[existing.State] ||
+			(statePrecedence[plan.State] == statePrecedence[existing.State] && plan.CooldownUntil != nil &&
 				(existing.CooldownUntil == nil || plan.CooldownUntil.Before(*existing.CooldownUntil))) {
 			plans[index] = plan
 		}

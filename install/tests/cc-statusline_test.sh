@@ -56,7 +56,7 @@ wait_for() { # wait_for <timeout_seconds> <command...>
   done
 }
 
-age_files() { # age_files <seconds> <path...>
+age_files() {
   local seconds="$1" stamp
   shift
   stamp="$(date -d "$seconds seconds ago" +%Y%m%d%H%M.%S 2>/dev/null || date -v-"${seconds}"S +%Y%m%d%H%M.%S)"

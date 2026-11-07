@@ -124,6 +124,31 @@ func TestDisplaySettingsHandler(t *testing.T) {
 			})
 		}
 	})
+	t.Run("earliest reset wins across cooldown and exhaustion", func(t *testing.T) {
+		now := time.Now().UTC()
+		earlierReset, laterReset := now.Add(time.Hour), now.Add(2*time.Hour)
+		for _, earlierState := range []auth.SubscriptionAccountState{auth.SubscriptionAccountStateExhausted, auth.SubscriptionAccountStateCooldown} {
+			laterState := auth.SubscriptionAccountStateCooldown
+			if earlierState == auth.SubscriptionAccountStateCooldown {
+				laterState = auth.SubscriptionAccountStateExhausted
+			}
+			t.Run(string(earlierState), func(t *testing.T) {
+				for _, earlierFirst := range []bool{true, false} {
+					accounts := []*auth.SubscriptionAccount{
+						{Provider: auth.SubscriptionProviderClaude, State: earlierState, Enabled: true, CooldownUntil: &earlierReset},
+						{Provider: auth.SubscriptionProviderClaude, State: laterState, Enabled: true, CooldownUntil: &laterReset},
+					}
+					if !earlierFirst {
+						accounts[0], accounts[1] = accounts[1], accounts[0]
+					}
+					body := getDisplaySettings(t, &fakeAccountLister{accounts: accounts})
+					require.Len(t, body.PlanStatuses, 1)
+					require.Equal(t, earlierState, body.PlanStatuses[0].State)
+					require.Equal(t, &earlierReset, body.PlanStatuses[0].CooldownUntil)
+				}
+			})
+		}
+	})
 }
 
 type displaySettingsBody struct {

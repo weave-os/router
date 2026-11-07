@@ -556,9 +556,10 @@ nothing lands in a repo working tree.
 | `WEAVE_CODEX_STATUS_URL`                    | GitHub raw | Source for the Codex status helper (self-hosters who fork). |
 
 The display-settings refresh runs independently of `WEAVE_STATUSLINE_UPDATE`.
-Linked-plan status refreshes in the background after the cache expires and
-appears on the next status-line render. Cooldown and exhausted plans show a
-reset time when known; only disconnected credentials suggest logging in.
+Linked-plan status refreshes in the background after the cache expires;
+refreshed status appears on a later render after a successful request.
+With an updated server and status helper, cooldown and exhausted plans show
+a reset time when known; only disconnected credentials suggest logging in.
 Expired snapshots stop showing plan warnings even if the refresh fails.
 
 **Codex refreshes itself too.** The status helper checks for a newer copy of
