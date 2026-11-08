@@ -27,6 +27,7 @@ const (
 	JudgeTimeout        = 20 * time.Second
 	JobLease            = 30 * time.Second
 	MaxWorkers          = 16
+	MaxShadowWorkers    = 8
 	QwenReleaseName     = "qwen-finetuned-escalation-classifier"
 	QwenModelSHA256     = "620f908e24268bf9f116d533cc1d42f825f2a38599374c3db63c5db210b783d6"
 	QwenPromptSHA256    = "6fc829a3bc36d3f5c2cd2705ee28ba3d4f61dc5380313adf2012bfab22a8f9a0"
