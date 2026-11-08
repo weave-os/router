@@ -248,27 +248,6 @@ print_uninstall_hint() {
     "$C_BOLD" "$C_RESET" "$C_CYAN" "$(uninstall_cmd)" "$C_RESET"
 }
 
-# offer_launch asks to start the client named in $1 (command in the remaining
-# args) so a working interactive install ends in the product. The client runs
-# as a child, not via exec, so the EXIT trap still removes the temp files. It
-# inherits the terminal stdin: Bun-based clients crash with EINVAL on macOS
-# when stdin is /dev/tty, which kqueue can't watch.
-offer_launch() {
-  local label="$1"; shift
-  [ "${WEAVE_SETUP_DEFER_LAUNCH:-}" != "1" ] && [ "$non_interactive" = "false" ] && [ "$quiet" != "true" ] \
-    && [ -t 0 ] && [ -t 1 ] && command -v "${!#}" >/dev/null 2>&1 || return 0
-  local answer=""
-  printf "\n%sStart %s now?%s [Y/n] " "$C_BOLD" "$label" "$C_RESET" >/dev/tty
-  read -r answer </dev/tty || answer="n"
-  case "$answer" in
-    ""|y|Y|yes|Yes) ;;
-    *) return 0 ;;
-  esac
-  local launch_status=0
-  "$@" || launch_status=$?
-  exit "$launch_status"
-}
-
 # ---------- banner ----------
 #
 # Print the WEAVE wordmark in brand orange. Skipped under --quiet or when
@@ -1891,7 +1870,7 @@ if [ "$mode" = "setup" ]; then
     chmod 600 "$setup_handoff"
   fi
   if [ "$setup_claude" = "true" ]; then
-    WEAVE_SETUP_HANDOFF_FILE="$setup_handoff" WEAVE_SETUP_DEFER_LAUNCH="${setup_handoff:+1}" bash "$0" "${setup_args[@]}" --claude \
+    WEAVE_SETUP_HANDOFF_FILE="$setup_handoff" bash "$0" "${setup_args[@]}" --claude \
       || { setup_status=$?; [ -z "$setup_handoff" ] || rm -f "$setup_handoff"; exit "$setup_status"; }
   fi
   if [ -n "$setup_handoff" ]; then
@@ -1903,10 +1882,9 @@ if [ "$mode" = "setup" ]; then
   fi
   if [ "$setup_codex" = "true" ]; then
     WEAVE_SETUP_SHARED_KEY="$shared_key" WEAVE_SETUP_SHARED_EMAIL="$shared_email" \
-      WEAVE_SETUP_IDENTITY_RESOLVED="$identity_resolved" WEAVE_SETUP_DEFER_LAUNCH="${setup_handoff:+1}" \
+      WEAVE_SETUP_IDENTITY_RESOLVED="$identity_resolved" \
       bash "$0" "${setup_args[@]}" --codex
   fi
-  [ -z "$shared_key" ] || [ -n "$install_dir" ] || offer_launch "Claude Code" claude
   exit 0
 fi
 
@@ -5358,7 +5336,6 @@ print_next_steps() {
 # finish_install closes a Claude Code or Codex run. Only a working first install
 # gets onboarding; a failed check or an update must not invite the user in.
 finish_install() {
-  local label="$1"; shift
   if [ "$mode" = "install" ] && [ "$quiet" != "true" ] && [ -z "$install_dir" ] && [ "$key_verdict" = "valid" ]; then
     local pkg="npx $npm_package_name" flags="--$target" feedback="type /rf <what happened> in Claude Code"
     [ "$scope" = "project" ] && flags="$flags --scope project"
@@ -5370,7 +5347,6 @@ finish_install() {
     printf "  %-14s %s\n" "Turn back on" "$pkg on $flags"
     printf "  %-14s %s\n" "Give feedback" "$feedback"
     printf "  %-14s %s\n" "Uninstall" "$(uninstall_cmd)"
-    offer_launch "$label" "$@"
   elif [ "$mode" != "update" ]; then
     print_uninstall_hint
   fi
@@ -6552,11 +6528,7 @@ if [ "$target" = "codex" ]; then
     # point CODEX_HOME at the directory we wrote so Codex finds our config.
     info "Run Codex with CODEX_HOME=$codex_dir codex so it picks up this config."
   fi
-  if [ "$scope" = "project" ]; then
-    finish_install "Codex" env CODEX_HOME="$codex_dir" codex
-  else
-    finish_install "Codex" codex
-  fi
+  finish_install
   exit 0
 fi
 
@@ -8414,4 +8386,4 @@ verify_install
 # ---------- done ----------
 
 announce_done "Claude Code"
-finish_install "Claude Code" claude
+finish_install
