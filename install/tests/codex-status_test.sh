@@ -639,6 +639,15 @@ done
 run_stale_turn
 [ "$(cat "$title_file")" = "Codex" ] || { echo "stale display settings never refreshed: $(cat "$title_file")" >&2; exit 1; }
 
+pending_dir="$work/cache-pending/weave-router/codex"
+mkdir -p "$pending_dir"
+touch "$pending_dir/$(basename "$stale_display").refreshed"
+printf '%s\n' '{"session_id":"session-5","model":"gpt-5.6-terra","last_assistant_message":"done"}' \
+  | HOME="$hidden_home" XDG_CACHE_HOME="$work/cache-pending" WEAVE_CODEX_STATUS_SAVINGS=0 WEAVE_CODEX_STATUS_CONTEXT=0 \
+    WEAVE_CODEX_DISPLAY_SETTINGS_URL="file://$work/display-missing.json" \
+    WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+[ "$(cat "$title_file")" = "Codex" ] || { echo "pending cold fetch rendered surfaces: $(cat "$title_file")" >&2; exit 1; }
+
 # install.sh embeds this helper as a heredoc so the standalone `curl | sh`
 # install has no sibling asset to copy. Nothing keeps the two copies in sync,
 # so an edit to one silently ships the other stale — which is exactly how the

@@ -459,3 +459,7 @@ func TestResolveAndStashUserBlindExperimentKeepsFetchAcrossUnrelatedInvalidation
 	require.True(t, found)
 	assert.Equal(t, state, cacheState)
 }
+
+func (repository *fakeBlindExperimentRepository) InstallationExperimentEnabled(context.Context, string) (bool, error) {
+	return false, nil
+}

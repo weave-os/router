@@ -149,10 +149,9 @@ prime_display_settings() {
   stamp="$hidden_file.refreshed"
   [ -f "$stamp" ] || [ ! -f "$hidden_file" ] || stamp="$hidden_file"
   display_file_younger_than "$stamp" "${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-300}" && return 0
-  mkdir -p "$state_root" 2>/dev/null
-  touch "$hidden_file.refreshed" 2>/dev/null
   if [ -f "$hidden_file" ] && { [ "$(cat "$hidden_file" 2>/dev/null)" != "1" ] \
     || display_file_younger_than "$hidden_file" "${WEAVE_DISPLAY_SETTINGS_HIDDEN_GRACE_SECONDS:-604800}"; }; then
+    touch "$hidden_file.refreshed" 2>/dev/null
     ( exec </dev/null >/dev/null 2>&1; prime_display_settings_now ) &
     return 0
   fi
@@ -164,6 +163,7 @@ prime_display_settings_now() {
   endpoint="$(read_codex_endpoint)" || return 0
   [ -n "$endpoint" ] || return 0
   mkdir -p "$state_root" 2>/dev/null || return 0
+  touch "$(display_hidden_file).refreshed" 2>/dev/null
   header_file="$(mktemp "$state_root/.headers.XXXXXX")" || return 0
   chmod 600 "$header_file"
   write_display_headers "$header_file" "$(printf '%s' "$endpoint" | sed -n 2p)" "$(printf '%s' "$endpoint" | sed -n 3p)"
@@ -175,6 +175,10 @@ codex_surfaces_hidden() {
   local hidden_file
   prime_display_settings
   hidden_file="$(display_hidden_file)"
+  if [ ! -f "$hidden_file" ]; then
+    display_file_younger_than "$hidden_file.refreshed" "${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-300}"
+    return
+  fi
   [ "$(cat "$hidden_file" 2>/dev/null)" = "1" ] || return 1
   display_file_younger_than "$hidden_file" "${WEAVE_DISPLAY_SETTINGS_HIDDEN_GRACE_SECONDS:-604800}"
 }
