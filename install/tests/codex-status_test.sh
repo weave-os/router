@@ -619,9 +619,11 @@ printf '%s\n' '{"hook_event_name":"SessionStart","session_id":"session-3"}' \
   | HOME="$hidden_home" XDG_CACHE_HOME="$work/cache-hidden" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
 [ "$(cat "$title_file")" = "Codex" ] || { echo "hidden session start still branded: $(cat "$title_file")" >&2; exit 1; }
 
-stale_display="$(ls "$work"/cache-hidden/weave-router/codex/display-hidden-* | grep -v '\.refreshed$')"
+for f in "$work"/cache-hidden/weave-router/codex/display-hidden-*; do
+  case "$f" in *.refreshed) ;; *) stale_display="$f" ;; esac
+done
 printf '0' >"$stale_display"
-touch -d '2 hours ago' "$stale_display"
+touch -d '2 hours ago' "$stale_display" 2>/dev/null || touch -t "$(date -d '2 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-2H +%Y%m%d%H%M)" "$stale_display"
 rm -f "$stale_display.refreshed"
 run_stale_turn() {
   printf '%s\n' '{"session_id":"session-4","model":"gpt-5.6-terra","last_assistant_message":"done"}' \

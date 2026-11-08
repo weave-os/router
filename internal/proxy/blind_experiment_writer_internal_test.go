@@ -144,3 +144,14 @@ func TestBlindExperimentWriterRewritesGeminiModelVersion(t *testing.T) {
 
 	assert.Equal(t, "gemini-3-pro", gjson.Get(rec.Body.String(), "modelVersion").String())
 }
+
+func TestBlindExperimentWriterFlushBeforeWriteStripsHeaders(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("X-Router-Model", "gpt-5.4-mini")
+	w.(http.Flusher).Flush()
+	finish()
+
+	assert.Empty(t, rec.Header().Get("X-Router-Model"))
+}

@@ -3,8 +3,8 @@ package proxy
 import (
 	"bytes"
 	"context"
-	"html"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"weave-os/router/internal/auth"
@@ -15,6 +15,8 @@ import (
 )
 
 const routerResponseHeaderPrefix = "X-Router-"
+
+var clientModelIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:/@\[\]-]{1,200}$`)
 
 var blindExperimentModelPaths = []string{"model", "message.model", "response.model", "modelVersion"}
 
@@ -27,7 +29,6 @@ type blindExperimentWriter struct {
 	model       string
 	wroteHeader bool
 	stream      bool
-	passthrough bool
 	pending     []byte
 }
 
@@ -41,7 +42,10 @@ func withBlindExperimentWriter(ctx context.Context, w http.ResponseWriter, body 
 	case *blindExperimentWriter, *translate.ResponsesWriter:
 		return w, func() {}
 	}
-	bw := &blindExperimentWriter{ResponseWriter: w, model: html.EscapeString(gjson.GetBytes(body, "model").String())}
+	bw := &blindExperimentWriter{ResponseWriter: w}
+	if requested := gjson.GetBytes(body, "model").String(); clientModelIDPattern.MatchString(requested) {
+		bw.model = requested
+	}
 	return bw, bw.finish
 }
 
@@ -65,7 +69,7 @@ func (b *blindExperimentWriter) Write(p []byte) (int, error) {
 	if !b.wroteHeader {
 		b.WriteHeader(http.StatusOK)
 	}
-	if b.model == "" || b.passthrough {
+	if b.model == "" {
 		return b.ResponseWriter.Write(p)
 	}
 	b.pending = append(b.pending, p...)
@@ -85,7 +89,10 @@ func (b *blindExperimentWriter) Write(p []byte) (int, error) {
 }
 
 func (b *blindExperimentWriter) Flush() {
-	if !b.stream && b.model != "" && !b.passthrough {
+	if !b.wroteHeader {
+		b.WriteHeader(http.StatusOK)
+	}
+	if !b.stream && b.model != "" {
 		return
 	}
 	if f, ok := b.ResponseWriter.(http.Flusher); ok {
@@ -147,12 +154,12 @@ func rewriteSSEModel(events []byte, model string) []byte {
 			continue
 		}
 		trimmed := bytes.TrimLeft(payload, " ")
-		cr := bytes.HasSuffix(trimmed, []byte("\r"))
+		hadCR := bytes.HasSuffix(trimmed, []byte("\r"))
 		trimmed = bytes.TrimSuffix(trimmed, []byte("\r"))
 		rewritten := rewriteJSONModel(trimmed, model)
 		if !bytes.Equal(rewritten, trimmed) {
 			lines[i] = append([]byte("data: "), rewritten...)
-			if cr {
+			if hadCR {
 				lines[i] = append(lines[i], '\r')
 			}
 		}

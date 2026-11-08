@@ -102,7 +102,7 @@ disabled_marker="$helper_dir/.weave-router-disabled"
 router_badge_sentinel=$'⁣⁠⁣⁠'
 
 display_hidden_file() {
-  printf '%s/display-hidden-%s' "$state_root" "$(printf '%s' "$helper_dir" | tr -c 'A-Za-z0-9._-' '_')"
+  printf '%s/display-hidden-%s' "$state_root" "$(printf '%s' "$helper_dir" | cksum | tr -c '0-9' '-')"
 }
 
 write_display_headers() {
