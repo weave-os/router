@@ -18,6 +18,13 @@ type RouterAgreementShadowState struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type RouterBlindExperimentSessionAssignment struct {
+	InstallationID uuid.UUID
+	SessionKey     string
+	Arm            string
+	CreatedAt      pgtype.Timestamptz
+}
+
 type RouterBlindRouterExperimentAssignment struct {
 	RouterUserID        uuid.UUID
 	InstallationID      uuid.UUID

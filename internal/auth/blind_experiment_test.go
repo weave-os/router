@@ -469,7 +469,7 @@ func sessionModeService(t *testing.T, record auth.BlindExperimentRecord) *auth.S
 func sessionArm(t *testing.T, service *auth.Service, sessionKey string) auth.BlindExperimentState {
 	t.Helper()
 	ctx := service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
-	state, active := auth.BlindExperimentFrom(auth.WithBlindExperimentSession(ctx, sessionKey))
+	state, active := auth.BlindExperimentFrom(service.WithBlindExperimentSession(ctx, "inst-1", sessionKey))
 	require.True(t, active)
 	return state
 }
@@ -530,7 +530,7 @@ func TestBlindExperimentSessionModeDisabledIsInactive(t *testing.T) {
 		CanonicalSubjectKey: "account-7", SessionMode: true,
 	})
 	ctx := service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
-	_, active := auth.BlindExperimentFrom(auth.WithBlindExperimentSession(ctx, auth.BlindExperimentSessionSubjectKey("key-1", "session-1")))
+	_, active := auth.BlindExperimentFrom(service.WithBlindExperimentSession(ctx, "inst-1", auth.BlindExperimentSessionSubjectKey("key-1", "session-1")))
 	assert.False(t, active)
 }
 
@@ -559,4 +559,68 @@ func TestBlindExperimentCohortModeIgnoresSession(t *testing.T) {
 	assert.Equal(t, auth.BlindExperimentArmRouterOn, state.Arm)
 	assert.Equal(t, auth.BlindExperimentModeCohort, state.Mode)
 	assert.Empty(t, state.SessionSubjectKey)
+}
+
+type fakeBlindExperimentSessionRepo struct {
+	record auth.BlindExperimentRecord
+	arms   map[string]auth.BlindExperimentArm
+}
+
+func (repo *fakeBlindExperimentSessionRepo) GetForInstallation(context.Context, string) (auth.BlindExperimentRecord, error) {
+	return repo.record, nil
+}
+
+func (repo *fakeBlindExperimentSessionRepo) ClaimSessionArm(_ context.Context, _ string, sessionSubjectKey string, arm auth.BlindExperimentArm) (auth.BlindExperimentArm, error) {
+	if existing, found := repo.arms[sessionSubjectKey]; found {
+		return existing, nil
+	}
+	repo.arms[sessionSubjectKey] = arm
+	return arm, nil
+}
+
+func TestBlindExperimentSessionModeKeepsFirstArmAfterConfigChange(t *testing.T) {
+	record := auth.BlindExperimentRecord{
+		Configured: true, Enabled: true, RouterOnPercentage: 100, Seed: "seed",
+		CanonicalSubjectKey: "account-7", SessionMode: true,
+	}
+	sessions := &fakeBlindExperimentSessionRepo{arms: map[string]auth.BlindExperimentArm{}}
+	runningSession := auth.BlindExperimentSessionSubjectKey("key-1", "session-1")
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, sessionArm(t, sessionModeService(t, record).WithBlindExperimentSessions(sessions), runningSession).Arm)
+
+	record.RouterOnPercentage = 0
+	changed := sessionModeService(t, record).WithBlindExperimentSessions(sessions)
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, sessionArm(t, changed, runningSession).Arm)
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, sessionArm(t, changed, auth.BlindExperimentSessionSubjectKey("key-1", "session-2")).Arm)
+}
+
+func TestBlindExperimentSessionModeAssignsUnattributedSessions(t *testing.T) {
+	sessions := &fakeBlindExperimentSessionRepo{
+		record: auth.BlindExperimentRecord{Configured: true, Enabled: true, RouterOnPercentage: 100, Seed: "seed", SessionMode: true},
+		arms:   map[string]auth.BlindExperimentArm{},
+	}
+	service := makeServiceWithUsers(t, &fakeUserRepo{}).
+		WithBlindExperiments(&fakeBlindExperimentRepository{}, nil).
+		WithBlindExperimentSessions(sessions)
+	sessionKey := auth.BlindExperimentSessionSubjectKey("key-1", "session-1")
+
+	state, active := auth.BlindExperimentFrom(service.WithBlindExperimentSession(context.Background(), "inst-1", sessionKey))
+	require.True(t, active)
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, state.Arm)
+	assert.Equal(t, auth.BlindExperimentModeSession, state.Mode)
+	assert.Equal(t, sessionKey, state.SessionSubjectKey)
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, sessions.arms[sessionKey])
+
+	_, active = auth.BlindExperimentFrom(service.WithBlindExperimentSession(context.Background(), "inst-1", ""))
+	assert.False(t, active)
+}
+
+func TestBlindExperimentUserModeLeavesUnattributedSessionsUnassigned(t *testing.T) {
+	sessions := &fakeBlindExperimentSessionRepo{
+		record: auth.BlindExperimentRecord{Configured: true, Enabled: true, RouterOnPercentage: 100, Seed: "seed"},
+		arms:   map[string]auth.BlindExperimentArm{},
+	}
+	service := makeServiceWithUsers(t, &fakeUserRepo{}).WithBlindExperimentSessions(sessions)
+	_, active := auth.BlindExperimentFrom(service.WithBlindExperimentSession(context.Background(), "inst-1", auth.BlindExperimentSessionSubjectKey("key-1", "session-1")))
+	assert.False(t, active)
+	assert.Empty(t, sessions.arms)
 }

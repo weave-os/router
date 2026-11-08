@@ -87,17 +87,22 @@ func splitEvalClientApp(xApp string) (string, bool) {
 // personal key attributes the request to its authenticated owner; a shared
 // key leaves the request unattributed.
 func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installation *auth.Installation, apiKey *auth.APIKey) context.Context {
-	return withBlindExperimentSession(resolveUserFromContext(ctx, authSvc, installation, apiKey), apiKey)
+	return withBlindExperimentSession(resolveUserFromContext(ctx, authSvc, installation, apiKey), authSvc, installation, apiKey)
 }
 
-// withBlindExperimentSession keys a session-unit experiment draw on the
-// client session id rather than the thread key, so subagents and side calls
-// that share the parent's session id land in the parent's arm.
-func withBlindExperimentSession(ctx context.Context, apiKey *auth.APIKey) context.Context {
-	if apiKey == nil {
+func withBlindExperimentSession(ctx context.Context, authSvc *auth.Service, installation *auth.Installation, apiKey *auth.APIKey) context.Context {
+	if authSvc == nil || installation == nil {
 		return ctx
 	}
-	return auth.WithBlindExperimentSession(ctx, auth.BlindExperimentSessionSubjectKey(apiKey.ID, ClientIdentityFrom(ctx).SessionID))
+	if _, internalTest := requestcontext.InternalTestIdentityFrom(ctx); internalTest {
+		return ctx
+	}
+	apiKeyID := ""
+	if apiKey != nil {
+		apiKeyID = apiKey.ID
+	}
+	sessionKey := auth.BlindExperimentSessionSubjectKey(sessionCredentialIdentity(ctx, apiKeyID), ClientIdentityFrom(ctx).SessionID)
+	return authSvc.WithBlindExperimentSession(ctx, installation.ID, sessionKey)
 }
 
 func resolveUserFromContext(ctx context.Context, authSvc *auth.Service, installation *auth.Installation, apiKey *auth.APIKey) context.Context {

@@ -53,3 +53,28 @@ LEFT JOIN router.blind_router_experiment_group_memberships membership
 WHERE router_user.id = @router_user_id::uuid
   AND router_user.installation_id = @installation_id::uuid
   AND router_user.deleted_at IS NULL;
+
+-- name: GetBlindRouterExperimentForInstallation :one
+SELECT
+    enabled,
+    router_on_percentage,
+    seed::text AS seed,
+    session_mode,
+    COALESCE(cohort_experiment_id::text, '')::text AS cohort_experiment_id
+FROM router.blind_router_experiment_configurations
+WHERE installation_id = @installation_id::uuid;
+
+-- name: ClaimBlindExperimentSessionArm :one
+WITH inserted AS (
+    INSERT INTO router.blind_experiment_session_assignments (installation_id, session_key, arm)
+    VALUES (@installation_id::uuid, @session_key::text, @arm::text)
+    ON CONFLICT (installation_id, session_key) DO NOTHING
+    RETURNING arm
+)
+SELECT inserted.arm::text AS arm FROM inserted
+UNION ALL
+SELECT existing.arm::text AS arm
+FROM router.blind_experiment_session_assignments existing
+WHERE existing.installation_id = @installation_id::uuid
+  AND existing.session_key = @session_key::text
+LIMIT 1;

@@ -12,6 +12,92 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const claimBlindExperimentSessionArm = `-- name: ClaimBlindExperimentSessionArm :one
+WITH inserted AS (
+    INSERT INTO router.blind_experiment_session_assignments (installation_id, session_key, arm)
+    VALUES ($1::uuid, $2::text, $3::text)
+    ON CONFLICT (installation_id, session_key) DO NOTHING
+    RETURNING arm
+)
+SELECT inserted.arm::text AS arm FROM inserted
+UNION ALL
+SELECT existing.arm::text AS arm
+FROM router.blind_experiment_session_assignments existing
+WHERE existing.installation_id = $1::uuid
+  AND existing.session_key = $2::text
+LIMIT 1
+`
+
+type ClaimBlindExperimentSessionArmParams struct {
+	InstallationID uuid.UUID
+	SessionKey     string
+	Arm            string
+}
+
+// ClaimBlindExperimentSessionArm
+//
+//	WITH inserted AS (
+//	    INSERT INTO router.blind_experiment_session_assignments (installation_id, session_key, arm)
+//	    VALUES ($1::uuid, $2::text, $3::text)
+//	    ON CONFLICT (installation_id, session_key) DO NOTHING
+//	    RETURNING arm
+//	)
+//	SELECT inserted.arm::text AS arm FROM inserted
+//	UNION ALL
+//	SELECT existing.arm::text AS arm
+//	FROM router.blind_experiment_session_assignments existing
+//	WHERE existing.installation_id = $1::uuid
+//	  AND existing.session_key = $2::text
+//	LIMIT 1
+func (q *Queries) ClaimBlindExperimentSessionArm(ctx context.Context, arg ClaimBlindExperimentSessionArmParams) (string, error) {
+	row := q.db.QueryRow(ctx, claimBlindExperimentSessionArm, arg.InstallationID, arg.SessionKey, arg.Arm)
+	var arm string
+	err := row.Scan(&arm)
+	return arm, err
+}
+
+const getBlindRouterExperimentForInstallation = `-- name: GetBlindRouterExperimentForInstallation :one
+SELECT
+    enabled,
+    router_on_percentage,
+    seed::text AS seed,
+    session_mode,
+    COALESCE(cohort_experiment_id::text, '')::text AS cohort_experiment_id
+FROM router.blind_router_experiment_configurations
+WHERE installation_id = $1::uuid
+`
+
+type GetBlindRouterExperimentForInstallationRow struct {
+	Enabled            bool
+	RouterOnPercentage int16
+	Seed               string
+	SessionMode        bool
+	CohortExperimentID string
+}
+
+// GetBlindRouterExperimentForInstallation
+//
+//	SELECT
+//	    enabled,
+//	    router_on_percentage,
+//	    seed::text AS seed,
+//	    session_mode,
+//	    COALESCE(cohort_experiment_id::text, '')::text AS cohort_experiment_id
+//	FROM router.blind_router_experiment_configurations
+//	WHERE installation_id = $1::uuid
+func (q *Queries) GetBlindRouterExperimentForInstallation(ctx context.Context, installationID uuid.UUID) (GetBlindRouterExperimentForInstallationRow, error) {
+	row := q.db.QueryRow(ctx, getBlindRouterExperimentForInstallation, installationID)
+	var i GetBlindRouterExperimentForInstallationRow
+	err := row.Scan(
+		&i.Enabled,
+		&i.RouterOnPercentage,
+		&i.Seed,
+		&i.SessionMode,
+		&i.CohortExperimentID,
+	)
+	return i, err
+}
+
 const getBlindRouterExperimentForUser = `-- name: GetBlindRouterExperimentForUser :one
 SELECT
     (configuration.installation_id IS NOT NULL)::boolean AS configured,

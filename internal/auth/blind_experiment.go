@@ -238,20 +238,6 @@ func (state BlindExperimentState) ForSession(sessionSubjectKey string) BlindExpe
 	return state
 }
 
-// WithBlindExperimentSession applies the session-level draw to the
-// experiment state already on ctx.
-func WithBlindExperimentSession(ctx context.Context, sessionSubjectKey string) context.Context {
-	state, ok := ctx.Value(BlindExperimentContextKey{}).(BlindExperimentState)
-	if !ok {
-		return ctx
-	}
-	sessionState := state.ForSession(sessionSubjectKey)
-	if sessionState.SessionSubjectKey == state.SessionSubjectKey {
-		return ctx
-	}
-	return context.WithValue(ctx, BlindExperimentContextKey{}, sessionState)
-}
-
 // AtTime resolves a cached cohort schedule for this request, including the
 // exact boundary where one phase ends and the next begins.
 func (state BlindExperimentState) AtTime(now time.Time) BlindExperimentState {

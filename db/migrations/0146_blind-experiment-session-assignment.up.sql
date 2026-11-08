@@ -7,4 +7,16 @@ ALTER TABLE router.model_router_request_telemetry
     ADD COLUMN blind_experiment_mode VARCHAR(16),
     ADD COLUMN blind_experiment_session_key VARCHAR(128);
 
+CREATE TABLE router.blind_experiment_session_assignments (
+    installation_id UUID NOT NULL
+        REFERENCES router.blind_router_experiment_configurations (installation_id) ON DELETE CASCADE,
+    session_key     VARCHAR(128) NOT NULL,
+    arm             VARCHAR(32) NOT NULL CHECK (arm IN ('router_on', 'passthrough')),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (installation_id, session_key)
+);
+
+CREATE INDEX blind_experiment_session_assignments_created_at_idx
+    ON router.blind_experiment_session_assignments (created_at);
+
 COMMIT;

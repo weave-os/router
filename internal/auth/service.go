@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"golang.org/x/sync/singleflight"
 )
@@ -72,28 +73,30 @@ func (NoOpInstallationChangeNotifier) NotifyInstallationChanged(string) {}
 
 // Service authenticates incoming bearer tokens. Identity only; routing/dispatch lives in proxy.Service.
 type Service struct {
-	installations             InstallationRepository
-	apiKeys                   APIKeyRepository
-	credentialSubjects        CredentialSubjectLookup
-	externalKeys              ExternalAPIKeyRepository
-	users                     UserRepository
-	clusterModelLists         ClusterModelListRepository
-	userClusterModelLists     UserClusterModelListRepository
-	blindExperiments          BlindExperimentRepository
-	routingPolicies           RoutingPolicyRepository
-	routingPolicyCache        *RoutingPolicyCache
-	cache                     APIKeyCache
-	userCache                 UserCache
-	userClusterCache          UserClusterListCache
-	blindExperimentCache      BlindExperimentCache
-	blindExperimentFetches    singleflight.Group
-	subscriptionAccounts      SubscriptionAccountRepository
-	codexEnrollmentVerifier   CodexEnrollmentVerifier
-	notifier                  InstallationChangeNotifier
-	now                       Clock
-	encryptor                 Encryptor
-	keypairTokens             *KeypairTokenCache
-	anthropicFederationTokens AnthropicFederationTokenSource
+	installations              InstallationRepository
+	apiKeys                    APIKeyRepository
+	credentialSubjects         CredentialSubjectLookup
+	externalKeys               ExternalAPIKeyRepository
+	users                      UserRepository
+	clusterModelLists          ClusterModelListRepository
+	userClusterModelLists      UserClusterModelListRepository
+	blindExperiments           BlindExperimentRepository
+	routingPolicies            RoutingPolicyRepository
+	routingPolicyCache         *RoutingPolicyCache
+	cache                      APIKeyCache
+	userCache                  UserCache
+	userClusterCache           UserClusterListCache
+	blindExperimentCache       BlindExperimentCache
+	blindExperimentSessions    BlindExperimentSessionRepository
+	blindExperimentSessionArms *lru.Cache[string, BlindExperimentArm]
+	blindExperimentFetches     singleflight.Group
+	subscriptionAccounts       SubscriptionAccountRepository
+	codexEnrollmentVerifier    CodexEnrollmentVerifier
+	notifier                   InstallationChangeNotifier
+	now                        Clock
+	encryptor                  Encryptor
+	keypairTokens              *KeypairTokenCache
+	anthropicFederationTokens  AnthropicFederationTokenSource
 	// wifTokens is nil unless the deployment runs with a workload identity;
 	// WIF keys are then dropped rather than sent without a credential.
 	wifTokens WIFTokenSource
