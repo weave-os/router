@@ -42,6 +42,7 @@ type RouterBlindRouterExperimentConfiguration struct {
 	CohortEndsAt       pgtype.Timestamptz
 	CohortTimezone     *string
 	CohortRevision     *int32
+	SessionMode        bool
 }
 
 type RouterBlindRouterExperimentEmergencyOverride struct {
@@ -733,8 +734,10 @@ type RouterModelRouterRequestTelemetry struct {
 	FailoverAttempted       *bool
 	ContextSnapshot         []byte
 	// Who owns the turn failure: provider, router, client or unknown; NULL on a normal completion
-	FailureOwner      *string
-	CodexLimitHeaders []byte
+	FailureOwner              *string
+	CodexLimitHeaders         []byte
+	BlindExperimentMode       *string
+	BlindExperimentSessionKey *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {

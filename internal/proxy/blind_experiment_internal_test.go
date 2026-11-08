@@ -400,6 +400,7 @@ func TestApplyBlindExperimentTelemetry(t *testing.T) {
 	assert.Equal(t, auth.BlindExperimentArmPassthrough, telemetry.BlindExperimentArm)
 	assert.Equal(t, auth.BlindExperimentAssignmentAutomatic, telemetry.BlindExperimentAssignmentSource)
 	assert.Equal(t, "account-1", telemetry.BlindExperimentSubjectKey)
+	assert.Empty(t, telemetry.BlindExperimentSessionKey)
 	assert.False(t, telemetry.TrainingAllowed)
 
 	observation := buildObservationContext(
@@ -467,4 +468,15 @@ func TestCohortTelemetryExplainsBypassedTreatment(t *testing.T) {
 			assert.Equal(t, testCase.reason, params.CohortBypassReason)
 		})
 	}
+}
+
+func TestApplyBlindExperimentTelemetryRecordsSessionDraw(t *testing.T) {
+	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{
+		Active: true, Arm: auth.BlindExperimentArmRouterOn, AssignmentSource: auth.BlindExperimentAssignmentAutomatic,
+		CanonicalSubjectKey: "account-1", Mode: auth.BlindExperimentModeSession, SessionSubjectKey: "session:abc",
+	})
+	telemetry := InsertTelemetryParams{}
+	applyBlindExperimentTelemetry(ctx, &telemetry, nil)
+	assert.Equal(t, auth.BlindExperimentModeSession, telemetry.BlindExperimentMode)
+	assert.Equal(t, "session:abc", telemetry.BlindExperimentSessionKey)
 }

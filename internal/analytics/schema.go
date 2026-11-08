@@ -45,6 +45,8 @@ func Schema() []Field {
 		{"blind_experiment_arm", "string", true, "Effective blind experiment arm: router_on or passthrough. Null outside an active experiment."},
 		{"blind_experiment_assignment_source", "string", true, "Whether the effective experiment arm came from automatic allocation or a manual override. Null outside an active experiment."},
 		{"blind_experiment_subject_key", "string", true, "Canonical subject key used for the experiment assignment. Null outside an active experiment."},
+		{"blind_experiment_mode", "string", true, "Experiment mode the arm came from: user, cohort, or session. Null outside an active experiment."},
+		{"blind_experiment_session_key", "string", true, "Opaque credential-scoped client session key the arm was drawn from. Null outside session mode or when the client sent no session id."},
 		{"cohort_experiment_id", "string", true, "Frozen cohort experiment identifier; null on legacy installations."},
 		{"cohort_group_id", "integer", true, "Fixed group number for the linked roster member."},
 		{"cohort_phase_index", "integer", true, "Scheduled phase at request time."},

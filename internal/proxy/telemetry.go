@@ -89,6 +89,8 @@ type InsertTelemetryParams struct {
 	BlindExperimentArm              auth.BlindExperimentArm
 	BlindExperimentAssignmentSource auth.BlindExperimentAssignmentSource
 	BlindExperimentSubjectKey       string
+	BlindExperimentMode             auth.BlindExperimentMode
+	BlindExperimentSessionKey       string
 	CohortExperimentID              string
 	CohortGroupID                   *int16
 	CohortPhaseIndex                *int16
@@ -393,6 +395,8 @@ func applyBlindExperimentTelemetry(ctx context.Context, params *InsertTelemetryP
 	params.BlindExperimentArm = state.Arm
 	params.BlindExperimentAssignmentSource = state.AssignmentSource
 	params.BlindExperimentSubjectKey = state.CanonicalSubjectKey
+	params.BlindExperimentMode = state.Mode
+	params.BlindExperimentSessionKey = state.SessionSubjectKey
 	if state.CohortExperimentID != "" {
 		phaseIndex := int16(state.CohortPhaseIndex)
 		params.CohortPhaseIndex = &phaseIndex

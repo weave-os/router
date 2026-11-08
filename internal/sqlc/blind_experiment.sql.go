@@ -18,6 +18,7 @@ SELECT
     COALESCE(configuration.enabled, FALSE)::boolean AS enabled,
     COALESCE(configuration.router_on_percentage, 100)::smallint AS router_on_percentage,
     COALESCE(configuration.seed::text, '')::text AS seed,
+    COALESCE(configuration.session_mode, FALSE)::boolean AS session_mode,
     assignment.canonical_subject_key,
     assignment.automatic_arm,
     assignment.manual_override,
@@ -75,6 +76,7 @@ type GetBlindRouterExperimentForUserRow struct {
 	Enabled             bool
 	RouterOnPercentage  int16
 	Seed                string
+	SessionMode         bool
 	CanonicalSubjectKey *string
 	AutomaticArm        *string
 	ManualOverride      *string
@@ -96,6 +98,7 @@ type GetBlindRouterExperimentForUserRow struct {
 //	    COALESCE(configuration.enabled, FALSE)::boolean AS enabled,
 //	    COALESCE(configuration.router_on_percentage, 100)::smallint AS router_on_percentage,
 //	    COALESCE(configuration.seed::text, '')::text AS seed,
+//	    COALESCE(configuration.session_mode, FALSE)::boolean AS session_mode,
 //	    assignment.canonical_subject_key,
 //	    assignment.automatic_arm,
 //	    assignment.manual_override,
@@ -149,6 +152,7 @@ func (q *Queries) GetBlindRouterExperimentForUser(ctx context.Context, arg GetBl
 		&i.Enabled,
 		&i.RouterOnPercentage,
 		&i.Seed,
+		&i.SessionMode,
 		&i.CanonicalSubjectKey,
 		&i.AutomaticArm,
 		&i.ManualOverride,

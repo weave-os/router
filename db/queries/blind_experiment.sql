@@ -7,6 +7,7 @@ SELECT
     COALESCE(configuration.enabled, FALSE)::boolean AS enabled,
     COALESCE(configuration.router_on_percentage, 100)::smallint AS router_on_percentage,
     COALESCE(configuration.seed::text, '')::text AS seed,
+    COALESCE(configuration.session_mode, FALSE)::boolean AS session_mode,
     assignment.canonical_subject_key,
     assignment.automatic_arm,
     assignment.manual_override,

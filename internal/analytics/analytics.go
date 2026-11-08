@@ -49,6 +49,8 @@ type Decision struct {
 	BlindExperimentArm              *auth.BlindExperimentArm              `json:"blind_experiment_arm"`
 	BlindExperimentAssignmentSource *auth.BlindExperimentAssignmentSource `json:"blind_experiment_assignment_source"`
 	BlindExperimentSubjectKey       *string                               `json:"blind_experiment_subject_key"`
+	BlindExperimentMode             *auth.BlindExperimentMode             `json:"blind_experiment_mode"`
+	BlindExperimentSessionKey       *string                               `json:"blind_experiment_session_key"`
 	CohortExperimentID              *string                               `json:"cohort_experiment_id"`
 	CohortGroupID                   *int64                                `json:"cohort_group_id"`
 	CohortPhaseIndex                *int64                                `json:"cohort_phase_index"`
