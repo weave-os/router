@@ -162,6 +162,9 @@ type fakeBlindExperimentRepository struct {
 	release   chan struct{}
 	startOnce sync.Once
 	onRead    func()
+
+	installationEnabled bool
+	installationErr     error
 }
 
 func (repository *fakeBlindExperimentRepository) GetForUser(context.Context, string, string) (auth.BlindExperimentRecord, error) {
@@ -461,5 +464,25 @@ func TestResolveAndStashUserBlindExperimentKeepsFetchAcrossUnrelatedInvalidation
 }
 
 func (repository *fakeBlindExperimentRepository) InstallationExperimentEnabled(context.Context, string) (bool, error) {
-	return false, nil
+	return repository.installationEnabled, repository.installationErr
+}
+
+func TestInstallationBlindExperimentEnabled(t *testing.T) {
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name        string
+		experiments *fakeBlindExperimentRepository
+		want        bool
+	}{
+		{name: "no experiment repository"},
+		{name: "no enabled experiment", experiments: &fakeBlindExperimentRepository{}},
+		{name: "enabled experiment", experiments: &fakeBlindExperimentRepository{installationEnabled: true}, want: true},
+		{name: "lookup error fails closed", experiments: &fakeBlindExperimentRepository{installationErr: errors.New("db down")}, want: true},
+	} {
+		service := makeServiceWithUsers(t, nil)
+		if tc.experiments != nil {
+			service = service.WithBlindExperiments(tc.experiments, nil)
+		}
+		assert.Equal(t, tc.want, service.InstallationBlindExperimentEnabled(ctx, "inst-1"), tc.name)
+	}
 }
