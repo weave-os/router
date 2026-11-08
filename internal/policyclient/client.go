@@ -739,38 +739,9 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 }
 
 func (c *Client) decideV5(ctx context.Context, query policy.Query) (policy.Result, error) {
-	requestBody, err := marshalClassifierRequestV5(query)
+	wire, err := c.classifyV5(ctx, "/v5/classify", query)
 	if err != nil {
 		return policy.Result{}, err
-	}
-	classifierClient, err := c.v5ClassifierClient()
-	if err != nil {
-		return policy.Result{}, err
-	}
-	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-	response, payload, err := classifierClient.doPolicyRequest(requestCtx, "/v5/classify", requestBody)
-	if err != nil {
-		return policy.Result{}, err
-	}
-	var wire classifierResponseV5
-	if err := decodeStrictJSON(payload, &wire); err != nil {
-		return policy.Result{}, fmt.Errorf("decode v5 classifier response (status %d): %w", response.StatusCode, err)
-	}
-	if response.StatusCode != http.StatusOK {
-		if errors.Is(classifierPinUnavailable(query, response.StatusCode), router.ErrPolicyPinUnavailable) {
-			return policy.Result{}, classifierPinUnavailable(query, response.StatusCode)
-		}
-		if wire.Error != "" {
-			return policy.Result{}, fmt.Errorf("v5 classifier status %d: %s", response.StatusCode, wire.Error)
-		}
-		if wire.Detail != "" {
-			return policy.Result{}, fmt.Errorf("v5 classifier status %d: %s", response.StatusCode, wire.Detail)
-		}
-		return policy.Result{}, fmt.Errorf("v5 classifier status %d", response.StatusCode)
-	}
-	if err := validateClassifierResponseV5(query, wire); err != nil {
-		return policy.Result{}, fmt.Errorf("invalid v5 classifier response: %w", err)
 	}
 	stateID := 0
 	if wire.HMMStateID != nil {
@@ -785,6 +756,44 @@ func (c *Client) decideV5(ctx context.Context, query policy.Query) (policy.Resul
 		Confidence: pointerTo(wire.ClassifierConfidence), Margin: pointerTo(wire.ClassifierMargin),
 		HMMStateID: stateID, HMMStatePath: wire.HMMStatePath, HMMStateProbabilities: wire.HMMStateProbabilities,
 	}, nil
+}
+
+// classifyV5 calls one v5 classifier endpoint and returns a response whose pinned identity and facts are verified.
+func (c *Client) classifyV5(ctx context.Context, path string, query policy.Query) (classifierResponseV5, error) {
+	requestBody, err := marshalClassifierRequestV5(query)
+	if err != nil {
+		return classifierResponseV5{}, err
+	}
+	classifierClient, err := c.v5ClassifierClient()
+	if err != nil {
+		return classifierResponseV5{}, err
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	response, payload, err := classifierClient.doPolicyRequest(requestCtx, path, requestBody)
+	if err != nil {
+		return classifierResponseV5{}, err
+	}
+	var wire classifierResponseV5
+	if err := decodeStrictJSON(payload, &wire); err != nil {
+		return classifierResponseV5{}, fmt.Errorf("decode v5 classifier %s response (status %d): %w", path, response.StatusCode, err)
+	}
+	if response.StatusCode != http.StatusOK {
+		if pinErr := classifierPinUnavailable(query, response.StatusCode); pinErr != nil {
+			return classifierResponseV5{}, pinErr
+		}
+		if wire.Error != "" {
+			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, response.StatusCode, wire.Error)
+		}
+		if wire.Detail != "" {
+			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, response.StatusCode, wire.Detail)
+		}
+		return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d", path, response.StatusCode)
+	}
+	if err := validateClassifierResponseV5(query, wire); err != nil {
+		return classifierResponseV5{}, fmt.Errorf("invalid v5 classifier %s response: %w", path, err)
+	}
+	return wire, nil
 }
 
 func marshalClassifierRequestV5(query policy.Query) ([]byte, error) {
@@ -833,35 +842,34 @@ func marshalClassifierRequestV5(query policy.Query) ([]byte, error) {
 	})
 }
 
-func decodeClassifierResponseV5(payload []byte) (classifierResponseV5, error) {
-	var response classifierResponseV5
-	if err := decodeStrictJSON(payload, &response); err != nil {
-		return classifierResponseV5{}, err
-	}
-	if response.SchemaVersion != policy.SchemaVersionV5 || response.RequestID == "" ||
-		!validClassifierSHA256(response.ClassifierReleaseID) || !validClassifierSHA256(response.ClassifierSelectionID) ||
-		!validClassifierVariantID(response.ClassifierVariantID) || response.ClassifierArtifactID == "" ||
-		!validClassifierSHA256(response.ClassifierArtifactSHA256) || !validClassifierSHA256(response.ClassifierTaxonomySHA256) ||
-		response.PredictedLabel == "" || len(response.ClassOrder) == 0 || len(response.ClassProbabilities) != len(response.ClassOrder) {
-		return classifierResponseV5{}, errors.New("v5 classifier response is missing identity or facts")
-	}
-	if taxonomyDigest(response.ClassOrder) != response.ClassifierTaxonomySHA256 {
-		return classifierResponseV5{}, errors.New("v5 classifier taxonomy digest does not match class order")
-	}
-	if _, exists := response.ClassProbabilities[response.PredictedLabel]; !exists {
-		return classifierResponseV5{}, errors.New("v5 classifier prediction is outside class order")
-	}
-	if (response.HMMStateID == nil) != (response.HMMStatePath == nil) || (response.HMMStateID == nil) != (response.HMMStateProbabilities == nil) {
-		return classifierResponseV5{}, errors.New("v5 HMM state facts must be present together")
-	}
-	return response, nil
-}
-
+// validateClassifierResponseV5 fails a mismatched pinned identity as ErrPolicyPinUnavailable and malformed facts as a protocol error.
 func validateClassifierResponseV5(query policy.Query, response classifierResponseV5) error {
-	if response.RequestID != query.RouteID || response.ClassifierReleaseID != query.ClassifierReleaseID ||
-		response.ClassifierSelectionID != query.ClassifierSelectionID || response.ClassifierVariantID != query.ClassifierVariantID ||
+	if response.ClassifierReleaseID != query.ClassifierReleaseID || response.ClassifierSelectionID != query.ClassifierSelectionID ||
+		response.ClassifierVariantID != query.ClassifierVariantID ||
 		(query.ClassifierArtifactSHA256 != "" && response.ClassifierArtifactSHA256 != query.ClassifierArtifactSHA256) {
 		return router.ErrPolicyPinUnavailable
+	}
+	if response.RequestID != query.RouteID {
+		return errors.New("v5 classifier response answers another request")
+	}
+	if response.SchemaVersion != policy.SchemaVersionV5 || response.ClassifierArtifactID == "" ||
+		!validClassifierSHA256(response.ClassifierArtifactSHA256) || !validClassifierSHA256(response.ClassifierTaxonomySHA256) ||
+		response.PredictedLabel == "" || len(response.ClassOrder) == 0 || len(response.ClassProbabilities) != len(response.ClassOrder) {
+		return errors.New("v5 classifier response is missing identity or facts")
+	}
+	if taxonomyDigest(response.ClassOrder) != response.ClassifierTaxonomySHA256 {
+		return errors.New("v5 classifier taxonomy digest does not match class order")
+	}
+	for _, label := range response.ClassOrder {
+		if _, exists := response.ClassProbabilities[label]; !exists {
+			return fmt.Errorf("v5 classifier probabilities omit class %q", label)
+		}
+	}
+	if _, exists := response.ClassProbabilities[response.PredictedLabel]; !exists {
+		return errors.New("v5 classifier prediction is outside class order")
+	}
+	if (response.HMMStateID == nil) != (response.HMMStatePath == nil) || (response.HMMStateID == nil) != (response.HMMStateProbabilities == nil) {
+		return errors.New("v5 HMM state facts must be present together")
 	}
 	return nil
 }
@@ -1011,13 +1019,6 @@ func valueOrZero(value *float64) float64 {
 	return *value
 }
 
-func intValueOrZero(value *int) int {
-	if value == nil {
-		return 0
-	}
-	return *value
-}
-
 // Preview evaluates the supplied candidate set without serving or callbacks.
 func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.PreviewResult, error) {
 	if query.ExecutionMode != policy.ExecutionModePreview {
@@ -1085,38 +1086,13 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 }
 
 func (c *Client) previewV5(ctx context.Context, query policy.Query) (policy.PreviewResult, error) {
-	requestBody, err := marshalClassifierRequestV5(query)
+	wire, err := c.classifyV5(ctx, "/v5/preview", query)
 	if err != nil {
 		return policy.PreviewResult{}, err
 	}
-	classifierClient, err := c.v5ClassifierClient()
-	if err != nil {
-		return policy.PreviewResult{}, err
-	}
-	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
-	defer cancel()
-	response, payload, err := classifierClient.doPolicyRequest(requestCtx, "/v5/preview", requestBody)
-	if err != nil {
-		return policy.PreviewResult{}, err
-	}
-	var wire classifierResponseV5
-	if err := decodeStrictJSON(payload, &wire); err != nil {
-		return policy.PreviewResult{}, fmt.Errorf("decode v5 classifier preview (status %d): %w", response.StatusCode, err)
-	}
-	if response.StatusCode != http.StatusOK {
-		if pinErr := classifierPinUnavailable(query, response.StatusCode); pinErr != nil {
-			return policy.PreviewResult{}, pinErr
-		}
-		if wire.Error != "" {
-			return policy.PreviewResult{}, fmt.Errorf("v5 classifier preview status %d: %s", response.StatusCode, wire.Error)
-		}
-		if wire.Detail != "" {
-			return policy.PreviewResult{}, fmt.Errorf("v5 classifier preview status %d: %s", response.StatusCode, wire.Detail)
-		}
-		return policy.PreviewResult{}, fmt.Errorf("v5 classifier preview status %d", response.StatusCode)
-	}
-	if err := validateClassifierResponseV5(query, wire); err != nil {
-		return policy.PreviewResult{}, fmt.Errorf("invalid v5 classifier preview response: %w", err)
+	stateID := 0
+	if wire.HMMStateID != nil {
+		stateID = *wire.HMMStateID
 	}
 	return policy.PreviewResult{
 		SchemaVersion: policy.SchemaVersionV5, RouteID: wire.RequestID,
@@ -1124,7 +1100,7 @@ func (c *Client) previewV5(ctx context.Context, query policy.Query) (policy.Prev
 		ClassifierReleaseID: wire.ClassifierReleaseID, ClassifierSelectionID: wire.ClassifierSelectionID,
 		ClassifierVariantID: wire.ClassifierVariantID, ClassifierTaxonomySHA256: wire.ClassifierTaxonomySHA256,
 		ClassOrder: wire.ClassOrder, ClassProbabilities: wire.ClassProbabilities, PredictedLabel: wire.PredictedLabel,
-		HMMStateID: intValueOrZero(wire.HMMStateID), HMMStatePath: wire.HMMStatePath, HMMStateProbabilities: wire.HMMStateProbabilities,
+		HMMStateID: stateID, HMMStatePath: wire.HMMStatePath, HMMStateProbabilities: wire.HMMStateProbabilities,
 	}, nil
 }
 

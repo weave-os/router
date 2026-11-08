@@ -34,6 +34,11 @@ const (
 	ClassifierAPIMajorV5 ClassifierAPIMajor = 5
 )
 
+// SupportedClassifierAPIMajors returns the classifier API majors this binary speaks, in ascending order.
+func SupportedClassifierAPIMajors() []ClassifierAPIMajor {
+	return []ClassifierAPIMajor{ClassifierAPIMajorV4, ClassifierAPIMajorV5}
+}
+
 // ClassifierVariantID is the fixed classifier implementation role within a release.
 type ClassifierVariantID string
 

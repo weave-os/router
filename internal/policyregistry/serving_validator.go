@@ -306,8 +306,10 @@ func (v DestinationValidator) ValidatePreparedSelection(ctx context.Context, pre
 	if !worker.Ready || worker.Identity != expected || worker.Requirements != prepared.Candidate.Requirements || !sameSelection(worker.Selection, prepared.Selection) {
 		return errors.New("worker readiness, identity, requirements or validated snapshot differs from the prepared selection")
 	}
-	if len(prepared.Candidate.SupportedAPIMajors) > 0 && !slices.Equal(worker.SupportedAPIMajors, prepared.Candidate.SupportedAPIMajors) {
-		return errors.New("worker supported classifier APIs differ from candidate requirements")
+	for _, major := range prepared.Candidate.SupportedAPIMajors {
+		if !slices.Contains(worker.SupportedAPIMajors, major) {
+			return fmt.Errorf("worker does not support candidate classifier API major %d", major)
+		}
 	}
 	for _, arm := range prepared.Policy.AllArms() {
 		if !slices.Contains(worker.CatalogArms, arm) {

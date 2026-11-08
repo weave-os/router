@@ -123,7 +123,7 @@ func TestClassifierV5WrongReleaseIdentityIsAPinError(t *testing.T) {
 	classifierServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		_ = json.NewEncoder(w).Encode(classifierResponseV5{
 			SchemaVersion: policy.SchemaVersionV5, RequestID: "route-v5",
-			ClassifierSelectionID: "d" + strings.Repeat("1", 63), ClassifierReleaseID: classifierV5ReleaseID,
+			ClassifierSelectionID: classifierV5SelectionID, ClassifierReleaseID: "d" + strings.Repeat("1", 63),
 			ClassifierVariantID: policy.ClassifierVariantPrimary, ClassifierArtifactID: "hmm-v5",
 			ClassifierArtifactSHA256: classifierV5ArtifactSHA, ClassifierTaxonomySHA256: taxonomyDigest([]string{"fast", "maximum"}),
 			PredictedLabel: "fast", ClassOrder: []string{"fast", "maximum"},
@@ -228,4 +228,44 @@ func TestClassifierV5PropagatesRemainingDeadlineToWorker(t *testing.T) {
 	require.NoError(t, err)
 	assert.Greater(t, budget, 300)
 	assert.LessOrEqual(t, budget, 2000, "the client timeout bounds the worker budget")
+}
+
+func TestClassifierV5MalformedResponseIsAProtocolErrorNotAPinError(t *testing.T) {
+	for name, mutate := range map[string]func(*classifierResponseV5){
+		"other request":        func(r *classifierResponseV5) { r.RequestID = "route-other" },
+		"class missing":        func(r *classifierResponseV5) { r.ClassProbabilities = map[string]float64{"fast": 0.7, "slow": 0.3} },
+		"taxonomy digest":      func(r *classifierResponseV5) { r.ClassifierTaxonomySHA256 = strings.Repeat("f", 64) },
+		"prediction off-class": func(r *classifierResponseV5) { r.PredictedLabel = "slow" },
+		"partial HMM state":    func(r *classifierResponseV5) { r.HMMStateID = pointerTo(0) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			classifierServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+				response := classifierResponseV5{
+					SchemaVersion: policy.SchemaVersionV5, RequestID: "route-v5",
+					ClassifierSelectionID: classifierV5SelectionID, ClassifierReleaseID: classifierV5ReleaseID,
+					ClassifierVariantID: policy.ClassifierVariantPrimary, ClassifierArtifactID: "hmm-v5",
+					ClassifierArtifactSHA256: classifierV5ArtifactSHA, ClassifierTaxonomySHA256: taxonomyDigest([]string{"fast", "maximum"}),
+					PredictedLabel: "fast", ClassOrder: []string{"fast", "maximum"},
+					ClassProbabilities:   map[string]float64{"fast": 0.7, "maximum": 0.3},
+					ClassifierConfidence: 0.7, ClassifierMargin: 0.4,
+				}
+				mutate(&response)
+				_ = json.NewEncoder(w).Encode(response)
+			}))
+			defer classifierServer.Close()
+			query := policy.Query{
+				SchemaVersion: policy.SchemaVersionV5, ClassifierReleaseID: classifierV5ReleaseID,
+				ClassifierSelectionID: classifierV5SelectionID, ClassifierVariantID: policy.ClassifierVariantPrimary,
+				ClassifierArtifactSHA256: classifierV5ArtifactSHA,
+				RouteID:                  "route-v5", ExecutionMode: policy.ExecutionModeServing,
+			}
+			_, err := New(classifierServer.URL, nil, time.Second).Decide(context.Background(), query)
+			require.Error(t, err)
+			assert.NotErrorIs(t, err, router.ErrPolicyPinUnavailable)
+			query.ExecutionMode = policy.ExecutionModePreview
+			_, err = New(classifierServer.URL, nil, time.Second).Preview(context.Background(), query)
+			require.Error(t, err)
+			assert.NotErrorIs(t, err, router.ErrPolicyPinUnavailable)
+		})
+	}
 }

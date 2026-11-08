@@ -232,7 +232,7 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 	if pinned && result.PolicyArtifactSHA256 != pin.ArtifactSHA256 {
 		return PreviewResult{}, fmt.Errorf("%s: sidecar served artifact %q, pin requires %q: %w", strategy, result.PolicyArtifactSHA256, pin.ArtifactSHA256, router.ErrPolicyPinUnavailable)
 	}
-	if pinned && result.SchemaVersion != SchemaVersionV4 && result.RosterSHA256 != pin.RosterSHA256 {
+	if pinned && !goSelectsArms(result.SchemaVersion) && result.RosterSHA256 != pin.RosterSHA256 {
 		return PreviewResult{}, fmt.Errorf("%s: sidecar served roster %q, pin requires %q: %w", strategy, result.RosterSHA256, pin.RosterSHA256, router.ErrPolicyPinUnavailable)
 	}
 	if result.RouteID != "" && result.RouteID != requestRouteID {
@@ -247,7 +247,7 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 	if err := r.validateClassifierIdentity(result.PolicyArtifactID, result.PolicyArtifactSHA256); err != nil {
 		return PreviewResult{}, fmt.Errorf("%s: invalid preview classifier identity: %v: %w", strategy, err, r.config.Unavailable)
 	}
-	if result.SchemaVersion == SchemaVersionV4 || result.SchemaVersion == SchemaVersionV5 {
+	if goSelectsArms(result.SchemaVersion) {
 		if r.armSelector == nil {
 			return PreviewResult{}, fmt.Errorf("%s: Go arm selector is unavailable: %w", strategy, r.config.Unavailable)
 		}
@@ -302,6 +302,11 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 	return result, nil
 }
 
+// goSelectsArms reports a classifier-facts schema whose roster and arm come from the Go selector.
+func goSelectsArms(schemaVersion string) bool {
+	return schemaVersion == SchemaVersionV4 || schemaVersion == SchemaVersionV5
+}
+
 func validatePreviewResult(result PreviewResult, expectedSchemaVersion string) error {
 	if result.SchemaVersion != expectedSchemaVersion {
 		return fmt.Errorf("unsupported schema %q", result.SchemaVersion)
@@ -309,7 +314,7 @@ func validatePreviewResult(result PreviewResult, expectedSchemaVersion string) e
 	if result.PolicyArtifactID == "" || result.PolicyArtifactSHA256 == "" {
 		return fmt.Errorf("missing frozen artifact identity")
 	}
-	if result.SchemaVersion != SchemaVersionV4 && result.RosterSHA256 == "" {
+	if !goSelectsArms(result.SchemaVersion) && result.RosterSHA256 == "" {
 		return fmt.Errorf("missing frozen roster identity")
 	}
 	if len(result.ClassOrder) == 0 {
@@ -356,7 +361,7 @@ func validatePreviewResult(result PreviewResult, expectedSchemaVersion string) e
 	if math.Abs(total-1) > 1e-6 {
 		return fmt.Errorf("class probabilities sum to %.9f", total)
 	}
-	if result.SchemaVersion == SchemaVersionV4 || result.SchemaVersion == SchemaVersionV5 {
+	if goSelectsArms(result.SchemaVersion) {
 		return nil
 	}
 	classRank := make(map[string]int, len(result.ClassOrder))
@@ -494,7 +499,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	var selectionTrace SelectionTrace
 	var escalationDecision *escalation.Decision
 	if r.armSelector != nil {
-		if res.SchemaVersion != SchemaVersionV4 && res.SchemaVersion != SchemaVersionV5 {
+		if !goSelectsArms(res.SchemaVersion) {
 			return router.Decision{}, fmt.Errorf("%s: sidecar reported schema %q, expected %q or %q classifier facts: %w", strategy, res.SchemaVersion, SchemaVersionV4, SchemaVersionV5, r.config.Unavailable)
 		}
 		originalSelectionInput := selectionInputFor(strategy, executionMode, req, res, resolved)
