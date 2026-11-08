@@ -102,10 +102,10 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexTitleShapeIsS
 	assert.False(t, converted.TitleGeneration, "other structured-output objects must not be treated as hidden title calls")
 }
 
-func codexDesktopTitleTurnMetadata(threadSource, turnTrigger string) string {
-	metadata, _ := json.Marshal(map[string]string{"thread_source": threadSource, "turn_trigger": turnTrigger, "request_kind": "turn"})
-	encoded, _ := json.Marshal(string(metadata))
-	return string(encoded)
+func codexDesktopTitleTurnMetadataJSONString(threadSource, turnTrigger string) string {
+	turnMetadataJSON, _ := json.Marshal(map[string]string{"thread_source": threadSource, "turn_trigger": turnTrigger, "request_kind": "turn"})
+	quotedTurnMetadataJSON, _ := json.Marshal(string(turnMetadataJSON))
+	return string(quotedTurnMetadataJSON)
 }
 
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexDesktopTitleGeneration(t *testing.T) {
@@ -128,9 +128,9 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexDesktopTitleG
 		schema     string
 		wantTitled bool
 	}{
-		{name: "thread title source", metadata: codexDesktopTitleTurnMetadata("thread_title", "thread_title"), schema: titleSchema, wantTitled: true},
-		{name: "forked title turn", metadata: codexDesktopTitleTurnMetadata("user", "thread_title"), wantTitled: true},
-		{name: "ordinary user turn with title schema", metadata: codexDesktopTitleTurnMetadata("user", "user"), schema: titleSchema},
+		{name: "thread title source", metadata: codexDesktopTitleTurnMetadataJSONString("thread_title", "thread_title"), schema: titleSchema, wantTitled: true},
+		{name: "forked title turn", metadata: codexDesktopTitleTurnMetadataJSONString("user", "thread_title"), wantTitled: true},
+		{name: "ordinary user turn with title schema", metadata: codexDesktopTitleTurnMetadataJSONString("user", "user"), schema: titleSchema},
 		{name: "title schema without metadata", schema: titleSchema},
 	}
 
