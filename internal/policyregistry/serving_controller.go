@@ -405,7 +405,7 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 		}
 	case ChangeClassifier:
 		// A v4 source candidate is Router code only; its classifier is the selection's release.
-		if (set.SchemaVersion == ServingSelectionSetV4 && set.Default.Candidate != previous.Default.Candidate) ||
+		if (set.SchemaVersion == ServingSelectionSetV4 && (set.Default.Candidate != previous.Default.Candidate || proposal.SourceCandidate != set.Default.Candidate)) ||
 			(set.SchemaVersion != ServingSelectionSetV4 && !base.Classifier.Equal(source.Classifier)) || base.RouterImageDigest != oldBase.RouterImageDigest || base.Policy != oldBase.Policy || !maps.Equal(base.StrategyPolicies, oldBase.StrategyPolicies) {
 			return errors.New("classifier-only promotion must retain destination Router candidate, image, policy and strategy policies")
 		}

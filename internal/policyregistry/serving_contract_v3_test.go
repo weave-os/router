@@ -311,6 +311,7 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 	classifierWithNewCandidate := classifierSet
 	classifierWithNewCandidate.Code.Candidate = rosterWithNewCandidate.Code.Candidate
 	require.ErrorContains(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeClassifier, classifierWithNewCandidate, candidateV3Ref)), "retain destination Router candidate", "a classifier proposal cannot swap the Router code contract under the same image")
+	require.ErrorContains(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeClassifier, classifierSet, rosterWithNewCandidate.Code.Candidate)), "retain destination Router candidate", "a classifier proposal's source is the Router candidate it keeps")
 
 	routerCandidate := candidateV3
 	routerCandidate.RouterImageDigest = "sha256:" + strings.Repeat("6", 64)
