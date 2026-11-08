@@ -177,3 +177,16 @@ func TestBlindExperimentWriterResumedSessionRequestsOriginalModel(t *testing.T) 
 		assert.Equal(t, requested, transcriptModel, "turn %d", turn)
 	}
 }
+
+func TestBlindExperimentWriterUnusableRequestedModelStillDropsWeaveCost(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(`{"model":"<bad model>","messages":[]}`))
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Router-Model", "gpt-5.4-mini")
+	_, err := w.Write([]byte(`{"model":"gpt-5.4-mini","usage":{"output_tokens":3,"weave_cost":{"actual_cost_usd":0.01}}}`))
+	require.NoError(t, err)
+	finish()
+
+	assert.NotContains(t, rec.Body.String(), "weave_cost")
+	assert.Empty(t, rec.Header().Get("X-Router-Model"))
+}

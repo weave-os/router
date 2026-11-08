@@ -27,7 +27,8 @@ type SubscriptionAccountLister interface {
 // CallerResolver attributes a display-settings request to its router user, the same way inference requests are.
 type CallerResolver func(c *gin.Context) context.Context
 
-// InstallationExperimentChecker reports whether an installation has an enabled blind experiment.
+// InstallationExperimentChecker answers for callers that resolve to no router user; implementations
+// should report true when they cannot tell, so an unidentified subject stays hidden.
 type InstallationExperimentChecker interface {
 	InstallationBlindExperimentEnabled(ctx context.Context, installationID string) bool
 }

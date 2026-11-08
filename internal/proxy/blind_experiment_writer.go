@@ -59,7 +59,7 @@ func (b *blindExperimentWriter) WriteHeader(code int) {
 	h := b.ResponseWriter.Header()
 	stripRouterResponseHeaders(h)
 	b.stream = strings.Contains(h.Get("Content-Type"), "text/event-stream")
-	if !b.stream && b.model != "" {
+	if !b.stream {
 		h.Del("Content-Length")
 	}
 	b.ResponseWriter.WriteHeader(code)
@@ -68,9 +68,6 @@ func (b *blindExperimentWriter) WriteHeader(code int) {
 func (b *blindExperimentWriter) Write(p []byte) (int, error) {
 	if !b.wroteHeader {
 		b.WriteHeader(http.StatusOK)
-	}
-	if b.model == "" {
-		return b.ResponseWriter.Write(p)
 	}
 	b.pending = append(b.pending, p...)
 	if !b.stream {
@@ -92,7 +89,7 @@ func (b *blindExperimentWriter) Flush() {
 	if !b.wroteHeader {
 		b.WriteHeader(http.StatusOK)
 	}
-	if !b.stream && b.model != "" {
+	if !b.stream {
 		return
 	}
 	if f, ok := b.ResponseWriter.(http.Flusher); ok {
@@ -173,7 +170,7 @@ func rewriteJSONModel(doc []byte, model string) []byte {
 	}
 	for _, path := range blindExperimentModelPaths {
 		current := gjson.GetBytes(doc, path)
-		if current.Type != gjson.String || current.String() == model {
+		if model == "" || current.Type != gjson.String || current.String() == model {
 			continue
 		}
 		if out, err := sjson.SetBytes(doc, path, model); err == nil {
