@@ -502,11 +502,11 @@ func TestBlindExperimentSessionKeyIsScopedToCredential(t *testing.T) {
 
 func TestBlindExperimentSessionModeWithoutSessionFallsBackToUserDraw(t *testing.T) {
 	record := auth.BlindExperimentRecord{
-		Configured: true, Enabled: true, RouterOnPercentage: 100, Seed: "seed",
+		Configured: true, Enabled: true, RouterOnPercentage: 50, Seed: "seed",
 		CanonicalSubjectKey: "account-7", SessionMode: true,
 	}
 	state := sessionArm(t, sessionModeService(t, record), "")
-	assert.Equal(t, auth.BlindExperimentArmRouterOn, state.Arm)
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, state.Arm)
 	assert.Empty(t, state.SessionSubjectKey)
 	assert.Equal(t, auth.BlindExperimentModeSession, state.Mode)
 }

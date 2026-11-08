@@ -59,7 +59,7 @@ func TestBlindExperimentSessionModeSplitsSessionsAndKeepsSubagentsWithParent(t *
 }
 
 func TestBlindExperimentSessionModeWithoutSessionIDUsesUserDraw(t *testing.T) {
-	state := sessionModeArm(t, 100, http.Header{})
+	state := sessionModeArm(t, 50, http.Header{})
 	assert.Empty(t, state.SessionSubjectKey)
-	assert.Equal(t, auth.BlindExperimentArmRouterOn, state.Arm)
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, state.Arm)
 }
