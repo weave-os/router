@@ -55,7 +55,7 @@ func SessionCostHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		}
 		// One response for unknown, foreign, and not-yet-committed sessions:
 		// distinguishing them would confirm a foreign session's existence.
-		if errors.Is(err, proxy.ErrSessionCostNotFound) {
+		if errors.Is(err, proxy.ErrSessionCostNotFound) || (err == nil && cost.BlindExperiment) {
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"message": "No router cost found for this session. It may not exist, or its telemetry may not be recorded yet."})
 			return
 		}

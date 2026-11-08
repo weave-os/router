@@ -569,6 +569,7 @@ SELECT
     COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
     COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
     MAX(t.created_at)::timestamptz AS last_recorded_at,
+    BOOL_OR(COALESCE(t.blind_experiment_arm, '') <> '')::boolean AS blind_experiment,
     (SELECT latest.context_snapshot
      FROM router.model_router_request_telemetry latest
      WHERE latest.installation_id = $1::uuid
@@ -601,6 +602,7 @@ type GetSessionCostRow struct {
 	CacheCreationTokens    int64
 	CacheReadTokens        int64
 	LastRecordedAt         pgtype.Timestamptz
+	BlindExperiment        bool
 	ContextSnapshot        []byte
 }
 
@@ -621,6 +623,7 @@ type GetSessionCostRow struct {
 //	    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
 //	    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
 //	    MAX(t.created_at)::timestamptz AS last_recorded_at,
+//	    BOOL_OR(COALESCE(t.blind_experiment_arm, '') <> '')::boolean AS blind_experiment,
 //	    (SELECT latest.context_snapshot
 //	     FROM router.model_router_request_telemetry latest
 //	     WHERE latest.installation_id = $1::uuid
@@ -649,6 +652,7 @@ func (q *Queries) GetSessionCost(ctx context.Context, arg GetSessionCostParams) 
 		&i.CacheCreationTokens,
 		&i.CacheReadTokens,
 		&i.LastRecordedAt,
+		&i.BlindExperiment,
 		&i.ContextSnapshot,
 	)
 	return i, err

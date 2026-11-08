@@ -68,6 +68,7 @@ type SessionCost struct {
 	CacheCreationTokens    int64
 	CacheReadTokens        int64
 	LastRecordedAt         time.Time
+	BlindExperiment        bool
 }
 
 // InsertTelemetryParams mirrors one router.upstream span row.
