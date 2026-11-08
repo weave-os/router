@@ -157,3 +157,34 @@ func TestClassifierV5UnknownReleaseIsAPinError(t *testing.T) {
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, router.ErrPolicyPinUnavailable))
 }
+
+func TestClassifierV5WrongArtifactIdentityIsAPinError(t *testing.T) {
+	servedArtifactSHA := "e" + strings.Repeat("4", 63)
+	classifierServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		_ = json.NewEncoder(w).Encode(classifierResponseV5{
+			SchemaVersion: policy.SchemaVersionV5, RequestID: "route-v5",
+			ClassifierSelectionID: classifierV5SelectionID, ClassifierReleaseID: classifierV5ReleaseID,
+			ClassifierVariantID: policy.ClassifierVariantPrimary, ClassifierArtifactID: "hmm-v5",
+			ClassifierArtifactSHA256: servedArtifactSHA, ClassifierTaxonomySHA256: taxonomyDigest([]string{"fast", "maximum"}),
+			PredictedLabel: "fast", ClassOrder: []string{"fast", "maximum"},
+			ClassProbabilities:   map[string]float64{"fast": 0.7, "maximum": 0.3},
+			ClassifierConfidence: 0.7, ClassifierMargin: 0.4,
+		})
+	}))
+	defer classifierServer.Close()
+	client := New(classifierServer.URL, nil, time.Second)
+	query := policy.Query{
+		SchemaVersion: policy.SchemaVersionV5, ClassifierReleaseID: classifierV5ReleaseID,
+		ClassifierSelectionID: classifierV5SelectionID, ClassifierVariantID: policy.ClassifierVariantPrimary,
+		ClassifierArtifactSHA256: classifierV5ArtifactSHA,
+		RouteID:                  "route-v5", ExecutionMode: policy.ExecutionModeServing,
+	}
+	_, err := client.Decide(context.Background(), query)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
+
+	query.ExecutionMode = policy.ExecutionModePreview
+	_, err = client.Preview(context.Background(), query)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
+}

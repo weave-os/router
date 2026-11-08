@@ -155,6 +155,8 @@ type Query struct {
 	ClassifierSelectionID string
 	// ClassifierVariantID selects a classifier within that release, never a provider/model.
 	ClassifierVariantID ClassifierVariantID
+	// ClassifierArtifactSHA256 is the variant artifact the pinned v5 release must serve.
+	ClassifierArtifactSHA256 string
 	// InteractionStateInputs is set when the strategy's classifier package is
 	// one the sidecar listed in InteractionStatePackageSHA256s.
 	InteractionStateInputs bool
