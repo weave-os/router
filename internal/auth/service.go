@@ -264,7 +264,7 @@ func (s *Service) WithRoutingPolicy(ctx context.Context, installationID string) 
 		}
 		if s.routingPolicyCache.generation(installationID) == generation {
 			ctx = context.WithValue(ctx, routingPolicyGenerationContextKey{}, generation)
-			return context.WithValue(ctx, routingPolicyContextKey{}, policy), nil
+			return WithRoutingPolicy(ctx, policy), nil
 		}
 	}
 	return ctx, ErrRoutingPolicyUnavailable
