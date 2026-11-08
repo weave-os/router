@@ -44,6 +44,11 @@ func RoutingPolicyFrom(ctx context.Context) RoutingPolicy {
 	return policy
 }
 
+// WithRoutingPolicy records the installation policy read at admission.
+func WithRoutingPolicy(ctx context.Context, policy RoutingPolicy) context.Context {
+	return context.WithValue(ctx, routingPolicyContextKey{}, policy)
+}
+
 type clientModelPassthroughContextKey struct{}
 
 // WithClientModelPassthrough records that the client explicitly selected the

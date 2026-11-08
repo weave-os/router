@@ -455,3 +455,12 @@ func TestClassifyDispatchError_QwenWarmingIsActionable(t *testing.T) {
 	assert.Contains(t, classification.Message, "prepare-model")
 	assert.True(t, classification.RetryAfter)
 }
+
+func TestClassifyDispatchError_PassthroughModelUnknownOutsideRoutingPolicyIsNeutral(t *testing.T) {
+	cls, ok := proxy.ClassifyDispatchError(&proxy.PassthroughModelUnknownError{Model: "auto"})
+
+	require.True(t, ok)
+	assert.NotContains(t, cls.Message, "as-is", "an experiment subject must not learn the request skipped routing")
+	assert.NotContains(t, cls.Message, "passthrough")
+	assert.NotContains(t, cls.Message, "routing")
+}

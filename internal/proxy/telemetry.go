@@ -96,6 +96,10 @@ type InsertTelemetryParams struct {
 	CohortScheduledArm              auth.BlindExperimentArm
 	CohortTreatmentApplied          *bool
 	CohortBypassReason              auth.CohortBypassReason
+	BlindExperimentModelSource      auth.BlindExperimentModelSource
+	BlindExperimentTreatmentApplied *bool
+	BlindExperimentBaselineModel    string
+	BlindExperimentModelChanged     *bool
 	EstimatedInputTokens            int32
 	StickyHit                       bool
 	// PinTier is the actual served-path turn-loop tier. Empty leaves the column NULL.
@@ -393,6 +397,11 @@ func applyBlindExperimentTelemetry(ctx context.Context, params *InsertTelemetryP
 	params.BlindExperimentArm = state.Arm
 	params.BlindExperimentAssignmentSource = state.AssignmentSource
 	params.BlindExperimentSubjectKey = state.CanonicalSubjectKey
+	outcome := blindExperimentOutcomeFor(ctx, state, routed, params.RequestedModel)
+	params.BlindExperimentModelSource = outcome.source
+	params.BlindExperimentTreatmentApplied = &outcome.treatmentApplied
+	params.BlindExperimentBaselineModel = outcome.baselineModel
+	params.BlindExperimentModelChanged = outcome.modelChanged
 	if state.CohortExperimentID != "" {
 		phaseIndex := int16(state.CohortPhaseIndex)
 		params.CohortPhaseIndex = &phaseIndex

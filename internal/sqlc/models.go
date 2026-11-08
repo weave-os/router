@@ -733,8 +733,12 @@ type RouterModelRouterRequestTelemetry struct {
 	FailoverAttempted       *bool
 	ContextSnapshot         []byte
 	// Who owns the turn failure: provider, router, client or unknown; NULL on a normal completion
-	FailureOwner      *string
-	CodexLimitHeaders []byte
+	FailureOwner                    *string
+	CodexLimitHeaders               []byte
+	BlindExperimentModelSource      *string
+	BlindExperimentTreatmentApplied *bool
+	BlindExperimentBaselineModel    *string
+	BlindExperimentModelChanged     *bool
 }
 
 type RouterModelRouterSubscriptionAccount struct {

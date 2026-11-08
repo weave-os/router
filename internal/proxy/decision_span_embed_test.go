@@ -307,6 +307,8 @@ func TestDecisionAndUpstreamSpansCarryCallerRoutingState(t *testing.T) {
 			ctx             context.Context
 			wantPassthrough bool
 			wantSource      callerRoutingSource
+			wantArm         auth.BlindExperimentArm
+			wantModelSource auth.BlindExperimentModelSource
 		}{
 			{name: "default routed", ctx: context.Background(), wantSource: callerRoutingSourceDefault},
 			{
@@ -317,6 +319,18 @@ func TestDecisionAndUpstreamSpansCarryCallerRoutingState(t *testing.T) {
 				}),
 				wantPassthrough: true,
 				wantSource:      callerRoutingSourceExperiment,
+				wantArm:         auth.BlindExperimentArmPassthrough,
+				wantModelSource: auth.BlindExperimentModelSourceExperimentPassthrough,
+			},
+			{
+				name: "experiment router_on arm",
+				ctx: context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{
+					Active: true,
+					Arm:    auth.BlindExperimentArmRouterOn,
+				}),
+				wantSource:      callerRoutingSourceExperiment,
+				wantArm:         auth.BlindExperimentArmRouterOn,
+				wantModelSource: auth.BlindExperimentModelSourceRouter,
 			},
 		} {
 			t.Run(ingress.name+"/"+tc.name, func(t *testing.T) {
@@ -334,6 +348,16 @@ func TestDecisionAndUpstreamSpansCarryCallerRoutingState(t *testing.T) {
 					require.Len(t, spans, 1, spanName)
 					assert.Equal(t, tc.wantPassthrough, spanBool(t, spans[0], "routing.caller_passthrough"), spanName)
 					assert.Equal(t, string(tc.wantSource), spanStr(t, spans[0], "routing.caller_routing_source"), spanName)
+					if tc.wantArm == "" {
+						for _, kv := range spans[0].Attributes {
+							assert.NotContains(t, kv.Key, "blind_experiment", spanName)
+						}
+						continue
+					}
+					assert.Equal(t, string(tc.wantArm), spanStr(t, spans[0], "routing.blind_experiment_arm"), spanName)
+					assert.Equal(t, string(tc.wantModelSource), spanStr(t, spans[0], "routing.blind_experiment_model_source"), spanName)
+					assert.True(t, spanBool(t, spans[0], "routing.blind_experiment_treatment_applied"), spanName)
+					assert.NotEmpty(t, spanStr(t, spans[0], "routing.blind_experiment_baseline_model"), spanName)
 				}
 			})
 		}

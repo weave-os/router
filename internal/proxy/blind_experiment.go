@@ -45,6 +45,77 @@ func blindExperimentPassthroughActive(ctx context.Context) bool {
 	return active && state.Arm == auth.BlindExperimentArmPassthrough
 }
 
+func blindExperimentModelSource(ctx context.Context, routed *turnLoopResult) auth.BlindExperimentModelSource {
+	switch {
+	case routed == nil || routed.Decision.Model == "":
+		return auth.BlindExperimentModelSourceNotDispatched
+	case routed.UsageBypass:
+		return auth.BlindExperimentModelSourceUsageBypass
+	case isUserForcedReason(routed.Decision.Reason):
+		return auth.BlindExperimentModelSourceForceModel
+	case routed.HardPinned:
+		return auth.BlindExperimentModelSourceHardPin
+	case !routed.CallerModelPassthrough:
+		return auth.BlindExperimentModelSourceRouter
+	case auth.ClientModelPassthroughFrom(ctx):
+		return auth.BlindExperimentModelSourceClientModelPassthrough
+	case auth.RoutingPassthroughFrom(ctx):
+		return auth.BlindExperimentModelSourceRoutingPolicyPassthrough
+	default:
+		return auth.BlindExperimentModelSourceExperimentPassthrough
+	}
+}
+
+type blindExperimentOutcome struct {
+	source           auth.BlindExperimentModelSource
+	treatmentApplied bool
+	baselineModel    string
+	modelChanged     *bool
+}
+
+func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentState, routed *turnLoopResult, requestedModel string) blindExperimentOutcome {
+	source := blindExperimentModelSource(ctx, routed)
+	outcome := blindExperimentOutcome{
+		source:           source,
+		treatmentApplied: blindExperimentTreatmentApplied(state.Arm, source),
+		baselineModel:    clientRequestedModel(ctx, requestedModel),
+	}
+	if source != auth.BlindExperimentModelSourceNotDispatched {
+		modelChanged := routed.Decision.Model != outcome.baselineModel
+		outcome.modelChanged = &modelChanged
+	}
+	return outcome
+}
+
+// applyBlindExperimentOutcomeAttrs records the assigned arm and what actually
+// chose the model. Spans are internal, so this does not disclose the arm to clients.
+func applyBlindExperimentOutcomeAttrs(ctx context.Context, b *otel.AttrBuilder, routed *turnLoopResult, requestedModel string) {
+	state, active := auth.BlindExperimentFrom(ctx)
+	if !active {
+		return
+	}
+	outcome := blindExperimentOutcomeFor(ctx, state, routed, requestedModel)
+	b.String("routing.blind_experiment_arm", string(state.Arm)).
+		String("routing.blind_experiment_assignment_source", string(state.AssignmentSource)).
+		String("routing.blind_experiment_model_source", string(outcome.source)).
+		Bool("routing.blind_experiment_treatment_applied", outcome.treatmentApplied).
+		String("routing.blind_experiment_baseline_model", outcome.baselineModel)
+	if outcome.modelChanged != nil {
+		b.Bool("routing.blind_experiment_model_changed", *outcome.modelChanged)
+	}
+}
+
+func blindExperimentTreatmentApplied(arm auth.BlindExperimentArm, source auth.BlindExperimentModelSource) bool {
+	if arm == auth.BlindExperimentArmPassthrough {
+		return source == auth.BlindExperimentModelSourceExperimentPassthrough
+	}
+	return source == auth.BlindExperimentModelSourceRouter
+}
+
+func experimentArmPassthrough(ctx context.Context) bool {
+	return blindExperimentPassthroughActive(ctx) && !auth.RoutingPassthroughFrom(ctx) && !auth.ClientModelPassthroughFrom(ctx)
+}
+
 func callerModelPassthroughActive(ctx context.Context) bool {
 	return auth.RoutingPassthroughFrom(ctx) || blindExperimentPassthroughActive(ctx)
 }
@@ -160,6 +231,12 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 	}
 
 	model, found := catalog.ByID(req.RequestedModel)
+	if !found && experimentArmPassthrough(ctx) {
+		if baseline := clientBaselineModel(ctx); baseline != "" {
+			req.RequestedModel = baseline
+			model, found = catalog.ByID(baseline)
+		}
+	}
 	if !found {
 		return router.Decision{}, &PassthroughModelUnknownError{
 			Model:                    req.RequestedModel,
