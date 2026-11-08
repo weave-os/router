@@ -480,3 +480,14 @@ func TestApplyBlindExperimentTelemetryRecordsSessionDraw(t *testing.T) {
 	assert.Equal(t, auth.BlindExperimentModeSession, telemetry.BlindExperimentMode)
 	assert.Equal(t, "session:abc", telemetry.BlindExperimentSessionKey)
 }
+
+func TestApplyBlindExperimentTelemetryLabelsSessionModeWithoutSessionAsUser(t *testing.T) {
+	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{
+		Active: true, Arm: auth.BlindExperimentArmRouterOn, AssignmentSource: auth.BlindExperimentAssignmentAutomatic,
+		CanonicalSubjectKey: "account-1", Mode: auth.BlindExperimentModeSession,
+	})
+	telemetry := InsertTelemetryParams{}
+	applyBlindExperimentTelemetry(ctx, &telemetry, nil)
+	assert.Equal(t, auth.BlindExperimentModeUser, telemetry.BlindExperimentMode)
+	assert.Empty(t, telemetry.BlindExperimentSessionKey)
+}

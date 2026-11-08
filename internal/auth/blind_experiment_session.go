@@ -17,13 +17,11 @@ type BlindExperimentSessionRepository interface {
 	ClaimSessionArm(ctx context.Context, installationID, sessionSubjectKey string, arm BlindExperimentArm) (BlindExperimentArm, error)
 }
 
-// WithBlindExperimentSessions wires session-mode configuration reads and arm
-// freezing.
+// WithBlindExperimentSessions stores repo and allocates the in-process LRU of
+// frozen session arms.
 func (s *Service) WithBlindExperimentSessions(repo BlindExperimentSessionRepository) *Service {
-	arms, err := lru.New[string, BlindExperimentArm](blindExperimentSessionArmCacheSize)
-	if err != nil {
-		panic(err)
-	}
+	// lru.New only errors for a non-positive size; the cache size is a positive constant.
+	arms, _ := lru.New[string, BlindExperimentArm](blindExperimentSessionArmCacheSize)
 	s.blindExperimentSessions = repo
 	s.blindExperimentSessionArms = arms
 	return s

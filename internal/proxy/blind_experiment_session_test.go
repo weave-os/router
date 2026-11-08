@@ -15,18 +15,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type sessionModeExperimentRepo struct{}
+type sessionModeExperimentRepo struct{ routerOnPercentage int }
 
-func (sessionModeExperimentRepo) GetForUser(context.Context, string, string) (auth.BlindExperimentRecord, error) {
+func (repo sessionModeExperimentRepo) GetForUser(context.Context, string, string) (auth.BlindExperimentRecord, error) {
 	return auth.BlindExperimentRecord{
-		Configured: true, Enabled: true, RouterOnPercentage: 50, Seed: "seed",
+		Configured: true, Enabled: true, RouterOnPercentage: repo.routerOnPercentage, Seed: "seed",
 		CanonicalSubjectKey: "account-7", SessionMode: true,
 	}, nil
 }
 
-func sessionModeArm(t *testing.T, headers http.Header) auth.BlindExperimentState {
+func sessionModeArm(t *testing.T, routerOnPercentage int, headers http.Header) auth.BlindExperimentState {
 	t.Helper()
-	svc := auth.NewService(nil, nil, nil, &captureUserRepo{}, nil, auth.NoOpUserCache{}, time.Now).WithBlindExperiments(sessionModeExperimentRepo{}, nil)
+	svc := auth.NewService(nil, nil, nil, &captureUserRepo{}, nil, auth.NoOpUserCache{}, time.Now).WithBlindExperiments(sessionModeExperimentRepo{routerOnPercentage: routerOnPercentage}, nil)
 	identity := proxy.ClientIdentityFromHeaders(headers)
 	identity.Email = "alice@example.com"
 	ctx := requestcontext.WithClientIdentity(context.Background(), identity)
@@ -40,10 +40,10 @@ func TestBlindExperimentSessionModeSplitsSessionsAndKeepsSubagentsWithParent(t *
 	arms := map[auth.BlindExperimentArm]bool{}
 	for index := range 40 {
 		sessionID := "session-" + strconv.Itoa(index)
-		claudeMain := sessionModeArm(t, http.Header{"X-Claude-Code-Session-Id": {sessionID}})
-		claudeTask := sessionModeArm(t, http.Header{"X-Claude-Code-Session-Id": {sessionID}, "X-Claude-Code-Agent-Id": {"agent-1"}})
-		codexMain := sessionModeArm(t, http.Header{"Session-Id": {sessionID}, "Thread-Id": {sessionID}})
-		codexSubagent := sessionModeArm(t, http.Header{
+		claudeMain := sessionModeArm(t, 50, http.Header{"X-Claude-Code-Session-Id": {sessionID}})
+		claudeTask := sessionModeArm(t, 50, http.Header{"X-Claude-Code-Session-Id": {sessionID}, "X-Claude-Code-Agent-Id": {"agent-1"}})
+		codexMain := sessionModeArm(t, 50, http.Header{"Session-Id": {sessionID}, "Thread-Id": {sessionID}})
+		codexSubagent := sessionModeArm(t, 50, http.Header{
 			"Session-Id": {sessionID}, "Thread-Id": {"child-thread-" + strconv.Itoa(index)},
 			"X-Codex-Parent-Thread-Id": {sessionID}, "X-Openai-Subagent": {"collab_spawn"},
 		})
@@ -59,7 +59,7 @@ func TestBlindExperimentSessionModeSplitsSessionsAndKeepsSubagentsWithParent(t *
 }
 
 func TestBlindExperimentSessionModeWithoutSessionIDUsesUserDraw(t *testing.T) {
-	state := sessionModeArm(t, http.Header{})
+	state := sessionModeArm(t, 100, http.Header{})
 	assert.Empty(t, state.SessionSubjectKey)
-	assert.Equal(t, auth.AssignBlindExperimentArm("seed", "account-7", 50), state.Arm)
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, state.Arm)
 }
