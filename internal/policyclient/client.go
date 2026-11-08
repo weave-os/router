@@ -858,7 +858,8 @@ func decodeClassifierResponseV5(payload []byte) (classifierResponseV5, error) {
 
 func validateClassifierResponseV5(query policy.Query, response classifierResponseV5) error {
 	if response.RequestID != query.RouteID || response.ClassifierReleaseID != query.ClassifierReleaseID ||
-		response.ClassifierSelectionID != query.ClassifierSelectionID || response.ClassifierVariantID != query.ClassifierVariantID {
+		response.ClassifierSelectionID != query.ClassifierSelectionID || response.ClassifierVariantID != query.ClassifierVariantID ||
+		(query.ClassifierArtifactSHA256 != "" && response.ClassifierArtifactSHA256 != query.ClassifierArtifactSHA256) {
 		return router.ErrPolicyPinUnavailable
 	}
 	return nil

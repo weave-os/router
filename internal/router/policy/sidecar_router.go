@@ -188,37 +188,38 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 	requestRouteID := uuid.NewString()
 	pin, pinned := router.HonouredPolicyPin(ctx)
 	query := Query{
-		ArtifactSHA256:        pin.ArtifactSHA256,
-		SchemaVersion:         r.classifierSchemaVersion(),
-		ClassifierReleaseID:   r.config.ClassifierReleaseID,
-		ClassifierSelectionID: r.config.ClassifierSelectionID,
-		ClassifierVariantID:   r.config.ClassifierVariantID,
-		Strategy:              strategy,
-		ExecutionMode:         ExecutionModePreview,
-		RouteID:               requestRouteID,
-		OrganizationID:        req.OrganizationID,
-		InstallationID:        req.InstallationID,
-		ClientApp:             req.ClientApp,
-		RolloutID:             req.RolloutID,
-		RequestedModel:        req.RequestedModel,
-		PromptText:            req.PromptText,
-		ConversationMessages:  req.ConversationMessages,
-		AvailableTools:        req.AvailableTools,
-		Tools:                 req.Tools,
-		FeedbackKey:           req.FeedbackKey,
-		FeedbackRole:          req.FeedbackRole,
-		ClientSessionID:       req.ClientSessionID,
-		TurnContext:           req.PolicyTurnContext,
-		EstimatedInputTokens:  req.EstimatedInputTokens,
-		HasTools:              req.HasTools,
-		HasImages:             req.HasImages,
-		RoutingIntent:         req.RoutingIntent,
-		PreferredModels:       req.PreferredModels,
-		RoutingKnobs:          req.RoutingKnobs,
-		TrainingAllowed:       false,
-		CaptureMode:           req.CaptureMode,
-		DebugEnabled:          true,
-		Candidates:            resolved.Candidates,
+		ArtifactSHA256:           pin.ArtifactSHA256,
+		SchemaVersion:            r.classifierSchemaVersion(),
+		ClassifierReleaseID:      r.config.ClassifierReleaseID,
+		ClassifierSelectionID:    r.config.ClassifierSelectionID,
+		ClassifierVariantID:      r.config.ClassifierVariantID,
+		ClassifierArtifactSHA256: r.config.ClassifierArtifactSHA256,
+		Strategy:                 strategy,
+		ExecutionMode:            ExecutionModePreview,
+		RouteID:                  requestRouteID,
+		OrganizationID:           req.OrganizationID,
+		InstallationID:           req.InstallationID,
+		ClientApp:                req.ClientApp,
+		RolloutID:                req.RolloutID,
+		RequestedModel:           req.RequestedModel,
+		PromptText:               req.PromptText,
+		ConversationMessages:     req.ConversationMessages,
+		AvailableTools:           req.AvailableTools,
+		Tools:                    req.Tools,
+		FeedbackKey:              req.FeedbackKey,
+		FeedbackRole:             req.FeedbackRole,
+		ClientSessionID:          req.ClientSessionID,
+		TurnContext:              req.PolicyTurnContext,
+		EstimatedInputTokens:     req.EstimatedInputTokens,
+		HasTools:                 req.HasTools,
+		HasImages:                req.HasImages,
+		RoutingIntent:            req.RoutingIntent,
+		PreferredModels:          req.PreferredModels,
+		RoutingKnobs:             req.RoutingKnobs,
+		TrainingAllowed:          false,
+		CaptureMode:              req.CaptureMode,
+		DebugEnabled:             true,
+		Candidates:               resolved.Candidates,
 	}
 	query.InteractionStateInputs = interactionStateInputs
 	result, err := previewer.Preview(ctx, query)
@@ -240,11 +241,11 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 	if err := validatePreviewResult(result, r.classifierSchemaVersion()); err != nil {
 		return PreviewResult{}, fmt.Errorf("%s: invalid preview result: %v: %w", strategy, err, r.config.Unavailable)
 	}
+	if err := r.validateClassifierReleaseIdentity(result.ClassifierReleaseID, result.ClassifierSelectionID, result.ClassifierVariantID, result.ClassifierTaxonomySHA256, result.PolicyArtifactID, result.PolicyArtifactSHA256); err != nil {
+		return PreviewResult{}, fmt.Errorf("%s: invalid preview classifier release identity: %v: %w", strategy, err, router.ErrPolicyPinUnavailable)
+	}
 	if err := r.validateClassifierIdentity(result.PolicyArtifactID, result.PolicyArtifactSHA256); err != nil {
 		return PreviewResult{}, fmt.Errorf("%s: invalid preview classifier identity: %v: %w", strategy, err, r.config.Unavailable)
-	}
-	if err := r.validateClassifierReleaseIdentity(result.ClassifierReleaseID, result.ClassifierSelectionID, result.ClassifierVariantID, result.ClassifierTaxonomySHA256); err != nil {
-		return PreviewResult{}, fmt.Errorf("%s: invalid preview classifier release identity: %v: %w", strategy, err, router.ErrPolicyPinUnavailable)
 	}
 	if result.SchemaVersion == SchemaVersionV4 || result.SchemaVersion == SchemaVersionV5 {
 		if r.armSelector == nil {
@@ -426,39 +427,40 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		return router.Decision{}, fmt.Errorf("%s: roster pin requires router-owned arm selection: %w", strategy, router.ErrPolicyPinUnavailable)
 	}
 	query := Query{
-		TaskDomain:            req.TaskDomain,
-		ClassifierPrediction:  req.ClassifierPrediction,
-		ArtifactSHA256:        pin.ArtifactSHA256,
-		SchemaVersion:         r.classifierSchemaVersion(),
-		ClassifierReleaseID:   r.config.ClassifierReleaseID,
-		ClassifierSelectionID: r.config.ClassifierSelectionID,
-		ClassifierVariantID:   r.config.ClassifierVariantID,
-		Strategy:              strategy,
-		ExecutionMode:         executionMode,
-		RouteID:               requestRouteID,
-		OrganizationID:        req.OrganizationID,
-		InstallationID:        req.InstallationID,
-		ClientApp:             req.ClientApp,
-		RolloutID:             req.RolloutID,
-		RequestedModel:        req.RequestedModel,
-		PromptText:            req.PromptText,
-		ConversationMessages:  req.ConversationMessages,
-		AvailableTools:        req.AvailableTools,
-		Tools:                 req.Tools,
-		FeedbackKey:           req.FeedbackKey,
-		FeedbackRole:          req.FeedbackRole,
-		ClientSessionID:       req.ClientSessionID,
-		TurnContext:           req.PolicyTurnContext,
-		EstimatedInputTokens:  req.EstimatedInputTokens,
-		HasTools:              req.HasTools,
-		HasImages:             req.HasImages,
-		RoutingIntent:         req.RoutingIntent,
-		PreferredModels:       req.PreferredModels,
-		RoutingKnobs:          req.RoutingKnobs,
-		TrainingAllowed:       req.TrainingAllowed,
-		CaptureMode:           req.CaptureMode,
-		DebugEnabled:          req.DebugEnabled,
-		Candidates:            resolved.Candidates,
+		TaskDomain:               req.TaskDomain,
+		ClassifierPrediction:     req.ClassifierPrediction,
+		ArtifactSHA256:           pin.ArtifactSHA256,
+		SchemaVersion:            r.classifierSchemaVersion(),
+		ClassifierReleaseID:      r.config.ClassifierReleaseID,
+		ClassifierSelectionID:    r.config.ClassifierSelectionID,
+		ClassifierVariantID:      r.config.ClassifierVariantID,
+		ClassifierArtifactSHA256: r.config.ClassifierArtifactSHA256,
+		Strategy:                 strategy,
+		ExecutionMode:            executionMode,
+		RouteID:                  requestRouteID,
+		OrganizationID:           req.OrganizationID,
+		InstallationID:           req.InstallationID,
+		ClientApp:                req.ClientApp,
+		RolloutID:                req.RolloutID,
+		RequestedModel:           req.RequestedModel,
+		PromptText:               req.PromptText,
+		ConversationMessages:     req.ConversationMessages,
+		AvailableTools:           req.AvailableTools,
+		Tools:                    req.Tools,
+		FeedbackKey:              req.FeedbackKey,
+		FeedbackRole:             req.FeedbackRole,
+		ClientSessionID:          req.ClientSessionID,
+		TurnContext:              req.PolicyTurnContext,
+		EstimatedInputTokens:     req.EstimatedInputTokens,
+		HasTools:                 req.HasTools,
+		HasImages:                req.HasImages,
+		RoutingIntent:            req.RoutingIntent,
+		PreferredModels:          req.PreferredModels,
+		RoutingKnobs:             req.RoutingKnobs,
+		TrainingAllowed:          req.TrainingAllowed,
+		CaptureMode:              req.CaptureMode,
+		DebugEnabled:             req.DebugEnabled,
+		Candidates:               resolved.Candidates,
 	}
 	query.InteractionStateInputs = r.classifierReadsInteractionStateInputs(capabilities)
 	res, err := r.decider.Decide(ctx, query)
@@ -474,11 +476,11 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		return router.Decision{}, fmt.Errorf("%s: sidecar served artifact %q, pin requires %q: %w", strategy, res.PolicyArtifactSHA256, pin.ArtifactSHA256, router.ErrPolicyPinUnavailable)
 	}
 	servedRosterSHA256 := res.RosterVersion
+	if err := r.validateClassifierReleaseIdentity(res.ClassifierReleaseID, res.ClassifierSelectionID, res.ClassifierVariantID, res.ClassifierTaxonomySHA256, res.PolicyArtifactID, res.PolicyArtifactSHA256); err != nil {
+		return router.Decision{}, fmt.Errorf("%s: invalid classifier release identity: %v: %w", strategy, err, router.ErrPolicyPinUnavailable)
+	}
 	if err := r.validateClassifierIdentity(res.PolicyArtifactID, res.PolicyArtifactSHA256); err != nil {
 		return router.Decision{}, fmt.Errorf("%s: invalid classifier identity: %v: %w", strategy, err, r.config.Unavailable)
-	}
-	if err := r.validateClassifierReleaseIdentity(res.ClassifierReleaseID, res.ClassifierSelectionID, res.ClassifierVariantID, res.ClassifierTaxonomySHA256); err != nil {
-		return router.Decision{}, fmt.Errorf("%s: invalid classifier release identity: %v: %w", strategy, err, router.ErrPolicyPinUnavailable)
 	}
 
 	overrideArmID := res.ArmID
@@ -853,12 +855,17 @@ func (r *SidecarRouter) validateClassifierIdentity(artifactID, artifactSHA256 st
 	return nil
 }
 
-func (r *SidecarRouter) validateClassifierReleaseIdentity(releaseID, selectionID string, variantID ClassifierVariantID, taxonomySHA256 string) error {
+// validateClassifierReleaseIdentity fails a v5 result unless it was served by
+// the exact admitted release, selection, variant, taxonomy and variant artifact.
+func (r *SidecarRouter) validateClassifierReleaseIdentity(releaseID, selectionID string, variantID ClassifierVariantID, taxonomySHA256, artifactID, artifactSHA256 string) error {
 	if r.config.ClassifierReleaseID == "" {
 		return nil
 	}
 	if releaseID != r.config.ClassifierReleaseID || selectionID != r.config.ClassifierSelectionID || variantID != r.config.ClassifierVariantID || taxonomySHA256 != r.config.ClassifierTaxonomySHA256 {
 		return fmt.Errorf("classifier release, selection, variant or taxonomy differs from admitted identity")
+	}
+	if artifactID != r.config.ClassifierArtifactID || artifactSHA256 != r.config.ClassifierArtifactSHA256 {
+		return fmt.Errorf("classifier artifact %q (%s) differs from admitted variant artifact %q (%s)", artifactID, artifactSHA256, r.config.ClassifierArtifactID, r.config.ClassifierArtifactSHA256)
 	}
 	return nil
 }
