@@ -103,3 +103,44 @@ func TestBlindExperimentWriterDropsWeaveCostFromStream(t *testing.T) {
 	assert.NotContains(t, out, "weave_cost")
 	assert.Contains(t, out, `"output_tokens":3`)
 }
+
+func TestBlindExperimentWriterRewritesCRLFFramedStream(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write([]byte("event: message_start\r\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"gpt-5.4-mini\"}}\r\n\r\n"))
+	require.NoError(t, err)
+	assert.Contains(t, rec.Body.String(), `"model":"claude-opus-4-7"`, "a complete CRLF record must be released without waiting for finish")
+	finish()
+
+	assert.NotContains(t, rec.Body.String(), "gpt-5.4-mini")
+	assert.True(t, strings.HasSuffix(rec.Body.String(), "\r\n\r\n"))
+}
+
+func TestBlindExperimentWriterFlushKeepsJSONBuffered(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmRouterOn), rec, []byte(blindRequestBody))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write([]byte(`{"id":"m","model":"gpt-5.`))
+	require.NoError(t, err)
+	w.(http.Flusher).Flush()
+	_, err = w.Write([]byte(`4-mini","content":[]}`))
+	require.NoError(t, err)
+	finish()
+
+	assert.NotContains(t, rec.Body.String(), "gpt-5.4-mini")
+	assert.Equal(t, "claude-opus-4-7", gjson.Get(rec.Body.String(), "model").String())
+}
+
+func TestBlindExperimentWriterRewritesGeminiModelVersion(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmPassthrough), rec, []byte(`{"model":"gemini-3-pro","contents":[]}`))
+	w.Header().Set("Content-Type", "application/json")
+	_, err := w.Write([]byte(`{"candidates":[],"modelVersion":"gemini-3-flash"}`))
+	require.NoError(t, err)
+	finish()
+
+	assert.Equal(t, "gemini-3-pro", gjson.Get(rec.Body.String(), "modelVersion").String())
+}

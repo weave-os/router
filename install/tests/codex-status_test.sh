@@ -611,6 +611,7 @@ for _ in $(seq 1 50); do
   [ "$(cat "$work"/cache-hidden/weave-router/codex/display-hidden-* 2>/dev/null)" = "1" ] && break
   sleep 0.1
 done
+[ "$(cat "$work"/cache-hidden/weave-router/codex/display-hidden-* 2>/dev/null)" = "1" ] || { echo "hidden display setting was never cached" >&2; exit 1; }
 sleep 0.3
 run_hidden_turn
 [ "$(cat "$title_file")" = "Codex" ] || { echo "hidden surfaces still rendered: $(cat "$title_file")" >&2; exit 1; }
@@ -618,9 +619,10 @@ printf '%s\n' '{"hook_event_name":"SessionStart","session_id":"session-3"}' \
   | HOME="$hidden_home" XDG_CACHE_HOME="$work/cache-hidden" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
 [ "$(cat "$title_file")" = "Codex" ] || { echo "hidden session start still branded: $(cat "$title_file")" >&2; exit 1; }
 
-stale_display="$(ls "$work"/cache-hidden/weave-router/codex/display-hidden-*)"
+stale_display="$(ls "$work"/cache-hidden/weave-router/codex/display-hidden-* | grep -v '\.refreshed$')"
 printf '0' >"$stale_display"
 touch -d '2 hours ago' "$stale_display"
+rm -f "$stale_display.refreshed"
 run_stale_turn() {
   printf '%s\n' '{"session_id":"session-4","model":"gpt-5.6-terra","last_assistant_message":"done"}' \
     | HOME="$hidden_home" XDG_CACHE_HOME="$work/cache-hidden" WEAVE_CODEX_STATUS_SAVINGS=0 WEAVE_CODEX_STATUS_CONTEXT=0 \

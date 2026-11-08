@@ -5547,11 +5547,14 @@ write_display_headers() {
 refresh_display_settings() {
   local base_url="$1" header_file="$2" max_time="$3" display_url display_body hidden="0" hidden_file
   hidden_file="$(display_hidden_file)"
-  display_url="${WEAVE_CODEX_DISPLAY_SETTINGS_URL:-${base_url%/}}"
-  case "$display_url" in
-    file://*) ;;
-    *) display_url="${display_url%/v1}/v1/display-settings" ;;
-  esac
+  display_url="${WEAVE_CODEX_DISPLAY_SETTINGS_URL:-}"
+  if [ -z "$display_url" ]; then
+    display_url="${base_url%/}"
+    case "$display_url" in
+      file://*) ;;
+      *) display_url="${display_url%/v1}/v1/display-settings" ;;
+    esac
+  fi
   display_body="$(curl -fsS --max-time "$max_time" --max-filesize 8192 -K "$header_file" "$display_url" 2>/dev/null)" || return 0
   [ "$(jq -r '.hide_terminal_surfaces // false' <<<"$display_body" 2>/dev/null)" = "true" ] && hidden="1"
   printf '%s' "$hidden" >"$hidden_file.tmp.$$" 2>/dev/null && mv "$hidden_file.tmp.$$" "$hidden_file" 2>/dev/null
@@ -5561,13 +5564,15 @@ refresh_display_settings() {
 # A cold cache fetches the setting once in the foreground, briefly, so a
 # subject whose surfaces are hidden never sees a branded first title.
 prime_display_settings() {
-  local endpoint header_file hidden_file mtime now
+  local hidden_file stamp mtime now
   hidden_file="$(display_hidden_file)"
   if [ -f "$hidden_file" ]; then
-    mtime="$(stat -c %Y "$hidden_file" 2>/dev/null || stat -f %m "$hidden_file" 2>/dev/null)" || mtime=0
+    stamp="$hidden_file.refreshed"
+    [ -f "$stamp" ] || stamp="$hidden_file"
+    mtime="$(stat -c %Y "$stamp" 2>/dev/null || stat -f %m "$stamp" 2>/dev/null)" || mtime=0
     now="$(date +%s 2>/dev/null)" || now=0
     [ $(( now - ${mtime:-0} )) -lt "${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-300}" ] && return 0
-    touch "$hidden_file" 2>/dev/null
+    touch "$hidden_file.refreshed" 2>/dev/null
     ( exec </dev/null >/dev/null 2>&1; prime_display_settings_now ) &
     return 0
   fi
@@ -7489,7 +7494,8 @@ weave_hidden_gate() {
   disown 2>/dev/null || true
   # A cold cache waits briefly for its first refresh so a subject whose
   # surfaces are hidden does not see one full render before the cache exists.
-  if [ ! -f "$cache" ]; then
+  if [ ! -f "$cache" ] && [ ! -f "$cache.cold-waited" ]; then
+    : >"$cache.cold-waited" 2>/dev/null
     local tries="${WEAVE_DISPLAY_SETTINGS_COLD_WAIT_TENTHS:-20}"
     while [ "$tries" -gt 0 ] && [ ! -f "$cache" ]; do
       sleep 0.1 2>/dev/null || break

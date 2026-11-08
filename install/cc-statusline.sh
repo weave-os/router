@@ -509,7 +509,8 @@ weave_hidden_gate() {
   disown 2>/dev/null || true
   # A cold cache waits briefly for its first refresh so a subject whose
   # surfaces are hidden does not see one full render before the cache exists.
-  if [ ! -f "$cache" ]; then
+  if [ ! -f "$cache" ] && [ ! -f "$cache.cold-waited" ]; then
+    : >"$cache.cold-waited" 2>/dev/null
     local tries="${WEAVE_DISPLAY_SETTINGS_COLD_WAIT_TENTHS:-20}"
     while [ "$tries" -gt 0 ] && [ ! -f "$cache" ]; do
       sleep 0.1 2>/dev/null || break

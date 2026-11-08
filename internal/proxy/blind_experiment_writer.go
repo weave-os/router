@@ -16,7 +16,7 @@ import (
 
 const routerResponseHeaderPrefix = "X-Router-"
 
-var blindExperimentModelPaths = []string{"model", "message.model", "response.model"}
+var blindExperimentModelPaths = []string{"model", "message.model", "response.model", "modelVersion"}
 
 var blindExperimentCostPaths = []string{"usage.weave_cost", "message.usage.weave_cost", "response.usage.weave_cost"}
 
@@ -72,22 +72,21 @@ func (b *blindExperimentWriter) Write(p []byte) (int, error) {
 	if !b.stream {
 		return len(p), nil
 	}
-	end := bytes.LastIndex(b.pending, []byte("\n\n"))
+	end := sseRecordEnd(b.pending)
 	if end < 0 {
 		return len(p), nil
 	}
-	ready := b.pending[:end+2]
+	ready := b.pending[:end]
 	if _, err := b.ResponseWriter.Write(rewriteSSEModel(ready, b.model)); err != nil {
 		return 0, err
 	}
-	b.pending = append(b.pending[:0], b.pending[end+2:]...)
+	b.pending = append(b.pending[:0], b.pending[end:]...)
 	return len(p), nil
 }
 
 func (b *blindExperimentWriter) Flush() {
-	if !b.stream && len(b.pending) > 0 {
-		b.release()
-		b.passthrough = true
+	if !b.stream && b.model != "" && !b.passthrough {
+		return
 	}
 	if f, ok := b.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
@@ -125,6 +124,18 @@ func stripRouterResponseHeaders(h http.Header) {
 	}
 }
 
+// sseRecordEnd returns the offset just past the last complete SSE record, or -1.
+func sseRecordEnd(buf []byte) int {
+	end := -1
+	if i := bytes.LastIndex(buf, []byte("\n\n")); i >= 0 {
+		end = i + 2
+	}
+	if i := bytes.LastIndex(buf, []byte("\r\n\r\n")); i >= 0 && i+4 > end {
+		end = i + 4
+	}
+	return end
+}
+
 func rewriteSSEModel(events []byte, model string) []byte {
 	if !bytes.Contains(events, []byte(`"model"`)) && !bytes.Contains(events, []byte(`"weave_cost"`)) {
 		return events
@@ -136,9 +147,14 @@ func rewriteSSEModel(events []byte, model string) []byte {
 			continue
 		}
 		trimmed := bytes.TrimLeft(payload, " ")
+		cr := bytes.HasSuffix(trimmed, []byte("\r"))
+		trimmed = bytes.TrimSuffix(trimmed, []byte("\r"))
 		rewritten := rewriteJSONModel(trimmed, model)
 		if !bytes.Equal(rewritten, trimmed) {
 			lines[i] = append([]byte("data: "), rewritten...)
+			if cr {
+				lines[i] = append(lines[i], '\r')
+			}
 		}
 	}
 	return bytes.Join(lines, []byte("\n"))
@@ -158,9 +174,6 @@ func rewriteJSONModel(doc []byte, model string) []byte {
 		}
 	}
 	for _, path := range blindExperimentCostPaths {
-		if !gjson.GetBytes(doc, path).Exists() {
-			continue
-		}
 		if out, err := sjson.DeleteBytes(doc, path); err == nil {
 			doc = out
 		}
