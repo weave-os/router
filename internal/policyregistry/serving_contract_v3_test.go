@@ -331,6 +331,70 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 	require.Equal(t, legacyQwen.PackageSHA256, qwenVariant.BundleSHA256)
 	require.Equal(t, qwenPolicy.SHA256, newPrepared.StrategyPolicies[router.StrategyHMMQwen].Reference.SHA256)
 
+	rosterProposal := forwardV4(policyregistry.ChangeRoster, rosterSet, candidateV3Ref)
+	activatedRoster, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, rosterProposal), "test-operator")
+	require.NoError(t, err)
+	sets := map[string]policyregistry.SelectionSetView{
+		v3Ref.SHA256:                       v3Set.View(v3Ref),
+		v4Ref.SHA256:                       selectionV4.View(v4Ref),
+		rosterProposal.SelectionSet.SHA256: rosterSet.View(rosterProposal.SelectionSet),
+	}
+	pinnedAt := servingEpoch.Add(3 * time.Second)
+	controls := policyregistry.RoutingControlsDigest([]string{"claude-opus-5-5"}, nil, nil, nil)
+	defaultProjection := policyregistry.AdmissionProjection{Target: v3Set.Target, RoutingControlsDigest: controls}
+	admit := func(previous *policyregistry.SessionReleaseBinding, projection policyregistry.AdmissionProjection, snapshot policyregistry.ServingStateSnapshot, now time.Time) policyregistry.SessionReleaseBinding {
+		t.Helper()
+		admitted, err := policyregistry.SelectSessionRelease(previous, projection, snapshot, sets, testRegistryRoot, now)
+		require.NoError(t, err)
+		return admitted
+	}
+
+	v3Pin := admit(nil, defaultProjection, activatedV3.Snapshot, pinnedAt)
+	v3Pin.RoutingModel = router.ModelQwen
+	activeV3 := admit(&v3Pin, defaultProjection, activatedV4.Snapshot, pinnedAt.Add(59*time.Minute))
+	require.Equal(t, v3Pin.ActivationID, activeV3.ActivationID, "a conversation active within the hour keeps its pre-v4 classifier pin across the migration")
+	require.Equal(t, v3Pin.Selection, activeV3.Selection)
+	idleV3 := admit(&v3Pin, defaultProjection, activatedV4.Snapshot, pinnedAt.Add(time.Hour))
+	require.Equal(t, activatedV4.Activation.ID, idleV3.ActivationID, "an hour idle rebinds to the v4 classifier selection")
+	require.Equal(t, selectionV4.View(v4Ref).Default, idleV3.Selection)
+	require.Equal(t, v3Pin.BindingGeneration+1, idleV3.BindingGeneration)
+	require.Equal(t, router.ModelQwen, idleV3.RoutingModel, "a same-target rebind keeps the conversation's classifier variant")
+
+	v4Pin := admit(nil, defaultProjection, activatedV4.Snapshot, pinnedAt)
+	require.Equal(t, v4Ref, v4Pin.Selection.Binding)
+	activeV4 := admit(&v4Pin, defaultProjection, activatedRoster.Snapshot, pinnedAt.Add(59*time.Minute))
+	require.Equal(t, v4Pin.Selection, activeV4.Selection, "a new v4 selection does not move a conversation active within the hour")
+	require.Equal(t, v4Pin.BindingGeneration, activeV4.BindingGeneration)
+	idleV4 := admit(&v4Pin, defaultProjection, activatedRoster.Snapshot, pinnedAt.Add(time.Hour))
+	require.Equal(t, rosterProposal.SelectionSet, idleV4.Selection.Binding, "an hour idle adopts the current v4 selection")
+	changedControls := defaultProjection
+	changedControls.RoutingControlsDigest = policyregistry.RoutingControlsDigest([]string{"claude-opus-5-5", "gpt-6-luna"}, nil, nil, nil)
+	rebound := admit(&v4Pin, changedControls, activatedRoster.Snapshot, pinnedAt.Add(time.Minute))
+	require.Equal(t, activatedRoster.Activation.ID, rebound.ActivationID, "changed routing controls rebind a pinned v4 conversation immediately")
+	require.Equal(t, rosterProposal.SelectionSet, rebound.Selection.Binding)
+	require.Equal(t, v4Pin.BindingGeneration+1, rebound.BindingGeneration)
+
+	profileOne := defaultProjection
+	profileOne.ProfileKey, profileOne.AssignmentGeneration = profileKeyOne, 1
+	profilePin := admit(nil, profileOne, activatedV4.Snapshot, pinnedAt)
+	require.Equal(t, selectionV4.View(v4Ref).Profiles[profileKeyOne], profilePin.Selection)
+	profileTwo := profileOne
+	profileTwo.ProfileKey, profileTwo.AssignmentGeneration = profileKeyTwo, 2
+	reassigned := admit(&profilePin, profileTwo, activatedV4.Snapshot, pinnedAt.Add(time.Minute))
+	require.Equal(t, profileKeyTwo, reassigned.ProfileKey, "a profile pin is never reused under another profile, even within the hour")
+	require.Equal(t, profilePin.BindingGeneration+1, reassigned.BindingGeneration)
+	preparedOne, err := policyregistry.ReadPreparedSelection(ctx, store, v3Set.Target, profileKeyOne, profilePin.Selection)
+	require.NoError(t, err)
+	preparedTwo, err := policyregistry.ReadPreparedSelection(ctx, store, v3Set.Target, profileKeyTwo, reassigned.Selection)
+	require.NoError(t, err)
+	require.Equal(t, selectionV4.Profiles[profileKeyOne].SHA256, preparedOne.PolicyReference.SHA256)
+	require.Equal(t, selectionV4.Profiles[profileKeyTwo].SHA256, preparedTwo.PolicyReference.SHA256)
+	require.NotEqual(t, preparedOne.PolicyReference.SHA256, preparedTwo.PolicyReference.SHA256, "profiles sharing one v4 selection set resolve their own policies")
+	unassigned := profileOne
+	unassigned.ProfileKey = "10000000-0000-4000-8000-000000000009"
+	_, err = policyregistry.SelectSessionRelease(nil, unassigned, activatedV4.Snapshot, sets, testRegistryRoot, pinnedAt)
+	require.ErrorContains(t, err, "default fallback is forbidden")
+
 	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, releaseRef.SHA256, testRuntimeBinding(policyregistry.EnvironmentStaging, releaseRef.SHA256))
 	_, err = policyregistry.ReadPreparedSelection(ctx, store, v3Set.Target, "", newSelection)
 	require.ErrorContains(t, err, "classifier runtime binding", "a binding for another environment cannot serve this target")
