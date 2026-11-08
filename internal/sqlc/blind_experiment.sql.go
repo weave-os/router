@@ -13,19 +13,11 @@ import (
 )
 
 const claimBlindExperimentSessionArm = `-- name: ClaimBlindExperimentSessionArm :one
-WITH inserted AS (
-    INSERT INTO router.blind_experiment_session_assignments (installation_id, session_key, arm)
-    VALUES ($1::uuid, $2::text, $3::text)
-    ON CONFLICT (installation_id, session_key) DO NOTHING
-    RETURNING arm
-)
-SELECT inserted.arm::text AS arm FROM inserted
-UNION ALL
-SELECT existing.arm::text AS arm
-FROM router.blind_experiment_session_assignments existing
-WHERE existing.installation_id = $1::uuid
-  AND existing.session_key = $2::text
-LIMIT 1
+INSERT INTO router.blind_experiment_session_assignments (installation_id, session_key, arm)
+VALUES ($1::uuid, $2::text, $3::text)
+ON CONFLICT (installation_id, session_key)
+    DO UPDATE SET arm = router.blind_experiment_session_assignments.arm
+RETURNING arm::text AS arm
 `
 
 type ClaimBlindExperimentSessionArmParams struct {
@@ -36,19 +28,11 @@ type ClaimBlindExperimentSessionArmParams struct {
 
 // ClaimBlindExperimentSessionArm
 //
-//	WITH inserted AS (
-//	    INSERT INTO router.blind_experiment_session_assignments (installation_id, session_key, arm)
-//	    VALUES ($1::uuid, $2::text, $3::text)
-//	    ON CONFLICT (installation_id, session_key) DO NOTHING
-//	    RETURNING arm
-//	)
-//	SELECT inserted.arm::text AS arm FROM inserted
-//	UNION ALL
-//	SELECT existing.arm::text AS arm
-//	FROM router.blind_experiment_session_assignments existing
-//	WHERE existing.installation_id = $1::uuid
-//	  AND existing.session_key = $2::text
-//	LIMIT 1
+//	INSERT INTO router.blind_experiment_session_assignments (installation_id, session_key, arm)
+//	VALUES ($1::uuid, $2::text, $3::text)
+//	ON CONFLICT (installation_id, session_key)
+//	    DO UPDATE SET arm = router.blind_experiment_session_assignments.arm
+//	RETURNING arm::text AS arm
 func (q *Queries) ClaimBlindExperimentSessionArm(ctx context.Context, arg ClaimBlindExperimentSessionArmParams) (string, error) {
 	row := q.db.QueryRow(ctx, claimBlindExperimentSessionArm, arg.InstallationID, arg.SessionKey, arg.Arm)
 	var arm string

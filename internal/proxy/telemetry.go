@@ -396,6 +396,9 @@ func applyBlindExperimentTelemetry(ctx context.Context, params *InsertTelemetryP
 	params.BlindExperimentAssignmentSource = state.AssignmentSource
 	params.BlindExperimentSubjectKey = state.CanonicalSubjectKey
 	params.BlindExperimentMode = state.Mode
+	if state.Mode == auth.BlindExperimentModeSession && state.SessionSubjectKey == "" {
+		params.BlindExperimentMode = auth.BlindExperimentModeUser
+	}
 	params.BlindExperimentSessionKey = state.SessionSubjectKey
 	if state.CohortExperimentID != "" {
 		phaseIndex := int16(state.CohortPhaseIndex)

@@ -56,7 +56,8 @@ func (s *Service) installationSessionExperiment(ctx context.Context, installatio
 		return BlindExperimentState{}, false
 	}
 	generation := s.blindExperimentCache.InstallationGeneration(installationID)
-	state, cached := s.blindExperimentCache.GetAtGeneration(installationID, "", generation)
+	cacheKey := "installation:" + installationID
+	state, cached := s.blindExperimentCache.GetAtGeneration(installationID, cacheKey, generation)
 	if !cached {
 		record, err := s.blindExperimentSessions.GetForInstallation(ctx, installationID)
 		if err != nil {
@@ -66,7 +67,7 @@ func (s *Service) installationSessionExperiment(ctx context.Context, installatio
 		if record.CohortExperimentID == "" {
 			state = resolveBlindExperiment(record, "")
 		}
-		s.blindExperimentCache.SetAtGeneration(installationID, "", state, generation)
+		s.blindExperimentCache.SetAtGeneration(installationID, cacheKey, state, generation)
 	}
 	return state, state.Active && state.Mode == BlindExperimentModeSession
 }
@@ -80,7 +81,7 @@ func (s *Service) frozenSessionArm(ctx context.Context, installationID, sessionS
 		return arm
 	}
 	arm, err := s.blindExperimentSessions.ClaimSessionArm(ctx, installationID, sessionSubjectKey, drawn)
-	if err != nil || (arm != BlindExperimentArmRouterOn && arm != BlindExperimentArmPassthrough) {
+	if err != nil {
 		observability.FromContext(ctx).Warn("Failed to record blind router experiment session arm; using the current draw", "installation_id", installationID, "err", err)
 		return drawn
 	}

@@ -551,6 +551,7 @@ func TestBlindExperimentCohortModeIgnoresSession(t *testing.T) {
 	service := auth.NewService(&fakeInstallationRepository{}, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}},
 		nil, users, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return now }).WithBlindExperiments(&fakeBlindExperimentRepository{record: auth.BlindExperimentRecord{
 		Configured: true, Enabled: true, RouterOnPercentage: 0, Seed: "seed", CanonicalSubjectKey: "account-7",
+		SessionMode:        true,
 		CohortExperimentID: "cohort-1", CohortGroupID: 1, CohortRevision: 1,
 		CohortStartsAt: now.Add(-time.Hour), CohortEndsAt: now.Add(time.Hour),
 		CohortSchedule: []auth.BlindExperimentPhase{{Index: 0, StartsAt: now.Add(-time.Hour), EndsAt: now.Add(time.Hour), Arm: auth.BlindExperimentArmRouterOn}},
@@ -562,15 +563,21 @@ func TestBlindExperimentCohortModeIgnoresSession(t *testing.T) {
 }
 
 type fakeBlindExperimentSessionRepo struct {
-	record auth.BlindExperimentRecord
-	arms   map[string]auth.BlindExperimentArm
+	record   auth.BlindExperimentRecord
+	arms     map[string]auth.BlindExperimentArm
+	claimErr error
+	reads    int
 }
 
 func (repo *fakeBlindExperimentSessionRepo) GetForInstallation(context.Context, string) (auth.BlindExperimentRecord, error) {
+	repo.reads++
 	return repo.record, nil
 }
 
 func (repo *fakeBlindExperimentSessionRepo) ClaimSessionArm(_ context.Context, _ string, sessionSubjectKey string, arm auth.BlindExperimentArm) (auth.BlindExperimentArm, error) {
+	if repo.claimErr != nil {
+		return "", repo.claimErr
+	}
 	if existing, found := repo.arms[sessionSubjectKey]; found {
 		return existing, nil
 	}
@@ -623,4 +630,34 @@ func TestBlindExperimentUserModeLeavesUnattributedSessionsUnassigned(t *testing.
 	_, active := auth.BlindExperimentFrom(service.WithBlindExperimentSession(context.Background(), "inst-1", auth.BlindExperimentSessionSubjectKey("key-1", "session-1")))
 	assert.False(t, active)
 	assert.Empty(t, sessions.arms)
+}
+
+func TestBlindExperimentSessionModeServesDrawWhenClaimFails(t *testing.T) {
+	record := auth.BlindExperimentRecord{
+		Configured: true, Enabled: true, RouterOnPercentage: 100, Seed: "seed",
+		CanonicalSubjectKey: "account-7", SessionMode: true,
+	}
+	sessions := &fakeBlindExperimentSessionRepo{arms: map[string]auth.BlindExperimentArm{}, claimErr: errors.New("database unavailable")}
+	service := sessionModeService(t, record).WithBlindExperimentSessions(sessions)
+	sessionKey := auth.BlindExperimentSessionSubjectKey("key-1", "session-1")
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, sessionArm(t, service, sessionKey).Arm)
+
+	sessions.claimErr = nil
+	sessions.arms[sessionKey] = auth.BlindExperimentArmPassthrough
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, sessionArm(t, service, sessionKey).Arm)
+}
+
+func TestBlindExperimentSessionModeCachesInstallationConfig(t *testing.T) {
+	sessions := &fakeBlindExperimentSessionRepo{
+		record: auth.BlindExperimentRecord{Configured: true, Enabled: true, RouterOnPercentage: 100, Seed: "seed", SessionMode: true},
+		arms:   map[string]auth.BlindExperimentArm{},
+	}
+	service := makeServiceWithUsers(t, &fakeUserRepo{}).
+		WithBlindExperiments(&fakeBlindExperimentRepository{}, auth.NewLRUBlindExperimentCache(16, time.Minute, time.Now)).
+		WithBlindExperimentSessions(sessions)
+	for _, sessionID := range []string{"session-1", "session-2", "session-3"} {
+		_, active := auth.BlindExperimentFrom(service.WithBlindExperimentSession(context.Background(), "inst-1", auth.BlindExperimentSessionSubjectKey("key-1", sessionID)))
+		require.True(t, active)
+	}
+	assert.Equal(t, 1, sessions.reads)
 }

@@ -4,7 +4,8 @@ ALTER TABLE router.blind_router_experiment_configurations
     ADD COLUMN session_mode BOOLEAN NOT NULL DEFAULT FALSE;
 
 ALTER TABLE router.model_router_request_telemetry
-    ADD COLUMN blind_experiment_mode VARCHAR(16),
+    ADD COLUMN blind_experiment_mode VARCHAR(16)
+        CHECK (blind_experiment_mode IN ('user', 'cohort', 'session')),
     ADD COLUMN blind_experiment_session_key VARCHAR(128);
 
 CREATE TABLE router.blind_experiment_session_assignments (
@@ -15,8 +16,5 @@ CREATE TABLE router.blind_experiment_session_assignments (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (installation_id, session_key)
 );
-
-CREATE INDEX blind_experiment_session_assignments_created_at_idx
-    ON router.blind_experiment_session_assignments (created_at);
 
 COMMIT;
