@@ -123,9 +123,16 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 	})
 }
 
-func (s *Service) recordEscalationJudgeInference(installationID, requestID string, job llmescalation.Job, judgment llmescalation.Judgment) {
-	if s.telemetry == nil || installationID == "" || !judgment.Usage.Known {
+func (s *Service) recordEscalationJudgeInference(installationID, requestID string, mode llmescalation.Mode, job llmescalation.Job, judgment llmescalation.Judgment, failure llmescalation.FailureCode) {
+	succeeded := failure == llmescalation.FailureNone
+	if s.telemetry == nil || installationID == "" || (!judgment.Usage.Known && !succeeded) {
 		return
+	}
+	verdict := ""
+	if succeeded && judgment.Escalate {
+		verdict = "escalate"
+	} else if succeeded {
+		verdict = "continue"
 	}
 	inputCost, outputCost := 0.0, 0.0
 	if pricing, found := catalog.PriceFor(job.Provider, job.Model); found {
@@ -136,19 +143,22 @@ func (s *Service) recordEscalationJudgeInference(installationID, requestID strin
 		inputCost, outputCost = judgment.CostUSD, 0
 	}
 	s.fireTelemetry(InsertTelemetryParams{
-		InstallationID:      installationID,
-		RequestID:           requestID + "_escalation_judge_" + job.ID,
-		SpanType:            SpanTypePlatformAuxiliaryInference,
-		TraceID:             requestID,
-		Timestamp:           time.Now(),
-		DecisionModel:       job.Model,
-		DecisionProvider:    job.Provider,
-		DecisionReason:      decisionReasonEscalationJudge,
-		InputTokens:         int32(judgment.Usage.InputTokens),
-		OutputTokens:        int32(judgment.Usage.OutputTokens),
-		CacheReadTokens:     cacheTokenPtr(judgment.Usage.CacheReadTokens),
-		ActualInputCostUSD:  inputCost,
-		ActualOutputCostUSD: outputCost,
-		SessionID:           job.Lifetime,
+		InstallationID:   installationID,
+		RequestID:        requestID + "_escalation_judge_" + job.ID,
+		SpanType:         SpanTypePlatformAuxiliaryInference,
+		TraceID:          requestID,
+		Timestamp:        time.Now(),
+		DecisionModel:    job.Model,
+		DecisionProvider: job.Provider,
+		DecisionReason:   decisionReasonEscalationJudge,
+		// The verdict rides the durable telemetry row because session state is swept.
+		ClassifierArtifactID:     string(mode) + "/" + job.Version,
+		ClassifierPredictedLabel: verdict,
+		InputTokens:              int32(judgment.Usage.InputTokens),
+		OutputTokens:             int32(judgment.Usage.OutputTokens),
+		CacheReadTokens:          cacheTokenPtr(judgment.Usage.CacheReadTokens),
+		ActualInputCostUSD:       inputCost,
+		ActualOutputCostUSD:      outputCost,
+		SessionID:                job.Lifetime,
 	})
 }
