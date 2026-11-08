@@ -410,10 +410,24 @@ func requestRootRequestsCodexTitleSchema(root gjson.Result) bool {
 const (
 	codexTitlePromptMarker          = "you are generating a short conversation title."
 	codexDirectResponsePromptMarker = "respond directly to the user's prompt"
+	codexThreadTitleSource          = "thread_title"
 )
 
+// requestRootCodexTurnIsThreadTitle reads the turn origin Codex app-server
+// stamps on every request. Codex Desktop titles a thread with a hidden
+// structured turn whose origin is "thread_title".
+func requestRootCodexTurnIsThreadTitle(root gjson.Result) bool {
+	metadata := root.Get("client_metadata.x-codex-turn-metadata")
+	if metadata.Type != gjson.String || !gjson.Valid(metadata.Str) {
+		return false
+	}
+	turn := gjson.Parse(metadata.Str)
+	return turn.Get("thread_source").Str == codexThreadTitleSource ||
+		turn.Get("turn_trigger").Str == codexThreadTitleSource
+}
+
 func requestRootRequestsCodexTitle(root gjson.Result) bool {
-	if requestRootRequestsCodexTitleSchema(root) {
+	if requestRootRequestsCodexTitleSchema(root) || requestRootCodexTurnIsThreadTitle(root) {
 		return true
 	}
 	text, ok := freshCodexResponsesUserText(root.Get("input"))
