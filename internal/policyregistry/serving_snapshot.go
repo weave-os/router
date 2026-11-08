@@ -148,11 +148,15 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 		ClassifierAudience: prepared.Binding.Classifier.Audience,
 	}
 	if prepared.ClassifierReleaseV5 != nil && prepared.ClassifierServiceBinding != nil {
+		if prepared.ClassifierRuntimeBinding == nil {
+			return nil, errors.New("v4 selection has no classifier runtime binding")
+		}
 		candidate.ClassifierReleaseV5 = prepared.ClassifierReleaseV5
 		candidate.ClassifierReleaseID = prepared.ClassifierServiceBinding.Release.SHA256
 		candidate.ClassifierSelectionID = admission.Selection.Binding.SHA256
-		candidate.ClassifierServiceURL = prepared.ClassifierServiceBinding.ServiceURL
-		candidate.ClassifierAudience = prepared.ClassifierServiceBinding.Audience
+		candidate.ClassifierWorkerURL = prepared.ClassifierRuntimeBinding.Binding.WorkerURL
+		candidate.ClassifierWorkerAudience = prepared.ClassifierRuntimeBinding.Binding.WorkerAudience
+		candidate.ClassifierRuntimeBinding = prepared.ClassifierRuntimeBinding.Ref
 		candidate.ClassifierEnabledVariants = slices.Clone(prepared.ClassifierServiceBinding.EnabledVariants)
 		candidate.SupportedAPIMajors = slices.Clone(prepared.Candidate.SupportedAPIMajors)
 		candidate.ClassifierSupportedVariants = make([]routerpolicy.ClassifierVariantID, 0, len(prepared.ClassifierReleaseV5.Variants))

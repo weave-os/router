@@ -139,6 +139,12 @@ func TestCandidateV3AndSelectionSetV4KeepPhysicalClassifierOutOfTargetSet(t *tes
 	require.NoError(t, candidate.Validate(classifierContractRegistryRoot))
 	require.NoError(t, selectionSet.Validate(classifierContractRegistryRoot))
 
+	selectionSet.Classifier.ServiceURL, selectionSet.Classifier.Audience = "", ""
+	require.NoError(t, selectionSet.Validate(classifierContractRegistryRoot), "a gateway-free selection defers dispatch to the runtime binding")
+	selectionSet.Classifier.ServiceURL = "http://classifier-gateway.example"
+	require.ErrorContains(t, selectionSet.Validate(classifierContractRegistryRoot), "stable HTTPS service origin", "historical gateway fields stay validated when present")
+	selectionSet.Classifier = classifierBinding
+
 	selectionSet.Classifier.EnabledVariants = []policy.ClassifierVariantID{
 		policy.ClassifierVariantPrimary, policy.ClassifierVariantQwen,
 	}

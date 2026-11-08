@@ -257,6 +257,7 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 		},
 	}
 	v4Ref := store.publishArtifact(t, policyregistry.ServingSelectionSet, selectionV4)
+	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, releaseRef.SHA256, testRuntimeBinding(policyregistry.EnvironmentProd, releaseRef.SHA256))
 	activateV4 := policyregistry.DeploymentProposalV2{
 		SchemaVersion: policyregistry.ServingProposalV2, Target: v3Set.Target,
 		PreviousSelectionSet: &activatedV3.Activation.SelectionSet,
@@ -287,9 +288,23 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 	require.NoError(t, err)
 	require.Equal(t, artifactRef("build-attestation"), newPrepared.Candidate.ClassifierReleaseV5.Provenance.BuildAttestation)
 	require.Equal(t, releaseRef.SHA256, newPrepared.ClassifierServiceBinding.Release.SHA256)
+	require.NotNil(t, newPrepared.ClassifierRuntimeBinding)
+	require.Equal(t, testClassifierWorkerURL, newPrepared.ClassifierRuntimeBinding.Binding.WorkerURL, "v5 dispatch targets the release's worker revision, not the selection's gateway")
+	require.Equal(t, testClassifierWorkerAudience, newPrepared.ClassifierRuntimeBinding.Binding.WorkerAudience)
+	require.Equal(t, policyregistry.ClassifierRuntimeBindingURI(testRegistryRoot, policyregistry.EnvironmentProd, releaseRef.SHA256), newPrepared.ClassifierRuntimeBinding.Ref.URI)
 	qwenVariant := newPrepared.ClassifierReleaseV5.Variants[policy.ClassifierVariantQwen]
 	require.Equal(t, legacyQwen.ArtifactID, qwenVariant.ArtifactID)
 	require.Equal(t, legacyQwen.PackageSHA256, qwenVariant.BundleSHA256)
 	require.Equal(t, qwenPolicy.SHA256, newPrepared.StrategyPolicies[router.StrategyHMMQwen].Reference.SHA256)
 	require.Equal(t, v3Set.Profiles, selectionV4.Profiles, "V3 policy profiles remain assigned during the V4 migration")
+
+	stagingBinding := testRuntimeBinding(policyregistry.EnvironmentStaging, releaseRef.SHA256)
+	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, releaseRef.SHA256, stagingBinding)
+	_, err = policyregistry.ReadPreparedSelection(ctx, store, v3Set.Target, "", newSelection)
+	require.ErrorContains(t, err, "classifier runtime binding", "a binding for another environment cannot serve this target")
+	store.deleteRuntimeBinding(policyregistry.EnvironmentProd, releaseRef.SHA256)
+	_, err = policyregistry.ReadPreparedSelection(ctx, store, v3Set.Target, "", newSelection)
+	require.ErrorIs(t, err, policyregistry.ErrNotFound, "a v4 selection without a runtime binding fails closed")
+	_, err = policyregistry.ReadPreparedSelection(ctx, store, v3Set.Target, "", oldSelection)
+	require.NoError(t, err, "legacy selections never consult runtime bindings")
 }

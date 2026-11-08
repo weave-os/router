@@ -145,12 +145,15 @@ func buildHMMPolicyRoutersV5(
 	if taskResolver != nil {
 		classifierOptions = append(classifierOptions, policyclient.WithTaskDomain(taskResolver))
 	}
+	if candidate.ClassifierWorkerURL == "" || candidate.ClassifierWorkerAudience == "" {
+		return nil, errors.New("v5 classifier runtime binding has no worker URL or audience")
+	}
 	classifierClient, err := buildHMMPolicyClientWithGoogleIDTokenFactory(
-		candidate.ClassifierServiceURL,
+		candidate.ClassifierWorkerURL,
 		authMode,
 		timeout,
 		func(url string, timeout time.Duration, options ...policyclient.Option) (*policyclient.Client, error) {
-			return policyclient.NewGoogleIDTokenForAudience(url, candidate.ClassifierAudience, timeout, options...)
+			return policyclient.NewGoogleIDTokenForAudience(url, candidate.ClassifierWorkerAudience, timeout, options...)
 		},
 		classifierOptions...,
 	)

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/servingvalidate"
 )
 
@@ -171,4 +172,52 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
+}
+
+func TestClassifierWorkerAttestationUsesRuntimeBindingWorker(t *testing.T) {
+	releaseID := strings.Repeat("a", 64)
+	selectionID := strings.Repeat("b", 64)
+	capabilities := policyregistry.ClassifierServiceAttestation{
+		SchemaVersion: "policy_router_v5", APIMajor: 5, ClassifierSelectionID: selectionID, ClassifierReleaseID: releaseID,
+		WireSchema: "policy_router_v5", ClassOrder: []string{"fast"}, TaxonomySHA256: strings.Repeat("c", 64),
+		ClassifierVariants: []policy.ClassifierVariantID{policy.ClassifierVariantPrimary}, SupportsPreview: true,
+	}
+	worker := policyregistry.ClassifierWorkerAttestation{
+		SchemaVersion: policyregistry.ClassifierWorkerAttestationSchemaV1, Status: policyregistry.ClassifierWorkerReady,
+		Environment: policyregistry.EnvironmentStaging, ReleaseID: releaseID, WorkerRevision: "router-classifier-worker-00001-abc",
+		ImageDigest: "sha256:" + strings.Repeat("6", 64), ConfigurationSHA256: strings.Repeat("5", 64),
+		Variants: map[policy.ClassifierVariantID]policyregistry.ClassifierWorkerVariantAttestation{
+			policy.ClassifierVariantPrimary: {ArtifactID: "hmm", ArtifactSHA256: strings.Repeat("d", 64)},
+		},
+	}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, http.MethodGet, r.Method)
+		require.Equal(t, "Bearer private-identity", r.Header.Get("X-Serverless-Authorization"))
+		switch r.URL.Path {
+		case "/v5/capabilities":
+			require.Equal(t, selectionID, r.URL.Query().Get("classifier_selection_id"))
+			require.Equal(t, releaseID, r.URL.Query().Get("classifier_release_id"))
+			require.NoError(t, json.NewEncoder(w).Encode(capabilities))
+		case policyregistry.ClassifierAttestationPath:
+			require.Equal(t, releaseID, r.URL.Query().Get("release_id"))
+			require.NoError(t, json.NewEncoder(w).Encode(worker))
+		default:
+			t.Errorf("unexpected classifier worker path %q", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	audience := "https://router-classifier-worker-abc-uc.a.run.app"
+	client, err := servingvalidate.New(server.Client(), func(_ context.Context, got string) (string, error) {
+		require.Equal(t, audience, got, "the worker token is minted for the binding's worker audience")
+		return "private-identity", nil
+	}, "worker-secret")
+	require.NoError(t, err)
+	binding := policyregistry.ClassifierRuntimeBinding{ReleaseSHA256: releaseID, WorkerRevision: worker.WorkerRevision, WorkerURL: server.URL, WorkerAudience: audience}
+	observedCapabilities, err := client.AttestClassifierService(context.Background(), binding, selectionID)
+	require.NoError(t, err)
+	require.Equal(t, capabilities, observedCapabilities)
+	observedWorker, err := client.AttestClassifierWorker(context.Background(), binding)
+	require.NoError(t, err)
+	require.Equal(t, worker, observedWorker)
 }

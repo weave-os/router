@@ -643,6 +643,50 @@ type servingMemoryStore struct {
 	casErr       error
 	casCalls     int
 	artifacts    map[policyregistry.ObjectRef][]byte
+	// runtimeBindings models the publisher-owned runtime_bindings/ objects; each put is a new generation.
+	runtimeBindings map[string]storedRuntimeBinding
+}
+
+type storedRuntimeBinding struct {
+	payload    []byte
+	generation int64
+}
+
+func (s *servingMemoryStore) putRuntimeBinding(t *testing.T, environment policyregistry.Environment, releaseSHA256 string, binding map[string]any) {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.runtimeBindings == nil {
+		s.runtimeBindings = make(map[string]storedRuntimeBinding)
+	}
+	key := string(environment) + "/" + releaseSHA256
+	s.runtimeBindings[key] = storedRuntimeBinding{payload: encodeRuntimeBinding(t, binding), generation: s.runtimeBindings[key].generation + 1}
+}
+
+func (s *servingMemoryStore) deleteRuntimeBinding(environment policyregistry.Environment, releaseSHA256 string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.runtimeBindings, string(environment)+"/"+releaseSHA256)
+}
+
+func (s *servingMemoryStore) ReadClassifierRuntimeBinding(_ context.Context, environment policyregistry.Environment, releaseSHA256 string) (policyregistry.ResolvedClassifierRuntimeBinding, error) {
+	s.mu.Lock()
+	stored, exists := s.runtimeBindings[string(environment)+"/"+releaseSHA256]
+	s.mu.Unlock()
+	if !exists {
+		return policyregistry.ResolvedClassifierRuntimeBinding{}, policyregistry.ErrNotFound
+	}
+	binding, err := policyregistry.DecodeClassifierRuntimeBinding(stored.payload, environment, releaseSHA256)
+	if err != nil {
+		return policyregistry.ResolvedClassifierRuntimeBinding{}, err
+	}
+	return policyregistry.ResolvedClassifierRuntimeBinding{
+		Ref: policyregistry.ObjectRef{
+			URI:    policyregistry.ClassifierRuntimeBindingURI(testRegistryRoot, environment, releaseSHA256),
+			SHA256: policyregistry.Digest(stored.payload), Generation: stored.generation,
+		},
+		Binding: binding,
+	}, nil
 }
 
 func newServingMemoryStore() *servingMemoryStore {

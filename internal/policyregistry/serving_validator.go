@@ -34,7 +34,7 @@ type WorkerAttestation struct {
 	Ready              bool                        `json:"ready"`
 }
 
-// ClassifierServiceAttestation is the strict v5 capability contract returned by the stable gateway.
+// ClassifierServiceAttestation is the strict v5 capability contract returned by a classifier worker.
 type ClassifierServiceAttestation struct {
 	SchemaVersion         string                       `json:"schema_version"`
 	APIMajor              policy.ClassifierAPIMajor    `json:"api_major"`
@@ -45,6 +45,30 @@ type ClassifierServiceAttestation struct {
 	TaxonomySHA256        string                       `json:"classifier_taxonomy_sha256"`
 	ClassifierVariants    []policy.ClassifierVariantID `json:"classifier_variants"`
 	SupportsPreview       bool                         `json:"supports_preview"`
+}
+
+// ClassifierWorkerAttestationSchemaV1 is the worker revision identity schema.
+const ClassifierWorkerAttestationSchemaV1 = "router_classifier_worker_attestation_v1"
+
+// ClassifierWorkerReady is the only status a worker may report for activation.
+const ClassifierWorkerReady = "ready"
+
+// ClassifierWorkerVariantAttestation is one variant artifact a worker revision loaded.
+type ClassifierWorkerVariantAttestation struct {
+	ArtifactID     string `json:"artifact_id"`
+	ArtifactSHA256 string `json:"artifact_sha256"`
+}
+
+// ClassifierWorkerAttestation reports the release, image and configuration one tagged worker revision loaded.
+type ClassifierWorkerAttestation struct {
+	SchemaVersion       string                                                            `json:"schema_version"`
+	Status              string                                                            `json:"status"`
+	Environment         Environment                                                       `json:"environment"`
+	ReleaseID           string                                                            `json:"release_id"`
+	WorkerRevision      string                                                            `json:"worker_revision"`
+	ImageDigest         string                                                            `json:"image_digest"`
+	ConfigurationSHA256 string                                                            `json:"configuration_sha256"`
+	Variants            map[policy.ClassifierVariantID]ClassifierWorkerVariantAttestation `json:"variants"`
 }
 
 // ClassifierAttestation includes the complete loaded bundle so auxiliary/config changes cannot hide behind image reuse.
@@ -63,9 +87,11 @@ type DestinationEndpoints interface {
 	AttestClassifier(context.Context, RevisionBinding) (ClassifierAttestation, error)
 }
 
-// ClassifierServiceAttestationEndpoints validates a logical release through the stable gateway.
+// ClassifierServiceAttestationEndpoints validates a logical release on the worker revision its
+// runtime binding names: v5 capabilities for the selection, then the worker's loaded identity.
 type ClassifierServiceAttestationEndpoints interface {
-	AttestClassifierService(context.Context, ClassifierServiceBinding, string, string) (ClassifierServiceAttestation, error)
+	AttestClassifierService(context.Context, ClassifierRuntimeBinding, string) (ClassifierServiceAttestation, error)
+	AttestClassifierWorker(context.Context, ClassifierRuntimeBinding) (ClassifierWorkerAttestation, error)
 }
 
 // DestinationValidator validates destination runtime capabilities rather than the controller's catalog.
@@ -95,7 +121,12 @@ type ActivationScopedValidator interface {
 // BeginActivation returns a validator whose destination attestations are memoized for the lanes
 // of one activation only.
 func (v DestinationValidator) BeginActivation() ActivationValidator {
-	return &activationValidator{endpoints: v.Endpoints, classifiers: map[RevisionBinding]classifierAttestationResult{}, workers: map[workerAttestationKey]workerAttestationResult{}}
+	return &activationValidator{
+		endpoints: v.Endpoints, classifiers: map[RevisionBinding]classifierAttestationResult{},
+		classifierServices: map[classifierServiceAttestationKey]classifierServiceAttestationResult{},
+		classifierWorkers:  map[classifierWorkerKey]classifierWorkerAttestationResult{},
+		workers:            map[workerAttestationKey]workerAttestationResult{},
+	}
 }
 
 // workerAttestationKey identifies one worker attestation. ValidateWorkerSelection derives the
@@ -139,13 +170,38 @@ type activationValidator struct {
 	endpoints          DestinationEndpoints
 	classifiers        map[RevisionBinding]classifierAttestationResult
 	classifierServices map[classifierServiceAttestationKey]classifierServiceAttestationResult
+	classifierWorkers  map[classifierWorkerKey]classifierWorkerAttestationResult
 	workers            map[workerAttestationKey]workerAttestationResult
 	stats              ValidationStats
 }
 
+// classifierWorkerKey is the comparable dispatch identity of a runtime binding.
+type classifierWorkerKey struct {
+	Environment         Environment
+	ReleaseSHA256       string
+	WorkerRevision      string
+	WorkerURL           string
+	WorkerAudience      string
+	ImageDigest         string
+	ConfigurationSHA256 string
+}
+
+func newClassifierWorkerKey(binding ClassifierRuntimeBinding) classifierWorkerKey {
+	return classifierWorkerKey{
+		Environment: binding.Environment, ReleaseSHA256: binding.ReleaseSHA256, WorkerRevision: binding.WorkerRevision,
+		WorkerURL: binding.WorkerURL, WorkerAudience: binding.WorkerAudience, ImageDigest: binding.ImageDigest,
+		ConfigurationSHA256: binding.ConfigurationSHA256,
+	}
+}
+
 type classifierServiceAttestationKey struct {
+	Worker      classifierWorkerKey
 	SelectionID string
-	ReleaseID   string
+}
+
+type classifierWorkerAttestationResult struct {
+	attestation ClassifierWorkerAttestation
+	err         error
 }
 
 type classifierServiceAttestationResult struct {
@@ -173,21 +229,39 @@ func (a *activationValidator) AttestClassifier(ctx context.Context, binding Revi
 	return attestation, err
 }
 
-func (a *activationValidator) AttestClassifierService(ctx context.Context, binding ClassifierServiceBinding, selectionID, releaseID string) (ClassifierServiceAttestation, error) {
-	key := classifierServiceAttestationKey{SelectionID: selectionID, ReleaseID: releaseID}
+func (a *activationValidator) AttestClassifierService(ctx context.Context, binding ClassifierRuntimeBinding, selectionID string) (ClassifierServiceAttestation, error) {
+	key := classifierServiceAttestationKey{Worker: newClassifierWorkerKey(binding), SelectionID: selectionID}
 	if memoized, exists := a.classifierServices[key]; exists {
 		a.stats.CacheHits++
 		return memoized.attestation, memoized.err
 	}
 	endpoints, ok := a.endpoints.(ClassifierServiceAttestationEndpoints)
 	if !ok {
-		return ClassifierServiceAttestation{}, errors.New("classifier service attestation endpoint is required for v5 selections")
+		return ClassifierServiceAttestation{}, errClassifierServiceEndpointsRequired
 	}
 	a.stats.HTTPCalls++
-	attestation, err := endpoints.AttestClassifierService(ctx, binding, selectionID, releaseID)
+	attestation, err := endpoints.AttestClassifierService(ctx, binding, selectionID)
 	a.classifierServices[key] = classifierServiceAttestationResult{attestation: attestation, err: err}
 	return attestation, err
 }
+
+func (a *activationValidator) AttestClassifierWorker(ctx context.Context, binding ClassifierRuntimeBinding) (ClassifierWorkerAttestation, error) {
+	key := newClassifierWorkerKey(binding)
+	if memoized, exists := a.classifierWorkers[key]; exists {
+		a.stats.CacheHits++
+		return memoized.attestation, memoized.err
+	}
+	endpoints, ok := a.endpoints.(ClassifierServiceAttestationEndpoints)
+	if !ok {
+		return ClassifierWorkerAttestation{}, errClassifierServiceEndpointsRequired
+	}
+	a.stats.HTTPCalls++
+	attestation, err := endpoints.AttestClassifierWorker(ctx, binding)
+	a.classifierWorkers[key] = classifierWorkerAttestationResult{attestation: attestation, err: err}
+	return attestation, err
+}
+
+var errClassifierServiceEndpointsRequired = errors.New("classifier worker attestation endpoints are required for v5 selections")
 
 func (a *activationValidator) ValidateWorker(ctx context.Context, binding RevisionBinding, request WorkerValidationRequest) (WorkerAttestation, error) {
 	key := newWorkerAttestationKey(binding, request)
@@ -251,24 +325,41 @@ func (v DestinationValidator) ValidatePreparedSelection(ctx context.Context, pre
 }
 
 func validateClassifierServiceAttestation(ctx context.Context, endpoints DestinationEndpoints, prepared PreparedSelection) error {
-	if prepared.ClassifierReleaseV5 == nil {
-		return errors.New("v5 selection has no logical classifier release")
+	if prepared.ClassifierReleaseV5 == nil || prepared.ClassifierRuntimeBinding == nil {
+		return errors.New("v5 selection has no logical classifier release or runtime binding")
 	}
 	attestor, ok := endpoints.(ClassifierServiceAttestationEndpoints)
 	if !ok {
-		return errors.New("classifier service attestation endpoint is required for v5 selections")
+		return errClassifierServiceEndpointsRequired
 	}
 	selectionID := prepared.Selection.Binding.SHA256
 	release := prepared.ClassifierReleaseV5
-	attestation, err := attestor.AttestClassifierService(ctx, *prepared.ClassifierServiceBinding, selectionID, prepared.ClassifierServiceBinding.Release.SHA256)
+	releaseID := prepared.ClassifierServiceBinding.Release.SHA256
+	binding := prepared.ClassifierRuntimeBinding.Binding
+	worker, err := attestor.AttestClassifierWorker(ctx, binding)
 	if err != nil {
-		return fmt.Errorf("attest logical classifier service release %q: %w", prepared.ClassifierServiceBinding.Release.SHA256, err)
+		return fmt.Errorf("attest classifier worker revision %q: %w", binding.WorkerRevision, err)
+	}
+	if worker.SchemaVersion != ClassifierWorkerAttestationSchemaV1 || worker.Status != ClassifierWorkerReady || worker.Environment != binding.Environment ||
+		worker.ReleaseID != releaseID || worker.WorkerRevision != binding.WorkerRevision || worker.ImageDigest != binding.ImageDigest ||
+		worker.ConfigurationSHA256 != binding.ConfigurationSHA256 {
+		return errors.New("classifier worker readiness, revision, image or configuration differs from the release runtime binding")
+	}
+	for _, variantID := range prepared.ClassifierServiceBinding.EnabledVariants {
+		loaded, expected := worker.Variants[variantID], release.Variants[variantID]
+		if loaded.ArtifactID != expected.ArtifactID || loaded.ArtifactSHA256 != expected.ArtifactSHA256 {
+			return fmt.Errorf("classifier worker variant %q artifact differs from the selected release", variantID)
+		}
+	}
+	attestation, err := attestor.AttestClassifierService(ctx, binding, selectionID)
+	if err != nil {
+		return fmt.Errorf("attest logical classifier service release %q: %w", releaseID, err)
 	}
 	if attestation.SchemaVersion != policy.SchemaVersionV5 || attestation.APIMajor != release.APIMajor || attestation.WireSchema != release.WireSchema ||
-		attestation.ClassifierSelectionID != selectionID || attestation.ClassifierReleaseID != prepared.ClassifierServiceBinding.Release.SHA256 ||
+		attestation.ClassifierSelectionID != selectionID || attestation.ClassifierReleaseID != releaseID ||
 		attestation.TaxonomySHA256 != release.Taxonomy.SHA256 || !slices.Equal(attestation.ClassOrder, release.Taxonomy.ClassOrder) ||
 		!slices.Equal(attestation.ClassifierVariants, prepared.ClassifierServiceBinding.EnabledVariants) || !attestation.SupportsPreview {
-		return errors.New("classifier gateway readiness or v5 capabilities differ from the selected release binding")
+		return errors.New("classifier worker readiness or v5 capabilities differ from the selected release binding")
 	}
 	return nil
 }

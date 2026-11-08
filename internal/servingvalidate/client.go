@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	maxAttestationBytes      = 1 << 20
-	privateValidationTimeout = 2 * time.Minute
+	maxAttestationBytes        = 1 << 20
+	privateValidationTimeout   = 2 * time.Minute
+	classifierCapabilitiesPath = "/v5/capabilities"
 )
 
 // TokenSource mints a Google identity token for the revision's IAM service audience.
@@ -57,6 +58,26 @@ func (c *Client) AttestClassifier(ctx context.Context, revision policyregistry.R
 	var attestation policyregistry.ClassifierAttestation
 	err := c.call(ctx, revision, http.MethodGet, policyregistry.ClassifierAttestationPath, nil, &attestation)
 	return attestation, err
+}
+
+// AttestClassifierService reads a selection's v5 capabilities from the release's runtime-bound worker revision.
+func (c *Client) AttestClassifierService(ctx context.Context, binding policyregistry.ClassifierRuntimeBinding, selectionID string) (policyregistry.ClassifierServiceAttestation, error) {
+	query := url.Values{"classifier_selection_id": {selectionID}, "classifier_release_id": {binding.ReleaseSHA256}}
+	var attestation policyregistry.ClassifierServiceAttestation
+	err := c.call(ctx, classifierWorkerRevision(binding), http.MethodGet, classifierCapabilitiesPath+"?"+query.Encode(), nil, &attestation)
+	return attestation, err
+}
+
+// AttestClassifierWorker reads the release, image and configuration the runtime-bound worker revision loaded.
+func (c *Client) AttestClassifierWorker(ctx context.Context, binding policyregistry.ClassifierRuntimeBinding) (policyregistry.ClassifierWorkerAttestation, error) {
+	query := url.Values{"release_id": {binding.ReleaseSHA256}}
+	var attestation policyregistry.ClassifierWorkerAttestation
+	err := c.call(ctx, classifierWorkerRevision(binding), http.MethodGet, policyregistry.ClassifierAttestationPath+"?"+query.Encode(), nil, &attestation)
+	return attestation, err
+}
+
+func classifierWorkerRevision(binding policyregistry.ClassifierRuntimeBinding) policyregistry.RevisionBinding {
+	return policyregistry.RevisionBinding{Name: binding.WorkerRevision, URL: binding.WorkerURL, Audience: binding.WorkerAudience}
 }
 
 func (c *Client) call(ctx context.Context, revision policyregistry.RevisionBinding, method, path string, payload []byte, attestation any) error {

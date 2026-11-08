@@ -174,11 +174,13 @@ func (c CandidateV3) Validate(root string) error {
 	return c.Provenance.validate()
 }
 
-// ClassifierServiceBinding is one immutable target's gateway, release and variant allowlist.
+// ClassifierServiceBinding is one immutable target's logical release and variant allowlist.
+// ServiceURL and Audience are retired gateway fields: accepted for historical selections but
+// never dispatched to; the release's runtime binding names the worker.
 type ClassifierServiceBinding struct {
 	Release         ObjectRef                    `json:"release"`
-	ServiceURL      string                       `json:"service_url"`
-	Audience        string                       `json:"audience"`
+	ServiceURL      string                       `json:"service_url,omitempty"`
+	Audience        string                       `json:"audience,omitempty"`
 	EnabledVariants []policy.ClassifierVariantID `json:"enabled_variants"`
 }
 
@@ -196,6 +198,9 @@ func (b ClassifierServiceBinding) validate(root string) error {
 		if variantID != policy.ClassifierVariantPrimary && variantID != policy.ClassifierVariantHMMBeta && variantID != policy.ClassifierVariantQwen {
 			return fmt.Errorf("unsupported enabled classifier variant %q", variantID)
 		}
+	}
+	if b.ServiceURL == "" && b.Audience == "" {
+		return nil
 	}
 	serviceURL, err := url.Parse(b.ServiceURL)
 	if err != nil || serviceURL.Scheme != "https" || serviceURL.Host == "" || serviceURL.User != nil || serviceURL.Path != "" || serviceURL.RawQuery != "" || serviceURL.Fragment != "" {

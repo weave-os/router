@@ -32,13 +32,16 @@ type Loader interface {
 
 // Candidate is a fully read and cross-validated release awaiting runtime construction.
 type Candidate struct {
-	AuxiliaryModels             map[string]ObjectRef
-	HeadSnapshot                HeadSnapshot
-	Release                     Release
-	ClassifierReleaseV5         *ClassifierReleaseManifestV1
-	ClassifierReleaseID         string
-	ClassifierSelectionID       string
-	ClassifierServiceURL        string
+	AuxiliaryModels       map[string]ObjectRef
+	HeadSnapshot          HeadSnapshot
+	Release               Release
+	ClassifierReleaseV5   *ClassifierReleaseManifestV1
+	ClassifierReleaseID   string
+	ClassifierSelectionID string
+	// ClassifierWorkerURL and ClassifierWorkerAudience come only from the release's runtime binding.
+	ClassifierWorkerURL         string
+	ClassifierWorkerAudience    string
+	ClassifierRuntimeBinding    ObjectRef
 	ClassifierSupportedVariants []policy.ClassifierVariantID
 	ClassifierEnabledVariants   []policy.ClassifierVariantID
 	SupportedAPIMajors          []policy.ClassifierAPIMajor

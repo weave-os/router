@@ -25,6 +25,7 @@ type ServingStore interface {
 	ReadServingPolicy(context.Context, ObjectRef) (*rosterdata.Roster, error)
 	ReadServingState(context.Context, ServingTarget) (ServingStateSnapshot, error)
 	CompareAndSwapServingState(context.Context, ServingControlState, int64) (ServingStateSnapshot, error)
+	ReadClassifierRuntimeBinding(context.Context, Environment, string) (ResolvedClassifierRuntimeBinding, error)
 }
 
 // ServingValidationStore additionally verifies audit/provenance artifacts by exact immutable reference.
@@ -46,6 +47,8 @@ type PreparedSelection struct {
 	Binding                  LaneBinding
 	ClassifierReleaseV5      *ClassifierReleaseManifestV1
 	ClassifierServiceBinding *ClassifierServiceBinding
+	// ClassifierRuntimeBinding is the worker revision serving a v4 selection's release in the target's environment.
+	ClassifierRuntimeBinding *ResolvedClassifierRuntimeBinding
 	Policy                   *rosterdata.Roster
 	PolicyReference          PolicyObject
 	StrategyPolicies         map[router.Strategy]StrategyPolicy
@@ -940,7 +943,9 @@ func readLane(ctx context.Context, store ServingStore, target ServingTarget, pro
 
 // ReadPreparedSelection reads and cross-validates one exact tuple without consulting mutable heads.
 // v1 selections traverse release, binding, classifier and profile objects; v2 selections read the
-// lane embedded in their selection set. V3 supplies the policy independently of code.
+// lane embedded in their selection set. V3 supplies the policy independently of code. V4 also
+// resolves the release's runtime binding for the target's environment, the only source of the
+// classifier worker URL and audience.
 func ReadPreparedSelection(ctx context.Context, store ServingStore, target ServingTarget, profileKey string, selection ServingSelection) (PreparedSelection, error) {
 	if err := selection.validate(store.RootURI(), profileKey != ""); err != nil {
 		return PreparedSelection{}, err
@@ -950,6 +955,7 @@ func ReadPreparedSelection(ctx context.Context, store ServingStore, target Servi
 	var policyReference PolicyObject
 	var classifierReleaseV5 *ClassifierReleaseManifestV1
 	var classifierServiceBinding *ClassifierServiceBinding
+	var classifierRuntimeBinding *ResolvedClassifierRuntimeBinding
 	if selection.isLane(store.RootURI()) {
 		lane, configuredPolicy, err := readLane(ctx, store, target, profileKey, selection)
 		if err != nil {
@@ -969,6 +975,9 @@ func ReadPreparedSelection(ctx context.Context, store ServingStore, target Servi
 			}
 			classifierReleaseV5 = lane.classifierReleaseV5
 			classifierServiceBinding = lane.classifierServiceBinding
+			if classifierRuntimeBinding, err = readClassifierRuntimeBinding(ctx, store, target, classifierServiceBinding.Release.SHA256); err != nil {
+				return PreparedSelection{}, err
+			}
 		} else {
 			if candidate, err = readCandidate(ctx, store, lane.Candidate); err != nil {
 				return PreparedSelection{}, err
@@ -1033,6 +1042,22 @@ func ReadPreparedSelection(ctx context.Context, store ServingStore, target Servi
 	return PreparedSelection{
 		Selection: selection, ProfileKey: profileKey, Target: target, Candidate: candidate,
 		Binding: binding, ClassifierReleaseV5: classifierReleaseV5, ClassifierServiceBinding: classifierServiceBinding,
-		Policy: policy, PolicyReference: policyReference, StrategyPolicies: strategyPolicies,
+		ClassifierRuntimeBinding: classifierRuntimeBinding,
+		Policy:                   policy, PolicyReference: policyReference, StrategyPolicies: strategyPolicies,
 	}, nil
+}
+
+func readClassifierRuntimeBinding(ctx context.Context, store ServingStore, target ServingTarget, releaseSHA256 string) (*ResolvedClassifierRuntimeBinding, error) {
+	environment, err := target.Environment()
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := store.ReadClassifierRuntimeBinding(ctx, environment, releaseSHA256)
+	if err != nil {
+		return nil, fmt.Errorf("resolve classifier runtime binding for release %s in %s: %w", releaseSHA256, environment, err)
+	}
+	if resolved.Binding.ReleaseSHA256 != releaseSHA256 || resolved.Binding.Environment != environment || !validDigest(resolved.Ref.SHA256) || resolved.Ref.Generation <= 0 {
+		return nil, errors.New("classifier runtime binding differs from the selected release or environment")
+	}
+	return &resolved, nil
 }
