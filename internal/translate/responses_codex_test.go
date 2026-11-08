@@ -128,7 +128,7 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexDesktopTitleG
 		schema     string
 		wantTitled bool
 	}{
-		{name: "thread title source", metadata: codexDesktopTitleTurnMetadataJSONString("thread_title", "thread_title"), schema: titleSchema, wantTitled: true},
+		{name: "thread title source", metadata: codexDesktopTitleTurnMetadataJSONString("thread_title", "user"), schema: titleSchema, wantTitled: true},
 		{name: "forked title turn", metadata: codexDesktopTitleTurnMetadataJSONString("user", "thread_title"), wantTitled: true},
 		{name: "ordinary user turn with title schema", metadata: codexDesktopTitleTurnMetadataJSONString("user", "user"), schema: titleSchema},
 		{name: "title schema without metadata", schema: titleSchema},
