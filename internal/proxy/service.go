@@ -74,6 +74,7 @@ type Service struct {
 
 	router             router.Router
 	subscriptionModels subscriptionModelAccess
+	claudePlans        *subscriptions.PlanResolver
 	sessionHolds       subscriptionSessionHolds
 	// strategies contains every non-default router and its optional lifecycle
 	// reporters. Adding a strategy does not require another Service field.
@@ -111,6 +112,8 @@ type Service struct {
 	llmEscalationJudge         llmescalation.Judge
 	qwenEscalationJudge        llmescalation.Judge
 	llmEscalationSlots         chan struct{}
+	llmEscalationShadowSlots   chan struct{}
+	escalationShadowDefault    flags.EscalationClassifier
 	llmEscalationConfiguration llmescalation.ConfigurationStore
 	llmEscalationInvalidate    func(string)
 	llmEscalationActiveEnabled bool
@@ -704,7 +707,8 @@ type policyOutcomeResponse struct {
 }
 
 // suppressMarkerIfRequested returns "" when the request opted out via
-// routingMarkerHeader or the installation has hidden terminal surfaces;
+// routingMarkerHeader, the installation has hidden terminal surfaces, or the
+// caller is in an active blind experiment;
 // otherwise it returns marker unchanged. Safety and control-flow markers
 // (no-progress, loop, and force-model) do not use this helper.
 func suppressMarkerIfRequested(ctx context.Context, h http.Header, marker string) string {
@@ -1149,7 +1153,11 @@ func subscriptionFundingOutOfPlayForRequest(ctx context.Context) bool {
 }
 
 // hideTerminalSurfacesForRequest reports whether terminal surfaces are hidden for this request.
+// Blind experiment subjects never see routing surfaces, whichever arm they are in.
 func hideTerminalSurfacesForRequest(ctx context.Context) bool {
+	if _, active := auth.BlindExperimentFrom(ctx); active {
+		return true
+	}
 	hide, _ := ctx.Value(InstallationHideTerminalSurfacesContextKey{}).(bool)
 	return hide
 }
@@ -2681,13 +2689,20 @@ func clientRequestedModel(ctx context.Context, requested string) string {
 	if !router.IsRoutingModel(requested) {
 		return requested
 	}
+	if baseline := clientBaselineModel(ctx); baseline != "" {
+		return baseline
+	}
+	return requested
+}
+
+func clientBaselineModel(ctx context.Context) string {
 	switch ClientIdentityFrom(ctx).ClientApp {
 	case ClientAppClaudeCode:
 		return "claude-opus-5-5"
 	case ClientAppCodex:
 		return "gpt-6.1-sol"
 	}
-	return requested
+	return ""
 }
 
 // baselineFor returns the client's requested model if it has a pricing entry,
@@ -3837,6 +3852,8 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 var anthropicPingFrame = []byte(sseEvent("ping", `{"type":"ping"}`))
 
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
+	defer finishBlindExperimentWriter()
 	// A machine search helper inherits conversation headers but must never
 	// apply a conversation-level force pin, even before bridge interception.
 	if websearch.IsClaudeCodeWebSearchHelper(body) {
@@ -4169,7 +4186,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// runTurnLoop's switch-handover rewrite.
 	inboundToolCallCount := len(env.AssistantToolCallSignatures())
 	inboundLastUser := env.LastUserMessage()
-	inboundUserPrompt := env.EndsWithUserPrompt()
+	inboundUserPrompt := routingEndsWithUserPrompt(ctx, env)
 	inboundLatestToolCalls := latestToolCallCountsJSON(env)
 
 	// Hard exclusions run first so a model the request can never use does not
@@ -4212,6 +4229,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	hardExcluded := append(append(append([]string(nil), geminiUnsigned...), advisorOutranking...), imageLimitExcluded...)
 
 	routeStart := time.Now()
+	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText, embedFlag)
 	req := router.Request{
 		RequestedModel:               feats.Model,
 		ClientBudget:                 clientBudget,
@@ -4224,8 +4242,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		TranslationRequirements:      env.TranslationRequirements(router.EndpointAnthropicMessages),
 		ReasoningConfigurationSHA256: env.ReasoningConfigurationSHA256(),
 		ToolConfigurationSHA256:      env.ToolConfigurationSHA256(),
-		PromptText:                   promptText,
-		ConversationMessages:         conversationMessagesForRouting(env),
+		PromptText:                   routingPromptText,
+		ConversationMessages:         routingMessages,
 		AvailableTools:               availableToolsForRouting(env),
 		Tools:                        toolsForRouting(env),
 		OrganizationID:               externalID,
@@ -4554,6 +4572,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	applyPlannerAttrs(decisionBuilder, routeRes)
 	applyRoutingStateAttrs(decisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, decisionBuilder)
+	applyBlindExperimentOutcomeAttrs(ctx, decisionBuilder, &routeRes, feats.Model, routeRes.Decision.Model)
 	otel.Record(ctx, otel.Span{
 		Name:  "router.decision",
 		Start: requestStart,
@@ -5784,6 +5803,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	applyPlannerAttrs(upstreamBuilder, routeRes)
 	applyRoutingStateAttrs(upstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, upstreamBuilder)
+	applyBlindExperimentOutcomeAttrs(ctx, upstreamBuilder, &routeRes, feats.Model, decision.Model)
 	applyEffortAttrs(upstreamBuilder, effortServed)
 	s.applySubscriptionSpanTelemetry(ctx, upstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, upstreamBuilder)
@@ -7281,6 +7301,8 @@ const (
 // ProxyOpenAIChatCompletion routes an OpenAI Chat Completion request,
 // translating cross-format when the decision picks a non-OpenAI provider.
 func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
+	defer finishBlindExperimentWriter()
 	ctx = withAttemptTrace(ctx, body, r.Header)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
 	ctx, returnErr = s.withClassifierInput(ctx, body, router.EndpointOpenAIChat)
@@ -7410,6 +7432,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	requestBodyChanged := false
 	if s.pinStore != nil {
 		if cmd, hasCmd := env.ExtractForceModelCommand(); hasCmd {
+			if routingEnv := routingEnvelopeForRequest(ctx, env); routingEnv != env {
+				routingEnv.ExtractForceModelCommand()
+			}
 			log.Info("ProxyOpenAIChatCompletion force-model command", "force_model_cmd", cmd)
 			if cmd.FromToolResult {
 				var err error
@@ -7428,6 +7453,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 	if cmd, hasCmd := env.ExtractRouterFeedbackCommand(); hasCmd {
+		if routingEnv := routingEnvelopeForRequest(ctx, env); routingEnv != env {
+			routingEnv.ExtractRouterFeedbackCommand()
+		}
 		log.Info("ProxyOpenAIChatCompletion router-feedback command")
 		skillFeedback, _ := ctx.Value(codexFeedbackSkillContextKey{}).(bool)
 		synthetic := !cmd.FromToolResult || skillFeedback
@@ -7467,6 +7495,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if sanitized := env.SanitizeOrphanedToolCalls(); sanitized > 0 {
 		log.Info("Sanitized orphaned tool calls before dispatch", "sanitized", sanitized)
 		requestBodyChanged = true
+	}
+	if routingEnv := routingEnvelopeForRequest(ctx, env); routingEnv != env {
+		routingEnv.CoalesceDuplicateToolResults()
+		routingEnv.SanitizeOrphanedToolCalls()
 	}
 	if requestBodyChanged {
 		feats = env.RoutingFeatures(embedFlag)
@@ -7556,7 +7588,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Snapshot the inbound tool-output size before any env rewrite
 	// (runTurnLoop's switch handover); see toolResultBytesPtr.
 	inboundLastUser := env.LastUserMessage()
-	inboundUserPromptOAI := env.EndsWithUserPrompt()
+	inboundUserPromptOAI := routingEndsWithUserPrompt(ctx, env)
 
 	excludedOAI, geminiUnsignedOAI := excludeGemini3xOnUnsignedHistory(env, baseExcludedOAI, s.availableModels)
 	if len(geminiUnsignedOAI) > 0 {
@@ -7587,6 +7619,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		)
 	}
 
+	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText, embedFlag)
 	routeRequest := router.Request{
 		RequestedModel:               feats.Model,
 		ForceModel:                   forceModel,
@@ -7598,8 +7631,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		TranslationRequirements:      env.TranslationRequirements(router.EndpointOpenAIChat),
 		ReasoningConfigurationSHA256: reasoningConfigurationHash,
 		ToolConfigurationSHA256:      toolConfigurationHash,
-		PromptText:                   promptText,
-		ConversationMessages:         conversationMessagesForRouting(env),
+		PromptText:                   routingPromptText,
+		ConversationMessages:         routingMessages,
 		AvailableTools:               availableToolsForRouting(env),
 		Tools:                        toolsForRouting(env),
 		// Keep this tied to client-visible history so a later feedback command
@@ -7759,6 +7792,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	applyPlannerAttrs(openaiDecisionBuilder, routeRes)
 	applyRoutingStateAttrs(openaiDecisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, openaiDecisionBuilder)
+	applyBlindExperimentOutcomeAttrs(ctx, openaiDecisionBuilder, &routeRes, feats.Model, routeRes.Decision.Model)
 	otel.Record(ctx, otel.Span{
 		Name:  "router.decision",
 		Start: requestStart,
@@ -8180,6 +8214,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					preludeBuf.Seal()
 				}
 				err := p.Proxy(actx, d, prep, proxyWriter, r)
+				if nativeTerminal != nil && nativeTerminal.observed && errors.Is(err, context.Canceled) {
+					err = nil
+				}
 				if seedToolCalls != nil {
 					err = finalizeAfterProxy(err, seedToolCalls.Finalize)
 					if n := seedToolCalls.ConvertedToolCalls(); n > 0 {
@@ -8259,9 +8296,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				surface := surfaceChat
 				if d.Provider == providers.ProviderOpenAI {
 					switch {
-					case responsesPassthrough:
+					// Native bytes need a passthrough writer. One set up for a
+					// cross-family pick only parses Chat Completions chunks, so an
+					// OpenAI attempt that replaces it is translated back instead.
+					case responsesPassthrough && (!isResponses || responsesWriter.Passthrough()):
 						surface = surfaceResponsesNative
-					case translateToResponses || servedOnCodexSubscription(actx):
+					case responsesPassthrough || translateToResponses || servedOnCodexSubscription(actx):
 						surface = surfaceResponsesTranslated
 					}
 				}
@@ -8478,7 +8518,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// credits are intact, so its throttle rolls over like any other.
 	codexRetryViable := decision.Provider == providers.ProviderOpenAI &&
 		servedOnCodexSubscription(ctx) &&
-		!blindExperimentPassthroughActive(ctx) &&
 		!paidFallbackForbiddenForModel(ctx, decision.Model) &&
 		s.openaiFallbackKeyAvailable(ctx)
 	// OpenAI-compatible callers can route to Anthropic too; give their Claude
@@ -8486,7 +8525,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// as /v1/messages.
 	claudeRetryViable := decision.Provider == providers.ProviderAnthropic &&
 		servedOnSubscription(ctx) &&
-		!blindExperimentPassthroughActive(ctx) &&
 		!paidFallbackForbiddenForModel(ctx, decision.Model) &&
 		s.anthropicFallbackKeyAvailable(ctx)
 
@@ -9042,6 +9080,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	applyPlannerAttrs(openaiUpstreamBuilder, routeRes)
 	applyRoutingStateAttrs(openaiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, openaiUpstreamBuilder)
+	applyBlindExperimentOutcomeAttrs(ctx, openaiUpstreamBuilder, &routeRes, feats.Model, decision.Model)
 	applyEffortAttrs(openaiUpstreamBuilder, effortServed)
 	s.applySubscriptionSpanTelemetry(ctx, openaiUpstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, openaiUpstreamBuilder)
@@ -9298,6 +9337,8 @@ func stripResponsesTerminalArtifacts(body []byte) ([]byte, error) {
 // re-emitted as Responses-shaped SSE / JSON. This keeps the turn loop, cache,
 // pricing, and translation matrix unchanged.
 func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
+	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
+	defer finishBlindExperimentWriter()
 	ctx = withAttemptTrace(ctx, body, r.Header)
 	ctx = context.WithValue(ctx, responsesSurfaceContextKey{}, true)
 	ctx, inputErr := s.withClassifierInput(ctx, body, router.EndpointOpenAIResponses)
@@ -9338,6 +9379,12 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		return fmt.Errorf("translate responses request: %w", err)
 	}
 	chatBody, model := conversion.Body, conversion.Model
+	if len(conversion.RoutingBody) > 0 {
+		ctx, err = withResponsesRoutingEnvelope(ctx, conversion.RoutingBody)
+		if err != nil {
+			return err
+		}
+	}
 	if conversion.Requirements.NativeOnly {
 		observability.FromContext(ctx).Info("Responses request restricted to its native wire family",
 			"native_only_reasons", nativeOnlyReasons(conversion.Report, conversionBody))

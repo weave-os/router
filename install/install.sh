@@ -4077,7 +4077,39 @@ run_login_claude() {
   external_account_id="${account_uuid}:${organization_uuid}"
   body="$(jq -nc --arg provider claude --arg account "$external_account_id" --arg token "$refresh_token" --arg label "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $label != "" then .display_name = $label else . end')"
   models_api POST "/v1/subscriptions/accounts" "$body" || models_fail "enrolling Claude subscription"
+  forget_plan_warning claude
   ok "Claude subscription enrolled."
+}
+
+# A new login supersedes the statusline's cached "needs login" warning for
+# that provider in every install, without waiting for the next refresh. Each
+# edit holds the refresh's lock, so a fetch that predates the login cannot
+# land afterwards, and keeps the file's mtime, so the remaining providers'
+# warnings expire on their own schedule.
+forget_plan_warning() {
+  local provider="$1" file lock plans owned tries
+  for file in "${XDG_CACHE_HOME:-$HOME/.cache}"/weave-router/display-settings*.plans; do
+    [ -f "$file" ] || continue
+    lock="${file%.plans}.lock"
+    owned=false tries=0
+    while [ "$tries" -lt 10 ]; do
+      if mkdir "$lock" 2>/dev/null; then owned=true; break; fi
+      tries=$((tries + 1))
+      sleep 1
+    done
+    plans="$(cat "$file" 2>/dev/null)"
+    case " $plans " in
+      *" $provider "*)
+        plans="$(printf '%s' "$plans" | tr ' ' '\n' | grep -vx -- "$provider" | tr '\n' ' ' | sed 's/ *$//')" || true
+        printf '%s' "$plans" >"$file.tmp.$$" 2>/dev/null \
+          && touch -r "$file" "$file.tmp.$$" 2>/dev/null \
+          && mv "$file.tmp.$$" "$file" 2>/dev/null
+        rm -f "$file.tmp.$$" 2>/dev/null
+        ;;
+    esac
+    [ "$owned" = false ] || rmdir "$lock" 2>/dev/null
+  done
+  return 0
 }
 
 run_login_codex() {
@@ -4123,6 +4155,7 @@ run_login_codex() {
   fi
   body="$(jq -nc --arg provider codex --arg account "$account_id" --arg token "$refresh_token" --arg label "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $label != "" then .display_name = $label else . end')"
   models_api POST "/v1/subscriptions/accounts" "$body" || models_fail "enrolling Codex subscription"
+  forget_plan_warning codex
   ok "Codex subscription enrolled."
 }
 
@@ -5499,8 +5532,93 @@ helper_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)"
 disabled_marker="$helper_dir/.weave-router-disabled"
 router_badge_sentinel=$'⁣⁠⁣⁠'
 
+display_hidden_file() {
+  printf '%s/display-hidden-%s' "$state_root" "$(printf '%s' "$helper_dir" | cksum | tr -c '0-9' '-')"
+}
+
+write_display_headers() {
+  printf 'header = "X-Weave-Router-Key: %s"\n' "$2" >"$1"
+  case "$3" in
+    ''|*[!A-Za-z0-9@._+-]*) ;;
+    *) printf 'header = "X-Weave-User-Email: %s"\n' "$3" >>"$1" ;;
+  esac
+}
+
+refresh_display_settings() {
+  local base_url="$1" header_file="$2" max_time="$3" display_url display_body hidden="0" hidden_file
+  hidden_file="$(display_hidden_file)"
+  display_url="${WEAVE_CODEX_DISPLAY_SETTINGS_URL:-}"
+  if [ -z "$display_url" ]; then
+    display_url="${base_url%/}"
+    case "$display_url" in
+      file://*) ;;
+      *) display_url="${display_url%/v1}/v1/display-settings" ;;
+    esac
+  fi
+  display_body="$(curl -fsS --max-time "$max_time" --max-filesize 8192 -K "$header_file" "$display_url" 2>/dev/null)" || return 0
+  [ "$(jq -r '.hide_terminal_surfaces // false' <<<"$display_body" 2>/dev/null)" = "true" ] && hidden="1"
+  printf '%s' "$hidden" >"$hidden_file.tmp.$$" 2>/dev/null && mv "$hidden_file.tmp.$$" "$hidden_file" 2>/dev/null
+  rm -f "$hidden_file.tmp.$$" 2>/dev/null
+}
+
+# A cold cache fetches the setting once in the foreground, briefly, so a
+# subject whose surfaces are hidden never sees a branded first title.
+display_file_younger_than() {
+  local mtime now
+  [ -f "$1" ] || return 1
+  mtime="$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null)" || return 1
+  now="$(date +%s 2>/dev/null)" || return 1
+  [ $(( now - mtime )) -lt "$2" ]
+}
+
+# A cold cache, or a hidden setting past its grace window, fetches in the
+# foreground; a merely stale setting refreshes in the background. Failed
+# fetches are rate-limited by the .refreshed stamp.
+prime_display_settings() {
+  local hidden_file stamp
+  hidden_file="$(display_hidden_file)"
+  stamp="$hidden_file.refreshed"
+  [ -f "$stamp" ] || [ ! -f "$hidden_file" ] || stamp="$hidden_file"
+  display_file_younger_than "$stamp" "${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-300}" && return 0
+  if [ -f "$hidden_file" ] && { [ "$(cat "$hidden_file" 2>/dev/null)" != "1" ] \
+    || display_file_younger_than "$hidden_file" "${WEAVE_DISPLAY_SETTINGS_HIDDEN_GRACE_SECONDS:-604800}"; }; then
+    touch "$hidden_file.refreshed" 2>/dev/null
+    ( exec </dev/null >/dev/null 2>&1; prime_display_settings_now ) &
+    return 0
+  fi
+  prime_display_settings_now
+}
+
+prime_display_settings_now() {
+  local endpoint header_file
+  endpoint="$(read_codex_endpoint)" || return 0
+  [ -n "$endpoint" ] || return 0
+  mkdir -p "$state_root" 2>/dev/null || return 0
+  touch "$(display_hidden_file).refreshed" 2>/dev/null
+  header_file="$(mktemp "$state_root/.headers.XXXXXX")" || return 0
+  chmod 600 "$header_file"
+  write_display_headers "$header_file" "$(printf '%s' "$endpoint" | sed -n 2p)" "$(printf '%s' "$endpoint" | sed -n 3p)"
+  refresh_display_settings "$(printf '%s' "$endpoint" | sed -n 1p)" "$header_file" 2
+  rm -f "$header_file"
+}
+
+codex_surfaces_hidden() {
+  local hidden_file
+  prime_display_settings
+  hidden_file="$(display_hidden_file)"
+  if [ ! -f "$hidden_file" ]; then
+    display_file_younger_than "$hidden_file.refreshed" "${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-300}"
+    return
+  fi
+  [ "$(cat "$hidden_file" 2>/dev/null)" = "1" ] || return 1
+  display_file_younger_than "$hidden_file" "${WEAVE_DISPLAY_SETTINGS_HIDDEN_GRACE_SECONDS:-604800}"
+}
+
 emit_title() {
   local title="$1"
+  case "$title" in
+    "Weave Router"*) if codex_surfaces_hidden; then title="Codex"; fi ;;
+  esac
   if [ -n "${WEAVE_CODEX_STATUS_TITLE_FILE:-}" ]; then
     printf '%s\n' "$title" >"$WEAVE_CODEX_STATUS_TITLE_FILE"
   elif { [ -t 2 ] || [ "${async_title_enabled:-0}" = "1" ]; } && [ -w /dev/tty ]; then
@@ -5718,7 +5836,12 @@ read_codex_endpoint() {
       sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
       if (key == "") key = v
     }
-    END { if (url != "" && key != "") printf "%s\n%s\n", url, key }
+    match($0, /"?X-Weave-User-Email"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      v = substr($0, RSTART, RLENGTH)
+      sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
+      if (email == "") email = v
+    }
+    END { if (url != "" && key != "") printf "%s\n%s\n%s\n", url, key, email }
   ' "$config" 2>/dev/null || true
 }
 
@@ -5731,10 +5854,11 @@ refresh_session_cost() {
   [ "${WEAVE_CODEX_STATUS_SAVINGS:-1}" = "0" ] && [ "${WEAVE_CODEX_STATUS_CONTEXT:-1}" = "0" ] && return 0
   command -v curl >/dev/null 2>&1 || return 0
 
-  local endpoint base_url key active_file state_lock
+  local endpoint base_url key email active_file state_lock
   endpoint="$(read_codex_endpoint)" || return 0
   base_url="$(printf '%s' "$endpoint" | sed -n 1p)"
   key="$(printf '%s' "$endpoint" | sed -n 2p)"
+  email="$(printf '%s' "$endpoint" | sed -n 3p)"
   [ -n "$base_url" ] && [ -n "$key" ] || return 0
 
   mkdir -p "$state_root" 2>/dev/null || return 0
@@ -5767,7 +5891,8 @@ refresh_session_cost() {
     esac
     header_file="$(mktemp "$state_root/.headers.XXXXXX")" || exit 0
     chmod 600 "$header_file"
-    printf 'header = "X-Weave-Router-Key: %s"\n' "$key" >"$header_file"
+    write_display_headers "$header_file" "$key" "$email"
+    refresh_display_settings "$base_url" "$header_file" 5
     if ! body="$(curl -fsS --max-time 5 --max-filesize 8192 -K "$header_file" "$url" 2>/dev/null)"; then
       rm -f "$header_file"
       exit 0
@@ -7249,21 +7374,33 @@ weave_hidden_gate() {
   local cache="$cache_dir/display-settings${script_slug}"
   local ttl="${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-3600}"
 
-  # Linked plans that need a fresh login, from the last successful refresh.
-  weave_disconnected_plans="$(cat "$cache.plans" 2>/dev/null)"
-
-  local now mtime fresh="false"
+  local grace="${WEAVE_DISPLAY_SETTINGS_HIDDEN_GRACE_SECONDS:-604800}"
+  local now mtime fresh="false" stale_hidden="false"
   now="$(date +%s 2>/dev/null)" || now=0
+
+  # Linked plans that need a fresh login. Only a refresh within the TTL is
+  # trusted: an older list may name a plan that has since recovered.
+  weave_disconnected_plans=""
+  if [ -f "$cache.plans" ]; then
+    mtime="$(stat -c %Y "$cache.plans" 2>/dev/null || stat -f %m "$cache.plans" 2>/dev/null)" || mtime=0
+    if [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
+      weave_disconnected_plans="$(cat "$cache.plans" 2>/dev/null)"
+    fi
+  fi
   if [ -f "$cache" ]; then
     mtime="$(stat -c %Y "$cache" 2>/dev/null || stat -f %m "$cache" 2>/dev/null)" || mtime=0
     if [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
       fresh="true"
+    elif [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$grace" ] \
+      && [ "$(cat "$cache" 2>/dev/null)" = "1" ]; then
+      stale_hidden="true"
     fi
   fi
 
-  # Foreground decision: only a fresh cache hides the surfaces. Anything else
-  # (no cache, stale cache, unreadable cache) renders normally so a slow or
-  # unreachable router can never stall a turn or wedge the statusline blank.
+  # Foreground decision: a fresh cache decides. A hidden cache past the TTL
+  # stays hidden for the grace period while it refreshes, so an hourly expiry
+  # never flashes routing details to someone who must not see them. Anything
+  # else renders normally so an unreachable router cannot wedge it blank.
   if [ "$fresh" = "true" ]; then
     [ "$(cat "$cache" 2>/dev/null)" = "1" ]
     return
@@ -7329,6 +7466,9 @@ weave_hidden_gate() {
     if [ -z "$key" ] && [ -f "$local_settings" ]; then
       key="$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // "" | split("\n")[] | select(startswith("X-Weave-Router-Key:")) | sub("^X-Weave-Router-Key:[[:space:]]*";"")' "$local_settings" 2>/dev/null | head -n1)"
     fi
+    if [ -z "$key" ] && [ -n "${ANTHROPIC_CUSTOM_HEADERS:-}" ]; then
+      key="$(printf '%s\n' "$ANTHROPIC_CUSTOM_HEADERS" | sed -n 's/^X-Weave-Router-Key:[[:space:]]*\([A-Za-z0-9_-]*\)[[:space:]]*$/\1/p' | head -n1)"
+    fi
     if [ -z "$base_url" ] && [ -f "$settings" ]; then
       base_url="$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$settings" 2>/dev/null)"
     fi
@@ -7341,6 +7481,12 @@ weave_hidden_gate() {
     header_file="$(mktemp "$cache_dir/.headers.XXXXXX")" || exit 0
     chmod 600 "$header_file"
     printf 'header = "X-Weave-Router-Key: %s"\n' "$key" >"$header_file"
+    custom_headers="${ANTHROPIC_CUSTOM_HEADERS:-}"
+    for f in "$settings" "$local_settings"; do
+      [ -n "$custom_headers" ] || [ ! -f "$f" ] || custom_headers="$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // ""' "$f" 2>/dev/null)"
+    done
+    printf '%s\n' "$custom_headers" | grep -E '^X-Weave-User-(Email|Name):[[:space:]]*[A-Za-z0-9@._+ -]+$' \
+      | sed 's/^\(.*\)$/header = "\1"/' >>"$header_file" 2>/dev/null || true
     if ! body="$(curl -fsS --max-time 5 -K "$header_file" "$url" 2>/dev/null)"; then
       rm -f "$header_file"
       exit 0
@@ -7358,7 +7504,18 @@ weave_hidden_gate() {
     rm -f "$tmp" 2>/dev/null
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
-  return 1
+  # A cold cache waits briefly for its first refresh so a subject whose
+  # surfaces are hidden does not see one full render before the cache exists.
+  if [ ! -f "$cache" ] && [ ! -f "$cache.cold-waited" ]; then
+    : >"$cache.cold-waited" 2>/dev/null
+    local tries="${WEAVE_DISPLAY_SETTINGS_COLD_WAIT_TENTHS:-20}"
+    while [ "$tries" -gt 0 ] && [ ! -f "$cache" ]; do
+      sleep 0.1 2>/dev/null || break
+      tries=$(( tries - 1 ))
+    done
+    [ "$(cat "$cache" 2>/dev/null)" = "1" ] && return 0
+  fi
+  [ "$stale_hidden" = "true" ]
 }
 
 if weave_hidden_gate </dev/null; then
@@ -8012,8 +8169,8 @@ if [ -n "${weave_disconnected_plans:-}" ]; then
 fi
 for weave_plan in ${weave_disconnected_plans:-}; do
   case "$weave_plan" in
-    claude) status_text="$status_text · Claude plan disconnected: run npx @weave-os/router login claude$weave_login_scope" ;;
-    codex) status_text="$status_text · Codex plan disconnected: run npx @weave-os/router login codex$weave_login_scope" ;;
+    claude) status_text="$status_text · Claude plan needs login: npx @weave-os/router login claude$weave_login_scope" ;;
+    codex) status_text="$status_text · Codex plan needs login: npx @weave-os/router login codex$weave_login_scope" ;;
   esac
 done
 

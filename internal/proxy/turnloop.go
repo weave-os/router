@@ -1402,7 +1402,7 @@ func (s *Service) runTurnLoop(
 	// A model rescued earlier in this agent turn stays out until the next
 	// real user prompt, which starts a new turn and readmits it.
 	if turnStrikes := mergeSessionStrikes(pin.TurnStrikes, hmmHistory.TurnStrikes); len(turnStrikes) > 0 {
-		if env.EndsWithUserPrompt() {
+		if routingEndsWithUserPrompt(ctx, env) {
 			s.clearTurnStrikes(ctx, res.SessionKey, res.PinRole)
 		} else {
 			demoted = mergeSessionStrikes(demoted, turnStrikes)

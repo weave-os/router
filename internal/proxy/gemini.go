@@ -39,6 +39,8 @@ var ErrGeminiCrossFormatUnsupported = errors.New("gemini cross-format emit not i
 // and "stream" (true for :streamGenerateContent) fields into body before
 // calling; both are stripped before forwarding upstream.
 func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
+	defer finishBlindExperimentWriter()
 	ctx = withAttemptTrace(ctx, geminiForwardedBody(body), r.Header)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
 	ctx, returnErr = s.withClassifierInput(ctx, body, router.EndpointGeminiGenerate)
@@ -92,7 +94,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		return fmt.Errorf("parse request: %w", parseErr)
 	}
 	inboundLastUser := env.LastUserMessage()
-	inboundUserPrompt := env.EndsWithUserPrompt()
+	inboundUserPrompt := routingEndsWithUserPrompt(ctx, env)
 	var responseBuffer *responseCostBuffer
 	if !env.Stream() {
 		responseBuffer = newResponseCostBuffer(w)
@@ -169,6 +171,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		)
 	}
 
+	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText, embedFlag)
 	routeRequest := router.Request{
 		RequestedModel:                feats.Model,
 		ForceCluster:                  forceCluster,
@@ -179,8 +182,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		TranslationRequirements:       env.TranslationRequirements(router.EndpointGeminiGenerate),
 		ReasoningConfigurationSHA256:  env.ReasoningConfigurationSHA256(),
 		ToolConfigurationSHA256:       env.ToolConfigurationSHA256(),
-		PromptText:                    promptText,
-		ConversationMessages:          conversationMessagesForRouting(env),
+		PromptText:                    routingPromptText,
+		ConversationMessages:          routingMessages,
 		AvailableTools:                availableToolsForRouting(env),
 		Tools:                         toolsForRouting(env),
 		ClientSessionID:               clientSessionIDForRequest(ctx, env),
@@ -286,6 +289,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	applyPlannerAttrs(geminiDecisionBuilder, routeRes)
 	applyRoutingStateAttrs(geminiDecisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, geminiDecisionBuilder)
+	applyBlindExperimentOutcomeAttrs(ctx, geminiDecisionBuilder, &routeRes, feats.Model, routeRes.Decision.Model)
 	otel.Record(ctx, otel.Span{
 		Name:  "router.decision",
 		Start: requestStart,
@@ -431,6 +435,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	applyPlannerAttrs(geminiUpstreamBuilder, routeRes)
 	applyRoutingStateAttrs(geminiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, geminiUpstreamBuilder)
+	applyBlindExperimentOutcomeAttrs(ctx, geminiUpstreamBuilder, &routeRes, feats.Model, decision.Model)
 	applyEffortAttrs(geminiUpstreamBuilder, effortServed)
 	s.applySubscriptionSpanTelemetry(ctx, geminiUpstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, geminiUpstreamBuilder)

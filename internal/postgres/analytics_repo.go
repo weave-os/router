@@ -84,6 +84,10 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		CohortScheduledArm:              blindExperimentArmPtr(row.CohortScheduledArm),
 		CohortTreatmentApplied:          row.CohortTreatmentApplied,
 		CohortBypassReason:              cohortBypassReasonPtr(row.CohortBypassReason),
+		BlindExperimentModelSource:      blindExperimentModelSourcePtr(row.BlindExperimentModelSource),
+		BlindExperimentTreatmentApplied: row.BlindExperimentTreatmentApplied,
+		BlindExperimentBaselineModel:    row.BlindExperimentBaselineModel,
+		BlindExperimentModelChanged:     row.BlindExperimentModelChanged,
 		PolicyPinRequested:              row.PolicyPinRequested,
 		PolicyPinHonoured:               row.PolicyPinHonoured,
 		StickyHit:                       row.StickyHit != nil && *row.StickyHit,
@@ -171,6 +175,14 @@ func cohortBypassReasonPtr(value *string) *auth.CohortBypassReason {
 	}
 	reason := auth.CohortBypassReason(*value)
 	return &reason
+}
+
+func blindExperimentModelSourcePtr(value *string) *auth.BlindExperimentModelSource {
+	if value == nil {
+		return nil
+	}
+	source := auth.BlindExperimentModelSource(*value)
+	return &source
 }
 
 func int16PtrToInt64(value *int16) *int64 {

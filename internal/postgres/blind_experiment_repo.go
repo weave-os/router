@@ -60,3 +60,11 @@ func (repo *blindExperimentRepo) GetForUser(ctx context.Context, installationID,
 		CohortOverrides:     cohortOverrides,
 	}, nil
 }
+
+func (repo *blindExperimentRepo) InstallationExperimentEnabled(ctx context.Context, installationID string) (bool, error) {
+	parsedInstallationID, err := parseUUID(installationID)
+	if err != nil {
+		return false, err
+	}
+	return dbbudget.Queries(repo.tx).GetBlindRouterExperimentEnabledForInstallation(ctx, parsedInstallationID)
+}

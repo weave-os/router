@@ -253,7 +253,8 @@ func main() {
 	if !byokOnly {
 		anthropicKey = config.GetOr("ANTHROPIC_API_KEY", "")
 	}
-	providerMap[providers.ProviderAnthropic] = anthropic.NewClient(anthropicKey, anthropic.DefaultBaseURL, anthropic.WithModelListHTTPClient(discoveryHTTPClient))
+	anthropicClient := anthropic.NewClient(anthropicKey, anthropic.DefaultBaseURL, anthropic.WithModelListHTTPClient(discoveryHTTPClient))
+	providerMap[providers.ProviderAnthropic] = anthropicClient
 	switch {
 	case byokOnly:
 		logger.Info("Anthropic provider enabled (BYOK only)", "base_url", anthropic.DefaultBaseURL)
@@ -965,6 +966,10 @@ func main() {
 		logger.Error("Invalid escalation judge active rollout enablement", "err", err)
 		panic(err)
 	}
+	escalationShadowDefault := flags.EscalationClassifier(config.GetOr("ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT", string(flags.EscalationClassifierNone)))
+	if escalationShadowDefault != flags.EscalationClassifierNone && !flags.IsLLMEscalationClassifier(escalationShadowDefault) {
+		panic("ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT must be none, llm_escalation or switchyard_llm_v1")
+	}
 	if escalationJudgeActiveEnabled && !escalationJudgeEnabled {
 		panic("ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED requires ROUTER_ESCALATION_JUDGE_ENABLED")
 	}
@@ -1067,6 +1072,7 @@ func main() {
 	var hmmQwenRouter router.Router
 	var hmmCapabilities policy.Capabilities
 	var hmmReadinessChecker admin.HealthChecker
+	var policyStatus admin.PolicyStatusSource
 	var hmmRosterSources map[router.Strategy]policy.RosterSource
 	var hmmRosterModels admin.HMMRosterSource
 	var hmmBetaCapabilities policy.Capabilities
@@ -1188,6 +1194,7 @@ func main() {
 		hmmEmbeddingRouter = policyregistry.NewDynamicRouter(stableManager, router.StrategyHMMEmbedding)
 		hmmCapabilities = hmmRouter.(policy.CapabilitySource).CurrentCapabilities()
 		hmmReadinessChecker = stableManager
+		policyStatus = stableManager
 		hmmRosterSources = map[router.Strategy]policy.RosterSource{
 			router.StrategyHMM:          stableManager,
 			router.StrategyHMMEmbedding: stableManager,
@@ -1296,7 +1303,7 @@ func main() {
 	// degrades that UI and nothing else.
 	publishFlagRegistry(logger, repo.FlagDefinitions, map[flags.Key]string{
 		flags.KeyEscalationActiveClassifier:           string(flags.EscalationClassifierNone),
-		flags.KeyEscalationShadowClassifier:           string(flags.EscalationClassifierNone),
+		flags.KeyEscalationShadowClassifier:           string(escalationShadowDefault),
 		flags.KeyEscalationCadence:                    strconv.Itoa(llmescalation.DefaultCadence),
 		flags.KeyEscalationEpoch:                      "0",
 		flags.KeyEscalationXGBoostEnabled:             boolDefault(false),
@@ -1375,9 +1382,14 @@ func main() {
 		}
 		qwenEscalationJudge = judge
 	}
+	if (escalationShadowDefault == flags.EscalationClassifierSwitchyard && !escalationJudgeEnabled) ||
+		(escalationShadowDefault == flags.EscalationClassifierLLM && qwenEscalationJudge == nil) {
+		panic("ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT names a classifier whose judge is not configured")
+	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+		WithClaudeSubscriptionPlanReader(anthropicClient).
 		WithCodexExtraCredits(allowCodexCredits).
 		WithSessionStrategyStore(sessionStrategyStore).
 		WithSessionTurnClock(sessionTurnClock).
@@ -1386,6 +1398,7 @@ func main() {
 		WithLLMEscalation(llmEscalationStore, escalationJudge).
 		WithQwenEscalation(qwenEscalationJudge).
 		WithEscalationConfiguration(llmEscalationStore, authSvc.InvalidateInstallation, escalationJudgeActiveEnabled).
+		WithEscalationShadowDefault(escalationShadowDefault).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
 		WithScopedSearchRequirement(scopedSearchRequirement, searchRequirementDecayTurns).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: rlRouter, Unavailable: rl.ErrPolicyUnavailable}).
@@ -1643,6 +1656,7 @@ func main() {
 		ServingAdmission:         servingAdmission,
 		SubscriberAllowance:      subscriberAllowanceSvc,
 		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
+		PolicyStatus:             policyStatus,
 	}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture

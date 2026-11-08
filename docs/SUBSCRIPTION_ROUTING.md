@@ -12,6 +12,10 @@ personal capacity. A personal key borrows shared capacity only while its owner
 is still an active member; a live installation-shared key (no credential
 subject) borrows it whenever sharing is on. Enrollment keys are attribution only and do not partition
 serving pools. Refresh, quota, cooldown, and rotation use physical account identity.
+For routed requests, resolving a caller-presented OAuth credential does not bypass
+linked-account selection: the authorized pool serves first and rotates accounts
+on failure. The caller's credential remains available if no admitted linked seat
+can serve. Explicit own-plan model picks retain their caller-login funding rule.
 The ten-second admission budget is shared across account and model alternatives,
 including executor re-entry. Only credential leasing consumes it; time spent
 running provider inference does not prevent another eligible seat from being tried.
@@ -79,9 +83,21 @@ API-key fallback. Provider-side balances and spending limits remain authoritativ
 The same check covers matching model-specific limits using the final upstream
 model after aliases. A model-specific rejection rotates the attempt without
 marking the whole account exhausted or placing it on cooldown. Claude accounts with no
-quota observation may serve. `claude_enterprise_only` defaults on for linked
-Claude accounts, keeping their requests on those accounts through provider-authorized
-overage. Organizations may explicitly disable it to permit Weave-funded fallback.
+quota observation may serve. Claude subscription identity comes exclusively from
+the authenticated `/api/oauth/profile` response's `organization.organization_type`:
+`claude_pro`, `claude_max`, `claude_team`, or `claude_enterprise`. OAuth presence,
+organization names, rate-limit tiers, quota windows and overage headers never
+establish identity. Profile readings are cached per credential for five minutes;
+unknown or failed reads are retried after fifteen seconds. While
+`claude_enterprise_only` is enabled, an unknown Claude profile cannot authorize
+paid fallback for that Claude turn.
+
+`claude_enterprise_only` applies only to a provider-verified Enterprise account,
+keeping its requests on that account through provider-authorized overage. The
+organization flag cannot make an ordinary or unknown seat Enterprise, including
+in mixed shared pools. Organizations may explicitly disable the policy to permit
+Weave-funded fallback. Pro, Max and Team seats retain ordinary included-quota,
+account rotation and authorized paid-fallback rules.
 Requests with no registered or caller-presented Claude subscription credential
 continue to use normal API funding. Explicit Anthropic BYOK retains precedence
 over Enterprise-only billing, including an explicit organization override.

@@ -104,6 +104,8 @@ type BlindExperimentRecord struct {
 // BlindExperimentRepository reads experiment state owned by the control plane.
 type BlindExperimentRepository interface {
 	GetForUser(ctx context.Context, installationID, routerUserID string) (BlindExperimentRecord, error)
+	// InstallationExperimentEnabled reports false with a nil error when the installation has no configuration.
+	InstallationExperimentEnabled(ctx context.Context, installationID string) (bool, error)
 }
 
 // BlindExperimentContextKey is the request-context key for an active assignment.
@@ -218,3 +220,17 @@ func (state BlindExperimentState) AtTime(now time.Time) BlindExperimentState {
 	}
 	return state
 }
+
+// BlindExperimentModelSource names what chose the served model on an experiment turn.
+type BlindExperimentModelSource string
+
+const (
+	BlindExperimentModelSourceRouter                   BlindExperimentModelSource = "router"
+	BlindExperimentModelSourceExperimentPassthrough    BlindExperimentModelSource = "experiment_passthrough"
+	BlindExperimentModelSourceClientModelPassthrough   BlindExperimentModelSource = "client_model_passthrough"
+	BlindExperimentModelSourceRoutingPolicyPassthrough BlindExperimentModelSource = "routing_policy_passthrough"
+	BlindExperimentModelSourceHardPin                  BlindExperimentModelSource = "hard_pin"
+	BlindExperimentModelSourceForceModel               BlindExperimentModelSource = "force_model"
+	BlindExperimentModelSourceUsageBypass              BlindExperimentModelSource = "usage_bypass"
+	BlindExperimentModelSourceNotDispatched            BlindExperimentModelSource = "not_dispatched"
+)

@@ -72,9 +72,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 			claudeToken = string(creds.APIKey)
 		}
 	}
-	if claudeToken != "" {
-		ctx = context.WithValue(ctx, claudeSubscriptionPresentKey{}, true)
-	}
+	ctx = s.withClaudeSubscriptionProfile(ctx, headers)
 	admissionCtx := ctx
 	return dispatch.WithAuthorization(ctx, func(callCtx context.Context, target inference.Target) error {
 		if claudeEnterpriseTarget(callCtx, target) || claudeEnterpriseTurn(callCtx) {
@@ -92,6 +90,16 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 			return nil
 		}
 		pool, compatible := subscriptionPoolForModel(target)
+		claudeTurn, _ := callCtx.Value(claudeSubscriptionTurnKey{}).(bool)
+		presentedPlan, _ := callCtx.Value(claudeSubscriptionPlanKey{}).(providers.SubscriptionPlan)
+		unverified := claudeSubscriptionPlan(callCtx) == providers.SubscriptionPlanUnknown && (claudeTurn || compatible && pool == subscriptions.ProviderClaude) || claudeTurn && presentedPlan == providers.SubscriptionPlanUnknown
+		if state, _ := callCtx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+			unverified = unverified || state.ClaudePlanUnverified
+		}
+		if claudeEnterpriseEnabled(callCtx) && unverified {
+			observability.FromContext(callCtx).Warn("Blocked paid recovery while Claude subscription identity is unverified", "provider", target.Provider, "model", target.CatalogID)
+			return fmt.Errorf("%w: Claude subscription plan could not be verified before paid fallback", ErrSubscriptionPoolUnavailable)
+		}
 		if !compatible {
 			return nil
 		}

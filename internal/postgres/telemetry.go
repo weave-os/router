@@ -112,6 +112,10 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		CohortScheduledArm:                       stringPtrOrNil(string(p.CohortScheduledArm)),
 		CohortTreatmentApplied:                   p.CohortTreatmentApplied,
 		CohortBypassReason:                       stringPtrOrNil(string(p.CohortBypassReason)),
+		BlindExperimentModelSource:               stringPtrOrNil(string(p.BlindExperimentModelSource)),
+		BlindExperimentTreatmentApplied:          p.BlindExperimentTreatmentApplied,
+		BlindExperimentBaselineModel:             stringPtrOrNil(p.BlindExperimentBaselineModel),
+		BlindExperimentModelChanged:              p.BlindExperimentModelChanged,
 		EstimatedInputTokens:                     p.EstimatedInputTokens,
 		ContextSnapshot:                          p.ContextSnapshot,
 		StickyHit:                                p.StickyHit,
@@ -985,6 +989,7 @@ func (r *TelemetryRepo) GetSessionCost(ctx context.Context, installationID, sess
 		CacheReadTokens:        row.CacheReadTokens,
 		LastRecordedAt:         row.LastRecordedAt.Time,
 		ContextSnapshot:        proxy.ParseContextSnapshot(row.ContextSnapshot),
+		BlindExperiment:        row.BlindExperiment,
 	}, nil
 }
 
