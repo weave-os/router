@@ -39,10 +39,6 @@ class ClassifierVariantUnavailable(ClassifierAPIError):
     """The pinned variant cannot classify this request."""
 
 
-class ClassifierResolverUnavailable(ClassifierAPIError):
-    """The immutable release resolver cannot verify a requested binding."""
-
-
 class ClassifierErrorCode(StrEnum):
     """Stable error codes consumed by the Router's deadline/fallback policy."""
 
@@ -474,10 +470,6 @@ async def _resolve_release(
         raise HTTPException(
             status_code=404, detail="unknown classifier release"
         ) from error
-    except ClassifierResolverUnavailable as error:
-        raise HTTPException(
-            status_code=503, detail="classifier release resolver unavailable"
-        ) from error
     except ClassifierAPIError as error:
         raise HTTPException(
             status_code=409, detail="classifier release identity mismatch"
@@ -525,10 +517,6 @@ async def _resolve_selection(
     except UnknownClassifierRelease as error:
         raise HTTPException(
             status_code=404, detail="unknown classifier selection"
-        ) from error
-    except ClassifierResolverUnavailable as error:
-        raise HTTPException(
-            status_code=503, detail="classifier selection resolver unavailable"
         ) from error
     except ClassifierAPIError as error:
         raise HTTPException(

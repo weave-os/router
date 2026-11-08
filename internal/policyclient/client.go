@@ -135,10 +135,8 @@ func validClassifierSHA256(value string) bool {
 }
 
 func taxonomyDigest(classOrder []string) string {
-	encoded, err := json.Marshal(classOrder)
-	if err != nil {
-		return ""
-	}
+	// json.Marshal cannot fail for a []string.
+	encoded, _ := json.Marshal(classOrder)
 	digest := sha256.Sum256(encoded)
 	return hex.EncodeToString(digest[:])
 }

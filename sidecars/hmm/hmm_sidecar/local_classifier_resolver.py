@@ -91,11 +91,9 @@ class LocalClassifierReleaseResolver:
         self.selection_path = selection_path
         self.artifacts = artifacts
         self.policies = policies
-        self._release: ResolvedClassifierRelease | None = None
-        self._selection: ResolvedClassifierSelection | None = None
-        self.release_id = ""
-        self.selection_id = ""
-        self._load()
+        self._release, self._selection = self._load()
+        self.release_id = self._release.release_id
+        self.selection_id = self._selection.selection_id
 
     def _read_exact(self, path: Path) -> bytes:
         raw = path.read_bytes()
@@ -103,7 +101,7 @@ class LocalClassifierReleaseResolver:
             raise ValueError(f"local classifier manifest is empty or too large: {path}")
         return raw
 
-    def _load(self) -> None:
+    def _load(self) -> tuple[ResolvedClassifierRelease, ResolvedClassifierSelection]:
         release_bytes = self._read_exact(self.release_manifest_path)
         selection_bytes = self._read_exact(self.selection_path)
         try:
@@ -190,9 +188,7 @@ class LocalClassifierReleaseResolver:
                 package_sha256=package_sha,
                 runtime=LocalPackageClassifierRuntime(package_policy.runtime),
             )
-        self.release_id = release_id
-        self.selection_id = selection_id
-        self._release = ResolvedClassifierRelease(
+        release = ResolvedClassifierRelease(
             release_id=release_id,
             api_major=release_manifest.api_major,
             wire_schema=ClassifierAPIVersion(release_manifest.wire_schema),
@@ -200,19 +196,20 @@ class LocalClassifierReleaseResolver:
             taxonomy_sha256=release_manifest.taxonomy.sha256,
             variants=variants,
         )
-        self._selection = ResolvedClassifierSelection(
+        selection = ResolvedClassifierSelection(
             selection_id=selection_id,
             release_id=release_id,
             enabled_variants=frozenset(selection_manifest.enabled_variants),
         )
+        return release, selection
 
     async def resolve(self, release_id: str) -> ResolvedClassifierRelease:
-        if self._release is None or release_id != self.release_id:
+        if release_id != self.release_id:
             raise UnknownClassifierRelease(release_id)
         return self._release
 
     async def resolve_selection(self, selection_id: str) -> ResolvedClassifierSelection:
-        if self._selection is None or selection_id != self.selection_id:
+        if selection_id != self.selection_id:
             raise UnknownClassifierRelease(selection_id)
         return self._selection
 

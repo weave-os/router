@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 from enum import StrEnum
-from typing import Literal
+from typing import Literal, cast
 
 from pydantic import ConfigDict, Field, model_validator
 
@@ -234,9 +234,7 @@ def embedded_embedding_contract_sha256(package_manifest: dict[str, object]) -> s
 def _raw_runtime_contract(package_manifest: dict[str, object]) -> dict[str, object]:
     if not is_classifier_package_manifest(package_manifest):
         raise ValueError("package manifest is not a configured HMM classifier")
-    runtime_envelope = package_manifest.get("runtime_contract")
-    if not isinstance(runtime_envelope, dict):
-        raise ValueError("classifier package runtime contract is missing")
+    runtime_envelope = cast(dict[str, object], package_manifest["runtime_contract"])
     raw_runtime = runtime_envelope.get("raw_v5_runtime_contract")
     if not isinstance(raw_runtime, dict):
         raise ValueError("classifier package raw-V5 runtime contract is missing")

@@ -400,7 +400,7 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 			return err
 		}
 	case ChangeRoster:
-		if (!set.ConfigurationOnly && base.Policy != source.Policy) || base.RouterImageDigest != oldBase.RouterImageDigest || !base.Classifier.Equal(oldBase.Classifier) || !sameClassifierService(base, oldBase) {
+		if (!set.ConfigurationOnly && base.Policy != source.Policy) || base.RouterImageDigest != oldBase.RouterImageDigest || !base.Classifier.Equal(oldBase.Classifier) || base.ClassifierReleaseSHA256 != oldBase.ClassifierReleaseSHA256 || !slices.Equal(base.EnabledClassifierVariants, oldBase.EnabledClassifierVariants) {
 			return errors.New("roster-only promotion must retain destination image and classifier")
 		}
 	case ChangeClassifier:
@@ -542,11 +542,6 @@ func (r *laneReader) sameLane(ctx context.Context, left, right resolvedLane) (bo
 	return leftCandidate.Equal(rightCandidate), nil
 }
 
-// sameClassifierService compares the v5 classifier a composition selects, ignoring the selection set's own identity.
-func sameClassifierService(left, right CandidateComposition) bool {
-	return left.ClassifierReleaseSHA256 == right.ClassifierReleaseSHA256 && slices.Equal(left.EnabledClassifierVariants, right.EnabledClassifierVariants)
-}
-
 func sameClassifierServiceBinding(left, right *ClassifierServiceBinding) bool {
 	if (left == nil) != (right == nil) {
 		return false
@@ -628,13 +623,13 @@ func (r *laneReader) selectionSet(ctx context.Context, ref ObjectRef) (resolvedS
 		view := typed.View(ref)
 		profiles := make(map[string]resolvedLane, len(typed.Profiles))
 		for key, policy := range typed.Profiles {
-			composition, err := classifierCandidateCompositionV5(*candidate, *release, typed.Classifier, typed.StrategyPolicies, policy, ref.SHA256, typed.Classifier.Release.SHA256)
+			composition, err := classifierCandidateCompositionV5(*candidate, *release, typed.Classifier, typed.StrategyPolicies, policy, typed.Classifier.Release.SHA256)
 			if err != nil {
 				return resolvedSelectionSet{}, fmt.Errorf("profile %q classifier selection: %w", key, err)
 			}
 			profiles[key] = resolvedLane{Selection: view.Profiles[key], Candidate: typed.Code.Candidate, Binding: v4WorkerBinding(typed.Code), Profile: &laneProfile{Key: key, Policy: policy, Requirements: composition.Requirements}, PolicyReference: policy, ClassifierService: &typed.Classifier, ClassifierRelease: release, ClassifierSelectionID: ref.SHA256, CandidateComposition: &composition}
 		}
-		defaultComposition, err := classifierCandidateCompositionV5(*candidate, *release, typed.Classifier, typed.StrategyPolicies, typed.DefaultPolicy, ref.SHA256, typed.Classifier.Release.SHA256)
+		defaultComposition, err := classifierCandidateCompositionV5(*candidate, *release, typed.Classifier, typed.StrategyPolicies, typed.DefaultPolicy, typed.Classifier.Release.SHA256)
 		if err != nil {
 			return resolvedSelectionSet{}, fmt.Errorf("default classifier selection: %w", err)
 		}
@@ -794,7 +789,6 @@ func classifierCandidateCompositionV5(
 	classifierBinding ClassifierServiceBinding,
 	strategyPolicies map[router.Strategy]PolicyObject,
 	policyReference PolicyObject,
-	selectionID string,
 	releaseID string,
 ) (CandidateComposition, error) {
 	if !slices.Contains(candidate.Requirements.SupportedAPIMajors, release.APIMajor) {
@@ -850,7 +844,6 @@ func classifierCandidateCompositionV5(
 		},
 		Provenance:                 candidate.Provenance,
 		ClassifierReleaseSHA256:    releaseID,
-		ClassifierSelectionSHA256:  selectionID,
 		ClassifierServiceURL:       classifierBinding.ServiceURL,
 		ClassifierAudience:         classifierBinding.Audience,
 		EnabledClassifierVariants:  slices.Clone(classifierBinding.EnabledVariants),
@@ -972,8 +965,7 @@ func ReadPreparedSelection(ctx context.Context, store ServingStore, target Servi
 		if lane.classifierServiceBinding != nil {
 			candidate, err = classifierCandidateCompositionV5(
 				*lane.v3Candidate, *lane.classifierReleaseV5, *lane.classifierServiceBinding,
-				lane.v4StrategyPolicies, configuredPolicy, selection.Binding.SHA256,
-				lane.classifierServiceBinding.Release.SHA256,
+				lane.v4StrategyPolicies, configuredPolicy, lane.classifierServiceBinding.Release.SHA256,
 			)
 			if err != nil {
 				return PreparedSelection{}, fmt.Errorf("compose v4 classifier selection: %w", err)

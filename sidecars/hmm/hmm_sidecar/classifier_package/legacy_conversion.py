@@ -277,10 +277,9 @@ def convert_legacy_classifier_package(
         raise ValueError(
             "converted classifier package manifest changed during verification"
         )
-    archive_sha256 = hashlib.sha256(converted_archive).hexdigest()
     return ConvertedClassifierPackage(
         archive_bytes=converted_archive,
-        archive_sha256=archive_sha256,
+        archive_sha256=hashlib.sha256(converted_archive).hexdigest(),
         manifest=converted_manifest,
         source_archive_sha256=source_archive_sha256,
         source_manifest_sha256=source_manifest_sha256,

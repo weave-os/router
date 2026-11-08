@@ -13,7 +13,7 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-// ClassifierVariantKind describes the immutable artifact format for one variant.
+// ClassifierVariantKind selects the source format: an HMM package referenced through WeaveData, or a Qwen bundle identified only by its digest.
 type ClassifierVariantKind string
 
 const (

@@ -51,7 +51,6 @@ type CandidateComposition struct {
 	Requirements               ServingRequirements              `json:"requirements"`
 	Provenance                 ServingProvenance                `json:"provenance"`
 	ClassifierReleaseSHA256    string                           `json:"-"`
-	ClassifierSelectionSHA256  string                           `json:"-"`
 	ClassifierServiceURL       string                           `json:"-"`
 	ClassifierAudience         string                           `json:"-"`
 	EnabledClassifierVariants  []policy.ClassifierVariantID     `json:"-"`

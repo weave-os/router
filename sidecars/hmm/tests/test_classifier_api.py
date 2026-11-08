@@ -21,6 +21,8 @@ from hmm_sidecar.classifier_api import (
 )
 
 RELEASE_ID = "a" * 64
+# The default selection fixture is pinned to its release.
+SELECTION_ID = RELEASE_ID
 TAXONOMY = ("fast", "maximum")
 TAXONOMY_SHA256 = hashlib.sha256(b'["fast","maximum"]').hexdigest()
 
@@ -74,7 +76,7 @@ def _runtime_app(
 def _request() -> dict[str, object]:
     return {
         "schema_version": "policy_router_v5",
-        "classifier_selection_id": RELEASE_ID,
+        "classifier_selection_id": SELECTION_ID,
         "classifier_release_id": RELEASE_ID,
         "classifier_variant_id": "primary",
         "request_id": "request-1",
@@ -94,14 +96,14 @@ def test_capabilities_require_exact_classifier_release() -> None:
         unknown = client.get(
             "/v5/capabilities",
             params={
-                "classifier_selection_id": RELEASE_ID,
+                "classifier_selection_id": SELECTION_ID,
                 "classifier_release_id": "c" * 64,
             },
         )
         ready = client.get(
             "/v5/capabilities",
             params={
-                "classifier_selection_id": RELEASE_ID,
+                "classifier_selection_id": SELECTION_ID,
                 "classifier_release_id": RELEASE_ID,
             },
         )
@@ -112,7 +114,7 @@ def test_capabilities_require_exact_classifier_release() -> None:
     assert ready.json() == {
         "schema_version": "policy_router_v5",
         "api_major": 5,
-        "classifier_selection_id": RELEASE_ID,
+        "classifier_selection_id": SELECTION_ID,
         "classifier_release_id": RELEASE_ID,
         "wire_schema": "policy_router_v5",
         "class_order": list(TAXONOMY),
@@ -131,7 +133,7 @@ def test_classify_echoes_pinned_release_and_classifier_facts_only() -> None:
     assert response.json() == {
         "schema_version": "policy_router_v5",
         "request_id": "request-1",
-        "classifier_selection_id": RELEASE_ID,
+        "classifier_selection_id": SELECTION_ID,
         "classifier_release_id": RELEASE_ID,
         "classifier_variant_id": "primary",
         "classifier_artifact_id": "hmm-primary",
@@ -334,8 +336,8 @@ def test_selection_pinned_to_another_release_fails_before_inference() -> None:
             other_release_id: _single_variant_release(other_release_id, other_runtime),
         },
         {
-            RELEASE_ID: ResolvedClassifierSelection(
-                selection_id=RELEASE_ID,
+            SELECTION_ID: ResolvedClassifierSelection(
+                selection_id=SELECTION_ID,
                 release_id=other_release_id,
                 enabled_variants=frozenset({ClassifierVariantID.PRIMARY}),
             )
