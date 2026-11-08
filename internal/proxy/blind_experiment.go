@@ -92,7 +92,7 @@ func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentSt
 
 // blindExperimentBaselineModel is the model the client would run without
 // routing: its requested model, or its default for an automatic-routing alias
-// or an id the catalog no longer serves. Empty when the client has no default.
+// or an id the catalog no longer serves. Empty for an automatic-routing alias from a client with no default.
 func blindExperimentBaselineModel(ctx context.Context, requestedModel string) string {
 	baseline := clientRequestedModel(ctx, requestedModel)
 	if router.IsRoutingModel(baseline) {
