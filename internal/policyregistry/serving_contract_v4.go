@@ -150,7 +150,7 @@ type CandidateRequirementsV3 struct {
 	SupportedAPIMajors []policy.ClassifierAPIMajor `json:"supported_api_majors"`
 }
 
-// RouterCandidateRequirementsDeclarationV1 tags RouterCandidateRequirementsPath.
+// RouterCandidateRequirementsDeclarationV1 is the schema_version written to RouterCandidateRequirementsPath; the checked-in file must carry this exact value.
 const RouterCandidateRequirementsDeclarationV1 ServingSchema = "router_candidate_requirements_v1"
 
 // RouterCandidateRequirementsPath is the checked-in declaration publishers read at a Router commit.
@@ -163,7 +163,7 @@ type RouterCandidateRequirementsDeclaration struct {
 	Requirements  CandidateRequirementsV3 `json:"requirements"`
 }
 
-// BuiltRouterCandidateRequirements are the requirements this Router code satisfies.
+// BuiltRouterCandidateRequirements derives the requirements from the runtime contract, policy schema, and classifier API majors compiled into this build.
 func BuiltRouterCandidateRequirements() CandidateRequirementsV3 {
 	return CandidateRequirementsV3{
 		RuntimeContract:    ManagedRuntimeContractV1,

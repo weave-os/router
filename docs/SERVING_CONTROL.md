@@ -660,6 +660,11 @@ The selected lane's v5 client calls `worker_url` with a Google ID token minted f
 caller field can supply one. The session pin is unchanged: the selection set names
 the release, and the release names its runtime binding.
 
+The publisher creates each binding once (create-only, identical bytes on retry), so
+the Router caches a prepared v4 snapshot per admitted selection without re-reading
+it. Moving a release to another worker revision means publishing a new release and
+activating a selection that names it.
+
 ### Activation and per-request identity
 
 `serving apply` attests each v4 lane against the runtime-bound worker before the

@@ -28,7 +28,7 @@ help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
-generate: generate-statusline generate-inference-policy ## Regenerate all generated files (SQLC + statusline prices + inference policy)
+generate: generate-statusline generate-inference-policy generate-candidate-requirements ## Regenerate all generated files (SQLC + statusline prices + inference policy + candidate requirements)
 	cd db && sqlc generate
 
 generate-statusline: ## Sync cc-statusline.sh prices block from pricing.go
@@ -259,7 +259,7 @@ install-hooks: ## Install git pre-commit hook
 	chmod +x "$$HOOK_DIR/pre-commit"; \
 	echo "Pre-commit hook installed at $$HOOK_DIR/pre-commit"
 
-check: check-agent-guides check-docs inference-boundary generate fmt vet build test test-statusline test-install ## Local Go/codegen/installer checks; CI also validates integrations and component contracts
+check: check-agent-guides check-docs inference-boundary check-candidate-requirements generate fmt vet build test test-statusline test-install ## Local Go/codegen/installer checks; CI also validates integrations and component contracts
 	@if ! git diff --quiet internal/sqlc/; then \
 		echo "error: sqlc generation produced uncommitted changes"; \
 		git diff internal/sqlc/; \
