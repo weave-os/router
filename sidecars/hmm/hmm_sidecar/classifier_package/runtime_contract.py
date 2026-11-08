@@ -33,6 +33,9 @@ from hmm_sidecar.classifier_package.serving_profile import (
     serving_profile,
 )
 from hmm_sidecar.classifier_package.core import canonical_json, sha256_text
+from hmm_sidecar.classifier_package.manifest import (
+    CONFIGURED_INPUT_MODE as CONFIGURED_INPUT_MODE,
+)
 
 #: v2 adds the round-level HMM and lookback geometry of a per-message package.
 #: v1 stays byte-identical so every published package keeps resolving.
