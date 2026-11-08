@@ -52,3 +52,10 @@ LEFT JOIN router.blind_router_experiment_group_memberships membership
 WHERE router_user.id = @router_user_id::uuid
   AND router_user.installation_id = @installation_id::uuid
   AND router_user.deleted_at IS NULL;
+
+-- Reports whether an installation has an enabled blind experiment, for callers
+-- whose router user cannot be identified.
+-- name: GetBlindRouterExperimentEnabledForInstallation :one
+SELECT COALESCE(BOOL_OR(configuration.enabled), FALSE)::boolean AS enabled
+FROM router.blind_router_experiment_configurations configuration
+WHERE configuration.installation_id = @installation_id::uuid;

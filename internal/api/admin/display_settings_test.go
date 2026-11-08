@@ -35,7 +35,7 @@ func TestDisplaySettingsHandler(t *testing.T) {
 			engine := gin.New()
 			engine.GET("/v1/display-settings", func(c *gin.Context) {
 				c.Set("router_installation", &auth.Installation{ID: "inst-1", HideTerminalSurfaces: hide})
-			}, admin.DisplaySettingsHandler(&fakeAccountLister{}, nil))
+			}, admin.DisplaySettingsHandler(&fakeAccountLister{}, nil, nil))
 
 			rec := httptest.NewRecorder()
 			engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/display-settings", nil))
@@ -60,7 +60,7 @@ func TestDisplaySettingsHandler(t *testing.T) {
 				c.Set("router_installation", &auth.Installation{ID: "inst-1"})
 			}, admin.DisplaySettingsHandler(&fakeAccountLister{}, func(c *gin.Context) context.Context {
 				return context.WithValue(c.Request.Context(), auth.BlindExperimentContextKey{}, state)
-			}))
+			}, nil))
 
 			rec := httptest.NewRecorder()
 			engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/display-settings", nil))
@@ -74,9 +74,42 @@ func TestDisplaySettingsHandler(t *testing.T) {
 		}
 	})
 
+	t.Run("hides unidentified callers while the installation runs an experiment", func(t *testing.T) {
+		for _, tc := range []struct {
+			name              string
+			userID            string
+			experimentEnabled bool
+			wantHidden        bool
+		}{
+			{name: "unidentified caller, experiment enabled", experimentEnabled: true, wantHidden: true},
+			{name: "unidentified caller, no experiment"},
+			{name: "identified non-subject, experiment enabled", userID: "user-1", experimentEnabled: true},
+		} {
+			engine := gin.New()
+			engine.GET("/v1/display-settings", func(c *gin.Context) {
+				c.Set("router_installation", &auth.Installation{ID: "inst-1"})
+			}, admin.DisplaySettingsHandler(&fakeAccountLister{}, func(c *gin.Context) context.Context {
+				if tc.userID == "" {
+					return c.Request.Context()
+				}
+				return context.WithValue(c.Request.Context(), auth.UserIDContextKey{}, tc.userID)
+			}, fakeExperimentChecker{enabled: tc.experimentEnabled}))
+
+			rec := httptest.NewRecorder()
+			engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/display-settings", nil))
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			var body struct {
+				HideTerminalSurfaces bool `json:"hide_terminal_surfaces"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.Equal(t, tc.wantHidden, body.HideTerminalSurfaces, tc.name)
+		}
+	})
+
 	t.Run("unauthenticated without an installation", func(t *testing.T) {
 		engine := gin.New()
-		engine.GET("/v1/display-settings", admin.DisplaySettingsHandler(&fakeAccountLister{}, nil))
+		engine.GET("/v1/display-settings", admin.DisplaySettingsHandler(&fakeAccountLister{}, nil, nil))
 
 		rec := httptest.NewRecorder()
 		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/display-settings", nil))
@@ -126,7 +159,7 @@ func getDisplaySettings(t *testing.T, lister *fakeAccountLister) struct {
 	engine.GET("/v1/display-settings", func(c *gin.Context) {
 		c.Set("router_installation", &auth.Installation{ID: "inst-1"})
 		c.Set("router_api_key", &auth.APIKey{ID: "key-1", CredentialSubjectID: "subscriber-1"})
-	}, admin.DisplaySettingsHandler(lister, nil))
+	}, admin.DisplaySettingsHandler(lister, nil, nil))
 
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/display-settings", nil))
@@ -137,4 +170,10 @@ func getDisplaySettings(t *testing.T, lister *fakeAccountLister) struct {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	return body
+}
+
+type fakeExperimentChecker struct{ enabled bool }
+
+func (f fakeExperimentChecker) InstallationBlindExperimentEnabled(context.Context, string) bool {
+	return f.enabled
 }

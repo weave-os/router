@@ -172,8 +172,8 @@ func TestBlindExperimentWriterResumedSessionRequestsOriginalModel(t *testing.T) 
 		require.NoError(t, err)
 		finish()
 
-		data := strings.TrimPrefix(strings.Split(rec.Body.String(), "\n")[1], "data: ")
-		transcriptModel = gjson.Get(data, "message.model").String()
+		messageStartJSON := strings.TrimPrefix(strings.Split(rec.Body.String(), "\n")[1], "data: ")
+		transcriptModel = gjson.Get(messageStartJSON, "message.model").String()
 		assert.Equal(t, requested, transcriptModel, "turn %d", turn)
 	}
 }

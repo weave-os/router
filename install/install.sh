@@ -5563,16 +5563,27 @@ refresh_display_settings() {
 
 # A cold cache fetches the setting once in the foreground, briefly, so a
 # subject whose surfaces are hidden never sees a branded first title.
+display_file_younger_than() {
+  local mtime now
+  [ -f "$1" ] || return 1
+  mtime="$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null)" || return 1
+  now="$(date +%s 2>/dev/null)" || return 1
+  [ $(( now - mtime )) -lt "$2" ]
+}
+
+# A cold cache, or a hidden setting past its grace window, fetches in the
+# foreground; a merely stale setting refreshes in the background. Failed
+# fetches are rate-limited by the .refreshed stamp.
 prime_display_settings() {
-  local hidden_file stamp mtime now
+  local hidden_file stamp
   hidden_file="$(display_hidden_file)"
-  if [ -f "$hidden_file" ]; then
-    stamp="$hidden_file.refreshed"
-    [ -f "$stamp" ] || stamp="$hidden_file"
-    mtime="$(stat -c %Y "$stamp" 2>/dev/null || stat -f %m "$stamp" 2>/dev/null)" || mtime=0
-    now="$(date +%s 2>/dev/null)" || now=0
-    [ $(( now - ${mtime:-0} )) -lt "${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-300}" ] && return 0
-    touch "$hidden_file.refreshed" 2>/dev/null
+  stamp="$hidden_file.refreshed"
+  [ -f "$stamp" ] || [ ! -f "$hidden_file" ] || stamp="$hidden_file"
+  display_file_younger_than "$stamp" "${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-300}" && return 0
+  mkdir -p "$state_root" 2>/dev/null
+  touch "$hidden_file.refreshed" 2>/dev/null
+  if [ -f "$hidden_file" ] && { [ "$(cat "$hidden_file" 2>/dev/null)" != "1" ] \
+    || display_file_younger_than "$hidden_file" "${WEAVE_DISPLAY_SETTINGS_HIDDEN_GRACE_SECONDS:-604800}"; }; then
     ( exec </dev/null >/dev/null 2>&1; prime_display_settings_now ) &
     return 0
   fi
@@ -5596,10 +5607,7 @@ codex_surfaces_hidden() {
   prime_display_settings
   hidden_file="$(display_hidden_file)"
   [ "$(cat "$hidden_file" 2>/dev/null)" = "1" ] || return 1
-  local mtime now
-  mtime="$(stat -c %Y "$hidden_file" 2>/dev/null || stat -f %m "$hidden_file" 2>/dev/null)" || return 1
-  now="$(date +%s 2>/dev/null)" || return 1
-  [ $(( now - mtime )) -lt "${WEAVE_DISPLAY_SETTINGS_HIDDEN_GRACE_SECONDS:-604800}" ]
+  display_file_younger_than "$hidden_file" "${WEAVE_DISPLAY_SETTINGS_HIDDEN_GRACE_SECONDS:-604800}"
 }
 
 emit_title() {

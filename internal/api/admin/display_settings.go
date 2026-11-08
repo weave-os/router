@@ -27,9 +27,16 @@ type SubscriptionAccountLister interface {
 // CallerResolver attributes a display-settings request to its router user, the same way inference requests are.
 type CallerResolver func(c *gin.Context) context.Context
 
+// InstallationExperimentChecker reports whether an installation has an enabled blind experiment.
+type InstallationExperimentChecker interface {
+	InstallationBlindExperimentEnabled(ctx context.Context, installationID string) bool
+}
+
 // DisplaySettingsHandler returns the calling installation's display toggles (scoped to the caller by the rk_ bearer key).
-// Blind experiment subjects always get hidden surfaces so neither arm learns it is being routed.
-func DisplaySettingsHandler(accounts SubscriptionAccountLister, resolveCaller CallerResolver) gin.HandlerFunc {
+// Blind experiment subjects always get hidden surfaces so neither arm learns it is being routed. A caller
+// that cannot be attributed to a router user is hidden whenever the installation runs an experiment,
+// because inference may still identify it as a subject from the request body.
+func DisplaySettingsHandler(accounts SubscriptionAccountLister, resolveCaller CallerResolver, experiments InstallationExperimentChecker) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation := middleware.InstallationFrom(c)
 		if installation == nil {
@@ -38,7 +45,11 @@ func DisplaySettingsHandler(accounts SubscriptionAccountLister, resolveCaller Ca
 		}
 		hide := installation.HideTerminalSurfaces
 		if !hide && resolveCaller != nil {
-			_, hide = auth.BlindExperimentFrom(resolveCaller(c))
+			callerCtx := resolveCaller(c)
+			_, hide = auth.BlindExperimentFrom(callerCtx)
+			if !hide && auth.UserIDFrom(callerCtx) == "" && experiments != nil {
+				hide = experiments.InstallationBlindExperimentEnabled(callerCtx, installation.ID)
+			}
 		}
 		c.JSON(http.StatusOK, displaySettingsResponse{
 			HideTerminalSurfaces: hide,
