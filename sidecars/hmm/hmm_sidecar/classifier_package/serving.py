@@ -184,7 +184,7 @@ class PackageClassifier:
             raise PackageError(
                 "raw-V5 packages serve only the live conversation snapshot"
             )
-        interaction_state = getattr(contract, "interaction_state", None)
+        interaction_state = contract.interaction_state
         if interaction_state is not None and (
             interaction_state.element_lookback_source
             is ElementLookbackSource.STORED_VECTORS

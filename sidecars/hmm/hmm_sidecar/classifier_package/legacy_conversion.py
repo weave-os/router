@@ -27,9 +27,6 @@ from hmm_sidecar.classifier_package.package_loader import (
 )
 from hmm_sidecar.classifier_package.runtime_contract import parse_runtime_contract
 
-LEGACY_PACKAGE_SCHEMA_VERSION = "hmm_router_sidecar_package_v8"
-CONVERSION_SCHEMA_VERSION = "hmm_router_classifier_package_conversion_v1"
-
 
 class LegacyPackageSchemaVersion(StrEnum):
     """Legacy package schema accepted by the one-way converter."""
@@ -201,6 +198,15 @@ def convert_legacy_classifier_package(
         raise ValueError(
             f"legacy package members differ from its manifest; unexpected={unexpected}, missing={missing}"
         )
+    for directory, component_files in (
+        ("classifier", classifier_files),
+        ("hmm_bundle", hmm_bundle_files),
+        ("arm_selector", arm_selector_files),
+    ):
+        for relative_path, sha256 in component_files.items():
+            member = f"{directory}/{relative_path}"
+            if hashlib.sha256(source_files[member]).hexdigest() != sha256:
+                raise ValueError(f"legacy {member} bytes do not match the manifest")
     allowed_directories = {"classifier", "hmm_bundle"}
     if arm_selector_files:
         allowed_directories.add("arm_selector")
@@ -248,8 +254,9 @@ def convert_legacy_classifier_package(
             "source_manifest_sha256": source_manifest_sha256,
         },
     }
-    converted_manifest_bytes = canonical_json(converted_manifest).encode("utf-8")
-    converted_members = {"manifest.json": converted_manifest_bytes}
+    converted_members = {
+        "manifest.json": canonical_json(converted_manifest).encode("utf-8")
+    }
     converted_members.update(
         {
             f"classifier/{name}": source_files[f"classifier/{name}"]
@@ -430,7 +437,7 @@ def _classifier_only_runtime_contract(value: object) -> dict[str, Any]:
         parsed_contract = parse_runtime_contract(raw_runtime)
     except (TypeError, ValueError) as error:
         raise ValueError("legacy raw-V5 serving contract is unsupported") from error
-    if parsed_contract.classes != tuple(raw_runtime.get("classes", ())):
+    if parsed_contract.classes != tuple(raw_runtime["classes"]):
         raise ValueError("legacy raw-V5 class taxonomy is invalid")
     if (
         raw_runtime.get("embedding_provider")
@@ -490,5 +497,4 @@ def _verify_converted_archive(archive_bytes: bytes) -> dict[str, Any]:
         package_root = Path(directory)
         with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:*") as archive:
             archive.extractall(package_root, filter="data")
-        manifest = verify_classifier_package(package_root)
-        return manifest
+        return verify_classifier_package(package_root)

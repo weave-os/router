@@ -161,6 +161,7 @@ def test_preview_uses_same_classifier_facts_contract() -> None:
     assert response.status_code == 200
     assert response.json()["classifier_release_id"] == RELEASE_ID
     assert len(runtime.requests) == 1
+    assert runtime.requests[0][1] is None, "previews never touch serving session state"
 
 
 def test_unknown_release_or_variant_never_uses_primary_default() -> None:
@@ -286,6 +287,68 @@ def test_wrong_api_major_or_unknown_selection_fields_fail_before_inference() -> 
     assert unsupported.status_code == 422
     assert forbidden.status_code == 422
     assert runtime.requests == []
+
+
+def _single_variant_release(
+    release_id: str, runtime: FakeClassifierRuntime, **overrides: object
+) -> ResolvedClassifierRelease:
+    fields: dict[str, object] = {
+        "release_id": release_id,
+        "api_major": 5,
+        "wire_schema": ClassifierAPIVersion.V5,
+        "class_order": TAXONOMY,
+        "taxonomy_sha256": TAXONOMY_SHA256,
+        "variants": {
+            ClassifierVariantID.PRIMARY: ResolvedClassifierVariant(
+                variant_id=ClassifierVariantID.PRIMARY,
+                artifact_id="hmm-primary",
+                package_sha256="b" * 64,
+                runtime=runtime,
+            )
+        },
+    }
+    return ResolvedClassifierRelease(**{**fields, **overrides})
+
+
+def test_resolved_release_with_another_api_major_fails_before_inference() -> None:
+    runtime = FakeClassifierRuntime()
+    resolver = MappingClassifierReleaseResolver(
+        {RELEASE_ID: _single_variant_release(RELEASE_ID, runtime, api_major=4)}
+    )
+    app = FastAPI()
+    app.include_router(create_classifier_router(resolver))
+    with TestClient(app) as client:
+        response = client.post("/v5/classify", json=_request())
+
+    assert response.status_code == 406
+    assert runtime.requests == []
+
+
+def test_selection_pinned_to_another_release_fails_before_inference() -> None:
+    requested_runtime = FakeClassifierRuntime()
+    other_runtime = FakeClassifierRuntime()
+    other_release_id = "f" * 64
+    resolver = MappingClassifierReleaseResolver(
+        {
+            RELEASE_ID: _single_variant_release(RELEASE_ID, requested_runtime),
+            other_release_id: _single_variant_release(other_release_id, other_runtime),
+        },
+        {
+            RELEASE_ID: ResolvedClassifierSelection(
+                selection_id=RELEASE_ID,
+                release_id=other_release_id,
+                enabled_variants=frozenset({ClassifierVariantID.PRIMARY}),
+            )
+        },
+    )
+    app = FastAPI()
+    app.include_router(create_classifier_router(resolver))
+    with TestClient(app) as client:
+        response = client.post("/v5/classify", json=_request())
+
+    assert response.status_code == 409
+    assert requested_runtime.requests == []
+    assert other_runtime.requests == []
 
 
 def test_session_identity_is_runtime_only_and_never_echoed(caplog) -> None:

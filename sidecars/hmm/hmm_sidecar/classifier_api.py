@@ -27,10 +27,6 @@ class UnknownClassifierRelease(ClassifierAPIError):
     """The requested immutable release is unavailable."""
 
 
-class UnsupportedClassifierAPI(ClassifierAPIError):
-    """The requested classifier release does not implement this API major."""
-
-
 class UnknownClassifierVariant(ClassifierAPIError):
     """The requested classifier variant is absent from the pinned release."""
 
@@ -84,7 +80,7 @@ class ClassifierToolCall(BaseModel):
 
 
 class ClassifierToolResult(BaseModel):
-    """Generic tool-result evidence used by the classifier."""
+    """Tool-result evidence: error flag, bounded text, and size counts."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -358,10 +354,6 @@ def create_classifier_router(resolver: ClassifierReleaseResolver) -> APIRouter:
         release = await _resolve_release(resolver, classifier_release_id)
         selection = await _resolve_selection(resolver, classifier_selection_id)
         _require_matching_selection(selection, release)
-        if release.api_major != 5 or release.wire_schema is not ClassifierAPIVersion.V5:
-            raise HTTPException(
-                status_code=406, detail="unsupported classifier API release"
-            )
         return ClassifierCapabilitiesV5(
             schema_version=ClassifierAPIVersion.V5,
             api_major=release.api_major,
@@ -381,14 +373,22 @@ def create_classifier_router(resolver: ClassifierReleaseResolver) -> APIRouter:
         request: ClassifierRequestV5,
         timeout_ms: str | None = Header(default=None, alias=CLASSIFIER_TIMEOUT_HEADER),
     ) -> ClassifierResponseV5 | JSONResponse:
-        return await _classify(resolver, request, _router_budget_seconds(timeout_ms))
+        return await _classify(
+            resolver,
+            request,
+            _router_budget_seconds(timeout_ms),
+            session_id=request.session_id,
+        )
 
     @api_router.post("/v5/preview", response_model=ClassifierResponseV5)
     async def preview(
         request: ClassifierRequestV5,
         timeout_ms: str | None = Header(default=None, alias=CLASSIFIER_TIMEOUT_HEADER),
     ) -> ClassifierResponseV5 | JSONResponse:
-        return await _classify(resolver, request, _router_budget_seconds(timeout_ms))
+        # Previews are hypothetical, so they neither read nor overwrite the session's serving readout.
+        return await _classify(
+            resolver, request, _router_budget_seconds(timeout_ms), session_id=None
+        )
 
     return api_router
 
@@ -401,22 +401,22 @@ def _router_budget_seconds(timeout_ms: str | None) -> float | None:
         raise HTTPException(status_code=422, detail="classifier timeout is malformed")
     milliseconds = int(timeout_ms)
     if not 0 < milliseconds <= MAX_CLASSIFIER_TIMEOUT_MS:
-        raise HTTPException(status_code=422, detail="classifier timeout is out of range")
+        raise HTTPException(
+            status_code=422, detail="classifier timeout is out of range"
+        )
     return milliseconds / 1000
 
 
 async def _classify(
     resolver: ClassifierReleaseResolver,
     request: ClassifierRequestV5,
-    budget_seconds: float | None = None,
+    budget_seconds: float | None,
+    *,
+    session_id: str | None,
 ) -> ClassifierResponseV5 | JSONResponse:
     release = await _resolve_release(resolver, request.classifier_release_id)
     selection = await _resolve_selection(resolver, request.classifier_selection_id)
     _require_matching_selection(selection, release)
-    if release.api_major != 5 or release.wire_schema is not ClassifierAPIVersion.V5:
-        raise HTTPException(
-            status_code=406, detail="unsupported classifier API release"
-        )
     try:
         variant = release.resolve_variant(request.classifier_variant_id)
     except UnknownClassifierVariant as error:
@@ -427,13 +427,9 @@ async def _classify(
         raise HTTPException(
             status_code=403, detail="classifier variant is disabled for selection"
         )
-    if variant.runtime is None:
-        raise HTTPException(status_code=503, detail="classifier variant is unavailable")
     try:
         async with asyncio.timeout(budget_seconds):
-            facts = await variant.runtime.classify(
-                request, session_id=request.session_id
-            )
+            facts = await variant.runtime.classify(request, session_id=session_id)
     except TimeoutError:
         return JSONResponse({"error": ClassifierErrorCode.UNAVAILABLE}, status_code=503)
     except ClassifierWarmingError:
@@ -451,10 +447,6 @@ async def _classify(
     if facts.class_order != release.class_order:
         raise HTTPException(
             status_code=409, detail="classifier taxonomy does not match release"
-        )
-    if facts.predicted_label not in facts.class_probabilities:
-        raise HTTPException(
-            status_code=409, detail="classifier prediction is outside release taxonomy"
         )
     return ClassifierResponseV5(
         schema_version=ClassifierAPIVersion.V5,
@@ -496,7 +488,7 @@ async def _resolve_release(
         raise HTTPException(
             status_code=406, detail="unsupported classifier API release"
         )
-    if not release.variants or ClassifierVariantID.PRIMARY not in release.variants:
+    if ClassifierVariantID.PRIMARY not in release.variants:
         raise HTTPException(
             status_code=503, detail="classifier release has no primary variant"
         )
@@ -509,10 +501,6 @@ async def _resolve_release(
         raise HTTPException(
             status_code=409, detail="classifier taxonomy identity mismatch"
         ) from error
-    if not isinstance(release.class_order, tuple):
-        raise HTTPException(
-            status_code=409, detail="classifier taxonomy identity mismatch"
-        )
     for variant_id, variant in release.variants.items():
         if (
             variant.variant_id != variant_id

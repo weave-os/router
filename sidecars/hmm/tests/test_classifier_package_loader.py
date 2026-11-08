@@ -78,3 +78,16 @@ def test_loader_rechecks_cached_files_before_returning_package(tmp_path: Path) -
     assert (
         repaired_root / "classifier/model.json"
     ).read_bytes() == b'{"classes":["fast","maximum"]}'
+
+
+def test_loader_rejects_archives_that_expand_past_the_extracted_limit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive = _package_archive()
+    monkeypatch.setattr(
+        "hmm_sidecar.classifier_package.package_loader.MAX_EXTRACTED_BYTES", 16
+    )
+
+    with pytest.raises(ValueError, match="maximum extracted size"):
+        load_classifier_package(archive, hashlib.sha256(archive).hexdigest(), tmp_path)
+    assert not list(tmp_path.glob(f"{hashlib.sha256(archive).hexdigest()}*"))

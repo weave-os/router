@@ -60,6 +60,8 @@ func (c *Client) AttestClassifier(ctx context.Context, revision policyregistry.R
 	return attestation, err
 }
 
+var _ policyregistry.ClassifierServiceAttestationEndpoints = (*Client)(nil)
+
 // AttestClassifierService reads a selection's v5 capabilities from the release's runtime-bound worker revision.
 func (c *Client) AttestClassifierService(ctx context.Context, binding policyregistry.ClassifierRuntimeBinding, selectionID string) (policyregistry.ClassifierServiceAttestation, error) {
 	query := url.Values{"classifier_selection_id": {selectionID}, "classifier_release_id": {binding.ReleaseSHA256}}

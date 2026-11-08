@@ -77,7 +77,7 @@ def test_release_id_is_the_sha256_of_exact_manifest_bytes_without_self_id() -> N
     release_bytes = b'{"schema_version":"router_classifier_release_v1"}'
     assert (
         classifier_release_id(release_bytes)
-        == hashlib.sha256(release_bytes).hexdigest()
+        == "7c8b548eaccf2e4bc927f752f12b90b4d8d977bbe70801ae4c1c3c6990c3b432"
     )
     assert "release_id" not in ClassifierReleaseManifestV1.model_fields
 
@@ -128,6 +128,26 @@ def test_qwen_bundle_has_no_fabricated_package_or_embedding_reference() -> None:
         ValidationError, match="must not claim an HMM package or embedding"
     ):
         ClassifierReleaseManifestV1.model_validate(fake_embedding)
+
+    fake_package = {**manifest, "variants": {**manifest["variants"]}}
+    fake_package["variants"]["qwen"] = {
+        **manifest["variants"]["qwen"],
+        "package_weavedata_ref": manifest["variants"]["primary"][
+            "package_weavedata_ref"
+        ],
+    }
+    with pytest.raises(
+        ValidationError, match="must not claim an HMM package or embedding"
+    ):
+        ClassifierReleaseManifestV1.model_validate(fake_package)
+
+    blank_artifact = {**manifest, "variants": {**manifest["variants"]}}
+    blank_artifact["variants"]["qwen"] = {
+        **manifest["variants"]["qwen"],
+        "artifact_id": "   ",
+    }
+    with pytest.raises(ValidationError, match="artifact_id"):
+        ClassifierReleaseManifestV1.model_validate(blank_artifact)
 
 
 def test_hmm_package_rejects_unconsumed_auxiliary_model_refs() -> None:

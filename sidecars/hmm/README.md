@@ -98,9 +98,11 @@ classifier-only v1 format. It preserves every classifier and HMM file byte,
 the raw-V5 runtime contract, and classifier/HMM training-privacy attestations;
 it removes the roster and arm selector, verifies their source digests, and
 returns a deterministic archive with its SHA-256 and source archive/manifest
-digests. It performs no registry writes or model inference. The v1 runtime
-support is intentionally limited to the frozen Gemini, user-agent-only,
-one-turn window geometry; other raw-v5 v1 shapes fail closed.
+digests. It performs no registry writes or model inference. It accepts any
+raw-V5 runtime contract the package parser accepts: v1 contracts are limited
+to the frozen Gemini, user-agent-only, one-turn window geometry, while v2
+interaction-state contracts keep their declared document window (for example
+per-message). Other shapes fail closed.
 
 Callers must resolve the archive through its canonical `MODEL_ARTIFACT`
 WeaveDataRef and pass that exact `content_sha256` as `expected_sha256`. The

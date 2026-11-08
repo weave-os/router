@@ -141,30 +141,37 @@ class LocalClassifierReleaseResolver:
             raise ValueError("local classifier selection must enable primary")
 
         variants: dict[ClassifierVariantID, ResolvedClassifierVariant] = {}
-        for variant_id, variant_manifest in release_manifest.variants.items():
+        for variant_id in selection_manifest.enabled_variants:
+            variant_manifest = release_manifest.variants.get(variant_id)
+            if variant_manifest is None:
+                raise ValueError(
+                    "local classifier selection enables a missing release variant"
+                )
             if variant_manifest.kind.value != "hmm_package":
                 raise ValueError(
                     f"self-hosted resolver does not support {variant_manifest.kind.value}"
                 )
             package_sha = variant_manifest.artifact_sha256
-            artifacts = self.artifacts.get(package_sha)
-            if artifacts is None or artifacts.package_manifest is None:
+            package_artifact = self.artifacts.get(package_sha)
+            if package_artifact is None or package_artifact.package_manifest is None:
                 raise ValueError(
                     f"local package {package_sha} is not in HMM_PACKAGE_REGISTRY"
                 )
-            if artifacts.model_id != variant_manifest.artifact_id:
+            if package_artifact.model_id != variant_manifest.artifact_id:
                 raise ValueError(
                     "local package artifact ID does not match release manifest"
                 )
             if (
-                embedded_semantic_configuration_sha256(artifacts.package_manifest)
+                embedded_semantic_configuration_sha256(
+                    package_artifact.package_manifest
+                )
                 != variant_manifest.semantic_configuration_sha256
             ):
                 raise ValueError(
                     "local package semantic configuration does not match release"
                 )
             if (
-                embedded_embedding_contract_sha256(artifacts.package_manifest)
+                embedded_embedding_contract_sha256(package_artifact.package_manifest)
                 != variant_manifest.embedding_contract_sha256
             ):
                 raise ValueError(
@@ -173,15 +180,15 @@ class LocalClassifierReleaseResolver:
             package_policy = self.policies.get(package_sha)
             if package_policy is None:
                 raise ValueError(f"local package policy {package_sha} is not loaded")
+            if package_policy.runtime.classes != release_manifest.taxonomy.class_order:
+                raise ValueError(
+                    "local package taxonomy does not match release taxonomy"
+                )
             variants[variant_id] = ResolvedClassifierVariant(
                 variant_id=variant_id,
                 artifact_id=variant_manifest.artifact_id,
                 package_sha256=package_sha,
                 runtime=LocalPackageClassifierRuntime(package_policy.runtime),
-            )
-        if set(selection_manifest.enabled_variants) - set(variants):
-            raise ValueError(
-                "local classifier selection enables a missing release variant"
             )
         self.release_id = release_id
         self.selection_id = selection_id

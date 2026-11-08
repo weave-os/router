@@ -18,6 +18,7 @@ from hmm_sidecar.classifier_package.manifest import is_classifier_package_manife
 MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
 MAX_ARCHIVE_MEMBERS = 128
 MAX_MEMBER_BYTES = 64 * 1024 * 1024
+MAX_EXTRACTED_BYTES = 1024 * 1024 * 1024
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -69,6 +70,8 @@ def extract_classifier_archive(archive_bytes: bytes, destination: Path) -> None:
         members = archive.getmembers()
         if len(members) > MAX_ARCHIVE_MEMBERS:
             raise ValueError("classifier package has too many archive members")
+        if sum(member.size for member in members) > MAX_EXTRACTED_BYTES:
+            raise ValueError("classifier package exceeds maximum extracted size")
         for member in members:
             if not member.isfile() and not member.isdir():
                 raise ValueError(f"unsupported archive member: {member.name}")

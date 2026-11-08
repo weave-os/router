@@ -98,7 +98,7 @@ class ClassifierVariantManifest(FrozenModel):
     """Immutable package and semantic configuration for one classifier variant."""
 
     kind: ClassifierVariantKind
-    artifact_id: str = Field(min_length=1)
+    artifact_id: str = Field(pattern=r"\S")
     artifact_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     package_weavedata_ref: WeaveDataModelArtifactReference | None = None
     bundle_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
@@ -166,8 +166,6 @@ class ClassifierReleaseManifestV1(FrozenModel):
     def validate_variants(self) -> ClassifierReleaseManifestV1:
         if ClassifierVariantID.PRIMARY not in self.variants:
             raise ValueError("classifier release requires a primary variant")
-        if not self.variants:
-            raise ValueError("classifier release requires at least one variant")
         for variant_id, variant in self.variants.items():
             expected_kind = (
                 ClassifierVariantKind.QWEN_BUNDLE
@@ -184,27 +182,6 @@ class ClassifierReleaseManifestV1(FrozenModel):
 def classifier_release_id(manifest_bytes: bytes) -> str:
     """Return the release identity without embedding it recursively in the manifest."""
     return hashlib.sha256(manifest_bytes).hexdigest()
-
-
-def classifier_package_artifact_id(archive_sha256: str) -> str:
-    """Return the existing Weave model ID for a published HMM package archive."""
-    if not re.fullmatch(r"[0-9a-f]{64}", archive_sha256):
-        raise ValueError("archive_sha256 must be a lowercase SHA-256")
-    return f"hmm_router_sidecar_package_{archive_sha256[:16]}"
-
-
-def qwen_semantic_configuration_bytes(artifact_id: str, bundle_sha256: str) -> bytes:
-    """Return semantic Qwen identity bytes without physical endpoint/revision fields."""
-    if not artifact_id or not re.fullmatch(r"[0-9a-f]{64}", bundle_sha256):
-        raise ValueError("Qwen semantic configuration requires exact artifact identity")
-    return canonical_json(
-        {
-            "schema_version": "router_qwen_classifier_semantic_configuration_v1",
-            "artifact_id": artifact_id,
-            "bundle_sha256": bundle_sha256,
-            "wire_schema": "policy_router_v5",
-        }
-    ).encode("utf-8")
 
 
 def semantic_configuration_sha256(configuration_bytes: bytes) -> str:

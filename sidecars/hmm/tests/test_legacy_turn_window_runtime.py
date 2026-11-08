@@ -98,9 +98,12 @@ def _parity_messages() -> list[dict[str, object]]:
 def test_v1_turn_window_contract_is_an_exact_supported_artifact_geometry() -> None:
     runtime_contract = parse_runtime_contract(_v1_runtime_contract())
 
+    profile = runtime_contract.resolved_profile()
+    assert profile.embedding_model == "google/gemini-embedding-2"
+    assert profile.embedding_dim == 3072
     assert (
-        runtime_contract.resolved_profile()
-        == legacy_gemini_user_agent_turn_window_profile()
+        profile.document_serializer_sha256
+        == "442b0968a2457bd10463f3da9223f4ed5e06df8542f67243ea6242665eca5b01"
     )
     assert runtime_contract.reference_probes == ()
     assert runtime_contract.interaction_state is None

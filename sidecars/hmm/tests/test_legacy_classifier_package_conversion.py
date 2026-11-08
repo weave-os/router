@@ -93,7 +93,7 @@ def _raw_runtime_contract() -> dict[str, object]:
     return raw_contract
 
 
-def _training_privacy() -> dict[str, dict[str, str]]:
+def _training_privacy():
     return {
         artifact: {
             "schema_version": "ai_training_privacy_attestation_v1",
@@ -109,6 +109,7 @@ def _source_package(
     classifier_bytes: bytes = CLASSIFIER_BYTES,
     declared_classifier_sha256: str | None = None,
     include_arm_selector: bool = True,
+    arm_selector_bytes: bytes = ARM_SELECTOR_BYTES,
     extra_members: dict[str, bytes] | None = None,
     runtime_contract: dict[str, object] | None = None,
     training_privacy: dict[str, dict[str, str]] | None = None,
@@ -120,7 +121,7 @@ def _source_package(
     }
     arm_selector_files = {}
     if include_arm_selector:
-        members["arm_selector/model.bin"] = ARM_SELECTOR_BYTES
+        members["arm_selector/model.bin"] = arm_selector_bytes
         arm_selector_files = {"model.bin": _sha256(ARM_SELECTOR_BYTES)}
     if extra_members:
         members.update(extra_members)
@@ -243,6 +244,9 @@ def test_conversion_rejects_tampered_weights_and_unrecognized_members() -> None:
     )
     with pytest.raises(ValueError, match="classifier/model.bin"):
         _converted(tampered_weights)
+
+    with pytest.raises(ValueError, match="arm_selector/model.bin"):
+        _converted(_source_package(arm_selector_bytes=b"tampered-selector"))
 
     with pytest.raises(ValueError, match="unexpected=.*training_rows"):
         _converted(_source_package(extra_members={"training_rows.json": b"private"}))

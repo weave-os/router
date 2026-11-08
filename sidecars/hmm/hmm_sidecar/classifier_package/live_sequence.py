@@ -481,11 +481,11 @@ def _window_turns(
     ):
         raise DocumentError("unsupported legacy raw-V5 turn-window geometry")
 
-    output: list[LiveFlowTurn] = []
+    windowed_turns: list[LiveFlowTurn] = []
     for offset in range(0, len(source_turns) - 1, 2):
         user_turn = source_turns[offset]
         agent_turn = source_turns[offset + 1]
-        output.extend(
+        windowed_turns.extend(
             (
                 LiveFlowTurn(
                     turn_text=_bounded_gemini_turn_window_document(
@@ -508,7 +508,7 @@ def _window_turns(
             )
         )
     final_user = source_turns[-1]
-    output.append(
+    windowed_turns.append(
         LiveFlowTurn(
             turn_text=_bounded_gemini_turn_window_document(
                 previous_turns=(),
@@ -519,7 +519,7 @@ def _window_turns(
             categorical=final_user.categorical,
         )
     )
-    return output
+    return windowed_turns
 
 
 def _per_message_turns(source_turns: list[LiveFlowTurn]) -> list[LiveFlowTurn]:

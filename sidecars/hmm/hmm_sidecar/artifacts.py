@@ -172,6 +172,8 @@ def _download(url: str, destination: Path) -> None:
 
 
 def _safe_extract(archive: Path, destination: Path) -> None:
+    if archive.stat().st_size > MAX_ARCHIVE_BYTES:
+        raise ValueError("HMM package exceeds maximum archive size")
     extract_classifier_archive(archive.read_bytes(), destination)
 
 
