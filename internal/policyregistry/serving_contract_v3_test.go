@@ -278,6 +278,36 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 	require.NoError(t, err)
 	require.Equal(t, activatedV3.Snapshot.Generation+1, activatedV4.Snapshot.Generation)
 
+	forwardV4 := func(scope policyregistry.ChangeScope, set policyregistry.SelectionSetV4, source policyregistry.ObjectRef) policyregistry.DeploymentProposalV2 {
+		proposal := activateV4
+		proposal.PreviousSelectionSet = &activatedV4.Activation.SelectionSet
+		proposal.SelectionSet = store.publishArtifact(t, policyregistry.ServingSelectionSet, set)
+		proposal.SourceCandidate, proposal.Scope, proposal.RequestID = source, scope, "v4-"+string(scope)
+		return proposal
+	}
+	rosterSet := selectionV4
+	rosterSet.DefaultPolicy = publishRosterArm(t, store, selectionV4.DefaultPolicy, alternateRosterArm)
+	require.NoError(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeRoster, rosterSet, candidateV3Ref)), "a v4 roster update keeps code and classifier and changes only the selection-owned policy")
+	rosterWithClassifier := rosterSet
+	rosterWithClassifier.Classifier.EnabledVariants = []policy.ClassifierVariantID{policy.ClassifierVariantPrimary}
+	rosterWithClassifier.StrategyPolicies = map[router.Strategy]policyregistry.PolicyObject{}
+	require.Error(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeRoster, rosterWithClassifier, candidateV3Ref)), "a roster proposal cannot change the classifier selection")
+
+	classifierRelease := release
+	classifierRelease.RuntimeImageDigest = "sha256:" + strings.Repeat("5", 64)
+	classifierSet := selectionV4
+	classifierSet.Classifier.Release = store.publishArtifact(t, policyregistry.ServingClassifierReleases, classifierRelease)
+	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, classifierSet.Classifier.Release.SHA256, testRuntimeBinding(policyregistry.EnvironmentProd, classifierSet.Classifier.Release.SHA256))
+	require.NoError(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeClassifier, classifierSet, candidateV3Ref)), "a v4 classifier update names a new release under the same Router code")
+
+	routerCandidate := classer
+	routerCandidate.RouterImageDigest = "sha256:" + strings.Repeat("6", 64)
+	routerCandidateRef := store.publishArtifact(t, policyregistry.ServingCandidate, routerCandidate)
+	routerSet := selectionV4
+	routerSet.Code.Candidate = routerCandidateRef
+	routerSet.Code.Router.Name, routerSet.Code.Router.ImageDigest = "router-worker-internal-v6", routerCandidate.RouterImageDigest
+	require.NoError(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeRouter, routerSet, routerCandidateRef)), "a v4 router update is not blocked by the new selection set's own identity")
+
 	oldSelection := v3Set.View(v3Ref).Default
 	oldPrepared, err := policyregistry.ReadPreparedSelection(ctx, store, v3Set.Target, "", oldSelection)
 	require.NoError(t, err, "retained session pins still decode the historical CandidateV2/V3 set")

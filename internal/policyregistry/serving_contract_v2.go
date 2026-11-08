@@ -171,7 +171,7 @@ func (p ServingProvenance) validate() error {
 
 // Equal compares the effective composition; classifier equality includes the auxiliary inventory.
 func (c CandidateComposition) Equal(other CandidateComposition) bool {
-	return c.RouterImageDigest == other.RouterImageDigest && c.Policy == other.Policy && maps.Equal(c.StrategyPolicies, other.StrategyPolicies) && c.Requirements == other.Requirements && c.Provenance == other.Provenance && c.Classifier.Equal(other.Classifier) && c.ClassifierReleaseSHA256 == other.ClassifierReleaseSHA256 && c.ClassifierSelectionSHA256 == other.ClassifierSelectionSHA256 && c.ClassifierServiceURL == other.ClassifierServiceURL && c.ClassifierAudience == other.ClassifierAudience && slices.Equal(c.EnabledClassifierVariants, other.EnabledClassifierVariants) && slices.Equal(c.SupportedAPIMajors, other.SupportedAPIMajors)
+	return c.RouterImageDigest == other.RouterImageDigest && c.Policy == other.Policy && maps.Equal(c.StrategyPolicies, other.StrategyPolicies) && c.Requirements == other.Requirements && c.Provenance == other.Provenance && c.Classifier.Equal(other.Classifier) && c.ClassifierReleaseSHA256 == other.ClassifierReleaseSHA256 && c.ClassifierServiceURL == other.ClassifierServiceURL && c.ClassifierAudience == other.ClassifierAudience && slices.Equal(c.EnabledClassifierVariants, other.EnabledClassifierVariants) && slices.Equal(c.SupportedAPIMajors, other.SupportedAPIMajors)
 }
 
 func (c CandidateComposition) validate(root string) error {

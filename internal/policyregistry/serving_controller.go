@@ -400,11 +400,12 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 			return err
 		}
 	case ChangeRoster:
-		if (!set.ConfigurationOnly && base.Policy != source.Policy) || base.RouterImageDigest != oldBase.RouterImageDigest || !base.Classifier.Equal(oldBase.Classifier) {
+		if (!set.ConfigurationOnly && base.Policy != source.Policy) || base.RouterImageDigest != oldBase.RouterImageDigest || !base.Classifier.Equal(oldBase.Classifier) || !sameClassifierService(base, oldBase) {
 			return errors.New("roster-only promotion must retain destination image and classifier")
 		}
 	case ChangeClassifier:
-		if !base.Classifier.Equal(source.Classifier) || base.RouterImageDigest != oldBase.RouterImageDigest || base.Policy != oldBase.Policy || !maps.Equal(base.StrategyPolicies, oldBase.StrategyPolicies) {
+		// A v4 source candidate is Router code only; its classifier is the selection's release.
+		if (set.SchemaVersion != ServingSelectionSetV4 && !base.Classifier.Equal(source.Classifier)) || base.RouterImageDigest != oldBase.RouterImageDigest || base.Policy != oldBase.Policy || !maps.Equal(base.StrategyPolicies, oldBase.StrategyPolicies) {
 			return errors.New("classifier-only promotion must retain destination image, policy and strategy policies")
 		}
 	}
@@ -538,6 +539,11 @@ func (r *laneReader) sameLane(ctx context.Context, left, right resolvedLane) (bo
 	return leftCandidate.Equal(rightCandidate), nil
 }
 
+// sameClassifierService compares the v5 classifier a composition selects, ignoring the selection set's own identity.
+func sameClassifierService(left, right CandidateComposition) bool {
+	return left.ClassifierReleaseSHA256 == right.ClassifierReleaseSHA256 && slices.Equal(left.EnabledClassifierVariants, right.EnabledClassifierVariants)
+}
+
 func sameClassifierServiceBinding(left, right *ClassifierServiceBinding) bool {
 	if (left == nil) != (right == nil) {
 		return false
@@ -629,7 +635,7 @@ func (r *laneReader) selectionSet(ctx context.Context, ref ObjectRef) (resolvedS
 		if err != nil {
 			return resolvedSelectionSet{}, fmt.Errorf("default classifier selection: %w", err)
 		}
-		return resolvedSelectionSet{SchemaVersion: typed.SchemaVersion, Target: typed.Target, Default: resolvedLane{Selection: view.Default, Candidate: typed.Code.Candidate, Binding: v4WorkerBinding(typed.Code), PolicyReference: typed.DefaultPolicy, ClassifierService: &typed.Classifier, ClassifierRelease: release, ClassifierSelectionID: ref.SHA256, CandidateComposition: &defaultComposition}, Profiles: profiles}, nil
+		return resolvedSelectionSet{SchemaVersion: typed.SchemaVersion, Target: typed.Target, Default: resolvedLane{Selection: view.Default, Candidate: typed.Code.Candidate, Binding: v4WorkerBinding(typed.Code), PolicyReference: typed.DefaultPolicy, ClassifierService: &typed.Classifier, ClassifierRelease: release, ClassifierSelectionID: ref.SHA256, CandidateComposition: &defaultComposition}, Profiles: profiles, ConfigurationOnly: true}, nil
 	case *SelectionSetV2:
 		view := typed.View(ref)
 		profiles := make(map[string]resolvedLane, len(typed.Profiles))
