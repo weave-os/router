@@ -47,7 +47,7 @@ type ClassifierServiceAttestation struct {
 	SupportsPreview       bool                         `json:"supports_preview"`
 }
 
-// ClassifierWorkerAttestationSchemaV1 is the worker revision identity schema.
+// ClassifierWorkerAttestationSchemaV1 tags a worker's attestation payload; a worker reporting any other schema fails activation.
 const ClassifierWorkerAttestationSchemaV1 = "router_classifier_worker_attestation_v1"
 
 // ClassifierWorkerReady is the only status a worker may report for activation.

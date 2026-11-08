@@ -86,7 +86,7 @@ func (m ClassifierReleaseManifestV1) Validate(root string) error {
 	if m.SchemaVersion != ServingClassifierReleaseV1 || m.APIMajor != policy.ClassifierAPIMajorV5 || m.WireSchema != policy.SchemaVersionV5 {
 		return errors.New("unsupported classifier release schema or API contract")
 	}
-	if len(m.Taxonomy.ClassOrder) == 0 || !validDigest(m.Taxonomy.SHA256) || TaxonomyDigest(m.Taxonomy.ClassOrder) != m.Taxonomy.SHA256 {
+	if len(m.Taxonomy.ClassOrder) == 0 || hasDuplicateLabel(m.Taxonomy.ClassOrder) || !validDigest(m.Taxonomy.SHA256) || TaxonomyDigest(m.Taxonomy.ClassOrder) != m.Taxonomy.SHA256 {
 		return errors.New("classifier release taxonomy is invalid")
 	}
 	if !validImageDigest(m.RuntimeImageDigest) {
@@ -122,7 +122,7 @@ func (m ClassifierReleaseManifestV1) Validate(root string) error {
 				return fmt.Errorf("HMM variant %q cannot declare unsupported auxiliary model refs", variantID)
 			}
 			ref := variant.PackageWeaveDataRef
-			if ref.DataID == "" || ref.DataKind != ClassifierModelArtifactDataKind || ref.SchemaVersion == "" || ref.Version == "" || !validDigest(ref.ContentSHA256) || ref.Role != ClassifierModelArtifactRoleTrainedPolicy || !ref.Required || (ref.RowCount != nil && *ref.RowCount < 0) {
+			if ref.DataID == "" || strings.TrimSpace(ref.StorageURI) == "" || ref.DataKind != ClassifierModelArtifactDataKind || ref.SchemaVersion == "" || ref.Version == "" || !validDigest(ref.ContentSHA256) || ref.Role != ClassifierModelArtifactRoleTrainedPolicy || !ref.Required || (ref.RowCount != nil && *ref.RowCount < 0) {
 				return fmt.Errorf("classifier variant %q WeaveDataRef is incomplete or not required", variantID)
 			}
 			if variant.PackageWeaveDataRef.ContentSHA256 != variant.ArtifactSHA256 {
@@ -302,11 +302,22 @@ func (s SelectionSetV4) View(ref ObjectRef) SelectionSetView {
 	return SelectionSetView{Target: s.Target, Default: ServingSelection{Release: s.Code.Candidate, Binding: ref}, Profiles: profiles}
 }
 
-// PolicyFor returns the immutable policy selected by a profile key.
+// PolicyFor returns the default policy for an empty profile key, otherwise the named profile's policy.
 func (s SelectionSetV4) PolicyFor(profileKey string) (PolicyObject, bool) {
 	if profileKey == "" {
 		return s.DefaultPolicy, true
 	}
 	policyObject, exists := s.Profiles[profileKey]
 	return policyObject, exists
+}
+
+func hasDuplicateLabel(labels []string) bool {
+	seen := make(map[string]struct{}, len(labels))
+	for _, label := range labels {
+		if _, exists := seen[label]; exists {
+			return true
+		}
+		seen[label] = struct{}{}
+	}
+	return false
 }

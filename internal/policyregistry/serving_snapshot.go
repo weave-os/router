@@ -11,7 +11,6 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/armid"
-	routerpolicy "weave-os/router/internal/router/policy"
 )
 
 type servingSnapshotContextKey struct{}
@@ -147,7 +146,7 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 		Policy:             prepared.Policy,
 		ClassifierAudience: prepared.Binding.Classifier.Audience,
 	}
-	if prepared.ClassifierReleaseV5 != nil && prepared.ClassifierServiceBinding != nil {
+	if prepared.ClassifierServiceBinding != nil {
 		if prepared.ClassifierRuntimeBinding == nil {
 			return nil, errors.New("v4 selection has no classifier runtime binding")
 		}
@@ -156,14 +155,8 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 		candidate.ClassifierSelectionID = admission.Selection.Binding.SHA256
 		candidate.ClassifierWorkerURL = prepared.ClassifierRuntimeBinding.Binding.WorkerURL
 		candidate.ClassifierWorkerAudience = prepared.ClassifierRuntimeBinding.Binding.WorkerAudience
-		candidate.ClassifierRuntimeBinding = prepared.ClassifierRuntimeBinding.Ref
 		candidate.ClassifierEnabledVariants = slices.Clone(prepared.ClassifierServiceBinding.EnabledVariants)
 		candidate.SupportedAPIMajors = slices.Clone(prepared.Candidate.SupportedAPIMajors)
-		candidate.ClassifierSupportedVariants = make([]routerpolicy.ClassifierVariantID, 0, len(prepared.ClassifierReleaseV5.Variants))
-		for variantID := range prepared.ClassifierReleaseV5.Variants {
-			candidate.ClassifierSupportedVariants = append(candidate.ClassifierSupportedVariants, variantID)
-		}
-		slices.Sort(candidate.ClassifierSupportedVariants)
 	}
 	candidate.StrategyPolicies = prepared.StrategyPolicies
 	routers, err := c.builder(ctx, candidate)

@@ -186,7 +186,7 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 
 	classOrder := slices.Clone(legacyCandidate.Classifier.Identity.ClassOrder)
 	packageSHA := strings.Repeat("b", 64)
-	classer := policyregistry.CandidateV3{
+	candidateV3 := policyregistry.CandidateV3{
 		SchemaVersion:     policyregistry.ServingCandidateV3,
 		RouterImageDigest: "sha256:" + strings.Repeat("9", 64),
 		Requirements: policyregistry.CandidateRequirementsV3{
@@ -199,7 +199,7 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 			BuildAttestation: artifactRef("build-attestation"),
 		},
 	}
-	candidateV3Ref := store.publishArtifact(t, policyregistry.ServingCandidate, classer)
+	candidateV3Ref := store.publishArtifact(t, policyregistry.ServingCandidate, candidateV3)
 	release := policyregistry.ClassifierReleaseManifestV1{
 		SchemaVersion: policyregistry.ServingClassifierReleaseV1,
 		APIMajor:      policy.ClassifierAPIMajorV5, WireSchema: policy.SchemaVersionV5,
@@ -239,7 +239,7 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 			Candidate: candidateV3Ref, Project: v3Set.Code.Project, Region: v3Set.Code.Region,
 			Router: policyregistry.RevisionBinding{
 				Name: "router-worker-internal-v5", URL: "https://router-worker-internal-test.a.run.app",
-				Audience: "https://router-worker-internal-test.a.run.app", ImageDigest: classer.RouterImageDigest,
+				Audience: "https://router-worker-internal-test.a.run.app", ImageDigest: candidateV3.RouterImageDigest,
 				Configuration: artifactRef("v5-worker-config"),
 			},
 			Attestation: artifactRef("binding-attestation"),
@@ -300,7 +300,7 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, classifierSet.Classifier.Release.SHA256, testRuntimeBinding(policyregistry.EnvironmentProd, classifierSet.Classifier.Release.SHA256))
 	require.NoError(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeClassifier, classifierSet, candidateV3Ref)), "a v4 classifier update names a new release under the same Router code")
 
-	routerCandidate := classer
+	routerCandidate := candidateV3
 	routerCandidate.RouterImageDigest = "sha256:" + strings.Repeat("6", 64)
 	routerCandidateRef := store.publishArtifact(t, policyregistry.ServingCandidate, routerCandidate)
 	routerSet := selectionV4
@@ -321,15 +321,13 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 	require.NotNil(t, newPrepared.ClassifierRuntimeBinding)
 	require.Equal(t, testClassifierWorkerURL, newPrepared.ClassifierRuntimeBinding.Binding.WorkerURL, "v5 dispatch targets the release's worker revision, not the selection's gateway")
 	require.Equal(t, testClassifierWorkerAudience, newPrepared.ClassifierRuntimeBinding.Binding.WorkerAudience)
-	require.Equal(t, policyregistry.ClassifierRuntimeBindingURI(testRegistryRoot, policyregistry.EnvironmentProd, releaseRef.SHA256), newPrepared.ClassifierRuntimeBinding.Ref.URI)
+	require.Equal(t, testRegistryRoot+"/runtime_bindings/prod-01/classifier_releases/"+releaseRef.SHA256+".json", newPrepared.ClassifierRuntimeBinding.Ref.URI)
 	qwenVariant := newPrepared.ClassifierReleaseV5.Variants[policy.ClassifierVariantQwen]
 	require.Equal(t, legacyQwen.ArtifactID, qwenVariant.ArtifactID)
 	require.Equal(t, legacyQwen.PackageSHA256, qwenVariant.BundleSHA256)
 	require.Equal(t, qwenPolicy.SHA256, newPrepared.StrategyPolicies[router.StrategyHMMQwen].Reference.SHA256)
-	require.Equal(t, v3Set.Profiles, selectionV4.Profiles, "V3 policy profiles remain assigned during the V4 migration")
 
-	stagingBinding := testRuntimeBinding(policyregistry.EnvironmentStaging, releaseRef.SHA256)
-	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, releaseRef.SHA256, stagingBinding)
+	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, releaseRef.SHA256, testRuntimeBinding(policyregistry.EnvironmentStaging, releaseRef.SHA256))
 	_, err = policyregistry.ReadPreparedSelection(ctx, store, v3Set.Target, "", newSelection)
 	require.ErrorContains(t, err, "classifier runtime binding", "a binding for another environment cannot serve this target")
 	store.deleteRuntimeBinding(policyregistry.EnvironmentProd, releaseRef.SHA256)

@@ -930,7 +930,6 @@ func readLane(ctx context.Context, store ServingStore, target ServingTarget, pro
 			},
 			classifierServiceBinding: &set.Classifier,
 			classifierReleaseV5:      release,
-			classifierSelectionID:    selection.Binding.SHA256,
 			v3Candidate:              candidate,
 			v4StrategyPolicies:       maps.Clone(set.StrategyPolicies),
 		}
@@ -968,9 +967,6 @@ func ReadPreparedSelection(ctx context.Context, store ServingStore, target Servi
 			return PreparedSelection{}, err
 		}
 		if lane.classifierServiceBinding != nil {
-			if lane.v3Candidate == nil || lane.classifierReleaseV5 == nil {
-				return PreparedSelection{}, errors.New("v4 selection is missing its worker or classifier release")
-			}
 			candidate, err = classifierCandidateCompositionV5(
 				*lane.v3Candidate, *lane.classifierReleaseV5, *lane.classifierServiceBinding,
 				lane.v4StrategyPolicies, configuredPolicy, selection.Binding.SHA256,

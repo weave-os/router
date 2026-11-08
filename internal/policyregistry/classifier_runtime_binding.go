@@ -13,7 +13,7 @@ import (
 	"unicode"
 )
 
-// ClassifierRuntimeBindingSchema is the version of a release's environment dispatch binding.
+// ClassifierRuntimeBindingSchema tags the wire format of a release's environment dispatch binding; decoding rejects any other value.
 type ClassifierRuntimeBindingSchema string
 
 // ClassifierRuntimeBindingSchemaV1 is the only supported runtime binding schema.

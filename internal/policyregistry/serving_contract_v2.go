@@ -86,7 +86,6 @@ type ServingLane struct {
 	ProfileRequirements      *ServingRequirements             `json:"profile_requirements,omitempty"`
 	classifierServiceBinding *ClassifierServiceBinding        `json:"-"`
 	classifierReleaseV5      *ClassifierReleaseManifestV1     `json:"-"`
-	classifierSelectionID    string                           `json:"-"`
 	v3Candidate              *CandidateV3                     `json:"-"`
 	v4StrategyPolicies       map[router.Strategy]PolicyObject `json:"-"`
 }

@@ -182,12 +182,6 @@ func buildHMMPolicyRoutersV5(
 		}
 	}
 	release := candidate.ClassifierReleaseV5
-	if release == nil {
-		return nil, errors.New("v5 classifier release is required")
-	}
-	if !slices.Contains(candidate.SupportedAPIMajors, release.APIMajor) {
-		return nil, errors.New("Router worker does not support the selected classifier API major")
-	}
 	capabilities, err := client.CapabilitiesForClassifierRelease(
 		ctx, candidate.ClassifierSelectionID, candidate.ClassifierReleaseID,
 	)
@@ -196,7 +190,7 @@ func buildHMMPolicyRoutersV5(
 	}
 	if capabilities.APIMajor != release.APIMajor || capabilities.WireSchema != release.WireSchema ||
 		capabilities.TaxonomySHA256 != release.Taxonomy.SHA256 || !slices.Equal(capabilities.ClassOrder, release.Taxonomy.ClassOrder) ||
-		!slices.Equal(capabilities.ClassifierVariants, candidate.ClassifierEnabledVariants) {
+		!slices.Equal(capabilities.ClassifierVariants, candidate.ClassifierEnabledVariants) || !capabilities.SupportsPreview {
 		return nil, errors.New("v5 classifier capabilities do not match admitted target release")
 	}
 	goCapabilities := policy.Capabilities{

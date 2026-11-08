@@ -1,6 +1,7 @@
 package policyregistry
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -90,11 +91,26 @@ func TestClassifierReleaseV1SupportsWeaveDataAndQwenBundleSources(t *testing.T) 
 	fakeQwenRef.Variants[policy.ClassifierVariantQwen] = qwenVariant
 	require.ErrorContains(t, fakeQwenRef.Validate(classifierContractRegistryRoot), "Qwen variant")
 
-	unsupportedAuxiliaryRef := classifierContractRelease()
-	primary := unsupportedAuxiliaryRef.Variants[policy.ClassifierVariantPrimary]
+	unsupportedAuxiliaryRelease := classifierContractRelease()
+	primary := unsupportedAuxiliaryRelease.Variants[policy.ClassifierVariantPrimary]
 	primary.AuxiliaryModels = map[string]ObjectRef{"classifier": classifierContractArtifactRef("auxiliary-classifier")}
-	unsupportedAuxiliaryRef.Variants[policy.ClassifierVariantPrimary] = primary
-	require.ErrorContains(t, unsupportedAuxiliaryRef.Validate(classifierContractRegistryRoot), "unsupported auxiliary model refs")
+	unsupportedAuxiliaryRelease.Variants[policy.ClassifierVariantPrimary] = primary
+	require.ErrorContains(t, unsupportedAuxiliaryRelease.Validate(classifierContractRegistryRoot), "unsupported auxiliary model refs")
+}
+
+func TestClassifierReleaseRejectsDuplicateLabelsAndMissingStorage(t *testing.T) {
+	duplicateLabels := classifierContractRelease()
+	duplicateLabels.Taxonomy.ClassOrder = append(slices.Clone(duplicateLabels.Taxonomy.ClassOrder), duplicateLabels.Taxonomy.ClassOrder[0])
+	duplicateLabels.Taxonomy.SHA256 = TaxonomyDigest(duplicateLabels.Taxonomy.ClassOrder)
+	require.ErrorContains(t, duplicateLabels.Validate(classifierContractRegistryRoot), "taxonomy is invalid")
+
+	missingStorage := classifierContractRelease()
+	primary := missingStorage.Variants[policy.ClassifierVariantPrimary]
+	packageRef := *primary.PackageWeaveDataRef
+	packageRef.StorageURI = " "
+	primary.PackageWeaveDataRef = &packageRef
+	missingStorage.Variants[policy.ClassifierVariantPrimary] = primary
+	require.ErrorContains(t, missingStorage.Validate(classifierContractRegistryRoot), "WeaveDataRef is incomplete")
 }
 
 func TestClassifierTaxonomyDigestUsesGoJSONHTMLEscaping(t *testing.T) {

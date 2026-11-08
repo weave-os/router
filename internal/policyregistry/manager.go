@@ -39,15 +39,13 @@ type Candidate struct {
 	ClassifierReleaseID   string
 	ClassifierSelectionID string
 	// ClassifierWorkerURL and ClassifierWorkerAudience come only from the release's runtime binding.
-	ClassifierWorkerURL         string
-	ClassifierWorkerAudience    string
-	ClassifierRuntimeBinding    ObjectRef
-	ClassifierSupportedVariants []policy.ClassifierVariantID
-	ClassifierEnabledVariants   []policy.ClassifierVariantID
-	SupportedAPIMajors          []policy.ClassifierAPIMajor
-	Policy                      *rosterdata.Roster
-	StrategyPolicies            map[router.Strategy]StrategyPolicy
-	ClassifierAudience          string
+	ClassifierWorkerURL       string
+	ClassifierWorkerAudience  string
+	ClassifierEnabledVariants []policy.ClassifierVariantID
+	SupportedAPIMajors        []policy.ClassifierAPIMajor
+	Policy                    *rosterdata.Roster
+	StrategyPolicies          map[router.Strategy]StrategyPolicy
+	ClassifierAudience        string
 }
 
 // Snapshot is the immutable policy, classifier binding, and executable routers
