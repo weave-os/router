@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import time
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -379,3 +381,40 @@ def test_classifier_warming_error_preserves_retry_signal_without_diagnostics() -
     assert response.status_code == 503
     assert response.headers["retry-after"] == "2"
     assert response.json() == {"error": "classifier_warming"}
+
+
+class SlowClassifierRuntime(FakeClassifierRuntime):
+    async def classify(
+        self, request: ClassifierRequestV5, *, session_id: str | None
+    ) -> ClassifierFactsV5:
+        await asyncio.sleep(5)
+        return await super().classify(request, session_id=session_id)
+
+
+def test_router_classify_budget_bounds_inference() -> None:
+    app, _ = _runtime_app(SlowClassifierRuntime())
+    with TestClient(app) as client:
+        started = time.monotonic()
+        response = client.post(
+            "/v5/classify",
+            json=_request(),
+            headers={"X-Weave-Classifier-Timeout-Ms": "50"},
+        )
+        elapsed = time.monotonic() - started
+
+    assert response.status_code == 503
+    assert response.json() == {"error": "classifier_unavailable"}
+    assert elapsed < 2
+
+
+def test_malformed_router_classify_budget_fails_before_inference() -> None:
+    app, runtime = _runtime_app()
+    with TestClient(app) as client:
+        for budget in ("0", "-5", "soon", "1e3", "600001"):
+            response = client.post(
+                "/v5/preview",
+                json=_request(),
+                headers={"X-Weave-Classifier-Timeout-Ms": budget},
+            )
+            assert response.status_code == 422, budget
+    assert runtime.requests == []

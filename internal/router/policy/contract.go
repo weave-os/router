@@ -304,3 +304,6 @@ type OutcomeReporter interface {
 type FeedbackReporter interface {
 	ReportFeedback(ctx context.Context, payload map[string]interface{}) error
 }
+
+// ClassifierTimeoutHeader carries the Router's remaining classify budget, in whole milliseconds, so the classifier stops inference the Router will no longer wait for.
+const ClassifierTimeoutHeader = "X-Weave-Classifier-Timeout-Ms"

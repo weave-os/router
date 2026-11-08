@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -1392,6 +1393,9 @@ func (c *Client) doPolicyAttempt(
 		return nil, nil, true, fmt.Errorf("build policy route request: %w", err)
 	}
 	req.Header.Set("content-type", "application/json")
+	if deadline, ok := attemptCtx.Deadline(); ok {
+		req.Header.Set(policy.ClassifierTimeoutHeader, strconv.FormatInt(max(time.Until(deadline).Milliseconds(), 1), 10))
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {

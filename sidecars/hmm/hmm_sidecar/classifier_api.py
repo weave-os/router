@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -51,6 +52,10 @@ class ClassifierErrorCode(StrEnum):
 
     WARMING = "classifier_warming"
     UNAVAILABLE = "classifier_unavailable"
+
+
+CLASSIFIER_TIMEOUT_HEADER = "X-Weave-Classifier-Timeout-Ms"
+MAX_CLASSIFIER_TIMEOUT_MS = 600_000
 
 
 class ClassifierAPIVersion(StrEnum):
@@ -374,20 +379,36 @@ def create_classifier_router(resolver: ClassifierReleaseResolver) -> APIRouter:
     @api_router.post("/v5/classify", response_model=ClassifierResponseV5)
     async def classify(
         request: ClassifierRequestV5,
+        timeout_ms: str | None = Header(default=None, alias=CLASSIFIER_TIMEOUT_HEADER),
     ) -> ClassifierResponseV5 | JSONResponse:
-        return await _classify(resolver, request)
+        return await _classify(resolver, request, _router_budget_seconds(timeout_ms))
 
     @api_router.post("/v5/preview", response_model=ClassifierResponseV5)
     async def preview(
         request: ClassifierRequestV5,
+        timeout_ms: str | None = Header(default=None, alias=CLASSIFIER_TIMEOUT_HEADER),
     ) -> ClassifierResponseV5 | JSONResponse:
-        return await _classify(resolver, request)
+        return await _classify(resolver, request, _router_budget_seconds(timeout_ms))
 
     return api_router
 
 
+def _router_budget_seconds(timeout_ms: str | None) -> float | None:
+    """Parse the Router's remaining classify budget; absent means no caller bound."""
+    if timeout_ms is None:
+        return None
+    if not timeout_ms.isascii() or not timeout_ms.isdigit():
+        raise HTTPException(status_code=422, detail="classifier timeout is malformed")
+    milliseconds = int(timeout_ms)
+    if not 0 < milliseconds <= MAX_CLASSIFIER_TIMEOUT_MS:
+        raise HTTPException(status_code=422, detail="classifier timeout is out of range")
+    return milliseconds / 1000
+
+
 async def _classify(
-    resolver: ClassifierReleaseResolver, request: ClassifierRequestV5
+    resolver: ClassifierReleaseResolver,
+    request: ClassifierRequestV5,
+    budget_seconds: float | None = None,
 ) -> ClassifierResponseV5 | JSONResponse:
     release = await _resolve_release(resolver, request.classifier_release_id)
     selection = await _resolve_selection(resolver, request.classifier_selection_id)
@@ -409,7 +430,12 @@ async def _classify(
     if variant.runtime is None:
         raise HTTPException(status_code=503, detail="classifier variant is unavailable")
     try:
-        facts = await variant.runtime.classify(request, session_id=request.session_id)
+        async with asyncio.timeout(budget_seconds):
+            facts = await variant.runtime.classify(
+                request, session_id=request.session_id
+            )
+    except TimeoutError:
+        return JSONResponse({"error": ClassifierErrorCode.UNAVAILABLE}, status_code=503)
     except ClassifierWarmingError:
         return JSONResponse(
             {"error": ClassifierErrorCode.WARMING},

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -187,4 +188,44 @@ func TestClassifierV5WrongArtifactIdentityIsAPinError(t *testing.T) {
 	_, err = client.Preview(context.Background(), query)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
+}
+
+func TestClassifierV5PropagatesRemainingDeadlineToWorker(t *testing.T) {
+	budgets := make(chan string, 2)
+	classifierServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		budgets <- request.Header.Get(policy.ClassifierTimeoutHeader)
+		_ = json.NewEncoder(w).Encode(classifierResponseV5{
+			SchemaVersion: policy.SchemaVersionV5, RequestID: "route-v5",
+			ClassifierSelectionID: classifierV5SelectionID, ClassifierReleaseID: classifierV5ReleaseID,
+			ClassifierVariantID: policy.ClassifierVariantPrimary, ClassifierArtifactID: "hmm-v5",
+			ClassifierArtifactSHA256: classifierV5ArtifactSHA, ClassifierTaxonomySHA256: taxonomyDigest([]string{"fast", "maximum"}),
+			PredictedLabel: "fast", ClassOrder: []string{"fast", "maximum"},
+			ClassProbabilities:   map[string]float64{"fast": 0.7, "maximum": 0.3},
+			ClassifierConfidence: 0.7, ClassifierMargin: 0.4,
+		})
+	}))
+	defer classifierServer.Close()
+	client := New(classifierServer.URL, nil, 2*time.Second)
+	query := policy.Query{
+		SchemaVersion: policy.SchemaVersionV5, ClassifierReleaseID: classifierV5ReleaseID,
+		ClassifierSelectionID: classifierV5SelectionID, ClassifierVariantID: policy.ClassifierVariantPrimary,
+		ClassifierArtifactSHA256: classifierV5ArtifactSHA,
+		RouteID:                  "route-v5", ExecutionMode: policy.ExecutionModeServing,
+	}
+	callerCtx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	_, err := client.Decide(callerCtx, query)
+	require.NoError(t, err)
+	budget, err := strconv.Atoi(<-budgets)
+	require.NoError(t, err, "the worker receives the Router's remaining classify budget")
+	assert.Greater(t, budget, 0)
+	assert.LessOrEqual(t, budget, 300, "the caller's tighter deadline bounds the worker budget")
+
+	query.ExecutionMode = policy.ExecutionModePreview
+	_, err = client.Preview(context.Background(), query)
+	require.NoError(t, err)
+	budget, err = strconv.Atoi(<-budgets)
+	require.NoError(t, err)
+	assert.Greater(t, budget, 300)
+	assert.LessOrEqual(t, budget, 2000, "the client timeout bounds the worker budget")
 }
