@@ -64,25 +64,25 @@ const (
 // BlindExperimentState is the active request-scoped experiment decision.
 // Inactive states are cached but never stashed on a request context.
 type BlindExperimentState struct {
-	Active              bool
-	Enabled             bool
-	Arm                 BlindExperimentArm
-	AssignmentSource    BlindExperimentAssignmentSource
-	CanonicalSubjectKey string
-	CohortExperimentID  string
-	CohortGroupID       int
-	CohortRevision      int
-	CohortPhaseIndex    int
-	ScheduledArm        BlindExperimentArm
-	CohortStartsAt      time.Time
-	CohortEndsAt        time.Time
-	CohortSchedule      []BlindExperimentPhase
-	CohortOverrides     []BlindExperimentEmergencyOverride
-	ManualOverride      BlindExperimentArm
-	Mode                BlindExperimentMode
-	SessionSubjectKey   string
-	sessionSeed         string
-	sessionRouterOnPct  int
+	Active                    bool
+	Enabled                   bool
+	Arm                       BlindExperimentArm
+	AssignmentSource          BlindExperimentAssignmentSource
+	CanonicalSubjectKey       string
+	CohortExperimentID        string
+	CohortGroupID             int
+	CohortRevision            int
+	CohortPhaseIndex          int
+	ScheduledArm              BlindExperimentArm
+	CohortStartsAt            time.Time
+	CohortEndsAt              time.Time
+	CohortSchedule            []BlindExperimentPhase
+	CohortOverrides           []BlindExperimentEmergencyOverride
+	ManualOverride            BlindExperimentArm
+	Mode                      BlindExperimentMode
+	SessionSubjectKey         string
+	sessionSeed               string
+	sessionRouterOnPercentage int
 }
 
 // BlindExperimentEmergencyOverride temporarily replaces the scheduled arm.
@@ -188,13 +188,13 @@ func resolveBlindExperiment(record BlindExperimentRecord, routerUserID string) B
 	}
 	if record.SessionMode {
 		return BlindExperimentState{
-			Active:              true,
-			Arm:                 AssignBlindExperimentArm(record.Seed, subjectKey, record.RouterOnPercentage),
-			AssignmentSource:    BlindExperimentAssignmentAutomatic,
-			CanonicalSubjectKey: subjectKey,
-			Mode:                BlindExperimentModeSession,
-			sessionSeed:         record.Seed,
-			sessionRouterOnPct:  record.RouterOnPercentage,
+			Active:                    true,
+			Arm:                       AssignBlindExperimentArm(record.Seed, subjectKey, record.RouterOnPercentage),
+			AssignmentSource:          BlindExperimentAssignmentAutomatic,
+			CanonicalSubjectKey:       subjectKey,
+			Mode:                      BlindExperimentModeSession,
+			sessionSeed:               record.Seed,
+			sessionRouterOnPercentage: record.RouterOnPercentage,
 		}
 	}
 	automaticArm := record.AutomaticArm
@@ -235,7 +235,7 @@ func (state BlindExperimentState) ForSession(sessionSubjectKey string) BlindExpe
 	if !state.Active || sessionSubjectKey == "" || state.Mode != BlindExperimentModeSession {
 		return state
 	}
-	state.Arm = AssignBlindExperimentArm(state.sessionSeed, sessionSubjectKey, state.sessionRouterOnPct)
+	state.Arm = AssignBlindExperimentArm(state.sessionSeed, sessionSubjectKey, state.sessionRouterOnPercentage)
 	state.SessionSubjectKey = sessionSubjectKey
 	return state
 }

@@ -469,7 +469,7 @@ func sessionModeService(t *testing.T, record auth.BlindExperimentRecord) *auth.S
 	return makeServiceWithUsers(t, users).WithBlindExperiments(&fakeBlindExperimentRepository{record: record}, nil)
 }
 
-func sessionArm(t *testing.T, service *auth.Service, sessionKey string) auth.BlindExperimentState {
+func sessionState(t *testing.T, service *auth.Service, sessionKey string) auth.BlindExperimentState {
 	t.Helper()
 	ctx := service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
 	state, active := auth.BlindExperimentFrom(service.WithBlindExperimentSession(ctx, "inst-1", sessionKey))
@@ -485,11 +485,11 @@ func TestBlindExperimentSessionModeSplitsOneUsersSessions(t *testing.T) {
 	arms := map[auth.BlindExperimentArm]int{}
 	for index := range 200 {
 		key := auth.BlindExperimentSessionSubjectKey("key-1", "session-"+strconv.Itoa(index))
-		state := sessionArm(t, service, key)
+		state := sessionState(t, service, key)
 		assert.Equal(t, key, state.SessionSubjectKey)
 		assert.Equal(t, auth.BlindExperimentModeSession, state.Mode)
 		assert.Equal(t, auth.BlindExperimentAssignmentAutomatic, state.AssignmentSource)
-		assert.Equal(t, state.Arm, sessionArm(t, service, key).Arm)
+		assert.Equal(t, state.Arm, sessionState(t, service, key).Arm)
 		arms[state.Arm]++
 	}
 	assert.Greater(t, arms[auth.BlindExperimentArmRouterOn], 60)
@@ -508,7 +508,7 @@ func TestBlindExperimentSessionModeWithoutSessionFallsBackToUserDraw(t *testing.
 		Configured: true, Enabled: true, RouterOnPercentage: 50, Seed: "seed",
 		CanonicalSubjectKey: "account-7", SessionMode: true,
 	}
-	state := sessionArm(t, sessionModeService(t, record), "")
+	state := sessionState(t, sessionModeService(t, record), "")
 	assert.Equal(t, auth.BlindExperimentArmPassthrough, state.Arm)
 	assert.Empty(t, state.SessionSubjectKey)
 	assert.Equal(t, auth.BlindExperimentModeSession, state.Mode)
@@ -521,7 +521,7 @@ func TestBlindExperimentSessionModeIgnoresManualOverride(t *testing.T) {
 		AutomaticArm: auth.BlindExperimentArmPassthrough, SessionMode: true,
 	})
 	for _, key := range []string{"", auth.BlindExperimentSessionSubjectKey("key-1", "session-1")} {
-		state := sessionArm(t, service, key)
+		state := sessionState(t, service, key)
 		assert.Equal(t, auth.BlindExperimentArmRouterOn, state.Arm)
 		assert.Equal(t, auth.BlindExperimentAssignmentAutomatic, state.AssignmentSource)
 	}
@@ -542,7 +542,7 @@ func TestBlindExperimentUserModeIgnoresSession(t *testing.T) {
 		Configured: true, Enabled: true, RouterOnPercentage: 0, Seed: "seed",
 		CanonicalSubjectKey: "account-7", AutomaticArm: auth.BlindExperimentArmRouterOn,
 	})
-	state := sessionArm(t, service, auth.BlindExperimentSessionSubjectKey("key-1", "session-1"))
+	state := sessionState(t, service, auth.BlindExperimentSessionSubjectKey("key-1", "session-1"))
 	assert.Equal(t, auth.BlindExperimentArmRouterOn, state.Arm)
 	assert.Equal(t, auth.BlindExperimentModeUser, state.Mode)
 	assert.Empty(t, state.SessionSubjectKey)
@@ -559,7 +559,7 @@ func TestBlindExperimentCohortModeIgnoresSession(t *testing.T) {
 		CohortStartsAt: now.Add(-time.Hour), CohortEndsAt: now.Add(time.Hour),
 		CohortSchedule: []auth.BlindExperimentPhase{{Index: 0, StartsAt: now.Add(-time.Hour), EndsAt: now.Add(time.Hour), Arm: auth.BlindExperimentArmRouterOn}},
 	}}, nil)
-	state := sessionArm(t, service, auth.BlindExperimentSessionSubjectKey("key-1", "session-1"))
+	state := sessionState(t, service, auth.BlindExperimentSessionSubjectKey("key-1", "session-1"))
 	assert.Equal(t, auth.BlindExperimentArmRouterOn, state.Arm)
 	assert.Equal(t, auth.BlindExperimentModeCohort, state.Mode)
 	assert.Empty(t, state.SessionSubjectKey)
@@ -594,13 +594,13 @@ func TestBlindExperimentSessionModeKeepsFirstArmAfterConfigChange(t *testing.T) 
 		CanonicalSubjectKey: "account-7", SessionMode: true,
 	}
 	sessions := &fakeBlindExperimentSessionRepo{arms: map[string]auth.BlindExperimentArm{}}
-	runningSession := auth.BlindExperimentSessionSubjectKey("key-1", "session-1")
-	assert.Equal(t, auth.BlindExperimentArmRouterOn, sessionArm(t, sessionModeService(t, record).WithBlindExperimentSessions(sessions), runningSession).Arm)
+	runningSessionKey := auth.BlindExperimentSessionSubjectKey("key-1", "session-1")
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, sessionState(t, sessionModeService(t, record).WithBlindExperimentSessions(sessions), runningSessionKey).Arm)
 
 	record.RouterOnPercentage = 0
 	changed := sessionModeService(t, record).WithBlindExperimentSessions(sessions)
-	assert.Equal(t, auth.BlindExperimentArmRouterOn, sessionArm(t, changed, runningSession).Arm)
-	assert.Equal(t, auth.BlindExperimentArmPassthrough, sessionArm(t, changed, auth.BlindExperimentSessionSubjectKey("key-1", "session-2")).Arm)
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, sessionState(t, changed, runningSessionKey).Arm)
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, sessionState(t, changed, auth.BlindExperimentSessionSubjectKey("key-1", "session-2")).Arm)
 }
 
 func TestBlindExperimentSessionModeAssignsUnattributedSessions(t *testing.T) {
@@ -643,11 +643,11 @@ func TestBlindExperimentSessionModeServesDrawWhenClaimFails(t *testing.T) {
 	sessions := &fakeBlindExperimentSessionRepo{arms: map[string]auth.BlindExperimentArm{}, claimErr: errors.New("database unavailable")}
 	service := sessionModeService(t, record).WithBlindExperimentSessions(sessions)
 	sessionKey := auth.BlindExperimentSessionSubjectKey("key-1", "session-1")
-	assert.Equal(t, auth.BlindExperimentArmRouterOn, sessionArm(t, service, sessionKey).Arm)
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, sessionState(t, service, sessionKey).Arm)
 
 	sessions.claimErr = nil
 	sessions.arms[sessionKey] = auth.BlindExperimentArmPassthrough
-	assert.Equal(t, auth.BlindExperimentArmPassthrough, sessionArm(t, service, sessionKey).Arm)
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, sessionState(t, service, sessionKey).Arm)
 }
 
 func TestBlindExperimentSessionModeCachesInstallationConfig(t *testing.T) {
