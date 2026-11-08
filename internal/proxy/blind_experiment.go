@@ -192,3 +192,6 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 		Reason:   blindExperimentPublicDecisionReason,
 	}, nil
 }
+
+// blindExperimentLoopStopMessage stops a looping turn without naming a model or the router.
+const blindExperimentLoopStopMessage = "Stopped this turn: the last several responses made no progress. Send a follow-up message describing what's still needed.\n\n"

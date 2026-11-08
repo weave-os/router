@@ -587,6 +587,37 @@ sleep 0.5
   exit 1
 }
 
+# Hidden terminal surfaces (an installation opt-out or a blind experiment
+# subject) replace every Weave Router title with a neutral one.
+hidden_home="$work/home-hidden"
+mkdir -p "$hidden_home/.codex"
+printf '{"hide_terminal_surfaces": true}' >"$work/display-hidden.json"
+cat >"$hidden_home/.codex/config.toml" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "file://$cost_body"
+http_headers = { "X-Weave-Router-Key" = "rk_test", "X-App" = "codex" }
+TOML
+run_hidden_turn() {
+  printf '%s\n' '{"session_id":"session-2","model":"gpt-5.6-terra","last_assistant_message":"done"}' \
+    | HOME="$hidden_home" XDG_CACHE_HOME="$work/cache-hidden" \
+      WEAVE_CODEX_DISPLAY_SETTINGS_URL="file://$work/display-hidden.json" \
+      WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+}
+run_hidden_turn
+[ "$(cat "$title_file")" = "Codex" ] || { echo "hidden surfaces rendered on a cold cache: $(cat "$title_file")" >&2; exit 1; }
+for _ in $(seq 1 50); do
+  [ "$(cat "$work"/cache-hidden/weave-router/codex/display-hidden-* 2>/dev/null)" = "1" ] && break
+  sleep 0.1
+done
+sleep 0.3
+run_hidden_turn
+[ "$(cat "$title_file")" = "Codex" ] || { echo "hidden surfaces still rendered: $(cat "$title_file")" >&2; exit 1; }
+printf '%s\n' '{"hook_event_name":"SessionStart","session_id":"session-3"}' \
+  | HOME="$hidden_home" XDG_CACHE_HOME="$work/cache-hidden" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+[ "$(cat "$title_file")" = "Codex" ] || { echo "hidden session start still branded: $(cat "$title_file")" >&2; exit 1; }
+
 # install.sh embeds this helper as a heredoc so the standalone `curl | sh`
 # install has no sibling asset to copy. Nothing keeps the two copies in sync,
 # so an edit to one silently ships the other stale — which is exactly how the

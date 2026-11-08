@@ -705,7 +705,8 @@ type policyOutcomeResponse struct {
 }
 
 // suppressMarkerIfRequested returns "" when the request opted out via
-// routingMarkerHeader or the installation has hidden terminal surfaces;
+// routingMarkerHeader, the installation has hidden terminal surfaces, or the
+// caller is in an active blind experiment;
 // otherwise it returns marker unchanged. Safety and control-flow markers
 // (no-progress, loop, and force-model) do not use this helper.
 func suppressMarkerIfRequested(ctx context.Context, h http.Header, marker string) string {
@@ -1150,7 +1151,11 @@ func subscriptionFundingOutOfPlayForRequest(ctx context.Context) bool {
 }
 
 // hideTerminalSurfacesForRequest reports whether terminal surfaces are hidden for this request.
+// Blind experiment subjects never see routing surfaces, whichever arm they are in.
 func hideTerminalSurfacesForRequest(ctx context.Context) bool {
+	if _, active := auth.BlindExperimentFrom(ctx); active {
+		return true
+	}
 	hide, _ := ctx.Value(InstallationHideTerminalSurfacesContextKey{}).(bool)
 	return hide
 }
@@ -3838,6 +3843,8 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 var anthropicPingFrame = []byte(sseEvent("ping", `{"type":"ping"}`))
 
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
+	defer finishBlindExperimentWriter()
 	// A machine search helper inherits conversation headers but must never
 	// apply a conversation-level force pin, even before bridge interception.
 	if websearch.IsClaudeCodeWebSearchHelper(body) {
@@ -7283,6 +7290,8 @@ const (
 // ProxyOpenAIChatCompletion routes an OpenAI Chat Completion request,
 // translating cross-format when the decision picks a non-OpenAI provider.
 func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
+	defer finishBlindExperimentWriter()
 	ctx = withAttemptTrace(ctx, body, r.Header)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
 	ctx, returnErr = s.withClassifierInput(ctx, body, router.EndpointOpenAIChat)
@@ -9314,6 +9323,8 @@ func stripResponsesTerminalArtifacts(body []byte) ([]byte, error) {
 // re-emitted as Responses-shaped SSE / JSON. This keeps the turn loop, cache,
 // pricing, and translation matrix unchanged.
 func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
+	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
+	defer finishBlindExperimentWriter()
 	ctx = withAttemptTrace(ctx, body, r.Header)
 	ctx = context.WithValue(ctx, responsesSurfaceContextKey{}, true)
 	ctx, inputErr := s.withClassifierInput(ctx, body, router.EndpointOpenAIResponses)

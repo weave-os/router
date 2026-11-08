@@ -24,16 +24,24 @@ type SubscriptionAccountLister interface {
 	ListSubscriptionAccounts(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
 }
 
+// CallerResolver attributes a display-settings request to its router user, the same way inference requests are.
+type CallerResolver func(c *gin.Context) context.Context
+
 // DisplaySettingsHandler returns the calling installation's display toggles (scoped to the caller by the rk_ bearer key).
-func DisplaySettingsHandler(accounts SubscriptionAccountLister) gin.HandlerFunc {
+// Blind experiment subjects always get hidden surfaces so neither arm learns it is being routed.
+func DisplaySettingsHandler(accounts SubscriptionAccountLister, resolveCaller CallerResolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation := middleware.InstallationFrom(c)
 		if installation == nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
 			return
 		}
+		hide := installation.HideTerminalSurfaces
+		if !hide && resolveCaller != nil {
+			_, hide = auth.BlindExperimentFrom(resolveCaller(c))
+		}
 		c.JSON(http.StatusOK, displaySettingsResponse{
-			HideTerminalSurfaces: installation.HideTerminalSurfaces,
+			HideTerminalSurfaces: hide,
 			DisconnectedPlans:    disconnectedPlans(c, accounts),
 		})
 	}

@@ -101,8 +101,63 @@ helper_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)"
 disabled_marker="$helper_dir/.weave-router-disabled"
 router_badge_sentinel=$'⁣⁠⁣⁠'
 
+display_hidden_file() {
+  printf '%s/display-hidden-%s' "$state_root" "$(printf '%s' "$helper_dir" | tr -c 'A-Za-z0-9._-' '_')"
+}
+
+write_display_headers() {
+  printf 'header = "X-Weave-Router-Key: %s"\n' "$2" >"$1"
+  case "$3" in
+    ''|*[!A-Za-z0-9@._+-]*) ;;
+    *) printf 'header = "X-Weave-User-Email: %s"\n' "$3" >>"$1" ;;
+  esac
+}
+
+refresh_display_settings() {
+  local base_url="$1" header_file="$2" max_time="$3" display_url display_body hidden="0" hidden_file
+  hidden_file="$(display_hidden_file)"
+  display_url="${WEAVE_CODEX_DISPLAY_SETTINGS_URL:-${base_url%/}}"
+  case "$display_url" in
+    file://*) ;;
+    *) display_url="${display_url%/v1}/v1/display-settings" ;;
+  esac
+  display_body="$(curl -fsS --max-time "$max_time" --max-filesize 8192 -K "$header_file" "$display_url" 2>/dev/null)" || return 0
+  [ "$(jq -r '.hide_terminal_surfaces // false' <<<"$display_body" 2>/dev/null)" = "true" ] && hidden="1"
+  printf '%s' "$hidden" >"$hidden_file.tmp.$$" 2>/dev/null && mv "$hidden_file.tmp.$$" "$hidden_file" 2>/dev/null
+  rm -f "$hidden_file.tmp.$$" 2>/dev/null
+}
+
+# A cold cache fetches the setting once in the foreground, briefly, so a
+# subject whose surfaces are hidden never sees a branded first title.
+prime_display_settings() {
+  local endpoint header_file
+  [ -f "$(display_hidden_file)" ] && return 0
+  endpoint="$(read_codex_endpoint)" || return 0
+  [ -n "$endpoint" ] || return 0
+  mkdir -p "$state_root" 2>/dev/null || return 0
+  header_file="$(mktemp "$state_root/.headers.XXXXXX")" || return 0
+  chmod 600 "$header_file"
+  write_display_headers "$header_file" "$(printf '%s' "$endpoint" | sed -n 2p)" "$(printf '%s' "$endpoint" | sed -n 3p)"
+  refresh_display_settings "$(printf '%s' "$endpoint" | sed -n 1p)" "$header_file" 2
+  rm -f "$header_file"
+}
+
+codex_surfaces_hidden() {
+  local hidden_file
+  prime_display_settings
+  hidden_file="$(display_hidden_file)"
+  [ "$(cat "$hidden_file" 2>/dev/null)" = "1" ] || return 1
+  local mtime now
+  mtime="$(stat -c %Y "$hidden_file" 2>/dev/null || stat -f %m "$hidden_file" 2>/dev/null)" || return 1
+  now="$(date +%s 2>/dev/null)" || return 1
+  [ $(( now - mtime )) -lt "${WEAVE_DISPLAY_SETTINGS_HIDDEN_GRACE_SECONDS:-604800}" ]
+}
+
 emit_title() {
   local title="$1"
+  case "$title" in
+    "Weave Router"*) if codex_surfaces_hidden; then title="Codex"; fi ;;
+  esac
   if [ -n "${WEAVE_CODEX_STATUS_TITLE_FILE:-}" ]; then
     printf '%s\n' "$title" >"$WEAVE_CODEX_STATUS_TITLE_FILE"
   elif { [ -t 2 ] || [ "${async_title_enabled:-0}" = "1" ]; } && [ -w /dev/tty ]; then
@@ -320,7 +375,12 @@ read_codex_endpoint() {
       sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
       if (key == "") key = v
     }
-    END { if (url != "" && key != "") printf "%s\n%s\n", url, key }
+    match($0, /"?X-Weave-User-Email"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      v = substr($0, RSTART, RLENGTH)
+      sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
+      if (email == "") email = v
+    }
+    END { if (url != "" && key != "") printf "%s\n%s\n%s\n", url, key, email }
   ' "$config" 2>/dev/null || true
 }
 
@@ -333,10 +393,11 @@ refresh_session_cost() {
   [ "${WEAVE_CODEX_STATUS_SAVINGS:-1}" = "0" ] && [ "${WEAVE_CODEX_STATUS_CONTEXT:-1}" = "0" ] && return 0
   command -v curl >/dev/null 2>&1 || return 0
 
-  local endpoint base_url key active_file state_lock
+  local endpoint base_url key email active_file state_lock
   endpoint="$(read_codex_endpoint)" || return 0
   base_url="$(printf '%s' "$endpoint" | sed -n 1p)"
   key="$(printf '%s' "$endpoint" | sed -n 2p)"
+  email="$(printf '%s' "$endpoint" | sed -n 3p)"
   [ -n "$base_url" ] && [ -n "$key" ] || return 0
 
   mkdir -p "$state_root" 2>/dev/null || return 0
@@ -369,7 +430,8 @@ refresh_session_cost() {
     esac
     header_file="$(mktemp "$state_root/.headers.XXXXXX")" || exit 0
     chmod 600 "$header_file"
-    printf 'header = "X-Weave-Router-Key: %s"\n' "$key" >"$header_file"
+    write_display_headers "$header_file" "$key" "$email"
+    refresh_display_settings "$base_url" "$header_file" 5
     if ! body="$(curl -fsS --max-time 5 --max-filesize 8192 -K "$header_file" "$url" 2>/dev/null)"; then
       rm -f "$header_file"
       exit 0
