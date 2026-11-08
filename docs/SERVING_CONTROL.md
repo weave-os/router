@@ -613,6 +613,67 @@ V3 removes per-profile candidate/binding duplication from new configuration; it
 retains legacy readers and historical profile bindings for sessions and rollback.
 No app deployment-time prerequisite gate or routine production live-request test
 is introduced. Implementation tests are separate from live rollout acceptance.
+## Classifier service (selection v4, candidate v3, classifier API v5)
+
+`router_serving_selection_set_v4` separates the Router's code and policies from the
+classifier. Its `code` names a `router_serving_candidate_v3` (Router image,
+requirements, supported classifier API majors, provenance) and the Router
+`RevisionBinding`; it no longer carries a classifier revision. Its `classifier`
+field is a `ClassifierServiceBinding`:
+
+| Field | Meaning |
+| --- | --- |
+| `release` | ObjectRef of an immutable `classifier_releases` manifest (API major 5, wire schema `policy_router_v5`, taxonomy, per-variant artifact ID/SHA-256 and model `WeaveDataRef`s) |
+| `enabled_variants` | Sorted, unique variants this target may serve; must include `primary` and exclude internal-only variants on customer targets |
+| `service_url`, `audience` | Retired gateway fields. Optional; validated when present for historical sets, never dispatched to |
+
+`default_policy`, `strategy_policies` and `profiles` keep their v3 meaning. V1–v3
+sets still decode and serve unchanged, and resolve no runtime binding.
+
+### Direct worker binding
+
+There is no classifier gateway. For every v4 selection the Router reads the
+release's runtime binding from the same serving registry:
+`runtime_bindings/<environment>/classifier_releases/<release_sha256>.json`
+(`router_classifier_runtime_binding_v1`, published by the classifier release
+workflow). The reader records the object's exact generation and payload SHA-256 and
+fails closed when the binding is missing, unparsable, has unknown fields, names
+another release, environment or project, or is not canonical:
+
+- `worker_url` and `worker_audience` are bare HTTPS Cloud Run origins of the
+  `router-classifier-worker` service: lowercase host, no credentials, port, path,
+  query, fragment or trailing slash;
+- `worker_revision` is the tagged Cloud Run revision that loaded the release;
+- `image_digest` is `sha256:<64 hex>` and `configuration_sha256` is a digest.
+
+The selected lane's v5 client calls `worker_url` with a Google ID token minted for
+`worker_audience`. URLs come only from registry objects; no request, header or
+caller field can supply one. The session pin is unchanged: the selection set names
+the release, and the release names its runtime binding.
+
+### Activation and per-request identity
+
+`serving apply` attests each v4 lane against the runtime-bound worker before the
+CAS. `GET /internal/serving/attestation?release_id=<release>` must return
+`router_classifier_worker_attestation_v1` with status `ready` and the binding's
+environment, release, worker revision, image digest and configuration digest, and
+the release manifest's artifact ID/SHA-256 for every enabled variant.
+`GET /v5/capabilities` must report the selection, release, wire schema, taxonomy,
+class order, enabled variants and preview support. Both attestations are
+memoized per activation.
+
+Every `/v5/classify` and `/v5/preview` response must echo the pinned request,
+selection, release, variant, taxonomy, artifact ID and artifact SHA-256. Any
+mismatch is `ErrPolicyPinUnavailable`: the request fails closed and does not fall
+back to the default roster. Ordinary classifier unavailability (warming, timeout,
+`classifier_unavailable`) keeps the existing degradation policy.
+
+Each classify/preview attempt sends its remaining budget as
+`X-Weave-Classifier-Timeout-Ms` (whole milliseconds, at least 1). The v5
+classifier API bounds inference by it, answering 503 `classifier_unavailable`
+when it expires, and rejects a malformed or out-of-range budget with 422 before
+inference.
+
 ## Internal production plan tests
 
 `ROUTER_TEST_PLANS_ENABLED` defaults to false. It enables internal launch
