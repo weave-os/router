@@ -288,6 +288,11 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 	rosterSet := selectionV4
 	rosterSet.DefaultPolicy = publishRosterArm(t, store, selectionV4.DefaultPolicy, alternateRosterArm)
 	require.NoError(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeRoster, rosterSet, candidateV3Ref)), "a v4 roster update keeps code and classifier and changes only the selection-owned policy")
+	reattestedCandidate := candidateV3
+	reattestedCandidate.Provenance.WeaveRevision = strings.Repeat("9", 40)
+	rosterWithNewCandidate := rosterSet
+	rosterWithNewCandidate.Code.Candidate = store.publishArtifact(t, policyregistry.ServingCandidate, reattestedCandidate)
+	require.ErrorContains(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeRoster, rosterWithNewCandidate, candidateV3Ref)), "retain the exact code candidate", "a roster proposal cannot swap the Router code contract under the same image")
 	rosterWithClassifier := rosterSet
 	rosterWithClassifier.Classifier.EnabledVariants = []policy.ClassifierVariantID{policy.ClassifierVariantPrimary}
 	rosterWithClassifier.StrategyPolicies = map[router.Strategy]policyregistry.PolicyObject{}
@@ -303,6 +308,9 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 	classifierBinding["image_digest"] = classifierRelease.RuntimeImageDigest
 	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, classifierSet.Classifier.Release.SHA256, classifierBinding)
 	require.NoError(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeClassifier, classifierSet, candidateV3Ref)), "a v4 classifier update names a new release under the same Router code")
+	classifierWithNewCandidate := classifierSet
+	classifierWithNewCandidate.Code.Candidate = rosterWithNewCandidate.Code.Candidate
+	require.ErrorContains(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeClassifier, classifierWithNewCandidate, candidateV3Ref)), "retain destination Router candidate", "a classifier proposal cannot swap the Router code contract under the same image")
 
 	routerCandidate := candidateV3
 	routerCandidate.RouterImageDigest = "sha256:" + strings.Repeat("6", 64)
@@ -334,17 +342,16 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 	rosterProposal := forwardV4(policyregistry.ChangeRoster, rosterSet, candidateV3Ref)
 	activatedRoster, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, rosterProposal), "test-operator")
 	require.NoError(t, err)
-	sets := map[string]policyregistry.SelectionSetView{
+	selectionSetViews := map[string]policyregistry.SelectionSetView{
 		v3Ref.SHA256:                       v3Set.View(v3Ref),
 		v4Ref.SHA256:                       selectionV4.View(v4Ref),
 		rosterProposal.SelectionSet.SHA256: rosterSet.View(rosterProposal.SelectionSet),
 	}
 	pinnedAt := servingEpoch.Add(3 * time.Second)
-	controls := policyregistry.RoutingControlsDigest([]string{"claude-opus-5-5"}, nil, nil, nil)
-	defaultProjection := policyregistry.AdmissionProjection{Target: v3Set.Target, RoutingControlsDigest: controls}
+	defaultProjection := policyregistry.AdmissionProjection{Target: v3Set.Target, RoutingControlsDigest: policyregistry.RoutingControlsDigest([]string{"claude-opus-5-5"}, nil, nil, nil)}
 	admit := func(previous *policyregistry.SessionReleaseBinding, projection policyregistry.AdmissionProjection, snapshot policyregistry.ServingStateSnapshot, now time.Time) policyregistry.SessionReleaseBinding {
 		t.Helper()
-		admitted, err := policyregistry.SelectSessionRelease(previous, projection, snapshot, sets, testRegistryRoot, now)
+		admitted, err := policyregistry.SelectSessionRelease(previous, projection, snapshot, selectionSetViews, testRegistryRoot, now)
 		require.NoError(t, err)
 		return admitted
 	}
@@ -392,7 +399,7 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 	require.NotEqual(t, preparedOne.PolicyReference.SHA256, preparedTwo.PolicyReference.SHA256, "profiles sharing one v4 selection set resolve their own policies")
 	unassigned := profileOne
 	unassigned.ProfileKey = "10000000-0000-4000-8000-000000000009"
-	_, err = policyregistry.SelectSessionRelease(nil, unassigned, activatedV4.Snapshot, sets, testRegistryRoot, pinnedAt)
+	_, err = policyregistry.SelectSessionRelease(nil, unassigned, activatedV4.Snapshot, selectionSetViews, testRegistryRoot, pinnedAt)
 	require.ErrorContains(t, err, "default fallback is forbidden")
 
 	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, releaseRef.SHA256, testRuntimeBinding(policyregistry.EnvironmentStaging, releaseRef.SHA256))

@@ -88,6 +88,8 @@ def test_loader_rejects_archives_that_expand_past_the_extracted_limit(
         "hmm_sidecar.classifier_package.package_loader.MAX_EXTRACTED_BYTES", 16
     )
 
+    archive_sha256 = hashlib.sha256(archive).hexdigest()
     with pytest.raises(ValueError, match="maximum extracted size"):
-        load_classifier_package(archive, hashlib.sha256(archive).hexdigest(), tmp_path)
-    assert not list(tmp_path.glob(f"{hashlib.sha256(archive).hexdigest()}*"))
+        load_classifier_package(archive, archive_sha256, tmp_path)
+    assert not (tmp_path / f"package-{archive_sha256}").exists()
+    assert not list(tmp_path.glob(f"extract-{archive_sha256}-*"))
