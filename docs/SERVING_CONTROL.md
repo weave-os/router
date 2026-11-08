@@ -630,6 +630,15 @@ field is a `ClassifierServiceBinding`:
 `default_policy`, `strategy_policies` and `profiles` keep their v3 meaning. V1–v3
 sets still decode and serve unchanged, and resolve no runtime binding.
 
+Each Router commit declares the candidate requirements its code satisfies in
+`docs/ROUTER_CANDIDATE_REQUIREMENTS.json` (`router_candidate_requirements_v1`),
+generated from `policyregistry.BuiltRouterCandidateRequirements` and
+`policy.SupportedClassifierAPIMajors` by `make generate-candidate-requirements`.
+A publisher building a `router_serving_candidate_v3` for that commit copies
+`requirements` verbatim. A router-only promotion may change
+`supported_api_majors` (the source candidate's set is used), but preparation
+still requires the selected release's API major.
+
 ### Direct worker binding
 
 There is no classifier gateway. For every v4 selection the Router reads the

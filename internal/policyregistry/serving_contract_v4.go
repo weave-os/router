@@ -1,6 +1,7 @@
 package policyregistry
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -147,6 +148,37 @@ type CandidateRequirementsV3 struct {
 	RuntimeContract    ServingSchema               `json:"runtime_contract"`
 	PolicySchema       rosterdata.SchemaVersion    `json:"policy_schema"`
 	SupportedAPIMajors []policy.ClassifierAPIMajor `json:"supported_api_majors"`
+}
+
+// RouterCandidateRequirementsDeclarationV1 tags RouterCandidateRequirementsPath.
+const RouterCandidateRequirementsDeclarationV1 ServingSchema = "router_candidate_requirements_v1"
+
+// RouterCandidateRequirementsPath is the checked-in declaration publishers read at a Router commit.
+const RouterCandidateRequirementsPath = "docs/ROUTER_CANDIDATE_REQUIREMENTS.json"
+
+// RouterCandidateRequirementsDeclaration states what this Router build supports; a publisher copies
+// Requirements verbatim into the CandidateV3 it builds from the same commit.
+type RouterCandidateRequirementsDeclaration struct {
+	SchemaVersion ServingSchema           `json:"schema_version"`
+	Requirements  CandidateRequirementsV3 `json:"requirements"`
+}
+
+// BuiltRouterCandidateRequirements are the requirements this Router code satisfies.
+func BuiltRouterCandidateRequirements() CandidateRequirementsV3 {
+	return CandidateRequirementsV3{
+		RuntimeContract:    ManagedRuntimeContractV1,
+		PolicySchema:       rosterdata.SchemaVersionPolicyV1,
+		SupportedAPIMajors: policy.SupportedClassifierAPIMajors(),
+	}
+}
+
+// RouterCandidateRequirementsJSON renders the declaration written to RouterCandidateRequirementsPath.
+func RouterCandidateRequirementsJSON() ([]byte, error) {
+	encoded, err := json.MarshalIndent(RouterCandidateRequirementsDeclaration{SchemaVersion: RouterCandidateRequirementsDeclarationV1, Requirements: BuiltRouterCandidateRequirements()}, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(encoded, '\n'), nil
 }
 
 // CandidateV3 contains Router worker code and policy only; classifier releases are target-bound.

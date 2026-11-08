@@ -315,6 +315,8 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 
 	routerCandidate := candidateV3
 	routerCandidate.RouterImageDigest = "sha256:" + strings.Repeat("6", 64)
+	routerCandidate.Requirements = policyregistry.BuiltRouterCandidateRequirements()
+	require.NotEqual(t, candidateV3.Requirements.SupportedAPIMajors, routerCandidate.Requirements.SupportedAPIMajors)
 	routerCandidateRef := store.publishArtifact(t, policyregistry.ServingCandidate, routerCandidate)
 	routerSet := selectionV4
 	routerSet.Code.Candidate = routerCandidateRef

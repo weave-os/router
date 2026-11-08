@@ -9,7 +9,7 @@
 #   (and .env.local if present). Start Postgres via `make db` or point
 #   DATABASE_URL at any Postgres you already have running.
 
-.PHONY: generate generate-statusline generate-inference-policy check-inference-policy inference-boundary generate-agent-guides check-agent-guides check-docs build test test-verbose test-statusline setup-install-tests test-install smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
+.PHONY: generate generate-statusline generate-inference-policy check-inference-policy generate-candidate-requirements check-candidate-requirements inference-boundary generate-agent-guides check-agent-guides check-docs build test test-verbose test-statusline setup-install-tests test-install smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
 
 # Load DATABASE_URL from .env files (matches docker-compose defaults).
 SAFE_AGENT_GOALS := doctor check-plan check-changed smoke
@@ -39,6 +39,12 @@ generate-inference-policy: ## Generate static inference-policy Markdown and JSON
 
 check-inference-policy: ## Check that generated inference-policy projections are current
 	go run ./cmd/geninferencepolicy --check
+
+generate-candidate-requirements: ## Generate the Router candidate requirements declaration
+	go run ./cmd/gencandidaterequirements
+
+check-candidate-requirements: ## Check that the Router candidate requirements declaration is current
+	go run ./cmd/gencandidaterequirements --check
 
 inference-boundary: check-inference-policy ## Reject new inference/provider bypasses and stale policy docs
 	go test ./internal/router/policy ./internal/architecture

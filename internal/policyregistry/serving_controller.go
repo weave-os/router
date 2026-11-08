@@ -462,6 +462,8 @@ func (c *ServingController) validateRouterOnlyLane(ctx context.Context, lanes *l
 	expectedCandidate := previousCandidate
 	expectedCandidate.RouterImageDigest = nextCandidate.RouterImageDigest
 	expectedCandidate.Provenance = nextCandidate.Provenance
+	// Supported classifier API majors are a property of the Router code; preparation still requires the selected release's major.
+	expectedCandidate.SupportedAPIMajors = nextCandidate.SupportedAPIMajors
 	if !expectedCandidate.Equal(nextCandidate) {
 		return errors.New("router-only promotion must retain destination policy, classifier, and requirements")
 	}
