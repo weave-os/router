@@ -89,3 +89,17 @@ func TestBlindExperimentWriterInactiveLeavesResponseUntouched(t *testing.T) {
 	assert.Equal(t, "gpt-5.4-mini", rec.Header().Get("x-router-model"))
 	assert.Equal(t, `{"model":"gpt-5.4-mini"}`, rec.Body.String())
 }
+
+func TestBlindExperimentWriterDropsWeaveCostFromStream(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w, finish := withBlindExperimentWriter(blindExperimentCtx(auth.BlindExperimentArmPassthrough), rec, []byte(blindRequestBody))
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write([]byte("event: message_delta\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":3,\"weave_cost\":{\"actual_cost_usd\":0.01}}}\n\n"))
+	require.NoError(t, err)
+	finish()
+
+	out := rec.Body.String()
+	assert.NotContains(t, out, "weave_cost")
+	assert.Contains(t, out, `"output_tokens":3`)
+}

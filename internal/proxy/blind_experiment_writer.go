@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"html"
 	"net/http"
 	"strings"
 
@@ -16,6 +17,8 @@ import (
 const routerResponseHeaderPrefix = "X-Router-"
 
 var blindExperimentModelPaths = []string{"model", "message.model", "response.model"}
+
+var blindExperimentCostPaths = []string{"usage.weave_cost", "message.usage.weave_cost", "response.usage.weave_cost"}
 
 // blindExperimentWriter keeps blind experiment subjects from seeing which model served a turn:
 // router headers are dropped and response model fields report the model the client asked for.
@@ -38,7 +41,7 @@ func withBlindExperimentWriter(ctx context.Context, w http.ResponseWriter, body 
 	case *blindExperimentWriter, *translate.ResponsesWriter:
 		return w, func() {}
 	}
-	bw := &blindExperimentWriter{ResponseWriter: w, model: gjson.GetBytes(body, "model").String()}
+	bw := &blindExperimentWriter{ResponseWriter: w, model: html.EscapeString(gjson.GetBytes(body, "model").String())}
 	return bw, bw.finish
 }
 
@@ -123,7 +126,7 @@ func stripRouterResponseHeaders(h http.Header) {
 }
 
 func rewriteSSEModel(events []byte, model string) []byte {
-	if !bytes.Contains(events, []byte(`"model"`)) {
+	if !bytes.Contains(events, []byte(`"model"`)) && !bytes.Contains(events, []byte(`"weave_cost"`)) {
 		return events
 	}
 	lines := bytes.Split(events, []byte("\n"))
@@ -151,6 +154,14 @@ func rewriteJSONModel(doc []byte, model string) []byte {
 			continue
 		}
 		if out, err := sjson.SetBytes(doc, path, model); err == nil {
+			doc = out
+		}
+	}
+	for _, path := range blindExperimentCostPaths {
+		if !gjson.GetBytes(doc, path).Exists() {
+			continue
+		}
+		if out, err := sjson.DeleteBytes(doc, path); err == nil {
 			doc = out
 		}
 	}

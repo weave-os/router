@@ -5561,8 +5561,21 @@ refresh_display_settings() {
 # A cold cache fetches the setting once in the foreground, briefly, so a
 # subject whose surfaces are hidden never sees a branded first title.
 prime_display_settings() {
+  local endpoint header_file hidden_file mtime now
+  hidden_file="$(display_hidden_file)"
+  if [ -f "$hidden_file" ]; then
+    mtime="$(stat -c %Y "$hidden_file" 2>/dev/null || stat -f %m "$hidden_file" 2>/dev/null)" || mtime=0
+    now="$(date +%s 2>/dev/null)" || now=0
+    [ $(( now - ${mtime:-0} )) -lt "${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-300}" ] && return 0
+    touch "$hidden_file" 2>/dev/null
+    ( exec </dev/null >/dev/null 2>&1; prime_display_settings_now ) &
+    return 0
+  fi
+  prime_display_settings_now
+}
+
+prime_display_settings_now() {
   local endpoint header_file
-  [ -f "$(display_hidden_file)" ] && return 0
   endpoint="$(read_codex_endpoint)" || return 0
   [ -n "$endpoint" ] || return 0
   mkdir -p "$state_root" 2>/dev/null || return 0

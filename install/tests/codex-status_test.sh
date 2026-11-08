@@ -618,6 +618,23 @@ printf '%s\n' '{"hook_event_name":"SessionStart","session_id":"session-3"}' \
   | HOME="$hidden_home" XDG_CACHE_HOME="$work/cache-hidden" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
 [ "$(cat "$title_file")" = "Codex" ] || { echo "hidden session start still branded: $(cat "$title_file")" >&2; exit 1; }
 
+stale_display="$(ls "$work"/cache-hidden/weave-router/codex/display-hidden-*)"
+printf '0' >"$stale_display"
+touch -d '2 hours ago' "$stale_display"
+run_stale_turn() {
+  printf '%s\n' '{"session_id":"session-4","model":"gpt-5.6-terra","last_assistant_message":"done"}' \
+    | HOME="$hidden_home" XDG_CACHE_HOME="$work/cache-hidden" WEAVE_CODEX_STATUS_SAVINGS=0 WEAVE_CODEX_STATUS_CONTEXT=0 \
+      WEAVE_CODEX_DISPLAY_SETTINGS_URL="file://$work/display-hidden.json" \
+      WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+}
+run_stale_turn
+for _ in $(seq 1 50); do
+  [ "$(cat "$stale_display" 2>/dev/null)" = "1" ] && break
+  sleep 0.1
+done
+run_stale_turn
+[ "$(cat "$title_file")" = "Codex" ] || { echo "stale display settings never refreshed: $(cat "$title_file")" >&2; exit 1; }
+
 # install.sh embeds this helper as a heredoc so the standalone `curl | sh`
 # install has no sibling asset to copy. Nothing keeps the two copies in sync,
 # so an edit to one silently ships the other stale — which is exactly how the
