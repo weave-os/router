@@ -397,7 +397,7 @@ func applyBlindExperimentTelemetry(ctx context.Context, params *InsertTelemetryP
 	params.BlindExperimentArm = state.Arm
 	params.BlindExperimentAssignmentSource = state.AssignmentSource
 	params.BlindExperimentSubjectKey = state.CanonicalSubjectKey
-	outcome := blindExperimentOutcomeFor(ctx, state, routed, params.RequestedModel)
+	outcome := blindExperimentOutcomeFor(ctx, state, routed, params.RequestedModel, params.DecisionModel)
 	params.BlindExperimentModelSource = outcome.source
 	params.BlindExperimentTreatmentApplied = &outcome.treatmentApplied
 	params.BlindExperimentBaselineModel = outcome.baselineModel

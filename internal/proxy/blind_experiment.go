@@ -73,33 +73,54 @@ type blindExperimentOutcome struct {
 	modelChanged     *bool
 }
 
-func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentState, routed *turnLoopResult, requestedModel string) blindExperimentOutcome {
+func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentState, routed *turnLoopResult, requestedModel, servedModel string) blindExperimentOutcome {
 	source := blindExperimentModelSource(ctx, routed)
 	outcome := blindExperimentOutcome{
 		source:           source,
 		treatmentApplied: blindExperimentTreatmentApplied(state.Arm, source),
-		baselineModel:    clientRequestedModel(ctx, requestedModel),
+		baselineModel:    blindExperimentBaselineModel(ctx, requestedModel),
 	}
-	if source != auth.BlindExperimentModelSourceNotDispatched {
-		modelChanged := routed.Decision.Model != outcome.baselineModel
+	if source != auth.BlindExperimentModelSourceNotDispatched && outcome.baselineModel != "" {
+		if servedModel == "" {
+			servedModel = routed.Decision.Model
+		}
+		modelChanged := servedModel != outcome.baselineModel
 		outcome.modelChanged = &modelChanged
 	}
 	return outcome
 }
 
+// blindExperimentBaselineModel is the model the client would run without
+// routing: its requested model, or its default for an automatic-routing alias
+// or an id the catalog no longer serves. Empty when the client has no default.
+func blindExperimentBaselineModel(ctx context.Context, requestedModel string) string {
+	baseline := clientRequestedModel(ctx, requestedModel)
+	if router.IsRoutingModel(baseline) {
+		return ""
+	}
+	if _, known := catalog.ByID(baseline); !known {
+		if clientDefault := clientBaselineModel(ctx); clientDefault != "" {
+			return clientDefault
+		}
+	}
+	return baseline
+}
+
 // applyBlindExperimentOutcomeAttrs records the assigned arm and what actually
 // chose the model. Spans are internal, so this does not disclose the arm to clients.
-func applyBlindExperimentOutcomeAttrs(ctx context.Context, b *otel.AttrBuilder, routed *turnLoopResult, requestedModel string) {
+func applyBlindExperimentOutcomeAttrs(ctx context.Context, b *otel.AttrBuilder, routed *turnLoopResult, requestedModel, servedModel string) {
 	state, active := auth.BlindExperimentFrom(ctx)
 	if !active {
 		return
 	}
-	outcome := blindExperimentOutcomeFor(ctx, state, routed, requestedModel)
+	outcome := blindExperimentOutcomeFor(ctx, state, routed, requestedModel, servedModel)
 	b.String("routing.blind_experiment_arm", string(state.Arm)).
 		String("routing.blind_experiment_assignment_source", string(state.AssignmentSource)).
 		String("routing.blind_experiment_model_source", string(outcome.source)).
-		Bool("routing.blind_experiment_treatment_applied", outcome.treatmentApplied).
-		String("routing.blind_experiment_baseline_model", outcome.baselineModel)
+		Bool("routing.blind_experiment_treatment_applied", outcome.treatmentApplied)
+	if outcome.baselineModel != "" {
+		b.String("routing.blind_experiment_baseline_model", outcome.baselineModel)
+	}
 	if outcome.modelChanged != nil {
 		b.Bool("routing.blind_experiment_model_changed", *outcome.modelChanged)
 	}
@@ -110,10 +131,6 @@ func blindExperimentTreatmentApplied(arm auth.BlindExperimentArm, source auth.Bl
 		return source == auth.BlindExperimentModelSourceExperimentPassthrough
 	}
 	return source == auth.BlindExperimentModelSourceRouter
-}
-
-func experimentArmPassthrough(ctx context.Context) bool {
-	return blindExperimentPassthroughActive(ctx) && !auth.RoutingPassthroughFrom(ctx) && !auth.ClientModelPassthroughFrom(ctx)
 }
 
 func callerModelPassthroughActive(ctx context.Context) bool {
@@ -201,6 +218,12 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 	// A passthrough arm or router-off policy keeps a Weave Auto user on the
 	// model their client would run without Weave.
 	req.RequestedModel = clientRequestedModel(ctx, req.RequestedModel)
+	experimentArm := blindExperimentPassthroughActive(ctx) && !auth.RoutingPassthroughFrom(ctx) && !auth.ClientModelPassthroughFrom(ctx)
+	if experimentArm && len(req.GatewayProviders) == 0 {
+		if baseline := blindExperimentBaselineModel(ctx, req.RequestedModel); baseline != "" {
+			req.RequestedModel = baseline
+		}
+	}
 	if !modelPermittedByAllowlist(ctx, req.RequestedModel) || !modelInRequestSubset(ctx, req.RequestedModel) {
 		return router.Decision{}, fmt.Errorf("requested model %q is not allowed: %w", req.RequestedModel, cluster.ErrAllowlistEmptiesPool)
 	}
@@ -231,12 +254,6 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 	}
 
 	model, found := catalog.ByID(req.RequestedModel)
-	if !found && experimentArmPassthrough(ctx) {
-		if baseline := clientBaselineModel(ctx); baseline != "" {
-			req.RequestedModel = baseline
-			model, found = catalog.ByID(baseline)
-		}
-	}
 	if !found {
 		return router.Decision{}, &PassthroughModelUnknownError{
 			Model:                    req.RequestedModel,

@@ -287,7 +287,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	applyPlannerAttrs(geminiDecisionBuilder, routeRes)
 	applyRoutingStateAttrs(geminiDecisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, geminiDecisionBuilder)
-	applyBlindExperimentOutcomeAttrs(ctx, geminiDecisionBuilder, &routeRes, feats.Model)
+	applyBlindExperimentOutcomeAttrs(ctx, geminiDecisionBuilder, &routeRes, feats.Model, routeRes.Decision.Model)
 	otel.Record(ctx, otel.Span{
 		Name:  "router.decision",
 		Start: requestStart,
@@ -433,7 +433,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	applyPlannerAttrs(geminiUpstreamBuilder, routeRes)
 	applyRoutingStateAttrs(geminiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, geminiUpstreamBuilder)
-	applyBlindExperimentOutcomeAttrs(ctx, geminiUpstreamBuilder, &routeRes, feats.Model)
+	applyBlindExperimentOutcomeAttrs(ctx, geminiUpstreamBuilder, &routeRes, feats.Model, decision.Model)
 	applyEffortAttrs(geminiUpstreamBuilder, effortServed)
 	s.applySubscriptionSpanTelemetry(ctx, geminiUpstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, geminiUpstreamBuilder)

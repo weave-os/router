@@ -153,4 +153,6 @@ func TestService_ProxyOpenAIResponses_NativeClientCancelAfterCompletedIsSuccess(
 	require.Equal(t, providers.EndpointResponses, provider.proxyEndpoints[0])
 	row := telemetry.firstRow(t)
 	assert.Equal(t, int32(http.StatusOK), row.UpstreamStatusCode)
+	require.NotNil(t, row.UpstreamFinishReason)
+	assert.Equal(t, "stop", *row.UpstreamFinishReason)
 }

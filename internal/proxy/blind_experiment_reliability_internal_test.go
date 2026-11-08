@@ -23,7 +23,7 @@ func TestBlindPassthrough_CodexPlanThrottleRollsOverOnSameModel(t *testing.T) {
 
 	body := `{"model":"` + codexCoveredModel + `","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 	rec := httptest.NewRecorder()
-	_ = svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body))
+	require.Error(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body)), "the fake upstream throttles every attempt")
 
 	require.GreaterOrEqual(t, len(client.oauthPerCall), 2, "a spent plan must roll over to credits in either arm")
 	assert.True(t, client.oauthPerCall[0])
@@ -43,7 +43,7 @@ func TestBlindPassthrough_CodexResponsesPlanThrottleRollsOverOnSameModel(t *test
 
 	body := `{"model":"` + codexCoveredModel + `","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
 	rec := httptest.NewRecorder()
-	_ = svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/responses", body))
+	require.Error(t, svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/responses", body)), "the fake upstream throttles every attempt")
 
 	require.GreaterOrEqual(t, len(client.oauthPerCall), 2, "a spent plan must roll over to credits in either arm")
 	assert.True(t, client.oauthPerCall[0])

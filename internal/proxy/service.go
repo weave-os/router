@@ -4565,7 +4565,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	applyPlannerAttrs(decisionBuilder, routeRes)
 	applyRoutingStateAttrs(decisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, decisionBuilder)
-	applyBlindExperimentOutcomeAttrs(ctx, decisionBuilder, &routeRes, feats.Model)
+	applyBlindExperimentOutcomeAttrs(ctx, decisionBuilder, &routeRes, feats.Model, routeRes.Decision.Model)
 	otel.Record(ctx, otel.Span{
 		Name:  "router.decision",
 		Start: requestStart,
@@ -5796,7 +5796,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	applyPlannerAttrs(upstreamBuilder, routeRes)
 	applyRoutingStateAttrs(upstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, upstreamBuilder)
-	applyBlindExperimentOutcomeAttrs(ctx, upstreamBuilder, &routeRes, feats.Model)
+	applyBlindExperimentOutcomeAttrs(ctx, upstreamBuilder, &routeRes, feats.Model, decision.Model)
 	applyEffortAttrs(upstreamBuilder, effortServed)
 	s.applySubscriptionSpanTelemetry(ctx, upstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, upstreamBuilder)
@@ -7783,7 +7783,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	applyPlannerAttrs(openaiDecisionBuilder, routeRes)
 	applyRoutingStateAttrs(openaiDecisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, openaiDecisionBuilder)
-	applyBlindExperimentOutcomeAttrs(ctx, openaiDecisionBuilder, &routeRes, feats.Model)
+	applyBlindExperimentOutcomeAttrs(ctx, openaiDecisionBuilder, &routeRes, feats.Model, routeRes.Decision.Model)
 	otel.Record(ctx, otel.Span{
 		Name:  "router.decision",
 		Start: requestStart,
@@ -9071,7 +9071,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	applyPlannerAttrs(openaiUpstreamBuilder, routeRes)
 	applyRoutingStateAttrs(openaiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, openaiUpstreamBuilder)
-	applyBlindExperimentOutcomeAttrs(ctx, openaiUpstreamBuilder, &routeRes, feats.Model)
+	applyBlindExperimentOutcomeAttrs(ctx, openaiUpstreamBuilder, &routeRes, feats.Model, decision.Model)
 	applyEffortAttrs(openaiUpstreamBuilder, effortServed)
 	s.applySubscriptionSpanTelemetry(ctx, openaiUpstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, openaiUpstreamBuilder)

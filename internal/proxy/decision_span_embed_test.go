@@ -276,29 +276,32 @@ func TestDecisionSpan_RolloutIDFromClientIdentity(t *testing.T) {
 func TestDecisionAndUpstreamSpansCarryCallerRoutingState(t *testing.T) {
 	type proxyCall func(*Service, context.Context, []byte, http.ResponseWriter, *http.Request) error
 	ingresses := []struct {
-		name     string
-		path     string
-		body     []byte
-		call     proxyCall
-		provider string
-		model    string
+		name      string
+		path      string
+		body      []byte
+		call      proxyCall
+		provider  string
+		model     string
+		requested string
 	}{
-		{name: "anthropic messages", path: "/v1/messages", body: embedTurnBody(), call: (*Service).ProxyMessages},
+		{name: "anthropic messages", path: "/v1/messages", body: embedTurnBody(), call: (*Service).ProxyMessages, requested: "claude-opus-4-8"},
 		{
 			name: "openai chat",
 			path: "/v1/chat/completions",
 			body: []byte(`{"model":"claude-opus-4-8","max_tokens":4096,` +
 				`"tools":[{"type":"function","function":{"name":"Bash","parameters":{"type":"object"}}}],` +
 				`"messages":[{"role":"user","content":"hi"}]}`),
-			call: (*Service).ProxyOpenAIChatCompletion,
+			call:      (*Service).ProxyOpenAIChatCompletion,
+			requested: "claude-opus-4-8",
 		},
 		{
-			name:     "gemini",
-			path:     "/v1beta/models/gemini-2.5-pro:generateContent",
-			body:     []byte(`{"model":"gemini-2.5-pro","stream":false,"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`),
-			call:     (*Service).ProxyGeminiGenerateContent,
-			provider: providers.ProviderGoogle,
-			model:    "gemini-2.5-flash",
+			name:      "gemini",
+			path:      "/v1beta/models/gemini-2.5-pro:generateContent",
+			body:      []byte(`{"model":"gemini-2.5-pro","stream":false,"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`),
+			call:      (*Service).ProxyGeminiGenerateContent,
+			provider:  providers.ProviderGoogle,
+			model:     "gemini-2.5-flash",
+			requested: "gemini-2.5-pro",
 		},
 	}
 	for _, ingress := range ingresses {
@@ -357,7 +360,8 @@ func TestDecisionAndUpstreamSpansCarryCallerRoutingState(t *testing.T) {
 					assert.Equal(t, string(tc.wantArm), spanStr(t, spans[0], "routing.blind_experiment_arm"), spanName)
 					assert.Equal(t, string(tc.wantModelSource), spanStr(t, spans[0], "routing.blind_experiment_model_source"), spanName)
 					assert.True(t, spanBool(t, spans[0], "routing.blind_experiment_treatment_applied"), spanName)
-					assert.NotEmpty(t, spanStr(t, spans[0], "routing.blind_experiment_baseline_model"), spanName)
+					assert.Equal(t, ingress.requested, spanStr(t, spans[0], "routing.blind_experiment_baseline_model"), spanName)
+					assert.Equal(t, tc.wantArm == auth.BlindExperimentArmRouterOn, spanBool(t, spans[0], "routing.blind_experiment_model_changed"), spanName)
 				}
 			})
 		}
