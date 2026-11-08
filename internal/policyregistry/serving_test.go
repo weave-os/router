@@ -644,7 +644,8 @@ type servingMemoryStore struct {
 	casCalls     int
 	artifacts    map[policyregistry.ObjectRef][]byte
 	// runtimeBindings models the publisher-owned runtime_bindings/ objects; each put is a new generation.
-	runtimeBindings map[string]storedRuntimeBinding
+	runtimeBindings           map[string]storedRuntimeBinding
+	runtimeBindingGenerations int64
 }
 
 type storedRuntimeBinding struct {
@@ -660,7 +661,8 @@ func (s *servingMemoryStore) putRuntimeBinding(t *testing.T, environment policyr
 		s.runtimeBindings = make(map[string]storedRuntimeBinding)
 	}
 	key := string(environment) + "/" + releaseSHA256
-	s.runtimeBindings[key] = storedRuntimeBinding{payload: encodeRuntimeBinding(t, binding), generation: s.runtimeBindings[key].generation + 1}
+	s.runtimeBindingGenerations++
+	s.runtimeBindings[key] = storedRuntimeBinding{payload: encodeRuntimeBinding(t, binding), generation: s.runtimeBindingGenerations}
 }
 
 func (s *servingMemoryStore) deleteRuntimeBinding(environment policyregistry.Environment, releaseSHA256 string) {

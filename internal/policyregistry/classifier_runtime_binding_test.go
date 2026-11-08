@@ -68,8 +68,9 @@ func TestDecodeClassifierRuntimeBindingFailsClosed(t *testing.T) {
 		},
 		"http url": func(b map[string]any) { b["worker_url"] = strings.Replace(testClassifierWorkerURL, "https", "http", 1) },
 		"uppercase host": func(b map[string]any) {
-			b["worker_url"] = strings.ToUpper(testClassifierWorkerURL[:8]) + testClassifierWorkerURL[8:]
+			b["worker_url"] = "https://" + strings.ToUpper(strings.TrimPrefix(testClassifierWorkerURL, "https://"))
 		},
+		"longer service name":       func(b map[string]any) { b["worker_url"] = "https://router-classifier-worker-evil-abc123-uc.a.run.app" },
 		"gateway url":               func(b map[string]any) { b["worker_url"] = "https://router-classifier-gateway-abc123-uc.a.run.app" },
 		"non cloud run audience":    func(b map[string]any) { b["worker_audience"] = "https://router-classifier-worker.example.com" },
 		"missing worker url":        func(b map[string]any) { delete(b, "worker_url") },

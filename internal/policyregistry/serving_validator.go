@@ -348,8 +348,9 @@ func validateClassifierServiceAttestation(ctx context.Context, endpoints Destina
 		return errors.New("classifier worker readiness, revision, image or configuration differs from the release runtime binding")
 	}
 	for _, variantID := range prepared.ClassifierServiceBinding.EnabledVariants {
-		loaded, expected := worker.Variants[variantID], release.Variants[variantID]
-		if loaded.ArtifactID != expected.ArtifactID || loaded.ArtifactSHA256 != expected.ArtifactSHA256 {
+		loaded, attested := worker.Variants[variantID]
+		expected, released := release.Variants[variantID]
+		if !attested || !released || expected.ArtifactID == "" || loaded.ArtifactID != expected.ArtifactID || loaded.ArtifactSHA256 != expected.ArtifactSHA256 {
 			return fmt.Errorf("classifier worker variant %q artifact differs from the selected release", variantID)
 		}
 	}

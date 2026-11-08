@@ -175,8 +175,8 @@ func (c CandidateV3) Validate(root string) error {
 }
 
 // ClassifierServiceBinding is one immutable target's logical release and variant allowlist.
-// ServiceURL and Audience are retired gateway fields: accepted for historical selections but
-// never dispatched to; the release's runtime binding names the worker.
+// ServiceURL and Audience are retired gateway fields: both present or both omitted, accepted
+// for historical selections but never dispatched to; the release's runtime binding names the worker.
 type ClassifierServiceBinding struct {
 	Release         ObjectRef                    `json:"release"`
 	ServiceURL      string                       `json:"service_url,omitempty"`

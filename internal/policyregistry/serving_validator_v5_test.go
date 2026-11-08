@@ -77,7 +77,7 @@ func TestActivationValidatorAttestsV5ReleaseOnRuntimeBoundWorker(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled, "classifier attestation passes and validation proceeds to the Router worker")
 	require.Len(t, endpoints.bindings, 2)
 	for _, binding := range endpoints.bindings {
-		require.Equal(t, testClassifierWorkerURL, binding.WorkerURL)
+		require.Equal(t, prepared.ClassifierRuntimeBinding.Binding, binding, "attestation dispatches to the binding's URL with its audience")
 	}
 	require.ErrorIs(t, validator.ValidatePreparedSelection(context.Background(), prepared), context.Canceled)
 	require.Len(t, endpoints.bindings, 2, "worker attestations are memoized within one activation")

@@ -58,7 +58,7 @@ func classifierContractRelease() ClassifierReleaseManifestV1 {
 				AuxiliaryModels: map[string]ObjectRef{}, SemanticConfigurationSHA256: strings.Repeat("f", 64),
 			},
 		},
-		RuntimeImageDigest: "sha256:" + strings.Repeat("1", 64),
+		RuntimeImageDigest: "sha256:" + strings.Repeat("6", 64),
 		Provenance: ClassifierReleaseProvenance{
 			RouterRevision: strings.Repeat("2", 40), WeaveRevision: strings.Repeat("3", 40),
 			BuildAttestation: classifierContractArtifactRef("classifier-build"),

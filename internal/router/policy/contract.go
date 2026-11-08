@@ -312,3 +312,6 @@ type FeedbackReporter interface {
 
 // ClassifierTimeoutHeader carries the Router's remaining classify budget, in whole milliseconds, so the classifier stops inference the Router will no longer wait for.
 const ClassifierTimeoutHeader = "X-Weave-Classifier-Timeout-Ms"
+
+// MaxClassifierTimeoutMilliseconds is the largest budget the classifier accepts in ClassifierTimeoutHeader.
+const MaxClassifierTimeoutMilliseconds = 600_000

@@ -226,7 +226,7 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 				SemanticConfigurationSHA256: strings.Repeat("f", 64),
 			},
 		},
-		RuntimeImageDigest: "sha256:" + strings.Repeat("4", 64),
+		RuntimeImageDigest: "sha256:" + strings.Repeat("6", 64),
 		Provenance: policyregistry.ClassifierReleaseProvenance{
 			RouterRevision: strings.Repeat("7", 40), WeaveRevision: strings.Repeat("8", 40),
 			BuildAttestation: artifactRef("build-attestation"),
@@ -297,7 +297,11 @@ func TestControllerAtomicallyTransitionsV3CandidateV2ToV4CandidateV3AndRetainsOl
 	classifierRelease.RuntimeImageDigest = "sha256:" + strings.Repeat("5", 64)
 	classifierSet := selectionV4
 	classifierSet.Classifier.Release = store.publishArtifact(t, policyregistry.ServingClassifierReleases, classifierRelease)
-	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, classifierSet.Classifier.Release.SHA256, testRuntimeBinding(policyregistry.EnvironmentProd, classifierSet.Classifier.Release.SHA256))
+	classifierBinding := testRuntimeBinding(policyregistry.EnvironmentProd, classifierSet.Classifier.Release.SHA256)
+	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, classifierSet.Classifier.Release.SHA256, classifierBinding)
+	require.ErrorContains(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeClassifier, classifierSet, candidateV3Ref)), "classifier runtime binding differs", "the worker image must be the release's runtime image")
+	classifierBinding["image_digest"] = classifierRelease.RuntimeImageDigest
+	store.putRuntimeBinding(t, policyregistry.EnvironmentProd, classifierSet.Classifier.Release.SHA256, classifierBinding)
 	require.NoError(t, controller.ValidateProposal(ctx, forwardV4(policyregistry.ChangeClassifier, classifierSet, candidateV3Ref)), "a v4 classifier update names a new release under the same Router code")
 
 	routerCandidate := candidateV3

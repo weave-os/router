@@ -662,7 +662,7 @@ the release manifest's artifact ID/SHA-256 for every enabled variant.
 class order, enabled variants and preview support. Both attestations are
 memoized per activation.
 
-Every `/v5/classify` and `/v5/preview` response must echo the pinned request,
+Every successful `/v5/classify` and `/v5/preview` response must echo the pinned request,
 selection, release, variant, taxonomy, artifact ID and artifact SHA-256. Any
 mismatch is `ErrPolicyPinUnavailable`: the request fails closed and does not fall
 back to the default roster. Ordinary classifier unavailability (warming, timeout,

@@ -1370,7 +1370,7 @@ func (c *Client) doPolicyAttempt(
 	}
 	req.Header.Set("content-type", "application/json")
 	if deadline, ok := attemptCtx.Deadline(); ok {
-		req.Header.Set(policy.ClassifierTimeoutHeader, strconv.FormatInt(max(time.Until(deadline).Milliseconds(), 1), 10))
+		req.Header.Set(policy.ClassifierTimeoutHeader, strconv.FormatInt(min(max(time.Until(deadline).Milliseconds(), 1), policy.MaxClassifierTimeoutMilliseconds), 10))
 	}
 
 	resp, err := c.client.Do(req)

@@ -977,7 +977,7 @@ func ReadPreparedSelection(ctx context.Context, store ServingStore, target Servi
 			}
 			classifierReleaseV5 = lane.classifierReleaseV5
 			classifierServiceBinding = lane.classifierServiceBinding
-			if classifierRuntimeBinding, err = readClassifierRuntimeBinding(ctx, store, target, classifierServiceBinding.Release.SHA256); err != nil {
+			if classifierRuntimeBinding, err = readClassifierRuntimeBinding(ctx, store, target, classifierServiceBinding.Release.SHA256, classifierReleaseV5.RuntimeImageDigest); err != nil {
 				return PreparedSelection{}, err
 			}
 		} else {
@@ -1049,7 +1049,7 @@ func ReadPreparedSelection(ctx context.Context, store ServingStore, target Servi
 	}, nil
 }
 
-func readClassifierRuntimeBinding(ctx context.Context, store ServingStore, target ServingTarget, releaseSHA256 string) (*ResolvedClassifierRuntimeBinding, error) {
+func readClassifierRuntimeBinding(ctx context.Context, store ServingStore, target ServingTarget, releaseSHA256, releaseImageDigest string) (*ResolvedClassifierRuntimeBinding, error) {
 	environment, err := target.Environment()
 	if err != nil {
 		return nil, err
@@ -1058,7 +1058,7 @@ func readClassifierRuntimeBinding(ctx context.Context, store ServingStore, targe
 	if err != nil {
 		return nil, fmt.Errorf("resolve classifier runtime binding for release %s in %s: %w", releaseSHA256, environment, err)
 	}
-	if resolved.Binding.ReleaseSHA256 != releaseSHA256 || resolved.Binding.Environment != environment || !validDigest(resolved.Ref.SHA256) || resolved.Ref.Generation <= 0 {
+	if resolved.Binding.ReleaseSHA256 != releaseSHA256 || resolved.Binding.Environment != environment || resolved.Binding.ImageDigest != releaseImageDigest || !validDigest(resolved.Ref.SHA256) || resolved.Ref.Generation <= 0 {
 		return nil, errors.New("classifier runtime binding differs from the selected release or environment")
 	}
 	return &resolved, nil

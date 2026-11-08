@@ -397,7 +397,11 @@ def _router_budget_seconds(timeout_ms: str | None) -> float | None:
     """Parse the Router's remaining classify budget; absent means no caller bound."""
     if timeout_ms is None:
         return None
-    if not timeout_ms.isascii() or not timeout_ms.isdigit():
+    if (
+        not timeout_ms.isascii()
+        or not timeout_ms.isdigit()
+        or len(timeout_ms) > len(str(MAX_CLASSIFIER_TIMEOUT_MS))
+    ):
         raise HTTPException(status_code=422, detail="classifier timeout is malformed")
     milliseconds = int(timeout_ms)
     if not 0 < milliseconds <= MAX_CLASSIFIER_TIMEOUT_MS:

@@ -121,10 +121,12 @@ func canonicalClassifierWorkerOrigin(raw string) bool {
 	if raw != "https://"+host || host != strings.ToLower(host) || !strings.HasSuffix(host, cloudRunHostSuffix) {
 		return false
 	}
-	return host == classifierWorkerService+cloudRunHostSuffix ||
-		strings.HasPrefix(host, classifierWorkerService+"-") ||
-		strings.Contains(host, "---"+classifierWorkerService+"-")
+	return host == classifierWorkerService+cloudRunHostSuffix || classifierWorkerHostPattern.MatchString(host)
 }
+
+// classifierWorkerHostPattern is "[<tag>---]router-classifier-worker-<hash>-<region>.a.run.app";
+// the hash segment excludes dashes so a longer service name cannot pass as the worker.
+var classifierWorkerHostPattern = regexp.MustCompile(`^(?:[a-z0-9]+(?:-[a-z0-9]+)*---)?` + regexp.QuoteMeta(classifierWorkerService) + `-[a-z0-9]+-[a-z]{2,4}` + regexp.QuoteMeta(cloudRunHostSuffix) + `$`)
 
 // ReadClassifierRuntimeBinding reads the current generation of a release's
 // environment binding and records the exact digest and generation it served.

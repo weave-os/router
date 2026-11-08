@@ -473,7 +473,7 @@ def test_router_classify_budget_bounds_inference() -> None:
 def test_malformed_router_classify_budget_fails_before_inference() -> None:
     app, runtime = _runtime_app()
     with TestClient(app) as client:
-        for budget in ("0", "-5", "soon", "1e3", "600001"):
+        for budget in ("0", "-5", "soon", "1e3", "600001", "9" * 5000):
             response = client.post(
                 "/v5/preview",
                 json=_request(),
