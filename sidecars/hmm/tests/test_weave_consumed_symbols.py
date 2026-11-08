@@ -19,9 +19,10 @@ def test_classifier_package_artifact_id_is_stable() -> None:
 
 def test_qwen_semantic_configuration_bytes_are_stable() -> None:
     # Weave: .github/scripts/classifier-release-bootstrap.py, .github/tests/classifier-release/test_bootstrap.py
-    configuration = qwen_semantic_configuration_bytes("qwen-artifact", "c" * 64)
     assert (
-        hashlib.sha256(configuration).hexdigest()
+        hashlib.sha256(
+            qwen_semantic_configuration_bytes("qwen-artifact", "c" * 64)
+        ).hexdigest()
         == "7661d07b3a89cd411a3c30b689043ecd36e2294a9822ed7b88ee9c0f5c552159"
     )
 
