@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 const blindRequestBody = `{"model":"claude-opus-4-7","messages":[]}`
@@ -154,4 +155,25 @@ func TestBlindExperimentWriterFlushBeforeWriteStripsHeaders(t *testing.T) {
 	finish()
 
 	assert.Empty(t, rec.Header().Get("X-Router-Model"))
+}
+
+func TestBlindExperimentWriterResumedSessionRequestsOriginalModel(t *testing.T) {
+	ctx := blindExperimentCtx(auth.BlindExperimentArmRouterOn)
+	requested := gjson.Get(blindRequestBody, "model").String()
+	transcriptModel := requested
+	for turn := range 2 {
+		body, err := sjson.Set(blindRequestBody, "model", transcriptModel)
+		require.NoError(t, err)
+		rec := httptest.NewRecorder()
+		w, finish := withBlindExperimentWriter(ctx, rec, []byte(body))
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, err = w.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-5\"}}\n\n"))
+		require.NoError(t, err)
+		finish()
+
+		data := strings.TrimPrefix(strings.Split(rec.Body.String(), "\n")[1], "data: ")
+		transcriptModel = gjson.Get(data, "message.model").String()
+		assert.Equal(t, requested, transcriptModel, "turn %d", turn)
+	}
 }
