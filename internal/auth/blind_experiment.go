@@ -123,6 +123,8 @@ type BlindExperimentRecord struct {
 // BlindExperimentRepository reads experiment state owned by the control plane.
 type BlindExperimentRepository interface {
 	GetForUser(ctx context.Context, installationID, routerUserID string) (BlindExperimentRecord, error)
+	// InstallationExperimentEnabled reports false with a nil error when the installation has no configuration.
+	InstallationExperimentEnabled(ctx context.Context, installationID string) (bool, error)
 }
 
 // BlindExperimentContextKey is the request-context key for an active assignment.

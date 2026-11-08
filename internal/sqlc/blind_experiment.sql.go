@@ -40,6 +40,25 @@ func (q *Queries) ClaimBlindExperimentSessionArm(ctx context.Context, arg ClaimB
 	return arm, err
 }
 
+const getBlindRouterExperimentEnabledForInstallation = `-- name: GetBlindRouterExperimentEnabledForInstallation :one
+SELECT COALESCE(BOOL_OR(configuration.enabled), FALSE)::boolean AS enabled
+FROM router.blind_router_experiment_configurations configuration
+WHERE configuration.installation_id = $1::uuid
+`
+
+// Reports whether an installation has an enabled blind experiment, for callers
+// whose router user cannot be identified.
+//
+//	SELECT COALESCE(BOOL_OR(configuration.enabled), FALSE)::boolean AS enabled
+//	FROM router.blind_router_experiment_configurations configuration
+//	WHERE configuration.installation_id = $1::uuid
+func (q *Queries) GetBlindRouterExperimentEnabledForInstallation(ctx context.Context, installationID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, getBlindRouterExperimentEnabledForInstallation, installationID)
+	var enabled bool
+	err := row.Scan(&enabled)
+	return enabled, err
+}
+
 const getBlindRouterExperimentForInstallation = `-- name: GetBlindRouterExperimentForInstallation :one
 SELECT
     enabled,

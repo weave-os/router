@@ -70,3 +70,10 @@ VALUES (@installation_id::uuid, @session_key::text, @arm::text)
 ON CONFLICT (installation_id, session_key)
     DO UPDATE SET arm = router.blind_experiment_session_assignments.arm
 RETURNING arm::text AS arm;
+
+-- Reports whether an installation has an enabled blind experiment, for callers
+-- whose router user cannot be identified.
+-- name: GetBlindRouterExperimentEnabledForInstallation :one
+SELECT COALESCE(BOOL_OR(configuration.enabled), FALSE)::boolean AS enabled
+FROM router.blind_router_experiment_configurations configuration
+WHERE configuration.installation_id = @installation_id::uuid;

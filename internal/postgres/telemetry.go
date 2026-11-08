@@ -991,6 +991,7 @@ func (r *TelemetryRepo) GetSessionCost(ctx context.Context, installationID, sess
 		CacheReadTokens:        row.CacheReadTokens,
 		LastRecordedAt:         row.LastRecordedAt.Time,
 		ContextSnapshot:        proxy.ParseContextSnapshot(row.ContextSnapshot),
+		BlindExperiment:        row.BlindExperiment,
 	}, nil
 }
 

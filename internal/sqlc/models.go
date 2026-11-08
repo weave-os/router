@@ -743,12 +743,12 @@ type RouterModelRouterRequestTelemetry struct {
 	// Who owns the turn failure: provider, router, client or unknown; NULL on a normal completion
 	FailureOwner                    *string
 	CodexLimitHeaders               []byte
-	BlindExperimentMode             *string
-	BlindExperimentSessionKey       *string
 	BlindExperimentModelSource      *string
 	BlindExperimentTreatmentApplied *bool
 	BlindExperimentBaselineModel    *string
 	BlindExperimentModelChanged     *bool
+	BlindExperimentMode             *string
+	BlindExperimentSessionKey       *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {

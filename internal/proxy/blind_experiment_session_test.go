@@ -24,6 +24,10 @@ func (repo sessionModeExperimentRepo) GetForUser(context.Context, string, string
 	}, nil
 }
 
+func (sessionModeExperimentRepo) InstallationExperimentEnabled(context.Context, string) (bool, error) {
+	return true, nil
+}
+
 func sessionModeArm(t *testing.T, routerOnPercentage int, headers http.Header) auth.BlindExperimentState {
 	t.Helper()
 	svc := auth.NewService(nil, nil, nil, &captureUserRepo{}, nil, auth.NoOpUserCache{}, time.Now).WithBlindExperiments(sessionModeExperimentRepo{routerOnPercentage: routerOnPercentage}, nil)
