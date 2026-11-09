@@ -207,10 +207,13 @@ var Registry = []Definition{
 		Description:    "Avoid models covered only by exhausted Claude/Codex plans while another plan has headroom. Off by default; ignored when subscription routing is disabled.",
 		OrgOverridable: true,
 	},
+	// Owner: subscriptions runtime. Remove after promoting the policy or
+	// rolling it back once quota-aware ordering has been validated across
+	// installations.
 	{
 		Key:            KeySubscriptionPoolQuotaAwareSelection,
 		Kind:           KindBool,
-		Description:    "[Owner: subscriptions runtime; removal: promote the policy or roll it back after validating quota-aware ordering across installations.] Select eligible pooled subscription accounts using observed quota headroom and upcoming reset times while preserving personal-before-shared ordering. Off by default.",
+		Description:    "Select eligible pooled subscription accounts using observed quota headroom and upcoming reset times while preserving personal-before-shared ordering. Off by default.",
 		OrgOverridable: true,
 	},
 	{

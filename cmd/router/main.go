@@ -1797,6 +1797,9 @@ func subscriptionCandidateSignal(snapshot usage.Snapshot, now time.Time) subscri
 			}
 			resetAt = observedAt.Add(time.Duration(window.WindowMinutes) * time.Minute)
 		}
+		if !resetAt.IsZero() && !resetAt.After(now) {
+			continue
+		}
 		if !signal.Observed || window.UsedPercent > signal.UsedFraction ||
 			window.UsedPercent == signal.UsedFraction && !resetAt.IsZero() && (signal.ResetAt.IsZero() || resetAt.Before(signal.ResetAt)) {
 			signal.Observed = true
