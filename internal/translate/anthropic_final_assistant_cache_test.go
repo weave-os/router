@@ -54,6 +54,7 @@ func TestAnthropicCacheSkipsImmutableLatestAssistantThinkingBlocks(t *testing.T)
 			prepared, err := envelope.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-haiku-4-5", Capabilities: router.Lookup("claude-haiku-4-5")})
 			require.NoError(t, err)
 			assert.False(t, gjson.GetBytes(prepared.Body, "messages.1.content.1.cache_control").Exists())
+			assert.JSONEq(t, block, gjson.GetBytes(prepared.Body, "messages.1.content.1").Raw)
 			assert.Equal(t, "ephemeral", gjson.GetBytes(prepared.Body, "messages.1.content.0.cache_control.type").String())
 		})
 	}
@@ -65,6 +66,18 @@ func TestAnthropicCacheSkipsLatestAssistantThinkingOnlyMessage(t *testing.T) {
 	require.NoError(t, err)
 	prepared, err := envelope.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-haiku-4-5", Capabilities: router.Lookup("claude-haiku-4-5")})
 	require.NoError(t, err)
+	assert.False(t, gjson.GetBytes(prepared.Body, "messages.1.content.0.cache_control").Exists())
+	assert.JSONEq(t, `{"type":"thinking","thinking":"reasoning","signature":"sig"}`, gjson.GetBytes(prepared.Body, "messages.1.content.0").Raw)
+	assert.Equal(t, "ephemeral", gjson.GetBytes(prepared.Body, "messages.0.content.0.cache_control.type").String())
+}
+
+func TestAnthropicCacheSkipsLatestAssistantThinkingBeforeEmptyTrailingMessage(t *testing.T) {
+	body := []byte(`{"model":"claude-haiku-4-5","thinking":{"type":"enabled","budget_tokens":1024},"messages":[{"role":"user","content":"Question"},{"role":"assistant","content":[{"type":"thinking","thinking":"reasoning","signature":"sig"}]},{"role":"user","content":[]}]}`)
+	envelope, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prepared, err := envelope.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-haiku-4-5", Capabilities: router.Lookup("claude-haiku-4-5")})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type":"thinking","thinking":"reasoning","signature":"sig"}`, gjson.GetBytes(prepared.Body, "messages.1.content.0").Raw)
 	assert.False(t, gjson.GetBytes(prepared.Body, "messages.1.content.0.cache_control").Exists())
 	assert.Equal(t, "ephemeral", gjson.GetBytes(prepared.Body, "messages.0.content.0.cache_control.type").String())
 }

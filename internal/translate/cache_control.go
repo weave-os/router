@@ -236,6 +236,13 @@ func addCacheControlToLastMessageBlock(request map[string]any) (func(), bool) {
 	if !ok || len(messages) == 0 {
 		return nil, false
 	}
+	latestAssistantIndex := -1
+	for messageIndex, rawMessage := range messages {
+		message, ok := rawMessage.(map[string]any)
+		if ok && message["role"] == "assistant" {
+			latestAssistantIndex = messageIndex
+		}
+	}
 	for messageIndex := len(messages) - 1; messageIndex >= 0; messageIndex-- {
 		message, ok := messages[messageIndex].(map[string]any)
 		if !ok {
@@ -254,21 +261,24 @@ func addCacheControlToLastMessageBlock(request map[string]any) (func(), bool) {
 			}
 		}
 		for blockIndex := len(blocks) - 1; blockIndex >= 0; blockIndex-- {
-			last, ok := blocks[blockIndex].(map[string]any)
+			candidate, ok := blocks[blockIndex].(map[string]any)
 			if !ok {
 				continue
 			}
 			// Anthropic requires thinking and redacted_thinking blocks in the
 			// latest assistant message to remain byte-for-byte unchanged.
-			if messageIndex == len(messages)-1 && message["role"] == "assistant" && isImmutableLatestAssistantBlock(last) {
+			if messageIndex == latestAssistantIndex && isImmutableLatestAssistantBlock(candidate) {
 				continue
 			}
-			if _, exists := last["cache_control"]; exists {
+			if _, exists := candidate["cache_control"]; exists {
+				if messageIndex == len(messages)-1 {
+					return nil, false
+				}
 				continue
 			}
-			last["cache_control"] = map[string]any{"type": "ephemeral"}
+			candidate["cache_control"] = map[string]any{"type": "ephemeral"}
 			return func() {
-				delete(last, "cache_control")
+				delete(candidate, "cache_control")
 				if promoted {
 					message["content"] = originalContent
 				}
