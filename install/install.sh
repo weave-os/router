@@ -3568,7 +3568,7 @@ toggle_copilot() {
 # Public, unauthed catalog of everything the router can route to. Mounted in
 # both deployment modes, so it is the one listing that always works.
 MODELS_CATALOG_PATH="/v1/router/models"
-MODELS_DASHBOARD_URL="https://router.weaveos.com/models"
+MODELS_DASHBOARD_URL="https://app.weaveos.com/organization/settings/weave-router/models"
 
 # Set by models_api on every call.
 models_http_status=""
