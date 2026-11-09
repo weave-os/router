@@ -570,6 +570,17 @@ func TestResolveBinding_WaferTrailingBindings(t *testing.T) {
 	b, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWafer: {}, providers.ProviderWaferAnthropic: {}})
 	assert.False(t, ok)
 
+	// kimi-k3.1: Fireworks leads, Together second, OpenRouter last.
+	b, ok = ResolveBinding("moonshotai/kimi-k3.1", map[string]struct{}{providers.ProviderFireworks: {}, providers.ProviderTogether: {}, providers.ProviderOpenRouter: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderFireworks, b.Provider)
+	assert.Equal(t, "accounts/fireworks/models/kimi-k3p1-pro", b.UpstreamID)
+
+	b, ok = ResolveBinding("moonshotai/kimi-k3.1", map[string]struct{}{providers.ProviderTogether: {}, providers.ProviderOpenRouter: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderTogether, b.Provider)
+	assert.Equal(t, "moonshotai/Kimi-K3.1-Pro", b.UpstreamID)
+
 	b, ok = ResolveBinding("moonshotai/kimi-k3.1", map[string]struct{}{providers.ProviderOpenRouter: {}})
 	require.True(t, ok)
 	assert.Equal(t, "moonshotai/kimi-k3.1-pro", UpstreamIDFor("moonshotai/kimi-k3.1", b.UpstreamID))
