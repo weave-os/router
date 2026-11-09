@@ -1879,6 +1879,9 @@ func (s *Service) runTurnLoop(
 	if llmTurn != nil && llmTurn.active {
 		req.Escalation = llmTurn.constraint()
 	}
+	if res.AuthoritativePerTurn && req.Escalation == nil && res.TurnType == turntype.ToolResult && s.ResolveHMMToolResultHold(ctx) {
+		res.AuthoritativePerTurn = false
+	}
 	if pinFound {
 		req.PreviousPolicyGroup = escalation.Group(pin.PolicyGroup)
 	}
@@ -1911,7 +1914,7 @@ func (s *Service) runTurnLoop(
 		// translate.userPromptTextGJSON strips tool_result blocks from the embed input.
 		// Switches degrade safely — handover.RewriteEnvelope strips orphaned tool_results.
 		if req.Escalation == nil && !res.AuthoritativePerTurn &&
-			!s.ResolveScoreToolResultTurns(ctx) &&
+			(!s.ResolveScoreToolResultTurns(ctx) || s.ResolveHMMToolResultHold(ctx)) &&
 			res.TurnType == turntype.ToolResult &&
 			pinFound {
 			decision := pinDecision(pin)

@@ -381,10 +381,13 @@ func TestLLMEscalationSkipsCheckpointsUntilAgentActsOnLatestPrompt(t *testing.T)
 	for _, tc := range []struct {
 		name    string
 		latest  translate.EscalationMessage
+		served  string
 		failure llmescalation.FailureCode
 	}{
 		{name: "new prompt", latest: prompt("use the staging config instead"), failure: llmescalation.FailureRecentUserPrompt},
 		{name: "tool loop", latest: toolResult, failure: llmescalation.FailureNone},
+		{name: "tool loop below escalation target", latest: toolResult, served: "gpt-5.6-luna", failure: llmescalation.FailureNone},
+		{name: "tool loop on escalation target", latest: toolResult, served: "gpt-6.1-sol", failure: llmescalation.FailureServedTarget},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &llmEscalationStoreStub{}
@@ -396,7 +399,8 @@ func TestLLMEscalationSkipsCheckpointsUntilAgentActsOnLatestPrompt(t *testing.T)
 			capture := newCaptureWriter(httptest.NewRecorder(), escalationHistoryMaxBytes)
 			_, err := capture.Write([]byte(toolCallResponse))
 			require.NoError(t, err)
-			service.completeLLMEscalation(context.Background(), turnLoopResult{llmEscalation: turn}, nil, capture, translate.EscalationResponseAnthropic)
+			ctx := context.WithValue(context.Background(), ClusterModelListsContextKey{}, map[string][]string{escalation.TargetClusterLabel: {"gpt-6.1-sol"}})
+			service.completeLLMEscalation(ctx, turnLoopResult{llmEscalation: turn, Decision: router.Decision{Model: tc.served}}, nil, capture, translate.EscalationResponseAnthropic)
 			require.Equal(t, 1, store.completeCalls)
 			require.Equal(t, tc.failure, store.completionRequest.IntervalFailure)
 		})

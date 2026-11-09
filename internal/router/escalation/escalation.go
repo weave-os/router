@@ -20,6 +20,10 @@ const (
 	Maximum Group = "maximum"
 )
 
+// TargetClusterLabel names the key model list served while escalation
+// constrains a request, in place of the effective group's list.
+const TargetClusterLabel = "escalation"
+
 // Mode identifies whether an activation could constrain routing.
 type Mode string
 

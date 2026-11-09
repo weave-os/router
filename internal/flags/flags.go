@@ -104,6 +104,7 @@ const (
 	KeyTextRepetitionBreak                  Key = "text_repetition_break_enabled"
 	KeyPlannerEnabled                       Key = "planner_enabled"
 	KeyScoreToolResultTurns                 Key = "score_tool_result_turns"
+	KeyHMMToolResultHold                    Key = "hmm_tool_result_hold"
 	KeyPrefixTrimFreeSwitch                 Key = "prefix_trim_free_switch"
 	KeyAuthoritativeUpgradeGate             Key = "authoritative_upgrade_gate"
 	KeyAuthoritativeUpgradePolicy           Key = "authoritative_upgrade_policy"
@@ -271,6 +272,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_SCORE_TOOL_RESULT_TURNS",
 		Kind:           KindBool,
 		Description:    "Re-score tool-result turns instead of following the session pin.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyHMMToolResultHold,
+		EnvVar:         "ROUTER_HMM_TOOL_RESULT_HOLD",
+		Kind:           KindBool,
+		Description:    "Hold the user turn's first policy pick across its tool-result turns unless escalation constrains the request.",
 		OrgOverridable: true,
 	},
 	{
