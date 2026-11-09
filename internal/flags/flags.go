@@ -274,10 +274,12 @@ var Registry = []Definition{
 		Description:    "Re-score tool-result turns instead of following the session pin.",
 		OrgOverridable: true,
 	},
+	// Router policy owns this eval control; promote or remove it after the
+	// escalation benchmark comparison.
 	{
 		Key:            KeyHMMToolResultHold,
 		Kind:           KindBool,
-		Description:    "Hold the user turn's first policy pick across its tool-result turns unless escalation constrains the request. Owned by router policy; promote or remove after the escalation benchmark comparison.",
+		Description:    "Hold the user turn's first policy pick across its tool-result turns unless escalation constrains the request.",
 		OrgOverridable: true,
 	},
 	{
