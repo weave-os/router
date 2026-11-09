@@ -324,7 +324,7 @@ func anthropicOAuthCredentialRejected(err error) bool {
 // Duplicated from middleware.TopUpURL (proxy can't import the middleware
 // adapter without an import cycle) so subscription-only warnings and the
 // credits-exhausted 402 can surface the CTA.
-const topUpURL = "https://app.workweave.ai/organization/settings/weave-router"
+const topUpURL = "https://app.weaveos.com/organization/settings/weave-router/credits"
 
 // subscriptionOnlyWarningMarker is prepended to a subscription-only bypass
 // response so the customer sees why they're being served on their own plan and
@@ -392,7 +392,7 @@ type subscriptionOnlyWarningsEchoedContextKey struct{}
 
 // SubscriptionsDashboardURL is the user's own linked-plans settings page.
 // The nudges add `reconnect=<provider>` so the page starts that login on load.
-const SubscriptionsDashboardURL = "https://router.weaveos.com/settings/subscriptions"
+const SubscriptionsDashboardURL = "https://app.weaveos.com/organization/settings/weave-router/subscriptions"
 
 // ownCodexPlanSpentNudge replaces the routing marker once per session when
 // the caller's own ChatGPT plan is spent, so they can connect a seat instead
