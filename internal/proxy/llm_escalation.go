@@ -108,7 +108,7 @@ func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.Request
 	digest := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%s/%s/%d", llmescalation.Version, policy.EscalationJudgeModel, providers.ProviderFireworks, llmescalation.SwitchyardRevision, llmescalation.SystemPrompt, llmescalation.ResponseSchema, selection.Cadence)))
 	config := llmescalation.Config{Mode: mode, Epoch: selection.Epoch, Cadence: selection.Cadence, Digest: fmt.Sprintf("%x", digest)}
 	if classifier == flags.EscalationClassifierLLM {
-		digest = sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", classifier, llmescalation.QwenModelSHA256, llmescalation.QwenPromptSHA256, llmescalation.QwenRendererVersion, selection.Cadence)))
+		digest = sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%d", classifier, llmescalation.QwenSchemaVersion, llmescalation.QwenRendererVersion, selection.Cadence)))
 		config.Classifier = classifier
 		config.Digest = fmt.Sprintf("%x", digest)
 	}
@@ -307,6 +307,7 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 		}
 		persistCtx, persistCancel := context.WithTimeout(background, llmEscalationBookkeepingTimeout)
 		defer persistCancel()
+		job.RecordServedRelease(judgment.Release)
 		if err := s.llmEscalationStore.FinishJob(persistCtx, job, judgment, failure); err != nil {
 			log.Warn("LLM escalation verdict persistence failed", "err", err)
 		}

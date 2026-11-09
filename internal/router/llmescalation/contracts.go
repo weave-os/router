@@ -28,10 +28,8 @@ const (
 	JobLease            = 30 * time.Second
 	MaxWorkers          = 16
 	MaxShadowWorkers    = 8
-	QwenReleaseName     = "qwen-finetuned-escalation-classifier-v3"
-	QwenModelSHA256     = "b33aa358d9305378a37a6d1039d8f20d505ea9f9bbc22786257a4e970f60c2fb"
-	QwenPromptSHA256    = "7604aa4b260efb829eb4e52521fad101f231ea6506aa40defdab6c4ff3e2ef21"
 	QwenRendererVersion = "five_turn_v4"
+	QwenRendererHeader  = "X-Escalation-Renderer"
 	QwenProvider        = "modal"
 	QwenSchemaVersion   = "escalation_classifier_v1"
 )
@@ -85,6 +83,15 @@ type Judgment struct {
 	CostUSD    float64         `json:"cost_usd"`
 	CostKnown  bool            `json:"cost_known"`
 	CostSource CostSource      `json:"cost_source"`
+	Release    *ServedRelease  `json:"release,omitempty"`
+}
+
+// ServedRelease is the classifier release that produced one verdict, as
+// reported by the serving endpoint, so a model swap needs no Router change.
+type ServedRelease struct {
+	Name         string `json:"name"`
+	ModelSHA256  string `json:"model_sha256"`
+	PromptSHA256 string `json:"prompt_sha256,omitempty"`
 }
 
 // CostSource identifies whether spend came from the provider or catalog pricing.
@@ -163,12 +170,21 @@ type Job struct {
 	AppliedRequestID string      `json:"applied_request_id,omitempty"`
 	AppliedTurn      *int64      `json:"applied_turn,omitempty"`
 	Model            string      `json:"model"`
+	ModelSHA256      string      `json:"model_sha256,omitempty"`
 	Provider         string      `json:"provider"`
 	Version          string      `json:"version"`
 	PromptRevision   string      `json:"prompt_revision"`
 	SchemaRevision   string      `json:"schema_revision"`
 	RendererRevision string      `json:"renderer_revision"`
 	ConfigDigest     string      `json:"config_digest"`
+}
+
+// RecordServedRelease attributes the job to the release that served its verdict. A nil release leaves the job's attribution unchanged.
+func (j *Job) RecordServedRelease(release *ServedRelease) {
+	if release == nil {
+		return
+	}
+	j.Model, j.ModelSHA256, j.PromptRevision = release.Name, release.ModelSHA256, release.PromptSHA256
 }
 
 // StartRequest fences changes in user instruction before verdict consumption.
