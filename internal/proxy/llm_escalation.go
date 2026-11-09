@@ -260,6 +260,9 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 	} else if llmescalation.TurnsSinceUserPrompt(messages) < llmescalation.MinTurnsAfterUserPrompt {
 		ready = false
 		intervalFailure = llmescalation.FailureRecentUserPrompt
+	} else if servedEscalationTarget(ctx, res.Decision.Model) {
+		ready = false
+		intervalFailure = llmescalation.FailureServedTarget
 	}
 	// Separate pools keep shadow judging from starving active checkpoints.
 	slots := s.llmEscalationShadowSlots
@@ -327,4 +330,10 @@ func llmEscalationFailure(judgeErr, judgeContextErr error) llmescalation.Failure
 	default:
 		return llmescalation.FailureJudge
 	}
+}
+
+// servedEscalationTarget reports whether the turn already ran on a model the
+// key would promote to, so a verdict could not change routing.
+func servedEscalationTarget(ctx context.Context, model string) bool {
+	return slices.Contains(clusterArmOverridesForRequest(ctx)[escalation.TargetClusterLabel], model)
 }

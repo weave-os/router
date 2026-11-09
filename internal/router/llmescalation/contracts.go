@@ -128,6 +128,7 @@ const (
 	FailureCapacity            FailureCode = "capacity"
 	FailureIntervalUnavailable FailureCode = "interval_unavailable"
 	FailureRecentUserPrompt    FailureCode = "recent_user_prompt"
+	FailureServedTarget        FailureCode = "served_escalation_target"
 	FailureCallLimit           FailureCode = "call_limit"
 	FailureInFlight            FailureCode = "in_flight"
 	FailureStale               FailureCode = "stale"

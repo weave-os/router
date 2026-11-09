@@ -675,6 +675,20 @@ pins, utility turns, deadline fallbacks, and active escalation floors still win.
 A content-free `authoritative upgrade evidence` log records mode, applied,
 holdout, outcome, reason, margin, votes, and served model.
 
+## Escalation target and tool-result hold
+
+A key-scoped cluster model list labelled `escalation` names the models served
+while an escalation verdict or persisted floor constrains a request. It
+replaces the effective group's list only on escalated turns, so a key can keep
+every unescalated group on one model and promote only escalated sessions. The
+LLM escalation judge skips a checkpoint (`served_escalation_target`) when the
+turn was already served by one of these models.
+
+`hmm_tool_result_hold` is an organization-overridable boolean flag, stored in
+the installation's flag overrides (no environment variable), default `false`. When on, authoritative per-turn selection
+scores only the first call after a user message; that turn's tool-result calls
+reuse the session pin unless escalation constrains the request.
+
 ## Plan-aware subscription routing
 
 `subscription_plan_aware_routing_enabled` is an organization-only boolean in

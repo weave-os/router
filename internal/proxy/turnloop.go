@@ -1887,6 +1887,11 @@ func (s *Service) runTurnLoop(
 	// entry path would observe search decay and prefix trimming twice and lose
 	// the already-computed translation eligibility and pin-drop evidence.
 	routeRemaining := func() (turnLoopResult, error) {
+		holdToolResult := res.AuthoritativePerTurn && req.Escalation == nil &&
+			res.TurnType == turntype.ToolResult && s.ResolveHMMToolResultHold(ctx)
+		if holdToolResult {
+			res.AuthoritativePerTurn = false
+		}
 		// A command-only continuation has no user-authored text to classify.
 		// Keep an eligible session model instead of rescoring synthetic client
 		// wrappers or switching to the requested baseline mid-conversation.
@@ -1911,7 +1916,7 @@ func (s *Service) runTurnLoop(
 		// translate.userPromptTextGJSON strips tool_result blocks from the embed input.
 		// Switches degrade safely — handover.RewriteEnvelope strips orphaned tool_results.
 		if req.Escalation == nil && !res.AuthoritativePerTurn &&
-			!s.ResolveScoreToolResultTurns(ctx) &&
+			(!s.ResolveScoreToolResultTurns(ctx) || holdToolResult) &&
 			res.TurnType == turntype.ToolResult &&
 			pinFound {
 			decision := pinDecision(pin)

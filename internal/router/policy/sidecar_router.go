@@ -698,6 +698,14 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		"score", res.Score,
 	)
 	rescueGroups := EscalatingRescueGroups(res.PolicyGroup, req.ForceCluster, res.RankedFallback)
+	rescueOverrides := req.ClusterArmOverrides
+	if escalationDecision != nil && escalationDecision.Constrained {
+		groupNames := make([]string, 0, len(rescueGroups))
+		for _, group := range rescueGroups {
+			groupNames = append(groupNames, group.Group)
+		}
+		rescueOverrides = escalationArmOverrides(rescueOverrides, groupNames...)
+	}
 	return router.Decision{
 		Provider: binding.Provider,
 		Model:    binding.CatalogID,
@@ -706,8 +714,8 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		Metadata: &router.RoutingMetadata{
 			Escalation:                    escalationDecision,
 			CandidateModels:               resolved.CandidateModels(),
-			RescueModels:                  RescueModelOrder(req.ClusterArmOverrides, rescueGroups, resolved),
-			SidecarRescuePool:             RescueCoolingPool(req.ClusterArmOverrides, rescueGroups, resolved),
+			RescueModels:                  RescueModelOrder(rescueOverrides, rescueGroups, resolved),
+			SidecarRescuePool:             RescueCoolingPool(rescueOverrides, rescueGroups, resolved),
 			RosterFailover:                len(res.RankedFallback) > 0 && (req.ForceCluster != "" || escalation.Rank(escalation.Group(res.PolicyGroup)) >= 0),
 			CandidateProviders:            resolved.CandidateProviders(),
 			CandidateScores:               resolved.CatalogCandidateScores(res.CandidateScores),

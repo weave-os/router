@@ -104,6 +104,7 @@ const (
 	KeyTextRepetitionBreak                  Key = "text_repetition_break_enabled"
 	KeyPlannerEnabled                       Key = "planner_enabled"
 	KeyScoreToolResultTurns                 Key = "score_tool_result_turns"
+	KeyHMMToolResultHold                    Key = "hmm_tool_result_hold"
 	KeyPrefixTrimFreeSwitch                 Key = "prefix_trim_free_switch"
 	KeyAuthoritativeUpgradeGate             Key = "authoritative_upgrade_gate"
 	KeyAuthoritativeUpgradePolicy           Key = "authoritative_upgrade_policy"
@@ -177,7 +178,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 28
+const RegistryVersion = 29
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -271,6 +272,14 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_SCORE_TOOL_RESULT_TURNS",
 		Kind:           KindBool,
 		Description:    "Re-score tool-result turns instead of following the session pin.",
+		OrgOverridable: true,
+	},
+	// Router policy owns this eval control; promote or remove it after the
+	// escalation benchmark comparison.
+	{
+		Key:            KeyHMMToolResultHold,
+		Kind:           KindBool,
+		Description:    "Hold the user turn's first policy pick across its tool-result turns unless escalation constrains the request.",
 		OrgOverridable: true,
 	},
 	{
