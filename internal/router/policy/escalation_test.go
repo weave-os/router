@@ -104,6 +104,7 @@ func TestEscalationUsesNormalSelectorWithoutLosingFloor(t *testing.T) {
 			assert.Equal(t, test.wantOutcome, decision.Metadata.Escalation.Outcome)
 			assert.Equal(t, test.wantConstrained, decision.Metadata.Escalation.Constrained)
 			if target, hasTarget := test.overrides[escalation.TargetClusterLabel]; hasTarget && test.wantConstrained {
+				require.NotEmpty(t, decision.Metadata.RescueModels)
 				assert.Subset(t, target, decision.Metadata.RescueModels, "escalated rescue must stay on the escalation target")
 			}
 		})

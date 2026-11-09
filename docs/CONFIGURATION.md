@@ -684,8 +684,8 @@ every unescalated group on one model and promote only escalated sessions. The
 LLM escalation judge skips a checkpoint (`served_escalation_target`) when the
 turn was already served by one of these models.
 
-`hmm_tool_result_hold` is an installation-only boolean flag override, default
-`false`. When on, authoritative per-turn selection
+`hmm_tool_result_hold` is an organization-overridable boolean flag, stored in
+the installation's flag overrides (no environment variable), default `false`. When on, authoritative per-turn selection
 scores only the first call after a user message; that turn's tool-result calls
 reuse the session pin unless escalation constrains the request.
 

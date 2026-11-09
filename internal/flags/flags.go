@@ -178,7 +178,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 28
+const RegistryVersion = 29
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -277,7 +277,7 @@ var Registry = []Definition{
 	{
 		Key:            KeyHMMToolResultHold,
 		Kind:           KindBool,
-		Description:    "Hold the user turn's first policy pick across its tool-result turns unless escalation constrains the request.",
+		Description:    "Hold the user turn's first policy pick across its tool-result turns unless escalation constrains the request. Owned by router policy; promote or remove after the escalation benchmark comparison.",
 		OrgOverridable: true,
 	},
 	{

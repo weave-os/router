@@ -335,6 +335,5 @@ func llmEscalationFailure(judgeErr, judgeContextErr error) llmescalation.Failure
 // servedEscalationTarget reports whether the turn already ran on a model the
 // key would promote to, so a verdict could not change routing.
 func servedEscalationTarget(ctx context.Context, model string) bool {
-	target, configured := clusterArmOverridesForRequest(ctx)[escalation.TargetClusterLabel]
-	return configured && slices.Contains(target, model)
+	return slices.Contains(clusterArmOverridesForRequest(ctx)[escalation.TargetClusterLabel], model)
 }
