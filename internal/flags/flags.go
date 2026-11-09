@@ -276,7 +276,6 @@ var Registry = []Definition{
 	},
 	{
 		Key:            KeyHMMToolResultHold,
-		EnvVar:         "ROUTER_HMM_TOOL_RESULT_HOLD",
 		Kind:           KindBool,
 		Description:    "Hold the user turn's first policy pick across its tool-result turns unless escalation constrains the request.",
 		OrgOverridable: true,

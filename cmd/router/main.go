@@ -1322,6 +1322,7 @@ func main() {
 		flags.KeyTextRepetitionBreak:                  boolDefault(textRepetitionBreakEnabled),
 		flags.KeyPlannerEnabled:                       boolDefault(plannerEnabled),
 		flags.KeyScoreToolResultTurns:                 boolDefault(scoreToolResultTurns),
+		flags.KeyHMMToolResultHold:                    boolDefault(false),
 		flags.KeyPrefixTrimFreeSwitch:                 boolDefault(prefixTrimFreeSwitch),
 		flags.KeyAuthoritativeUpgradeGate:             boolDefault(authoritativeUpgradeGate),
 		flags.KeyAuthoritativeUpgradePolicy:           string(parsedUpgradePolicy),
