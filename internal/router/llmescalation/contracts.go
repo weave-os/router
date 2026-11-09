@@ -179,7 +179,7 @@ type Job struct {
 	ConfigDigest     string      `json:"config_digest"`
 }
 
-// RecordServedRelease attributes the job to the release that produced its verdict.
+// RecordServedRelease attributes the job to the release that served its verdict. A nil release leaves the job's attribution unchanged.
 func (j *Job) RecordServedRelease(release *ServedRelease) {
 	if release == nil {
 		return

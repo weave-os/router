@@ -307,6 +307,7 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 		}
 		persistCtx, persistCancel := context.WithTimeout(background, llmEscalationBookkeepingTimeout)
 		defer persistCancel()
+		job.RecordServedRelease(judgment.Release)
 		if err := s.llmEscalationStore.FinishJob(persistCtx, job, judgment, failure); err != nil {
 			log.Warn("LLM escalation verdict persistence failed", "err", err)
 		}

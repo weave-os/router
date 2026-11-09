@@ -185,7 +185,6 @@ func (r *LLMEscalationRepo) FinishJob(ctx context.Context, job llmescalation.Job
 	job.FinishedAt = &now
 	job.Judgment = &judgment
 	job.Failure = failure
-	job.RecordServedRelease(judgment.Release)
 	job.Status = llmescalation.JobCompleted
 	if failure != llmescalation.FailureNone {
 		job.Status = llmescalation.JobFailed

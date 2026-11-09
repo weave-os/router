@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -26,6 +27,7 @@ type llmEscalationStoreStub struct {
 	mu                sync.Mutex
 	completion        llmescalation.Completion
 	finished          chan struct{}
+	finishedJob       llmescalation.Job
 	judgment          llmescalation.Judgment
 	failure           llmescalation.FailureCode
 	applyCalls        int
@@ -43,9 +45,9 @@ func (s *llmEscalationStoreStub) Complete(_ context.Context, request llmescalati
 	s.completionRequest = request
 	return s.completion, nil
 }
-func (s *llmEscalationStoreStub) FinishJob(_ context.Context, _ llmescalation.Job, judgment llmescalation.Judgment, failure llmescalation.FailureCode) error {
+func (s *llmEscalationStoreStub) FinishJob(_ context.Context, job llmescalation.Job, judgment llmescalation.Judgment, failure llmescalation.FailureCode) error {
 	s.mu.Lock()
-	s.judgment, s.failure = judgment, failure
+	s.finishedJob, s.judgment, s.failure = job, judgment, failure
 	s.mu.Unlock()
 	close(s.finished)
 	return nil
@@ -110,7 +112,7 @@ func (j *blockingEscalationJudge) Judge(_ context.Context, request llmescalation
 func TestLLMEscalationJudgeRunsAfterCompletionWithoutBlocking(t *testing.T) {
 	job := llmescalation.Job{ID: "job-1", Lifetime: "life-1", Checkpoint: 3, Model: policy.EscalationJudgeModel, Provider: providers.ProviderFireworks}
 	store := &llmEscalationStoreStub{completion: llmescalation.Completion{Job: &job}, finished: make(chan struct{})}
-	judge := &blockingEscalationJudge{started: make(chan llmescalation.JudgeRequest, 1), release: make(chan struct{}), judgment: llmescalation.Judgment{Escalate: true, Reason: "loop"}}
+	judge := &blockingEscalationJudge{started: make(chan llmescalation.JudgeRequest, 1), release: make(chan struct{}), judgment: llmescalation.Judgment{Escalate: true, Reason: "loop", Release: &llmescalation.ServedRelease{Name: "qwen-escalation-v1.1.0", ModelSHA256: strings.Repeat("a", 64)}}}
 	service := (&Service{}).WithLLMEscalation(store, judge)
 	turn := &llmEscalationTurn{
 		requestID:   "request-3",
@@ -137,6 +139,8 @@ func TestLLMEscalationJudgeRunsAfterCompletionWithoutBlocking(t *testing.T) {
 	require.True(t, store.judgment.Escalate)
 	require.Empty(t, store.judgment.Reason, "rationale is content and capture is disabled")
 	require.Equal(t, llmescalation.FailureNone, store.failure)
+	require.Equal(t, "qwen-escalation-v1.1.0", store.finishedJob.Model, "persistence and telemetry see the release that served the verdict")
+	require.Equal(t, strings.Repeat("a", 64), store.finishedJob.ModelSHA256)
 }
 
 func TestQwenEscalationUsesFiveTurnIntervalAndModalJudge(t *testing.T) {
