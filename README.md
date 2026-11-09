@@ -4,7 +4,6 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Managed deployment](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frouter.weaveos.com%2Fv1%2Fversion&query=%24.display&label=managed%20deployment&color=EC6341&cacheSeconds=1800)](https://github.com/weave-os/router/deployments)
 
-![Built with Weave Router](docs/badges/router-badge-dark.svg)
 </div>
 
 # Weave Router
@@ -169,3 +168,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and tests. The
 [THIRD_PARTY.md](THIRD_PARTY.md) for attribution and third-party licenses.
 The Apache-2.0 release line begins with `router-v0.2.24`; earlier releases
 retain the licenses they shipped with.
+
+<div align="center">
+  <a href="https://weaveos.com/products/router"><img src="docs/badges/router-badge-dark.svg" alt="Built with Weave Router" /></a>
+</div>
