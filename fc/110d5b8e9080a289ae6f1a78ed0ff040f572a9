@@ -1,0 +1,48 @@
+internal/router/policy/escalation.go
+  s_dc841142dd86a8::t_1c072f1191e794 16-20,25
+cmd/policyctl/commands.go
+  s_dc841142dd86a8::t_1c072f1191e794 9,255-257,344-346,371-375
+  s_dc841142dd86a8::t_bc4c5b6c8dbbfc 376-378
+internal/router/hmm/selection/selector.go
+  s_dc841142dd86a8::t_1c072f1191e794 7,27-28
+  s_dc841142dd86a8::t_24f41a10eba7fc 29
+internal/router/hmm/selection/selection.go
+  s_dc841142dd86a8::t_1c072f1191e794 251-253
+internal/router/hmm/policycompiler/compiler.go
+  s_dc841142dd86a8::t_1c072f1191e794 18-19,31,35-64,76-81,83-84,86-87,89
+internal/proxy/observation.go
+  s_dc841142dd86a8::t_a9e4218b6c4cad 291-295
+internal/policyregistry/gcs.go
+  s_dc841142dd86a8::t_a9e4218b6c4cad 174-175,178-181,186-191
+internal/policyregistry/contract.go
+  s_dc841142dd86a8::t_a9e4218b6c4cad 144-150,231
+internal/policyregistry/manager.go
+  s_dc841142dd86a8::t_a9e4218b6c4cad 156,345,349,353,358-362
+  s_dc841142dd86a8::t_be2ecb8aae1b19 363-364
+internal/server/server.go
+  s_dc841142dd86a8::t_74436ad0087f35 293,299-300,302
+internal/router/hmm/rosterdata/rosterdata.go
+  s_dc841142dd86a8::t_1c072f1191e794 318,342-344
+  s_dc841142dd86a8::t_39bf26accd0345 345-346
+cmd/router/main.go
+  s_dc841142dd86a8::t_74436ad0087f35 989-990
+internal/router/policy/sidecar_router.go
+  s_dc841142dd86a8::t_74436ad0087f35 193-195,219-220
+  s_dc841142dd86a8::t_824dcb86c216db 221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fc110d5b8e9080a289ae6f1a78ed0ff040f572a9",
+  "prompts": {},
+  "sessions": {
+    "s_dc841142dd86a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08c98-6b91-7643-8031-133ff9002149",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,181 @@
+internal/translate/responses.go
+  s_28c8815db4c15b::t_43cf13d59e5881 622,625,730-762,777-779,783-784,786-796,931-947,963-966,1367-1380,1509,1515,1519,1525,1530,1535,1541,1551,1560-1575,1584-1586,1693-1714,1975
+bench/weave_bench/prices.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-58
+internal/translate/responses_to_anthropic_writer.go
+  s_28c8815db4c15b::t_43cf13d59e5881 217-236
+bench/pyproject.toml
+  s_28c8815db4c15b::t_43cf13d59e5881 1-41
+bench/tests/test_tap.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-156
+bench/weave_bench/tap/app.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-144
+internal/proxy/openai_cyber_refusal_integration_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 4,11,126-131,238-239,245-288
+  s_28c8815db4c15b::t_399fc9d64d9a31 289-290
+internal/translate/anthropic_marker_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 126-153
+bench/weave_bench/arms.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-130
+bench/weave_bench/fetch.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-25
+internal/translate/responses_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 394-489
+bench/weave_bench/config.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-128
+internal/proxy/AGENTS.md
+  s_28c8815db4c15b::t_43cf13d59e5881 229,234
+bench/weave_bench/probe.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-105
+internal/proxy/service_session_pin_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 267-386
+internal/proxy/usage_bypass_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 88-100
+bench/tests/test_stats.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-98
+internal/translate/stream.go
+  s_28c8815db4c15b::t_43cf13d59e5881 761-780
+bench/.gitignore
+  s_28c8815db4c15b::t_43cf13d59e5881 1-3
+internal/proxy/CLAUDE.md
+  s_28c8815db4c15b::t_43cf13d59e5881 229,234
+bench/weave_bench/agent/beta_turn.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-47
+internal/translate/openai_marker.go
+  s_28c8815db4c15b::t_43cf13d59e5881 160-170
+bench/weave_bench/benchmarks.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-75
+internal/proxy/blind_experiment_internal_test.go
+  s_28c8815db4c15b::t_9556421cadeb0f 77-105
+bench/tests/test_report.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-217
+internal/proxy/translation_plan_internal_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 133-158
+bench/bench.example.toml
+  s_28c8815db4c15b::t_43cf13d59e5881 1-38
+cmd/genprices/main.go
+  s_28c8815db4c15b::t_43cf13d59e5881 8,34-37,53-99
+internal/proxy/baseline_failover_integration_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 116-117,119-123
+bench/tests/test_cli.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-186
+internal/proxy/fastmode_internal_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 217,219,283,285
+internal/proxy/fastmode.go
+  s_28c8815db4c15b::t_43cf13d59e5881 30,53,88
+internal/translate/search_recency_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 27,80
+bench/README.md
+  s_28c8815db4c15b::t_43cf13d59e5881 1-235
+docs/CONFIGURATION.md
+  s_28c8815db4c15b::t_43cf13d59e5881 415
+AGENTS.md
+  s_28c8815db4c15b::t_43cf13d59e5881 125
+bench/tests/test_trials.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-118
+bench/weave_bench/manifests.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-37
+internal/proxy/service.go
+  s_28c8815db4c15b::t_43cf13d59e5881 2707,2714,2716-2721,3655,3672,3675,3724,3763,3765-3766,3770-3773,3775,3777,3783-3786,3882,3885,3890-3891,4022-4033,4048-4051,6261-6277,6279-6281,6304-6305,6307-6313,6320,6343,6387-6395,6730-6744,6757-6763,7142-7143
+internal/proxy/service_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 539-595
+bench/weave_bench/cli.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-274
+internal/proxy/turnloop.go
+  s_28c8815db4c15b::t_43cf13d59e5881 316-319,763-800
+  s_28c8815db4c15b::t_95ca10870a6393 801-802
+bench/weave_bench/analytics.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-175
+bench/weave_bench/manifests/terminalbench4_tasks.json
+  s_28c8815db4c15b::t_43cf13d59e5881 1-272
+internal/translate/search_recency.go
+  s_28c8815db4c15b::t_43cf13d59e5881 11-20,27
+internal/policyclient/client.go
+  s_28c8815db4c15b::t_43cf13d59e5881 519-520
+internal/translate/anthropic_marker.go
+  s_28c8815db4c15b::t_43cf13d59e5881 25,54,60,92,96-124,193
+README.md
+  s_28c8815db4c15b::t_43cf13d59e5881 271-273
+internal/translate/openai_marker_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 132-147
+internal/translate/crossformat_request_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 5,15,2044-2195
+  s_28c8815db4c15b::t_fb9aa196905148 2196
+CLAUDE.md
+  s_28c8815db4c15b::t_43cf13d59e5881 125
+bench/weave_bench/report.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-322
+docs/POLICY_ROUTER_HARNESS.md
+  s_28c8815db4c15b::t_43cf13d59e5881 27-32
+bench/weave_bench/launch.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-102
+bench/tests/test_config.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-77
+bench/weave_bench/codex_config.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-89
+bench/tests/test_harbor_command.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-138
+cmd/genprices/main_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 96-109
+internal/proxy/blind_experiment.go
+  s_28c8815db4c15b::t_9556421cadeb0f 11,40-49
+  s_28c8815db4c15b::t_213a49672dd3a6 50
+bench/tests/test_probe.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-101
+internal/proxy/routing_prelude.go
+  s_28c8815db4c15b::t_43cf13d59e5881 1-94
+bench/weave_bench/manifests/sweatlas_qna_tasks.json
+  s_28c8815db4c15b::t_43cf13d59e5881 1-133
+internal/translate/emit_anthropic.go
+  s_28c8815db4c15b::t_43cf13d59e5881 4,8,10,37-40,820-918
+  s_28c8815db4c15b::t_f6747f4ebd3a95 919
+bench/tests/test_beta_turn.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-42
+bench/weave_bench/trials.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-203
+internal/proxy/failover_integration_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 4,28-66,211-215,274-323,350-351,354-356,438-441
+bench/weave_bench/tap/rewrite.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-183
+bench/weave_bench/markdown.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-161
+internal/policyclient/classifier_only_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 66-79
+bench/weave_bench/harbor_command.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-138
+internal/proxy/fallback.go
+  s_28c8815db4c15b::t_43cf13d59e5881 34,82,96-119,132-134,151-158,160,162,610,613-617,620,625,633-637,640,645
+internal/proxy/fallback_test.go
+  s_28c8815db4c15b::t_43cf13d59e5881 83-112,1121-1145
+  s_28c8815db4c15b::t_f8c45791800555 1146
+bench/weave_bench/stats.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-129
+bench/tests/test_prices_and_manifests.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-56
+bench/tests/test_analytics.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-138
+bench/weave_bench/agent/beta_codex.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-44
+bench/tests/conftest.py
+  s_28c8815db4c15b::t_43cf13d59e5881 1-72
+internal/proxy/translation_plan.go
+  s_28c8815db4c15b::t_43cf13d59e5881 127-132
+bench/weave_bench/prices.generated.json
+  s_28c8815db4c15b::t_33356a8823fff9 1-479
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5df2f0803132360c042e61b4b76963dbdf846648",
+  "prompts": {},
+  "sessions": {
+    "s_28c8815db4c15b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0832c-78ed-7dc3-829b-0f975789e8e8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

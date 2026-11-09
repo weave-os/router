@@ -1,0 +1,40 @@
+internal/proxy/subscription_profile.go
+  s_49df7faaffb6d3::t_1494a012df76a6 7,14-15,17-20,25,42-44,46,49,52-53
+internal/proxy/subscription_profile_internal_test.go
+  s_49df7faaffb6d3::t_e607cb18ec7bf5 15,70-72
+internal/auth/subscription_plans_test.go
+  s_49df7faaffb6d3::t_e607cb18ec7bf5 1-55
+internal/auth/subscription_plans.go
+  s_49df7faaffb6d3::t_1494a012df76a6 1-60
+internal/proxy/service.go
+  s_49df7faaffb6d3::t_1494a012df76a6 77
+internal/proxy/claude_enterprise.go
+  s_49df7faaffb6d3::t_1494a012df76a6 19,48-50
+internal/proxy/managed_subscriptions.go
+  s_49df7faaffb6d3::t_1494a012df76a6 78,345
+internal/proxy/subscription_funding.go
+  s_49df7faaffb6d3::t_1494a012df76a6 93-97,99-100,103-104
+  s_49df7faaffb6d3::t_963393f69f6d9b 105
+internal/subscriptions/runtime.go
+  s_49df7faaffb6d3::t_1494a012df76a6 13,65-68
+  s_49df7faaffb6d3::t_85b58560f616ea 69-70
+internal/subscriptions/runtime_test.go
+  s_49df7faaffb6d3::t_e607cb18ec7bf5 14,21-27
+  s_49df7faaffb6d3::t_ca35bae53352aa 28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "20d4aa32b47fb97d48739d693160937062fdf9cf",
+  "prompts": {},
+  "sessions": {
+    "s_49df7faaffb6d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b46d-ba9e-7bb0-96d6-04aceeaa203b",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

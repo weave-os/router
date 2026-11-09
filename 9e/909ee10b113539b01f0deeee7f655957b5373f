@@ -1,0 +1,44 @@
+internal/observability/otel/usage.go
+  s_7905f8bae6feb5::t_7813093552fdef 215-217,222-223
+  s_ac6ff0ada6dffa::t_44cf69cfde8f9f 224
+internal/observability/otel/usage_test.go
+  s_7905f8bae6feb5::t_fc32fc3241fd92 138-175
+internal/providers/provider.go
+  s_7905f8bae6feb5::t_6d1e298f0cc7f7 235-250
+db/queries/model_router_request_telemetry.sql
+  s_7905f8bae6feb5::t_baf259c590ae9f 812
+docs/ANALYTICS_EXPORT.md
+  s_7905f8bae6feb5::t_d336489cfad2bb 173
+internal/analytics/analytics.go
+  s_7905f8bae6feb5::t_08ff7430c940c8 72-76
+internal/analytics/schema.go
+  s_7905f8bae6feb5::t_99d3cfe1ef4a54 66
+internal/postgres/analytics_repo.go
+  s_7905f8bae6feb5::t_d59eb6cde7e824 99
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_7905f8bae6feb5::t_94aed54aecddc4 120,248,348,481
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9e909ee10b113539b01f0deeee7f655957b5373f",
+  "prompts": {},
+  "sessions": {
+    "s_7905f8bae6feb5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d719a9c6-a7d7-4323-9ad5-076e7284ae84",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    },
+    "s_ac6ff0ada6dffa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "26cf3a14-c4a9-4cfc-b8ce-838701ffa445",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

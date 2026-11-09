@@ -1,0 +1,14 @@
+internal/router/breaker/breaker.go
+  h_ab3cb0cf7fa1dd 66,136,139,146,193,232,234,244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "df31b5072b32114264fa65ae486b04d943872ebd",
+  "prompts": {},
+  "humans": {
+    "h_ab3cb0cf7fa1dd": {
+      "author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+internal/proxy/turn_logs.go
+  s_2ab2e0fccef46f::t_7a8c6e891d2239 340
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "90d9005b9e6437f4cb7965b22f79c2d1a8c1ea34",
+  "prompts": {},
+  "sessions": {
+    "s_2ab2e0fccef46f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10d99-4510-78b0-a5ab-bc86051e40fd",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

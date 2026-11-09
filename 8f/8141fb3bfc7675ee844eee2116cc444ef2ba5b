@@ -1,0 +1,21 @@
+internal/translate/envelope.go
+  s_328ab02acee205::t_c9e8d1bc492e8a 1435
+internal/translate/default_max_tokens_test.go
+  s_328ab02acee205::t_c9e8d1bc492e8a 290-300
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8f8141fb3bfc7675ee844eee2116cc444ef2ba5b",
+  "prompts": {},
+  "sessions": {
+    "s_328ab02acee205": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ee5b-e392-7830-9600-1e7eec135801",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+internal/translate/anthropic_tool_name_writer.go
+  s_7d2905aecea577::t_9abe02b8ed00f6 51
+internal/translate/anthropic_tool_name_writer_test.go
+  s_7d2905aecea577::t_9abe02b8ed00f6 196-208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a614707ef37fc4c309198e3618619977476f9532",
+  "prompts": {},
+  "sessions": {
+    "s_7d2905aecea577": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11c12-8702-74c0-902d-6d5443462625",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
