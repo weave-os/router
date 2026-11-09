@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 
 	"weave-os/router/internal/inference"
@@ -17,7 +18,13 @@ import (
 
 const maxResponseBytes = 16 * 1024
 
-// Judge calls the pinned, authenticated Modal escalation classifier.
+var (
+	releaseNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{0,127}$`)
+	sha256Pattern      = regexp.MustCompile(`^[0-9a-f]{64}$`)
+)
+
+// Judge calls the authenticated Modal escalation classifier. The endpoint pins
+// the release; Judge records whichever release served each verdict.
 type Judge struct {
 	endpoint string
 	apiKey   string
@@ -57,6 +64,7 @@ func (j *Judge) Judge(ctx context.Context, request llmescalation.JudgeRequest) (
 	httpRequest.Header.Set("Authorization", "Bearer "+j.apiKey)
 	httpRequest.Header.Set("Content-Type", "application/json")
 	httpRequest.Header.Set("X-Request-ID", request.RequestID)
+	httpRequest.Header.Set(llmescalation.QwenRendererHeader, llmescalation.QwenRendererVersion)
 	response, err := j.client.Do(httpRequest)
 	if err != nil {
 		return llmescalation.Judgment{}, fmt.Errorf("call LLM escalation endpoint: %w", err)
@@ -75,17 +83,19 @@ func (j *Judge) Judge(ctx context.Context, request llmescalation.JudgeRequest) (
 	var verdict struct {
 		ReleaseName   string    `json:"release_name"`
 		ModelSHA256   string    `json:"model_sha256"`
+		PromptSHA256  string    `json:"prompt_sha256"`
 		Prediction    *int      `json:"prediction"`
 		RawIsDigit    *bool     `json:"raw_is_digit"`
 		Probabilities []float64 `json:"probabilities"`
 		InputTokens   *int      `json:"input_tokens"`
 	}
-	if json.Unmarshal(responseBody, &verdict) != nil || verdict.ReleaseName != llmescalation.QwenReleaseName || verdict.ModelSHA256 != llmescalation.QwenModelSHA256 || verdict.Prediction == nil || (*verdict.Prediction != 0 && *verdict.Prediction != 1) || verdict.RawIsDigit == nil || !*verdict.RawIsDigit || verdict.InputTokens == nil || *verdict.InputTokens < 1 || len(verdict.Probabilities) != 2 {
-		return llmescalation.Judgment{}, fmt.Errorf("%w: malformed or unpinned response", llmescalation.ErrInvalidJudgment)
+	if json.Unmarshal(responseBody, &verdict) != nil || !releaseNamePattern.MatchString(verdict.ReleaseName) || !sha256Pattern.MatchString(verdict.ModelSHA256) || (verdict.PromptSHA256 != "" && !sha256Pattern.MatchString(verdict.PromptSHA256)) || verdict.Prediction == nil || (*verdict.Prediction != 0 && *verdict.Prediction != 1) || verdict.RawIsDigit == nil || !*verdict.RawIsDigit || verdict.InputTokens == nil || *verdict.InputTokens < 1 || len(verdict.Probabilities) != 2 {
+		return llmescalation.Judgment{}, fmt.Errorf("%w: malformed response or release identity", llmescalation.ErrInvalidJudgment)
 	}
 	return llmescalation.Judgment{
 		Escalate:   *verdict.Prediction == 1,
 		Usage:      inference.Usage{Known: true, InputTokens: *verdict.InputTokens, OutputTokens: 1},
 		CostSource: llmescalation.CostSourceUnknown,
+		Release:    &llmescalation.ServedRelease{Name: verdict.ReleaseName, ModelSHA256: verdict.ModelSHA256, PromptSHA256: verdict.PromptSHA256},
 	}, nil
 }

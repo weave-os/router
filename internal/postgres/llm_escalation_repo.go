@@ -127,9 +127,9 @@ func (r *LLMEscalationRepo) Complete(ctx context.Context, request llmescalation.
 				job.Version = llmescalation.Version
 				job.PromptRevision, job.SchemaRevision, job.RendererRevision = llmescalation.SwitchyardRevision, llmescalation.SwitchyardRevision, llmescalation.SwitchyardRevision
 			case flags.EscalationClassifierLLM:
-				job.Model, job.Provider = llmescalation.QwenReleaseName, llmescalation.QwenProvider
+				job.Provider = llmescalation.QwenProvider
 				job.Version = string(flags.EscalationClassifierLLM)
-				job.PromptRevision, job.SchemaRevision, job.RendererRevision = llmescalation.QwenPromptSHA256, llmescalation.QwenSchemaVersion, llmescalation.QwenRendererVersion
+				job.SchemaRevision, job.RendererRevision = llmescalation.QwenSchemaVersion, llmescalation.QwenRendererVersion
 			default:
 				return errors.New("unsupported LLM escalation classifier")
 			}
@@ -185,6 +185,7 @@ func (r *LLMEscalationRepo) FinishJob(ctx context.Context, job llmescalation.Job
 	job.FinishedAt = &now
 	job.Judgment = &judgment
 	job.Failure = failure
+	job.RecordServedRelease(judgment.Release)
 	job.Status = llmescalation.JobCompleted
 	if failure != llmescalation.FailureNone {
 		job.Status = llmescalation.JobFailed
