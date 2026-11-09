@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -1311,6 +1312,7 @@ func main() {
 		flags.KeyEscalationXGBoostShadowMarkerEnabled: boolDefault(false),
 		flags.KeyEscalationXGBoostEpoch:               "0",
 		flags.KeySubscriptionPlanAwareRouting:         boolDefault(false),
+		flags.KeySubscriptionPoolQuotaAwareSelection:  boolDefault(false),
 		flags.KeyClaudeEnterpriseOnly:                 boolDefault(true),
 		flags.KeySubscriptionExhaustedOpenRouterOnly:  boolDefault(false),
 		flags.KeyPlanUserClusterLists:                 boolDefault(false),
@@ -1567,6 +1569,39 @@ func main() {
 		panic(err)
 	}
 	usageObserver := usage.NewObserver(observerSalt, subscriptionTTL, time.Now)
+	if subscriptionRuntime != nil {
+		subscriptionRuntime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, now time.Time) subscriptions.CandidateSignal {
+			snapshot, observed := usageObserver.Snapshot(usageObserver.Key([]byte("subscription-account:" + accountID)))
+			if !observed {
+				return subscriptions.CandidateSignal{}
+			}
+			signal := subscriptions.CandidateSignal{
+				Observed:  true,
+				Exhausted: snapshot.ExhaustedAsOf(now),
+				Billable:  snapshot.OverageInUse,
+			}
+			for _, window := range []usage.Window{snapshot.Primary, snapshot.Secondary} {
+				if math.IsNaN(window.UsedPercent) || math.IsInf(window.UsedPercent, 0) || window.UsedPercent < 0 || window.UsedPercent > 1 {
+					return subscriptions.CandidateSignal{}
+				}
+				if window.UsedPercent > signal.UsedFraction {
+					signal.UsedFraction = window.UsedPercent
+				}
+				resetAt := window.ResetAt
+				if resetAt.IsZero() && window.WindowMinutes > 0 {
+					observedAt := window.ObservedAt
+					if observedAt.IsZero() {
+						observedAt = snapshot.ObservedAt
+					}
+					resetAt = observedAt.Add(time.Duration(window.WindowMinutes) * time.Minute)
+				}
+				if resetAt.After(now) && (signal.ResetAt.IsZero() || resetAt.Before(signal.ResetAt)) {
+					signal.ResetAt = resetAt
+				}
+			}
+			return signal
+		})
+	}
 	// Bound memory: evict expired observations periodically (the usage package
 	// spawns no goroutines of its own).
 	go func() {

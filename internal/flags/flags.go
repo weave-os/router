@@ -130,6 +130,7 @@ const (
 	KeyEarlyStopRedo                        Key = "early_stop_redo"
 	KeyCCWorkspaceSystemAppend              Key = "cc_workspace_system_append"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
+	KeySubscriptionPoolQuotaAwareSelection  Key = "subscription_pool_quota_aware_selection_enabled"
 	KeyClaudeEnterpriseOnly                 Key = "claude_enterprise_only"
 	KeySubscriptionExhaustedOpenRouterOnly  Key = "subscription_exhausted_openrouter_only"
 	KeyCommittedStreamArmDemotion           Key = "committed_stream_arm_demotion"
@@ -204,6 +205,12 @@ var Registry = []Definition{
 		Key:            KeySubscriptionPlanAwareRouting,
 		Kind:           KindBool,
 		Description:    "Avoid models covered only by exhausted Claude/Codex plans while another plan has headroom. Off by default; ignored when subscription routing is disabled.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeySubscriptionPoolQuotaAwareSelection,
+		Kind:           KindBool,
+		Description:    "Select eligible pooled subscription accounts using observed quota headroom and upcoming reset times while preserving personal-before-shared ordering. Off by default.",
 		OrgOverridable: true,
 	},
 	{

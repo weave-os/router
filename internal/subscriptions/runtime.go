@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 
@@ -88,14 +89,30 @@ type Leaser interface {
 // Runtime admits primary candidates, refreshes physical accounts, and retains
 // session affinity only within the winning ownership tier.
 type Runtime struct {
-	affinity  *expirable.LRU[string, string]
-	store     AccountStore
-	refresher TokenRefresher
-	manager   *Manager
-	clock     func() time.Time
-	leaseTTL  time.Duration
-	heartbeat time.Duration
+	affinity        *expirable.LRU[string, string]
+	store           AccountStore
+	refresher       TokenRefresher
+	manager         *Manager
+	clock           func() time.Time
+	leaseTTL        time.Duration
+	heartbeat       time.Duration
+	candidateSignal func(string, Provider, time.Time) CandidateSignal
 }
+
+// CandidateSignal is the latest local quota evidence for one physical account.
+// Unknown signals remain eligible so a provider can be probed, but known spent
+// or paid-lane accounts sort after accounts with included headroom.
+type CandidateSignal struct {
+	Observed     bool
+	Exhausted    bool
+	Billable     bool
+	UsedFraction float64
+	ResetAt      time.Time
+}
+
+// CandidateSignalFunc supplies local quota evidence to the runtime without
+// making the subscriptions package depend on a provider-specific observer.
+type CandidateSignalFunc func(accountID string, provider Provider, now time.Time) CandidateSignal
 
 // NewRuntime constructs the server-side subscription credential runtime.
 func NewRuntime(store AccountStore, refresher TokenRefresher, clock func() time.Time) *Runtime {
@@ -106,6 +123,15 @@ func NewRuntime(store AccountStore, refresher TokenRefresher, clock func() time.
 		store: store, refresher: refresher, manager: NewManager(clock), clock: clock,
 		leaseTTL: refreshLeaseTTL, heartbeat: refreshLeaseHeartbeat,
 	}
+}
+
+// WithCandidateSignal enables quota-aware ordering when the corresponding
+// per-installation flag is enabled. The signal source is replica-local and is
+// therefore advisory; durable admission and provider responses remain the
+// source of truth.
+func (r *Runtime) WithCandidateSignal(signal CandidateSignalFunc) *Runtime {
+	r.candidateSignal = signal
+	return r
 }
 
 // refreshHolder is one replica's live claim on an account's refresh lease.
@@ -130,6 +156,12 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 	if err != nil {
 		return Lease{}, false, err
 	}
+	quotaAwareSelection := flags.BoolOr(ctx, flags.KeySubscriptionPoolQuotaAwareSelection, false) && r.candidateSignal != nil
+	var candidateSignals map[string]CandidateSignal
+	if quotaAwareSelection {
+		candidateSignals = snapshotCandidateSignals(accounts, provider, r.candidateSignal, r.clock())
+		orderSubscriptionCandidates(accounts, requester.SubscriberID, candidateSignals)
+	}
 	affinityKey := requester.InstallationID + "|" + requester.SubscriberID + "|" + string(provider) + "|" + sessionID
 	if sessionID != "" {
 		if preferred, ok := r.affinity.Get(affinityKey); ok {
@@ -145,6 +177,13 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 						return -1
 					}
 					return 1
+				}
+				if quotaAwareSelection {
+					preferredSignal := candidateSignals[preferred]
+					if !candidateSignalsEquivalent(preferredSignal, candidateSignals[left.ID]) ||
+						!candidateSignalsEquivalent(preferredSignal, candidateSignals[right.ID]) {
+						return 0
+					}
 				}
 				if left.ID == preferred {
 					return -1
@@ -198,6 +237,67 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 		return Lease{}, true, ErrNoAvailableAccount
 	}
 	return Lease{}, false, nil
+}
+
+func snapshotCandidateSignals(accounts []*auth.SubscriptionAccount, provider Provider, signal CandidateSignalFunc, now time.Time) map[string]CandidateSignal {
+	signals := make(map[string]CandidateSignal, len(accounts))
+	for _, account := range accounts {
+		signals[account.ID] = signal(account.ID, provider, now)
+	}
+	return signals
+}
+
+func orderSubscriptionCandidates(accounts []*auth.SubscriptionAccount, subscriberID string, signals map[string]CandidateSignal) {
+	slices.SortStableFunc(accounts, func(left, right *auth.SubscriptionAccount) int {
+		leftPersonal := left.SubscriberID == subscriberID && subscriberID != ""
+		rightPersonal := right.SubscriberID == subscriberID && subscriberID != ""
+		if leftPersonal != rightPersonal {
+			if leftPersonal {
+				return -1
+			}
+			return 1
+		}
+		leftSignal := signals[left.ID]
+		rightSignal := signals[right.ID]
+		if rank := candidateSignalRank(leftSignal) - candidateSignalRank(rightSignal); rank != 0 {
+			return rank
+		}
+		if leftSignal.ResetAt.IsZero() != rightSignal.ResetAt.IsZero() {
+			if leftSignal.ResetAt.IsZero() {
+				return 1
+			}
+			return -1
+		}
+		if !leftSignal.ResetAt.Equal(rightSignal.ResetAt) {
+			if leftSignal.ResetAt.Before(rightSignal.ResetAt) {
+				return -1
+			}
+			return 1
+		}
+		if leftSignal.UsedFraction != rightSignal.UsedFraction {
+			if leftSignal.UsedFraction > rightSignal.UsedFraction {
+				return -1
+			}
+			return 1
+		}
+		return 0
+	})
+}
+
+func candidateSignalsEquivalent(left, right CandidateSignal) bool {
+	return candidateSignalRank(left) == candidateSignalRank(right) &&
+		left.ResetAt.Equal(right.ResetAt) && left.UsedFraction == right.UsedFraction
+}
+
+func candidateSignalRank(signal CandidateSignal) int {
+	switch {
+	case !signal.Observed:
+		return 1
+	case signal.Exhausted || signal.Billable:
+		return 2
+	default:
+		return 0
+	}
 }
 
 func (r *Runtime) Cooldown(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string, resetAt time.Time) error {
