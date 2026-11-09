@@ -1,0 +1,23 @@
+docs/HMM_GO_SELECTION.md
+  s_33522dee49bf01::t_c78bdd4d6e35ed 182-185
+internal/proxy/agreement_shadow.go
+  s_33522dee49bf01::t_48e5d63276c4f2 104-109
+internal/proxy/agreement_shadow_identity_internal_test.go
+  s_33522dee49bf01::t_09b6b07c103cfc 1-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d6f5b313460cad95472ee09c8a667b9067a4f01a",
+  "prompts": {},
+  "sessions": {
+    "s_33522dee49bf01": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18eb0-0355-7522-a7c9-ac571ae84fba",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

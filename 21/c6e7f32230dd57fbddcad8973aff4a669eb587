@@ -1,0 +1,24 @@
+internal/api/admin/internal_session_issuers.go
+  s_0280f2ea513fc4::t_bbd38d578c4a62 37-38,42
+internal/api/admin/internal_session_issuers_test.go
+  s_0280f2ea513fc4::t_595feac96567fb 7,25-32,49-50
+  s_0280f2ea513fc4::t_2d469c23e849b7 1-6,8-24,33-48,51-79
+scripts/serving_admission_check/session_issuer_test.go
+  s_0280f2ea513fc4::t_bbd38d578c4a62 63-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "21c6e7f32230dd57fbddcad8973aff4a669eb587",
+  "prompts": {},
+  "sessions": {
+    "s_0280f2ea513fc4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18120-d748-7b91-84fc-295efde1a52f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

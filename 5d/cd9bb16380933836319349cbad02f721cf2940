@@ -1,0 +1,24 @@
+install/install.sh
+  s_99a26d7f7deb6c::t_06e270c7e78d8b 540
+  s_99a26d7f7deb6c::t_b3b40c26e4c434 651-653
+  s_99a26d7f7deb6c::t_0607d958a0885a 534,536-539,541-546,550-564,580
+  s_99a26d7f7deb6c::t_081ec7abb550d6 535
+install/tests/codex_install_test.sh
+  s_99a26d7f7deb6c::t_7b3c49f707fd95 141-176
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5dcd9bb16380933836319349cbad02f721cf2940",
+  "prompts": {},
+  "sessions": {
+    "s_99a26d7f7deb6c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6a458e13-f54a-43f2-8dcb-023370249ea7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

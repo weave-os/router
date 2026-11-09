@@ -1,0 +1,19 @@
+install/npm/windows.js
+  s_787cf7fc928eb8::t_c312f6d87d28b7 118,126,129,194-195,248-249,281,284
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "820c53dc6d56e87d0b78b20544bc637d2ef0c404",
+  "prompts": {},
+  "sessions": {
+    "s_787cf7fc928eb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11340-f757-7f13-811d-6144d7b9238b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
