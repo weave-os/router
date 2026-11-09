@@ -142,3 +142,28 @@ func TestTurnFailureOwner(t *testing.T) {
 	assert.Equal(t, FailureOwner(""), turnFailureOwner(""))
 	assert.Equal(t, FailureOwner(""), turnFailureOwner(TurnErrorMaxTokens))
 }
+
+// A finish reason is only recorded once the upstream's own terminal arrived,
+// so a missing terminal after one was lost inside the router, not upstream.
+func TestTurnFailureOwnerAfterUpstreamFinish(t *testing.T) {
+	cut := fmt.Errorf("write: %w", translate.ErrStreamIncomplete)
+	cases := []struct {
+		name   string
+		err    error
+		finish string
+		want   FailureOwner
+	}{
+		{"cut after upstream stop", cut, "stop", FailureOwnerRouter},
+		{"cut after upstream tool call", cut, "tool_calls", FailureOwnerRouter},
+		{"empty stream after upstream finish", translate.ErrStreamEmpty, "end_turn", FailureOwnerRouter},
+		{"cut before any upstream finish", cut, "", FailureOwnerProvider},
+		{"rate limited with a finish reason", &providers.UpstreamStatusError{Status: http.StatusTooManyRequests}, "stop", FailureOwnerProvider},
+		{"served turn", nil, "stop", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			class := classifyTurnError(tc.err, tc.finish, 0)
+			assert.Equal(t, tc.want, turnFailureOwnerAfterFinish(context.Background(), tc.err, class, tc.finish))
+		})
+	}
+}

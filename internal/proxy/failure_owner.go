@@ -137,6 +137,17 @@ func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 	}
 }
 
+// turnFailureOwnerAfterFinish is turnFailureOwnerFor for a turn whose upstream
+// finish reason is known. A finish reason is recorded only once the upstream's
+// own terminal arrived, so a stream that still ended without one lost it
+// inside the router.
+func turnFailureOwnerAfterFinish(ctx context.Context, err error, class TurnErrorClass, upstreamFinishReason string) FailureOwner {
+	if upstreamFinishReason != "" && isStreamTerminalMissing(err) {
+		return FailureOwnerRouter
+	}
+	return turnFailureOwnerFor(ctx, err, class)
+}
+
 // turnFailureOwner assigns the fault of a turn that completed with unusable
 // output, from its error class. A refusal is the model's choice; hitting the
 // output cap is a served completion, not a failure.
