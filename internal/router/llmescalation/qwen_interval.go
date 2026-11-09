@@ -39,11 +39,12 @@ type qwenTurn struct {
 // It waits for at least five earlier turns because training excluded windows 0..4.
 // Turn numbers come from the history, so a history ahead of the session counter
 // (turns whose responses the router could not record) still renders correctly.
-// A history behind the counter has been compacted and cannot be given fresh turn
-// numbers without changing the evidence semantics of the training set.
-func RenderQwenInterval(messages []translate.EscalationMessage, completedTurns int64, codexToolResults bool) (string, bool) {
+// A history behind the counter has been compacted: its turns are renumbered from
+// the compaction, and judging resumes once five post-compaction turns precede
+// the interval.
+func RenderQwenInterval(messages []translate.EscalationMessage, codexToolResults bool) (string, bool) {
 	turns := qwenTurns(messages, codexToolResults)
-	if len(turns) < qwenMinimumStart+qwenIntervalWidth || int64(len(turns)) < completedTurns {
+	if len(turns) < qwenMinimumStart+qwenIntervalWidth {
 		return "", false
 	}
 	start := len(turns) - qwenIntervalWidth

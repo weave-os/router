@@ -248,7 +248,7 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 	judge := s.llmEscalationJudge
 	ready := true
 	if turn.session.Config.EffectiveClassifier() == flags.EscalationClassifierLLM {
-		transcript, ready = llmescalation.RenderQwenInterval(messages, turn.session.CompletedTurns+1, turn.observation.CodexToolResults)
+		transcript, ready = llmescalation.RenderQwenInterval(messages, turn.observation.CodexToolResults)
 		judge = s.qwenEscalationJudge
 		if !ready {
 			observability.FromContext(ctx).Info("LLM escalation interval unavailable", "completed_turns", turn.session.CompletedTurns+1)
