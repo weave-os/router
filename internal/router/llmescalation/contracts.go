@@ -28,7 +28,7 @@ const (
 	JobLease            = 30 * time.Second
 	MaxWorkers          = 16
 	MaxShadowWorkers    = 8
-	QwenRendererVersion = "five_turn_v3"
+	QwenRendererVersion = "five_turn_v4"
 	QwenRendererHeader  = "X-Escalation-Renderer"
 	QwenProvider        = "modal"
 	QwenSchemaVersion   = "escalation_classifier_v1"
