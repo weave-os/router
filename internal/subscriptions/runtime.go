@@ -166,8 +166,12 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 	if sessionID != "" {
 		if preferred, ok := r.affinity.Get(affinityKey); ok {
 			// Preserve personal-before-shared ordering; affinity only reorders a tier.
+			var sortSignals map[string]CandidateSignal
+			if quotaAwareSelection {
+				sortSignals = candidateSignals
+			}
 			slices.SortStableFunc(accounts, func(left, right *auth.SubscriptionAccount) int {
-				if rank := compareSubscriptionCandidates(left, right, requester.SubscriberID, candidateSignalsIfEnabled(quotaAwareSelection, candidateSignals)); rank != 0 {
+				if rank := compareSubscriptionCandidates(left, right, requester.SubscriberID, sortSignals); rank != 0 {
 					return rank
 				}
 				if left.ID == preferred {
@@ -236,13 +240,6 @@ func orderSubscriptionCandidates(accounts []*auth.SubscriptionAccount, subscribe
 	slices.SortStableFunc(accounts, func(left, right *auth.SubscriptionAccount) int {
 		return compareSubscriptionCandidates(left, right, subscriberID, signals)
 	})
-}
-
-func candidateSignalsIfEnabled(enabled bool, signals map[string]CandidateSignal) map[string]CandidateSignal {
-	if !enabled {
-		return nil
-	}
-	return signals
 }
 
 func compareSubscriptionCandidates(left, right *auth.SubscriptionAccount, subscriberID string, signals map[string]CandidateSignal) int {

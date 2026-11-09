@@ -1798,7 +1798,7 @@ func subscriptionCandidateSignal(snapshot usage.Snapshot, now time.Time) subscri
 			resetAt = observedAt.Add(time.Duration(window.WindowMinutes) * time.Minute)
 		}
 		if !signal.Observed || window.UsedPercent > signal.UsedFraction ||
-			window.UsedPercent == signal.UsedFraction && earlierReset(resetAt, signal.ResetAt) {
+			window.UsedPercent == signal.UsedFraction && !resetAt.IsZero() && (signal.ResetAt.IsZero() || resetAt.Before(signal.ResetAt)) {
 			signal.Observed = true
 			signal.UsedFraction = window.UsedPercent
 			if resetAt.After(now) {
@@ -1809,13 +1809,6 @@ func subscriptionCandidateSignal(snapshot usage.Snapshot, now time.Time) subscri
 		}
 	}
 	return signal
-}
-
-func earlierReset(candidate, current time.Time) bool {
-	if candidate.IsZero() {
-		return false
-	}
-	return current.IsZero() || candidate.Before(current)
 }
 
 // parseOtelHeaders parses a comma-separated key=value string into a map.
