@@ -792,8 +792,12 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 3.000, OutputUSDPer1M: 15.000, CacheReadMultiplier: 0.10}},
 	}},
 	// K3.1 Pro is a post-trained K3 successor at a lower list price ($2/$10 vs
-	// $3/$15). Only Moonshot serves it so far (OpenRouter's "Pro" listing).
+	// $3/$15). OpenRouter trails as the outage fallback, as on kimi-k3.
 	{ID: "moonshotai/kimi-k3.1", Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/kimi-k3p1-pro",
+			Price: Pricing{InputUSDPer1M: 2.000, OutputUSDPer1M: 10.000, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderTogether, UpstreamID: "moonshotai/Kimi-K3.1-Pro",
+			Price: Pricing{InputUSDPer1M: 2.000, OutputUSDPer1M: 10.000, CacheReadMultiplier: 0.10}},
 		{Provider: providers.ProviderOpenRouter, UpstreamID: "moonshotai/kimi-k3.1-pro",
 			Price: Pricing{InputUSDPer1M: 2.000, OutputUSDPer1M: 10.000, CacheReadMultiplier: 0.10}},
 	}},
