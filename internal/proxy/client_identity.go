@@ -206,6 +206,32 @@ const (
 	ClientAppOpencode   = "opencode"
 )
 
+// completionLogClientApp is the client_app completion-log field, which log
+// metrics use as a label. X-App is caller-controlled, so anything but a
+// canonical app collapses to one value.
+func completionLogClientApp(id ClientIdentity) string {
+	if id.ClientApp == "" {
+		return ""
+	}
+	if id.Eval {
+		return "eval"
+	}
+	switch id.ClientApp {
+	case ClientAppClaudeCode:
+		return ClientAppClaudeCode
+	case ClientAppCodex:
+		return ClientAppCodex
+	case ClientAppCursor:
+		return ClientAppCursor
+	case ClientAppGeminiCLI:
+		return ClientAppGeminiCLI
+	case ClientAppOpencode:
+		return ClientAppOpencode
+	default:
+		return "other"
+	}
+}
+
 func supportsResponsesTerminalSurfaces(clientApp string) bool {
 	return clientApp == ClientAppCodex || clientApp == ClientAppOpencode
 }
