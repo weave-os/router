@@ -17,10 +17,7 @@ func (r *SidecarRouter) selectEscalationArm(ctx context.Context, req router.Requ
 	if group == "" {
 		group = input.ForcedGroup
 	}
-	overrides := req.ClusterArmOverrides
-	if target, hasTarget := overrides[escalation.TargetClusterLabel]; hasTarget {
-		overrides = map[string][]string{group: target}
-	}
+	overrides := escalationArmOverrides(req.ClusterArmOverrides, group)
 	if _, hasOverride := overrides[group]; !hasOverride {
 		return pick, err
 	}
@@ -33,6 +30,20 @@ func (r *SidecarRouter) selectEscalationArm(ctx context.Context, req router.Requ
 	pick.Group = override.Group
 	pick.Arm = override.RosterID
 	return pick, nil
+}
+
+// escalationArmOverrides serves the key's escalation target list in place of
+// each escalated group's list; without a target the overrides are unchanged.
+func escalationArmOverrides(overrides map[string][]string, groups ...string) map[string][]string {
+	target, hasTarget := overrides[escalation.TargetClusterLabel]
+	if !hasTarget {
+		return overrides
+	}
+	escalated := make(map[string][]string, len(groups))
+	for _, group := range groups {
+		escalated[group] = target
+	}
+	return escalated
 }
 
 func constrainEscalation(req router.Request, input SelectionInput, resolved ResolvedCandidates) (SelectionInput, *escalation.Decision, bool) {
