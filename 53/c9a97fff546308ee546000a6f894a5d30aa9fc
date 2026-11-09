@@ -1,0 +1,44 @@
+internal/router/planner/corrected_test.go
+  s_94c5aff1c61861::t_d5eb12560ad118 46-51,53,59
+  s_94c5aff1c61861::t_aa237f153d371e 1-45,52,54-58,60-149
+internal/router/planner/policy.go
+  s_94c5aff1c61861::t_01a9ae44ca2f9c 78-80,93-95,209-210,228,234,239,251-253
+  s_94c5aff1c61861::t_afc06f5eab8c2f 81
+  s_94c5aff1c61861::t_cce0a1dd4f46d0 211-227,229-233,235-238,240-250,254-260
+  s_94c5aff1c61861::t_8dc8082ff5b422 173-177
+  s_94c5aff1c61861::t_a1dc31cb94639a 90-91,96-97
+internal/proxy/service.go
+  s_94c5aff1c61861::t_b22768c3862337 1208-1212,1273
+internal/proxy/turnloop.go
+  s_94c5aff1c61861::t_01a9ae44ca2f9c 119-124
+  s_94c5aff1c61861::t_c283fafbdc6933 1187,1191-1193
+  s_94c5aff1c61861::t_d72abc3e477845 1093
+  s_94c5aff1c61861::t_c47357a5356411 1318
+  s_94c5aff1c61861::t_8c133622d91ce4 125-134
+cmd/router/main.go
+  s_94c5aff1c61861::t_b22768c3862337 634,919
+internal/router/planner/CLAUDE.md
+  s_94c5aff1c61861::t_96b7cb524f4722 22-52
+internal/router/planner/AGENTS.md
+  s_94c5aff1c61861::t_96b7cb524f4722 22-52
+internal/router/planner/export_test.go
+  s_94c5aff1c61861::t_f54081e954af06 1-19
+.env.example
+  s_94c5aff1c61861::t_106bce08f1e9a7 189-206
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "53c9a97fff546308ee546000a6f894a5d30aa9fc",
+  "prompts": {},
+  "sessions": {
+    "s_94c5aff1c61861": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cc7c8d2-6482-486a-8410-f231e3bec8db",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

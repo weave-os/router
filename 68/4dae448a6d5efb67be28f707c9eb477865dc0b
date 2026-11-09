@@ -1,0 +1,55 @@
+README.md
+  s_bf4f27b749be34::t_189efee1176ee8 194-197
+db/queries/session_pins.sql
+  s_bf4f27b749be34::t_c383db3bc1088c 118-119
+docs/CONFIGURATION.md
+  s_bf4f27b749be34::t_6c0bc94850d63d 625-641
+install/codex-skills/fm/SKILL.md
+  s_bf4f27b749be34::t_1c93bcd53f4715 3,8,16-22
+install/codex-skills/fm/scripts/emit.sh
+  s_bf4f27b749be34::t_87a4d34ed2be94 5
+install/codex-skills/force-model/SKILL.md
+  s_bf4f27b749be34::t_b9456e912673f2 3,8,16-22
+install/codex-skills/force-model/scripts/emit.sh
+  s_bf4f27b749be34::t_565b563ebe5b89 6
+install/commands/force-model.md
+  s_bf4f27b749be34::t_a6e0ea4cba620d 2-3
+internal/proxy/command_outcome.go
+  s_bf4f27b749be34::t_10757c6bc8dacd 13,20-22,32,92-93,120-122
+internal/proxy/conditional_force.go
+  s_bf4f27b749be34::t_232e325f890529 1-121
+internal/proxy/conditional_force_internal_test.go
+  s_bf4f27b749be34::t_4bc5bb2abd7e35 1-208
+internal/proxy/force_model.go
+  s_bf4f27b749be34::t_85ce7c836b2bbe 17,567,583,588-590,781,845-859,898,906,909,916,920-922
+internal/proxy/force_model_command_matrix_internal_test.go
+  s_bf4f27b749be34::t_dcca1a6927373d 34
+internal/proxy/force_model_pin_ttl_internal_test.go
+  s_bf4f27b749be34::t_242003b6c3f34a 89,106
+internal/proxy/turnloop.go
+  s_bf4f27b749be34::t_7f937c88dbf3f1 792-794,856,863,881,884-890,1740
+internal/proxy/usage_bypass.go
+  s_bf4f27b749be34::t_78c4412917182c 54
+internal/sqlc/session_pins.sql.go
+  s_bf4f27b749be34::t_f1936e636bcf79 911-912,1108-1109
+internal/translate/command_outcome.go
+  s_bf4f27b749be34::t_0f1d5e8892a069 34
+internal/translate/force_model.go
+  s_bf4f27b749be34::t_9d2b2b1c48b12f 15-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "684dae448a6d5efb67be28f707c9eb477865dc0b",
+  "prompts": {},
+  "sessions": {
+    "s_bf4f27b749be34": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1793f-dce4-7fc1-9f11-cdb6af8ade00",
+        "model": "weave-hmm-20261019-0001v1"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
