@@ -14,8 +14,10 @@ Anthropic, OpenAI, and Gemini APIs, so you can use it with coding tools or your
 own application. You can use the hosted router or run it yourself with your own
 provider keys. For the best experience, use the managed router hosted by Weave.
 
-The router uses an embedding and a cluster scorer to choose from enabled models.
-It supports streaming, tool calls, and vision. The scorer is based on
+The default self-hosted router uses an embedding and a cluster scorer to choose
+from enabled models. Managed serving workers use their registered policy
+strategies; see the [routing configuration](docs/CONFIGURATION.md#routing).
+It supports streaming, tool calls, and vision. The cluster scorer is based on
 [Avengers-Pro](https://arxiv.org/abs/2508.12631).
 
 ## Get started
@@ -88,7 +90,8 @@ completion and Apply stay on Cursor's own models, and BYOK needs a paid Cursor
 seat.
 
 The self-hosted router sends prompts to your configured provider. It also
-supports OpenTelemetry for tracing. For configuration, deployment details, and
+supports OpenTelemetry for tracing. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to export
+traces to your collector. For configuration, deployment details, and
 other provider options, see the [configuration reference](docs/CONFIGURATION.md).
 
 ### Self-hosted HMM
@@ -110,7 +113,7 @@ service; its default configuration calls Google's embedding API.
 ```mermaid
 flowchart LR
     client["Claude Code, Codex, opencode,<br/>pi, Cursor, your own app"]
-    router["Router :8080<br/>/v1/messages · /v1/chat/completions<br/>/v1beta/models · /v1/route"]
+    router["Router :8080<br/>/v1/messages · /v1/chat/completions · /v1/responses<br/>/v1beta/models · /v1/route"]
     scorer["Cluster scorer<br/>in-process ONNX embedder"]
     hmm["HMM policy sidecar :8093<br/>optional, make up-hmm"]
     pg[("Postgres<br/>installations, rk_ keys,<br/>encrypted BYOK keys, usage")]
@@ -136,7 +139,9 @@ Compose runs an emulator locally.
 ## API
 
 The router accepts Anthropic Messages (`/v1/messages`), OpenAI Chat Completions
-(`/v1/chat/completions`), and Gemini requests (`/v1beta/models/:action`). To
+(`/v1/chat/completions`), OpenAI Responses (`/v1/responses`), and Gemini requests
+(`/v1beta/models/:action`). See [translation compatibility](docs/TRANSLATION_COMPATIBILITY.md)
+for native Responses and cross-format dispatch. To
 inspect a routing decision without sending a request to a model, use
 `POST /v1/route`. The [endpoint reference](docs/ENDPOINTS.md) covers health
 checks, response costs, and the other endpoints.

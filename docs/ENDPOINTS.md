@@ -4,7 +4,9 @@
 | ------------------------------ | ---------------------------------------- |
 | `POST /v1/messages`            | Anthropic Messages, routed               |
 | `POST /v1/chat/completions`    | OpenAI Chat Completions, routed          |
-| `POST /v1beta/models/:action`  | Gemini `generateContent`, routed         |
+| `POST /v1/responses` | OpenAI Responses create request ([native and translated dispatch](TRANSLATION_COMPATIBILITY.md)). |
+| `POST /v1beta/models/{model}:generateContent` | Gemini native `generateContent`, routed. |
+| `POST /v1beta/models/{model}:streamGenerateContent` | Gemini native streaming `streamGenerateContent`, routed. |
 | `POST /v1/route`               | Returns the decision, no upstream call   |
 | `GET /v1/models` &nbsp;·&nbsp; `POST /v1/messages/count_tokens` | Anthropic passthrough |
 | `GET /livez` &nbsp;·&nbsp; `GET /startupz` | process responsive check + completed initialization |
