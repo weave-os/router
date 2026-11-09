@@ -28,10 +28,10 @@ const (
 	JobLease            = 30 * time.Second
 	MaxWorkers          = 16
 	MaxShadowWorkers    = 8
-	QwenReleaseName     = "qwen-finetuned-escalation-classifier"
-	QwenModelSHA256     = "620f908e24268bf9f116d533cc1d42f825f2a38599374c3db63c5db210b783d6"
-	QwenPromptSHA256    = "6fc829a3bc36d3f5c2cd2705ee28ba3d4f61dc5380313adf2012bfab22a8f9a0"
-	QwenRendererVersion = "five_turn_v3"
+	QwenReleaseName     = "qwen-finetuned-escalation-classifier-v3"
+	QwenModelSHA256     = "b33aa358d9305378a37a6d1039d8f20d505ea9f9bbc22786257a4e970f60c2fb"
+	QwenPromptSHA256    = "7604aa4b260efb829eb4e52521fad101f231ea6506aa40defdab6c4ff3e2ef21"
+	QwenRendererVersion = "five_turn_v4"
 	QwenProvider        = "modal"
 	QwenSchemaVersion   = "escalation_classifier_v1"
 )
