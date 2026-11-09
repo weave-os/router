@@ -7,7 +7,8 @@ must survive the selected wire-format path.
 
 Current requirements cover source format and endpoint, function/custom tools,
 reasoning replay and signatures, media, citations/search, structured output,
-prompt-cache controls, and detailed usage. The initial hard checks are native
+prompt-cache controls, detailed usage, and an explicit parallel tool-call
+limit. The initial hard checks are native
 Responses extension unions, native Gemini ingress, and image input on known
 text-only models.
 
@@ -26,6 +27,13 @@ the original client body with only the routed model changed. This preserves
 custom, namespace, built-in, and unknown Responses unions instead of reducing
 them to function tools. Gemini ingress selects the native Gemini family before
 routing; it no longer reaches the late unsupported-cross-format path.
+
+A parallel tool-call limit (`parallel_tool_calls: false` on OpenAI Chat
+ingress, or `tool_choice.disable_parallel_tool_use: true` on Anthropic
+Messages ingress, on a request that declares tools) survives translation to
+the Anthropic and OpenAI-compatible families. Gemini has no equivalent, so this
+requirement excludes only the Gemini family, under code
+`parallel_tool_limit_unsupported`. Responses ingress does not set it yet.
 
 ## Observability
 

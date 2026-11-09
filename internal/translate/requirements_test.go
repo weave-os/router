@@ -114,3 +114,38 @@ func TestTranslationRequirements_DetectsGeminiAudioAndFiles(t *testing.T) {
 	assert.True(t, req.Audio)
 	assert.True(t, req.Files)
 }
+
+func TestTranslationRequirements_DetectsParallelToolLimit(t *testing.T) {
+	const tool = `{"type":"function","function":{"name":"Read","parameters":{"type":"object"}}}`
+	const anthropicTool = `{"name":"Read","input_schema":{"type":"object"}}`
+	cases := []struct {
+		name   string
+		format Format
+		body   string
+		want   bool
+	}{
+		{"openai limit", FormatOpenAI, `{"messages":[{"role":"user","content":"hi"}],"tools":[` + tool + `],"parallel_tool_calls":false}`, true},
+		{"openai parallel allowed", FormatOpenAI, `{"messages":[{"role":"user","content":"hi"}],"tools":[` + tool + `],"parallel_tool_calls":true}`, false},
+		{"openai unset", FormatOpenAI, `{"messages":[{"role":"user","content":"hi"}],"tools":[` + tool + `]}`, false},
+		{"openai limit without tools", FormatOpenAI, `{"messages":[{"role":"user","content":"hi"}],"parallel_tool_calls":false}`, false},
+		{"anthropic limit", FormatAnthropic, `{"messages":[{"role":"user","content":"hi"}],"tools":[` + anthropicTool + `],"tool_choice":{"type":"auto","disable_parallel_tool_use":true}}`, true},
+		{"anthropic parallel allowed", FormatAnthropic, `{"messages":[{"role":"user","content":"hi"}],"tools":[` + anthropicTool + `],"tool_choice":{"type":"auto","disable_parallel_tool_use":false}}`, false},
+		{"anthropic non-boolean limit", FormatAnthropic, `{"messages":[{"role":"user","content":"hi"}],"tools":[` + anthropicTool + `],"tool_choice":{"type":"auto","disable_parallel_tool_use":"true"}}`, false},
+		{"anthropic limit without tools", FormatAnthropic, `{"messages":[{"role":"user","content":"hi"}],"tool_choice":{"type":"auto","disable_parallel_tool_use":true}}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var env *RequestEnvelope
+			var err error
+			endpoint := router.EndpointOpenAIChat
+			if tc.format == FormatAnthropic {
+				env, err = ParseAnthropic([]byte(tc.body))
+				endpoint = router.EndpointAnthropicMessages
+			} else {
+				env, err = ParseOpenAI([]byte(tc.body))
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, env.TranslationRequirements(endpoint).ParallelToolLimit)
+		})
+	}
+}
