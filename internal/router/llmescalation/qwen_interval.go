@@ -16,7 +16,7 @@ const qwenMinimumStart = 5
 
 const (
 	qwenClipAssistantChars  = 1500
-	qwenClipToolLines       = 6
+	qwenClipToolCount       = 6
 	qwenClipToolResultChars = 250
 )
 
@@ -131,14 +131,14 @@ func isTypedPrompt(text string) bool {
 
 func qwenClippedTurn(index int, assistantText string, turn qwenTurn) string {
 	lines := []string{fmt.Sprintf("### turn %d", index), qwenClip(assistantText, qwenClipAssistantChars)}
-	shownCalls := min(len(turn.toolCalls), qwenClipToolLines)
+	shownCalls := min(len(turn.toolCalls), qwenClipToolCount)
 	for _, call := range turn.toolCalls[:shownCalls] {
 		lines = append(lines, "-> "+call)
 	}
 	if omitted := len(turn.toolCalls) - shownCalls; omitted > 0 {
 		lines = append(lines, fmt.Sprintf("-> … %d more tool calls", omitted))
 	}
-	shownResults := min(len(turn.toolResults), qwenClipToolLines)
+	shownResults := min(len(turn.toolResults), qwenClipToolCount)
 	for _, result := range turn.toolResults[:shownResults] {
 		lines = append(lines, "<- "+qwenClip(result, qwenClipToolResultChars))
 	}
