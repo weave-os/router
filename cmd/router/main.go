@@ -1575,31 +1575,7 @@ func main() {
 			if !observed {
 				return subscriptions.CandidateSignal{}
 			}
-			signal := subscriptions.CandidateSignal{
-				Observed:  true,
-				Exhausted: snapshot.ExhaustedAsOf(now),
-				Billable:  snapshot.OverageInUse,
-			}
-			for _, window := range []usage.Window{snapshot.Primary, snapshot.Secondary} {
-				if math.IsNaN(window.UsedPercent) || math.IsInf(window.UsedPercent, 0) || window.UsedPercent < 0 || window.UsedPercent > 1 {
-					return subscriptions.CandidateSignal{}
-				}
-				if window.UsedPercent > signal.UsedFraction {
-					signal.UsedFraction = window.UsedPercent
-				}
-				resetAt := window.ResetAt
-				if resetAt.IsZero() && window.WindowMinutes > 0 {
-					observedAt := window.ObservedAt
-					if observedAt.IsZero() {
-						observedAt = snapshot.ObservedAt
-					}
-					resetAt = observedAt.Add(time.Duration(window.WindowMinutes) * time.Minute)
-				}
-				if resetAt.After(now) && (signal.ResetAt.IsZero() || resetAt.Before(signal.ResetAt)) {
-					signal.ResetAt = resetAt
-				}
-			}
-			return signal
+			return subscriptionCandidateSignal(snapshot, now)
 		})
 	}
 	// Bound memory: evict expired observations periodically (the usage package
@@ -1794,6 +1770,52 @@ func buildExploringRouter(rtr router.Router, logger *slog.Logger) router.Router 
 		"deployed_models", len(providers),
 	)
 	return banditexplore.New(rtr, providerFor, epsilon)
+}
+
+func subscriptionCandidateSignal(snapshot usage.Snapshot, now time.Time) subscriptions.CandidateSignal {
+	if snapshot.OverageInUse {
+		signal := subscriptions.CandidateSignal{Observed: true, Billable: true, UsedFraction: 1}
+		if snapshot.UnifiedResetAt.After(now) {
+			signal.ResetAt = snapshot.UnifiedResetAt
+		}
+		return signal
+	}
+
+	signal := subscriptions.CandidateSignal{Exhausted: snapshot.ExhaustedAsOf(now)}
+	for _, window := range []usage.Window{snapshot.Primary, snapshot.Secondary} {
+		if math.IsNaN(window.UsedPercent) || math.IsInf(window.UsedPercent, 0) || window.UsedPercent < 0 || window.UsedPercent > 1 {
+			return subscriptions.CandidateSignal{}
+		}
+		if window.WindowMinutes <= 0 && window.UsedPercent <= 0 {
+			continue
+		}
+		resetAt := window.ResetAt
+		if resetAt.IsZero() && window.WindowMinutes > 0 {
+			observedAt := window.ObservedAt
+			if observedAt.IsZero() {
+				observedAt = snapshot.ObservedAt
+			}
+			resetAt = observedAt.Add(time.Duration(window.WindowMinutes) * time.Minute)
+		}
+		if !signal.Observed || window.UsedPercent > signal.UsedFraction ||
+			window.UsedPercent == signal.UsedFraction && earlierReset(resetAt, signal.ResetAt) {
+			signal.Observed = true
+			signal.UsedFraction = window.UsedPercent
+			if resetAt.After(now) {
+				signal.ResetAt = resetAt
+			} else {
+				signal.ResetAt = time.Time{}
+			}
+		}
+	}
+	return signal
+}
+
+func earlierReset(candidate, current time.Time) bool {
+	if candidate.IsZero() {
+		return false
+	}
+	return current.IsZero() || candidate.Before(current)
 }
 
 // parseOtelHeaders parses a comma-separated key=value string into a map.

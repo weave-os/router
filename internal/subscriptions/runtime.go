@@ -167,23 +167,8 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 		if preferred, ok := r.affinity.Get(affinityKey); ok {
 			// Preserve personal-before-shared ordering; affinity only reorders a tier.
 			slices.SortStableFunc(accounts, func(left, right *auth.SubscriptionAccount) int {
-				if left.ID == right.ID {
-					return 0
-				}
-				leftPersonal := left.SubscriberID == requester.SubscriberID && requester.SubscriberID != ""
-				rightPersonal := right.SubscriberID == requester.SubscriberID && requester.SubscriberID != ""
-				if leftPersonal != rightPersonal {
-					if leftPersonal {
-						return -1
-					}
-					return 1
-				}
-				if quotaAwareSelection {
-					preferredSignal := candidateSignals[preferred]
-					if !candidateSignalsEquivalent(preferredSignal, candidateSignals[left.ID]) ||
-						!candidateSignalsEquivalent(preferredSignal, candidateSignals[right.ID]) {
-						return 0
-					}
+				if rank := compareSubscriptionCandidates(left, right, requester.SubscriberID, candidateSignalsIfEnabled(quotaAwareSelection, candidateSignals)); rank != 0 {
+					return rank
 				}
 				if left.ID == preferred {
 					return -1
@@ -249,44 +234,56 @@ func snapshotCandidateSignals(accounts []*auth.SubscriptionAccount, provider Pro
 
 func orderSubscriptionCandidates(accounts []*auth.SubscriptionAccount, subscriberID string, signals map[string]CandidateSignal) {
 	slices.SortStableFunc(accounts, func(left, right *auth.SubscriptionAccount) int {
-		leftPersonal := left.SubscriberID == subscriberID && subscriberID != ""
-		rightPersonal := right.SubscriberID == subscriberID && subscriberID != ""
-		if leftPersonal != rightPersonal {
-			if leftPersonal {
-				return -1
-			}
-			return 1
-		}
-		leftSignal := signals[left.ID]
-		rightSignal := signals[right.ID]
-		if rank := candidateSignalRank(leftSignal) - candidateSignalRank(rightSignal); rank != 0 {
-			return rank
-		}
-		if leftSignal.ResetAt.IsZero() != rightSignal.ResetAt.IsZero() {
-			if leftSignal.ResetAt.IsZero() {
-				return 1
-			}
-			return -1
-		}
-		if !leftSignal.ResetAt.Equal(rightSignal.ResetAt) {
-			if leftSignal.ResetAt.Before(rightSignal.ResetAt) {
-				return -1
-			}
-			return 1
-		}
-		if leftSignal.UsedFraction != rightSignal.UsedFraction {
-			if leftSignal.UsedFraction > rightSignal.UsedFraction {
-				return -1
-			}
-			return 1
-		}
-		return 0
+		return compareSubscriptionCandidates(left, right, subscriberID, signals)
 	})
 }
 
-func candidateSignalsEquivalent(left, right CandidateSignal) bool {
-	return candidateSignalRank(left) == candidateSignalRank(right) &&
-		left.ResetAt.Equal(right.ResetAt) && left.UsedFraction == right.UsedFraction
+func candidateSignalsIfEnabled(enabled bool, signals map[string]CandidateSignal) map[string]CandidateSignal {
+	if !enabled {
+		return nil
+	}
+	return signals
+}
+
+func compareSubscriptionCandidates(left, right *auth.SubscriptionAccount, subscriberID string, signals map[string]CandidateSignal) int {
+	if left.ID == right.ID {
+		return 0
+	}
+	leftPersonal := left.SubscriberID == subscriberID && subscriberID != ""
+	rightPersonal := right.SubscriberID == subscriberID && subscriberID != ""
+	if leftPersonal != rightPersonal {
+		if leftPersonal {
+			return -1
+		}
+		return 1
+	}
+	if signals == nil {
+		return 0
+	}
+	leftSignal := signals[left.ID]
+	rightSignal := signals[right.ID]
+	if rank := candidateSignalRank(leftSignal) - candidateSignalRank(rightSignal); rank != 0 {
+		return rank
+	}
+	if leftSignal.ResetAt.IsZero() != rightSignal.ResetAt.IsZero() {
+		if leftSignal.ResetAt.IsZero() {
+			return 1
+		}
+		return -1
+	}
+	if !leftSignal.ResetAt.Equal(rightSignal.ResetAt) {
+		if leftSignal.ResetAt.Before(rightSignal.ResetAt) {
+			return -1
+		}
+		return 1
+	}
+	if leftSignal.UsedFraction != rightSignal.UsedFraction {
+		if leftSignal.UsedFraction < rightSignal.UsedFraction {
+			return -1
+		}
+		return 1
+	}
+	return 0
 }
 
 func candidateSignalRank(signal CandidateSignal) int {

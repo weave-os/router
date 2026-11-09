@@ -210,7 +210,7 @@ var Registry = []Definition{
 	{
 		Key:            KeySubscriptionPoolQuotaAwareSelection,
 		Kind:           KindBool,
-		Description:    "Select eligible pooled subscription accounts using observed quota headroom and upcoming reset times while preserving personal-before-shared ordering. Off by default.",
+		Description:    "[Owner: subscriptions runtime; removal: promote the policy or roll it back after validating quota-aware ordering across installations.] Select eligible pooled subscription accounts using observed quota headroom and upcoming reset times while preserving personal-before-shared ordering. Off by default.",
 		OrgOverridable: true,
 	},
 	{

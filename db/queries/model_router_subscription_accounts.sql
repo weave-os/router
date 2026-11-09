@@ -137,7 +137,7 @@ WHERE account.id = @id::uuid
 -- name: UpdateModelRouterSubscriptionAccountCooldown :execrows
 UPDATE router.model_router_subscription_accounts AS account
 SET cooldown_until = GREATEST(
-        COALESCE(account.cooldown_until, @cooldown_until::timestamp),
+        account.cooldown_until,
         @cooldown_until::timestamp
     ),
     health_state = 'cooldown',

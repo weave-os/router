@@ -859,7 +859,7 @@ func (q *Queries) TryAcquireModelRouterSubscriptionRefreshLease(ctx context.Cont
 const updateModelRouterSubscriptionAccountCooldown = `-- name: UpdateModelRouterSubscriptionAccountCooldown :execrows
 UPDATE router.model_router_subscription_accounts AS account
 SET cooldown_until = GREATEST(
-        COALESCE(account.cooldown_until, $1::timestamp),
+        account.cooldown_until,
         $1::timestamp
     ),
     health_state = 'cooldown',
@@ -882,7 +882,7 @@ type UpdateModelRouterSubscriptionAccountCooldownParams struct {
 //
 //	UPDATE router.model_router_subscription_accounts AS account
 //	SET cooldown_until = GREATEST(
-//	        COALESCE(account.cooldown_until, $1::timestamp),
+//	        account.cooldown_until,
 //	        $1::timestamp
 //	    ),
 //	    health_state = 'cooldown',

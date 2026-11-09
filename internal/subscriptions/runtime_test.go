@@ -1125,6 +1125,68 @@ func TestRuntimeQuotaAwareSelectionLeavesUnknownAfterKnownHeadroom(t *testing.T)
 	lease.Release()
 }
 
+func TestRuntimeQuotaAwareSelectionLeavesExhaustedAccountLast(t *testing.T) {
+	now := time.Date(2026, time.November, 9, 12, 0, 0, 0, time.UTC)
+	store := newRuntimeStore(
+		&auth.SubscriptionAccount{ID: "exhausted", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true},
+		&auth.SubscriptionAccount{ID: "healthy", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true},
+	)
+	store.refreshTokens["exhausted"] = []byte("refresh-exhausted")
+	store.refreshTokens["healthy"] = []byte("refresh-healthy")
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(_ context.Context, _ subscriptions.Provider, token string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{AccessToken: "access-" + token, RefreshToken: token, ExpiresAt: now.Add(time.Hour)}, nil
+	}), func() time.Time { return now })
+	runtime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, _ time.Time) subscriptions.CandidateSignal {
+		if accountID == "exhausted" {
+			return subscriptions.CandidateSignal{Observed: true, Exhausted: true, UsedFraction: 1, ResetAt: now.Add(time.Hour)}
+		}
+		return subscriptions.CandidateSignal{Observed: true, UsedFraction: 0.2, ResetAt: now.Add(time.Hour)}
+	})
+	ctx := flags.WithOverrides(context.Background(), flags.Overrides{Bools: map[flags.Key]bool{
+		flags.KeySubscriptionPoolQuotaAwareSelection: true,
+	}})
+	lease, present, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "")
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, "healthy", lease.AccountID)
+	lease.Release()
+}
+
+func TestRuntimeQuotaAwareSelectionDropsAffinityWhenSignalsDiffer(t *testing.T) {
+	now := time.Date(2026, time.November, 9, 12, 0, 0, 0, time.UTC)
+	store := newRuntimeStore(
+		&auth.SubscriptionAccount{ID: "preferred", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true},
+		&auth.SubscriptionAccount{ID: "better", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true},
+	)
+	store.refreshTokens["preferred"] = []byte("refresh-preferred")
+	store.refreshTokens["better"] = []byte("refresh-better")
+	signals := map[string]subscriptions.CandidateSignal{
+		"preferred": {Observed: true, UsedFraction: 0.2, ResetAt: now.Add(time.Hour)},
+		"better":    {Observed: true, UsedFraction: 0.2, ResetAt: now.Add(time.Hour)},
+	}
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(_ context.Context, _ subscriptions.Provider, token string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{AccessToken: "access-" + token, RefreshToken: token, ExpiresAt: now.Add(time.Hour)}, nil
+	}), func() time.Time { return now })
+	runtime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, _ time.Time) subscriptions.CandidateSignal {
+		return signals[accountID]
+	})
+	ctx := flags.WithOverrides(context.Background(), flags.Overrides{Bools: map[flags.Key]bool{
+		flags.KeySubscriptionPoolQuotaAwareSelection: true,
+	}})
+	first, present, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "session-1")
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, "preferred", first.AccountID)
+	first.Release()
+
+	signals["preferred"] = subscriptions.CandidateSignal{Observed: true, UsedFraction: 0.9, ResetAt: now.Add(time.Hour)}
+	second, present, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "session-1")
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, "better", second.AccountID)
+	second.Release()
+}
+
 func TestRuntimeKeepsLegacyAccountsOutOfSubscriberPool(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
 		ID: "legacy-account", EnrolledByAPIKeyID: "key-1",
