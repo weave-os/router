@@ -135,11 +135,14 @@ WHERE account.id = @id::uuid
 -- A stale replica must not turn an operator-disabled account back on while
 -- persisting a quota cooldown.
 -- name: UpdateModelRouterSubscriptionAccountCooldown :execrows
-UPDATE router.model_router_subscription_accounts
-SET cooldown_until = @cooldown_until::timestamp,
+UPDATE router.model_router_subscription_accounts AS account
+SET cooldown_until = GREATEST(
+        account.cooldown_until,
+        @cooldown_until::timestamp
+    ),
     health_state = 'cooldown',
     updated_at = CURRENT_TIMESTAMP
-WHERE id = @id::uuid
+WHERE account.id = @id::uuid
   AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
        OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid))
   AND enabled = TRUE;

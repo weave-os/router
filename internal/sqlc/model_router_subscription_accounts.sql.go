@@ -857,11 +857,14 @@ func (q *Queries) TryAcquireModelRouterSubscriptionRefreshLease(ctx context.Cont
 }
 
 const updateModelRouterSubscriptionAccountCooldown = `-- name: UpdateModelRouterSubscriptionAccountCooldown :execrows
-UPDATE router.model_router_subscription_accounts
-SET cooldown_until = $1::timestamp,
+UPDATE router.model_router_subscription_accounts AS account
+SET cooldown_until = GREATEST(
+        account.cooldown_until,
+        $1::timestamp
+    ),
     health_state = 'cooldown',
     updated_at = CURRENT_TIMESTAMP
-WHERE id = $2::uuid
+WHERE account.id = $2::uuid
   AND (subscriber_id = $3::uuid
        OR (subscriber_id IS NULL AND api_key_id = $4::uuid))
   AND enabled = TRUE
@@ -877,11 +880,14 @@ type UpdateModelRouterSubscriptionAccountCooldownParams struct {
 // A stale replica must not turn an operator-disabled account back on while
 // persisting a quota cooldown.
 //
-//	UPDATE router.model_router_subscription_accounts
-//	SET cooldown_until = $1::timestamp,
+//	UPDATE router.model_router_subscription_accounts AS account
+//	SET cooldown_until = GREATEST(
+//	        account.cooldown_until,
+//	        $1::timestamp
+//	    ),
 //	    health_state = 'cooldown',
 //	    updated_at = CURRENT_TIMESTAMP
-//	WHERE id = $2::uuid
+//	WHERE account.id = $2::uuid
 //	  AND (subscriber_id = $3::uuid
 //	       OR (subscriber_id IS NULL AND api_key_id = $4::uuid))
 //	  AND enabled = TRUE

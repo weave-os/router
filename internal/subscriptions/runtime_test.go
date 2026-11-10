@@ -1064,6 +1064,116 @@ func TestRuntimeLeasesAnotherMembersSharedAccountAfterPersonal(t *testing.T) {
 	shared.Release()
 }
 
+func TestRuntimeQuotaAwareSelectionPrefersSoonerResetWithinPersonalTier(t *testing.T) {
+	now := time.Date(2026, time.November, 9, 12, 0, 0, 0, time.UTC)
+	store := newRuntimeStore(
+		&auth.SubscriptionAccount{ID: "personal-later", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true},
+		&auth.SubscriptionAccount{ID: "personal-sooner", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true},
+		&auth.SubscriptionAccount{ID: "shared-sooner", SubscriberID: "subscriber-2", EnrolledByAPIKeyID: "key-2", Provider: auth.SubscriptionProviderClaude, Enabled: true},
+	)
+	for _, accountID := range []string{"personal-later", "personal-sooner", "shared-sooner"} {
+		store.refreshTokens[accountID] = []byte("refresh-" + accountID)
+	}
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(_ context.Context, _ subscriptions.Provider, token string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{AccessToken: "access-" + token, RefreshToken: token, ExpiresAt: now.Add(time.Hour)}, nil
+	}), func() time.Time { return now })
+	runtime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, _ time.Time) subscriptions.CandidateSignal {
+		switch accountID {
+		case "personal-later":
+			return subscriptions.CandidateSignal{Observed: true, UsedFraction: 0.2, ResetAt: now.Add(2 * time.Hour)}
+		case "personal-sooner":
+			return subscriptions.CandidateSignal{Observed: true, UsedFraction: 0.6, ResetAt: now.Add(5 * time.Minute)}
+		default:
+			return subscriptions.CandidateSignal{Observed: true, UsedFraction: 0.9, ResetAt: now.Add(time.Minute)}
+		}
+	})
+	lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, "personal-sooner", lease.AccountID, "personal capacity remains ahead of shared capacity")
+	lease.Release()
+}
+
+func TestRuntimeQuotaAwareSelectionLeavesUnknownAfterKnownHeadroom(t *testing.T) {
+	now := time.Date(2026, time.November, 9, 12, 0, 0, 0, time.UTC)
+	store := newRuntimeStore(
+		&auth.SubscriptionAccount{ID: "unknown", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true},
+		&auth.SubscriptionAccount{ID: "known", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true},
+	)
+	store.refreshTokens["unknown"] = []byte("refresh-unknown")
+	store.refreshTokens["known"] = []byte("refresh-known")
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(_ context.Context, _ subscriptions.Provider, token string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{AccessToken: "access-" + token, RefreshToken: token, ExpiresAt: now.Add(time.Hour)}, nil
+	}), func() time.Time { return now })
+	runtime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, _ time.Time) subscriptions.CandidateSignal {
+		if accountID == "known" {
+			return subscriptions.CandidateSignal{Observed: true, UsedFraction: 0.3, ResetAt: now.Add(time.Hour)}
+		}
+		return subscriptions.CandidateSignal{}
+	})
+	lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, "known", lease.AccountID)
+	lease.Release()
+}
+
+func TestRuntimeQuotaAwareSelectionLeavesExhaustedAccountLast(t *testing.T) {
+	now := time.Date(2026, time.November, 9, 12, 0, 0, 0, time.UTC)
+	store := newRuntimeStore(
+		&auth.SubscriptionAccount{ID: "exhausted", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true},
+		&auth.SubscriptionAccount{ID: "healthy", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true},
+	)
+	store.refreshTokens["exhausted"] = []byte("refresh-exhausted")
+	store.refreshTokens["healthy"] = []byte("refresh-healthy")
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(_ context.Context, _ subscriptions.Provider, token string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{AccessToken: "access-" + token, RefreshToken: token, ExpiresAt: now.Add(time.Hour)}, nil
+	}), func() time.Time { return now })
+	runtime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, _ time.Time) subscriptions.CandidateSignal {
+		if accountID == "exhausted" {
+			return subscriptions.CandidateSignal{Observed: true, Exhausted: true, UsedFraction: 1, ResetAt: now.Add(time.Hour)}
+		}
+		return subscriptions.CandidateSignal{Observed: true, UsedFraction: 0.2, ResetAt: now.Add(time.Hour)}
+	})
+	lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, "healthy", lease.AccountID)
+	lease.Release()
+}
+
+func TestRuntimeQuotaAwareSelectionDropsAffinityWhenSignalsDiffer(t *testing.T) {
+	now := time.Date(2026, time.November, 9, 12, 0, 0, 0, time.UTC)
+	store := newRuntimeStore(
+		&auth.SubscriptionAccount{ID: "preferred", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true},
+		&auth.SubscriptionAccount{ID: "better", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true},
+	)
+	store.refreshTokens["preferred"] = []byte("refresh-preferred")
+	store.refreshTokens["better"] = []byte("refresh-better")
+	signals := map[string]subscriptions.CandidateSignal{
+		"preferred": {Observed: true, UsedFraction: 0.2, ResetAt: now.Add(time.Hour)},
+		"better":    {Observed: true, UsedFraction: 0.2, ResetAt: now.Add(time.Hour)},
+	}
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(_ context.Context, _ subscriptions.Provider, token string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{AccessToken: "access-" + token, RefreshToken: token, ExpiresAt: now.Add(time.Hour)}, nil
+	}), func() time.Time { return now })
+	runtime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, _ time.Time) subscriptions.CandidateSignal {
+		return signals[accountID]
+	})
+	first, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "session-1")
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, "preferred", first.AccountID)
+	first.Release()
+
+	signals["preferred"] = subscriptions.CandidateSignal{Observed: true, UsedFraction: 0.9, ResetAt: now.Add(time.Hour)}
+	second, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "session-1")
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, "better", second.AccountID)
+	second.Release()
+}
+
 func TestRuntimeKeepsLegacyAccountsOutOfSubscriberPool(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
 		ID: "legacy-account", EnrolledByAPIKeyID: "key-1",
