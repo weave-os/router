@@ -605,6 +605,7 @@ func main() {
 		WithClusterModelLists(repo.ClusterModelLists).
 		WithUserClusterModelLists(repo.UserClusterModelLists, userClusterCache).
 		WithBlindExperiments(repo.BlindExperiments, blindExperimentCache).
+		WithBlindExperimentSessions(repo.BlindExperimentSessions).
 		WithRoutingPolicies(repo.RoutingPolicies, routingPolicyCache).
 		WithWIFTokenSource(buildWIFTokenSource(logger)).
 		WithAnthropicFederationTokenSource(buildAnthropicFederationTokenSource(deploymentMode)).

@@ -18,6 +18,13 @@ type RouterAgreementShadowState struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type RouterBlindExperimentSessionAssignment struct {
+	InstallationID uuid.UUID
+	SessionKey     string
+	Arm            string
+	CreatedAt      pgtype.Timestamptz
+}
+
 type RouterBlindRouterExperimentAssignment struct {
 	RouterUserID        uuid.UUID
 	InstallationID      uuid.UUID
@@ -42,6 +49,7 @@ type RouterBlindRouterExperimentConfiguration struct {
 	CohortEndsAt       pgtype.Timestamptz
 	CohortTimezone     *string
 	CohortRevision     *int32
+	SessionMode        bool
 }
 
 type RouterBlindRouterExperimentEmergencyOverride struct {
@@ -742,6 +750,8 @@ type RouterModelRouterRequestTelemetry struct {
 	BlindExperimentTreatmentApplied *bool
 	BlindExperimentBaselineModel    *string
 	BlindExperimentModelChanged     *bool
+	BlindExperimentMode             *string
+	BlindExperimentSessionKey       *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {

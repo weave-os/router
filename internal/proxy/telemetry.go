@@ -90,6 +90,8 @@ type InsertTelemetryParams struct {
 	BlindExperimentArm              auth.BlindExperimentArm
 	BlindExperimentAssignmentSource auth.BlindExperimentAssignmentSource
 	BlindExperimentSubjectKey       string
+	BlindExperimentMode             auth.BlindExperimentMode
+	BlindExperimentSessionKey       string
 	CohortExperimentID              string
 	CohortGroupID                   *int16
 	CohortPhaseIndex                *int16
@@ -398,6 +400,11 @@ func applyBlindExperimentTelemetry(ctx context.Context, params *InsertTelemetryP
 	params.BlindExperimentArm = state.Arm
 	params.BlindExperimentAssignmentSource = state.AssignmentSource
 	params.BlindExperimentSubjectKey = state.CanonicalSubjectKey
+	params.BlindExperimentMode = state.Mode
+	if state.Mode == auth.BlindExperimentModeSession && state.SessionSubjectKey == "" {
+		params.BlindExperimentMode = auth.BlindExperimentModeUser
+	}
+	params.BlindExperimentSessionKey = state.SessionSubjectKey
 	outcome := blindExperimentOutcomeFor(ctx, state, routed, params.RequestedModel, params.DecisionModel)
 	params.BlindExperimentModelSource = outcome.source
 	params.BlindExperimentTreatmentApplied = &outcome.treatmentApplied

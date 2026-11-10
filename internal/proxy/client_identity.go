@@ -87,6 +87,25 @@ func splitEvalClientApp(xApp string) (string, bool) {
 // personal key attributes the request to its authenticated owner; a shared
 // key leaves the request unattributed.
 func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installation *auth.Installation, apiKey *auth.APIKey) context.Context {
+	return withBlindExperimentSession(resolveUserFromContext(ctx, authSvc, installation, apiKey), authSvc, installation, apiKey)
+}
+
+func withBlindExperimentSession(ctx context.Context, authSvc *auth.Service, installation *auth.Installation, apiKey *auth.APIKey) context.Context {
+	if authSvc == nil || installation == nil {
+		return ctx
+	}
+	if _, internalTest := requestcontext.InternalTestIdentityFrom(ctx); internalTest {
+		return ctx
+	}
+	apiKeyID := ""
+	if apiKey != nil {
+		apiKeyID = apiKey.ID
+	}
+	sessionKey := auth.BlindExperimentSessionSubjectKey(sessionCredentialIdentity(ctx, apiKeyID), ClientIdentityFrom(ctx).SessionID)
+	return authSvc.WithBlindExperimentSession(ctx, installation.ID, sessionKey)
+}
+
+func resolveUserFromContext(ctx context.Context, authSvc *auth.Service, installation *auth.Installation, apiKey *auth.APIKey) context.Context {
 	if _, ok := requestcontext.InternalTestIdentityFrom(ctx); ok {
 		return ctx
 	}
