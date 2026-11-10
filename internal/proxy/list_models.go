@@ -48,9 +48,6 @@ func (s *Service) forceableModels(ctx context.Context) []forceableModel {
 	}
 	out := make([]forceableModel, 0, len(catalog.Models))
 	for _, m := range catalog.Models {
-		if len(m.Providers) == 0 {
-			continue
-		}
 		_, refusal := s.forcedModelBinding(ctx, m.ID, m.PrimaryProvider())
 		names := shorthands[m.ID]
 		sort.Slice(names, func(i, j int) bool {

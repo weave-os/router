@@ -20,10 +20,9 @@ router, or the directive was not the whole message). Run:
 npx --package @weave-os/router -y -- weave-router models --codex{{SCOPE}}
 ```
 
-and present the models it lists by exact id, grouped by provider. That listing
-shows which models the router may choose automatically, not the force policy, so
-say that `$force-model <id>` also reaches models marked `[ ]` there unless the
-installation excludes them outright.
+and present the models it lists by exact id, grouped by provider. Models marked
+`[ ]` there are excluded for this installation, so `$force-model` will not pin them
+either; only `[x]` rows can be forced. That listing omits the shorthands.
 
 Pin one with `$force-model <id or shorthand>`; add `:low`, `:medium`, `:high` or
 `:max` to set reasoning effort, and `$unforce-model` returns to automatic routing.

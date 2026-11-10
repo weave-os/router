@@ -389,7 +389,7 @@ Limitations:
   Responses wire, turns served by an OpenAI model stream through verbatim
   without one.
 - Prompt directives (`/force-model`, `/fm`, `/force-parent`, `/unforce-model`,
-  `/ufm`, `/router-feedback`, `/rf`, `/router-session`, `/list-models` and a bare
+  `/ufm`, `/router-feedback`, `/rf`, `/router-session`, and bare `/list-models` and
   `/router-models`) work as plain prompt text because the router answers them.
   `/router-off`, `/router-on`, `/router-status` and the `/router-models` forms
   that change settings are handled by the installed clients and do nothing in an
