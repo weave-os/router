@@ -241,6 +241,9 @@ type Model struct {
 	// rejects an advisor ranked below the request model. Values mirror Claude
 	// Code's model catalog; 0 means the model takes no advisor.
 	AdvisorRank int
+	// ForceModelOnly keeps the model off family advancement: it serves only
+	// when a caller names it, never as a newer stand-in for an older sibling.
+	ForceModelOnly bool
 	// CodexSubscriptionFallback explicitly permits trying a Codex subscription
 	// for this model outside the native Codex automatic roster. Unsupported
 	// targets must fall back to the selected model's API credential.
@@ -400,7 +403,7 @@ var Models = []Model{
 	// Fable 5.2: $8/$40, cache reads at $0.20/MTok (0.025x), fast mode $16/$80.
 	// Same wire quirks as Fable 5.1. Not a cluster roster member until it has
 	// quality labels.
-	{ID: "claude-fable-5-2", Source: SourceClosedSource, Tier: TierHigh, AdvisorRank: 10, ContextWindow: 1_000_000, Providers: []ProviderBinding{
+	{ID: "claude-fable-5-2", Source: SourceClosedSource, Tier: TierHigh, AdvisorRank: 10, ForceModelOnly: true, ContextWindow: 1_000_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00, CacheReadMultiplier: 0.025, USInferenceGeoMultiplier: USInferenceGeoMultiplier}, FastPrice: Pricing{InputUSDPer1M: 16.00, OutputUSDPer1M: 80.00}},
 		{Provider: providers.ProviderOpenRouter, UpstreamID: "anthropic/claude-fable-5.2", SubscriptionOverflowOnly: true, Price: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00, CacheReadMultiplier: 0.025}},
 	}},

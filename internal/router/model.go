@@ -23,9 +23,9 @@ const (
 	// CapAutoToolChoiceOnly marks models that 400 on a forced tool_choice
 	// ({"type":"any"} / {"type":"tool"}); emit downgrades those to auto.
 	CapAutoToolChoiceOnly ModelCapability = "auto_tool_choice_only"
-	// CapTemperatureUnsupported marks Anthropic models that reject the
-	// temperature parameter even though they accept other sampling controls.
-	CapTemperatureUnsupported ModelCapability = "temperature_unsupported"
+	// CapSamplingParamsUnsupported marks Anthropic models that reject
+	// temperature, top_p and top_k.
+	CapSamplingParamsUnsupported ModelCapability = "sampling_params_unsupported"
 	// CapAssistantPrefill marks models that accept a conversation ending on an
 	// assistant message (prefill); everything else, including unknown models,
 	// gets the trailing assistant turn dropped.
@@ -141,8 +141,8 @@ var (
 	anthropicAdaptiveFallbackAutoTools = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly)
 	anthropicExtended                  = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapExtendedThinking, CapAssistantPrefill)
 
-	// Fable 5.1+ also reject temperature and top_p ("deprecated for this model").
-	anthropicFable51 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly, CapTemperatureUnsupported)
+	// Fable 5.1+ also reject temperature, top_p and top_k ("deprecated for this model").
+	anthropicFable51 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly, CapSamplingParamsUnsupported)
 )
 
 var (
