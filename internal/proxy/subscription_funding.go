@@ -75,6 +75,9 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 	ctx = s.withClaudeSubscriptionProfile(ctx, headers)
 	admissionCtx := ctx
 	return dispatch.WithAuthorization(ctx, func(callCtx context.Context, target inference.Target) error {
+		if weaveCreditsDenied(callCtx) && !customerFunded(CredentialsFromContext(callCtx)) {
+			return ErrWeaveCreditsDisabled
+		}
 		if claudeEnterpriseTarget(callCtx, target) || claudeEnterpriseTurn(callCtx) {
 			creds := CredentialsFromContext(callCtx)
 			pool, compatible := subscriptionPoolForModel(target)
@@ -117,7 +120,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 
 func (s *Service) subscriptionAPIAuthorization(ctx context.Context, provider, model string) error {
 	ctx = s.withSubscriptionFundingAuthorization(ctx, nil)
-	return dispatch.AuthorizationFromContext(ctx)(clearCredentials(ctx), inference.Target{Provider: provider, CatalogID: model})
+	return dispatch.AuthorizationFromContext(ctx)(paidFallbackCredentials(ctx, provider), inference.Target{Provider: provider, CatalogID: model})
 }
 
 // clientAppRefusalFunding lets a Claude seat that refused clientApp count as
