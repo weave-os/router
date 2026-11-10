@@ -362,6 +362,15 @@ func (f *fakeExternalAPIKeyRepo) UpdateModelAliases(_ context.Context, installat
 	return nil, auth.ErrExternalAPIKeyNotFound
 }
 func (f *fakeExternalAPIKeyRepo) MarkUsed(context.Context, string) error { return nil }
+func (f *fakeExternalAPIKeyRepo) UpdateFundingPriority(_ context.Context, installationID, id string, priority auth.FundingPriority) (*auth.ExternalAPIKey, error) {
+	for _, k := range f.keys {
+		if k.ID == id && k.InstallationID == installationID {
+			k.FundingPriority = priority
+			return k, nil
+		}
+	}
+	return nil, auth.ErrExternalAPIKeyNotFound
+}
 
 // upsertKeyEngine wires UpsertExternalKeyHandler behind a middleware that injects
 // an already-authed installation, so the handler reaches the env-shadow guard

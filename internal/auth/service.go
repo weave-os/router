@@ -473,7 +473,9 @@ type UpsertExternalAPIKeyParams struct {
 	AuthType         AuthType
 	AuthAccount      *string
 	AuthUser         *string
-	CreatedBy        *string
+	// FundingPriority orders the key against subscriptions; empty means plan-first.
+	FundingPriority FundingPriority
+	CreatedBy       *string
 }
 
 // UpsertExternalAPIKey replaces the provider's key for the installation.
@@ -515,6 +517,10 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 		return nil, err
 	}
 	federation, err := NormalizeAnthropicFederation(authType, provider, trimmedValue(normalizedBaseURL), params.FederationConfig)
+	if err != nil {
+		return nil, err
+	}
+	fundingPriority, err := NormalizeFundingPriority(params.FundingPriority)
 	if err != nil {
 		return nil, err
 	}
@@ -588,6 +594,7 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 		AuthType:         authType,
 		AuthAccount:      authAccount,
 		AuthUser:         authUser,
+		FundingPriority:  fundingPriority,
 		CreatedBy:        params.CreatedBy,
 	})
 	if err != nil {
@@ -604,6 +611,23 @@ func (s *Service) SetExternalAPIKeyModelAliases(ctx context.Context, installatio
 		return nil, err
 	}
 	key, err := s.externalKeys.UpdateModelAliases(ctx, installationID, id, normalized)
+	if err != nil {
+		return nil, err
+	}
+	s.invalidateInstallation(installationID)
+	return key, nil
+}
+
+// SetExternalAPIKeyFundingPriority changes whether a BYOK key is spent before or after the caller's subscription.
+func (s *Service) SetExternalAPIKeyFundingPriority(ctx context.Context, installationID, id string, priority FundingPriority) (*ExternalAPIKey, error) {
+	if priority == "" {
+		return nil, ErrInvalidFundingPriority
+	}
+	normalized, err := NormalizeFundingPriority(priority)
+	if err != nil {
+		return nil, err
+	}
+	key, err := s.externalKeys.UpdateFundingPriority(ctx, installationID, id, normalized)
 	if err != nil {
 		return nil, err
 	}

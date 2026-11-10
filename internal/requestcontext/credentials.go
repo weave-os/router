@@ -68,6 +68,9 @@ type Credentials struct {
 	// AuthType is the BYOK key's auth mode (see auth.AuthType*). APIKey already holds
 	// the derived credential; this tells the adapter how the upstream must read it.
 	AuthType auth.AuthType
+	// FundingPriority orders a BYOK credential against the caller's
+	// subscription for the same provider; empty on every other source.
+	FundingPriority auth.FundingPriority
 	// CredentialError prevents an unavailable BYOK key from falling back to
 	// the deployment credential for that same provider.
 	CredentialError error

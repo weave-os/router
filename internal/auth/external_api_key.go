@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -41,8 +42,11 @@ type ExternalAPIKey struct {
 	// AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
 	AuthAccount string
 	AuthUser    string
-	CreatedAt   time.Time
-	LastUsedAt  *time.Time
+	// FundingPriority orders this key against the caller's subscription for
+	// the same provider; see FundingPriority*.
+	FundingPriority FundingPriority
+	CreatedAt       time.Time
+	LastUsedAt      *time.Time
 	// Plaintext is populated after decrypt; never logged.
 	Plaintext []byte
 }
@@ -68,9 +72,39 @@ type CreateExternalAPIKeyParams struct {
 	AuthType               AuthType
 	// AuthAccount and AuthUser identify the upstream principal; empty unless
 	// AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
-	AuthAccount *string
-	AuthUser    *string
-	CreatedBy   *string
+	AuthAccount     *string
+	AuthUser        *string
+	FundingPriority FundingPriority
+	CreatedBy       *string
+}
+
+// FundingPriority orders a provider key against the caller's subscription
+// (Claude or ChatGPT plan) for the same provider.
+type FundingPriority string
+
+const (
+	// FundingPriorityKeyFirst spends the key before any subscription, so a
+	// subscriber's turns bill to the key instead of their plan.
+	FundingPriorityKeyFirst FundingPriority = "key_first"
+	// FundingPriorityPlanFirst spends the key only when no subscription can
+	// serve the turn: a request from another provider's harness, or a plan
+	// that is suppressed or exhausted.
+	FundingPriorityPlanFirst FundingPriority = "plan_first"
+)
+
+// ErrInvalidFundingPriority rejects a funding priority outside FundingPriority*.
+var ErrInvalidFundingPriority = errors.New("funding priority must be key_first or plan_first")
+
+// NormalizeFundingPriority defaults an empty value to plan-first, the policy
+// for newly connected keys.
+func NormalizeFundingPriority(p FundingPriority) (FundingPriority, error) {
+	switch FundingPriority(strings.TrimSpace(string(p))) {
+	case "", FundingPriorityPlanFirst:
+		return FundingPriorityPlanFirst, nil
+	case FundingPriorityKeyFirst:
+		return FundingPriorityKeyFirst, nil
+	}
+	return "", ErrInvalidFundingPriority
 }
 
 // AuthType selects how a stored provider credential authenticates upstream.
@@ -429,6 +463,8 @@ type ExternalAPIKeyRepository interface {
 	SoftDeleteByProvider(ctx context.Context, installationID, provider string) error
 	// UpdateModelAliases replaces one key's alias map, leaving the stored secret untouched.
 	UpdateModelAliases(ctx context.Context, installationID, id string, aliases map[string]string) (*ExternalAPIKey, error)
+	// UpdateFundingPriority sets one key's FundingPriority, leaving the stored secret untouched.
+	UpdateFundingPriority(ctx context.Context, installationID, id string, priority FundingPriority) (*ExternalAPIKey, error)
 	SoftDelete(ctx context.Context, installationID, id string) error
 	MarkUsed(ctx context.Context, id string) error
 }

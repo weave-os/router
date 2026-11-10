@@ -1763,7 +1763,7 @@ func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers h
 }
 
 func anthropicSubscriptionFromContext(ctx context.Context) string {
-	if anthropicBYOKConfigured(ctx) {
+	if anthropicBYOKFirst(ctx) {
 		return ""
 	}
 	v, _ := ctx.Value(AnthropicSubscriptionContextKey{}).(string)
@@ -6938,7 +6938,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 // env key is the correct fallback there.
 func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
 	byok := BuildCredentialsMap(externalKeysFromContext(ctx))
-	if provider == providers.ProviderAnthropic && byok[provider] != nil {
+	if byok[provider] != nil && byok[provider].FundingPriority == auth.FundingPriorityKeyFirst {
 		return context.WithValue(ctx, CredentialsContextKey{}, byok[provider])
 	}
 	routerKeyed := installationIDFromContext(ctx) != (uuid.UUID{})

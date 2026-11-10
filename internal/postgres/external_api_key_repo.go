@@ -65,6 +65,7 @@ func (r *ExternalAPIKeyRepo) Create(ctx context.Context, params auth.CreateExter
 		FederationConfig: federation,
 		AuthAccount:      params.AuthAccount,
 		AuthUser:         params.AuthUser,
+		FundingPriority:  string(params.FundingPriority),
 		CreatedBy:        params.CreatedBy,
 	})
 	if err != nil {
@@ -146,6 +147,30 @@ func (r *ExternalAPIKeyRepo) UpdateModelAliases(ctx context.Context, installatio
 	return toExternalAPIKey(row)
 }
 
+func (r *ExternalAPIKeyRepo) UpdateFundingPriority(ctx context.Context, installationID, id string, priority auth.FundingPriority) (*auth.ExternalAPIKey, error) {
+	installationUUID, err := uuid.Parse(installationID)
+	if err != nil {
+		return nil, err
+	}
+	keyUUID, err := uuid.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+	q := dbbudget.Queries(r.tx)
+	row, err := q.UpdateExternalAPIKeyFundingPriority(ctx, sqlc.UpdateExternalAPIKeyFundingPriorityParams{
+		ID:              keyUUID,
+		InstallationID:  installationUUID,
+		FundingPriority: string(priority),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, auth.ErrExternalAPIKeyNotFound
+		}
+		return nil, err
+	}
+	return toExternalAPIKey(row)
+}
+
 func (r *ExternalAPIKeyRepo) SoftDelete(ctx context.Context, installationID, id string) error {
 	installationUUID, err := uuid.Parse(installationID)
 	if err != nil {
@@ -203,6 +228,8 @@ func toExternalAPIKey(row sqlc.RouterModelRouterExternalAPIKey) (*auth.ExternalA
 		AuthAccount: derefString(row.AuthAccount),
 		AuthUser:    derefString(row.AuthUser),
 		CreatedAt:   timestampOrZero(row.CreatedAt),
+
+		FundingPriority: auth.FundingPriority(row.FundingPriority),
 	}
 	key.Name = row.Name
 	key.LastUsedAt = timestampPtr(row.LastUsedAt)

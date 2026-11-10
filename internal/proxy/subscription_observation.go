@@ -61,7 +61,7 @@ func presentSubscriptionTokens(ctx context.Context, headers http.Header) (codex,
 	} else if c := ExtractClientCredentials(providers.ProviderOpenAI, headers); c != nil && c.OAuth {
 		codex = string(c.APIKey)
 	}
-	if !anthropicBYOKConfigured(ctx) {
+	if !anthropicBYOKFirst(ctx) {
 		if creds := subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)); creds != nil {
 			anthropic = string(creds.APIKey)
 		} else if c := ExtractClientCredentials(providers.ProviderAnthropic, headers); c != nil && c.OAuth {

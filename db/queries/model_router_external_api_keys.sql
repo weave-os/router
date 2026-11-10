@@ -21,6 +21,7 @@ INSERT INTO router.model_router_external_api_keys (
     auth_type,
     auth_account,
     auth_user,
+    funding_priority,
     created_by
 )
 VALUES (
@@ -42,6 +43,7 @@ VALUES (
     @auth_type::text,
     sqlc.narg('auth_account')::text,
     sqlc.narg('auth_user')::text,
+    @funding_priority::text,
     @created_by
 )
 RETURNING *;
@@ -61,6 +63,16 @@ ORDER BY provider, created_at DESC;
 -- name: UpdateExternalAPIKeyModelAliases :one
 UPDATE router.model_router_external_api_keys
 SET model_aliases = sqlc.narg('model_aliases')::jsonb, updated_at = CURRENT_TIMESTAMP
+WHERE id = @id::uuid
+  AND installation_id = @installation_id::uuid
+  AND deleted_at IS NULL
+RETURNING *;
+
+-- Sets whether one key is spent before or after the caller's subscription,
+-- without touching the stored secret. Cross-tenant safe via installation_id predicate.
+-- name: UpdateExternalAPIKeyFundingPriority :one
+UPDATE router.model_router_external_api_keys
+SET funding_priority = @funding_priority::text, updated_at = CURRENT_TIMESTAMP
 WHERE id = @id::uuid
   AND installation_id = @installation_id::uuid
   AND deleted_at IS NULL

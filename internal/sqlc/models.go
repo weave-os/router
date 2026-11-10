@@ -413,6 +413,8 @@ type RouterModelRouterExternalAPIKey struct {
 	BaggageHeader *string
 	// Non-secret Anthropic federation rule, organization, service account, workspace and audience identifiers
 	FederationConfig []byte
+	// key_first spends this key before any subscription for its provider; plan_first uses it only when no subscription can serve the turn
+	FundingPriority string
 }
 
 // Ordered upstream attempts per inference operation; joins to model_router_request_telemetry on (installation_id, request_id)

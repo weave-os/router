@@ -144,6 +144,16 @@ func (f *fakeExternalAPIKeyRepo) UpdateModelAliases(ctx context.Context, install
 
 func (f *fakeExternalAPIKeyRepo) MarkUsed(ctx context.Context, id string) error { return nil }
 
+func (f *fakeExternalAPIKeyRepo) UpdateFundingPriority(ctx context.Context, installationID, id string, priority auth.FundingPriority) (*auth.ExternalAPIKey, error) {
+	for _, k := range f.keys {
+		if k.ID == id {
+			k.FundingPriority = priority
+			return k, nil
+		}
+	}
+	return nil, f.err
+}
+
 type fakeInstallationRepository struct {
 	excludedModelsByID              map[string][]string
 	excludedModelsExternalByID      map[string]string

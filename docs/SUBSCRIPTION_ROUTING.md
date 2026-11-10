@@ -99,8 +99,14 @@ in mixed shared pools. Organizations may explicitly disable the policy to permit
 Weave-funded fallback. Pro, Max and Team seats retain ordinary included-quota,
 account rotation and authorized paid-fallback rules.
 Requests with no registered or caller-presented Claude subscription credential
-continue to use normal API funding. Explicit Anthropic BYOK retains precedence
-over Enterprise-only billing, including an explicit organization override.
+continue to use normal API funding. Each BYOK key carries a funding priority
+(`funding_priority`): a `key_first` key retains precedence over caller OAuth,
+linked accounts and Enterprise-only billing, including an explicit organization
+override; a `plan_first` key (the default for newly connected keys) leaves
+those subscriptions first and funds only turns no subscription can serve, such
+as another provider's harness routed to this provider, or a plan with quota
+exhaustion evidence. Anthropic keys connected before funding priorities were
+introduced are `key_first`; OpenAI keys are `plan_first`.
 In Enterprise-only mode observed included-quota exhaustion does not suppress a
 Claude account, while an actual provider refusal remains authoritative. Claude
 turns fail if their account cannot serve them; retry, failover, and auxiliary
