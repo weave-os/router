@@ -2259,6 +2259,7 @@ router-off||local-toggle|yes|yes|no|no|manual|command,skill
 router-on||local-toggle|yes|yes|no|no|manual|command,skill
 router-status||local-toggle|yes|yes|no|no|manual|command,skill
 router-session||prompt|yes|yes|no|no|manual|command,skill
+list-models||prompt|yes|yes|no|no|manual|command,skill
 router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
 disable-routing||local-toggle|no|yes|no|no|manual|skill
 beta||prompt|yes|no|no|yes|manual|command
@@ -4846,7 +4847,7 @@ install_slash_commands() {
   while IFS= read -r cmd; do
     [ -f "$commands_src_dir/$cmd.md" ] || continue
     case ",$cmd," in
-      *,router-off,*|*,router-on,*|*,router-status,*|*,router-session,*|*,router-models,*|*,models,*)
+      *,router-off,*|*,router-on,*|*,router-status,*|*,router-session,*|*,list-models,*|*,router-models,*|*,models,*)
         [ "$target" = "claude" ] || continue ;;
     esac
     [ -n "$cmds" ] && cmds="$cmds "

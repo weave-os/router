@@ -4077,6 +4077,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
 		return nil
 	}
+	if !agentShadowMode && env.ExtractListModelsCommand() {
+		log.Info("ProxyMessages list-models command")
+		if err := s.handleListModelsCommand(ctx, w, env, feats.Tokens); err != nil {
+			return err
+		}
+		s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		return nil
+	}
 
 	// Sanitize after command extraction: a skill can encode its command as a
 	// plain user string after an assistant tool_use, and sanitizing first would
@@ -7479,6 +7487,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if env.ExtractRouterModelsCommand() {
 		log.Info("ProxyOpenAIChatCompletion router-models command")
 		if err := s.handleRouterModelsCommand(ctx, w, env, feats.Tokens); err != nil {
+			return err
+		}
+		s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
+		return nil
+	}
+	if env.ExtractListModelsCommand() {
+		log.Info("ProxyOpenAIChatCompletion list-models command")
+		if err := s.handleListModelsCommand(ctx, w, env, feats.Tokens); err != nil {
 			return err
 		}
 		s.grantPostCommandContinuation(ctx, installationID, sessionKey, roleForTier(catalog.TierFor(feats.Model)))

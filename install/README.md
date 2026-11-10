@@ -389,7 +389,7 @@ Limitations:
   Responses wire, turns served by an OpenAI model stream through verbatim
   without one.
 - Prompt directives (`/force-model`, `/fm`, `/force-parent`, `/unforce-model`,
-  `/ufm`, `/router-feedback`, `/rf`, `/router-session` and a bare
+  `/ufm`, `/router-feedback`, `/rf`, `/router-session`, `/list-models` and a bare
   `/router-models`) work as plain prompt text because the router answers them.
   `/router-off`, `/router-on`, `/router-status` and the `/router-models` forms
   that change settings are handled by the installed clients and do nothing in an
@@ -563,8 +563,8 @@ replacement when the bytes are unchanged. The `WEAVE_STATUSLINE_*` variables
 above are accepted as fallbacks for users who configure both clients together.
 
 **Codex skill invocations are answered by the router.** `$fm`/`$force-model`, `$force-parent`,
-`$ufm`/`$unforce-model`, `$rf`/`$router-feedback` and `$router-session` reach
-the router; the local toggles do not, and are covered below. Codex sends a
+`$ufm`/`$unforce-model`, `$rf`/`$router-feedback`, `$router-session` and
+`$list-models` reach the router; the local toggles do not, and are covered below. Codex sends a
 `$name` invocation as two user messages: the text the user typed, then a second
 message carrying the invoked skill's `SKILL.md`. The router reads the invocation
 from the first one, applies it, and answers with a synthetic response — the same
@@ -603,6 +603,13 @@ those hit `/admin/v1/*`, which requires an admin session and rejects the `rk_`
 data-plane key a chat request carries — deliberately, so a leaked key cannot
 rewrite routing config. The registry still lists it as `local-toggle` because
 that column names the adapter its mutating path needs.
+
+`$list-models` lists every model `$force-model` accepts, with the shorthands that
+resolve to each one. The router answers it from the request, judging each model
+with the same installation allowlist, exclusion and provider policy a force is
+checked against, so a model marked `[x]` is one a force will pin. This differs
+from `$router-models`, which shows what automatic routing may choose: a model the
+deployment withholds from automatic routing still lists as forceable.
 
 `$router-session` used to be in that group and no longer is. It reported
 `$CODEX_SESSION_ID` from a script, which cost a model turn plus a tool exec and
@@ -698,7 +705,8 @@ Inside Claude Code you can also run the slash commands `/router-off`,
 `/router-on`, `/router-status`, and `/router-session` (which prints the
 session id used for telemetry correlation and transcript lookup) — installed
 alongside `/force-model` (alias `/fm`), `/unforce-model` (alias `/ufm`),
-`/router-feedback` (alias `/rf`), and `/router-models` (alias `/models`).
+`/router-feedback` (alias `/rf`), `/router-models` (alias `/models`), and
+`/list-models`.
 
 ### Which directives each client gets
 
@@ -714,6 +722,7 @@ installer owns the config file.
 | unforce-model (`ufm`) | `/unforce-model` | `$unforce-model` | `/unforce-model` | `/ufm` (native) | manual |
 | router-feedback (`rf`) | `/router-feedback` | `$router-feedback` | `/router-feedback` | — | manual |
 | router-session | `/router-session` | `$router-session` | — | — | — |
+| list-models | `/list-models` | `$list-models` | — | — | — |
 | router-off / on / status | `/router-off` … | `$router-off` … (plus `$disable-routing`) | — | — | — |
 | router-models (`models`) | `/router-models` | `$router-models` | — | — | — |
 
