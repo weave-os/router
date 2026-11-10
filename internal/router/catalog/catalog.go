@@ -17,6 +17,9 @@ const ModelGPT6Luna = "gpt-6-luna"
 // ModelMiMoV26Flash is the canonical Xiaomi MiMo-V2.6-Flash model ID.
 const ModelMiMoV26Flash = "xiaomi/mimo-v2.6-flash"
 
+// ModelMuseSparkOpen is the canonical Meta Muse Spark Open model ID.
+const ModelMuseSparkOpen = "meta/muse-spark-open"
+
 // Tier is the coarse capability bucket. Higher is stronger; integer
 // ordering is load-bearing (planner compares freshTier > pinTier).
 type Tier int
@@ -616,7 +619,7 @@ var Models = []Model{
 	}},
 	// Muse Spark Open: the open-weight 816B-A42B release. Every host lists
 	// $1.25/$4.25; Together is the one the router supports.
-	{ID: "meta/muse-spark-open", Source: SourceOpenSource, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+	{ID: ModelMuseSparkOpen, Source: SourceOpenSource, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderTogether, UpstreamID: "meta-models/Muse-Spark-Open-816B-A42B",
 			Price: Pricing{InputUSDPer1M: 1.25, OutputUSDPer1M: 4.25, CacheReadMultiplier: 0.15 / 1.25}},
 	}},
