@@ -36,6 +36,11 @@ func (r *ExternalAPIKeyRepo) Create(ctx context.Context, params auth.CreateExter
 		return nil, err
 	}
 
+	fundingPriority, err := auth.NormalizeFundingPriority(params.FundingPriority)
+	if err != nil {
+		return nil, err
+	}
+
 	federation, err := json.Marshal(params.FederationConfig)
 	if err != nil {
 		return nil, fmt.Errorf("encode federation configuration: %w", err)
@@ -65,7 +70,7 @@ func (r *ExternalAPIKeyRepo) Create(ctx context.Context, params auth.CreateExter
 		FederationConfig: federation,
 		AuthAccount:      params.AuthAccount,
 		AuthUser:         params.AuthUser,
-		FundingPriority:  string(params.FundingPriority),
+		FundingPriority:  string(fundingPriority),
 		CreatedBy:        params.CreatedBy,
 	})
 	if err != nil {
@@ -156,8 +161,7 @@ func (r *ExternalAPIKeyRepo) UpdateFundingPriority(ctx context.Context, installa
 	if err != nil {
 		return nil, err
 	}
-	q := dbbudget.Queries(r.tx)
-	row, err := q.UpdateExternalAPIKeyFundingPriority(ctx, sqlc.UpdateExternalAPIKeyFundingPriorityParams{
+	row, err := dbbudget.Queries(r.tx).UpdateExternalAPIKeyFundingPriority(ctx, sqlc.UpdateExternalAPIKeyFundingPriorityParams{
 		ID:              keyUUID,
 		InstallationID:  installationUUID,
 		FundingPriority: string(priority),

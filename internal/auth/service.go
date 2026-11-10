@@ -520,7 +520,7 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 	if err != nil {
 		return nil, err
 	}
-	fundingPriority, err := NormalizeFundingPriority(params.FundingPriority)
+	fundingPriority, err := s.upsertFundingPriority(ctx, installationID, provider, params.FundingPriority)
 	if err != nil {
 		return nil, err
 	}
@@ -618,7 +618,25 @@ func (s *Service) SetExternalAPIKeyModelAliases(ctx context.Context, installatio
 	return key, nil
 }
 
-// SetExternalAPIKeyFundingPriority changes whether a BYOK key is spent before or after the caller's subscription.
+// upsertFundingPriority keeps the replaced key's priority when the caller omits
+// one, so rotating a migrated key_first key does not move its traffic onto plans.
+func (s *Service) upsertFundingPriority(ctx context.Context, installationID, provider string, requested FundingPriority) (FundingPriority, error) {
+	if requested != "" {
+		return NormalizeFundingPriority(requested)
+	}
+	existing, err := s.externalKeys.GetForInstallation(ctx, installationID)
+	if err != nil {
+		return "", err
+	}
+	for _, key := range existing {
+		if key.Provider == provider && key.FundingPriority != "" {
+			return NormalizeFundingPriority(key.FundingPriority)
+		}
+	}
+	return FundingPriorityPlanFirst, nil
+}
+
+// SetExternalAPIKeyFundingPriority rejects an empty priority (no plan-first default, unlike upsert) and invalidates the installation's cached auth on success.
 func (s *Service) SetExternalAPIKeyFundingPriority(ctx context.Context, installationID, id string, priority FundingPriority) (*ExternalAPIKey, error) {
 	if priority == "" {
 		return nil, ErrInvalidFundingPriority

@@ -58,7 +58,7 @@ func presentSubscriptionTokens(ctx context.Context, headers http.Header) (codex,
 	}
 	if codexSubscriptionFromContext(ctx) != nil {
 		codex = openaiSubscriptionFromContext(ctx)
-	} else if c := ExtractClientCredentials(providers.ProviderOpenAI, headers); c != nil && c.OAuth {
+	} else if c := ExtractClientCredentials(providers.ProviderOpenAI, headers); c != nil && c.OAuth && !byokFirst(ctx, providers.ProviderOpenAI) {
 		codex = string(c.APIKey)
 	}
 	if !anthropicBYOKFirst(ctx) {

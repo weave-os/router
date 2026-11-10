@@ -1898,6 +1898,9 @@ func byokServedForProvider(ctx context.Context, provider string) bool {
 }
 
 func openaiSubscriptionFromContext(ctx context.Context) string {
+	if byokFirst(ctx, providers.ProviderOpenAI) {
+		return ""
+	}
 	v, _ := ctx.Value(OpenAISubscriptionContextKey{}).(string)
 	return v
 }
@@ -1926,7 +1929,7 @@ func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
 	if codexSubscriptionFromContext(ctx) != nil {
 		return true
 	}
-	if c := ExtractClientCredentials(providers.ProviderOpenAI, headers); c != nil && c.OAuth {
+	if c := ExtractClientCredentials(providers.ProviderOpenAI, headers); c != nil && c.OAuth && !byokFirst(ctx, providers.ProviderOpenAI) {
 		return true
 	}
 	return false

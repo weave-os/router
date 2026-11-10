@@ -94,3 +94,21 @@ func TestPlanFirstAnthropicKeyKeepsEnterprisePlanInPlay(t *testing.T) {
 	assert.True(t, claudeEnterpriseOnly(planFirst))
 	assert.False(t, claudeEnterpriseOnly(keyFirst))
 }
+
+func TestKeyFirstOpenAIKeyHidesCodexPlan(t *testing.T) {
+	headers := http.Header{
+		"Authorization":      []string{"Bearer " + codexTestJWT},
+		"Chatgpt-Account-Id": []string{"acct-1"},
+	}
+	keyFirst := fundingPriorityCtx(routerKeyedCtx(), providers.ProviderOpenAI, auth.FundingPriorityKeyFirst)
+	keyFirst = context.WithValue(keyFirst, OpenAISubscriptionContextKey{}, codexTestJWT)
+
+	codex, _ := presentSubscriptionTokens(keyFirst, headers)
+	assert.Empty(t, codex, "a key-first OpenAI key must not enter Codex subscription bypass")
+	assert.False(t, codexResponsesRequest(keyFirst, headers))
+
+	planFirst := fundingPriorityCtx(routerKeyedCtx(), providers.ProviderOpenAI, auth.FundingPriorityPlanFirst)
+	codex, _ = presentSubscriptionTokens(planFirst, headers)
+	assert.NotEmpty(t, codex)
+	assert.True(t, codexResponsesRequest(planFirst, headers))
+}

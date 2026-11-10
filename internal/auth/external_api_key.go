@@ -92,7 +92,7 @@ const (
 	FundingPriorityPlanFirst FundingPriority = "plan_first"
 )
 
-// ErrInvalidFundingPriority rejects a funding priority outside FundingPriority*.
+// ErrInvalidFundingPriority is returned for any priority outside the FundingPriority constants; the admin API maps it to HTTP 400.
 var ErrInvalidFundingPriority = errors.New("funding priority must be key_first or plan_first")
 
 // NormalizeFundingPriority defaults an empty value to plan-first, the policy
