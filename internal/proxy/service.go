@@ -4168,6 +4168,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
 		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
 	}
+	if weaveCreditsDenied(ctx) {
+		enabledProviders = restrictToCustomerFundedProviders(ctx, r.Header, enabledProviders)
+		if len(enabledProviders) == 0 {
+			return ErrWeaveCreditsDisabled
+		}
+	}
 
 	// Anthropic's native web-search server tool, when no enabled provider runs
 	// it. Served before routing: the scorer's only lever is picking a model,
@@ -7580,6 +7586,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// selection to providers the caller's subscription can serve.
 	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
 		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
+	}
+	if weaveCreditsDenied(ctx) {
+		enabledProviders = restrictToCustomerFundedProviders(ctx, r.Header, enabledProviders)
+		if len(enabledProviders) == 0 {
+			return ErrWeaveCreditsDisabled
+		}
 	}
 
 	// Codex (ChatGPT) subscription passthrough: ProxyOpenAIResponses stashed the

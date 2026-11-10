@@ -137,6 +137,12 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 
 	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderGoogle, r.Header)
+	if weaveCreditsDenied(ctx) {
+		enabledProviders = restrictToCustomerFundedProviders(ctx, r.Header, enabledProviders)
+		if len(enabledProviders) == 0 {
+			return ErrWeaveCreditsDisabled
+		}
+	}
 	excluded := s.excludedModelsForRequest(ctx)
 	outputReserve := contextWindowOutputReserve
 	if feats.MaxTokens > outputReserve {

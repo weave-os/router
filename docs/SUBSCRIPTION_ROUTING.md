@@ -60,6 +60,16 @@ picks. A picked model the installation cannot serve as-is is routed instead and
 funds as routed traffic. A Codex `/model` pick (`X-Weave-Codex-Native-Model-Pin: 1`)
 served as selected funds the same way.
 
+The installation setting `weave_credit_inference_enabled` decides whether
+Weave's own provider keys, paid from Weave credits, may fund a turn at all.
+Installations that existed before the setting keep it on; new installations
+start with it off. While it is off, routing only considers providers that a
+connected provider key or the caller's presented or linked Claude/ChatGPT plan
+can pay for, and the dispatch check refuses any remaining deployment-key
+attempt with a 402 (`ErrWeaveCreditsDisabled`) before provider I/O, so nothing
+is debited. A forced or picked model no customer credential can serve gets the
+same 402. Self-hosted deployments never apply it.
+
 Native OpenAI Codex and Anthropic adapters accept subscription OAuth credentials.
 Anthropic-compatible bearer gateways do not advertise native Claude subscription
 support.

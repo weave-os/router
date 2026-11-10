@@ -78,6 +78,11 @@ type Installation struct {
 	// login cannot serve it. Defaults false: like the native client, a pick runs
 	// on that login's plan and then the provider's own extra usage.
 	PickedModelCreditFallbackEnabled bool
+	// WeaveCreditInferenceEnabled lets a turn that no plan or provider key of
+	// the customer's can fund run on Weave's own provider keys, paid from the
+	// organization's Weave credits. Existing installations keep it on; new
+	// installations start with it off.
+	WeaveCreditInferenceEnabled bool
 	// RoutingStrategy is the canonical strategy selected for this installation.
 	// Existing installations default to the cluster scorer until allowlisted.
 	RoutingStrategy router.Strategy

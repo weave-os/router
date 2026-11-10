@@ -75,6 +75,9 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 	ctx = s.withClaudeSubscriptionProfile(ctx, headers)
 	admissionCtx := ctx
 	return dispatch.WithAuthorization(ctx, func(callCtx context.Context, target inference.Target) error {
+		if weaveCreditsDenied(callCtx) && !customerFunded(CredentialsFromContext(callCtx)) {
+			return ErrWeaveCreditsDisabled
+		}
 		if claudeEnterpriseTarget(callCtx, target) || claudeEnterpriseTurn(callCtx) {
 			creds := CredentialsFromContext(callCtx)
 			pool, compatible := subscriptionPoolForModel(target)

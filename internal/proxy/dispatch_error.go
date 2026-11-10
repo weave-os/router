@@ -79,6 +79,7 @@ const (
 	DispatchErrorDecisionModelUnavailable
 	DispatchErrorCompactionUnservable
 	DispatchErrorClaudeEnterpriseOnly
+	DispatchErrorWeaveCreditsDisabled
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -178,6 +179,12 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			Message:    "Your Weave router credits are exhausted and your subscription can't serve this turn (rate-limited, or the requested model isn't subscription-covered). Add credits to re-enable paid routing: " + topUpURL,
 			LogLevel:   "warn",
 			LogMessage: "Subscription-only request refused: credits exhausted and subscription unavailable",
+		}, true
+	case errors.Is(err, ErrWeaveCreditsDisabled):
+		return DispatchErrorClass{
+			Kind: DispatchErrorWeaveCreditsDisabled, Status: http.StatusPaymentRequired,
+			Message:       "Weave credits are turned off for your organization, and none of your plans or provider API keys can serve this request. Connect a provider key or plan for this model, or allow Weave credits in settings.",
+			NoClientRetry: true, LogLevel: "warn", LogMessage: "Request refused: Weave credits disabled and no customer funding source",
 		}, true
 	case errors.Is(err, ErrClaudeEnterpriseSubscriptionUnavailable):
 		return DispatchErrorClass{

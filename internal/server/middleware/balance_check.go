@@ -78,6 +78,9 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 		}
 
 		orgID := installation.ExternalID
+		if !installation.WeaveCreditInferenceEnabled {
+			c.Request = c.Request.WithContext(proxy.WithWeaveCreditsDenied(c.Request.Context()))
+		}
 
 		// Subscription turns debit $0 (cost.subscription_served), so gating them on
 		// prepaid credits is wrong. The check depends only on whether the request

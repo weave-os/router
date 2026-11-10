@@ -502,6 +502,7 @@ type RouterModelRouterInstallation struct {
 	ModelsExcludedWhenSubscriptionActive   []string
 	ModelsExcludedWhenSubscriptionInactive []string
 	PickedModelCreditFallbackEnabled       bool
+	WeaveCreditInferenceEnabled            bool
 }
 
 type RouterModelRouterRequestTelemetry struct {
