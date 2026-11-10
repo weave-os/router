@@ -108,7 +108,8 @@ func managedSubscriptionProviderFromUpstream(provider, model string) (subscripti
 }
 
 func managedSubscriptionEnrolled(ctx context.Context, provider subscriptions.Provider) bool {
-	if provider == subscriptions.ProviderClaude && anthropicBYOKConfigured(ctx) {
+	if provider == subscriptions.ProviderClaude && anthropicBYOKFirst(ctx) ||
+		provider == subscriptions.ProviderCodex && byokFirst(ctx, providers.ProviderOpenAI) {
 		return false
 	}
 	if subscriptionAPIOnly(ctx) || subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
@@ -198,7 +199,7 @@ func (s *Service) costNeutralSubscriptionServed(ctx context.Context) bool {
 }
 
 func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model string) (context.Context, subscriptions.Lease, bool, error) {
-	if provider == providers.ProviderAnthropic && anthropicBYOKConfigured(ctx) {
+	if byokFirst(ctx, provider) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 	poolProvider, eligible := managedSubscriptionProviderFromUpstream(provider, model)

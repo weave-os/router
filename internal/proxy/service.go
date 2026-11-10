@@ -1763,7 +1763,7 @@ func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers h
 }
 
 func anthropicSubscriptionFromContext(ctx context.Context) string {
-	if anthropicBYOKConfigured(ctx) {
+	if anthropicBYOKFirst(ctx) {
 		return ""
 	}
 	v, _ := ctx.Value(AnthropicSubscriptionContextKey{}).(string)
@@ -1898,6 +1898,9 @@ func byokServedForProvider(ctx context.Context, provider string) bool {
 }
 
 func openaiSubscriptionFromContext(ctx context.Context) string {
+	if byokFirst(ctx, providers.ProviderOpenAI) {
+		return ""
+	}
 	v, _ := ctx.Value(OpenAISubscriptionContextKey{}).(string)
 	return v
 }
@@ -1926,7 +1929,7 @@ func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
 	if codexSubscriptionFromContext(ctx) != nil {
 		return true
 	}
-	if c := ExtractClientCredentials(providers.ProviderOpenAI, headers); c != nil && c.OAuth {
+	if c := ExtractClientCredentials(providers.ProviderOpenAI, headers); c != nil && c.OAuth && !byokFirst(ctx, providers.ProviderOpenAI) {
 		return true
 	}
 	return false
@@ -6952,7 +6955,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 // env key is the correct fallback there.
 func resolveAndInjectCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
 	byok := BuildCredentialsMap(externalKeysFromContext(ctx))
-	if provider == providers.ProviderAnthropic && byok[provider] != nil {
+	if byok[provider] != nil && byok[provider].FundingPriority == auth.FundingPriorityKeyFirst {
 		return context.WithValue(ctx, CredentialsContextKey{}, byok[provider])
 	}
 	routerKeyed := installationIDFromContext(ctx) != (uuid.UUID{})

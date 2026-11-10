@@ -261,7 +261,7 @@ func TestManagedSubscriptionPreservesAnthropicBYOK(t *testing.T) {
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
 	base := managedSubscriptionTestContext()
 
-	byokCtx := context.WithValue(base, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, Plaintext: []byte("synthetic-byok")}})
+	byokCtx := context.WithValue(base, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
 	byokCtx = svc.resolveCredentials(byokCtx, providers.ProviderAnthropic, "claude-opus-4-8", nil)
 	unchangedCtx, _, managed, err := svc.leaseManagedSubscription(byokCtx, providers.ProviderAnthropic, "claude-opus-4-8")
 	require.NoError(t, err)

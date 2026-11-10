@@ -72,10 +72,24 @@ func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 // stashed by the auth middleware.
 type ExternalAPIKeysContextKey struct{}
 
-// Anthropic BYOK is an explicit funding preference. Probing Claude OAuth first
-// can already incur Enterprise overage before its response reveals the charge.
-func anthropicBYOKConfigured(ctx context.Context) bool {
-	return BuildCredentialsMap(externalKeysFromContext(ctx))[providers.ProviderAnthropic] != nil
+// byokFirst reports whether the provider's BYOK key is set to be spent before
+// any subscription. Such a key is an explicit funding preference: probing
+// Claude OAuth first can already incur Enterprise overage before its response
+// reveals the charge. A plan-first key leaves subscriptions in play and only
+// funds turns no subscription can serve.
+func byokFirst(ctx context.Context, provider string) bool {
+	// Mirrors BuildCredentialsMap: usable or explicitly failed keys only, last one wins.
+	keyFirst := false
+	for _, key := range externalKeysFromContext(ctx) {
+		if key.Provider == provider && (len(key.Plaintext) > 0 || key.CredentialError != nil) {
+			keyFirst = key.FundingPriority == auth.FundingPriorityKeyFirst
+		}
+	}
+	return keyFirst
+}
+
+func anthropicBYOKFirst(ctx context.Context) bool {
+	return byokFirst(ctx, providers.ProviderAnthropic)
 }
 
 // BuildCredentialsMap builds provider -> Credentials from external keys.
@@ -101,6 +115,7 @@ func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*Credentials {
 			ForwardedClientHeaders: append([]string(nil), key.ForwardedClientHeaders...),
 			BaggageHeader:          key.BaggageHeader,
 			AuthType:               key.AuthType,
+			FundingPriority:        key.FundingPriority,
 			CredentialError:        key.CredentialError,
 			// The key row, not its plaintext: a WIF or keypair-JWT key's
 			// Plaintext is a per-request bearer. AuthAccount/AuthUser are
