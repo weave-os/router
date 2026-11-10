@@ -13,6 +13,8 @@ export default defineConfig({
     clearMocks: true,
     environment: "jsdom",
     globals: true,
+    // @weave-os/ui ships bundler-style ESM (extensionless next/* and JSON imports).
+    server: { deps: { inline: ["@weave-os/ui"] } },
     setupFiles: ["./vitest.setup.ts"],
   },
 });

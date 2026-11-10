@@ -3,11 +3,11 @@
 import { Input } from "@/components/Input";
 import { InstallCommandPicker } from "@/components/InstallCommandPicker";
 import { api, type APIKey, type APIKeyScope, type IssueAPIKeyResponse } from "@/lib/api";
-import { Text } from "@/shared/components/atoms/Text";
-import { Button } from "@/shared/components/molecules/Button";
-import { Card } from "@/shared/components/molecules/Card";
-import { Appearance, Intent } from "@/shared/components/types";
 
+import { Text } from "@weave-os/ui/components/atoms/Text";
+import { Button } from "@weave-os/ui/components/molecules/Button";
+import { Card } from "@weave-os/ui/components/molecules/Card";
+import { Appearance, Intent } from "@weave-os/ui/components/types";
 import { Copy, RotateCw, Search, Trash2 } from "lucide-react";
 
 import { useEffect, useState } from "react";

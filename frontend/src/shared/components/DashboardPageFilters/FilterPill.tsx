@@ -1,12 +1,12 @@
 "use client";
 
-import { createContext, forwardRef, useContext } from "react";
+import { Icon } from "@weave-os/ui/components/atoms/Icon";
+import { Button, type ButtonProps } from "@weave-os/ui/components/molecules/Button";
+import { Appearance } from "@weave-os/ui/components/types";
+import { cn } from "@weave-os/ui/tools/cn";
+import { SafeOmit } from "@weave-os/ui/tools/types";
 
-import { cn } from "../../tools/cn";
-import { SafeOmit } from "../../tools/types";
-import { Icon } from "../atoms/Icon";
-import { Button, type ButtonProps } from "../molecules/Button";
-import { Appearance } from "../types";
+import { createContext, forwardRef, useContext } from "react";
 
 export interface FilterPillProps extends React.PropsWithChildren {
   /**

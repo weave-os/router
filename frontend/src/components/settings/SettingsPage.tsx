@@ -1,9 +1,10 @@
 "use client";
 
-import { Icon } from "@/shared/components/atoms/Icon";
-import { Text } from "@/shared/components/atoms/Text";
 import { Page } from "@/shared/components/Page";
-import { PageHeader } from "@/shared/components/PageHeader";
+
+import { Icon } from "@weave-os/ui/components/atoms/Icon";
+import { Text } from "@weave-os/ui/components/atoms/Text";
+import { PageHeader } from "@weave-os/ui/components/PageHeader";
 
 import { type ReactNode } from "react";
 

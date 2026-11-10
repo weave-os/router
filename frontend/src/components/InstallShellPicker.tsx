@@ -1,8 +1,9 @@
 "use client";
 
 import { INSTALL_SHELLS, type InstallShell } from "@/lib/installCommands";
-import { Button } from "@/shared/components/molecules/Button";
-import { Appearance } from "@/shared/components/types";
+
+import { Button } from "@weave-os/ui/components/molecules/Button";
+import { Appearance } from "@weave-os/ui/components/types";
 
 interface InstallShellPickerProps {
   shell: InstallShell;

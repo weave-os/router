@@ -2,7 +2,7 @@ import "./globals.css";
 
 import type { Metadata } from "next";
 
-import { TooltipProvider } from "@/shared/components/molecules/Tooltip";
+import { TooltipProvider } from "@weave-os/ui/components/molecules/Tooltip";
 
 import localFont from "next/font/local";
 

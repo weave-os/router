@@ -2,27 +2,27 @@
 
 import { tz } from "@date-fns/tz";
 import { type HeaderContext } from "@tanstack/react-table";
-import { format, formatDistanceToNowStrict } from "date-fns";
-
-import { type RouterActivityPoint, type RouterIndividualModelMix } from "../../../data";
-import { modelColorTokens } from "../../../objects/RouterModelFamily";
-import { AccountChartColorToken } from "../../../tools/chartColors";
-import { cn } from "../../../tools/cn";
+import { Avatar } from "@weave-os/ui/components/atoms/Avatar";
+import { HighlightedText } from "@weave-os/ui/components/atoms/HighlightedText";
+import { Icon } from "@weave-os/ui/components/atoms/Icon";
+import { Sparkline } from "@weave-os/ui/components/atoms/Sparkline";
+import { Text } from "@weave-os/ui/components/atoms/Text";
+import { DataTable } from "@weave-os/ui/components/molecules/DataTable";
+import { Tooltip } from "@weave-os/ui/components/molecules/Tooltip";
+import { AccountChartColorToken } from "@weave-os/ui/tools/chartColors";
+import { cn } from "@weave-os/ui/tools/cn";
 import {
   formatBigDecimal,
   formatPercentage,
   formatRouterModelName,
   formatRouterModelShortName,
-} from "../../../tools/format";
-import { getRankingColorToken } from "../../../tools/rankingColors";
-import { DateFormat } from "../../../tools/time";
-import { Avatar } from "../../atoms/Avatar";
-import { HighlightedText } from "../../atoms/HighlightedText";
-import { Icon } from "../../atoms/Icon";
-import { Sparkline } from "../../atoms/Sparkline";
-import { Text } from "../../atoms/Text";
-import { DataTable } from "../../molecules/DataTable";
-import { Tooltip } from "../../molecules/Tooltip";
+} from "@weave-os/ui/tools/format";
+import { getRankingColorToken } from "@weave-os/ui/tools/rankingColors";
+import { DateFormat } from "@weave-os/ui/tools/time";
+import { format, formatDistanceToNowStrict } from "date-fns";
+
+import { type RouterActivityPoint, type RouterIndividualModelMix } from "../../../data";
+import { modelColorTokens } from "../../../objects/RouterModelFamily";
 import { COLUMN_INFO, COLUMN_TITLE, type RouterIndividualsColumn } from "../constants";
 import {
   type RouterIndividualRow,

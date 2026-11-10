@@ -1,13 +1,14 @@
 "use client";
 
+import { MetricValue } from "@weave-os/ui/components/atoms/MetricValue";
+import { Skeleton } from "@weave-os/ui/components/atoms/Skeleton";
+import { Text } from "@weave-os/ui/components/atoms/Text";
+import { cn } from "@weave-os/ui/tools/cn";
+import { LoadState } from "@weave-os/ui/tools/LoadState";
+import { GRANULARITY_NAME, type TimeGranularity } from "@weave-os/ui/tools/timeGranularity";
+
 import { type ReactNode } from "react";
 
-import { cn } from "../../tools/cn";
-import { LoadState } from "../../tools/LoadState";
-import { GRANULARITY_NAME, type TimeGranularity } from "../../tools/timeGranularity";
-import { MetricValue } from "../atoms/MetricValue";
-import { Skeleton } from "../atoms/Skeleton";
-import { Text } from "../atoms/Text";
 import { LoadStateWrapper } from "../LoadStateWrapper";
 
 export interface StatisticRate {

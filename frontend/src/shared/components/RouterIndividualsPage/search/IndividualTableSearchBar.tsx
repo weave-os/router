@@ -1,15 +1,16 @@
 "use client";
 
+import { Icon } from "@weave-os/ui/components/atoms/Icon";
+import { Kbd } from "@weave-os/ui/components/atoms/Kbd";
+import { Button } from "@weave-os/ui/components/molecules/Button";
+import { Tooltip } from "@weave-os/ui/components/molecules/Tooltip";
+import { Appearance } from "@weave-os/ui/components/types";
+import { cn } from "@weave-os/ui/tools/cn";
+import { KeyboardKey } from "@weave-os/ui/tools/keyboard";
+
 import { useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 
-import { cn } from "../../../tools/cn";
-import { KeyboardKey } from "../../../tools/keyboard";
-import { Icon } from "../../atoms/Icon";
-import { Kbd } from "../../atoms/Kbd";
-import { Button } from "../../molecules/Button";
-import { Tooltip } from "../../molecules/Tooltip";
-import { Appearance } from "../../types";
 import { useIndividualTableSearch } from "./IndividualTableSearchContext";
 
 /**

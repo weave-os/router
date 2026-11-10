@@ -1,7 +1,8 @@
 "use client";
 
 import { api, type RouterConfig } from "@/lib/api";
-import { Card } from "@/shared/components/molecules/Card";
+
+import { Card } from "@weave-os/ui/components/molecules/Card";
 
 import { useEffect, useState } from "react";
 

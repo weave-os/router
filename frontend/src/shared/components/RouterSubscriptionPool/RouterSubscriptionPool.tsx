@@ -1,5 +1,18 @@
 "use client";
 
+import { MetricValue } from "@weave-os/ui/components/atoms/MetricValue";
+import { Skeleton } from "@weave-os/ui/components/atoms/Skeleton";
+import { Text } from "@weave-os/ui/components/atoms/Text";
+import { CHART_CARD_TITLE_CLASS } from "@weave-os/ui/components/ChartCard";
+import { Accordion } from "@weave-os/ui/components/molecules/Accordion";
+import { Badge } from "@weave-os/ui/components/molecules/Badge";
+import { Card } from "@weave-os/ui/components/molecules/Card";
+import { Tooltip } from "@weave-os/ui/components/molecules/Tooltip";
+import { Intent } from "@weave-os/ui/components/types";
+import { cn } from "@weave-os/ui/tools/cn";
+import { formatInteger, formatPercentage } from "@weave-os/ui/tools/format";
+import { pluralize } from "@weave-os/ui/tools/strings";
+import { DateFormat } from "@weave-os/ui/tools/time";
 import { format, formatDistanceStrict } from "date-fns";
 
 import { useEffect, useState } from "react";
@@ -12,21 +25,8 @@ import {
   useRouterDashboardDataSource,
   useRouterDashboardQuery,
 } from "../../data";
-import { cn } from "../../tools/cn";
-import { formatInteger, formatPercentage } from "../../tools/format";
-import { pluralize } from "../../tools/strings";
-import { DateFormat } from "../../tools/time";
 import { EXTERNAL_ICON_NAME, ExternalIcon, ExternalIconType } from "../atoms/ExternalIcon";
-import { MetricValue } from "../atoms/MetricValue";
-import { Skeleton } from "../atoms/Skeleton";
-import { Text } from "../atoms/Text";
-import { CHART_CARD_TITLE_CLASS } from "../ChartCard";
 import { LoadStateWrapper } from "../LoadStateWrapper";
-import { Accordion } from "../molecules/Accordion";
-import { Badge } from "../molecules/Badge";
-import { Card } from "../molecules/Card";
-import { Tooltip } from "../molecules/Tooltip";
-import { Intent } from "../types";
 import { ProviderRunwayChart } from "./ProviderRunwayChart";
 import {
   describeRunway,

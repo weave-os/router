@@ -2,8 +2,8 @@ import type { RouterDashboardDataSource } from "./RouterDashboardDataSource";
 import type { MetricsSummary } from "./types";
 
 import { renderHook, waitFor } from "@testing-library/react";
+import { LoadState } from "@weave-os/ui/tools/LoadState";
 
-import { LoadState } from "../tools/LoadState";
 import { unavailable, UnavailableReason } from "./availability";
 import {
   RouterDashboardDataProvider,

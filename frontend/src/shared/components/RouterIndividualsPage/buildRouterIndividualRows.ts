@@ -1,6 +1,7 @@
+import { COLLATOR } from "@weave-os/ui/tools/collator";
+import { normalizeSearchText } from "@weave-os/ui/tools/strings";
+
 import { type RouterActivityPoint, type RouterIndividual, RouterRoutingState } from "../../data";
-import { COLLATOR } from "../../tools/collator";
-import { normalizeSearchText } from "../../tools/strings";
 import { buildRankLookup } from "./buildRankLookup";
 import { GROUP_LABEL, LOWER_IS_BETTER, ROUTING_GROUP_ORDER, RouterRankedMetric } from "./constants";
 import {
