@@ -2,6 +2,7 @@ package proxy_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -159,4 +160,31 @@ func TestProxyOpenAIResponses_EmptyNativeStreamRetriedBeforeCommit(t *testing.T)
 	assert.Equal(t, []providers.Endpoint{providers.EndpointResponses, providers.EndpointResponses}, provider.proxyEndpoints)
 	assert.Contains(t, rec.Body.String(), "response.completed")
 	assert.NotContains(t, rec.Body.String(), "response.failed")
+}
+
+// Codex closes the connection once response.completed arrives, so the upstream
+// read can end in context.Canceled after the turn was fully delivered.
+func TestProxyOpenAIResponses_ClientCancelAfterCompletedIsServedTurn(t *testing.T) {
+	provider := scriptedStream(responsesCompleteFrames)
+	provider.proxyErr = fmt.Errorf("read upstream body: %w", context.Canceled)
+	svc := nativeSurfaceService(provider, providers.ProviderOpenAI, nativeResponsesModel)
+	body := []byte(`{"model":"auto","stream":true,"input":"hi"}`)
+
+	rec := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyOpenAIResponses(authedCtx(uuid.NewString()), body, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+
+	assert.Contains(t, rec.Body.String(), "response.completed")
+	assert.NotContains(t, rec.Body.String(), "response.failed")
+}
+
+func TestProxyOpenAIResponses_ClientCancelBeforeTerminalStillFails(t *testing.T) {
+	provider := scriptedStream(responsesCutFrames)
+	provider.proxyErr = fmt.Errorf("read upstream body: %w", context.Canceled)
+	svc := nativeSurfaceService(provider, providers.ProviderOpenAI, nativeResponsesModel)
+	body := []byte(`{"model":"auto","stream":true,"input":"hi"}`)
+
+	rec := httptest.NewRecorder()
+	err := svc.ProxyOpenAIResponses(authedCtx(uuid.NewString()), body, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
+
+	require.ErrorIs(t, err, context.Canceled)
 }
