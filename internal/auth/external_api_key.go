@@ -98,7 +98,7 @@ var ErrInvalidFundingPriority = errors.New("funding priority must be key_first o
 // NormalizeFundingPriority defaults an empty value to plan-first, the policy
 // for newly connected keys.
 func NormalizeFundingPriority(p FundingPriority) (FundingPriority, error) {
-	switch FundingPriority(strings.TrimSpace(string(p))) {
+	switch p {
 	case "", FundingPriorityPlanFirst:
 		return FundingPriorityPlanFirst, nil
 	case FundingPriorityKeyFirst:
@@ -465,6 +465,8 @@ type ExternalAPIKeyRepository interface {
 	UpdateModelAliases(ctx context.Context, installationID, id string, aliases map[string]string) (*ExternalAPIKey, error)
 	// UpdateFundingPriority sets one key's FundingPriority, leaving the stored secret untouched.
 	UpdateFundingPriority(ctx context.Context, installationID, id string, priority FundingPriority) (*ExternalAPIKey, error)
+	// ActiveFundingPriority returns "" when the provider has no active key.
+	ActiveFundingPriority(ctx context.Context, installationID, provider string) (FundingPriority, error)
 	SoftDelete(ctx context.Context, installationID, id string) error
 	MarkUsed(ctx context.Context, id string) error
 }

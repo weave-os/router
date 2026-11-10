@@ -48,6 +48,10 @@ func (f *fakeExternalAPIKeyRepository) UpdateModelAliases(context.Context, strin
 
 func (f *fakeExternalAPIKeyRepository) MarkUsed(context.Context, string) error { return nil }
 
+func (f *fakeExternalAPIKeyRepository) ActiveFundingPriority(context.Context, string, string) (auth.FundingPriority, error) {
+	return "", errors.New("not used")
+}
+
 func (f *fakeExternalAPIKeyRepository) UpdateFundingPriority(context.Context, string, string, auth.FundingPriority) (*auth.ExternalAPIKey, error) {
 	return nil, errors.New("not used")
 }

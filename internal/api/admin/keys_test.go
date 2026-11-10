@@ -362,6 +362,15 @@ func (f *fakeExternalAPIKeyRepo) UpdateModelAliases(_ context.Context, installat
 	return nil, auth.ErrExternalAPIKeyNotFound
 }
 func (f *fakeExternalAPIKeyRepo) MarkUsed(context.Context, string) error { return nil }
+func (f *fakeExternalAPIKeyRepo) ActiveFundingPriority(_ context.Context, installationID, provider string) (auth.FundingPriority, error) {
+	for _, k := range f.keys {
+		if k.InstallationID == installationID && k.Provider == provider {
+			return k.FundingPriority, nil
+		}
+	}
+	return "", nil
+}
+
 func (f *fakeExternalAPIKeyRepo) UpdateFundingPriority(_ context.Context, installationID, id string, priority auth.FundingPriority) (*auth.ExternalAPIKey, error) {
 	for _, k := range f.keys {
 		if k.ID == id && k.InstallationID == installationID {
@@ -694,4 +703,52 @@ func TestUpdateExternalKeyAliasesHandler_ForeignKeyIsNotFound(t *testing.T) {
 
 	assert.Equal(t, http.StatusNotFound, rec.Code, "another tenant's key must read as absent, not as a server error")
 	assert.Nil(t, repo.keys[0].ModelAliases)
+}
+
+func putFundingPriority(svc *auth.Service, id string, priority auth.FundingPriority) *httptest.ResponseRecorder {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.PUT("/admin/v1/provider-keys/:id/funding-priority", func(c *gin.Context) {
+		c.Set("router_installation", &auth.Installation{ID: "inst-1"})
+	}, admin.UpdateExternalKeyFundingPriorityHandler(svc))
+	body, _ := json.Marshal(map[string]any{"funding_priority": priority})
+	req := httptest.NewRequest(http.MethodPut, "/admin/v1/provider-keys/"+id+"/funding-priority", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+	return rec
+}
+
+func TestUpdateExternalKeyFundingPriorityHandler(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		ownerID    string
+		priority   auth.FundingPriority
+		wantStatus int
+		wantStored auth.FundingPriority
+	}{
+		{name: "sets key first", ownerID: "inst-1", priority: auth.FundingPriorityKeyFirst, wantStatus: http.StatusOK, wantStored: auth.FundingPriorityKeyFirst},
+		{name: "rejects unknown priority", ownerID: "inst-1", priority: "weave_first", wantStatus: http.StatusBadRequest, wantStored: auth.FundingPriorityPlanFirst},
+		{name: "rejects empty priority", ownerID: "inst-1", priority: "", wantStatus: http.StatusBadRequest, wantStored: auth.FundingPriorityPlanFirst},
+		{name: "foreign key is not found", ownerID: "inst-2", priority: auth.FundingPriorityKeyFirst, wantStatus: http.StatusNotFound, wantStored: auth.FundingPriorityPlanFirst},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{
+				{ID: "ext-1", InstallationID: tc.ownerID, Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityPlanFirst},
+			}}
+
+			rec := putFundingPriority(newUpsertKeyService(repo), "ext-1", tc.priority)
+
+			require.Equal(t, tc.wantStatus, rec.Code)
+			assert.Equal(t, tc.wantStored, repo.keys[0].FundingPriority)
+			if tc.wantStatus != http.StatusOK {
+				return
+			}
+			var body struct {
+				FundingPriority auth.FundingPriority `json:"funding_priority"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, tc.wantStored, body.FundingPriority)
+		})
+	}
 }

@@ -175,6 +175,21 @@ func (r *ExternalAPIKeyRepo) UpdateFundingPriority(ctx context.Context, installa
 	return toExternalAPIKey(row)
 }
 
+func (r *ExternalAPIKeyRepo) ActiveFundingPriority(ctx context.Context, installationID, provider string) (auth.FundingPriority, error) {
+	installationUUID, err := uuid.Parse(installationID)
+	if err != nil {
+		return "", err
+	}
+	priority, err := dbbudget.Queries(r.tx).GetActiveExternalAPIKeyFundingPriority(ctx, sqlc.GetActiveExternalAPIKeyFundingPriorityParams{
+		InstallationID: installationUUID,
+		Provider:       provider,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return auth.FundingPriority(priority), err
+}
+
 func (r *ExternalAPIKeyRepo) SoftDelete(ctx context.Context, installationID, id string) error {
 	installationUUID, err := uuid.Parse(installationID)
 	if err != nil {

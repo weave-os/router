@@ -49,7 +49,8 @@ terminal upstream failures are accounted as errors.
 
 A model the user picked in the client (sent with `X-Weave-Model-Passthrough: 1`
 and served as-is) funds the way the native client would. On the caller's own
-Claude/ChatGPT login it stays on that login: observed exhaustion or paid
+Claude/ChatGPT login it stays on that login (unless a `key_first` key for that
+provider is connected, which pays instead): observed exhaustion or paid
 overage does not move it off, Codex may spend that login's own credits, and the
 provider's own refusal reaches the client instead of a metered rescue. Without
 a login for the served provider it funds like a routed request (the managed
@@ -106,7 +107,7 @@ override; a `plan_first` key (the default for newly connected keys) leaves
 those subscriptions first and funds only turns no subscription can serve, such
 as another provider's harness routed to this provider, or a plan with quota
 exhaustion evidence. Anthropic keys connected before funding priorities were
-introduced are `key_first`; OpenAI keys are `plan_first`.
+introduced are `key_first`; OpenAI keys default to `plan_first`.
 In Enterprise-only mode observed included-quota exhaustion does not suppress a
 Claude account, while an actual provider refusal remains authoritative. Claude
 turns fail if their account cannot serve them; retry, failover, and auxiliary

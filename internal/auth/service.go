@@ -624,16 +624,11 @@ func (s *Service) upsertFundingPriority(ctx context.Context, installationID, pro
 	if requested != "" {
 		return NormalizeFundingPriority(requested)
 	}
-	existing, err := s.externalKeys.GetForInstallation(ctx, installationID)
+	existing, err := s.externalKeys.ActiveFundingPriority(ctx, installationID, provider)
 	if err != nil {
 		return "", err
 	}
-	for _, key := range existing {
-		if key.Provider == provider && key.FundingPriority != "" {
-			return NormalizeFundingPriority(key.FundingPriority)
-		}
-	}
-	return FundingPriorityPlanFirst, nil
+	return NormalizeFundingPriority(existing)
 }
 
 // SetExternalAPIKeyFundingPriority rejects an empty priority (no plan-first default, unlike upsert) and invalidates the installation's cached auth on success.

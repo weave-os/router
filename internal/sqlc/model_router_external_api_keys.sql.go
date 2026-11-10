@@ -186,6 +186,36 @@ func (q *Queries) CreateExternalAPIKey(ctx context.Context, arg CreateExternalAP
 	return i, err
 }
 
+const getActiveExternalAPIKeyFundingPriority = `-- name: GetActiveExternalAPIKeyFundingPriority :one
+SELECT funding_priority
+FROM router.model_router_external_api_keys
+WHERE installation_id = $1::uuid
+  AND provider = $2::varchar
+  AND deleted_at IS NULL
+LIMIT 1
+`
+
+type GetActiveExternalAPIKeyFundingPriorityParams struct {
+	InstallationID uuid.UUID
+	Provider       string
+}
+
+// Reads the active key's funding priority for a provider without loading its secret,
+// so an upsert that omits a priority can keep it.
+//
+//	SELECT funding_priority
+//	FROM router.model_router_external_api_keys
+//	WHERE installation_id = $1::uuid
+//	  AND provider = $2::varchar
+//	  AND deleted_at IS NULL
+//	LIMIT 1
+func (q *Queries) GetActiveExternalAPIKeyFundingPriority(ctx context.Context, arg GetActiveExternalAPIKeyFundingPriorityParams) (string, error) {
+	row := q.db.QueryRow(ctx, getActiveExternalAPIKeyFundingPriority, arg.InstallationID, arg.Provider)
+	var funding_priority string
+	err := row.Scan(&funding_priority)
+	return funding_priority, err
+}
+
 const getActiveExternalAPIKeysForInstallation = `-- name: GetActiveExternalAPIKeysForInstallation :many
 SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header, federation_config, funding_priority
 FROM router.model_router_external_api_keys

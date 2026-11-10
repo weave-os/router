@@ -86,6 +86,16 @@ WHERE id = @id::uuid
   AND installation_id = @installation_id::uuid
   AND deleted_at IS NULL;
 
+-- Reads the active key's funding priority for a provider without loading its secret,
+-- so an upsert that omits a priority can keep it.
+-- name: GetActiveExternalAPIKeyFundingPriority :one
+SELECT funding_priority
+FROM router.model_router_external_api_keys
+WHERE installation_id = @installation_id::uuid
+  AND provider = @provider::varchar
+  AND deleted_at IS NULL
+LIMIT 1;
+
 -- Soft-deletes the existing key for a provider before upsert.
 -- name: SoftDeleteExternalAPIKeyByProvider :exec
 UPDATE router.model_router_external_api_keys

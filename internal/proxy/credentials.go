@@ -78,8 +78,14 @@ type ExternalAPIKeysContextKey struct{}
 // reveals the charge. A plan-first key leaves subscriptions in play and only
 // funds turns no subscription can serve.
 func byokFirst(ctx context.Context, provider string) bool {
-	creds := BuildCredentialsMap(externalKeysFromContext(ctx))[provider]
-	return creds != nil && creds.FundingPriority == auth.FundingPriorityKeyFirst
+	// Mirrors BuildCredentialsMap: usable or explicitly failed keys only, last one wins.
+	keyFirst := false
+	for _, key := range externalKeysFromContext(ctx) {
+		if key.Provider == provider && (len(key.Plaintext) > 0 || key.CredentialError != nil) {
+			keyFirst = key.FundingPriority == auth.FundingPriorityKeyFirst
+		}
+	}
+	return keyFirst
 }
 
 func anthropicBYOKFirst(ctx context.Context) bool {
