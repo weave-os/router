@@ -1,0 +1,21 @@
+.github/workflows/test.yml
+  s_2ae4b5d5c3fc07::t_480f2864c20a8a 106-107,252-311,543-586
+docs/CI.md
+  s_2ae4b5d5c3fc07::t_de4136f52d8abe 130-143,155,163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8a437dd616a4b86bfa0b5ae71b5352aa33a0023c",
+  "prompts": {},
+  "sessions": {
+    "s_2ae4b5d5c3fc07": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1bd9f-a60b-7401-accd-77930e8968bf",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
