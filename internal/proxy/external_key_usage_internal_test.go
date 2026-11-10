@@ -25,12 +25,14 @@ func TestMarkServedExternalKeyUsed(t *testing.T) {
 		name      string
 		creds     *Credentials
 		servedErr error
+		managed   *ManagedSubscriptionUsage
 		want      []string
 	}{
 		{name: "served by stored key", creds: storedKey, want: []string{"key-1"}},
 		{name: "failed request", creds: storedKey, servedErr: errors.New("upstream 500")},
 		{name: "caller credential", creds: &Credentials{APIKey: []byte("sk-caller"), Source: credSourceClient}},
 		{name: "deployment key"},
+		{name: "served on managed subscription", creds: storedKey, managed: &ManagedSubscriptionUsage{Served: true, CredentialSource: credSourceSubscription}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -40,6 +42,9 @@ func TestMarkServedExternalKeyUsed(t *testing.T) {
 			ctx := context.Background()
 			if tc.creds != nil {
 				ctx = context.WithValue(ctx, CredentialsContextKey{}, tc.creds)
+			}
+			if tc.managed != nil {
+				ctx = context.WithValue(ctx, ManagedSubscriptionUsageContextKey{}, tc.managed)
 			}
 
 			svc.markServedExternalKeyUsed(ctx, tc.servedErr)

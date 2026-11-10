@@ -94,7 +94,7 @@ type Service struct {
 	codexEnrollmentVerifier    CodexEnrollmentVerifier
 	notifier                   InstallationChangeNotifier
 	now                        Clock
-	externalKeyLastMarked      sync.Map
+	externalKeyMarks           externalKeyMarks
 	encryptor                  Encryptor
 	keypairTokens              *KeypairTokenCache
 	anthropicFederationTokens  AnthropicFederationTokenSource

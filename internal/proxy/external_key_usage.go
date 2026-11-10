@@ -2,7 +2,7 @@ package proxy
 
 import "context"
 
-// ExternalKeyUsageRecorder stamps a stored customer provider key as used.
+// ExternalKeyUsageRecorder records that a stored customer provider key served a request. It is called on the request path, so implementations must not block.
 type ExternalKeyUsageRecorder interface {
 	MarkExternalAPIKeyUsed(ctx context.Context, id string)
 }
