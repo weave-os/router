@@ -54,6 +54,7 @@ router-off||local-toggle|yes|yes|no|no|manual|command,skill
 router-on||local-toggle|yes|yes|no|no|manual|command,skill
 router-status||local-toggle|yes|yes|no|no|manual|command,skill
 router-session||prompt|yes|yes|no|no|manual|command,skill
+list-models||prompt|yes|yes|no|no|manual|command,skill
 router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
 disable-routing||local-toggle|no|yes|no|no|manual|skill
 beta||prompt|yes|no|no|yes|manual|command

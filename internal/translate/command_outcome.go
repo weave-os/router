@@ -7,6 +7,7 @@ const (
 	CommandForceModel     CommandKind = "force_model"
 	CommandRouterSession  CommandKind = "router_session"
 	CommandRouterModels   CommandKind = "router_models"
+	CommandListModels     CommandKind = "list_models"
 	CommandRouterFeedback CommandKind = "router_feedback"
 	CommandLoopStop       CommandKind = "loop_stop"
 )

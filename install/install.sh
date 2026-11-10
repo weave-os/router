@@ -1603,7 +1603,7 @@ set_copilot_default_model() {
 # are reused with the sigil and client names rewritten. Codex-only toggles and
 # skills that depend on Codex session state are excluded.
 copilot_skill_names() {
-  weave_registry_skill_assets codex | grep -vxE 'disable-routing|router-session|router-models|models' || true
+  weave_registry_skill_assets codex | grep -vxE 'disable-routing|router-session|list-models|router-models|models' || true
 }
 
 # install_copilot_skills installs each router directive as a Copilot skill.
@@ -2260,6 +2260,7 @@ router-off||local-toggle|yes|yes|no|no|manual|command,skill
 router-on||local-toggle|yes|yes|no|no|manual|command,skill
 router-status||local-toggle|yes|yes|no|no|manual|command,skill
 router-session||prompt|yes|yes|no|no|manual|command,skill
+list-models||prompt|yes|yes|no|no|manual|command,skill
 router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
 disable-routing||local-toggle|no|yes|no|no|manual|skill
 beta||prompt|yes|no|no|yes|manual|command
@@ -4847,7 +4848,7 @@ install_slash_commands() {
   while IFS= read -r cmd; do
     [ -f "$commands_src_dir/$cmd.md" ] || continue
     case ",$cmd," in
-      *,router-off,*|*,router-on,*|*,router-status,*|*,router-session,*|*,router-models,*|*,models,*)
+      *,router-off,*|*,router-on,*|*,router-status,*|*,router-session,*|*,list-models,*|*,router-models,*|*,models,*)
         [ "$target" = "claude" ] || continue ;;
     esac
     [ -n "$cmds" ] && cmds="$cmds "
