@@ -121,7 +121,8 @@ func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*Credentials {
 			// Plaintext is a per-request bearer. AuthAccount/AuthUser are
 			// folded in so repointing a key at another upstream account is
 			// a different principal.
-			PrincipalID: strings.Join([]string{"external-key", key.ID, key.AuthAccount, key.AuthUser}, ":"),
+			PrincipalID:   strings.Join([]string{"external-key", key.ID, key.AuthAccount, key.AuthUser}, ":"),
+			ExternalKeyID: key.ID,
 		}
 	}
 	if len(m) == 0 {

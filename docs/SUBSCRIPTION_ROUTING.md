@@ -118,6 +118,9 @@ those subscriptions first and funds only turns no subscription can serve, such
 as another provider's harness routed to this provider, or a plan with quota
 exhaustion evidence. Anthropic keys connected before funding priorities were
 introduced are `key_first`; OpenAI keys default to `plan_first`.
+A key's `last_used_at` is stamped (at most once a minute per key and replica)
+after it successfully serves a request; a turn on a subscription, a caller
+credential or the deployment key does not count.
 In Enterprise-only mode observed included-quota exhaustion does not suppress a
 Claude account, while an actual provider refusal remains authoritative. Claude
 turns fail if their account cannot serve them; retry, failover, and auxiliary
