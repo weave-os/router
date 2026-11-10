@@ -52,6 +52,7 @@ const (
 	DispatchErrorCreditsExhausted
 	DispatchErrorSubscriptionPoolExhausted
 	DispatchErrorSubscriptionPoolUnavailable
+	DispatchErrorSubscriptionPoolThrottled
 	DispatchErrorTranslationIntrinsicallyIncompatible
 	DispatchErrorTranslationProviderUnavailable
 	DispatchErrorUserSpendLimitReached
@@ -193,6 +194,15 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			RetryAfter: true,
 			LogLevel:   "warn",
 			LogMessage: "Subscription account pool exhausted",
+		}, true
+	case errors.Is(err, ErrSubscriptionPoolThrottled):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorSubscriptionPoolThrottled,
+			Status:     http.StatusTooManyRequests,
+			Message:    "All enrolled subscription accounts are rate-limited. Retry shortly.",
+			RetryAfter: true,
+			LogLevel:   "warn",
+			LogMessage: "Subscription account pool throttled",
 		}, true
 	case errors.Is(err, ErrSubscriptionPoolUnavailable):
 		return DispatchErrorClass{

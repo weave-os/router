@@ -56,6 +56,7 @@ func TestClassifyDispatchError_SubscriptionPoolFailures(t *testing.T) {
 	}{
 		{name: "exhausted", err: proxy.ErrSubscriptionPoolExhausted, kind: proxy.DispatchErrorSubscriptionPoolExhausted, statusCode: http.StatusTooManyRequests},
 		{name: "unavailable", err: proxy.ErrSubscriptionPoolUnavailable, kind: proxy.DispatchErrorSubscriptionPoolUnavailable, statusCode: http.StatusServiceUnavailable},
+		{name: "throttled", err: proxy.ErrSubscriptionPoolThrottled, kind: proxy.DispatchErrorSubscriptionPoolThrottled, statusCode: http.StatusTooManyRequests},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

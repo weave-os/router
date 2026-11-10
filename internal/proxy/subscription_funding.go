@@ -139,6 +139,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		return nil
 	}
 	candidates, snapshotPresent := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate)
+	throttledBlocker := false
 	for _, candidate := range candidates {
 		// A seat that can never be leased can never prove exhaustion either.
 		if candidate.provider != auth.SubscriptionProvider(pool) || !candidate.enabled || candidate.state == auth.SubscriptionAccountStateDisabled || candidate.state == auth.SubscriptionAccountStateReconnectRequired {
@@ -150,7 +151,14 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		if refusal.counts && pool == subscriptions.ProviderClaude && (refusal.poolRefused || s.subscriptionModels.managedClientAppDenied(candidate.accountID, providers.ProviderAnthropic, refusal.clientApp, now)) {
 			continue
 		}
+		if managedAccountThrottled(ctx, candidate, now) {
+			throttledBlocker = true
+			continue
+		}
 		return fmt.Errorf("%w: included quota is available or unknown", ErrSubscriptionPoolUnavailable)
+	}
+	if throttledBlocker {
+		return ErrSubscriptionPoolThrottled
 	}
 	if !snapshotPresent {
 		enrolled, _ := ctx.Value(ManagedSubscriptionProvidersContextKey{}).(map[auth.SubscriptionProvider]struct{})
@@ -287,6 +295,18 @@ func (s *Service) linkedSeatCanCover(ctx context.Context, provider, model string
 		}
 	}
 	return false
+}
+
+// managedAccountThrottled reports a rate-limit cooldown, seen this turn or
+// persisted by an earlier one. It still blocks paid fallback; it only changes
+// how the refusal is reported.
+func managedAccountThrottled(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
+	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+		if state.ThrottledAccounts[candidate.accountID].After(now) {
+			return true
+		}
+	}
+	return candidate.state == auth.SubscriptionAccountStateCooldown && candidate.resetAt.After(now)
 }
 
 func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
