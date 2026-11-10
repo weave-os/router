@@ -30,7 +30,9 @@ var rosterAliases = map[string]string{
 	"grok-4.6": "x-ai/grok-4.6",
 	"grok-4.7": "x-ai/grok-4.7",
 	// Same for Meta's first-party Muse Spark.
-	"muse-spark-1.3": "meta/muse-spark-1.3",
+	"muse-spark-1.3":  "meta/muse-spark-1.3",
+	"muse-ember-1.0":  "meta/muse-ember-1.0",
+	"muse-wonder-1.0": "meta/muse-wonder-1.0",
 }
 
 // ForModel maps a compiled catalog model to its canonical roster identity.

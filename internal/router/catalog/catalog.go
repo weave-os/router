@@ -20,6 +20,12 @@ const ModelMiMoV26Flash = "xiaomi/mimo-v2.6-flash"
 // ModelMuseSparkOpen is the canonical Meta Muse Spark Open model ID.
 const ModelMuseSparkOpen = "meta/muse-spark-open"
 
+// ModelMuseEmber is the canonical Meta Muse Ember model ID.
+const ModelMuseEmber = "muse-ember-1.0"
+
+// ModelMuseWonder is the canonical Meta Muse Wonder model ID.
+const ModelMuseWonder = "muse-wonder-1.0"
+
 // Tier is the coarse capability bucket. Higher is stronger; integer
 // ordering is load-bearing (planner compares freshTier > pinTier).
 type Tier int
@@ -616,6 +622,14 @@ var Models = []Model{
 	// license is verified either way.
 	{ID: "muse-spark-1.3", Source: SourceUnknown, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderMeta, Price: Pricing{InputUSDPer1M: 1.25, OutputUSDPer1M: 4.25, CacheReadMultiplier: 0.12}},
+	}},
+	// Muse Ember ($0.10/$0.50, cache reads $0.004) and Muse Wonder ($4/$20,
+	// cache reads $0.20) are served only by Meta's Model API.
+	{ID: ModelMuseEmber, Source: SourceUnknown, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderMeta, Price: Pricing{InputUSDPer1M: 0.10, OutputUSDPer1M: 0.50, CacheReadMultiplier: 0.004 / 0.10}},
+	}},
+	{ID: ModelMuseWonder, Source: SourceUnknown, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderMeta, Price: Pricing{InputUSDPer1M: 4.00, OutputUSDPer1M: 20.00, CacheReadMultiplier: 0.20 / 4.00}},
 	}},
 	// Muse Spark Open: the open-weight 816B-A42B release. Every host lists
 	// $1.25/$4.25; Together is the one the router supports.
