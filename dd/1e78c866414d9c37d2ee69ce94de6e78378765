@@ -1,0 +1,51 @@
+internal/auth/user.go
+  s_246ffb093e877e::t_122ddbcc63403b 57-63,70-71
+internal/proxy/client_identity.go
+  s_246ffb093e877e::t_b2e40748b675f6 74-79,95-97
+db/migrations/0139_credential-subject-router-users.down.sql
+  s_246ffb093e877e::t_8b5dbc95a8684c 1-13
+internal/api/openai/responses.go
+  s_246ffb093e877e::t_b2e40748b675f6 37
+internal/sqlc/model_router_users.sql.go
+  s_246ffb093e877e::t_79a92da6e9b8c4 16,24,40,46,55,78,108,142,155-220,241,260,262,264,275-283,327,346,348,350,368
+db/queries/model_router_users.sql
+  s_246ffb093e877e::t_79a92da6e9b8c4 94-117
+internal/api/openai/completions.go
+  s_246ffb093e877e::t_b2e40748b675f6 33
+internal/api/anthropic/messages.go
+  s_246ffb093e877e::t_b2e40748b675f6 58
+internal/postgres/user_repo.go
+  s_246ffb093e877e::t_122ddbcc63403b 41-49,74-87,89-91
+  s_246ffb093e877e::t_166bfd54c16cfc 88,92-94
+internal/auth/user_test.go
+  s_246ffb093e877e::t_5f66a936133fc8 20,45-54,355-410
+internal/api/anthropic/messages_test.go
+  s_246ffb093e877e::t_5f66a936133fc8 56-60
+internal/sqlc/models.go
+  s_246ffb093e877e::t_79a92da6e9b8c4 770-771
+internal/proxy/client_identity_test.go
+  s_246ffb093e877e::t_5f66a936133fc8 23,45-48,175,191,276,362-409
+internal/auth/service.go
+  s_246ffb093e877e::t_b2e40748b675f6 987-1016
+  s_246ffb093e877e::t_ecce25472ee8d9 985-986
+internal/api/gemini/generate_content.go
+  s_246ffb093e877e::t_b2e40748b675f6 59
+db/migrations/0139_credential-subject-router-users.up.sql
+  s_246ffb093e877e::t_8b5dbc95a8684c 1-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dd1e78c866414d9c37d2ee69ce94de6e78378765",
+  "prompts": {},
+  "sessions": {
+    "s_246ffb093e877e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "07d947d2-9a43-4479-8bd0-2dee4392d4d0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

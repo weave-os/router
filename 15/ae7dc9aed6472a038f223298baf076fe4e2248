@@ -1,0 +1,24 @@
+internal/server/middleware/direct_admission.go
+  s_bb70eca694eafa::t_11c41cdb57367f 60
+  s_bb70eca694eafa::t_c24fcc43f44cce 79-80,95-97,104
+internal/server/middleware/direct_routing_model_test.go
+  s_bb70eca694eafa::t_1b917ef6c0bc4c 14,29
+  s_bb70eca694eafa::t_6bb6a61708dc29 17,19-23,26-28,30-33,40,42,70-71
+  s_bb70eca694eafa::t_11c41cdb57367f 24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "15ae7dc9aed6472a038f223298baf076fe4e2248",
+  "prompts": {},
+  "sessions": {
+    "s_bb70eca694eafa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17eeb-e824-7be2-be7d-83449d1d9505",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

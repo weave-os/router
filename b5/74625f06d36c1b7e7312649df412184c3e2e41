@@ -1,0 +1,32 @@
+install/tests/cc-statusline_test.sh
+  s_d3d78e624b1f05::t_5743cf14c0654a 688,695,707,714-762
+  s_d3d78e624b1f05::t_818ad45234c88a 696-706
+install/cc-statusline.sh
+  s_d3d78e624b1f05::t_e4e70b3051b429 352,378-379,394-399,481-486,489,1139,1150,1152-1171,1173
+internal/api/admin/display_settings_test.go
+  s_d3d78e624b1f05::t_9cf7ed7124609e 10,65,70,76-77,95-115,118,130
+  s_d3d78e624b1f05::t_818ad45234c88a 79-94
+install/install.sh
+  s_d3d78e624b1f05::t_7f0e9df2d65279 7224,7250-7251,7266-7271,7353-7358,7361,8011,8022,8024-8026,8028-8045
+internal/api/admin/display_settings.go
+  s_d3d78e624b1f05::t_84416dc15057dd 4,8,22-28,44-50,53-54,59-61,64,69-77,80-94,97-98
+install/README.md
+  s_d3d78e624b1f05::t_22d2dbce1addca 553,558-561
+  s_d3d78e624b1f05::t_893847209dd26e 562
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b574625f06d36c1b7e7312649df412184c3e2e41",
+  "prompts": {},
+  "sessions": {
+    "s_d3d78e624b1f05": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b40a-800d-7ed0-b670-64eddd2dbd0d",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+internal/router/policy/contract.go
+  s_dc841142dd86a8::t_058c3492ea0aec 189-199
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "03678a9c31e5923344054e271628d8a76aa8cb51",
+  "prompts": {},
+  "sessions": {
+    "s_dc841142dd86a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08c98-6b91-7643-8031-133ff9002149",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

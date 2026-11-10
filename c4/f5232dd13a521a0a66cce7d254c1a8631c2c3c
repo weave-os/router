@@ -1,0 +1,25 @@
+install/install.sh
+  s_049874a7166f8d::t_d8bb7a3e124cca 4264-4276,4281,4283,4286-4287,4290
+  s_049874a7166f8d::t_f744e4c261c0ae 4277-4280,4282,4284,4288-4289,4291
+install/tests/codex-toggle_test.sh
+  s_049874a7166f8d::t_d8bb7a3e124cca 199-222
+install/codex-toggle.sh
+  s_049874a7166f8d::t_d8bb7a3e124cca 37-49,54,56,59-60,63
+  s_049874a7166f8d::t_f744e4c261c0ae 50-53,55,57,61-62,64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c4f5232dd13a521a0a66cce7d254c1a8631c2c3c",
+  "prompts": {},
+  "sessions": {
+    "s_049874a7166f8d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b6a9f0a-cd46-4fd9-942c-7daea97cec2a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

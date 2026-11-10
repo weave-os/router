@@ -1,0 +1,21 @@
+internal/api/anthropic/messages.go
+  s_fe45311f065c44::t_07d37562021082 113
+internal/proxy/session_key_internal_test.go
+  s_fe45311f065c44::t_fa267aa77c3b4a 48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "392e86b8c2ee9c3242cb9faf7da626bf0e496d81",
+  "prompts": {},
+  "sessions": {
+    "s_fe45311f065c44": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17630-7642-7322-a264-569cda5bc37b",
+        "model": "weave-hmm-20261019-0001v1"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
