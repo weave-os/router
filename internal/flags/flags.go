@@ -142,9 +142,9 @@ const (
 	KeyPlanUserClusterLists                 Key = "plan_user_cluster_lists"
 )
 
-// These keys were valid organization overrides before struggle escalation was
-// removed. Keep them parse-only so an installation row written by an older
-// revision cannot invalidate unrelated active overrides during a rolling
+// These keys were valid organization overrides before their respective flags
+// were retired. Keep them parse-only so an installation row written by an
+// older revision cannot invalidate unrelated active overrides during a rolling
 // deploy. They are never registered, published, or read by routing code.
 const (
 	retiredKeyStruggleEscalationEnabled Key = "struggle_escalation_enabled"
