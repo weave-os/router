@@ -18,6 +18,7 @@ var rosterAliases = map[string]string{
 	"claude-opus-4-8":      "anthropic/claude-opus-4.8",
 	"claude-fable-5":       "anthropic/claude-fable-5",
 	"claude-fable-5-1":     "anthropic/claude-fable-5.1",
+	"claude-fable-5-2":     "anthropic/claude-fable-5.2",
 	"claude-opus-5-5":      "anthropic/claude-opus-5.5",
 	"claude-sonnet-5-5":    "anthropic/claude-sonnet-5.5",
 	"moonshotai/kimi-k2.7": "moonshotai/kimi-k2.7-code",

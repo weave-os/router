@@ -7,11 +7,12 @@ export interface ModelPricing {
 	cacheReadMultiplier: number;
 }
 
-export const PRICING_VERSION = "catalog-sha256:4e5766ccc4a7082f";
+export const PRICING_VERSION = "catalog-sha256:2c45561ce4fdce40";
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({
 	"claude-fable-5": { inputUsdPerMillion: 10, outputUsdPerMillion: 50, cacheReadMultiplier: 0.1 },
 	"claude-fable-5-1": { inputUsdPerMillion: 10, outputUsdPerMillion: 50, cacheReadMultiplier: 0.025 },
+	"claude-fable-5-2": { inputUsdPerMillion: 8, outputUsdPerMillion: 40, cacheReadMultiplier: 0.025 },
 	"claude-haiku-4-5": { inputUsdPerMillion: 1, outputUsdPerMillion: 5, cacheReadMultiplier: 0.1 },
 	"claude-haiku-5-5": { inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.5, cacheReadMultiplier: 0.1 },
 	"claude-opus-4-0": { inputUsdPerMillion: 15, outputUsdPerMillion: 75, cacheReadMultiplier: 0.1 },

@@ -397,6 +397,13 @@ var Models = []Model{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.025, USInferenceGeoMultiplier: USInferenceGeoMultiplier}},
 		{Provider: providers.ProviderOpenRouter, UpstreamID: "anthropic/claude-fable-5.1", SubscriptionOverflowOnly: true, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.025}},
 	}},
+	// Fable 5.2: $8/$40, cache reads at $0.20/MTok (0.025x), fast mode $16/$80.
+	// Same wire quirks as Fable 5.1. Not a cluster roster member until it has
+	// quality labels.
+	{ID: "claude-fable-5-2", Source: SourceClosedSource, Tier: TierHigh, AdvisorRank: 10, ContextWindow: 1_000_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00, CacheReadMultiplier: 0.025, USInferenceGeoMultiplier: USInferenceGeoMultiplier}, FastPrice: Pricing{InputUSDPer1M: 16.00, OutputUSDPer1M: 80.00}},
+		{Provider: providers.ProviderOpenRouter, UpstreamID: "anthropic/claude-fable-5.2", SubscriptionOverflowOnly: true, Price: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00, CacheReadMultiplier: 0.025}},
+	}},
 
 	// --- OpenAI GPT-4.x (legacy) ---
 	{ID: "gpt-4.1-nano", Source: SourceClosedSource, Tier: TierLow, ContextWindow: 1_047_576, Providers: []ProviderBinding{

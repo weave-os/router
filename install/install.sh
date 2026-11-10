@@ -1365,6 +1365,7 @@ write_pi_models_config() {
       authHeader: false,
       headers: $headers,
       models: [
+        { id: "claude-fable-5-2",  name: "Claude Fable 5.2 (via Weave Router)",  reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
         { id: "claude-fable-5-1",  name: "Claude Fable 5.1 (via Weave Router)",  reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
         { id: "claude-fable-5",    name: "Claude Fable 5 (via Weave Router)",    reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
         { id: "claude-opus-5-5",   name: "Claude Opus 5.5 (via Weave Router)",   reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
@@ -3093,7 +3094,7 @@ prepare_claude_context_window() {
   model="${model:-sonnet}"
   case "$model" in
     *'[1m]') context_window=""; return 0 ;;
-    sonnet|opus|fable|claude-sonnet-4-6|claude-sonnet-5|claude-sonnet-5-5|claude-haiku-5-5|claude-opus-4-6|claude-opus-4-7|claude-opus-4-8|claude-opus-5|claude-opus-5-5|claude-fable-5|claude-fable-5-1) ;;
+    sonnet|opus|fable|claude-sonnet-4-6|claude-sonnet-5|claude-sonnet-5-5|claude-haiku-5-5|claude-opus-4-6|claude-opus-4-7|claude-opus-4-8|claude-opus-5|claude-opus-5-5|claude-fable-5|claude-fable-5-1|claude-fable-5-2) ;;
     *) err "Cannot assert 1M support for '$model'. Select a supported Sonnet/Opus/Fable model first; leaving it unchanged."; return 1 ;;
   esac
   context_managed_model="${model}[1m]"
@@ -7561,6 +7562,7 @@ prices='{
   "input": {
     "claude-fable-5":                   0.01,
     "claude-fable-5-1":                 0.01,
+    "claude-fable-5-2":                 0.008,
     "claude-haiku-4-5":                 0.001,
     "claude-haiku-5-5":                 0.0001,
     "claude-opus-4-0":                  0.015,
@@ -7657,6 +7659,7 @@ prices='{
   "output": {
     "claude-fable-5":                   0.05,
     "claude-fable-5-1":                 0.05,
+    "claude-fable-5-2":                 0.04,
     "claude-haiku-4-5":                 0.005,
     "claude-haiku-5-5":                 0.0005,
     "claude-opus-4-0":                  0.075,
@@ -7753,6 +7756,7 @@ prices='{
   "cache_read": {
     "claude-fable-5":                   0.1,
     "claude-fable-5-1":                 0.025,
+    "claude-fable-5-2":                 0.025,
     "claude-haiku-4-5":                 0.1,
     "claude-haiku-5-5":                 0.1,
     "claude-opus-4-0":                  0.1,

@@ -140,6 +140,9 @@ var (
 	// any/tool ("not supported for this model"); opus-5 and fable-5 accept them.
 	anthropicAdaptiveFallbackAutoTools = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly)
 	anthropicExtended                  = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapExtendedThinking, CapAssistantPrefill)
+
+	// Fable 5.1+ also reject temperature and top_p ("deprecated for this model").
+	anthropicFable51 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly, CapTemperatureUnsupported)
 )
 
 var (
@@ -178,12 +181,9 @@ var openAICompatBase = NewSpec()
 var registry = map[string]ModelSpec{
 	// claude-fable-5 has adaptive thinking always on (disabled is rejected);
 	// 1M context is native, so CapExtendedContext's beta header is a no-op.
-	"claude-fable-5": anthropicAdaptiveFallback,
-	"claude-fable-5-1": NewSpecWithReasoning(
-		ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true},
-		CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback,
-		CapAutoToolChoiceOnly, CapTemperatureUnsupported,
-	),
+	"claude-fable-5":   anthropicAdaptiveFallback,
+	"claude-fable-5-1": anthropicFable51,
+	"claude-fable-5-2": anthropicFable51,
 	"claude-opus-5-5": NewSpecWithReasoning(
 		ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true},
 		CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback,
