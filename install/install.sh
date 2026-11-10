@@ -1602,7 +1602,7 @@ set_copilot_default_model() {
 # are reused with the sigil and client names rewritten. Codex-only toggles and
 # skills that depend on Codex session state are excluded.
 copilot_skill_names() {
-  weave_registry_skill_assets codex | grep -vxE 'disable-routing|router-session|router-models|models' || true
+  weave_registry_skill_assets codex | grep -vxE 'disable-routing|router-session|list-models|router-models|models' || true
 }
 
 # install_copilot_skills installs each router directive as a Copilot skill.

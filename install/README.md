@@ -734,7 +734,8 @@ installer owns the config file.
   skill sends the leading-space prompt form.
 - **Copilot CLI** gets the Codex skill set as Copilot skills, invoked with `/`
   (Copilot exposes `~/.copilot/skills/<name>` as `/<name>`). The Codex-only
-  `disable-routing`, `router-session`, and `router-models` are not installed.
+  `disable-routing`, `router-session`, `list-models`, and `router-models` are not
+  installed.
 - **pi** implements `/fm` and `/ufm` in the `@weave-os/router` extension rather
   than through installed files; the registry asserts its names match.
 - **Cursor** exposes no command or skill file this installer owns, so its

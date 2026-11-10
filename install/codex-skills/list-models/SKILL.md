@@ -1,6 +1,6 @@
 ---
 name: list-models
-description: "List the models this Codex session can pin with $force-model through the Weave Router."
+description: "List the models this Codex session can pin through the Weave Router."
 ---
 
 <!-- weave-router managed list-models skill -->
