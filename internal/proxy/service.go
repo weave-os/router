@@ -8302,8 +8302,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				// A passthrough writer set up for an OpenAI pick forwards bytes
 				// verbatim, so another family replacing that pick must be
 				// translated instead.
-				if isResponses && d.Provider != providers.ProviderOpenAI && responsesWriter.Passthrough() {
-					clearWithheldPassthrough(responsesWriter, preludeBuf)
+				if isResponses && d.Provider != providers.ProviderOpenAI {
+					if err := leaveResponsesPassthrough(responsesWriter, preludeBuf); err != nil {
+						return err
+					}
 				}
 				surface := surfaceChat
 				if d.Provider == providers.ProviderOpenAI {

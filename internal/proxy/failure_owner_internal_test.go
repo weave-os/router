@@ -8,6 +8,7 @@ import (
 	"go/parser"
 	"go/token"
 	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
@@ -124,6 +125,7 @@ func TestClassifyFailureOwner_Cases(t *testing.T) {
 		{"handoff invalid", failureOwnerInput{Err: ErrHandoffInvalid}, FailureOwnerClient},
 		{"context overflow", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 250000 tokens > 200000 maximum"}}`)}, BodyTranslated: true}, FailureOwnerClient},
 		{"subscription pool exhausted", failureOwnerInput{Err: fmt.Errorf("dispatch: %w", ErrSubscriptionPoolExhausted)}, FailureOwnerRouter},
+		{"responses passthrough cannot switch format", failureOwnerInput{Err: errResponsesPassthroughStuck}, FailureOwnerRouter},
 		{"custom tool arguments untranslatable", failureOwnerInput{Err: fmt.Errorf("write: %w", translate.ErrCustomToolArguments), BodyTranslated: true}, FailureOwnerRouter},
 		{"http/2 connection lost to the provider", failureOwnerInput{Err: http2LostPing()}, FailureOwnerProvider},
 		{"http/2 stream reset by the provider", failureOwnerInput{Err: http2PeerStreamReset()}, FailureOwnerProvider},
@@ -166,4 +168,19 @@ func TestTurnFailureOwnerAfterUpstreamFinish(t *testing.T) {
 			assert.Equal(t, tc.want, turnFailureOwnerAfterFinish(context.Background(), tc.err, class, tc.finish))
 		})
 	}
+}
+
+func TestLeaveResponsesPassthrough(t *testing.T) {
+	clean := translate.NewResponsesWriter(httptest.NewRecorder(), "synthetic")
+	clean.SetPassthrough()
+	require.NoError(t, leaveResponsesPassthrough(clean, nil))
+	assert.False(t, clean.Passthrough(), "a writer with nothing forwarded translates the next attempt")
+
+	forwarded := translate.NewResponsesWriter(httptest.NewRecorder(), "synthetic")
+	forwarded.SetPassthrough()
+	forwarded.Header().Set("Content-Type", "text/event-stream")
+	_, err := forwarded.Write([]byte(`data: {"type":"response.created","response":{"id":"resp_synthetic"}}` + "\n\n"))
+	require.NoError(t, err)
+	assert.ErrorIs(t, leaveResponsesPassthrough(forwarded, nil), errResponsesPassthroughStuck)
+	assert.True(t, forwarded.Passthrough())
 }

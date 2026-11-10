@@ -49,7 +49,7 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 	if errors.Is(err, context.Canceled) {
 		return FailureOwnerClient
 	}
-	if errors.Is(err, translate.ErrCustomToolArguments) {
+	if errors.Is(err, translate.ErrCustomToolArguments) || errors.Is(err, errResponsesPassthroughStuck) {
 		return FailureOwnerRouter
 	}
 	if cls, ok := ClassifyDispatchError(err); ok && cls.Kind != DispatchErrorUpstreamStatus {
