@@ -768,25 +768,25 @@ func (c *Client) classifyV5(ctx context.Context, path string, query policy.Query
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	response, payload, err := classifierClient.doPolicyRequest(requestCtx, path, requestBody)
+	status, payload, err := classifierClient.doPolicyRequest(requestCtx, path, requestBody)
 	if err != nil {
 		return classifierResponseV5{}, err
 	}
 	var wire classifierResponseV5
 	if err := decodeStrictJSON(payload, &wire); err != nil {
-		return classifierResponseV5{}, fmt.Errorf("decode v5 classifier %s response (status %d): %w", path, response.StatusCode, err)
+		return classifierResponseV5{}, fmt.Errorf("decode v5 classifier %s response (status %d): %w", path, status, err)
 	}
-	if response.StatusCode != http.StatusOK {
-		if pinErr := classifierPinUnavailable(query, response.StatusCode); pinErr != nil {
+	if status != http.StatusOK {
+		if pinErr := classifierPinUnavailable(query, status); pinErr != nil {
 			return classifierResponseV5{}, pinErr
 		}
 		if wire.Error != "" {
-			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, response.StatusCode, wire.Error)
+			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, status, wire.Error)
 		}
 		if wire.Detail != "" {
-			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, response.StatusCode, wire.Detail)
+			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, status, wire.Detail)
 		}
-		return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d", path, response.StatusCode)
+		return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d", path, status)
 	}
 	if err := validateClassifierResponseV5(query, wire); err != nil {
 		return classifierResponseV5{}, fmt.Errorf("invalid v5 classifier %s response: %w", path, err)
