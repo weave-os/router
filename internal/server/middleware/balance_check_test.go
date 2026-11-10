@@ -534,7 +534,7 @@ func TestWithBalanceCheck_MarksWeaveCreditsDenied(t *testing.T) {
 		engine.GET("/probe", func(c *gin.Context) {
 			c.Set("router_installation", &auth.Installation{ID: "00000000-0000-0000-0000-000000000001", ExternalID: "org_x", WeaveCreditInferenceEnabled: allowed})
 			middleware.WithBalanceCheck(svc, 1_000_000)(c)
-			denied = errors.Is(proxy.WeaveCreditsDeniedError(c.Request.Context()), proxy.ErrWeaveCreditsDisabled)
+			denied = billing.WeaveCreditsDeniedFromContext(c.Request.Context())
 			c.Status(http.StatusOK)
 		})
 		engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/probe", nil))

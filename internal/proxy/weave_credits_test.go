@@ -42,7 +42,7 @@ func TestProxyMessages_WeaveCreditsDenied(t *testing.T) {
 			ctx := context.WithValue(context.Background(), proxy.ExternalIDContextKey{}, "org-credits")
 			ctx = billing.WithOrganizationPrepaid(ctx)
 			if tc.denied {
-				ctx = proxy.WithWeaveCreditsDenied(ctx)
+				ctx = billing.WithWeaveCreditsDenied(ctx)
 			}
 			if tc.keys != nil {
 				ctx = context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, tc.keys)

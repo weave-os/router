@@ -3855,6 +3855,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 var anthropicPingFrame = []byte(sseEvent("ping", `{"type":"ping"}`))
 
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	ctx = withWeaveCreditsFunding(ctx, r.Header)
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
 	// A machine search helper inherits conversation headers but must never
@@ -4168,11 +4169,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
 		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
 	}
-	if weaveCreditsDenied(ctx) {
-		enabledProviders = restrictToCustomerFundedProviders(ctx, r.Header, enabledProviders)
-		if len(enabledProviders) == 0 {
-			return ErrWeaveCreditsDisabled
-		}
+	var creditsErr error
+	if enabledProviders, creditsErr = applyWeaveCreditsPolicy(ctx, enabledProviders); creditsErr != nil {
+		return creditsErr
 	}
 
 	// Anthropic's native web-search server tool, when no enabled provider runs
@@ -6907,6 +6906,15 @@ func (s *Service) hasOpenAIInfrastructureCredential(ctx context.Context, headers
 	return false
 }
 
+// openAIPaidCredentialAvailable is hasOpenAIInfrastructureCredential, except
+// that only the customer's usable key counts while Weave credits are denied.
+func (s *Service) openAIPaidCredentialAvailable(ctx context.Context, headers http.Header) bool {
+	if weaveCreditsDenied(ctx) {
+		return usableBYOK(ctx, providers.ProviderOpenAI) != nil
+	}
+	return s.hasOpenAIInfrastructureCredential(ctx, headers)
+}
+
 // excludeCodexOAuthOnlyModels keeps model eligibility aligned with credential
 // resolution. When ChatGPT OAuth is the only way OpenAI became eligible (or
 // billing forbids paid fallback), only the native Codex roster and explicitly
@@ -6919,7 +6927,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 	excluded map[string]struct{},
 ) map[string]struct{} {
 	_, codexAvailable := subscriptionServableProviders(ctx, headers)[providers.ProviderOpenAI]
-	if !codexAvailable || (!paidFallbackForbidden(ctx) && s.hasOpenAIInfrastructureCredential(ctx, headers)) {
+	if !codexAvailable || (!paidFallbackForbidden(ctx) && s.openAIPaidCredentialAvailable(ctx, headers)) {
 		return excluded
 	}
 	for _, model := range catalog.Models {
@@ -7324,6 +7332,7 @@ const (
 // ProxyOpenAIChatCompletion routes an OpenAI Chat Completion request,
 // translating cross-format when the decision picks a non-OpenAI provider.
 func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	ctx = withWeaveCreditsFunding(ctx, r.Header)
 	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
 	defer finishBlindExperimentWriter()
 	ctx = withAttemptTrace(ctx, body, r.Header)
@@ -7587,11 +7596,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
 		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
 	}
-	if weaveCreditsDenied(ctx) {
-		enabledProviders = restrictToCustomerFundedProviders(ctx, r.Header, enabledProviders)
-		if len(enabledProviders) == 0 {
-			return ErrWeaveCreditsDisabled
-		}
+	var creditsErr error
+	if enabledProviders, creditsErr = applyWeaveCreditsPolicy(ctx, enabledProviders); creditsErr != nil {
+		return creditsErr
 	}
 
 	// Codex (ChatGPT) subscription passthrough: ProxyOpenAIResponses stashed the
