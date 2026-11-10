@@ -2,6 +2,7 @@ package subscriptions
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -158,18 +159,16 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 	var candidateSignals map[string]CandidateSignal
 	if quotaAwareSelection {
 		candidateSignals = snapshotCandidateSignals(accounts, provider, r.candidateSignal, r.clock())
-		orderSubscriptionCandidates(accounts, requester.SubscriberID, candidateSignals)
+		slices.SortStableFunc(accounts, func(left, right *auth.SubscriptionAccount) int {
+			return compareSubscriptionCandidates(left, right, requester.SubscriberID, candidateSignals)
+		})
 	}
 	affinityKey := requester.InstallationID + "|" + requester.SubscriberID + "|" + string(provider) + "|" + sessionID
 	if sessionID != "" {
 		if preferred, ok := r.affinity.Get(affinityKey); ok {
 			// Preserve personal-before-shared ordering; affinity only reorders a tier.
-			var sortSignals map[string]CandidateSignal
-			if quotaAwareSelection {
-				sortSignals = candidateSignals
-			}
 			slices.SortStableFunc(accounts, func(left, right *auth.SubscriptionAccount) int {
-				if rank := compareSubscriptionCandidates(left, right, requester.SubscriberID, sortSignals); rank != 0 {
+				if rank := compareSubscriptionCandidates(left, right, requester.SubscriberID, candidateSignals); rank != 0 {
 					return rank
 				}
 				if left.ID == preferred {
@@ -234,12 +233,6 @@ func snapshotCandidateSignals(accounts []*auth.SubscriptionAccount, provider Pro
 	return signals
 }
 
-func orderSubscriptionCandidates(accounts []*auth.SubscriptionAccount, subscriberID string, signals map[string]CandidateSignal) {
-	slices.SortStableFunc(accounts, func(left, right *auth.SubscriptionAccount) int {
-		return compareSubscriptionCandidates(left, right, subscriberID, signals)
-	})
-}
-
 func compareSubscriptionCandidates(left, right *auth.SubscriptionAccount, subscriberID string, signals map[string]CandidateSignal) int {
 	if left.ID == right.ID {
 		return 0
@@ -266,17 +259,11 @@ func compareSubscriptionCandidates(left, right *auth.SubscriptionAccount, subscr
 		}
 		return -1
 	}
-	if !leftSignal.ResetAt.Equal(rightSignal.ResetAt) {
-		if leftSignal.ResetAt.Before(rightSignal.ResetAt) {
-			return -1
-		}
-		return 1
+	if rank := leftSignal.ResetAt.Compare(rightSignal.ResetAt); rank != 0 {
+		return rank
 	}
-	if leftSignal.UsedFraction != rightSignal.UsedFraction {
-		if leftSignal.UsedFraction < rightSignal.UsedFraction {
-			return -1
-		}
-		return 1
+	if rank := cmp.Compare(leftSignal.UsedFraction, rightSignal.UsedFraction); rank != 0 {
+		return rank
 	}
 	return 0
 }
