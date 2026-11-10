@@ -1,5 +1,5 @@
 {
-  "pricing_version": "catalog-sha256:2c45561ce4fdce40",
+  "pricing_version": "catalog-sha256:0c0503a5619c22c7",
   "models": {
     "claude-fable-5": {
       "input_usd_per_million": 10,
@@ -407,6 +407,12 @@
       "input_usd_per_million": 0.06,
       "output_usd_per_million": 0.18,
       "cache_read_multiplier": 0.2,
+      "cache_write_multiplier": 1.25
+    },
+    "meta/muse-spark-open": {
+      "input_usd_per_million": 1.25,
+      "output_usd_per_million": 4.25,
+      "cache_read_multiplier": 0.12,
       "cache_write_multiplier": 1.25
     },
     "minimax/minimax-m2.7": {

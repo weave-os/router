@@ -614,6 +614,12 @@ var Models = []Model{
 	{ID: "muse-spark-1.3", Source: SourceUnknown, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderMeta, Price: Pricing{InputUSDPer1M: 1.25, OutputUSDPer1M: 4.25, CacheReadMultiplier: 0.12}},
 	}},
+	// Muse Spark Open: the open-weight 816B-A42B release. Every host lists
+	// $1.25/$4.25; Together is the one the router supports.
+	{ID: "meta/muse-spark-open", Source: SourceOpenSource, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderTogether, UpstreamID: "meta-models/Muse-Spark-Open-816B-A42B",
+			Price: Pricing{InputUSDPer1M: 1.25, OutputUSDPer1M: 4.25, CacheReadMultiplier: 0.15 / 1.25}},
+	}},
 
 	// --- Google Gemini 2.x ---
 	{ID: "gemini-2.0-flash-lite", Source: SourceClosedSource, ContextWindow: 1_048_576, Providers: []ProviderBinding{
