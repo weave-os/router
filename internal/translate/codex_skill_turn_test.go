@@ -159,3 +159,27 @@ func TestStripThenExtract_SkillBlobAfterAnAckDoesNotRevivePriorFeedback(t *testi
 	_, found := env.ExtractRouterFeedbackCommand()
 	assert.False(t, found, "a completed feedback turn must not be recorded twice")
 }
+
+func TestStripThenExtract_SkillBlobDoesNotEatBetaDirective(t *testing.T) {
+	env := codexEnvelope(t,
+		codexUserItem("<environment_context><cwd>/x</cwd></environment_context>"),
+		codexUserItem("$beta"),
+		codexUserItem(codexSkillBlob),
+	)
+	env.StripBetaArtifacts()
+	res, found := env.ExtractBetaCommand()
+	require.True(t, found, "StripBetaArtifacts must not remove the current directive before extraction")
+	assert.False(t, res.Invalid)
+}
+
+func TestStripThenExtract_PriorBetaTurnStillStripped(t *testing.T) {
+	env := codexEnvelope(t,
+		codexUserItem("$beta"),
+		codexAssistantItem("✦ **Weave Router** → Beta enabled. Type /beta again to turn it off.\n\n"),
+		codexUserItem("now do something else"),
+	)
+	removed := env.StripBetaArtifacts()
+	assert.Positive(t, removed, "a completed beta exchange is history, not the current turn")
+	_, found := env.ExtractBetaCommand()
+	assert.False(t, found)
+}

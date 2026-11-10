@@ -44,13 +44,21 @@ func (env *RequestEnvelope) StripBetaArtifacts() int {
 		return 0
 	}
 
+	all := msgs.Array()
 	lastUserIdx := -1
-	msgs.ForEach(func(key, msg gjson.Result) bool {
-		if msg.Get("role").String() == "user" {
-			lastUserIdx = int(key.Int())
+	for i := range all {
+		if all[i].Get("role").String() != "user" {
+			continue
 		}
-		return true
-	})
+		// Codex appends the invoked skill's SKILL.md as its own user message
+		// after the typed directive. Counting that attachment as the trailing
+		// user turn makes the directive itself look like a prior one, so it gets
+		// stripped here before ExtractBetaCommand ever sees it.
+		if isSkillAttachment(all, i) {
+			continue
+		}
+		lastUserIdx = i
+	}
 
 	removed := 0
 	removedCommands := make(map[int]struct{})
@@ -116,9 +124,9 @@ func parseBetaCommand(text string) (result BetaCommandResult, found bool, stripp
 			return BetaCommandResult{}, false, text
 		}
 		switch fields[0] {
-		case "/beta":
+		case "/beta", "$beta":
 			result.Strategy = router.StrategyHMMBeta
-		case "/beta-llm":
+		case "/beta-llm", "$beta-llm":
 			result.Strategy = router.StrategyHMMQwen
 		default:
 			return BetaCommandResult{}, false, text
