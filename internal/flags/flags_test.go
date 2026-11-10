@@ -239,23 +239,6 @@ func TestSubscriptionPlanAwareRoutingIsAnOrganizationOnlyBoolean(t *testing.T) {
 	}
 }
 
-func TestSubscriptionPoolQuotaAwareSelectionIsAnOrganizationOnlyBoolean(t *testing.T) {
-	def, ok := flags.Lookup(flags.KeySubscriptionPoolQuotaAwareSelection)
-	require.True(t, ok)
-	assert.Equal(t, flags.KindBool, def.Kind)
-	assert.True(t, def.OrgOverridable)
-	assert.Empty(t, def.EnvVar)
-	for _, enabled := range []bool{false, true} {
-		overrides := flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPoolQuotaAwareSelection: enabled}}
-		require.NoError(t, flags.ValidateOverrides(overrides))
-		stored, err := json.Marshal(overrides)
-		require.NoError(t, err)
-		loaded, err := flags.ParseOverrides(stored)
-		require.NoError(t, err)
-		assert.Equal(t, overrides, loaded)
-	}
-}
-
 func TestKeysIsSortedAcrossKinds(t *testing.T) {
 	o, err := flags.ParseOverrides([]byte(`{
 		"planner_enabled": true,

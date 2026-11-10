@@ -130,7 +130,6 @@ const (
 	KeyEarlyStopRedo                        Key = "early_stop_redo"
 	KeyCCWorkspaceSystemAppend              Key = "cc_workspace_system_append"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
-	KeySubscriptionPoolQuotaAwareSelection  Key = "subscription_pool_quota_aware_selection_enabled"
 	KeyClaudeEnterpriseOnly                 Key = "claude_enterprise_only"
 	KeySubscriptionExhaustedOpenRouterOnly  Key = "subscription_exhausted_openrouter_only"
 	KeyCommittedStreamArmDemotion           Key = "committed_stream_arm_demotion"
@@ -179,7 +178,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 29
+const RegistryVersion = 30
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -205,15 +204,6 @@ var Registry = []Definition{
 		Key:            KeySubscriptionPlanAwareRouting,
 		Kind:           KindBool,
 		Description:    "Avoid models covered only by exhausted Claude/Codex plans while another plan has headroom. Off by default; ignored when subscription routing is disabled.",
-		OrgOverridable: true,
-	},
-	// Owner: subscriptions runtime. Remove after promoting the policy or
-	// rolling it back once quota-aware ordering has been validated across
-	// installations.
-	{
-		Key:            KeySubscriptionPoolQuotaAwareSelection,
-		Kind:           KindBool,
-		Description:    "Select eligible pooled subscription accounts using observed quota headroom and upcoming reset times while preserving personal-before-shared ordering. Off by default.",
 		OrgOverridable: true,
 	},
 	{

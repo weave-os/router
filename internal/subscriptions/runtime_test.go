@@ -11,7 +11,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
@@ -1088,10 +1087,7 @@ func TestRuntimeQuotaAwareSelectionPrefersSoonerResetWithinPersonalTier(t *testi
 			return subscriptions.CandidateSignal{Observed: true, UsedFraction: 0.9, ResetAt: now.Add(time.Minute)}
 		}
 	})
-	ctx := flags.WithOverrides(context.Background(), flags.Overrides{Bools: map[flags.Key]bool{
-		flags.KeySubscriptionPoolQuotaAwareSelection: true,
-	}})
-	lease, present, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "")
+	lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
 	require.NoError(t, err)
 	require.True(t, present)
 	require.Equal(t, "personal-sooner", lease.AccountID, "personal capacity remains ahead of shared capacity")
@@ -1115,10 +1111,7 @@ func TestRuntimeQuotaAwareSelectionLeavesUnknownAfterKnownHeadroom(t *testing.T)
 		}
 		return subscriptions.CandidateSignal{}
 	})
-	ctx := flags.WithOverrides(context.Background(), flags.Overrides{Bools: map[flags.Key]bool{
-		flags.KeySubscriptionPoolQuotaAwareSelection: true,
-	}})
-	lease, present, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "")
+	lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
 	require.NoError(t, err)
 	require.True(t, present)
 	require.Equal(t, "known", lease.AccountID)
@@ -1142,10 +1135,7 @@ func TestRuntimeQuotaAwareSelectionLeavesExhaustedAccountLast(t *testing.T) {
 		}
 		return subscriptions.CandidateSignal{Observed: true, UsedFraction: 0.2, ResetAt: now.Add(time.Hour)}
 	})
-	ctx := flags.WithOverrides(context.Background(), flags.Overrides{Bools: map[flags.Key]bool{
-		flags.KeySubscriptionPoolQuotaAwareSelection: true,
-	}})
-	lease, present, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "")
+	lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
 	require.NoError(t, err)
 	require.True(t, present)
 	require.Equal(t, "healthy", lease.AccountID)
@@ -1170,17 +1160,14 @@ func TestRuntimeQuotaAwareSelectionDropsAffinityWhenSignalsDiffer(t *testing.T) 
 	runtime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, _ time.Time) subscriptions.CandidateSignal {
 		return signals[accountID]
 	})
-	ctx := flags.WithOverrides(context.Background(), flags.Overrides{Bools: map[flags.Key]bool{
-		flags.KeySubscriptionPoolQuotaAwareSelection: true,
-	}})
-	first, present, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "session-1")
+	first, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "session-1")
 	require.NoError(t, err)
 	require.True(t, present)
 	require.Equal(t, "preferred", first.AccountID)
 	first.Release()
 
 	signals["preferred"] = subscriptions.CandidateSignal{Observed: true, UsedFraction: 0.9, ResetAt: now.Add(time.Hour)}
-	second, present, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "session-1")
+	second, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "session-1")
 	require.NoError(t, err)
 	require.True(t, present)
 	require.Equal(t, "better", second.AccountID)

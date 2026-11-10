@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 
@@ -156,7 +155,7 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 	if err != nil {
 		return Lease{}, false, err
 	}
-	quotaAwareSelection := flags.BoolOr(ctx, flags.KeySubscriptionPoolQuotaAwareSelection, false) && r.candidateSignal != nil
+	quotaAwareSelection := r.candidateSignal != nil
 	var candidateSignals map[string]CandidateSignal
 	if quotaAwareSelection {
 		candidateSignals = snapshotCandidateSignals(accounts, provider, r.candidateSignal, r.clock())

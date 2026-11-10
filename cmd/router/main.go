@@ -1312,7 +1312,6 @@ func main() {
 		flags.KeyEscalationXGBoostShadowMarkerEnabled: boolDefault(false),
 		flags.KeyEscalationXGBoostEpoch:               "0",
 		flags.KeySubscriptionPlanAwareRouting:         boolDefault(false),
-		flags.KeySubscriptionPoolQuotaAwareSelection:  boolDefault(false),
 		flags.KeyClaudeEnterpriseOnly:                 boolDefault(true),
 		flags.KeySubscriptionExhaustedOpenRouterOnly:  boolDefault(false),
 		flags.KeyPlanUserClusterLists:                 boolDefault(false),
