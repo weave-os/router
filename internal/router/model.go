@@ -247,7 +247,8 @@ var registry = map[string]ModelSpec{
 	"grok-4.6": grok46,
 	"grok-4.7": grok47,
 
-	"muse-spark-1.3": museSpark,
+	"muse-spark-1.3":       museSpark,
+	"meta/muse-spark-open": museSpark,
 
 	"gpt-5.4":      openaiReasoning,
 	"gpt-5.4-pro":  NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"medium", "high", "xhigh"}, AlwaysOn: true}, CapReasoning, CapXhighEffort),
