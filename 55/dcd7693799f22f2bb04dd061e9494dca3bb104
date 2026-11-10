@@ -1,0 +1,41 @@
+internal/subscriptions/runtime.go
+  s_4a5b20b31cab48::t_fa8c67da451180 12,99,102-105,111-116,128-135,251-259,262-284,290-301
+  s_4a5b20b31cab48::t_e97513969b3d81 159-164,181-184,242-250,260-261
+  s_4a5b20b31cab48::t_6a29a59bfe9c13 185-187,285-289
+  s_4a5b20b31cab48::t_c819f4c2a83533 92-98,106-110
+  s_4a5b20b31cab48::t_9485fa6322cb79 136,302
+internal/subscriptions/runtime_test.go
+  s_4a5b20b31cab48::t_88b57e2a62748d 1126-1127
+  s_4a5b20b31cab48::t_8b5548984d2cef 14,1068-1125
+internal/flags/flags.go
+  s_4a5b20b31cab48::t_fa8c67da451180 133,182,210-213
+  s_4a5b20b31cab48::t_a5fcbfb2259acc 214-215
+internal/sqlc/model_router_subscription_accounts.sql.go
+  s_4a5b20b31cab48::t_9f670627935d80 860,883
+  s_4a5b20b31cab48::t_c819f4c2a83533 861-864,867,884-887,890
+internal/flags/flags_test.go
+  s_4a5b20b31cab48::t_c12abfa9cd21b0 242-258
+db/queries/model_router_subscription_accounts.sql
+  s_4a5b20b31cab48::t_e3830de50a8654 138
+  s_4a5b20b31cab48::t_fa8c67da451180 139-142,145
+cmd/router/main.go
+  s_4a5b20b31cab48::t_a56ed4358d7856 1584-1586
+  s_4a5b20b31cab48::t_fa8c67da451180 1315,1572-1583,1587-1604
+  s_4a5b20b31cab48::t_c549a91104608f 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "55dcd7693799f22f2bb04dd061e9494dca3bb104",
+  "prompts": {},
+  "sessions": {
+    "s_4a5b20b31cab48": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c1ea-4f9f-7f23-9ba4-1c6d2643e4ff",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
