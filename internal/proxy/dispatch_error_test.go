@@ -53,10 +53,11 @@ func TestClassifyDispatchError_SubscriptionPoolFailures(t *testing.T) {
 		err        error
 		kind       proxy.DispatchErrorKind
 		statusCode int
+		logLevel   string
 	}{
-		{name: "exhausted", err: proxy.ErrSubscriptionPoolExhausted, kind: proxy.DispatchErrorSubscriptionPoolExhausted, statusCode: http.StatusTooManyRequests},
-		{name: "unavailable", err: proxy.ErrSubscriptionPoolUnavailable, kind: proxy.DispatchErrorSubscriptionPoolUnavailable, statusCode: http.StatusServiceUnavailable},
-		{name: "throttled", err: proxy.ErrSubscriptionPoolThrottled, kind: proxy.DispatchErrorSubscriptionPoolThrottled, statusCode: http.StatusTooManyRequests},
+		{name: "exhausted", err: proxy.ErrSubscriptionPoolExhausted, kind: proxy.DispatchErrorSubscriptionPoolExhausted, statusCode: http.StatusTooManyRequests, logLevel: "warn"},
+		{name: "unavailable", err: proxy.ErrSubscriptionPoolUnavailable, kind: proxy.DispatchErrorSubscriptionPoolUnavailable, statusCode: http.StatusServiceUnavailable, logLevel: "error"},
+		{name: "throttled", err: proxy.ErrSubscriptionPoolThrottled, kind: proxy.DispatchErrorSubscriptionPoolThrottled, statusCode: http.StatusTooManyRequests, logLevel: "warn"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -64,6 +65,7 @@ func TestClassifyDispatchError_SubscriptionPoolFailures(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, test.kind, classification.Kind)
 			require.Equal(t, test.statusCode, classification.Status)
+			require.Equal(t, test.logLevel, classification.LogLevel)
 			require.True(t, classification.RetryAfter)
 		})
 	}

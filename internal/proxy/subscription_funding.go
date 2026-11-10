@@ -28,6 +28,9 @@ type managedSubscriptionCandidate struct {
 	state     auth.SubscriptionAccountState
 	resetAt   time.Time
 	enabled   bool
+	// credentialRejected marks a cooldown written by a 401/403 strike rather
+	// than a rate limit; both persist the same cooldown state.
+	credentialRejected bool
 }
 
 // WithManagedSubscriptionCandidates retains detached, credential-free admission
@@ -36,7 +39,7 @@ func WithManagedSubscriptionCandidates(ctx context.Context, accounts []*auth.Sub
 	candidates := make([]managedSubscriptionCandidate, 0, len(accounts))
 	enrolled := make(map[auth.SubscriptionProvider]struct{})
 	for _, account := range accounts {
-		candidate := managedSubscriptionCandidate{accountID: account.ID, provider: account.Provider, state: account.State, enabled: account.Enabled}
+		candidate := managedSubscriptionCandidate{accountID: account.ID, provider: account.Provider, state: account.State, enabled: account.Enabled, credentialRejected: account.CredentialRejections > 0}
 		if account.CooldownUntil != nil {
 			candidate.resetAt = *account.CooldownUntil
 		}
@@ -157,7 +160,14 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		}
 		return fmt.Errorf("%w: included quota is available or unknown", ErrSubscriptionPoolUnavailable)
 	}
+	token := claudeToken
+	if pool == subscriptions.ProviderCodex {
+		token = codexToken
+	}
 	if throttledBlocker {
+		if token != "" && !s.callerQuotaSpent(ctx, pool, token, now) {
+			return fmt.Errorf("%w: caller subscription quota is available or unknown", ErrSubscriptionPoolUnavailable)
+		}
 		return ErrSubscriptionPoolThrottled
 	}
 	if !snapshotPresent {
@@ -166,22 +176,22 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 			return fmt.Errorf("%w: enrolled pool has no quota snapshot", ErrSubscriptionPoolUnavailable)
 		}
 	}
-	token := claudeToken
-	if pool == subscriptions.ProviderCodex {
-		token = codexToken
-	}
-	if token != "" {
-		if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && state.QuotaExhaustedProviders[pool].After(now) {
-			return nil
-		}
-		if s.usageObserver != nil {
-			if snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token))); observed && includedQuotaSpent(snapshot, now) {
-				return nil
-			}
-		}
+	if token != "" && !s.callerQuotaSpent(ctx, pool, token, now) {
 		return fmt.Errorf("%w: caller subscription quota is available or unknown", ErrSubscriptionPoolUnavailable)
 	}
 	return nil
+}
+
+func (s *Service) callerQuotaSpent(ctx context.Context, pool subscriptions.Provider, token string, now time.Time) bool {
+	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && state.QuotaExhaustedProviders[pool].After(now) {
+		return true
+	}
+	if s.usageObserver != nil {
+		if snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token))); observed && includedQuotaSpent(snapshot, now) {
+			return true
+		}
+	}
+	return false
 }
 
 // subscriptionUnavailableCooldown bounds how long a provider 5xx seen on a
@@ -306,7 +316,7 @@ func managedAccountThrottled(ctx context.Context, candidate managedSubscriptionC
 			return true
 		}
 	}
-	return candidate.state == auth.SubscriptionAccountStateCooldown && candidate.resetAt.After(now)
+	return candidate.state == auth.SubscriptionAccountStateCooldown && candidate.resetAt.After(now) && !candidate.credentialRejected
 }
 
 func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {

@@ -69,6 +69,22 @@ func TestAuthorizeSubscriptionAPI_PersistedCooldownCountsAsThrottle(t *testing.T
 	cooling.CooldownUntil = &cooldownUntil
 
 	requireThrottledRefusal(t, svc.authorizeSubscriptionAPI(throttleTestContext(cooling), subscriptions.ProviderCodex, "", "", clientAppRefusalFunding{}))
+
+	cooling.CredentialRejections = 1
+	err := svc.authorizeSubscriptionAPI(throttleTestContext(cooling), subscriptions.ProviderCodex, "", "", clientAppRefusalFunding{})
+	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+	require.NotErrorIs(t, err, ErrSubscriptionPoolThrottled, "a 401/403 cooldown is a credential fault, not a rate limit")
+}
+
+func TestAuthorizeSubscriptionAPI_UnknownCallerQuotaKeeps503(t *testing.T) {
+	now := time.Now()
+	svc := &Service{now: func() time.Time { return now }}
+	ctx := throttleTestContext(activeCodexAccount("seat-1"))
+	recordManagedThrottle(ctx, "seat-1", now.Add(time.Minute))
+
+	err := svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, "caller-codex-token", "", clientAppRefusalFunding{})
+	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable, "paid fallback stays blocked")
+	require.NotErrorIs(t, err, ErrSubscriptionPoolThrottled, "the caller's own plan has no rate-limit evidence")
 }
 
 // Proven exhaustion still authorizes paid fallback, and alongside a throttled
