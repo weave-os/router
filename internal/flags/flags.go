@@ -151,6 +151,7 @@ const (
 	retiredKeyStruggleEscalationHoldout Key = "struggle_escalation_holdout_pct"
 	retiredKeyStruggleEvidenceArming    Key = "struggle_evidence_arming"
 	retiredKeySubscriberPaidFallback    Key = "subscriber_paid_fallback_enabled"
+	retiredKeySubscriptionPoolQuota     Key = "subscription_pool_quota_aware_selection_enabled"
 )
 
 var retiredOverrideKeys = map[Key]struct{}{
@@ -158,6 +159,7 @@ var retiredOverrideKeys = map[Key]struct{}{
 	retiredKeyStruggleEscalationHoldout: {},
 	retiredKeyStruggleEvidenceArming:    {},
 	retiredKeySubscriberPaidFallback:    {},
+	retiredKeySubscriptionPoolQuota:     {},
 }
 
 // Definition describes one overridable flag. DeploymentDefault is not stored

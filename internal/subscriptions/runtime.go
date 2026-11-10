@@ -124,10 +124,9 @@ func NewRuntime(store AccountStore, refresher TokenRefresher, clock func() time.
 	}
 }
 
-// WithCandidateSignal enables quota-aware ordering when the corresponding
-// per-installation flag is enabled. The signal source is replica-local and is
-// therefore advisory; durable admission and provider responses remain the
-// source of truth.
+// WithCandidateSignal enables quota-aware ordering. The signal source is
+// replica-local and therefore advisory; durable admission and provider
+// responses remain the source of truth.
 func (r *Runtime) WithCandidateSignal(signal CandidateSignalFunc) *Runtime {
 	r.candidateSignal = signal
 	return r

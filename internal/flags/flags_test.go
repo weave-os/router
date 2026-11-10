@@ -60,6 +60,7 @@ func TestParseOverridesIgnoresRetiredFlags(t *testing.T) {
 		"struggle_escalation_holdout_pct": "retired",
 		"struggle_evidence_arming": false,
 		"subscriber_paid_fallback_enabled": false,
+		"subscription_pool_quota_aware_selection_enabled": true,
 		"planner_enabled": false,
 		"loop_escalation_holdout_pct": 25
 	}`))
