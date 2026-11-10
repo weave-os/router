@@ -325,7 +325,8 @@ func clearWithheldPassthrough(rw *translate.ResponsesWriter, buf *preludeBuffer)
 var errResponsesPassthroughStuck = errors.New("responses passthrough already carries native output; another wire format cannot continue it")
 
 // leaveResponsesPassthrough returns a passthrough writer to translation before
-// an attempt that speaks another wire format.
+// an attempt that speaks another wire format. It returns errResponsesPassthroughStuck
+// when the writer is still in passthrough and cannot be cleared.
 func leaveResponsesPassthrough(rw *translate.ResponsesWriter, buf *preludeBuffer) error {
 	if !rw.Passthrough() || clearWithheldPassthrough(rw, buf) {
 		return nil
