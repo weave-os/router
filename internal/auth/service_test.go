@@ -159,7 +159,7 @@ func (f *fakeExternalAPIKeyRepo) UpdateFundingPriority(ctx context.Context, inst
 
 func (f *fakeExternalAPIKeyRepo) ActiveFundingPriority(ctx context.Context, installationID, provider string) (auth.FundingPriority, error) {
 	for _, k := range f.keys {
-		if k.Provider == provider {
+		if k.InstallationID == installationID && k.Provider == provider {
 			return k.FundingPriority, nil
 		}
 	}

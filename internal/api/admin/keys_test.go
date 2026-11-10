@@ -705,20 +705,6 @@ func TestUpdateExternalKeyAliasesHandler_ForeignKeyIsNotFound(t *testing.T) {
 	assert.Nil(t, repo.keys[0].ModelAliases)
 }
 
-func putFundingPriority(svc *auth.Service, id string, priority auth.FundingPriority) *httptest.ResponseRecorder {
-	gin.SetMode(gin.TestMode)
-	engine := gin.New()
-	engine.PUT("/admin/v1/provider-keys/:id/funding-priority", func(c *gin.Context) {
-		c.Set("router_installation", &auth.Installation{ID: "inst-1"})
-	}, admin.UpdateExternalKeyFundingPriorityHandler(svc))
-	body, _ := json.Marshal(map[string]any{"funding_priority": priority})
-	req := httptest.NewRequest(http.MethodPut, "/admin/v1/provider-keys/"+id+"/funding-priority", bytes.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, req)
-	return rec
-}
-
 func TestUpdateExternalKeyFundingPriorityHandler(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -737,7 +723,16 @@ func TestUpdateExternalKeyFundingPriorityHandler(t *testing.T) {
 				{ID: "ext-1", InstallationID: tc.ownerID, Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityPlanFirst},
 			}}
 
-			rec := putFundingPriority(newUpsertKeyService(repo), "ext-1", tc.priority)
+			gin.SetMode(gin.TestMode)
+			engine := gin.New()
+			engine.PUT("/admin/v1/provider-keys/:id/funding-priority", func(c *gin.Context) {
+				c.Set("router_installation", &auth.Installation{ID: "inst-1"})
+			}, admin.UpdateExternalKeyFundingPriorityHandler(newUpsertKeyService(repo)))
+			reqBody, _ := json.Marshal(map[string]any{"funding_priority": tc.priority})
+			req := httptest.NewRequest(http.MethodPut, "/admin/v1/provider-keys/ext-1/funding-priority", bytes.NewReader(reqBody))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			engine.ServeHTTP(rec, req)
 
 			require.Equal(t, tc.wantStatus, rec.Code)
 			assert.Equal(t, tc.wantStored, repo.keys[0].FundingPriority)
