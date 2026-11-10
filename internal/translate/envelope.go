@@ -1508,7 +1508,8 @@ var modelMaxOutputTokens = map[string]int{
 	"gpt-6-astra": 128000, "gpt-6-sol": 128000, "gpt-6.1-sol": 128000, "gpt-6.1-terra": 128000, "gpt-6-luna": 128000,
 	"grok-4.5": 131072, "grok-4.6": 131072, "grok-4.7": 131072,
 	"muse-spark-1.3": 131072, // Meta documents a 128K max output; always-on reasoning shares the budget
-	"o1":             100000, "o1-pro": 100000, "o1-mini": 65536,
+	"muse-ember-1.0": 131072, "muse-wonder-1.0": 131072,
+	"o1": 100000, "o1-pro": 100000, "o1-mini": 65536,
 	"o3": 100000, "o3-pro": 100000, "o3-mini": 100000,
 	"o4-mini":              100000,
 	"gemini-3-pro-preview": 65536, "gemini-3.1-pro-preview": 65536,
@@ -1534,6 +1535,7 @@ var modelMaxOutputTokens = map[string]int{
 	"deepseek/deepseek-v4-pro":         131072,
 	"deepseek/deepseek-v4-pro-0813":    131072,
 	"minimax/minimax-m3.1-flash":       131072,
+	catalog.ModelMuseSparkOpen:         131072, // Together accepts more; matches Muse Spark 1.3's 128K
 	"minimax/minimax-m3":               131072, // 512K context, output up to the window
 	"minimax/minimax-m2.7":             65536,
 	"z-ai/glm-5":                       65536,

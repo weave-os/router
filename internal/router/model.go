@@ -165,6 +165,8 @@ var (
 	// (always reasons), so AlwaysOn maps a disable to the floor level. The
 	// router canonicalizes "minimal" to "low" before dispatch.
 	museSpark = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true, AlwaysOn: true}, CapReasoning, CapXhighEffort)
+	// museMax: Muse Ember and Wonder add "max" above "xhigh"; "none" is still a 400.
+	museMax = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh", "max"}, SupportsBudget: true, AlwaysOn: true}, CapReasoning, CapXhighEffort)
 )
 
 // MiniMax M3.1 Flash always reasons (disable is a 400), so AlwaysOn maps a
@@ -247,7 +249,10 @@ var registry = map[string]ModelSpec{
 	"grok-4.6": grok46,
 	"grok-4.7": grok47,
 
-	"muse-spark-1.3": museSpark,
+	"muse-spark-1.3":       museSpark,
+	"meta/muse-spark-open": museSpark,
+	"muse-ember-1.0":       museMax,
+	"muse-wonder-1.0":      museMax,
 
 	"gpt-5.4":      openaiReasoning,
 	"gpt-5.4-pro":  NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"medium", "high", "xhigh"}, AlwaysOn: true}, CapReasoning, CapXhighEffort),

@@ -7,7 +7,7 @@ export interface ModelPricing {
 	cacheReadMultiplier: number;
 }
 
-export const PRICING_VERSION = "catalog-sha256:2c45561ce4fdce40";
+export const PRICING_VERSION = "catalog-sha256:911924f2cd43c5aa";
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({
 	"claude-fable-5": { inputUsdPerMillion: 10, outputUsdPerMillion: 50, cacheReadMultiplier: 0.1 },
@@ -78,6 +78,7 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"grok-4.6": { inputUsdPerMillion: 2, outputUsdPerMillion: 6, cacheReadMultiplier: 0.25 },
 	"grok-4.7": { inputUsdPerMillion: 2, outputUsdPerMillion: 6, cacheReadMultiplier: 0.25 },
 	"inclusionai/ling-3.0-flash": { inputUsdPerMillion: 0.06, outputUsdPerMillion: 0.18, cacheReadMultiplier: 0.2 },
+	"meta/muse-spark-open": { inputUsdPerMillion: 1.25, outputUsdPerMillion: 4.25, cacheReadMultiplier: 0.12 },
 	"minimax/minimax-m2.7": { inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2, cacheReadMultiplier: 0.2 },
 	"minimax/minimax-m3": { inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2, cacheReadMultiplier: 0.2 },
 	"minimax/minimax-m3.1-flash": { inputUsdPerMillion: 0.15, outputUsdPerMillion: 0.6, cacheReadMultiplier: 0.1 },
@@ -87,7 +88,9 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"moonshotai/kimi-k2.7": { inputUsdPerMillion: 0.95, outputUsdPerMillion: 4, cacheReadMultiplier: 0.2 },
 	"moonshotai/kimi-k3": { inputUsdPerMillion: 3, outputUsdPerMillion: 15, cacheReadMultiplier: 0.1 },
 	"moonshotai/kimi-k3.1": { inputUsdPerMillion: 2, outputUsdPerMillion: 10, cacheReadMultiplier: 0.1 },
+	"muse-ember-1.0": { inputUsdPerMillion: 0.1, outputUsdPerMillion: 0.5, cacheReadMultiplier: 0.04 },
 	"muse-spark-1.3": { inputUsdPerMillion: 1.25, outputUsdPerMillion: 4.25, cacheReadMultiplier: 0.12 },
+	"muse-wonder-1.0": { inputUsdPerMillion: 4, outputUsdPerMillion: 20, cacheReadMultiplier: 0.05 },
 	"qwen/qwen3-235b-a22b-2507": { inputUsdPerMillion: 0.2266, outputUsdPerMillion: 0.9064, cacheReadMultiplier: 0.5 },
 	"qwen/qwen3-30b-a3b-instruct-2507": { inputUsdPerMillion: 0.15, outputUsdPerMillion: 0.6, cacheReadMultiplier: 0.1684 },
 	"qwen/qwen3-coder": { inputUsdPerMillion: 0.9, outputUsdPerMillion: 2.7, cacheReadMultiplier: 0.1684 },
