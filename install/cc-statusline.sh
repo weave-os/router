@@ -564,6 +564,7 @@ prices='{
   "input": {
     "claude-fable-5":                   0.01,
     "claude-fable-5-1":                 0.01,
+    "claude-fable-5-2":                 0.008,
     "claude-haiku-4-5":                 0.001,
     "claude-haiku-5-5":                 0.0001,
     "claude-opus-4-0":                  0.015,
@@ -660,6 +661,7 @@ prices='{
   "output": {
     "claude-fable-5":                   0.05,
     "claude-fable-5-1":                 0.05,
+    "claude-fable-5-2":                 0.04,
     "claude-haiku-4-5":                 0.005,
     "claude-haiku-5-5":                 0.0005,
     "claude-opus-4-0":                  0.075,
@@ -756,6 +758,7 @@ prices='{
   "cache_read": {
     "claude-fable-5":                   0.1,
     "claude-fable-5-1":                 0.025,
+    "claude-fable-5-2":                 0.025,
     "claude-haiku-4-5":                 0.1,
     "claude-haiku-5-5":                 0.1,
     "claude-opus-4-0":                  0.1,

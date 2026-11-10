@@ -70,10 +70,14 @@ var forceModelAliases = map[string]string{
 	"opus-4.8":   "claude-opus-4-8",
 	"claude-4-8": "claude-opus-4-8",
 	"claude-4.8": "claude-opus-4-8",
-	// Fable family aliases follow 5.1; Fable 5's own-name aliases keep
+	// Fable family aliases follow 5.2; older Fable own-name aliases keep
 	// resolving so existing direct pins still serve.
-	"fable":        "claude-fable-5-1",
-	"claude-fable": "claude-fable-5-1",
+	"fable":        "claude-fable-5-2",
+	"claude-fable": "claude-fable-5-2",
+	"fable-5.2":    "claude-fable-5-2",
+	"fable-5-2":    "claude-fable-5-2",
+	"fable5.2":     "claude-fable-5-2",
+	"fable52":      "claude-fable-5-2",
 	"fable-5.1":    "claude-fable-5-1",
 	"fable-5-1":    "claude-fable-5-1",
 	"fable5.1":     "claude-fable-5-1",
