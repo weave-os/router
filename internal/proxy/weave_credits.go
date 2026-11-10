@@ -88,10 +88,10 @@ func customerFunded(creds *Credentials) bool {
 	return creds.OAuth || creds.Source == credSourceBYOK || creds.Source == credSourceClient
 }
 
-// paidFallbackCredentials is the credential a paid-fallback probe is judged
+// withPaidFallbackCredentials attaches the credential a paid-fallback probe is judged
 // on: the customer's usable provider key when Weave credits are denied,
 // otherwise none (the deployment key).
-func paidFallbackCredentials(ctx context.Context, provider string) context.Context {
+func withPaidFallbackCredentials(ctx context.Context, provider string) context.Context {
 	if weaveCreditsDenied(ctx) {
 		if byok := usableBYOK(ctx, provider); byok != nil {
 			return context.WithValue(ctx, CredentialsContextKey{}, byok)

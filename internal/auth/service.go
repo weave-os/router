@@ -94,6 +94,7 @@ type Service struct {
 	codexEnrollmentVerifier    CodexEnrollmentVerifier
 	notifier                   InstallationChangeNotifier
 	now                        Clock
+	externalKeyMarks           externalKeyMarks
 	encryptor                  Encryptor
 	keypairTokens              *KeypairTokenCache
 	anthropicFederationTokens  AnthropicFederationTokenSource

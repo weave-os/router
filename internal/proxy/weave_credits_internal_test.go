@@ -42,17 +42,17 @@ func TestWeaveCreditsFunding_AllowedLeavesProvidersAlone(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, enabled, got)
-	assert.Nil(t, CredentialsFromContext(paidFallbackCredentials(ctx, providers.ProviderOpenAI)))
+	assert.Nil(t, CredentialsFromContext(withPaidFallbackCredentials(ctx, providers.ProviderOpenAI)))
 }
 
 func TestPaidFallbackCredentials_UsesCustomerKeyWhenCreditsDenied(t *testing.T) {
 	ctx := deniedCtxWithKeys(&auth.ExternalAPIKey{Provider: providers.ProviderAnthropic, Plaintext: []byte("synthetic-byok")})
 
-	creds := CredentialsFromContext(paidFallbackCredentials(ctx, providers.ProviderAnthropic))
+	creds := CredentialsFromContext(withPaidFallbackCredentials(ctx, providers.ProviderAnthropic))
 
 	require.NotNil(t, creds)
 	assert.True(t, customerFunded(creds))
-	assert.Nil(t, CredentialsFromContext(paidFallbackCredentials(ctx, providers.ProviderOpenAI)))
+	assert.Nil(t, CredentialsFromContext(withPaidFallbackCredentials(ctx, providers.ProviderOpenAI)))
 }
 
 func TestForcedModelBinding_UnfundedProviderReturnsCreditsError(t *testing.T) {
@@ -60,7 +60,7 @@ func TestForcedModelBinding_UnfundedProviderReturnsCreditsError(t *testing.T) {
 	ctx := deniedCtxWithKeys(&auth.ExternalAPIKey{Provider: providers.ProviderAnthropic, Plaintext: []byte("synthetic-byok")})
 
 	_, reason := svc.forcedModelBinding(ctx, "gpt-5.4", providers.ProviderOpenAI)
-	binding, funded := svc.forcedModelBinding(ctx, "claude-sonnet-4-6", providers.ProviderAnthropic)
+	binding, fundedReason := svc.forcedModelBinding(ctx, "claude-sonnet-4-6", providers.ProviderAnthropic)
 
 	require.Equal(t, forcedModelUnfundedReason, reason)
 	err := error(&ForcedModelExcludedError{Model: "gpt-5.4", Reason: reason})
@@ -68,7 +68,7 @@ func TestForcedModelBinding_UnfundedProviderReturnsCreditsError(t *testing.T) {
 	class, ok := ClassifyDispatchError(err)
 	require.True(t, ok)
 	assert.Equal(t, http.StatusPaymentRequired, class.Status)
-	assert.Empty(t, funded)
+	assert.Empty(t, fundedReason)
 	assert.Equal(t, providers.ProviderAnthropic, binding)
 }
 
