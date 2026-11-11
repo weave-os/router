@@ -244,6 +244,9 @@ func (s *runtimeStore) UpdateSubscriptionAccountCooldown(_ context.Context, _ au
 func (s *runtimeStore) UpdateSubscriptionAccountHealth(_ context.Context, _ auth.SubscriptionOwner, accountID string, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.stateErr != nil {
+		return false, s.stateErr
+	}
 	disconnected := false
 	for _, account := range s.accounts {
 		if account.ID != accountID {
@@ -264,7 +267,7 @@ func (s *runtimeStore) UpdateSubscriptionAccountHealth(_ context.Context, _ auth
 	if cooldownUntil != nil {
 		s.cooldowns[accountID] = *cooldownUntil
 	}
-	return disconnected, s.stateErr
+	return disconnected, nil
 }
 
 type runtimeRefreshFunc func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error)

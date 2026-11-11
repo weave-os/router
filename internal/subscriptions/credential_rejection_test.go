@@ -310,3 +310,19 @@ func TestRuntimeConcurrentRejectionsEmitOneDisconnectSignal(t *testing.T) {
 	}
 	require.Equal(t, 1, strings.Count(output.String(), `"subscription_event":"reconnect_required"`))
 }
+
+func TestRuntimeRejectedHealthWritePreservesEnabledState(t *testing.T) {
+	store := newRejectionStore(auth.SubscriptionProviderClaude)
+	seedSustainedRejections(store, "account-1")
+	store.stateErr = fmt.Errorf("synthetic rejected health transition")
+	var output bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&output, nil)))
+	runtime := subscriptions.NewRuntime(store, nil, nil)
+	reconnect, err := runtime.RejectCredential(ctx, testOwner, subscriptions.ProviderClaude, "account-1", http.StatusUnauthorized)
+	require.ErrorIs(t, err, store.stateErr)
+	require.False(t, reconnect)
+	require.True(t, store.accounts[0].Enabled)
+	require.NotEqual(t, auth.SubscriptionAccountStateReconnectRequired, store.accounts[0].State)
+	require.Empty(t, store.healthStates)
+	require.NotContains(t, output.String(), `"subscription_event":"reconnect_required"`)
+}
