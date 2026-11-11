@@ -9377,10 +9377,6 @@ func stripResponsesVisualArtifacts(body []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("strip Responses command outcome: %w", err)
 	}
-	stripped, err = translate.StripHistoricalCommandsFromResponsesInput(stripped)
-	if err != nil {
-		return nil, err
-	}
 	stripped, err = translate.StripRoutingBadgeFromResponsesInput(stripped)
 	if err != nil {
 		return nil, fmt.Errorf("strip native Responses routing badge: %w", err)
@@ -9396,6 +9392,10 @@ func stripResponsesTerminalArtifacts(body []byte) ([]byte, error) {
 	stripped, err := translate.StripRouterCommandsFromResponsesInput(body)
 	if err != nil {
 		return nil, fmt.Errorf("strip Responses router command: %w", err)
+	}
+	stripped, err = translate.StripHistoricalCommandsFromResponsesInput(stripped)
+	if err != nil {
+		return nil, err
 	}
 	return stripResponsesVisualArtifacts(stripped)
 }
@@ -9432,8 +9432,9 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 			return err
 		}
 		// Keep router directives in the portable projection so the shared chat
-		// path can record them and identify Codex skill invocations. The native
-		// body has already been sanitized for direct Responses dispatch.
+		// path can record them, identify Codex skill invocations, and key the
+		// session on the opening message before stripping it. The native body
+		// has already been sanitized for direct Responses dispatch.
 		conversionBody, err = stripResponsesVisualArtifacts(body)
 		if err != nil {
 			return err

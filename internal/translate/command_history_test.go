@@ -80,9 +80,7 @@ func TestStripHistoricalCommandsFromResponsesInput_TrailingDirectiveUntouched(t 
 	assert.Equal(t, body, out, "the live directive must survive for ExtractForceModelCommand")
 }
 
-func TestStripHistoricalCommandsFromResponsesInput_OpeningDirectiveIsTheThreadKey(t *testing.T) {
-	// The first user message is hashed into the session key, so an opening
-	// directive stays even though a later one goes.
+func TestStripHistoricalCommandsFromResponsesInput_OpeningDirectiveIsStripped(t *testing.T) {
 	body := responsesBody(t,
 		codexUserItem("/fm astra"),
 		codexAssistantItem(forceModelAck),
@@ -92,7 +90,7 @@ func TestStripHistoricalCommandsFromResponsesInput_OpeningDirectiveIsTheThreadKe
 	)
 	out, err := translate.StripHistoricalCommandsFromResponsesInput(body)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"/fm astra", "next"}, inputTexts(t, out))
+	assert.Equal(t, []string{"next"}, inputTexts(t, out))
 }
 
 func TestStripHistoricalCommandsFromResponsesInput_MixedMessageKeepsRemainder(t *testing.T) {
@@ -111,7 +109,7 @@ func TestStripHistoricalCommandsFromResponsesInput_EveryDirectiveFamily(t *testi
 	for _, directive := range []string{
 		"/force-model sonnet", "$fm opus", "/model gpt", "/force-parent astra",
 		"/unforce-model", "$ufm", "/rf- too slow", "$router-feedback 👍",
-		"/router-session", "$router-models", "/models",
+		"/router-session", "$router-models", "/models", "/list-models", "$list-models",
 	} {
 		t.Run(directive, func(t *testing.T) {
 			body := responsesBody(t,

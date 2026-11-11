@@ -32,15 +32,14 @@ func TestStripHistoricalCommands_ChatHistory(t *testing.T) {
 	require.NoError(t, err)
 	removed, err := env.StripHistoricalCommands()
 	require.NoError(t, err)
-	assert.Equal(t, 3, removed)
+	assert.Equal(t, 7, removed, "every directive before the first kept user turn goes with its ack")
 	msgs := gjson.GetBytes(env.body, "messages").Array()
-	require.Len(t, msgs, 7)
-	assert.Equal(t, "$fm sonnet", msgs[0].Get("content").Str, "the opening message is the session-key discriminator")
-	assert.Equal(t, "pinned", msgs[2].Get("content").Str)
-	assert.Equal(t, "about a dollar", msgs[3].Get("content").Str)
-	assert.Equal(t, "/router-models\nenable gpt", msgs[4].Get("content").Str,
+	require.Len(t, msgs, 3)
+	assert.Equal(t, "/router-models\nenable gpt", msgs[0].Get("content").Str,
 		"a bare-only directive with arguments never fired, so the model saw it and it stays")
-	assert.Equal(t, "$ufm", msgs[6].Get("content").Str, "trailing directive is live")
+	assert.Equal(t, "that is an admin operation", msgs[1].Get("content").Str)
+	assert.Equal(t, "$ufm", msgs[2].Get("content").Str, "trailing directive is live")
+	assert.Equal(t, "$fm sonnet", env.ThreadDiscriminatorText(), "the session key keeps hashing the opening message")
 
 	res, found := env.ExtractForceModelCommand()
 	require.True(t, found)
@@ -88,4 +87,37 @@ func TestStripHistoricalCommands_NoDirectivesIsByteIdentical(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, removed)
 	assert.JSONEq(t, string(body), string(env.body))
+}
+
+func TestStripHistoricalCommands_OpeningDirectiveKeepsThreadDiscriminator(t *testing.T) {
+	env, err := ParseAnthropic([]byte(`{"model":"claude","messages":[` +
+		`{"role":"user","content":"/fm astra"},` +
+		`{"role":"assistant","content":"Weave Router: force-model applied: astra."},` +
+		`{"role":"user","content":"now write the parser"}]}`))
+	require.NoError(t, err)
+	require.Equal(t, "/fm astra", env.ThreadDiscriminatorText())
+
+	removed, err := env.StripHistoricalCommands()
+	require.NoError(t, err)
+	assert.Equal(t, 2, removed)
+	assert.Equal(t, "now write the parser", env.FirstUserMessageText())
+	assert.Equal(t, "/fm astra", env.ThreadDiscriminatorText(), "the session key must keep hashing what the client sent")
+	assert.Equal(t, "/fm astra", env.Clone().ThreadDiscriminatorText())
+	assert.Equal(t, int64(1), gjson.GetBytes(env.body, "messages.#").Int(), "the conversation must not open on the orphaned ack")
+}
+
+func TestStripHistoricalCommands_OpeningMixedMessageKeepsRemainder(t *testing.T) {
+	env, err := ParseOpenAI([]byte(`{"model":"gpt","messages":[` +
+		`{"role":"system","content":"be terse"},` +
+		`{"role":"user","content":"/fm astra\nplease refactor the parser"},` +
+		`{"role":"assistant","content":"done"},` +
+		`{"role":"user","content":"thanks"}]}`))
+	require.NoError(t, err)
+	removed, err := env.StripHistoricalCommands()
+	require.NoError(t, err)
+	assert.Equal(t, 1, removed)
+	msgs := gjson.GetBytes(env.body, "messages").Array()
+	require.Len(t, msgs, 4)
+	assert.Equal(t, "please refactor the parser", msgs[1].Get("content").Str)
+	assert.Equal(t, "done", msgs[2].Get("content").Str)
 }

@@ -18,19 +18,18 @@ import (
 )
 
 // A directive that opens the conversation is the session key's first-message
-// discriminator, so it must survive the history strip or the pin it created
-// is orphaned on the very next turn. A directive on a later turn carries no
-// such weight and must leave the upstream body.
+// discriminator. It must leave the upstream body like any other prior-turn
+// directive while the session key keeps hashing it, or the pin it created is
+// orphaned on the very next turn.
 func TestService_HistoricalDirective_KeepsSessionPin(t *testing.T) {
 	for _, tc := range []struct {
-		name          string
-		directive     string
-		sessionID     string
-		opening       bool
-		upstreamKeeps bool
+		name      string
+		directive string
+		sessionID string
+		opening   bool
 	}{
-		{name: "opening force-parent with client session", directive: "/force-parent gpt-5", sessionID: "ses_codex_1", opening: true, upstreamKeeps: true},
-		{name: "opening force-model without client session", directive: "/force-model gpt-5", sessionID: "", opening: true, upstreamKeeps: true},
+		{name: "opening force-parent with client session", directive: "/force-parent gpt-5", sessionID: "ses_codex_1", opening: true},
+		{name: "opening force-model without client session", directive: "/force-model gpt-5", sessionID: "", opening: true},
 		{name: "later force-parent with client session", directive: "/force-parent gpt-5", sessionID: "ses_codex_1"},
 		{name: "later force-model without client session", directive: "/force-model gpt-5", sessionID: ""},
 	} {
@@ -90,7 +89,7 @@ func TestService_HistoricalDirective_KeepsSessionPin(t *testing.T) {
 					}
 				}
 			}
-			assert.Equal(t, tc.upstreamKeeps, upstreamSawDirective, "an opening directive is the thread key and stays; a later one goes")
+			assert.False(t, upstreamSawDirective, "a prior-turn directive must not reach the model")
 		})
 	}
 }

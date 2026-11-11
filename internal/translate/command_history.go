@@ -15,25 +15,18 @@ import (
 // command the model reads, reasons about, and sometimes re-runs. These passes
 // remove it from history. The trailing turn is never touched: that is where
 // the Extract*Command readers still have to find a live directive. The first
-// user message is never touched either: it is the thread discriminator the
-// session key hashes, and rewriting it would orphan the pin the directive
-// created.
+// user message is stripped like any other; the session key hashes the copy
+// StripHistoricalCommands captures first (ThreadDiscriminatorText), so the pin
+// an opening directive created survives.
 
 // stripHistoricalDirective returns text with any leading router directive
 // removed, reporting whether one was found. Any text the user wrote alongside
 // the directive is kept.
 func stripHistoricalDirective(text string) (stripped string, found bool) {
-	if _, ok, rest := parseForceModelCommandFromSource(text, false); ok {
-		return rest, true
-	}
-	if _, ok, rest := parseRouterFeedbackCommand(text); ok {
-		return rest, true
-	}
-	if ok, rest := parseRouterSessionCommand(text); ok {
-		return rest, true
-	}
-	if ok, rest := parseRouterModelsCommand(text); ok {
-		return rest, true
+	for _, directive := range routerDirectives {
+		if ok, rest := directive.parse(text); ok {
+			return rest, true
+		}
 	}
 	return text, false
 }
@@ -51,13 +44,14 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 	if !msgs.IsArray() {
 		return 0, nil
 	}
+	env.captureThreadDiscriminator()
 	messages := msgs.Array()
 	lastUserIdx := trailingUserTurnIndex(messages)
-	firstUserIdx := leadingUserTurnIndex(messages)
 
 	changed := 0
 	rebuilt := make([]string, 0, len(messages))
 	dropAttachment := false
+	keptUser, droppedUser := false, false
 	for i, msg := range messages {
 		if dropAttachment {
 			dropAttachment = false
@@ -66,7 +60,15 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 				continue
 			}
 		}
-		if msg.Get("role").String() != "user" || i == firstUserIdx || i == lastUserIdx || isSkillAttachment(messages, i) {
+		role := msg.Get("role").String()
+		// An unmarked ack left behind a dropped opening directive would make
+		// the conversation open on an assistant turn, which Anthropic rejects.
+		if role == "assistant" && droppedUser && !keptUser {
+			changed++
+			continue
+		}
+		if role != "user" || i == lastUserIdx || isSkillAttachment(messages, i) {
+			keptUser = keptUser || role == "user"
 			rebuilt = append(rebuilt, msg.Raw)
 			continue
 		}
@@ -75,14 +77,17 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 			return 0, err
 		}
 		if !edited {
+			keptUser = true
 			rebuilt = append(rebuilt, msg.Raw)
 			continue
 		}
 		changed++
 		dropAttachment = true
 		if !keep {
+			droppedUser = true
 			continue
 		}
+		keptUser = true
 		rebuilt = append(rebuilt, raw)
 	}
 	if changed == 0 {
@@ -99,17 +104,6 @@ func trailingUserTurnIndex(messages []gjson.Result) int {
 			continue
 		}
 		return i
-	}
-	return -1
-}
-
-// leadingUserTurnIndex finds the first user message, whose text the session
-// key folds in as the thread discriminator.
-func leadingUserTurnIndex(messages []gjson.Result) int {
-	for i, msg := range messages {
-		if msg.Get("role").String() == "user" {
-			return i
-		}
 	}
 	return -1
 }
@@ -188,13 +182,7 @@ func StripHistoricalCommandsFromResponsesInput(body []byte) ([]byte, error) {
 		return body, nil
 	}
 	items := input.Array()
-	firstUserIdx, lastUserIdx := -1, -1
-	for i, item := range items {
-		if responsesUserMessage(item) {
-			firstUserIdx = i
-			break
-		}
-	}
+	lastUserIdx := -1
 	for i := len(items) - 1; i >= 0; i-- {
 		if !responsesUserMessage(items[i]) || isSkillAttachment(items, i) {
 			continue
@@ -213,7 +201,7 @@ func StripHistoricalCommandsFromResponsesInput(body []byte) ([]byte, error) {
 				continue
 			}
 		}
-		if !responsesUserMessage(item) || i == firstUserIdx || i == lastUserIdx || isSkillAttachment(items, i) {
+		if !responsesUserMessage(item) || i == lastUserIdx || isSkillAttachment(items, i) {
 			rebuilt = append(rebuilt, item.Raw)
 			continue
 		}
