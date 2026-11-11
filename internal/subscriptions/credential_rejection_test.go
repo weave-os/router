@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -270,4 +271,41 @@ func TestRuntimeFailedDisconnectWriteDoesNotEmitCommittedDisconnect(t *testing.T
 	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
 	require.NotContains(t, output.String(), `"subscription_event":"reconnect_required"`, "a rejected state write must not page as a committed disconnect")
 	require.Contains(t, output.String(), "synthetic disconnect write rejected")
+}
+
+type simultaneousCredentialRejections struct {
+	*runtimeStore
+	recorded sync.WaitGroup
+}
+
+func (s *simultaneousCredentialRejections) RecordSubscriptionCredentialRejection(ctx context.Context, owner auth.SubscriptionOwner, accountID string, input auth.SubscriptionCredentialRejectionInput) (auth.SubscriptionCredentialRejection, error) {
+	rejection, err := s.runtimeStore.RecordSubscriptionCredentialRejection(ctx, owner, accountID, input)
+	s.recorded.Done()
+	s.recorded.Wait()
+	return rejection, err
+}
+
+func TestRuntimeConcurrentRejectionsEmitOneDisconnectSignal(t *testing.T) {
+	store := &simultaneousCredentialRejections{runtimeStore: newRejectionStore(auth.SubscriptionProviderClaude)}
+	seedSustainedRejections(store.runtimeStore, "account-1")
+	store.recorded.Add(2)
+	var output bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&output, nil)))
+	runtime := subscriptions.NewRuntime(store, nil, nil)
+	var callers sync.WaitGroup
+	callers.Add(2)
+	failures := make(chan error, 2)
+	for range 2 {
+		go func() {
+			defer callers.Done()
+			_, err := runtime.RejectCredential(ctx, testOwner, subscriptions.ProviderClaude, "account-1", http.StatusUnauthorized)
+			failures <- err
+		}()
+	}
+	callers.Wait()
+	close(failures)
+	for err := range failures {
+		require.NoError(t, err)
+	}
+	require.Equal(t, 1, strings.Count(output.String(), `"subscription_event":"reconnect_required"`))
 }

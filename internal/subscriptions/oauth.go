@@ -98,7 +98,7 @@ type OAuthRefreshError struct {
 	Provider  Provider
 	Status    int
 	Code      string
-	Type      string
+	ErrorType string
 	RequestID string
 }
 
@@ -262,7 +262,7 @@ func (c *OAuthClient) doTokenRequest(req *http.Request, provider Provider, respo
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxTokenResponseBytes))
 		code, errorType := oauthErrorDetails(body)
-		return &OAuthRefreshError{Provider: provider, Status: resp.StatusCode, Code: code, Type: errorType, RequestID: oauthProviderRequestID(resp.Header)}
+		return &OAuthRefreshError{Provider: provider, Status: resp.StatusCode, Code: code, ErrorType: errorType, RequestID: oauthProviderRequestID(resp.Header)}
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, maxTokenResponseBytes)).Decode(response)
 }

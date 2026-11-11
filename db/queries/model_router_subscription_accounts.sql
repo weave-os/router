@@ -197,7 +197,9 @@ WHERE account.health_state = 'reconnect_required'
  AND EXISTS (SELECT 1 FROM previous WHERE previous.id = account.id AND previous.health_state <> 'reconnect_required')
  RETURNING id
 )
-SELECT count(*)::bigint FROM updated;
+SELECT count(*)::bigint AS matched_count,
+       (SELECT count(*) > 0 FROM recorded)::boolean AS disconnected
+FROM updated;
 
 -- name: UpdateModelRouterSubscriptionRefreshToken :execrows
 UPDATE router.model_router_subscription_accounts

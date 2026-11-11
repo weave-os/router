@@ -147,30 +147,30 @@ func (r *subscriptionAccountRepo) UpdateSubscriptionAccountState(ctx context.Con
 	return nil
 }
 
-func (r *subscriptionAccountRepo) UpdateSubscriptionAccountHealth(ctx context.Context, accountID string, owner auth.SubscriptionOwner, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) error {
+func (r *subscriptionAccountRepo) UpdateSubscriptionAccountHealth(ctx context.Context, accountID string, owner auth.SubscriptionOwner, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) (bool, error) {
 	accountUUID, err := uuid.Parse(accountID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
 	if err != nil {
-		return err
+		return false, err
 	}
 	var cooldown pgtype.Timestamp
 	if cooldownUntil != nil {
 		cooldown = pgtype.Timestamp{Time: cooldownUntil.UTC(), Valid: true}
 	}
-	rows, err := dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionAccountHealth(ctx, sqlc.UpdateModelRouterSubscriptionAccountHealthParams{
+	transition, err := dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionAccountHealth(ctx, sqlc.UpdateModelRouterSubscriptionAccountHealthParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID,
 		HealthState: string(state), Enabled: enabled, CooldownUntil: cooldown,
 	})
 	if err != nil {
-		return err
+		return false, err
 	}
-	if rows == 0 {
-		return auth.ErrSubscriptionAccountNotFound
+	if transition.MatchedCount == 0 {
+		return false, auth.ErrSubscriptionAccountNotFound
 	}
-	return nil
+	return transition.Disconnected, nil
 }
 
 func (r *subscriptionAccountRepo) UpdateSubscriptionRefreshToken(ctx context.Context, accountID string, owner auth.SubscriptionOwner, ciphertext []byte) error {

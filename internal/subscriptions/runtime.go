@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 
+	"github.com/cenkalti/backoff/v5"
 	"github.com/google/uuid"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 )
@@ -293,7 +294,8 @@ func (r *Runtime) Exhaust(ctx context.Context, owner auth.SubscriptionOwner, pro
 		return err
 	}
 	r.manager.Exhaust("account:"+accountID, provider, accountID, resetAt)
-	return r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateExhausted, true, &resetAt)
+	_, err = r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateExhausted, true, &resetAt)
+	return err
 }
 func (r *Runtime) ReconnectRequired(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
 	physicalOwner, err := r.admit(ctx, accountID, owner)
@@ -301,7 +303,8 @@ func (r *Runtime) ReconnectRequired(ctx context.Context, owner auth.Subscription
 		return err
 	}
 	r.manager.ReconnectRequired("account:"+accountID, provider, accountID)
-	return r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateReconnectRequired, false, nil)
+	_, err = r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateReconnectRequired, false, nil)
+	return err
 }
 func (r *Runtime) Activate(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
 	physicalOwner, err := r.admit(ctx, accountID, owner)
@@ -309,7 +312,8 @@ func (r *Runtime) Activate(ctx context.Context, owner auth.SubscriptionOwner, pr
 		return err
 	}
 	r.manager.Activate("account:"+accountID, provider, accountID)
-	return r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateActive, true, nil)
+	_, err = r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateActive, true, nil)
+	return err
 }
 func (r *Runtime) Disable(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
 	physicalOwner, err := r.admit(ctx, accountID, owner)
@@ -319,13 +323,13 @@ func (r *Runtime) Disable(ctx context.Context, owner auth.SubscriptionOwner, pro
 	r.manager.Disable("account:"+accountID, provider, accountID)
 	return r.store.UpdateSubscriptionAccountState(ctx, physicalOwner, accountID, false, nil)
 }
-func (r *Runtime) updateAccountHealth(ctx context.Context, owner auth.SubscriptionOwner, accountID string, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) error {
+func (r *Runtime) updateAccountHealth(ctx context.Context, owner auth.SubscriptionOwner, accountID string, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) (bool, error) {
 	if store, ok := r.store.(interface {
-		UpdateSubscriptionAccountHealth(context.Context, auth.SubscriptionOwner, string, auth.SubscriptionAccountState, bool, *time.Time) error
+		UpdateSubscriptionAccountHealth(context.Context, auth.SubscriptionOwner, string, auth.SubscriptionAccountState, bool, *time.Time) (bool, error)
 	}); ok {
 		return store.UpdateSubscriptionAccountHealth(ctx, owner, accountID, state, enabled, cooldownUntil)
 	}
-	return r.store.UpdateSubscriptionAccountState(ctx, owner, accountID, enabled, cooldownUntil)
+	return false, r.store.UpdateSubscriptionAccountState(ctx, owner, accountID, enabled, cooldownUntil)
 }
 
 func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
@@ -427,21 +431,31 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 // Once the issuer rotates a token, retry saving that same response rather than
 // refreshing the spent token. A canceled inference caller must not discard it.
 func (r *Runtime) persistRefreshedTokens(ctx context.Context, owner auth.SubscriptionOwner, account Account, holder refreshHolder, version int64, refreshed RefreshedToken) error {
-	var persistErr error
-	for attempt := 0; attempt < refreshRetryLimit; attempt++ {
-		saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refreshReleaseTimeout)
-		persistErr = r.store.PersistSubscriptionTokens(saveCtx, owner, account.ID, holder.leaseID, version,
+	saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(ctx), refreshReleaseTimeout*refreshRetryLimit+time.Second)
+	defer cancelSave()
+	policy := backoff.NewExponentialBackOff()
+	policy.InitialInterval = refreshWaitInitial
+	policy.MaxInterval = refreshWaitMaximum
+	attempt := 0
+	_, persistErr := backoff.Retry(saveCtx, func() (struct{}, error) {
+		attempt++
+		attemptCtx, cancel := context.WithTimeout(saveCtx, refreshReleaseTimeout)
+		err := r.store.PersistSubscriptionTokens(attemptCtx, owner, account.ID, holder.leaseID, version,
 			[]byte(refreshed.RefreshToken), []byte(refreshed.AccessToken), refreshed.ExpiresAt)
 		cancel()
-		if persistErr == nil || errors.Is(persistErr, auth.ErrSubscriptionRefreshConflict) {
-			return persistErr
+		if err == nil {
+			return struct{}{}, nil
+		}
+		if errors.Is(err, auth.ErrSubscriptionRefreshConflict) || errors.Is(err, auth.ErrSubscriptionAccountNotFound) {
+			return struct{}{}, backoff.Permanent(err)
 		}
 		observability.FromContext(ctx).Error("Failed to save rotated subscription tokens",
 			"subscription_event", auth.SubscriptionCredentialEventPersistenceFailed,
 			"owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider,
 			"refresh_lease_id", holder.leaseID, "token_refresh_version", version,
-			"lease_taken_over", holder.tookOver, "attempt", attempt+1, "retries_exhausted", attempt+1 == refreshRetryLimit, "err", persistErr)
-	}
+			"lease_taken_over", holder.tookOver, "attempt", attempt, "retries_exhausted", attempt == refreshRetryLimit, "err", err)
+		return struct{}{}, err
+	}, backoff.WithBackOff(policy), backoff.WithMaxTries(refreshRetryLimit))
 	return persistErr
 }
 
@@ -499,7 +513,7 @@ func (r *Runtime) handleRefreshError(ctx context.Context, owner auth.Subscriptio
 		"refresh_lease_id", leaseID, "token_refresh_version", credentials.TokenRefreshVersion, "lease_taken_over", holder.tookOver)
 	var oauthErr *OAuthRefreshError
 	if errors.As(refreshErr, &oauthErr) {
-		log = log.With("upstream_status", oauthErr.Status, "provider_error_code", oauthErr.Code, "provider_error_type", oauthErr.Type, "provider_request_id", oauthErr.RequestID)
+		log = log.With("upstream_status", oauthErr.Status, "provider_error_code", oauthErr.Code, "provider_error_type", oauthErr.ErrorType, "provider_request_id", oauthErr.RequestID)
 	}
 	var terminal terminalRefreshError
 	if errors.As(refreshErr, &terminal) && terminal.Terminal() {
@@ -601,7 +615,7 @@ func (r *Runtime) recordRefreshFailure(ctx context.Context, owner auth.Subscript
 			var oauthErr *OAuthRefreshError
 			if errors.As(refreshErr, &oauthErr) {
 				input.UpstreamStatus = oauthErr.Status
-				input.ProviderErrorType = oauthErr.Type
+				input.ProviderErrorType = oauthErr.ErrorType
 				input.ProviderRequestID = oauthErr.RequestID
 			}
 			rejection, err := store.RecordSubscriptionCredentialRejection(ctx, owner, accountID, input)

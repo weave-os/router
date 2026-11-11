@@ -241,13 +241,15 @@ func (s *runtimeStore) UpdateSubscriptionAccountCooldown(_ context.Context, _ au
 	return s.stateErr
 }
 
-func (s *runtimeStore) UpdateSubscriptionAccountHealth(_ context.Context, _ auth.SubscriptionOwner, accountID string, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) error {
+func (s *runtimeStore) UpdateSubscriptionAccountHealth(_ context.Context, _ auth.SubscriptionOwner, accountID string, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	disconnected := false
 	for _, account := range s.accounts {
 		if account.ID != accountID {
 			continue
 		}
+		disconnected = state == auth.SubscriptionAccountStateReconnectRequired && account.State != state
 		account.Enabled = account.Enabled && enabled
 		// Mirror SQL: activation preserves an unexpired cooldown.
 		if state == auth.SubscriptionAccountStateActive && account.CooldownUntil != nil && account.CooldownUntil.After(time.Now()) {
@@ -262,7 +264,7 @@ func (s *runtimeStore) UpdateSubscriptionAccountHealth(_ context.Context, _ auth
 	if cooldownUntil != nil {
 		s.cooldowns[accountID] = *cooldownUntil
 	}
-	return s.stateErr
+	return disconnected, s.stateErr
 }
 
 type runtimeRefreshFunc func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error)

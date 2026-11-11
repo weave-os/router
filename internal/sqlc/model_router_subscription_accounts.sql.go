@@ -1043,7 +1043,9 @@ WHERE account.health_state = 'reconnect_required'
  AND EXISTS (SELECT 1 FROM previous WHERE previous.id = account.id AND previous.health_state <> 'reconnect_required')
  RETURNING id
 )
-SELECT count(*)::bigint FROM updated
+SELECT count(*)::bigint AS matched_count,
+       (SELECT count(*) > 0 FROM recorded)::boolean AS disconnected
+FROM updated
 `
 
 type UpdateModelRouterSubscriptionAccountHealthParams struct {
@@ -1053,6 +1055,11 @@ type UpdateModelRouterSubscriptionAccountHealthParams struct {
 	HealthState   string
 	Enabled       bool
 	CooldownUntil pgtype.Timestamp
+}
+
+type UpdateModelRouterSubscriptionAccountHealthRow struct {
+	MatchedCount int64
+	Disconnected bool
 }
 
 // Updates the internal credential-free routing health for one linked account.
@@ -1105,8 +1112,10 @@ type UpdateModelRouterSubscriptionAccountHealthParams struct {
 //	 AND EXISTS (SELECT 1 FROM previous WHERE previous.id = account.id AND previous.health_state <> 'reconnect_required')
 //	 RETURNING id
 //	)
-//	SELECT count(*)::bigint FROM updated
-func (q *Queries) UpdateModelRouterSubscriptionAccountHealth(ctx context.Context, arg UpdateModelRouterSubscriptionAccountHealthParams) (int64, error) {
+//	SELECT count(*)::bigint AS matched_count,
+//	       (SELECT count(*) > 0 FROM recorded)::boolean AS disconnected
+//	FROM updated
+func (q *Queries) UpdateModelRouterSubscriptionAccountHealth(ctx context.Context, arg UpdateModelRouterSubscriptionAccountHealthParams) (UpdateModelRouterSubscriptionAccountHealthRow, error) {
 	row := q.db.QueryRow(ctx, updateModelRouterSubscriptionAccountHealth,
 		arg.ID,
 		arg.SubscriberID,
@@ -1115,9 +1124,9 @@ func (q *Queries) UpdateModelRouterSubscriptionAccountHealth(ctx context.Context
 		arg.Enabled,
 		arg.CooldownUntil,
 	)
-	var column_1 int64
-	err := row.Scan(&column_1)
-	return column_1, err
+	var i UpdateModelRouterSubscriptionAccountHealthRow
+	err := row.Scan(&i.MatchedCount, &i.Disconnected)
+	return i, err
 }
 
 const updateModelRouterSubscriptionAccountState = `-- name: UpdateModelRouterSubscriptionAccountState :execrows

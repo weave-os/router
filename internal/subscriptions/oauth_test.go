@@ -218,7 +218,7 @@ func TestOAuthRefreshRejectsUnsafeDiagnosticFields(t *testing.T) {
 	_, err := client.Refresh(context.Background(), subscriptions.ProviderCodex, "refresh-secret")
 	var rejected *subscriptions.OAuthRefreshError
 	require.ErrorAs(t, err, &rejected)
-	require.Equal(t, "invalid_request_error", rejected.Type)
+	require.Equal(t, "invalid_request_error", rejected.ErrorType)
 	require.Equal(t, "invalid_request_error", rejected.Code)
 	require.Equal(t, "safe-provider-request", rejected.RequestID)
 	require.NotContains(t, err.Error(), "synthetic-secret")
