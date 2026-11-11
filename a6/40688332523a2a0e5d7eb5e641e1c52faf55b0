@@ -1,0 +1,21 @@
+internal/subscriptions/credential_rejection_test.go
+  s_c7ed207f42b223::t_d74573b03bc88e 313-328
+internal/subscriptions/runtime_test.go
+  s_c7ed207f42b223::t_4be6e5486e255d 247-249,270
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a640688332523a2a0e5d7eb5e641e1c52faf55b0",
+  "prompts": {},
+  "sessions": {
+    "s_c7ed207f42b223": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c7f4-1d25-7b31-9661-2876b54142a6",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
