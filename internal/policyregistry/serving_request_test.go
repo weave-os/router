@@ -99,3 +99,16 @@ func TestAdmittedIdentitySeparatesIncarnationsAndSessionlessRequests(t *testing.
 	assertion.Scope.Persistent = false
 	require.NotEqual(t, identity(assertion).StateNamespace, identity(assertion).StateNamespace, "missing session ID must not share learned state")
 }
+
+func TestLocalReleaseRouterServesItsExportedSnapshotWithoutAdmission(t *testing.T) {
+	local := &policyregistry.Snapshot{Routers: map[router.Strategy]router.Router{router.StrategyHMM: admittedTestRouter{model: "local"}}}
+	runtime := policyregistry.NewLocalReleaseRouter(router.StrategyHMM, local)
+	require.True(t, runtime.Available())
+	decision, err := runtime.Route(context.Background(), router.Request{})
+	require.NoError(t, err)
+	require.Equal(t, "local", decision.Model)
+	admitted := &policyregistry.Snapshot{Routers: map[router.Strategy]router.Router{router.StrategyHMM: admittedTestRouter{model: "admitted"}}}
+	decision, err = runtime.Route(policyregistry.WithServingSnapshot(context.Background(), admitted), router.Request{})
+	require.NoError(t, err)
+	require.Equal(t, "admitted", decision.Model)
+}

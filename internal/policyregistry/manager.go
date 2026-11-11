@@ -281,12 +281,19 @@ type DynamicRouter struct {
 	manager  *Manager
 	strategy router.Strategy
 	prepared *Snapshot
+	local    *Snapshot
 }
 
 // NewAdmittedRouter requires a request-bound runtime for dispatch. The bootstrap
 // closure proves local readiness only; it never becomes a request fallback.
 func NewAdmittedRouter(strategy router.Strategy, prepared *Snapshot) *DynamicRouter {
 	return &DynamicRouter{strategy: strategy, prepared: prepared}
+}
+
+// NewLocalReleaseRouter serves every request from one exported self-hosted
+// release; a request-bound snapshot still takes precedence.
+func NewLocalReleaseRouter(strategy router.Strategy, local *Snapshot) *DynamicRouter {
+	return &DynamicRouter{strategy: strategy, prepared: local, local: local}
 }
 
 // NewDynamicRouter binds one strategy to a hot-swappable policy manager.
@@ -388,6 +395,9 @@ func (r *DynamicRouter) activeRouter(ctx context.Context) (router.Router, error)
 	snapshot := ServingSnapshotFromContext(ctx)
 	if snapshot == nil && r.manager != nil {
 		snapshot = r.manager.Active()
+	}
+	if snapshot == nil {
+		snapshot = r.local
 	}
 	if snapshot == nil {
 		return nil, fmt.Errorf("%w: %w", router.ErrStrategyUnavailable, ErrNoActivePolicy)
