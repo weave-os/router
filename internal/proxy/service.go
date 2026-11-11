@@ -8510,7 +8510,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					if err != nil && env.Stream() && preludeBuf.Committed() {
 						_ = emitOpenAISSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
 					}
-					return finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
+					err = finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
+					respSummary = translator.Summary()
+					nativeRespSummary = false
+					return err
 				}
 				return rawErr, finalize
 			}

@@ -193,7 +193,7 @@ func firstUserMessageText(body []byte, surface ConversationSurface) string {
 	return text
 }
 
-var cursorAgentStorePattern = regexp.MustCompile(`Current agent's store: \S*cursor_agent_stores/([0-9a-fA-F-]{36})/`)
+var cursorAgentStorePattern = regexp.MustCompile(`Current agent's store: [^\n]*?cursor_agent_stores/([0-9a-fA-F-]{36})/`)
 
 // CursorAgentSessionID returns the per-conversation agent id Cursor embeds in
 // its opening user message; Cursor's only body identifier, user, is per person.
