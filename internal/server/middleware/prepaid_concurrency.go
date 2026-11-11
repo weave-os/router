@@ -87,7 +87,7 @@ func WithOrganizationPrepaidConcurrencyLimit(organizationLimit, keyLimit int) gi
 }
 
 func writePrepaidConcurrencyLimit(c *gin.Context, organizationID, apiKeyID, scope string, limit int) {
-	observability.FromGin(c).Info("Request throttled: organization prepaid concurrency limit reached",
+	observability.FromGin(c).Info("Request throttled: prepaid concurrency limit reached",
 		"organization_id", organizationID,
 		"api_key_id", apiKeyID,
 		"scope", scope,
