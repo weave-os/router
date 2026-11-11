@@ -188,9 +188,13 @@ type RefreshLeaseAcquisition struct {
 type SubscriptionCredentialEventKind string
 
 const (
-	SubscriptionCredentialEventRejected          SubscriptionCredentialEventKind = "credential_rejected"
-	SubscriptionCredentialEventReconnectRequired SubscriptionCredentialEventKind = "reconnect_required"
-	SubscriptionCredentialEventPersistenceFailed SubscriptionCredentialEventKind = "token_persistence_failed"
+	SubscriptionCredentialEventRejected           SubscriptionCredentialEventKind = "credential_rejected"
+	SubscriptionCredentialEventReconnectRequired  SubscriptionCredentialEventKind = "reconnect_required"
+	SubscriptionCredentialEventPersistenceFailed  SubscriptionCredentialEventKind = "token_persistence_failed"
+	SubscriptionCredentialEventSelected           SubscriptionCredentialEventKind = "account_selected"
+	SubscriptionCredentialEventLeaseAttempted     SubscriptionCredentialEventKind = "account_lease_attempted"
+	SubscriptionCredentialEventCandidateEvaluated SubscriptionCredentialEventKind = "candidate_evaluated"
+	SubscriptionCredentialEventAttempted          SubscriptionCredentialEventKind = "account_attempted"
 )
 
 // SubscriptionCredentialRejectionInput describes one provider credential

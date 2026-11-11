@@ -1,8 +1,11 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -15,6 +18,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
@@ -414,7 +418,8 @@ func TestDispatchWithFallbackRotatesManagedAccountBeforeCommit(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 	var tokens []string
 
-	ctx := managedSubscriptionTestContext()
+	var output bytes.Buffer
+	ctx := observability.WithLogger(managedSubscriptionTestContext(), slog.New(slog.NewJSONHandler(&output, nil)))
 	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
 		w: recorder, buf: buffer,
 		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
@@ -432,6 +437,37 @@ func TestDispatchWithFallbackRotatesManagedAccountBeforeCommit(t *testing.T) {
 	require.Equal(t, []string{"opaque-a"}, leaser.cooldownIDs)
 	require.Equal(t, "served", recorder.Body.String())
 	require.True(t, servedOnSubscription(ctx))
+	var attempts []struct {
+		AccountID string `json:"account_id"`
+		Succeeded bool   `json:"succeeded"`
+		Status    int    `json:"upstream_status"`
+		Duration  int64  `json:"attempt_ms"`
+	}
+	for _, line := range bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n")) {
+		var event struct {
+			Event auth.SubscriptionCredentialEventKind `json:"subscription_event"`
+		}
+		require.NoError(t, json.Unmarshal(line, &event))
+		if event.Event == auth.SubscriptionCredentialEventAttempted {
+			var attempt struct {
+				AccountID string `json:"account_id"`
+				Succeeded bool   `json:"succeeded"`
+				Status    int    `json:"upstream_status"`
+				Duration  int64  `json:"attempt_ms"`
+			}
+			require.NoError(t, json.Unmarshal(line, &attempt))
+			attempts = append(attempts, attempt)
+		}
+	}
+	require.Len(t, attempts, 2, "failed and winning seats each need attempt attribution")
+	require.Equal(t, "opaque-a", attempts[0].AccountID)
+	require.False(t, attempts[0].Succeeded)
+	require.Equal(t, http.StatusTooManyRequests, attempts[0].Status)
+	require.Equal(t, "opaque-b", attempts[1].AccountID)
+	require.True(t, attempts[1].Succeeded)
+	require.GreaterOrEqual(t, attempts[1].Duration, int64(0))
+	require.NotContains(t, output.String(), "token-a")
+	require.NotContains(t, output.String(), "token-b")
 }
 
 func TestDispatchWithFallbackDoesNotMarkFailedManagedAttemptServed(t *testing.T) {

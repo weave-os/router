@@ -1779,10 +1779,11 @@ func subscriptionCandidateSignal(snapshot usage.Snapshot, now time.Time) subscri
 		if snapshot.UnifiedResetAt.After(now) {
 			signal.ResetAt = snapshot.UnifiedResetAt
 		}
+		signal.ObservedAt = snapshot.ObservedAt
 		return signal
 	}
 
-	signal := subscriptions.CandidateSignal{Exhausted: snapshot.ExhaustedAsOf(now)}
+	signal := subscriptions.CandidateSignal{Exhausted: snapshot.ExhaustedAsOf(now), ObservedAt: snapshot.ObservedAt}
 	for _, window := range []usage.Window{snapshot.Primary, snapshot.Secondary} {
 		if math.IsNaN(window.UsedPercent) || math.IsInf(window.UsedPercent, 0) || window.UsedPercent < 0 || window.UsedPercent > 1 {
 			return subscriptions.CandidateSignal{}
@@ -1801,15 +1802,12 @@ func subscriptionCandidateSignal(snapshot usage.Snapshot, now time.Time) subscri
 		if !resetAt.IsZero() && !resetAt.After(now) {
 			continue
 		}
-		if !signal.Observed || window.UsedPercent > signal.UsedFraction ||
-			window.UsedPercent == signal.UsedFraction && !resetAt.IsZero() && (signal.ResetAt.IsZero() || resetAt.Before(signal.ResetAt)) {
+		if !signal.Observed || window.UsedPercent > signal.UsedFraction {
 			signal.Observed = true
 			signal.UsedFraction = window.UsedPercent
-			if resetAt.After(now) {
-				signal.ResetAt = resetAt
-			} else {
-				signal.ResetAt = time.Time{}
-			}
+		}
+		if resetAt.After(now) && (signal.ResetAt.IsZero() || resetAt.Before(signal.ResetAt)) {
+			signal.ResetAt = resetAt
 		}
 	}
 	return signal

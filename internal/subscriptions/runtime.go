@@ -2,11 +2,11 @@ package subscriptions
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 	"time"
 
 	"weave-os/router/internal/auth"
@@ -29,6 +29,11 @@ const (
 	refreshWaitInitial    = 50 * time.Millisecond
 	refreshWaitMaximum    = 200 * time.Millisecond
 	refreshRetryLimit     = 3
+	// Candidate quota observations are replica-local. Probe one otherwise lower
+	// ranked account periodically so a cold or idle seat gets a chance to report
+	// its expiring capacity without adding a provider request to every lease.
+	candidateExplorationEvery = 10
+	candidateExplorationIdle  = 5 * time.Minute
 )
 
 // Compile-time check that one provider refresh (RefreshHTTPTimeout) fits
@@ -90,14 +95,18 @@ type Leaser interface {
 // Runtime admits primary candidates, refreshes physical accounts, and retains
 // session affinity only within the winning ownership tier.
 type Runtime struct {
-	affinity        *expirable.LRU[string, string]
-	store           AccountStore
-	refresher       TokenRefresher
-	manager         *Manager
-	clock           func() time.Time
-	leaseTTL        time.Duration
-	heartbeat       time.Duration
-	candidateSignal func(string, Provider, time.Time) CandidateSignal
+	affinity           *expirable.LRU[string, string]
+	store              AccountStore
+	refresher          TokenRefresher
+	manager            *Manager
+	clock              func() time.Time
+	leaseTTL           time.Duration
+	heartbeat          time.Duration
+	candidateSignal    func(string, Provider, time.Time) CandidateSignal
+	selectionMu        sync.Mutex
+	candidateLoads     map[string]*candidateLoad
+	explorationBudgets *expirable.LRU[string, *explorationBudget]
+	selectionSequence  uint64
 }
 
 // CandidateSignal is the latest local quota evidence for one physical account.
@@ -108,7 +117,9 @@ type CandidateSignal struct {
 	Exhausted    bool
 	Billable     bool
 	UsedFraction float64
-	ResetAt      time.Time
+	// ResetAt is the next active quota expiry, independent of peak utilization.
+	ResetAt    time.Time
+	ObservedAt time.Time
 }
 
 // CandidateSignalFunc supplies local quota evidence to the runtime without
@@ -123,6 +134,8 @@ func NewRuntime(store AccountStore, refresher TokenRefresher, clock func() time.
 	return &Runtime{affinity: expirable.NewLRU[string, string](4096, nil, 30*time.Minute),
 		store: store, refresher: refresher, manager: NewManager(clock), clock: clock,
 		leaseTTL: refreshLeaseTTL, heartbeat: refreshLeaseHeartbeat,
+		candidateLoads:     make(map[string]*candidateLoad),
+		explorationBudgets: expirable.NewLRU[string, *explorationBudget](4096, nil, 30*time.Minute),
 	}
 }
 
@@ -156,38 +169,36 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 	if err != nil {
 		return Lease{}, false, err
 	}
-	quotaAwareSelection := r.candidateSignal != nil
 	var candidateSignals map[string]CandidateSignal
-	if quotaAwareSelection {
+	if r.candidateSignal != nil {
 		candidateSignals = snapshotCandidateSignals(accounts, provider, r.candidateSignal, r.clock())
-		slices.SortStableFunc(accounts, func(left, right *auth.SubscriptionAccount) int {
-			return compareSubscriptionCandidates(left, right, requester.SubscriberID, candidateSignals)
-		})
 	}
 	affinityKey := requester.InstallationID + "|" + requester.SubscriberID + "|" + string(provider) + "|" + sessionID
+	preferred := ""
 	if sessionID != "" {
-		if preferred, ok := r.affinity.Get(affinityKey); ok {
-			// Preserve personal-before-shared ordering; affinity only reorders a tier.
-			slices.SortStableFunc(accounts, func(left, right *auth.SubscriptionAccount) int {
-				if rank := compareSubscriptionCandidates(left, right, requester.SubscriberID, candidateSignals); rank != 0 {
-					return rank
-				}
-				if left.ID == preferred {
-					return -1
-				}
-				if right.ID == preferred {
-					return 1
-				}
-				return 0
-			})
-		}
+		preferred, _ = r.affinity.Get(affinityKey)
 	}
 	present := false
+	eligible := make([]*auth.SubscriptionAccount, 0, len(accounts))
 	for _, candidate := range accounts {
 		if candidate.SubscriberID == "" || Provider(candidate.Provider) != provider || slices.Contains(requester.ExcludedAccountIDs, candidate.ID) {
 			continue
 		}
 		present = true
+		var cooldown time.Time
+		if candidate.CooldownUntil != nil {
+			cooldown = *candidate.CooldownUntil
+		}
+		if candidate.Enabled && subscriptionAccountEligible(ctx, provider, candidate.State, cooldown, r.clock()) {
+			eligible = append(eligible, candidate)
+		}
+	}
+	for len(eligible) > 0 {
+		if err := ctx.Err(); err != nil {
+			return Lease{}, present, err
+		}
+		candidate, releaseReservation := r.reserveCandidate(ctx, eligible, requester, provider, preferred, candidateSignals)
+		eligible = eligible[1:]
 		owner := auth.SubscriptionOwner{SubscriberID: candidate.SubscriberID, APIKeyID: candidate.EnrolledByAPIKeyID, InstallationID: requester.InstallationID}
 		poolID := "account:" + candidate.ID
 		account := Account{ID: candidate.ID, OwnerID: poolID, Provider: provider, Enabled: candidate.Enabled, State: candidate.State}
@@ -197,23 +208,30 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 		if candidate.CooldownUntil != nil {
 			account.CooldownTil = *candidate.CooldownUntil
 		}
-		if !candidate.Enabled || !subscriptionAccountEligible(ctx, provider, candidate.State, account.CooldownTil, r.clock()) {
-			continue
-		}
 		if err := r.manager.Upsert(account); err != nil {
+			releaseReservation()
 			return Lease{}, present, err
 		}
 		if candidate.AccessTokenMissing {
 			r.manager.InvalidateAccessToken(poolID, provider, candidate.ID)
 		}
 		// Each pool holds one account; r.affinity owns session preference.
+		leaseStarted := time.Now()
 		leased, release, leaseErr := r.manager.Lease(ctx, poolID, provider, "", r.refresh(owner))
+		observability.FromContext(ctx).Info("Subscription account lease completed", "subscription_event", auth.SubscriptionCredentialEventLeaseAttempted,
+			"account_id", candidate.ID, "provider", provider, "tier", candidate.Tier,
+			"lease_ms", time.Since(leaseStarted).Milliseconds(), "lease_succeeded", leaseErr == nil)
 		if errors.Is(leaseErr, ErrNoAvailableAccount) {
+			releaseReservation()
 			continue
 		}
 		if leaseErr != nil {
+			releaseReservation()
 			return Lease{}, present, leaseErr
 		}
+		poolRelease := release
+		var once sync.Once
+		release = func() { once.Do(func() { poolRelease(); releaseReservation() }) }
 		if sessionID != "" {
 			r.affinity.Add(affinityKey, leased.ID)
 		}
@@ -232,41 +250,6 @@ func snapshotCandidateSignals(accounts []*auth.SubscriptionAccount, provider Pro
 		signals[account.ID] = signal(account.ID, provider, now)
 	}
 	return signals
-}
-
-func compareSubscriptionCandidates(left, right *auth.SubscriptionAccount, subscriberID string, signals map[string]CandidateSignal) int {
-	if left.ID == right.ID {
-		return 0
-	}
-	leftPersonal := left.SubscriberID == subscriberID && subscriberID != ""
-	rightPersonal := right.SubscriberID == subscriberID && subscriberID != ""
-	if leftPersonal != rightPersonal {
-		if leftPersonal {
-			return -1
-		}
-		return 1
-	}
-	if signals == nil {
-		return 0
-	}
-	leftSignal := signals[left.ID]
-	rightSignal := signals[right.ID]
-	if rank := candidateSignalRank(leftSignal) - candidateSignalRank(rightSignal); rank != 0 {
-		return rank
-	}
-	if leftSignal.ResetAt.IsZero() != rightSignal.ResetAt.IsZero() {
-		if leftSignal.ResetAt.IsZero() {
-			return 1
-		}
-		return -1
-	}
-	if rank := leftSignal.ResetAt.Compare(rightSignal.ResetAt); rank != 0 {
-		return rank
-	}
-	if rank := cmp.Compare(leftSignal.UsedFraction, rightSignal.UsedFraction); rank != 0 {
-		return rank
-	}
-	return 0
 }
 
 func candidateSignalRank(signal CandidateSignal) int {
