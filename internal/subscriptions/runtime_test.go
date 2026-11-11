@@ -1239,12 +1239,13 @@ func TestRuntimeRetriesSavingRotatedTokenWithoutRefreshingAgain(t *testing.T) {
 	store.persistFailures = 1
 	var refreshCalls atomic.Int32
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
-		require.Equal(t, int32(1), refreshCalls.Add(1), "the provider has already consumed the old refresh token")
+		refreshCalls.Add(1)
 		return subscriptions.RefreshedToken{AccessToken: "access-rotated", RefreshToken: "refresh-rotated", ExpiresAt: time.Now().Add(time.Hour)}, nil
 	}), nil)
 	lease, _, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
 	require.NoError(t, err)
 	defer lease.Release()
+	require.Equal(t, int32(1), refreshCalls.Load(), "the provider has already consumed the old refresh token")
 	require.Equal(t, "access-rotated", lease.AccessToken)
 	require.Equal(t, []byte("refresh-rotated"), store.refreshTokens["account-1"])
 	require.Equal(t, 2, store.persistCalls)

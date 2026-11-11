@@ -199,7 +199,7 @@ func (c *OAuthClient) refreshCodex(ctx context.Context, refreshToken string) (Re
 		IDToken      string `json:"id_token"`
 		ExpiresIn    int64  `json:"expires_in"`
 	}
-	if err := c.doTokenRequest(req, ProviderCodex, &response); err != nil {
+	if err := c.doTokenRequest(req, ProviderCodex, &response, refreshToken); err != nil {
 		return RefreshedToken{}, err
 	}
 	if response.RefreshToken == "" {
@@ -243,7 +243,7 @@ func (c *OAuthClient) refreshClaude(ctx context.Context, refreshToken string) (R
 			UUID string `json:"uuid"`
 		} `json:"organization"`
 	}
-	if err := c.doTokenRequest(req, ProviderClaude, &response); err != nil {
+	if err := c.doTokenRequest(req, ProviderClaude, &response, refreshToken); err != nil {
 		return RefreshedToken{}, err
 	}
 	if response.RefreshToken == "" {
@@ -253,7 +253,7 @@ func (c *OAuthClient) refreshClaude(ctx context.Context, refreshToken string) (R
 		ClaudeExternalAccountID(response.Account.UUID, response.Organization.UUID), response.ExpiresIn)
 }
 
-func (c *OAuthClient) doTokenRequest(req *http.Request, provider Provider, response any) error {
+func (c *OAuthClient) doTokenRequest(req *http.Request, provider Provider, response any, credentials ...string) error {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err
@@ -262,9 +262,24 @@ func (c *OAuthClient) doTokenRequest(req *http.Request, provider Provider, respo
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxTokenResponseBytes))
 		code, errorType := oauthErrorDetails(body)
-		return &OAuthRefreshError{Provider: provider, Status: resp.StatusCode, Code: code, ErrorType: errorType, RequestID: oauthProviderRequestID(resp.Header)}
+		rejection := &OAuthRefreshError{Provider: provider, Status: resp.StatusCode,
+			Code: omitOAuthCredentialEcho(code, credentials), ErrorType: omitOAuthCredentialEcho(errorType, credentials),
+			RequestID: omitOAuthCredentialEcho(oauthProviderRequestID(resp.Header), credentials)}
+		if rejection.Code == "" {
+			rejection.Code = rejection.ErrorType
+		}
+		return rejection
 	}
 	return json.NewDecoder(io.LimitReader(resp.Body, maxTokenResponseBytes)).Decode(response)
+}
+
+func omitOAuthCredentialEcho(identifier string, credentials []string) string {
+	for _, credential := range credentials {
+		if credential != "" && strings.Contains(strings.ToLower(identifier), strings.ToLower(credential)) {
+			return ""
+		}
+	}
+	return identifier
 }
 
 func (c *OAuthClient) validatedToken(provider Provider, accessToken, refreshToken, accountID string, expiresIn int64) (RefreshedToken, error) {

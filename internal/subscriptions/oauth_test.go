@@ -224,3 +224,25 @@ func TestOAuthRefreshRejectsUnsafeDiagnosticFields(t *testing.T) {
 	require.NotContains(t, err.Error(), "synthetic-secret")
 	require.NotContains(t, err.Error(), "private-token-description")
 }
+
+func TestOAuthRefreshOmitsCredentialEchoFromMachineIdentifiers(t *testing.T) {
+	const submittedCredential = "Synthetic-URLSafe-Refresh-Credential"
+	for _, provider := range []subscriptions.Provider{subscriptions.ProviderClaude, subscriptions.ProviderCodex} {
+		t.Run(string(provider), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("x-request-id", "request-"+submittedCredential)
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":{"code":"` + submittedCredential + `","type":"` + submittedCredential + `","message":"description"}}`))
+			}))
+			defer server.Close()
+			client := subscriptions.NewOAuthClient(server.Client(), server.URL, server.URL, nil)
+			_, err := client.Refresh(context.Background(), provider, submittedCredential)
+			var rejected *subscriptions.OAuthRefreshError
+			require.ErrorAs(t, err, &rejected)
+			require.Empty(t, rejected.Code)
+			require.Empty(t, rejected.ErrorType)
+			require.Empty(t, rejected.RequestID)
+			require.NotContains(t, strings.ToLower(err.Error()), strings.ToLower(submittedCredential))
+		})
+	}
+}

@@ -581,10 +581,11 @@ func TestSubscriptionCredentialEventsSurviveReconnectAndFenceStaleRefresh(t *tes
 	require.False(t, first.RepeatedDisconnect)
 	require.NoError(t, repo.DisableSubscriptionAccountIfRefreshHolder(ctx, account.ID, owner, leaseID, record.TokenRefreshVersion))
 	require.ErrorIs(t, repo.DisableSubscriptionAccountIfRefreshHolder(ctx, account.ID, owner, leaseID, record.TokenRefreshVersion), auth.ErrSubscriptionRefreshConflict)
-	var providerCode, providerRequestID, requestID string
+	var providerCode, providerErrorType, providerRequestID, requestID string
 	var status int
-	require.NoError(t, fixture.pool.QueryRow(ctx, `SELECT reason,provider_request_id,upstream_status,request_id FROM router.subscription_credential_events WHERE account_id=$1 AND event_kind=$2`, account.ID, string(auth.SubscriptionCredentialEventReconnectRequired)).Scan(&providerCode, &providerRequestID, &status, &requestID))
+	require.NoError(t, fixture.pool.QueryRow(ctx, `SELECT reason,provider_error_type,provider_request_id,upstream_status,request_id FROM router.subscription_credential_events WHERE account_id=$1 AND event_kind=$2`, account.ID, string(auth.SubscriptionCredentialEventReconnectRequired)).Scan(&providerCode, &providerErrorType, &providerRequestID, &status, &requestID))
 	require.Equal(t, input.Reason, providerCode)
+	require.Equal(t, input.ProviderErrorType, providerErrorType)
 	require.Equal(t, input.ProviderRequestID, providerRequestID)
 	require.Equal(t, input.UpstreamStatus, status)
 	require.Equal(t, input.RequestID, requestID)

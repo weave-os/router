@@ -270,6 +270,7 @@ func TestRuntimeFailedDisconnectWriteDoesNotEmitCommittedDisconnect(t *testing.T
 	_, _, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "")
 	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
 	require.NotContains(t, output.String(), `"subscription_event":"reconnect_required"`, "a rejected state write must not page as a committed disconnect")
+	require.NotContains(t, output.String(), "Subscription account needs reconnect after repeated refresh rejections")
 	require.Contains(t, output.String(), "synthetic disconnect write rejected")
 }
 
