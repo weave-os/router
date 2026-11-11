@@ -46,7 +46,9 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 	}
 	env.captureThreadDiscriminator()
 	messages := msgs.Array()
-	lastUserIdx := trailingUserTurnIndex(messages)
+	lastUserIdx := trailingUserTurnIndex(messages, func(msg gjson.Result) bool {
+		return msg.Get("role").String() == "user"
+	})
 
 	changed := 0
 	rebuilt := make([]string, 0, len(messages))
@@ -63,7 +65,7 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 		role := msg.Get("role").String()
 		// An unmarked ack left behind a dropped opening directive would make
 		// the conversation open on an assistant turn, which Anthropic rejects.
-		if role == "assistant" && droppedUser && !keptUser {
+		if role == "assistant" && droppedUser && !keptUser && !carriesToolCall(msg) {
 			changed++
 			continue
 		}
@@ -98,14 +100,26 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 
 // trailingUserTurnIndex finds the user message that owns the current turn,
 // looking past the skill attachment Codex appends after a typed directive.
-func trailingUserTurnIndex(messages []gjson.Result) int {
+func trailingUserTurnIndex(messages []gjson.Result, isUser func(gjson.Result) bool) int {
 	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Get("role").String() != "user" || isSkillAttachment(messages, i) {
+		if !isUser(messages[i]) || isSkillAttachment(messages, i) {
 			continue
 		}
 		return i
 	}
 	return -1
+}
+
+func carriesToolCall(msg gjson.Result) bool {
+	if msg.Get("tool_calls.#").Int() > 0 {
+		return true
+	}
+	for _, part := range msg.Get("content").Array() {
+		if part.Get("type").String() == "tool_use" {
+			return true
+		}
+	}
+	return false
 }
 
 // stripDirectiveFromMessage rewrites a user message's content with its
@@ -182,14 +196,7 @@ func StripHistoricalCommandsFromResponsesInput(body []byte) ([]byte, error) {
 		return body, nil
 	}
 	items := input.Array()
-	lastUserIdx := -1
-	for i := len(items) - 1; i >= 0; i-- {
-		if !responsesUserMessage(items[i]) || isSkillAttachment(items, i) {
-			continue
-		}
-		lastUserIdx = i
-		break
-	}
+	lastUserIdx := trailingUserTurnIndex(items, responsesUserMessage)
 
 	rebuilt := make([]string, 0, len(items))
 	changed := false

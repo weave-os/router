@@ -86,7 +86,7 @@ func TestStripHistoricalCommands_NoDirectivesIsByteIdentical(t *testing.T) {
 	removed, err := env.StripHistoricalCommands()
 	require.NoError(t, err)
 	assert.Equal(t, 0, removed)
-	assert.JSONEq(t, string(body), string(env.body))
+	assert.Equal(t, body, env.body)
 }
 
 func TestStripHistoricalCommands_OpeningDirectiveKeepsThreadDiscriminator(t *testing.T) {
@@ -120,4 +120,18 @@ func TestStripHistoricalCommands_OpeningMixedMessageKeepsRemainder(t *testing.T)
 	require.Len(t, msgs, 4)
 	assert.Equal(t, "please refactor the parser", msgs[1].Get("content").Str)
 	assert.Equal(t, "done", msgs[2].Get("content").Str)
+}
+
+func TestStripHistoricalCommands_OpeningDirectiveKeepsAssistantToolCall(t *testing.T) {
+	env, err := ParseAnthropic([]byte(`{"model":"claude","messages":[` +
+		`{"role":"user","content":"/fm astra"},` +
+		`{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"read","input":{}}]},` +
+		`{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]},` +
+		`{"role":"user","content":"now write the parser"}]}`))
+	require.NoError(t, err)
+	_, err = env.StripHistoricalCommands()
+	require.NoError(t, err)
+	msgs := gjson.GetBytes(env.body, "messages").Array()
+	require.Len(t, msgs, 3)
+	assert.Equal(t, "tool_use", msgs[0].Get("content.0.type").Str, "a tool call must keep its paired tool result")
 }

@@ -52,7 +52,7 @@ func readInstallerDirectives(t *testing.T) []installerDirective {
 		out = append(out, installerDirective{name: cols[0], codex: codex})
 		for _, alias := range strings.Split(cols[1], ",") {
 			if alias != "" {
-				out = append(out, installerDirective{name: alias})
+				out = append(out, installerDirective{name: alias, codex: codex})
 			}
 		}
 	}

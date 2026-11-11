@@ -103,15 +103,18 @@ removes it: `StripHistoricalCommands` for `messages` bodies and
 directives count comes from `routerDirectives` in
 [`directive_registry.go`](directive_registry.go); its test fails when
 `install/directives.tsv` declares a directive that is neither listed there nor named
-as client-only, so a new directive must be registered or explicitly exempted. Four
+in `notRouterHandled` (the client-side toggles, plus `beta`, which
+`StripBetaArtifacts` owns), so a new directive must be registered or explicitly
+exempted. Four
 rules: the trailing user turn is never touched (that is where `Extract*Command` must
 still find a live directive); the first user message is stripped too, but
 `StripHistoricalCommands` first captures its original text and `deriveSessionKey`
 hashes that (`ThreadDiscriminatorText`), so the pin an opening directive created
 survives — which is why the portable Codex projection keeps its directives until the
 chat path has bound the session key; the Codex `<skill>` attachment goes with its
-directive, and an ack left at the head of the history once the opening directive is
-gone goes too; and
+directive, and on `messages` bodies an unmarked ack (no tool call) left at the head
+of the history once the opening directive is gone goes too — the native Responses
+body leaves acks to `StripCommandOutcomesFromResponsesInput`; and
 any text the user wrote alongside the directive is kept, so only the command line
 goes. Each directive family's own parser decides what counts, so the bare-only
 directives (`router-session`, `router-models`) with trailing arguments never fired
