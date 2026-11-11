@@ -46,6 +46,9 @@ type SSETranslator struct {
 
 	usageSink UsageSink
 	lifecycle *StreamLifecycle
+
+	upstreamStopReason string
+	finishReason       string
 }
 
 // NewSSETranslator wraps w. Call Finalize after upstream returns.
@@ -138,10 +141,30 @@ func (t *SSETranslator) Finalize() error {
 		_, _ = t.inner.Write([]byte(`{"error":{"message":"translation failed","type":"api_error"}}`))
 		return err
 	}
+	t.upstreamStopReason = gjson.GetBytes(body, "stop_reason").String()
+	choice := gjson.GetBytes(translated, "choices.0")
+	t.finishReason = choice.Get("finish_reason").String()
+	t.toolIdx = int(choice.Get("message.tool_calls.#").Int())
 	t.inner.Header().Set("Content-Type", "application/json")
 	t.inner.WriteHeader(t.statusCode)
 	_, err = t.inner.Write(translated)
 	return err
+}
+
+// Summary reports the translated turn's terminal signals; StopReason stays
+// empty when the upstream never sent a terminal stop_reason.
+func (t *SSETranslator) Summary() ResponseSummary {
+	facts := t.UsageFacts()
+	return ResponseSummary{
+		UpstreamFinishReason: t.upstreamStopReason,
+		StopReason:           t.finishReason,
+		ToolUseBlocks:        t.toolIdx,
+		SuppressedToolCalls:  t.toolLedger.SuppressedCount(),
+		OutputTokens:         facts.BilledOutputTokens(),
+		InputTokens:          facts.PromptTokens(),
+		CacheReadTokens:      facts.CacheRead.Value,
+		CacheCreationTokens:  facts.CacheWrite.Value,
+	}
 }
 
 func (t *SSETranslator) processSSEBuffer() error {
@@ -328,6 +351,10 @@ func (t *SSETranslator) handleMessageDelta(data []byte) error {
 	}
 	recordOutputLimit(t.usageSink, rawStopReason == "max_tokens")
 	finishReason := reconciledChatToolFinish(mapStopReason(rawStopReason), t.toolIdx)
+	if rawStopReason != "" {
+		t.upstreamStopReason = strings.Clone(rawStopReason)
+		t.finishReason = finishReason
+	}
 	if err := t.lifecycle.Output(0); err != nil {
 		return err
 	}
