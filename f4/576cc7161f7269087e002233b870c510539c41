@@ -1,0 +1,33 @@
+internal/router/policy/arm_selector.go
+  s_88f5714baf9944::t_e79c3ae14bcfb7 77,96-101
+  s_88f5714baf9944::t_291d1cd2a0250b 102-103
+internal/proxy/subscription_selection_recovery_internal_test.go
+  s_88f5714baf9944::t_3debdb5d6631ad 1-73
+internal/router/policy/sidecar_router.go
+  s_88f5714baf9944::t_e79c3ae14bcfb7 260,267,511,514,534,803,816
+internal/router/policy/automatic_recovery.go
+  s_88f5714baf9944::t_e79c3ae14bcfb7 1-22,29-38,47
+  s_88f5714baf9944::t_638364dcbfdf03 23-28,39-46
+internal/router/policy/automatic_recovery_test.go
+  s_88f5714baf9944::t_1e2eed6df2bb11 5,64-71,73-91,93-131
+  s_88f5714baf9944::t_2d808d9896b410 72
+  s_88f5714baf9944::t_5ded0dbe5c79d7 92
+  s_88f5714baf9944::t_87fa7631d0052a 35
+  s_88f5714baf9944::t_bb5e51eccbb423 1-4,6-34,36-63,132
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f4576cc7161f7269087e002233b870c510539c41",
+  "prompts": {},
+  "sessions": {
+    "s_88f5714baf9944": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c72c-abad-7bb3-b38d-c12a176f5a88",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
