@@ -51,8 +51,48 @@ func TestSSETranslator_SummaryUnknownWithoutTerminal(t *testing.T) {
 		}
 	}
 	w := translate.NewSSETranslator(httptest.NewRecorder(), outputLimitAnthropicModel, &fakeUsageSink{})
-	_ = driveSSE(t, w, events...)
+	require.ErrorIs(t, driveSSE(t, w, events...), translate.ErrStreamIncomplete)
 	got := w.Summary()
 	assert.Empty(t, got.UpstreamFinishReason)
 	assert.Empty(t, got.StopReason, "a cut stream must stay unknown, not report a measured stop")
+}
+
+func TestSSETranslator_SummaryUnknownWithoutMessageStop(t *testing.T) {
+	events := anthropicMessagesStream("tool_use", 42, true)
+	events = events[:len(events)-1]
+	w := translate.NewSSETranslator(httptest.NewRecorder(), outputLimitAnthropicModel, &fakeUsageSink{})
+	require.ErrorIs(t, driveSSE(t, w, events...), translate.ErrStreamIncomplete)
+	got := w.Summary()
+	assert.Empty(t, got.UpstreamFinishReason, "message_delta alone does not show the upstream finished the stream")
+	assert.Empty(t, got.StopReason)
+}
+
+func TestSSETranslator_SummaryBufferedWithoutStopReason(t *testing.T) {
+	body := strings.Replace(anthropicMessagesBody("end_turn", 42, false), `"stop_reason":"end_turn"`, `"stop_reason":null`, 1)
+	w := translate.NewSSETranslator(httptest.NewRecorder(), outputLimitAnthropicModel, &fakeUsageSink{})
+	require.NoError(t, driveJSON(t, w, body))
+	got := w.Summary()
+	assert.Empty(t, got.UpstreamFinishReason)
+	assert.Empty(t, got.StopReason, "the client-facing default stop must not be recorded as an observed one")
+}
+
+func TestSSETranslator_SummaryCountsInvalidToolArgs(t *testing.T) {
+	events := anthropicMessagesStream("tool_use", 42, true)
+	for i, e := range events {
+		events[i] = strings.Replace(e, `"partial_json":"{\"path\":\"a.go\"}"`, `"partial_json":"{\"path\":"`, 1)
+	}
+	w := translate.NewSSETranslator(httptest.NewRecorder(), outputLimitAnthropicModel, &fakeUsageSink{})
+	require.NoError(t, driveSSE(t, w, events...))
+	got := w.Summary()
+	assert.Equal(t, 1, got.InvalidToolArgsBlocks)
+	assert.Len(t, got.ToolCallIssues, 1)
+}
+
+func TestSSETranslator_SummaryBufferedCountsSuppressedToolCalls(t *testing.T) {
+	body := strings.Replace(anthropicMessagesBody("tool_use", 42, true), `"name":"Edit"`, `"name":""`, 1)
+	w := translate.NewSSETranslator(httptest.NewRecorder(), outputLimitAnthropicModel, &fakeUsageSink{})
+	require.NoError(t, driveJSON(t, w, body))
+	got := w.Summary()
+	assert.Equal(t, 1, got.SuppressedToolCalls)
+	assert.Equal(t, 0, got.ToolUseBlocks)
 }
