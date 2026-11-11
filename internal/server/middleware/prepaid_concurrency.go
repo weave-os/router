@@ -64,11 +64,12 @@ func WithOrganizationPrepaidConcurrencyLimit(limit int) gin.HandlerFunc {
 		}
 		organizationID := installation.ExternalID
 		if !limiter.acquire(organizationID) {
-			observability.FromGin(c).Info("Request rejected: organization prepaid concurrency limit reached",
+			observability.FromGin(c).Info("Request throttled: organization prepaid concurrency limit reached",
 				"organization_id", organizationID,
 				"max_in_flight", limit,
 			)
-			c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{
+			c.Header("Retry-After", "1")
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error":         "organization_prepaid_concurrency_limit_reached",
 				"max_in_flight": limit,
 				"message":       "Too many paid requests are already in progress for this organization. Retry after one finishes.",

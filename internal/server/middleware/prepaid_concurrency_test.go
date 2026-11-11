@@ -52,7 +52,8 @@ func TestOrganizationPrepaidConcurrencyLimitSharedAcrossProtocolGroups(t *testin
 	<-entered
 
 	rejected := servePrepaidRequest(secondProtocol)
-	assert.Equal(t, http.StatusPaymentRequired, rejected.Code)
+	assert.Equal(t, http.StatusTooManyRequests, rejected.Code)
+	assert.Equal(t, "1", rejected.Header().Get("Retry-After"))
 	assert.JSONEq(t, `{
 		"error":"organization_prepaid_concurrency_limit_reached",
 		"max_in_flight":1,
