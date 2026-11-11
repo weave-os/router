@@ -36,7 +36,7 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 	upstreamStatus := 0
 	defer func() {
 		observability.FromContext(ctx).Info("Codex quota preflight completed", "quota_preflight_ms", time.Since(started).Milliseconds(),
-			"admitted", quotaErr == nil, "upstream_status", upstreamStatus)
+			"model", model, "admitted", quotaErr == nil, "upstream_status", upstreamStatus)
 	}()
 	parentCtx := ctx
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
