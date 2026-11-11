@@ -105,11 +105,12 @@ func (t *slowStartTracker) claim(session string, now time.Time) bool {
 }
 
 type slowStartAttempt struct {
-	current        tracedAttempt
-	attemptAt      time.Time
-	firstAttemptAt time.Time
-	lastFailure    tracedAttempt
-	failed         bool
+	current          tracedAttempt
+	attemptAt        time.Time
+	firstAttemptAt   time.Time
+	lastFailure      tracedAttempt
+	failed           bool
+	clientToolTiming *translate.ClientToolTiming
 }
 
 func (t *attemptTrace) slowStartSnapshot() (slowStartAttempt, bool) {
@@ -151,8 +152,23 @@ func slowStartNotice(ctx context.Context, trace *attemptTrace, tracker *slowStar
 	if wait <= threshold || trace.hideDetails() || isHeadlessClientUserAgent(ClientIdentityFrom(ctx).UserAgent) {
 		return translate.RouterNotice{}, false
 	}
+	if ClientIdentityFrom(ctx).ClientApp == ClientAppCodex && translate.SlowStartInResponsesTurn(trace.inbound) {
+		return translate.RouterNotice{}, false
+	}
 	if cooldownKey, ok := slowStartCooldownKey(ctx); !ok || !tracker.claim(cooldownKey, now) {
 		return translate.RouterNotice{}, false
+	}
+	observability.FromContext(ctx).Info("Slow-start notice emitted",
+		"model", snap.current.Target.CatalogID,
+		"provider", snap.current.Target.Provider,
+		"wait_ms", wait.Milliseconds(),
+		"usual_p50_ms", p50.Milliseconds(),
+		"threshold_ms", threshold.Milliseconds(),
+	)
+	if ClientIdentityFrom(ctx).ClientApp == ClientAppCodex {
+		if timing, reported := translate.CodexReportedToolTiming(trace.inbound); reported {
+			snap.clientToolTiming = &timing
+		}
 	}
 	text := slowStartLine(snap, wait, p50)
 	return translate.NewRouterNotice(translate.NoticeSlowStart, text, snap.current.Target.CatalogID, ""), true
@@ -171,8 +187,7 @@ func slowStartCooldownKey(ctx context.Context) (string, bool) {
 	return "", false
 }
 
-// slowStartLine reads e.g. "↳ Cortex took 41s to start (usually
-// ~3s; gpt-6-luna timed out first)".
+// slowStartLine separates the upstream wait from client-reported tool runtime.
 func slowStartLine(snap slowStartAttempt, wait, p50 time.Duration) string {
 	provider := snap.current.providerName()
 	var details []string
@@ -187,11 +202,15 @@ func slowStartLine(snap slowStartAttempt, wait, p50 time.Duration) string {
 		}
 		details = append(details, what+" "+failureWordingFor(failed).badge+" first")
 	}
-	line := translate.SlowStartPrefix + provider + " took " + roundSeconds(wait) + " to start"
-	if len(details) > 0 {
-		line += " (" + strings.Join(details, "; ") + ")"
+	details = append(details, "client tool wait excluded")
+	if snap.clientToolTiming != nil {
+		toolDescription := "last tool call reported "
+		if snap.clientToolTiming.Yielded {
+			toolDescription = "last tool call yielded after "
+		}
+		details = append(details, toolDescription+snap.clientToolTiming.CallDuration.Round(time.Millisecond).String())
 	}
-	return line + "\n\n"
+	return translate.SlowStartPrefix + provider + " took " + roundSeconds(wait) + " to first output (" + strings.Join(details, "; ") + ")\n\n"
 }
 
 func roundSeconds(d time.Duration) string {

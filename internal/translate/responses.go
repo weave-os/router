@@ -26,7 +26,10 @@ import (
 // OriginalBody remains byte-for-byte client input so native OpenAI-family
 // dispatch can preserve extensions that Chat Completions cannot represent.
 type ResponsesConversion struct {
-	Body         []byte
+	Body []byte
+	// RoutingBody preserves agent-message task boundaries for model selection.
+	// Body and OriginalBody retain their provider-facing semantics.
+	RoutingBody  []byte
 	OriginalBody []byte
 	Stream       bool
 	Model        string
@@ -37,9 +40,12 @@ type ResponsesConversion struct {
 	// native /model picker during this session, as opposed to launching with
 	// a configured model.
 	CodexModelSwitch bool
-	Requirements     router.TranslationRequirements
-	Report           []ResponseTransform
-	ToolMappings     map[string]ResponsesToolMapping
+	// CodexModelInstructions reports a <model_instructions> developer
+	// message, which marks a /model switch only for catalog-URL clients.
+	CodexModelInstructions bool
+	Requirements           router.TranslationRequirements
+	Report                 []ResponseTransform
+	ToolMappings           map[string]ResponsesToolMapping
 	// TitleGeneration reports a native Codex title-generation request. It is
 	// consumed only when the proxy has independently identified the Codex client.
 	TitleGeneration bool
@@ -340,7 +346,7 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 
 		content := item.Get("content")
 		if content.Type == gjson.String {
-			stripped := responsesTerminalBadgePattern.ReplaceAllString(content.Str, "")
+			stripped := stripResponsesTerminalBadges(content.Str)
 			if stripped == content.Str {
 				newItemRaws = append(newItemRaws, item.Raw)
 				continue
@@ -374,7 +380,7 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 			switch part.Get("type").Str {
 			case "input_text", "output_text", "text":
 				text := part.Get("text").Str
-				stripped := responsesTerminalBadgePattern.ReplaceAllString(text, "")
+				stripped := stripResponsesTerminalBadges(text)
 				if stripped != text {
 					newPart, err := replaceResponsesField(part.Raw, "text", stripped)
 					if err != nil {
@@ -696,6 +702,7 @@ type ResponsesWriter struct {
 	sawToolCall                 bool
 	hasUpstreamOutput           bool
 	nativeHeldEvents            [][]byte
+	nativeDoneItems             ResponsesItemSnapshot
 	nativeFooterCommit          bool
 	finalized                   bool
 	nativeEmptyRejected         bool
@@ -861,6 +868,7 @@ func (t *ResponsesWriter) ResetAttempt() {
 	t.nativeLastSequenceSet = t.nativePreludeCreated
 	t.hasUpstreamOutput = false
 	t.nativeHeldEvents = nil
+	t.nativeDoneItems.Reset()
 	t.sawToolCall = false
 	t.completedEmitted = false
 	t.nativeEmptyRejected = false
@@ -879,6 +887,10 @@ func (t *ResponsesWriter) SetPassthrough() {
 	t.resetSSEScanState()
 	t.passthrough = true
 }
+
+// Passthrough reports whether the writer forwards native Responses events
+// rather than translating Chat Completions chunks.
+func (t *ResponsesWriter) Passthrough() bool { return t.passthrough }
 
 // ClearPassthrough returns the writer to translation mode, reporting false
 // after provider output prevents a clean continuation. A visible synthetic
@@ -1620,6 +1632,10 @@ func (t *ResponsesWriter) rewriteNativeEventWith(raw []byte, shiftFields bool) [
 	if !changed {
 		return raw
 	}
+	return replaceSSEEventData(raw, data, rewrittenData)
+}
+
+func replaceSSEEventData(raw, data, rewrittenData []byte) []byte {
 	offset := bytes.Index(raw, data)
 	if offset < 0 {
 		return raw
@@ -1728,6 +1744,12 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 		}
 		eventType = responsesEventType(root.Get("type").Str)
 		itemType = responsesItemType(root.Get("item.type").Str)
+		t.nativeDoneItems.Observe(root)
+		if eventType == responsesCompleted || eventType == responsesIncomplete {
+			if backfilled, changed := t.nativeDoneItems.Backfill(data, "response.output"); changed {
+				event = replaceSSEEventData(event, data, backfilled)
+			}
+		}
 	}
 	if !t.passthroughBadge {
 		return t.writeNativeResponsesFrame(event, delimiter)
@@ -2233,7 +2255,12 @@ func (t *ResponsesWriter) computeBadgeText() string {
 
 func (t *ResponsesWriter) closeOpenItems() error {
 	for _, entry := range t.toolLedger.Entries() {
-		call := entry.Accept(nil)
+		var call AcceptedToolCall
+		if mapping, mapped := t.toolMappings[entry.Name]; mapped && mapping.Custom {
+			call = entry.acceptRaw()
+		} else {
+			call = entry.Accept(nil)
+		}
 		if item, exists := t.toolItems[entry.SourceIndex]; exists {
 			item.call = call
 			t.sawToolCall = true
@@ -2645,7 +2672,7 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 	output := make([]any, 0, 2)
 	text := badge
 	text += chatContentText(choice.Get("content"))
-	calls, _ := acceptedChatToolCalls(choice.Get("tool_calls"), nil, false)
+	calls, _ := acceptedChatToolCallsWithMappings(choice.Get("tool_calls"), nil, false, mappings)
 	if footer != "" && len(calls) == 0 && !feedbackFooterPattern.MatchString(text) {
 		text += footer
 	}

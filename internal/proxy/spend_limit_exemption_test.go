@@ -220,7 +220,7 @@ func TestProxyMessages_OverEngineerCap_ExhaustedSubscription_Refuses402(t *testi
 	req.Header.Set("Authorization", "Bearer "+subToken)
 	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`)
 
-	err := svc.ProxyMessages(ctx, body, rec, req)
+	err := svc.ProxyMessages(claudeCreditFallbackContext(ctx), body, rec, req)
 	require.Error(t, err, "over-cap engineer with an exhausted subscription must be refused")
 	assert.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
 		"the refusal must be the credits-exhausted sentinel so the API mapper emits HTTP 402 with the top-up CTA")

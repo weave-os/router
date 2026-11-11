@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -23,6 +24,19 @@ func TestPoolSeparatesProvidersAndOwners(t *testing.T) {
 	require.Equal(t, "user-a", acct.OwnerID)
 	require.Equal(t, "claude", acct.ID)
 	release()
+}
+
+func TestClaudeOverageCannotEraseLiveProviderCooldown(t *testing.T) {
+	now := time.Now()
+	pool := subscriptions.NewPool("owner", subscriptions.ProviderClaude, func() time.Time { return now })
+	account := subscriptions.Account{ID: "seat", OwnerID: "owner", Provider: subscriptions.ProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateActive, AccessToken: "synthetic-token"}
+	require.NoError(t, pool.Upsert(account))
+	require.True(t, pool.Cooldown("seat", now.Add(time.Hour)))
+	account.State = auth.SubscriptionAccountStateExhausted
+	account.CooldownTil = now.Add(time.Hour)
+	require.NoError(t, pool.Upsert(account))
+	_, _, err := pool.Lease(requestcontext.WithSubscriptionExtraUsage(context.Background()), subscriptions.ProviderClaude, "", nil)
+	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
 }
 
 func TestPoolRefreshesOnceForConcurrentLeases(t *testing.T) {

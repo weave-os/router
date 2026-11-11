@@ -116,6 +116,9 @@ func failureWordingFor(a tracedAttempt) failureWording {
 	case TurnErrorClientCanceled:
 		return failureWording{"was canceled", "request canceled"}
 	}
+	if isUpstreamContextOverflow(a.Err) {
+		return failureWording{"found the conversation too long for its context window", withStatus("context window exceeded")}
+	}
 	if status >= 400 && status < 500 {
 		if a.Diagnosis.BodyTranslated && a.owner() == FailureOwnerRouter {
 			return failureWording{"rejected our translated request", withStatus("rejected our translated request")}
@@ -131,6 +134,10 @@ func rescueDetailLine(a tracedAttempt) string {
 	owner := a.owner()
 	if owner == "" || owner == FailureOwnerUnknown {
 		return ""
+	}
+	// The conversation outgrew this model's window: neither side did anything wrong.
+	if isUpstreamContextOverflow(a.Err) {
+		return translate.RescueDetailPrefix + a.providerName() + " " + failureWordingFor(a).badge + "\n\n"
 	}
 	return translate.RescueDetailPrefix + a.providerName() + " " + failureWordingFor(a).badge + " (" + string(owner) + " issue)\n\n"
 }

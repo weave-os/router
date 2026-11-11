@@ -88,8 +88,10 @@ type PrepaidDebit struct {
 	RouterModel     string
 	// APIKeyID and RouterUserID attribute an organization debit to the key and
 	// engineer that spent it. An individual plan has no such fan-out.
-	APIKeyID     string
-	RouterUserID string
+	APIKeyID           string
+	RouterUserID       string
+	DelegatedSessionID string
+	DelegatedTaskID    string
 }
 
 // PrepaidBook is one owner kind's prepaid money: balance reads and atomic
@@ -191,5 +193,7 @@ func (b organizationBook) Debit(ctx context.Context, debit PrepaidDebit) (int64,
 		RouterModel:        debit.RouterModel,
 		APIKeyID:           debit.APIKeyID,
 		RouterUserID:       debit.RouterUserID,
+		DelegatedSessionID: debit.DelegatedSessionID,
+		DelegatedTaskID:    debit.DelegatedTaskID,
 	})
 }

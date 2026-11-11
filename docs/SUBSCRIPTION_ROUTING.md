@@ -12,6 +12,10 @@ personal capacity. A personal key borrows shared capacity only while its owner
 is still an active member; a live installation-shared key (no credential
 subject) borrows it whenever sharing is on. Enrollment keys are attribution only and do not partition
 serving pools. Refresh, quota, cooldown, and rotation use physical account identity.
+For routed requests, resolving a caller-presented OAuth credential does not bypass
+linked-account selection: the authorized pool serves first and rotates accounts
+on failure. The caller's credential remains available if no admitted linked seat
+can serve. Explicit own-plan model picks retain their caller-login funding rule.
 The ten-second admission budget is shared across account and model alternatives,
 including executor re-entry. Only credential leasing consumes it; time spent
 running provider inference does not prevent another eligible seat from being tried.
@@ -43,6 +47,29 @@ original history is preserved; if a compaction summary is rejected, the already
 compacted body remains unchanged. Committed streams are never replayed, and
 terminal upstream failures are accounted as errors.
 
+A model the user picked in the client (sent with `X-Weave-Model-Passthrough: 1`
+and served as-is) funds the way the native client would. On the caller's own
+Claude/ChatGPT login it stays on that login (unless a `key_first` key for that
+provider is connected, which pays instead): observed exhaustion or paid
+overage does not move it off, Codex may spend that login's own credits, and the
+provider's own refusal reaches the client instead of a metered rescue. Without
+a login for the served provider it funds like a routed request (the managed
+pool's included quota, then Weave credits). The installation setting
+`picked_model_credit_fallback_enabled` restores the routed funding rules for
+picks. A picked model the installation cannot serve as-is is routed instead and
+funds as routed traffic. A Codex `/model` pick (`X-Weave-Codex-Native-Model-Pin: 1`)
+served as selected funds the same way.
+
+The installation setting `weave_credit_inference_enabled` decides whether
+Weave's own provider keys, paid from Weave credits, may fund a turn at all.
+Installations that existed before the setting keep it on; new installations
+start with it off. While it is off, routing only considers providers that a
+connected provider key or the caller's presented or linked Claude/ChatGPT plan
+can pay for, and the dispatch check refuses any remaining deployment-key
+attempt with a 402 (`ErrWeaveCreditsDisabled`) before provider I/O, so nothing
+is debited. A forced or picked model no customer credential can serve gets the
+same 402. Self-hosted deployments never apply it.
+
 Native OpenAI Codex and Anthropic adapters accept subscription OAuth credentials.
 Anthropic-compatible bearer gateways do not advertise native Claude subscription
 support.
@@ -67,9 +94,41 @@ API-key fallback. Provider-side balances and spending limits remain authoritativ
 The same check covers matching model-specific limits using the final upstream
 model after aliases. A model-specific rejection rotates the attempt without
 marking the whole account exhausted or placing it on cooldown. Claude accounts with no
-quota observation may serve; known exhausted or paid-overage accounts are
-excluded. Quota failures rotate to another eligible account before authorized
-Weave-funded API capacity serves the selected model. Depleted Weave credits
+quota observation may serve. Claude subscription identity comes exclusively from
+the authenticated `/api/oauth/profile` response's `organization.organization_type`:
+`claude_pro`, `claude_max`, `claude_team`, or `claude_enterprise`. OAuth presence,
+organization names, rate-limit tiers, quota windows and overage headers never
+establish identity. Profile readings are cached per credential for five minutes;
+unknown or failed reads are retried after fifteen seconds. While
+`claude_enterprise_only` is enabled, an unknown Claude profile cannot authorize
+paid fallback for that Claude turn.
+
+`claude_enterprise_only` applies only to a provider-verified Enterprise account,
+keeping its requests on that account through provider-authorized overage. The
+organization flag cannot make an ordinary or unknown seat Enterprise, including
+in mixed shared pools. Organizations may explicitly disable the policy to permit
+Weave-funded fallback. Pro, Max and Team seats retain ordinary included-quota,
+account rotation and authorized paid-fallback rules.
+Requests with no registered or caller-presented Claude subscription credential
+continue to use normal API funding. Each BYOK key carries a funding priority
+(`funding_priority`): a `key_first` key retains precedence over caller OAuth,
+linked accounts and Enterprise-only billing, including an explicit organization
+override; a `plan_first` key (the default for newly connected keys) leaves
+those subscriptions first and funds only turns no subscription can serve, such
+as another provider's harness routed to this provider, or a plan with quota
+exhaustion evidence. Anthropic keys connected before funding priorities were
+introduced are `key_first`; OpenAI keys default to `plan_first`.
+A key's `last_used_at` is stamped (at most once a minute per key and replica)
+after it successfully serves a request; a turn on a subscription, a caller
+credential or the deployment key does not count.
+In Enterprise-only mode observed included-quota exhaustion does not suppress a
+Claude account, while an actual provider refusal remains authoritative. Claude
+turns fail if their account cannot serve them; retry, failover, and auxiliary
+dispatch cannot charge them to Weave credits or another provider. The setting
+is ignored while subscription routing is disabled and does not change funding
+for independently selected non-Claude models. With Enterprise-only off, quota
+failures rotate to another eligible account before authorized Weave-funded API
+capacity serves the selected model. Depleted Weave credits
 prohibit paid API fallback, not subscription use.
 
 ## Paid inference authorization
@@ -81,12 +140,20 @@ bindings, and auxiliary calls cannot erase those facts. A non-OAuth call is
 permitted only when no compatible authorized pool exists, or every account in
 that pool has positive included-quota exhaustion evidence with an unexpired reset.
 Presented direct subscriptions require the same proof. One exception is scoped
-to the turn: a buffered upstream 5xx on a plan attempt marks that pool as unable
-to serve the turn for a bounded cooldown, and paid rescue of the same turn (the
+to the turn: an eligible buffered upstream 5xx observed during plan inference
+marks that pool as unable to serve the turn for a bounded cooldown, and paid rescue of the same turn (the
 same model or a scored sibling) is admitted while the mark is live. The mark is
 not quota evidence and is never persisted to the account. Model compatibility is
 catalog-based; an unrelated provider's available subscription does not block an
-API-only model.
+API-only model. Rescue eligibility never overrides the final paid-credential
+funding guard: depleted credits and spend caps still prohibit paid dispatch.
+
+Quota-verification failures are not inference-capacity failures. Preflight
+timeouts, quota-endpoint errors, and unverifiable responses retain a shared typed
+cause even when normalized to a buffered 503. They never create a capacity mark
+or authorize paid rescue. Internal preflight timeouts remain retryable while the
+caller is live; caller cancellation remains nonretryable. Another included seat
+may serve, but uncertainty alone must surface an error rather than buy capacity.
 
 An enrollment-read error, lease contention, refresh/auth failure, model denial,
 third-party refusal, generic 429, transport failure, or spent admission budget
@@ -117,6 +184,9 @@ UPDATE router.model_router_api_keys
 SET paid_fallback_on_subscription_refusal = TRUE
 WHERE id = '<api-key-id>'::uuid AND deleted_at IS NULL;
 ```
+
+Enterprise-only Claude billing disables this paid-refusal opt-in. The request
+remains on the Claude account or returns the provider's refusal.
 
 Providers control extra usage through account settings and credits. Quota headers
 are observations, not an atomic included-only reservation: an unobserved Claude

@@ -234,19 +234,34 @@ func TestBillAuxiliaryInferenceTagsSessionAndCost(t *testing.T) {
 
 func TestEscalationJudgeTelemetryIsPlatformFunded(t *testing.T) {
 	service, billingRepo, telemetryRepo := auxTestService(t)
-	job := llmescalation.Job{ID: "checkpoint-3", Lifetime: "classifier-session", Model: policy.EscalationJudgeModel, Provider: providers.ProviderFireworks}
+	job := llmescalation.Job{ID: "checkpoint-3", Lifetime: "classifier-session", Model: policy.EscalationJudgeModel, Provider: providers.ProviderFireworks, Version: llmescalation.Version}
 	judgment := llmescalation.Judgment{
-		Usage:   inference.Usage{Known: true, InputTokens: 1200, OutputTokens: 40},
-		CostUSD: 0.0042, CostKnown: true, CostSource: llmescalation.CostSourceProviderReported,
+		Escalate: true,
+		Usage:    inference.Usage{Known: true, InputTokens: 1200, OutputTokens: 40},
+		CostUSD:  0.0042, CostKnown: true, CostSource: llmescalation.CostSourceProviderReported,
 	}
-	service.recordEscalationJudgeInference(uuid.NewString(), auxTestRequestID, job, judgment)
+	service.recordEscalationJudgeInference(uuid.NewString(), auxTestRequestID, llmescalation.ModeShadow, job, judgment, llmescalation.FailureNone)
 	rows := telemetryRepo.waitForRows(1)
 	require.Len(t, rows, 1)
 	assert.Equal(t, SpanTypePlatformAuxiliaryInference, rows[0].SpanType)
 	assert.Equal(t, job.Lifetime, rows[0].SessionID)
 	assert.Equal(t, job.Model, rows[0].DecisionModel)
+	assert.Equal(t, "shadow/"+llmescalation.Version, rows[0].ClassifierArtifactID)
+	assert.Equal(t, "escalate", rows[0].ClassifierPredictedLabel, "the verdict must outlive swept session state")
 	assert.InDelta(t, judgment.CostUSD, rows[0].ActualInputCostUSD+rows[0].ActualOutputCostUSD, 1e-12)
 	assert.Empty(t, billingRepo.snapshot(), "platform judge calls must never debit customer credit")
+}
+
+func TestEscalationJudgeTelemetryOmitsVerdictOnFailure(t *testing.T) {
+	service, _, telemetryRepo := auxTestService(t)
+	job := llmescalation.Job{ID: "checkpoint-4", Lifetime: "classifier-session", Model: policy.EscalationJudgeModel, Provider: providers.ProviderFireworks, Version: llmescalation.Version}
+	measured := llmescalation.Judgment{Usage: inference.Usage{Known: true, InputTokens: 1200, OutputTokens: 40}}
+	service.recordEscalationJudgeInference(uuid.NewString(), auxTestRequestID, llmescalation.ModeShadow, job, measured, llmescalation.FailureInvalid)
+	service.recordEscalationJudgeInference(uuid.NewString(), auxTestRequestID, llmescalation.ModeShadow, job, llmescalation.Judgment{}, llmescalation.FailureNone)
+	rows := telemetryRepo.waitForRows(2)
+	require.Len(t, rows, 2)
+	labels := []string{rows[0].ClassifierPredictedLabel, rows[1].ClassifierPredictedLabel}
+	assert.ElementsMatch(t, []string{"", "continue"}, labels, "a failed judgment keeps its cost row but records no verdict; a verdict without usage is still recorded")
 }
 
 // TestBillAuxiliaryInferenceMatchesLedgerAmount proves the telemetry row's
@@ -331,4 +346,28 @@ func TestBillAuxiliaryInferenceUsesSummarizerProviderForBYOK(t *testing.T) {
 	assert.Zero(t, debits[0].DeltaUsdMicros,
 		"a BYOK-served summary debits no inference cost — the customer paid their own upstream")
 	assert.NotZero(t, debits[0].FeeUsdMicros, "Weave still charges its platform fee")
+}
+
+func (*auxTelemetryRepo) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryDashboardFact, error) {
+	return nil, nil
+}
+
+func (*auxTelemetryRepo) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]TelemetryActiveUsers, error) {
+	return nil, nil
+}
+
+func (*auxTelemetryRepo) GetTelemetryDashboardPeople(context.Context, string) ([]TelemetryPerson, error) {
+	return nil, nil
+}
+
+func (*auxTelemetryRepo) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]TelemetrySubscriptionSeat, error) {
+	return nil, nil
+}
+
+func (*auxTelemetryRepo) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]TelemetryDrillDownRow, error) {
+	return nil, nil
+}
+
+func (*auxTelemetryRepo) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryIndividualFact, error) {
+	return nil, nil
 }

@@ -61,6 +61,7 @@ func TestRegister_DeploymentMode(t *testing.T) {
 		"POST /v1/messages/count_tokens",
 		"GET /v1/models",
 		"GET /v1/models/:model",
+		"GET /v1/codex/models",
 		// The Codex status hook reads this on hosted (managed) installs, so
 		// mounting it inside the selfhosted block would strand every customer.
 		"GET /v1/sessions/:session_id/cost",
@@ -82,6 +83,7 @@ func TestRegister_DeploymentMode(t *testing.T) {
 		"GET /admin/v1/provider-keys",
 		"POST /admin/v1/provider-keys",
 		"PUT /admin/v1/provider-keys/:id/model-aliases",
+		"PUT /admin/v1/provider-keys/:id/funding-priority",
 		"DELETE /admin/v1/provider-keys/:id",
 		"GET /admin/v1/config",
 		"GET /admin/v1/excluded-models",

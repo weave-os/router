@@ -17,6 +17,15 @@ const ModelGPT6Luna = "gpt-6-luna"
 // ModelMiMoV26Flash is the canonical Xiaomi MiMo-V2.6-Flash model ID.
 const ModelMiMoV26Flash = "xiaomi/mimo-v2.6-flash"
 
+// ModelMuseSparkOpen is the canonical Meta Muse Spark Open model ID.
+const ModelMuseSparkOpen = "meta/muse-spark-open"
+
+// ModelMuseEmber is the canonical Meta Muse Ember model ID.
+const ModelMuseEmber = "muse-ember-1.0"
+
+// ModelMuseWonder is the canonical Meta Muse Wonder model ID.
+const ModelMuseWonder = "muse-wonder-1.0"
+
 // Tier is the coarse capability bucket. Higher is stronger; integer
 // ordering is load-bearing (planner compares freshTier > pinTier).
 type Tier int
@@ -132,6 +141,9 @@ type ProviderBinding struct {
 	// CacheReadMultiplier inherits Price's. Routing always scores on Price;
 	// only post-dispatch billing sees the fast rate.
 	FastPrice Pricing
+	// MaxImagesPerRequest is the maximum image parts this deployment accepts
+	// in one request. Zero means no known limit.
+	MaxImagesPerRequest int
 	// ContextWindow overrides the model-level ContextWindow for this binding.
 	// Zero means inherit. Use when the served window differs by provider.
 	ContextWindow int
@@ -238,6 +250,9 @@ type Model struct {
 	// rejects an advisor ranked below the request model. Values mirror Claude
 	// Code's model catalog; 0 means the model takes no advisor.
 	AdvisorRank int
+	// ForceModelOnly keeps the model off family advancement: it serves only
+	// when a caller names it, never as a newer stand-in for an older sibling.
+	ForceModelOnly bool
 	// CodexSubscriptionFallback explicitly permits trying a Codex subscription
 	// for this model outside the native Codex automatic roster. Unsupported
 	// targets must fall back to the selected model's API credential.
@@ -314,12 +329,12 @@ var Models = []Model{
 		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10}},
 		{Provider: providers.ProviderOpenRouter, UpstreamID: "anthropic/claude-sonnet-5", SubscriptionOverflowOnly: true, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10}},
 	}},
-	// Sonnet 5.5: $2/$10, cache reads at $0.20/MTok (0.1x), no fast tier.
+	// Sonnet 5.5: $2/$10, cache reads at $0.10/MTok (0.05x), no fast tier.
 	// Native 1M context; thinking cannot be disabled (between_tools is the
 	// floor) and forced tool_choice is rejected, like Opus 5.5.
 	{ID: "claude-sonnet-5-5", Source: SourceClosedSource, Tier: TierMid, AdvisorRank: 6, ContextWindow: 1_000_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10, USInferenceGeoMultiplier: USInferenceGeoMultiplier}},
-		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.05, USInferenceGeoMultiplier: USInferenceGeoMultiplier}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.05}},
 		{Provider: providers.ProviderOpenRouter, UpstreamID: "anthropic/claude-sonnet-5.5", SubscriptionOverflowOnly: true, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.05}},
 	}},
 	// Legacy Opus IDs kept passthrough-priced (no Tier — not a routing
@@ -393,6 +408,13 @@ var Models = []Model{
 	{ID: "claude-fable-5-1", Source: SourceClosedSource, Tier: TierHigh, AdvisorRank: 9, ContextWindow: 1_000_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.025, USInferenceGeoMultiplier: USInferenceGeoMultiplier}},
 		{Provider: providers.ProviderOpenRouter, UpstreamID: "anthropic/claude-fable-5.1", SubscriptionOverflowOnly: true, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.025}},
+	}},
+	// Fable 5.2: $8/$40, cache reads at $0.20/MTok (0.025x), fast mode $16/$80.
+	// Same wire quirks as Fable 5.1. Not a cluster roster member until it has
+	// quality labels.
+	{ID: "claude-fable-5-2", Source: SourceClosedSource, Tier: TierHigh, AdvisorRank: 10, ForceModelOnly: true, ContextWindow: 1_000_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00, CacheReadMultiplier: 0.025, USInferenceGeoMultiplier: USInferenceGeoMultiplier}, FastPrice: Pricing{InputUSDPer1M: 16.00, OutputUSDPer1M: 80.00}},
+		{Provider: providers.ProviderOpenRouter, UpstreamID: "anthropic/claude-fable-5.2", SubscriptionOverflowOnly: true, Price: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00, CacheReadMultiplier: 0.025}},
 	}},
 
 	// --- OpenAI GPT-4.x (legacy) ---
@@ -563,6 +585,15 @@ var Models = []Model{
 			LongContext: &LongContextPricing{ThresholdTokens: 272_000, InputUSDPer1M: 8.00, OutputUSDPer1M: 30.00, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.05},
 		}},
 	}},
+	{ID: "gpt-6.1-terra", Source: SourceClosedSource, Tier: TierMid, CodexSubscription: true, ContextWindow: 1_050_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderOpenAI, Price: Pricing{
+			InputUSDPer1M: 1.00, OutputUSDPer1M: 5.00, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.05,
+			LongContext: &LongContextPricing{ThresholdTokens: 272_000, InputUSDPer1M: 2.00, OutputUSDPer1M: 7.50, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.05},
+		}, FastPrice: Pricing{
+			InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.05,
+			LongContext: &LongContextPricing{ThresholdTokens: 272_000, InputUSDPer1M: 4.00, OutputUSDPer1M: 15.00, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.05},
+		}},
+	}},
 	{ID: ModelGPT6Luna, Source: SourceClosedSource, Tier: TierMid, CodexSubscription: true, ContextWindow: 1_050_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{
 			InputUSDPer1M: 0.10, OutputUSDPer1M: 0.50, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.10,
@@ -591,6 +622,20 @@ var Models = []Model{
 	// license is verified either way.
 	{ID: "muse-spark-1.3", Source: SourceUnknown, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderMeta, Price: Pricing{InputUSDPer1M: 1.25, OutputUSDPer1M: 4.25, CacheReadMultiplier: 0.12}},
+	}},
+	// Muse Ember ($0.10/$0.50, cache reads $0.004) and Muse Wonder ($4/$20,
+	// cache reads $0.20) are served only by Meta's Model API.
+	{ID: ModelMuseEmber, Source: SourceUnknown, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderMeta, Price: Pricing{InputUSDPer1M: 0.10, OutputUSDPer1M: 0.50, CacheReadMultiplier: 0.004 / 0.10}},
+	}},
+	{ID: ModelMuseWonder, Source: SourceUnknown, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderMeta, Price: Pricing{InputUSDPer1M: 4.00, OutputUSDPer1M: 20.00, CacheReadMultiplier: 0.20 / 4.00}},
+	}},
+	// Muse Spark Open: the open-weight 816B-A42B release. Every host lists
+	// $1.25/$4.25; Together is the one the router supports.
+	{ID: ModelMuseSparkOpen, Source: SourceOpenSource, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderTogether, UpstreamID: "meta-models/Muse-Spark-Open-816B-A42B",
+			Price: Pricing{InputUSDPer1M: 1.25, OutputUSDPer1M: 4.25, CacheReadMultiplier: 0.15 / 1.25}},
 	}},
 
 	// --- Google Gemini 2.x ---
@@ -723,7 +768,9 @@ var Models = []Model{
 	// reserved for maximum-complexity Max requests.
 	{ID: "xiaomi/mimo-v2.6-pro", Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_048_576, ThinkTagReasoning: true, Providers: []ProviderBinding{
 		{Provider: providers.ProviderDeepInfra, UpstreamID: "XiaomiMiMo/MiMo-V2.6-Pro",
-			Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.00827586}},
+			// DeepInfra returns "Too many images in request: N > 4".
+			MaxImagesPerRequest: 4,
+			Price:               Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.00827586}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.10}},
 	}},
 	// Untiered: Makora EOL'd V4-Pro and recommends V4-Flash, which takes the
@@ -778,8 +825,12 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 3.000, OutputUSDPer1M: 15.000, CacheReadMultiplier: 0.10}},
 	}},
 	// K3.1 Pro is a post-trained K3 successor at a lower list price ($2/$10 vs
-	// $3/$15). Only Moonshot serves it so far (OpenRouter's "Pro" listing).
+	// $3/$15). OpenRouter trails as the outage fallback, as on kimi-k3.
 	{ID: "moonshotai/kimi-k3.1", Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/kimi-k3p1-pro",
+			Price: Pricing{InputUSDPer1M: 2.000, OutputUSDPer1M: 10.000, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderTogether, UpstreamID: "moonshotai/Kimi-K3.1-Pro",
+			Price: Pricing{InputUSDPer1M: 2.000, OutputUSDPer1M: 10.000, CacheReadMultiplier: 0.10}},
 		{Provider: providers.ProviderOpenRouter, UpstreamID: "moonshotai/kimi-k3.1-pro",
 			Price: Pricing{InputUSDPer1M: 2.000, OutputUSDPer1M: 10.000, CacheReadMultiplier: 0.10}},
 	}},
@@ -812,6 +863,17 @@ var Models = []Model{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/minimax-m2p7",
 			Price: Pricing{InputUSDPer1M: 0.300, OutputUSDPer1M: 1.200}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.279, OutputUSDPer1M: 1.200, CacheReadMultiplier: 0.10}},
+	}},
+	// 1,000,000 is the smallest served window (MiniMax direct); Fireworks and
+	// Together serve ~1,048,576. Always reasons: thinking disabled is a 400.
+	{ID: "minimax/minimax-m3.1-flash", Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_000_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/minimax-m3p1-flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.600, CacheReadMultiplier: 0.015 / 0.150}},
+		{Provider: providers.ProviderTogether, UpstreamID: "MiniMaxAI/MiniMax-M3.1-Flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.600, CacheReadMultiplier: 0.015 / 0.150}},
+		{Provider: providers.ProviderMiniMax, UpstreamID: "MiniMax-M3.1-Flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.600, CacheReadMultiplier: 0.015 / 0.150}},
+		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.600, CacheReadMultiplier: 0.10}},
 	}},
 	// The direct endpoint serves 1M context, but fallback endpoints can be limited
 	// to 512K, so the model-level window stays conservative. Unlike m2.7 it accepts

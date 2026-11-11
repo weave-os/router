@@ -2,6 +2,7 @@ package subscriptions
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -10,7 +11,9 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 
+	"github.com/cenkalti/backoff/v5"
 	"github.com/google/uuid"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 )
@@ -58,7 +61,16 @@ type Lease struct {
 	AccessToken     string
 	ProviderAccount string
 	State           auth.SubscriptionAccountState
+	CooldownUntil   time.Time
 	release         func()
+}
+
+// AllowsPlanAttempt admits an exhausted lease only for verified Enterprise
+// overage when the caller's funding policy permits it.
+func (l Lease) AllowsPlanAttempt(plan providers.SubscriptionPlan, allowEnterpriseOverage bool, now time.Time) bool {
+	return l.State != auth.SubscriptionAccountStateExhausted ||
+		!l.CooldownUntil.IsZero() && !l.CooldownUntil.After(now) ||
+		plan == providers.SubscriptionPlanEnterprise && allowEnterpriseOverage
 }
 
 // Release returns this account to the concurrent selector.
@@ -78,14 +90,30 @@ type Leaser interface {
 // Runtime admits primary candidates, refreshes physical accounts, and retains
 // session affinity only within the winning ownership tier.
 type Runtime struct {
-	affinity  *expirable.LRU[string, string]
-	store     AccountStore
-	refresher TokenRefresher
-	manager   *Manager
-	clock     func() time.Time
-	leaseTTL  time.Duration
-	heartbeat time.Duration
+	affinity        *expirable.LRU[string, string]
+	store           AccountStore
+	refresher       TokenRefresher
+	manager         *Manager
+	clock           func() time.Time
+	leaseTTL        time.Duration
+	heartbeat       time.Duration
+	candidateSignal func(string, Provider, time.Time) CandidateSignal
 }
+
+// CandidateSignal is the latest local quota evidence for one physical account.
+// Unknown signals remain eligible so a provider can be probed, but known spent
+// or paid-lane accounts sort after accounts with included headroom.
+type CandidateSignal struct {
+	Observed     bool
+	Exhausted    bool
+	Billable     bool
+	UsedFraction float64
+	ResetAt      time.Time
+}
+
+// CandidateSignalFunc supplies local quota evidence to the runtime without
+// making the subscriptions package depend on a provider-specific observer.
+type CandidateSignalFunc func(accountID string, provider Provider, now time.Time) CandidateSignal
 
 // NewRuntime constructs the server-side subscription credential runtime.
 func NewRuntime(store AccountStore, refresher TokenRefresher, clock func() time.Time) *Runtime {
@@ -96,6 +124,14 @@ func NewRuntime(store AccountStore, refresher TokenRefresher, clock func() time.
 		store: store, refresher: refresher, manager: NewManager(clock), clock: clock,
 		leaseTTL: refreshLeaseTTL, heartbeat: refreshLeaseHeartbeat,
 	}
+}
+
+// WithCandidateSignal enables quota-aware ordering. The signal source is
+// replica-local and therefore advisory; durable admission and provider
+// responses remain the source of truth.
+func (r *Runtime) WithCandidateSignal(signal CandidateSignalFunc) *Runtime {
+	r.candidateSignal = signal
+	return r
 }
 
 // refreshHolder is one replica's live claim on an account's refresh lease.
@@ -120,21 +156,21 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 	if err != nil {
 		return Lease{}, false, err
 	}
+	quotaAwareSelection := r.candidateSignal != nil
+	var candidateSignals map[string]CandidateSignal
+	if quotaAwareSelection {
+		candidateSignals = snapshotCandidateSignals(accounts, provider, r.candidateSignal, r.clock())
+		slices.SortStableFunc(accounts, func(left, right *auth.SubscriptionAccount) int {
+			return compareSubscriptionCandidates(left, right, requester.SubscriberID, candidateSignals)
+		})
+	}
 	affinityKey := requester.InstallationID + "|" + requester.SubscriberID + "|" + string(provider) + "|" + sessionID
 	if sessionID != "" {
 		if preferred, ok := r.affinity.Get(affinityKey); ok {
 			// Preserve personal-before-shared ordering; affinity only reorders a tier.
 			slices.SortStableFunc(accounts, func(left, right *auth.SubscriptionAccount) int {
-				if left.ID == right.ID {
-					return 0
-				}
-				leftPersonal := left.SubscriberID == requester.SubscriberID && requester.SubscriberID != ""
-				rightPersonal := right.SubscriberID == requester.SubscriberID && requester.SubscriberID != ""
-				if leftPersonal != rightPersonal {
-					if leftPersonal {
-						return -1
-					}
-					return 1
+				if rank := compareSubscriptionCandidates(left, right, requester.SubscriberID, candidateSignals); rank != 0 {
+					return rank
 				}
 				if left.ID == preferred {
 					return -1
@@ -161,11 +197,14 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 		if candidate.CooldownUntil != nil {
 			account.CooldownTil = *candidate.CooldownUntil
 		}
-		if !candidate.Enabled || !subscriptionAccountStateRoutable(candidate.State, account.CooldownTil, r.clock()) {
+		if !candidate.Enabled || !subscriptionAccountEligible(ctx, provider, candidate.State, account.CooldownTil, r.clock()) {
 			continue
 		}
 		if err := r.manager.Upsert(account); err != nil {
 			return Lease{}, present, err
+		}
+		if candidate.AccessTokenMissing {
+			r.manager.InvalidateAccessToken(poolID, provider, candidate.ID)
 		}
 		// Each pool holds one account; r.affinity owns session preference.
 		leased, release, leaseErr := r.manager.Lease(ctx, poolID, provider, "", r.refresh(owner))
@@ -179,12 +218,66 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 			r.affinity.Add(affinityKey, leased.ID)
 		}
 		return Lease{AccountID: leased.ID, OwnerID: candidate.SubscriberID, Tier: candidate.Tier, AccessToken: leased.AccessToken,
-			ProviderAccount: leased.AccountID, State: leased.State, release: release}, true, nil
+			ProviderAccount: leased.AccountID, State: leased.State, CooldownUntil: leased.CooldownTil, release: release}, true, nil
 	}
 	if present {
 		return Lease{}, true, ErrNoAvailableAccount
 	}
 	return Lease{}, false, nil
+}
+
+func snapshotCandidateSignals(accounts []*auth.SubscriptionAccount, provider Provider, signal CandidateSignalFunc, now time.Time) map[string]CandidateSignal {
+	signals := make(map[string]CandidateSignal, len(accounts))
+	for _, account := range accounts {
+		signals[account.ID] = signal(account.ID, provider, now)
+	}
+	return signals
+}
+
+func compareSubscriptionCandidates(left, right *auth.SubscriptionAccount, subscriberID string, signals map[string]CandidateSignal) int {
+	if left.ID == right.ID {
+		return 0
+	}
+	leftPersonal := left.SubscriberID == subscriberID && subscriberID != ""
+	rightPersonal := right.SubscriberID == subscriberID && subscriberID != ""
+	if leftPersonal != rightPersonal {
+		if leftPersonal {
+			return -1
+		}
+		return 1
+	}
+	if signals == nil {
+		return 0
+	}
+	leftSignal := signals[left.ID]
+	rightSignal := signals[right.ID]
+	if rank := candidateSignalRank(leftSignal) - candidateSignalRank(rightSignal); rank != 0 {
+		return rank
+	}
+	if leftSignal.ResetAt.IsZero() != rightSignal.ResetAt.IsZero() {
+		if leftSignal.ResetAt.IsZero() {
+			return 1
+		}
+		return -1
+	}
+	if rank := leftSignal.ResetAt.Compare(rightSignal.ResetAt); rank != 0 {
+		return rank
+	}
+	if rank := cmp.Compare(leftSignal.UsedFraction, rightSignal.UsedFraction); rank != 0 {
+		return rank
+	}
+	return 0
+}
+
+func candidateSignalRank(signal CandidateSignal) int {
+	switch {
+	case !signal.Observed:
+		return 1
+	case signal.Exhausted || signal.Billable:
+		return 2
+	default:
+		return 0
+	}
 }
 
 func (r *Runtime) Cooldown(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string, resetAt time.Time) error {
@@ -201,7 +294,8 @@ func (r *Runtime) Exhaust(ctx context.Context, owner auth.SubscriptionOwner, pro
 		return err
 	}
 	r.manager.Exhaust("account:"+accountID, provider, accountID, resetAt)
-	return r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateExhausted, true, &resetAt)
+	_, err = r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateExhausted, true, &resetAt)
+	return err
 }
 func (r *Runtime) ReconnectRequired(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
 	physicalOwner, err := r.admit(ctx, accountID, owner)
@@ -209,7 +303,8 @@ func (r *Runtime) ReconnectRequired(ctx context.Context, owner auth.Subscription
 		return err
 	}
 	r.manager.ReconnectRequired("account:"+accountID, provider, accountID)
-	return r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateReconnectRequired, false, nil)
+	_, err = r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateReconnectRequired, false, nil)
+	return err
 }
 func (r *Runtime) Activate(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
 	physicalOwner, err := r.admit(ctx, accountID, owner)
@@ -217,7 +312,8 @@ func (r *Runtime) Activate(ctx context.Context, owner auth.SubscriptionOwner, pr
 		return err
 	}
 	r.manager.Activate("account:"+accountID, provider, accountID)
-	return r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateActive, true, nil)
+	_, err = r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateActive, true, nil)
+	return err
 }
 func (r *Runtime) Disable(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
 	physicalOwner, err := r.admit(ctx, accountID, owner)
@@ -227,13 +323,13 @@ func (r *Runtime) Disable(ctx context.Context, owner auth.SubscriptionOwner, pro
 	r.manager.Disable("account:"+accountID, provider, accountID)
 	return r.store.UpdateSubscriptionAccountState(ctx, physicalOwner, accountID, false, nil)
 }
-func (r *Runtime) updateAccountHealth(ctx context.Context, owner auth.SubscriptionOwner, accountID string, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) error {
+func (r *Runtime) updateAccountHealth(ctx context.Context, owner auth.SubscriptionOwner, accountID string, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) (bool, error) {
 	if store, ok := r.store.(interface {
-		UpdateSubscriptionAccountHealth(context.Context, auth.SubscriptionOwner, string, auth.SubscriptionAccountState, bool, *time.Time) error
+		UpdateSubscriptionAccountHealth(context.Context, auth.SubscriptionOwner, string, auth.SubscriptionAccountState, bool, *time.Time) (bool, error)
 	}); ok {
 		return store.UpdateSubscriptionAccountHealth(ctx, owner, accountID, state, enabled, cooldownUntil)
 	}
-	return r.store.UpdateSubscriptionAccountState(ctx, owner, accountID, enabled, cooldownUntil)
+	return false, r.store.UpdateSubscriptionAccountState(ctx, owner, accountID, enabled, cooldownUntil)
 }
 
 func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
@@ -252,7 +348,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 					observability.FromContext(ctx).Error("Failed to load subscription credentials while waiting for refresh", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", loadErr)
 					return Account{}, loadErr
 				}
-				if !subscriptionCredentialAvailable(credentials, r.clock()) {
+				if !subscriptionCredentialAvailable(ctx, account.Provider, credentials, r.clock()) {
 					return Account{}, ErrNoAvailableAccount
 				}
 				if subscriptionAccessTokenUsable(credentials, r.clock()) {
@@ -277,7 +373,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 				observability.FromContext(ctx).Error("Failed to load subscription credentials for refresh", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", err)
 				return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, err)
 			}
-			if !subscriptionCredentialAvailable(credentials, r.clock()) {
+			if !subscriptionCredentialAvailable(ctx, account.Provider, credentials, r.clock()) {
 				return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, ErrNoAvailableAccount)
 			}
 			if subscriptionAccessTokenUsable(credentials, r.clock()) {
@@ -292,21 +388,20 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 				}
 				return recovered, handleErr
 			}
-			if account.Provider == ProviderCodex && ((refreshed.AccountID != "" && refreshed.AccountID != account.AccountID) || (credentials.ProviderUserID != "" && (refreshed.UserID != credentials.ProviderUserID || refreshed.AccountID != account.AccountID))) {
+			if account.Provider == ProviderCodex && ((refreshed.AccountID != "" && refreshed.AccountID != account.AccountID) || (credentials.ProviderUserID != "" && ((refreshed.UserID != "" && refreshed.UserID != credentials.ProviderUserID) || refreshed.AccountID != account.AccountID))) {
 				recovered, handleErr := r.handleRefreshError(ctx, owner, account, credentials, holder, &providerAccountMismatchError{})
 				if errors.Is(handleErr, errRefreshLeaseLost) {
 					continue
 				}
 				return recovered, handleErr
 			}
-			persistErr := r.store.PersistSubscriptionTokens(ctx, owner, account.ID, leaseID, credentials.TokenRefreshVersion,
-				[]byte(refreshed.RefreshToken), []byte(refreshed.AccessToken), refreshed.ExpiresAt)
+			persistErr := r.persistRefreshedTokens(ctx, owner, account, holder, credentials.TokenRefreshVersion, refreshed)
 			if errors.Is(persistErr, auth.ErrSubscriptionRefreshConflict) {
 				if err := r.releaseRefreshLease(ctx, owner, account.ID, leaseID, nil); err != nil {
 					return Account{}, err
 				}
 				latest, loadErr := r.store.LoadSubscriptionCredentials(ctx, owner, account.ID)
-				if loadErr == nil && subscriptionCredentialAvailable(latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
+				if loadErr == nil && subscriptionCredentialAvailable(ctx, account.Provider, latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
 					return applySubscriptionCredentials(account, latest), nil
 				}
 				if loadErr != nil {
@@ -331,6 +426,37 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 		}
 		return Account{}, ErrNoAvailableAccount
 	}
+}
+
+// Once the issuer rotates a token, retry saving that same response rather than
+// refreshing the spent token. A canceled inference caller must not discard it.
+func (r *Runtime) persistRefreshedTokens(ctx context.Context, owner auth.SubscriptionOwner, account Account, holder refreshHolder, version int64, refreshed RefreshedToken) error {
+	saveCtx, cancelSave := context.WithTimeout(context.WithoutCancel(ctx), refreshReleaseTimeout*refreshRetryLimit+time.Second)
+	defer cancelSave()
+	policy := backoff.NewExponentialBackOff()
+	policy.InitialInterval = refreshWaitInitial
+	policy.MaxInterval = refreshWaitMaximum
+	attempt := 0
+	_, persistErr := backoff.Retry(saveCtx, func() (struct{}, error) {
+		attempt++
+		attemptCtx, cancel := context.WithTimeout(saveCtx, refreshReleaseTimeout)
+		err := r.store.PersistSubscriptionTokens(attemptCtx, owner, account.ID, holder.leaseID, version,
+			[]byte(refreshed.RefreshToken), []byte(refreshed.AccessToken), refreshed.ExpiresAt)
+		cancel()
+		if err == nil {
+			return struct{}{}, nil
+		}
+		if errors.Is(err, auth.ErrSubscriptionRefreshConflict) || errors.Is(err, auth.ErrSubscriptionAccountNotFound) {
+			return struct{}{}, backoff.Permanent(err)
+		}
+		observability.FromContext(ctx).Error("Failed to save rotated subscription tokens",
+			"subscription_event", auth.SubscriptionCredentialEventPersistenceFailed,
+			"owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider,
+			"refresh_lease_id", holder.leaseID, "token_refresh_version", version,
+			"lease_taken_over", holder.tookOver, "attempt", attempt, "retries_exhausted", attempt == refreshRetryLimit, "err", err)
+		return struct{}{}, err
+	}, backoff.WithBackOff(policy), backoff.WithMaxTries(refreshRetryLimit))
+	return persistErr
 }
 
 // refreshWithHeartbeat runs the provider refresh while renewing the lease so a
@@ -383,13 +509,18 @@ func (r *Runtime) handleRefreshError(ctx context.Context, owner auth.Subscriptio
 	if errors.Is(refreshErr, context.Canceled) || errors.Is(refreshErr, context.DeadlineExceeded) {
 		return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, refreshErr)
 	}
-	log := observability.FromContext(ctx).With("owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider)
+	log := observability.FromContext(ctx).With("owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider,
+		"refresh_lease_id", leaseID, "token_refresh_version", credentials.TokenRefreshVersion, "lease_taken_over", holder.tookOver)
+	var oauthErr *OAuthRefreshError
+	if errors.As(refreshErr, &oauthErr) {
+		log = log.With("upstream_status", oauthErr.Status, "provider_error_code", oauthErr.Code, "provider_error_type", oauthErr.ErrorType, "provider_request_id", oauthErr.RequestID)
+	}
 	var terminal terminalRefreshError
 	if errors.As(refreshErr, &terminal) && terminal.Terminal() {
-		log.Debug("Subscription credential refresh rejected", "err", refreshErr)
+		log.Warn("Subscription credential refresh rejected", "subscription_event", auth.SubscriptionCredentialEventRejected, "reason", refreshRejectionReason(refreshErr), "err", refreshErr)
 		latest, loadErr := r.store.LoadSubscriptionCredentials(ctx, owner, account.ID)
 		if loadErr == nil && (latest.TokenRefreshLeaseID != leaseID || latest.TokenRefreshVersion != credentials.TokenRefreshVersion || !bytes.Equal(latest.RefreshToken, credentials.RefreshToken)) {
-			if subscriptionCredentialAvailable(latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
+			if subscriptionCredentialAvailable(ctx, account.Provider, latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
 				return applySubscriptionCredentials(account, latest), r.releaseRefreshLease(ctx, owner, account.ID, leaseID, nil)
 			}
 			return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, errRefreshLeaseLost)
@@ -430,12 +561,12 @@ func subscriptionAccessTokenUsable(credentials auth.SubscriptionCredentials, now
 	return credentials.AccessTokenExpiresAt == nil || credentials.AccessTokenExpiresAt.IsZero() || credentials.AccessTokenExpiresAt.After(now.Add(time.Minute))
 }
 
-func subscriptionCredentialAvailable(credentials auth.SubscriptionCredentials, now time.Time) bool {
+func subscriptionCredentialAvailable(ctx context.Context, provider Provider, credentials auth.SubscriptionCredentials, now time.Time) bool {
 	var cooldownUntil time.Time
 	if credentials.CooldownUntil != nil {
 		cooldownUntil = *credentials.CooldownUntil
 	}
-	return credentials.Enabled && subscriptionAccountStateRoutable(credentials.State, cooldownUntil, now)
+	return credentials.Enabled && subscriptionAccountEligible(ctx, provider, credentials.State, cooldownUntil, now)
 }
 
 func applySubscriptionCredentials(account Account, credentials auth.SubscriptionCredentials) Account {
@@ -471,6 +602,50 @@ func (r *Runtime) recordRefreshFailure(ctx context.Context, owner auth.Subscript
 	}
 	var terminal interface{ Terminal() bool }
 	if errors.As(refreshErr, &terminal) && terminal.Terminal() {
+		disconnectLog := observability.FromContext(ctx).With("provider", provider, "account_id", accountID, "owner_id", owner.LogKey(),
+			"refresh_lease_id", leaseID, "token_refresh_version", expectedVersion)
+		var mismatch *providerAccountMismatchError
+		if store, ok := r.store.(credentialRejectionStore); ok && !errors.As(refreshErr, &mismatch) {
+			now := r.clock()
+			reason := refreshRejectionReason(refreshErr)
+			input := auth.SubscriptionCredentialRejectionInput{
+				Reason: reason, RejectedAt: now, Window: credentialRejectionWindow, LeaseID: leaseID, ExpectedVersion: expectedVersion,
+				RequestID: observability.RequestIDFromContext(ctx),
+			}
+			var oauthErr *OAuthRefreshError
+			if errors.As(refreshErr, &oauthErr) {
+				input.UpstreamStatus = oauthErr.Status
+				input.ProviderErrorType = oauthErr.ErrorType
+				input.ProviderRequestID = oauthErr.RequestID
+			}
+			rejection, err := store.RecordSubscriptionCredentialRejection(ctx, owner, accountID, input)
+			if errors.Is(err, auth.ErrSubscriptionRefreshConflict) {
+				return errRefreshLeaseLost
+			}
+			if err != nil {
+				observability.FromContext(ctx).Error("Failed to record subscription credential rejection",
+					"provider", provider, "account_id", accountID, "err", err)
+				return errors.Join(refreshErr, fmt.Errorf("record subscription credential rejection: %w", err))
+			}
+			if !reconnectWarranted(rejection, reason, now) {
+				cooldownUntil := now.Add(credentialRejectionCooldown(rejection.Count))
+				observability.FromContext(ctx).Warn("Subscription credential refresh rejected; cooling down",
+					"provider", provider, "account_id", accountID, "reason", reason, "strikes", rejection.Count,
+					"first_rejected_at", rejection.FirstRejectedAt, "cooldown_until", cooldownUntil)
+				if err := r.store.CooldownSubscriptionAccountIfRefreshHolder(ctx, owner, accountID, leaseID, expectedVersion, cooldownUntil); err != nil {
+					if errors.Is(err, auth.ErrSubscriptionRefreshConflict) {
+						return errRefreshLeaseLost
+					}
+					observability.FromContext(ctx).Error("Failed to persist subscription account cooldown after token rejection",
+						"provider", provider, "account_id", accountID, "err", err)
+					return errors.Join(refreshErr, fmt.Errorf("persist subscription account cooldown: %w", err))
+				}
+				return &credentialRejectionCooldownError{err: refreshErr, until: cooldownUntil}
+			}
+			disconnectLog = disconnectLog.With("reason", reason, "provider_error_code", reason, "strikes", rejection.Count,
+				"first_rejected_at", rejection.FirstRejectedAt, "repeated_disconnect", rejection.RepeatedDisconnect,
+				"provider_error_type", input.ProviderErrorType, "provider_request_id", input.ProviderRequestID, "upstream_status", input.UpstreamStatus)
+		}
 		if err := r.store.DisableSubscriptionAccountIfRefreshHolder(ctx, owner, accountID, leaseID, expectedVersion); err != nil {
 			if errors.Is(err, auth.ErrSubscriptionRefreshConflict) {
 				return errRefreshLeaseLost
@@ -479,6 +654,7 @@ func (r *Runtime) recordRefreshFailure(ctx context.Context, owner auth.Subscript
 				"provider", provider, "account_id", accountID, "err", err)
 			return errors.Join(refreshErr, fmt.Errorf("persist disabled subscription account state: %w", err))
 		}
+		disconnectLog.Warn("Subscription account needs reconnect after repeated refresh rejections", "subscription_event", auth.SubscriptionCredentialEventReconnectRequired, "err", refreshErr)
 		return refreshErr
 	}
 	cooldownUntil := r.clock().Add(time.Minute)

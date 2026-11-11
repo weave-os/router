@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"strconv"
 	"strings"
@@ -44,6 +45,8 @@ type portableCodexResponsesConverter struct {
 	toolAliases     map[responsesToolIdentity]string
 	declaredAliases map[string]struct{}
 	tools           []map[string]any
+	agentPath       string
+	routingRoles    map[int]EscalationRole
 	hostedWebSearch bool
 }
 
@@ -100,6 +103,17 @@ func codexFeedbackSkillInstructions(content gjson.Result) bool {
 // Codex records a /model switch as a retained developer message wrapped in
 // <model_switch> markers; the model it launched with leaves no such trace.
 func codexModelSwitchPresent(input gjson.Result) bool {
+	return codexDeveloperMarkerPresent(input, "<model_switch>", "</model_switch>")
+}
+
+// A Codex session whose catalog came from model_catalog_url records a /model
+// switch as <model_instructions>. Other base-instruction changes reuse the
+// marker, so it is only a switch for clients that loaded that catalog.
+func codexModelInstructionsPresent(input gjson.Result) bool {
+	return codexDeveloperMarkerPresent(input, "<model_instructions>", "</model_instructions>")
+}
+
+func codexDeveloperMarkerPresent(input gjson.Result, open, close string) bool {
 	if !input.IsArray() {
 		return false
 	}
@@ -111,7 +125,7 @@ func codexModelSwitchPresent(input gjson.Result) bool {
 		if item.Get("role").Str != "developer" {
 			continue
 		}
-		if codexDeveloperMarkerContent(item.Get("content"), "<model_switch>", "</model_switch>") {
+		if codexDeveloperMarkerContent(item.Get("content"), open, close) {
 			return true
 		}
 	}
@@ -179,6 +193,8 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 		},
 		toolAliases:     make(map[responsesToolIdentity]string),
 		declaredAliases: make(map[string]struct{}),
+		agentPath:       codexCurrentAgentPath(root.Get("input")),
+		routingRoles:    make(map[int]EscalationRole),
 	}
 	converter.result.TitleGeneration = requestRootRequestsCodexTitle(root)
 	converter.result.Requirements.Images = root.Get("input").Exists() && containsAnyKey(body, "image_url", "input_image")
@@ -202,6 +218,7 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 	converter.requireNativeForForcedWebSearch(root.Get("tool_choice"))
 	converter.result.CodexFeedbackSkill = codexFeedbackSkillInvocation(root.Get("input"))
 	converter.result.CodexModelSwitch = codexModelSwitchPresent(root.Get("input"))
+	converter.result.CodexModelInstructions = codexModelInstructionsPresent(root.Get("input"))
 	messages := converter.convertInput(root.Get("input"))
 	var systemMessages []map[string]any
 	if instructions := root.Get("instructions").Str; instructions != "" {
@@ -226,6 +243,19 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 		return ResponsesConversion{}, fmt.Errorf("marshal portable Codex chat completions: %w", err)
 	}
 	converter.result.Body = bodyOut
+	if len(converter.routingRoles) > 0 {
+		routingMessages := append([]map[string]any(nil), messages...)
+		for index, role := range converter.routingRoles {
+			index += len(systemMessages)
+			routingMessages[index] = maps.Clone(messages[index])
+			routingMessages[index]["role"] = role
+		}
+		out["messages"] = routingMessages
+		converter.result.RoutingBody, err = json.Marshal(out)
+		if err != nil {
+			return ResponsesConversion{}, fmt.Errorf("marshal Codex routing history: %w", err)
+		}
+	}
 	if len(converter.result.ToolMappings) == 0 {
 		converter.result.ToolMappings = nil
 	}
@@ -418,6 +448,9 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 		case "agent_message":
 			if message, ok := c.convertAgentMessage(item, path); ok {
 				messages = append(messages, message)
+				if role := codexAgentMessageRoutingRole(c.agentPath, item); role != EscalationRoleUser {
+					c.routingRoles[len(messages)-1] = role
+				}
 			}
 		case "reasoning":
 			c.convertReasoning(item, path)
@@ -520,7 +553,7 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 	if content.Type == gjson.String {
 		text := content.Str
 		if role == "assistant" {
-			text = responsesTerminalBadgePattern.ReplaceAllString(text, "")
+			text = stripResponsesTerminalBadges(text)
 			text = feedbackFooterPattern.ReplaceAllString(text, "")
 		}
 		if text == "" {
@@ -543,7 +576,7 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 		case "input_text", "output_text", "text":
 			text := part.Get("text").Str
 			if role == "assistant" && firstAssistantText {
-				text = responsesTerminalBadgePattern.ReplaceAllString(text, "")
+				text = stripResponsesTerminalBadges(text)
 				firstAssistantText = false
 			}
 			if role == "assistant" {
@@ -585,7 +618,7 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 		return nil, false
 	}
 	textParts := make([]string, 0, len(content.Array()))
-	hasPlainText := false
+	hasPlainText, encrypted := false, false
 	for index, part := range content.Array() {
 		partPath := path + ".content." + strconv.Itoa(index)
 		switch part.Get("type").Str {
@@ -597,7 +630,7 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 			// Unlike a reasoning digest, plaintext here can be only the delivery
 			// header. The encrypted block contains the task itself.
 			c.markNativeOnly("responses_agent_message_native_only", partPath)
-			return nil, false
+			encrypted = true
 		default:
 			c.markNativeOnly("responses_agent_message_native_only", partPath)
 			return nil, false
@@ -606,6 +639,12 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 	if !hasPlainText {
 		c.markNativeOnly("responses_agent_message_native_only", path)
 		return nil, false
+	}
+	if encrypted {
+		// Native-only dispatch forwards the original bytes, so this header
+		// (message type and task name) only feeds routing features.
+		c.report("responses_agent_message_header_projected", "projected", path)
+		return map[string]any{"role": EscalationRoleUser, "content": strings.TrimSpace(strings.Join(textParts, "\n"))}, true
 	}
 	c.report("responses_agent_message_projected", "projected", path)
 	// This is communication delivered to the receiving agent, not its own

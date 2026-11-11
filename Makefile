@@ -9,7 +9,7 @@
 #   (and .env.local if present). Start Postgres via `make db` or point
 #   DATABASE_URL at any Postgres you already have running.
 
-.PHONY: generate generate-statusline generate-inference-policy check-inference-policy inference-boundary generate-agent-guides check-agent-guides check-docs build test test-verbose test-statusline setup-install-tests test-install smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
+.PHONY: generate generate-statusline generate-inference-policy check-inference-policy generate-candidate-requirements check-candidate-requirements inference-boundary generate-agent-guides check-agent-guides check-docs build test test-verbose test-statusline setup-install-tests test-install smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
 
 # Load DATABASE_URL from .env files (matches docker-compose defaults).
 SAFE_AGENT_GOALS := doctor check-plan check-changed smoke
@@ -28,7 +28,7 @@ help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
-generate: generate-statusline generate-inference-policy ## Regenerate all generated files (SQLC + statusline prices + inference policy)
+generate: generate-statusline generate-inference-policy generate-candidate-requirements ## Regenerate all generated files (SQLC + statusline prices + inference policy + candidate requirements)
 	cd db && sqlc generate
 
 generate-statusline: ## Sync cc-statusline.sh prices block from pricing.go
@@ -39,6 +39,12 @@ generate-inference-policy: ## Generate static inference-policy Markdown and JSON
 
 check-inference-policy: ## Check that generated inference-policy projections are current
 	go run ./cmd/geninferencepolicy --check
+
+generate-candidate-requirements: ## Generate the Router candidate requirements declaration
+	go run ./cmd/gencandidaterequirements
+
+check-candidate-requirements: ## Check that the Router candidate requirements declaration is current
+	go run ./cmd/gencandidaterequirements --check
 
 inference-boundary: check-inference-policy ## Reject new inference/provider bypasses and stale policy docs
 	go test ./internal/router/policy ./internal/architecture
@@ -73,7 +79,11 @@ test-install: ## Run offline installer regression tests (after make setup-instal
 	@bash install/tests/jq_bootstrap_test.sh
 	@bash install/tests/claude-status_test.sh
 	@bash install/tests/codex_install_test.sh
+	@bash install/tests/build_skill_install_test.sh
 	@bash install/tests/opencode_install_test.sh
+	@bash install/tests/copilot_install_test.sh
+	@bash install/tests/claude_desktop_install_test.sh
+	@node --test install/tests/desktop_shim_test.js
 	@python3 -m unittest discover -s install/pi-router/test -p 'test_*.py'
 	@bash install/tests/codex-status_test.sh
 	@bash install/tests/codex-toggle_test.sh
@@ -88,6 +98,7 @@ test-install: ## Run offline installer regression tests (after make setup-instal
 	@bash install/tests/packaging_test.sh
 	@bash install/tests/tool_search_test.sh
 	@bash install/tests/context_window_test.sh
+	@bash install/tests/claude_weave_auto_test.sh
 	@bash install/tests/client_events_test.sh
 
 embed-registry: ## Re-embed install/directives.tsv + registry.sh into install.sh
@@ -205,6 +216,11 @@ up: ## Start the compose stack in the background (no install.sh wiring)
 
 up-hmm: ## Start the stack with the opt-in frozen HMM policy sidecar
 	docker compose -f docker-compose.yml -f sidecars/hmm/docker-compose.yml \
+		--profile hmm build hmm-sidecar
+	CLASSIFIER_IMAGE_DIGEST=$$(docker image inspect --format '{{.Id}}' \
+		$$(docker compose -f docker-compose.yml -f sidecars/hmm/docker-compose.yml \
+			--profile hmm config --images hmm-sidecar)) \
+		docker compose -f docker-compose.yml -f sidecars/hmm/docker-compose.yml \
 		--profile hmm up --build -d
 
 down: ## Stop the compose stack, including the optional HMM sidecar (keeps the postgres volume)
@@ -243,7 +259,7 @@ install-hooks: ## Install git pre-commit hook
 	chmod +x "$$HOOK_DIR/pre-commit"; \
 	echo "Pre-commit hook installed at $$HOOK_DIR/pre-commit"
 
-check: check-agent-guides check-docs inference-boundary generate fmt vet build test test-statusline test-install ## Local Go/codegen/installer checks; CI also validates integrations and component contracts
+check: check-agent-guides check-docs inference-boundary check-candidate-requirements generate fmt vet build test test-statusline test-install ## Local Go/codegen/installer checks; CI also validates integrations and component contracts
 	@if ! git diff --quiet internal/sqlc/; then \
 		echo "error: sqlc generation produced uncommitted changes"; \
 		git diff internal/sqlc/; \

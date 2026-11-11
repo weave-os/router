@@ -142,7 +142,10 @@ func newStreamCostWriter(inner http.ResponseWriter) *streamCostWriter {
 
 func (w *streamCostWriter) Header() http.Header { return w.inner.Header() }
 
-func (w *streamCostWriter) WriteHeader(status int) { w.inner.WriteHeader(status) }
+func (w *streamCostWriter) WriteHeader(status int) {
+	sse.PrepareJSONResponse(w.inner)
+	w.inner.WriteHeader(status)
+}
 
 func (w *streamCostWriter) Flush() {
 	if flusher, ok := w.inner.(http.Flusher); ok {
@@ -164,7 +167,7 @@ func (w *streamCostWriter) Write(p []byte) (int, error) {
 	if w.pending.Len() == 0 {
 		trimmed := bytes.TrimSpace(p)
 		if len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
-			return w.inner.Write(p)
+			return sse.WriteJSONChunk(w.inner, p)
 		}
 	}
 	w.pending.Write(p)

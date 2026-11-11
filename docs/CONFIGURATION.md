@@ -9,7 +9,8 @@ This page is the exhaustive reference; the [README](../README.md) has the
 
 - [Provider API keys](#provider-api-keys)
   - [Key-pair auth](#key-pair-auth)
-  - [Workload identity federation](#workload-identity-federation)
+  - [Snowflake workload identity federation](#workload-identity-federation)
+  - [Anthropic workload identity federation](#anthropic-workload-identity-federation)
 - [Postgres](#postgres)
 - [Server](#server)
 - [Managed serving (`ROUTER_SERVING_*`)](#managed-serving-router_serving_)
@@ -103,6 +104,28 @@ account level, and the authenticating user needs a role with agent privileges
 plus a default warehouse it can USAGE (or an explicit `SNOWFLAKE_AGENT_ROLE`
 that has one). Cortex's web search is served from Brave's index, so queries
 and results leave Snowflake's perimeter under Snowflake's vendor agreement.
+
+**Native web search with Codex subscriptions.** For a requested Codex model,
+or when no enabled provider can execute Anthropic server tools, Claude Code's
+isolated WebSearch helper can
+use an enrolled or caller-supplied Codex subscription. The router translates
+that helper to a native Responses web-search request and returns Anthropic
+search-result blocks and a cited answer. Ordinary conversations and mixed
+tool requests are unchanged. Hostname-only domain restrictions and user location are
+preserved; path-scoped or wildcard domain filters are rejected before search
+instead of being weakened. Measured token/cache usage is returned to the client.
+
+The bridge uses the existing Responses routing, account admission, quota and
+telemetry pipeline. It preserves a requested Codex-compatible model, otherwise
+uses ordinary Responses model selection; it does not pick a fixed search
+model or permit API-key fallback. Search uses low reasoning effort, a 90-second
+request deadline and a 2 MiB response bound. Because the Codex backend does
+not accept `max_tool_calls`, the bridge cancels its stream when native tool
+operations exceed `max_uses` (one by default, at most ten). Requests above that
+server-side limit are rejected before dispatch. Isolated helpers never read or
+write conversation model pins or their usage history. A successful search tool and
+terminal response are required before results are returned. No extra search
+provider key, MCP server or client configuration is needed.
 
 **OpenAI-compatible gateway.** `openai_gateway` is the same arrangement one
 wire family over: a customer endpoint speaking OpenAI Chat Completions, bearer
@@ -253,6 +276,9 @@ Authorization: Bearer WIF.GCP.<attestation>
 X-Snowflake-Authorization-Token-Type: WORKLOAD_IDENTITY_FEDERATION
 ```
 
+This `wif` mode is specific to Snowflake-compatible gateways. Native Anthropic
+uses the separate `anthropic_wif` mode described below.
+
 The attestation source is deployment-wide, not per key, because it identifies
 the router process rather than a tenant:
 
@@ -331,6 +357,122 @@ fields reject the same request-critical header names as `identity_header`, and
 both are applied after the client's headers so nothing upstream-critical can be
 overwritten. Omit both to forward nothing.
 
+
+### Anthropic workload identity federation
+
+Use `auth_type: "anthropic_wif"` on the native `anthropic` provider to authenticate
+with the router's workload identity instead of storing an API key. This bills
+Anthropic API usage to the rule's workspace; it does not use a Claude subscription.
+Your clients continue authenticating to the router with their router keys.
+
+In the [Claude Console](https://platform.claude.com/settings/workload-identity-federation),
+connect the router's Google Cloud service account, or register your OIDC issuer.
+For Google Cloud, use issuer `https://accounts.google.com` with discovery, audience
+`https://api.anthropic.com`, and match the service account's numeric `sub` and
+`email` exactly. Add the target Anthropic service account to the intended workspace.
+See [Anthropic's GCP guide](https://platform.claude.com/docs/en/manage-claude/wif-providers/gcp).
+
+Managed deployments require operator-approved target bindings before federation
+can authenticate. Set `ROUTER_ANTHROPIC_FEDERATION_BINDINGS_B64` in the router worker's
+operator-owned deployment environment to a base64-encoded JSON object keyed by router
+installation UUID. Each value is the exact approved `federation_config`, including
+the rule, Anthropic organization, service account, workspace (or omission), and
+audience. For example:
+
+```json
+{"00000000-0000-0000-0000-000000000003":{
+  "federation_rule_id":"fdrl_example",
+  "organization_id":"00000000-0000-0000-0000-000000000001",
+  "service_account_id":"svac_example",
+  "workspace_id":"wrkspc_example",
+  "audience":"https://api.anthropic.com"
+}}
+```
+
+The operator must verify that the installation owner controls the Anthropic
+organization before adding a binding. Tenant-provided IDs are not evidence of
+ownership. An absent or empty map denies every managed federation request before
+minting an assertion or reading a cached token. Such denials have no Anthropic
+authentication-history entry because no exchange is sent. A tenant cannot change the
+operator's map through the provider-key API. Malformed bindings abort startup;
+changes require a new worker revision. The Weave release controller reads the operator-owned
+`router-internal/config/anthropic-federation-bindings.json` map by serving target,
+encodes it into the worker environment, and includes it in the immutable revision
+key. Approve changes to that private file before preparing the worker release. Its
+top-level keys are serving targets such as `staging` and `prod/stable`, each
+containing the installation map shown above. For urgent revocation, disable the
+Anthropic rule and retire workers retaining the old approval; a retained worker
+keeps the authorization snapshot it was released with. Self-hosted
+routers use their owner's identity and do not require this managed allowlist.
+
+Add the credential through **Settings → Provider keys → Anthropic → Anthropic
+workload identity**, or the self-hosted admin API:
+
+```bash
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"anthropic","auth_type":"anthropic_wif",
+       "federation_config":{
+         "federation_rule_id":"fdrl_example",
+         "organization_id":"00000000-0000-0000-0000-000000000001",
+         "service_account_id":"svac_example",
+         "workspace_id":"wrkspc_example",
+         "audience":"https://api.anthropic.com"
+       }}'
+```
+
+Use your actual identifiers. `workspace_id` may be omitted only when the rule
+has a single enabled workspace; otherwise Anthropic requires it. `audience`
+defaults to `https://api.anthropic.com` and must match the rule. Do not send
+`key`, `auth_account`, or `auth_user`. Custom endpoints are rejected for this
+mode. A self-hosted deployment can retain `ANTHROPIC_API_KEY` while adding a
+federated Anthropic credential; when BYOK is selected, the federated credential
+takes precedence. An unresolved federation credential returns `503` rather than
+silently falling back to the deployment key.
+
+On Google compute with an attached service account, raw assertions are obtained
+from the Google identity credentials library for each exchange. For Kubernetes
+or another projected OIDC source, set `ANTHROPIC_IDENTITY_TOKEN_FILE` to the
+mounted token path; the file is reopened on every exchange and reads are bounded
+to 64 KiB. The JWT itself must be at most 16 KiB. The router uses
+per-credential federation configuration, not the Anthropic SDK's other
+`ANTHROPIC_FEDERATION_*` environment variables or credential precedence chain.
+Snowflake's `ROUTER_WIF_*` variables remain independent.
+
+The router sends the raw JWT to Anthropic's fixed `/v1/oauth/token` endpoint and
+uses the returned token with `Authorization: Bearer`. The exchange carries the
+OAuth and OIDC federation beta headers; Anthropic API calls carry the OAuth beta
+header. The router sends no Snowflake headers or Claude Code identity prompt. Access tokens
+are cached separately by installation, key, rule, organization, service account,
+workspace, and audience. Concurrent refreshes share an exchange. Advisory
+refresh starts up to 120 seconds before expiry (20% for shorter tokens), with
+mandatory refresh up to 30 seconds before expiry (10% for shorter tokens).
+Temporary endpoint failures can use the still-valid cached token until mandatory
+refresh; a selected Anthropic request with failed mandatory refresh returns HTTP
+503 rather than switching to a platform Anthropic API key. Unrelated providers
+remain available. A rejected exchange fails immediately.
+
+Assertions carrying `jti` must rotate before the next exchange. The router
+refuses to resend a previously attempted `jti` in its bounded process-local
+cache, including after an ambiguous transport failure. Anthropic remains the
+replay-protection authority across restarts and cache eviction. Update a
+projected file well before refresh; a static token file is unsuitable for
+continuous operation when `jti` is present. Tokens without `jti` may be reused
+while valid. See [Anthropic's WIF reference](https://platform.claude.com/docs/en/manage-claude/wif-reference).
+
+After saving, fetch models from the saved credential to exercise federation
+under the router's identity, then make a minimal inference request. Check the
+federation rule's authentication history in the Claude Console and verify usage
+is attributed to the intended workspace. An API key working in the same
+organization does not establish that federation works. Raw inbound
+`sk-ant-oat01-...` tokens cannot be distinguished from Claude subscription tokens
+by their prefix; configure workload federation explicitly rather than passing
+such tokens through the client subscription path.
+
+Migration `0139` must be applied before the router and control plane use the
+new credential fields. Apply it through the normal release process. Rolling it
+back deletes Anthropic federation credential rows before restoring the old
+constraint; recreate those configurations after upgrading again.
 
 ### Microsoft Entra client credentials
 
@@ -494,6 +636,7 @@ the admission caches using the same Pub/Sub project and topic.
 | `ROUTER_COMPACTION_MODEL`         | `claude-sonnet-5`            | Fallback Anthropic family for compaction when no eligible session model is available. Selection upgrades to the newest eligible catalog version in that family, including session-derived choices. The configured model must bind on `ROUTER_HANDOVER_PROVIDER` and belong to the compaction policies' reviewed catalog set in [`POLICY_INFERENCE.md`](POLICY_INFERENCE.md); otherwise boot fails. Claude Code's client-side compaction still requires direct Anthropic; Codex checkpoint compaction can reuse other providers. Explicit `ROUTER_HARD_PIN_MODEL` overrides remain exact. |
 | `ROUTER_COMPACTION_TIMEOUT_MS`    | `90000`                      | Hard timeout for one compaction-handover summary call (separate from `ROUTER_HANDOVER_TIMEOUT_MS`; a Sonnet-class summary of a near-full window is slow). On timeout the full history is kept. |
 | `ROUTER_ESCALATION_JUDGE_ENABLED` | `false` | Enables the optional Weave-funded Switchyard LLM judge and requires `FIREWORKS_API_KEY`. The judge uses only the Fireworks binding for `z-ai/glm-5.3-flash`. |
+| `ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT` | `none` | Shadow classifier (`llm_escalation` or `switchyard_llm_v1`) for installations with no escalation selection and no active classifier. `switchyard_llm_v1` requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`; `llm_escalation` requires `ROUTER_LLM_ESCALATION_URL` and `ROUTER_LLM_ESCALATION_API_KEY`; startup fails otherwise. Shadow judging uses its own pool of 8 slots per instance. Each successful verdict is written to the judge's auxiliary telemetry row (`classifier_predicted_label`); failed judgments keep their cost row with no label. |
 | `ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED` | `false` | Allows `switchyard_llm_v1` to be selected as the active classifier. Keep false during shadow evaluation; requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`. |
 | `ROUTER_PROVIDER_OVERLOADED`      | `true`                       | Per-model 529 circuit breaker. Provider-direct overloaded responses from every organization feed one shared circuit per model (3 overloaded operations within 2 minutes open it); once it opens, the model leaves automatic selection only for organizations that have each observed 2 overloads themselves. Traffic through an organization's own gateway gets a circuit of its own that no other organization feeds or sees. `/force-model` still reaches the model, and one request probes it after 30s, doubling to a 10-minute cap on each failed probe. Thresholds are fixed in `internal/router/breaker/thresholds.go`. Org-overridable as `provider_overloaded`. |
 | `ROUTER_ONNX_ASSETS_DIR`          | `/opt/router/assets`         | Directory containing `model.onnx` + `tokenizer.json`. |
@@ -504,6 +647,11 @@ router returns HTTP 503 — it does *not* silently fall back to a default
 model. Failures are loud by design.
 
 ### Authoritative upgrade evidence policy
+
+For the independent observation-only agreement experiment, see
+[Internal agreement shadow](HMM_GO_SELECTION.md#internal-agreement-shadow).
+Its organization-only `agreement_shadow_epoch` is 0 (off) by default and
+restricted to admitted internal traffic; it never replaces the gates below.
 
 Authoritative HMM turns evaluate a typed evidence policy for expensive fresh
 models. The deployment default is `score`, the `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` floor.
@@ -520,11 +668,26 @@ HMM pick without that floor.
 | `ROUTER_AUTHORITATIVE_UPGRADE_SHADOW_STALE_AFTER` | unset | Pin-age cutoff as a Go duration. Unset or `0s` disables the stale-pin rule. |
 | `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` | `0.50` | Minimum top-class classifier probability (four groups, floor 0.25) for an upgrade to a pricier model than the session pin. |
 | `ROUTER_AUTHORITATIVE_UPGRADE_GATE` | `true` | Confidence-floor kill switch, used when policy is `score` or evidence falls back to existing policy. |
+| `ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD` | `false` | Upgrade by the predicted class's probability, bypassing the confidence floor. From a low/medium pin, maximum at 0.3-0.5 serves high and at >=0.5 maximum; from low, high at 0.3-0.5 serves medium and at >=0.5 high, and medium at >=0.3 serves medium; from medium, high needs >=0.4; from high, maximum needs >=0.5. Below a band, and for other transitions, the gates above decide. Installation override `authoritative_upgrade_sliding_threshold`. |
 
 Invalid policy, holdout, margin, or duration values fail startup. Force/hard
 pins, utility turns, deadline fallbacks, and active escalation floors still win.
 A content-free `authoritative upgrade evidence` log records mode, applied,
 holdout, outcome, reason, margin, votes, and served model.
+
+## Escalation target and tool-result hold
+
+A key-scoped cluster model list labelled `escalation` names the models served
+while an escalation verdict or persisted floor constrains a request. It
+replaces the effective group's list only on escalated turns, so a key can keep
+every unescalated group on one model and promote only escalated sessions. The
+LLM escalation judge skips a checkpoint (`served_escalation_target`) when the
+turn was already served by one of these models.
+
+`hmm_tool_result_hold` is an organization-overridable boolean flag, stored in
+the installation's flag overrides (no environment variable), default `false`. When on, authoritative per-turn selection
+scores only the first call after a user message; that turn's tool-result calls
+reuse the session pin unless escalation constrains the request.
 
 ## Plan-aware subscription routing
 
@@ -559,6 +722,25 @@ carry these OpenRouter bindings as `SubscriptionOverflowOnly`, so no other
 routing or failover path uses them. Managed deployments need
 `ROUTER_OPENROUTER_PLATFORM_ENABLED=true` (or an installation BYOK OpenRouter
 key) for the lane to have a key.
+
+## Member tier selections on plans
+
+`plan_user_cluster_lists` is an organization-only boolean flag override
+(Admin → Router → Flags), default `false`. Max requests normally ignore every
+per-cluster model list. When on, each member's own per-cluster selection applies
+again to Max; the installation's key-scoped cluster lists stay ignored, and
+`excluded_models` still applies. Boost uses the default roster and ordinary
+per-cluster model lists.
+
+The flag also keeps a member's selection when a linked Claude/Codex
+subscription is preferred for funding. If the routed model is one the member
+selected and no linked subscription can serve it, the turn is served on paid
+capacity instead of being re-routed to a model the subscription covers. This
+applies only when a paid binding can serve the pick (for example, not when the
+OpenRouter overflow lane is on and the model has no OpenRouter binding). Turns
+with no paid capacity behind them (credits depleted or spend cap reached) still
+serve on the subscription.
+
 ## Provider and model exclusions
 
 Exclusions keep traffic away from a provider or model — the control to reach
@@ -608,7 +790,11 @@ that send no session identity can only be pinned at the current thread scope.
 Codex handles its own `/model` locally and never sends the command itself; on
 an opted-in install (`X-Weave-Codex-Native-Model-Pin: 1`) the router instead
 keys off the `<model_switch>` developer fragment Codex records when the user
-switches models mid-session, and pins the request's model from then on. The
+switches models mid-session, and pins the request's model from then on. An
+install that also loads the router catalog (`X-Weave-Codex-Model-Catalog: 1`)
+gets the same pin from the `<model_instructions>` fragment Codex records
+instead; other installs ignore that fragment, since Codex also emits it when
+base instructions change without a switch. The
 model a session launched with is a baseline and routes automatically. The
 installed `$force-model` / `$fm` skill remains the persistent-pin path.
 An explicit force-model choice also takes precedence over an installation's

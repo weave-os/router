@@ -3,6 +3,7 @@ package proxy_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
@@ -27,6 +29,22 @@ const (
 	bypassRequestedMdl  = "claude-sonnet-4-6"
 	bypassScorerPickMdl = "claude-haiku-4-5"
 )
+
+type fixedSubscriptionPlanReader struct{ plan providers.SubscriptionPlan }
+
+func (r fixedSubscriptionPlanReader) SubscriptionPlan(context.Context, []byte) (providers.SubscriptionPlan, error) {
+	return r.plan, nil
+}
+
+func claudeCreditFallbackContext(ctx context.Context) context.Context {
+	overrides, _ := flags.OverridesFromContext(ctx)
+	overrides.Bools = maps.Clone(overrides.Bools)
+	if overrides.Bools == nil {
+		overrides.Bools = make(map[flags.Key]bool)
+	}
+	overrides.Bools[flags.KeyClaudeEnterpriseOnly] = false
+	return flags.WithOverrides(ctx, overrides)
+}
 
 // bypassFixture builds a service whose fake scorer would route to
 // bypassScorerPickMdl, with the subscription usage observer wired and a fake
@@ -56,6 +74,7 @@ func bypassFixture(t *testing.T, seedUtil float64) (*proxy.Service, *fakeRouter,
 // per-installation usage-bypass config at the given threshold.
 func bypassCtx(threshold float64) context.Context {
 	ctx := context.WithValue(context.Background(), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken)
+	ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyClaudeEnterpriseOnly: false}})
 	return context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
@@ -563,6 +582,28 @@ func TestSubscriptionOnly_ServesOnSubscription_EvenAboveThreshold(t *testing.T) 
 	assert.Contains(t, rec.Body.String(), "weave-router", "the warning must surface the top-up CTA")
 }
 
+func TestSubscriptionOnly_VerifiedEnterpriseOverage_BypassKeepsRequestedModel(t *testing.T) {
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
+	p := &fakeProvider{proxyResponse: bypassStreamResponse}
+	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
+		RepresentativeClaim: usage.AnthropicClaimOverage,
+		OverageInUse:        true,
+		UnifiedResetAt:      time.Now().Add(72 * time.Hour),
+	})
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
+		WithClaudeSubscriptionPlanReader(fixedSubscriptionPlanReader{providers.SubscriptionPlanEnterprise}).
+		WithUsageObserver(obs)
+
+	rec, req, body := bypassRequest(t)
+	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyCreditsDepleted)
+	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
+
+	assert.Equal(t, 0, fr.routeCalls, "a usage-billed seat must keep the bypass engaged")
+	require.Len(t, p.proxyBodies, 1)
+	assert.Contains(t, string(p.proxyBodies[0]), `"`+bypassRequestedMdl+`"`, "bypass must preserve the caller-requested model")
+}
+
 func TestSubscriptionOnlyWarning_RespectsRoutingMarkerOptOut(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
 	p := &fakeProvider{proxyResponse: bypassStreamResponse}
@@ -600,6 +641,63 @@ func TestSubscriptionOnly_ExhaustedSubscription_Refuses402(t *testing.T) {
 	assert.True(t, errors.Is(err, proxy.ErrCreditsExhaustedSubscriptionUnavailable),
 		"an exhausted subscription in subscription-only mode must be refused, not paid for")
 	assert.Empty(t, p.proxyBodies, "no paid dispatch may occur when the subscription can't serve the turn")
+}
+
+// Verified Enterprise seats retain their provider-paid overage when Weave
+// credits are unavailable; quota observations alone do not establish identity.
+func TestSubscriptionOnly_VerifiedEnterpriseOverage_ServesOnSub(t *testing.T) {
+	for _, reason := range []billing.SubscriptionOnlyReason{billing.SubscriptionOnlyCreditsDepleted, billing.SubscriptionOnlySpendCapReached} {
+		t.Run(string(reason), func(t *testing.T) {
+			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
+			p := &fakeProvider{proxyResponse: bypassStreamResponse}
+			obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+			obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
+				RepresentativeClaim: usage.AnthropicClaimOverage,
+				OverageInUse:        true,
+				UnifiedResetAt:      time.Now().Add(72 * time.Hour),
+			})
+			svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
+				WithClaudeSubscriptionPlanReader(fixedSubscriptionPlanReader{providers.SubscriptionPlanEnterprise}).
+				WithUsageObserver(obs)
+
+			rec, req, body := bypassRequest(t)
+			ctx := billing.WithSubscriptionOnly(
+				context.WithValue(context.Background(), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken),
+				reason)
+			require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
+
+			require.Len(t, p.proxyBodies, 1, "the turn must serve exactly once")
+			require.NotNil(t, p.proxyCreds[0])
+			assert.True(t, p.proxyCreds[0].OAuth, "the turn must serve on the caller's own Claude subscription")
+		})
+	}
+}
+
+// TestSubscriptionOnly_PlanOverage_Refuses402: a plan seat that reported a
+// quota window before moving onto overage is past its included quota, so the
+// turn is refused rather than spending extra usage the caller didn't opt into.
+func TestSubscriptionOnly_PlanOverage_Refuses402(t *testing.T) {
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
+	p := &fakeProvider{proxyResponse: bypassStreamResponse}
+	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+	key := obs.Key([]byte(bypassSubToken))
+	obs.Record(key, usage.Snapshot{Secondary: usage.Window{UsedPercent: 0.9, WindowMinutes: 10080}})
+	obs.Record(key, usage.Snapshot{
+		RepresentativeClaim: usage.AnthropicClaimOverage,
+		OverageInUse:        true,
+		UnifiedResetAt:      time.Now().Add(72 * time.Hour),
+	})
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
+		WithUsageObserver(obs)
+
+	rec, req, body := bypassRequest(t)
+	ctx := billing.WithSubscriptionOnly(
+		context.WithValue(context.Background(), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken),
+		billing.SubscriptionOnlyCreditsDepleted)
+	err := svc.ProxyMessages(claudeCreditFallbackContext(ctx), body, rec, req)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, proxy.ErrCreditsExhaustedSubscriptionUnavailable))
+	assert.Empty(t, p.proxyBodies, "plan overage must not be spent in subscription-only mode")
 }
 
 // TestSubscriptionOnly_NonBypassServedOnSub_Serves: a non-bypass turn (here the

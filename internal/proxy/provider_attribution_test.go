@@ -175,7 +175,7 @@ func TestSlowStartNotice_ThresholdBaselineAndCooldown(t *testing.T) {
 	now = now.Add(time.Minute)
 	notice, shown := slowStartNotice(ctx, slowStartTrace(now.Add(-41*time.Second), now.Add(-41*time.Second)), tracker, now)
 	require.True(t, shown)
-	assert.Equal(t, "↳ Cortex took 41s to start (usually ~3s)\n\n", notice.Text)
+	assert.Equal(t, "↳ Cortex took 41s to first output (usually ~3s; client tool wait excluded)\n\n", notice.Text)
 
 	now = now.Add(time.Minute)
 	_, shown = slowStartNotice(ctx, slowStartTrace(now.Add(-41*time.Second), now.Add(-41*time.Second)), tracker, now)
@@ -186,7 +186,7 @@ func TestSlowStartNotice_ThresholdBaselineAndCooldown(t *testing.T) {
 	failed.Target.Provider = providers.ProviderOpenAIGateway
 	notice, shown = slowStartNotice(ctx, slowStartTrace(now.Add(-40*time.Second), now.Add(-84*time.Second), failed), tracker, now)
 	require.True(t, shown)
-	assert.Equal(t, "↳ Cortex took 84s to start (usually ~3s; gpt-6-luna timed out first)\n\n", notice.Text)
+	assert.Equal(t, "↳ Cortex took 84s to first output (usually ~3s; gpt-6-luna timed out first; client tool wait excluded)\n\n", notice.Text)
 }
 
 func TestSlowStartNotice_BaselineRaisesThreshold(t *testing.T) {

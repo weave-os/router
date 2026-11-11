@@ -109,6 +109,7 @@ func TestCodexSubscriptionCoverageComesFromCatalog(t *testing.T) {
 		"gpt-6-luna",
 		"gpt-6-sol",
 		"gpt-6.1-sol",
+		"gpt-6.1-terra",
 	}, CodexSubscriptionModels())
 	assert.True(t, CodexSubscriptionCoversModel("gpt-6-luna"))
 	assert.False(t, CodexSubscriptionCoversModel("gpt-5.4-nano"))
@@ -184,9 +185,11 @@ func TestResolveBinding_MiniMaxUsesNativeModelIDs(t *testing.T) {
 		upstreamID  string
 		inputPrice  float64
 		outputPrice float64
+		cacheRead   float64
 	}{
-		{model: "minimax/minimax-m3", upstreamID: "MiniMax-M3", inputPrice: 0.300, outputPrice: 1.200},
-		{model: "minimax/minimax-m2.7", upstreamID: "MiniMax-M2.7", inputPrice: 0.300, outputPrice: 1.200},
+		{model: "minimax/minimax-m3.1-flash", upstreamID: "MiniMax-M3.1-Flash", inputPrice: 0.150, outputPrice: 0.600, cacheRead: 0.10},
+		{model: "minimax/minimax-m3", upstreamID: "MiniMax-M3", inputPrice: 0.300, outputPrice: 1.200, cacheRead: 0.20},
+		{model: "minimax/minimax-m2.7", upstreamID: "MiniMax-M2.7", inputPrice: 0.300, outputPrice: 1.200, cacheRead: 0.20},
 	}
 
 	for _, tc := range cases {
@@ -197,9 +200,23 @@ func TestResolveBinding_MiniMaxUsesNativeModelIDs(t *testing.T) {
 			assert.Equal(t, tc.upstreamID, binding.UpstreamID)
 			assert.Equal(t, tc.inputPrice, binding.Price.InputUSDPer1M)
 			assert.Equal(t, tc.outputPrice, binding.Price.OutputUSDPer1M)
-			assert.Equal(t, 0.20, binding.Price.EffectiveCacheReadMultiplier())
+			assert.InDelta(t, tc.cacheRead, binding.Price.EffectiveCacheReadMultiplier(), 1e-9)
 		})
 	}
+}
+
+func TestMiniMaxM31FlashManagedBindings(t *testing.T) {
+	b, ok := ResolveBinding("minimax/minimax-m3.1-flash", map[string]struct{}{
+		providers.ProviderTogether: {}, providers.ProviderFireworks: {},
+	})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderFireworks, b.Provider)
+	assert.Equal(t, "accounts/fireworks/models/minimax-m3p1-flash", b.UpstreamID)
+
+	b, ok = ResolveBinding("minimax/minimax-m3.1-flash", map[string]struct{}{providers.ProviderTogether: {}})
+	require.True(t, ok)
+	assert.Equal(t, "MiniMaxAI/MiniMax-M3.1-Flash", b.UpstreamID)
+	assert.Equal(t, 1_000_000, ContextWindowFor("minimax/minimax-m3.1-flash"))
 }
 
 func TestGPT56ProCatalogRowsAreDirectOpenAIRoutable(t *testing.T) {
@@ -553,6 +570,17 @@ func TestResolveBinding_WaferTrailingBindings(t *testing.T) {
 	b, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWafer: {}, providers.ProviderWaferAnthropic: {}})
 	assert.False(t, ok)
 
+	// kimi-k3.1: Fireworks leads, Together second, OpenRouter last.
+	b, ok = ResolveBinding("moonshotai/kimi-k3.1", map[string]struct{}{providers.ProviderFireworks: {}, providers.ProviderTogether: {}, providers.ProviderOpenRouter: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderFireworks, b.Provider)
+	assert.Equal(t, "accounts/fireworks/models/kimi-k3p1-pro", b.UpstreamID)
+
+	b, ok = ResolveBinding("moonshotai/kimi-k3.1", map[string]struct{}{providers.ProviderTogether: {}, providers.ProviderOpenRouter: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderTogether, b.Provider)
+	assert.Equal(t, "moonshotai/Kimi-K3.1-Pro", b.UpstreamID)
+
 	b, ok = ResolveBinding("moonshotai/kimi-k3.1", map[string]struct{}{providers.ProviderOpenRouter: {}})
 	require.True(t, ok)
 	assert.Equal(t, "moonshotai/kimi-k3.1-pro", UpstreamIDFor("moonshotai/kimi-k3.1", b.UpstreamID))
@@ -619,6 +647,55 @@ func TestMaxCandidateProviders(t *testing.T) {
 		"DeepSeek V4.1 Flash remains Fireworks-primary")
 }
 
+func TestProviderBindingAcceptsImageCount(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		cap  int
+		n    int
+		want bool
+	}{
+		{name: "unknown cap", cap: 0, n: 17, want: true},
+		{name: "below cap", cap: 4, n: 3, want: true},
+		{name: "at cap", cap: 4, n: 4, want: true},
+		{name: "above cap", cap: 4, n: 5, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, (ProviderBinding{MaxImagesPerRequest: tc.cap}).AcceptsImageCount(tc.n))
+		})
+	}
+}
+
+func TestAcceptsImageCount(t *testing.T) {
+	mimo := "xiaomi/mimo-v2.6-pro"
+	tests := []struct {
+		name      string
+		model     string
+		count     int
+		providers map[string]struct{}
+		want      bool
+	}{
+		{name: "zero images", model: mimo, count: 0, providers: map[string]struct{}{providers.ProviderDeepInfra: {}}, want: true},
+		{name: "within deepinfra cap", model: mimo, count: 4, providers: map[string]struct{}{providers.ProviderDeepInfra: {}}, want: true},
+		{name: "over cap with all bindings", model: mimo, count: 17, want: true},
+		{name: "over cap with both bindings", model: mimo, count: 17, providers: map[string]struct{}{providers.ProviderDeepInfra: {}, providers.ProviderOpenRouter: {}}, want: true},
+		{name: "over cap with deepinfra only", model: mimo, count: 17, providers: map[string]struct{}{providers.ProviderDeepInfra: {}}, want: false},
+		{name: "no enabled catalog binding", model: mimo, count: 17, providers: map[string]struct{}{providers.ProviderAnthropic: {}}, want: true},
+		{name: "text-only model", model: "qwen/qwen3-235b-a22b-2507", count: 1, want: false},
+		{name: "unknown model", model: "unknown/model", count: 17, want: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, AcceptsImageCount(tc.model, tc.count, tc.providers))
+		})
+	}
+}
+
+func TestMiMoV26ProDeepInfraImageLimit(t *testing.T) {
+	binding, ok := BindingFor("xiaomi/mimo-v2.6-pro", providers.ProviderDeepInfra)
+	require.True(t, ok)
+	assert.Equal(t, 4, binding.MaxImagesPerRequest)
+}
+
 // TestWaferPricing pins the per-1M rates and cache multipliers as published on
 // wafer.ai, since billing debits flow straight through these numbers.
 func TestWaferPricing(t *testing.T) {
@@ -659,6 +736,16 @@ func TestAnthropicGatewayPricesCacheReadsLikeDirectAnthropic(t *testing.T) {
 				EffectiveInputCost(0, 0, 1_000_000, gateway, providers.ProviderAnthropicGateway, UsageModifiers{}),
 				1e-9,
 			)
+		})
+	}
+}
+
+func TestSonnet55AnthropicCacheReadMultiplier(t *testing.T) {
+	for _, provider := range []string{providers.ProviderAnthropic, providers.ProviderAnthropicGateway} {
+		t.Run(provider, func(t *testing.T) {
+			price, ok := PriceFor(provider, "claude-sonnet-5-5")
+			require.True(t, ok)
+			assert.InDelta(t, 0.05, price.EffectiveCacheReadMultiplier(), 1e-9)
 		})
 	}
 }

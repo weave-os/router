@@ -165,6 +165,22 @@ func (t *attemptTrace) lastFailure() (tracedAttempt, bool) {
 	return tracedAttempt{}, false
 }
 
+// failedOn reports whether any attempt on model failed in this request. Models
+// match by base model (baseModelOf), so catalog variants of one model count.
+func (t *attemptTrace) failedOn(model string) bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, attempt := range t.attempts {
+		if attempt.Err != nil && baseModelOf(attempt.Target.CatalogID) == baseModelOf(model) {
+			return true
+		}
+	}
+	return false
+}
+
 // retriesOf counts the failed same-target attempts before a, so a terminal
 // error can say how often the router retried the binding.
 func (t *attemptTrace) retriesOf(a tracedAttempt) int {

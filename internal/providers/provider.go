@@ -390,6 +390,25 @@ func (e *UpstreamErrorResponse) Error() string {
 
 func (e *UpstreamErrorResponse) Unwrap() error { return e.Cause }
 
+type QuotaVerificationFailure string
+
+const (
+	QuotaVerificationFailureRequest         QuotaVerificationFailure = "request"
+	QuotaVerificationFailureTransport       QuotaVerificationFailure = "transport"
+	QuotaVerificationFailureTimeout         QuotaVerificationFailure = "timeout"
+	QuotaVerificationFailureEndpoint        QuotaVerificationFailure = "endpoint"
+	QuotaVerificationFailureInvalidResponse QuotaVerificationFailure = "invalid_response"
+)
+
+type QuotaVerificationUnavailableError struct {
+	Failure        QuotaVerificationFailure
+	UpstreamStatus int
+}
+
+func (e *QuotaVerificationUnavailableError) Error() string {
+	return fmt.Sprintf("subscription quota verification unavailable: %s (upstream status %d)", e.Failure, e.UpstreamStatus)
+}
+
 // MaxBufferedErrorBytes caps the buffered upstream error body; beyond this
 // it's truncated and the rest of the stream is drained without retention.
 const MaxBufferedErrorBytes = 64 * 1024

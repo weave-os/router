@@ -51,6 +51,43 @@ func TestSidecarRouter_OrdersRescueBySelectedGroupAndForceCluster(t *testing.T) 
 	assert.Equal(t, []string{"claude-haiku-4-5", "gpt-4.1-mini"}, forced.Metadata.RescueModels)
 }
 
+func TestSidecarRouterReportsImageLimitWhenNoBindingCanServe(t *testing.T) {
+	model := "xiaomi/mimo-v2.6-pro"
+	resolver := policy.NewResolver(
+		set(model),
+		set(providers.ProviderDeepInfra),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+	adapter := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyHMM}, &recordingPolicy{}, resolver)
+
+	_, err := adapter.Route(context.Background(), router.Request{
+		EnabledProviders: set(providers.ProviderDeepInfra),
+		ImageCount:       17,
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, policy.ErrImageLimitExceeded)
+	assert.ErrorIs(t, err, policy.ErrNoRoutableModels)
+
+	prefiltered := router.Request{
+		EnabledProviders:         set(providers.ProviderDeepInfra),
+		ExcludedModels:           set(model),
+		ImageLimitExcludedModels: set(model),
+		ImageCount:               17,
+	}
+	resolved := resolver.Resolve(prefiltered)
+	assert.Empty(t, resolved.Candidates)
+	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
+		CatalogID: model,
+		RosterID:  model,
+		Reason:    policy.ExclusionImageLimit,
+	})
+	_, err = adapter.Route(context.Background(), prefiltered)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, policy.ErrImageLimitExceeded)
+	assert.ErrorIs(t, err, policy.ErrNoRoutableModels)
+}
+
 func TestSidecarRouter_CoolingRescuePoolStaysWithinEligibleGroups(t *testing.T) {
 	models := []string{"claude-haiku-4-5", "gpt-4.1-mini", "claude-opus-4-8", "gpt-5", "claude-sonnet-5"}
 	decider := &recordingPolicy{result: policy.Result{

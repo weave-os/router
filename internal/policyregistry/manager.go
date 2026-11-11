@@ -32,12 +32,20 @@ type Loader interface {
 
 // Candidate is a fully read and cross-validated release awaiting runtime construction.
 type Candidate struct {
-	AuxiliaryModels    map[string]ObjectRef
-	HeadSnapshot       HeadSnapshot
-	Release            Release
-	Policy             *rosterdata.Roster
-	StrategyPolicies   map[router.Strategy]StrategyPolicy
-	ClassifierAudience string
+	AuxiliaryModels       map[string]ObjectRef
+	HeadSnapshot          HeadSnapshot
+	Release               Release
+	ClassifierReleaseV5   *ClassifierReleaseManifestV1
+	ClassifierReleaseID   string
+	ClassifierSelectionID string
+	// ClassifierWorkerURL and ClassifierWorkerAudience come only from the release's runtime binding.
+	ClassifierWorkerURL       string
+	ClassifierWorkerAudience  string
+	ClassifierEnabledVariants []policy.ClassifierVariantID
+	SupportedAPIMajors        []policy.ClassifierAPIMajor
+	Policy                    *rosterdata.Roster
+	StrategyPolicies          map[router.Strategy]StrategyPolicy
+	ClassifierAudience        string
 }
 
 // Snapshot is the immutable policy, classifier binding, and executable routers

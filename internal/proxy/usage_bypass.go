@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
@@ -36,6 +37,9 @@ const (
 	// the caller's own Claude subscription credential. No opt-in needed — see
 	// classifierPassthroughEngaged.
 	reasonClassifierPassthrough = "classifier_subscription_passthrough"
+	// reasonClassifierRequestedModel: an API-billed classifier turn served on
+	// policy.ClassifierModel (classifierModelDecision).
+	reasonClassifierModel = "classifier_model"
 )
 
 // usageBypassDecision returns the strict pass-through decision when either
@@ -110,7 +114,7 @@ func (s *Service) classifierPassthroughEngaged(ctx context.Context, headers http
 		return provider, true
 	}
 	snap, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token)))
-	if observed && snap.BillableOrExhausted() {
+	if observed && claudeSnapshotUnservable(ctx, snap) {
 		return "", false
 	}
 	return provider, true
@@ -158,9 +162,10 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	if !observed {
 		return provider, true
 	}
-	// Never bypass a spent or billable subscription: an exhausted plan will
-	// reject the token, while overage serves it using customer-paid credits.
-	if snap.BillableOrExhausted() {
+	// Never bypass a spent subscription, nor one on overage while a paid lane
+	// remains: an exhausted plan rejects the token, and overage bills the caller.
+	if provider == providers.ProviderAnthropic && claudeSnapshotUnservable(ctx, snap) ||
+		provider != providers.ProviderAnthropic && snap.BillableOrExhausted() {
 		return "", false
 	}
 	// Subscription-only mode: paid failover is disabled, so the threshold's
@@ -238,12 +243,10 @@ func (s *Service) claudeSubscriptionExhausted(ctx context.Context, headers http.
 }
 
 // anthropicSubscriptionObservedExhausted reports whether the caller's present
-// Claude subscription is exhausted or using paid overage per the observer,
-// independent of whether a fallback key exists. claudeSubscriptionExhausted
-// layers the fallback-key requirement on top for its suppress-and-serve-on-Weave
-// -key path; subscription-only refusal uses this bare signal because paid
-// fallback is disabled there — an exhausted sub can only 429, while using
-// overage would charge the customer. The turn is refused with a controlled 402.
+// Claude subscription should not serve the turn per the observer (see
+// claudeSnapshotUnservable), independent of whether a fallback key exists.
+// Subscription-only refusal uses this bare signal: an exhausted sub can only
+// 429, so the turn is refused with a controlled 402.
 func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, headers http.Header) bool {
 	if s.usageObserver == nil {
 		return false
@@ -253,7 +256,25 @@ func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, he
 		return false
 	}
 	snap, ok := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(anthroTok)))
-	return ok && snap.BillableOrExhausted()
+	return ok && claudeSnapshotUnservable(ctx, snap)
+}
+
+// claudeSnapshotUnservable reports whether an observed Claude subscription
+// should leave the turn. A usage-billed seat has no plan quota to exhaust, so
+// once paid fallback is off its overage is the caller's only lane; plan
+// overage still leaves the subscription. A picked model on the caller's own
+// login lets Anthropic decide, as the native client would.
+func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {
+	if claudeEnterpriseOnly(ctx) {
+		return false
+	}
+	if pickedModelOnOwnPlan(ctx) {
+		return false
+	}
+	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst && claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise {
+		return false
+	}
+	return snap.BillableOrExhausted()
 }
 
 // anthropicFallbackKeyAvailable reports whether a non-subscription Anthropic
@@ -303,7 +324,7 @@ func anthropicOAuthCredentialRejected(err error) bool {
 // Duplicated from middleware.TopUpURL (proxy can't import the middleware
 // adapter without an import cycle) so subscription-only warnings and the
 // credits-exhausted 402 can surface the CTA.
-const topUpURL = "https://app.workweave.ai/organization/settings/weave-router"
+const topUpURL = "https://app.weaveos.com/organization/settings/weave-router/credits"
 
 // subscriptionOnlyWarningMarker is prepended to a subscription-only bypass
 // response so the customer sees why they're being served on their own plan and
@@ -360,11 +381,68 @@ func routerNoticeForRequest(ctx context.Context, headers http.Header, source sub
 	if text := warning.text(); text != "" && !echoed[warning] {
 		kind = translate.NoticeFundingWarning
 		marker = text
+	} else if nudge, _ := ctx.Value(subscriptionReconnectNudgeContextKey{}).(string); nudge != "" && !reconnectNudgeEchoed(ctx, nudge) {
+		kind = translate.NoticeSubscriptionReconnect
+		marker = nudge
 	}
 	return translate.NewRouterNotice(kind, suppressMarkerIfRequested(ctx, headers, marker), model, "")
 }
 
 type subscriptionOnlyWarningsEchoedContextKey struct{}
+
+// SubscriptionsDashboardURL is the user's own linked-plans settings page.
+// The nudges add `reconnect=<provider>` so the page starts that login on load.
+const SubscriptionsDashboardURL = "https://app.weaveos.com/organization/settings/weave-router/subscriptions"
+
+// ownCodexPlanSpentNudge replaces the routing marker once per session when
+// the caller's own ChatGPT plan is spent, so they can connect a seat instead
+// of silently running on shared or paid capacity.
+const ownCodexPlanSpentNudge = routingMarkerPrefix +
+	"your own ChatGPT (Codex) plan is out of usage for now. Connect or reconnect a Codex seat to keep this on a subscription: " +
+	SubscriptionsDashboardURL + "?reconnect=codex\n\n"
+
+// ownClaudePlanSpentNudge is the Claude Code counterpart, shown when the
+// caller's own Claude plan is spent or drawing overage.
+const ownClaudePlanSpentNudge = routingMarkerPrefix +
+	"your own Claude plan is out of usage for now. Connect or reconnect a Claude seat to keep this on a subscription: " +
+	SubscriptionsDashboardURL + "?reconnect=claude\n\n"
+
+var subscriptionReconnectNudges = []string{ownCodexPlanSpentNudge, ownClaudePlanSpentNudge}
+
+type subscriptionReconnectNudgeContextKey struct{}
+
+type subscriptionReconnectNudgesEchoedContextKey struct{}
+
+func withSubscriptionReconnectNudge(ctx context.Context, text string) context.Context {
+	return context.WithValue(ctx, subscriptionReconnectNudgeContextKey{}, text)
+}
+
+type deferredReconnectNudgeContextKey struct{}
+
+// withDeferredReconnectNudge holds back a reconnect nudge because a linked seat
+// should take the turn; reconnectNoticeForAttempt shows it if none does.
+func withDeferredReconnectNudge(ctx context.Context, text string) context.Context {
+	return context.WithValue(ctx, deferredReconnectNudgeContextKey{}, text)
+}
+
+// reconnectNoticeForAttempt swaps the routing marker for a held-back reconnect
+// nudge when the attempt runs off-subscription, e.g. after the last linked seat
+// ran out mid-dispatch.
+func reconnectNoticeForAttempt(ctx context.Context, headers http.Header, notice translate.RouterNotice) translate.RouterNotice {
+	nudge, _ := ctx.Value(deferredReconnectNudgeContextKey{}).(string)
+	if nudge == "" || notice.Kind != translate.NoticeModelSelection || reconnectNudgeEchoed(ctx, nudge) {
+		return notice
+	}
+	if creds := CredentialsFromContext(ctx); creds != nil && creds.OAuth {
+		return notice
+	}
+	return translate.NewRouterNotice(translate.NoticeSubscriptionReconnect, suppressMarkerIfRequested(ctx, headers, nudge), notice.Model, notice.AttemptID)
+}
+
+func reconnectNudgeEchoed(ctx context.Context, text string) bool {
+	echoed, _ := ctx.Value(subscriptionReconnectNudgesEchoedContextKey{}).(map[string]bool)
+	return echoed[text]
+}
 
 var subscriptionFundingWarnings = []subscriptionFundingWarning{
 	{reason: billing.SubscriptionOnlyCreditsDepleted, source: subscriptions.ProviderClaude},
@@ -385,7 +463,14 @@ func withSubscriptionOnlyWarningEcho(ctx context.Context, body []byte) context.C
 	for _, warning := range subscriptionFundingWarnings {
 		echoed[warning] = seen[warning.text()] || prior[warning]
 	}
-	return context.WithValue(ctx, subscriptionOnlyWarningsEchoedContextKey{}, echoed)
+	ctx = context.WithValue(ctx, subscriptionOnlyWarningsEchoedContextKey{}, echoed)
+	nudgesSeen := translate.EchoedInAssistantText(body, subscriptionReconnectNudges)
+	priorNudges, _ := ctx.Value(subscriptionReconnectNudgesEchoedContextKey{}).(map[string]bool)
+	nudgesEchoed := make(map[string]bool, len(subscriptionReconnectNudges))
+	for _, nudge := range subscriptionReconnectNudges {
+		nudgesEchoed[nudge] = nudgesSeen[nudge] || priorNudges[nudge]
+	}
+	return context.WithValue(ctx, subscriptionReconnectNudgesEchoedContextKey{}, nudgesEchoed)
 }
 
 // ErrCreditsExhaustedSubscriptionUnavailable is returned by ProxyMessages and
@@ -404,14 +489,33 @@ var ErrCreditsExhaustedSubscriptionUnavailable = errors.New("credits exhausted a
 // It wraps the credits sentinel so every errors.Is refusal check still matches.
 var ErrSpendCapSubscriptionUnavailable = fmt.Errorf("spend cap reached: %w", ErrCreditsExhaustedSubscriptionUnavailable)
 
+// IncludedAllowanceSpentError is the subscription-only refusal for a Max or
+// Boost subscriber whose included allowance window is spent. That window, not
+// the organization gate it wraps, is why the turn reached the gate, so the
+// client is told which window ran out and when it resets.
+type IncludedAllowanceSpentError struct {
+	Window  entitlement.SpentWindow
+	orgGate error
+}
+
+func (e *IncludedAllowanceSpentError) Error() string {
+	return fmt.Sprintf("%s %s allowance spent: %v", e.Window.Plan, e.Window.Kind, e.orgGate)
+}
+
+func (e *IncludedAllowanceSpentError) Unwrap() error { return e.orgGate }
+
 // subscriptionOnlyUnavailable returns the refusal for a subscription-only
 // turn the caller's subscription cannot serve, naming the gate that disabled
 // paid fallback.
 func subscriptionOnlyUnavailable(ctx context.Context) error {
+	orgGate := ErrCreditsExhaustedSubscriptionUnavailable
 	if reason, _ := billing.SubscriptionOnlyReasonFromContext(ctx); reason == billing.SubscriptionOnlySpendCapReached {
-		return ErrSpendCapSubscriptionUnavailable
+		orgGate = ErrSpendCapSubscriptionUnavailable
 	}
-	return ErrCreditsExhaustedSubscriptionUnavailable
+	if window, spent := entitlement.SpentWindowFromContext(ctx); spent {
+		return &IncludedAllowanceSpentError{Window: window, orgGate: orgGate}
+	}
+	return orgGate
 }
 
 // subscriptionPoolExhausted is the pool-exhaustion refusal. When a depleted
@@ -477,6 +581,9 @@ func (s *Service) bypassToAnthropic(
 	// would, and so servedOnSubscription / the usage observer key off the same
 	// token the upstream call sends.
 	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
+	if claudeEnterpriseOnly(ctx) && !servedOnSubscription(ctx) {
+		return ErrClaudeEnterpriseSubscriptionUnavailable
+	}
 
 	outputReserve := contextWindowOutputReserve
 	if feats.MaxTokens > outputReserve {
@@ -575,10 +682,10 @@ func (s *Service) bypassToAnthropic(
 	}
 	if env.Stream() && proxyErr != nil && preludeBuf.Committed() {
 		proxyErr = emitAnthropicSSEErrorEvent(w, proxyErr)
-	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) {
+	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) && !claudeEnterpriseOnly(ctx) {
 		return errBypassRetryable
 	}
-	if !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) &&
+	if !claudeEnterpriseOnly(ctx) && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) &&
 		(!billing.SubscriptionOnlyFromContext(ctx) || linkedFirst(ctx)) {
 		return errBypassRetryable
 	}
@@ -646,6 +753,7 @@ func (s *Service) bypassToAnthropic(
 			outcomeErr = upstreamErr
 		}
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
+		s.markServedExternalKeyUsed(ctx, outcomeErr)
 		stopReason, _, _ := extractor.AnthropicResponse()
 		// The routed path's key, so a session switching lanes keeps one turn clock.
 		sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyIDFromContext(ctx))
@@ -693,10 +801,12 @@ func (s *Service) bypassToAnthropic(
 			CredentialKeySuffix:    credentialKeySuffix,
 			CredentialSource:       credSource,
 			UnifiedLimitHeaders:    unifiedLimitHeadersJSON(ctx),
+			CodexLimitHeaders:      codexLimitHeadersJSON(ctx),
 		}
 		applyBlindExperimentTelemetry(ctx, &telemetryParams, &turnLoopResult{Decision: decision, UsageBypass: true})
 		applyPolicyPinTelemetry(ctx, &telemetryParams, nil)
 		applySubscriberTelemetry(ctx, &telemetryParams)
+		applyAgreementShadowTelemetry(ctx, &telemetryParams, turnLoopResult{UsageBypass: true})
 		s.fireTelemetry(telemetryParams)
 	}
 

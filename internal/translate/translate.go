@@ -171,14 +171,14 @@ func AnthropicToOpenAIError(body []byte) []byte {
 // OpenAIToAnthropicResponse converts a non-streaming OpenAI response to
 // Anthropic Messages format.
 func OpenAIToAnthropicResponse(body []byte, requestModel string) ([]byte, error) {
-	out, _, err := openAIToAnthropicResponse(body, requestModel, nil, false, false, usage.ParseOpenAI(gjson.GetBytes(body, "usage")), 1)
+	out, _, err := openAIToAnthropicResponse(body, requestModel, nil, false, false, nil, usage.ParseOpenAI(gjson.GetBytes(body, "usage")), 1)
 	return out, err
 }
 
 // openAIToAnthropicResponse is the validator-aware variant: tool_use inputs
 // are checked/repaired against the request's tool schemas, returning one
 // toolcheck.Issue per offending block. A nil validator is syntax-check-only.
-func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator, thinkTagReasoning, escapeNormalize bool, facts usage.Facts, clientInputScale float64) ([]byte, []toolcheck.Issue, error) {
+func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator, thinkTagReasoning, escapeNormalize bool, seedToolNames map[string]string, facts usage.Facts, clientInputScale float64) ([]byte, []toolcheck.Issue, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, nil, fmt.Errorf("unmarshal openai response: invalid JSON")
 	}
@@ -197,6 +197,13 @@ func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *
 	message := firstChoice.Get("message")
 	finishReason := firstChoice.Get("finish_reason").String()
 	calls, issues := acceptedChatToolCalls(message.Get("tool_calls"), toolValidator, escapeNormalize)
+	reasoning, text := anthropicReasoningAndText(message, thinkTagReasoning)
+	if len(calls) == 0 && len(seedToolNames) > 0 && !message.Get("tool_calls.0").Exists() && leadsWithSeedToolCall(text) {
+		if seedCalls, ok := parseSeedToolCalls(text, seedToolNames); ok {
+			calls, issues = acceptedSeedToolCalls(seedCalls, toolValidator)
+			text = ""
+		}
+	}
 	if len(calls) > 0 {
 		finishReason = "tool_calls"
 	} else if finishReason == "tool_calls" {
@@ -214,7 +221,7 @@ func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *
 	jw.Key("model")
 	jw.Str(model)
 	jw.Key("content")
-	writeAnthropicContentFromOpenAI(jw, message, calls, thinkTagReasoning, toolIDNonce)
+	writeAnthropicContentFromOpenAI(jw, reasoning, text, calls, toolIDNonce)
 	jw.Key("stop_reason")
 	jw.Str(openAIFinishToAnthropicStopReason(finishReason))
 	jw.Key("stop_sequence")
@@ -234,8 +241,9 @@ func writeAnthropicThinkingBlock(jw *jsonWriter, thinking string) {
 	jw.EndObj()
 }
 
-func writeAnthropicContentFromOpenAI(jw *jsonWriter, message gjson.Result, calls []AcceptedToolCall, thinkTagReasoning bool, toolIDNonce string) {
-	jw.Arr()
+// anthropicReasoningAndText splits a chat message into its reasoning and
+// visible text, rerouting a leading <think>…</think> when enabled.
+func anthropicReasoningAndText(message gjson.Result, thinkTagReasoning bool) (string, string) {
 	reasoning := message.Get("reasoning_content").String()
 	if reasoning == "" {
 		reasoning = message.Get("reasoning").String()
@@ -259,6 +267,11 @@ func writeAnthropicContentFromOpenAI(jw *jsonWriter, message gjson.Result, calls
 		reasoning += think.String()
 		text = prose.String()
 	}
+	return reasoning, text
+}
+
+func writeAnthropicContentFromOpenAI(jw *jsonWriter, reasoning, text string, calls []AcceptedToolCall, toolIDNonce string) {
+	jw.Arr()
 	if reasoning != "" {
 		writeAnthropicThinkingBlock(jw, reasoning)
 	}
@@ -290,6 +303,15 @@ func writeAnthropicContentFromOpenAI(jw *jsonWriter, message gjson.Result, calls
 }
 
 func acceptedChatToolCalls(toolCalls gjson.Result, validator *toolcheck.Validator, escapeNormalize bool) ([]AcceptedToolCall, []toolcheck.Issue) {
+	return acceptedChatToolCallsWithMappings(toolCalls, validator, escapeNormalize, nil)
+}
+
+func acceptedChatToolCallsWithMappings(
+	toolCalls gjson.Result,
+	validator *toolcheck.Validator,
+	escapeNormalize bool,
+	mappings map[string]ResponsesToolMapping,
+) ([]AcceptedToolCall, []toolcheck.Issue) {
 	ledger := NewToolCallLedger()
 	var calls []AcceptedToolCall
 	var issues []toolcheck.Issue
@@ -305,10 +327,30 @@ func acceptedChatToolCalls(toolCalls gjson.Result, validator *toolcheck.Validato
 				}
 			}
 		}
-		call := ledger.Close(index, toolCall.Get("id").String(), name, arguments).Accept(validator)
+		entry := ledger.Close(index, toolCall.Get("id").String(), name, arguments)
+		var call AcceptedToolCall
+		if mapping, mapped := mappings[name]; mapped && mapping.Custom {
+			call = entry.acceptRaw()
+		} else {
+			call = entry.Accept(validator)
+		}
 		if call.Suppression != ToolCallNotSuppressed {
 			continue
 		}
+		if call.Issue != nil {
+			issues = append(issues, *call.Issue)
+		}
+		calls = append(calls, call)
+	}
+	return calls, issues
+}
+
+func acceptedSeedToolCalls(seedCalls []seedToolCall, validator *toolcheck.Validator) ([]AcceptedToolCall, []toolcheck.Issue) {
+	ledger := NewToolCallLedger()
+	calls := make([]AcceptedToolCall, 0, len(seedCalls))
+	var issues []toolcheck.Issue
+	for index, seedCall := range seedCalls {
+		call := ledger.Close(index, "", seedCall.Name, seedCall.Arguments).Accept(validator)
 		if call.Issue != nil {
 			issues = append(issues, *call.Issue)
 		}

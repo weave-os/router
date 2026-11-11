@@ -202,6 +202,8 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				credentialCtx = context.WithValue(attemptCtx, CredentialsContextKey{}, requestcontext.CredentialsFromContext(credentialCtx))
 			}
 			managedBinding = managedBinding || managedAttempt
+			credentialCtx = s.withClaudeSubscriptionProfile(credentialCtx, nil)
+			credentialCtx = withClaudeEnterpriseTurn(credentialCtx, decision)
 			if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && managedAttempt {
 				if usage.AttemptedAccounts == nil {
 					usage.AttemptedAccounts = make(map[string]struct{})
@@ -214,11 +216,18 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			}
 			if creds := CredentialsFromContext(credentialCtx); paidFallbackForbidden(ctx) && (creds == nil || !creds.OAuth) {
 				lease.Release()
+				if claudeEnterpriseTurn(ctx) {
+					return dispatchAbort{err: ErrClaudeEnterpriseSubscriptionUnavailable}
+				}
 				return dispatchAbort{err: subscriptionOnlyUnavailable(ctx)}
 			}
 			if creds := CredentialsFromContext(credentialCtx); creds != nil && creds.OAuth {
 				if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 					state.SubscriptionAttempted = true
+					if creds.Source == credSourceSubscription && creds.SubscriptionPlan != "" {
+						state.ClaudeSubscriptionPlan = creds.SubscriptionPlan
+						state.ClaudePlanUnverified = state.ClaudePlanUnverified || creds.SubscriptionPlan == providers.SubscriptionPlanUnknown
+					}
 				}
 			}
 			attemptErr := in.attempt(credentialCtx, decision, guarded)
@@ -259,11 +268,14 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			if !managedAttempt && servedOnCodexSubscription(credentialCtx) && !committed(in.buf) {
 				_, quotaSpent := codexQuotaExhaustion(attemptErr)
 				if quotaSpent || codexOAuthCredentialRejected(attemptErr) || codexSubscriptionModelRejected(attemptErr) || providers.IsRetryable(attemptErr) {
-					s.recordCodexQuotaExhaustion(bookkeepingCtx, http.Header{}, attemptErr)
+					s.recordCodexQuotaExhaustionForCredentials(bookkeepingCtx, CredentialsFromContext(credentialCtx), attemptErr)
 					s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
 					attemptCtx = resolveAndInjectCredentials(withSuppressedCodexSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{})
 					rotate = true
 				}
+			}
+			if credentialRejectionStands(lastSubscriptionErr, attemptErr, codexOAuthCredentialRejected) {
+				return lastSubscriptionErr
 			}
 			if committed(in.buf) || !rotate {
 				if providers.IsUpstreamModelNotFound(attemptErr) {

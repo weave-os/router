@@ -169,6 +169,15 @@ If wanting to import something that violates these rules, design is wrong — su
 - Run `make generate-inference-policy` after registry changes and `make inference-boundary` before broader tests. The latter is type-aware and rejects baseline growth, concrete-provider imports outside adapters/composition, raw HTTP calls to known inference routes, and unregistered purposes.
 - Read `docs/INFERENCE_BOUNDARY.md` before moving a call site. It records the operation taxonomy, current owners, pending PR sequencing, and behavior-regression suites.
 
+## Classifier serving lives here
+
+`sidecars/hmm` is the one canonical implementation of HMM classifier serving: turning a `policy_router_v4` request into embedding documents, the HMM posterior, classifier features and the class readout, plus loading and verifying classifier packages. Weave's private `router-hmm-sidecar` packages this code; it must not carry its own copy.
+
+- New or changed serving behavior for a classifier package (a new `runtime_contract` input mode, sequence/document builder, embedding transport, feature block, posterior readout) lands here first, with a parity test against the package it serves. Never add it under `weave-os/weave` (`ml_dev/`, `ml_infra/`, `router-hmm-sidecar/`), even "temporarily".
+- Training, data extraction, evaluation and package building stay private in Weave. The boundary is the package manifest: Weave writes packages, this repo reads them.
+- Trained artifacts (pickles, classifier JSON, state cards, manifests) are never committed here; tests use synthetic fixtures or skip without a package.
+- Candidate filtering, provider/model selection, pins and fallbacks stay in Go. The sidecar returns classifier facts only.
+
 ## Where to put new code
 
 Pick by responsibility, then read that package's `CLAUDE.md`:
@@ -194,6 +203,7 @@ Pick by responsibility, then read that package's `CLAUDE.md`:
 | Anthropic usage-bypass gate | `internal/proxy/usage` | [internal/proxy/usage/CLAUDE.md](internal/proxy/usage/CLAUDE.md) |
 | New column / SQL query | `db/queries/` + `internal/postgres/` | [db/CLAUDE.md](db/CLAUDE.md), [internal/postgres/CLAUDE.md](internal/postgres/CLAUDE.md) |
 | Cross-instance cache invalidation / recharge notify | `internal/pubsub` | — |
+| HMM classifier serving (feature pipeline, HMM posterior, classifier readout, package loading) | `sidecars/hmm/hmm_sidecar/` | [sidecars/hmm/README.md](sidecars/hmm/README.md) |
 | Doc under `docs/` | `docs/` | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) |
 
 **Default rule:** put logic in the package that uses it. Only promote to a shared home (`auth`, `proxy`, `translate`, `config`, `observability`, `sse`, `timing`) when 3+ packages need the same logic.

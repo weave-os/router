@@ -129,3 +129,30 @@ func TestService_ProxyOpenAIResponses_NativeFailedTerminalRecordsNoFinishReason(
 	assert.Nil(t, row.UpstreamFinishReason,
 		"a failed turn must not report a finish reason")
 }
+
+func TestService_ProxyOpenAIResponses_NativeClientCancelAfterCompletedIsSuccess(t *testing.T) {
+	terminal := "event: response.completed\n" +
+		`data: {"type":"response.completed","sequence_number":2,"response":{"id":"resp_1","status":"completed","model":"gpt-5.6-sol","output":[{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":120,"output_tokens":8}}}` + "\n\n"
+	provider := &fakeProvider{proxyResponse: nativeResponsesStream(terminal), proxyErr: context.Canceled}
+	telemetry := newCaptureTelemetry()
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{
+			Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test",
+		}},
+		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry,
+	)
+
+	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	require.NoError(t, svc.ProxyOpenAIResponses(codexNativeResponsesCtx(), body, rec, req),
+		"a client that hangs up after response.completed received the whole turn")
+
+	require.Len(t, provider.proxyEndpoints, 1)
+	require.Equal(t, providers.EndpointResponses, provider.proxyEndpoints[0])
+	row := telemetry.firstRow(t)
+	assert.Equal(t, int32(http.StatusOK), row.UpstreamStatusCode)
+	require.NotNil(t, row.UpstreamFinishReason)
+	assert.Equal(t, "stop", *row.UpstreamFinishReason)
+}

@@ -17,10 +17,14 @@ import (
 
 type codexTitleRouter struct {
 	routeCalls int
+	turnTypes  []string
 }
 
-func (r *codexTitleRouter) Route(context.Context, router.Request) (router.Decision, error) {
+func (r *codexTitleRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
 	r.routeCalls++
+	if req.PolicyTurnContext != nil {
+		r.turnTypes = append(r.turnTypes, req.PolicyTurnContext.TurnType)
+	}
 	return router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelIDGPT55.String(), Reason: "scored"}, nil
 }
 
@@ -135,6 +139,46 @@ func TestCodexResponsesTitlePromptAfterHarnessContextScores(t *testing.T) {
 	require.Equal(t, 1, routerSpy.routeCalls, "Codex title generation must be scored independently")
 	assert.Equal(t, []string{catalog.ModelIDGPT55.String()}, provider.models)
 	assert.NotContains(t, rec.Body.String(), "Weave Router", "title responses must not carry a routing marker")
+}
+
+func TestCodexDesktopThreadTitleScoresWithoutMarker(t *testing.T) {
+	routerSpy := &codexTitleRouter{}
+	provider := &codexTitleProvider{}
+	svc := NewService(
+		routerSpy,
+		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		nil, false, nil, nil, false,
+		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
+	)
+	body := []byte(`{
+		"model":"gpt-5.6-luna",
+		"stream":true,
+		"tool_choice":"auto",
+		"text":{"verbosity":"low","format":{"type":"json_schema","strict":true,"name":"codex_output_schema","schema":{
+			"type":"object",
+			"properties":{"title":{"type":"string","minLength":1,"maxLength":60},"description":{"type":"string","minLength":1}},
+			"required":["title","description"],
+			"additionalProperties":false
+		}}},
+		"client_metadata":{"x-codex-turn-metadata":"{\"thread_source\":\"thread_title\",\"turn_trigger\":\"thread_title\",\"request_kind\":\"turn\"}"},
+		"input":[
+			{"type":"additional_tools","role":"developer","tools":[{"type":"namespace","name":"functions","description":"","tools":[
+				{"type":"function","name":"exec_command","parameters":{"type":"object"}}
+			]}]},
+			{"type":"message","role":"developer","content":[{"type":"input_text","text":"You are Codex."}]},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/repo</cwd>\n</environment_context>"}]},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"You are a helpful assistant. You will be presented with a user prompt, and your job is to provide a short title for a task that will be created from that prompt.\n\nUser prompt:\nfix the flaky login test"}]}
+		]
+	}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+	require.Len(t, provider.endpoints, 1)
+	require.Equal(t, 1, routerSpy.routeCalls, "Codex title generation must be scored independently")
+	assert.Equal(t, []string{"title_gen"}, routerSpy.turnTypes)
+	assert.NotContains(t, rec.Body.String(), "Weave Router", "a routing marker corrupts the structured title JSON Codex Desktop parses")
 }
 
 func TestCodexResponsesTitlePromptWithAssistantHistoryUsesScorer(t *testing.T) {

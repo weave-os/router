@@ -49,7 +49,7 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 	if errors.Is(err, context.Canceled) {
 		return FailureOwnerClient
 	}
-	if errors.Is(err, translate.ErrCustomToolArguments) {
+	if errors.Is(err, translate.ErrCustomToolArguments) || errors.Is(err, errResponsesPassthroughStuck) {
 		return FailureOwnerRouter
 	}
 	if cls, ok := ClassifyDispatchError(err); ok && cls.Kind != DispatchErrorUpstreamStatus {
@@ -113,7 +113,7 @@ func streamFailureOwner(class streamFailureClass) FailureOwner {
 // upstreamStatusOwner instead.
 func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 	switch kind {
-	case DispatchErrorSubscriptionPoolExhausted, DispatchErrorNotImplemented, DispatchErrorProviderNotConfigured, DispatchErrorRLPolicyUnavailable,
+	case DispatchErrorSubscriptionPoolExhausted, DispatchErrorSubscriptionPoolThrottled, DispatchErrorNotImplemented, DispatchErrorProviderNotConfigured, DispatchErrorAnthropicFederationUnavailable, DispatchErrorRLPolicyUnavailable,
 		DispatchErrorBanditUnavailable, DispatchErrorHMMUnavailable, DispatchErrorPolicyUnavailable,
 		DispatchErrorClusterUnavailable, DispatchErrorDecisionModelUnavailable, DispatchErrorClassifierUnavailable,
 		DispatchErrorPolicyPinUnavailable, DispatchErrorPlanTargetMismatch, DispatchErrorPlanUnresolvable,
@@ -123,18 +123,30 @@ func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 		return FailureOwnerRouter
 	case DispatchErrorCompactionUnservable:
 		return FailureOwnerProvider
-	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorContextWindowExceeded,
+	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorContextWindowExceeded, DispatchErrorImageLimitExceeded,
 		DispatchErrorInvalidRoutingKnobs, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded,
 		DispatchErrorForcedModelUnknown, DispatchErrorPassthroughModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy,
 		DispatchErrorForcedClusterUnservable, DispatchErrorPlanOverrideRejected, DispatchErrorHandoff,
 		DispatchErrorClassifierHistory, DispatchErrorClassifierInputTooLong, DispatchErrorCreditsExhausted,
 		DispatchErrorUserSpendLimitReached, DispatchErrorSpendCapReached, DispatchErrorNoEligibleProvider,
 		DispatchErrorAllowlistEmptiesPool, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels,
-		DispatchErrorProductIneligible, DispatchErrorSubscriptionClientAppRefused:
+		DispatchErrorProductIneligible, DispatchErrorSubscriptionClientAppRefused, DispatchErrorClaudeEnterpriseOnly,
+		DispatchErrorWeaveCreditsDisabled:
 		return FailureOwnerClient
 	default:
 		return FailureOwnerUnknown
 	}
+}
+
+// turnFailureOwnerAfterFinish is turnFailureOwnerFor for a turn whose upstream
+// finish reason is known. A finish reason is recorded only once the upstream's
+// own terminal arrived, so a stream that still ended without one lost it
+// inside the router.
+func turnFailureOwnerAfterFinish(ctx context.Context, err error, class TurnErrorClass, upstreamFinishReason string) FailureOwner {
+	if upstreamFinishReason != "" && isStreamTerminalMissing(err) {
+		return FailureOwnerRouter
+	}
+	return turnFailureOwnerFor(ctx, err, class)
 }
 
 // turnFailureOwner assigns the fault of a turn that completed with unusable

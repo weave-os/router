@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
@@ -15,6 +16,10 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// ModelPassthroughHeader opts a client into serving any requested model that
+// is not a Weave routing model as-is, so only an explicit routing model routes.
+const ModelPassthroughHeader = "X-Weave-Model-Passthrough"
+
 // applyRoutingModel runs after classifier admission and reuses its parsed body.
 func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailability) bool {
 	model := router.RoutingModel(requestedModel(c, body))
@@ -23,6 +28,11 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 			observability.FromGin(c).Debug("Unknown routing model rejected")
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "unknown_routing_model"})
 			return false
+		}
+		if model != "" && c.GetHeader(ModelPassthroughHeader) == "1" {
+			ctx := auth.WithClientModelPassthrough(c.Request.Context())
+			c.Request = c.Request.WithContext(ctx)
+			observability.FromGin(c).Debug("Client-selected model served without routing", "model", model)
 		}
 		return true
 	}
@@ -41,19 +51,7 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 		c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "start_new_thread_to_change_router"})
 		return false
 	}
-	var selectedStrategy router.Strategy
-	var unavailableMessage string
-	switch model {
-	case router.ModelHMM:
-		selectedStrategy = router.StrategyHMMBeta
-		unavailableMessage = "hmm_model_unavailable"
-	case router.ModelQwen:
-		selectedStrategy = router.StrategyHMMQwen
-		unavailableMessage = "qwen_model_unavailable"
-	case router.ModelDecision:
-		selectedStrategy = router.StrategyDecisionModel
-		unavailableMessage = "decision_model_unavailable"
-	}
+	selection, _ := router.RoutingModelPolicyFor(model)
 	identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context())
 	internal := managed && policyregistry.ExperimentalRoutingModelsPermitted(policyregistry.ServingTarget(identity.Target), entitlement.Plan(identity.Plan)) && identity.ReleaseID != "" && identity.BindingID != "" && identity.CredentialIdentity != ""
 	if (managed || model == router.ModelQwen) && !internal {
@@ -61,23 +59,32 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "routing_model_not_permitted"})
 		return false
 	}
-	if managed && selectedStrategy != router.StrategyDecisionModel {
-		snapshot := policyregistry.ServingSnapshotFromContext(c.Request.Context())
-		if snapshot == nil || snapshot.Routers[selectedStrategy] == nil {
-			observability.FromGin(c).Debug("Routing model is absent from admitted snapshot", "model", model)
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": unavailableMessage})
+	selectedStrategy := selection.Strategy
+	if !routingStrategyServable(c, managed, selectedStrategy, available) {
+		if !selection.FallsBackToPrimary || !routingStrategyServable(c, managed, router.PrimaryRoutingStrategy, available) {
+			observability.FromGin(c).Warn("Routing model has no servable policy", "model", model, "strategy", selectedStrategy)
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": selection.UnavailableError})
 			return false
 		}
-	}
-	if available == nil || !available(selectedStrategy) {
-		observability.FromGin(c).Debug("Routing model has no available registered policy", "model", model)
-		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": unavailableMessage})
-		return false
+		observability.FromGin(c).Info("Routing model variant is absent; serving the primary classifier", "model", model, "strategy", selectedStrategy, "fallback_strategy", router.PrimaryRoutingStrategy)
+		selectedStrategy = router.PrimaryRoutingStrategy
 	}
 	c.Request = c.Request.WithContext(router.WithStrategy(c.Request.Context(), selectedStrategy))
 	c.Request = c.Request.WithContext(router.WithRoutingModel(c.Request.Context(), model))
 	observability.FromGin(c).Debug("Routing model selected", "model", model)
 	return true
+}
+
+// routingStrategyServable requires managed strategies to exist in the admitted
+// snapshot; the decision model is configured outside serving releases.
+func routingStrategyServable(c *gin.Context, managed bool, strategy router.Strategy, available StrategyAvailability) bool {
+	if managed && strategy != router.StrategyDecisionModel {
+		snapshot := policyregistry.ServingSnapshotFromContext(c.Request.Context())
+		if snapshot == nil || snapshot.Routers[strategy] == nil {
+			return false
+		}
+	}
+	return available != nil && available(strategy)
 }
 
 // requestedModel follows Gemini's authoritative URL model; its handler replaces

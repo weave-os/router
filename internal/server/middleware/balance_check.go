@@ -14,7 +14,7 @@ import (
 
 // TopUpURL is the customer-facing page where org admins buy credits.
 // Returned in the 402 body so the client can surface a CTA.
-const TopUpURL = "https://app.workweave.ai/organization/settings/weave-router"
+const TopUpURL = "https://app.weaveos.com/organization/settings/weave-router/credits"
 
 // WithBalanceCheck enforces prepaid credit gating on inference routes.
 // Attached only in managed mode and only after WithAuth, so the
@@ -29,7 +29,7 @@ const TopUpURL = "https://app.workweave.ai/organization/settings/weave-router"
 //     subscription-only (billing.WithSubscriptionOnly), so the proxy serves them
 //     on the caller's own subscription or refuses them, never on a paid model.
 //     Override detection above still runs.
-//   - Otherwise → pass through.
+//   - Otherwise → pass through, flagged billing.WithOrganizationPrepaid.
 //
 // The balance read is a single indexed SELECT (~2-5ms in-region). Any
 // repo error fails closed with HTTP 503: in a prepaid credit system,
@@ -78,6 +78,9 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 		}
 
 		orgID := installation.ExternalID
+		if !installation.WeaveCreditInferenceEnabled {
+			c.Request = c.Request.WithContext(billing.WithWeaveCreditsDenied(c.Request.Context()))
+		}
 
 		// Subscription turns debit $0 (cost.subscription_served), so gating them on
 		// prepaid credits is wrong. The check depends only on whether the request
@@ -158,6 +161,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 			return
 		}
 
+		c.Request = c.Request.WithContext(billing.WithOrganizationPrepaid(c.Request.Context()))
 		c.Next()
 	}
 }

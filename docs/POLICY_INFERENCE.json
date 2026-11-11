@@ -1,6 +1,6 @@
 {
   "schema_version": "inference_policy_registry_v2",
-  "registry_revision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c",
+  "registry_revision": "sha256:58acde3181ff1bad99025bc811b25189085ee3f07101658e706c145f6ee0a8b2",
   "policies": [
     {
       "purpose": "agent_shadow_evaluation",
@@ -177,7 +177,8 @@
         "claude-opus-4-8",
         "claude-opus-5-5",
         "claude-fable-5",
-        "claude-fable-5-1"
+        "claude-fable-5-1",
+        "claude-fable-5-2"
       ],
       "hard_constraints": [
         "catalog_binding",
@@ -523,7 +524,8 @@
         "claude-opus-4-8",
         "claude-opus-5-5",
         "claude-fable-5",
-        "claude-fable-5-1"
+        "claude-fable-5-1",
+        "claude-fable-5-2"
       ],
       "hard_constraints": [
         "catalog_binding",

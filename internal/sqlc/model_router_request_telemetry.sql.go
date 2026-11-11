@@ -99,6 +99,8 @@ SELECT
     t.blind_experiment_arm,
     t.blind_experiment_assignment_source,
     t.blind_experiment_subject_key,
+    t.blind_experiment_mode,
+    t.blind_experiment_session_key,
     t.cohort_experiment_id,
     t.cohort_group_id,
     t.cohort_phase_index,
@@ -106,6 +108,10 @@ SELECT
     t.cohort_scheduled_arm,
     t.cohort_treatment_applied,
     t.cohort_bypass_reason,
+    t.blind_experiment_model_source,
+    t.blind_experiment_treatment_applied,
+    t.blind_experiment_baseline_model,
+    t.blind_experiment_model_changed,
     t.policy_pin_requested,
     t.policy_pin_honoured,
     t.sticky_hit,
@@ -229,6 +235,8 @@ type GetRoutingDecisionsForExportRow struct {
 	BlindExperimentArm              *string
 	BlindExperimentAssignmentSource *string
 	BlindExperimentSubjectKey       *string
+	BlindExperimentMode             *string
+	BlindExperimentSessionKey       *string
 	CohortExperimentID              pgtype.UUID
 	CohortGroupID                   *int16
 	CohortPhaseIndex                *int16
@@ -236,6 +244,10 @@ type GetRoutingDecisionsForExportRow struct {
 	CohortScheduledArm              *string
 	CohortTreatmentApplied          *bool
 	CohortBypassReason              *string
+	BlindExperimentModelSource      *string
+	BlindExperimentTreatmentApplied *bool
+	BlindExperimentBaselineModel    *string
+	BlindExperimentModelChanged     *bool
 	PolicyPinRequested              *bool
 	PolicyPinHonoured               *bool
 	StickyHit                       *bool
@@ -331,6 +343,8 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.blind_experiment_arm,
 //	    t.blind_experiment_assignment_source,
 //	    t.blind_experiment_subject_key,
+//	    t.blind_experiment_mode,
+//	    t.blind_experiment_session_key,
 //	    t.cohort_experiment_id,
 //	    t.cohort_group_id,
 //	    t.cohort_phase_index,
@@ -338,6 +352,10 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.cohort_scheduled_arm,
 //	    t.cohort_treatment_applied,
 //	    t.cohort_bypass_reason,
+//	    t.blind_experiment_model_source,
+//	    t.blind_experiment_treatment_applied,
+//	    t.blind_experiment_baseline_model,
+//	    t.blind_experiment_model_changed,
 //	    t.policy_pin_requested,
 //	    t.policy_pin_honoured,
 //	    t.sticky_hit,
@@ -466,6 +484,8 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.BlindExperimentArm,
 			&i.BlindExperimentAssignmentSource,
 			&i.BlindExperimentSubjectKey,
+			&i.BlindExperimentMode,
+			&i.BlindExperimentSessionKey,
 			&i.CohortExperimentID,
 			&i.CohortGroupID,
 			&i.CohortPhaseIndex,
@@ -473,6 +493,10 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.CohortScheduledArm,
 			&i.CohortTreatmentApplied,
 			&i.CohortBypassReason,
+			&i.BlindExperimentModelSource,
+			&i.BlindExperimentTreatmentApplied,
+			&i.BlindExperimentBaselineModel,
+			&i.BlindExperimentModelChanged,
 			&i.PolicyPinRequested,
 			&i.PolicyPinHonoured,
 			&i.StickyHit,
@@ -553,6 +577,7 @@ SELECT
     COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
     COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
     MAX(t.created_at)::timestamptz AS last_recorded_at,
+    BOOL_OR(COALESCE(t.blind_experiment_arm, '') <> '')::boolean AS blind_experiment,
     (SELECT latest.context_snapshot
      FROM router.model_router_request_telemetry latest
      WHERE latest.installation_id = $1::uuid
@@ -585,6 +610,7 @@ type GetSessionCostRow struct {
 	CacheCreationTokens    int64
 	CacheReadTokens        int64
 	LastRecordedAt         pgtype.Timestamptz
+	BlindExperiment        bool
 	ContextSnapshot        []byte
 }
 
@@ -605,6 +631,7 @@ type GetSessionCostRow struct {
 //	    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
 //	    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
 //	    MAX(t.created_at)::timestamptz AS last_recorded_at,
+//	    BOOL_OR(COALESCE(t.blind_experiment_arm, '') <> '')::boolean AS blind_experiment,
 //	    (SELECT latest.context_snapshot
 //	     FROM router.model_router_request_telemetry latest
 //	     WHERE latest.installation_id = $1::uuid
@@ -633,6 +660,7 @@ func (q *Queries) GetSessionCost(ctx context.Context, arg GetSessionCostParams) 
 		&i.CacheCreationTokens,
 		&i.CacheReadTokens,
 		&i.LastRecordedAt,
+		&i.BlindExperiment,
 		&i.ContextSnapshot,
 	)
 	return i, err
@@ -783,6 +811,610 @@ func (q *Queries) GetTelemetryBySessionDesc(ctx context.Context, arg GetTelemetr
 		&i.Timestamp,
 	)
 	return i, err
+}
+
+const getTelemetryDashboardActiveUsers = `-- name: GetTelemetryDashboardActiveUsers :many
+SELECT
+    (CASE WHEN $1::text = 'total' THEN $2::timestamptz
+          ELSE date_trunc($1::text, timestamp) END)::timestamptz AS bucket,
+    (router_user_id IS NOT NULL)::boolean AS linked,
+    COUNT(DISTINCT COALESCE(router_user_id::text, api_key_id::text, installation_id::text))::bigint AS user_count
+FROM router.model_router_request_telemetry
+WHERE span_type = 'router.upstream'
+  AND timestamp >= $2::timestamptz
+  AND timestamp < $3::timestamptz
+  AND ($4::uuid IS NULL OR installation_id = $4::uuid)
+GROUP BY 1, 2
+ORDER BY 1
+`
+
+type GetTelemetryDashboardActiveUsersParams struct {
+	Granularity    string
+	FromTime       pgtype.Timestamptz
+	ToTime         pgtype.Timestamptz
+	InstallationID pgtype.UUID
+}
+
+type GetTelemetryDashboardActiveUsersRow struct {
+	Bucket    pgtype.Timestamptz
+	Linked    bool
+	UserCount int64
+}
+
+// Distinct people per bucket ('total' = one bucket for the window, so a person
+// counts once). Linked people carry a router user; unlinked traffic counts once
+// per API key.
+//
+//	SELECT
+//	    (CASE WHEN $1::text = 'total' THEN $2::timestamptz
+//	          ELSE date_trunc($1::text, timestamp) END)::timestamptz AS bucket,
+//	    (router_user_id IS NOT NULL)::boolean AS linked,
+//	    COUNT(DISTINCT COALESCE(router_user_id::text, api_key_id::text, installation_id::text))::bigint AS user_count
+//	FROM router.model_router_request_telemetry
+//	WHERE span_type = 'router.upstream'
+//	  AND timestamp >= $2::timestamptz
+//	  AND timestamp < $3::timestamptz
+//	  AND ($4::uuid IS NULL OR installation_id = $4::uuid)
+//	GROUP BY 1, 2
+//	ORDER BY 1
+func (q *Queries) GetTelemetryDashboardActiveUsers(ctx context.Context, arg GetTelemetryDashboardActiveUsersParams) ([]GetTelemetryDashboardActiveUsersRow, error) {
+	rows, err := q.db.Query(ctx, getTelemetryDashboardActiveUsers,
+		arg.Granularity,
+		arg.FromTime,
+		arg.ToTime,
+		arg.InstallationID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetTelemetryDashboardActiveUsersRow
+	for rows.Next() {
+		var i GetTelemetryDashboardActiveUsersRow
+		if err := rows.Scan(&i.Bucket, &i.Linked, &i.UserCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getTelemetryDashboardDrillDown = `-- name: GetTelemetryDashboardDrillDown :many
+SELECT
+    COALESCE(t.router_user_id::text, t.api_key_id::text, t.installation_id::text)::text AS person_id,
+    (t.router_user_id IS NOT NULL)::boolean AS linked,
+    COALESCE(NULLIF(MAX(u.display_name), ''), MAX(u.email), MAX(k.name), '')::text AS display_name,
+    COALESCE(MAX(u.email), '')::text AS email,
+    COALESCE(t.session_id, '')::text AS session_id,
+    COALESCE(t.client_app, '')::text AS client_app,
+    COALESCE(t.requested_model, '')::text AS requested_model,
+    COALESCE(t.decision_model, '')::text AS decision_model,
+    COALESCE(array_agg(DISTINCT t.decision_provider) FILTER (WHERE COALESCE(t.decision_provider, '') <> ''), '{}')::text[] AS providers,
+    (t.credential_source IN ('subscription', 'codex_subscription'))::boolean AS subscription_served,
+    (CASE
+        WHEN t.blind_experiment_arm = 'passthrough' OR t.decision_reason = 'cluster_argmax' THEN 'passthrough'
+        WHEN t.decision_reason LIKE 'user_forced%' THEN 'forced'
+        WHEN (t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough'))
+             AND t.credential_source IN ('subscription', 'codex_subscription')
+             AND COALESCE(t.requested_model, '') = COALESCE(t.decision_model, '') THEN 'subscription_bypass'
+        WHEN t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
+        ELSE 'router_pick'
+    END)::text AS decision_type,
+    (lower(COALESCE(t.requested_model, '')) IN ('weave', 'auto', 'weave-auto')
+        OR lower(COALESCE(t.requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+    MIN(t.timestamp)::timestamptz AS started_at,
+    MAX(t.timestamp)::timestamptz AS finished_at,
+    COUNT(*)::bigint AS request_count,
+    COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
+    COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
+    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+    COALESCE(SUM(t.actual_input_cost_usd + t.actual_output_cost_usd), 0)::bigint AS actual_cost_usd
+FROM router.model_router_request_telemetry t
+LEFT JOIN router.model_router_users u ON u.id = t.router_user_id
+LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
+WHERE t.span_type = 'router.upstream'
+  AND t.timestamp >= $1::timestamptz
+  AND t.timestamp < $2::timestamptz
+  AND ($3::uuid IS NULL OR t.installation_id = $3::uuid)
+GROUP BY 1, 2, 5, 6, 7, 8, 10, 11, 12
+ORDER BY started_at DESC
+`
+
+type GetTelemetryDashboardDrillDownParams struct {
+	FromTime       pgtype.Timestamptz
+	ToTime         pgtype.Timestamptz
+	InstallationID pgtype.UUID
+}
+
+type GetTelemetryDashboardDrillDownRow struct {
+	PersonID            string
+	Linked              bool
+	DisplayName         string
+	Email               string
+	SessionID           string
+	ClientApp           string
+	RequestedModel      string
+	DecisionModel       string
+	Providers           []string
+	SubscriptionServed  bool
+	DecisionType        string
+	AutomaticAlias      bool
+	StartedAt           pgtype.Timestamptz
+	FinishedAt          pgtype.Timestamptz
+	RequestCount        int64
+	InputTokens         int64
+	OutputTokens        int64
+	CacheCreationTokens int64
+	CacheReadTokens     int64
+	ActualCostUsd       int64
+}
+
+// One row per person, session and requested/decision model pair, for the
+// dashboard drill-down. Unlinked traffic is keyed by its API key.
+//
+//	SELECT
+//	    COALESCE(t.router_user_id::text, t.api_key_id::text, t.installation_id::text)::text AS person_id,
+//	    (t.router_user_id IS NOT NULL)::boolean AS linked,
+//	    COALESCE(NULLIF(MAX(u.display_name), ''), MAX(u.email), MAX(k.name), '')::text AS display_name,
+//	    COALESCE(MAX(u.email), '')::text AS email,
+//	    COALESCE(t.session_id, '')::text AS session_id,
+//	    COALESCE(t.client_app, '')::text AS client_app,
+//	    COALESCE(t.requested_model, '')::text AS requested_model,
+//	    COALESCE(t.decision_model, '')::text AS decision_model,
+//	    COALESCE(array_agg(DISTINCT t.decision_provider) FILTER (WHERE COALESCE(t.decision_provider, '') <> ''), '{}')::text[] AS providers,
+//	    (t.credential_source IN ('subscription', 'codex_subscription'))::boolean AS subscription_served,
+//	    (CASE
+//	        WHEN t.blind_experiment_arm = 'passthrough' OR t.decision_reason = 'cluster_argmax' THEN 'passthrough'
+//	        WHEN t.decision_reason LIKE 'user_forced%' THEN 'forced'
+//	        WHEN (t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough'))
+//	             AND t.credential_source IN ('subscription', 'codex_subscription')
+//	             AND COALESCE(t.requested_model, '') = COALESCE(t.decision_model, '') THEN 'subscription_bypass'
+//	        WHEN t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
+//	        ELSE 'router_pick'
+//	    END)::text AS decision_type,
+//	    (lower(COALESCE(t.requested_model, '')) IN ('weave', 'auto', 'weave-auto')
+//	        OR lower(COALESCE(t.requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+//	    MIN(t.timestamp)::timestamptz AS started_at,
+//	    MAX(t.timestamp)::timestamptz AS finished_at,
+//	    COUNT(*)::bigint AS request_count,
+//	    COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
+//	    COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
+//	    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+//	    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+//	    COALESCE(SUM(t.actual_input_cost_usd + t.actual_output_cost_usd), 0)::bigint AS actual_cost_usd
+//	FROM router.model_router_request_telemetry t
+//	LEFT JOIN router.model_router_users u ON u.id = t.router_user_id
+//	LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
+//	WHERE t.span_type = 'router.upstream'
+//	  AND t.timestamp >= $1::timestamptz
+//	  AND t.timestamp < $2::timestamptz
+//	  AND ($3::uuid IS NULL OR t.installation_id = $3::uuid)
+//	GROUP BY 1, 2, 5, 6, 7, 8, 10, 11, 12
+//	ORDER BY started_at DESC
+func (q *Queries) GetTelemetryDashboardDrillDown(ctx context.Context, arg GetTelemetryDashboardDrillDownParams) ([]GetTelemetryDashboardDrillDownRow, error) {
+	rows, err := q.db.Query(ctx, getTelemetryDashboardDrillDown, arg.FromTime, arg.ToTime, arg.InstallationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetTelemetryDashboardDrillDownRow
+	for rows.Next() {
+		var i GetTelemetryDashboardDrillDownRow
+		if err := rows.Scan(
+			&i.PersonID,
+			&i.Linked,
+			&i.DisplayName,
+			&i.Email,
+			&i.SessionID,
+			&i.ClientApp,
+			&i.RequestedModel,
+			&i.DecisionModel,
+			&i.Providers,
+			&i.SubscriptionServed,
+			&i.DecisionType,
+			&i.AutomaticAlias,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.RequestCount,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.CacheCreationTokens,
+			&i.CacheReadTokens,
+			&i.ActualCostUsd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getTelemetryDashboardFacts = `-- name: GetTelemetryDashboardFacts :many
+SELECT
+    date_trunc($1::text, timestamp)::timestamptz AS bucket,
+    COALESCE(decision_model, '')::text AS decision_model,
+    (credential_source IN ('subscription', 'codex_subscription'))::boolean AS subscription_served,
+    (CASE
+        WHEN blind_experiment_arm = 'passthrough' OR decision_reason = 'cluster_argmax' THEN 'passthrough'
+        WHEN decision_reason LIKE 'user_forced%' THEN 'forced'
+        WHEN (decision_reason LIKE '%\_hard\_pin' OR decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough'))
+             AND credential_source IN ('subscription', 'codex_subscription')
+             AND COALESCE(requested_model, '') = COALESCE(decision_model, '') THEN 'subscription_bypass'
+        WHEN decision_reason LIKE '%\_hard\_pin' OR decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
+        ELSE 'router_pick'
+    END)::text AS decision_type,
+    (lower(COALESCE(requested_model, '')) IN ('weave', 'auto', 'weave-auto')
+        OR lower(COALESCE(requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+    COUNT(*)::bigint AS request_count,
+    COALESCE(SUM(input_tokens), 0)::bigint AS input_tokens,
+    COALESCE(SUM(output_tokens), 0)::bigint AS output_tokens,
+    COALESCE(SUM(cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+    COALESCE(SUM(cache_read_tokens), 0)::bigint AS cache_read_tokens,
+    COALESCE(SUM(actual_input_cost_usd + actual_output_cost_usd), 0)::bigint AS actual_cost_usd
+FROM router.model_router_request_telemetry
+WHERE span_type = 'router.upstream'
+  AND timestamp >= $2::timestamptz
+  AND timestamp < $3::timestamptz
+  AND ($4::uuid IS NULL OR installation_id = $4::uuid)
+GROUP BY 1, 2, 3, 4, 5
+ORDER BY 1
+`
+
+type GetTelemetryDashboardFactsParams struct {
+	Granularity    string
+	FromTime       pgtype.Timestamptz
+	ToTime         pgtype.Timestamptz
+	InstallationID pgtype.UUID
+}
+
+type GetTelemetryDashboardFactsRow struct {
+	Bucket              pgtype.Timestamptz
+	DecisionModel       string
+	SubscriptionServed  bool
+	DecisionType        string
+	AutomaticAlias      bool
+	RequestCount        int64
+	InputTokens         int64
+	OutputTokens        int64
+	CacheCreationTokens int64
+	CacheReadTokens     int64
+	ActualCostUsd       int64
+}
+
+// Dashboard facts per bucket and dimension; the admin layer derives every
+// chart series from these sums. Reason markers mirror the hosted classifier:
+// user_forced prefix, _hard_pin utility suffix, cluster_argmax passthrough.
+//
+//	SELECT
+//	    date_trunc($1::text, timestamp)::timestamptz AS bucket,
+//	    COALESCE(decision_model, '')::text AS decision_model,
+//	    (credential_source IN ('subscription', 'codex_subscription'))::boolean AS subscription_served,
+//	    (CASE
+//	        WHEN blind_experiment_arm = 'passthrough' OR decision_reason = 'cluster_argmax' THEN 'passthrough'
+//	        WHEN decision_reason LIKE 'user_forced%' THEN 'forced'
+//	        WHEN (decision_reason LIKE '%\_hard\_pin' OR decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough'))
+//	             AND credential_source IN ('subscription', 'codex_subscription')
+//	             AND COALESCE(requested_model, '') = COALESCE(decision_model, '') THEN 'subscription_bypass'
+//	        WHEN decision_reason LIKE '%\_hard\_pin' OR decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
+//	        ELSE 'router_pick'
+//	    END)::text AS decision_type,
+//	    (lower(COALESCE(requested_model, '')) IN ('weave', 'auto', 'weave-auto')
+//	        OR lower(COALESCE(requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+//	    COUNT(*)::bigint AS request_count,
+//	    COALESCE(SUM(input_tokens), 0)::bigint AS input_tokens,
+//	    COALESCE(SUM(output_tokens), 0)::bigint AS output_tokens,
+//	    COALESCE(SUM(cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+//	    COALESCE(SUM(cache_read_tokens), 0)::bigint AS cache_read_tokens,
+//	    COALESCE(SUM(actual_input_cost_usd + actual_output_cost_usd), 0)::bigint AS actual_cost_usd
+//	FROM router.model_router_request_telemetry
+//	WHERE span_type = 'router.upstream'
+//	  AND timestamp >= $2::timestamptz
+//	  AND timestamp < $3::timestamptz
+//	  AND ($4::uuid IS NULL OR installation_id = $4::uuid)
+//	GROUP BY 1, 2, 3, 4, 5
+//	ORDER BY 1
+func (q *Queries) GetTelemetryDashboardFacts(ctx context.Context, arg GetTelemetryDashboardFactsParams) ([]GetTelemetryDashboardFactsRow, error) {
+	rows, err := q.db.Query(ctx, getTelemetryDashboardFacts,
+		arg.Granularity,
+		arg.FromTime,
+		arg.ToTime,
+		arg.InstallationID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetTelemetryDashboardFactsRow
+	for rows.Next() {
+		var i GetTelemetryDashboardFactsRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.DecisionModel,
+			&i.SubscriptionServed,
+			&i.DecisionType,
+			&i.AutomaticAlias,
+			&i.RequestCount,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.CacheCreationTokens,
+			&i.CacheReadTokens,
+			&i.ActualCostUsd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getTelemetryDashboardIndividualFacts = `-- name: GetTelemetryDashboardIndividualFacts :many
+SELECT
+    COALESCE(t.router_user_id::text, t.api_key_id::text, t.installation_id::text)::text AS person_id,
+    (t.router_user_id IS NOT NULL)::boolean AS linked,
+    COALESCE(NULLIF(MAX(u.display_name), ''), MAX(u.email), MAX(k.name), '')::text AS display_name,
+    COALESCE(MAX(u.email), '')::text AS email,
+    date_trunc($1::text, t.timestamp)::timestamptz AS bucket,
+    COALESCE(t.decision_model, '')::text AS decision_model,
+    (t.credential_source IN ('subscription', 'codex_subscription'))::boolean AS subscription_served,
+    (CASE
+        WHEN t.blind_experiment_arm = 'passthrough' OR t.decision_reason = 'cluster_argmax' THEN 'passthrough'
+        WHEN t.decision_reason LIKE 'user_forced%' THEN 'forced'
+        WHEN (t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough'))
+             AND t.credential_source IN ('subscription', 'codex_subscription')
+             AND COALESCE(t.requested_model, '') = COALESCE(t.decision_model, '') THEN 'subscription_bypass'
+        WHEN t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
+        ELSE 'router_pick'
+    END)::text AS decision_type,
+    (lower(COALESCE(t.requested_model, '')) IN ('weave', 'auto', 'weave-auto')
+        OR lower(COALESCE(t.requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+    COUNT(*)::bigint AS request_count,
+    COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
+    COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
+    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+    COALESCE(SUM(t.actual_input_cost_usd + t.actual_output_cost_usd), 0)::bigint AS actual_cost_usd
+FROM router.model_router_request_telemetry t
+LEFT JOIN router.model_router_users u ON u.id = t.router_user_id
+LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
+WHERE t.span_type = 'router.upstream'
+  AND t.timestamp >= $2::timestamptz
+  AND t.timestamp < $3::timestamptz
+  AND ($4::uuid IS NULL OR t.installation_id = $4::uuid)
+GROUP BY 1, 2, 5, 6, 7, 8, 9
+ORDER BY 5
+`
+
+type GetTelemetryDashboardIndividualFactsParams struct {
+	Granularity    string
+	FromTime       pgtype.Timestamptz
+	ToTime         pgtype.Timestamptz
+	InstallationID pgtype.UUID
+}
+
+type GetTelemetryDashboardIndividualFactsRow struct {
+	PersonID            string
+	Linked              bool
+	DisplayName         string
+	Email               string
+	Bucket              pgtype.Timestamptz
+	DecisionModel       string
+	SubscriptionServed  bool
+	DecisionType        string
+	AutomaticAlias      bool
+	RequestCount        int64
+	InputTokens         int64
+	OutputTokens        int64
+	CacheCreationTokens int64
+	CacheReadTokens     int64
+	ActualCostUsd       int64
+}
+
+// Dashboard facts per person, bucket and dimension, for the Individuals page.
+// Unlinked traffic is keyed by its API key, like the drill-down.
+//
+//	SELECT
+//	    COALESCE(t.router_user_id::text, t.api_key_id::text, t.installation_id::text)::text AS person_id,
+//	    (t.router_user_id IS NOT NULL)::boolean AS linked,
+//	    COALESCE(NULLIF(MAX(u.display_name), ''), MAX(u.email), MAX(k.name), '')::text AS display_name,
+//	    COALESCE(MAX(u.email), '')::text AS email,
+//	    date_trunc($1::text, t.timestamp)::timestamptz AS bucket,
+//	    COALESCE(t.decision_model, '')::text AS decision_model,
+//	    (t.credential_source IN ('subscription', 'codex_subscription'))::boolean AS subscription_served,
+//	    (CASE
+//	        WHEN t.blind_experiment_arm = 'passthrough' OR t.decision_reason = 'cluster_argmax' THEN 'passthrough'
+//	        WHEN t.decision_reason LIKE 'user_forced%' THEN 'forced'
+//	        WHEN (t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough'))
+//	             AND t.credential_source IN ('subscription', 'codex_subscription')
+//	             AND COALESCE(t.requested_model, '') = COALESCE(t.decision_model, '') THEN 'subscription_bypass'
+//	        WHEN t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
+//	        ELSE 'router_pick'
+//	    END)::text AS decision_type,
+//	    (lower(COALESCE(t.requested_model, '')) IN ('weave', 'auto', 'weave-auto')
+//	        OR lower(COALESCE(t.requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+//	    COUNT(*)::bigint AS request_count,
+//	    COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
+//	    COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
+//	    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+//	    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+//	    COALESCE(SUM(t.actual_input_cost_usd + t.actual_output_cost_usd), 0)::bigint AS actual_cost_usd
+//	FROM router.model_router_request_telemetry t
+//	LEFT JOIN router.model_router_users u ON u.id = t.router_user_id
+//	LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
+//	WHERE t.span_type = 'router.upstream'
+//	  AND t.timestamp >= $2::timestamptz
+//	  AND t.timestamp < $3::timestamptz
+//	  AND ($4::uuid IS NULL OR t.installation_id = $4::uuid)
+//	GROUP BY 1, 2, 5, 6, 7, 8, 9
+//	ORDER BY 5
+func (q *Queries) GetTelemetryDashboardIndividualFacts(ctx context.Context, arg GetTelemetryDashboardIndividualFactsParams) ([]GetTelemetryDashboardIndividualFactsRow, error) {
+	rows, err := q.db.Query(ctx, getTelemetryDashboardIndividualFacts,
+		arg.Granularity,
+		arg.FromTime,
+		arg.ToTime,
+		arg.InstallationID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetTelemetryDashboardIndividualFactsRow
+	for rows.Next() {
+		var i GetTelemetryDashboardIndividualFactsRow
+		if err := rows.Scan(
+			&i.PersonID,
+			&i.Linked,
+			&i.DisplayName,
+			&i.Email,
+			&i.Bucket,
+			&i.DecisionModel,
+			&i.SubscriptionServed,
+			&i.DecisionType,
+			&i.AutomaticAlias,
+			&i.RequestCount,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.CacheCreationTokens,
+			&i.CacheReadTokens,
+			&i.ActualCostUsd,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const getTelemetryDashboardPeople = `-- name: GetTelemetryDashboardPeople :many
+WITH activity AS MATERIALIZED (
+    SELECT
+        t.installation_id,
+        t.router_user_id,
+        t.api_key_id,
+        MAX(t.timestamp) AS last_request_at
+    FROM router.model_router_request_telemetry t
+    WHERE t.span_type = 'router.upstream'
+      AND (t.router_user_id IS NOT NULL OR t.api_key_id IS NOT NULL)
+      AND ($1::uuid IS NULL OR t.installation_id = $1::uuid)
+    GROUP BY t.installation_id, t.router_user_id, t.api_key_id
+)
+SELECT
+    u.id::text AS person_id,
+    true AS linked,
+    COALESCE(NULLIF(u.display_name, ''), u.email, '')::text AS display_name,
+    COALESCE(u.email, '')::text AS email,
+    linked_activity.last_request_at::timestamptz AS last_request_at
+FROM router.model_router_users u
+LEFT JOIN (
+    SELECT a.installation_id, a.router_user_id, MAX(a.last_request_at) AS last_request_at
+    FROM activity a
+    WHERE a.router_user_id IS NOT NULL
+    GROUP BY a.installation_id, a.router_user_id
+) linked_activity ON linked_activity.installation_id = u.installation_id
+    AND linked_activity.router_user_id = u.id
+WHERE u.deleted_at IS NULL
+  AND ($1::uuid IS NULL OR u.installation_id = $1::uuid)
+UNION ALL
+SELECT
+    a.api_key_id::text AS person_id,
+    false AS linked,
+    COALESCE(MAX(k.name), '')::text AS display_name,
+    ''::text AS email,
+    MAX(a.last_request_at)::timestamptz AS last_request_at
+FROM activity a
+LEFT JOIN router.model_router_api_keys k ON k.id = a.api_key_id
+WHERE a.router_user_id IS NULL
+GROUP BY a.api_key_id
+`
+
+type GetTelemetryDashboardPeopleRow struct {
+	PersonID      string
+	Linked        bool
+	DisplayName   string
+	Email         string
+	LastRequestAt pgtype.Timestamptz
+}
+
+// Everyone who could route: roster users (linked) and API keys that sent
+// traffic without a router user (unlinked), with their latest request ever.
+// One telemetry scan feeds both halves; idle users would otherwise walk the
+// installation's full history once each.
+//
+//	WITH activity AS MATERIALIZED (
+//	    SELECT
+//	        t.installation_id,
+//	        t.router_user_id,
+//	        t.api_key_id,
+//	        MAX(t.timestamp) AS last_request_at
+//	    FROM router.model_router_request_telemetry t
+//	    WHERE t.span_type = 'router.upstream'
+//	      AND (t.router_user_id IS NOT NULL OR t.api_key_id IS NOT NULL)
+//	      AND ($1::uuid IS NULL OR t.installation_id = $1::uuid)
+//	    GROUP BY t.installation_id, t.router_user_id, t.api_key_id
+//	)
+//	SELECT
+//	    u.id::text AS person_id,
+//	    true AS linked,
+//	    COALESCE(NULLIF(u.display_name, ''), u.email, '')::text AS display_name,
+//	    COALESCE(u.email, '')::text AS email,
+//	    linked_activity.last_request_at::timestamptz AS last_request_at
+//	FROM router.model_router_users u
+//	LEFT JOIN (
+//	    SELECT a.installation_id, a.router_user_id, MAX(a.last_request_at) AS last_request_at
+//	    FROM activity a
+//	    WHERE a.router_user_id IS NOT NULL
+//	    GROUP BY a.installation_id, a.router_user_id
+//	) linked_activity ON linked_activity.installation_id = u.installation_id
+//	    AND linked_activity.router_user_id = u.id
+//	WHERE u.deleted_at IS NULL
+//	  AND ($1::uuid IS NULL OR u.installation_id = $1::uuid)
+//	UNION ALL
+//	SELECT
+//	    a.api_key_id::text AS person_id,
+//	    false AS linked,
+//	    COALESCE(MAX(k.name), '')::text AS display_name,
+//	    ''::text AS email,
+//	    MAX(a.last_request_at)::timestamptz AS last_request_at
+//	FROM activity a
+//	LEFT JOIN router.model_router_api_keys k ON k.id = a.api_key_id
+//	WHERE a.router_user_id IS NULL
+//	GROUP BY a.api_key_id
+func (q *Queries) GetTelemetryDashboardPeople(ctx context.Context, installationID pgtype.UUID) ([]GetTelemetryDashboardPeopleRow, error) {
+	rows, err := q.db.Query(ctx, getTelemetryDashboardPeople, installationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetTelemetryDashboardPeopleRow
+	for rows.Next() {
+		var i GetTelemetryDashboardPeopleRow
+		if err := rows.Scan(
+			&i.PersonID,
+			&i.Linked,
+			&i.DisplayName,
+			&i.Email,
+			&i.LastRequestAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getTelemetryModelBreakdownDaily = `-- name: GetTelemetryModelBreakdownDaily :many
@@ -1481,6 +2113,149 @@ func (q *Queries) GetTelemetryRowsAll(ctx context.Context, arg GetTelemetryRowsA
 	return items, nil
 }
 
+const getTelemetrySubscriptionPoolSeats = `-- name: GetTelemetrySubscriptionPoolSeats :many
+SELECT
+    account.id,
+    account.provider,
+    account.display_name,
+    account.enabled,
+    account.health_state,
+    account.cooldown_until::timestamptz AS cooldown_until,
+    COALESCE(owner.name, '')::text AS owner_name,
+    served.requests::bigint AS served_requests,
+    reading.timestamp::timestamptz AS limits_observed_at,
+    reading.unified_limit_headers,
+    reading.codex_limit_headers
+FROM router.model_router_subscription_accounts account
+LEFT JOIN LATERAL (
+    SELECT COALESCE(NULLIF(u.display_name, ''), u.email, k.name) AS name
+    FROM router.model_router_subscription_account_installations registration
+    LEFT JOIN router.model_router_users u
+      ON u.credential_subject_id = account.subscriber_id AND u.installation_id = registration.installation_id AND u.deleted_at IS NULL
+    LEFT JOIN router.model_router_api_keys k
+      ON k.credential_subject_id = account.subscriber_id AND k.installation_id = registration.installation_id AND k.deleted_at IS NULL
+    WHERE registration.subscription_account_id = account.id AND account.subscriber_id IS NOT NULL
+      AND COALESCE(NULLIF(u.display_name, ''), u.email, k.name) IS NOT NULL
+    ORDER BY u.id IS NULL, k.created_at
+    LIMIT 1
+) owner ON TRUE
+CROSS JOIN LATERAL (
+    SELECT COUNT(*) AS requests FROM router.model_router_request_telemetry t
+    WHERE t.subscription_account_id = account.id AND t.span_type = 'router.upstream' AND t.timestamp >= $1::timestamptz
+      AND t.upstream_status_code >= 200 AND t.upstream_status_code < 300
+) served
+LEFT JOIN LATERAL (
+    SELECT t.timestamp, t.unified_limit_headers, t.codex_limit_headers FROM router.model_router_request_telemetry t
+    WHERE t.subscription_account_id = account.id AND t.span_type = 'router.upstream' AND t.timestamp >= $2::timestamptz
+      AND (t.unified_limit_headers IS NOT NULL OR t.codex_limit_headers IS NOT NULL)
+    ORDER BY t.timestamp DESC LIMIT 1
+) reading ON TRUE
+WHERE EXISTS (
+    SELECT 1 FROM router.model_router_subscription_account_installations registration
+    WHERE registration.subscription_account_id = account.id
+      AND ($3::uuid IS NULL OR registration.installation_id = $3::uuid)
+)
+ORDER BY account.provider, account.created_at, account.id
+`
+
+type GetTelemetrySubscriptionPoolSeatsParams struct {
+	ServedSince    pgtype.Timestamptz
+	ReadingsSince  pgtype.Timestamptz
+	InstallationID pgtype.UUID
+}
+
+type GetTelemetrySubscriptionPoolSeatsRow struct {
+	ID                  uuid.UUID
+	Provider            string
+	DisplayName         *string
+	Enabled             bool
+	HealthState         string
+	CooldownUntil       pgtype.Timestamptz
+	OwnerName           string
+	ServedRequests      int64
+	LimitsObservedAt    pgtype.Timestamptz
+	UnifiedLimitHeaders []byte
+	CodexLimitHeaders   []byte
+}
+
+// Subscription accounts registered to the pool with their latest quota reading.
+// A seat registered to several installations appears once; its quota is a
+// property of the physical subscription, not of who borrowed it.
+//
+//	SELECT
+//	    account.id,
+//	    account.provider,
+//	    account.display_name,
+//	    account.enabled,
+//	    account.health_state,
+//	    account.cooldown_until::timestamptz AS cooldown_until,
+//	    COALESCE(owner.name, '')::text AS owner_name,
+//	    served.requests::bigint AS served_requests,
+//	    reading.timestamp::timestamptz AS limits_observed_at,
+//	    reading.unified_limit_headers,
+//	    reading.codex_limit_headers
+//	FROM router.model_router_subscription_accounts account
+//	LEFT JOIN LATERAL (
+//	    SELECT COALESCE(NULLIF(u.display_name, ''), u.email, k.name) AS name
+//	    FROM router.model_router_subscription_account_installations registration
+//	    LEFT JOIN router.model_router_users u
+//	      ON u.credential_subject_id = account.subscriber_id AND u.installation_id = registration.installation_id AND u.deleted_at IS NULL
+//	    LEFT JOIN router.model_router_api_keys k
+//	      ON k.credential_subject_id = account.subscriber_id AND k.installation_id = registration.installation_id AND k.deleted_at IS NULL
+//	    WHERE registration.subscription_account_id = account.id AND account.subscriber_id IS NOT NULL
+//	      AND COALESCE(NULLIF(u.display_name, ''), u.email, k.name) IS NOT NULL
+//	    ORDER BY u.id IS NULL, k.created_at
+//	    LIMIT 1
+//	) owner ON TRUE
+//	CROSS JOIN LATERAL (
+//	    SELECT COUNT(*) AS requests FROM router.model_router_request_telemetry t
+//	    WHERE t.subscription_account_id = account.id AND t.span_type = 'router.upstream' AND t.timestamp >= $1::timestamptz
+//	      AND t.upstream_status_code >= 200 AND t.upstream_status_code < 300
+//	) served
+//	LEFT JOIN LATERAL (
+//	    SELECT t.timestamp, t.unified_limit_headers, t.codex_limit_headers FROM router.model_router_request_telemetry t
+//	    WHERE t.subscription_account_id = account.id AND t.span_type = 'router.upstream' AND t.timestamp >= $2::timestamptz
+//	      AND (t.unified_limit_headers IS NOT NULL OR t.codex_limit_headers IS NOT NULL)
+//	    ORDER BY t.timestamp DESC LIMIT 1
+//	) reading ON TRUE
+//	WHERE EXISTS (
+//	    SELECT 1 FROM router.model_router_subscription_account_installations registration
+//	    WHERE registration.subscription_account_id = account.id
+//	      AND ($3::uuid IS NULL OR registration.installation_id = $3::uuid)
+//	)
+//	ORDER BY account.provider, account.created_at, account.id
+func (q *Queries) GetTelemetrySubscriptionPoolSeats(ctx context.Context, arg GetTelemetrySubscriptionPoolSeatsParams) ([]GetTelemetrySubscriptionPoolSeatsRow, error) {
+	rows, err := q.db.Query(ctx, getTelemetrySubscriptionPoolSeats, arg.ServedSince, arg.ReadingsSince, arg.InstallationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetTelemetrySubscriptionPoolSeatsRow
+	for rows.Next() {
+		var i GetTelemetrySubscriptionPoolSeatsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Provider,
+			&i.DisplayName,
+			&i.Enabled,
+			&i.HealthState,
+			&i.CooldownUntil,
+			&i.OwnerName,
+			&i.ServedRequests,
+			&i.LimitsObservedAt,
+			&i.UnifiedLimitHeaders,
+			&i.CodexLimitHeaders,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTelemetrySummary = `-- name: GetTelemetrySummary :one
 SELECT
     COUNT(*)::bigint                                            AS request_count,
@@ -2012,6 +2787,8 @@ INSERT INTO router.model_router_request_telemetry (
     blind_experiment_arm,
     blind_experiment_assignment_source,
     blind_experiment_subject_key,
+    blind_experiment_mode,
+    blind_experiment_session_key,
     cohort_experiment_id,
     cohort_group_id,
     cohort_phase_index,
@@ -2019,6 +2796,10 @@ INSERT INTO router.model_router_request_telemetry (
     cohort_scheduled_arm,
     cohort_treatment_applied,
     cohort_bypass_reason,
+    blind_experiment_model_source,
+    blind_experiment_treatment_applied,
+    blind_experiment_baseline_model,
+    blind_experiment_model_changed,
     turn_type,
     rollout_id,
     upstream_finish_reason,
@@ -2048,6 +2829,7 @@ INSERT INTO router.model_router_request_telemetry (
     intended_model_family,
     final_model_family,
     unified_limit_headers,
+    codex_limit_headers,
     policy_pin_requested,
     policy_pin_honoured,
     planner_outcome,
@@ -2188,116 +2970,123 @@ INSERT INTO router.model_router_request_telemetry (
     $63::varchar,
     $64::varchar,
     $65::varchar,
-    $66::uuid,
-    $67::smallint,
-    $68::smallint,
-    $69::integer,
-    $70::varchar,
-    $71::boolean,
+    $66::varchar,
+    $67::varchar,
+    $68::uuid,
+    $69::smallint,
+    $70::smallint,
+    $71::integer,
     $72::varchar,
-    $73::varchar,
+    $73::boolean,
     $74::varchar,
-    $75::text,
-    $76::text,
-    $77::int,
-    $78::int,
+    $75::varchar,
+    $76::boolean,
+    $77::varchar,
+    $78::boolean,
     $79::varchar,
-    $80::int,
-    $81::jsonb,
-    $82::boolean,
-    $83::boolean,
-    $84::boolean,
-    $85::boolean,
-    $86::boolean,
-    $87::bytea,
-    $88::varchar,
-    $89::varchar,
-    $90::jsonb,
-    $91::bigint,
-    $92::int,
-    $93::varchar,
+    $80::varchar,
+    $81::text,
+    $82::text,
+    $83::int,
+    $84::int,
+    $85::varchar,
+    $86::int,
+    $87::jsonb,
+    $88::boolean,
+    $89::boolean,
+    $90::boolean,
+    $91::boolean,
+    $92::boolean,
+    $93::bytea,
     $94::varchar,
     $95::varchar,
-    $96::uuid,
-    $97::uuid,
-    $98::varchar,
+    $96::jsonb,
+    $97::bigint,
+    $98::int,
     $99::varchar,
     $100::varchar,
-    $101::jsonb,
-    $102::boolean,
-    $103::boolean,
+    $101::varchar,
+    $102::uuid,
+    $103::uuid,
     $104::varchar,
     $105::varchar,
     $106::varchar,
-    $107::varchar,
-    $108::bigint,
-    $109::bigint,
+    $107::jsonb,
+    $108::jsonb,
+    $109::boolean,
     $110::boolean,
     $111::varchar,
-    $112::bigint,
+    $112::varchar,
     $113::varchar,
-    $114::boolean,
-    $115::varchar,
-    $116::varchar,
-    $117::varchar,
-    $118::bigint,
+    $114::varchar,
+    $115::bigint,
+    $116::bigint,
+    $117::boolean,
+    $118::varchar,
     $119::bigint,
-    $120::boolean,
-    $121::varchar,
-    $122::bigint,
-    $123::double precision,
-    $124::double precision,
-    $125::int,
-    $126::int,
-    $127::int,
-    $128::int,
-    $129::varchar,
+    $120::varchar,
+    $121::boolean,
+    $122::varchar,
+    $123::varchar,
+    $124::varchar,
+    $125::bigint,
+    $126::bigint,
+    $127::boolean,
+    $128::varchar,
+    $129::bigint,
     $130::double precision,
-    $131::int,
+    $131::double precision,
     $132::int,
     $133::int,
     $134::int,
     $135::int,
-    $136::boolean,
-    $137::varchar[],
-    $138::varchar[],
-    $139::varchar,
-    $140::varchar,
-    $141::varchar,
-    $142::varchar,
-    $143::varchar,
-    $144::varchar,
-    $145::varchar,
+    $136::varchar,
+    $137::double precision,
+    $138::int,
+    $139::int,
+    $140::int,
+    $141::int,
+    $142::int,
+    $143::boolean,
+    $144::varchar[],
+    $145::varchar[],
     $146::varchar,
-    $147::boolean,
+    $147::varchar,
     $148::varchar,
     $149::varchar,
-    $150::boolean,
+    $150::varchar,
     $151::varchar,
     $152::varchar,
     $153::varchar,
-    $154::varchar,
+    $154::boolean,
     $155::varchar,
-    $156::bigint,
-    $157::varchar,
-    $158::bigint,
-    $159::bigint,
-    $160::bigint,
-    $161::bigint,
-    $162::boolean,
-    $163::varchar,
+    $156::varchar,
+    $157::boolean,
+    $158::varchar,
+    $159::varchar,
+    $160::varchar,
+    $161::varchar,
+    $162::varchar,
+    $163::bigint,
     $164::varchar,
-    $165::varchar,
-    $166::varchar,
-    $167::varchar,
-    $168::varchar,
+    $165::bigint,
+    $166::bigint,
+    $167::bigint,
+    $168::bigint,
     $169::boolean,
-    $170::bigint,
+    $170::varchar,
     $171::varchar,
     $172::varchar,
     $173::varchar,
-    $174::jsonb,
-    $175::jsonb
+    $174::varchar,
+    $175::varchar,
+    $176::boolean,
+    $177::bigint,
+    $178::varchar,
+    $179::varchar,
+    $180::varchar,
+    $181::jsonb,
+    $182::jsonb
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -2368,6 +3157,8 @@ type InsertRequestTelemetryParams struct {
 	BlindExperimentArm                       *string
 	BlindExperimentAssignmentSource          *string
 	BlindExperimentSubjectKey                *string
+	BlindExperimentMode                      *string
+	BlindExperimentSessionKey                *string
 	CohortExperimentID                       pgtype.UUID
 	CohortGroupID                            *int16
 	CohortPhaseIndex                         *int16
@@ -2375,6 +3166,10 @@ type InsertRequestTelemetryParams struct {
 	CohortScheduledArm                       *string
 	CohortTreatmentApplied                   *bool
 	CohortBypassReason                       *string
+	BlindExperimentModelSource               *string
+	BlindExperimentTreatmentApplied          *bool
+	BlindExperimentBaselineModel             *string
+	BlindExperimentModelChanged              *bool
 	TurnType                                 string
 	RolloutID                                *string
 	UpstreamFinishReason                     *string
@@ -2404,6 +3199,7 @@ type InsertRequestTelemetryParams struct {
 	IntendedModelFamily                      *string
 	FinalModelFamily                         *string
 	UnifiedLimitHeaders                      []byte
+	CodexLimitHeaders                        []byte
 	PolicyPinRequested                       *bool
 	PolicyPinHonoured                        *bool
 	PlannerOutcome                           *string
@@ -2513,6 +3309,8 @@ type InsertRequestTelemetryParams struct {
 // set observed on this turn (Claude Code cost-observing-proxy Phase 0
 // instrumentation). NULL on non-subscription turns and on rows written before
 // the column existed. Nothing reads it yet.
+// codex_limit_headers is the verbatim x-codex-{primary,secondary,credits}-*
+// header set observed on a Codex-subscription-served turn. NULL otherwise.
 // inference_* / plan_* / fallback_reason / accounting_outcome / usage_known are
 // the inference-policy provenance of the operation (purpose, policy entry and
 // revisions, policy-selected target, why the served target differs, how usage
@@ -2604,6 +3402,8 @@ type InsertRequestTelemetryParams struct {
 //	    blind_experiment_arm,
 //	    blind_experiment_assignment_source,
 //	    blind_experiment_subject_key,
+//	    blind_experiment_mode,
+//	    blind_experiment_session_key,
 //	    cohort_experiment_id,
 //	    cohort_group_id,
 //	    cohort_phase_index,
@@ -2611,6 +3411,10 @@ type InsertRequestTelemetryParams struct {
 //	    cohort_scheduled_arm,
 //	    cohort_treatment_applied,
 //	    cohort_bypass_reason,
+//	    blind_experiment_model_source,
+//	    blind_experiment_treatment_applied,
+//	    blind_experiment_baseline_model,
+//	    blind_experiment_model_changed,
 //	    turn_type,
 //	    rollout_id,
 //	    upstream_finish_reason,
@@ -2640,6 +3444,7 @@ type InsertRequestTelemetryParams struct {
 //	    intended_model_family,
 //	    final_model_family,
 //	    unified_limit_headers,
+//	    codex_limit_headers,
 //	    policy_pin_requested,
 //	    policy_pin_honoured,
 //	    planner_outcome,
@@ -2780,116 +3585,123 @@ type InsertRequestTelemetryParams struct {
 //	    $63::varchar,
 //	    $64::varchar,
 //	    $65::varchar,
-//	    $66::uuid,
-//	    $67::smallint,
-//	    $68::smallint,
-//	    $69::integer,
-//	    $70::varchar,
-//	    $71::boolean,
+//	    $66::varchar,
+//	    $67::varchar,
+//	    $68::uuid,
+//	    $69::smallint,
+//	    $70::smallint,
+//	    $71::integer,
 //	    $72::varchar,
-//	    $73::varchar,
+//	    $73::boolean,
 //	    $74::varchar,
-//	    $75::text,
-//	    $76::text,
-//	    $77::int,
-//	    $78::int,
+//	    $75::varchar,
+//	    $76::boolean,
+//	    $77::varchar,
+//	    $78::boolean,
 //	    $79::varchar,
-//	    $80::int,
-//	    $81::jsonb,
-//	    $82::boolean,
-//	    $83::boolean,
-//	    $84::boolean,
-//	    $85::boolean,
-//	    $86::boolean,
-//	    $87::bytea,
-//	    $88::varchar,
-//	    $89::varchar,
-//	    $90::jsonb,
-//	    $91::bigint,
-//	    $92::int,
-//	    $93::varchar,
+//	    $80::varchar,
+//	    $81::text,
+//	    $82::text,
+//	    $83::int,
+//	    $84::int,
+//	    $85::varchar,
+//	    $86::int,
+//	    $87::jsonb,
+//	    $88::boolean,
+//	    $89::boolean,
+//	    $90::boolean,
+//	    $91::boolean,
+//	    $92::boolean,
+//	    $93::bytea,
 //	    $94::varchar,
 //	    $95::varchar,
-//	    $96::uuid,
-//	    $97::uuid,
-//	    $98::varchar,
+//	    $96::jsonb,
+//	    $97::bigint,
+//	    $98::int,
 //	    $99::varchar,
 //	    $100::varchar,
-//	    $101::jsonb,
-//	    $102::boolean,
-//	    $103::boolean,
+//	    $101::varchar,
+//	    $102::uuid,
+//	    $103::uuid,
 //	    $104::varchar,
 //	    $105::varchar,
 //	    $106::varchar,
-//	    $107::varchar,
-//	    $108::bigint,
-//	    $109::bigint,
+//	    $107::jsonb,
+//	    $108::jsonb,
+//	    $109::boolean,
 //	    $110::boolean,
 //	    $111::varchar,
-//	    $112::bigint,
+//	    $112::varchar,
 //	    $113::varchar,
-//	    $114::boolean,
-//	    $115::varchar,
-//	    $116::varchar,
-//	    $117::varchar,
-//	    $118::bigint,
+//	    $114::varchar,
+//	    $115::bigint,
+//	    $116::bigint,
+//	    $117::boolean,
+//	    $118::varchar,
 //	    $119::bigint,
-//	    $120::boolean,
-//	    $121::varchar,
-//	    $122::bigint,
-//	    $123::double precision,
-//	    $124::double precision,
-//	    $125::int,
-//	    $126::int,
-//	    $127::int,
-//	    $128::int,
-//	    $129::varchar,
+//	    $120::varchar,
+//	    $121::boolean,
+//	    $122::varchar,
+//	    $123::varchar,
+//	    $124::varchar,
+//	    $125::bigint,
+//	    $126::bigint,
+//	    $127::boolean,
+//	    $128::varchar,
+//	    $129::bigint,
 //	    $130::double precision,
-//	    $131::int,
+//	    $131::double precision,
 //	    $132::int,
 //	    $133::int,
 //	    $134::int,
 //	    $135::int,
-//	    $136::boolean,
-//	    $137::varchar[],
-//	    $138::varchar[],
-//	    $139::varchar,
-//	    $140::varchar,
-//	    $141::varchar,
-//	    $142::varchar,
-//	    $143::varchar,
-//	    $144::varchar,
-//	    $145::varchar,
+//	    $136::varchar,
+//	    $137::double precision,
+//	    $138::int,
+//	    $139::int,
+//	    $140::int,
+//	    $141::int,
+//	    $142::int,
+//	    $143::boolean,
+//	    $144::varchar[],
+//	    $145::varchar[],
 //	    $146::varchar,
-//	    $147::boolean,
+//	    $147::varchar,
 //	    $148::varchar,
 //	    $149::varchar,
-//	    $150::boolean,
+//	    $150::varchar,
 //	    $151::varchar,
 //	    $152::varchar,
 //	    $153::varchar,
-//	    $154::varchar,
+//	    $154::boolean,
 //	    $155::varchar,
-//	    $156::bigint,
-//	    $157::varchar,
-//	    $158::bigint,
-//	    $159::bigint,
-//	    $160::bigint,
-//	    $161::bigint,
-//	    $162::boolean,
-//	    $163::varchar,
+//	    $156::varchar,
+//	    $157::boolean,
+//	    $158::varchar,
+//	    $159::varchar,
+//	    $160::varchar,
+//	    $161::varchar,
+//	    $162::varchar,
+//	    $163::bigint,
 //	    $164::varchar,
-//	    $165::varchar,
-//	    $166::varchar,
-//	    $167::varchar,
-//	    $168::varchar,
+//	    $165::bigint,
+//	    $166::bigint,
+//	    $167::bigint,
+//	    $168::bigint,
 //	    $169::boolean,
-//	    $170::bigint,
+//	    $170::varchar,
 //	    $171::varchar,
 //	    $172::varchar,
 //	    $173::varchar,
-//	    $174::jsonb,
-//	    $175::jsonb
+//	    $174::varchar,
+//	    $175::varchar,
+//	    $176::boolean,
+//	    $177::bigint,
+//	    $178::varchar,
+//	    $179::varchar,
+//	    $180::varchar,
+//	    $181::jsonb,
+//	    $182::jsonb
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -2959,6 +3771,8 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.BlindExperimentArm,
 		arg.BlindExperimentAssignmentSource,
 		arg.BlindExperimentSubjectKey,
+		arg.BlindExperimentMode,
+		arg.BlindExperimentSessionKey,
 		arg.CohortExperimentID,
 		arg.CohortGroupID,
 		arg.CohortPhaseIndex,
@@ -2966,6 +3780,10 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.CohortScheduledArm,
 		arg.CohortTreatmentApplied,
 		arg.CohortBypassReason,
+		arg.BlindExperimentModelSource,
+		arg.BlindExperimentTreatmentApplied,
+		arg.BlindExperimentBaselineModel,
+		arg.BlindExperimentModelChanged,
 		arg.TurnType,
 		arg.RolloutID,
 		arg.UpstreamFinishReason,
@@ -2995,6 +3813,7 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.IntendedModelFamily,
 		arg.FinalModelFamily,
 		arg.UnifiedLimitHeaders,
+		arg.CodexLimitHeaders,
 		arg.PolicyPinRequested,
 		arg.PolicyPinHonoured,
 		arg.PlannerOutcome,

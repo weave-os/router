@@ -220,10 +220,10 @@ func TestReadmittableCooldowns_DropsPermanentAndImageUnsafeArms(t *testing.T) {
 	}
 
 	assert.Equal(t, map[string]time.Time{"claude-opus-5": until, "qwen/qwen3-235b-a22b-2507": until},
-		readmittableCooldowns(cooling, []string{"glm-5"}, false))
+		readmittableCooldowns(cooling, []string{"glm-5"}, 0))
 	assert.Equal(t, map[string]time.Time{"claude-opus-5": until},
-		readmittableCooldowns(cooling, []string{"glm-5"}, true))
-	assert.Nil(t, readmittableCooldowns(map[string]time.Time{"glm-5": until}, []string{"glm-5"}, false))
+		readmittableCooldowns(cooling, []string{"glm-5"}, 1))
+	assert.Nil(t, readmittableCooldowns(map[string]time.Time{"glm-5": until}, []string{"glm-5"}, 0))
 }
 
 // Exhausted pool: every candidate but the failed arm is cooling down, so the

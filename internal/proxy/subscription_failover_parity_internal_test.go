@@ -89,7 +89,8 @@ func parityAnthropicIngress() parityIngress {
 		byokKey:        parityAnthropicBYOK,
 		subCtx: func() context.Context {
 			ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, parityAnthropicToken)
-			return context.WithValue(ctx, InstallationIDContextKey{}, parityInstallationID)
+			// These parity cases exercise the explicitly enabled API fallback.
+			return withClaudeCreditFallback(context.WithValue(ctx, InstallationIDContextKey{}, parityInstallationID))
 		},
 		servedOnSub:       servedOnSubscription,
 		fallbackAvailable: (*Service).anthropicFallbackKeyAvailable,
@@ -165,8 +166,13 @@ func parityIngresses() []parityIngress {
 
 // byokCtx adds a BYOK key for the ingress' provider.
 func (in parityIngress) byokCtx(ctx context.Context) context.Context {
+	// Mirrors stored keys: Anthropic rows predating funding priorities are key-first.
+	priority := auth.FundingPriorityPlanFirst
+	if in.provider == providers.ProviderAnthropic {
+		priority = auth.FundingPriorityKeyFirst
+	}
 	return context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: in.provider, Plaintext: []byte(in.byokKey)},
+		{Provider: in.provider, Plaintext: []byte(in.byokKey), FundingPriority: priority},
 	})
 }
 
@@ -285,7 +291,7 @@ func TestSubscriptionFailoverParity_ModelCoverage(t *testing.T) {
 
 	t.Run("anthropic has no coverage gate", func(t *testing.T) {
 		in := parityAnthropicIngress()
-		ctx := resolveAndInjectCredentials(in.byokCtx(in.subCtx()), in.provider, in.uncoveredModel, http.Header{})
+		ctx := resolveAndInjectCredentials(in.subCtx(), in.provider, in.uncoveredModel, http.Header{})
 		require.NotNil(t, CredentialsFromContext(ctx))
 		assert.True(t, servedOnSubscription(ctx),
 			"any Anthropic model the caller can reach serves on the Claude subscription (D2)")
@@ -672,6 +678,9 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 				require.Error(t, err)
 				assert.Zero(t, upstream.paidDispatches,
 					"credential faults do not establish quota exhaustion")
+				assert.Equal(t, http.StatusUnauthorized, rec.Code,
+					"the client must see its own credential rejection so it can re-authenticate")
+				assert.Contains(t, rec.Body.String(), "authentication_error")
 			})
 		}
 

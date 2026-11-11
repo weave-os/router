@@ -66,6 +66,16 @@ func (s *scriptedSubscriptionLeaser) Disable(_ context.Context, _ auth.Subscript
 	return nil
 }
 
+type strikingSubscriptionLeaser struct {
+	*scriptedSubscriptionLeaser
+	rejected []int
+}
+
+func (s *strikingSubscriptionLeaser) RejectCredential(_ context.Context, _ auth.SubscriptionOwner, _ subscriptions.Provider, _ string, upstreamStatus int) (bool, error) {
+	s.rejected = append(s.rejected, upstreamStatus)
+	return false, nil
+}
+
 func managedSubscriptionTestContext() context.Context {
 	return managedSubscriptionContext(auth.SubscriptionProviderClaude)
 }
@@ -75,7 +85,8 @@ func managedSubscriptionContext(provider auth.SubscriptionProvider) context.Cont
 	ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
 		provider: {},
 	})
-	return WithManagedSubscriptionUsage(ctx)
+	// Pool recovery tests opt into metered fallback; default-only cases use raw enrollment.
+	return withClaudeCreditFallback(WithManagedSubscriptionUsage(ctx))
 }
 
 func exhaustedManagedSubscriptionContext(provider auth.SubscriptionProvider) context.Context {
@@ -245,24 +256,18 @@ func TestLeaseManagedCodexRefusesPaidFallbackAfterAllLinkedAccountsAreRejected(t
 	require.Len(t, leaser.providers, 2)
 }
 
-func TestManagedSubscriptionOverridesBYOKButNotInboundOAuth(t *testing.T) {
+func TestManagedSubscriptionPreservesAnthropicBYOK(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-claude", AccessToken: "managed-token"}}}
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
 	base := managedSubscriptionTestContext()
 
-	byokCtx := context.WithValue(base, CredentialsContextKey{}, &Credentials{APIKey: []byte("byok-token"), Source: credSourceBYOK})
-	managedCtx, managedLease, managed, err := svc.leaseManagedSubscription(byokCtx, providers.ProviderAnthropic, "claude-opus-4-8")
-	require.NoError(t, err)
-	require.True(t, managed)
-	require.Equal(t, "managed-token", string(CredentialsFromContext(managedCtx).APIKey))
-	managedLease.Release()
-
-	oauth := &Credentials{APIKey: []byte("inbound-oauth"), Source: credSourceSubscription, OAuth: true}
-	oauthCtx := context.WithValue(base, CredentialsContextKey{}, oauth)
-	unchangedCtx, _, managed, err := svc.leaseManagedSubscription(oauthCtx, providers.ProviderAnthropic, "claude-opus-4-8")
+	byokCtx := context.WithValue(base, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("synthetic-byok")}})
+	byokCtx = svc.resolveCredentials(byokCtx, providers.ProviderAnthropic, "claude-opus-4-8", nil)
+	unchangedCtx, _, managed, err := svc.leaseManagedSubscription(byokCtx, providers.ProviderAnthropic, "claude-opus-4-8")
 	require.NoError(t, err)
 	require.False(t, managed)
-	require.Same(t, oauth, CredentialsFromContext(unchangedCtx))
+	require.Same(t, CredentialsFromContext(byokCtx), CredentialsFromContext(unchangedCtx))
+	require.Empty(t, leaser.providers)
 }
 
 func TestManagedSubscriptionEnrollmentFailureDoesNotClaimCapacity(t *testing.T) {
@@ -329,7 +334,7 @@ func TestManagedSubscriptionAllPlansExhaustedPreservesSubscriptionOnly(t *testin
 	svc := newServiceWithProviders(t, nil).
 		WithManagedSubscriptions(leaser)
 	ctx := billing.WithSubscriptionOnly(exhaustedManagedSubscriptionContext(auth.SubscriptionProviderClaude), billing.SubscriptionOnlyCreditsDepleted)
-	ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true}})
+	ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true, flags.KeyClaudeEnterpriseOnly: false}})
 
 	out, _, managed, err := svc.leaseManagedSubscription(
 		ctx,
@@ -350,7 +355,7 @@ func TestLeaseManagedSubscription_LinkedFirstExhaustedPool_FallsThroughToCredits
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 	ctx := flags.WithOverrides(
 		billing.WithSubscriptionOnly(exhaustedManagedSubscriptionContext(auth.SubscriptionProviderClaude), billing.SubscriptionOnlyLinkedFirst),
-		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true}},
+		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true, flags.KeyClaudeEnterpriseOnly: false}},
 	)
 
 	_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
@@ -364,7 +369,7 @@ func TestLeaseManagedSubscription_LinkedFirstExhaustedPool_NoFallbackKey_Refuses
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
 	ctx := flags.WithOverrides(
 		billing.WithSubscriptionOnly(exhaustedManagedSubscriptionContext(auth.SubscriptionProviderClaude), billing.SubscriptionOnlyLinkedFirst),
-		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true}},
+		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true, flags.KeyClaudeEnterpriseOnly: false}},
 	)
 
 	_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
@@ -382,7 +387,7 @@ func TestLeaseManagedSubscription_CreditsDepletedExhaustedPool_StillRefuses(t *t
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 	ctx := flags.WithOverrides(
 		billing.WithSubscriptionOnly(exhaustedManagedSubscriptionContext(auth.SubscriptionProviderClaude), billing.SubscriptionOnlyCreditsDepleted),
-		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true}},
+		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true, flags.KeyClaudeEnterpriseOnly: false}},
 	)
 
 	_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
@@ -613,6 +618,37 @@ func TestDispatchWithFallbackDisablesRejectedManagedAccountBeforeRotation(t *tes
 
 	require.NoError(t, err)
 	require.Equal(t, []string{"opaque-a"}, leaser.disabledIDs)
+	require.Equal(t, "served", recorder.Body.String())
+}
+
+func TestDispatchWithFallbackStrikesRejectedManagedAccountInsteadOfDisabling(t *testing.T) {
+	leaser := &strikingSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
+		{AccountID: "opaque-a", AccessToken: "token-a"},
+		{AccountID: "opaque-b", AccessToken: "token-b"},
+	}}}
+	client := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{
+		{err: &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized}},
+		{writeBytes: []byte("served")},
+	}}
+	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
+	recorder := httptest.NewRecorder()
+	buffer := newPreludeBuffer(recorder)
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
+		w: recorder, buf: buffer,
+		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
+		purpose:         inference.PurposeAnthropicMessages,
+		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+			buffer.Seal()
+			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
+		},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, []int{http.StatusUnauthorized}, leaser.rejected)
+	require.Empty(t, leaser.disabledIDs)
 	require.Equal(t, "served", recorder.Body.String())
 }
 

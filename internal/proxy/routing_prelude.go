@@ -3,8 +3,12 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/subscriptions"
+	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
 )
 
@@ -40,4 +44,68 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 		}
 	}
 	return s.delivery, nil
+}
+
+func addRoutingFundingSource(ctx context.Context, provider, model string, notice translate.RouterNotice) translate.RouterNotice {
+	if notice.Kind != translate.NoticeModelSelection || notice.Text == "" {
+		return notice
+	}
+	credentialSource := ""
+	if credentials := CredentialsFromContext(ctx); credentials != nil {
+		credentialSource = credentials.Source
+	}
+	if managedSubscriptionCanServe(ctx, provider, model) {
+		if source, eligible := managedSubscriptionProviderFromUpstream(provider, model); eligible {
+			switch source {
+			case subscriptions.ProviderClaude:
+				return setFundingSource(notice, "Claude subscription")
+			case subscriptions.ProviderCodex:
+				return setFundingSource(notice, "Codex subscription")
+			}
+		}
+	}
+
+	switch credentialSource {
+	case credSourceSubscription:
+		return setFundingSource(notice, "Claude subscription")
+	case credSourceSubscriptionOverage:
+		return setFundingSource(notice, "Claude subscription overage")
+	case credSourceCodexSubscription:
+		return setFundingSource(notice, "Codex subscription")
+	case credSourceBYOK, credSourceClient:
+		return setFundingSource(notice, "your provider API key")
+	}
+
+	switch telemetryCapacitySource(ctx, credentialSource) {
+	case entitlement.CapacitySourcePrepaid:
+		return setFundingSource(notice, "Weave credits")
+	case entitlement.CapacitySourceIncludedRouter:
+		return setFundingSource(notice, "Weave Router allowance")
+	case entitlement.CapacitySourceBillingOverride:
+		return setFundingSource(notice, "Weave-managed billing")
+	}
+	if billing.OrganizationPrepaidFromContext(ctx) {
+		return setFundingSource(notice, "Weave credits")
+	}
+	return setFundingSource(notice, "")
+}
+
+func setFundingSource(notice translate.RouterNotice, source string) translate.RouterNotice {
+	lineEnd := strings.IndexByte(notice.Text, '\n')
+	firstLine := notice.Text
+	if lineEnd >= 0 {
+		firstLine = notice.Text[:lineEnd]
+	}
+	if labelStart := strings.LastIndex(firstLine, " · funded by "); labelStart >= 0 {
+		firstLine = firstLine[:labelStart]
+	}
+	if source != "" {
+		firstLine += " · funded by " + source
+	}
+	if lineEnd < 0 {
+		notice.Text = firstLine
+		return notice
+	}
+	notice.Text = firstLine + notice.Text[lineEnd:]
+	return notice
 }

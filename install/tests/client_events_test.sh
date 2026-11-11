@@ -122,7 +122,7 @@ run_uninstall() { # run_uninstall <home> <watch-file> -- <args>
 # ---------- codex ----------
 printf 'codex\n'
 home="$work/codex"; mkdir -p "$home"
-run "$home" WEAVE_ROUTER_KEY=rk_codex_secret_1234 -- --codex --scope user --quiet --base-url https://router.workweave.ai
+run "$home" WEAVE_ROUTER_KEY=rk_codex_secret_1234 -- --codex --scope user --quiet --base-url https://router.weaveos.com
 config="$home/.codex/config.toml"
 [ -f "$config" ] || { echo "codex install did not write $config" >&2; exit 1; }
 settle
@@ -190,7 +190,7 @@ wait_for_events 6
 run "$home" -- off --codex --scope user --quiet --base-url http://127.0.0.1:9
 wait_for_events 7
 check "explicit --base-url is the endpoint pinged" "$(tail -n 1 "$url_log")" "http://127.0.0.1:9/v1/client-events"
-check "on-disk endpoint is pinged otherwise" "$(head -n 1 "$url_log")" "https://router.workweave.ai/v1/client-events"
+check "on-disk endpoint is pinged otherwise" "$(head -n 1 "$url_log")" "https://router.weaveos.com/v1/client-events"
 run "$home" -- on --codex --scope user --quiet
 wait_for_events 8
 
@@ -214,7 +214,7 @@ check "off on an absent install reports nothing" "$(event_count)" "9"
 printf 'claude\n'
 : >"$event_log"
 home="$work/claude"; mkdir -p "$home"
-run "$home" WEAVE_ROUTER_KEY=rk_claude_secret_1234 -- --claude --scope user --quiet --non-interactive --base-url https://router.workweave.ai
+run "$home" WEAVE_ROUTER_KEY=rk_claude_secret_1234 -- --claude --scope user --quiet --non-interactive --base-url https://router.weaveos.com
 settings="$home/.claude/settings.json"
 [ -f "$settings" ] || { echo "claude install did not write $settings" >&2; exit 1; }
 settle
@@ -265,7 +265,7 @@ fi
 
 # Toggled off at uninstall time: the key only lives in the sidecar, which is
 # what the report must read before the uninstall deletes it.
-run "$home" WEAVE_ROUTER_KEY=rk_claude_secret_1234 -- --claude --scope user --quiet --non-interactive --base-url https://router.workweave.ai
+run "$home" WEAVE_ROUTER_KEY=rk_claude_secret_1234 -- --claude --scope user --quiet --non-interactive --base-url https://router.weaveos.com
 run "$home" -- off --claude --scope user --quiet
 wait_for_events 5
 run_uninstall "$home" "$home/.claude/.weave-parked.json" -- --claude --scope user
@@ -277,7 +277,7 @@ assert "uninstall removed the sidecar" "gone" "present" [ ! -f "$home/.claude/.w
 printf 'opencode\n'
 : >"$event_log"
 home="$work/opencode"; dir="$home/oc"; mkdir -p "$home" "$dir"
-run "$home" WEAVE_ROUTER_KEY=rk_opencode_secret_1 -- --opencode --dir "$dir" --quiet --non-interactive --base-url https://router.workweave.ai
+run "$home" WEAVE_ROUTER_KEY=rk_opencode_secret_1 -- --opencode --dir "$dir" --quiet --non-interactive --base-url https://router.weaveos.com
 config="$dir/opencode.json"
 [ -f "$config" ] || { echo "opencode install did not write $config" >&2; exit 1; }
 settle
@@ -301,7 +301,7 @@ check "uninstall reports before cleaning the config" "$(last_event)" 'POST /v1/c
 printf 'pi\n'
 : >"$event_log"
 home="$work/pi"; mkdir -p "$home"
-run "$home" WEAVE_ROUTER_KEY=rk_pi_secret_12345 -- --pi --scope user --quiet --non-interactive --base-url https://router.workweave.ai
+run "$home" WEAVE_ROUTER_KEY=rk_pi_secret_12345 -- --pi --scope user --quiet --non-interactive --base-url https://router.weaveos.com
 models="$home/.pi/agent/models.json"
 [ -f "$models" ] || models="$(find "$home" -name models.json | head -n 1)"
 if [ -z "$models" ] || [ ! -f "$models" ]; then echo "pi install did not write models.json" >&2; exit 1; fi

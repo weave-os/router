@@ -18,9 +18,9 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// SubscriptionTokenPrefix marks a Claude subscription (Claude.ai OAuth)
-// bearer. Matches the "oat" stem to cover both sk-ant-oat- and the
-// real-world sk-ant-oat01-… shapes.
+// SubscriptionTokenPrefix recognizes client subscription-shaped bearers.
+// Workload API tokens share this prefix and must use explicit federation
+// configuration rather than the client subscription extraction path.
 const SubscriptionTokenPrefix = "sk-ant-oat"
 
 // ChatGPTAccountIDHeader is the header Codex sends alongside a ChatGPT
@@ -40,6 +40,8 @@ const (
 
 // Credentials holds the API key to use for an upstream request.
 type Credentials struct {
+	// SubscriptionPlan comes only from an authenticated provider profile.
+	SubscriptionPlan      providers.SubscriptionPlan
 	SubscriptionAccountID string
 	APIKey                []byte // never logged
 	Source                string // SourceBYOK | SourceClient | SourceSubscription | SourceCodexSubscription
@@ -65,13 +67,22 @@ type Credentials struct {
 	BaggageHeader          string
 	// AuthType is the BYOK key's auth mode (see auth.AuthType*). APIKey already holds
 	// the derived credential; this tells the adapter how the upstream must read it.
-	AuthType string
+	AuthType auth.AuthType
+	// FundingPriority orders a BYOK credential against the caller's
+	// subscription for the same provider; empty on every other source.
+	FundingPriority auth.FundingPriority
+	// CredentialError prevents an unavailable BYOK key from falling back to
+	// the deployment credential for that same provider.
+	CredentialError error
 	// PrincipalID names the upstream account this credential authenticates as,
 	// independent of the bytes in APIKey: a workload-identity or keypair-JWT
 	// credential mints a fresh short-lived bearer per request, so the key is no
 	// identity at all. Non-secret and safe to fingerprint; empty when the
 	// credential is only known by its key material.
 	PrincipalID string
+	// ExternalKeyID is the stored external key row a BYOK credential came
+	// from; empty for every other source.
+	ExternalKeyID string
 }
 
 // UpstreamPrincipal identifies the account this credential authenticates as,

@@ -24,9 +24,10 @@ SELECT (
         'organization_monthly_spend',
         'organization_spend_limits',
         'model_router_user_spend_limits',
-        'subscriber_autopay_config'
+        'subscriber_autopay_config',
+        'delegated_token_spend'
       )
-) = 8 AS billing_tables_exist
+) = 9 AS billing_tables_exist
 `
 
 // Returns true if every table the billing debit path touches exists in the
@@ -48,9 +49,10 @@ SELECT (
 //	        'organization_monthly_spend',
 //	        'organization_spend_limits',
 //	        'model_router_user_spend_limits',
-//	        'subscriber_autopay_config'
+//	        'subscriber_autopay_config',
+//	        'delegated_token_spend'
 //	      )
-//	) = 8 AS billing_tables_exist
+//	) = 9 AS billing_tables_exist
 func (q *Queries) CheckBillingTablesExist(ctx context.Context) (bool, error) {
 	row := q.db.QueryRow(ctx, checkBillingTablesExist)
 	var billing_tables_exist bool
@@ -130,6 +132,30 @@ key_spend AS (
     WHERE id = $10::uuid
       AND EXISTS (SELECT 1 FROM updated)
 ),
+delegated_spend AS (
+    -- Per-session and per-task spend of a delegated session token, attributed
+    -- to the issuer key that signed it. Same gate and sign convention as
+    -- key_spend; no-ops for any other credential (both scope IDs NULL), and
+    -- when the issuer key was deleted mid-request, so its FK cannot roll back
+    -- a debit for inference already served.
+    INSERT INTO router.delegated_token_spend (issuer_key_id, scope_kind, scope_id, spent_usd_micros, updated_at)
+    SELECT $10::uuid, delegated.scope_kind, delegated.scope_id, -($1::bigint), NOW()
+    FROM (
+        VALUES
+            ('session', $11::varchar),
+            ('task', $12::varchar)
+    ) AS delegated (scope_kind, scope_id)
+    WHERE delegated.scope_id IS NOT NULL
+      AND $10::uuid IS NOT NULL
+      AND EXISTS (SELECT 1 FROM updated)
+      AND EXISTS (
+          SELECT 1 FROM router.model_router_api_keys
+          WHERE id = $10::uuid
+      )
+    ON CONFLICT (issuer_key_id, scope_kind, scope_id) DO UPDATE
+    SET spent_usd_micros = router.delegated_token_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
+        updated_at = NOW()
+),
 user_month_spend AS (
     -- Month-bucketed per-engineer spend counter for monthly limit
     -- enforcement. Same gating and sign convention as key_spend; no-ops when
@@ -139,15 +165,15 @@ user_month_spend AS (
     -- after inference was already served.
     INSERT INTO router.model_router_user_monthly_spend (router_user_id, month, spent_usd_micros, updated_at)
     SELECT
-        $11::uuid,
+        $13::uuid,
         DATE_TRUNC('month', NOW() AT TIME ZONE 'utc')::date,
         -($1::bigint),
         NOW()
-    WHERE $11::uuid IS NOT NULL
+    WHERE $13::uuid IS NOT NULL
       AND EXISTS (SELECT 1 FROM updated)
       AND EXISTS (
           SELECT 1 FROM router.model_router_users
-          WHERE id = $11::uuid
+          WHERE id = $13::uuid
       )
     ON CONFLICT (router_user_id, month) DO UPDATE
     SET spent_usd_micros = router.model_router_user_monthly_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
@@ -181,6 +207,8 @@ type DebitOrgCreditsParams struct {
 	RouterModel        *string
 	FeeEntryType       string
 	APIKeyID           pgtype.UUID
+	DelegatedSessionID *string
+	DelegatedTaskID    *string
 	RouterUserID       pgtype.UUID
 }
 
@@ -289,6 +317,30 @@ type DebitOrgCreditsParams struct {
 //	    WHERE id = $10::uuid
 //	      AND EXISTS (SELECT 1 FROM updated)
 //	),
+//	delegated_spend AS (
+//	    -- Per-session and per-task spend of a delegated session token, attributed
+//	    -- to the issuer key that signed it. Same gate and sign convention as
+//	    -- key_spend; no-ops for any other credential (both scope IDs NULL), and
+//	    -- when the issuer key was deleted mid-request, so its FK cannot roll back
+//	    -- a debit for inference already served.
+//	    INSERT INTO router.delegated_token_spend (issuer_key_id, scope_kind, scope_id, spent_usd_micros, updated_at)
+//	    SELECT $10::uuid, delegated.scope_kind, delegated.scope_id, -($1::bigint), NOW()
+//	    FROM (
+//	        VALUES
+//	            ('session', $11::varchar),
+//	            ('task', $12::varchar)
+//	    ) AS delegated (scope_kind, scope_id)
+//	    WHERE delegated.scope_id IS NOT NULL
+//	      AND $10::uuid IS NOT NULL
+//	      AND EXISTS (SELECT 1 FROM updated)
+//	      AND EXISTS (
+//	          SELECT 1 FROM router.model_router_api_keys
+//	          WHERE id = $10::uuid
+//	      )
+//	    ON CONFLICT (issuer_key_id, scope_kind, scope_id) DO UPDATE
+//	    SET spent_usd_micros = router.delegated_token_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
+//	        updated_at = NOW()
+//	),
 //	user_month_spend AS (
 //	    -- Month-bucketed per-engineer spend counter for monthly limit
 //	    -- enforcement. Same gating and sign convention as key_spend; no-ops when
@@ -298,15 +350,15 @@ type DebitOrgCreditsParams struct {
 //	    -- after inference was already served.
 //	    INSERT INTO router.model_router_user_monthly_spend (router_user_id, month, spent_usd_micros, updated_at)
 //	    SELECT
-//	        $11::uuid,
+//	        $13::uuid,
 //	        DATE_TRUNC('month', NOW() AT TIME ZONE 'utc')::date,
 //	        -($1::bigint),
 //	        NOW()
-//	    WHERE $11::uuid IS NOT NULL
+//	    WHERE $13::uuid IS NOT NULL
 //	      AND EXISTS (SELECT 1 FROM updated)
 //	      AND EXISTS (
 //	          SELECT 1 FROM router.model_router_users
-//	          WHERE id = $11::uuid
+//	          WHERE id = $13::uuid
 //	      )
 //	    ON CONFLICT (router_user_id, month) DO UPDATE
 //	    SET spent_usd_micros = router.model_router_user_monthly_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
@@ -339,6 +391,8 @@ func (q *Queries) DebitOrgCredits(ctx context.Context, arg DebitOrgCreditsParams
 		arg.RouterModel,
 		arg.FeeEntryType,
 		arg.APIKeyID,
+		arg.DelegatedSessionID,
+		arg.DelegatedTaskID,
 		arg.RouterUserID,
 	)
 	var balance_after_micros int64
@@ -372,6 +426,48 @@ func (q *Queries) GetActiveBillingOverride(ctx context.Context, organizationID s
 	var has_override bool
 	err := row.Scan(&has_override)
 	return has_override, err
+}
+
+const getDelegatedTokenSpend = `-- name: GetDelegatedTokenSpend :one
+SELECT
+    COALESCE((
+        SELECT spent_usd_micros FROM router.delegated_token_spend
+        WHERE issuer_key_id = $1::uuid AND scope_kind = 'session' AND scope_id = $2::varchar
+    ), 0)::bigint AS session_spent_usd_micros,
+    COALESCE((
+        SELECT spent_usd_micros FROM router.delegated_token_spend
+        WHERE issuer_key_id = $1::uuid AND scope_kind = 'task' AND scope_id = $3::varchar
+    ), 0)::bigint AS task_spent_usd_micros
+`
+
+type GetDelegatedTokenSpendParams struct {
+	IssuerKeyID uuid.UUID
+	SessionID   string
+	TaskID      string
+}
+
+type GetDelegatedTokenSpendRow struct {
+	SessionSpentUsdMicros int64
+	TaskSpentUsdMicros    int64
+}
+
+// Fresh per-request read of a delegated session's and task's spend-to-date
+// for the delegated spend-cap gate. A missing row is zero spend.
+//
+//	SELECT
+//	    COALESCE((
+//	        SELECT spent_usd_micros FROM router.delegated_token_spend
+//	        WHERE issuer_key_id = $1::uuid AND scope_kind = 'session' AND scope_id = $2::varchar
+//	    ), 0)::bigint AS session_spent_usd_micros,
+//	    COALESCE((
+//	        SELECT spent_usd_micros FROM router.delegated_token_spend
+//	        WHERE issuer_key_id = $1::uuid AND scope_kind = 'task' AND scope_id = $3::varchar
+//	    ), 0)::bigint AS task_spent_usd_micros
+func (q *Queries) GetDelegatedTokenSpend(ctx context.Context, arg GetDelegatedTokenSpendParams) (GetDelegatedTokenSpendRow, error) {
+	row := q.db.QueryRow(ctx, getDelegatedTokenSpend, arg.IssuerKeyID, arg.SessionID, arg.TaskID)
+	var i GetDelegatedTokenSpendRow
+	err := row.Scan(&i.SessionSpentUsdMicros, &i.TaskSpentUsdMicros)
+	return i, err
 }
 
 const getOrgCreditBalance = `-- name: GetOrgCreditBalance :one

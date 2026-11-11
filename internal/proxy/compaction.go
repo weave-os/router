@@ -4,7 +4,9 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"time"
 
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -135,13 +137,13 @@ func (s *Service) compactionSummarizers(ctx context.Context, sessionKey [session
 	return out
 }
 
-// compactionCrossProviderRescuers lists the request's gateway-held models on
-// another gateway than the primary summarizer's, highest tier then widest
-// window first. Every summarizer behind one gateway shares a tokenizer and
-// window, so an overflow there is only rescuable across gateways: Claude
+// crossGatewayRescuers lists the request's gateway-held models on another
+// gateway than the primary's, highest tier then widest window first. Every
+// model behind one gateway shares a tokenizer and window, so an overflow there
+// is only rescuable across gateways: Claude
 // counts the same transcript as roughly 1.5x the tokens gpt-6-luna does, so a
 // nominally smaller window can still fit it.
-func (s *Service) compactionCrossProviderRescuers(ctx context.Context, primary compactionSummarizer, req router.Request) []compactionSummarizer {
+func (s *Service) crossGatewayRescuers(ctx context.Context, primary compactionSummarizer, req router.Request) []compactionSummarizer {
 	cortexGateways := cortexGatewayProvidersForRequest(ctx)
 	var out []compactionSummarizer
 	for model := range req.CustomBindings {
@@ -220,11 +222,20 @@ func (s *Service) compactionSessionModel(ctx context.Context, sessionKey [sessio
 	if s.pinStore == nil {
 		return "", "", false
 	}
-	threadPin, active := s.loadPin(ctx, sessionKey, role)
-	if !active {
-		threadPin = sessionpin.Pin{}
+	// Compaction follows the served model, not the classifier that chose it.
+	// Auxiliary requests can overwrite these rows under another strategy.
+	var served sessionpin.Pin
+	for _, pinRole := range []string{role, hmmHistoryRole(role)} {
+		pin, found, err := s.pinStore.Get(ctx, sessionKey, pinRole)
+		if err != nil {
+			observability.FromContext(ctx).Error("Compaction session history unavailable", "role", pinRole, "err", err)
+			continue
+		}
+		if !found || (pinRole == role && !pin.PinnedUntil.After(time.Now())) {
+			continue
+		}
+		served = latestServedPin(served, pin)
 	}
-	served := latestServedPin(threadPin, s.loadHMMHistory(ctx, sessionKey, role))
 	model = served.LastServedModel
 	if model == "" {
 		model = served.Model

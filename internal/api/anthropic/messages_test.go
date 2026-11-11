@@ -53,6 +53,11 @@ func (r *countingUserRepository) UpsertByAccountUUID(context.Context, auth.Upser
 	return &auth.User{ID: "unexpected"}, nil
 }
 
+func (r *countingUserRepository) UpsertByCredentialSubject(context.Context, auth.UpsertUserByCredentialSubjectParams) (*auth.User, error) {
+	r.upserts++
+	return &auth.User{ID: "unexpected"}, nil
+}
+
 func (*countingUserRepository) Get(context.Context, string) (*auth.User, error) {
 	return nil, nil
 }

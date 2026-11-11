@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"crypto/ed25519"
 	"slices"
 	"time"
 
@@ -68,40 +69,42 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 		overrides = flags.Overrides{}
 	}
 	return &auth.Installation{
-		ID:                             row.ID.String(),
-		ExternalID:                     row.ExternalID,
-		Name:                           row.Name,
-		CreatedAt:                      timestampOrZero(row.CreatedAt),
-		UpdatedAt:                      timestampOrZero(row.UpdatedAt),
-		DeletedAt:                      timestampPtr(row.DeletedAt),
-		CreatedBy:                      row.CreatedBy,
-		ExcludedModels:                 excluded,
-		AllowedModels:                  allowed,
-		ModelsWhenSubscriptionActive:   modelsWhenSubscriptionActive,
-		ModelsWhenSubscriptionInactive: modelsWhenSubscriptionInactive,
-		SubscriptionStateModelsEnabled: row.SubscriptionStateModelsEnabled,
-		ExcludedProviders:              excludedProviders,
-		PreferredModels:                preferred,
-		FastModeModels:                 fastModeModels,
-		RoutingQualityWeight:           row.RoutingQualityWeight,
-		UsageBypassEnabled:             row.UsageBypassEnabled,
-		UsageBypassThreshold:           row.UsageBypassThreshold,
-		SubscriptionRoutingDisabled:    row.SubscriptionRoutingDisabled,
-		RoutingStrategy:                router.Strategy(derefString(row.RoutingStrategy)),
-		RoutingRolloutID:               derefString(row.RoutingRolloutID),
-		PolicyShadowStrategy:           router.Strategy(derefString(row.PolicyShadowStrategy)),
-		PolicyDebugEnabled:             row.PolicyDebugEnabled,
-		PolicyHeaderOverridesEnabled:   row.PolicyHeaderOverridesEnabled,
-		PolicyRoutingIntent:            derefString(row.PolicyRoutingIntent),
-		AITrainingAllowed:              row.AiTrainingAllowed,
-		ByokEnabled:                    row.ByokEnabled,
-		ContentCaptureMode:             row.ContentCaptureMode,
-		HideTerminalSurfaces:           row.HideTerminalSurfaces,
-		ShowModelSelectionReasoning:    row.ShowModelSelectionReasoning,
-		TrialCaptureEnabled:            row.TrialCaptureEnabled,
-		TrialEnrollmentID:              derefString(uuidStringPtr(row.TrialEnrollmentID)),
-		FirstRequestServedAt:           timestamptzPtr(row.FirstRequestServedAt),
-		FlagOverrides:                  overrides,
+		ID:                               row.ID.String(),
+		ExternalID:                       row.ExternalID,
+		Name:                             row.Name,
+		CreatedAt:                        timestampOrZero(row.CreatedAt),
+		UpdatedAt:                        timestampOrZero(row.UpdatedAt),
+		DeletedAt:                        timestampPtr(row.DeletedAt),
+		CreatedBy:                        row.CreatedBy,
+		ExcludedModels:                   excluded,
+		AllowedModels:                    allowed,
+		ModelsWhenSubscriptionActive:     modelsWhenSubscriptionActive,
+		ModelsWhenSubscriptionInactive:   modelsWhenSubscriptionInactive,
+		SubscriptionStateModelsEnabled:   row.SubscriptionStateModelsEnabled,
+		ExcludedProviders:                excludedProviders,
+		PreferredModels:                  preferred,
+		FastModeModels:                   fastModeModels,
+		RoutingQualityWeight:             row.RoutingQualityWeight,
+		UsageBypassEnabled:               row.UsageBypassEnabled,
+		UsageBypassThreshold:             row.UsageBypassThreshold,
+		SubscriptionRoutingDisabled:      row.SubscriptionRoutingDisabled,
+		PickedModelCreditFallbackEnabled: row.PickedModelCreditFallbackEnabled,
+		WeaveCreditInferenceEnabled:      row.WeaveCreditInferenceEnabled,
+		RoutingStrategy:                  router.Strategy(derefString(row.RoutingStrategy)),
+		RoutingRolloutID:                 derefString(row.RoutingRolloutID),
+		PolicyShadowStrategy:             router.Strategy(derefString(row.PolicyShadowStrategy)),
+		PolicyDebugEnabled:               row.PolicyDebugEnabled,
+		PolicyHeaderOverridesEnabled:     row.PolicyHeaderOverridesEnabled,
+		PolicyRoutingIntent:              derefString(row.PolicyRoutingIntent),
+		AITrainingAllowed:                row.AiTrainingAllowed,
+		ByokEnabled:                      row.ByokEnabled,
+		ContentCaptureMode:               row.ContentCaptureMode,
+		HideTerminalSurfaces:             row.HideTerminalSurfaces,
+		ShowModelSelectionReasoning:      row.ShowModelSelectionReasoning,
+		TrialCaptureEnabled:              row.TrialCaptureEnabled,
+		TrialEnrollmentID:                derefString(uuidStringPtr(row.TrialEnrollmentID)),
+		FirstRequestServedAt:             timestamptzPtr(row.FirstRequestServedAt),
+		FlagOverrides:                    overrides,
 	}
 }
 
@@ -122,7 +125,22 @@ func toAuthAPIKey(row sqlc.RouterModelRouterAPIKey) *auth.APIKey {
 		DeletedAt:                         timestampPtr(row.DeletedAt),
 		CreatedBy:                         row.CreatedBy,
 		PaidFallbackOnSubscriptionRefusal: row.PaidFallbackOnSubscriptionRefusal,
+		IssuerPublicKey:                   issuerPublicKey(row),
 	}
+}
+
+// issuerPublicKey decodes a session issuer's stored JWK. The column is written
+// only from a validated key; a row that fails to decode yields nil, which the
+// verifier rejects as an unknown issuer.
+func issuerPublicKey(row sqlc.RouterModelRouterAPIKey) ed25519.PublicKey {
+	if auth.APIKeyScope(row.Scope) != auth.ScopeSessionIssuer || len(row.PublicJwk) == 0 {
+		return nil
+	}
+	key, _, _, err := auth.ParseSessionIssuerJWK(row.PublicJwk)
+	if err != nil {
+		return nil
+	}
+	return key
 }
 
 func timestampOrZero(t pgtype.Timestamp) time.Time {

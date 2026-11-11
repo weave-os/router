@@ -1,9 +1,13 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
 	"weave-os/router/internal/providers"
@@ -60,6 +64,17 @@ func isUpstreamContextOverflow(err error) bool {
 // pairing) stay out for a reason of their own.
 func contextWindowOnlyExclusions(overflowed, admitted, hardExcluded []string) map[string]struct{} {
 	return withoutModels(withoutModels(modelSet(overflowed), admitted), hardExcluded)
+}
+
+// A validated force pin delegates estimated overflow to the provider, including
+// when subscription funding or a compaction turn rebuilds eligibility.
+func readmitForcedContextEstimate(req router.Request, model string) router.Request {
+	if _, estimateOnly := req.ContextWindowExcludedModels[model]; !estimateOnly {
+		return req
+	}
+	req.ExcludedModels = withoutModels(req.ExcludedModels, []string{model})
+	req.SafetyExcludedModels = withoutModels(req.SafetyExcludedModels, []string{model})
+	return req
 }
 
 // isContextOverflow reports whether err means the request cannot fit any
@@ -121,6 +136,10 @@ type CompactionUnservableError struct {
 	Provider string
 	Model    string
 	Cause    error
+	// Tokens and Limit are the upstream's prompt-too-long counts, set only
+	// for a client that trims its own compaction from them.
+	Tokens int
+	Limit  int
 }
 
 func (e *CompactionUnservableError) Error() string {
@@ -143,8 +162,85 @@ func rescuesCompactionOverflow(turnType turntype.TurnType, err error) bool {
 	return turnType == turntype.Compaction && isContextOverflow(err)
 }
 
+// overflowRescueDecisions lists the stand-ins for an upstream overflow on a
+// turn other than the harness's own compaction: gateway-held models behind
+// another gateway that the estimate fits. Peers on the failed gateway share the
+// window that just rejected the request, so without this the client is told to
+// compact a conversation the other gateway can still serve.
+func (s *Service) overflowRescueDecisions(ctx context.Context, failed router.Decision, turnType turntype.TurnType, est, sigSavings, outputReserve int) []router.Decision {
+	gateways := s.gatewayProvidersForRequest(ctx)
+	if turnType == turntype.Compaction || len(gateways) == 0 {
+		return nil
+	}
+	req := router.Request{
+		CustomBindings:          s.customBindingsForRequest(ctx),
+		GatewayProviders:        gateways,
+		ExcludedModels:          s.excludedModelsForRequest(ctx),
+		AutomaticExcludedModels: s.rescueExcludedModels(ctx),
+	}
+	rescuers := s.crossGatewayRescuers(ctx, compactionSummarizer{provider: failed.Provider, model: failed.Model}, req)
+	models := make([]string, 0, len(rescuers))
+	for _, rescuer := range rescuers {
+		models = append(models, rescuer.model)
+	}
+	// Readmission may append cooling or struck models; keep only the eligible cross-gateway rescuers.
+	return slices.DeleteFunc(s.rescueDecisions(ctx, failed, models, ReasonSiblingFailover, est, sigSavings, outputReserve), func(d router.Decision) bool {
+		return !slices.Contains(models, d.Model)
+	})
+}
+
 // asCompactionUnservable replaces a compaction turn's final overflow with a
 // provider-attributed failure once the rescue walk has run out.
+// compactionUnservableClassFor answers an unservable compaction that carries
+// token counts with the prompt-too-long those counts describe; without them
+// it stays the terminal 502.
+func compactionUnservableClassFor(unservable *CompactionUnservableError) DispatchErrorClass {
+	if unservable.Tokens == 0 {
+		return compactionUnservableClass
+	}
+	class := contextWindowExceededClass
+	class.Message = fmt.Sprintf("prompt is too long: %d tokens > %d maximum", unservable.Tokens, unservable.Limit)
+	class.LogMessage = "Compaction turn overflowed every reachable summarizer; returned the token counts for the client to trim"
+	return class
+}
+
+// upstreamPromptTooLongCounts matches Anthropic's and Cortex's overflow body,
+// whose JSON encoder may escape '>' as \u003e.
+var upstreamPromptTooLongCounts = regexp.MustCompile(`(?i)prompt is too long[^0-9]*(\d+)\s*tokens?\s*(?:>|\\u003e)\s*(\d+)`)
+
+func promptTooLongCounts(err error) (tokens, limit int, ok bool) {
+	var resp *providers.UpstreamErrorResponse
+	if !errors.As(err, &resp) {
+		return 0, 0, false
+	}
+	m := upstreamPromptTooLongCounts.FindSubmatch(resp.Body)
+	if m == nil {
+		return 0, 0, false
+	}
+	tokens, _ = strconv.Atoi(string(m[1]))
+	limit, _ = strconv.Atoi(string(m[2]))
+	return tokens, limit, limit > 0 && tokens > limit
+}
+
+// withClientTrimCounts gives Claude Code the token counts of a compaction no
+// reachable model could summarize. From the gap it drops the oldest rounds and
+// retries, giving up after a bounded number of head truncations; a count-free
+// prompt-too-long makes it retry nearly the same request round by round, so
+// without counts, and for every other client, the terminal 502 stays.
+func withClientTrimCounts(ctx context.Context, err, primaryErr error) error {
+	var unservable *CompactionUnservableError
+	if ClientIdentityFrom(ctx).ClientApp != ClientAppClaudeCode || !errors.As(err, &unservable) {
+		return err
+	}
+	for _, cause := range []error{primaryErr, unservable.Cause} {
+		if tokens, limit, ok := promptTooLongCounts(cause); ok {
+			unservable.Tokens, unservable.Limit = tokens, limit
+			break
+		}
+	}
+	return err
+}
+
 func asCompactionUnservable(turnType turntype.TurnType, decision router.Decision, err error) error {
 	if !rescuesCompactionOverflow(turnType, err) {
 		return err

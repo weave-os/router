@@ -5,6 +5,8 @@ import (
 	"errors"
 	"maps"
 	"slices"
+
+	"weave-os/router/internal/router/policy"
 )
 
 // WorkerIdentity is release-owned boot configuration attested during preparation.
@@ -98,7 +100,7 @@ func ValidateWorkerSelection(ctx context.Context, store ServingStore, cache *Ser
 	if err != nil {
 		return WorkerAttestation{}, err
 	}
-	return WorkerAttestation{Identity: identity, Requirements: prepared.Candidate.Requirements, CatalogArms: snapshotCatalogArms(snapshot), Selection: request.Selection, Ready: true}, nil
+	return WorkerAttestation{Identity: identity, Requirements: prepared.Candidate.Requirements, SupportedAPIMajors: policy.SupportedClassifierAPIMajors(), CatalogArms: snapshotCatalogArms(snapshot), Selection: request.Selection, Ready: true}, nil
 }
 
 // snapshotCatalogArms attests every arm the loaded snapshot can select,

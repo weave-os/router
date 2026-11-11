@@ -284,7 +284,10 @@ func (r *SessionPinRepo) SweepExpired(ctx context.Context) error {
 	if err := q.SweepExpiredSessionPins(ctx); err != nil {
 		return err
 	}
-	return q.SweepExpiredSessionPinRecoveryProbeLeases(ctx)
+	if err := q.SweepExpiredSessionPinRecoveryProbeLeases(ctx); err != nil {
+		return err
+	}
+	return q.SweepAgreementShadowStates(ctx)
 }
 
 func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {

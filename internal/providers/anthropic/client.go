@@ -13,6 +13,7 @@ import (
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/httputil"
 	"weave-os/router/internal/requestcontext"
@@ -228,6 +229,18 @@ func (c *Client) applyDefaultHeaders(req *http.Request) {
 	}
 }
 
+// forwardClientUserAgent relays the caller's User-Agent unless a configured
+// header already set one. Gateways key client-specific request handling off
+// it, which Go's default agent would hide.
+func forwardClientUserAgent(upstream, inbound *http.Request) {
+	if upstream.Header.Get("User-Agent") != "" {
+		return
+	}
+	if v := inbound.UserAgent(); v != "" {
+		upstream.Header.Set("User-Agent", v)
+	}
+}
+
 // applyProtectedHeaders restores c.protectedHeaders after callers layer their
 // own headers.
 func (c *Client) applyProtectedHeaders(req *http.Request) {
@@ -236,9 +249,8 @@ func (c *Client) applyProtectedHeaders(req *http.Request) {
 	}
 }
 
-// oauthBetaToken is the anthropic-beta flag Anthropic requires for Claude
-// subscription (Claude.ai OAuth) tokens on /v1/messages.
-const oauthBetaToken = "oauth-2025-04-20"
+// oauthBetaToken is required for both subscription and federated OAuth bearers.
+const oauthBetaToken = string(auth.AnthropicBetaOAuth)
 
 // subscriptionTokenPrefix marks a Claude subscription bearer (sk-ant-oat… /
 // sk-ant-oat01…) used to gate the oauth beta header on the pure-passthrough path.
@@ -248,14 +260,14 @@ var errInboundSubscriptionRelay = errors.New("refusing to relay inbound Claude s
 
 // setAuth resolves credentials in precedence order: resolved per-request
 // credential (subscription/BYOK/client), deployment key, then client-sent auth
-// headers. A subscription OAuth credential authenticates via Authorization:
-// Bearer and must NOT send x-api-key; everything else uses x-api-key.
+// headers. Subscription and federated API credentials use Authorization:
+// Bearer; API key credentials use x-api-key.
 //
 // The passthrough tier scrubs router-issued Bearer tokens via
 // httputil.SanitizeInboundAuthHeader before relaying inbound auth upstream.
 func (c *Client) setAuth(ctx context.Context, upstream *http.Request, inbound *http.Request) {
 	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil {
-		if creds.OAuth || c.authScheme == AuthBearer {
+		if creds.OAuth || creds.AuthType == auth.AuthTypeAnthropicWIF || c.authScheme == AuthBearer {
 			upstream.Header.Set("authorization", "Bearer "+string(creds.APIKey))
 			return
 		}
@@ -290,7 +302,9 @@ func (c *Client) setAuth(ctx context.Context, upstream *http.Request, inbound *h
 // the upstream request so it merges with, rather than is clobbered by, the
 // model-capability-filtered anthropic-beta that translate produced.
 func (c *Client) applyOAuthBeta(ctx context.Context, upstream, inbound *http.Request) {
-	if !c.subscriptionAuth(ctx, inbound) {
+	creds := requestcontext.CredentialsFromContext(ctx)
+	federated := creds != nil && creds.AuthType == auth.AuthTypeAnthropicWIF
+	if !federated && !c.subscriptionAuth(ctx, inbound) {
 		return
 	}
 	upstream.Header.Set("anthropic-beta", mergeBeta(upstream.Header.Get("anthropic-beta"), oauthBetaToken))
@@ -341,6 +355,9 @@ func mergeBeta(existing, token string) string {
 }
 
 func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil && creds.CredentialError != nil {
+		return creds.CredentialError
+	}
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
@@ -390,6 +407,7 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 	requestcontext.ApplyWIFTokenType(ctx, upstream)
 	requestcontext.ApplyIdentityHeader(ctx, upstream)
 	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
+	forwardClientUserAgent(upstream, r)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}
@@ -483,6 +501,9 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 }
 
 func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil && creds.CredentialError != nil {
+		return creds.CredentialError
+	}
 	if requestcontext.CredentialsFromContext(ctx) == nil && c.authScheme != AuthBearer && c.subscriptionAuth(ctx, r) {
 		return errInboundSubscriptionRelay
 	}
@@ -508,6 +529,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	c.applyOAuthBeta(ctx, upstream, r)
 	requestcontext.ApplyWIFTokenType(ctx, upstream)
 	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
+	forwardClientUserAgent(upstream, r)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}

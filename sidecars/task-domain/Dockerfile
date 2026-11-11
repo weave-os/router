@@ -1,5 +1,5 @@
 FROM ghcr.io/astral-sh/uv:0.9.28 AS uv
-FROM python:3.12-slim
+FROM python:3.11-slim
 COPY --from=uv /uv /usr/local/bin/uv
 # vLLM's Triton kernels (Qwen3.5 linear attention, torch.compile) build small C helpers at startup.
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev && rm -rf /var/lib/apt/lists/*

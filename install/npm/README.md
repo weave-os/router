@@ -58,7 +58,7 @@ Codex installs `$router-status`, `$router-off`, `$router-on`, and
 to the normal provider; Codex does not support third-party `/disable-routing`
 slash commands. The shell equivalent is `npx @weave-os/router disable-routing`.
 Cursor has no config file we own — toggle its base URL override in **Settings →
-Models** instead.
+Models** instead, with a custom model named `weave-auto`.
 
 Pick which models the router is allowed to route to:
 

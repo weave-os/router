@@ -207,6 +207,13 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 
 	for _, candidate := range candidates {
 		found, stripped := parse(candidate.text, candidate.fromToolResult)
+		if !found && !candidate.fromToolResult {
+			if before, query, after, ok := cursorUserQuery(candidate.text); ok {
+				if found, stripped = parse(query, candidate.fromToolResult); found {
+					stripped = before + stripped + after
+				}
+			}
+		}
 		if !found {
 			continue
 		}
@@ -222,6 +229,48 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 		return true, fromToolResult
 	}
 	return false, false
+}
+
+const (
+	cursorUserQueryOpen  = "<user_query>"
+	cursorUserQueryClose = "</user_query>"
+)
+
+// cursorUserQuery splits Cursor's turn text, which wraps the typed message in
+// <user_query> after injected context blocks, around that typed message.
+func cursorUserQuery(text string) (before, query, after string, ok bool) {
+	open := strings.Index(text, cursorUserQueryOpen)
+	if open < 0 {
+		return "", "", "", false
+	}
+	head := text[:open]
+	if strings.TrimSpace(head[leadingInjectedPrefixEnd(head):]) != "" {
+		return "", "", "", false
+	}
+	closeIdx := strings.LastIndex(text, cursorUserQueryClose)
+	if closeIdx < open || strings.TrimSpace(text[closeIdx+len(cursorUserQueryClose):]) != "" {
+		return "", "", "", false
+	}
+	start := open + len(cursorUserQueryOpen)
+	return text[:start], text[start:closeIdx], text[closeIdx:], true
+}
+
+// parseInCursorQuery retries parse on the typed message inside Cursor's
+// <user_query> wrapper, re-wrapping the stripped text around it.
+func parseInCursorQuery[T any](text string, parse func(string) (T, bool, string)) (T, bool, string) {
+	res, found, stripped := parse(text)
+	if found {
+		return res, found, stripped
+	}
+	if before, query, after, ok := cursorUserQuery(text); ok {
+		if inner, innerFound, innerStripped := parse(query); innerFound {
+			if strings.TrimSpace(innerStripped) == "" {
+				return inner, true, strings.TrimSuffix(before, cursorUserQueryOpen)
+			}
+			return inner, true, before + innerStripped + after
+		}
+	}
+	return res, found, stripped
 }
 
 // dropCommandBlock deletes the block at dropPath, cascading to the whole

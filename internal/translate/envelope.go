@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"weave-os/router/internal/requestcontext"
@@ -334,21 +335,23 @@ func anthropicToolShapeFromOpenAI(tools gjson.Result) []byte {
 	return jw.Bytes()
 }
 
-// HasImages reports whether any message carries image content. Used to keep
-// such turns off text-only models, which 4xx on image parts (e.g. GLM-5.1).
-// Checks the whole history since clients like Cursor re-send earlier
-// screenshots on every turn.
-func (e *RequestEnvelope) HasImages() bool {
+// ImageCount counts image parts across the whole history.
+func (e *RequestEnvelope) ImageCount() int {
 	switch e.format {
 	case FormatAnthropic:
-		return anthropicHasImages(e.body)
+		return anthropicImageCount(e.body)
 	case FormatOpenAI:
-		return openAIHasImages(e.body)
+		return openAIImageCount(e.body)
 	case FormatGemini:
-		return geminiHasImages(e.body)
+		return geminiImageCount(e.body)
 	default:
-		return false
+		return 0
 	}
+}
+
+// HasImages reports whether any message carries image content.
+func (e *RequestEnvelope) HasImages() bool {
+	return e.ImageCount() > 0
 }
 
 // RequestsTitleSchema reports whether the request asks for a JSON-schema response
@@ -407,10 +410,24 @@ func requestRootRequestsCodexTitleSchema(root gjson.Result) bool {
 const (
 	codexTitlePromptMarker          = "you are generating a short conversation title."
 	codexDirectResponsePromptMarker = "respond directly to the user's prompt"
+	codexThreadTitleSource          = "thread_title"
 )
 
+// requestRootCodexTurnIsThreadTitle reads the turn origin Codex app-server
+// stamps on every request. Codex Desktop titles a thread with a hidden
+// structured turn whose origin is "thread_title".
+func requestRootCodexTurnIsThreadTitle(root gjson.Result) bool {
+	metadata := root.Get("client_metadata.x-codex-turn-metadata")
+	if metadata.Type != gjson.String || !gjson.Valid(metadata.Str) {
+		return false
+	}
+	turn := gjson.Parse(metadata.Str)
+	return turn.Get("thread_source").Str == codexThreadTitleSource ||
+		turn.Get("turn_trigger").Str == codexThreadTitleSource
+}
+
 func requestRootRequestsCodexTitle(root gjson.Result) bool {
-	if requestRootRequestsCodexTitleSchema(root) {
+	if requestRootRequestsCodexTitleSchema(root) || requestRootCodexTurnIsThreadTitle(root) {
 		return true
 	}
 	text, ok := freshCodexResponsesUserText(root.Get("input"))
@@ -503,6 +520,10 @@ type EmitOverrides struct {
 	// model only accepts adaptive thinking (claude-opus-4-6+ / sonnet-4-6+).
 	RewriteThinkingAdaptive bool
 	OutputConfigEffort      string
+	// FloorMaxTokensValue raises an inbound max_tokens below it to this value.
+	// Set when the router turns thinking on for a caller that disabled it, so
+	// hidden reasoning cannot exhaust a budget sized for a visible-only answer.
+	FloorMaxTokensValue int64
 	// ForceOutputConfigEffort, when set, overrides any inbound output_config.effort
 	// and the heuristic OutputConfigEffort — user knob beats request-derived default.
 	// Value is already cap-applied (xhigh→max) by resolveForceEffort upstream.
@@ -585,6 +606,14 @@ func applyOverrides(body []byte, ov EmitOverrides) ([]byte, error) {
 		}
 	}
 
+	if ov.FloorMaxTokensValue > 0 {
+		if r := gjson.GetBytes(out, "max_tokens"); r.Type == gjson.Number && r.Int() < ov.FloorMaxTokensValue {
+			out, err = sjson.SetBytes(out, "max_tokens", ov.FloorMaxTokensValue)
+			if err != nil {
+				return nil, fmt.Errorf("floor max_tokens: %w", err)
+			}
+		}
+	}
 	if ov.ClampMaxTokensKey != "" && ov.ClampMaxTokensValue > 0 {
 		out = clampFieldBytes(out, ov.ClampMaxTokensKey, ov.ClampMaxTokensValue)
 	}
@@ -980,7 +1009,7 @@ func encodeJSONStringNoHTMLEscape(s string) ([]byte, error) {
 
 // routingMarkerPattern matches the "✦ **Weave Router** → ..." snippet
 // injected in cross-format responses.
-var routingMarkerPattern = routerOwnedNoticePattern
+var routingMarkerPattern = replayedNoticePattern
 
 // feedbackFooterPattern matches the rating footer appended to streamed
 // responses (see proxy.Service.feedbackFooter), absorbing leading newlines
@@ -1340,8 +1369,12 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 		StripThoughtSignature:        true,
 		SanitizeAnthropicToolSchemas: true,
 	}
-	if opts.Capabilities.Supports(router.CapTemperatureUnsupported) && gjson.GetBytes(body, "temperature").Exists() {
-		ov.DeleteKeys = append(ov.DeleteKeys, "temperature")
+	if opts.Capabilities.Supports(router.CapSamplingParamsUnsupported) {
+		for _, key := range anthropicSamplingParams {
+			if gjson.GetBytes(body, key).Exists() {
+				ov.DeleteKeys = append(ov.DeleteKeys, key)
+			}
+		}
 	}
 
 	// User-forced effort wins over inbound heuristic; no-op on non-adaptive targets.
@@ -1377,8 +1410,14 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 				// Adaptive models are always-on and 400 on thinking.type=disabled
 				// (e.g. claude-fable-5); map the "no thinking" intent to the
 				// lowest adaptive effort instead of forwarding the rejected shape.
+				// The caller sized max_tokens and sampling for a visible-only
+				// answer (Claude Code's 64-token auto-mode verdict).
 				ov.RewriteThinkingAdaptive = true
 				ov.OutputConfigEffort = effortLow
+				ov.FloorMaxTokensValue = minReasoningOutputTokens
+				if gjson.GetBytes(body, "temperature").Exists() && !slices.Contains(ov.DeleteKeys, "temperature") {
+					ov.DeleteKeys = append(ov.DeleteKeys, "temperature")
+				}
 			} else {
 				shouldDelete = true
 			}
@@ -1466,10 +1505,11 @@ var modelMaxOutputTokens = map[string]int{
 	"gpt-5.5-nano": 128000,
 	"gpt-5.6-sol":  128000, "gpt-5.6-sol-pro": 128000,
 	"gpt-5.6-terra": 128000, "gpt-5.6-luna": 128000, "gpt-5.6-luna-pro": 128000,
-	"gpt-6-astra": 128000, "gpt-6-sol": 128000, "gpt-6.1-sol": 128000, "gpt-6-luna": 128000,
+	"gpt-6-astra": 128000, "gpt-6-sol": 128000, "gpt-6.1-sol": 128000, "gpt-6.1-terra": 128000, "gpt-6-luna": 128000,
 	"grok-4.5": 131072, "grok-4.6": 131072, "grok-4.7": 131072,
 	"muse-spark-1.3": 131072, // Meta documents a 128K max output; always-on reasoning shares the budget
-	"o1":             100000, "o1-pro": 100000, "o1-mini": 65536,
+	"muse-ember-1.0": 131072, "muse-wonder-1.0": 131072,
+	"o1": 100000, "o1-pro": 100000, "o1-mini": 65536,
 	"o3": 100000, "o3-pro": 100000, "o3-mini": 100000,
 	"o4-mini":              100000,
 	"gemini-3-pro-preview": 65536, "gemini-3.1-pro-preview": 65536,
@@ -1494,6 +1534,8 @@ var modelMaxOutputTokens = map[string]int{
 	"deepseek/deepseek-v4.1-flash":     131072,
 	"deepseek/deepseek-v4-pro":         131072,
 	"deepseek/deepseek-v4-pro-0813":    131072,
+	"minimax/minimax-m3.1-flash":       131072,
+	catalog.ModelMuseSparkOpen:         131072, // Together accepts more; matches Muse Spark 1.3's 128K
 	"minimax/minimax-m3":               131072, // 512K context, output up to the window
 	"minimax/minimax-m2.7":             65536,
 	"z-ai/glm-5":                       65536,

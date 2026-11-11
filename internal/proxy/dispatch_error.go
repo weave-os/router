@@ -2,9 +2,11 @@ package proxy
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
@@ -16,6 +18,7 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rl"
+	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
 )
 
@@ -33,11 +36,13 @@ const (
 	DispatchErrorUpstreamStatus
 	DispatchErrorNotImplemented
 	DispatchErrorProviderNotConfigured
+	DispatchErrorAnthropicFederationUnavailable
 	DispatchErrorRequestNotJSONObject
 	DispatchErrorResponsesChatCompletionsBody
 	DispatchErrorNoEligibleProvider
 	DispatchErrorAllowlistEmptiesPool
 	DispatchErrorContextWindowExceeded
+	DispatchErrorImageLimitExceeded
 	DispatchErrorInvalidRoutingKnobs
 	DispatchErrorRLPolicyUnavailable
 	DispatchErrorBanditUnavailable
@@ -47,6 +52,7 @@ const (
 	DispatchErrorCreditsExhausted
 	DispatchErrorSubscriptionPoolExhausted
 	DispatchErrorSubscriptionPoolUnavailable
+	DispatchErrorSubscriptionPoolThrottled
 	DispatchErrorTranslationIntrinsicallyIncompatible
 	DispatchErrorTranslationProviderUnavailable
 	DispatchErrorUserSpendLimitReached
@@ -73,6 +79,8 @@ const (
 	DispatchErrorSubscriptionClientAppRefused
 	DispatchErrorDecisionModelUnavailable
 	DispatchErrorCompactionUnservable
+	DispatchErrorClaudeEnterpriseOnly
+	DispatchErrorWeaveCreditsDisabled
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -114,7 +122,11 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var forcedClusterStrategy *ForcedClusterUnsupportedStrategyError
 	var forcedClusterUnservable *policy.ForcedClusterUnservableError
 	var resolution *policy.ResolutionError
+	var compactionUnservable *CompactionUnservableError
+	var allowanceSpent *IncludedAllowanceSpentError
 	switch {
+	case errors.Is(err, auth.ErrAnthropicFederationUnavailable):
+		return DispatchErrorClass{Kind: DispatchErrorAnthropicFederationUnavailable, Status: http.StatusServiceUnavailable, Message: "Anthropic workload federation is unavailable.", RetryAfter: true}, true
 	case errors.Is(err, policy.ErrClassifierWarming):
 		return DispatchErrorClass{Kind: DispatchErrorPolicyUnavailable, Status: http.StatusServiceUnavailable,
 			Message: policy.ErrClassifierWarming.Error(), RetryAfter: true, LogLevel: "warn", LogMessage: "Classifier warming"}, true
@@ -141,6 +153,18 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "Rejected forced Claude turn: subscriptions refused third-party client",
 		}, true
 	// Ahead of the pool cases: a billing-gated pool refusal carries both.
+	case errors.As(err, &allowanceSpent):
+		kind := DispatchErrorCreditsExhausted
+		if errors.Is(err, ErrSpendCapSubscriptionUnavailable) {
+			kind = DispatchErrorSpendCapReached
+		}
+		return DispatchErrorClass{
+			Kind:       kind,
+			Status:     http.StatusPaymentRequired,
+			Message:    includedAllowanceSpentMessage(allowanceSpent),
+			LogLevel:   "warn",
+			LogMessage: "Subscription-only request refused: included allowance spent and subscription unavailable",
+		}, true
 	case errors.Is(err, ErrSpendCapSubscriptionUnavailable):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorSpendCapReached,
@@ -157,6 +181,18 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Subscription-only request refused: credits exhausted and subscription unavailable",
 		}, true
+	case errors.Is(err, ErrWeaveCreditsDisabled):
+		return DispatchErrorClass{
+			Kind: DispatchErrorWeaveCreditsDisabled, Status: http.StatusPaymentRequired,
+			Message:       "Weave credits are turned off for your organization, and none of your plans or provider API keys can serve this request. Connect a provider key or plan for this model, or allow Weave credits in settings.",
+			NoClientRetry: true, LogLevel: "warn", LogMessage: "Request refused: Weave credits disabled and no customer funding source",
+		}, true
+	case errors.Is(err, ErrClaudeEnterpriseSubscriptionUnavailable):
+		return DispatchErrorClass{
+			Kind: DispatchErrorClaudeEnterpriseOnly, Status: http.StatusPaymentRequired,
+			Message:       "Claude Enterprise-only billing is enabled, but no usable Claude account can serve this request. Connect or reconnect a Claude account, or turn off Enterprise-only billing in settings.",
+			NoClientRetry: true, LogLevel: "warn", LogMessage: "Claude Enterprise-only request refused",
+		}, true
 	case errors.Is(err, ErrSubscriptionPoolExhausted):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorSubscriptionPoolExhausted,
@@ -165,6 +201,15 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			RetryAfter: true,
 			LogLevel:   "warn",
 			LogMessage: "Subscription account pool exhausted",
+		}, true
+	case errors.Is(err, ErrSubscriptionPoolThrottled):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorSubscriptionPoolThrottled,
+			Status:     http.StatusTooManyRequests,
+			Message:    "All enrolled subscription accounts are rate-limited. Retry shortly.",
+			RetryAfter: true,
+			LogLevel:   "warn",
+			LogMessage: "Subscription account pool throttled",
 		}, true
 	case errors.Is(err, ErrSubscriptionPoolUnavailable):
 		return DispatchErrorClass{
@@ -200,7 +245,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "Rejected request: forced model is not a known model",
 		}, true
 	case errors.As(err, &passthroughUnknown):
-		message := "This request is served with the requested model as-is, but " + passthroughUnknown.Error() + ". Request a full model ID (e.g. claude-opus-5-5 or gpt-5.6-sol)."
+		message := passthroughUnknown.Error() + ". Request a full model ID (e.g. claude-opus-5-5 or gpt-5.6-sol)."
 		if passthroughUnknown.RoutingPolicyPassthrough {
 			message = "Automatic routing isn't enabled for you in this organization, so the requested model is served as-is, but " + passthroughUnknown.Error() + ". Request a full model ID (e.g. claude-opus-5-5 or gpt-5.6-sol), or ask your org admin to enable automatic routing."
 		}
@@ -227,8 +272,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: forced cluster has no eligible model",
 		}, true
-	case errors.As(err, new(*CompactionUnservableError)):
-		return compactionUnservableClass, true
+	case errors.As(err, &compactionUnservable):
+		return compactionUnservableClassFor(compactionUnservable), true
 	// Before the generic upstream cases: an overflow must reach every client in
 	// its native shape, not as an opaque upstream failure.
 	case isContextOverflow(err):
@@ -322,13 +367,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "Model allowlist leaves no eligible candidates",
 		}, true
 	case errors.Is(err, cluster.ErrNoEligibleProvider):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorNoEligibleProvider,
-			Status:     http.StatusBadRequest,
-			Message:    "No provider keys available for any deployed model: register a BYOK key or supply a provider Authorization header.",
-			LogLevel:   "warn",
-			LogMessage: "No eligible provider for request",
-		}, true
+		return noEligibleProviderClass(), true
 	case errors.Is(err, billing.ErrUserMonthlySpendLimitReached):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorUserSpendLimitReached,
@@ -373,6 +412,16 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Gateway-exclusive routing has no aliased model",
 		}, true
+	case errors.Is(err, policy.ErrImageLimitExceeded):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorImageLimitExceeded,
+			Status:     http.StatusBadRequest,
+			Message:    "This request carries more images than any model available to it accepts in one request. Send fewer images (or start a new conversation without earlier screenshots).",
+			LogLevel:   "warn",
+			LogMessage: "Request image count exceeds every eligible model's limit",
+		}, true
+	case errors.Is(err, policy.ErrNoProviderCredentials):
+		return noEligibleProviderClass(), true
 	case errors.Is(err, policy.ErrNoRoutableModels):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorNoRoutableModels,
@@ -500,7 +549,7 @@ func (k DispatchErrorKind) IsClientError() bool {
 	switch k {
 	case DispatchErrorClassifierHistory, DispatchErrorClassifierInputTooLong:
 		return true
-	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorPassthroughModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels, DispatchErrorPlanOverrideRejected, DispatchErrorProductIneligible, DispatchErrorSubscriptionClientAppRefused:
+	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorImageLimitExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorPassthroughModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels, DispatchErrorPlanOverrideRejected, DispatchErrorProductIneligible, DispatchErrorSubscriptionClientAppRefused:
 		return true
 	default:
 		return false
@@ -516,5 +565,38 @@ func LogDispatchErrorClass(log *slog.Logger, cls DispatchErrorClass, err error) 
 		log.Warn(cls.LogMessage, "err", err)
 	case "error":
 		log.Error(cls.LogMessage, "err", err)
+	}
+}
+
+var allowanceWindowNames = map[entitlement.PeriodKind]string{
+	entitlement.PeriodKindSixHour: "six-hour",
+	entitlement.PeriodKindWeekly:  "weekly",
+	entitlement.PeriodKindBilling: "monthly",
+}
+
+var allowancePlanNames = map[entitlement.Plan]string{
+	entitlement.PlanBoost: "Boost",
+	entitlement.PlanMax:   "Max",
+}
+
+func includedAllowanceSpentMessage(e *IncludedAllowanceSpentError) string {
+	message := fmt.Sprintf("Your Weave router %s plan's %s allowance is used up and your subscription can't serve this turn (rate-limited, or the requested model isn't subscription-covered).",
+		allowancePlanNames[e.Window.Plan], allowanceWindowNames[e.Window.Kind])
+	if !e.Window.ResetsAt.IsZero() {
+		message += " Included usage resumes at " + e.Window.ResetsAt.UTC().Format("15:04 MST on Jan 2") + "."
+	}
+	if errors.Is(e.orgGate, ErrSpendCapSubscriptionUnavailable) {
+		return message + " A Weave router spend cap blocks paid routing until then."
+	}
+	return message + " To keep routing until then, add credits: " + topUpURL
+}
+
+func noEligibleProviderClass() DispatchErrorClass {
+	return DispatchErrorClass{
+		Kind:       DispatchErrorNoEligibleProvider,
+		Status:     http.StatusBadRequest,
+		Message:    "No enabled provider can serve any deployed model: add a provider key (BYOK or a provider Authorization header), or re-enable an excluded provider.",
+		LogLevel:   "warn",
+		LogMessage: "No eligible provider for request",
 	}
 }

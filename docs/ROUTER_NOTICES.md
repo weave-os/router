@@ -47,6 +47,13 @@ their wording. Other notice prose carries an invisible router-owned prefix. The
 Messages, Responses and Gemini ingress cleaners share these recognition rules;
 provider thinking, signatures, tools and usage stay outside notice cleanup.
 
+Terminal Responses clients replay provenance-marked model announcements. Their
+last replayed selection controls same-model notice suppression, independently of
+the server's completed-turn history. An eager notice may already be visible when
+a request resumes before its predecessor completes; a sibling agent sharing a
+legacy session key must not change which model this client has seen. Selection
+history is read before cleanup and is never forwarded to providers as context.
+
 `NoticeModelSelection` and `NoticeFundingWarning` share the delivery API and
 sinks. Funding policy stays in proxy, using the billing reason and subscription
 family to select the existing copy and once-per-conversation replay key. Messages
@@ -60,6 +67,24 @@ recovery. A committed provider response cannot recover onto a second stream.
 Upstream terminal observation and usage extraction sit above synthetic delivery,
 so a warning cannot turn an empty or truncated provider response into success.
 Client statusline/title helpers remain separate lifecycle integrations.
+
+Slow-start notices measure dispatch to first provider content, including earlier
+attempts when a rescue occurred, but excluding client tool execution before the
+request. Subagent turns suppress them, including automatically routed children
+and their tool continuations, so a child cannot consume the parent's cooldown.
+Codex continuations also suppress a notice already replayed since the last user
+prompt, independently of worker restarts and the five-minute process cooldown.
+This replay rule requires the notice in the supplied history; concurrent requests
+or histories omitting it still rely on the process cooldown.
+Identified Codex clients can also send native exec/poll timing headers
+or a code-mode `Script completed` / `Wall time … seconds` header. The notice shows
+that last result's reported call duration separately when its call ID and tool
+identity match; it never adds tool time to provider wait. A result saying
+`Process running with session ID` is labeled as a yielded call, not the underlying
+process's total runtime or a claim that it is still running at notice time.
+Missing or unrecognized headers remain unknown. This is not a session-wide tool
+duration: the observed Codex payload has no per-tool start/end timestamps,
+parallel results are not summed, and nested tool stdout is not a timing source.
 
 ## Validation evidence
 

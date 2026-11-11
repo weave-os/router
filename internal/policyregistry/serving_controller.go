@@ -11,6 +11,8 @@ import (
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	routerpolicy "weave-os/router/internal/router/policy"
+	"weave-os/router/internal/subscriptions/entitlement"
 )
 
 // ServingStore is shared by admission, proposal validation and the single activation controller.
@@ -23,6 +25,7 @@ type ServingStore interface {
 	ReadServingPolicy(context.Context, ObjectRef) (*rosterdata.Roster, error)
 	ReadServingState(context.Context, ServingTarget) (ServingStateSnapshot, error)
 	CompareAndSwapServingState(context.Context, ServingControlState, int64) (ServingStateSnapshot, error)
+	ReadClassifierRuntimeBinding(context.Context, Environment, string) (ResolvedClassifierRuntimeBinding, error)
 }
 
 // ServingValidationStore additionally verifies audit/provenance artifacts by exact immutable reference.
@@ -37,14 +40,18 @@ type ServingValidationStore interface {
 // as a lane embedded in a v2/v3 selection set. PolicyReference is the effective
 // policy; Candidate retains the immutable build composition.
 type PreparedSelection struct {
-	Selection        ServingSelection
-	ProfileKey       string
-	Target           ServingTarget
-	Candidate        CandidateComposition
-	Binding          LaneBinding
-	Policy           *rosterdata.Roster
-	PolicyReference  PolicyObject
-	StrategyPolicies map[router.Strategy]StrategyPolicy
+	Selection                ServingSelection
+	ProfileKey               string
+	Target                   ServingTarget
+	Candidate                CandidateComposition
+	Binding                  LaneBinding
+	ClassifierReleaseV5      *ClassifierReleaseManifestV1
+	ClassifierServiceBinding *ClassifierServiceBinding
+	// ClassifierRuntimeBinding is the worker revision serving a v4 selection's release in the target's environment.
+	ClassifierRuntimeBinding *ResolvedClassifierRuntimeBinding
+	Policy                   *rosterdata.Roster
+	PolicyReference          PolicyObject
+	StrategyPolicies         map[router.Strategy]StrategyPolicy
 }
 
 // ServingValidator verifies exact revision attestations, catalog compatibility and private endpoint smoke.
@@ -324,10 +331,23 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 	for key, lane := range previous.Profiles {
 		next, exists := set.Profiles[key]
 		if !exists {
+			if proposal.Scope == ChangeCustom && key == entitlement.LegacyBoostProfileKey {
+				continue
+			}
 			return errors.New("registered profile keys cannot be removed")
 		}
 		if proposal.Scope != ChangeProfile && !sameLaneProfile(lane.Profile, next.Profile) {
-			return errors.New("base promotion must retain destination profile revisions")
+			// V3 stores only each profile's policy; its requirements are inherited
+			// from CandidateV2. V4 keeps the same policy assignment while moving
+			// classifier API/taxonomy requirements into the new worker candidate and
+			// classifier release, so compare the persisted V3 profile contract.
+			v3ToV4ClassifierMigration := proposal.Scope == ChangeFull &&
+				previous.SchemaVersion == ServingSelectionSetV3 &&
+				set.SchemaVersion == ServingSelectionSetV4 &&
+				sameLaneProfilePolicy(lane.Profile, next.Profile)
+			if !v3ToV4ClassifierMigration {
+				return errors.New("base promotion must retain destination profile revisions")
+			}
 		}
 		if proposal.Scope == ChangeProfile && key != proposal.ProfileKey || proposal.Scope == ChangeRoster {
 			same, err := lanes.sameLane(ctx, lane, next)
@@ -380,12 +400,14 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 			return err
 		}
 	case ChangeRoster:
-		if (!set.ConfigurationOnly && base.Policy != source.Policy) || base.RouterImageDigest != oldBase.RouterImageDigest || !base.Classifier.Equal(oldBase.Classifier) {
+		if (!set.ConfigurationOnly && base.Policy != source.Policy) || base.RouterImageDigest != oldBase.RouterImageDigest || !base.Classifier.Equal(oldBase.Classifier) || base.ClassifierReleaseSHA256 != oldBase.ClassifierReleaseSHA256 || !slices.Equal(base.EnabledClassifierVariants, oldBase.EnabledClassifierVariants) {
 			return errors.New("roster-only promotion must retain destination image and classifier")
 		}
 	case ChangeClassifier:
-		if !base.Classifier.Equal(source.Classifier) || base.RouterImageDigest != oldBase.RouterImageDigest || base.Policy != oldBase.Policy || !maps.Equal(base.StrategyPolicies, oldBase.StrategyPolicies) {
-			return errors.New("classifier-only promotion must retain destination image, policy and strategy policies")
+		// A v4 source candidate is Router code only; its classifier is the selection's release.
+		if (set.SchemaVersion == ServingSelectionSetV4 && (set.Default.Candidate != previous.Default.Candidate || proposal.SourceCandidate != set.Default.Candidate)) ||
+			(set.SchemaVersion != ServingSelectionSetV4 && !base.Classifier.Equal(source.Classifier)) || base.RouterImageDigest != oldBase.RouterImageDigest || base.Policy != oldBase.Policy || !maps.Equal(base.StrategyPolicies, oldBase.StrategyPolicies) {
+			return errors.New("classifier-only promotion must retain destination Router candidate, image, policy and strategy policies")
 		}
 	}
 	return nil
@@ -440,6 +462,8 @@ func (c *ServingController) validateRouterOnlyLane(ctx context.Context, lanes *l
 	expectedCandidate := previousCandidate
 	expectedCandidate.RouterImageDigest = nextCandidate.RouterImageDigest
 	expectedCandidate.Provenance = nextCandidate.Provenance
+	// Supported classifier API majors are a property of the Router code; preparation still requires the selected release's major.
+	expectedCandidate.SupportedAPIMajors = source.SupportedAPIMajors
 	if !expectedCandidate.Equal(nextCandidate) {
 		return errors.New("router-only promotion must retain destination policy, classifier, and requirements")
 	}
@@ -459,11 +483,15 @@ func (c *ServingController) validateRouterOnlyLane(ctx context.Context, lanes *l
 // compare candidates, bindings and profile pins by content, so a v2 successor is judged against a
 // v1 predecessor whose lane was stored as separate binding and profile objects.
 type resolvedLane struct {
-	Selection       ServingSelection
-	Candidate       ObjectRef
-	Binding         LaneBinding
-	Profile         *laneProfile
-	PolicyReference PolicyObject
+	Selection             ServingSelection
+	Candidate             ObjectRef
+	Binding               LaneBinding
+	Profile               *laneProfile
+	PolicyReference       PolicyObject
+	ClassifierService     *ClassifierServiceBinding
+	ClassifierRelease     *ClassifierReleaseManifestV1
+	ClassifierSelectionID string
+	CandidateComposition  *CandidateComposition
 }
 
 type laneProfile struct {
@@ -473,6 +501,7 @@ type laneProfile struct {
 }
 
 type resolvedSelectionSet struct {
+	SchemaVersion     ServingSchema
 	Target            ServingTarget
 	Default           resolvedLane
 	Profiles          map[string]resolvedLane
@@ -486,13 +515,20 @@ func sameLaneProfile(left, right *laneProfile) bool {
 	return left == nil || *left == *right
 }
 
+func sameLaneProfilePolicy(left, right *laneProfile) bool {
+	if (left == nil) != (right == nil) {
+		return false
+	}
+	return left == nil || left.Key == right.Key && left.Policy == right.Policy
+}
+
 // sameLane holds when two lanes serve the same tuple. Candidates are compared by composition so a
 // v2 candidate folding a v1 release counts as the same tuple during the layout transition.
 func (r *laneReader) sameLane(ctx context.Context, left, right resolvedLane) (bool, error) {
 	if left.Binding != right.Binding || !sameLaneProfile(left.Profile, right.Profile) {
 		return false, nil
 	}
-	if left.Candidate == right.Candidate && left.PolicyReference == right.PolicyReference {
+	if left.Candidate == right.Candidate && left.PolicyReference == right.PolicyReference && sameClassifierServiceBinding(left.ClassifierService, right.ClassifierService) {
 		return true, nil
 	}
 	leftCandidate, err := r.effectiveCandidate(ctx, left)
@@ -504,6 +540,16 @@ func (r *laneReader) sameLane(ctx context.Context, left, right resolvedLane) (bo
 		return false, err
 	}
 	return leftCandidate.Equal(rightCandidate), nil
+}
+
+func sameClassifierServiceBinding(left, right *ClassifierServiceBinding) bool {
+	if (left == nil) != (right == nil) {
+		return false
+	}
+	if left == nil {
+		return true
+	}
+	return left.Release == right.Release && left.ServiceURL == right.ServiceURL && left.Audience == right.Audience && slices.Equal(left.EnabledVariants, right.EnabledVariants)
 }
 
 // laneReader resolves selection sets of either version and memoizes candidate compositions, so
@@ -531,6 +577,13 @@ func (r *laneReader) candidate(ctx context.Context, ref ObjectRef) (CandidateCom
 
 // effectiveCandidate is used only for component comparisons; stored candidate identity is unchanged.
 func (r *laneReader) effectiveCandidate(ctx context.Context, lane resolvedLane) (CandidateComposition, error) {
+	if lane.CandidateComposition != nil {
+		candidate := *lane.CandidateComposition
+		if lane.PolicyReference != (PolicyObject{}) {
+			candidate.Policy = lane.PolicyReference
+		}
+		return candidate, nil
+	}
 	candidate, err := r.candidate(ctx, lane.Candidate)
 	if err != nil {
 		return CandidateComposition{}, fmt.Errorf("read lane candidate %s: %w", lane.Candidate.SHA256, err)
@@ -557,14 +610,37 @@ func (r *laneReader) selectionSet(ctx context.Context, ref ObjectRef) (resolvedS
 		for key, policy := range typed.Profiles {
 			profiles[key] = resolvedLane{Selection: view.Profiles[key], Candidate: typed.Code.Candidate, Binding: typed.Code.LaneBinding, Profile: &laneProfile{Key: key, Policy: policy, Requirements: candidate.Requirements}, PolicyReference: policy}
 		}
-		return resolvedSelectionSet{Target: typed.Target, Default: resolvedLane{Selection: view.Default, Candidate: typed.Code.Candidate, Binding: typed.Code.LaneBinding, PolicyReference: typed.DefaultPolicy}, Profiles: profiles, ConfigurationOnly: true}, nil
+		return resolvedSelectionSet{SchemaVersion: typed.SchemaVersion, Target: typed.Target, Default: resolvedLane{Selection: view.Default, Candidate: typed.Code.Candidate, Binding: typed.Code.LaneBinding, PolicyReference: typed.DefaultPolicy}, Profiles: profiles, ConfigurationOnly: true}, nil
+	case *SelectionSetV4:
+		candidate, err := readServing[*CandidateV3](ctx, r.store, ServingCandidate, typed.Code.Candidate)
+		if err != nil {
+			return resolvedSelectionSet{}, fmt.Errorf("read code candidate %s: %w", typed.Code.Candidate.SHA256, err)
+		}
+		release, err := readServing[*ClassifierReleaseManifestV1](ctx, r.store, ServingClassifierReleases, typed.Classifier.Release)
+		if err != nil {
+			return resolvedSelectionSet{}, fmt.Errorf("read classifier release %s: %w", typed.Classifier.Release.SHA256, err)
+		}
+		view := typed.View(ref)
+		profiles := make(map[string]resolvedLane, len(typed.Profiles))
+		for key, policy := range typed.Profiles {
+			composition, err := classifierCandidateCompositionV5(*candidate, *release, typed.Classifier, typed.StrategyPolicies, policy, typed.Classifier.Release.SHA256)
+			if err != nil {
+				return resolvedSelectionSet{}, fmt.Errorf("profile %q classifier selection: %w", key, err)
+			}
+			profiles[key] = resolvedLane{Selection: view.Profiles[key], Candidate: typed.Code.Candidate, Binding: v4WorkerBinding(typed.Code), Profile: &laneProfile{Key: key, Policy: policy, Requirements: composition.Requirements}, PolicyReference: policy, ClassifierService: &typed.Classifier, ClassifierRelease: release, ClassifierSelectionID: ref.SHA256, CandidateComposition: &composition}
+		}
+		defaultComposition, err := classifierCandidateCompositionV5(*candidate, *release, typed.Classifier, typed.StrategyPolicies, typed.DefaultPolicy, typed.Classifier.Release.SHA256)
+		if err != nil {
+			return resolvedSelectionSet{}, fmt.Errorf("default classifier selection: %w", err)
+		}
+		return resolvedSelectionSet{SchemaVersion: typed.SchemaVersion, Target: typed.Target, Default: resolvedLane{Selection: view.Default, Candidate: typed.Code.Candidate, Binding: v4WorkerBinding(typed.Code), PolicyReference: typed.DefaultPolicy, ClassifierService: &typed.Classifier, ClassifierRelease: release, ClassifierSelectionID: ref.SHA256, CandidateComposition: &defaultComposition}, Profiles: profiles, ConfigurationOnly: true}, nil
 	case *SelectionSetV2:
 		view := typed.View(ref)
 		profiles := make(map[string]resolvedLane, len(typed.Profiles))
 		for key, lane := range typed.Profiles {
 			profiles[key] = resolvedLane{Selection: view.Profiles[key], Candidate: lane.Candidate, Binding: lane.LaneBinding, Profile: &laneProfile{Key: lane.ProfileKey, Policy: *lane.ProfilePolicy, Requirements: *lane.ProfileRequirements}}
 		}
-		return resolvedSelectionSet{Target: typed.Target, Default: resolvedLane{Selection: view.Default, Candidate: typed.Default.Candidate, Binding: typed.Default.LaneBinding}, Profiles: profiles}, nil
+		return resolvedSelectionSet{SchemaVersion: typed.SchemaVersion, Target: typed.Target, Default: resolvedLane{Selection: view.Default, Candidate: typed.Default.Candidate, Binding: typed.Default.LaneBinding}, Profiles: profiles}, nil
 	case *SelectionSet:
 		defaultLane, err := r.v1Lane(ctx, typed.Default)
 		if err != nil {
@@ -578,7 +654,7 @@ func (r *laneReader) selectionSet(ctx context.Context, ref ObjectRef) (resolvedS
 			}
 			profiles[key] = lane
 		}
-		return resolvedSelectionSet{Target: typed.Target, Default: defaultLane, Profiles: profiles}, nil
+		return resolvedSelectionSet{SchemaVersion: typed.SchemaVersion, Target: typed.Target, Default: defaultLane, Profiles: profiles}, nil
 	default:
 		return resolvedSelectionSet{}, errors.New("registry returned the wrong manifest kind")
 	}
@@ -609,6 +685,8 @@ func readSelectionSetView(ctx context.Context, store ServingStore, ref ObjectRef
 	}
 	switch typed := manifest.(type) {
 	case *SelectionSetV3:
+		return typed.View(ref), nil
+	case *SelectionSetV4:
 		return typed.View(ref), nil
 	case *SelectionSetV2:
 		return typed.View(ref), nil
@@ -698,6 +776,83 @@ func readServingFamily(ctx context.Context, store ServingStore, kind ServingKind
 	return manifest, payload, nil
 }
 
+func v4WorkerBinding(code CandidateCodeV4) LaneBinding {
+	return LaneBinding{
+		Project: code.Project, Region: code.Region,
+		Router: code.Router, Attestation: code.Attestation,
+	}
+}
+
+func classifierCandidateCompositionV5(
+	candidate CandidateV3,
+	release ClassifierReleaseManifestV1,
+	classifierBinding ClassifierServiceBinding,
+	strategyPolicies map[router.Strategy]PolicyObject,
+	policyReference PolicyObject,
+	releaseID string,
+) (CandidateComposition, error) {
+	if !slices.Contains(candidate.Requirements.SupportedAPIMajors, release.APIMajor) {
+		return CandidateComposition{}, errors.New("Router candidate does not support classifier API major")
+	}
+	primary, exists := release.Variants[routerpolicy.ClassifierVariantPrimary]
+	if !exists {
+		return CandidateComposition{}, errors.New("classifier release has no primary variant")
+	}
+	variantPolicies := make(map[router.Strategy]routerpolicy.ClassifierArtifact)
+	for strategy, variantID := range map[router.Strategy]routerpolicy.ClassifierVariantID{
+		router.StrategyHMMBeta: routerpolicy.ClassifierVariantHMMBeta,
+		router.StrategyHMMQwen: routerpolicy.ClassifierVariantQwen,
+	} {
+		variant, found := release.Variants[variantID]
+		if !found {
+			if _, policyPinned := strategyPolicies[strategy]; policyPinned {
+				return CandidateComposition{}, fmt.Errorf("classifier release is missing %s strategy variant", strategy)
+			}
+			continue
+		}
+		if !slices.Contains(classifierBinding.EnabledVariants, variantID) {
+			if _, policyPinned := strategyPolicies[strategy]; policyPinned {
+				return CandidateComposition{}, fmt.Errorf("classifier selection disables %s strategy variant", strategy)
+			}
+			continue
+		}
+		variantPolicies[strategy] = routerpolicy.ClassifierArtifact{ArtifactID: variant.ArtifactID, PackageSHA256: variant.ArtifactSHA256}
+	}
+	for strategy := range strategyPolicies {
+		if _, found := variantPolicies[strategy]; !found {
+			return CandidateComposition{}, fmt.Errorf("strategy policy %s has no enabled classifier variant", strategy)
+		}
+	}
+	return CandidateComposition{
+		RouterImageDigest: candidate.RouterImageDigest,
+		Policy:            policyReference,
+		StrategyPolicies:  maps.Clone(strategyPolicies),
+		Classifier: ClassifierComponent{
+			Identity: ClassifierIdentity{
+				ArtifactID: primary.ArtifactID, PackageSHA256: primary.ArtifactSHA256,
+				ImageDigest: release.RuntimeImageDigest, WireSchema: release.WireSchema,
+				ClassOrder: slices.Clone(release.Taxonomy.ClassOrder), TaxonomySHA256: release.Taxonomy.SHA256,
+				Variants: variantPolicies,
+			},
+			AuxiliaryModels: maps.Clone(primary.AuxiliaryModels),
+		},
+		Requirements: ServingRequirements{
+			RuntimeContract:      candidate.Requirements.RuntimeContract,
+			PolicySchema:         candidate.Requirements.PolicySchema,
+			ClassifierWireSchema: release.WireSchema,
+			TaxonomySHA256:       release.Taxonomy.SHA256,
+		},
+		Provenance:                 candidate.Provenance,
+		ClassifierReleaseSHA256:    releaseID,
+		ClassifierServiceURL:       classifierBinding.ServiceURL,
+		ClassifierAudience:         classifierBinding.Audience,
+		EnabledClassifierVariants:  slices.Clone(classifierBinding.EnabledVariants),
+		SupportedAPIMajors:         slices.Clone(candidate.Requirements.SupportedAPIMajors),
+		ClassifierReleaseV5:        &release,
+		ClassifierServiceBindingV4: &classifierBinding,
+	}, nil
+}
+
 // readCandidate resolves a candidate-family reference into its effective composition. A v1
 // release is completed from its classifier bundle; a v2 candidate already carries it.
 func readCandidate(ctx context.Context, store ServingStore, ref ObjectRef) (CandidateComposition, error) {
@@ -708,6 +863,16 @@ func readCandidate(ctx context.Context, store ServingStore, ref ObjectRef) (Cand
 	switch typed := manifest.(type) {
 	case *CandidateV2:
 		return typed.CandidateComposition, nil
+	case *CandidateV3:
+		return CandidateComposition{
+			RouterImageDigest: typed.RouterImageDigest,
+			Requirements: ServingRequirements{
+				RuntimeContract: typed.Requirements.RuntimeContract,
+				PolicySchema:    typed.Requirements.PolicySchema,
+			},
+			Provenance:         typed.Provenance,
+			SupportedAPIMajors: slices.Clone(typed.Requirements.SupportedAPIMajors),
+		}, nil
 	case *ServingRelease:
 		bundle, err := readServing[*ClassifierBundle](ctx, store, ServingClassifiers, typed.Classifier)
 		if err != nil {
@@ -743,6 +908,28 @@ func readLane(ctx context.Context, store ServingStore, target ServingTarget, pro
 		if profileKey != "" {
 			policy, exists = set.Profiles[profileKey]
 		}
+	case *SelectionSetV4:
+		setTarget = set.Target
+		candidate, err := readServing[*CandidateV3](ctx, store, ServingCandidate, set.Code.Candidate)
+		if err != nil {
+			return ServingLane{}, PolicyObject{}, fmt.Errorf("read v3 candidate: %w", err)
+		}
+		release, err := readServing[*ClassifierReleaseManifestV1](ctx, store, ServingClassifierReleases, set.Classifier.Release)
+		if err != nil {
+			return ServingLane{}, PolicyObject{}, fmt.Errorf("read classifier release: %w", err)
+		}
+		lane = ServingLane{
+			Candidate: set.Code.Candidate,
+			LaneBinding: LaneBinding{
+				Project: set.Code.Project, Region: set.Code.Region,
+				Router: set.Code.Router, Attestation: set.Code.Attestation,
+			},
+			classifierServiceBinding: &set.Classifier,
+			classifierReleaseV5:      release,
+			v3Candidate:              candidate,
+			v4StrategyPolicies:       maps.Clone(set.StrategyPolicies),
+		}
+		policy, exists = set.PolicyFor(profileKey)
 	default:
 		return ServingLane{}, PolicyObject{}, errors.New("lane selection must name an artifacts/ selection set")
 	}
@@ -757,7 +944,9 @@ func readLane(ctx context.Context, store ServingStore, target ServingTarget, pro
 
 // ReadPreparedSelection reads and cross-validates one exact tuple without consulting mutable heads.
 // v1 selections traverse release, binding, classifier and profile objects; v2 selections read the
-// lane embedded in their selection set. V3 supplies the policy independently of code.
+// lane embedded in their selection set. V3 supplies the policy independently of code. V4 also
+// resolves the release's runtime binding for the target's environment, the only source of the
+// classifier worker URL and audience.
 func ReadPreparedSelection(ctx context.Context, store ServingStore, target ServingTarget, profileKey string, selection ServingSelection) (PreparedSelection, error) {
 	if err := selection.validate(store.RootURI(), profileKey != ""); err != nil {
 		return PreparedSelection{}, err
@@ -765,16 +954,34 @@ func ReadPreparedSelection(ctx context.Context, store ServingStore, target Servi
 	var candidate CandidateComposition
 	var binding LaneBinding
 	var policyReference PolicyObject
+	var classifierReleaseV5 *ClassifierReleaseManifestV1
+	var classifierServiceBinding *ClassifierServiceBinding
+	var classifierRuntimeBinding *ResolvedClassifierRuntimeBinding
 	if selection.isLane(store.RootURI()) {
 		lane, configuredPolicy, err := readLane(ctx, store, target, profileKey, selection)
 		if err != nil {
 			return PreparedSelection{}, err
 		}
-		if candidate, err = readCandidate(ctx, store, lane.Candidate); err != nil {
-			return PreparedSelection{}, err
-		}
-		if configuredPolicy == (PolicyObject{}) && profileKey != "" && (*lane.ProfilePolicy != candidate.Policy || *lane.ProfileRequirements != candidate.Requirements) {
-			return PreparedSelection{}, errors.New("effective tuple differs from the assigned profile's immutable policy")
+		if lane.classifierServiceBinding != nil {
+			candidate, err = classifierCandidateCompositionV5(
+				*lane.v3Candidate, *lane.classifierReleaseV5, *lane.classifierServiceBinding,
+				lane.v4StrategyPolicies, configuredPolicy, lane.classifierServiceBinding.Release.SHA256,
+			)
+			if err != nil {
+				return PreparedSelection{}, fmt.Errorf("compose v4 classifier selection: %w", err)
+			}
+			classifierReleaseV5 = lane.classifierReleaseV5
+			classifierServiceBinding = lane.classifierServiceBinding
+			if classifierRuntimeBinding, err = readClassifierRuntimeBinding(ctx, store, target, classifierServiceBinding.Release.SHA256, classifierReleaseV5.RuntimeImageDigest); err != nil {
+				return PreparedSelection{}, err
+			}
+		} else {
+			if candidate, err = readCandidate(ctx, store, lane.Candidate); err != nil {
+				return PreparedSelection{}, err
+			}
+			if configuredPolicy == (PolicyObject{}) && profileKey != "" && (*lane.ProfilePolicy != candidate.Policy || *lane.ProfileRequirements != candidate.Requirements) {
+				return PreparedSelection{}, errors.New("effective tuple differs from the assigned profile's immutable policy")
+			}
 		}
 		policyReference = configuredPolicy
 		binding = lane.LaneBinding
@@ -809,7 +1016,10 @@ func ReadPreparedSelection(ctx context.Context, store ServingStore, target Servi
 		candidate = release.composition(bundle.component())
 		binding = deployment.lane()
 	}
-	if binding.Router.ImageDigest != candidate.RouterImageDigest || binding.Classifier.ImageDigest != candidate.Classifier.Identity.ImageDigest || binding.Classifier.Configuration != candidate.Classifier.Configuration {
+	if binding.Router.ImageDigest != candidate.RouterImageDigest {
+		return PreparedSelection{}, errors.New("worker binding differs from candidate Router image")
+	}
+	if classifierReleaseV5 == nil && (binding.Classifier.ImageDigest != candidate.Classifier.Identity.ImageDigest || binding.Classifier.Configuration != candidate.Classifier.Configuration) {
 		return PreparedSelection{}, errors.New("deployment binding differs from release or classifier identity/configuration")
 	}
 	if policyReference == (PolicyObject{}) {
@@ -828,6 +1038,23 @@ func ReadPreparedSelection(ctx context.Context, store ServingStore, target Servi
 	}
 	return PreparedSelection{
 		Selection: selection, ProfileKey: profileKey, Target: target, Candidate: candidate,
-		Binding: binding, Policy: policy, PolicyReference: policyReference, StrategyPolicies: strategyPolicies,
+		Binding: binding, ClassifierReleaseV5: classifierReleaseV5, ClassifierServiceBinding: classifierServiceBinding,
+		ClassifierRuntimeBinding: classifierRuntimeBinding,
+		Policy:                   policy, PolicyReference: policyReference, StrategyPolicies: strategyPolicies,
 	}, nil
+}
+
+func readClassifierRuntimeBinding(ctx context.Context, store ServingStore, target ServingTarget, releaseSHA256, releaseImageDigest string) (*ResolvedClassifierRuntimeBinding, error) {
+	environment, err := target.Environment()
+	if err != nil {
+		return nil, err
+	}
+	resolved, err := store.ReadClassifierRuntimeBinding(ctx, environment, releaseSHA256)
+	if err != nil {
+		return nil, fmt.Errorf("resolve classifier runtime binding for release %s in %s: %w", releaseSHA256, environment, err)
+	}
+	if resolved.Binding.ReleaseSHA256 != releaseSHA256 || resolved.Binding.Environment != environment || resolved.Binding.ImageDigest != releaseImageDigest || !validDigest(resolved.Ref.SHA256) || resolved.Ref.Generation <= 0 {
+		return nil, errors.New("classifier runtime binding differs from the selected release or environment")
+	}
+	return &resolved, nil
 }

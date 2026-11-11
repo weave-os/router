@@ -70,10 +70,14 @@ var forceModelAliases = map[string]string{
 	"opus-4.8":   "claude-opus-4-8",
 	"claude-4-8": "claude-opus-4-8",
 	"claude-4.8": "claude-opus-4-8",
-	// Fable family aliases follow 5.1; Fable 5's own-name aliases keep
+	// Fable family aliases follow 5.2; older Fable own-name aliases keep
 	// resolving so existing direct pins still serve.
-	"fable":        "claude-fable-5-1",
-	"claude-fable": "claude-fable-5-1",
+	"fable":        "claude-fable-5-2",
+	"claude-fable": "claude-fable-5-2",
+	"fable-5.2":    "claude-fable-5-2",
+	"fable-5-2":    "claude-fable-5-2",
+	"fable5.2":     "claude-fable-5-2",
+	"fable52":      "claude-fable-5-2",
 	"fable-5.1":    "claude-fable-5-1",
 	"fable-5-1":    "claude-fable-5-1",
 	"fable5.1":     "claude-fable-5-1",
@@ -122,6 +126,7 @@ var forceModelAliases = map[string]string{
 	"gpt-5-6":       "gpt-5.6-sol",
 	"gpt-5-6-sol":   "gpt-5.6-sol",
 	"terra":         "gpt-5.6-terra",
+	"gpt-6-1-terra": "gpt-6.1-terra",
 	"gpt-5-6-terra": "gpt-5.6-terra",
 	"gpt-5-6-luna":  "gpt-5.6-luna",
 	"gpt-5-5":       "gpt-5.5",
@@ -146,6 +151,15 @@ var forceModelAliases = map[string]string{
 	"muse-spark":            "muse-spark-1.3",
 	"muse":                  "muse-spark-1.3",
 	"meta":                  "muse-spark-1.3",
+	"muse-spark-open":       catalog.ModelMuseSparkOpen,
+	"musespark-open":        catalog.ModelMuseSparkOpen,
+	"spark-open":            catalog.ModelMuseSparkOpen,
+	"muse-ember-1.0":        catalog.ModelMuseEmber,
+	"muse-ember":            catalog.ModelMuseEmber,
+	"ember":                 catalog.ModelMuseEmber,
+	"muse-wonder-1.0":       catalog.ModelMuseWonder,
+	"muse-wonder":           catalog.ModelMuseWonder,
+	"wonder":                catalog.ModelMuseWonder,
 	"gpt-5-4":               "gpt-5.4",
 	"gpt-5-4-pro":           "gpt-5.4-pro",
 	"gpt-5-4-mini":          "gpt-5.4-mini",
@@ -186,18 +200,20 @@ var forceModelAliases = map[string]string{
 	"kimi-k2.7":                "moonshotai/kimi-k2.7",
 	"kimi-k2.6":                "moonshotai/kimi-k2.6",
 	// Generic GLM aliases follow 5.3; version-specific pins stay exact.
-	"glm":           "z-ai/glm-5.3",
-	"zai":           "z-ai/glm-5.3",
-	"z-ai":          "z-ai/glm-5.3",
-	"glm-5.3-flash": "z-ai/glm-5.3-flash",
-	"glm-5.3":       "z-ai/glm-5.3",
-	"glm-5.2":       "z-ai/glm-5.2",
-	"glm-5.1":       "z-ai/glm-5.1",
-	"glm-5":         "z-ai/glm-5",
-	"minimax":       "minimax/minimax-m3",
-	"minimax-m3":    "minimax/minimax-m3",
-	"minimax-m2.7":  "minimax/minimax-m2.7",
-	"mistral":       "mistralai/mistral-small-2603",
+	"glm":                "z-ai/glm-5.3",
+	"zai":                "z-ai/glm-5.3",
+	"z-ai":               "z-ai/glm-5.3",
+	"glm-5.3-flash":      "z-ai/glm-5.3-flash",
+	"glm-5.3":            "z-ai/glm-5.3",
+	"glm-5.2":            "z-ai/glm-5.2",
+	"glm-5.1":            "z-ai/glm-5.1",
+	"glm-5":              "z-ai/glm-5",
+	"minimax":            "minimax/minimax-m3.1-flash",
+	"minimax-m3.1":       "minimax/minimax-m3.1-flash",
+	"minimax-m3.1-flash": "minimax/minimax-m3.1-flash",
+	"minimax-m3":         "minimax/minimax-m3",
+	"minimax-m2.7":       "minimax/minimax-m2.7",
+	"mistral":            "mistralai/mistral-small-2603",
 }
 
 // forceModelExamples follows the family aliases so the unknown-model hint
@@ -326,6 +342,9 @@ func forceModelNames() map[string]string {
 		if unprefixed, ok := strings.CutPrefix(m.ID, "claude-"); ok {
 			names[unprefixed] = m.ID
 		}
+		if variantFirst, ok := variantFirstGPTName(m.ID); ok {
+			names[variantFirst] = m.ID
+		}
 	}
 	for bare, id := range bareCatalogNames {
 		names[bare] = id
@@ -334,6 +353,21 @@ func forceModelNames() map[string]string {
 		names[alias] = id
 	}
 	return names
+}
+
+// gptVariantID matches a GPT release whose version has a minor component
+// ("gpt-6.1-sol"). A bare major ("sol-6") can name a generation rather than one
+// release, so it gets no variant-first spelling.
+var gptVariantID = regexp.MustCompile(`^gpt-([0-9]+\.[0-9]+)-([a-z]+)$`)
+
+// variantFirstGPTName spells a GPT release variant first, as users say it:
+// "gpt-6.1-sol" is also "sol-6.1" (and, folded, "sol 6.1" or "sol-6-1").
+func variantFirstGPTName(id string) (string, bool) {
+	match := gptVariantID.FindStringSubmatch(id)
+	if match == nil {
+		return "", false
+	}
+	return match[2] + "-" + match[1], true
 }
 
 // foldedForceModelNames indexes forceModelNames by folded spelling. A folded
@@ -829,6 +863,7 @@ func (s *Service) applyForceModelCommand(
 			return "", commandAcknowledgment{}, err
 		}
 		ack.outcome.Pin.Transition = translate.PinCleared
+		s.recordAgreementShadowCommandBoundary(ctx, installationID, threadSessionKey, ack.outcome.ID)
 		log.Debug("/unforce-model: session pin cleared",
 			"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 			"role", forceModelSessionRole,
@@ -884,6 +919,7 @@ func (s *Service) applyForceModelCommand(
 		shownModel = canonicalModel + ":" + effortLevel
 	}
 	ack.outcome.Pin = translate.CommandPin{Transition: translate.PinApplied, Model: canonicalModel, Provider: binding, Effort: effortLevel}
+	s.recordAgreementShadowCommandBoundary(ctx, installationID, threadSessionKey, ack.outcome.ID)
 	ack.force.clearCommand = directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "unforce-model"
 	ack.force.parentOnly = cmd.ParentOnly
 	log.Debug("/"+command+": session pin set",

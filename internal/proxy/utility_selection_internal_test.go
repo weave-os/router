@@ -102,7 +102,7 @@ func TestBaselineMarkerNeverPrefixesMachineConsumedTurns(t *testing.T) {
 func TestAutomaticProbeWithoutConcreteTargetScoresWithoutPinning(t *testing.T) {
 	for _, requestedModel := range []string{
 		automaticProbeModel, "",
-		string(router.ModelAutomatic), string(router.ModelHMM), string(router.ModelQwen), string(router.ModelDecision),
+		string(router.ModelAutomatic), string(router.ModelHMM), string(router.ModelHMMBeta), string(router.ModelQwen), string(router.ModelDecision),
 	} {
 		t.Run(requestedModel, func(t *testing.T) {
 			scorer := &blindExperimentRouterSpy{decision: router.Decision{

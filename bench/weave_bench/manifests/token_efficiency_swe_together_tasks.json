@@ -1,0 +1,135 @@
+{
+ "benchmark": "SWE-Together",
+ "source": "https://github.com/Togetherbench/SWE-Together",
+ "revision": "811a70a28ff20bfbeabf9a8b5ec42152d16c9b4f",
+ "description": "Token-efficiency work-ratio tasks. Tiers band tasks by pass rate (low ~1.0, medium ~0.5-0.8, high <= 0.4); the first three of each tier (core) ran in every cell, the rest in the cells that carry production traffic.",
+ "digest_rule": "sha256 of the sorted task ids joined by newlines",
+ "digest": "6b4c99b225a3f967e66a6541c3dad7c4aae4e7cbacb696f6dd6fa0e1cb067685",
+ "tasks": [
+  {
+   "id": "cli-task-c4c7e9",
+   "tier": "low",
+   "core": true
+  },
+  {
+   "id": "dataclaw-anonymizer-tests",
+   "tier": "low",
+   "core": true
+  },
+  {
+   "id": "gemini-voyager-task-4a5730",
+   "tier": "low",
+   "core": true
+  },
+  {
+   "id": "qwen3-moe-gguf-dequant",
+   "tier": "low",
+   "core": false
+  },
+  {
+   "id": "light-protocol-implement-7adad1",
+   "tier": "low",
+   "core": false
+  },
+  {
+   "id": "sd-scripts-multiresolution-compat",
+   "tier": "low",
+   "core": false
+  },
+  {
+   "id": "cli-task-2a55af",
+   "tier": "low",
+   "core": false
+  },
+  {
+   "id": "gemini-voyager-task-c5c01d",
+   "tier": "low",
+   "core": false
+  },
+  {
+   "id": "agent-swarm-task-ea4bd8",
+   "tier": "medium",
+   "core": true
+  },
+  {
+   "id": "comfyui-lumina-axes-lens",
+   "tier": "medium",
+   "core": true
+  },
+  {
+   "id": "hyperswitch-8084",
+   "tier": "medium",
+   "core": true
+  },
+  {
+   "id": "rudel-task-8e0bd6",
+   "tier": "medium",
+   "core": false
+  },
+  {
+   "id": "cli-task-dbd2bf",
+   "tier": "medium",
+   "core": false
+  },
+  {
+   "id": "hyperswitch-8008",
+   "tier": "medium",
+   "core": false
+  },
+  {
+   "id": "dataclaw-windows-path-fix",
+   "tier": "medium",
+   "core": false
+  },
+  {
+   "id": "vibecomfy-mcp-pr-integration",
+   "tier": "medium",
+   "core": false
+  },
+  {
+   "id": "cli-task-c425e4",
+   "tier": "medium",
+   "core": false
+  },
+  {
+   "id": "pi-mono-keybinding-scope",
+   "tier": "high",
+   "core": true
+  },
+  {
+   "id": "reigh-medialightbox-refactor",
+   "tier": "high",
+   "core": true
+  },
+  {
+   "id": "pi-mono-auto-d3b2130d",
+   "tier": "high",
+   "core": true
+  },
+  {
+   "id": "comfyui-gemma3-sliding-window",
+   "tier": "high",
+   "core": false
+  },
+  {
+   "id": "hyperswitch-9465",
+   "tier": "high",
+   "core": false
+  },
+  {
+   "id": "rudel-task-491983",
+   "tier": "high",
+   "core": false
+  },
+  {
+   "id": "reigh-radix-props-cleanup",
+   "tier": "high",
+   "core": false
+  },
+  {
+   "id": "cli-task-2f5833",
+   "tier": "high",
+   "core": false
+  }
+ ]
+}

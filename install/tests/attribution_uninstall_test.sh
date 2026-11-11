@@ -56,6 +56,33 @@ printf '{"env":{"ANTHROPIC_BASE_URL":"x"},"attribution":{"commit":"Co-Authored-B
 install "$home" --claude --no-attribution >/dev/null
 check "--no-attribution keeps a PR line the user wrote" test "$(attribution "$home")" = '{"pr":"made by me"}'
 
+# Installs made before the weaveos.com move carry the old PR link (and, for the
+# oldest, a workweave.ai commit email); the toggle and uninstall must still own them.
+legacy_pr='🤖 Generated with [Weave Router](https://router.workweave.ai)'
+seed_legacy() { # seed_legacy <home> <commit-email>
+  mkdir -p "$1/.claude"
+  jq -n --arg commit "Co-Authored-By: Weave Router <$2>" --arg pr "$legacy_pr" \
+    '{env:{ANTHROPIC_BASE_URL:"x"},attribution:{commit:$commit,pr:$pr}}' >"$1/.claude/settings.json"
+}
+
+home="$work/attr-legacy-off"
+seed_legacy "$home" router@weaveos.com
+install "$home" --claude --no-attribution >/dev/null
+check "--no-attribution removes the pre-move PR link" test "$(attribution "$home")" = '"none"'
+
+for email in router@weaveos.com router@workweave.ai noreply@workweave.ai; do
+  home="$work/attr-legacy-uninstall-$email"
+  seed_legacy "$home" "$email"
+  uninstall "$home" --claude >/dev/null
+  check "uninstall removes a pre-move attribution ($email)" test "$(attribution "$home")" = '"none"'
+done
+
+home="$work/attr-legacy-custom-pr"
+mkdir -p "$home/.claude"
+jq -n --arg pr "$legacy_pr" '{env:{ANTHROPIC_BASE_URL:"x"},attribution:{commit:"Co-Authored-By: Me <me@example.com>",pr:$pr}}' >"$home/.claude/settings.json"
+uninstall "$home" --claude >/dev/null
+check "uninstall keeps attribution whose commit line is the user's" test "$(jq -r '.attribution.commit' "$home/.claude/settings.json")" = "Co-Authored-By: Me <me@example.com>"
+
 echo "bare uninstall"
 
 home="$work/both"

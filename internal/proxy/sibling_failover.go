@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"weave-os/router/internal/observability"
@@ -16,6 +17,16 @@ import (
 // ReasonSiblingFailover marks a turn served by a same-cluster candidate after
 // the routed model's own bindings were exhausted.
 const ReasonSiblingFailover = "sibling_failover"
+
+type rescueSkipReason string
+
+const (
+	rescueSkipExcluded          rescueSkipReason = "excluded"
+	rescueSkipAutomaticExcluded rescueSkipReason = "automatic_excluded"
+	rescueSkipImageLimit        rescueSkipReason = "image_limit"
+	rescueSkipNoBinding         rescueSkipReason = "no_binding"
+	rescueSkipContextWindow     rescueSkipReason = "context_window"
+)
 
 // rescueBasisForTurn gives a held automatic pin this request's scored rescue
 // shortlist without changing the primary decision's selected arm or binding.
@@ -114,8 +125,9 @@ func (s *Service) rescueDecisions(ctx context.Context, failed router.Decision, c
 	// The rescue picks a stand-in on the router's own initiative, so a disabled
 	// model must not be resurrected here after the pool already excluded it.
 	automaticExcluded := s.rescueExcludedModels(ctx)
+	imageCount := requestImageCountFromContext(ctx)
 	providerFor := func(id string) (string, bool) {
-		return siblingProvider(id, candidateProviders, available)
+		return siblingProvider(id, candidateProviders, available, imageCount)
 	}
 	return s.rescueWalkOrReadmitCooling(ctx, failed, candidates, reason, excludedModels, automaticExcluded, est, sigSavings, outputReserve, providerFor)
 }
@@ -149,7 +161,18 @@ func (s *Service) rescueWalkOrReadmitCooling(
 	est, sigSavings, outputReserve int,
 	providerFor func(id string) (string, bool),
 ) []router.Decision {
-	decisions := walkRescueCandidates(failed, candidates, reason, excludedModels, automaticExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor)
+	var skipped []string
+	decisions := walkRescueCandidates(failed, candidates, reason, requestImageCountFromContext(ctx), excludedModels, automaticExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor, func(model string, why rescueSkipReason) {
+		skipped = append(skipped, model+":"+string(why))
+	})
+	if len(skipped) > 0 {
+		observability.FromContext(ctx).Info("Rescue candidates skipped",
+			"failed_model", failed.Model,
+			"rescue_reason", reason,
+			"context_estimate", est,
+			"skipped", strings.Join(skipped, ","),
+		)
+	}
 	decisions = append(decisions, s.readmitCoolingRescueCandidates(ctx, failed, candidates, reason, excludedModels, est, sigSavings, outputReserve, providerFor)...)
 	if len(decisions) > 0 || reason != ReasonSiblingFailover {
 		return decisions
@@ -217,7 +240,7 @@ func (s *Service) readmissionWalk(
 			readmitExcluded[model] = struct{}{}
 		}
 	}
-	return walkRescueCandidates(failed, pool, reason, excludedModels, readmitExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor)
+	return walkRescueCandidates(failed, pool, reason, requestImageCountFromContext(ctx), excludedModels, readmitExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor, nil)
 }
 
 // rosterRescueAdmits bounds readmission on a roster-failover turn to the
@@ -281,26 +304,43 @@ func walkRescueCandidates(
 	failed router.Decision,
 	candidates []string,
 	reason string,
+	imageCount int,
 	excludedModels, automaticExcluded, cortexGateways map[string]struct{},
 	est, sigSavings, outputReserve int,
 	providerFor func(id string) (string, bool),
+	skip func(model string, reason rescueSkipReason),
 ) []router.Decision {
+	if skip == nil {
+		skip = func(string, rescueSkipReason) {}
+	}
 	var ordered, crossProvider, sameProvider []router.Decision
 	for _, id := range candidates {
 		if id == "" || id == failed.Model {
 			continue
 		}
 		if _, drop := excludedModels[id]; drop {
+			skip(id, rescueSkipExcluded)
 			continue
 		}
 		if _, disabled := automaticExcluded[id]; disabled {
+			skip(id, rescueSkipAutomaticExcluded)
+			continue
+		}
+		if !catalog.AcceptsImageCount(id, imageCount, nil) {
+			skip(id, rescueSkipImageLimit)
 			continue
 		}
 		provider, ok := providerFor(id)
 		if !ok {
+			skip(id, rescueSkipNoBinding)
+			continue
+		}
+		if binding, found := catalog.BindingFor(id, provider); found && !binding.AcceptsImageCount(imageCount) {
+			skip(id, rescueSkipImageLimit)
 			continue
 		}
 		if !siblingFitsContext(cortexGateways, id, provider, est, sigSavings, outputReserve) {
+			skip(id, rescueSkipContextWindow)
 			continue
 		}
 		candidate := rescueDecisionFor(failed, id, provider, reason)
@@ -318,15 +358,16 @@ func walkRescueCandidates(
 }
 
 // rescueExcludedModels is the exclusion set an in-turn rescue must honor:
-// deployment and session demotions plus models leased by another probe.
+// deployment and session demotions, models leased by another probe, and models
+// the thread's billed usage says this request overflows.
 func (s *Service) rescueExcludedModels(ctx context.Context) map[string]struct{} {
-	demoted := sessionDemotedModelsFromContext(ctx)
+	excluded := slices.Concat(sessionDemotedModelsFromContext(ctx), observedOverflowModelsFromContext(ctx))
 	probeDenied, _ := ctx.Value(SessionCooldownProbeDeniedModelsContextKey{}).([]string)
-	if len(demoted) == 0 && len(probeDenied) == 0 {
+	if len(excluded) == 0 && len(probeDenied) == 0 {
 		return s.globalAutomaticExcludedModels(ctx)
 	}
-	session := make(map[string]struct{}, len(demoted)+len(probeDenied))
-	for _, model := range demoted {
+	session := make(map[string]struct{}, len(excluded)+len(probeDenied))
+	for _, model := range excluded {
 		session[model] = struct{}{}
 	}
 	for _, model := range probeDenied {
@@ -399,7 +440,7 @@ func (s *Service) gatewaySiblingAllowed(ctx context.Context, sibling router.Deci
 // one of the request's own gateway aliases), and a depleted-credit turn may
 // still spend on it.
 func (s *Service) siblingRescueAllowed(ctx context.Context, gatewayHeld bool) bool {
-	return s.ResolveSiblingFailover(ctx) &&
+	return !claudeEnterpriseTurn(ctx) && s.ResolveSiblingFailover(ctx) &&
 		(s.shouldFailover(ctx) || s.subscriptionSiblingAllowed(ctx) || gatewayHeld) &&
 		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
 }
@@ -447,14 +488,24 @@ func siblingCandidateOrder(md *router.RoutingMetadata) []string {
 	return order
 }
 
-// siblingProvider resolves the provider a candidate dispatches to, preferring
-// the one the routing decision resolved for it and falling back to catalog
-// binding order.
-func siblingProvider(model string, resolved map[string]string, available map[string]struct{}) (string, bool) {
+// siblingProvider preserves a compatible resolved binding before considering
+// available alternatives in catalog order.
+func siblingProvider(model string, resolved map[string]string, available map[string]struct{}, imageCount int) (string, bool) {
 	if p, ok := resolved[model]; ok && p != "" {
 		if _, keyed := available[p]; keyed {
-			return p, true
+			binding, known := catalog.BindingFor(model, p)
+			if !known || binding.AcceptsImageCount(imageCount) {
+				return p, true
+			}
 		}
+	}
+	if imageCount > 0 {
+		for _, binding := range catalog.EnumerateBindings(model, available) {
+			if binding.AcceptsImageCount(imageCount) {
+				return binding.Provider, true
+			}
+		}
+		return "", false
 	}
 	binding, ok := catalog.ResolveBinding(model, available)
 	if !ok {
