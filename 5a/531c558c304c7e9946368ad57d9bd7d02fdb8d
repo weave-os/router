@@ -1,0 +1,66 @@
+internal/subscriptions/candidate_selection_internal_test.go
+  s_4a5b20b31cab48::t_a18fad47f7e448 1-147
+  s_4a5b20b31cab48::t_c406aa48095d6a 148-167
+internal/auth/subscription.go
+  s_4a5b20b31cab48::t_2507d0ddd8be98 194
+  s_4a5b20b31cab48::t_78f510a610a648 195-196
+  s_4a5b20b31cab48::t_271aab30157395 191-193
+internal/subscriptions/candidate_selection.go
+  s_4a5b20b31cab48::t_258120bd9200ad 1-65,69-125,128-170
+  s_4a5b20b31cab48::t_a5ab678114bff9 66-68,126-127
+cmd/router/main.go
+  s_4a5b20b31cab48::t_78f510a610a648 1782,1786,1808
+  s_4a5b20b31cab48::t_53d63137cd544f 1805,1809-1810
+cmd/router/subscription_selection_test.go
+  s_4a5b20b31cab48::t_4629a99543658c 11,21
+  s_4a5b20b31cab48::t_5f5b386f40983c 67-85
+internal/subscriptions/candidate_selection_test.go
+  s_4a5b20b31cab48::t_30140763fe0693 96-131
+  s_4a5b20b31cab48::t_5f5b386f40983c 66-95
+  s_4a5b20b31cab48::t_c80769eed9d30d 1-12,61-62,64-65
+  s_4a5b20b31cab48::t_c406aa48095d6a 13-60,63
+docs/SUBSCRIPTION_ROUTING.md
+  s_4a5b20b31cab48::t_c406aa48095d6a 26-49
+internal/proxy/dispatch_plan.go
+  s_4a5b20b31cab48::t_78f510a610a648 13,239-242,245
+  s_4a5b20b31cab48::t_26c0293d3a3706 234,243-244
+  s_4a5b20b31cab48::t_7f56d9aef5b466 236
+internal/providers/openai/codex_quota_test.go
+  s_4a5b20b31cab48::t_c0bf72b5f07f69 9,318-328,330-352
+  s_4a5b20b31cab48::t_32c7d44a19d049 329
+  s_4a5b20b31cab48::t_9907cdfcc73930 353
+internal/proxy/usage/usage.go
+  s_4a5b20b31cab48::t_78f510a610a648 335-336
+  s_4a5b20b31cab48::t_6ce574a635bb5a 251-252,256-257
+internal/subscriptions/runtime.go
+  s_4a5b20b31cab48::t_a5ab678114bff9 219,221-223
+  s_4a5b20b31cab48::t_78f510a610a648 9,32-36
+  s_4a5b20b31cab48::t_7f56d9aef5b466 106-109,120-122,137-138,173,177,179,182,188-201,212,225,229,232-234
+  s_4a5b20b31cab48::t_12e09b236ece56 98-105
+internal/proxy/usage/usage_test.go
+  s_4a5b20b31cab48::t_4629a99543658c 450-458
+  s_4a5b20b31cab48::t_c0bf72b5f07f69 459-482
+internal/proxy/managed_subscriptions_test.go
+  s_4a5b20b31cab48::t_5f5b386f40983c 4,6,8,21,421-422,440-470
+internal/providers/openai/codex_quota.go
+  s_4a5b20b31cab48::t_a5ab678114bff9 45
+  s_4a5b20b31cab48::t_32c7d44a19d049 123,126,129,149
+  s_4a5b20b31cab48::t_53d63137cd544f 34,37-44
+  s_4a5b20b31cab48::t_26c0293d3a3706 11,21-23,35-36,46,124-125,127-128,130-147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5a531c558c304c7e9946368ad57d9bd7d02fdb8d",
+  "prompts": {},
+  "sessions": {
+    "s_4a5b20b31cab48": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c1ea-4f9f-7f23-9ba4-1c6d2643e4ff",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
