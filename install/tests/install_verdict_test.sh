@@ -75,6 +75,17 @@ install() {
     bash "$installer" "$@" --scope user --base-url http://127.0.0.1:9 </dev/null 2>&1
 }
 
+# pty_install <home> <answer> -- <installer args...> runs the installer on a
+# terminal, typing <answer> at its prompts.
+pty_install() {
+  local home="$1" answer="$2"; shift 3
+  mkdir -p "$home"
+  printf '%s\n' "$answer" | env HOME="$home" XDG_CACHE_HOME="$home/.cache" TMPDIR="$work/tmp" PATH="$test_path" NO_COLOR=1 \
+    WEAVE_ROUTER_KEY=rk_pty FAKE_CLIENT_LOGGED_IN=1 \
+    script -qe -c "bash $(printf '%q' "$installer") $* --scope user --email dev@example.com --base-url http://127.0.0.1:9" /dev/null 2>&1 \
+    | tr -d '\r'
+}
+
 codex_key() {
   sed -n 's/.*"X-Weave-Router-Key"[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$1" 2>/dev/null | head -n 1
 }
@@ -126,7 +137,7 @@ check "the login hint still shows when the client leaves a child behind" has "$o
 out="$(install "$work/codex-ready" 200 WEAVE_ROUTER_KEY=rk_ok FAKE_CLIENT_LOGGED_IN=1 -- --codex)"
 check "a signed-in Codex user is told to just run codex" has "$out" "Next: run codex; your next prompt goes through Weave Router."
 
-echo "install.sh closing commands and launch offer"
+echo "install.sh closing commands and no launch offer"
 
 out="$(install "$work/daily" 200 WEAVE_ROUTER_KEY=rk_daily -- --claude)"
 check "a working install lists how to check routing" has "$out" "Check routing  npx @weave-os/router status --claude"
@@ -134,11 +145,28 @@ check "a working install lists how to turn routing off" has "$out" "Turn off    
 check "a working install says how to give feedback" has "$out" "type /rf <what happened> in Claude Code"
 check "a working install folds the uninstall command into the list" lacks "$out" "To uninstall:"
 check "a working install does not offer to start the client" lacks "$out" "now? [Y/n]"
+check "a working install does not start the client" lacks "$out" "FAKE CLAUDE STARTED"
 out="$(install "$work/daily-codex" 200 WEAVE_ROUTER_KEY=rk_daily -- --codex)"
 check "Codex feedback uses its skill syntax" has "$out" "type \$rf <what happened> in Codex"
 out="$(install "$work/daily-bad" 401 WEAVE_ROUTER_KEY=rk_daily -- --claude)"
 check "a failed install still prints the uninstall command" has "$out" "To uninstall:"
 check "a failed install skips the everyday commands" lacks "$out" "Check routing"
+
+if script --version 2>/dev/null | grep -q util-linux; then
+  out="$(pty_install "$work/pty-install" "" -- --claude)"
+  check "a terminal install lists how to check routing" has "$out" "Check routing"
+  check "a terminal install does not offer to start Claude Code" lacks "$out" "now? [Y/n]"
+  check "a terminal install does not start Claude Code" lacks "$out" "FAKE CLAUDE STARTED"
+  out="$(pty_install "$work/pty-codex" "" -- --codex)"
+  check "a terminal Codex install does not offer to start Codex" lacks "$out" "now? [Y/n]"
+  check "a terminal Codex install does not start Codex" lacks "$out" "FAKE CODEX STARTED"
+  out="$(pty_install "$work/pty-setup" "" -- setup)"
+  check "a terminal setup does not offer to start a client" lacks "$out" "now? [Y/n]"
+  check "a terminal setup does not start Claude Code" lacks "$out" "FAKE CLAUDE STARTED"
+  check "a terminal setup does not start Codex" lacks "$out" "FAKE CODEX STARTED"
+else
+  echo "  skip terminal checks (needs util-linux script)"
+fi
 
 echo "setup key and identity handoff"
 
