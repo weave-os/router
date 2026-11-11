@@ -62,11 +62,12 @@ func (r *BillingRepo) DebitInference(ctx context.Context, p billing.DebitParams)
 		// CHECK-constrained, so it still needs a legal value.
 		feeEntryType = p.EntryType
 	}
-	balanceAfter, err := q.DebitOrgCredits(ctx, sqlc.DebitOrgCreditsParams{
+	row, err := q.DebitOrgCredits(ctx, sqlc.DebitOrgCreditsParams{
 		OrganizationID: p.OrganizationID,
 		// The balance moves by the combined amount; the SET expression takes a
 		// single param (see the query's comment on charged_usd_micros).
 		ChargedUsdMicros:      p.DeltaUsdMicros + p.FeeUsdMicros,
+		UnfundedEntryType:     billing.EntryTypeUnfunded,
 		BalanceFloorUsdMicros: billing.OrganizationBalanceFloorMicros,
 		DeltaUsdMicros:        p.DeltaUsdMicros,
 		NotionalCostMicros:    p.NotionalCostMicros,
@@ -80,21 +81,16 @@ func (r *BillingRepo) DebitInference(ctx context.Context, p billing.DebitParams)
 		DelegatedTaskID:       stringPtrOrNil(p.DelegatedTaskID),
 		RouterUserID:          uuidOrNil(p.RouterUserID),
 	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, billing.ErrBalanceRowMissing
+	}
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			balance, balanceErr := q.GetOrgCreditBalance(ctx, p.OrganizationID)
-			switch {
-			case balanceErr == nil:
-				return balance, billing.ErrBalanceFloorExceeded
-			case errors.Is(balanceErr, pgx.ErrNoRows):
-				return 0, billing.ErrBalanceRowMissing
-			default:
-				return 0, balanceErr
-			}
-		}
 		return 0, err
 	}
-	return balanceAfter, nil
+	if !row.Applied {
+		return row.BalanceAfterMicros, billing.ErrBalanceFloorExceeded
+	}
+	return row.BalanceAfterMicros, nil
 }
 
 // GetDelegatedTokenSpend reads a delegated session's and task's spend-to-date

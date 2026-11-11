@@ -2,7 +2,6 @@ package postgres_test
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"weave-os/router/internal/billing"
@@ -15,15 +14,17 @@ import (
 )
 
 type scanResult struct {
-	value int64
-	err   error
+	balance int64
+	applied bool
+	err     error
 }
 
 func (r scanResult) Scan(destinations ...any) error {
 	if r.err != nil {
 		return r.err
 	}
-	*(destinations[0].(*int64)) = r.value
+	*(destinations[0].(*int64)) = r.balance
+	*(destinations[1].(*bool)) = r.applied
 	return nil
 }
 
@@ -49,8 +50,7 @@ func (s *billingDBStub) QueryRow(_ context.Context, _ string, arguments ...any) 
 
 func TestBillingRepoClassifiesBalanceFloorRejection(t *testing.T) {
 	database := &billingDBStub{rows: []pgx.Row{
-		scanResult{err: pgx.ErrNoRows},
-		scanResult{value: -900_000_000},
+		scanResult{balance: -900_000_000, applied: false},
 	}}
 	repository := postgres.NewBillingRepo(database)
 
@@ -63,13 +63,13 @@ func TestBillingRepoClassifiesBalanceFloorRejection(t *testing.T) {
 
 	require.ErrorIs(t, err, billing.ErrBalanceFloorExceeded)
 	assert.Equal(t, int64(-900_000_000), balance)
-	require.Len(t, database.queryArgs, 2)
+	require.Len(t, database.queryArgs, 1)
 	assert.Contains(t, database.queryArgs[0], billing.OrganizationBalanceFloorMicros)
+	assert.Contains(t, database.queryArgs[0], billing.EntryTypeUnfunded)
 }
 
 func TestBillingRepoStillClassifiesMissingBalanceRow(t *testing.T) {
 	database := &billingDBStub{rows: []pgx.Row{
-		scanResult{err: pgx.ErrNoRows},
 		scanResult{err: pgx.ErrNoRows},
 	}}
 	repository := postgres.NewBillingRepo(database)
@@ -80,5 +80,4 @@ func TestBillingRepoStillClassifiesMissingBalanceRow(t *testing.T) {
 	})
 
 	assert.ErrorIs(t, err, billing.ErrBalanceRowMissing)
-	assert.False(t, errors.Is(err, billing.ErrBalanceFloorExceeded))
 }

@@ -147,6 +147,10 @@ const EntryTypeInference = "inference"
 // router.organization_credit_ledger.entry_type.
 const EntryTypeByokFee = "byok_fee"
 
+// EntryTypeUnfunded records a served charge held for reconciliation because
+// applying it would cross the organization balance floor.
+const EntryTypeUnfunded = "unfunded"
+
 // DefaultByokFeeRate is the BYOK platform fee fraction; zero means no fee unless BYOK_FEE_RATE opts a deployment in.
 const DefaultByokFeeRate = 0.0
 
