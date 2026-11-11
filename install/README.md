@@ -54,10 +54,8 @@ for non-interactive installs). Re-running it reuses the key already on disk,
 so you only ever paste it once — see [Staying up to date](#staying-up-to-date).
 
 After a working Claude Code or Codex install, the installer lists the everyday
-commands (`status`, `off`, `on`, feedback, uninstall) and, on a terminal, asks
-`Start Claude Code now? [Y/n]` (or Codex) to open the client straight away.
-`setup` with both clients asks once, for Claude Code. `--non-interactive`,
-`--quiet`, `update`, and failed key checks skip the offer.
+commands (`status`, `off`, `on`, feedback, uninstall) and exits. `--quiet`,
+`update`, and failed key checks skip the list.
 
 ### Self-hosted via `docker compose` (zero-config)
 
