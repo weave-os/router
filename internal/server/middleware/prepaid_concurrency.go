@@ -67,12 +67,6 @@ func WithOrganizationPrepaidConcurrencyLimit(organizationLimit, keyLimit int) gi
 			return
 		}
 		organizationID := installation.ExternalID
-		if !organizationLimiter.acquire(organizationID) {
-			writePrepaidConcurrencyLimit(c, organizationID, "", "organization", organizationLimit)
-			return
-		}
-		defer organizationLimiter.release(organizationID)
-
 		apiKeyID := ""
 		if apiKey := APIKeyFrom(c); apiKey != nil && apiKey.ID != "" {
 			apiKeyID = apiKey.ID
@@ -83,6 +77,11 @@ func WithOrganizationPrepaidConcurrencyLimit(organizationLimit, keyLimit int) gi
 			}
 			defer keyLimiter.release(limiterID)
 		}
+		if !organizationLimiter.acquire(organizationID) {
+			writePrepaidConcurrencyLimit(c, organizationID, apiKeyID, "organization", organizationLimit)
+			return
+		}
+		defer organizationLimiter.release(organizationID)
 		c.Next()
 	}
 }
@@ -94,10 +93,15 @@ func writePrepaidConcurrencyLimit(c *gin.Context, organizationID, apiKeyID, scop
 		"scope", scope,
 		"max_in_flight", limit,
 	)
+	message := "Too many paid requests are already in progress for this organization. Retry after one finishes."
+	if scope == "routing_key" {
+		message = "Too many paid requests are already in progress for this routing key. Retry after one finishes."
+	}
 	c.Header("Retry-After", "1")
 	c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 		"error":         "organization_prepaid_concurrency_limit_reached",
 		"max_in_flight": limit,
-		"message":       "Too many paid requests are already in progress for this organization. Retry after one finishes.",
+		"scope":         scope,
+		"message":       message,
 	})
 }

@@ -61,7 +61,12 @@ func TestOrganizationPrepaidConcurrencyLimitSharedAcrossProtocolGroups(t *testin
 	rejected := servePrepaidRequest(secondProtocol)
 	assert.Equal(t, http.StatusTooManyRequests, rejected.Code)
 	assert.Equal(t, "1", rejected.Header().Get("Retry-After"))
-	assert.Contains(t, rejected.Body.String(), `"max_in_flight":1`)
+	assert.JSONEq(t, `{
+		"error":"organization_prepaid_concurrency_limit_reached",
+		"max_in_flight":1,
+		"scope":"routing_key",
+		"message":"Too many paid requests are already in progress for this routing key. Retry after one finishes."
+	}`, rejected.Body.String())
 
 	otherOrg := prepaidConcurrencyEngine(guard, "org_y", "key_x", true, func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
@@ -81,7 +86,12 @@ func TestOrganizationPrepaidConcurrencyLimitSharedAcrossProtocolGroups(t *testin
 	})
 	orgRejected := servePrepaidRequest(thirdKey)
 	assert.Equal(t, http.StatusTooManyRequests, orgRejected.Code)
-	assert.Contains(t, orgRejected.Body.String(), `"max_in_flight":2`)
+	assert.JSONEq(t, `{
+		"error":"organization_prepaid_concurrency_limit_reached",
+		"max_in_flight":2,
+		"scope":"organization",
+		"message":"Too many paid requests are already in progress for this organization. Retry after one finishes."
+	}`, orgRejected.Body.String())
 
 	unbilled := prepaidConcurrencyEngine(guard, "org_x", "key_x", false, func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
@@ -98,7 +108,14 @@ func TestOrganizationPrepaidConcurrencyLimitSharedAcrossProtocolGroups(t *testin
 }
 
 func TestOrganizationPrepaidConcurrencyLimitRequiresPositiveLimit(t *testing.T) {
-	assert.Panics(t, func() {
-		middleware.WithOrganizationPrepaidConcurrencyLimit(0, 1)
+	t.Run("organization", func(t *testing.T) {
+		assert.Panics(t, func() {
+			middleware.WithOrganizationPrepaidConcurrencyLimit(0, 1)
+		})
+	})
+	t.Run("routing key", func(t *testing.T) {
+		assert.Panics(t, func() {
+			middleware.WithOrganizationPrepaidConcurrencyLimit(1, 0)
+		})
 	})
 }
