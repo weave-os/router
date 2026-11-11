@@ -63,6 +63,7 @@ import (
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
@@ -1076,6 +1077,7 @@ func main() {
 	var hmmReadinessChecker admin.HealthChecker
 	var policyStatus admin.PolicyStatusSource
 	var hmmRosterSources map[router.Strategy]policy.RosterSource
+	var hmmDistributionRosters []*rosterdata.Roster
 	var hmmRosterModels admin.HMMRosterSource
 	var hmmBetaCapabilities policy.Capabilities
 	var servingAdmission *middleware.ServingAdmissionConfig
@@ -1141,6 +1143,31 @@ func main() {
 			}
 		}
 		logger.Info("Managed serving admission enabled", "target", admission.Identity.Target, "revision", admission.Identity.Revision)
+	} else if localReleaseDir := strings.TrimSpace(config.GetOr("ROUTER_SERVING_RELEASE_DIR", "")); localReleaseDir != "" {
+		prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), 60*time.Second)
+		localSnapshot, localRelease, err := buildLocalServingRuntime(prepareCtx, deploymentMode, localReleaseDir, availableProviders, taskRuntime)
+		cancelPrepare()
+		if err != nil {
+			logger.Error("Local serving release is invalid; refusing to boot", "dir", localReleaseDir, "err", err)
+			panic(err)
+		}
+		localRouter := policyregistry.NewLocalReleaseRouter(router.StrategyHMM, localSnapshot)
+		hmmRouter = localRouter
+		hmmEmbeddingRouter = policyregistry.NewLocalReleaseRouter(router.StrategyHMMEmbedding, localSnapshot)
+		hmmCapabilities = localRouter.CurrentCapabilities()
+		escalationObserver = localRouter
+		rosterSource := policyregistry.LocalReleaseRosterSource{Snapshot: localSnapshot}
+		hmmRosterSources = map[router.Strategy]policy.RosterSource{
+			router.StrategyHMM: rosterSource, router.StrategyHMMEmbedding: rosterSource,
+		}
+		hmmRosterModels = localHMMRosterSource{roster: rosterSource}
+		localDistribution, err := rosterSource.DistributionRoster(context.Background())
+		if err != nil {
+			logger.Error("Refusing to boot: the local V4 release has no distribution roster", "err", err)
+			panic(err)
+		}
+		hmmDistributionRosters = []*rosterdata.Roster{localDistribution}
+		logger.Info("Serving the local V4 release on the self-hosted classifier worker", "dir", localReleaseDir, "target", localRelease.Target, "selection_set", localRelease.SelectionSet.URI)
 	} else if policyEnvironmentRaw != "" || policyReleaseDir != "" {
 		var policyRegistry policyregistry.Loader
 		var policyEnvironment policyregistry.Environment
@@ -1674,7 +1701,7 @@ func main() {
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}
-	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)
+	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures, hmmDistributionRosters...)
 
 	port := config.GetOr("PORT", "8080")
 	address := ":" + port
