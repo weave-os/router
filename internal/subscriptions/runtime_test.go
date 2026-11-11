@@ -1,8 +1,10 @@
 package subscriptions_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -11,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
@@ -41,6 +44,8 @@ type runtimeStore struct {
 	enabledUpdates       map[string]bool
 	cooldowns            map[string]time.Time
 	healthStates         map[string]auth.SubscriptionAccountState
+	persistFailures      int
+	persistCalls         int
 	stateErr             error
 	extendErr            error
 	extendCount          atomic.Int32
@@ -191,9 +196,18 @@ func (s *runtimeStore) LoadSubscriptionCredentials(_ context.Context, _ auth.Sub
 	return credentials, nil
 }
 
-func (s *runtimeStore) PersistSubscriptionTokens(_ context.Context, _ auth.SubscriptionOwner, accountID, leaseID string, expectedVersion int64, refreshToken, accessToken []byte, expiresAt time.Time) error {
+func (s *runtimeStore) PersistSubscriptionTokens(ctx context.Context, _ auth.SubscriptionOwner, accountID, leaseID string, expectedVersion int64, refreshToken, accessToken []byte, expiresAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.persistCalls++
+	if s.persistFailures > 0 {
+		s.persistFailures--
+		return errors.New("synthetic token storage unavailable")
+	}
+
 	for _, account := range s.accounts {
 		if account.ID == accountID && !account.Enabled {
 			return auth.ErrSubscriptionRefreshConflict
@@ -227,13 +241,18 @@ func (s *runtimeStore) UpdateSubscriptionAccountCooldown(_ context.Context, _ au
 	return s.stateErr
 }
 
-func (s *runtimeStore) UpdateSubscriptionAccountHealth(_ context.Context, _ auth.SubscriptionOwner, accountID string, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) error {
+func (s *runtimeStore) UpdateSubscriptionAccountHealth(_ context.Context, _ auth.SubscriptionOwner, accountID string, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.stateErr != nil {
+		return false, s.stateErr
+	}
+	disconnected := false
 	for _, account := range s.accounts {
 		if account.ID != accountID {
 			continue
 		}
+		disconnected = state == auth.SubscriptionAccountStateReconnectRequired && account.State != state
 		account.Enabled = account.Enabled && enabled
 		// Mirror SQL: activation preserves an unexpired cooldown.
 		if state == auth.SubscriptionAccountStateActive && account.CooldownUntil != nil && account.CooldownUntil.After(time.Now()) {
@@ -248,7 +267,7 @@ func (s *runtimeStore) UpdateSubscriptionAccountHealth(_ context.Context, _ auth
 	if cooldownUntil != nil {
 		s.cooldowns[accountID] = *cooldownUntil
 	}
-	return s.stateErr
+	return disconnected, nil
 }
 
 type runtimeRefreshFunc func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error)
@@ -1216,4 +1235,65 @@ func TestRuntimeRejectsDifferentCodexUserInSameWorkspace(t *testing.T) {
 	require.Empty(t, store.rotatedTokens["account-1"])
 	require.False(t, store.enabledUpdates["account-1"])
 	require.False(t, store.accounts[0].Enabled)
+}
+
+func TestRuntimeRetriesSavingRotatedTokenWithoutRefreshingAgain(t *testing.T) {
+	store := newRejectionStore(auth.SubscriptionProviderClaude)
+	store.persistFailures = 1
+	var refreshCalls atomic.Int32
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		refreshCalls.Add(1)
+		return subscriptions.RefreshedToken{AccessToken: "access-rotated", RefreshToken: "refresh-rotated", ExpiresAt: time.Now().Add(time.Hour)}, nil
+	}), nil)
+	lease, _, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
+	require.NoError(t, err)
+	defer lease.Release()
+	require.Equal(t, int32(1), refreshCalls.Load(), "the provider has already consumed the old refresh token")
+	require.Equal(t, "access-rotated", lease.AccessToken)
+	require.Equal(t, []byte("refresh-rotated"), store.refreshTokens["account-1"])
+	require.Equal(t, 2, store.persistCalls)
+	require.Empty(t, store.rejections)
+}
+
+func TestRuntimeSavesRotatedTokenAfterCallerCancels(t *testing.T) {
+	store := newRejectionStore(auth.SubscriptionProviderClaude)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		cancel()
+		return subscriptions.RefreshedToken{AccessToken: "access-after-cancel", RefreshToken: "refresh-after-cancel", ExpiresAt: time.Now().Add(time.Hour)}, nil
+	}), nil)
+	lease, _, _ := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "")
+	defer lease.Release()
+	require.Eventually(t, func() bool {
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		return string(store.refreshTokens["account-1"]) == "refresh-after-cancel" && len(store.leaseIDs) == 0
+	}, time.Second, time.Millisecond, "the detached refresh must save its consumed token after the caller returns")
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	require.Empty(t, store.rejections)
+}
+
+func TestRuntimeReportsExhaustedTokenSaveRetriesWithoutProviderReplay(t *testing.T) {
+	store := newRejectionStore(auth.SubscriptionProviderClaude)
+	store.persistFailures = 10
+	var logBytes bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logBytes, nil)))
+	var refreshCalls atomic.Int32
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		refreshCalls.Add(1)
+		return subscriptions.RefreshedToken{AccessToken: "access-do-not-log", RefreshToken: "refresh-do-not-log", ExpiresAt: time.Now().Add(time.Hour)}, nil
+	}), nil)
+	_, _, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "")
+	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
+	require.Equal(t, int32(1), refreshCalls.Load())
+	require.Equal(t, 3, store.persistCalls)
+	require.Empty(t, store.rejections, "database failures are not evidence that a provider rejected credentials")
+	require.True(t, store.accounts[0].Enabled)
+	require.Contains(t, logBytes.String(), `"retries_exhausted":true`)
+	require.Contains(t, logBytes.String(), string(auth.SubscriptionCredentialEventPersistenceFailed))
+	require.Contains(t, logBytes.String(), `"token_refresh_version":0`)
+	require.NotContains(t, logBytes.String(), "refresh-do-not-log")
+	require.NotContains(t, logBytes.String(), "access-do-not-log")
 }
