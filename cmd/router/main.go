@@ -1141,6 +1141,25 @@ func main() {
 			}
 		}
 		logger.Info("Managed serving admission enabled", "target", admission.Identity.Target, "revision", admission.Identity.Revision)
+	} else if localReleaseDir := localServingReleaseDir(); localReleaseDir != "" {
+		prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), 60*time.Second)
+		localSnapshot, localRelease, err := buildLocalServingRuntime(prepareCtx, deploymentMode, localReleaseDir, availableProviders, taskRuntime)
+		cancelPrepare()
+		if err != nil {
+			logger.Error("Local serving release is invalid; refusing to boot", "dir", localReleaseDir, "err", err)
+			panic(err)
+		}
+		localRouter := policyregistry.NewLocalReleaseRouter(router.StrategyHMM, localSnapshot)
+		hmmRouter = localRouter
+		hmmEmbeddingRouter = policyregistry.NewLocalReleaseRouter(router.StrategyHMMEmbedding, localSnapshot)
+		hmmCapabilities = localRouter.CurrentCapabilities()
+		escalationObserver = localRouter
+		rosterSource := policyregistry.LocalReleaseRosterSource{Snapshot: localSnapshot}
+		hmmRosterSources = map[router.Strategy]policy.RosterSource{
+			router.StrategyHMM: rosterSource, router.StrategyHMMEmbedding: rosterSource,
+		}
+		hmmRosterModels = localHMMRosterSource{roster: rosterSource}
+		logger.Info("Serving the local V4 release on the self-hosted classifier worker", "dir", localReleaseDir, "target", localRelease.Target, "selection_set", localRelease.SelectionSet.URI)
 	} else if policyEnvironmentRaw != "" || policyReleaseDir != "" {
 		var policyRegistry policyregistry.Loader
 		var policyEnvironment policyregistry.Environment

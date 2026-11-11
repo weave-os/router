@@ -78,3 +78,28 @@ func (AdmittedRosterSource) Roster(ctx context.Context) ([]string, error) {
 	roster, _ := snapshot.policyForStrategy(router.StrategyFromContext(ctx))
 	return roster.AllArms(), nil
 }
+
+// LocalReleaseRosterSource reads a self-hosted release's exported snapshot for requests not bound to another.
+type LocalReleaseRosterSource struct{ Snapshot *Snapshot }
+
+func (s LocalReleaseRosterSource) bind(ctx context.Context) context.Context {
+	if ServingSnapshotFromContext(ctx) == nil && s.Snapshot != nil {
+		return WithServingSnapshot(ctx, s.Snapshot)
+	}
+	return ctx
+}
+
+// DistributionRoster exposes the exported release's customer policy.
+func (s LocalReleaseRosterSource) DistributionRoster(ctx context.Context) (*rosterdata.Roster, error) {
+	return AdmittedRosterSource{}.DistributionRoster(s.bind(ctx))
+}
+
+// ClusterRoster supplies the exported release's policy to discovery and escalation.
+func (s LocalReleaseRosterSource) ClusterRoster(ctx context.Context) (policy.RosterSnapshot, error) {
+	return AdmittedRosterSource{}.ClusterRoster(s.bind(ctx))
+}
+
+// Roster lists the exported release's arms.
+func (s LocalReleaseRosterSource) Roster(ctx context.Context) ([]string, error) {
+	return AdmittedRosterSource{}.Roster(s.bind(ctx))
+}
