@@ -10,8 +10,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// OrganizationPrepaidMaxInFlight bounds paid work per org and process.
+const OrganizationPrepaidMaxInFlight = 100
+
 // OrganizationPrepaidMaxInFlightPerKey bounds paid organization-credit work
-// per routing key and process. The SQL floor remains the org-wide backstop.
+// per routing key and process. The SQL floor remains the cross-replica backstop.
 const OrganizationPrepaidMaxInFlightPerKey = 10
 
 type organizationPrepaidLimiter struct {
@@ -49,9 +52,10 @@ func (l *organizationPrepaidLimiter) release(organizationID string) {
 }
 
 // WithOrganizationPrepaidConcurrencyLimit bounds paid work per org and process.
-// Reuse one handler across protocol groups; the SQL floor covers all replicas.
-func WithOrganizationPrepaidConcurrencyLimit(limit int) gin.HandlerFunc {
-	limiter := newOrganizationPrepaidLimiter(limit)
+// A lower per-key cap keeps one credential from consuming the org allowance.
+func WithOrganizationPrepaidConcurrencyLimit(organizationLimit, keyLimit int) gin.HandlerFunc {
+	organizationLimiter := newOrganizationPrepaidLimiter(organizationLimit)
+	keyLimiter := newOrganizationPrepaidLimiter(keyLimit)
 	return func(c *gin.Context) {
 		if !billing.OrganizationPrepaidFromContext(c.Request.Context()) {
 			c.Next()
@@ -63,27 +67,37 @@ func WithOrganizationPrepaidConcurrencyLimit(limit int) gin.HandlerFunc {
 			return
 		}
 		organizationID := installation.ExternalID
-		limiterID := organizationID
+		if !organizationLimiter.acquire(organizationID) {
+			writePrepaidConcurrencyLimit(c, organizationID, "", "organization", organizationLimit)
+			return
+		}
+		defer organizationLimiter.release(organizationID)
+
 		apiKeyID := ""
 		if apiKey := APIKeyFrom(c); apiKey != nil && apiKey.ID != "" {
 			apiKeyID = apiKey.ID
-			limiterID += "\x00" + apiKeyID
+			limiterID := organizationID + "\x00" + apiKeyID
+			if !keyLimiter.acquire(limiterID) {
+				writePrepaidConcurrencyLimit(c, organizationID, apiKeyID, "routing_key", keyLimit)
+				return
+			}
+			defer keyLimiter.release(limiterID)
 		}
-		if !limiter.acquire(limiterID) {
-			observability.FromGin(c).Info("Request throttled: organization prepaid concurrency limit reached",
-				"organization_id", organizationID,
-				"api_key_id", apiKeyID,
-				"max_in_flight", limit,
-			)
-			c.Header("Retry-After", "1")
-			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-				"error":         "organization_prepaid_concurrency_limit_reached",
-				"max_in_flight": limit,
-				"message":       "Too many paid requests are already in progress for this organization. Retry after one finishes.",
-			})
-			return
-		}
-		defer limiter.release(limiterID)
 		c.Next()
 	}
+}
+
+func writePrepaidConcurrencyLimit(c *gin.Context, organizationID, apiKeyID, scope string, limit int) {
+	observability.FromGin(c).Info("Request throttled: organization prepaid concurrency limit reached",
+		"organization_id", organizationID,
+		"api_key_id", apiKeyID,
+		"scope", scope,
+		"max_in_flight", limit,
+	)
+	c.Header("Retry-After", "1")
+	c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+		"error":         "organization_prepaid_concurrency_limit_reached",
+		"max_in_flight": limit,
+		"message":       "Too many paid requests are already in progress for this organization. Retry after one finishes.",
+	})
 }

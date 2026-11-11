@@ -363,7 +363,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 
 	var organizationPrepaidConcurrency gin.HandlerFunc
 	if billingSvc != nil {
-		organizationPrepaidConcurrency = middleware.WithOrganizationPrepaidConcurrencyLimit(middleware.OrganizationPrepaidMaxInFlightPerKey)
+		organizationPrepaidConcurrency = middleware.WithOrganizationPrepaidConcurrencyLimit(
+			middleware.OrganizationPrepaidMaxInFlight,
+			middleware.OrganizationPrepaidMaxInFlightPerKey,
+		)
 	}
 
 	messagesMiddleware := []gin.HandlerFunc{
