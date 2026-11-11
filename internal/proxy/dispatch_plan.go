@@ -239,7 +239,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			if managedAttempt {
 				observability.FromContext(bookkeepingCtx).Info("Subscription account attempt completed",
 					"subscription_event", auth.SubscriptionCredentialEventAttempted, "account_id", lease.AccountID,
-					"provider", decision.Provider, "model", decision.Model, "succeeded", attemptErr == nil,
+					"provider", decision.Provider, "succeeded", attemptErr == nil,
 					"upstream_status", upstreamStatus(attemptErr), "attempt_ms", time.Since(attemptStarted).Milliseconds(),
 					"response_committed", committed(in.buf), "subscription_account_attempt", account+1)
 			}
