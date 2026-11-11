@@ -66,6 +66,10 @@ WITH updated AS (
     SET balance_usd_micros = balance_usd_micros + $1::bigint,
         updated_at = NOW()
     WHERE organization_id = $2::varchar
+      AND (
+          $1::bigint >= 0
+          OR balance_usd_micros + $1::bigint >= $3::bigint
+      )
     RETURNING balance_usd_micros
 ),
 ledger AS (
@@ -80,14 +84,14 @@ ledger AS (
     )
     SELECT
         $2::varchar,
-        $3::bigint,
         $4::bigint,
+        $5::bigint,
         -- The fee row is logically second, so this row records the balance as of
         -- before the fee landed: final minus the fee's signed value.
-        updated.balance_usd_micros - $5::bigint,
-        $6::varchar,
+        updated.balance_usd_micros - $6::bigint,
         $7::varchar,
-        $8::varchar
+        $8::varchar,
+        $9::varchar
     FROM updated
     RETURNING balance_after_micros
 ),
@@ -105,14 +109,14 @@ fee_ledger AS (
     )
     SELECT
         $2::varchar,
-        $5::bigint,
+        $6::bigint,
         0,
         updated.balance_usd_micros,
-        $9::varchar,
-        $7::varchar,
-        $8::varchar
+        $10::varchar,
+        $8::varchar,
+        $9::varchar
     FROM updated
-    WHERE $5::bigint <> 0
+    WHERE $6::bigint <> 0
 ),
 key_spend AS (
     -- charged_usd_micros is the signed total the balance moved (delta + fee),
@@ -129,7 +133,7 @@ key_spend AS (
     -- matching ledger debit.
     UPDATE router.model_router_api_keys
     SET spent_usd_micros = spent_usd_micros - $1::bigint
-    WHERE id = $10::uuid
+    WHERE id = $11::uuid
       AND EXISTS (SELECT 1 FROM updated)
 ),
 delegated_spend AS (
@@ -139,18 +143,18 @@ delegated_spend AS (
     -- when the issuer key was deleted mid-request, so its FK cannot roll back
     -- a debit for inference already served.
     INSERT INTO router.delegated_token_spend (issuer_key_id, scope_kind, scope_id, spent_usd_micros, updated_at)
-    SELECT $10::uuid, delegated.scope_kind, delegated.scope_id, -($1::bigint), NOW()
+    SELECT $11::uuid, delegated.scope_kind, delegated.scope_id, -($1::bigint), NOW()
     FROM (
         VALUES
-            ('session', $11::varchar),
-            ('task', $12::varchar)
+            ('session', $12::varchar),
+            ('task', $13::varchar)
     ) AS delegated (scope_kind, scope_id)
     WHERE delegated.scope_id IS NOT NULL
-      AND $10::uuid IS NOT NULL
+      AND $11::uuid IS NOT NULL
       AND EXISTS (SELECT 1 FROM updated)
       AND EXISTS (
           SELECT 1 FROM router.model_router_api_keys
-          WHERE id = $10::uuid
+          WHERE id = $11::uuid
       )
     ON CONFLICT (issuer_key_id, scope_kind, scope_id) DO UPDATE
     SET spent_usd_micros = router.delegated_token_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
@@ -165,15 +169,15 @@ user_month_spend AS (
     -- after inference was already served.
     INSERT INTO router.model_router_user_monthly_spend (router_user_id, month, spent_usd_micros, updated_at)
     SELECT
-        $13::uuid,
+        $14::uuid,
         DATE_TRUNC('month', NOW() AT TIME ZONE 'utc')::date,
         -($1::bigint),
         NOW()
-    WHERE $13::uuid IS NOT NULL
+    WHERE $14::uuid IS NOT NULL
       AND EXISTS (SELECT 1 FROM updated)
       AND EXISTS (
           SELECT 1 FROM router.model_router_users
-          WHERE id = $13::uuid
+          WHERE id = $14::uuid
       )
     ON CONFLICT (router_user_id, month) DO UPDATE
     SET spent_usd_micros = router.model_router_user_monthly_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
@@ -197,19 +201,20 @@ FROM ledger
 `
 
 type DebitOrgCreditsParams struct {
-	ChargedUsdMicros   int64
-	OrganizationID     string
-	DeltaUsdMicros     int64
-	NotionalCostMicros int64
-	FeeUsdMicros       int64
-	EntryType          string
-	RouterRequestID    *string
-	RouterModel        *string
-	FeeEntryType       string
-	APIKeyID           pgtype.UUID
-	DelegatedSessionID *string
-	DelegatedTaskID    *string
-	RouterUserID       pgtype.UUID
+	ChargedUsdMicros      int64
+	OrganizationID        string
+	BalanceFloorUsdMicros int64
+	DeltaUsdMicros        int64
+	NotionalCostMicros    int64
+	FeeUsdMicros          int64
+	EntryType             string
+	RouterRequestID       *string
+	RouterModel           *string
+	FeeEntryType          string
+	APIKeyID              pgtype.UUID
+	DelegatedSessionID    *string
+	DelegatedTaskID       *string
+	RouterUserID          pgtype.UUID
 }
 
 // Atomic debit: decrement the balance and append a matching ledger row in a
@@ -221,9 +226,9 @@ type DebitOrgCreditsParams struct {
 // debits so we keep a shadow billing trail.
 //
 // No `balance >= amount` guard: concurrent requests can both pass the
-// preflight balance check and both debit; both debits must be recorded
-// even if the resulting balance is briefly negative. The min-balance
-// threshold on the middleware bounds the typical dip.
+// preflight balance check and both debit. A fixed negative floor still lets
+// in-flight debits settle while bounding adversarial bursts. Zero/positive
+// movements remain allowed below the floor so legacy debt can recover.
 //
 // Returns the post-debit balance so middleware/log lines can report the
 // new value without a follow-up read.
@@ -251,6 +256,10 @@ type DebitOrgCreditsParams struct {
 //	    SET balance_usd_micros = balance_usd_micros + $1::bigint,
 //	        updated_at = NOW()
 //	    WHERE organization_id = $2::varchar
+//	      AND (
+//	          $1::bigint >= 0
+//	          OR balance_usd_micros + $1::bigint >= $3::bigint
+//	      )
 //	    RETURNING balance_usd_micros
 //	),
 //	ledger AS (
@@ -265,14 +274,14 @@ type DebitOrgCreditsParams struct {
 //	    )
 //	    SELECT
 //	        $2::varchar,
-//	        $3::bigint,
 //	        $4::bigint,
+//	        $5::bigint,
 //	        -- The fee row is logically second, so this row records the balance as of
 //	        -- before the fee landed: final minus the fee's signed value.
-//	        updated.balance_usd_micros - $5::bigint,
-//	        $6::varchar,
+//	        updated.balance_usd_micros - $6::bigint,
 //	        $7::varchar,
-//	        $8::varchar
+//	        $8::varchar,
+//	        $9::varchar
 //	    FROM updated
 //	    RETURNING balance_after_micros
 //	),
@@ -290,14 +299,14 @@ type DebitOrgCreditsParams struct {
 //	    )
 //	    SELECT
 //	        $2::varchar,
-//	        $5::bigint,
+//	        $6::bigint,
 //	        0,
 //	        updated.balance_usd_micros,
-//	        $9::varchar,
-//	        $7::varchar,
-//	        $8::varchar
+//	        $10::varchar,
+//	        $8::varchar,
+//	        $9::varchar
 //	    FROM updated
-//	    WHERE $5::bigint <> 0
+//	    WHERE $6::bigint <> 0
 //	),
 //	key_spend AS (
 //	    -- charged_usd_micros is the signed total the balance moved (delta + fee),
@@ -314,7 +323,7 @@ type DebitOrgCreditsParams struct {
 //	    -- matching ledger debit.
 //	    UPDATE router.model_router_api_keys
 //	    SET spent_usd_micros = spent_usd_micros - $1::bigint
-//	    WHERE id = $10::uuid
+//	    WHERE id = $11::uuid
 //	      AND EXISTS (SELECT 1 FROM updated)
 //	),
 //	delegated_spend AS (
@@ -324,18 +333,18 @@ type DebitOrgCreditsParams struct {
 //	    -- when the issuer key was deleted mid-request, so its FK cannot roll back
 //	    -- a debit for inference already served.
 //	    INSERT INTO router.delegated_token_spend (issuer_key_id, scope_kind, scope_id, spent_usd_micros, updated_at)
-//	    SELECT $10::uuid, delegated.scope_kind, delegated.scope_id, -($1::bigint), NOW()
+//	    SELECT $11::uuid, delegated.scope_kind, delegated.scope_id, -($1::bigint), NOW()
 //	    FROM (
 //	        VALUES
-//	            ('session', $11::varchar),
-//	            ('task', $12::varchar)
+//	            ('session', $12::varchar),
+//	            ('task', $13::varchar)
 //	    ) AS delegated (scope_kind, scope_id)
 //	    WHERE delegated.scope_id IS NOT NULL
-//	      AND $10::uuid IS NOT NULL
+//	      AND $11::uuid IS NOT NULL
 //	      AND EXISTS (SELECT 1 FROM updated)
 //	      AND EXISTS (
 //	          SELECT 1 FROM router.model_router_api_keys
-//	          WHERE id = $10::uuid
+//	          WHERE id = $11::uuid
 //	      )
 //	    ON CONFLICT (issuer_key_id, scope_kind, scope_id) DO UPDATE
 //	    SET spent_usd_micros = router.delegated_token_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
@@ -350,15 +359,15 @@ type DebitOrgCreditsParams struct {
 //	    -- after inference was already served.
 //	    INSERT INTO router.model_router_user_monthly_spend (router_user_id, month, spent_usd_micros, updated_at)
 //	    SELECT
-//	        $13::uuid,
+//	        $14::uuid,
 //	        DATE_TRUNC('month', NOW() AT TIME ZONE 'utc')::date,
 //	        -($1::bigint),
 //	        NOW()
-//	    WHERE $13::uuid IS NOT NULL
+//	    WHERE $14::uuid IS NOT NULL
 //	      AND EXISTS (SELECT 1 FROM updated)
 //	      AND EXISTS (
 //	          SELECT 1 FROM router.model_router_users
-//	          WHERE id = $13::uuid
+//	          WHERE id = $14::uuid
 //	      )
 //	    ON CONFLICT (router_user_id, month) DO UPDATE
 //	    SET spent_usd_micros = router.model_router_user_monthly_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
@@ -383,6 +392,7 @@ func (q *Queries) DebitOrgCredits(ctx context.Context, arg DebitOrgCreditsParams
 	row := q.db.QueryRow(ctx, debitOrgCredits,
 		arg.ChargedUsdMicros,
 		arg.OrganizationID,
+		arg.BalanceFloorUsdMicros,
 		arg.DeltaUsdMicros,
 		arg.NotionalCostMicros,
 		arg.FeeUsdMicros,

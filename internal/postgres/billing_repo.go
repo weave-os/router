@@ -66,22 +66,31 @@ func (r *BillingRepo) DebitInference(ctx context.Context, p billing.DebitParams)
 		OrganizationID: p.OrganizationID,
 		// The balance moves by the combined amount; the SET expression takes a
 		// single param (see the query's comment on charged_usd_micros).
-		ChargedUsdMicros:   p.DeltaUsdMicros + p.FeeUsdMicros,
-		DeltaUsdMicros:     p.DeltaUsdMicros,
-		NotionalCostMicros: p.NotionalCostMicros,
-		EntryType:          p.EntryType,
-		FeeUsdMicros:       p.FeeUsdMicros,
-		FeeEntryType:       feeEntryType,
-		RouterRequestID:    stringPtrOrNil(p.RouterRequestID),
-		RouterModel:        stringPtrOrNil(p.RouterModel),
-		APIKeyID:           uuidOrNil(p.APIKeyID),
-		DelegatedSessionID: stringPtrOrNil(p.DelegatedSessionID),
-		DelegatedTaskID:    stringPtrOrNil(p.DelegatedTaskID),
-		RouterUserID:       uuidOrNil(p.RouterUserID),
+		ChargedUsdMicros:      p.DeltaUsdMicros + p.FeeUsdMicros,
+		BalanceFloorUsdMicros: billing.OrganizationBalanceFloorMicros,
+		DeltaUsdMicros:        p.DeltaUsdMicros,
+		NotionalCostMicros:    p.NotionalCostMicros,
+		EntryType:             p.EntryType,
+		FeeUsdMicros:          p.FeeUsdMicros,
+		FeeEntryType:          feeEntryType,
+		RouterRequestID:       stringPtrOrNil(p.RouterRequestID),
+		RouterModel:           stringPtrOrNil(p.RouterModel),
+		APIKeyID:              uuidOrNil(p.APIKeyID),
+		DelegatedSessionID:    stringPtrOrNil(p.DelegatedSessionID),
+		DelegatedTaskID:       stringPtrOrNil(p.DelegatedTaskID),
+		RouterUserID:          uuidOrNil(p.RouterUserID),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, billing.ErrBalanceRowMissing
+			balance, balanceErr := q.GetOrgCreditBalance(ctx, p.OrganizationID)
+			switch {
+			case balanceErr == nil:
+				return balance, billing.ErrBalanceFloorExceeded
+			case errors.Is(balanceErr, pgx.ErrNoRows):
+				return 0, billing.ErrBalanceRowMissing
+			default:
+				return 0, balanceErr
+			}
 		}
 		return 0, err
 	}

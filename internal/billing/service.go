@@ -155,6 +155,10 @@ const DefaultByokFeeRate = 0.0
 // debits settle.
 const MinBalanceMicros int64 = 0
 
+// OrganizationBalanceFloorMicros bounds post-dispatch organization credit
+// exposure while allowing ordinary in-flight debits to settle below zero.
+const OrganizationBalanceFloorMicros int64 = -1_000_000_000
+
 // Service orchestrates balance reads and debits. No I/O of its own — all
 // persistence flows through the Repo interface.
 type Service struct {

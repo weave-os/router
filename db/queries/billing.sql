@@ -29,9 +29,9 @@ SELECT EXISTS (
 -- debits so we keep a shadow billing trail.
 --
 -- No `balance >= amount` guard: concurrent requests can both pass the
--- preflight balance check and both debit; both debits must be recorded
--- even if the resulting balance is briefly negative. The min-balance
--- threshold on the middleware bounds the typical dip.
+-- preflight balance check and both debit. A fixed negative floor still lets
+-- in-flight debits settle while bounding adversarial bursts. Zero/positive
+-- movements remain allowed below the floor so legacy debt can recover.
 --
 -- Returns the post-debit balance so middleware/log lines can report the
 -- new value without a follow-up read.
@@ -53,6 +53,10 @@ WITH updated AS (
     SET balance_usd_micros = balance_usd_micros + @charged_usd_micros::bigint,
         updated_at = NOW()
     WHERE organization_id = @organization_id::varchar
+      AND (
+          @charged_usd_micros::bigint >= 0
+          OR balance_usd_micros + @charged_usd_micros::bigint >= @balance_floor_usd_micros::bigint
+      )
     RETURNING balance_usd_micros
 ),
 ledger AS (
