@@ -10,9 +10,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// OrganizationPrepaidMaxInFlight bounds paid organization-credit requests per
-// process. The SQL balance floor remains the cross-replica backstop.
-const OrganizationPrepaidMaxInFlight = 10
+// OrganizationPrepaidMaxInFlightPerKey bounds paid organization-credit work
+// per routing key and process. The SQL floor remains the org-wide backstop.
+const OrganizationPrepaidMaxInFlightPerKey = 10
 
 type organizationPrepaidLimiter struct {
 	mu     sync.Mutex
@@ -63,9 +63,16 @@ func WithOrganizationPrepaidConcurrencyLimit(limit int) gin.HandlerFunc {
 			return
 		}
 		organizationID := installation.ExternalID
-		if !limiter.acquire(organizationID) {
+		limiterID := organizationID
+		apiKeyID := ""
+		if apiKey := APIKeyFrom(c); apiKey != nil && apiKey.ID != "" {
+			apiKeyID = apiKey.ID
+			limiterID += "\x00" + apiKeyID
+		}
+		if !limiter.acquire(limiterID) {
 			observability.FromGin(c).Info("Request throttled: organization prepaid concurrency limit reached",
 				"organization_id", organizationID,
+				"api_key_id", apiKeyID,
 				"max_in_flight", limit,
 			)
 			c.Header("Retry-After", "1")
@@ -76,7 +83,7 @@ func WithOrganizationPrepaidConcurrencyLimit(limit int) gin.HandlerFunc {
 			})
 			return
 		}
-		defer limiter.release(organizationID)
+		defer limiter.release(limiterID)
 		c.Next()
 	}
 }
