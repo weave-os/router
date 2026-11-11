@@ -248,9 +248,13 @@ func (o *Observer) Record(key CredentialKey, snap Snapshot) {
 	if prev, ok := o.data[key]; ok && o.now().Sub(prev.ObservedAt) <= o.freshFor(prev) {
 		if !snap.Primary.present() {
 			snap.Primary = prev.Primary
+		} else if snap.Primary.ResetAt.IsZero() && prev.Primary.ResetAt.After(now) {
+			snap.Primary.ResetAt = prev.Primary.ResetAt
 		}
 		if !snap.Secondary.present() {
 			snap.Secondary = prev.Secondary
+		} else if snap.Secondary.ResetAt.IsZero() && prev.Secondary.ResetAt.After(now) {
+			snap.Secondary.ResetAt = prev.Secondary.ResetAt
 		}
 	}
 	snap.ObservedAt = now
@@ -328,7 +332,8 @@ func parseCodexWindow(h http.Header, which string, defaultWindowMinutes int) (Wi
 	if !ok {
 		return Window{}, false
 	}
-	w := Window{UsedPercent: used, WindowMinutes: defaultWindowMinutes}
+	resetAt, _ := ParseResetTime(h.Get("x-codex-" + which + "-reset-at"))
+	w := Window{UsedPercent: used, WindowMinutes: defaultWindowMinutes, ResetAt: resetAt}
 	if m, ok := parseInt(h.Get("x-codex-" + which + "-window-minutes")); ok {
 		w.WindowMinutes = m
 	}

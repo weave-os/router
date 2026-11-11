@@ -23,6 +23,30 @@ An admitted attempt finishes under provider timeouts and the caller deadline.
 Linked account/model pairs are attempted once per request, within its admission snapshot.
 Budget expiry refuses further admission; it never grants permission to buy API.
 
+Within each personal/shared tier, selection prefers observed included headroom,
+then unknown quota, then spent or billable quota. Among equally healthy seats,
+less in-flight work takes priority, followed by the earliest active quota reset
+and lower peak utilization across active windows. Affinity breaks remaining ties;
+unknown seats rotate until observations distinguish them. The next expiry and
+peak utilization are independent signals: a lightly used five-hour window can
+expire before a more utilized weekly window.
+
+One lower-ranked unknown or idle seat may receive an ordinary inference attempt
+after nine other selections, at most once every 30 seconds per requester,
+installation and provider. A seat must have been idle for five minutes, or never
+selected on this replica. Exploration stays within the winning ownership tier
+and never promotes known spent, billable, disabled, cooling or excluded seats.
+It adds no network probe; Codex's existing preflight publishes validated
+account-wide utilization and actual reset times to the quota observer.
+Reservations include credential acquisition and end on failure or lease release.
+Load, observations and exploration are replica-local advisory signals.
+
+Structured subscription events record bounded candidate comparisons, observation
+and expiry timestamps, selection reasons, credential-lease timing, and failed
+as well as successful inference attempts. Codex preflight timing is logged
+separately. These logs complement winner-attributed request telemetry; they do
+not establish fleet-wide utilization or latency improvement by themselves.
+
 Automatic alternatives reuse the existing policy's request-compatible ordering
 and preserve the selected quality tier, tool/context exclusions and provider
 allowlist. Explicit models stay fixed. Boost follows stable source ordering; Max

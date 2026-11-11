@@ -447,3 +447,36 @@ func TestObserver_NoResetFallsBackToWindowLength(t *testing.T) {
 	_, ok := o.Snapshot(key)
 	assert.True(t, ok, "with no reset header the window-length horizon still applies")
 }
+
+func TestParseCodexHeadersUsesReportedReset(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-Codex-Primary-Used-Percent", "40")
+	h.Set("X-Codex-Primary-Reset-At", "1794398700")
+	snap, ok := usage.ParseCodexHeaders(h)
+	assert.True(t, ok)
+	assert.Equal(t, int64(1794398700), snap.Primary.ResetAt.Unix())
+}
+
+func TestObserverKeepsFutureResetWhenInferenceOmitsPreflightMetadata(t *testing.T) {
+	now := time.Date(2026, time.November, 11, 12, 0, 0, 0, time.UTC)
+	observer := usage.NewObserver([]byte("synthetic-salt"), 10*time.Minute, func() time.Time { return now })
+	key := observer.Key([]byte("synthetic-account"))
+	firstReset := now.Add(5 * time.Minute)
+	weeklyReset := now.Add(24 * time.Hour)
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: .4, WindowMinutes: 300, ResetAt: firstReset}, Secondary: usage.Window{UsedPercent: .8, WindowMinutes: 10080, ResetAt: weeklyReset}})
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: .5, WindowMinutes: 300}, Secondary: usage.Window{UsedPercent: .9, WindowMinutes: 10080}})
+	snapshot, ok := observer.Snapshot(key)
+	require.True(t, ok)
+	require.Equal(t, firstReset, snapshot.Primary.ResetAt)
+	require.Equal(t, weeklyReset, snapshot.Secondary.ResetAt)
+	require.Equal(t, .5, snapshot.Primary.UsedPercent)
+	now = firstReset.Add(time.Minute)
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: .1, WindowMinutes: 300}})
+	snapshot, ok = observer.Snapshot(key)
+	require.True(t, ok)
+	require.True(t, snapshot.Primary.ResetAt.IsZero(), "an elapsed reset must not override the new window")
+	newReset := now.Add(time.Hour)
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: .2, WindowMinutes: 300, ResetAt: newReset}})
+	snapshot, _ = observer.Snapshot(key)
+	require.Equal(t, newReset, snapshot.Primary.ResetAt)
+}
