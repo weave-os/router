@@ -81,7 +81,7 @@ func (r *Runtime) RejectCredential(ctx context.Context, owner auth.SubscriptionO
 	now := r.clock()
 	reason := fmt.Sprintf("upstream_http_%d", upstreamStatus)
 	rejection, err := store.RecordSubscriptionCredentialRejection(ctx, physicalOwner, accountID, auth.SubscriptionCredentialRejectionInput{
-		Reason: reason, RejectedAt: now, Window: credentialRejectionWindow, InvalidateAccessToken: true,
+		Reason: reason, RejectedAt: now, Window: credentialRejectionWindow, InvalidateAccessToken: true, UpstreamStatus: upstreamStatus, RequestID: observability.RequestIDFromContext(ctx),
 	})
 	if err != nil {
 		return false, err
@@ -89,9 +89,13 @@ func (r *Runtime) RejectCredential(ctx context.Context, owner auth.SubscriptionO
 	log := observability.FromContext(ctx).With("owner_id", physicalOwner.LogKey(), "account_id", accountID, "provider", provider,
 		"upstream_status", upstreamStatus, "strikes", rejection.Count, "first_rejected_at", rejection.FirstRejectedAt)
 	if reconnectWarranted(rejection, reason, now) {
-		log.Warn("Subscription account needs reconnect after repeated credential rejections")
+		if err := r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateReconnectRequired, false, nil); err != nil {
+			return false, err
+		}
 		r.manager.ReconnectRequired("account:"+accountID, provider, accountID)
-		return true, r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateReconnectRequired, false, nil)
+		log.Warn("Subscription account needs reconnect after repeated credential rejections",
+			"subscription_event", auth.SubscriptionCredentialEventReconnectRequired, "repeated_disconnect", rejection.RepeatedDisconnect)
+		return true, nil
 	}
 	until := now.Add(credentialRejectionCooldown(rejection.Count))
 	log.Warn("Subscription account credential rejected; cooling down", "cooldown_until", until)

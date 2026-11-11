@@ -1288,6 +1288,24 @@ type RouterSubscriberEntitlement struct {
 	UpdatedAt                        pgtype.Timestamptz
 }
 
+type RouterSubscriptionCredentialEvent struct {
+	ID                  uuid.UUID
+	AccountID           uuid.UUID
+	SubscriberID        pgtype.UUID
+	Provider            string
+	EventKind           string
+	Reason              string
+	ProviderErrorType   string
+	ProviderRequestID   string
+	UpstreamStatus      int32
+	RequestID           string
+	RefreshLeaseID      pgtype.UUID
+	TokenRefreshVersion int64
+	RejectionCount      int32
+	FirstRejectedAt     pgtype.Timestamp
+	CreatedAt           pgtype.Timestamptz
+}
+
 type RouterTaskDomainProfile struct {
 	ConversationKey string
 	RootSha256      string

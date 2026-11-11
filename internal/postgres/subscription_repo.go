@@ -442,6 +442,10 @@ func (r *subscriptionAccountRepo) RecordSubscriptionCredentialRejection(ctx cont
 		WindowStart:           pgtype.Timestamp{Time: input.RejectedAt.Add(-input.Window).UTC(), Valid: true},
 		RejectedAt:            pgtype.Timestamp{Time: input.RejectedAt.UTC(), Valid: true},
 		InvalidateAccessToken: input.InvalidateAccessToken,
+		ProviderErrorType:     input.ProviderErrorType,
+		ProviderRequestID:     input.ProviderRequestID,
+		UpstreamStatus:        int32(input.UpstreamStatus),
+		RequestID:             input.RequestID,
 	}
 	if input.LeaseID != "" {
 		leaseID, err := uuid.Parse(input.LeaseID)
@@ -461,7 +465,7 @@ func (r *subscriptionAccountRepo) RecordSubscriptionCredentialRejection(ctx cont
 	if err != nil {
 		return auth.SubscriptionCredentialRejection{}, err
 	}
-	rejection := auth.SubscriptionCredentialRejection{Count: int(row.CredentialRejectionCount), FirstRejectedAt: row.CredentialFirstRejectedAt.Time}
+	rejection := auth.SubscriptionCredentialRejection{Count: int(row.CredentialRejectionCount), FirstRejectedAt: row.CredentialFirstRejectedAt.Time, RepeatedDisconnect: row.RepeatedDisconnect}
 	if row.PreviousReason != nil {
 		rejection.PreviousReason = *row.PreviousReason
 	}

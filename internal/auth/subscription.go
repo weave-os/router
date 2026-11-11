@@ -185,11 +185,23 @@ type RefreshLeaseAcquisition struct {
 	TookOver bool
 }
 
+type SubscriptionCredentialEventKind string
+
+const (
+	SubscriptionCredentialEventRejected          SubscriptionCredentialEventKind = "credential_rejected"
+	SubscriptionCredentialEventReconnectRequired SubscriptionCredentialEventKind = "reconnect_required"
+	SubscriptionCredentialEventPersistenceFailed SubscriptionCredentialEventKind = "token_persistence_failed"
+)
+
 // SubscriptionCredentialRejectionInput describes one provider credential
 // rejection. A refresh rejection sets LeaseID and ExpectedVersion so a
 // refresher that lost its lease cannot strike replacement credentials.
 type SubscriptionCredentialRejectionInput struct {
 	Reason                string
+	ProviderErrorType     string
+	ProviderRequestID     string
+	UpstreamStatus        int
+	RequestID             string
 	RejectedAt            time.Time
 	Window                time.Duration
 	InvalidateAccessToken bool
@@ -201,9 +213,10 @@ type SubscriptionCredentialRejectionInput struct {
 // rejection history inside the current strike window. PreviousReason is the
 // reason recorded by the strike before this one.
 type SubscriptionCredentialRejection struct {
-	Count           int
-	FirstRejectedAt time.Time
-	PreviousReason  string
+	Count              int
+	FirstRejectedAt    time.Time
+	PreviousReason     string
+	RepeatedDisconnect bool
 }
 
 // SubscriptionRefreshRepository coordinates refresh leases and encrypted

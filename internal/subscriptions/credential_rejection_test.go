@@ -1,8 +1,10 @@
 package subscriptions_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
 	"testing"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -252,4 +255,19 @@ func TestRuntimeReplicaDropsCachedTokenRejectedElsewhere(t *testing.T) {
 	require.NoError(t, err)
 	defer next.Release()
 	require.NotEqual(t, rejectedToken, next.AccessToken, "a replica must not replay a token another replica saw rejected")
+}
+
+func TestRuntimeFailedDisconnectWriteDoesNotEmitCommittedDisconnect(t *testing.T) {
+	store := newRejectionStore(auth.SubscriptionProviderClaude)
+	seedSustainedRejections(store, "account-1")
+	store.stateErr = fmt.Errorf("synthetic disconnect write rejected")
+	var output bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&output, nil)))
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: http.StatusUnauthorized}
+	}), nil)
+	_, _, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "")
+	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
+	require.NotContains(t, output.String(), `"subscription_event":"reconnect_required"`, "a rejected state write must not page as a committed disconnect")
+	require.Contains(t, output.String(), "synthetic disconnect write rejected")
 }
