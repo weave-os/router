@@ -101,3 +101,35 @@ func TestAuthorizeSubscriptionAPI_ExhaustionStillAuthorizesPaidFallback(t *testi
 	recordManagedQuotaProof(ctx, "seat-throttled", now.Add(time.Hour))
 	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, "", "", clientAppRefusalFunding{}))
 }
+
+// A non-quota 429 on the caller's own login is rate-limit evidence for that
+// plan: paid fallback stays blocked, but the client sees a retryable 429
+// rather than a 503 outage.
+func TestAuthorizeSubscriptionAPI_RateLimitedCallerLoginRefusesAs429(t *testing.T) {
+	now := time.Now()
+	svc := &Service{now: func() time.Time { return now }}
+	callerCreds := &Credentials{APIKey: []byte("caller-codex-token"), OAuth: true, Source: credSourceCodexSubscription}
+	rateLimited := codexRateLimitedErr()
+	rateLimited.Headers = http.Header{"Retry-After": []string{"30"}}
+
+	for name, ctx := range map[string]context.Context{
+		"throttled seat": throttleTestContext(activeCodexAccount("seat-1")),
+		"no seat":        throttleTestContext(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			recordManagedThrottle(ctx, "seat-1", now.Add(time.Minute))
+			authorize := func() error {
+				return svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, string(callerCreds.APIKey), "", clientAppRefusalFunding{})
+			}
+			require.NotErrorIs(t, authorize(), ErrSubscriptionPoolThrottled, "an untried caller login has no rate-limit evidence")
+
+			svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, callerCreds, rateLimited)
+			requireThrottledRefusal(t, authorize())
+
+			now = now.Add(time.Hour)
+			err := authorize()
+			require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+			require.NotErrorIs(t, err, ErrSubscriptionPoolThrottled, "an expired caller throttle no longer explains the refusal")
+		})
+	}
+}

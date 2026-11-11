@@ -167,8 +167,10 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 	if pool == subscriptions.ProviderCodex {
 		token = codexToken
 	}
+	callerUnspent := token != "" && !s.callerQuotaSpent(ctx, pool, token, now)
+	callerThrottled := callerSubscriptionThrottled(ctx, pool, now)
 	if throttledBlocker {
-		if token != "" && !s.callerQuotaSpent(ctx, pool, token, now) {
+		if callerUnspent && !callerThrottled {
 			return fmt.Errorf("%w: caller subscription quota is available or unknown", ErrSubscriptionPoolUnavailable)
 		}
 		return ErrSubscriptionPoolThrottled
@@ -179,10 +181,18 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 			return fmt.Errorf("%w: enrolled pool has no quota snapshot", ErrSubscriptionPoolUnavailable)
 		}
 	}
-	if token != "" && !s.callerQuotaSpent(ctx, pool, token, now) {
+	if callerUnspent {
+		if callerThrottled {
+			return ErrSubscriptionPoolThrottled
+		}
 		return fmt.Errorf("%w: caller subscription quota is available or unknown", ErrSubscriptionPoolUnavailable)
 	}
 	return nil
+}
+
+func callerSubscriptionThrottled(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
+	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	return state != nil && state.ThrottledProviders[pool].After(now)
 }
 
 func (s *Service) callerQuotaSpent(ctx context.Context, pool subscriptions.Provider, token string, now time.Time) bool {
