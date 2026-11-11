@@ -327,20 +327,35 @@ func runExport(ctx context.Context, args []string) error {
 	outDir := flags.String("out", "", "directory to write the release into")
 	classifierImageDigest := flags.String("classifier-image-digest", "", "re-pin the release to this sidecar image digest (sha256:<hex>)")
 	servingTarget := flags.String("serving-target", "", "export the default lane of this managed serving target (e.g. prod/stable); --registry is then the serving registry root")
+	selectionV4 := flags.Bool("selection-v4", false, "with --serving-target, export the target's active V4 selection set for a self-hosted Router and classifier worker")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 	if strings.TrimSpace(*outDir) == "" {
 		return errors.New("--out is required")
 	}
+	target := policyregistry.ServingTarget(strings.TrimSpace(*servingTarget))
+	if *selectionV4 && (target == "" || strings.TrimSpace(*classifierImageDigest) != "") {
+		return errors.New("--selection-v4 requires --serving-target and takes no --classifier-image-digest")
+	}
 	registry, err := policyregistry.NewGCSRegistry(ctx, *registryURI)
 	if err != nil {
 		return err
 	}
 	defer registry.Close()
+	if *selectionV4 {
+		exported, err := policyregistry.ExportServingTargetV4(ctx, registry, target, *outDir)
+		if err != nil {
+			return err
+		}
+		return writeJSON(map[string]any{
+			"serving_target": target, "activation_id": exported.ActivationID, "selection_set": exported.Release.SelectionSet,
+			"classifier_release": exported.ClassifierRelease, "objects": exported.Objects, "out": *outDir,
+		})
+	}
 	digest := strings.TrimSpace(*classifierImageDigest)
 	var summary map[string]any
-	if target := policyregistry.ServingTarget(strings.TrimSpace(*servingTarget)); target != "" {
+	if target != "" {
 		exported, err := policyregistry.ExportServingTarget(ctx, registry, target, *outDir, digest)
 		if err != nil {
 			return err

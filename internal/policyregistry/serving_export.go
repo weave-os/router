@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"weave-os/router/internal/router/hmm/rosterdata"
@@ -113,4 +116,100 @@ func ExportServingTarget(ctx context.Context, store ServingExportStore, target S
 		Candidate:    selection.Default.Candidate,
 		Package:      candidate.Classifier.Package,
 	}, nil
+}
+
+// LocalServingExport is what a self-hosted export of a managed target's V4 selection pins.
+type LocalServingExport struct {
+	Release           LocalServingRelease `json:"release"`
+	ActivationID      string              `json:"activation_id"`
+	ClassifierRelease ObjectRef           `json:"classifier_release"`
+	Objects           int                 `json:"objects"`
+}
+
+// recordingServingStore keeps the exact bytes of every serving object and policy a read resolves.
+type recordingServingStore struct {
+	ServingExportStore
+	objects map[string][]byte
+}
+
+func (s *recordingServingStore) ReadServingObject(ctx context.Context, kind ServingKind, ref ObjectRef) (ServingManifest, []byte, error) {
+	manifest, payload, err := s.ServingExportStore.ReadServingObject(ctx, kind, ref)
+	if err == nil {
+		s.objects[ref.URI] = payload
+	}
+	return manifest, payload, err
+}
+
+func (s *recordingServingStore) ReadServingPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
+	roster, err := s.ServingExportStore.ReadServingPolicy(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	payload, err := s.ReadPolicyPayload(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	s.objects[ref.URI] = payload
+	return roster, nil
+}
+
+// ExportServingTargetV4 writes the exact closure of a target's active V4 selection set, every
+// lane's prepared selection, into the layout ServingDirectory serves. It never exports the
+// managed runtime binding: a self-hosted Router binds the release to its local worker.
+func ExportServingTargetV4(ctx context.Context, store ServingExportStore, target ServingTarget, dir string) (LocalServingExport, error) {
+	state, err := store.ReadServingState(ctx, target)
+	if err != nil {
+		return LocalServingExport{}, fmt.Errorf("read serving state for %s: %w", target, err)
+	}
+	activation, exists := state.State.Activations[state.State.CurrentActivationID]
+	if !exists || activation.WithdrawnAt != nil {
+		return LocalServingExport{}, fmt.Errorf("serving target %s has no active selection set", target)
+	}
+	recorder := &recordingServingStore{ServingExportStore: store, objects: make(map[string][]byte)}
+	selection, err := readServing[*SelectionSetV4](ctx, recorder, ServingSelectionSet, activation.SelectionSet)
+	if err != nil {
+		return LocalServingExport{}, fmt.Errorf("serving target %s does not serve a V4 selection set: %w", target, err)
+	}
+	view := selection.View(activation.SelectionSet)
+	lanes := map[string]ServingSelection{"": view.Default}
+	for key, lane := range view.Profiles {
+		lanes[key] = lane
+	}
+	for profileKey, lane := range lanes {
+		if _, err := ReadPreparedSelection(ctx, recorder, target, profileKey, lane); err != nil {
+			return LocalServingExport{}, fmt.Errorf("prepare exported lane %q: %w", profileKey, err)
+		}
+	}
+	root := strings.TrimRight(store.RootURI(), "/")
+	for uri, payload := range recorder.objects {
+		relative, found := strings.CutPrefix(uri, root+"/")
+		if !found {
+			return LocalServingExport{}, fmt.Errorf("exported object %s is outside the registry root", uri)
+		}
+		path := filepath.Join(dir, filepath.FromSlash(relative))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return LocalServingExport{}, err
+		}
+		if err := os.WriteFile(path, payload, 0o644); err != nil {
+			return LocalServingExport{}, err
+		}
+	}
+	release := LocalServingRelease{SchemaVersion: LocalServingReleaseSchemaV1, RootURI: root, Target: target, SelectionSet: activation.SelectionSet}
+	manifest, err := json.Marshal(release)
+	if err != nil {
+		return LocalServingExport{}, err
+	}
+	if err := os.WriteFile(filepath.Join(dir, localServingReleaseFile), manifest, 0o644); err != nil {
+		return LocalServingExport{}, err
+	}
+	exported, err := NewServingDirectory(dir, "http://classifier-worker")
+	if err != nil {
+		return LocalServingExport{}, fmt.Errorf("exported release does not load: %w", err)
+	}
+	for profileKey, lane := range lanes {
+		if _, err := ReadPreparedSelection(ctx, exported, target, profileKey, lane); err != nil {
+			return LocalServingExport{}, fmt.Errorf("exported lane %q does not prepare: %w", profileKey, err)
+		}
+	}
+	return LocalServingExport{Release: release, ActivationID: activation.ID, ClassifierRelease: selection.Classifier.Release, Objects: len(recorder.objects)}, nil
 }

@@ -172,3 +172,51 @@ func TestServingDirectoryFailsClosed(t *testing.T) {
 	_, err = policyregistry.NewServingDirectory(local.dir, selfHostedWorkerURL)
 	require.ErrorContains(t, err, "does not match its digest")
 }
+
+func activateLocalSelection(local localV4Release, selection policyregistry.ObjectRef) {
+	local.store.states[policyregistry.TargetInternal] = policyregistry.ServingStateSnapshot{
+		State: policyregistry.ServingControlState{
+			Target: policyregistry.TargetInternal, CurrentActivationID: "activation-1",
+			Activations: map[string]policyregistry.Activation{"activation-1": {ID: "activation-1", SelectionSet: selection}},
+		},
+		Generation: 1,
+	}
+}
+
+func TestExportServingTargetV4WritesTheExactClosureTheSelfHostedRouterServes(t *testing.T) {
+	local := writeLocalV4Release(t)
+	activateLocalSelection(local, local.ref)
+	local.store.putRuntimeBinding(t, policyregistry.EnvironmentProd, local.selection.Classifier.Release.SHA256, testRuntimeBinding(policyregistry.EnvironmentProd, local.selection.Classifier.Release.SHA256))
+	dir := t.TempDir()
+	exported, err := policyregistry.ExportServingTargetV4(context.Background(), local.store, policyregistry.TargetInternal, dir)
+	require.NoError(t, err)
+	require.Equal(t, local.ref, exported.Release.SelectionSet)
+	require.Equal(t, local.selection.Classifier.Release, exported.ClassifierRelease)
+	require.Equal(t, "activation-1", exported.ActivationID)
+	relative, _ := strings.CutPrefix(local.ref.URI, testRegistryRoot+"/")
+	written, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(relative)))
+	require.NoError(t, err)
+	require.Equal(t, local.store.objects[local.ref], written, "the selection set is exported byte for byte")
+	_, err = os.Stat(filepath.Join(dir, "runtime_bindings"))
+	require.True(t, os.IsNotExist(err), "the managed runtime binding is never exported")
+
+	directory, err := policyregistry.NewServingDirectory(dir, selfHostedWorkerURL)
+	require.NoError(t, err)
+	prepared, err := policyregistry.ReadPreparedSelection(context.Background(), directory, policyregistry.TargetInternal, "", local.selection.View(local.ref).Default)
+	require.NoError(t, err)
+	require.Equal(t, selfHostedWorkerURL, prepared.ClassifierRuntimeBinding.Binding.WorkerURL)
+}
+
+func TestExportServingTargetV4FailsClosed(t *testing.T) {
+	local := writeLocalV4Release(t)
+	_, err := policyregistry.ExportServingTargetV4(context.Background(), local.store, policyregistry.TargetInternal, t.TempDir())
+	require.Error(t, err, "a target without an active selection has nothing to export")
+
+	activateLocalSelection(local, local.ref)
+	_, err = policyregistry.ExportServingTargetV4(context.Background(), local.store, policyregistry.TargetInternal, t.TempDir())
+	require.Error(t, err, "a release without a managed runtime binding is not servable")
+
+	activateLocalSelection(local, local.v3Ref)
+	_, err = policyregistry.ExportServingTargetV4(context.Background(), local.store, policyregistry.TargetInternal, t.TempDir())
+	require.ErrorContains(t, err, "does not serve a V4 selection set")
+}
