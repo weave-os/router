@@ -195,14 +195,7 @@ func ExportServingTargetV4(ctx context.Context, store ServingExportStore, target
 		}
 	}
 	release := LocalServingRelease{SchemaVersion: LocalServingReleaseSchemaV1, RootURI: root, Target: target, SelectionSet: activation.SelectionSet}
-	manifest, err := json.Marshal(release)
-	if err != nil {
-		return LocalServingExport{}, err
-	}
-	if err := os.WriteFile(filepath.Join(dir, localServingReleaseFile), manifest, 0o644); err != nil {
-		return LocalServingExport{}, err
-	}
-	exported, err := NewServingDirectory(dir, "http://classifier-worker")
+	exported, err := loadServingDirectory(dir, "http://classifier-worker", release)
 	if err != nil {
 		return LocalServingExport{}, fmt.Errorf("exported release does not load: %w", err)
 	}
@@ -211,5 +204,33 @@ func ExportServingTargetV4(ctx context.Context, store ServingExportStore, target
 			return LocalServingExport{}, fmt.Errorf("exported lane %q does not prepare: %w", profileKey, err)
 		}
 	}
+	manifest, err := json.Marshal(release)
+	if err != nil {
+		return LocalServingExport{}, err
+	}
+	if err := writeFileAtomically(filepath.Join(dir, localServingReleaseFile), manifest); err != nil {
+		return LocalServingExport{}, err
+	}
 	return LocalServingExport{Release: release, ActivationID: activation.ID, ClassifierRelease: selection.Classifier.Release, Objects: len(recorder.objects)}, nil
+}
+
+// writeFileAtomically replaces path in one rename, so an interrupted re-export leaves the previous release in place.
+func writeFileAtomically(path string, payload []byte) error {
+	temporary, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(temporary.Name())
+	if _, err := temporary.Write(payload); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Chmod(0o644); err != nil {
+		temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	return os.Rename(temporary.Name(), path)
 }

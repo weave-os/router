@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"slices"
-	"strings"
 
 	"weave-os/router/internal/config"
 	"weave-os/router/internal/policyclient"
@@ -13,11 +12,6 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/server"
 )
-
-// localServingReleaseDir is the exported V4 release a self-hosted Router serves, if any.
-func localServingReleaseDir() string {
-	return strings.TrimSpace(config.GetOr("ROUTER_SERVING_RELEASE_DIR", ""))
-}
 
 // buildLocalServingRuntime prepares the exported V4 selection set's default lane against the
 // self-hosted classifier worker. Only self-hosted mode may serve a local release: its worker
@@ -45,9 +39,8 @@ func buildLocalServingRuntime(
 		return nil, policyregistry.LocalServingRelease{}, err
 	}
 	release := directory.Release()
-	selection := directory.SelectionSet()
 	snapshot, err := cache.Snapshot(ctx, policyregistry.SessionReleaseBinding{
-		Target: release.Target, Selection: selection.View(release.SelectionSet).Default,
+		Target: release.Target, Selection: directory.SelectionSet().View(release.SelectionSet).Default,
 	})
 	if err != nil {
 		return nil, policyregistry.LocalServingRelease{}, err
@@ -55,7 +48,7 @@ func buildLocalServingRuntime(
 	return snapshot, release, nil
 }
 
-// localHMMRosterSource lists the deployed models of a self-hosted release.
+// localHMMRosterSource maps the exported release's arms to the HMM deployed-model roster.
 type localHMMRosterSource struct {
 	roster policyregistry.LocalReleaseRosterSource
 }

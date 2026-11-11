@@ -94,21 +94,21 @@ func writeLocalV4Release(t *testing.T) localV4Release {
 		Profiles:         map[string]policyregistry.PolicyObject{},
 		StrategyPolicies: map[router.Strategy]policyregistry.PolicyObject{},
 	}
-	release4 := localV4Release{
+	exported := localV4Release{
 		dir: t.TempDir(), store: store, selection: selection, policy: defaultPolicy,
 		ref:   store.publishArtifact(t, policyregistry.ServingSelectionSet, selection),
 		v3Ref: store.publishArtifact(t, policyregistry.ServingSelectionSet, v3Set),
 	}
 	for ref, payload := range store.objects {
-		writeRegistryObject(t, release4.dir, ref.URI, payload)
+		writeRegistryObject(t, exported.dir, ref.URI, payload)
 	}
 	policyRef := policyregistry.ObjectRef{URI: defaultPolicy.URI, SHA256: defaultPolicy.SHA256, Generation: defaultPolicy.Generation}
 	policyBytes, err := rosterdata.CanonicalBytes(store.policies[policyRef])
 	require.NoError(t, err)
 	require.Equal(t, defaultPolicy.SHA256, policyregistry.Digest(policyBytes))
-	writeRegistryObject(t, release4.dir, defaultPolicy.URI, policyBytes)
-	writeServingRelease(t, release4.dir, release4.ref)
-	return release4
+	writeRegistryObject(t, exported.dir, defaultPolicy.URI, policyBytes)
+	writeServingRelease(t, exported.dir, exported.ref)
+	return exported
 }
 
 func writeRegistryObject(t *testing.T, dir, uri string, payload []byte) {

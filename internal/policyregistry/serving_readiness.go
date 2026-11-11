@@ -99,7 +99,7 @@ func (s LocalReleaseRosterSource) ClusterRoster(ctx context.Context) (policy.Ros
 	return AdmittedRosterSource{}.ClusterRoster(s.bind(ctx))
 }
 
-// Roster lists the exported release's arms.
+// Roster delegates to AdmittedRosterSource with the exported snapshot bound to ctx.
 func (s LocalReleaseRosterSource) Roster(ctx context.Context) ([]string, error) {
 	return AdmittedRosterSource{}.Roster(s.bind(ctx))
 }

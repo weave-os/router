@@ -1141,7 +1141,7 @@ func main() {
 			}
 		}
 		logger.Info("Managed serving admission enabled", "target", admission.Identity.Target, "revision", admission.Identity.Revision)
-	} else if localReleaseDir := localServingReleaseDir(); localReleaseDir != "" {
+	} else if localReleaseDir := strings.TrimSpace(config.GetOr("ROUTER_SERVING_RELEASE_DIR", "")); localReleaseDir != "" {
 		prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), 60*time.Second)
 		localSnapshot, localRelease, err := buildLocalServingRuntime(prepareCtx, deploymentMode, localReleaseDir, availableProviders, taskRuntime)
 		cancelPrepare()

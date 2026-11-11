@@ -55,6 +55,10 @@ func NewServingDirectory(dir, workerURL string) (*ServingDirectory, error) {
 	if err := strictDecode(payload, &release); err != nil {
 		return nil, fmt.Errorf("decode local serving release: %w", err)
 	}
+	return loadServingDirectory(dir, workerURL, release)
+}
+
+func loadServingDirectory(dir, workerURL string, release LocalServingRelease) (*ServingDirectory, error) {
 	if release.SchemaVersion != LocalServingReleaseSchemaV1 {
 		return nil, fmt.Errorf("unsupported local serving release schema %q", release.SchemaVersion)
 	}
@@ -81,10 +85,9 @@ func NewServingDirectory(dir, workerURL string) (*ServingDirectory, error) {
 	return directory, nil
 }
 
-// Release returns the exported target and selection set reference.
 func (d *ServingDirectory) Release() LocalServingRelease { return d.release }
 
-// SelectionSet returns the exported V4 selection set.
+// SelectionSet is valid only on a directory returned by NewServingDirectory, which loads it.
 func (d *ServingDirectory) SelectionSet() SelectionSetV4 { return *d.selected }
 
 // RootURI is the registry root the exported objects were published under.
