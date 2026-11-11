@@ -57,8 +57,8 @@ type SubscriptionOnlyReason string
 const (
 	// SubscriptionOnlyCreditsDepleted marks a turn the organization cannot pay
 	// for: prepaid credits are gone or a balance row is missing. The caller's
-	// own plan is absorbing work Weave would otherwise have billed, so the turn
-	// carries the top-up CTA.
+	// own plan is absorbing work Weave would otherwise have billed. A turn the
+	// plan cannot serve is refused with the top-up CTA; one it serves is silent.
 	SubscriptionOnlyCreditsDepleted SubscriptionOnlyReason = "credits_depleted"
 	// SubscriptionOnlySpendCapReached marks a turn a configured spend cap (API
 	// key lifetime, org monthly, or engineer monthly) bars from paid capacity.
@@ -79,13 +79,13 @@ var SubscriptionOnlyContextKey = subscriptionOnlyContextKeyT{}
 // WithSubscriptionOnly marks ctx subscription-only for reason. The reason is a
 // required argument rather than a default so a gate added later must decide
 // what the caller is told, instead of silently inheriting the depleted-credits
-// warning — which is how linked-first turns came to claim credits were gone.
+// refusal — which is how linked-first turns came to claim credits were gone.
 //
 // A recorded reason is never downgraded (see precedence): a funding failure
 // outranks a funding preference, because the caller still needs to be told
-// paid fallback is off, and a depleted balance's warning outranks a reached
-// cap's, because its top-up CTA is the more pressing action (a reached cap
-// still blocks paid routing after a top-up). The precedence is enforced here
+// paid fallback is off, and a depleted balance outranks a reached cap, because
+// its top-up CTA is the more pressing action (a reached cap still blocks paid
+// routing after a top-up). The precedence is enforced here
 // rather than left resting on gate registration order, which no gate can see.
 func WithSubscriptionOnly(ctx context.Context, reason SubscriptionOnlyReason) context.Context {
 	if existing, ok := subscriptionOnlyReason(ctx); ok && existing.precedence() > reason.precedence() {

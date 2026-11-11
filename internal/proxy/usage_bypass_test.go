@@ -556,7 +556,8 @@ func bypassStreamResponse(w http.ResponseWriter) {
 // stay engaged even when observed utilization is ABOVE the installation
 // threshold — paid failover is disabled, so conserving quota by routing
 // elsewhere isn't an option. The turn serves on the subscription (scorer never
-// runs) and the customer sees a depleted-credits warning prepended to the reply.
+// runs). The subscription pays for the turn, so no depleted-credits warning is
+// prepended to the reply.
 func TestSubscriptionOnly_ServesOnSubscription_EvenAboveThreshold(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
 	p := &fakeProvider{proxyResponse: bypassStreamResponse}
@@ -578,8 +579,7 @@ func TestSubscriptionOnly_ServesOnSubscription_EvenAboveThreshold(t *testing.T) 
 	assert.Equal(t, 0, fr.routeCalls, "subscription-only mode must keep the bypass engaged, not run the scorer")
 	require.Len(t, p.proxyBodies, 1, "the turn must serve on the subscription exactly once")
 	assert.Contains(t, string(p.proxyBodies[0]), `"`+bypassRequestedMdl+`"`, "bypass must preserve the caller-requested model")
-	assert.Contains(t, rec.Body.String(), "credits are depleted", "the customer must see the depleted-credits warning")
-	assert.Contains(t, rec.Body.String(), "weave-router", "the warning must surface the top-up CTA")
+	assert.NotContains(t, rec.Body.String(), "credits are depleted", "a subscription-paid turn must not claim depleted credits")
 }
 
 func TestSubscriptionOnly_VerifiedEnterpriseOverage_BypassKeepsRequestedModel(t *testing.T) {
@@ -709,7 +709,7 @@ func TestSubscriptionOnly_PlanOverage_Refuses402(t *testing.T) {
 func TestSubscriptionOnly_NonBypassServedOnSub_Serves(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
 	// Streaming upstream so the routing-marker writer (streaming-only) has a
-	// stream to prepend the depleted-credits warning to.
+	// stream to prepend the routing marker to.
 	p := &fakeProvider{proxyResponse: bypassStreamResponse}
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil)
 
@@ -729,9 +729,9 @@ func TestSubscriptionOnly_NonBypassServedOnSub_Serves(t *testing.T) {
 	require.NotNil(t, p.proxyCreds[0], "the dispatch must carry the caller's subscription credential")
 	assert.True(t, p.proxyCreds[0].OAuth,
 		"a non-bypass turn must serve on the caller's own Claude subscription so billing debits $0")
-	assert.Contains(t, rec.Body.String(), "credits are depleted",
-		"a served-on-sub non-bypass turn must surface the depleted-credits warning + top-up CTA")
-	assert.Contains(t, rec.Body.String(), "weave-router", "the warning must surface the top-up CTA")
+	assert.NotContains(t, rec.Body.String(), "credits are depleted",
+		"a served-on-sub turn is paid by the subscription, so depleted credits are not news")
+	assert.Contains(t, rec.Body.String(), "funded by Claude subscription")
 }
 
 // TestSubscriptionOnly_NonBypassPaidRoute_Refuses402: a non-bypass turn that

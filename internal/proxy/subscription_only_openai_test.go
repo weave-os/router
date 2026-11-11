@@ -39,7 +39,7 @@ func codexSubRequest(t *testing.T, body string) (*httptest.ResponseRecorder, *ht
 // TestSubscriptionOnly_OpenAI_ServesOnCodexSub: in subscription-only mode, a
 // Codex-covered turn routed to OpenAI must serve on the caller's own ChatGPT
 // subscription (OAuth credential => $0 debit), dispatch exactly once (no paid
-// failover), and surface the depleted-credits warning.
+// failover), and name the subscription instead of claiming depleted credits.
 func TestSubscriptionOnly_OpenAI_ServesOnCodexSub(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test"}}
 	// Direct OpenAI serves this turn on /v1/responses, so the upstream speaks
@@ -61,9 +61,7 @@ func TestSubscriptionOnly_OpenAI_ServesOnCodexSub(t *testing.T) {
 	require.Len(t, p.proxyBodies, 1, "the turn must serve on the subscription exactly once (no paid failover)")
 	require.NotNil(t, p.proxyCreds[0], "the dispatch must carry the caller's subscription credential")
 	assert.True(t, p.proxyCreds[0].OAuth, "the turn must be served on the caller's own Codex subscription so billing debits $0")
-	assert.Contains(t, rec.Body.String(), "credits are depleted", "the customer must see the depleted-credits warning")
-	assert.Contains(t, rec.Body.String(), "ChatGPT (Codex)", "the warning must name the Codex subscription")
-	assert.Contains(t, rec.Body.String(), "weave-router", "the warning must surface the top-up CTA")
+	assert.NotContains(t, rec.Body.String(), "credits are depleted", "a subscription-paid turn must not claim depleted credits")
 }
 
 // TestSubscriptionOnly_OpenAI_PaidRoute_Refuses402: a Codex-covered request
