@@ -64,7 +64,7 @@ func TestCandidateExplorationRespectsBudgetAndHealth(t *testing.T) {
 		{Observed: true, Exhausted: true},
 		{Observed: true, Billable: true},
 	} {
-		t.Run(stringState(state), func(t *testing.T) {
+		t.Run(signalStateLabel(state), func(t *testing.T) {
 			now := time.Now()
 			runtime := NewRuntime(nil, nil, func() time.Time { return now })
 			accounts := []*auth.SubscriptionAccount{{ID: "active", SubscriberID: "borrower"}, {ID: "idle", SubscriberID: "borrower"}}
@@ -91,7 +91,7 @@ func TestCandidateExplorationRespectsBudgetAndHealth(t *testing.T) {
 	}
 }
 
-func stringState(signal CandidateSignal) string {
+func signalStateLabel(signal CandidateSignal) string {
 	switch {
 	case signal.Exhausted:
 		return "spent"
@@ -118,6 +118,31 @@ func TestCandidateExplorationPreservesOwnershipAndIsolatesScopes(t *testing.T) {
 	selected, release := runtime.reserveCandidate(t.Context(), accounts, auth.SubscriptionOwner{SubscriberID: "borrower", InstallationID: "second"}, ProviderClaude, "shared", signals)
 	release()
 	require.Equal(t, "personal", selected.ID, "another installation cannot spend this scope's exploration budget")
+}
+
+func TestCandidateExplorationProbesRecoveredExhaustedSeat(t *testing.T) {
+	now := time.Now()
+	expired := now.Add(-time.Second)
+	runtime := NewRuntime(nil, nil, func() time.Time { return now })
+	accounts := []*auth.SubscriptionAccount{
+		{ID: "active", SubscriberID: "borrower"},
+		{ID: "recovered", SubscriberID: "borrower", State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &expired},
+	}
+	signals := map[string]CandidateSignal{
+		"active":    {Observed: true, ResetAt: now.Add(time.Minute)},
+		"recovered": {},
+	}
+	for range candidateExplorationEvery - 1 {
+		selected, release := runtime.reserveCandidate(t.Context(), accounts, auth.SubscriptionOwner{SubscriberID: "borrower"}, ProviderClaude, "active", signals)
+		release()
+		if selected.ID != "recovered" {
+			continue
+		}
+		t.Fatalf("recovered seat was explored before the bounded probe")
+	}
+	selected, release := runtime.reserveCandidate(t.Context(), accounts, auth.SubscriptionOwner{SubscriberID: "borrower"}, ProviderClaude, "active", signals)
+	defer release()
+	require.Equal(t, "recovered", selected.ID)
 }
 
 func TestCandidateComparisonTelemetryIsBounded(t *testing.T) {

@@ -347,7 +347,26 @@ func TestCodexPreflightPublishesAccountQuotaBeforeDenial(t *testing.T) {
 				require.Equal(t, strconv.FormatFloat(tc.wantPrimary, 'f', -1, 64), observed.Get("x-codex-primary-used-percent"))
 				require.Equal(t, "1794398700", observed.Get("x-codex-primary-reset-at"))
 				require.Equal(t, "300", observed.Get("x-codex-primary-window-minutes"))
+				if tc.name == "healthy" {
+					require.Equal(t, "80", observed.Get("x-codex-secondary-used-percent"))
+					require.Equal(t, "1794999900", observed.Get("x-codex-secondary-reset-at"))
+					require.Equal(t, "10080", observed.Get("x-codex-secondary-window-minutes"))
+				}
 			}
 		})
 	}
+}
+
+func TestCodexPreflightOmitsOverflowingWindowLength(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":40,"limit_window_seconds":9223372036854775807}}}`)
+	}))
+	defer server.Close()
+	client := NewClient("", server.URL)
+	client.SetCodexBaseURL(server.URL)
+	var observed http.Header
+	ctx := providers.WithUpstreamHeaderObserver(codexCtx("synthetic-token", "synthetic-account"), func(_ context.Context, h http.Header) { observed = h.Clone() })
+	require.NoError(t, client.checkCodexIncludedQuota(ctx, "gpt-6.1-sol"))
+	require.Equal(t, "40", observed.Get("x-codex-primary-used-percent"))
+	require.Empty(t, observed.Get("x-codex-primary-window-minutes"))
 }

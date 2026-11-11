@@ -61,6 +61,15 @@ func TestParseCodexHeaders_DefaultsWindowWhenOmitted(t *testing.T) {
 	assert.Equal(t, 10080, snap.Secondary.WindowMinutes, "secondary defaults to weekly")
 }
 
+func TestParseCodexHeaders_OverflowingWindowUsesDefault(t *testing.T) {
+	h := http.Header{}
+	h.Set("x-codex-primary-used-percent", "100")
+	h.Set("x-codex-primary-window-minutes", "9223372036854775807")
+	snapshot, ok := usage.ParseCodexHeaders(h)
+	require.True(t, ok)
+	require.Equal(t, 300, snapshot.Primary.WindowMinutes)
+}
+
 func TestParseAnthropicUnified_FromRemainingLimit(t *testing.T) {
 	h := http.Header{}
 	h.Set("anthropic-ratelimit-unified-5h-limit", "1000")

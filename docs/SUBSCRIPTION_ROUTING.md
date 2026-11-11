@@ -26,8 +26,8 @@ Budget expiry refuses further admission; it never grants permission to buy API.
 Within each personal/shared tier, selection prefers observed included headroom,
 then unknown quota, then spent or billable quota. Among equally healthy seats,
 less in-flight work takes priority, followed by the earliest active quota reset
-and lower peak utilization across active windows. Affinity breaks remaining ties;
-unknown seats rotate until observations distinguish them. The next expiry and
+and lower peak utilization across active windows. Unknown seats rotate ahead of
+affinity until observations distinguish them; affinity breaks remaining ties. The next expiry and
 peak utilization are independent signals: a lightly used five-hour window can
 expire before a more utilized weekly window.
 

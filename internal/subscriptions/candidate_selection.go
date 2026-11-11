@@ -124,7 +124,8 @@ func (r *Runtime) reserveCandidate(ctx context.Context, accounts []*auth.Subscri
 			for i, account := range accounts {
 				load, signal := r.candidateLoads[account.ID], signals[account.ID]
 				if i == 0 || (account.SubscriberID == requester.SubscriberID) != (accounts[0].SubscriberID == requester.SubscriberID) ||
-					signal.Exhausted || signal.Billable || account.State == auth.SubscriptionAccountStateExhausted || load.inFlight > 0 ||
+					signal.Exhausted || signal.Billable || load.inFlight > 0 ||
+					account.State == auth.SubscriptionAccountStateExhausted && (account.CooldownUntil == nil || account.CooldownUntil.After(now)) ||
 					!load.lastSelected.IsZero() && now.Sub(load.lastSelected) < candidateExplorationIdle {
 					continue
 				}

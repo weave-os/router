@@ -218,7 +218,7 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 		// Each pool holds one account; r.affinity owns session preference.
 		leaseStarted := time.Now()
 		leased, release, leaseErr := r.manager.Lease(ctx, poolID, provider, "", r.refresh(owner))
-		observability.FromContext(ctx).Info("Subscription account lease completed", "subscription_event", auth.SubscriptionCredentialEventSelected,
+		observability.FromContext(ctx).Info("Subscription account lease completed", "subscription_event", auth.SubscriptionCredentialEventLeaseAttempted,
 			"account_id", candidate.ID, "provider", provider, "tier", candidate.Tier,
 			"lease_ms", time.Since(leaseStarted).Milliseconds(), "lease_succeeded", leaseErr == nil)
 		if errors.Is(leaseErr, ErrNoAvailableAccount) {

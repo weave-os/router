@@ -33,16 +33,10 @@ type codexIncludedQuota struct {
 // inference by spending purchased credits rather than returning a quota error.
 func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quotaErr error) {
 	started := time.Now()
+	upstreamStatus := 0
 	defer func() {
-		status := http.StatusOK
-		var upstream *providers.UpstreamErrorResponse
-		if errors.As(quotaErr, &upstream) {
-			status = upstream.Status
-		} else if quotaErr != nil {
-			status = 0
-		}
 		observability.FromContext(ctx).Info("Codex quota preflight completed", "quota_preflight_ms", time.Since(started).Milliseconds(),
-			"model", model, "admitted", quotaErr == nil, "upstream_status", status)
+			"admitted", quotaErr == nil, "upstream_status", upstreamStatus)
 	}()
 	parentCtx := ctx
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
@@ -67,6 +61,7 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 		return codexQuotaTransportUnavailable(err, 0)
 	}
 	defer resp.Body.Close()
+	upstreamStatus = resp.StatusCode
 	if resp.StatusCode != http.StatusOK {
 		log.Warn("Codex quota preflight rejected", "upstream_status", resp.StatusCode)
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
@@ -137,7 +132,7 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quo
 			if window.ResetAt > 0 {
 				headers.Set(prefix+"reset-at", strconv.FormatInt(window.ResetAt, 10))
 			}
-			if window.WindowSeconds >= 60 {
+			if window.WindowSeconds >= 60 && window.WindowSeconds/60 <= int64((1<<63-1)/time.Minute) {
 				headers.Set(prefix+"window-minutes", strconv.FormatInt(window.WindowSeconds/60, 10))
 			}
 		}

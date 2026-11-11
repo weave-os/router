@@ -334,7 +334,7 @@ func parseCodexWindow(h http.Header, which string, defaultWindowMinutes int) (Wi
 	}
 	resetAt, _ := ParseResetTime(h.Get("x-codex-" + which + "-reset-at"))
 	w := Window{UsedPercent: used, WindowMinutes: defaultWindowMinutes, ResetAt: resetAt}
-	if m, ok := parseInt(h.Get("x-codex-" + which + "-window-minutes")); ok {
+	if m, ok := parseInt(h.Get("x-codex-" + which + "-window-minutes")); ok && m > 0 && int64(m) <= int64((1<<63-1)/time.Minute) {
 		w.WindowMinutes = m
 	}
 	return w, true
