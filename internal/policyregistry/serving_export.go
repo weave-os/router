@@ -168,7 +168,7 @@ func ExportServingTargetV4(ctx context.Context, store ServingExportStore, target
 	recorder := &recordingServingStore{ServingExportStore: store, objects: make(map[string][]byte)}
 	selection, err := readServing[*SelectionSetV4](ctx, recorder, ServingSelectionSet, activation.SelectionSet)
 	if err != nil {
-		return LocalServingExport{}, fmt.Errorf("serving target %s does not serve a V4 selection set: %w", target, err)
+		return LocalServingExport{}, fmt.Errorf("read V4 selection set for serving target %s: %w", target, err)
 	}
 	view := selection.View(activation.SelectionSet)
 	lanes := map[string]ServingSelection{"": view.Default}

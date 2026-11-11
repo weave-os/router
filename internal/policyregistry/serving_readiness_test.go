@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
 func TestPrepareWorkerDoesNotDependOnBootstrapClassifierOrOtherTargets(t *testing.T) {
@@ -65,4 +66,20 @@ func TestPrepareWorkerRejectsUnavailableAssignedProfile(t *testing.T) {
 	require.NoError(t, err)
 	_, err = cache.PrepareWorker(context.Background(), identity, ref)
 	require.ErrorIs(t, err, policyregistry.ErrNotFound, "default availability cannot hide an invalid customer profile")
+}
+
+func TestLocalReleaseRosterSourceServesItsSnapshotUnlessTheRequestIsBound(t *testing.T) {
+	_, err := policyregistry.LocalReleaseRosterSource{}.DistributionRoster(context.Background())
+	require.ErrorIs(t, err, policyregistry.ErrNoActivePolicy)
+
+	local := &policyregistry.Snapshot{Candidate: policyregistry.Candidate{Policy: &rosterdata.Roster{Comment: "local"}}}
+	source := policyregistry.LocalReleaseRosterSource{Snapshot: local}
+	roster, err := source.DistributionRoster(context.Background())
+	require.NoError(t, err)
+	require.Same(t, local.Policy, roster)
+
+	admitted := &policyregistry.Snapshot{Candidate: policyregistry.Candidate{Policy: &rosterdata.Roster{Comment: "admitted"}}}
+	roster, err = source.DistributionRoster(policyregistry.WithServingSnapshot(context.Background(), admitted))
+	require.NoError(t, err)
+	require.Same(t, admitted.Policy, roster)
 }

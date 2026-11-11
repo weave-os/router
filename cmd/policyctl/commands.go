@@ -317,8 +317,9 @@ func runPromote(ctx context.Context, args []string, rollback bool) error {
 	return writeJSON(updated)
 }
 
-// runExport snapshots a promoted lane into the directory layout served by
-// ROUTER_POLICY_RELEASE_DIR, so a self-hosted router can run that exact release.
+// runExport snapshots a promoted lane for ROUTER_POLICY_RELEASE_DIR or, with --selection-v4, a
+// serving target's active V4 selection set for ROUTER_SERVING_RELEASE_DIR, so a self-hosted
+// router can run that exact release.
 func runExport(ctx context.Context, args []string) error {
 	flags := flag.NewFlagSet(string(commandExport), flag.ContinueOnError)
 	registryURI := flags.String("registry", defaultRegistryURI, "GCS registry root")

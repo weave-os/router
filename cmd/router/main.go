@@ -63,6 +63,7 @@ import (
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
@@ -1076,6 +1077,7 @@ func main() {
 	var hmmReadinessChecker admin.HealthChecker
 	var policyStatus admin.PolicyStatusSource
 	var hmmRosterSources map[router.Strategy]policy.RosterSource
+	var hmmDistributionRosters []*rosterdata.Roster
 	var hmmRosterModels admin.HMMRosterSource
 	var hmmBetaCapabilities policy.Capabilities
 	var servingAdmission *middleware.ServingAdmissionConfig
@@ -1159,6 +1161,12 @@ func main() {
 			router.StrategyHMM: rosterSource, router.StrategyHMMEmbedding: rosterSource,
 		}
 		hmmRosterModels = localHMMRosterSource{roster: rosterSource}
+		localDistribution, err := rosterSource.DistributionRoster(context.Background())
+		if err != nil {
+			logger.Error("Refusing to boot: the local V4 release has no distribution roster", "err", err)
+			panic(err)
+		}
+		hmmDistributionRosters = []*rosterdata.Roster{localDistribution}
 		logger.Info("Serving the local V4 release on the self-hosted classifier worker", "dir", localReleaseDir, "target", localRelease.Target, "selection_set", localRelease.SelectionSet.URI)
 	} else if policyEnvironmentRaw != "" || policyReleaseDir != "" {
 		var policyRegistry policyregistry.Loader
@@ -1693,7 +1701,7 @@ func main() {
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}
-	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)
+	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures, hmmDistributionRosters...)
 
 	port := config.GetOr("PORT", "8080")
 	address := ":" + port

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"weave-os/router/internal/router/hmm/rosterdata"
@@ -147,7 +148,8 @@ func (d *ServingDirectory) readExact(ref ObjectRef, requiredPathPrefix string) (
 		return nil, errors.New("immutable object reference has invalid digest or generation")
 	}
 	relative, found := strings.CutPrefix(ref.URI, strings.TrimRight(d.release.RootURI, "/")+"/")
-	if !found || !strings.HasPrefix(relative, requiredPathPrefix) || !strings.HasSuffix(relative, "/"+ref.SHA256+".json") {
+	if !found || !strings.HasPrefix(relative, requiredPathPrefix) || !strings.HasSuffix(relative, "/"+ref.SHA256+".json") ||
+		slices.ContainsFunc(strings.Split(relative, "/"), func(part string) bool { return part == "" || part == "." || part == ".." }) {
 		return nil, errors.New("immutable object URI does not match its digest path")
 	}
 	payload, err := readLocalObject(filepath.Join(d.dir, filepath.FromSlash(relative)))
@@ -165,7 +167,7 @@ func (d *ServingDirectory) readExact(ref ObjectRef, requiredPathPrefix string) (
 func validateSelfHostedClassifierWorkerOrigin(raw string) error {
 	parsed, err := url.Parse(raw)
 	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil ||
-		parsed.Opaque != "" || strings.TrimRight(parsed.Path, "/") != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		parsed.Opaque != "" || strings.TrimRight(parsed.Path, "/") != "" || parsed.RawQuery != "" || parsed.Fragment != "" || strings.ContainsAny(raw, "?#") {
 		return fmt.Errorf("invalid self-hosted classifier worker origin %q", raw)
 	}
 	return nil

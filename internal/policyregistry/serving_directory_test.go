@@ -218,5 +218,5 @@ func TestExportServingTargetV4FailsClosed(t *testing.T) {
 
 	activateLocalSelection(local, local.v3Ref)
 	_, err = policyregistry.ExportServingTargetV4(context.Background(), local.store, policyregistry.TargetInternal, t.TempDir())
-	require.ErrorContains(t, err, "does not serve a V4 selection set")
+	require.ErrorContains(t, err, "read V4 selection set for serving target")
 }
