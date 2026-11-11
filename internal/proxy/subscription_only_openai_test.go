@@ -39,7 +39,7 @@ func codexSubRequest(t *testing.T, body string) (*httptest.ResponseRecorder, *ht
 // TestSubscriptionOnly_OpenAI_ServesOnCodexSub: in subscription-only mode, a
 // Codex-covered turn routed to OpenAI must serve on the caller's own ChatGPT
 // subscription (OAuth credential => $0 debit), dispatch exactly once (no paid
-// failover), and name the subscription instead of claiming depleted credits.
+// failover), and leave the response free of depleted-credits claims.
 func TestSubscriptionOnly_OpenAI_ServesOnCodexSub(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test"}}
 	// Direct OpenAI serves this turn on /v1/responses, so the upstream speaks
