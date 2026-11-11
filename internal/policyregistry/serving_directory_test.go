@@ -3,6 +3,7 @@ package policyregistry_test
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -219,4 +220,35 @@ func TestExportServingTargetV4FailsClosed(t *testing.T) {
 	activateLocalSelection(local, local.v3Ref)
 	_, err = policyregistry.ExportServingTargetV4(context.Background(), local.store, policyregistry.TargetInternal, t.TempDir())
 	require.ErrorContains(t, err, "read V4 selection set for serving target")
+}
+
+func TestExportServingTargetV4ExportsEveryProfileLane(t *testing.T) {
+	local := writeLocalV4Release(t)
+	cohort := local.store.object(t, policyregistry.ServingSelectionSet, local.v3Ref).(*policyregistry.SelectionSetV3)
+	require.NotEmpty(t, cohort.Profiles)
+	selection := local.selection
+	selection.Profiles = maps.Clone(cohort.Profiles)
+	ref := local.store.publishArtifact(t, policyregistry.ServingSelectionSet, selection)
+	activateLocalSelection(local, ref)
+	local.store.putRuntimeBinding(t, policyregistry.EnvironmentProd, selection.Classifier.Release.SHA256, testRuntimeBinding(policyregistry.EnvironmentProd, selection.Classifier.Release.SHA256))
+	dir := t.TempDir()
+
+	exported, err := policyregistry.ExportServingTargetV4(context.Background(), local.store, policyregistry.TargetInternal, dir)
+	require.NoError(t, err)
+	require.Equal(t, ref, exported.Release.SelectionSet)
+
+	for _, policyObject := range selection.Profiles {
+		relative, _ := strings.CutPrefix(policyObject.URI, testRegistryRoot+"/")
+		written, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(relative)))
+		require.NoError(t, err)
+		require.Equal(t, policyObject.SHA256, policyregistry.Digest(written))
+	}
+	directory, err := policyregistry.NewServingDirectory(dir, selfHostedWorkerURL)
+	require.NoError(t, err)
+	view := selection.View(ref)
+	for profileKey, lane := range view.Profiles {
+		prepared, err := policyregistry.ReadPreparedSelection(context.Background(), directory, policyregistry.TargetInternal, profileKey, lane)
+		require.NoError(t, err, profileKey)
+		require.Equal(t, selection.Profiles[profileKey].SHA256, prepared.Candidate.Policy.SHA256, profileKey)
+	}
 }
