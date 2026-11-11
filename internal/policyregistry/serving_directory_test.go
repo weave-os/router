@@ -245,8 +245,7 @@ func TestExportServingTargetV4ExportsEveryProfileLane(t *testing.T) {
 	}
 	directory, err := policyregistry.NewServingDirectory(dir, selfHostedWorkerURL)
 	require.NoError(t, err)
-	view := selection.View(ref)
-	for profileKey, lane := range view.Profiles {
+	for profileKey, lane := range selection.View(ref).Profiles {
 		prepared, err := policyregistry.ReadPreparedSelection(context.Background(), directory, policyregistry.TargetInternal, profileKey, lane)
 		require.NoError(t, err, profileKey)
 		require.Equal(t, selection.Profiles[profileKey].SHA256, prepared.Candidate.Policy.SHA256, profileKey)
