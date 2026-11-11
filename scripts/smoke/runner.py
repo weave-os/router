@@ -236,6 +236,7 @@ class SmokeRun:
             "DATABASE_URL": "postgres://router:router@postgres:5432/router?sslmode=disable",
             "PORT": str(ROUTER_PORT),
             "ROUTER_DEPLOYMENT_MODE": SMOKE_DEPLOYMENT_MODE,
+            "ROUTER_ALLOW_UNENCRYPTED_PROVIDER_KEYS": "true",
             "ROUTER_DEFAULT_STRATEGY": SMOKE_ROUTER_STRATEGY,
             "ROUTER_ONNX_ASSETS_DIR": "/opt/router/assets",
             "ROUTER_ONNX_LIBRARY_DIR": "/usr/lib",

@@ -112,6 +112,51 @@ func (r *ExternalAPIKeyRepo) GetForInstallation(ctx context.Context, installatio
 	return keys, nil
 }
 
+// EncryptPlaintextKeys encrypts secrets a NoOpEncryptor stored before a
+// keyset was configured, so enabling encryption doesn't strand them. Rows the
+// encryptor already reads, or that aren't plaintext, are left untouched.
+func (r *ExternalAPIKeyRepo) EncryptPlaintextKeys(ctx context.Context) (int, error) {
+	q := dbbudget.Queries(r.tx)
+	rows, err := q.ListActiveExternalAPIKeySecrets(ctx)
+	if err != nil {
+		return 0, err
+	}
+	upgraded := 0
+	for _, row := range rows {
+		if _, err := r.encryptor.Decrypt(row.KeyCiphertext, row.ExternalID, row.Provider); err == nil {
+			continue
+		}
+		if !isPrintableASCII(row.KeyCiphertext) {
+			continue
+		}
+		ciphertext, err := r.encryptor.Encrypt(row.KeyCiphertext, row.ExternalID, row.Provider)
+		if err != nil {
+			return upgraded, fmt.Errorf("encrypt stored key %s: %w", row.ID, err)
+		}
+		n, err := q.ReplaceExternalAPIKeyCiphertext(ctx, sqlc.ReplaceExternalAPIKeyCiphertextParams{
+			ID:                 row.ID,
+			KeyCiphertext:      ciphertext,
+			PreviousCiphertext: row.KeyCiphertext,
+		})
+		if err != nil {
+			return upgraded, fmt.Errorf("store encrypted key %s: %w", row.ID, err)
+		}
+		upgraded += int(n)
+	}
+	return upgraded, nil
+}
+
+// Provider secrets are printable ASCII; Tink ciphertext starts with a 0x01
+// version byte and carries random nonce bytes, so it never passes.
+func isPrintableASCII(b []byte) bool {
+	for _, c := range b {
+		if c < 0x20 || c > 0x7e {
+			return false
+		}
+	}
+	return true
+}
+
 func (r *ExternalAPIKeyRepo) SoftDeleteByProvider(ctx context.Context, installationID, provider string) error {
 	installationUUID, err := uuid.Parse(installationID)
 	if err != nil {
