@@ -1,0 +1,23 @@
+internal/proxy/loop_detection_internal_test.go
+  s_423866d49d3b95::t_a396fd01514564 109-144
+internal/proxy/loop_detection.go
+  s_423866d49d3b95::t_0e08045d42f26c 129
+  s_423866d49d3b95::t_a396fd01514564 8,95-97,120-128,130-133
+  s_423866d49d3b95::t_4ea6f5ea556ef5 134-135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "2baaf3cfb71aa514f5cdbbea3acad6b6309901cd",
+  "prompts": {},
+  "sessions": {
+    "s_423866d49d3b95": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a049df-4990-75b0-8da7-31588b46f1d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

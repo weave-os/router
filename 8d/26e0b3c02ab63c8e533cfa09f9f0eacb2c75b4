@@ -1,0 +1,19 @@
+internal/providers/anthropic/sse_prelude_test.go
+  s_84d4be4e6bc25a::t_fce8c2cc2f8080 27-33,78-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8d26e0b3c02ab63c8e533cfa09f9f0eacb2c75b4",
+  "prompts": {},
+  "sessions": {
+    "s_84d4be4e6bc25a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b06a-e4ca-7013-8316-0a07835294a3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

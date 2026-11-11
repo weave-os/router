@@ -1,0 +1,28 @@
+install/install.sh
+  s_049874a7166f8d::t_5bda5a5b2306e6 4263-4267,4269-4271,4332-4336,4339-4342,4345-4349,4351-4354,4357-4362,4364,4392-4394,4400-4406
+  s_049874a7166f8d::t_e49db9c0465d37 555-560,715-717,719,4419-4429
+install/tests/codex_install_test.sh
+  s_049874a7166f8d::t_3349c9b29e8c63 759-763
+  s_049874a7166f8d::t_6f6cc9f4ab66c3 727-758,764-781
+install/codex-toggle.sh
+  s_049874a7166f8d::t_7c70e5de92cff0 36-40,42-44,105-109,112-115,118-122,124-127,130-135,137,165-167,173-179
+install/tests/codex-toggle_test.sh
+  s_049874a7166f8d::t_6380aeda7299f1 168-243
+  s_049874a7166f8d::t_d0dc0c7151cd22 167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c18ecd66e4db2652b843b6d1e0a8353c4bf5d565",
+  "prompts": {},
+  "sessions": {
+    "s_049874a7166f8d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b6a9f0a-cd46-4fd9-942c-7daea97cec2a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

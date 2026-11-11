@@ -1,0 +1,19 @@
+internal/proxy/routing_announcement_replay_test.go
+  s_c360271c2fbc08::t_dee2674de97a61 112,114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "54150905834d810e408685a7732efb0528c243f7",
+  "prompts": {},
+  "sessions": {
+    "s_c360271c2fbc08": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18abd-0c1a-7322-af25-2d84a257108c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

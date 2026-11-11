@@ -1,0 +1,40 @@
+install/cc-statusline.sh
+  s_2d713ba61ad1d8::t_a22f0d76812eb0 532-533,608-609
+internal/translate/glm53flash_flags_test.go
+  s_2d713ba61ad1d8::t_1c2d80781a295c 1-16,36-50,52-73,75,77-81,83
+  s_2d713ba61ad1d8::t_279bd90866c87a 74,76,82
+  s_2d713ba61ad1d8::t_11f6a88566fdf4 17-35,51
+internal/router/catalog/catalog.go
+  s_2d713ba61ad1d8::t_3b4740b088da21 584-598
+internal/translate/emit_openai.go
+  s_2d713ba61ad1d8::t_d5fdb6eaf9f262 399-415
+  s_2d713ba61ad1d8::t_0f2709fd6cb066 246-249
+  s_2d713ba61ad1d8::t_3f0bbbc319782e 363-366
+internal/translate/provider_hint.go
+  s_2d713ba61ad1d8::t_7a115fda99d6cb 62-64
+  s_2d713ba61ad1d8::t_e8079330f91389 61,65-68
+install/install.sh
+  s_2d713ba61ad1d8::t_a22f0d76812eb0 3579-3580,3655-3656
+internal/proxy/force_model.go
+  s_2d713ba61ad1d8::t_84792a950db13e 142-152
+internal/translate/envelope.go
+  s_2d713ba61ad1d8::t_930b5ccd36f8c4 1300
+install/pi-router/src/pricing.generated.ts
+  s_2d713ba61ad1d8::t_f376fd89de64a8 9,85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "0da8710a9be15f5c246173df1b9199b569382cb0",
+  "prompts": {},
+  "sessions": {
+    "s_2d713ba61ad1d8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e793fe3d-8589-4f0d-93ef-51f96c405ff1",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

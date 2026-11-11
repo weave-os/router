@@ -1,0 +1,22 @@
+internal/proxy/forced_subscription_context_internal_test.go
+  s_7a6bb536e6cd97::t_2019a81aca1591 30-32,34,66-68,70
+  s_7a6bb536e6cd97::t_3dafac60915456 33,39,52,69,73-74,79,90,134,148-152,191,195-197
+internal/proxy/subscription_state_models.go
+  s_7a6bb536e6cd97::t_a47d8875ff6a14 152-154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dfc634c02541bff760028c61ae58a9c1ad1e46d1",
+  "prompts": {},
+  "sessions": {
+    "s_7a6bb536e6cd97": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18ebe-ae48-76a1-aa24-00372bf3a919",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

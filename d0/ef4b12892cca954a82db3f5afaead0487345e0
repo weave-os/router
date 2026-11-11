@@ -1,0 +1,31 @@
+internal/pubsub/replica_invalidation_internal_test.go
+  s_dce45297dba0fe::t_0941c2875f09de 96-99,101-103
+  s_dce45297dba0fe::t_352996266f552b 125,131,137-141
+  s_dce45297dba0fe::t_bd1179387cf8aa 1-95,100,104-124,126-130,132-136,142-164
+internal/pubsub/replica_invalidation.go
+  s_dce45297dba0fe::t_cd592953a69864 1-218
+cmd/router/main.go
+  s_dce45297dba0fe::t_957620cbf64977 419-425,431
+internal/pubsub/invalidation.go
+  s_dce45297dba0fe::t_b9f650347254f8 31-34
+  s_dce45297dba0fe::t_7558da1f1ca1cc 155
+  s_dce45297dba0fe::t_e35135e4561b0a 5
+go.mod
+  s_dce45297dba0fe::t_62056ce2c10d31 12,38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "d0ef4b12892cca954a82db3f5afaead0487345e0",
+  "prompts": {},
+  "sessions": {
+    "s_dce45297dba0fe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "087a11f6-e65f-4f36-869e-e02d6a9f1352",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

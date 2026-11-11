@@ -1,0 +1,31 @@
+internal/api/admin/internal_task_domain_preview.go
+  s_78314889e48d65::t_ea44f8187fe0ea 4,6-7,71,86-100
+  s_78314889e48d65::t_924c9c6f6ef5de 101-102
+internal/router/hmm/selection/domain_preview_test.go
+  s_78314889e48d65::t_ea44f8187fe0ea 20,26-27,65-82
+  s_78314889e48d65::t_793a5fb9304d08 83-84
+internal/router/hmm/selection/domain_test.go
+  s_78314889e48d65::t_ea44f8187fe0ea 272
+internal/api/admin/internal_task_domain_preview_test.go
+  s_78314889e48d65::t_ea44f8187fe0ea 5,7,111-114,117-118,141-147
+internal/router/hmm/selection/domain_preview.go
+  s_78314889e48d65::t_ea44f8187fe0ea 19-30,49-51,87,89-90,93,100,104-106
+internal/router/hmm/selection/domain.go
+  s_78314889e48d65::t_ea44f8187fe0ea 11,113-115,151,176-191,194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6edb67ecae688e0514d8fe4a495e02feb46d82f7",
+  "prompts": {},
+  "sessions": {
+    "s_78314889e48d65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "80f6f84c-7250-4cb3-a86b-83d9b0c00d7d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
