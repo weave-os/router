@@ -28,16 +28,16 @@ func TestProxy_UnboundProviderDecisionFailsClosed(t *testing.T) {
 	require.False(t, bound, "fixture needs a provider the catalog does not bind for the model")
 
 	cases := map[string]struct {
-		serve          func(*proxy.Service, http.ResponseWriter) error
-		wantErrKind    proxy.DispatchErrorKind
-		wantAnthropics int32
+		serve              func(*proxy.Service, http.ResponseWriter) error
+		wantErrKind        proxy.DispatchErrorKind
+		wantAnthropicCalls int32
 	}{
 		"messages rescues on the baseline binding": {
 			serve: func(svc *proxy.Service, w http.ResponseWriter) error {
 				body := []byte(`{"model":"claude-sonnet-4-5","max_tokens":4096,"messages":[{"role":"user","content":"Say hi"}]}`)
 				return svc.ProxyMessages(context.Background(), body, w, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("")))
 			},
-			wantAnthropics: 1,
+			wantAnthropicCalls: 1,
 		},
 		"chat fails closed": {
 			serve: func(svc *proxy.Service, w http.ResponseWriter) error {
@@ -75,14 +75,14 @@ func TestProxy_UnboundProviderDecisionFailsClosed(t *testing.T) {
 			err := tc.serve(svc, httptest.NewRecorder())
 
 			assert.Zero(t, unboundCalls.Load(), "unbound provider must never be dispatched to")
-			assert.Equal(t, tc.wantAnthropics, anthropicCalls.Load())
+			assert.Equal(t, tc.wantAnthropicCalls, anthropicCalls.Load())
 			if tc.wantErrKind == proxy.DispatchErrorNone {
 				require.NoError(t, err)
 				return
 			}
-			class, ok := proxy.ClassifyDispatchError(err)
+			classification, ok := proxy.ClassifyDispatchError(err)
 			require.True(t, ok, "fail-closed error must be typed: %v", err)
-			assert.Equal(t, tc.wantErrKind, class.Kind)
+			assert.Equal(t, tc.wantErrKind, classification.Kind)
 		})
 	}
 }
