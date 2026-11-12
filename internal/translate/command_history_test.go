@@ -89,17 +89,21 @@ func TestStripHistoricalCommandsFromResponsesInput_DropsSkillExecCallAndOutput(t
 				ordinaryCall := map[string]any{"type": "function_call", "call_id": "call_read", "name": "exec", "arguments": `{}`}
 				ordinaryOutput := map[string]any{"type": "function_call_output", "call_id": "call_read", "output": "source"}
 				body := responsesBody(t,
-					codexUserItem(directive), codexUserItem(strings.ReplaceAll(codexSkillBlob, "fm", skillName)), call, output, output,
+					codexUserItem(directive), codexUserItem(strings.ReplaceAll(codexSkillBlob, "fm", skillName)),
+					codexAssistantItem("Running the skill."),
+					map[string]any{"type": "reasoning", "id": "rs_skill", "encrypted_content": "opaque", "summary": []any{}},
+					call, output, output,
 					codexUserItem("read source"), ordinaryCall, ordinaryOutput, codexUserItem("next turn"),
 				)
 
 				out, err := translate.StripHistoricalCommandsFromResponsesInput(body)
 				require.NoError(t, err)
 				items := gjson.GetBytes(out, "input").Array()
-				require.Len(t, items, 4)
-				assert.Equal(t, "user", items[0].Get("role").Str)
-				assert.Equal(t, "call_read", items[1].Get("call_id").Str)
-				assert.Equal(t, "call_read", items[2].Get("call_id").Str)
+				require.Len(t, items, 6)
+				assert.Equal(t, "Running the skill.", items[0].Get("content.0.text").Str)
+				assert.Equal(t, "reasoning", items[1].Get("type").Str)
+				assert.Equal(t, "call_read", items[3].Get("call_id").Str)
+				assert.Equal(t, "call_read", items[4].Get("call_id").Str)
 				assert.Equal(t, []string{"read source", "next turn"}, inputTexts(t, out))
 				assert.NotContains(t, string(out), "call_skill")
 				assert.NotContains(t, string(out), "/force-model fable")
@@ -211,12 +215,14 @@ func TestStripHistoricalCommandsFromResponsesInput_TaggedRemainderIsUserText(t *
 }
 
 func TestStripHistoricalCommandsFromResponsesInput_LeavesToolItemsPaired(t *testing.T) {
-	call := map[string]any{"type": "function_call", "call_id": "c1", "name": "exec", "arguments": "{}"}
+	call := map[string]any{"type": "function_call", "call_id": "c1", "name": "exec", "arguments": `{"cmd":"/x/skills/fm/scripts/emit.sh fable"}`}
 	output := map[string]any{"type": "function_call_output", "call_id": "c1", "output": "Script completed\nOutput:\n /force-model fable"}
 	body := responsesBody(t,
 		codexUserItem("hello"),
 		codexAssistantItem("hi"),
 		codexUserItem("$fm fable"),
+		codexUserItem(codexSkillBlob),
+		codexUserItem("run this script as an ordinary task"),
 		call,
 		output,
 		codexAssistantItem("pinned"),
@@ -225,7 +231,18 @@ func TestStripHistoricalCommandsFromResponsesInput_LeavesToolItemsPaired(t *test
 	out, err := translate.StripHistoricalCommandsFromResponsesInput(body)
 	require.NoError(t, err)
 	items := gjson.GetBytes(out, "input").Array()
-	require.Len(t, items, 6)
-	assert.Equal(t, "function_call", items[2].Get("type").Str)
-	assert.Equal(t, "function_call_output", items[3].Get("type").Str, "tool output is StripRouterCommandsFromResponsesInput's job")
+	require.Len(t, items, 7)
+	assert.Equal(t, "function_call", items[3].Get("type").Str)
+	assert.Equal(t, "function_call_output", items[4].Get("type").Str, "a later user turn ends skill-call cleanup")
+
+	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	env, err := translate.ParseOpenAI(conversion.Body)
+	require.NoError(t, err)
+	_, err = env.StripHistoricalCommands()
+	require.NoError(t, err)
+	prepared, err := env.PrepareGemini(nil, translate.EmitOptions{TargetModel: "gemini-2.5-flash"})
+	require.NoError(t, err)
+	assert.Contains(t, string(prepared.Body), "/x/skills/fm/scripts/emit.sh fable")
+	assert.Contains(t, string(prepared.Body), "functionResponse")
 }

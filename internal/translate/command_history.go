@@ -53,20 +53,22 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 	changed := 0
 	rebuilt := make([]string, 0, len(messages))
 	dropAttachment := false
-	skillExecPath := ""
-	droppedCallIDs := make(map[string]struct{})
+	var skillExec skillExecTracker
 	keptUser, droppedUser := false, false
 	for i, msg := range messages {
 		if dropAttachment {
 			dropAttachment = false
 			if isSkillAttachment(messages, i) {
-				skillExecPath = skillEmitPath(msg.Get("content"))
+				skillExec.path = skillEmitPath(msg.Get("content"))
 				changed++
 				continue
 			}
 		}
-		raw, edited, keep, err := stripHistoricalSkillToolMessage(msg, skillExecPath, droppedCallIDs)
-		skillExecPath = ""
+		role := msg.Get("role").String()
+		if role == "user" && !isSkillAttachment(messages, i) && !onlyToolResults(msg.Get("content")) {
+			skillExec.path = ""
+		}
+		raw, edited, keep, err := stripHistoricalSkillToolMessage(msg, &skillExec)
 		if err != nil {
 			return 0, err
 		}
@@ -77,7 +79,6 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 			}
 			msg = gjson.Parse(raw)
 		}
-		role := msg.Get("role").String()
 		// Dropping an opening directive must not leave an orphaned assistant ack.
 		if role == "assistant" && droppedUser && !keptUser && !carriesToolCall(msg) {
 			changed++
@@ -154,12 +155,47 @@ func skillEmitPath(content gjson.Result) string {
 	return strings.TrimSuffix(strings.TrimSpace(skillPath), "/SKILL.md") + "/scripts/emit.sh"
 }
 
-func stripHistoricalSkillToolMessage(msg gjson.Result, execPath string, droppedCallIDs map[string]struct{}) (raw string, edited, keep bool, err error) {
-	if execPath == "" && len(droppedCallIDs) == 0 {
+type skillExecTracker struct {
+	path           string
+	droppedCallIDs map[string]struct{}
+}
+
+func (tracker *skillExecTracker) dropCall(id, name, code string) bool {
+	if tracker.path != "" && name == "exec" && id != "" && strings.Contains(code, tracker.path) {
+		if tracker.droppedCallIDs == nil {
+			tracker.droppedCallIDs = make(map[string]struct{})
+		}
+		tracker.droppedCallIDs[id] = struct{}{}
+		tracker.path = ""
+		return true
+	}
+	delete(tracker.droppedCallIDs, id)
+	return false
+}
+
+func (tracker *skillExecTracker) isDroppedOutput(id string) bool {
+	_, dropped := tracker.droppedCallIDs[id]
+	return dropped
+}
+
+func onlyToolResults(content gjson.Result) bool {
+	if !content.IsArray() || len(content.Array()) == 0 {
+		return false
+	}
+	for _, part := range content.Array() {
+		if part.Get("type").Str != "tool_result" {
+			return false
+		}
+	}
+	return true
+}
+
+func stripHistoricalSkillToolMessage(msg gjson.Result, tracker *skillExecTracker) (raw string, edited, keep bool, err error) {
+	if tracker.path == "" && len(tracker.droppedCallIDs) == 0 {
 		return msg.Raw, false, true, nil
 	}
 	if msg.Get("role").Str == "tool" {
-		if _, dropped := droppedCallIDs[msg.Get("tool_call_id").Str]; dropped {
+		if tracker.isDroppedOutput(msg.Get("tool_call_id").Str) {
 			return "", true, false, nil
 		}
 	}
@@ -181,16 +217,12 @@ func stripHistoricalSkillToolMessage(msg gjson.Result, execPath string, droppedC
 					code = part.Get("input").Raw
 				}
 			}
-			if execPath != "" && msg.Get("role").Str == "assistant" && name == "exec" && id != "" && strings.Contains(code, execPath) {
-				droppedCallIDs[id] = struct{}{}
+			if isCall && msg.Get("role").Str == "assistant" && tracker.dropCall(id, name, code) {
 				edited = true
 				continue
 			}
-			if isCall {
-				delete(droppedCallIDs, id)
-			}
 			if part.Get("type").Str == "tool_result" {
-				if _, dropped := droppedCallIDs[part.Get("tool_use_id").Str]; dropped {
+				if tracker.isDroppedOutput(part.Get("tool_use_id").Str) {
 					edited = true
 					continue
 				}
@@ -292,33 +324,29 @@ func StripHistoricalCommandsFromResponsesInput(body []byte) ([]byte, error) {
 	rebuilt := make([]string, 0, len(items))
 	changed := false
 	dropAttachment := false
-	skillExecPath := ""
-	droppedCallIDs := make(map[string]struct{})
+	var skillExec skillExecTracker
 	for i, item := range items {
 		if dropAttachment {
 			dropAttachment = false
 			if isSkillAttachment(items, i) {
-				skillExecPath = skillEmitPath(item.Get("content"))
+				skillExec.path = skillEmitPath(item.Get("content"))
 				changed = true
 				continue
 			}
 		}
-		if skillExecPath != "" {
-			execPath := skillExecPath
-			skillExecPath = ""
-			code := item.Get("arguments").Str + item.Get("input").Str
-			if (item.Get("type").Str == "function_call" || item.Get("type").Str == "custom_tool_call") && item.Get("name").Str == "exec" && item.Get("call_id").Str != "" && strings.Contains(code, execPath) {
-				droppedCallIDs[item.Get("call_id").Str] = struct{}{}
-				changed = true
-				continue
-			}
+		if responsesUserMessage(item) && !isSkillAttachment(items, i) {
+			skillExec.path = ""
 		}
 		itemType := item.Get("type").Str
 		if itemType == "function_call" || itemType == "custom_tool_call" {
-			delete(droppedCallIDs, item.Get("call_id").Str)
+			code := item.Get("arguments").Str + item.Get("input").Str
+			if skillExec.dropCall(item.Get("call_id").Str, item.Get("name").Str, code) {
+				changed = true
+				continue
+			}
 		}
 		if itemType == "function_call_output" || itemType == "custom_tool_call_output" {
-			if _, matched := droppedCallIDs[item.Get("call_id").Str]; matched {
+			if skillExec.isDroppedOutput(item.Get("call_id").Str) {
 				continue
 			}
 		}

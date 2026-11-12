@@ -139,6 +139,10 @@ func TestStripHistoricalCommands_OpeningDirectiveKeepsAssistantToolCall(t *testi
 func TestStripHistoricalCommands_SkillExecKeepsOtherContentAndTools(t *testing.T) {
 	for name, format := range map[string]Format{"openai": FormatOpenAI, "anthropic": FormatAnthropic} {
 		t.Run(name, func(t *testing.T) {
+			beforeCall := map[string]any{"role": "assistant", "tool_calls": []any{
+				map[string]any{"id": "call_before", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"}},
+			}}
+			beforeOutput := map[string]any{"role": "tool", "tool_call_id": "call_before", "content": "ordinary output"}
 			assistant := map[string]any{"role": "assistant", "content": "working", "tool_calls": []any{
 				map[string]any{"id": "call_skill", "type": "function", "function": map[string]any{"name": "exec", "arguments": `{"cmd":"/x/skills/fm/scripts/emit.sh fable"}`}},
 				map[string]any{"id": "call_read", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"}},
@@ -148,6 +152,12 @@ func TestStripHistoricalCommands_SkillExecKeepsOtherContentAndTools(t *testing.T
 				map[string]any{"role": "tool", "tool_call_id": "call_read", "content": "source"},
 			}
 			if format == FormatAnthropic {
+				beforeCall = map[string]any{"role": "assistant", "content": []any{
+					map[string]any{"type": "tool_use", "id": "call_before", "name": "exec", "input": map[string]any{}},
+				}}
+				beforeOutput = map[string]any{"role": "user", "content": []any{
+					map[string]any{"type": "tool_result", "tool_use_id": "call_before", "content": "ordinary output"},
+				}}
 				assistant = map[string]any{"role": "assistant", "content": []any{
 					map[string]any{"type": "text", "text": "working"},
 					map[string]any{"type": "tool_use", "id": "call_skill", "name": "exec", "input": map[string]any{"code": "/x/skills/fm/scripts/emit.sh fable"}},
@@ -160,7 +170,7 @@ func TestStripHistoricalCommands_SkillExecKeepsOtherContentAndTools(t *testing.T
 			}
 			messages := []any{
 				map[string]any{"role": "user", "content": "$fm fable\nread source"},
-				map[string]any{"role": "user", "content": historicalSkillBlob}, assistant,
+				map[string]any{"role": "user", "content": historicalSkillBlob}, beforeCall, beforeOutput, assistant,
 			}
 			messages = append(messages, results...)
 			messages = append(messages, map[string]any{"role": "user", "content": "next turn"})
@@ -178,8 +188,10 @@ func TestStripHistoricalCommands_SkillExecKeepsOtherContentAndTools(t *testing.T
 			assert.NotContains(t, string(env.body), "/force-model fable")
 			assert.Contains(t, string(env.body), "working")
 			assert.Contains(t, string(env.body), "call_read")
+			assert.Contains(t, string(env.body), "call_before")
+			assert.Contains(t, string(env.body), "ordinary output")
 			assert.Contains(t, string(env.body), "source")
-			assert.Len(t, gjson.GetBytes(env.body, "messages").Array(), 4)
+			assert.Len(t, gjson.GetBytes(env.body, "messages").Array(), 6)
 		})
 	}
 }
