@@ -2640,7 +2640,8 @@ func (s *Service) WithExplicitUtilityHardPin(enabled bool) *Service {
 
 // WithHardPinResolver installs a per-request hard-pin resolver. nil
 // preserves the boot-time hardPin{Provider,Model} for every request.
-// ok=false signals no eligible provider, surfacing ErrClusterUnavailable.
+// ok=false surfaces router.ErrNoEligibleProvider, or the context-window or
+// gateway sentinel when the request's size or gateway aliases explain the miss.
 func (s *Service) WithHardPinResolver(resolver HardPinResolver) *Service {
 	s.hardPinResolver = resolver
 	return s

@@ -9,23 +9,16 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	hmmselection "weave-os/router/internal/router/hmm/selection"
 
 	"github.com/gin-gonic/gin"
 )
 
-// RoutingDistributionSource projects the per-installation "quality vs price"
-// dial's model mix across a grid of dial positions, over the eligible pool left
-// by excludedModels / excludedProviders. Implemented by *cluster.Multiversion
-// in production; callers can pass a fake in tests.
-type RoutingDistributionSource interface {
-	DefaultRoutingDistribution(gridN int, excludedModels, excludedProviders map[string]struct{}) ([]router.DistributionPoint, error)
-}
-
-// AdmittedDistributionRosterSource returns only the request's effective policy.
-type AdmittedDistributionRosterSource interface {
+// DistributionRosterSource returns the HMM policy roster the dial preview
+// projects over: the request's admitted policy in managed mode, the active
+// stable policy elsewhere.
+type DistributionRosterSource interface {
 	DistributionRoster(context.Context) (*rosterdata.Roster, error)
 }
 
@@ -41,7 +34,7 @@ type routingDistributionResponse struct {
 // grid of dial positions in [0, 1] it returns the projected model mix the
 // QualityBias dial would produce (and the share-weighted input cost at each
 // position). Read-only, unauthed metadata derived from the publicly published
-// artifact — mounted like /v1/router/models so the Weave control plane can
+// policy — mounted like /v1/router/models so the Weave control plane can
 // render the dashboard preview without juggling router API keys.
 //
 // `grid` (optional) sets the number of dial positions in [2, 101]; omitted
@@ -51,16 +44,7 @@ type routingDistributionResponse struct {
 // the eligible pool so the preview matches what Route would do for an
 // installation with those exclusions — the control plane passes the requesting
 // org's lists, keeping the endpoint unauthed/global while still org-correct.
-func RoutingDistributionHandler(dist RoutingDistributionSource, hmmRosters ...*rosterdata.Roster) gin.HandlerFunc {
-	return routingDistributionHandler(dist, nil, hmmRosters)
-}
-
-// AdmittedRoutingDistributionHandler never substitutes a boot roster or legacy scorer.
-func AdmittedRoutingDistributionHandler(source AdmittedDistributionRosterSource) gin.HandlerFunc {
-	return routingDistributionHandler(nil, source, nil)
-}
-
-func routingDistributionHandler(dist RoutingDistributionSource, admitted AdmittedDistributionRosterSource, hmmRosters []*rosterdata.Roster) gin.HandlerFunc {
+func RoutingDistributionHandler(source DistributionRosterSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		gridN := 0 // 0 -> scorer default
 		if raw := c.Query("grid"); raw != "" {
@@ -74,37 +58,24 @@ func routingDistributionHandler(dist RoutingDistributionSource, admitted Admitte
 		excludedModels := parseCSVSet(c.Query("excluded_models"))
 		excludedProviders := parseCSVSet(c.Query("excluded_providers"))
 		strategy := router.Strategy(strings.ToLower(strings.TrimSpace(c.Query("strategy"))))
-		var points []router.DistributionPoint
-		var err error
-		if admitted != nil {
-			if strategy != "" && strategy != router.StrategyHMM && strategy != router.StrategyHMMEmbedding {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "managed distribution requires an admitted HMM strategy"})
-				return
-			}
-			roster, rosterErr := admitted.DistributionRoster(c.Request.Context())
-			if rosterErr != nil {
-				observability.FromGin(c).Error("Admitted routing distribution roster unavailable", "strategy", strategy, "grid", gridN, "err", rosterErr)
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "admitted routing distribution unavailable"})
-				return
-			}
-			points, err = hmmselection.RoutingDistribution(roster, gridN, excludedModels, excludedProviders)
-		} else if router.IsHMMStrategy(strategy) {
-			if len(hmmRosters) == 0 || hmmRosters[0] == nil {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "hmm routing distribution unavailable"})
-				return
-			}
-			points, err = hmmselection.RoutingDistribution(hmmRosters[0], gridN, excludedModels, excludedProviders)
-		} else {
-			if dist == nil {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "routing distribution unavailable"})
-				return
-			}
-			points, err = dist.DefaultRoutingDistribution(gridN, excludedModels, excludedProviders)
+		if strategy != "" && strategy != router.StrategyHMM && strategy != router.StrategyHMMEmbedding {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "routing distribution requires an HMM strategy"})
+			return
 		}
+		ctx := c.Request.Context()
+		if strategy != "" {
+			ctx = router.WithStrategy(ctx, strategy)
+		}
+		roster, err := source.DistributionRoster(ctx)
+		if err != nil {
+			observability.FromGin(c).Error("Routing distribution roster unavailable", "strategy", strategy, "grid", gridN, "err", err)
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "routing distribution unavailable"})
+			return
+		}
+		points, err := hmmselection.RoutingDistribution(roster, gridN, excludedModels, excludedProviders)
 		if err != nil {
 			// An exclusion set that empties the eligible pool is a client
-			// configuration error (4xx), not a server outage — same sentinel
-			// mapping cluster routing uses. Everything else is a 503.
+			// configuration error (4xx), not a server outage. Everything else is a 503.
 			if errors.Is(err, router.ErrNoEligibleProvider) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "exclusions leave no eligible models"})
 				return
@@ -134,5 +105,3 @@ func parseCSVSet(raw string) map[string]struct{} {
 	}
 	return out
 }
-
-var _ RoutingDistributionSource = (*cluster.Multiversion)(nil)

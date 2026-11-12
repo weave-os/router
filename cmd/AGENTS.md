@@ -32,7 +32,7 @@ Composition root. Only place that constructs concrete adapters + wires them toge
 Provider registration:
 
 - Every provider goes into `providerMap` regardless of mode.
-- `envKeyedProviders` (parallel set) tracks which providers have a deployment-level key configured so the hard-pin resolver knows what's safe to pin to.
+- `envKeyedProviders` (parallel set) tracks which providers have a deployment-level key configured, i.e. which can serve without request credentials.
 - Provider credential mode follows `byokOnly` in `cmd/router/main.go`, not `managed` alone. Preserve installation BYOK opt-in and client subscription routing when changing registration.
 
 Single source of truth for provider→env-var mapping = `providers.APIKeyEnvVars` in [`../internal/providers/provider.go`](../internal/providers/provider.go). Admin `/config` view reads it so it can't drift from actual wiring.

@@ -11,7 +11,6 @@ import (
 )
 
 type configResponse struct {
-	ClusterVersion       string `json:"cluster_version"`
 	EmbedOnlyUserMsg     bool   `json:"embed_only_user_message"`
 	StickyDecisionTTL    string `json:"sticky_decision_ttl_ms"`
 	OtelEnabled          bool   `json:"otel_enabled"`
@@ -39,7 +38,6 @@ func ConfigHandler(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, configResponse{
-		ClusterVersion:       config.GetOr("ROUTER_CLUSTER_VERSION", "artifacts/latest"),
 		EmbedOnlyUserMsg:     config.GetOr("ROUTER_EMBED_ONLY_USER_MESSAGE", "true") == "true",
 		StickyDecisionTTL:    config.GetOr("ROUTER_STICKY_DECISION_TTL_MS", "0"),
 		OtelEnabled:          config.GetOr("OTEL_EXPORTER_OTLP_ENDPOINT", "") != "",

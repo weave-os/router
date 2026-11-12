@@ -57,7 +57,7 @@ variables that hold them (defaults: `WEAVE_ROUTER_API_KEY`,
 weave-bench probe
 ```
 
-Prints the router build (`/health` → commit + cluster artifact version), the
+Prints the router build (`/v1/version` → commit + stable policy release), the
 sha256 of the stable HMM roster it is serving, and the router's reply to a
 `/beta` turn. Exit status is 0 only if the reply contains `Beta enabled` — the
 same acknowledgement the agent asserts at the start of every router trial (it
