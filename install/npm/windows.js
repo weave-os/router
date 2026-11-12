@@ -258,8 +258,10 @@ function installClaude(paths, baseUrl, key, email, attribution) {
   // move those installs (and new ones) to Weave Auto once, then keep the user's picks.
   const weaveAutoRollout = ![settings, localSettings].some((layer) => /^X-Weave-Model-Passthrough:/im.test(layer?.env?.ANTHROPIC_CUSTOM_HEADERS || ""));
   // An earlier install's record wins so updates never replace the pre-Weave pick.
-  const recordedPrior = customHeaders.split("\n").map((header) => header.match(/^X-Weave-Prior-Model:\s*(\S*)\s*$/i)?.[1]).find((value) => value !== undefined);
-  const modelLayers = [localSettings, settings, readJson(path.join(process.env.USERPROFILE || process.env.HOME, ".claude", "settings.json"))];
+  // User settings come last: a project install inherits the user install's record.
+  const userSettings = readJson(path.join(process.env.USERPROFILE || process.env.HOME, ".claude", "settings.json"));
+  const recordedPrior = [customHeaders, userSettings.env?.ANTHROPIC_CUSTOM_HEADERS || ""].join("\n").split("\n").map((header) => header.match(/^X-Weave-Prior-Model:\s*(\S*)\s*$/i)?.[1]).find((value) => value !== undefined);
+  const modelLayers = [localSettings, settings, userSettings];
   const currentModel = modelLayers.map((layer) => layer?.env?.ANTHROPIC_MODEL).find(Boolean) || process.env.ANTHROPIC_MODEL || modelLayers.map((layer) => layer?.model).find(Boolean);
   const priorModel = recordedPriorModel(recordedPrior) || priorModelId(currentModel) || "unset";
   const previousHeaders = customHeaders.split("\n").filter((header) => !/^X-(?:Weave-Router-Key|Weave-User-Email|Weave-User-Name|Weave-Model-Passthrough|Weave-Prior-Model|App):/i.test(header));

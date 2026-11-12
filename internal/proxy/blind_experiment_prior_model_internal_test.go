@@ -43,15 +43,20 @@ func TestPassthroughArmServesRecordedPriorModel(t *testing.T) {
 	service := NewService(nil, nil, nil, false, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}}
-	for clientApp, prior := range map[string]string{ClientAppClaudeCode: "claude-sonnet-4-6", ClientAppCodex: "gpt-5.4"} {
-		ctx := priorModelContext(auth.BlindExperimentArmPassthrough, clientApp, prior)
+	for _, tc := range []struct{ clientApp, prior, want string }{
+		{ClientAppClaudeCode, "claude-sonnet-4-6", "claude-sonnet-4-6"},
+		{ClientAppClaudeCode, "sonnet", "claude-sonnet-5-5"},
+		{ClientAppCodex, "gpt-5.4", "gpt-5.4"},
+	} {
+		clientApp := tc.clientApp
+		ctx := priorModelContext(auth.BlindExperimentArmPassthrough, clientApp, tc.prior)
 
 		decision, passthrough, err := service.blindExperimentPassthroughDecision(ctx,
 			router.Request{RequestedModel: "weave-auto", EnabledProviders: enabled})
 
 		require.NoError(t, err)
 		assert.True(t, passthrough)
-		assert.Equal(t, prior, decision.Model, "%s passthrough must serve the model recorded at install", clientApp)
+		assert.Equal(t, tc.want, decision.Model, "%s passthrough must serve the model recorded at install", clientApp)
 		assert.Equal(t, blindExperimentPublicDecisionReason, decision.Reason, "the arm must stay undisclosed")
 	}
 }
@@ -92,7 +97,8 @@ func TestPassthroughArmFallsBackToClientDefaultWhenPriorModelCannotServe(t *test
 			assert.Equal(t, "claude-opus-5-5", decision.Model)
 
 			params := InsertTelemetryParams{RequestedModel: "weave-auto", DecisionModel: decision.Model}
-			applyBlindExperimentTelemetry(ctx, &params, &turnLoopResult{Decision: decision, CallerModelPassthrough: true})
+			applyBlindExperimentTelemetry(ctx, &params, &turnLoopResult{Decision: decision, CallerModelPassthrough: true,
+				blindExperimentBaseline: service.blindExperimentBaselineFor(ctx, tc.req)})
 			assert.Equal(t, "claude-opus-5-5", params.BlindExperimentBaselineModel)
 			assert.Equal(t, auth.BlindExperimentBaselineSourceClientDefault, params.BlindExperimentBaselineSource)
 			require.NotNil(t, params.BlindExperimentModelChanged)
@@ -114,31 +120,41 @@ func TestPriorModelDoesNotOverrideAnExplicitPick(t *testing.T) {
 }
 
 func TestBlindExperimentTelemetryRecordsPriorInstallBaseline(t *testing.T) {
+	service := NewService(nil, nil, nil, false, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	anthropicOnly := map[string]struct{}{providers.ProviderAnthropic: {}}
 	routed := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster_argmax"}
 	for _, tc := range []struct {
 		name      string
 		arm       auth.BlindExperimentArm
+		prior     string
 		requested string
-		routed    *turnLoopResult
+		served    router.Decision
 		baseline  string
 		source    auth.BlindExperimentBaselineSource
 		changed   bool
 	}{
-		{name: "passthrough served the prior model", arm: auth.BlindExperimentArmPassthrough, requested: "weave-auto",
-			routed:   &turnLoopResult{Decision: router.Decision{Model: "claude-sonnet-4-6"}, CallerModelPassthrough: true},
+		{name: "passthrough served the prior model", arm: auth.BlindExperimentArmPassthrough, prior: "claude-sonnet-4-6", requested: "weave-auto",
+			served:   router.Decision{Model: "claude-sonnet-4-6"},
 			baseline: "claude-sonnet-4-6", source: auth.BlindExperimentBaselineSourcePriorInstall},
-		{name: "router_on compares against the prior model", arm: auth.BlindExperimentArmRouterOn, requested: "weave-auto",
-			routed:   &turnLoopResult{Decision: routed},
+		{name: "router_on compares against the prior model", arm: auth.BlindExperimentArmRouterOn, prior: "claude-sonnet-4-6", requested: "weave-auto",
+			served:   routed,
 			baseline: "claude-sonnet-4-6", source: auth.BlindExperimentBaselineSourcePriorInstall, changed: true},
-		{name: "a named model is its own baseline", arm: auth.BlindExperimentArmRouterOn, requested: "claude-opus-4-7",
-			routed:   &turnLoopResult{Decision: routed},
+		{name: "router_on applies passthrough's checks to the prior model", arm: auth.BlindExperimentArmRouterOn, prior: "gpt-5.4", requested: "weave-auto",
+			served:   router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5-5"},
+			baseline: "claude-opus-5-5", source: auth.BlindExperimentBaselineSourceClientDefault},
+		{name: "a named model is its own baseline", arm: auth.BlindExperimentArmRouterOn, prior: "claude-sonnet-4-6", requested: "claude-opus-4-7",
+			served:   routed,
 			baseline: "claude-opus-4-7", source: auth.BlindExperimentBaselineSourceRequestedModel, changed: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := priorModelContext(tc.arm, ClientAppClaudeCode, "claude-sonnet-4-6")
-			params := InsertTelemetryParams{RequestedModel: tc.requested, DecisionModel: tc.routed.Decision.Model}
+			ctx := priorModelContext(tc.arm, ClientAppClaudeCode, tc.prior)
+			req := router.Request{RequestedModel: tc.requested, EnabledProviders: anthropicOnly}
+			result := &turnLoopResult{Decision: tc.served, CallerModelPassthrough: tc.arm == auth.BlindExperimentArmPassthrough,
+				blindExperimentBaseline: service.activeBlindExperimentBaseline(ctx, req)}
+			params := InsertTelemetryParams{RequestedModel: tc.requested, DecisionModel: tc.served.Model}
 
-			applyBlindExperimentTelemetry(ctx, &params, tc.routed)
+			applyBlindExperimentTelemetry(ctx, &params, result)
 
 			assert.Equal(t, tc.baseline, params.BlindExperimentBaselineModel)
 			assert.Equal(t, tc.source, params.BlindExperimentBaselineSource)

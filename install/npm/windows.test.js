@@ -431,6 +431,12 @@ test("the native installer records the pre-Weave model once", async () => {
     for (const target of ["claude", "codex"]) await runInstallerAt(home, [`--${target}`, "--non-interactive", "--base-url", baseUrl]);
     assert.deepEqual(priorHeader(), ["X-Weave-Prior-Model: claude-sonnet-4-6"], "a reinstall keeps the first record");
     assert.equal(codexPrior(), "gpt-5.4", "a reinstall keeps the first record");
+    const project = path.join(home, "project");
+    fs.mkdirSync(project);
+    await runFile("git", ["init", "-q", project]);
+    await runInstallerAt(home, ["--claude", "--scope", "project", "--non-interactive", "--base-url", baseUrl], { cwd: project, envOverrides: { PATH: "" } });
+    const projectHeaders = JSON.parse(fs.readFileSync(path.join(project, ".claude", "settings.local.json"), "utf8")).env.ANTHROPIC_CUSTOM_HEADERS;
+    assert.match(projectHeaders, /^X-Weave-Prior-Model: claude-sonnet-4-6$/m, "a project install inherits the user record");
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }

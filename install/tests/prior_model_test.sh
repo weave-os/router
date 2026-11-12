@@ -113,6 +113,16 @@ expect "$(claude_prior "$project/.claude/settings.json")" "" "shared project set
 (cd "$project" && claude "$home" "" --scope project)
 expect "$(claude_prior "$project/.claude/settings.local.json")" claude-opus-4-7 "project reinstall"
 
+# A project install after a user install keeps the user-level record.
+home="$(new_home project-after-user)"
+project="$work/project-after-user"
+mkdir -p "$project"
+git -C "$project" init -q
+printf '%s\n' '{"model":"claude-sonnet-4-6"}' >"$home/.claude/settings.json"
+claude "$home" "" --scope user
+(cd "$project" && claude "$home" "" --scope project)
+expect "$(claude_prior "$project/.claude/settings.local.json")" claude-sonnet-4-6 "project install inherits the user record"
+
 # Codex: the saved top-level model is recorded, and kept after the user moves to Weave Auto.
 home="$(new_home codex-saved)"
 config="$home/.codex/config.toml"
@@ -122,6 +132,18 @@ expect "$(codex_prior "$config")" gpt-5.4 "codex saved model"
 sed -i.bak 's/^model = "gpt-5.4"$/model = "weave-auto"/' "$config"
 codex "$home"
 expect "$(codex_prior "$config")" gpt-5.4 "codex reinstall keeps the record"
+
+# TOML literal strings are read, and a commented-out header is not a record.
+home="$(new_home codex-literal)"
+config="$home/.codex/config.toml"
+printf '%s\n' "model = 'gpt-5.4'" >"$config"
+codex "$home"
+expect "$(codex_prior "$config")" gpt-5.4 "codex literal-string model"
+home="$(new_home codex-commented)"
+config="$home/.codex/config.toml"
+printf '%s\n' 'model = "gpt-5.5"' '[model_providers.weave]' '# "X-Weave-Prior-Model" = "gpt-5.4"' >"$config"
+codex "$home"
+expect "$(codex_prior "$config")" gpt-5.5 "codex ignores a commented-out record"
 
 home="$(new_home codex-unset)"
 config="$home/.codex/config.toml"

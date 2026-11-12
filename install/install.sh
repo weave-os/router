@@ -871,14 +871,15 @@ codex_prior_model() {
   local config_file="$1" found="" saved
   if [ -f "$config_file" ]; then
     found="$(awk '
+      /^[[:space:]]*#/ { next }
       /^[[:space:]]*\[/ {
         in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/)
         next
       }
-      in_provider && match($0, /"?X-Weave-Prior-Model"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      in_provider && match($0, /["\047]?X-Weave-Prior-Model["\047]?[[:space:]]*=[[:space:]]*("[^"]*"|\047[^\047]*\047)/) {
         hdr = substr($0, RSTART, RLENGTH)
-        sub(/^.*=[[:space:]]*"/, "", hdr)
-        sub(/"$/, "", hdr)
+        sub(/^[^=]*=[[:space:]]*/, "", hdr)
+        hdr = substr(hdr, 2, length(hdr) - 2)
         print "X-Weave-Prior-Model: " hdr
         exit
       }
@@ -886,7 +887,7 @@ codex_prior_model() {
   fi
   if [ -z "$found" ]; then
     saved="$(codex_existing_option "$config_file" model)"
-    saved="$(printf '%s' "${saved:1}" | sed -n 's/^[^=]*=[[:space:]]*"\([^"]*\)".*/\1/p')"
+    saved="$(printf '%s' "${saved:1}" | sed -n -e "s/^[^=]*=[[:space:]]*\"\([^\"]*\)\".*/\1/p" -e "s/^[^=]*=[[:space:]]*'\([^']*\)'.*/\1/p")"
     found="$(prior_model_id "$saved")"
   fi
   printf '%s' "${found:-unset}"
@@ -3062,8 +3063,9 @@ CLAUDE_WEAVE_AUTO_STRIP_JQ='(if (.model == "weave-auto" or .model == "weave-auto
 prior_model_id() {
   local id="${1%\[1m\]}" pattern='^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$'
   case "$id" in ""|unset|weave-auto) return 0 ;; esac
-  [ "${#id}" -le 128 ] && [[ "$id" =~ $pattern ]] || return 0
-  printf '%s' "$id"
+  if [ "${#id}" -le 128 ] && [[ "$id" =~ $pattern ]]; then
+    printf '%s' "$id"
+  fi
 }
 
 # recorded_prior_model prints an X-Weave-Prior-Model value an earlier install
@@ -3081,8 +3083,12 @@ recorded_prior_model() {
 # saved model, highest settings layer first), else "unset".
 claude_prior_model() {
   local source found="" current=""
-  for source in "$settings_dir/.weave-parked.json" "$local_settings_file" "$settings_file"; do
-    [ -n "$source" ] && [ -f "$source" ] || continue
+  # User settings come last: a project install inherits the user install's record.
+  for source in "$settings_dir/.weave-parked.json" "$local_settings_file" "$settings_file" \
+    "$HOME/.claude/.weave-parked.json" "$HOME/.claude/settings.json"; do
+    if [ -z "$source" ] || [ ! -f "$source" ]; then
+      continue
+    fi
     found="$(json_get "$source" '.env.ANTHROPIC_CUSTOM_HEADERS' | recorded_prior_model)"
     [ -z "$found" ] || { printf '%s' "$found"; return 0; }
   done

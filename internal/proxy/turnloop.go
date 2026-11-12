@@ -229,9 +229,10 @@ type turnLoopResult struct {
 	UsageBypass bool
 	// CallerModelPassthrough records direct dispatch under the internal
 	// experiment without changing usage-bypass billing semantics.
-	CallerModelPassthrough bool
-	PinTier                string
-	PinAgeSec              int64
+	CallerModelPassthrough  bool
+	blindExperimentBaseline blindExperimentBaseline
+	PinTier                 string
+	PinAgeSec               int64
 	// ForcedPinDropped records that a /force-model pin existed but could not be
 	// served (provider not enabled, excluded, or not image-capable); surfaced so
 	// the turn does not silently contradict the "force-model applied" ack.
@@ -828,6 +829,7 @@ func (s *Service) runTurnLoop(
 	subAgentHint = subAgentHintForRequest(ctx, subAgentHint)
 	shadowStartedAt := time.Now()
 	defer func() {
+		res.blindExperimentBaseline = s.activeBlindExperimentBaseline(ctx, req)
 		if routeErr == nil {
 			routeErr = policyPinServed(ctx, res)
 			if routeErr == nil {
