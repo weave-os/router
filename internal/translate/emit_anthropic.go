@@ -71,19 +71,9 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
-	body, err = normalizeAnthropicFinalAssistant(body)
+	body, err = prepareAnthropicMessageTail(body, opts.Capabilities.Supports(router.CapAssistantPrefill))
 	if err != nil {
-		return providers.PreparedRequest{}, fmt.Errorf("normalize anthropic final assistant: %w", err)
-	}
-	if !opts.Capabilities.Supports(router.CapAssistantPrefill) {
-		body, err = dropAnthropicFinalAssistant(body)
-		if err != nil {
-			return providers.PreparedRequest{}, fmt.Errorf("drop anthropic final assistant: %w", err)
-		}
-	}
-	body, err = placeAnthropicSystemMessagesBytes(body)
-	if err != nil {
-		return providers.PreparedRequest{}, fmt.Errorf("place anthropic system messages: %w", err)
+		return providers.PreparedRequest{}, err
 	}
 	body, err = applyAnthropicCachePolicy(body, true)
 	if err != nil {
@@ -914,22 +904,6 @@ func normalizeAnthropicSystemOnlyContentBlocks(body []byte) ([]byte, error) {
 		return nil, fmt.Errorf("rebuild messages after system-only normalization: %w", err)
 	}
 	return out, nil
-}
-
-func placeAnthropicSystemMessagesBytes(body []byte) ([]byte, error) {
-	msgs := gjson.GetBytes(body, "messages")
-	if !msgs.IsArray() {
-		return body, nil
-	}
-	raws := make([]string, 0, len(msgs.Array()))
-	for _, msg := range msgs.Array() {
-		raws = append(raws, msg.Raw)
-	}
-	placed, moved := placeAnthropicSystemMessages(raws)
-	if !moved {
-		return body, nil
-	}
-	return sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(placed, ",")+"]"))
 }
 
 func containsAnthropicSystemOnlyContentBlock(content gjson.Result) bool {

@@ -328,13 +328,13 @@ func TestPrepareAnthropic_SystemToolDeltaAfterStrippedHistoricalDirective(t *tes
 	assert.Equal(t, []string{"tool_removal", "tool_addition"}, deltas)
 }
 
-func TestPrepareAnthropic_SystemToolDeltaAfterTrailingAssistantMovesBeforeIt(t *testing.T) {
+func TestPrepareAnthropic_SystemToolDeltaAfterTrailingAssistantSurvivesPrefillDrop(t *testing.T) {
 	body := []byte(`{
 		"model": "claude-opus-4-8",
 		"max_tokens": 1024,
 		"messages": [
 			{"role": "user", "content": "hello"},
-			{"role": "assistant", "content": [{"type": "text", "text": "Sure"}]},
+			{"role": "assistant", "content": [{"type": "text", "text": "Sure "}]},
 			{"role": "system", "content": [{"type": "tool_removal", "tool": {"type": "tool_reference", "name": "Edit"}}]}
 		]
 	}`)
@@ -342,8 +342,35 @@ func TestPrepareAnthropic_SystemToolDeltaAfterTrailingAssistantMovesBeforeIt(t *
 
 	assertAnthropicSystemPlacement(t, out)
 	msgs := gjson.GetBytes(out, "messages").Array()
-	require.Len(t, msgs, 3)
-	assert.Equal(t, "system", msgs[1].Get("role").String())
+	require.Len(t, msgs, 2)
+	assert.Equal(t, "user", msgs[0].Get("role").String())
+	assert.Equal(t, "tool_removal", msgs[1].Get("content.0.type").String())
+}
+
+func TestPrepareAnthropic_SystemToolDeltaPlacementKeepsCacheTTLOrder(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-8",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "hello"},
+			{"role": "assistant", "content": [{"type": "text", "text": "Sure"}]},
+			{"role": "system", "content": [
+				{"type": "text", "text": "Tools changed.", "cache_control": {"type": "ephemeral", "ttl": "1h"}},
+				{"type": "tool_removal", "tool": {"type": "tool_reference", "name": "Edit"}}
+			]},
+			{"role": "user", "content": [{"type": "text", "text": "next", "cache_control": {"type": "ephemeral"}}]},
+			{"role": "assistant", "content": [{"type": "text", "text": "Done"}]},
+			{"role": "user", "content": "go on"}
+		]
+	}`)
+	out := prepareAnthropicBody(t, body)
+
+	assertAnthropicSystemPlacement(t, out)
+	var roles []string
+	for _, msg := range gjson.GetBytes(out, "messages").Array() {
+		roles = append(roles, msg.Get("role").String())
+	}
+	assert.Equal(t, []string{"user", "system", "assistant", "user", "assistant", "user"}, roles)
 }
 
 func TestPrepareAnthropicPassthrough_SystemToolDeltaBetweenUserTurnsMovesToEnd(t *testing.T) {
