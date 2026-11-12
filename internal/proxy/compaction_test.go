@@ -28,6 +28,10 @@ func TestPrecompactionPolicyReviewsEveryCascadeCandidate(t *testing.T) {
 		for _, b := range m.Providers {
 			anthropic = anthropic || b.Provider == providers.ProviderAnthropic
 		}
+		if m.ForceModelOnly && m.Tier == catalog.TierUnknown {
+			assert.NotContains(t, spec.FixedCatalogModels, m.ID, "explicit-only models must not be auxiliary targets")
+			continue
+		}
 		if anthropic && m.Tier != catalog.TierLow {
 			assert.Contains(t, spec.FixedCatalogModels, m.ID, "warm-pin candidate %s must be a reviewed summarizer", m.ID)
 		}
