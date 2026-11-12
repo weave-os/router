@@ -2973,7 +2973,8 @@ func (s *Service) recordTranslationTransform(ctx context.Context, code, action, 
 	}
 }
 
-// WithTranslationMetrics installs the adapter-backed translation counters.
+// WithTranslationMetrics installs adapter-backed translation counters on the
+// service and returns it for constructor chaining; nil preserves emitter lookup.
 func (s *Service) WithTranslationMetrics(metrics telemetry.TranslationMetrics) *Service {
 	s.translationMetrics = metrics
 	return s
