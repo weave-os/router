@@ -1,0 +1,23 @@
+internal/translate/command_history.go
+  s_7a7f620246593b::t_e38d9e2f5c63d8 68
+internal/translate/command_history_test.go
+  s_7a7f620246593b::t_e38d9e2f5c63d8 5,90-93,100,242-243
+internal/translate/command_history_internal_test.go
+  s_7a7f620246593b::t_e38d9e2f5c63d8 148,153,162,167,172
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e0026904d1fc3145aad4b3f383ac374fef54a871",
+  "prompts": {},
+  "sessions": {
+    "s_7a7f620246593b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ccff-ce44-74d0-b044-15adb92fb852",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Sam Coutts <sam@workweave.ai>"
+    }
+  }
+}

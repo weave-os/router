@@ -1,0 +1,68 @@
+internal/proxy/managed_subscriptions.go
+  s_49df7faaffb6d3::t_d92bf63d1f72a9 73-76
+  s_49df7faaffb6d3::t_b0556105ebd7ec 77,265,332-341,343-348,364
+internal/proxy/subscription_funding.go
+  s_49df7faaffb6d3::t_b0556105ebd7ec 75,96-97
+  s_49df7faaffb6d3::t_0d3412629648ab 98
+internal/proxy/claude_enterprise_internal_test.go
+  s_49df7faaffb6d3::t_d1de128acc7493 23,43-45,47-48,60,64,123,133
+  s_49df7faaffb6d3::t_5292ab6b85cb77 37,39-42
+  s_49df7faaffb6d3::t_6a9477e6c0ff8a 75,100,140
+internal/providers/anthropic/subscription_plan.go
+  s_49df7faaffb6d3::t_b0556105ebd7ec 1-65
+internal/proxy/dispatch_plan.go
+  s_49df7faaffb6d3::t_b0556105ebd7ec 205-206
+internal/proxy/usage_bypass_test.go
+  s_49df7faaffb6d3::t_04ef32dcd168f0 33-38,585,595,646-648,660
+internal/proxy/subscription_profile_internal_test.go
+  s_49df7faaffb6d3::t_0ace8e858dc85b 1-111
+internal/proxy/service.go
+  s_49df7faaffb6d3::t_d1de128acc7493 78
+  s_49df7faaffb6d3::t_b0556105ebd7ec 77
+internal/proxy/claude_enterprise.go
+  s_49df7faaffb6d3::t_b0556105ebd7ec 9,20-21,23-26,55-58
+internal/providers/subscription_plan.go
+  s_49df7faaffb6d3::t_b0556105ebd7ec 1-19
+internal/requestcontext/credentials.go
+  s_49df7faaffb6d3::t_b0556105ebd7ec 43-44
+internal/proxy/usage_bypass.go
+  s_49df7faaffb6d3::t_b0556105ebd7ec 274
+internal/providers/anthropic/subscription_plan_test.go
+  s_49df7faaffb6d3::t_0ace8e858dc85b 1-71
+internal/proxy/classifier_passthrough_test.go
+  s_49df7faaffb6d3::t_04ef32dcd168f0 216,224
+internal/proxy/subscription_profile.go
+  s_49df7faaffb6d3::t_d1de128acc7493 27-32,34,39-41,58
+  s_49df7faaffb6d3::t_d09eef14955e0a 42,70
+  s_49df7faaffb6d3::t_b0556105ebd7ec 1-26,33,35-38,43-57,59-69,71-90
+cmd/router/main.go
+  s_49df7faaffb6d3::t_d1de128acc7493 256-257,1384
+internal/flags/flags.go
+  s_49df7faaffb6d3::t_04ef32dcd168f0 199
+internal/proxy/subscription_observation.go
+  s_49df7faaffb6d3::t_b0556105ebd7ec 138
+docs/SUBSCRIPTION_ROUTING.md
+  s_49df7faaffb6d3::t_405547e71bdbf7 86-99
+internal/proxy/usage/AGENTS.md
+  s_49df7faaffb6d3::t_894729a9b5d4c3 14,22
+internal/proxy/usage/CLAUDE.md
+  s_49df7faaffb6d3::t_cb203340b2e707 14,22
+internal/proxy/usage/usage.go
+  s_49df7faaffb6d3::t_a142775a2f30a9 69-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b93603918e93dcf7a8b78e3bc2d4dff6596897e5",
+  "prompts": {},
+  "sessions": {
+    "s_49df7faaffb6d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b46d-ba9e-7bb0-96d6-04aceeaa203b",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

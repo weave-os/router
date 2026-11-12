@@ -1,0 +1,21 @@
+install/tests/registry_test.sh
+  s_f3547789752bdd::t_14cbf13cbb21be 259-277
+install/uninstall.sh
+  s_f3547789752bdd::t_14cbf13cbb21be 975,978-982,986-991
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1ea214d23883c89df2e9a35b4d099a8c26f91b4f",
+  "prompts": {},
+  "sessions": {
+    "s_f3547789752bdd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a638-906d-7943-af31-16faa734d88d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

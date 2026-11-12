@@ -1,0 +1,42 @@
+internal/router/hmm/selection/domain.go
+  s_f4fb01213503cf::t_eee3c601484ea6 11,41,79-85,87,90-94,101,105,110,115-116,120,124
+  s_606919b92aa32f::t_11c7fde78709a8 39-40,42-43
+internal/router/hmm/selection/selection.go
+  s_f4fb01213503cf::t_69345896b47bc5 102-105,239
+internal/router/hmm/selection/domain_test.go
+  s_f4fb01213503cf::t_3d37c49d3650b6 17-57,62,92,100,103,106,116,118-119,134,140,210-211
+  s_f4fb01213503cf::t_38baf505a2eeef 150-152,154-158,160-165,168,171,179-208
+  s_e23e2ec615f7c5::t_8d420460feeaae 209,212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0b067447fe2562bf4fc7959b32aa0e89d0e4f125",
+  "prompts": {},
+  "sessions": {
+    "s_606919b92aa32f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0e9df-892d-7171-aee5-b0a6ef9a6f46",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_e23e2ec615f7c5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0e9e5-5891-7b40-8cb6-3fc254b09418",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_f4fb01213503cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e9df-892d-7171-aee5-b0a6ef9a6f46",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

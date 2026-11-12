@@ -1,0 +1,69 @@
+internal/proxy/claude_enterprise.go
+  s_076d574238ec31::t_961914a3339a3c 27-31,38
+  s_076d574238ec31::t_0f08ae4be659e2 7,19,21-22,24-26,32-37
+internal/proxy/usage/CLAUDE.md
+  s_076d574238ec31::t_7aa4382e8afb21 14,22
+internal/proxy/routing_policy_internal_test.go
+  s_076d574238ec31::t_51a80eeaadf473 275
+internal/proxy/forced_subscription_context_internal_test.go
+  s_076d574238ec31::t_51a80eeaadf473 128
+internal/proxy/openrouter_overflow_internal_test.go
+  s_076d574238ec31::t_51a80eeaadf473 42
+internal/flags/flags.go
+  s_076d574238ec31::t_0f08ae4be659e2 199
+docs/SUBSCRIPTION_ROUTING.md
+  s_076d574238ec31::t_7aa4382e8afb21 82-87
+internal/proxy/subscription_failover_parity_internal_test.go
+  s_076d574238ec31::t_9e5fcada623e71 92
+  s_076d574238ec31::t_520d26af277429 93
+internal/proxy/usage_bypass_test.go
+  s_076d574238ec31::t_bf943dcd2def56 6,33-41
+  s_076d574238ec31::t_ce7bc036aba522 14,71
+  s_076d574238ec31::t_02dee6dbbf735b 42,690
+internal/proxy/managed_subscriptions_test.go
+  s_076d574238ec31::t_520d26af277429 89
+  s_076d574238ec31::t_9e5fcada623e71 88
+  s_076d574238ec31::t_51a80eeaadf473 344,365,379,397
+cmd/router/main.go
+  s_076d574238ec31::t_0f08ae4be659e2 1307
+internal/proxy/subscription_funding_internal_test.go
+  s_076d574238ec31::t_51a80eeaadf473 58,86,104,112,126,142,160,179,200,217,233,308
+internal/proxy/classifier_passthrough_internal_test.go
+  s_076d574238ec31::t_51a80eeaadf473 29
+internal/proxy/subscription_funding.go
+  s_076d574238ec31::t_0f08ae4be659e2 75-77
+internal/proxy/claude_enterprise_internal_test.go
+  s_076d574238ec31::t_520d26af277429 5,25-34,38-39
+  s_076d574238ec31::t_3a2ded9bc8565e 43-50
+  s_076d574238ec31::t_532bd0da704c8b 92,102,115-122
+  s_076d574238ec31::t_6b3b85326435f2 35-37,40-42,51-52,123
+  s_076d574238ec31::t_ec9d38034c6d2d 124
+internal/proxy/classifier_passthrough_test.go
+  s_076d574238ec31::t_6d3d266d156a7d 54,105,137
+internal/proxy/own_claude_plan_nudge_test.go
+  s_076d574238ec31::t_80d7c513de55e1 37
+internal/proxy/rescue_error_render_test.go
+  s_076d574238ec31::t_99e46015b0e8b2 64
+internal/proxy/sibling_failover_integration_test.go
+  s_076d574238ec31::t_9b727a9427a3a3 449
+internal/proxy/spend_limit_exemption_test.go
+  s_076d574238ec31::t_b5478f3d017930 223
+internal/proxy/usage/AGENTS.md
+  s_076d574238ec31::t_1b1747477b39b2 14,22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "20dea38c01320f490a593a2ab1711e0ba98e8649",
+  "prompts": {},
+  "sessions": {
+    "s_076d574238ec31": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ad02-88ea-74f0-b7fc-51e661cc98ca",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

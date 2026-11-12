@@ -1,0 +1,26 @@
+docs/SERVING_CONTROL.md
+  s_d35d7172a8b896::t_96da84c09c7706 629-631,633-634,636-638
+  s_d35d7172a8b896::t_a7c7c4ad18869d 632,635
+cmd/router/main.go
+  s_d35d7172a8b896::t_59a3f63cc6577c 1071,1591
+docs/POLICY_INFERENCE.json
+  s_d35d7172a8b896::t_7a3064a681c195 3,602-630
+docs/POLICY_INFERENCE.md
+  s_d35d7172a8b896::t_6d0270c35a766d 6,32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8405a46b78f0f183302eef9f76823004615ab59b",
+  "prompts": {},
+  "sessions": {
+    "s_d35d7172a8b896": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e49-64cc-77a3-af7c-11c7b4524e4a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

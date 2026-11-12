@@ -1,0 +1,29 @@
+internal/policyregistry/serving_controller.go
+  s_285faa1119c6bb::t_3f96fc5a90bd1d 511-517
+  s_285faa1119c6bb::t_53ef8259df98b7 337-340,343-347,497,606,629,636,650
+  s_285faa1119c6bb::t_9c1513f75e7348 341-342
+internal/policyregistry/serving_contract_v3_test.go
+  s_285faa1119c6bb::t_d2c48934a16ec7 269-275
+  s_285faa1119c6bb::t_27c0bdbe39188d 147-154,159-172,174-189,191-192,195-204,206-208,210-216,218,220-221,224,226-247,251-253,255-262,264-268,276-282,284-287,289-295
+  s_285faa1119c6bb::t_b074951d9f3052 9,12,283,288
+  s_285faa1119c6bb::t_aa6624f38e02df 6-7
+  s_285faa1119c6bb::t_655152f48abd55 18,155-158,190,193-194,205,209,217,219,222-223,225,248-250,254,263
+  s_285faa1119c6bb::t_6f293303bb9fc7 10,16
+  s_285faa1119c6bb::t_7dd677147b437a 173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a945dd90718393219947a8491996f4edb8f0f0b6",
+  "prompts": {},
+  "sessions": {
+    "s_285faa1119c6bb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ae16-530d-7433-a77c-9d8e58f3f26b",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

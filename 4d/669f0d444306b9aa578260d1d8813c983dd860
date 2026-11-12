@@ -1,0 +1,28 @@
+sidecars/task-domain/README.md
+  s_e81a08893a9ba2::t_30b1c8cf771deb 95,100-106
+  s_e81a08893a9ba2::t_ade88ebadd0f08 107
+sidecars/task-domain/Dockerfile
+  s_e81a08893a9ba2::t_936f73cdc15819 8-10
+sidecars/task-domain/app.py
+  s_e81a08893a9ba2::t_226a9f8fa0cdb3 8,30-39
+sidecars/task-domain/server.py
+  s_e81a08893a9ba2::t_879448fa476da5 7,13,16-20,52-54
+sidecars/task-domain/tests/test_app.py
+  s_e81a08893a9ba2::t_88ef85764f5848 8,80-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4d669f0d444306b9aa578260d1d8813c983dd860",
+  "prompts": {},
+  "sessions": {
+    "s_e81a08893a9ba2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9391cca-911c-46df-b82c-9f07d5d2219d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

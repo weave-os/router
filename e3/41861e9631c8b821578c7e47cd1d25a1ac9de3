@@ -1,0 +1,21 @@
+internal/proxy/deepseek_retirement_internal_test.go
+  s_5f4657d97c467a::t_674b94a3a5b14c 9
+internal/router/catalog/deepseek_retirement_test.go
+  s_5f4657d97c467a::t_674b94a3a5b14c 10,12-13,22,31,34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e341861e9631c8b821578c7e47cd1d25a1ac9de3",
+  "prompts": {},
+  "sessions": {
+    "s_5f4657d97c467a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0fe2d-588a-7401-8e1a-94c9e0bae104",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

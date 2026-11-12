@@ -1,0 +1,21 @@
+internal/router/policy/arm_selector_test.go
+  s_1de227285edda6::t_dd4a61b07a7ebb 276-311
+internal/router/policy/sidecar_router.go
+  s_1de227285edda6::t_db817fa4228b1f 255-258
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b0e9ff7d2b2a97f13c0841587596d2b6bd482549",
+  "prompts": {},
+  "sessions": {
+    "s_1de227285edda6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "640ecc09-ea44-4f4e-838f-18321607433b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

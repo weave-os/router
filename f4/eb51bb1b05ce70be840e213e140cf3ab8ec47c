@@ -1,0 +1,29 @@
+internal/translate/conversation_messages_test.go
+  s_1a913f258562e3::t_d4e6ec9c3aa316 30-32
+.github/workflows/test.yml
+  s_1a913f258562e3::t_08c5ff5ac0f446 447,459,464,474,478,514-519
+internal/proxy/task_domain.go
+  s_1a913f258562e3::t_d4e6ec9c3aa316 155-161
+  s_1a913f258562e3::t_08c5ff5ac0f446 91,115-117
+internal/proxy/task_domain_internal_test.go
+  s_1a913f258562e3::t_d4e6ec9c3aa316 62
+  s_1a913f258562e3::t_08c5ff5ac0f446 60-61,63-64
+internal/translate/conversation_messages.go
+  s_1a913f258562e3::t_08c5ff5ac0f446 37,47-56,67-70,73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f4eb51bb1b05ce70be840e213e140cf3ab8ec47c",
+  "prompts": {},
+  "sessions": {
+    "s_1a913f258562e3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1090f-cc58-7d93-ae92-99567d91de8b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

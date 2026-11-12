@@ -1,0 +1,65 @@
+sidecars/hmm/tests/test_classifier_release.py
+  s_285faa1119c6bb::t_929382411c8520 14,97-100
+  s_285faa1119c6bb::t_29305a6dabdcf1 101-104
+  s_285faa1119c6bb::t_79674db1625aa6 105-106
+sidecars/hmm/hmm_sidecar/classifier_package/serving_profile.py
+  s_285faa1119c6bb::t_c366be4aafee16 56,229-253,255-272
+  s_285faa1119c6bb::t_88cf42a07d608b 254
+  s_285faa1119c6bb::t_70a7d0658a7df4 273-274
+sidecars/hmm/hmm_sidecar/classifier_package/state_representation.py
+  s_285faa1119c6bb::t_a6d544c5c7f449 387
+  s_285faa1119c6bb::t_0e8139315e7fd5 17-18,379-386,388-395
+  s_285faa1119c6bb::t_3e092a916f77ad 396-398
+sidecars/hmm/tests/fixtures/classifier_package/legacy_v1_turn_window_parity.json
+  s_285faa1119c6bb::t_4a569e3e1f217f 1-102,104-109
+  s_285faa1119c6bb::t_1b4744847ecd49 103
+sidecars/hmm/hmm_sidecar/classifier_package/legacy_conversion.py
+  s_285faa1119c6bb::t_c99d18e671db87 1-11,13-19,21-31,57-97,99-158,160,172-185,190-206,216-217,219-224,228-240,242-244,247-267,269,273-303,307-311,315-394,399-434,440-458,460-465,469-482,484-486,490-493
+  s_285faa1119c6bb::t_2e047103c262de 12,20,34-56,159,165-166,171,207-215,218,241,245-246,459
+  s_285faa1119c6bb::t_b80dbff6dde196 32-33,161-164,167-170,186-189,225-227,270-272,304-306,312-314,397-398,435-438,466-468,487-489
+  s_285faa1119c6bb::t_c0fc03c9368d35 98,439
+  s_285faa1119c6bb::t_56a9833cb414eb 268,483,494
+  s_285faa1119c6bb::t_3de3a66cf9efb4 395-396
+sidecars/hmm/hmm_sidecar/classifier_package/serving.py
+  s_285faa1119c6bb::t_2da87861018afd 187-189,195
+sidecars/hmm/tests/test_legacy_turn_window_runtime.py
+  s_285faa1119c6bb::t_d125486d8dbe7f 1-33,36-71,75-100,105-108,117-181
+  s_285faa1119c6bb::t_29305a6dabdcf1 34-35,72-74,101-104,109-116
+sidecars/hmm/README.md
+  s_285faa1119c6bb::t_742c7bc6d08d2c 92-109
+internal/policyregistry/serving_contract_v4_test.go
+  s_285faa1119c6bb::t_f6fabb1d54367d 102
+  s_285faa1119c6bb::t_d7cbeb7bbfd3e8 100-101,103-104
+sidecars/hmm/hmm_sidecar/classifier_package/runtime_contract.py
+  s_285faa1119c6bb::t_c3c8c87911726f 21
+  s_285faa1119c6bb::t_3a341a7e6a67c3 26,31-32,40,53-55,196-260,264-275,283-284,287-289
+  s_285faa1119c6bb::t_29305a6dabdcf1 41-52,261-263,285-286
+sidecars/hmm/hmm_sidecar/classifier_release.py
+  s_285faa1119c6bb::t_6457bbfa359e3c 75,83-84,86-94
+  s_285faa1119c6bb::t_361daea1cff098 85
+  s_285faa1119c6bb::t_2a6ddf463fbb68 95-96
+sidecars/hmm/tests/test_legacy_classifier_package_conversion.py
+  s_285faa1119c6bb::t_4c75ef93edead9 74
+  s_285faa1119c6bb::t_2317e42b5d6a0d 1-73,75-109,111-132,136-137,144-175,177,183,185-199,201-204,209,214-216,220-239,244-250,254-262
+  s_285faa1119c6bb::t_ac82d85131d0ba 110,133-135,176,178-182,184,200,240-243
+  s_285faa1119c6bb::t_29305a6dabdcf1 138-143,205-208,210-213,217-219,251-253
+sidecars/hmm/hmm_sidecar/classifier_package/live_sequence.py
+  s_285faa1119c6bb::t_268d2b19997309 37,42-43,45,455,457,474-522
+  s_285faa1119c6bb::t_f112edccc1c361 637,967,1000
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5a4c66f3414b56dcde21576e9aa77fdc4fce72fa",
+  "prompts": {},
+  "sessions": {
+    "s_285faa1119c6bb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ae16-530d-7433-a77c-9d8e58f3f26b",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,35 @@
+internal/proxy/turnloop.go
+  s_d6ce5e9d1b09a2::t_33ac7969851692 794
+internal/proxy/codex_agent.go
+  s_d6ce5e9d1b09a2::t_33ac7969851692 1-22
+internal/translate/codex_agent.go
+  s_d6ce5e9d1b09a2::t_c80582db2a60d9 1-8,17-18,21-32,34-35,37-38,40
+  s_d6ce5e9d1b09a2::t_33ac7969851692 9-16,19-20,33,36,39
+internal/proxy/service.go
+  s_d6ce5e9d1b09a2::t_869c3f9e3bcea6 4047,4186,7423
+internal/proxy/codex_agent_routing_internal_test.go
+  s_d6ce5e9d1b09a2::t_60707878e0784a 36,44-47,65-67,125-126,168-173,176-192,196-202,205-209,212-214,216-218,220-230,234-238
+  s_d6ce5e9d1b09a2::t_7bf1114f76b1f8 1-7,10-35,37-43,48-57,59-64,68-116,120-124,129-141,143,145-151,157,159,161-167,193-195,203-204,241
+  s_d6ce5e9d1b09a2::t_3ef4ba159d887c 58
+  s_d6ce5e9d1b09a2::t_aba089259e31b5 174-175
+  s_d6ce5e9d1b09a2::t_51af5939d11677 9,210-211,215,219,231-233,239-240
+  s_d6ce5e9d1b09a2::t_1508ebae6d0b49 8,117-119,127-128,142,144,152-156,158,160
+internal/proxy/session_key.go
+  s_d6ce5e9d1b09a2::t_33ac7969851692 143-148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "17ec73c52affc5d5b6d61997d7d8eee303fbe78b",
+  "prompts": {},
+  "sessions": {
+    "s_d6ce5e9d1b09a2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a19e51-e768-7251-bdea-189a47a83671",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

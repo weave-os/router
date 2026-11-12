@@ -1,0 +1,60 @@
+internal/proxy/sibling_failover.go
+  s_076d574238ec31::t_12463a2a5a602f 443
+internal/proxy/claude_enterprise_internal_test.go
+  s_076d574238ec31::t_4dfccdb86fe3d8 11,61-65,67-76,81-104
+  s_076d574238ec31::t_ba83cb942c0816 143
+  s_076d574238ec31::t_5a00a60d9d6aa2 145-165
+  s_076d574238ec31::t_93b20ca3f9f7b7 32,115
+  s_076d574238ec31::t_266ea4d8ea4f03 77-80
+  s_076d574238ec31::t_4174606e5e74ac 1-5,7-10,12-14,17-31,33-60,105-114,144
+  s_076d574238ec31::t_b2817654273cad 6,66
+  s_076d574238ec31::t_b8619e5c1cf741 15,116-142
+  s_076d574238ec31::t_424f61f3a796d3 16
+internal/flags/flags.go
+  s_076d574238ec31::t_4174606e5e74ac 132,196-201
+internal/proxy/usage_bypass.go
+  s_076d574238ec31::t_81b32cd0158505 584-586,685,688
+  s_076d574238ec31::t_be614256c09ae8 268-270
+internal/proxy/service.go
+  s_076d574238ec31::t_12463a2a5a602f 5053,8444
+internal/proxy/usage/AGENTS.md
+  s_076d574238ec31::t_77ef0138f023b2 14,22
+internal/proxy/subscription_funding.go
+  s_076d574238ec31::t_ba83cb942c0816 80
+  s_076d574238ec31::t_be614256c09ae8 77-79,81-83,289-290
+  s_076d574238ec31::t_3e5f7b231dc0e8 291
+internal/proxy/claude_enterprise.go
+  s_076d574238ec31::t_be614256c09ae8 1-4,6-11,16-44
+  s_076d574238ec31::t_ba83cb942c0816 5,12-15
+docs/SUBSCRIPTION_ROUTING.md
+  s_076d574238ec31::t_fe249f5160a76a 83-89
+  s_076d574238ec31::t_117269c053a01a 90-92
+internal/proxy/managed_subscriptions.go
+  s_076d574238ec31::t_be614256c09ae8 319-320,325
+internal/proxy/usage/CLAUDE.md
+  s_076d574238ec31::t_fe249f5160a76a 14,22
+internal/proxy/fallback.go
+  s_076d574238ec31::t_be614256c09ae8 242
+internal/proxy/dispatch_plan.go
+  s_076d574238ec31::t_ba83cb942c0816 217-219
+cmd/router/main.go
+  s_076d574238ec31::t_4174606e5e74ac 1307
+internal/proxy/linked_first.go
+  s_076d574238ec31::t_be614256c09ae8 7,26,30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b5dcca58145c4633a51be6a4d18cc952fb9e144a",
+  "prompts": {},
+  "sessions": {
+    "s_076d574238ec31": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ad02-88ea-74f0-b7fc-51e661cc98ca",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
