@@ -298,7 +298,9 @@ export function SubscriptionSeatsPanel({ refreshKey }: { refreshKey: number }) {
         setEnabled(response.enabled);
         setSeats(response.seats);
       })
-      .catch((err: unknown) => setError(describeError(err, "Failed to load linked subscriptions.")));
+      .catch((err: unknown) =>
+        setError(describeError(err, "Failed to load linked subscriptions.")),
+      );
   }, [refreshKey]);
 
   async function unlink(seat: SubscriptionSeat) {
