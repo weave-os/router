@@ -42,3 +42,27 @@ linters:
             - "!**/*_test.go"
           deny:
             - pkg: github.com/jackc/pgx
+        inner-ring-telemetry-port:
+          files:
+            - "**/internal/inference/**"
+            - "**/internal/router/**"
+            - "**/internal/providers/*.go"
+            - "**/internal/translate/**"
+            - "**/internal/sse/**"
+            - "**/internal/timing/**"
+            - "**/internal/requestcontext/**"
+            - "**/internal/feedback/**"
+            - "**/internal/auth/**"
+            - "**/internal/billing/**"
+            - "**/internal/analytics/**"
+            - "**/internal/proxy/**"
+            - "**/internal/dispatch/**"
+            - "**/internal/websearch/**"
+            - "**/internal/usage/**"
+            - "**/internal/telemetry/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: weave-os/router/internal/observability/otel
+              desc: inner-ring packages record through internal/telemetry; cmd/router wires the otel adapter
+            - pkg: weave-os/router/internal/observability/apm
+              desc: inner-ring packages record through internal/telemetry; cmd/router wires the apm adapter

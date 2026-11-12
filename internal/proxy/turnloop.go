@@ -14,8 +14,6 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/observability/apm"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -29,6 +27,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -879,17 +878,19 @@ func (s *Service) runTurnLoop(
 	req.ClientApp = ClientIdentityFrom(ctx).ClientApp
 	if transforms, ok := ctx.Value(responsesTransformsContextKey{}).([]translate.ResponseTransform); ok {
 		for _, transform := range transforms {
-			apm.RecordTranslationTransform(
-				ctx,
-				transform.Code,
-				transform.Action,
-				string(req.TranslationRequirements.SourceFormat),
-				string(s.translationCompatibilityMode),
-			)
-			otel.RecordLog(ctx, otel.LogRecord{
+			if metrics := s.translationMetrics; metrics != nil {
+				metrics.RecordTranslationTransform(
+					ctx,
+					transform.Code,
+					transform.Action,
+					string(req.TranslationRequirements.SourceFormat),
+					string(s.translationCompatibilityMode),
+				)
+			}
+			telemetry.RecordLog(ctx, telemetry.LogRecord{
 				Name: "translation.transform",
 				Time: time.Now(),
-				Attrs: otel.NewAttrBuilder(5).
+				Attrs: telemetry.NewAttrBuilder(5).
 					String("translation.code", transform.Code).
 					String("translation.action", transform.Action).
 					String("translation.source_format", string(req.TranslationRequirements.SourceFormat)).
