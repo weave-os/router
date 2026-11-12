@@ -107,10 +107,14 @@ func goldenCompatJSON(model, text string) []string {
 }
 
 func compatOK(stream bool, text string) goldenStep {
+	return compatOKWithModel(stream, goldenCompatWire, text)
+}
+
+func compatOKWithModel(stream bool, model, text string) goldenStep {
 	if stream {
-		return goldenOK("text/event-stream", goldenCompatStream(goldenCompatWire, text))
+		return goldenOK("text/event-stream", goldenCompatStream(model, text))
 	}
-	return goldenOK("application/json", goldenCompatJSON(goldenCompatWire, text))
+	return goldenOK("application/json", goldenCompatJSON(model, text))
 }
 
 // withCandidates adds same-cluster candidates the proxy may rescue onto.
@@ -160,7 +164,7 @@ func goldenMatrixScenarios(ingress string, stream bool) []goldenScenario {
 			providers.ProviderAnthropic: {goldenUpstreamError(http.StatusBadRequest, goldenOverflowBody)},
 			providers.ProviderFireworks: {compatOK(stream, "rescued")}}),
 		sc("unbound_provider_decision", decision(providers.ProviderFireworks, goldenAnthropicModel), map[string][]goldenStep{
-			providers.ProviderFireworks: {compatOK(stream, "served")},
+			providers.ProviderFireworks: {compatOKWithModel(stream, goldenAnthropicModel, "served")},
 			providers.ProviderAnthropic: {anthropicOK(stream, "served")}}),
 		{name: prefix + "prompt_past_primary_window", ingress: ingress,
 			decisions: []router.Decision{withCandidates(goldenAnthropicDecision,
@@ -273,7 +277,7 @@ func goldenAnthropicOnlyScenarios() []goldenScenario {
 			configure: func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 				return svc.WithProviderOverloaded(true, breaker.New(breakerCfg, h.clock.Now))
 			}},
-		{name: "anthropic_messages_nonstream_classifier_hard_pin", ingress: ingressAnthropic,
+		{name: "anthropic_messages_nonstream_classifier_not_pinned", ingress: ingressAnthropic,
 			decisions: []router.Decision{goldenRescueDecision},
 			upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(false, "0")}},
 			requests:  []goldenRequest{{body: goldenClassifierBody}}},

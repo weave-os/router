@@ -131,5 +131,5 @@
       ]
     }
   ],
-  "scenario": "anthropic_messages_nonstream_classifier_hard_pin"
+  "scenario": "anthropic_messages_nonstream_classifier_not_pinned"
 }

@@ -96,7 +96,7 @@
                 }
               ],
               "id": "chatcmpl-up",
-              "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "model": "claude-haiku-4-5",
               "object": "chat.completion.chunk"
             }
           },
@@ -112,7 +112,7 @@
                 }
               ],
               "id": "chatcmpl-up",
-              "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "model": "claude-haiku-4-5",
               "object": "chat.completion.chunk"
             }
           },
@@ -126,7 +126,7 @@
                 }
               ],
               "id": "chatcmpl-up",
-              "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "model": "claude-haiku-4-5",
               "object": "chat.completion.chunk"
             }
           },
@@ -134,7 +134,7 @@
             "data": {
               "choices": [],
               "id": "chatcmpl-up",
-              "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "model": "claude-haiku-4-5",
               "object": "chat.completion.chunk",
               "usage": {
                 "completion_tokens": 7,
@@ -153,6 +153,24 @@
           "op": "upsert",
           "role": "default_high",
           "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
             "Model": "claude-haiku-4-5",
             "Provider": "fireworks",
             "Reason": "golden_route",

@@ -140,17 +140,17 @@ func goldenOutcome(err error) string {
 }
 
 type goldenRouteCall struct {
-	RequestedModel string   `json:"requested_model,omitempty"`
-	ForceModel     string   `json:"force_model,omitempty"`
-	Excluded       []string `json:"excluded,omitempty"`
-	Model          string   `json:"model,omitempty"`
-	Provider       string   `json:"provider,omitempty"`
-	Reason         string   `json:"reason,omitempty"`
-	Error          string   `json:"error,omitempty"`
+	RequestedModel    string   `json:"requested_model,omitempty"`
+	ForceModel        string   `json:"force_model,omitempty"`
+	Excluded          []string `json:"excluded,omitempty"`
+	AutomaticExcluded []string `json:"automatic_excluded,omitempty"`
+	Model             string   `json:"model,omitempty"`
+	Provider          string   `json:"provider,omitempty"`
+	Reason            string   `json:"reason,omitempty"`
+	Error             string   `json:"error,omitempty"`
 }
 
-// goldenRouter returns the first decision whose model the request does not
-// exclude, falling back to the last, like a ranked cluster would.
+// goldenRouter returns the first decision whose model is not excluded.
 type goldenRouter struct {
 	decisions []router.Decision
 	err       error
@@ -158,17 +158,22 @@ type goldenRouter struct {
 }
 
 func (g *goldenRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
-	excluded := make([]string, 0, len(req.ExcludedModels)+len(req.AutomaticExcludedModels))
+	excluded := make([]string, 0, len(req.ExcludedModels))
 	for m := range req.ExcludedModels {
 		excluded = append(excluded, m)
 	}
+	automaticExcluded := make([]string, 0, len(req.AutomaticExcludedModels))
 	for m := range req.AutomaticExcludedModels {
-		excluded = append(excluded, m)
+		automaticExcluded = append(automaticExcluded, m)
 	}
 	sort.Strings(excluded)
+	sort.Strings(automaticExcluded)
 	g.rec.mu.Lock()
 	defer g.rec.mu.Unlock()
-	call := goldenRouteCall{RequestedModel: req.RequestedModel, ForceModel: req.ForceModel, Excluded: excluded}
+	call := goldenRouteCall{
+		RequestedModel: req.RequestedModel, ForceModel: req.ForceModel,
+		Excluded: excluded, AutomaticExcluded: automaticExcluded,
+	}
 	if g.err != nil {
 		call.Error = g.err.Error()
 		g.rec.routes = append(g.rec.routes, call)
@@ -258,7 +263,7 @@ func preservePinHistory(p *sessionpin.Pin, prior sessionpin.Pin) {
 	if prior.Strategy == p.Strategy {
 		p.LastOutputLimitAt = prior.LastOutputLimitAt
 	}
-	if prior.Model == p.Model {
+	if prior.Model == p.Model && prior.Strategy == p.Strategy {
 		p.ConsecutiveUpstreamErrors, p.ConsecutiveOverloadErrors = prior.ConsecutiveUpstreamErrors, prior.ConsecutiveOverloadErrors
 	}
 }

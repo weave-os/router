@@ -453,7 +453,7 @@ func goldenReflect(v reflect.Value) (any, bool) {
 			}
 			return "<bytes>", true
 		}
-		if v.Len() == 0 || v.Kind() == reflect.Array {
+		if v.Len() == 0 {
 			return nil, false
 		}
 		list := make([]any, 0, v.Len())
