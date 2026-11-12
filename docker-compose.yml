@@ -5,6 +5,12 @@
 # limits, default credentials below). Do not deploy this compose file to any
 # environment exposed beyond localhost.
 #
+# The router defaults to the HMM policy (hmm_embedding) and refuses to boot
+# without one, so this stack serves the stub classifier and baked policy
+# release from smoke/hmmstub (every turn lands in one routing group). For the
+# real classifier use `make up-hmm` with ROUTER_POLICY_ENVIRONMENT, or export
+# ROUTER_POLICY_RELEASE_DIR / ROUTER_HMM_SIDECAR_URL to override the stub.
+#
 # Usage:
 #   docker compose up --build
 #   # Optional capture in .env.local: ROUTER_HTTP_CAPTURE_FILE=/router-captures/router-traffic.jsonl
@@ -93,6 +99,8 @@ services:
         condition: service_completed_successfully
       pubsub-emulator:
         condition: service_healthy
+      hmm-stub:
+        condition: service_healthy
     # Load API keys from the same .env files `make dev` uses, so
     # docker compose up and make dev resolve identically. Compose
     # evaluates env_file entries in order; .env.local wins on
@@ -136,17 +144,39 @@ services:
       # The server listens on the container interface when capture is enabled;
       # the published port below remains host-loopback-only.
       ROUTER_HTTP_CAPTURE_LISTEN_HOST: "0.0.0.0"
+      # Stub HMM policy (see header); export an override, or an empty
+      # ROUTER_POLICY_RELEASE_DIR to use ROUTER_POLICY_ENVIRONMENT instead.
+      ROUTER_POLICY_RELEASE_DIR: ${ROUTER_POLICY_RELEASE_DIR-/policy/release}
+      ROUTER_HMM_SIDECAR_URL: ${ROUTER_HMM_SIDECAR_URL-http://hmm-stub:8093}
+      ROUTER_HMM_SIDECAR_AUTH: ${ROUTER_HMM_SIDECAR_AUTH-none}
     volumes:
       # Set ROUTER_HTTP_CAPTURE_FILE=/router-captures/<new-file>.jsonl in
       # .env.local to enable Compose capture and keep the output on the host.
       - ./.local/router-captures:/router-captures
+      - hmm_stub_release:/policy/release:ro
     ports:
       - "127.0.0.1:8080:8080"
     restart: unless-stopped
 
-  # Optional frozen HMM policy. It is not part of the default stack and does
-  # not change the router's default strategy. Start it through `make up-hmm`,
-  # which also supplies the sidecar URL to the router via the HMM override.
+  # Stub HMM classifier that also bakes the matching policy release into the
+  # shared volume, so the default stack boots with no classifier credentials.
+  hmm-stub:
+    image: router-hmm-stub
+    build:
+      context: .
+      dockerfile: smoke/hmmstub/Dockerfile
+    volumes:
+      - hmm_stub_release:/release
+    healthcheck:
+      test: ["CMD", "/hmm-stub", "-healthcheck"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    restart: unless-stopped
+
+  # Frozen HMM classifier. Start it through `make up-hmm`, which points the
+  # router at it instead of the stub; its policy release then comes from
+  # ROUTER_POLICY_ENVIRONMENT.
   hmm-sidecar:
     profiles:
       - hmm
@@ -190,4 +220,5 @@ services:
     restart: "no"
 
 volumes:
+  hmm_stub_release:
   router_postgres_data:

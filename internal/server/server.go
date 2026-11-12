@@ -3,6 +3,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -101,19 +102,27 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 }
 
 // DefaultStrategyFromEnv is the deployment-level strategy for installations
-// with no persisted override (ROUTER_DEFAULT_STRATEGY, cluster when unset).
-func DefaultStrategyFromEnv() router.Strategy {
+// with no persisted override (ROUTER_DEFAULT_STRATEGY, hmm_embedding when unset).
+func DefaultStrategyFromEnv() (router.Strategy, error) {
 	return ParseDefaultStrategy(os.Getenv("ROUTER_DEFAULT_STRATEGY"))
 }
 
 // ParseDefaultStrategy normalizes a raw ROUTER_DEFAULT_STRATEGY value; empty
-// means the legacy cluster default.
-func ParseDefaultStrategy(raw string) router.Strategy {
+// means hmm_embedding. The retired cluster strategy and the per-installation
+// opt-in lanes are rejected so a bad setting fails boot instead of passing
+// /readyz and then answering every default-following request with 503.
+func ParseDefaultStrategy(raw string) (router.Strategy, error) {
 	strategy := router.Strategy(strings.ToLower(strings.TrimSpace(raw)))
-	if strategy == "" {
-		return router.StrategyCluster
+	switch strategy {
+	case "":
+		return router.StrategyHMMEmbedding, nil
+	case router.StrategyCluster:
+		return "", fmt.Errorf("ROUTER_DEFAULT_STRATEGY=%q is no longer supported: the cluster scorer is retired; unset it to use %q or set another registered strategy", raw, router.StrategyHMMEmbedding)
 	}
-	return strategy
+	if router.IsBetaStrategy(strategy) || strategy == router.StrategyLLMClassifier {
+		return "", fmt.Errorf("ROUTER_DEFAULT_STRATEGY=%q is not a valid deployment default: beta and classifier lanes are opt-in per installation", raw)
+	}
+	return strategy, nil
 }
 
 // Features configures dependencies and optional request surfaces.
@@ -219,7 +228,11 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		registeredStrategies = proxySvc.RegisteredStrategies()
 		strategyAvailability = proxySvc.PolicyStrategyAvailable
 	}
-	defaultStrategy := middleware.NormalizeRouterStrategyDefault(DefaultStrategyFromEnv(), registeredStrategies...)
+	envDefaultStrategy, err := DefaultStrategyFromEnv()
+	if err != nil {
+		panic(err)
+	}
+	defaultStrategy := middleware.NormalizeRouterStrategyDefault(envDefaultStrategy, registeredStrategies...)
 	discovery.GET(
 		"/v1/router/policies",
 		middleware.WithTimeout(healthTimeout),

@@ -171,7 +171,7 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 		Provider:          providers.ProviderAnthropic,
 		Model:             forcedModel,
 		Reason:            translate.ReasonUserForceModel,
-		Strategy:          router.StrategyCluster,
+		Strategy:          router.StrategyHMMEmbedding,
 		PinnedUntil:       pinNeverExpires,
 		LastOutputTokens:  32000,
 		LastTurnEndedAt:   endedAt,
@@ -235,7 +235,7 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 		Provider:       providers.ProviderOpenAI,
 		Model:          "gpt-5.5",
 		Reason:         "cluster:existing",
-		Strategy:       router.StrategyCluster,
+		Strategy:       router.StrategyHMMEmbedding,
 		PinnedUntil:    time.Now().Add(time.Hour),
 	}
 	store.pins[forceModelMapKey(threadKey, hmmHistoryRole(role))] = sessionpin.Pin{
@@ -249,7 +249,7 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 	svc := NewService(freshRouter, nil, nil, false, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	svc.WithTransientRateLimit(true, 45)
-	ctx = router.WithStrategy(ctx, router.StrategyCluster)
+	ctx = router.WithStrategy(ctx, router.StrategyHMMEmbedding)
 
 	result, err := svc.runTurnLoop(ctx, env, features, apiKeyID, installationID, "", nil, router.Request{
 		RequestedModel: features.Model,
@@ -270,7 +270,7 @@ func TestRunTurnLoop_ClearTombstoneBlocksLegacyForce(t *testing.T) {
 	const apiKeyID = "api-key"
 	installationID := uuid.New()
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "client-session"})
-	ctx = router.WithStrategy(ctx, router.StrategyCluster)
+	ctx = router.WithStrategy(ctx, router.StrategyHMMEmbedding)
 	env, err := translate.ParseAnthropic([]byte(`{
 		"model":"claude-opus-4-8",
 		"messages":[{"role":"user","content":"task after unforce"}]

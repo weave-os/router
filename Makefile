@@ -211,10 +211,10 @@ dev: ## Run with hot-reload (CompileDaemon)
 		-graceful-kill=true \
 		-log-prefix=false
 
-up: ## Start the compose stack in the background (no install.sh wiring)
+up: ## Start the compose stack in the background on the stub HMM policy (no install.sh wiring)
 	docker compose up --build -d
 
-up-hmm: ## Start the stack with the opt-in frozen HMM policy sidecar
+up-hmm: ## Start the stack with the frozen HMM sidecar instead of the stub (needs ROUTER_POLICY_ENVIRONMENT)
 	docker compose -f docker-compose.yml -f sidecars/hmm/docker-compose.yml \
 		--profile hmm build hmm-sidecar
 	CLASSIFIER_IMAGE_DIGEST=$$(docker image inspect --format '{{.Id}}' \

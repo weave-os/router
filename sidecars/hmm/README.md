@@ -16,9 +16,10 @@ echo 'GOOGLE_API_KEY=...' >> .env.local
 make up-hmm
 ```
 
-The router still defaults to `cluster`. Select HMM through an installation
-strategy or an authorized `x-weave-router-strategy: hmm` override. To stop the
-sidecar and return to the normal stack, run `make down-hmm && make up`.
+The router defaults to `hmm_embedding`. Plain `make up` serves a stub
+classifier; `make up-hmm` routes through this sidecar instead and takes its
+policy release from `ROUTER_POLICY_ENVIRONMENT`, which must pin this sidecar.
+Stop the stack with `make down-hmm`.
 
 The Compose configuration downloads the public
 [`hmm-model-v1`](https://github.com/weave-os/router/releases/tag/hmm-model-v1)
