@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/telemetry"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -852,7 +853,7 @@ func TestSubscriptionFailoverParity_Telemetry(t *testing.T) {
 				svc.emitter = emitter
 
 				buf := otel.NewBuffer(emitter)
-				ctx := buf.WithContext(in.subCtx())
+				ctx := telemetry.WithRecorder(in.subCtx(), buf)
 				rec, req, body := in.request(t, false)
 				_ = in.call(svc, ctx, body, rec, req)
 				buf.Flush()

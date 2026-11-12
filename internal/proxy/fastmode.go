@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"slices"
 
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 )
 
@@ -30,7 +30,7 @@ type anthropicTierAttempt struct {
 	preludeState  *requestNoticeStream
 	streamCut     *streamCutObserver
 	notice        translate.RouterNotice
-	setExtractor  func(*otel.UsageExtractor)
+	setExtractor  func(*telemetry.UsageExtractor)
 	setStreamCost func(router.Decision, bool, func() bool)
 	logBody       func(router.Decision, []byte)
 }

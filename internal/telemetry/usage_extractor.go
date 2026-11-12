@@ -1,8 +1,7 @@
-package otel
+package telemetry
 
 import (
 	"bytes"
-	"net/http"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
@@ -13,9 +12,7 @@ import (
 )
 
 var (
-	_ http.ResponseWriter = (*UsageExtractor)(nil)
-	_ http.Flusher        = (*UsageExtractor)(nil)
-	_ usage.Sink          = (*UsageExtractor)(nil)
+	_ usage.Sink = (*UsageExtractor)(nil)
 )
 
 // Anthropic event names used for terminal and tool observations.
@@ -37,10 +34,9 @@ const (
 	geminiFinishMaxTokens  = "MAX_TOKENS"
 )
 
-// UsageExtractor wraps an http.ResponseWriter and sniffs token usage (SSE or
-// JSON) as bytes flow through. Only the unconsumed tail is retained between writes.
+// UsageExtractor sniffs token usage (SSE or JSON) from response bytes. Only
+// the unconsumed tail is retained between calls.
 type UsageExtractor struct {
-	inner    http.ResponseWriter
 	provider string
 
 	facts              usage.Facts
@@ -63,62 +59,23 @@ type UsageExtractor struct {
 	framing sse.Scanner
 }
 
-// NewUsageExtractor creates a usage-extracting writer for the given provider's
-// response format. With a nil inner, use only recording/accessor methods,
-// not ResponseWriter methods.
-func NewUsageExtractor(inner http.ResponseWriter, provider string) *UsageExtractor {
+// NewUsageExtractor creates a usage extractor for the given provider's response
+// format.
+func NewUsageExtractor(provider string) *UsageExtractor {
 	return &UsageExtractor{
-		inner:    inner,
 		provider: provider,
 	}
 }
 
-func (u *UsageExtractor) Header() http.Header {
-	if u.inner == nil {
-		return nil
-	}
-	return u.inner.Header()
-}
-
-func (u *UsageExtractor) WriteHeader(statusCode int) {
-	if u.inner == nil {
+// Consume sniffs p for token usage data. Partial writes are safe: bytes are
+// buffered in leftover while incomplete SSE frames await completion; JSON
+// bytes are re-probed on every write.
+func (u *UsageExtractor) Consume(p []byte) {
+	if u == nil {
 		return
-	}
-	sse.PrepareJSONResponse(u.inner)
-	u.inner.WriteHeader(statusCode)
-}
-
-// Write sniffs p for token usage data then delegates to the inner writer.
-func (u *UsageExtractor) Write(p []byte) (int, error) {
-	if u.inner == nil {
-		return len(p), nil
 	}
 	u.leftover = append(u.leftover, p...)
 	u.scanBuffer()
-	return sse.WriteJSONChunk(u.inner, p)
-}
-
-func (u *UsageExtractor) Flush() {
-	if u.inner == nil {
-		return
-	}
-	if f, ok := u.inner.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-// ArmOutputProgress forwards the watchdog arm call to inner if it supports it.
-// UsageExtractor can't itself distinguish an output frame from a keepalive, so
-// this must pass through or wrapping would hide the hook from the provider client.
-func (u *UsageExtractor) ArmOutputProgress(mark func()) (armed bool) {
-	if u.inner == nil {
-		return false
-	}
-	arm, ok := u.inner.(interface{ ArmOutputProgress(func()) bool })
-	if !ok {
-		return false
-	}
-	return arm.ArmOutputProgress(mark)
 }
 
 // RecordProviderUsage merges an already parsed provider snapshot.

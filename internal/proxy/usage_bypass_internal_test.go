@@ -25,6 +25,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -617,7 +618,7 @@ func TestBypass_EmitsUsageAndCost(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	buf := otel.NewBuffer(emitter)
-	ctx := buf.WithContext(context.Background())
+	ctx := telemetry.WithRecorder(context.Background(), buf)
 	err = svc.bypassToAnthropic(ctx, env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 	require.NoError(t, err)
 	buf.Flush()
