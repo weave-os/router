@@ -9,14 +9,8 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/sessionpin"
 )
-
-func supersededSiblingPin(pin sessionpin.Pin, req router.Request) bool {
-	preference, remembered := req.SiblingPreferences[escalation.Group(pin.PolicyGroup)]
-	return remembered && preference.Model != "" && pin.Model != preference.Model
-}
 
 func (s *Service) rememberSuccessfulSibling(ctx context.Context, turn turnLoopResult, primary, served router.Decision, proxyErr error, startedAt time.Time) {
 	store, supported := s.pinStore.(sessionpin.SiblingPreferenceStore)
@@ -26,23 +20,11 @@ func (s *Service) rememberSuccessfulSibling(ctx context.Context, turn turnLoopRe
 		return
 	}
 	primary = rescueBasisForTurn(primary, turn)
-	metadata := primary.Metadata
-	if metadata == nil || !slices.Contains(metadata.SiblingModels, served.Model) {
-		return
-	}
-	group := escalation.Group(metadata.PolicyGroup)
-	if escalation.Rank(group) < 0 {
-		return
-	}
 	failures.mu.Lock()
-	var displaced []string
-	for _, model := range failures.siblings {
-		if model != served.Model && slices.Contains(metadata.SiblingModels, model) {
-			displaced = append(displaced, model)
-		}
-	}
+	failedSiblings := slices.Clone(failures.failedSiblings)
 	failures.mu.Unlock()
-	if len(displaced) == 0 {
+	group, displaced, ok := router.SiblingPreferenceFromSuccess(primary.Metadata, served.Model, failedSiblings)
+	if !ok {
 		return
 	}
 	log := observability.FromContext(ctx)

@@ -763,7 +763,7 @@ func automaticallyDisabled(req router.Request, model string) bool {
 // explicit /force-model is the escape hatch that keeps a disabled model
 // reachable for debugging and evaluation.
 func automaticPinEligible(pin sessionpin.Pin, req router.Request) bool {
-	return pinEligible(pin, req) && !automaticallyDisabled(req, pin.Model) && !supersededSiblingPin(pin, req)
+	return pinEligible(pin, req) && !automaticallyDisabled(req, pin.Model) && !sessionpin.SiblingPinSuperseded(pin, req)
 }
 
 // withAutomaticExclusions folds the deployment-wide soft set into the hard-pin
@@ -1650,7 +1650,7 @@ func (s *Service) runTurnLoop(
 		pinFound = false
 		pin = sessionpin.Pin{}
 	}
-	if pinFound && !isUserForcedReason(pin.Reason) && supersededSiblingPin(pin, req) {
+	if pinFound && !isUserForcedReason(pin.Reason) && sessionpin.SiblingPinSuperseded(pin, req) {
 		log.Info("Session sibling preference supersedes automatic pin", "pin_model", pin.Model, "group", pin.PolicyGroup)
 		pinFound = false
 		pin = sessionpin.Pin{}
