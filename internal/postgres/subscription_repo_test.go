@@ -174,8 +174,12 @@ func TestSubscriptionAccountHealthIsOwnerScoped(t *testing.T) {
 	fixture := newSubscriptionFixture(t)
 	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
 	healthRepo := repo.(interface {
-		UpdateSubscriptionAccountHealth(context.Context, string, auth.SubscriptionOwner, auth.SubscriptionAccountState, bool, *time.Time) error
+		UpdateSubscriptionAccountHealth(context.Context, string, auth.SubscriptionOwner, auth.SubscriptionAccountState, bool, *time.Time) (bool, error)
 	})
+	updateHealth := func(ctx context.Context, accountID string, owner auth.SubscriptionOwner, state auth.SubscriptionAccountState, enabled bool, until *time.Time) error {
+		_, err := healthRepo.UpdateSubscriptionAccountHealth(ctx, accountID, owner, state, enabled, until)
+		return err
+	}
 	ctx := context.Background()
 	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
 	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
@@ -186,7 +190,7 @@ func TestSubscriptionAccountHealthIsOwnerScoped(t *testing.T) {
 	assert.Equal(t, auth.SubscriptionAccountStateUnknown, account.State)
 
 	resetAt := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
-	require.NoError(t, healthRepo.UpdateSubscriptionAccountHealth(
+	require.NoError(t, updateHealth(
 		ctx, account.ID, owner, auth.SubscriptionAccountStateExhausted, true, &resetAt,
 	))
 	accounts, err := repo.ListSubscriptionAccounts(ctx, owner)
@@ -196,7 +200,7 @@ func TestSubscriptionAccountHealthIsOwnerScoped(t *testing.T) {
 	require.NotNil(t, accounts[0].CooldownUntil)
 	assert.WithinDuration(t, resetAt, *accounts[0].CooldownUntil, time.Microsecond)
 
-	require.NoError(t, healthRepo.UpdateSubscriptionAccountHealth(
+	require.NoError(t, updateHealth(
 		ctx, account.ID, owner, auth.SubscriptionAccountStateActive, true, nil,
 	))
 	accounts, err = repo.ListSubscriptionAccounts(ctx, owner)
@@ -207,12 +211,12 @@ func TestSubscriptionAccountHealthIsOwnerScoped(t *testing.T) {
 	assert.WithinDuration(t, resetAt, *accounts[0].CooldownUntil, time.Microsecond)
 
 	otherOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
-	assert.ErrorIs(t, healthRepo.UpdateSubscriptionAccountHealth(
+	assert.ErrorIs(t, updateHealth(
 		ctx, account.ID, otherOwner, auth.SubscriptionAccountStateDisabled, false, nil,
 	), auth.ErrSubscriptionAccountNotFound)
 
 	require.NoError(t, repo.UpdateSubscriptionAccountState(ctx, account.ID, owner, false, nil))
-	require.NoError(t, healthRepo.UpdateSubscriptionAccountHealth(
+	require.NoError(t, updateHealth(
 		ctx, account.ID, owner, auth.SubscriptionAccountStateActive, true, nil,
 	))
 	accounts, err = repo.ListSubscriptionAccounts(ctx, owner)
@@ -540,4 +544,100 @@ func TestSubscriptionCandidatesReportMissingAccessToken(t *testing.T) {
 		account.ID, time.Now().Add(time.Hour).UTC())
 	require.NoError(t, err)
 	assert.False(t, accessTokenMissing())
+}
+
+func TestSubscriptionCredentialEventsSurviveReconnectAndFenceStaleRefresh(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderCodex, ExternalAccountID: "audit-workspace", ProviderUserID: "audit-user", RefreshToken: []byte("synthetic-ciphertext"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := fixture.pool.Exec(context.Background(), "DELETE FROM router.subscription_credential_events WHERE account_id=$1", account.ID)
+		require.NoError(t, err)
+	})
+	record, err := repo.GetSubscriptionCredentialRecord(ctx, account.ID, owner)
+	require.NoError(t, err)
+	leaseID := uuid.NewString()
+	acquired, err := repo.TryAcquireSubscriptionRefreshLease(ctx, account.ID, owner, leaseID, time.Minute)
+	require.NoError(t, err)
+	require.True(t, acquired.Acquired)
+	input := auth.SubscriptionCredentialRejectionInput{
+		Reason: "refresh_token_reused", ProviderErrorType: "invalid_request_error", ProviderRequestID: "synthetic-provider-request",
+		UpstreamStatus: 401, RequestID: "synthetic-router-request", RejectedAt: time.Now().UTC(), Window: 24 * time.Hour,
+		LeaseID: uuid.NewString(), ExpectedVersion: record.TokenRefreshVersion,
+	}
+	_, err = repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, input)
+	require.ErrorIs(t, err, auth.ErrSubscriptionRefreshConflict)
+	var count int
+	require.NoError(t, fixture.pool.QueryRow(ctx, "SELECT count(*) FROM router.subscription_credential_events WHERE account_id=$1", account.ID).Scan(&count))
+	require.Zero(t, count, "a stale holder must not write diagnostic history for replacement credentials")
+	input.LeaseID = leaseID
+	first, err := repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, input)
+	require.NoError(t, err)
+	require.False(t, first.RepeatedDisconnect)
+	require.NoError(t, repo.DisableSubscriptionAccountIfRefreshHolder(ctx, account.ID, owner, leaseID, record.TokenRefreshVersion))
+	require.ErrorIs(t, repo.DisableSubscriptionAccountIfRefreshHolder(ctx, account.ID, owner, leaseID, record.TokenRefreshVersion), auth.ErrSubscriptionRefreshConflict)
+	var providerCode, providerErrorType, providerRequestID, requestID string
+	var status int
+	require.NoError(t, fixture.pool.QueryRow(ctx, `SELECT reason,provider_error_type,provider_request_id,upstream_status,request_id FROM router.subscription_credential_events WHERE account_id=$1 AND event_kind=$2`, account.ID, string(auth.SubscriptionCredentialEventReconnectRequired)).Scan(&providerCode, &providerErrorType, &providerRequestID, &status, &requestID))
+	require.Equal(t, input.Reason, providerCode)
+	require.Equal(t, input.ProviderErrorType, providerErrorType)
+	require.Equal(t, input.ProviderRequestID, providerRequestID)
+	require.Equal(t, input.UpstreamStatus, status)
+	require.Equal(t, input.RequestID, requestID)
+	require.NoError(t, repo.UpdateSubscriptionRefreshToken(ctx, account.ID, owner, []byte("replacement-ciphertext")))
+	require.NoError(t, repo.UpdateSubscriptionAccountState(ctx, account.ID, owner, true, nil))
+	second, err := repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, auth.SubscriptionCredentialRejectionInput{Reason: input.Reason, RejectedAt: time.Now().UTC(), Window: 24 * time.Hour})
+	require.NoError(t, err)
+	require.True(t, second.RepeatedDisconnect, "history survives a reconnect and identifies a new credential generation failing again")
+	require.NoError(t, fixture.pool.QueryRow(ctx, "SELECT count(*) FROM router.subscription_credential_events WHERE account_id=$1", account.ID).Scan(&count))
+	require.Equal(t, 3, count, "reconnect does not erase either the rejection or the committed disconnect")
+}
+
+func TestConcurrentSubscriptionHealthTransitionsCommitOneDisconnect(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	healthRepo := repo.(interface {
+		UpdateSubscriptionAccountHealth(context.Context, string, auth.SubscriptionOwner, auth.SubscriptionAccountState, bool, *time.Time) (bool, error)
+	})
+	ctx := context.Background()
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "concurrent-health", RefreshToken: []byte("synthetic-ciphertext"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := fixture.pool.Exec(context.Background(), "DELETE FROM router.subscription_credential_events WHERE account_id=$1", account.ID)
+		require.NoError(t, err)
+	})
+	type transitionOutcome struct {
+		disconnected bool
+		err          error
+	}
+	outcomes := make(chan transitionOutcome, 8)
+	start := make(chan struct{})
+	for range 8 {
+		go func() {
+			<-start
+			disconnected, err := healthRepo.UpdateSubscriptionAccountHealth(ctx, account.ID, owner, auth.SubscriptionAccountStateReconnectRequired, false, nil)
+			outcomes <- transitionOutcome{disconnected, err}
+		}()
+	}
+	close(start)
+	var disconnectedCount int
+	for range 8 {
+		outcome := <-outcomes
+		require.NoError(t, outcome.err)
+		if outcome.disconnected {
+			disconnectedCount++
+		}
+	}
+	require.Equal(t, 1, disconnectedCount)
+	var eventCount int
+	require.NoError(t, fixture.pool.QueryRow(ctx, "SELECT count(*) FROM router.subscription_credential_events WHERE account_id=$1 AND event_kind=$2", account.ID, string(auth.SubscriptionCredentialEventReconnectRequired)).Scan(&eventCount))
+	require.Equal(t, 1, eventCount)
 }

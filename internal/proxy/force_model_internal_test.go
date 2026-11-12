@@ -480,6 +480,8 @@ func TestResolveForceModel_ObservedSpellings(t *testing.T) {
 		{"claude-sonnet-5.5", "claude-sonnet-5-5", ""},
 		{"claude-haiku-4.5", "claude-haiku-4-5", ""},
 		{"claude-fable-5.1", "claude-fable-5-1", ""},
+		{"claude-fable-5.2", "claude-fable-5-2", ""},
+		{"fable 5.2", "claude-fable-5-2", ""},
 		{"opus-4-5", "claude-opus-4-5", ""},
 		{"opus-4.7", "claude-opus-4-7", ""},
 		{"claude-opus-5-5[1m]", "claude-opus-5-5", ""},

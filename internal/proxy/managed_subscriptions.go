@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -67,6 +68,7 @@ type ManagedSubscriptionUsage struct {
 	AttemptedAccounts       map[string]struct{}
 	QuotaExhaustedAccounts  map[string]time.Time
 	QuotaExhaustedProviders map[subscriptions.Provider]time.Time
+	ThrottledAccounts       map[string]time.Time
 	// UnavailableProviders records, per pool, until when this turn's
 	// subscription attempts are known to have failed on provider capacity
 	// (5xx), which authorizes a paid rescue without proving quota exhaustion.
@@ -81,6 +83,9 @@ type ManagedSubscriptionUsage struct {
 var (
 	ErrSubscriptionPoolExhausted   = errors.New("subscription account pool exhausted")
 	ErrSubscriptionPoolUnavailable = errors.New("subscription account pool unavailable")
+	// ErrSubscriptionPoolThrottled is a pool-unavailable refusal whose only
+	// blockers are rate-limit cooldowns: a client-retryable 429, not an outage.
+	ErrSubscriptionPoolThrottled = fmt.Errorf("%w: every blocking account is rate-limited", ErrSubscriptionPoolUnavailable)
 )
 
 func isSubscriptionPoolError(err error) bool {
@@ -108,7 +113,8 @@ func managedSubscriptionProviderFromUpstream(provider, model string) (subscripti
 }
 
 func managedSubscriptionEnrolled(ctx context.Context, provider subscriptions.Provider) bool {
-	if provider == subscriptions.ProviderClaude && anthropicBYOKConfigured(ctx) {
+	if provider == subscriptions.ProviderClaude && anthropicBYOKFirst(ctx) ||
+		provider == subscriptions.ProviderCodex && byokFirst(ctx, providers.ProviderOpenAI) {
 		return false
 	}
 	if subscriptionAPIOnly(ctx) || subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
@@ -198,7 +204,7 @@ func (s *Service) costNeutralSubscriptionServed(ctx context.Context) bool {
 }
 
 func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model string) (context.Context, subscriptions.Lease, bool, error) {
-	if provider == providers.ProviderAnthropic && anthropicBYOKConfigured(ctx) {
+	if byokFirst(ctx, provider) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 	poolProvider, eligible := managedSubscriptionProviderFromUpstream(provider, model)
@@ -450,6 +456,7 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 			observability.FromContext(ctx).Error("Failed to persist subscription account cooldown",
 				"provider", poolProvider, "account_id", lease.AccountID, "err", err)
 		}
+		recordManagedThrottle(ctx, lease.AccountID, resetAt)
 		observability.FromContext(ctx).Warn("Subscription account throttled; quota exhaustion not established",
 			"provider", poolProvider, "account_id", lease.AccountID, "cooldown_until", resetAt)
 		return true
@@ -485,6 +492,15 @@ func recordManagedQuotaProof(ctx context.Context, accountID string, resetAt time
 			state.QuotaExhaustedAccounts = make(map[string]time.Time)
 		}
 		state.QuotaExhaustedAccounts[accountID] = resetAt
+	}
+}
+
+func recordManagedThrottle(ctx context.Context, accountID string, cooldownUntil time.Time) {
+	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+		if state.ThrottledAccounts == nil {
+			state.ThrottledAccounts = make(map[string]time.Time)
+		}
+		state.ThrottledAccounts[accountID] = cooldownUntil
 	}
 }
 

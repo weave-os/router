@@ -674,3 +674,94 @@ func TestSubscriptionStateModelsCodexCustomToolAfterCrossFamilyPick(t *testing.T
 	assert.Contains(t, out, `"type":"response.completed"`)
 	assert.NotContains(t, out, "response.failed")
 }
+
+// Every subscription-state outcome must reach a Responses caller as a complete
+// Responses stream, whichever family serves it and whatever the caller looks
+// like. The Codex rows send the request the Codex app sends.
+func TestSubscriptionStateModelsResponsesClientGrid(t *testing.T) {
+	const nativeResponsesStream = "data: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_synthetic\",\"status\":\"in_progress\",\"output\":[]}}\n\n" +
+		"data: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"in_progress\",\"content\":[]}}\n\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":2,\"item_id\":\"msg_synthetic\",\"output_index\":0,\"content_index\":0,\"delta\":\"synthetic answer\"}\n\n" +
+		"data: {\"type\":\"response.output_item.done\",\"sequence_number\":3,\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"synthetic answer\"}]}}\n\n" +
+		"data: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"resp_synthetic\",\"status\":\"completed\",\"output\":[{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"synthetic answer\"}]}],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n"
+	const anthropicStream = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"content\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":0}}}\n\n" +
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"synthetic answer\"}}\n\n" +
+		"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n" +
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":7}}\n\n" +
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+	const chatStream = "data: {\"id\":\"synthetic\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"synthetic answer\"},\"finish_reason\":null}]}\n\n" +
+		"data: {\"id\":\"synthetic\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":7}}\n\n" +
+		"data: [DONE]\n\n"
+
+	scenarios := []struct {
+		name          string
+		claude, codex bool
+	}{
+		{name: "both plans active", claude: true, codex: true},
+		{name: "Claude exhausted", codex: true},
+		{name: "both exhausted"},
+	}
+	tools := map[string]string{
+		"no tools":    ``,
+		"function":    `,"tools":[{"type":"function","name":"exec","parameters":{"type":"object","properties":{"cmd":{"type":"string"}}}}]`,
+		"custom tool": `,"tools":[{"type":"custom","name":"exec","description":"run a script"}]`,
+	}
+	for _, scenario := range scenarios {
+		for _, client := range []string{"generic client", "Codex app on a managed plan", "Codex app on its own plan"} {
+			for toolsName, toolsJSON := range tools {
+				t.Run(scenario.name+"/"+client+"/"+toolsName, func(t *testing.T) {
+					var models []string
+					upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if serveSyntheticCodexQuota(w, r) {
+							return
+						}
+						body, _ := io.ReadAll(r.Body)
+						models = append(models, gjson.GetBytes(body, "model").String())
+						w.Header().Set("Content-Type", "text/event-stream")
+						switch {
+						case strings.Contains(r.URL.Path, "messages"):
+							_, _ = io.WriteString(w, anthropicStream)
+						case strings.Contains(r.URL.Path, "responses"):
+							_, _ = io.WriteString(w, nativeResponsesStream)
+						default:
+							_, _ = io.WriteString(w, chatStream)
+						}
+					}))
+					defer upstream.Close()
+					codexClient := openai.NewClient("expensive-paid-key", upstream.URL)
+					codexClient.SetCodexBaseURL(upstream.URL)
+					svc := NewService(stateModelRouter{}, map[string]providers.Client{
+						providers.ProviderAnthropic:  anthropic.NewClient("expensive-paid-key", upstream.URL),
+						providers.ProviderOpenAI:     codexClient,
+						providers.ProviderOpenRouter: openaicompat.NewClient("cheap-paid-key", upstream.URL),
+					}, nil, false, nil, nil, false, "", "", nil).
+						WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: scenario.claude, subscriptions.ProviderCodex: scenario.codex}}).
+						WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}))
+					ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+					ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
+					ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+					if client != "generic client" {
+						ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+					}
+					if client == "Codex app on its own plan" {
+						ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestToken)
+						ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, codexTestAccountID)
+					}
+
+					body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}]` + toolsJSON + `}`
+					rec := httptest.NewRecorder()
+					err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
+
+					require.NoError(t, err)
+					require.Len(t, models, 1, "one attempt serves the turn")
+					require.Equal(t, models[0], rec.Header().Get(HeaderRouterModel))
+					out := rec.Body.String()
+					assert.Contains(t, out, "synthetic answer")
+					assert.Contains(t, out, `"type":"response.completed"`)
+					assert.NotContains(t, out, "response.failed")
+				})
+			}
+		}
+	}
+}
