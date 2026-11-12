@@ -114,3 +114,34 @@ func excludeAllServedBy(provider string) map[string]struct{} {
 	}
 	return out
 }
+
+func TestUtilityTarget_NeverPicksTextOnlyModel(t *testing.T) {
+	for _, provider := range catalogProviders() {
+		t.Run(provider, func(t *testing.T) {
+			_, model, ok := policy.UtilityTarget(policy.UtilityTargetRequest{
+				EnabledProviders: set(provider),
+				ExcludedModels:   set(policy.UtilityHardPinDefaultModel),
+			})
+			if !ok {
+				return
+			}
+			m, known := catalog.ByID(model)
+			require.True(t, known)
+			assert.NotEqual(t, catalog.ImageInputUnsupported, m.ImageInput, model)
+		})
+	}
+}
+
+func catalogProviders() []string {
+	seen := map[string]struct{}{}
+	var out []string
+	for _, m := range catalog.Models {
+		for _, b := range m.Providers {
+			if _, dup := seen[b.Provider]; !dup {
+				seen[b.Provider] = struct{}{}
+				out = append(out, b.Provider)
+			}
+		}
+	}
+	return out
+}

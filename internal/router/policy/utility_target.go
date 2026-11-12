@@ -28,7 +28,9 @@ func UtilityTarget(req UtilityTargetRequest) (provider, model string, ok bool) {
 	}
 	var best utilityCandidate
 	for _, m := range catalog.Models {
-		if m.Tier == catalog.TierUnknown || m.ForceModelOnly {
+		// HardPinRequest carries no image signal and utility turns may attach
+		// images, so text-only models are never utility targets.
+		if m.Tier == catalog.TierUnknown || m.ForceModelOnly || m.ImageInput == catalog.ImageInputUnsupported {
 			continue
 		}
 		if _, excluded := req.ExcludedModels[m.ID]; excluded {
