@@ -39,8 +39,6 @@ const (
 	goldenInstallationID = "00000000-0000-4000-8000-000000000001"
 )
 
-// goldenScenario is one behavior-level decision trace. Requests run in order
-// against the same Service so cross-request state (pins, breakers) is traced.
 type goldenScenario struct {
 	name      string
 	ingress   string

@@ -43,7 +43,6 @@ func goldenSSE(event, data string) string {
 	return "event: " + event + "\ndata: " + data + "\n\n"
 }
 
-// goldenAnthropicStream is a native Messages stream.
 func goldenAnthropicStream(model, text string) []string {
 	return []string{
 		goldenSSE("message_start", `{"type":"message_start","message":{"id":"msg_up","type":"message","role":"assistant","model":"`+model+`","content":[],"stop_reason":null,"usage":{"input_tokens":12,"output_tokens":1}}}`),
@@ -88,7 +87,6 @@ func ingressBody(ingress string, stream bool) string {
 	return goldenAnthropicBody(stream)
 }
 
-// goldenCompatStream is an OpenAI-compatible chat-completions stream.
 func goldenCompatStream(model, text string) []string {
 	chunk := func(delta, finish string) string {
 		return goldenSSE("", `{"id":"chatcmpl-up","object":"chat.completion.chunk","model":"`+model+`","choices":[{"index":0,"delta":`+delta+`,"finish_reason":`+finish+`}]}`)
@@ -133,7 +131,6 @@ var (
 	goldenOverloadBody = `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`
 )
 
-// goldenMatrixScenarios run on both ingresses, streamed and not.
 func goldenMatrixScenarios(ingress string, stream bool) []goldenScenario {
 	prefix := ingress + "_" + streamName(stream) + "_"
 	singleRequest := []goldenRequest{{body: ingressBody(ingress, stream)}}
