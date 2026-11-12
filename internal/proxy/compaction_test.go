@@ -67,21 +67,22 @@ func TestCompactionSessionDecision(t *testing.T) {
 	}}
 	solFamily := map[string]struct{}{"gpt-5.6-sol": {}}
 	for _, test := range []struct {
-		name       string
-		store      *rolePinStore
-		available  map[string]struct{}
-		req        router.Request
-		wantModel  string
-		wantEffort string
+		name         string
+		store        *rolePinStore
+		available    map[string]struct{}
+		req          router.Request
+		wantModel    string
+		wantEffort   string
+		wantProvider string
 	}{
 		{name: "provider struck out this session", store: history(sessionpin.Pin{Provider: providers.ProviderOpenAI, LastServedModel: "gpt-5.6-sol", LastTurnEndedAt: time.Now(), DisabledProviders: []string{providers.ProviderOpenAI}})},
 		{name: "model demoted this session", store: history(sessionpin.Pin{Provider: providers.ProviderOpenAI, LastServedModel: "gpt-5.6-sol", LastTurnEndedAt: time.Now(), DemotedModels: []string{"gpt-5.6-sol"}})},
-		{name: "served model, not a newer family member", store: solHistory, wantModel: "gpt-5.6-sol"},
-		{name: "latest served wins", store: switched, wantModel: "gpt-5.6-sol"},
+		{name: "served model, not a newer family member", store: solHistory, wantModel: "gpt-5.6-sol", wantProvider: providers.ProviderOpenAI},
+		{name: "latest served wins", store: switched, wantModel: "gpt-5.6-sol", wantProvider: providers.ProviderOpenAI},
 		{name: "expired thread pin", store: expired},
-		{name: "anthropic session", store: anthropicPinned, wantModel: "claude-opus-4-8"},
-		{name: "low-tier session", store: history(sessionpin.Pin{Provider: providers.ProviderOpenAI, LastServedModel: "gpt-4.1-mini", LastTurnEndedAt: time.Now()}), wantModel: "gpt-4.1-mini"},
-		{name: "effort qualified", store: history(sessionpin.Pin{Provider: providers.ProviderOpenAI, LastServedModel: "gpt-5.6-luna:xhigh", LastTurnEndedAt: time.Now()}), wantModel: "gpt-5.6-luna", wantEffort: "xhigh"},
+		{name: "anthropic session", store: anthropicPinned, wantModel: "claude-opus-4-8", wantProvider: providers.ProviderAnthropic},
+		{name: "low-tier session", store: history(sessionpin.Pin{Provider: providers.ProviderOpenAI, LastServedModel: "gpt-4.1-mini", LastTurnEndedAt: time.Now()}), wantModel: "gpt-4.1-mini", wantProvider: providers.ProviderOpenAI},
+		{name: "effort qualified", store: history(sessionpin.Pin{Provider: providers.ProviderOpenAI, LastServedModel: "gpt-5.6-luna:xhigh", LastTurnEndedAt: time.Now()}), wantModel: "gpt-5.6-luna", wantEffort: "xhigh", wantProvider: providers.ProviderOpenAI},
 		{name: "provider disabled", store: solHistory, req: router.Request{EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}},
 		{name: "org exclusion", store: solHistory, req: router.Request{ExcludedModels: solFamily}},
 		{name: "automatic exclusion", store: solHistory, req: router.Request{AutomaticExcludedModels: solFamily}},
@@ -94,9 +95,7 @@ func TestCompactionSessionDecision(t *testing.T) {
 			assert.Equal(t, test.wantModel != "", ok)
 			assert.Equal(t, test.wantModel, decision.Model)
 			assert.Equal(t, test.wantEffort, decision.Effort)
-			if ok {
-				assert.Equal(t, latestServedProvider(test.store), decision.Provider)
-			}
+			assert.Equal(t, test.wantProvider, decision.Provider)
 		})
 	}
 }
@@ -119,14 +118,6 @@ func TestTurnLoop_CompactionReadsClientIdentityBeforeSessionPin(t *testing.T) {
 	assert.Equal(t, turntype.Compaction, turn.TurnType)
 	assert.Equal(t, providers.ProviderOpenAI, turn.Decision.Provider)
 	assert.Equal(t, sessionModel, turn.Decision.Model)
-}
-
-func latestServedProvider(store *rolePinStore) string {
-	var latest sessionpin.Pin
-	for _, pin := range store.byRole {
-		latest = latestServedPin(latest, pin)
-	}
-	return latest.Provider
 }
 
 func TestSessionStrikesWithdrawStruckArmsFromScoring(t *testing.T) {
