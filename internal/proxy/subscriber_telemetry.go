@@ -4,10 +4,10 @@ import (
 	"context"
 
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions/entitlement"
+	"weave-os/router/internal/telemetry"
 )
 
 // applyServingTelemetry stamps the managed serving identity on every admitted turn.
@@ -151,7 +151,7 @@ func applySubscriptionWinnerTelemetry(ctx context.Context, telemetry *InsertTele
 	telemetry.SubscriptionTier = winningUsage.SubscriptionTier
 }
 
-func (s *Service) applySubscriptionSpanTelemetry(ctx context.Context, attrs *otel.AttrBuilder, requestedModel, selectedModel string) {
+func (s *Service) applySubscriptionSpanTelemetry(ctx context.Context, attrs *telemetry.AttrBuilder, requestedModel, selectedModel string) {
 	if keyID := apiKeyIDFromContext(ctx); keyID != "" {
 		attrs.String("api_key_id", keyID)
 	}
@@ -176,7 +176,7 @@ func (s *Service) applySubscriptionSpanTelemetry(ctx context.Context, attrs *ote
 
 // Decision attribution keeps admitted failures in their original family even
 // when credential selection rejects the request before an upstream span starts.
-func applySubscriptionDecisionSpanTelemetry(ctx context.Context, attrs *otel.AttrBuilder, requestedModel, selectedModel string) {
+func applySubscriptionDecisionSpanTelemetry(ctx context.Context, attrs *telemetry.AttrBuilder, requestedModel, selectedModel string) {
 	if keyID := apiKeyIDFromContext(ctx); keyID != "" {
 		attrs.String("api_key_id", keyID)
 	}

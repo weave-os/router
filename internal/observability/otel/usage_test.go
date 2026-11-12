@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"weave-os/router/internal/observability/otel"
+	otel "weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/usage"
 

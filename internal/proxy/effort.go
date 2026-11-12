@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 )
 
@@ -57,7 +57,7 @@ func (e effortResolution) apply(opts *translate.EmitOptions) {
 
 // applyEffortAttrs stamps the effort actually dispatched with, alongside the
 // level routing selected and where it came from.
-func applyEffortAttrs(b *otel.AttrBuilder, e effortResolution) *otel.AttrBuilder {
+func applyEffortAttrs(b *telemetry.AttrBuilder, e effortResolution) *telemetry.AttrBuilder {
 	return b.String("routing.arm_effort", e.Arm).
 		String("routing.selected_effort", e.Selected).
 		String("routing.sent_effort", e.Sent).
