@@ -93,13 +93,19 @@ type compactionSession struct {
 
 func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (router.Decision, bool) {
 	var served sessionpin.Pin
+	var disabledProviders, demotedModels []string
 	for _, pinRole := range []string{role, hmmHistoryRole(role)} {
 		pin, found, err := c.pins.Get(ctx, sessionKey, pinRole)
 		if err != nil {
 			observability.FromContext(ctx).Error("Compaction session history unavailable", "role", pinRole, "err", err)
 			continue
 		}
-		if !found || (pinRole == role && !pin.PinnedUntil.After(c.now)) {
+		if !found {
+			continue
+		}
+		disabledProviders = mergeSessionStrikes(disabledProviders, pin.DisabledProviders)
+		demotedModels = mergeSessionStrikes(demotedModels, pin.DemotedModels)
+		if pinRole == role && !pin.PinnedUntil.After(c.now) {
 			continue
 		}
 		served = latestServedPin(served, pin)
@@ -131,7 +137,8 @@ func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.
 	pin := sessionpin.Pin{Provider: binding.Provider, Model: model, Effort: effort, Reason: compactionSessionPinTier}
 	fits := req.EstimatedInputTokens <= 0 ||
 		req.EstimatedInputTokens+contextWindowOutputReserve <= gatewayContextWindow(c.cortexGateways, model, binding.Provider)
-	if !fits || !automaticPinEligible(pin, req) {
+	struck := slices.Contains(disabledProviders, binding.Provider) || slices.Contains(demotedModels, model)
+	if !fits || struck || !automaticPinEligible(pin, req) {
 		return router.Decision{}, false
 	}
 	return pinDecision(pin), true

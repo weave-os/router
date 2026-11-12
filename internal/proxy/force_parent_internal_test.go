@@ -93,7 +93,7 @@ func TestForceParentDoesNotOverrideChildCompaction(t *testing.T) {
 	require.NoError(t, err)
 	store := newForceModelMapStore()
 	scored := router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String()}
-	svc := NewService(fixedRouter{decision: scored}, nil, nil, false, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeSonnet46.String(), nil)
+	svc := NewService(fixedRouter{decision: scored}, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, false, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeSonnet46.String(), nil)
 	parentKey := deriveSessionKeyForRequest(ctx, parent, apiKeyID)
 	require.Equal(t, parentKey, deriveSessionKeyForRequest(ctx, compaction, apiKeyID))
 	features := compaction.RoutingFeatures(false)

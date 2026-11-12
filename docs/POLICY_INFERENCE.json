@@ -1,6 +1,6 @@
 {
   "schema_version": "inference_policy_registry_v2",
-  "registry_revision": "sha256:9eae016d1943cf5d7a82f21ffbe857df04a7cb391e2184f460bacec1be3c725d",
+  "registry_revision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a",
   "policies": [
     {
       "purpose": "agent_shadow_evaluation",
@@ -109,7 +109,7 @@
       "purpose": "client_compaction",
       "dispatch_class": "client_authoritative",
       "policy_id": "client-compaction",
-      "policy_revision": "2",
+      "policy_revision": "3",
       "owner": "@steventohme",
       "rationale": "Authorize the Pi handoff summary on the session's previous model. Client compaction turns route as main inference: an eligible forced model, else the session pin, else the scorer.",
       "selection_strategy": "deployment_hard_pin",

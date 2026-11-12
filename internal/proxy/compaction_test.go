@@ -74,6 +74,8 @@ func TestCompactionSessionDecision(t *testing.T) {
 		wantModel  string
 		wantEffort string
 	}{
+		{name: "provider struck out this session", store: history(sessionpin.Pin{Provider: providers.ProviderOpenAI, LastServedModel: "gpt-5.6-sol", LastTurnEndedAt: time.Now(), DisabledProviders: []string{providers.ProviderOpenAI}})},
+		{name: "model demoted this session", store: history(sessionpin.Pin{Provider: providers.ProviderOpenAI, LastServedModel: "gpt-5.6-sol", LastTurnEndedAt: time.Now(), DemotedModels: []string{"gpt-5.6-sol"}})},
 		{name: "served model, not a newer family member", store: solHistory, wantModel: "gpt-5.6-sol"},
 		{name: "latest served wins", store: switched, wantModel: "gpt-5.6-sol"},
 		{name: "expired thread pin", store: expired},
@@ -92,6 +94,9 @@ func TestCompactionSessionDecision(t *testing.T) {
 			assert.Equal(t, test.wantModel != "", ok)
 			assert.Equal(t, test.wantModel, decision.Model)
 			assert.Equal(t, test.wantEffort, decision.Effort)
+			if ok {
+				assert.Equal(t, test.store.byRole[firstServedRole(test.store)].Provider, decision.Provider)
+			}
 		})
 	}
 }
@@ -114,4 +119,11 @@ func TestTurnLoop_CompactionReadsClientIdentityBeforeSessionPin(t *testing.T) {
 	assert.Equal(t, turntype.Compaction, turn.TurnType)
 	assert.Equal(t, providers.ProviderOpenAI, turn.Decision.Provider)
 	assert.Equal(t, sessionModel, turn.Decision.Model)
+}
+
+func firstServedRole(store *rolePinStore) string {
+	if _, ok := store.byRole[hmmHistoryRole(sessionpin.DefaultRole)]; ok {
+		return hmmHistoryRole(sessionpin.DefaultRole)
+	}
+	return sessionpin.DefaultRole
 }

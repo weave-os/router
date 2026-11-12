@@ -623,7 +623,7 @@ func defaultPolicySpecs() []PolicySpec {
 			Purpose:            PurposeClientCompaction,
 			DispatchClass:      DispatchClassClientAuthoritative,
 			PolicyID:           "client-compaction",
-			PolicyRevision:     "2",
+			PolicyRevision:     "3",
 			Owner:              inferencePolicyOwner,
 			Rationale:          "Authorize the Pi handoff summary on the session's previous model. Client compaction turns route as main inference: an eligible forced model, else the session pin, else the scorer.",
 			SelectionStrategy:  SelectionStrategyDeploymentHardPin,
