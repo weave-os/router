@@ -1766,6 +1766,16 @@ func TestAnthropicSameFormat_ForcedToolChoiceDowngradedForAutoOnlyModel(t *testi
 	}
 }
 
+func TestMythos52UsesAdaptiveThinkingAndAutoToolChoice(t *testing.T) {
+	const model = "claude-mythos-5-2"
+	body := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}],"max_tokens":20000,"thinking":{"type":"disabled"},"temperature":0.5,"tools":[{"name":"lookup","input_schema":{"type":"object"}}],"tool_choice":{"type":"any"}}`)
+	out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{TargetModel: model, Capabilities: router.Lookup(model)})
+	assert.Equal(t, model, out["model"])
+	assert.Equal(t, "auto", out["tool_choice"].(map[string]any)["type"])
+	assert.NotContains(t, out, "temperature")
+	assert.Equal(t, "adaptive", out["thinking"].(map[string]any)["type"])
+}
+
 func TestAnthropicSameFormat_ForcedToolChoicePreservedForCapableModel(t *testing.T) {
 	body := []byte(`{"model":"claude-fable-5-1","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,"tools":[{"type":"web_search_20260209","name":"web_search"}],"tool_choice":{"type":"tool","name":"web_search"}}`)
 	opts := translate.EmitOptions{
