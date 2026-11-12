@@ -39,7 +39,7 @@ func overflowContext(exhausted bool) context.Context {
 	if exhausted {
 		ctx = exhaustedManagedSubscriptionContext(auth.SubscriptionProviderClaude)
 	}
-	return flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionExhaustedOpenRouterOnly: true}})
+	return flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionExhaustedOpenRouterOnly: true, flags.KeyClaudeEnterpriseOnly: false}})
 }
 
 func (d *overflowDispatch) attempt() dispatchAttempt {

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -202,6 +203,8 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				credentialCtx = context.WithValue(attemptCtx, CredentialsContextKey{}, requestcontext.CredentialsFromContext(credentialCtx))
 			}
 			managedBinding = managedBinding || managedAttempt
+			credentialCtx = s.withClaudeSubscriptionProfile(credentialCtx, nil)
+			credentialCtx = withClaudeEnterpriseTurn(credentialCtx, decision)
 			if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && managedAttempt {
 				if usage.AttemptedAccounts == nil {
 					usage.AttemptedAccounts = make(map[string]struct{})
@@ -214,16 +217,32 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			}
 			if creds := CredentialsFromContext(credentialCtx); paidFallbackForbidden(ctx) && (creds == nil || !creds.OAuth) {
 				lease.Release()
+				if claudeEnterpriseTurn(ctx) {
+					return dispatchAbort{err: ErrClaudeEnterpriseSubscriptionUnavailable}
+				}
 				return dispatchAbort{err: subscriptionOnlyUnavailable(ctx)}
 			}
 			if creds := CredentialsFromContext(credentialCtx); creds != nil && creds.OAuth {
 				if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 					state.SubscriptionAttempted = true
+					if creds.Source == credSourceSubscription && creds.SubscriptionPlan != "" {
+						state.ClaudeSubscriptionPlan = creds.SubscriptionPlan
+						state.ClaudePlanUnverified = state.ClaudePlanUnverified || creds.SubscriptionPlan == providers.SubscriptionPlanUnknown
+					}
 				}
 			}
+			attemptStarted := time.Now()
 			attemptErr := in.attempt(credentialCtx, decision, guarded)
+
 			// Health bookkeeping must persist even if the caller has gone.
 			bookkeepingCtx := context.WithoutCancel(credentialCtx)
+			if managedAttempt {
+				observability.FromContext(bookkeepingCtx).Info("Subscription account attempt completed",
+					"subscription_event", auth.SubscriptionCredentialEventAttempted, "account_id", lease.AccountID,
+					"provider", decision.Provider, "succeeded", attemptErr == nil,
+					"upstream_status", upstreamStatus(attemptErr), "attempt_ms", time.Since(attemptStarted).Milliseconds(),
+					"response_committed", committed(in.buf), "subscription_account_attempt", account+1)
+			}
 			if creds := CredentialsFromContext(credentialCtx); !managedAttempt && creds != nil && creds.OAuth && attemptErr != nil {
 				s.recordDirectSubscriptionQuota(bookkeepingCtx, decision.Provider, decision.Model, creds, attemptErr)
 			}

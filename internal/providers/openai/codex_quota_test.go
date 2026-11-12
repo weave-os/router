@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -313,4 +314,59 @@ func TestCodexReachedTypeKeepsWindowReset(t *testing.T) {
 	require.True(t, errors.As(err, &upstream))
 	require.Equal(t, http.StatusTooManyRequests, upstream.Status)
 	require.Contains(t, string(upstream.Body), "1792600000")
+}
+
+func TestCodexPreflightPublishesAccountQuotaBeforeDenial(t *testing.T) {
+	for _, tc := range []struct {
+		name, payload              string
+		wantPrimary                float64
+		wantError, wantObservation bool
+	}{
+		{"healthy", `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":40,"reset_at":1794398700,"limit_window_seconds":18000},"secondary_window":{"used_percent":80,"reset_at":1794999900,"limit_window_seconds":604800}}}`, 40, false, true},
+		{"exhausted", `{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100,"reset_at":1794398700,"limit_window_seconds":18000}}}`, 100, true, true},
+		{"model_only_exhausted", `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":40,"reset_at":1794398700,"limit_window_seconds":18000}},"additional_rate_limits":[{"normal_model_slug":"gpt-6.1-sol","rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100,"reset_at":1794999900}}}]}`, 40, true, true},
+		{"invalid_window", `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":120}}}`, 0, true, false},
+		{"invalid_sibling", `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":40},"secondary_window":{"used_percent":120}}}`, 0, true, false},
+		{"missing_flags", `{"rate_limit":{"primary_window":{"used_percent":40}}}`, 0, true, false},
+		{"malformed", `{`, 0, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, "/wham/usage", r.URL.Path)
+				_, _ = io.WriteString(w, tc.payload)
+			}))
+			defer server.Close()
+			client := NewClient("", server.URL)
+			client.SetCodexBaseURL(server.URL)
+			var observed http.Header
+			ctx := providers.WithUpstreamHeaderObserver(codexCtx("synthetic-token", "synthetic-account"), func(_ context.Context, h http.Header) { observed = h.Clone() })
+			err := client.checkCodexIncludedQuota(ctx, "gpt-6.1-sol")
+			require.Equal(t, tc.wantError, err != nil)
+			require.Equal(t, tc.wantObservation, len(observed) > 0)
+			if tc.wantObservation {
+				require.Equal(t, strconv.FormatFloat(tc.wantPrimary, 'f', -1, 64), observed.Get("x-codex-primary-used-percent"))
+				require.Equal(t, "1794398700", observed.Get("x-codex-primary-reset-at"))
+				require.Equal(t, "300", observed.Get("x-codex-primary-window-minutes"))
+				if tc.name == "healthy" {
+					require.Equal(t, "80", observed.Get("x-codex-secondary-used-percent"))
+					require.Equal(t, "1794999900", observed.Get("x-codex-secondary-reset-at"))
+					require.Equal(t, "10080", observed.Get("x-codex-secondary-window-minutes"))
+				}
+			}
+		})
+	}
+}
+
+func TestCodexPreflightOmitsOverflowingWindowLength(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":40,"limit_window_seconds":9223372036854775807}}}`)
+	}))
+	defer server.Close()
+	client := NewClient("", server.URL)
+	client.SetCodexBaseURL(server.URL)
+	var observed http.Header
+	ctx := providers.WithUpstreamHeaderObserver(codexCtx("synthetic-token", "synthetic-account"), func(_ context.Context, h http.Header) { observed = h.Clone() })
+	require.NoError(t, client.checkCodexIncludedQuota(ctx, "gpt-6.1-sol"))
+	require.Equal(t, "40", observed.Get("x-codex-primary-used-percent"))
+	require.Empty(t, observed.Get("x-codex-primary-window-minutes"))
 }

@@ -127,7 +127,20 @@ The separate Vet and Typecheck steps were removed. `go test -vet=all -count=1
 ./...` now performs the compilation, vetting, and test pass in one command;
 golangci-lint remains separate.
 
-### 7. Path-gate component-specific jobs (implemented)
+### 7. Parallelize Go compatibility checks (implemented)
+
+The required `Go checks` status remains a small fan-in job, while static/database
+checks and the expensive runtime compatibility checks run on separate runners.
+The runtime lane retains the agreement-shadow race test and the legacy worker
+fixture; it still builds and boots both the proposed binary and `HEAD^` with
+serving dependencies unavailable. This removes those two long-running checks
+from the static lane's critical path without weakening the post-merge evidence
+artifact used for safe squash-merge reuse.
+
+The router's Go static analysis uses `golangci-lint`; `oxlint` is used by the
+JavaScript/TypeScript frontend workflow and does not replace Go linting.
+
+### 8. Path-gate component-specific jobs (implemented)
 
 The workflow now classifies changed paths before the component jobs run. The
 statusline, installer, and frozen HMM sidecar jobs are skipped when their inputs
@@ -139,7 +152,7 @@ bypass coverage.
 This primarily saves runner capacity rather than wall time because these jobs
 already run in parallel.
 
-### 8. Bound jobs and expose phase timings (implemented)
+### 9. Bound jobs and expose phase timings (implemented)
 
 Test jobs now have ten-minute timeouts and Smoke jobs have fifteen-minute
 timeouts. The smoke runner records build, boot/health, seed, and assertion
@@ -147,7 +160,7 @@ durations; CI writes them to the GitHub job summary. This makes a cache
 regression or service-startup stall visible without downloading the complete
 log.
 
-### 9. Path-gate the Go checks (implemented)
+### 10. Path-gate the Go checks (implemented)
 
 `Go checks` previously ran on every pull
 request, including documentation-only ones. The classifier job now also emits a

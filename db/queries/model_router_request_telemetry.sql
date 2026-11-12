@@ -124,6 +124,8 @@ INSERT INTO router.model_router_request_telemetry (
     blind_experiment_arm,
     blind_experiment_assignment_source,
     blind_experiment_subject_key,
+    blind_experiment_mode,
+    blind_experiment_session_key,
     cohort_experiment_id,
     cohort_group_id,
     cohort_phase_index,
@@ -131,6 +133,10 @@ INSERT INTO router.model_router_request_telemetry (
     cohort_scheduled_arm,
     cohort_treatment_applied,
     cohort_bypass_reason,
+    blind_experiment_model_source,
+    blind_experiment_treatment_applied,
+    blind_experiment_baseline_model,
+    blind_experiment_model_changed,
     turn_type,
     rollout_id,
     upstream_finish_reason,
@@ -301,6 +307,8 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('blind_experiment_arm')::varchar,
     sqlc.narg('blind_experiment_assignment_source')::varchar,
     sqlc.narg('blind_experiment_subject_key')::varchar,
+    sqlc.narg('blind_experiment_mode')::varchar,
+    sqlc.narg('blind_experiment_session_key')::varchar,
     sqlc.narg('cohort_experiment_id')::uuid,
     sqlc.narg('cohort_group_id')::smallint,
     sqlc.narg('cohort_phase_index')::smallint,
@@ -308,6 +316,10 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('cohort_scheduled_arm')::varchar,
     sqlc.narg('cohort_treatment_applied')::boolean,
     sqlc.narg('cohort_bypass_reason')::varchar,
+    sqlc.narg('blind_experiment_model_source')::varchar,
+    sqlc.narg('blind_experiment_treatment_applied')::boolean,
+    sqlc.narg('blind_experiment_baseline_model')::varchar,
+    sqlc.narg('blind_experiment_model_changed')::boolean,
     @turn_type::varchar,
     sqlc.narg('rollout_id')::varchar,
     sqlc.narg('upstream_finish_reason')::text,
@@ -797,6 +809,8 @@ SELECT
     t.blind_experiment_arm,
     t.blind_experiment_assignment_source,
     t.blind_experiment_subject_key,
+    t.blind_experiment_mode,
+    t.blind_experiment_session_key,
     t.cohort_experiment_id,
     t.cohort_group_id,
     t.cohort_phase_index,
@@ -804,6 +818,10 @@ SELECT
     t.cohort_scheduled_arm,
     t.cohort_treatment_applied,
     t.cohort_bypass_reason,
+    t.blind_experiment_model_source,
+    t.blind_experiment_treatment_applied,
+    t.blind_experiment_baseline_model,
+    t.blind_experiment_model_changed,
     t.policy_pin_requested,
     t.policy_pin_honoured,
     t.sticky_hit,
@@ -907,6 +925,7 @@ SELECT
     COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
     COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
     MAX(t.created_at)::timestamptz AS last_recorded_at,
+    BOOL_OR(COALESCE(t.blind_experiment_arm, '') <> '')::boolean AS blind_experiment,
     (SELECT latest.context_snapshot
      FROM router.model_router_request_telemetry latest
      WHERE latest.installation_id = @installation_id::uuid
@@ -973,32 +992,48 @@ ORDER BY 1;
 
 -- Everyone who could route: roster users (linked) and API keys that sent
 -- traffic without a router user (unlinked), with their latest request ever.
+-- One telemetry scan feeds both halves; idle users would otherwise walk the
+-- installation's full history once each.
 -- name: GetTelemetryDashboardPeople :many
+WITH activity AS MATERIALIZED (
+    SELECT
+        t.installation_id,
+        t.router_user_id,
+        t.api_key_id,
+        MAX(t.timestamp) AS last_request_at
+    FROM router.model_router_request_telemetry t
+    WHERE t.span_type = 'router.upstream'
+      AND (t.router_user_id IS NOT NULL OR t.api_key_id IS NOT NULL)
+      AND (sqlc.narg(installation_id)::uuid IS NULL OR t.installation_id = sqlc.narg(installation_id)::uuid)
+    GROUP BY t.installation_id, t.router_user_id, t.api_key_id
+)
 SELECT
     u.id::text AS person_id,
     true AS linked,
     COALESCE(NULLIF(u.display_name, ''), u.email, '')::text AS display_name,
     COALESCE(u.email, '')::text AS email,
-    (SELECT MAX(t.timestamp) FROM router.model_router_request_telemetry t
-      WHERE t.installation_id = u.installation_id AND t.router_user_id = u.id
-        AND t.span_type = 'router.upstream')::timestamptz AS last_request_at
+    linked_activity.last_request_at::timestamptz AS last_request_at
 FROM router.model_router_users u
+LEFT JOIN (
+    SELECT a.installation_id, a.router_user_id, MAX(a.last_request_at) AS last_request_at
+    FROM activity a
+    WHERE a.router_user_id IS NOT NULL
+    GROUP BY a.installation_id, a.router_user_id
+) linked_activity ON linked_activity.installation_id = u.installation_id
+    AND linked_activity.router_user_id = u.id
 WHERE u.deleted_at IS NULL
   AND (sqlc.narg(installation_id)::uuid IS NULL OR u.installation_id = sqlc.narg(installation_id)::uuid)
 UNION ALL
 SELECT
-    t.api_key_id::text AS person_id,
+    a.api_key_id::text AS person_id,
     false AS linked,
     COALESCE(MAX(k.name), '')::text AS display_name,
     ''::text AS email,
-    MAX(t.timestamp)::timestamptz AS last_request_at
-FROM router.model_router_request_telemetry t
-LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
-WHERE t.span_type = 'router.upstream'
-  AND t.router_user_id IS NULL
-  AND t.api_key_id IS NOT NULL
-  AND (sqlc.narg(installation_id)::uuid IS NULL OR t.installation_id = sqlc.narg(installation_id)::uuid)
-GROUP BY t.api_key_id;
+    MAX(a.last_request_at)::timestamptz AS last_request_at
+FROM activity a
+LEFT JOIN router.model_router_api_keys k ON k.id = a.api_key_id
+WHERE a.router_user_id IS NULL
+GROUP BY a.api_key_id;
 
 -- Subscription accounts registered to the pool with their latest quota reading.
 -- A seat registered to several installations appears once; its quota is a

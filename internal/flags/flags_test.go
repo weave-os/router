@@ -60,6 +60,7 @@ func TestParseOverridesIgnoresRetiredFlags(t *testing.T) {
 		"struggle_escalation_holdout_pct": "retired",
 		"struggle_evidence_arming": false,
 		"subscriber_paid_fallback_enabled": false,
+		"subscription_pool_quota_aware_selection_enabled": true,
 		"planner_enabled": false,
 		"loop_escalation_holdout_pct": 25
 	}`))
@@ -68,6 +69,7 @@ func TestParseOverridesIgnoresRetiredFlags(t *testing.T) {
 	assert.Equal(t, 25, o.Ints[flags.KeyLoopEscalationHoldoutPct])
 	assert.NotContains(t, o.Keys(), flags.Key("struggle_escalation_enabled"))
 	assert.NotContains(t, o.Keys(), flags.Key("subscriber_paid_fallback_enabled"))
+	assert.NotContains(t, o.Keys(), flags.Key("subscription_pool_quota_aware_selection_enabled"))
 }
 
 func TestParseOverridesRejectsBadPayloads(t *testing.T) {

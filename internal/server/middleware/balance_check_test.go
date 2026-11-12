@@ -524,3 +524,20 @@ func TestWithBalanceCheck_ExemptsSubscriberAllowanceCoveredRequest(t *testing.T)
 	assert.True(t, reached, "an allowance-covered turn is not gated on org prepaid credits")
 	assert.Equal(t, http.StatusOK, w.Code)
 }
+
+func TestWithBalanceCheck_MarksWeaveCreditsDenied(t *testing.T) {
+	for _, allowed := range []bool{true, false} {
+		gin.SetMode(gin.TestMode)
+		svc := billing.NewService(&stubBillingRepo{balance: 50_000_000})
+		engine := gin.New()
+		var denied bool
+		engine.GET("/probe", func(c *gin.Context) {
+			c.Set("router_installation", &auth.Installation{ID: "00000000-0000-0000-0000-000000000001", ExternalID: "org_x", WeaveCreditInferenceEnabled: allowed})
+			middleware.WithBalanceCheck(svc, 1_000_000)(c)
+			denied = billing.WeaveCreditsDeniedFromContext(c.Request.Context())
+			c.Status(http.StatusOK)
+		})
+		engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/probe", nil))
+		assert.Equal(t, !allowed, denied, "allowed=%v", allowed)
+	}
+}

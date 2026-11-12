@@ -99,6 +99,8 @@ SELECT
     t.blind_experiment_arm,
     t.blind_experiment_assignment_source,
     t.blind_experiment_subject_key,
+    t.blind_experiment_mode,
+    t.blind_experiment_session_key,
     t.cohort_experiment_id,
     t.cohort_group_id,
     t.cohort_phase_index,
@@ -106,6 +108,10 @@ SELECT
     t.cohort_scheduled_arm,
     t.cohort_treatment_applied,
     t.cohort_bypass_reason,
+    t.blind_experiment_model_source,
+    t.blind_experiment_treatment_applied,
+    t.blind_experiment_baseline_model,
+    t.blind_experiment_model_changed,
     t.policy_pin_requested,
     t.policy_pin_honoured,
     t.sticky_hit,
@@ -229,6 +235,8 @@ type GetRoutingDecisionsForExportRow struct {
 	BlindExperimentArm              *string
 	BlindExperimentAssignmentSource *string
 	BlindExperimentSubjectKey       *string
+	BlindExperimentMode             *string
+	BlindExperimentSessionKey       *string
 	CohortExperimentID              pgtype.UUID
 	CohortGroupID                   *int16
 	CohortPhaseIndex                *int16
@@ -236,6 +244,10 @@ type GetRoutingDecisionsForExportRow struct {
 	CohortScheduledArm              *string
 	CohortTreatmentApplied          *bool
 	CohortBypassReason              *string
+	BlindExperimentModelSource      *string
+	BlindExperimentTreatmentApplied *bool
+	BlindExperimentBaselineModel    *string
+	BlindExperimentModelChanged     *bool
 	PolicyPinRequested              *bool
 	PolicyPinHonoured               *bool
 	StickyHit                       *bool
@@ -331,6 +343,8 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.blind_experiment_arm,
 //	    t.blind_experiment_assignment_source,
 //	    t.blind_experiment_subject_key,
+//	    t.blind_experiment_mode,
+//	    t.blind_experiment_session_key,
 //	    t.cohort_experiment_id,
 //	    t.cohort_group_id,
 //	    t.cohort_phase_index,
@@ -338,6 +352,10 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.cohort_scheduled_arm,
 //	    t.cohort_treatment_applied,
 //	    t.cohort_bypass_reason,
+//	    t.blind_experiment_model_source,
+//	    t.blind_experiment_treatment_applied,
+//	    t.blind_experiment_baseline_model,
+//	    t.blind_experiment_model_changed,
 //	    t.policy_pin_requested,
 //	    t.policy_pin_honoured,
 //	    t.sticky_hit,
@@ -466,6 +484,8 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.BlindExperimentArm,
 			&i.BlindExperimentAssignmentSource,
 			&i.BlindExperimentSubjectKey,
+			&i.BlindExperimentMode,
+			&i.BlindExperimentSessionKey,
 			&i.CohortExperimentID,
 			&i.CohortGroupID,
 			&i.CohortPhaseIndex,
@@ -473,6 +493,10 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.CohortScheduledArm,
 			&i.CohortTreatmentApplied,
 			&i.CohortBypassReason,
+			&i.BlindExperimentModelSource,
+			&i.BlindExperimentTreatmentApplied,
+			&i.BlindExperimentBaselineModel,
+			&i.BlindExperimentModelChanged,
 			&i.PolicyPinRequested,
 			&i.PolicyPinHonoured,
 			&i.StickyHit,
@@ -553,6 +577,7 @@ SELECT
     COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
     COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
     MAX(t.created_at)::timestamptz AS last_recorded_at,
+    BOOL_OR(COALESCE(t.blind_experiment_arm, '') <> '')::boolean AS blind_experiment,
     (SELECT latest.context_snapshot
      FROM router.model_router_request_telemetry latest
      WHERE latest.installation_id = $1::uuid
@@ -585,6 +610,7 @@ type GetSessionCostRow struct {
 	CacheCreationTokens    int64
 	CacheReadTokens        int64
 	LastRecordedAt         pgtype.Timestamptz
+	BlindExperiment        bool
 	ContextSnapshot        []byte
 }
 
@@ -605,6 +631,7 @@ type GetSessionCostRow struct {
 //	    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
 //	    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
 //	    MAX(t.created_at)::timestamptz AS last_recorded_at,
+//	    BOOL_OR(COALESCE(t.blind_experiment_arm, '') <> '')::boolean AS blind_experiment,
 //	    (SELECT latest.context_snapshot
 //	     FROM router.model_router_request_telemetry latest
 //	     WHERE latest.installation_id = $1::uuid
@@ -633,6 +660,7 @@ func (q *Queries) GetSessionCost(ctx context.Context, arg GetSessionCostParams) 
 		&i.CacheCreationTokens,
 		&i.CacheReadTokens,
 		&i.LastRecordedAt,
+		&i.BlindExperiment,
 		&i.ContextSnapshot,
 	)
 	return i, err
@@ -1270,31 +1298,45 @@ func (q *Queries) GetTelemetryDashboardIndividualFacts(ctx context.Context, arg 
 }
 
 const getTelemetryDashboardPeople = `-- name: GetTelemetryDashboardPeople :many
+WITH activity AS MATERIALIZED (
+    SELECT
+        t.installation_id,
+        t.router_user_id,
+        t.api_key_id,
+        MAX(t.timestamp) AS last_request_at
+    FROM router.model_router_request_telemetry t
+    WHERE t.span_type = 'router.upstream'
+      AND (t.router_user_id IS NOT NULL OR t.api_key_id IS NOT NULL)
+      AND ($1::uuid IS NULL OR t.installation_id = $1::uuid)
+    GROUP BY t.installation_id, t.router_user_id, t.api_key_id
+)
 SELECT
     u.id::text AS person_id,
     true AS linked,
     COALESCE(NULLIF(u.display_name, ''), u.email, '')::text AS display_name,
     COALESCE(u.email, '')::text AS email,
-    (SELECT MAX(t.timestamp) FROM router.model_router_request_telemetry t
-      WHERE t.installation_id = u.installation_id AND t.router_user_id = u.id
-        AND t.span_type = 'router.upstream')::timestamptz AS last_request_at
+    linked_activity.last_request_at::timestamptz AS last_request_at
 FROM router.model_router_users u
+LEFT JOIN (
+    SELECT a.installation_id, a.router_user_id, MAX(a.last_request_at) AS last_request_at
+    FROM activity a
+    WHERE a.router_user_id IS NOT NULL
+    GROUP BY a.installation_id, a.router_user_id
+) linked_activity ON linked_activity.installation_id = u.installation_id
+    AND linked_activity.router_user_id = u.id
 WHERE u.deleted_at IS NULL
   AND ($1::uuid IS NULL OR u.installation_id = $1::uuid)
 UNION ALL
 SELECT
-    t.api_key_id::text AS person_id,
+    a.api_key_id::text AS person_id,
     false AS linked,
     COALESCE(MAX(k.name), '')::text AS display_name,
     ''::text AS email,
-    MAX(t.timestamp)::timestamptz AS last_request_at
-FROM router.model_router_request_telemetry t
-LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
-WHERE t.span_type = 'router.upstream'
-  AND t.router_user_id IS NULL
-  AND t.api_key_id IS NOT NULL
-  AND ($1::uuid IS NULL OR t.installation_id = $1::uuid)
-GROUP BY t.api_key_id
+    MAX(a.last_request_at)::timestamptz AS last_request_at
+FROM activity a
+LEFT JOIN router.model_router_api_keys k ON k.id = a.api_key_id
+WHERE a.router_user_id IS NULL
+GROUP BY a.api_key_id
 `
 
 type GetTelemetryDashboardPeopleRow struct {
@@ -1307,32 +1349,48 @@ type GetTelemetryDashboardPeopleRow struct {
 
 // Everyone who could route: roster users (linked) and API keys that sent
 // traffic without a router user (unlinked), with their latest request ever.
+// One telemetry scan feeds both halves; idle users would otherwise walk the
+// installation's full history once each.
 //
+//	WITH activity AS MATERIALIZED (
+//	    SELECT
+//	        t.installation_id,
+//	        t.router_user_id,
+//	        t.api_key_id,
+//	        MAX(t.timestamp) AS last_request_at
+//	    FROM router.model_router_request_telemetry t
+//	    WHERE t.span_type = 'router.upstream'
+//	      AND (t.router_user_id IS NOT NULL OR t.api_key_id IS NOT NULL)
+//	      AND ($1::uuid IS NULL OR t.installation_id = $1::uuid)
+//	    GROUP BY t.installation_id, t.router_user_id, t.api_key_id
+//	)
 //	SELECT
 //	    u.id::text AS person_id,
 //	    true AS linked,
 //	    COALESCE(NULLIF(u.display_name, ''), u.email, '')::text AS display_name,
 //	    COALESCE(u.email, '')::text AS email,
-//	    (SELECT MAX(t.timestamp) FROM router.model_router_request_telemetry t
-//	      WHERE t.installation_id = u.installation_id AND t.router_user_id = u.id
-//	        AND t.span_type = 'router.upstream')::timestamptz AS last_request_at
+//	    linked_activity.last_request_at::timestamptz AS last_request_at
 //	FROM router.model_router_users u
+//	LEFT JOIN (
+//	    SELECT a.installation_id, a.router_user_id, MAX(a.last_request_at) AS last_request_at
+//	    FROM activity a
+//	    WHERE a.router_user_id IS NOT NULL
+//	    GROUP BY a.installation_id, a.router_user_id
+//	) linked_activity ON linked_activity.installation_id = u.installation_id
+//	    AND linked_activity.router_user_id = u.id
 //	WHERE u.deleted_at IS NULL
 //	  AND ($1::uuid IS NULL OR u.installation_id = $1::uuid)
 //	UNION ALL
 //	SELECT
-//	    t.api_key_id::text AS person_id,
+//	    a.api_key_id::text AS person_id,
 //	    false AS linked,
 //	    COALESCE(MAX(k.name), '')::text AS display_name,
 //	    ''::text AS email,
-//	    MAX(t.timestamp)::timestamptz AS last_request_at
-//	FROM router.model_router_request_telemetry t
-//	LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
-//	WHERE t.span_type = 'router.upstream'
-//	  AND t.router_user_id IS NULL
-//	  AND t.api_key_id IS NOT NULL
-//	  AND ($1::uuid IS NULL OR t.installation_id = $1::uuid)
-//	GROUP BY t.api_key_id
+//	    MAX(a.last_request_at)::timestamptz AS last_request_at
+//	FROM activity a
+//	LEFT JOIN router.model_router_api_keys k ON k.id = a.api_key_id
+//	WHERE a.router_user_id IS NULL
+//	GROUP BY a.api_key_id
 func (q *Queries) GetTelemetryDashboardPeople(ctx context.Context, installationID pgtype.UUID) ([]GetTelemetryDashboardPeopleRow, error) {
 	rows, err := q.db.Query(ctx, getTelemetryDashboardPeople, installationID)
 	if err != nil {
@@ -2729,6 +2787,8 @@ INSERT INTO router.model_router_request_telemetry (
     blind_experiment_arm,
     blind_experiment_assignment_source,
     blind_experiment_subject_key,
+    blind_experiment_mode,
+    blind_experiment_session_key,
     cohort_experiment_id,
     cohort_group_id,
     cohort_phase_index,
@@ -2736,6 +2796,10 @@ INSERT INTO router.model_router_request_telemetry (
     cohort_scheduled_arm,
     cohort_treatment_applied,
     cohort_bypass_reason,
+    blind_experiment_model_source,
+    blind_experiment_treatment_applied,
+    blind_experiment_baseline_model,
+    blind_experiment_model_changed,
     turn_type,
     rollout_id,
     upstream_finish_reason,
@@ -2906,117 +2970,123 @@ INSERT INTO router.model_router_request_telemetry (
     $63::varchar,
     $64::varchar,
     $65::varchar,
-    $66::uuid,
-    $67::smallint,
-    $68::smallint,
-    $69::integer,
-    $70::varchar,
-    $71::boolean,
+    $66::varchar,
+    $67::varchar,
+    $68::uuid,
+    $69::smallint,
+    $70::smallint,
+    $71::integer,
     $72::varchar,
-    $73::varchar,
+    $73::boolean,
     $74::varchar,
-    $75::text,
-    $76::text,
-    $77::int,
-    $78::int,
+    $75::varchar,
+    $76::boolean,
+    $77::varchar,
+    $78::boolean,
     $79::varchar,
-    $80::int,
-    $81::jsonb,
-    $82::boolean,
-    $83::boolean,
-    $84::boolean,
-    $85::boolean,
-    $86::boolean,
-    $87::bytea,
-    $88::varchar,
-    $89::varchar,
-    $90::jsonb,
-    $91::bigint,
-    $92::int,
-    $93::varchar,
+    $80::varchar,
+    $81::text,
+    $82::text,
+    $83::int,
+    $84::int,
+    $85::varchar,
+    $86::int,
+    $87::jsonb,
+    $88::boolean,
+    $89::boolean,
+    $90::boolean,
+    $91::boolean,
+    $92::boolean,
+    $93::bytea,
     $94::varchar,
     $95::varchar,
-    $96::uuid,
-    $97::uuid,
-    $98::varchar,
+    $96::jsonb,
+    $97::bigint,
+    $98::int,
     $99::varchar,
     $100::varchar,
-    $101::jsonb,
-    $102::jsonb,
-    $103::boolean,
-    $104::boolean,
+    $101::varchar,
+    $102::uuid,
+    $103::uuid,
+    $104::varchar,
     $105::varchar,
     $106::varchar,
-    $107::varchar,
-    $108::varchar,
-    $109::bigint,
-    $110::bigint,
-    $111::boolean,
+    $107::jsonb,
+    $108::jsonb,
+    $109::boolean,
+    $110::boolean,
+    $111::varchar,
     $112::varchar,
-    $113::bigint,
+    $113::varchar,
     $114::varchar,
-    $115::boolean,
-    $116::varchar,
-    $117::varchar,
+    $115::bigint,
+    $116::bigint,
+    $117::boolean,
     $118::varchar,
     $119::bigint,
-    $120::bigint,
+    $120::varchar,
     $121::boolean,
     $122::varchar,
-    $123::bigint,
-    $124::double precision,
-    $125::double precision,
-    $126::int,
-    $127::int,
-    $128::int,
-    $129::int,
-    $130::varchar,
+    $123::varchar,
+    $124::varchar,
+    $125::bigint,
+    $126::bigint,
+    $127::boolean,
+    $128::varchar,
+    $129::bigint,
+    $130::double precision,
     $131::double precision,
     $132::int,
     $133::int,
     $134::int,
     $135::int,
-    $136::int,
-    $137::boolean,
-    $138::varchar[],
-    $139::varchar[],
-    $140::varchar,
-    $141::varchar,
-    $142::varchar,
-    $143::varchar,
-    $144::varchar,
-    $145::varchar,
+    $136::varchar,
+    $137::double precision,
+    $138::int,
+    $139::int,
+    $140::int,
+    $141::int,
+    $142::int,
+    $143::boolean,
+    $144::varchar[],
+    $145::varchar[],
     $146::varchar,
     $147::varchar,
-    $148::boolean,
+    $148::varchar,
     $149::varchar,
     $150::varchar,
-    $151::boolean,
+    $151::varchar,
     $152::varchar,
     $153::varchar,
-    $154::varchar,
+    $154::boolean,
     $155::varchar,
     $156::varchar,
-    $157::bigint,
+    $157::boolean,
     $158::varchar,
-    $159::bigint,
-    $160::bigint,
-    $161::bigint,
-    $162::bigint,
-    $163::boolean,
+    $159::varchar,
+    $160::varchar,
+    $161::varchar,
+    $162::varchar,
+    $163::bigint,
     $164::varchar,
-    $165::varchar,
-    $166::varchar,
-    $167::varchar,
-    $168::varchar,
-    $169::varchar,
-    $170::boolean,
-    $171::bigint,
+    $165::bigint,
+    $166::bigint,
+    $167::bigint,
+    $168::bigint,
+    $169::boolean,
+    $170::varchar,
+    $171::varchar,
     $172::varchar,
     $173::varchar,
     $174::varchar,
-    $175::jsonb,
-    $176::jsonb
+    $175::varchar,
+    $176::boolean,
+    $177::bigint,
+    $178::varchar,
+    $179::varchar,
+    $180::varchar,
+    $181::jsonb,
+    $182::jsonb
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -3087,6 +3157,8 @@ type InsertRequestTelemetryParams struct {
 	BlindExperimentArm                       *string
 	BlindExperimentAssignmentSource          *string
 	BlindExperimentSubjectKey                *string
+	BlindExperimentMode                      *string
+	BlindExperimentSessionKey                *string
 	CohortExperimentID                       pgtype.UUID
 	CohortGroupID                            *int16
 	CohortPhaseIndex                         *int16
@@ -3094,6 +3166,10 @@ type InsertRequestTelemetryParams struct {
 	CohortScheduledArm                       *string
 	CohortTreatmentApplied                   *bool
 	CohortBypassReason                       *string
+	BlindExperimentModelSource               *string
+	BlindExperimentTreatmentApplied          *bool
+	BlindExperimentBaselineModel             *string
+	BlindExperimentModelChanged              *bool
 	TurnType                                 string
 	RolloutID                                *string
 	UpstreamFinishReason                     *string
@@ -3326,6 +3402,8 @@ type InsertRequestTelemetryParams struct {
 //	    blind_experiment_arm,
 //	    blind_experiment_assignment_source,
 //	    blind_experiment_subject_key,
+//	    blind_experiment_mode,
+//	    blind_experiment_session_key,
 //	    cohort_experiment_id,
 //	    cohort_group_id,
 //	    cohort_phase_index,
@@ -3333,6 +3411,10 @@ type InsertRequestTelemetryParams struct {
 //	    cohort_scheduled_arm,
 //	    cohort_treatment_applied,
 //	    cohort_bypass_reason,
+//	    blind_experiment_model_source,
+//	    blind_experiment_treatment_applied,
+//	    blind_experiment_baseline_model,
+//	    blind_experiment_model_changed,
 //	    turn_type,
 //	    rollout_id,
 //	    upstream_finish_reason,
@@ -3503,117 +3585,123 @@ type InsertRequestTelemetryParams struct {
 //	    $63::varchar,
 //	    $64::varchar,
 //	    $65::varchar,
-//	    $66::uuid,
-//	    $67::smallint,
-//	    $68::smallint,
-//	    $69::integer,
-//	    $70::varchar,
-//	    $71::boolean,
+//	    $66::varchar,
+//	    $67::varchar,
+//	    $68::uuid,
+//	    $69::smallint,
+//	    $70::smallint,
+//	    $71::integer,
 //	    $72::varchar,
-//	    $73::varchar,
+//	    $73::boolean,
 //	    $74::varchar,
-//	    $75::text,
-//	    $76::text,
-//	    $77::int,
-//	    $78::int,
+//	    $75::varchar,
+//	    $76::boolean,
+//	    $77::varchar,
+//	    $78::boolean,
 //	    $79::varchar,
-//	    $80::int,
-//	    $81::jsonb,
-//	    $82::boolean,
-//	    $83::boolean,
-//	    $84::boolean,
-//	    $85::boolean,
-//	    $86::boolean,
-//	    $87::bytea,
-//	    $88::varchar,
-//	    $89::varchar,
-//	    $90::jsonb,
-//	    $91::bigint,
-//	    $92::int,
-//	    $93::varchar,
+//	    $80::varchar,
+//	    $81::text,
+//	    $82::text,
+//	    $83::int,
+//	    $84::int,
+//	    $85::varchar,
+//	    $86::int,
+//	    $87::jsonb,
+//	    $88::boolean,
+//	    $89::boolean,
+//	    $90::boolean,
+//	    $91::boolean,
+//	    $92::boolean,
+//	    $93::bytea,
 //	    $94::varchar,
 //	    $95::varchar,
-//	    $96::uuid,
-//	    $97::uuid,
-//	    $98::varchar,
+//	    $96::jsonb,
+//	    $97::bigint,
+//	    $98::int,
 //	    $99::varchar,
 //	    $100::varchar,
-//	    $101::jsonb,
-//	    $102::jsonb,
-//	    $103::boolean,
-//	    $104::boolean,
+//	    $101::varchar,
+//	    $102::uuid,
+//	    $103::uuid,
+//	    $104::varchar,
 //	    $105::varchar,
 //	    $106::varchar,
-//	    $107::varchar,
-//	    $108::varchar,
-//	    $109::bigint,
-//	    $110::bigint,
-//	    $111::boolean,
+//	    $107::jsonb,
+//	    $108::jsonb,
+//	    $109::boolean,
+//	    $110::boolean,
+//	    $111::varchar,
 //	    $112::varchar,
-//	    $113::bigint,
+//	    $113::varchar,
 //	    $114::varchar,
-//	    $115::boolean,
-//	    $116::varchar,
-//	    $117::varchar,
+//	    $115::bigint,
+//	    $116::bigint,
+//	    $117::boolean,
 //	    $118::varchar,
 //	    $119::bigint,
-//	    $120::bigint,
+//	    $120::varchar,
 //	    $121::boolean,
 //	    $122::varchar,
-//	    $123::bigint,
-//	    $124::double precision,
-//	    $125::double precision,
-//	    $126::int,
-//	    $127::int,
-//	    $128::int,
-//	    $129::int,
-//	    $130::varchar,
+//	    $123::varchar,
+//	    $124::varchar,
+//	    $125::bigint,
+//	    $126::bigint,
+//	    $127::boolean,
+//	    $128::varchar,
+//	    $129::bigint,
+//	    $130::double precision,
 //	    $131::double precision,
 //	    $132::int,
 //	    $133::int,
 //	    $134::int,
 //	    $135::int,
-//	    $136::int,
-//	    $137::boolean,
-//	    $138::varchar[],
-//	    $139::varchar[],
-//	    $140::varchar,
-//	    $141::varchar,
-//	    $142::varchar,
-//	    $143::varchar,
-//	    $144::varchar,
-//	    $145::varchar,
+//	    $136::varchar,
+//	    $137::double precision,
+//	    $138::int,
+//	    $139::int,
+//	    $140::int,
+//	    $141::int,
+//	    $142::int,
+//	    $143::boolean,
+//	    $144::varchar[],
+//	    $145::varchar[],
 //	    $146::varchar,
 //	    $147::varchar,
-//	    $148::boolean,
+//	    $148::varchar,
 //	    $149::varchar,
 //	    $150::varchar,
-//	    $151::boolean,
+//	    $151::varchar,
 //	    $152::varchar,
 //	    $153::varchar,
-//	    $154::varchar,
+//	    $154::boolean,
 //	    $155::varchar,
 //	    $156::varchar,
-//	    $157::bigint,
+//	    $157::boolean,
 //	    $158::varchar,
-//	    $159::bigint,
-//	    $160::bigint,
-//	    $161::bigint,
-//	    $162::bigint,
-//	    $163::boolean,
+//	    $159::varchar,
+//	    $160::varchar,
+//	    $161::varchar,
+//	    $162::varchar,
+//	    $163::bigint,
 //	    $164::varchar,
-//	    $165::varchar,
-//	    $166::varchar,
-//	    $167::varchar,
-//	    $168::varchar,
-//	    $169::varchar,
-//	    $170::boolean,
-//	    $171::bigint,
+//	    $165::bigint,
+//	    $166::bigint,
+//	    $167::bigint,
+//	    $168::bigint,
+//	    $169::boolean,
+//	    $170::varchar,
+//	    $171::varchar,
 //	    $172::varchar,
 //	    $173::varchar,
 //	    $174::varchar,
-//	    $175::jsonb,
-//	    $176::jsonb
+//	    $175::varchar,
+//	    $176::boolean,
+//	    $177::bigint,
+//	    $178::varchar,
+//	    $179::varchar,
+//	    $180::varchar,
+//	    $181::jsonb,
+//	    $182::jsonb
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -3683,6 +3771,8 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.BlindExperimentArm,
 		arg.BlindExperimentAssignmentSource,
 		arg.BlindExperimentSubjectKey,
+		arg.BlindExperimentMode,
+		arg.BlindExperimentSessionKey,
 		arg.CohortExperimentID,
 		arg.CohortGroupID,
 		arg.CohortPhaseIndex,
@@ -3690,6 +3780,10 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.CohortScheduledArm,
 		arg.CohortTreatmentApplied,
 		arg.CohortBypassReason,
+		arg.BlindExperimentModelSource,
+		arg.BlindExperimentTreatmentApplied,
+		arg.BlindExperimentBaselineModel,
+		arg.BlindExperimentModelChanged,
 		arg.TurnType,
 		arg.RolloutID,
 		arg.UpstreamFinishReason,

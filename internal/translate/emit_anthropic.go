@@ -808,20 +808,18 @@ func writeAnthropicToolChoice(jw *jsonWriter, body []byte, autoOnly bool) {
 	jw.Raw(string(tw.Bytes()))
 }
 
+// anthropicSamplingParams are the sampling controls Fable 5.1+ reject.
+var anthropicSamplingParams = []string{"temperature", "top_p", "top_k"}
+
 func writeAnthropicSamplingParams(jw *jsonWriter, body []byte, capabilities router.ModelSpec) {
-	if !capabilities.Supports(router.CapTemperatureUnsupported) {
-		if value := gjson.GetBytes(body, "temperature"); value.Exists() {
-			jw.Key("temperature")
+	if capabilities.Supports(router.CapSamplingParamsUnsupported) {
+		return
+	}
+	for _, key := range anthropicSamplingParams {
+		if value := gjson.GetBytes(body, key); value.Exists() {
+			jw.Key(key)
 			jw.Raw(value.Raw)
 		}
-	}
-	if value := gjson.GetBytes(body, "top_p"); value.Exists() {
-		jw.Key("top_p")
-		jw.Raw(value.Raw)
-	}
-	if value := gjson.GetBytes(body, "top_k"); value.Exists() {
-		jw.Key("top_k")
-		jw.Raw(value.Raw)
 	}
 }
 

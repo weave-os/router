@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"weave-os/router/internal/auth"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/sessionpin"
@@ -105,6 +106,10 @@ func (s *Service) handleTextRepetitionBreak(
 			"Weave Router: repetition loop detected (%s/%s repeated the same response %d times). Stopping and clearing the session pin; send a follow-up to resume on a different model.",
 			decisionModel, decisionProvider, count,
 		)
+	}
+
+	if _, active := auth.BlindExperimentFrom(ctx); active {
+		msg = blindExperimentLoopStopMessage
 	}
 
 	log.Info("Text-repetition loop detected; breaking turn",

@@ -61,6 +61,15 @@ func TestParseCodexHeaders_DefaultsWindowWhenOmitted(t *testing.T) {
 	assert.Equal(t, 10080, snap.Secondary.WindowMinutes, "secondary defaults to weekly")
 }
 
+func TestParseCodexHeaders_OverflowingWindowUsesDefault(t *testing.T) {
+	h := http.Header{}
+	h.Set("x-codex-primary-used-percent", "100")
+	h.Set("x-codex-primary-window-minutes", "9223372036854775807")
+	snapshot, ok := usage.ParseCodexHeaders(h)
+	require.True(t, ok)
+	require.Equal(t, 300, snapshot.Primary.WindowMinutes)
+}
+
 func TestParseAnthropicUnified_FromRemainingLimit(t *testing.T) {
 	h := http.Header{}
 	h.Set("anthropic-ratelimit-unified-5h-limit", "1000")
@@ -448,23 +457,35 @@ func TestObserver_NoResetFallsBackToWindowLength(t *testing.T) {
 	assert.True(t, ok, "with no reset header the window-length horizon still applies")
 }
 
-func TestObserver_UsageBilledRequiresNoQuotaWindowEver(t *testing.T) {
-	clock := time.Unix(1_790_000_000, 0).UTC()
-	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return clock })
-	overage := usage.Snapshot{RepresentativeClaim: usage.AnthropicClaimOverage, OverageInUse: true, UnifiedResetAt: clock.Add(72 * time.Hour)}
+func TestParseCodexHeadersUsesReportedReset(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-Codex-Primary-Used-Percent", "40")
+	h.Set("X-Codex-Primary-Reset-At", "1794398700")
+	snap, ok := usage.ParseCodexHeaders(h)
+	assert.True(t, ok)
+	assert.Equal(t, int64(1794398700), snap.Primary.ResetAt.Unix())
+}
 
-	seat := observer.Key([]byte("sk-ant-oat01-usage-billed"))
-	observer.Record(seat, overage)
-	snap, ok := observer.Snapshot(seat)
+func TestObserverKeepsFutureResetWhenInferenceOmitsPreflightMetadata(t *testing.T) {
+	now := time.Date(2026, time.November, 11, 12, 0, 0, 0, time.UTC)
+	observer := usage.NewObserver([]byte("synthetic-salt"), 10*time.Minute, func() time.Time { return now })
+	key := observer.Key([]byte("synthetic-account"))
+	firstReset := now.Add(5 * time.Minute)
+	weeklyReset := now.Add(24 * time.Hour)
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: .4, WindowMinutes: 300, ResetAt: firstReset}, Secondary: usage.Window{UsedPercent: .8, WindowMinutes: 10080, ResetAt: weeklyReset}})
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: .5, WindowMinutes: 300}, Secondary: usage.Window{UsedPercent: .9, WindowMinutes: 10080}})
+	snapshot, ok := observer.Snapshot(key)
 	require.True(t, ok)
-	assert.True(t, snap.UsageBilled(), "overage with no quota window ever reported is usage billing")
-
-	plan := observer.Key([]byte("sk-ant-oat01-plan"))
-	observer.Record(plan, usage.Snapshot{Secondary: usage.Window{UsedPercent: 0.2, WindowMinutes: 10080}})
-	clock = clock.Add(time.Hour)
-	observer.Record(plan, overage)
-	snap, ok = observer.Snapshot(plan)
+	require.Equal(t, firstReset, snapshot.Primary.ResetAt)
+	require.Equal(t, weeklyReset, snapshot.Secondary.ResetAt)
+	require.Equal(t, .5, snapshot.Primary.UsedPercent)
+	now = firstReset.Add(time.Minute)
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: .1, WindowMinutes: 300}})
+	snapshot, ok = observer.Snapshot(key)
 	require.True(t, ok)
-	assert.True(t, snap.OverageInUse)
-	assert.False(t, snap.UsageBilled(), "a seat that reported a quota window is a plan on overage")
+	require.True(t, snapshot.Primary.ResetAt.IsZero(), "an elapsed reset must not override the new window")
+	newReset := now.Add(time.Hour)
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: .2, WindowMinutes: 300, ResetAt: newReset}})
+	snapshot, _ = observer.Snapshot(key)
+	require.Equal(t, newReset, snapshot.Primary.ResetAt)
 }

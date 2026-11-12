@@ -89,7 +89,8 @@ func parityAnthropicIngress() parityIngress {
 		byokKey:        parityAnthropicBYOK,
 		subCtx: func() context.Context {
 			ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, parityAnthropicToken)
-			return context.WithValue(ctx, InstallationIDContextKey{}, parityInstallationID)
+			// These parity cases exercise the explicitly enabled API fallback.
+			return withClaudeCreditFallback(context.WithValue(ctx, InstallationIDContextKey{}, parityInstallationID))
 		},
 		servedOnSub:       servedOnSubscription,
 		fallbackAvailable: (*Service).anthropicFallbackKeyAvailable,
@@ -165,8 +166,13 @@ func parityIngresses() []parityIngress {
 
 // byokCtx adds a BYOK key for the ingress' provider.
 func (in parityIngress) byokCtx(ctx context.Context) context.Context {
+	// Mirrors stored keys: Anthropic rows predating funding priorities are key-first.
+	priority := auth.FundingPriorityPlanFirst
+	if in.provider == providers.ProviderAnthropic {
+		priority = auth.FundingPriorityKeyFirst
+	}
 	return context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: in.provider, Plaintext: []byte(in.byokKey)},
+		{Provider: in.provider, Plaintext: []byte(in.byokKey), FundingPriority: priority},
 	})
 }
 

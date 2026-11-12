@@ -38,7 +38,8 @@ func TestProxyOpenAIResponses_BlindPassthroughDoesNotRescueOrMutatePins(t *testi
 	assert.Equal(t, 1, openAIHits)
 	assert.Zero(t, anthropicHits, "passthrough must not substitute a fallback model after a refusal")
 	assert.Contains(t, recorder.Body.String(), "cybersecurity risk", "the requested model's response must be returned unchanged")
-	assert.Equal(t, "gpt-5.6-sol", recorder.Header().Get(proxy.HeaderRouterModel))
+	assert.Empty(t, recorder.Header().Get(proxy.HeaderRouterModel), "experiment subjects must not see the served model")
+	assert.NotContains(t, recorder.Body.String(), "Weave Router")
 
 	store.mu.Lock()
 	defer store.mu.Unlock()

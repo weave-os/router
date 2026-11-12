@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
@@ -148,6 +149,7 @@ func TestCohortWorkerColdStartAndDestinationValidationUseEveryAssignedPolicy(t *
 		require.NoError(t, err)
 		require.True(t, attestation.Ready)
 		require.Equal(t, selection, attestation.Selection)
+		require.Equal(t, []policy.ClassifierAPIMajor{policy.ClassifierAPIMajorV4, policy.ClassifierAPIMajorV5}, attestation.SupportedAPIMajors, "the worker attests the classifier APIs its binary speaks")
 		if key == profileKeyTwo {
 			require.Equal(t, []string{alternateRosterArm}, attestation.CatalogArms)
 		}

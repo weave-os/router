@@ -103,3 +103,31 @@ func TestFastMode_OpenAICompatGatewaysNeverGetServiceTier(t *testing.T) {
 		assert.False(t, gjson.GetBytes(responses, "service_tier").Exists(), provider)
 	}
 }
+
+func TestFastMode_OpenAIOffStripsCallerPriorityTier(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-terra","service_tier":"priority","input":"hi"}`)
+
+	out, err := translate.ApplyOpenAIFastMode(body, translate.EmitOptions{TargetProvider: providers.ProviderOpenAI})
+	require.NoError(t, err)
+
+	assert.False(t, gjson.GetBytes(out, "service_tier").Exists())
+	assert.Equal(t, "hi", gjson.GetBytes(out, "input").String())
+}
+
+func TestFastMode_OpenAIOffKeepsCallerNonPriorityTier(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-terra","service_tier":"flex"}`)
+
+	out, err := translate.ApplyOpenAIFastMode(body, translate.EmitOptions{TargetProvider: providers.ProviderOpenAI})
+	require.NoError(t, err)
+
+	assert.Equal(t, "flex", gjson.GetBytes(out, "service_tier").String())
+}
+
+func TestFastMode_GatewayKeepsCallerPriorityTier(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-terra","service_tier":"priority"}`)
+
+	out, err := translate.ApplyOpenAIFastMode(body, translate.EmitOptions{TargetProvider: providers.ProviderOpenAIGateway})
+	require.NoError(t, err)
+
+	assert.Equal(t, "priority", gjson.GetBytes(out, "service_tier").String())
+}

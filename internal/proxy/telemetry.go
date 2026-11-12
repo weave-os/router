@@ -68,6 +68,7 @@ type SessionCost struct {
 	CacheCreationTokens    int64
 	CacheReadTokens        int64
 	LastRecordedAt         time.Time
+	BlindExperiment        bool
 }
 
 // InsertTelemetryParams mirrors one router.upstream span row.
@@ -89,6 +90,8 @@ type InsertTelemetryParams struct {
 	BlindExperimentArm              auth.BlindExperimentArm
 	BlindExperimentAssignmentSource auth.BlindExperimentAssignmentSource
 	BlindExperimentSubjectKey       string
+	BlindExperimentMode             auth.BlindExperimentMode
+	BlindExperimentSessionKey       string
 	CohortExperimentID              string
 	CohortGroupID                   *int16
 	CohortPhaseIndex                *int16
@@ -96,6 +99,10 @@ type InsertTelemetryParams struct {
 	CohortScheduledArm              auth.BlindExperimentArm
 	CohortTreatmentApplied          *bool
 	CohortBypassReason              auth.CohortBypassReason
+	BlindExperimentModelSource      auth.BlindExperimentModelSource
+	BlindExperimentTreatmentApplied *bool
+	BlindExperimentBaselineModel    string
+	BlindExperimentModelChanged     *bool
 	EstimatedInputTokens            int32
 	StickyHit                       bool
 	// PinTier is the actual served-path turn-loop tier. Empty leaves the column NULL.
@@ -393,6 +400,16 @@ func applyBlindExperimentTelemetry(ctx context.Context, params *InsertTelemetryP
 	params.BlindExperimentArm = state.Arm
 	params.BlindExperimentAssignmentSource = state.AssignmentSource
 	params.BlindExperimentSubjectKey = state.CanonicalSubjectKey
+	params.BlindExperimentMode = state.Mode
+	if state.Mode == auth.BlindExperimentModeSession && state.SessionSubjectKey == "" {
+		params.BlindExperimentMode = auth.BlindExperimentModeUser
+	}
+	params.BlindExperimentSessionKey = state.SessionSubjectKey
+	outcome := blindExperimentOutcomeFor(ctx, state, routed, params.RequestedModel, params.DecisionModel)
+	params.BlindExperimentModelSource = outcome.source
+	params.BlindExperimentTreatmentApplied = &outcome.treatmentApplied
+	params.BlindExperimentBaselineModel = outcome.baselineModel
+	params.BlindExperimentModelChanged = outcome.modelChanged
 	if state.CohortExperimentID != "" {
 		phaseIndex := int16(state.CohortPhaseIndex)
 		params.CohortPhaseIndex = &phaseIndex

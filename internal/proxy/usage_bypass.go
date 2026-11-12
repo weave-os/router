@@ -265,10 +265,13 @@ func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, he
 // overage still leaves the subscription. A picked model on the caller's own
 // login lets Anthropic decide, as the native client would.
 func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {
+	if claudeEnterpriseOnly(ctx) {
+		return false
+	}
 	if pickedModelOnOwnPlan(ctx) {
 		return false
 	}
-	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst && snap.UsageBilled() {
+	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst && claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise {
 		return false
 	}
 	return snap.BillableOrExhausted()
@@ -321,7 +324,7 @@ func anthropicOAuthCredentialRejected(err error) bool {
 // Duplicated from middleware.TopUpURL (proxy can't import the middleware
 // adapter without an import cycle) so subscription-only warnings and the
 // credits-exhausted 402 can surface the CTA.
-const topUpURL = "https://app.workweave.ai/organization/settings/weave-router"
+const topUpURL = "https://app.weaveos.com/organization/settings/weave-router/credits"
 
 // subscriptionOnlyWarningMarker is prepended to a subscription-only bypass
 // response so the customer sees why they're being served on their own plan and
@@ -389,7 +392,7 @@ type subscriptionOnlyWarningsEchoedContextKey struct{}
 
 // SubscriptionsDashboardURL is the user's own linked-plans settings page.
 // The nudges add `reconnect=<provider>` so the page starts that login on load.
-const SubscriptionsDashboardURL = "https://router.weaveos.com/settings/subscriptions"
+const SubscriptionsDashboardURL = "https://app.weaveos.com/organization/settings/weave-router/subscriptions"
 
 // ownCodexPlanSpentNudge replaces the routing marker once per session when
 // the caller's own ChatGPT plan is spent, so they can connect a seat instead
@@ -578,6 +581,9 @@ func (s *Service) bypassToAnthropic(
 	// would, and so servedOnSubscription / the usage observer key off the same
 	// token the upstream call sends.
 	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
+	if claudeEnterpriseOnly(ctx) && !servedOnSubscription(ctx) {
+		return ErrClaudeEnterpriseSubscriptionUnavailable
+	}
 
 	outputReserve := contextWindowOutputReserve
 	if feats.MaxTokens > outputReserve {
@@ -676,10 +682,10 @@ func (s *Service) bypassToAnthropic(
 	}
 	if env.Stream() && proxyErr != nil && preludeBuf.Committed() {
 		proxyErr = emitAnthropicSSEErrorEvent(w, proxyErr)
-	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) {
+	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) && !claudeEnterpriseOnly(ctx) {
 		return errBypassRetryable
 	}
-	if !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) &&
+	if !claudeEnterpriseOnly(ctx) && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) &&
 		(!billing.SubscriptionOnlyFromContext(ctx) || linkedFirst(ctx)) {
 		return errBypassRetryable
 	}
@@ -747,6 +753,7 @@ func (s *Service) bypassToAnthropic(
 			outcomeErr = upstreamErr
 		}
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
+		s.markServedExternalKeyUsed(ctx, outcomeErr)
 		stopReason, _, _ := extractor.AnthropicResponse()
 		// The routed path's key, so a session switching lanes keeps one turn clock.
 		sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyIDFromContext(ctx))

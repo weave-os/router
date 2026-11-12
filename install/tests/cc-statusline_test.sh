@@ -617,16 +617,17 @@ gate_cache() {
   echo "$1/weave-router/display-settings$(printf '%s' "$2" | tr -c 'A-Za-z0-9._-' '_')"
 }
 
-# Hidden org goes blank via the cache: the first run fails open while the
-# background refresh caches hide=true, and the second run decides from it.
+# Hidden org goes blank even on a cold cache: the first run waits for the
+# background refresh to cache hide=true, and the second run decides from it.
 c="$work/g1"; mkdir -p "$c/proj/.claude" "$c/cache"
 printf '{"hide_terminal_surfaces": true}' > "$c/ds.json"
 write_install "$c/proj" project "rk_proj_hidden" "file://$c/ds.json"
 cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
-echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
     WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
-    bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
+    bash "$c/proj/.claude/cc-statusline.sh" 2>&1)"
+check "cold-cache hidden org renders a blank statusline" "$out" ""
 wait_for 5 test -f "$cache_file"
 check "background refresh caches the hidden setting" "$(cat "$cache_file" 2>/dev/null)" "1"
 out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
@@ -690,8 +691,8 @@ out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcr
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
     WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
     bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
-check_contains "statusline names the disconnected plan and its reconnect command" "$out" "Claude plan disconnected: run npx @weave-os/router login claude --scope project --dir $c/proj"
-check_not_contains "statusline omits plans that are not disconnected" "$out" "Codex plan disconnected"
+check_contains "statusline names the disconnected plan and its reconnect command" "$out" "Claude plan needs login: npx @weave-os/router login claude --scope project --dir $c/proj"
+check_not_contains "statusline omits plans that are not disconnected" "$out" "Codex plan needs login"
 printf '{"hide_terminal_surfaces": false, "disconnected_plans": []}' > "$c/ds.json"
 touch -d '2 hours ago' "$cache_file" 2>/dev/null || touch -t "$(date -d '2 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-2H +%Y%m%d%H%M)" "$cache_file"
 echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
@@ -700,6 +701,25 @@ echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}"
     bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
 wait_for 5 test ! -s "$cache_file.plans"
 check "a reconnected plan clears the cached warning" "$(cat "$cache_file.plans" 2>/dev/null)" ""
+
+# A plans list older than the TTL is not shown: a statusline that has not
+# refreshed in days (unreachable router, idle install) must not report a plan
+# state the account may have left long ago.
+c="$work/g3stale"; mkdir -p "$c/proj/.claude" "$c/cache"
+write_install "$c/proj" project "rk_proj_stale" "file://$c/missing.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+mkdir -p "$(dirname "$cache_file")"
+printf '0' > "$cache_file"
+printf 'claude' > "$cache_file.plans"
+for f in "$cache_file" "$cache_file.plans"; do
+  touch -d '2 days ago' "$f" 2>/dev/null || touch -t "$(date -d '2 days ago' +%Y%m%d%H%M 2>/dev/null || date -v-2d +%Y%m%d%H%M)" "$f"
+done
+out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
+    bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
+check_contains "stale plans cache still renders the statusline" "$out" "deepseek/deepseek-v4-pro"
+check_not_contains "a plans list older than the TTL is not shown" "$out" "Claude plan"
 
 # A fresh hidden cache decides without any network access: the install points
 # at an unreachable endpoint, but the pre-seeded fresh cache blanks the
@@ -715,20 +735,35 @@ out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcr
     bash "$c/proj/.claude/cc-statusline.sh" 2>&1)"
 check "fresh hidden cache blanks the statusline without touching the network" "$out" ""
 
-# A STALE hidden cache must fail open, not pin the gate closed: with the TTL
-# forced to zero the pre-seeded "1" is stale, the endpoint is unreachable, and
-# the statusline renders normally instead of staying hidden forever.
+# A hidden cache past its TTL stays hidden while it refreshes: an hourly expiry
+# must not flash routing details to a blind experiment subject.
+c="$work/g5grace"; mkdir -p "$c/proj/.claude" "$c/cache"
+write_install "$c/proj" project "rk_key" "file://$c/missing.json"
+cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
+mkdir -p "$(dirname "$cache_file")"
+printf '1' > "$cache_file"
+touch -d '2 hours ago' "$cache_file" 2>/dev/null || touch -t "$(date -d '2 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-2H +%Y%m%d%H%M)" "$cache_file"
+out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
+    bash "$c/proj/.claude/cc-statusline.sh" 2>&1)"
+check "hidden cache past the TTL stays hidden within the grace period" "$out" ""
+
+# A hidden cache past the grace period must fail open, not pin the gate closed:
+# the endpoint is unreachable and the statusline renders normally instead of
+# staying hidden forever.
 c="$work/g5"; mkdir -p "$c/proj/.claude" "$c/cache"
 write_install "$c/proj" project "rk_key" "file://$c/missing.json"
 cache_file="$(gate_cache "$c/cache" "$c/proj/.claude/cc-statusline.sh")"
 mkdir -p "$(dirname "$cache_file")"
 printf '1' > "$cache_file"
+touch -d '2 days ago' "$cache_file" 2>/dev/null || touch -t "$(date -d '2 days ago' +%Y%m%d%H%M 2>/dev/null || date -v-2d +%Y%m%d%H%M)" "$cache_file"
 out="$(echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
   | XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
     WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
-    WEAVE_DISPLAY_SETTINGS_TTL_SECONDS=0 \
+    WEAVE_DISPLAY_SETTINGS_HIDDEN_GRACE_SECONDS=86400 \
     bash "$c/proj/.claude/cc-statusline.sh" 2>&1 | sed 's/\x1b\[[0-9;]*m//g')"
-check_contains "stale hidden cache fails open when the router is unreachable" "$out" "deepseek/deepseek-v4-pro"
+check_contains "hidden cache past the grace period fails open when the router is unreachable" "$out" "deepseek/deepseek-v4-pro"
 sleep 1
 check "failed refresh leaves the stale cache untouched" "$(cat "$cache_file" 2>/dev/null)" "1"
 
@@ -909,6 +944,32 @@ if [ -f "$installer" ]; then
     no "install.sh heredoc matches cc-statusline.sh" "locatable STATUSLINE_EOF markers" "not found"
   fi
 fi
+
+# The display-settings refresh carries the caller's identity headers so the
+# router can hide surfaces for that user (e.g. a blind experiment subject).
+c="$work/gid"; mkdir -p "$c/proj/.claude" "$c/cache" "$c/bin"
+cp "$upstream" "$c/proj/.claude/cc-statusline.sh"
+cat > "$c/proj/.claude/settings.json" <<EOF
+{"env":{"ANTHROPIC_BASE_URL":"http://router.invalid","ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: rk_key\nX-Weave-User-Email: subject@example.com\nX-Weave-User-Name: \"bad\nX-Other: ignored"}}
+EOF
+cat > "$c/bin/curl" <<'SHIM'
+#!/usr/bin/env bash
+while [ "$#" -gt 0 ]; do
+  [ "$1" = "-K" ] && cat "$2" > "$WEAVE_TEST_HEADERS"
+  shift
+done
+printf '{"hide_terminal_surfaces": true}'
+SHIM
+chmod +x "$c/bin/curl"
+echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+  | PATH="$c/bin:$PATH" WEAVE_TEST_HEADERS="$c/headers" XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 HOME="$c/home" \
+    WEAVE_ROUTER_BASE_URL='' ANTHROPIC_BASE_URL='' WEAVE_ROUTER_KEY='' ANTHROPIC_CUSTOM_HEADERS='' \
+    bash "$c/proj/.claude/cc-statusline.sh" >/dev/null 2>&1
+wait_for 5 test -s "$c/headers"
+headers="$(cat "$c/headers" 2>/dev/null)"
+check_contains "display-settings refresh forwards the user email" "$headers" 'header = "X-Weave-User-Email: subject@example.com"'
+check_not_contains "display-settings refresh drops unsafe identity values" "$headers" "bad"
+check_not_contains "display-settings refresh drops unrelated headers" "$headers" "X-Other"
 
 echo
 echo "$pass passed, $fail failed"

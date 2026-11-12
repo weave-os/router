@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"github.com/tidwall/gjson"
 	"io"
 	"net/http"
@@ -218,6 +219,59 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			}
 		})
 	}
+}
+
+// exhaustedPaidLaneRouter reproduces the HMM sidecar's answer when every paid
+// arm is ineligible: ErrNoEligibleArm wrapped as policy unavailable.
+type exhaustedPaidLaneRouter struct{}
+
+func (exhaustedPaidLaneRouter) Route(ctx context.Context, req router.Request) (router.Decision, error) {
+	decision, err := stateModelRouter{}.Route(ctx, req)
+	if err != nil {
+		return router.Decision{}, fmt.Errorf("hmm_embedding: arm selection: %w: %w", policy.ErrNoEligibleArm, router.ErrStrategyUnavailable)
+	}
+	return decision, nil
+}
+
+func TestSubscriptionStateRateLimitedIncludedLaneKeepsUpstreamStatus(t *testing.T) {
+	rateLimit := &providers.UpstreamErrorResponse{
+		Status:  http.StatusTooManyRequests,
+		Headers: http.Header{"Retry-After": []string{"30"}},
+		Body:    []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`),
+	}
+	claude := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{err: rateLimit}}}
+	svc := NewService(exhaustedPaidLaneRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude}, nil, false, nil, nil, false, "", "", nil).
+		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true}})
+	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+	ctx = withTurnFailures(ctx)
+	req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderAnthropic})}
+	rec := httptest.NewRecorder()
+	buffer := newPreludeBuffer(rec)
+	inputs := failoverInputs{
+		w: rec, buf: buffer, subscriptionStateRequest: &req,
+		subscriptionStateWinnerProvider: new(string),
+		initialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+		purpose:                         inference.PurposeAnthropicMessages,
+		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
+			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+				buffer.Seal()
+				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			}, nil
+		},
+	}
+
+	_, err := svc.dispatchWithFallback(ctx, inputs)
+
+	require.Error(t, err)
+	require.NotErrorIs(t, err, router.ErrStrategyUnavailable, "an exhausted rate-limited pool is not a policy outage")
+	class, ok := ClassifyDispatchError(err)
+	require.True(t, ok)
+	require.Equal(t, http.StatusTooManyRequests, class.Status)
+	var upstream *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &upstream)
+	require.Equal(t, "30", upstream.Headers.Get("Retry-After"))
 }
 
 func TestSubscriptionStateModelsIntersectGlobalAllowlist(t *testing.T) {
@@ -515,4 +569,199 @@ func TestSubscriptionStateModelsEnabledByFlagWithEmptySets(t *testing.T) {
 
 	assert.True(t, subscriptionStateModelsEnabled(ctx))
 	assert.Empty(t, installationAllowedModelSet(context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(nil))))
+}
+
+// A Codex turn whose routed pick is another family can still be served by a
+// native Responses attempt on the included Codex plan. That attempt's stream
+// must reach the caller intact instead of failing as a cut stream.
+func TestSubscriptionStateModelsCodexNativeAttemptAfterCrossFamilyPick(t *testing.T) {
+	const nativeStream = "data: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_synthetic\",\"status\":\"in_progress\",\"output\":[]}}\n\n" +
+		"data: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"in_progress\",\"content\":[]}}\n\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":2,\"item_id\":\"msg_synthetic\",\"output_index\":0,\"content_index\":0,\"delta\":\"synthetic answer\"}\n\n" +
+		"data: {\"type\":\"response.output_item.done\",\"sequence_number\":3,\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"synthetic answer\"}]}}\n\n" +
+		"data: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"resp_synthetic\",\"status\":\"completed\",\"output\":[{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"synthetic answer\"}]}],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n"
+	var models []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		models = append(models, gjson.GetBytes(body, "model").String())
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, nativeStream)
+	}))
+	defer upstream.Close()
+	codexClient := openai.NewClient("expensive-paid-key", upstream.URL)
+	codexClient.SetCodexBaseURL(upstream.URL)
+	svc := NewService(stateModelRouter{}, map[string]providers.Client{
+		providers.ProviderAnthropic:  anthropic.NewClient("expensive-paid-key", upstream.URL),
+		providers.ProviderOpenAI:     codexClient,
+		providers.ProviderOpenRouter: openaicompat.NewClient("cheap-paid-key", upstream.URL),
+	}, nil, false, nil, nil, false, "", "", nil).
+		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderCodex: true}}).
+		WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}))
+	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+	ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestToken)
+	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, codexTestAccountID)
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+
+	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}],"tools":[{"type":"custom","name":"exec"}]}`
+	rec := httptest.NewRecorder()
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
+
+	require.NoError(t, err)
+	require.Equal(t, []string{stateCodexModel}, models, "the included Codex plan serves the turn")
+	out := rec.Body.String()
+	assert.Contains(t, out, "synthetic answer")
+	assert.Contains(t, out, `"type":"response.completed"`)
+	assert.NotContains(t, out, "response.failed")
+}
+
+// The same swap must keep a Codex freeform tool call intact: the caller asked
+// for a custom tool and must get a custom_tool_call back.
+func TestSubscriptionStateModelsCodexCustomToolAfterCrossFamilyPick(t *testing.T) {
+	var toolTypes []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		toolType := gjson.GetBytes(body, "tools.0.type").String()
+		toolTypes = append(toolTypes, toolType)
+		item := `{"id":"ctc_synthetic","type":"custom_tool_call","status":"completed","call_id":"call_synthetic","name":"exec","input":"ls -la"}`
+		added := `{"id":"ctc_synthetic","type":"custom_tool_call","status":"in_progress","call_id":"call_synthetic","name":"exec","input":""}`
+		delta := `{"type":"response.custom_tool_call_input.delta","sequence_number":2,"item_id":"ctc_synthetic","output_index":0,"delta":"ls -la"}`
+		if toolType == "function" {
+			item = `{"id":"fc_synthetic","type":"function_call","status":"completed","call_id":"call_synthetic","name":"exec","arguments":"{\"input\":\"ls -la\"}"}`
+			added = `{"id":"fc_synthetic","type":"function_call","status":"in_progress","call_id":"call_synthetic","name":"exec","arguments":""}`
+			delta = `{"type":"response.function_call_arguments.delta","sequence_number":2,"item_id":"fc_synthetic","output_index":0,"delta":"{\"input\":\"ls -la\"}"}`
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_synthetic\",\"status\":\"in_progress\",\"output\":[]}}\n\n"+
+			"data: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":"+added+"}\n\n"+
+			"data: "+delta+"\n\n"+
+			"data: {\"type\":\"response.output_item.done\",\"sequence_number\":3,\"output_index\":0,\"item\":"+item+"}\n\n"+
+			"data: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"resp_synthetic\",\"status\":\"completed\",\"output\":["+item+"],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n")
+	}))
+	defer upstream.Close()
+	codexClient := openai.NewClient("expensive-paid-key", upstream.URL)
+	codexClient.SetCodexBaseURL(upstream.URL)
+	svc := NewService(stateModelRouter{}, map[string]providers.Client{
+		providers.ProviderAnthropic:  anthropic.NewClient("expensive-paid-key", upstream.URL),
+		providers.ProviderOpenAI:     codexClient,
+		providers.ProviderOpenRouter: openaicompat.NewClient("cheap-paid-key", upstream.URL),
+	}, nil, false, nil, nil, false, "", "", nil).
+		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderCodex: true}}).
+		WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}))
+	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+	ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestToken)
+	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, codexTestAccountID)
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+
+	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"list files"}]}],"tools":[{"type":"custom","name":"exec","description":"run a script"}]}`
+	rec := httptest.NewRecorder()
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"function"}, toolTypes, "the swapped attempt is emitted onto Responses from the chat projection")
+	out := rec.Body.String()
+	assert.Contains(t, out, `"type":"custom_tool_call"`)
+	assert.Contains(t, out, "ls -la")
+	assert.Contains(t, out, `"type":"response.completed"`)
+	assert.NotContains(t, out, "response.failed")
+}
+
+// Every subscription-state outcome must reach a Responses caller as a complete
+// Responses stream, whichever family serves it and whatever the caller looks
+// like. The Codex rows send the request the Codex app sends.
+func TestSubscriptionStateModelsResponsesClientGrid(t *testing.T) {
+	const nativeResponsesStream = "data: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_synthetic\",\"status\":\"in_progress\",\"output\":[]}}\n\n" +
+		"data: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"in_progress\",\"content\":[]}}\n\n" +
+		"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":2,\"item_id\":\"msg_synthetic\",\"output_index\":0,\"content_index\":0,\"delta\":\"synthetic answer\"}\n\n" +
+		"data: {\"type\":\"response.output_item.done\",\"sequence_number\":3,\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"synthetic answer\"}]}}\n\n" +
+		"data: {\"type\":\"response.completed\",\"sequence_number\":4,\"response\":{\"id\":\"resp_synthetic\",\"status\":\"completed\",\"output\":[{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"synthetic answer\"}]}],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n"
+	const anthropicStream = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"content\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":0}}}\n\n" +
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n" +
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"synthetic answer\"}}\n\n" +
+		"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n" +
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":7}}\n\n" +
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+	const chatStream = "data: {\"id\":\"synthetic\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"synthetic answer\"},\"finish_reason\":null}]}\n\n" +
+		"data: {\"id\":\"synthetic\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":7}}\n\n" +
+		"data: [DONE]\n\n"
+
+	scenarios := []struct {
+		name          string
+		claude, codex bool
+	}{
+		{name: "both plans active", claude: true, codex: true},
+		{name: "Claude exhausted", codex: true},
+		{name: "both exhausted"},
+	}
+	tools := map[string]string{
+		"no tools":    ``,
+		"function":    `,"tools":[{"type":"function","name":"exec","parameters":{"type":"object","properties":{"cmd":{"type":"string"}}}}]`,
+		"custom tool": `,"tools":[{"type":"custom","name":"exec","description":"run a script"}]`,
+	}
+	for _, scenario := range scenarios {
+		for _, client := range []string{"generic client", "Codex app on a managed plan", "Codex app on its own plan"} {
+			for toolsName, toolsJSON := range tools {
+				t.Run(scenario.name+"/"+client+"/"+toolsName, func(t *testing.T) {
+					var models []string
+					upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if serveSyntheticCodexQuota(w, r) {
+							return
+						}
+						body, _ := io.ReadAll(r.Body)
+						models = append(models, gjson.GetBytes(body, "model").String())
+						w.Header().Set("Content-Type", "text/event-stream")
+						switch {
+						case strings.Contains(r.URL.Path, "messages"):
+							_, _ = io.WriteString(w, anthropicStream)
+						case strings.Contains(r.URL.Path, "responses"):
+							_, _ = io.WriteString(w, nativeResponsesStream)
+						default:
+							_, _ = io.WriteString(w, chatStream)
+						}
+					}))
+					defer upstream.Close()
+					codexClient := openai.NewClient("expensive-paid-key", upstream.URL)
+					codexClient.SetCodexBaseURL(upstream.URL)
+					svc := NewService(stateModelRouter{}, map[string]providers.Client{
+						providers.ProviderAnthropic:  anthropic.NewClient("expensive-paid-key", upstream.URL),
+						providers.ProviderOpenAI:     codexClient,
+						providers.ProviderOpenRouter: openaicompat.NewClient("cheap-paid-key", upstream.URL),
+					}, nil, false, nil, nil, false, "", "", nil).
+						WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: scenario.claude, subscriptions.ProviderCodex: scenario.codex}}).
+						WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}))
+					ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+					ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
+					ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+					if client != "generic client" {
+						ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+					}
+					if client == "Codex app on its own plan" {
+						ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestToken)
+						ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, codexTestAccountID)
+					}
+
+					body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}]` + toolsJSON + `}`
+					rec := httptest.NewRecorder()
+					err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
+
+					require.NoError(t, err)
+					require.Len(t, models, 1, "one attempt serves the turn")
+					require.Equal(t, models[0], rec.Header().Get(HeaderRouterModel))
+					out := rec.Body.String()
+					assert.Contains(t, out, "synthetic answer")
+					assert.Contains(t, out, `"type":"response.completed"`)
+					assert.NotContains(t, out, "response.failed")
+				})
+			}
+		}
+	}
 }

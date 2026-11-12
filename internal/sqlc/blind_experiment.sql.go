@@ -12,12 +12,102 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const claimBlindExperimentSessionArm = `-- name: ClaimBlindExperimentSessionArm :one
+INSERT INTO router.blind_experiment_session_assignments (installation_id, session_key, arm)
+VALUES ($1::uuid, $2::text, $3::text)
+ON CONFLICT (installation_id, session_key)
+    DO UPDATE SET arm = router.blind_experiment_session_assignments.arm
+RETURNING arm::text AS arm
+`
+
+type ClaimBlindExperimentSessionArmParams struct {
+	InstallationID uuid.UUID
+	SessionKey     string
+	Arm            string
+}
+
+// ClaimBlindExperimentSessionArm
+//
+//	INSERT INTO router.blind_experiment_session_assignments (installation_id, session_key, arm)
+//	VALUES ($1::uuid, $2::text, $3::text)
+//	ON CONFLICT (installation_id, session_key)
+//	    DO UPDATE SET arm = router.blind_experiment_session_assignments.arm
+//	RETURNING arm::text AS arm
+func (q *Queries) ClaimBlindExperimentSessionArm(ctx context.Context, arg ClaimBlindExperimentSessionArmParams) (string, error) {
+	row := q.db.QueryRow(ctx, claimBlindExperimentSessionArm, arg.InstallationID, arg.SessionKey, arg.Arm)
+	var arm string
+	err := row.Scan(&arm)
+	return arm, err
+}
+
+const getBlindRouterExperimentEnabledForInstallation = `-- name: GetBlindRouterExperimentEnabledForInstallation :one
+SELECT COALESCE(BOOL_OR(configuration.enabled), FALSE)::boolean AS enabled
+FROM router.blind_router_experiment_configurations configuration
+WHERE configuration.installation_id = $1::uuid
+`
+
+// Reports whether an installation has an enabled blind experiment, for callers
+// whose router user cannot be identified.
+//
+//	SELECT COALESCE(BOOL_OR(configuration.enabled), FALSE)::boolean AS enabled
+//	FROM router.blind_router_experiment_configurations configuration
+//	WHERE configuration.installation_id = $1::uuid
+func (q *Queries) GetBlindRouterExperimentEnabledForInstallation(ctx context.Context, installationID uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, getBlindRouterExperimentEnabledForInstallation, installationID)
+	var enabled bool
+	err := row.Scan(&enabled)
+	return enabled, err
+}
+
+const getBlindRouterExperimentForInstallation = `-- name: GetBlindRouterExperimentForInstallation :one
+SELECT
+    enabled,
+    router_on_percentage,
+    seed::text AS seed,
+    session_mode,
+    COALESCE(cohort_experiment_id::text, '')::text AS cohort_experiment_id
+FROM router.blind_router_experiment_configurations
+WHERE installation_id = $1::uuid
+`
+
+type GetBlindRouterExperimentForInstallationRow struct {
+	Enabled            bool
+	RouterOnPercentage int16
+	Seed               string
+	SessionMode        bool
+	CohortExperimentID string
+}
+
+// GetBlindRouterExperimentForInstallation
+//
+//	SELECT
+//	    enabled,
+//	    router_on_percentage,
+//	    seed::text AS seed,
+//	    session_mode,
+//	    COALESCE(cohort_experiment_id::text, '')::text AS cohort_experiment_id
+//	FROM router.blind_router_experiment_configurations
+//	WHERE installation_id = $1::uuid
+func (q *Queries) GetBlindRouterExperimentForInstallation(ctx context.Context, installationID uuid.UUID) (GetBlindRouterExperimentForInstallationRow, error) {
+	row := q.db.QueryRow(ctx, getBlindRouterExperimentForInstallation, installationID)
+	var i GetBlindRouterExperimentForInstallationRow
+	err := row.Scan(
+		&i.Enabled,
+		&i.RouterOnPercentage,
+		&i.Seed,
+		&i.SessionMode,
+		&i.CohortExperimentID,
+	)
+	return i, err
+}
+
 const getBlindRouterExperimentForUser = `-- name: GetBlindRouterExperimentForUser :one
 SELECT
     (configuration.installation_id IS NOT NULL)::boolean AS configured,
     COALESCE(configuration.enabled, FALSE)::boolean AS enabled,
     COALESCE(configuration.router_on_percentage, 100)::smallint AS router_on_percentage,
     COALESCE(configuration.seed::text, '')::text AS seed,
+    COALESCE(configuration.session_mode, FALSE)::boolean AS session_mode,
     assignment.canonical_subject_key,
     assignment.automatic_arm,
     assignment.manual_override,
@@ -75,6 +165,7 @@ type GetBlindRouterExperimentForUserRow struct {
 	Enabled             bool
 	RouterOnPercentage  int16
 	Seed                string
+	SessionMode         bool
 	CanonicalSubjectKey *string
 	AutomaticArm        *string
 	ManualOverride      *string
@@ -96,6 +187,7 @@ type GetBlindRouterExperimentForUserRow struct {
 //	    COALESCE(configuration.enabled, FALSE)::boolean AS enabled,
 //	    COALESCE(configuration.router_on_percentage, 100)::smallint AS router_on_percentage,
 //	    COALESCE(configuration.seed::text, '')::text AS seed,
+//	    COALESCE(configuration.session_mode, FALSE)::boolean AS session_mode,
 //	    assignment.canonical_subject_key,
 //	    assignment.automatic_arm,
 //	    assignment.manual_override,
@@ -149,6 +241,7 @@ func (q *Queries) GetBlindRouterExperimentForUser(ctx context.Context, arg GetBl
 		&i.Enabled,
 		&i.RouterOnPercentage,
 		&i.Seed,
+		&i.SessionMode,
 		&i.CanonicalSubjectKey,
 		&i.AutomaticArm,
 		&i.ManualOverride,

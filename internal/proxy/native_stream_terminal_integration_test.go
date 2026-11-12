@@ -160,3 +160,30 @@ func TestProxyOpenAIResponses_EmptyNativeStreamRetriedBeforeCommit(t *testing.T)
 	assert.Contains(t, rec.Body.String(), "response.completed")
 	assert.NotContains(t, rec.Body.String(), "response.failed")
 }
+
+// Anthropic sends stop_reason in message_delta, before its message_stop
+// terminal, so an upstream that hangs up between the two cut the turn itself.
+func TestProxyMessages_NativeCutAfterMessageDeltaIsProviderOwned(t *testing.T) {
+	logBuf := captureCompletionLog(t)
+	provider := scriptedStream(append(append([]string{}, anthropicCutFrames...),
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n"))
+	svc := makeProxyService(
+		router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"},
+		map[string]providers.Client{providers.ProviderAnthropic: provider},
+	).WithNativeAnthropicResponseSignals(true)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))
+	require.Error(t, svc.ProxyMessages(context.Background(), []byte(streamCutTurnBody), rec, req))
+
+	var completion string
+	for _, line := range strings.Split(logBuf.String(), "\n") {
+		if strings.Contains(line, `msg="ProxyMessages complete"`) {
+			completion = line
+		}
+	}
+	require.NotEmpty(t, completion)
+	assert.Contains(t, completion, "error_class=stream_cut")
+	assert.Contains(t, completion, "upstream_finish_reason=end_turn")
+	assert.Contains(t, completion, "failure_owner=provider")
+}

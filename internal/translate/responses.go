@@ -26,7 +26,10 @@ import (
 // OriginalBody remains byte-for-byte client input so native OpenAI-family
 // dispatch can preserve extensions that Chat Completions cannot represent.
 type ResponsesConversion struct {
-	Body         []byte
+	Body []byte
+	// RoutingBody preserves agent-message task boundaries for model selection.
+	// Body and OriginalBody retain their provider-facing semantics.
+	RoutingBody  []byte
 	OriginalBody []byte
 	Stream       bool
 	Model        string
@@ -884,6 +887,10 @@ func (t *ResponsesWriter) SetPassthrough() {
 	t.resetSSEScanState()
 	t.passthrough = true
 }
+
+// Passthrough reports whether the writer forwards native Responses events
+// rather than translating Chat Completions chunks.
+func (t *ResponsesWriter) Passthrough() bool { return t.passthrough }
 
 // ClearPassthrough returns the writer to translation mode, reporting false
 // after provider output prevents a clean continuation. A visible synthetic

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"regexp"
 	"strconv"
 	"strings"
@@ -44,6 +45,8 @@ type portableCodexResponsesConverter struct {
 	toolAliases     map[responsesToolIdentity]string
 	declaredAliases map[string]struct{}
 	tools           []map[string]any
+	agentPath       string
+	routingRoles    map[int]EscalationRole
 	hostedWebSearch bool
 }
 
@@ -190,6 +193,8 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 		},
 		toolAliases:     make(map[responsesToolIdentity]string),
 		declaredAliases: make(map[string]struct{}),
+		agentPath:       codexCurrentAgentPath(root.Get("input")),
+		routingRoles:    make(map[int]EscalationRole),
 	}
 	converter.result.TitleGeneration = requestRootRequestsCodexTitle(root)
 	converter.result.Requirements.Images = root.Get("input").Exists() && containsAnyKey(body, "image_url", "input_image")
@@ -238,6 +243,19 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 		return ResponsesConversion{}, fmt.Errorf("marshal portable Codex chat completions: %w", err)
 	}
 	converter.result.Body = bodyOut
+	if len(converter.routingRoles) > 0 {
+		routingMessages := append([]map[string]any(nil), messages...)
+		for index, role := range converter.routingRoles {
+			index += len(systemMessages)
+			routingMessages[index] = maps.Clone(messages[index])
+			routingMessages[index]["role"] = role
+		}
+		out["messages"] = routingMessages
+		converter.result.RoutingBody, err = json.Marshal(out)
+		if err != nil {
+			return ResponsesConversion{}, fmt.Errorf("marshal Codex routing history: %w", err)
+		}
+	}
 	if len(converter.result.ToolMappings) == 0 {
 		converter.result.ToolMappings = nil
 	}
@@ -430,6 +448,9 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 		case "agent_message":
 			if message, ok := c.convertAgentMessage(item, path); ok {
 				messages = append(messages, message)
+				if role := codexAgentMessageRoutingRole(c.agentPath, item); role != EscalationRoleUser {
+					c.routingRoles[len(messages)-1] = role
+				}
 			}
 		case "reasoning":
 			c.convertReasoning(item, path)

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -253,7 +254,8 @@ func main() {
 	if !byokOnly {
 		anthropicKey = config.GetOr("ANTHROPIC_API_KEY", "")
 	}
-	providerMap[providers.ProviderAnthropic] = anthropic.NewClient(anthropicKey, anthropic.DefaultBaseURL, anthropic.WithModelListHTTPClient(discoveryHTTPClient))
+	anthropicClient := anthropic.NewClient(anthropicKey, anthropic.DefaultBaseURL, anthropic.WithModelListHTTPClient(discoveryHTTPClient))
+	providerMap[providers.ProviderAnthropic] = anthropicClient
 	switch {
 	case byokOnly:
 		logger.Info("Anthropic provider enabled (BYOK only)", "base_url", anthropic.DefaultBaseURL)
@@ -604,6 +606,7 @@ func main() {
 		WithClusterModelLists(repo.ClusterModelLists).
 		WithUserClusterModelLists(repo.UserClusterModelLists, userClusterCache).
 		WithBlindExperiments(repo.BlindExperiments, blindExperimentCache).
+		WithBlindExperimentSessions(repo.BlindExperimentSessions).
 		WithRoutingPolicies(repo.RoutingPolicies, routingPolicyCache).
 		WithWIFTokenSource(buildWIFTokenSource(logger)).
 		WithAnthropicFederationTokenSource(buildAnthropicFederationTokenSource(deploymentMode)).
@@ -966,6 +969,10 @@ func main() {
 		logger.Error("Invalid escalation judge active rollout enablement", "err", err)
 		panic(err)
 	}
+	escalationShadowDefault := flags.EscalationClassifier(config.GetOr("ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT", string(flags.EscalationClassifierNone)))
+	if escalationShadowDefault != flags.EscalationClassifierNone && !flags.IsLLMEscalationClassifier(escalationShadowDefault) {
+		panic("ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT must be none, llm_escalation or switchyard_llm_v1")
+	}
 	if escalationJudgeActiveEnabled && !escalationJudgeEnabled {
 		panic("ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED requires ROUTER_ESCALATION_JUDGE_ENABLED")
 	}
@@ -1068,6 +1075,7 @@ func main() {
 	var hmmQwenRouter router.Router
 	var hmmCapabilities policy.Capabilities
 	var hmmReadinessChecker admin.HealthChecker
+	var policyStatus admin.PolicyStatusSource
 	var hmmRosterSources map[router.Strategy]policy.RosterSource
 	var hmmRosterModels admin.HMMRosterSource
 	var hmmBetaCapabilities policy.Capabilities
@@ -1189,6 +1197,7 @@ func main() {
 		hmmEmbeddingRouter = policyregistry.NewDynamicRouter(stableManager, router.StrategyHMMEmbedding)
 		hmmCapabilities = hmmRouter.(policy.CapabilitySource).CurrentCapabilities()
 		hmmReadinessChecker = stableManager
+		policyStatus = stableManager
 		hmmRosterSources = map[router.Strategy]policy.RosterSource{
 			router.StrategyHMM:          stableManager,
 			router.StrategyHMMEmbedding: stableManager,
@@ -1297,7 +1306,7 @@ func main() {
 	// degrades that UI and nothing else.
 	publishFlagRegistry(logger, repo.FlagDefinitions, map[flags.Key]string{
 		flags.KeyEscalationActiveClassifier:           string(flags.EscalationClassifierNone),
-		flags.KeyEscalationShadowClassifier:           string(flags.EscalationClassifierNone),
+		flags.KeyEscalationShadowClassifier:           string(escalationShadowDefault),
 		flags.KeyEscalationCadence:                    strconv.Itoa(llmescalation.DefaultCadence),
 		flags.KeyEscalationEpoch:                      "0",
 		flags.KeyEscalationXGBoostEnabled:             boolDefault(false),
@@ -1305,6 +1314,7 @@ func main() {
 		flags.KeyEscalationXGBoostShadowMarkerEnabled: boolDefault(false),
 		flags.KeyEscalationXGBoostEpoch:               "0",
 		flags.KeySubscriptionPlanAwareRouting:         boolDefault(false),
+		flags.KeyClaudeEnterpriseOnly:                 boolDefault(true),
 		flags.KeySubscriptionExhaustedOpenRouterOnly:  boolDefault(false),
 		flags.KeyPlanUserClusterLists:                 boolDefault(false),
 		flags.KeyStruggleShadowEnabled:                boolDefault(struggleShadowEnabled),
@@ -1315,6 +1325,7 @@ func main() {
 		flags.KeyTextRepetitionBreak:                  boolDefault(textRepetitionBreakEnabled),
 		flags.KeyPlannerEnabled:                       boolDefault(plannerEnabled),
 		flags.KeyScoreToolResultTurns:                 boolDefault(scoreToolResultTurns),
+		flags.KeyHMMToolResultHold:                    boolDefault(false),
 		flags.KeyPrefixTrimFreeSwitch:                 boolDefault(prefixTrimFreeSwitch),
 		flags.KeyAuthoritativeUpgradeGate:             boolDefault(authoritativeUpgradeGate),
 		flags.KeyAuthoritativeUpgradePolicy:           string(parsedUpgradePolicy),
@@ -1375,9 +1386,15 @@ func main() {
 		}
 		qwenEscalationJudge = judge
 	}
+	if (escalationShadowDefault == flags.EscalationClassifierSwitchyard && !escalationJudgeEnabled) ||
+		(escalationShadowDefault == flags.EscalationClassifierLLM && qwenEscalationJudge == nil) {
+		panic("ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT names a classifier whose judge is not configured")
+	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+		WithClaudeSubscriptionPlanReader(anthropicClient).
+		WithExternalKeyUsageRecorder(authSvc).
 		WithCodexExtraCredits(allowCodexCredits).
 		WithSessionStrategyStore(sessionStrategyStore).
 		WithSessionTurnClock(sessionTurnClock).
@@ -1386,6 +1403,7 @@ func main() {
 		WithLLMEscalation(llmEscalationStore, escalationJudge).
 		WithQwenEscalation(qwenEscalationJudge).
 		WithEscalationConfiguration(llmEscalationStore, authSvc.InvalidateInstallation, escalationJudgeActiveEnabled).
+		WithEscalationShadowDefault(escalationShadowDefault).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
 		WithScopedSearchRequirement(scopedSearchRequirement, searchRequirementDecayTurns).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: rlRouter, Unavailable: rl.ErrPolicyUnavailable}).
@@ -1553,6 +1571,15 @@ func main() {
 		panic(err)
 	}
 	usageObserver := usage.NewObserver(observerSalt, subscriptionTTL, time.Now)
+	if subscriptionRuntime != nil {
+		subscriptionRuntime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, now time.Time) subscriptions.CandidateSignal {
+			snapshot, observed := usageObserver.Snapshot(usageObserver.Key([]byte("subscription-account:" + accountID)))
+			if !observed {
+				return subscriptions.CandidateSignal{}
+			}
+			return subscriptionCandidateSignal(snapshot, now)
+		})
+	}
 	// Bound memory: evict expired observations periodically (the usage package
 	// spawns no goroutines of its own).
 	go func() {
@@ -1643,6 +1670,7 @@ func main() {
 		ServingAdmission:         servingAdmission,
 		SubscriberAllowance:      subscriberAllowanceSvc,
 		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
+		PolicyStatus:             policyStatus,
 	}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
@@ -1744,6 +1772,46 @@ func buildExploringRouter(rtr router.Router, logger *slog.Logger) router.Router 
 		"deployed_models", len(providers),
 	)
 	return banditexplore.New(rtr, providerFor, epsilon)
+}
+
+func subscriptionCandidateSignal(snapshot usage.Snapshot, now time.Time) subscriptions.CandidateSignal {
+	if snapshot.OverageInUse {
+		signal := subscriptions.CandidateSignal{Observed: true, Billable: true, UsedFraction: 1}
+		if snapshot.UnifiedResetAt.After(now) {
+			signal.ResetAt = snapshot.UnifiedResetAt
+		}
+		signal.ObservedAt = snapshot.ObservedAt
+		return signal
+	}
+
+	signal := subscriptions.CandidateSignal{Exhausted: snapshot.ExhaustedAsOf(now), ObservedAt: snapshot.ObservedAt}
+	for _, window := range []usage.Window{snapshot.Primary, snapshot.Secondary} {
+		if math.IsNaN(window.UsedPercent) || math.IsInf(window.UsedPercent, 0) || window.UsedPercent < 0 || window.UsedPercent > 1 {
+			return subscriptions.CandidateSignal{}
+		}
+		if window.WindowMinutes <= 0 && window.UsedPercent <= 0 {
+			continue
+		}
+		resetAt := window.ResetAt
+		if resetAt.IsZero() && window.WindowMinutes > 0 {
+			observedAt := window.ObservedAt
+			if observedAt.IsZero() {
+				observedAt = snapshot.ObservedAt
+			}
+			resetAt = observedAt.Add(time.Duration(window.WindowMinutes) * time.Minute)
+		}
+		if !resetAt.IsZero() && !resetAt.After(now) {
+			continue
+		}
+		if !signal.Observed || window.UsedPercent > signal.UsedFraction {
+			signal.Observed = true
+			signal.UsedFraction = window.UsedPercent
+		}
+		if resetAt.After(now) && (signal.ResetAt.IsZero() || resetAt.Before(signal.ResetAt)) {
+			signal.ResetAt = resetAt
+		}
+	}
+	return signal
 }
 
 // parseOtelHeaders parses a comma-separated key=value string into a map.

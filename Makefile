@@ -9,7 +9,7 @@
 #   (and .env.local if present). Start Postgres via `make db` or point
 #   DATABASE_URL at any Postgres you already have running.
 
-.PHONY: generate generate-statusline generate-inference-policy check-inference-policy inference-boundary generate-agent-guides check-agent-guides check-docs build test test-verbose test-statusline setup-install-tests test-install smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
+.PHONY: generate generate-statusline generate-inference-policy check-inference-policy generate-candidate-requirements check-candidate-requirements inference-boundary generate-agent-guides check-agent-guides check-docs build test test-verbose test-statusline setup-install-tests test-install smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
 
 # Load DATABASE_URL from .env files (matches docker-compose defaults).
 SAFE_AGENT_GOALS := doctor check-plan check-changed smoke
@@ -28,7 +28,7 @@ help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
-generate: generate-statusline generate-inference-policy ## Regenerate all generated files (SQLC + statusline prices + inference policy)
+generate: generate-statusline generate-inference-policy generate-candidate-requirements ## Regenerate all generated files (SQLC + statusline prices + inference policy + candidate requirements)
 	cd db && sqlc generate
 
 generate-statusline: ## Sync cc-statusline.sh prices block from pricing.go
@@ -39,6 +39,12 @@ generate-inference-policy: ## Generate static inference-policy Markdown and JSON
 
 check-inference-policy: ## Check that generated inference-policy projections are current
 	go run ./cmd/geninferencepolicy --check
+
+generate-candidate-requirements: ## Generate the Router candidate requirements declaration
+	go run ./cmd/gencandidaterequirements
+
+check-candidate-requirements: ## Check that the Router candidate requirements declaration is current
+	go run ./cmd/gencandidaterequirements --check
 
 inference-boundary: check-inference-policy ## Reject new inference/provider bypasses and stale policy docs
 	go test ./internal/router/policy ./internal/architecture
@@ -253,7 +259,7 @@ install-hooks: ## Install git pre-commit hook
 	chmod +x "$$HOOK_DIR/pre-commit"; \
 	echo "Pre-commit hook installed at $$HOOK_DIR/pre-commit"
 
-check: check-agent-guides check-docs inference-boundary generate fmt vet build test test-statusline test-install ## Local Go/codegen/installer checks; CI also validates integrations and component contracts
+check: check-agent-guides check-docs inference-boundary check-candidate-requirements generate fmt vet build test test-statusline test-install ## Local Go/codegen/installer checks; CI also validates integrations and component contracts
 	@if ! git diff --quiet internal/sqlc/; then \
 		echo "error: sqlc generation produced uncommitted changes"; \
 		git diff internal/sqlc/; \

@@ -34,7 +34,7 @@ func TestProxyMessages_SpentOwnClaudePlanNudgesToConnectASeat(t *testing.T) {
 	serve := func(body string) string {
 		rec := httptest.NewRecorder()
 		ctx := context.WithValue(authedCtx("11111111-1111-1111-1111-111111111111"), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken)
-		require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+		require.NoError(t, svc.ProxyMessages(claudeCreditFallbackContext(ctx), []byte(body), rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
 		return rec.Body.String()
 	}
 
