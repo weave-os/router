@@ -74,7 +74,7 @@ func TestPostCommandContinuation_UsesTerminalEvidence(t *testing.T) {
 		t.Run(fmt.Sprintf("capped=%t", capped), func(t *testing.T) {
 			store := newForceModelMapStore()
 			key := [sessionpin.SessionKeyLen]byte{1}
-			pin := sessionpin.Pin{SessionKey: key, Role: sessionpin.DefaultRole, Strategy: router.StrategyCluster,
+			pin := sessionpin.Pin{SessionKey: key, Role: sessionpin.DefaultRole, Strategy: router.StrategyHMMEmbedding,
 				Provider: providers.ProviderAnthropic, Model: outputLimitFirstModel, LastServedModel: outputLimitFirstModel,
 				LastOutputTokens: 32000, LastTurnEndedAt: time.Now(), PinnedUntil: time.Now().Add(time.Hour), Reason: "cluster"}
 			if capped {
@@ -82,7 +82,7 @@ func TestPostCommandContinuation_UsesTerminalEvidence(t *testing.T) {
 			}
 			store.pins[forceModelMapKey(key, pin.Role)] = pin
 			svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil)
-			ctx := router.WithStrategy(context.Background(), router.StrategyCluster)
+			ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 			svc.grantPostCommandContinuation(ctx, uuid.New(), key, pin.Role)
 			got, found := svc.consumePostCommandContinuation(ctx, key, pin.Role)
 			assert.Equal(t, !capped, found)

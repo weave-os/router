@@ -22,3 +22,10 @@ target "seed" {
   cache-from = [{ type = "gha", scope = "router-smoke-seed" }]
   cache-to   = [{ type = "gha", scope = "router-smoke-seed", mode = "max" }]
 }
+
+target "hmm-stub" {
+  context    = "."
+  dockerfile = "smoke/hmmstub/Dockerfile"
+  cache-from = [{ type = "gha", scope = "router-smoke-hmm-stub" }]
+  cache-to   = [{ type = "gha", scope = "router-smoke-hmm-stub", mode = "max" }]
+}

@@ -287,7 +287,7 @@ func TestHandleBetaCommandTogglesAndAcknowledges(t *testing.T) {
 	assert.Equal(t, 2, store.toggles)
 	assert.False(t, store.found)
 	require.NotEmpty(t, pins.consumedStrategy)
-	assert.Equal(t, router.StrategyCluster, pins.consumedStrategy[0])
+	assert.Equal(t, router.StrategyHMMEmbedding, pins.consumedStrategy[0])
 	assert.Equal(t, router.StrategyHMMBeta, pins.consumedStrategy[len(pins.consumedStrategy)-1])
 }
 
@@ -642,7 +642,7 @@ func TestBetaToggleSelectsBetaThenRestoresStableRouter(t *testing.T) {
 	installationID := uuid.New()
 	var sessionKey [sessionstrategy.SessionKeyLen]byte
 	sessionKey[0] = 1
-	baseCtx := router.WithStrategy(context.Background(), router.StrategyCluster)
+	baseCtx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 
 	enableEnv := betaTestEnvelope(t, "/beta", true)
 	enableCmd, found := enableEnv.ExtractBetaCommand()

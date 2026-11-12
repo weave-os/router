@@ -46,7 +46,7 @@ CLIENT_ENVIRONMENTS = (
     *MODEL_OVERRIDE_ENVIRONMENTS,
 )
 SMOKE_DEPLOYMENT_MODE: Literal["selfhosted"] = "selfhosted"
-SMOKE_ROUTER_STRATEGY: Literal["cluster"] = "cluster"
+SMOKE_ROUTER_STRATEGY: Literal["hmm_embedding"] = "hmm_embedding"
 
 
 class DockerResourceKind(StrEnum):
@@ -62,10 +62,16 @@ class ComposeService(StrEnum):
     SERVER = "server"
     SEED = "seed"
     MITMPROXY = "mitmproxy"
+    HMM_STUB = "hmm-stub"
     INGRESS = "smoke-ingress"
 
 
-BUILT_SERVICES = (ComposeService.SERVER, ComposeService.SEED, ComposeService.MITMPROXY)
+BUILT_SERVICES = (
+    ComposeService.SERVER,
+    ComposeService.SEED,
+    ComposeService.MITMPROXY,
+    ComposeService.HMM_STUB,
+)
 
 
 class SmokePhase(StrEnum):
@@ -237,6 +243,9 @@ class SmokeRun:
             "PORT": str(ROUTER_PORT),
             "ROUTER_DEPLOYMENT_MODE": SMOKE_DEPLOYMENT_MODE,
             "ROUTER_DEFAULT_STRATEGY": SMOKE_ROUTER_STRATEGY,
+            "ROUTER_POLICY_RELEASE_DIR": "/policy/release",
+            "ROUTER_HMM_SIDECAR_URL": f"http://{ComposeService.HMM_STUB}:8093",
+            "ROUTER_HMM_SIDECAR_AUTH": "none",
             "ROUTER_ONNX_ASSETS_DIR": "/opt/router/assets",
             "ROUTER_ONNX_LIBRARY_DIR": "/usr/lib",
             "PUBSUB_EMULATOR_HOST": "pubsub-emulator:8085",
@@ -245,7 +254,7 @@ class SmokeRun:
             "PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION": "router-installation-invalidate",
             "HTTPS_PROXY": "http://mitmproxy:8888",
             "HTTP_PROXY": "http://mitmproxy:8888",
-            "NO_PROXY": "pubsub-emulator,postgres,localhost,127.0.0.1",
+            "NO_PROXY": f"pubsub-emulator,postgres,{ComposeService.HMM_STUB},localhost,127.0.0.1",
             "SSL_CERT_DIR": "/certs",
             "ANTHROPIC_API_KEY": (
                 PLACEHOLDER_KEY if replay else "${SMOKE_RECORD_ANTHROPIC_KEY:-}"
@@ -310,6 +319,8 @@ class SmokeRun:
             "  router_postgres_data:",
             f"    labels: {json.dumps({OWNER_LABEL: self.owner})}",
             "  mitm_certs:",
+            f"    labels: {json.dumps({OWNER_LABEL: self.owner})}",
+            "  hmm_stub_release:",
             f"    labels: {json.dumps({OWNER_LABEL: self.owner})}",
             "networks:",
             "  default:",
@@ -441,6 +452,7 @@ class SmokeRun:
                             "--tail=150",
                             ComposeService.SERVER,
                             ComposeService.MITMPROXY,
+                            ComposeService.HMM_STUB,
                         ]
                     )
                 )

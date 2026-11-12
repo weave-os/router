@@ -76,7 +76,10 @@ func validateManagedServingDefaultStrategy(lookup func(string) (string, bool)) e
 			envDefaultStrategy, strategyList(managedServingStrategies),
 		)
 	}
-	strategy := server.ParseDefaultStrategy(raw)
+	strategy, err := server.ParseDefaultStrategy(raw)
+	if err != nil {
+		return err
+	}
 	if !slices.Contains(managedServingStrategies, strategy) {
 		return fmt.Errorf(
 			"%s=%q is not a managed serving strategy; set one of %s",
