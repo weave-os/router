@@ -72,8 +72,7 @@
           "Provenance": {
             "PolicyID": "main-openai-chat-completions",
             "PolicyRevision": "3",
-            "Purpose": "openai_chat_completions",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "Purpose": "openai_chat_completions"
           },
           "Target": {
             "CatalogID": "deepseek/deepseek-v4-pro",
@@ -90,8 +89,7 @@
           "Provenance": {
             "PolicyID": "main-openai-chat-completions",
             "PolicyRevision": "3",
-            "Purpose": "openai_chat_completions",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "Purpose": "openai_chat_completions"
           },
           "Target": {
             "BindingIndex": 1,

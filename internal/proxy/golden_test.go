@@ -392,8 +392,9 @@ func scrubGoldenString(s string) string {
 }
 
 // goldenVolatileField names struct fields holding wall-clock readings,
-// durations or per-request ids.
-var goldenVolatileField = regexp.MustCompile(`(Latency|Ms$|MS$|Sec$|Seconds$|Timestamp|Elapsed|Duration|At$|Until$|^RequestID$|^RouterRequestID$|^TraceID$|^SpanID$|^OperationID$|^SessionKey$|^IdempotencyKey$)`)
+// durations, per-request ids or the inference registry's content hash, which
+// changes with any policy edit; PolicyID and PolicyRevision stay recorded.
+var goldenVolatileField = regexp.MustCompile(`(Latency|Ms$|MS$|Sec$|Seconds$|Timestamp|Elapsed|Duration|At$|Until$|^RequestID$|^RouterRequestID$|^TraceID$|^SpanID$|^OperationID$|^SessionKey$|^IdempotencyKey$|^RegistryRevision$)`)
 
 // goldenValue projects a recorded value into JSON-friendly form, dropping
 // zero values and volatile fields so goldens show behavior only.

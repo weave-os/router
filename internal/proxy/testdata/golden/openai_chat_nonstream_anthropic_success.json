@@ -46,8 +46,7 @@
           "Provenance": {
             "PolicyID": "main-openai-chat-completions",
             "PolicyRevision": "3",
-            "Purpose": "openai_chat_completions",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "Purpose": "openai_chat_completions"
           },
           "Target": {
             "CatalogID": "claude-haiku-4-5",
@@ -170,8 +169,10 @@
             "served_group": ""
           },
           "SpanType": "router.upstream",
+          "StopReason": "stop",
           "Strategy": "cluster",
           "TurnType": "main_loop",
+          "UpstreamFinishReason": "end_turn",
           "UpstreamStatusCode": 200,
           "UserPrompt": true
         }

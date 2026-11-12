@@ -116,8 +116,7 @@
           "Provenance": {
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
-            "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "Purpose": "anthropic_messages"
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
@@ -138,8 +137,7 @@
           "Provenance": {
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
-            "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "Purpose": "anthropic_messages"
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
@@ -160,8 +158,7 @@
           "Provenance": {
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
-            "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "Purpose": "anthropic_messages"
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
@@ -178,8 +175,7 @@
           "Provenance": {
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
-            "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "Purpose": "anthropic_messages"
           },
           "Target": {
             "CatalogID": "deepseek/deepseek-v4-pro",
@@ -442,8 +438,7 @@
           "Provenance": {
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
-            "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "Purpose": "anthropic_messages"
           },
           "Target": {
             "BindingIndex": -1,
@@ -797,8 +792,7 @@
           "Provenance": {
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
-            "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "Purpose": "anthropic_messages"
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
@@ -819,8 +813,7 @@
           "Provenance": {
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
-            "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "Purpose": "anthropic_messages"
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
@@ -841,8 +834,7 @@
           "Provenance": {
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
-            "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "Purpose": "anthropic_messages"
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
@@ -859,8 +851,7 @@
           "Provenance": {
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
-            "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "Purpose": "anthropic_messages"
           },
           "Target": {
             "CatalogID": "deepseek/deepseek-v4-pro",
@@ -1129,8 +1120,7 @@
           "Provenance": {
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
-            "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "Purpose": "anthropic_messages"
           },
           "Target": {
             "BindingIndex": -1,
