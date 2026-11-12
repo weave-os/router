@@ -2,6 +2,7 @@ package translate_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -68,12 +69,69 @@ func TestStripHistoricalCommandsFromResponsesInput_SkillAttachmentGoesWithDirect
 	assert.Equal(t, []string{"hello", "now fix the bug"}, inputTexts(t, out))
 }
 
+func TestStripHistoricalCommandsFromResponsesInput_DropsSkillExecCallAndOutput(t *testing.T) {
+	for _, directive := range []string{"$fm fable", "$force-model fable", "$rf too slow"} {
+		for _, callType := range []string{"function", "custom_tool"} {
+			t.Run(directive+"/"+callType, func(t *testing.T) {
+				skillName := strings.TrimPrefix(strings.Fields(directive)[0], "$")
+				emitPath := "/x/skills/" + skillName + "/scripts/emit.sh"
+				call := map[string]any{"type": callType + "_call", "call_id": "call_skill", "name": "exec", "namespace": "functions"}
+				if callType == "function" {
+					call["arguments"] = `{"cmd":"` + emitPath + ` fable"}`
+				} else {
+					call["input"] = `await tools.exec_command({cmd: "` + emitPath + ` fable"});`
+				}
+				directiveOutput := " /force-model fable"
+				if skillName == "rf" {
+					directiveOutput = " /router-feedback too slow"
+				}
+				output := map[string]any{"type": callType + "_call_output", "call_id": "call_skill", "output": "Script completed\nOutput:\n" + directiveOutput}
+				ordinaryCall := map[string]any{"type": "function_call", "call_id": "call_read", "name": "exec", "arguments": `{}`}
+				ordinaryOutput := map[string]any{"type": "function_call_output", "call_id": "call_read", "output": "source"}
+				body := responsesBody(t,
+					codexUserItem(directive), codexUserItem(strings.ReplaceAll(codexSkillBlob, "fm", skillName)), call, output, output,
+					codexUserItem("read source"), ordinaryCall, ordinaryOutput, codexUserItem("next turn"),
+				)
+
+				out, err := translate.StripHistoricalCommandsFromResponsesInput(body)
+				require.NoError(t, err)
+				items := gjson.GetBytes(out, "input").Array()
+				require.Len(t, items, 4)
+				assert.Equal(t, "user", items[0].Get("role").Str)
+				assert.Equal(t, "call_read", items[1].Get("call_id").Str)
+				assert.Equal(t, "call_read", items[2].Get("call_id").Str)
+				assert.Equal(t, []string{"read source", "next turn"}, inputTexts(t, out))
+				assert.NotContains(t, string(out), "call_skill")
+				assert.NotContains(t, string(out), "/force-model fable")
+				assert.NotContains(t, string(out), "/router-feedback too slow")
+
+				conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+				require.NoError(t, err)
+				env, err := translate.ParseOpenAI(conversion.Body)
+				require.NoError(t, err)
+				_, err = env.StripHistoricalCommands()
+				require.NoError(t, err)
+				prepared, err := env.PrepareGemini(nil, translate.EmitOptions{TargetModel: "gemini-2.5-flash"})
+				require.NoError(t, err)
+				assert.Equal(t, "user", gjson.GetBytes(prepared.Body, "contents.0.role").Str)
+				assert.Equal(t, "read source", gjson.GetBytes(prepared.Body, "contents.0.parts.0.text").Str)
+				assert.Contains(t, string(prepared.Body), "source")
+				assert.NotContains(t, string(prepared.Body), "call_skill")
+				assert.NotContains(t, string(prepared.Body), "/force-model fable")
+				assert.NotContains(t, string(prepared.Body), "/router-feedback too slow")
+			})
+		}
+	}
+}
+
 func TestStripHistoricalCommandsFromResponsesInput_TrailingDirectiveUntouched(t *testing.T) {
 	body := responsesBody(t,
 		codexUserItem("hello"),
 		codexAssistantItem("hi"),
 		codexUserItem("$fm astra"),
 		codexUserItem(codexSkillBlob),
+		map[string]any{"type": "custom_tool_call", "call_id": "call_skill", "name": "exec", "input": "/x/skills/fm/scripts/emit.sh astra"},
+		map[string]any{"type": "custom_tool_call_output", "call_id": "call_skill", "output": " /force-model astra"},
 	)
 	out, err := translate.StripHistoricalCommandsFromResponsesInput(body)
 	require.NoError(t, err)

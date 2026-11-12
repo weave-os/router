@@ -53,18 +53,32 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 	changed := 0
 	rebuilt := make([]string, 0, len(messages))
 	dropAttachment := false
+	skillExecPath := ""
+	droppedCallIDs := make(map[string]struct{})
 	keptUser, droppedUser := false, false
 	for i, msg := range messages {
 		if dropAttachment {
 			dropAttachment = false
 			if isSkillAttachment(messages, i) {
+				skillExecPath = skillEmitPath(msg.Get("content"))
 				changed++
 				continue
 			}
 		}
+		raw, edited, keep, err := stripHistoricalSkillToolMessage(msg, skillExecPath, droppedCallIDs)
+		skillExecPath = ""
+		if err != nil {
+			return 0, err
+		}
+		if edited {
+			changed++
+			if !keep {
+				continue
+			}
+			msg = gjson.Parse(raw)
+		}
 		role := msg.Get("role").String()
-		// An unmarked ack left behind a dropped opening directive would make
-		// the conversation open on an assistant turn, which Anthropic rejects.
+		// Dropping an opening directive must not leave an orphaned assistant ack.
 		if role == "assistant" && droppedUser && !keptUser && !carriesToolCall(msg) {
 			changed++
 			continue
@@ -74,7 +88,7 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 			rebuilt = append(rebuilt, msg.Raw)
 			continue
 		}
-		raw, edited, keep, err := stripDirectiveFromMessage(msg, "text")
+		raw, edited, keep, err = stripDirectiveFromMessage(msg, "text")
 		if err != nil {
 			return 0, err
 		}
@@ -120,6 +134,83 @@ func carriesToolCall(msg gjson.Result) bool {
 		}
 	}
 	return false
+}
+
+func skillEmitPath(content gjson.Result) string {
+	text := content.Str
+	if content.IsArray() {
+		for _, part := range content.Array() {
+			text += part.Get("text").Str
+		}
+	}
+	_, rest, found := strings.Cut(text, "<path>")
+	if !found {
+		return ""
+	}
+	skillPath, _, found := strings.Cut(rest, "</path>")
+	if !found || !strings.HasSuffix(strings.TrimSpace(skillPath), "/SKILL.md") {
+		return ""
+	}
+	return strings.TrimSuffix(strings.TrimSpace(skillPath), "/SKILL.md") + "/scripts/emit.sh"
+}
+
+func stripHistoricalSkillToolMessage(msg gjson.Result, execPath string, droppedCallIDs map[string]struct{}) (raw string, edited, keep bool, err error) {
+	if execPath == "" && len(droppedCallIDs) == 0 {
+		return msg.Raw, false, true, nil
+	}
+	if msg.Get("role").Str == "tool" {
+		if _, dropped := droppedCallIDs[msg.Get("tool_call_id").Str]; dropped {
+			return "", true, false, nil
+		}
+	}
+	raw = msg.Raw
+	for _, field := range []string{"tool_calls", "content"} {
+		parts := msg.Get(field)
+		if !parts.IsArray() {
+			continue
+		}
+		kept := make([]string, 0, len(parts.Array()))
+		for _, part := range parts.Array() {
+			id, name := part.Get("id").Str, part.Get("function.name").Str
+			code := part.Get("function.arguments").Str
+			isCall := field == "tool_calls" || part.Get("type").Str == "tool_use"
+			if field == "content" {
+				name = ""
+				if part.Get("type").Str == "tool_use" {
+					name = part.Get("name").Str
+					code = part.Get("input").Raw
+				}
+			}
+			if execPath != "" && msg.Get("role").Str == "assistant" && name == "exec" && id != "" && strings.Contains(code, execPath) {
+				droppedCallIDs[id] = struct{}{}
+				edited = true
+				continue
+			}
+			if isCall {
+				delete(droppedCallIDs, id)
+			}
+			if part.Get("type").Str == "tool_result" {
+				if _, dropped := droppedCallIDs[part.Get("tool_use_id").Str]; dropped {
+					edited = true
+					continue
+				}
+			}
+			kept = append(kept, part.Raw)
+		}
+		if len(kept) != len(parts.Array()) {
+			raw, err = sjson.SetRaw(raw, field, "["+strings.Join(kept, ",")+"]")
+			if err != nil {
+				return "", false, false, fmt.Errorf("strip historical skill tools: %w", err)
+			}
+		}
+	}
+	if !edited {
+		return raw, false, true, nil
+	}
+	rebuilt := gjson.Parse(raw)
+	content := rebuilt.Get("content")
+	keep = carriesToolCall(rebuilt) || (content.IsArray() && len(content.Array()) > 0) || (content.Type == gjson.String && strings.TrimSpace(content.Str) != "")
+	return raw, true, keep, nil
 }
 
 // stripDirectiveFromMessage rewrites a user message's content with its
@@ -201,10 +292,33 @@ func StripHistoricalCommandsFromResponsesInput(body []byte) ([]byte, error) {
 	rebuilt := make([]string, 0, len(items))
 	changed := false
 	dropAttachment := false
+	skillExecPath := ""
+	droppedCallIDs := make(map[string]struct{})
 	for i, item := range items {
 		if dropAttachment {
 			dropAttachment = false
 			if isSkillAttachment(items, i) {
+				skillExecPath = skillEmitPath(item.Get("content"))
+				changed = true
+				continue
+			}
+		}
+		if skillExecPath != "" {
+			execPath := skillExecPath
+			skillExecPath = ""
+			code := item.Get("arguments").Str + item.Get("input").Str
+			if (item.Get("type").Str == "function_call" || item.Get("type").Str == "custom_tool_call") && item.Get("name").Str == "exec" && item.Get("call_id").Str != "" && strings.Contains(code, execPath) {
+				droppedCallIDs[item.Get("call_id").Str] = struct{}{}
+				changed = true
+				continue
+			}
+		}
+		itemType := item.Get("type").Str
+		if itemType == "function_call" || itemType == "custom_tool_call" {
+			delete(droppedCallIDs, item.Get("call_id").Str)
+		}
+		if itemType == "function_call_output" || itemType == "custom_tool_call_output" {
+			if _, matched := droppedCallIDs[item.Get("call_id").Str]; matched {
 				continue
 			}
 		}

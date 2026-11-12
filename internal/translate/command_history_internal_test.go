@@ -135,3 +135,51 @@ func TestStripHistoricalCommands_OpeningDirectiveKeepsAssistantToolCall(t *testi
 	require.Len(t, msgs, 3)
 	assert.Equal(t, "tool_use", msgs[0].Get("content.0.type").Str, "a tool call must keep its paired tool result")
 }
+
+func TestStripHistoricalCommands_SkillExecKeepsOtherContentAndTools(t *testing.T) {
+	for name, format := range map[string]Format{"openai": FormatOpenAI, "anthropic": FormatAnthropic} {
+		t.Run(name, func(t *testing.T) {
+			assistant := map[string]any{"role": "assistant", "content": "working", "tool_calls": []any{
+				map[string]any{"id": "call_skill", "type": "function", "function": map[string]any{"name": "exec", "arguments": `{"cmd":"/x/skills/fm/scripts/emit.sh fable"}`}},
+				map[string]any{"id": "call_read", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"}},
+			}}
+			results := []any{
+				map[string]any{"role": "tool", "tool_call_id": "call_skill", "content": " /force-model fable"},
+				map[string]any{"role": "tool", "tool_call_id": "call_read", "content": "source"},
+			}
+			if format == FormatAnthropic {
+				assistant = map[string]any{"role": "assistant", "content": []any{
+					map[string]any{"type": "text", "text": "working"},
+					map[string]any{"type": "tool_use", "id": "call_skill", "name": "exec", "input": map[string]any{"code": "/x/skills/fm/scripts/emit.sh fable"}},
+					map[string]any{"type": "tool_use", "id": "call_read", "name": "exec", "input": map[string]any{}},
+				}}
+				results = []any{map[string]any{"role": "user", "content": []any{
+					map[string]any{"type": "tool_result", "tool_use_id": "call_skill", "content": " /force-model fable"},
+					map[string]any{"type": "tool_result", "tool_use_id": "call_read", "content": "source"},
+				}}}
+			}
+			messages := []any{
+				map[string]any{"role": "user", "content": "$fm fable\nread source"},
+				map[string]any{"role": "user", "content": historicalSkillBlob}, assistant,
+			}
+			messages = append(messages, results...)
+			messages = append(messages, map[string]any{"role": "user", "content": "next turn"})
+			body, err := json.Marshal(map[string]any{"model": "test", "messages": messages})
+			require.NoError(t, err)
+			env, err := ParseOpenAI(body)
+			if format == FormatAnthropic {
+				env, err = ParseAnthropic(body)
+			}
+			require.NoError(t, err)
+			_, err = env.StripHistoricalCommands()
+			require.NoError(t, err)
+			assert.Equal(t, "read source", env.FirstUserMessageText())
+			assert.NotContains(t, string(env.body), "call_skill")
+			assert.NotContains(t, string(env.body), "/force-model fable")
+			assert.Contains(t, string(env.body), "working")
+			assert.Contains(t, string(env.body), "call_read")
+			assert.Contains(t, string(env.body), "source")
+			assert.Len(t, gjson.GetBytes(env.body, "messages").Array(), 4)
+		})
+	}
+}
