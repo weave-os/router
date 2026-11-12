@@ -1,0 +1,26 @@
+# Smoke-only overlay: the router boots on its hmm_embedding default, so the
+# stack bakes a stub policy release and serves a stub classifier for it.
+# Relative paths resolve against the repo root (see smoke/mitmproxy/docker-compose.yml).
+services:
+  hmm-stub:
+    image: router-hmm-stub
+    build:
+      context: .
+      dockerfile: smoke/hmmstub/Dockerfile
+    volumes:
+      - hmm_stub_release:/release
+    healthcheck:
+      test: ["CMD", "/hmm-stub", "-healthcheck"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  server:
+    depends_on:
+      hmm-stub:
+        condition: service_healthy
+    volumes:
+      - hmm_stub_release:/policy/release:ro
+
+volumes:
+  hmm_stub_release:

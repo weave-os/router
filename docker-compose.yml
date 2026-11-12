@@ -144,9 +144,9 @@ services:
       - "127.0.0.1:8080:8080"
     restart: unless-stopped
 
-  # Optional frozen HMM policy. It is not part of the default stack and does
-  # not change the router's default strategy. Start it through `make up-hmm`,
-  # which also supplies the sidecar URL to the router via the HMM override.
+  # Frozen HMM policy for the router's hmm_embedding default. Start it through
+  # `make up-hmm`, which also supplies the sidecar URL to the router via the HMM
+  # override; without it the router refuses to boot.
   hmm-sidecar:
     profiles:
       - hmm

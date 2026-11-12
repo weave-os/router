@@ -61,19 +61,17 @@ func TestBasic(t *testing.T) {
 // TestForceHeaderRejections covers the two force-header refusals that resolve
 // before any upstream call, so they need no cassette and run in replay-only CI.
 //
-// The success path (a label that IS in the live roster serving from that
-// cluster's arms) is deliberately absent: it needs the HMM sidecar container,
-// which the smoke stack doesn't boot, and the MITM proxy intercepts only
-// outbound HTTPS provider calls — not the router's plain-HTTP sidecar hop — so
-// there is nothing to record it against. Verify that path against a real
-// sidecar (`make up-hmm`).
+// The stack's stub classifier (smoke/hmmstub) knows a single routing cluster,
+// so the success path of forcing a real cluster is not exercised here. Verify
+// that path against a real sidecar (`make up-hmm`).
 func TestForceHeaderRejections(t *testing.T) {
-	t.Run("force-cluster on the default cluster strategy is refused", func(t *testing.T) {
-		// The default strategy scores anonymous centroids, so there is no named
-		// cluster to constrain to. Silently serving would look like the force took.
+	t.Run("force-cluster naming no routing cluster is refused", func(t *testing.T) {
+		// No force-model pin, so the request reaches the policy router, which
+		// refuses a cluster the classifier never reports instead of serving
+		// an unconstrained model.
 		body := newRequest("smoke-force-cluster-unsupported").tokens(64).
 			text("Reply with exactly the word: ok").build(t)
-		r := callModelWithHeaders(t, body, cfg.PinModel,
+		r := callModelWithHeaders(t, body, "",
 			map[string]string{forceClusterHeader: "maximum"})
 
 		if r.status != http.StatusBadRequest {
