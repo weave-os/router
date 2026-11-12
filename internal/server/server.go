@@ -337,6 +337,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		mgmt.GET("/provider-keys", admin.ListExternalKeysHandler(authSvc))
 		mgmt.POST("/provider-keys", admin.UpsertExternalKeyHandler(authSvc, deployedModels))
 		mgmt.PUT("/provider-keys/:id/model-aliases", admin.UpdateExternalKeyAliasesHandler(authSvc, deployedModels))
+		mgmt.PUT("/provider-keys/:id/funding-priority", admin.UpdateExternalKeyFundingPriorityHandler(authSvc))
 		// Discovery hits the provider endpoint itself; the group's adminTimeout
 		// (10s) bounds that upstream GET /models call.
 		mgmt.GET("/provider-keys/:id/models", admin.ListUpstreamModelsHandler(authSvc, proxySvc))

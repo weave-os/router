@@ -753,6 +753,7 @@ func (s *Service) bypassToAnthropic(
 			outcomeErr = upstreamErr
 		}
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
+		s.markServedExternalKeyUsed(ctx, outcomeErr)
 		stopReason, _, _ := extractor.AnthropicResponse()
 		// The routed path's key, so a session switching lanes keeps one turn clock.
 		sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyIDFromContext(ctx))

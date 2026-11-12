@@ -56,7 +56,7 @@ func (s *Service) withClassifierInput(ctx context.Context, body []byte, endpoint
 		_, beta := env.ExtractBetaCommand()
 		_, forced := env.ExtractForceModelCommand()
 		_, feedback := env.ExtractRouterFeedbackCommand()
-		if beta || forced || feedback || env.ExtractRouterSessionCommand() || env.ExtractRouterModelsCommand() {
+		if beta || forced || feedback || env.ExtractRouterSessionCommand() || env.ExtractRouterModelsCommand() || env.ExtractListModelsCommand() {
 			return ctx, router.ErrClassifierHistoryUnavailable
 		}
 		if !captured {
