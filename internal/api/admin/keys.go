@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -263,8 +264,8 @@ func ListExternalKeysHandler(authSvc *auth.Service) gin.HandlerFunc {
 }
 
 // UpsertExternalKeyHandler stores a BYOK provider key; models (non-nil) validates aliases
-// against the deployed catalog so a typo'd ID fails at write time, not silently at runtime.
-func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource) gin.HandlerFunc {
+// against the serving roster so a typo'd ID fails at write time, not silently at runtime.
+func UpsertExternalKeyHandler(authSvc *auth.Service, models HMMRosterSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
 		if !ok {
@@ -286,7 +287,11 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Provider already configured via deployment environment variable. Remove the env var before adding a dashboard key."})
 			return
 		}
-		allowed := deployedModelIDs(models)
+		allowed, err := deployedModelIDs(c.Request.Context(), models)
+		if err != nil {
+			abortRosterUnavailable(c, err)
+			return
+		}
 		key, err := authSvc.UpsertExternalAPIKey(c.Request.Context(), installation.ID, auth.UpsertExternalAPIKeyParams{
 			Provider:      req.Provider,
 			RawKey:        req.Key,
@@ -337,7 +342,7 @@ type updateExternalKeyAliasesRequest struct {
 
 // UpdateExternalKeyAliasesHandler edits a stored key's model aliases without re-entering
 // the credential; returns 404 for missing or cross-tenant ids.
-func UpdateExternalKeyAliasesHandler(authSvc *auth.Service, models DeployedModelsSource) gin.HandlerFunc {
+func UpdateExternalKeyAliasesHandler(authSvc *auth.Service, models HMMRosterSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
 		if !ok {
@@ -353,7 +358,12 @@ func UpdateExternalKeyAliasesHandler(authSvc *auth.Service, models DeployedModel
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request body."})
 			return
 		}
-		key, err := authSvc.SetExternalAPIKeyModelAliases(c.Request.Context(), installation.ID, id, req.ModelAliases, deployedModelIDs(models))
+		allowed, err := deployedModelIDs(c.Request.Context(), models)
+		if err != nil {
+			abortRosterUnavailable(c, err)
+			return
+		}
+		key, err := authSvc.SetExternalAPIKeyModelAliases(c.Request.Context(), installation.ID, id, req.ModelAliases, allowed)
 		if err != nil {
 			if errors.Is(err, auth.ErrUnknownModel) || errors.Is(err, auth.ErrInvalidModelAlias) {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -409,17 +419,21 @@ func UpdateExternalKeyFundingPriorityHandler(authSvc *auth.Service) gin.HandlerF
 	}
 }
 
-// deployedModelIDs is the alias-validation set; nil source means skip validation.
-func deployedModelIDs(models DeployedModelsSource) map[string]struct{} {
+// deployedModelIDs is the alias-validation set; nil source (tests only: the
+// self-hosted composition root always wires one) means skip validation.
+func deployedModelIDs(ctx context.Context, models HMMRosterSource) (map[string]struct{}, error) {
 	if models == nil {
-		return nil
+		return nil, nil
 	}
-	deployed := models.DefaultDeployedModels()
+	deployed, err := models.HMMDeployedModels(ctx)
+	if err != nil {
+		return nil, err
+	}
 	allowed := make(map[string]struct{}, len(deployed))
 	for _, e := range deployed {
 		allowed[e.Model] = struct{}{}
 	}
-	return allowed
+	return allowed, nil
 }
 
 func DeleteExternalKeyHandler(authSvc *auth.Service) gin.HandlerFunc {

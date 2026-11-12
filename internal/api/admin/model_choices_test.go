@@ -18,7 +18,7 @@ func TestCatalogModelsHandler_SelectionDescribesModelIDs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	hmm := &fakeHMMRoster{}
 	engine := gin.New()
-	engine.GET("/v1/router/models", admin.CatalogModelsHandler(fakeDeployedModels{}, hmm))
+	engine.GET("/v1/router/models", admin.CatalogModelsHandler(hmm))
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/router/models?scope=selection", nil))
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
