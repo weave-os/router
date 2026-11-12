@@ -9,6 +9,7 @@ import (
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/telemetry"
 )
 
 // cryptoRandRead is a seam for tests to simulate crypto/rand.Read failures.
@@ -47,7 +48,7 @@ func fillMathRand(buf []byte) {
 	}
 }
 
-func spanToProto(s Span, traceID [16]byte) *tracev1.Span {
+func spanToProto(s telemetry.Span, traceID [16]byte) *tracev1.Span {
 	spanID := generateSpanID()
 	return &tracev1.Span{
 		TraceId:           traceID[:],

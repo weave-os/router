@@ -1,7 +1,6 @@
 package otel
 
 import (
-	"context"
 	"sync"
 
 	"weave-os/router/internal/telemetry"
@@ -13,8 +12,8 @@ type Buffer struct {
 	emitter *Emitter
 	traceID [16]byte
 	mu      sync.Mutex
-	spans   []Span
-	logs    []LogRecord
+	spans   []telemetry.Span
+	logs    []telemetry.LogRecord
 }
 
 // NewBuffer creates a request-scoped span buffer. Returns nil when emitter is
@@ -30,7 +29,7 @@ func NewBuffer(emitter *Emitter) *Buffer {
 }
 
 // Record appends a span to the buffer. Safe for concurrent use.
-func (b *Buffer) Record(s Span) {
+func (b *Buffer) Record(s telemetry.Span) {
 	if b == nil {
 		return
 	}
@@ -40,7 +39,7 @@ func (b *Buffer) Record(s Span) {
 }
 
 // RecordLog appends a log record to the buffer. Safe for concurrent use.
-func (b *Buffer) RecordLog(r LogRecord) {
+func (b *Buffer) RecordLog(r telemetry.LogRecord) {
 	if b == nil {
 		return
 	}
@@ -69,30 +68,4 @@ func (b *Buffer) Flush() {
 	for _, r := range pendingLogs {
 		b.emitter.EnqueueLog(logRecordToProto(r, b.traceID))
 	}
-}
-
-// WithContext returns a child context carrying this buffer.
-func (b *Buffer) WithContext(ctx context.Context) context.Context {
-	if b == nil {
-		return ctx
-	}
-	return telemetry.WithRecorder(ctx, b)
-}
-
-// Record retrieves the Buffer from ctx and appends the span. No-op when the
-// context does not carry a buffer (OTel disabled or pre-buffer middleware).
-func Record(ctx context.Context, s Span) {
-	telemetry.Record(ctx, s)
-}
-
-// RecordLog retrieves the Buffer from ctx and appends the log record. No-op
-// when the context does not carry a buffer (OTel disabled or pre-buffer
-// middleware).
-func RecordLog(ctx context.Context, r LogRecord) {
-	telemetry.RecordLog(ctx, r)
-}
-
-// Flush retrieves the Buffer from ctx and flushes all buffered spans and logs.
-func Flush(ctx context.Context) {
-	telemetry.Flush(ctx)
 }

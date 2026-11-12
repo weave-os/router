@@ -4,15 +4,15 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/telemetry"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestUsageExtractor_ReportedZeroReplacesSnapshot(t *testing.T) {
-	ex := otel.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderOpenAI)
+	ex := telemetry.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderOpenAI)
 	for _, frame := range []string{
 		`data: {"usage":{"prompt_tokens":100,"completion_tokens":10,"prompt_tokens_details":{"cached_tokens":50},"completion_tokens_details":{"reasoning_tokens":3}}}` + "\n\n",
 		`data: {"usage":{"completion_tokens":0,"prompt_tokens_details":{"cached_tokens":0},"completion_tokens_details":{"reasoning_tokens":0}}}` + "\n\n",

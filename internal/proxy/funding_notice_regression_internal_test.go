@@ -14,11 +14,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/subscriptions"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 )
 
@@ -141,7 +141,7 @@ func TestFundingNoticeDoesNotEstablishProviderFacts(t *testing.T) {
 	buffer := newPreludeBuffer(rec)
 	caps := translate.NoticeCapabilities{Format: translate.FormatAnthropic, Streaming: true, Presentation: translate.NoticeText, Eager: true}
 	delivery := translate.NewNoticeDelivery(context.Background(), translate.NewProtocolNoticeSink(buffer, caps), caps)
-	extractor := otel.NewUsageExtractor(delivery, providers.ProviderAnthropic)
+	extractor := telemetry.NewUsageExtractor(delivery, providers.ProviderAnthropic)
 	terminal := newStreamTerminalObserver(extractor, nativeStreamAnthropic)
 	terminal.Header().Set("Content-Type", "text/event-stream")
 	terminal.WriteHeader(http.StatusOK)

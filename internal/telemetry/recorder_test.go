@@ -48,20 +48,8 @@ func TestRecorderContextForwardsCallsInOrder(t *testing.T) {
 	}, recorder.calls)
 }
 
-func TestRecorderContextWithoutRecorderIsNoOp(t *testing.T) {
+func TestWithRecorderNilPreservesContext(t *testing.T) {
 	ctx := context.Background()
-	span := Span{Name: "request"}
-	record := LogRecord{Name: "request.done"}
 
-	Record(ctx, span)
-	RecordLog(ctx, record)
-	Flush(ctx)
-
-	got := WithRecorder(ctx, nil)
-	if got != ctx {
-		t.Fatal("WithRecorder(ctx, nil) must return the original context")
-	}
-	Record(got, span)
-	RecordLog(got, record)
-	Flush(got)
+	require.Equal(t, ctx, WithRecorder(ctx, nil))
 }

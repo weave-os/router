@@ -6,11 +6,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 
-	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/telemetry"
 )
 
 func TestAttrBuilder_BuildsCorrectKeyValues(t *testing.T) {
-	b := otel.NewAttrBuilder(5)
+	b := telemetry.NewAttrBuilder(5)
 	attrs := b.
 		String("str_key", "value").
 		Int64("int_key", 42).
@@ -38,29 +38,29 @@ func TestAttrBuilder_BuildsCorrectKeyValues(t *testing.T) {
 }
 
 func TestAttrBuilder_PreSizedCapacity(t *testing.T) {
-	b := otel.NewAttrBuilder(2)
+	b := telemetry.NewAttrBuilder(2)
 	attrs := b.String("a", "1").String("b", "2").Build()
 	assert.Len(t, attrs, 2)
 }
 
 func TestAttrBuilder_ChainableAPI(t *testing.T) {
-	b := otel.NewAttrBuilder(3)
+	b := telemetry.NewAttrBuilder(3)
 	result := b.String("a", "1").Int64("b", 2).Bool("c", false)
-	assert.IsType(t, &otel.AttrBuilder{}, result)
+	assert.IsType(t, &telemetry.AttrBuilder{}, result)
 
 	attrs := result.Build()
 	assert.Len(t, attrs, 3)
 }
 
 func TestAttrBuilder_EmptyBuildReturnsEmptySlice(t *testing.T) {
-	b := otel.NewAttrBuilder(0)
+	b := telemetry.NewAttrBuilder(0)
 	attrs := b.Build()
 	assert.NotNil(t, attrs)
 	assert.Len(t, attrs, 0)
 }
 
 func TestAttrBuilder_TypedValuesMatchProtobuf(t *testing.T) {
-	b := otel.NewAttrBuilder(4)
+	b := telemetry.NewAttrBuilder(4)
 	attrs := b.
 		String("s", "test").
 		Int64("i", -100).
@@ -86,7 +86,7 @@ func TestAttrBuilder_TypedValuesMatchProtobuf(t *testing.T) {
 }
 
 func TestAttrBuilder_IntSliceEmitsArrayOfInts(t *testing.T) {
-	attrs := otel.NewAttrBuilder(1).
+	attrs := telemetry.NewAttrBuilder(1).
 		IntSlice("routing.cluster_ids", []int{7, 0, 42}).
 		Build()
 
@@ -106,7 +106,7 @@ func TestAttrBuilder_IntSliceEmitsArrayOfInts(t *testing.T) {
 }
 
 func TestAttrBuilder_IntSliceNilEmitsEmptyArray(t *testing.T) {
-	attrs := otel.NewAttrBuilder(1).
+	attrs := telemetry.NewAttrBuilder(1).
 		IntSlice("routing.cluster_ids", nil).
 		Build()
 

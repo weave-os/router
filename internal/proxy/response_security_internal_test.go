@@ -8,9 +8,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/sse"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 )
 
@@ -22,7 +22,7 @@ func TestResponseWritersEscapeHTMLWithoutChangingJSON(t *testing.T) {
 		"terminal": func(w http.ResponseWriter) http.ResponseWriter { return newResponsesTerminalObserver(w) },
 		"cost":     func(w http.ResponseWriter) http.ResponseWriter { return newStreamCostWriter(w) },
 		"usage": func(w http.ResponseWriter) http.ResponseWriter {
-			return otel.NewUsageExtractor(w, providers.ProviderOpenAI)
+			return telemetry.NewUsageExtractor(w, providers.ProviderOpenAI)
 		},
 		"keepalive": func(w http.ResponseWriter) http.ResponseWriter { return sse.NewKeepaliveWriter(w, nil, 0) },
 		"anthropic marker": func(w http.ResponseWriter) http.ResponseWriter {

@@ -16,6 +16,7 @@ import (
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 
 	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/telemetry"
 )
 
 type collector struct {
@@ -81,9 +82,9 @@ func newTestEmitter(t *testing.T, endpoint string) *otel.Emitter {
 	return em
 }
 
-func makeSpan(name string) otel.Span {
+func makeSpan(name string) telemetry.Span {
 	now := time.Now()
-	return otel.Span{
+	return telemetry.Span{
 		Name:  name,
 		Start: now,
 		End:   now.Add(10 * time.Millisecond),
@@ -103,7 +104,7 @@ func TestBuffer_NilReceiver_NoOps(t *testing.T) {
 	assert.NotPanics(t, func() { buf.Flush() })
 
 	ctx := context.Background()
-	got := buf.WithContext(ctx)
+	got := telemetry.WithRecorder(ctx, nil)
 	assert.Equal(t, ctx, got)
 }
 
@@ -130,10 +131,10 @@ func TestBuffer_ContextRoundTrip(t *testing.T) {
 	em := newTestEmitter(t, coll.server.URL)
 
 	buf := otel.NewBuffer(em)
-	ctx := buf.WithContext(context.Background())
+	ctx := telemetry.WithRecorder(context.Background(), buf)
 
-	otel.Record(ctx, makeSpan("via-ctx"))
-	otel.Flush(ctx)
+	telemetry.Record(ctx, makeSpan("via-ctx"))
+	telemetry.Flush(ctx)
 
 	require.NoError(t, em.Shutdown(context.Background()))
 
@@ -143,8 +144,8 @@ func TestBuffer_ContextRoundTrip(t *testing.T) {
 
 func TestBuffer_ContextNoBuffer(t *testing.T) {
 	ctx := context.Background()
-	assert.NotPanics(t, func() { otel.Record(ctx, makeSpan("orphan")) })
-	assert.NotPanics(t, func() { otel.Flush(ctx) })
+	assert.NotPanics(t, func() { telemetry.Record(ctx, makeSpan("orphan")) })
+	assert.NotPanics(t, func() { telemetry.Flush(ctx) })
 }
 
 func TestBuffer_FlushDrainsSpans(t *testing.T) {
