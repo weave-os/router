@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 	"time"
-	"weave-os/router/internal/dispatch"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -51,7 +50,7 @@ func TestCompactionSessionDecision(t *testing.T) {
 	var key [sessionpin.SessionKeyLen]byte
 	ctx := context.Background()
 	live := time.Now().Add(time.Hour)
-	clients := dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil})
+	openAIAndAnthropic := map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}}
 	history := func(pin sessionpin.Pin) *rolePinStore {
 		return &rolePinStore{byRole: map[string]sessionpin.Pin{hmmHistoryRole(sessionpin.DefaultRole): pin}}
 	}
@@ -88,8 +87,8 @@ func TestCompactionSessionDecision(t *testing.T) {
 		{name: "transcript past the window", store: solHistory, req: router.Request{EstimatedInputTokens: catalog.ContextWindowForBinding("gpt-5.6-sol", providers.ProviderOpenAI)}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			s := &Service{pinStore: test.store, clients: clients, availableModels: test.available}
-			decision, ok := s.compactionSessionDecision(ctx, key, sessionpin.DefaultRole, test.req)
+			session := compactionSession{pins: test.store, providers: openAIAndAnthropic, available: test.available, now: time.Now()}
+			decision, ok := session.decision(ctx, key, sessionpin.DefaultRole, test.req)
 			assert.Equal(t, test.wantModel != "", ok)
 			assert.Equal(t, test.wantModel, decision.Model)
 			assert.Equal(t, test.wantEffort, decision.Effort)

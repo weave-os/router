@@ -136,11 +136,14 @@ func TestCompactionCrossStrategyHistoryHonorsEligibility(t *testing.T) {
 					Strategy: router.StrategyHMMEmbedding, LastTurnEndedAt: time.Now(),
 				},
 			}}
-			svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil},
-				nil, false, nil, store, false, providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil).
-				WithAvailableModels(test.available)
+			session := compactionSession{
+				pins:      store,
+				providers: map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}},
+				available: test.available,
+				now:       time.Now(),
+			}
 			ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
-			_, ok := svc.compactionSessionDecision(ctx, [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, test.req)
+			_, ok := session.decision(ctx, [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, test.req)
 			assert.False(t, ok)
 		})
 	}

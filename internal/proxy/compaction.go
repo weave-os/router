@@ -49,7 +49,14 @@ func (s *Service) routeCompaction(
 	if forceModelFound && forcedPinEligible(forceModelPin, req) {
 		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
-	if decision, ok := s.compactionSessionDecision(ctx, sessionKey, res.PinRole, req); ok {
+	session := compactionSession{
+		pins:           s.pinStore,
+		providers:      s.clients.NameSet(),
+		available:      s.availableModels,
+		cortexGateways: cortexGatewayProvidersForRequest(ctx),
+		now:            time.Now(),
+	}
+	if decision, ok := session.decision(ctx, sessionKey, res.PinRole, req); ok {
 		res.Decision = decision
 		res.StickyHit = true
 		res.PinModel = decision.Model
@@ -65,20 +72,30 @@ func (s *Service) routeCompaction(
 	return res, nil
 }
 
-// compactionSessionDecision returns the model that last served the session
-// when this request can still use it. The active thread pin and HMM history
-// compete by completion time; both are read across strategies because a
-// compaction may arrive under a different strategy than the turns it
-// summarizes.
-func (s *Service) compactionSessionDecision(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (router.Decision, bool) {
+// compactionSession decides which session model a client compaction turn
+// stays on: the model that last served the session, when this request can
+// still use it. The active thread pin and HMM history compete by completion
+// time; both are read across strategies because a compaction may arrive under
+// a different strategy than the turns it summarizes.
+type compactionSession struct {
+	pins sessionpin.Store
+	// providers binds the served model when the request leaves
+	// EnabledProviders unrestricted.
+	providers      map[string]struct{}
+	available      map[string]struct{}
+	cortexGateways map[string]struct{}
+	now            time.Time
+}
+
+func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (router.Decision, bool) {
 	var served sessionpin.Pin
 	for _, pinRole := range []string{role, hmmHistoryRole(role)} {
-		pin, found, err := s.pinStore.Get(ctx, sessionKey, pinRole)
+		pin, found, err := c.pins.Get(ctx, sessionKey, pinRole)
 		if err != nil {
 			observability.FromContext(ctx).Error("Compaction session history unavailable", "role", pinRole, "err", err)
 			continue
 		}
-		if !found || (pinRole == role && !pin.PinnedUntil.After(time.Now())) {
+		if !found || (pinRole == role && !pin.PinnedUntil.After(c.now)) {
 			continue
 		}
 		served = latestServedPin(served, pin)
@@ -94,18 +111,22 @@ func (s *Service) compactionSessionDecision(ctx context.Context, sessionKey [ses
 	if effort == "" && model == served.Model {
 		effort = served.Effort
 	}
-	binding, bound := s.servedBinding(model, served.Provider, req)
+	providerSet := req.EnabledProviders
+	if providerSet == nil {
+		providerSet = c.providers
+	}
+	binding, bound := servedBinding(model, served.Provider, providerSet, req.CustomBindings)
 	if !bound {
 		return router.Decision{}, false
 	}
-	if s.availableModels != nil {
-		if _, available := s.availableModels[model]; !available {
+	if c.available != nil {
+		if _, available := c.available[model]; !available {
 			return router.Decision{}, false
 		}
 	}
 	pin := sessionpin.Pin{Provider: binding.Provider, Model: model, Effort: effort, Reason: compactionSessionPinTier}
 	fits := req.EstimatedInputTokens <= 0 ||
-		req.EstimatedInputTokens+contextWindowOutputReserve <= gatewayContextWindow(cortexGatewayProvidersForRequest(ctx), model, binding.Provider)
+		req.EstimatedInputTokens+contextWindowOutputReserve <= gatewayContextWindow(c.cortexGateways, model, binding.Provider)
 	if !fits || !automaticPinEligible(pin, req) {
 		return router.Decision{}, false
 	}
@@ -166,19 +187,15 @@ func latestServedPin(pins ...sessionpin.Pin) sessionpin.Pin {
 }
 
 // servedBinding resolves the provider binding for a session's served model:
-// the provider that served it when that provider is still enabled and binds
-// the model, else the first enabled binding (a failed turn may leave the
-// stored provider stale).
-func (s *Service) servedBinding(model, servedProvider string, req router.Request) (catalog.ProviderBinding, bool) {
-	providerSet := req.EnabledProviders
-	if providerSet == nil {
-		providerSet = s.clients.NameSet()
-	}
+// the provider that served it when that provider is still in providerSet and
+// binds the model, else the first binding in providerSet (a failed turn may
+// leave the stored provider stale).
+func servedBinding(model, servedProvider string, providerSet map[string]struct{}, custom map[string][]string) (catalog.ProviderBinding, bool) {
 	if _, enabled := providerSet[servedProvider]; enabled {
 		pinned := map[string]struct{}{servedProvider: {}}
-		if binding, valid := catalog.ResolveBindingWithCustom(model, pinned, req.CustomBindings); valid {
+		if binding, valid := catalog.ResolveBindingWithCustom(model, pinned, custom); valid {
 			return binding, true
 		}
 	}
-	return catalog.ResolveBindingWithCustom(model, providerSet, req.CustomBindings)
+	return catalog.ResolveBindingWithCustom(model, providerSet, custom)
 }
