@@ -3,8 +3,6 @@ package proxy
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -25,17 +23,6 @@ import (
 )
 
 const handoffTestBody = `{"model":"claude-sonnet-4-6","max_tokens":1024,"stream":false,"metadata":{"user_id":"pi:handoff-test"},"messages":[{"role":"user","content":"Implement the parser and verify its behavior."}]}`
-
-type handoffResponseProvider struct{ betaCaptureProvider }
-
-func (p *handoffResponseProvider) Proxy(ctx context.Context, decision router.Decision, req providers.PreparedRequest, w http.ResponseWriter, request *http.Request) error {
-	if err := p.betaCaptureProvider.Proxy(ctx, decision, req, w, request); err != nil {
-		return err
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, err := io.WriteString(w, `{"type":"message","role":"assistant","content":[{"type":"text","text":"Review complete."}],"stop_reason":"end_turn","usage":{"input_tokens":2000,"output_tokens":10}}`)
-	return err
-}
 
 func handoffTestService() (*Service, *betaTestRouter, *betaCaptureProvider, context.Context) {
 	classifier := &betaTestRouter{decision: router.Decision{

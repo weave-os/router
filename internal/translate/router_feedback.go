@@ -115,7 +115,7 @@ func (env *RequestEnvelope) StripRouterFeedbackArtifacts() int {
 
 // parseRouterFeedbackCommand scans text for a /router-feedback (alias /rf)
 // directive on the first non-empty line, applying the same leading-line +
-// injected-prefix guards as parseForceModelCommand (see that function for the
+// injected-prefix guards as parseForceModelCommandFromSource (see that function for the
 // rationale; the router-side alias serves clients without local slash-command
 // expansion). Codex exec results get a narrow exception for their known
 // "Script completed" preamble. Unlike /force-model, everything after the
