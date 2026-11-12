@@ -876,7 +876,7 @@ func (s *Service) runTurnLoop(
 	req.ClientApp = ClientIdentityFrom(ctx).ClientApp
 	if transforms, ok := ctx.Value(responsesTransformsContextKey{}).([]translate.ResponseTransform); ok {
 		for _, transform := range transforms {
-			if metrics := s.translationMetricsPort(); metrics != nil {
+			if metrics := s.translationMetrics; metrics != nil {
 				metrics.RecordTranslationTransform(
 					ctx,
 					transform.Code,

@@ -62,6 +62,8 @@ import (
 // spans and logs. Implemented by *otel.Emitter.
 type TelemetryEmitter interface {
 	NewRecorder() telemetry.Recorder
+	NewUsageExtractor(http.ResponseWriter, string) (*telemetry.UsageExtractor, http.ResponseWriter)
+	TranslationMetrics() telemetry.TranslationMetrics
 }
 
 // Service orchestrates routing decisions and provider dispatch.
@@ -2934,29 +2936,11 @@ func (s *Service) newTelemetryRecorder() telemetry.Recorder {
 	return s.emitter.NewRecorder()
 }
 
-type usageExtractorProvider interface {
-	NewUsageExtractor(http.ResponseWriter, string) (*telemetry.UsageExtractor, http.ResponseWriter)
-}
-
-type translationMetricsProvider interface {
-	TranslationMetrics() telemetry.TranslationMetrics
-}
-
 func (s *Service) newUsageExtractor(inner http.ResponseWriter, provider string) (*telemetry.UsageExtractor, http.ResponseWriter) {
-	if factory, ok := s.emitter.(usageExtractorProvider); ok {
-		return factory.NewUsageExtractor(inner, provider)
+	if s.emitter == nil {
+		return newFallbackUsageExtractor(inner, provider)
 	}
-	return newFallbackUsageExtractor(inner, provider)
-}
-
-func (s *Service) translationMetricsPort() telemetry.TranslationMetrics {
-	if s.translationMetrics != nil {
-		return s.translationMetrics
-	}
-	if provider, ok := s.emitter.(translationMetricsProvider); ok {
-		return provider.TranslationMetrics()
-	}
-	return nil
+	return s.emitter.NewUsageExtractor(inner, provider)
 }
 
 // WithTranslationMetrics installs adapter-backed translation counters on the

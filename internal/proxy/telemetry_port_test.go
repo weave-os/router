@@ -9,6 +9,7 @@ import (
 	"time"
 
 	feedbacktoken "weave-os/router/internal/feedback"
+	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -26,6 +27,15 @@ type capturingTelemetryEmitter struct {
 
 func (e *capturingTelemetryEmitter) NewRecorder() telemetry.Recorder {
 	return e.recorder
+}
+
+func (e *capturingTelemetryEmitter) NewUsageExtractor(inner http.ResponseWriter, provider string) (*telemetry.UsageExtractor, http.ResponseWriter) {
+	wrapper := otel.NewUsageExtractor(inner, provider)
+	return wrapper.Extractor(), wrapper
+}
+
+func (*capturingTelemetryEmitter) TranslationMetrics() telemetry.TranslationMetrics {
+	return nil
 }
 
 type capturingTelemetryRecorder struct {
