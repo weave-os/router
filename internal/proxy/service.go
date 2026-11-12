@@ -72,7 +72,6 @@ type Service struct {
 	recoveryProbeLeases map[string]localRecoveryProbeLease
 	nextRecoveryProbeID uint64
 
-	router             router.Router
 	subscriptionModels subscriptionModelAccess
 	claudePlans        *subscriptions.PlanResolver
 	sessionHolds       subscriptionSessionHolds
@@ -1958,9 +1957,10 @@ const DefaultPlannerColdPinFollowFresh = false
 // merging. See docs/CONFIGURATION.md for the measured effect.
 const DefaultPlannerCorrectedEconomics = false
 
+// NewService registers r, when non-nil, as the router.StrategyHMMEmbedding
+// strategy; a later WithPolicyStrategy for that strategy replaces it.
 func NewService(r router.Router, providerMap map[string]providers.Client, emitter TelemetryEmitter, embedOnlyUserMessage bool, semanticCache *cache.Cache, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
-	return &Service{
-		router:                       r,
+	s := &Service{
 		clients:                      dispatch.NewClients(providerMap),
 		translationCompatibilityMode: TranslationCompatibilityShadow,
 		emitter:                      emitter,
@@ -2006,6 +2006,10 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		nativeOpenAIResponseSignals:    true,
 		cyberRefusalFallbackModel:      "claude-sonnet-5",
 	}
+	if r == nil {
+		return s
+	}
+	return s.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: r, Unavailable: hmm.ErrHMMUnavailable})
 }
 
 // WithTranslationCompatibilityMode injects the startup-validated rollout
@@ -3260,7 +3264,7 @@ func (s *Service) Clients() *dispatch.Clients {
 // WithPolicyStrategy registers one non-default router and its lifecycle
 // capabilities. Outcome and feedback reporters are discovered from the router.
 func (s *Service) WithPolicyStrategy(spec policy.StrategySpec) *Service {
-	if spec.Strategy == "" || spec.Strategy == router.StrategyCluster {
+	if spec.Strategy == "" {
 		return s
 	}
 	if s.strategies == nil {
@@ -3312,9 +3316,6 @@ func (s *Service) semanticCacheAllowed(ctx context.Context) bool {
 // PolicyStrategyAvailable reports whether a strategy has a live router;
 // registration stays visible when a sidecar is absent so callers see the gap.
 func (s *Service) PolicyStrategyAvailable(strategy router.Strategy) bool {
-	if strategy == router.StrategyCluster {
-		return s != nil && s.router != nil
-	}
 	registered, ok := s.strategies[strategy]
 	if !ok || registered.router == nil {
 		return false
@@ -3424,12 +3425,6 @@ func (s *Service) routeWithStrategy(ctx context.Context, strategy router.Strateg
 }
 
 func (s *Service) routeWithStrategyUnchecked(ctx context.Context, strategy router.Strategy, req router.Request) (router.Decision, error) {
-	if strategy == router.StrategyCluster {
-		if s.router == nil {
-			return router.Decision{}, fmt.Errorf("strategy %q requested but no router configured: %w", strategy, router.ErrStrategyUnavailable)
-		}
-		return s.router.Route(ctx, req)
-	}
 	registered, ok := s.strategies[strategy]
 	if !ok || registered.router == nil {
 		unavailable := defaultStrategyUnavailable(strategy)

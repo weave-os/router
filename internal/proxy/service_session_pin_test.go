@@ -757,7 +757,8 @@ func TestService_HardPin_ExploreRoutesToHaikuWhenFlagOn(t *testing.T) {
 		nil,
 	)
 
-	ctx := authedCtx(uuid.New().String())
+	// The legacy hardPinExplore default only applies to non-HMM strategies.
+	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyRL)
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
@@ -937,7 +938,8 @@ func TestService_HardPin_NoSubAgentOverrideUsesSharedHardPin(t *testing.T) {
 		nil,
 	)
 
-	ctx := authedCtx(uuid.New().String())
+	// The legacy hardPinExplore default only applies to non-HMM strategies.
+	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyRL)
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq))
@@ -1426,7 +1428,8 @@ func TestService_HardPin_OpenAI_SubAgentHeaderHintRoutesToHardPin(t *testing.T) 
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4o", Reason: "cluster"}}
 	svc := newOpenAIHardPinSvc(fr, store, true)
 
-	ctx := authedCtx(uuid.New().String())
+	// The legacy hardPinExplore default only applies to non-HMM strategies.
+	ctx := router.WithStrategy(authedCtx(uuid.New().String()), router.StrategyRL)
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	httpReq.Header.Set("x-weave-subagent-type", "Explore")

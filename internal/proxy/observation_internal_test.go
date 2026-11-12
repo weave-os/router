@@ -180,7 +180,7 @@ func TestBuildObservationContext_DefaultsStrategyToActive(t *testing.T) {
 
 	obs := buildObservationContext(context.Background(), served, router.Decision{}, CaptureOff)
 
-	assert.Equal(t, string(router.StrategyCluster), obs.Strategy)
+	assert.Equal(t, string(router.StrategyHMMEmbedding), obs.Strategy)
 	assert.Empty(t, obs.RouteID)
 }
 

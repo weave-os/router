@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/analytics"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
@@ -291,4 +292,26 @@ func TestManagedCatalogMetadataRemainsPublic(t *testing.T) {
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/router/models?scope=catalog", nil))
 	assert.Equal(t, http.StatusOK, response.Code)
+}
+
+func TestParseDefaultStrategy(t *testing.T) {
+	for raw, expected := range map[string]router.Strategy{
+		"":            router.StrategyHMMEmbedding,
+		"  ":          router.StrategyHMMEmbedding,
+		" HMM ":       router.StrategyHMM,
+		"hmm_qwen":    router.StrategyHMMQwen,
+		"future-lane": router.Strategy("future-lane"),
+	} {
+		strategy, err := server.ParseDefaultStrategy(raw)
+		require.NoError(t, err, raw)
+		assert.Equal(t, expected, strategy, raw)
+	}
+}
+
+func TestParseDefaultStrategyRejectsRetiredCluster(t *testing.T) {
+	for _, raw := range []string{"cluster", " CLUSTER "} {
+		_, err := server.ParseDefaultStrategy(raw)
+		require.Error(t, err, raw)
+		assert.Contains(t, err.Error(), "no longer supported")
+	}
 }

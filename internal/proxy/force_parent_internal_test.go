@@ -21,7 +21,7 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 	const apiKeyID = "parent-scope-test-key"
 	installationID := uuid.New()
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "shared-parent-session"})
-	ctx = router.WithStrategy(ctx, router.StrategyCluster)
+	ctx = router.WithStrategy(ctx, router.StrategyHMMEmbedding)
 	parent, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"max_tokens":4096,"messages":[{"role":"user","content":"Implement a synthetic feature"}]}`, catalog.ModelIDClaudeOpus48.String())))
 	require.NoError(t, err)
 	child, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"max_tokens":4096,"messages":[{"role":"user","content":"Research a synthetic helper"}]}`, catalog.ModelIDClaudeOpus48.String())))

@@ -54,7 +54,6 @@ import (
 	routerpubsub "weave-os/router/internal/pubsub"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandit"
-	"weave-os/router/internal/router/banditexplore"
 	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
@@ -1019,10 +1018,6 @@ func main() {
 		logger.Info("Handover summarizer disabled (provider not registered); switch turns will preserve full history instead", "requested_provider", handoverProviderName)
 	}
 
-	// OFF by default: wraps only the proxy's routing entrypoint, so rtr stays
-	// the *cluster.Multiversion the admin cast and semantic cache reference.
-	routeEntry := buildExploringRouter(rtr, logger)
-
 	// Off unless WV_CAPTURE_CONTENT is set; managed deploys set "full". Redactor
 	// is nil (no-op) here — managed wires one.
 	captureMode := proxy.ParseCaptureMode(config.GetOr("WV_CAPTURE_CONTENT", ""))
@@ -1391,7 +1386,7 @@ func main() {
 	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
-	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+	proxySvc := proxy.NewService(nil, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
 		WithTranslationMetrics(otel.NewTranslationMetrics()).
 		WithClaudeSubscriptionPlanReader(anthropicClient).
 		WithExternalKeyUsageRecorder(authSvc).
@@ -1620,7 +1615,12 @@ func main() {
 	// fallback keeps non-cluster routers bootable.
 	deployedModels, _ := rtr.(*cluster.Multiversion)
 	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
-	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker, proxySvc, server.DefaultStrategyFromEnv())
+	defaultStrategy, defaultStrategyErr := server.DefaultStrategyFromEnv()
+	if defaultStrategyErr != nil {
+		logger.Error("ROUTER_DEFAULT_STRATEGY is invalid; refusing to boot", "err", defaultStrategyErr)
+		panic(defaultStrategyErr)
+	}
+	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker, proxySvc, defaultStrategy)
 	if defaultStrategyErr := readinessChecker.checkDefaultStrategy(); defaultStrategyErr != nil {
 		logger.Error("ROUTER_DEFAULT_STRATEGY has no router configured; refusing to boot", "err", defaultStrategyErr)
 		panic(defaultStrategyErr)
@@ -1736,42 +1736,6 @@ func main() {
 	apmCtx, apmCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer apmCancel()
 	apm.ShutdownWithContext(apmCtx)
-}
-
-// buildExploringRouter optionally wraps rtr in the quality-tie-band explorer.
-// OFF unless ROUTER_EXPLORE_ENABLED=true (band half-width ROUTER_EXPLORE_EPSILON,
-// default 0.05). Intended for staging/small slices — never flip fleet-wide
-// without a bake-off.
-func buildExploringRouter(rtr router.Router, logger *slog.Logger) router.Router {
-	if !strings.EqualFold(config.GetOr("ROUTER_EXPLORE_ENABLED", "false"), "true") {
-		return rtr
-	}
-	multi, ok := rtr.(*cluster.Multiversion)
-	if !ok {
-		logger.Warn("ROUTER_EXPLORE_ENABLED set but router is not a cluster.Multiversion; exploration disabled")
-		return rtr
-	}
-
-	providers := make(map[string]string)
-	for _, e := range multi.DefaultDeployedModels() {
-		// First binding wins; the default bundle lists a model's primary
-		// provider first, which matches the scorer's default resolution.
-		if _, seen := providers[e.Model]; !seen {
-			providers[e.Model] = e.Provider
-		}
-	}
-	providerFor := func(model string) (string, bool) {
-		p, ok := providers[model]
-		return p, ok
-	}
-
-	epsilon := float32(parseEnvFloat("ROUTER_EXPLORE_EPSILON", 0.05))
-	logger.Info(
-		"Quality-tie-band exploration ENABLED (non-prod / shadow expected)",
-		"band_width", epsilon,
-		"deployed_models", len(providers),
-	)
-	return banditexplore.New(rtr, providerFor, epsilon)
 }
 
 func subscriptionCandidateSignal(snapshot usage.Snapshot, now time.Time) subscriptions.CandidateSignal {

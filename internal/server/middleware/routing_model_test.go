@@ -151,7 +151,7 @@ func TestClassifierThreadsRemainExplicitlyEnrolled(t *testing.T) {
 			if _, enrolled := c.Request.Context().Value(classifierEnrollmentTestKey{}).(bool); enrolled {
 				require.Equal(t, router.StrategyLLMClassifier, strategy)
 			} else {
-				require.Equal(t, router.StrategyCluster, strategy)
+				require.Equal(t, router.StrategyHMMEmbedding, strategy)
 			}
 			c.Status(http.StatusOK)
 		})
