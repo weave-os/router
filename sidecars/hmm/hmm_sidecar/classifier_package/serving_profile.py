@@ -53,6 +53,7 @@ from hmm_sidecar.classifier_package.errors import (
 )
 from hmm_sidecar.classifier_package.state_representation import (
     GEMINI_EMBEDDING_2_RAW_ROUTER_V5_ELEMENT,
+    GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY,
     SequenceRepresentation,
     StateEncoderContract,
     get_state_encoder_contract,
@@ -226,6 +227,52 @@ _GEMINI_ELEMENT_PROFILE = ServingProfile(
     hmm_training_contract_version=HMMTrainingContractVersion.GEMINI_V2,
     _model_input_contract=gemini_element_model_input_contract,
 )
+
+
+LEGACY_GEMINI_USER_AGENT_ONLY_V1_SERIALIZER_VERSION = (
+    "hmm_router_raw_v5_gemini_embedding_2_user_agent_only_serializer_v1"
+)
+LEGACY_GEMINI_USER_AGENT_ONLY_V1_SERIALIZER_SHA256 = (
+    "442b0968a2457bd10463f3da9223f4ed5e06df8542f67243ea6242665eca5b01"
+)
+LEGACY_GEMINI_USER_AGENT_ONLY_V1_ENCODER_SHA256 = (
+    "0d0ab31f2040e90c8881bb6e0f71f7e41b2a67ee3fc8264dd594cf07372f4768"
+)
+LEGACY_GEMINI_USER_AGENT_ONLY_V1_WINDOW_POLICY = (
+    "causal_raw_v5_current_user_agent_response_only_pair_"
+    "gemini_byte_safe_current_prefix_v1"
+)
+
+
+def legacy_gemini_user_agent_turn_window_profile() -> ServingProfile:
+    """Return only the frozen Gemini user-agent one-turn v1 artifact geometry."""
+    base_encoder = get_state_encoder_contract(
+        GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY
+    )
+    encoder = replace(
+        base_encoder,
+        serializer_version=LEGACY_GEMINI_USER_AGENT_ONLY_V1_SERIALIZER_VERSION,
+        serializer_sha256=LEGACY_GEMINI_USER_AGENT_ONLY_V1_SERIALIZER_SHA256,
+        window_policy=LEGACY_GEMINI_USER_AGENT_ONLY_V1_WINDOW_POLICY,
+        max_window_tokens=8192,
+    )
+    if encoder.sha256 != LEGACY_GEMINI_USER_AGENT_ONLY_V1_ENCODER_SHA256:
+        raise RuntimeError("frozen Gemini user-agent-only v1 encoder identity drift")
+    return replace(
+        _GEMINI_ELEMENT_PROFILE,
+        config=ServingConfig(
+            provider=EmbeddingProvider.GEMINI,
+            tool_evidence=ToolEvidenceMode.USER_AGENT_ONLY,
+            document_window=DocumentWindow.TURN_WINDOW,
+            lookback_rounds=ONE_TURN_MAX_TURNS,
+        ),
+        representation=GEMINI_EMBEDDING_2_RAW_ROUTER_V5_USER_AGENT_ONLY,
+        document_serializer_version=LEGACY_GEMINI_USER_AGENT_ONLY_V1_SERIALIZER_VERSION,
+        document_serializer_sha256=LEGACY_GEMINI_USER_AGENT_ONLY_V1_SERIALIZER_SHA256,
+        raw_feature_matrix=RawFeatureMatrix.GEMINI_EMBEDDING_2_ELEMENT_KIND_SLOTS_RELATIVE_POSITION_V1,
+        hmm_training_contract_version=HMMTrainingContractVersion.GEMINI_V1,
+        package_state_encoder=encoder,
+    )
 
 
 # The only configuration serving supports: Gemini per-message documents with

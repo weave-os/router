@@ -62,6 +62,9 @@ func (r *cliServingRegistry) ReadServingObject(_ context.Context, kind policyreg
 	}
 	return manifest, payload, nil
 }
+func (r *cliServingRegistry) ReadClassifierRuntimeBinding(context.Context, policyregistry.Environment, string) (policyregistry.ResolvedClassifierRuntimeBinding, error) {
+	return policyregistry.ResolvedClassifierRuntimeBinding{}, policyregistry.ErrNotFound
+}
 func (r *cliServingRegistry) ReadServingPolicy(context.Context, policyregistry.ObjectRef) (*rosterdata.Roster, error) {
 	return r.policy, nil
 }

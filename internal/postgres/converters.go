@@ -89,6 +89,7 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 		UsageBypassThreshold:             row.UsageBypassThreshold,
 		SubscriptionRoutingDisabled:      row.SubscriptionRoutingDisabled,
 		PickedModelCreditFallbackEnabled: row.PickedModelCreditFallbackEnabled,
+		WeaveCreditInferenceEnabled:      row.WeaveCreditInferenceEnabled,
 		RoutingStrategy:                  router.Strategy(derefString(row.RoutingStrategy)),
 		RoutingRolloutID:                 derefString(row.RoutingRolloutID),
 		PolicyShadowStrategy:             router.Strategy(derefString(row.PolicyShadowStrategy)),

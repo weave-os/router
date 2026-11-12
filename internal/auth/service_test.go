@@ -144,6 +144,28 @@ func (f *fakeExternalAPIKeyRepo) UpdateModelAliases(ctx context.Context, install
 
 func (f *fakeExternalAPIKeyRepo) MarkUsed(ctx context.Context, id string) error { return nil }
 
+func (f *fakeExternalAPIKeyRepo) UpdateFundingPriority(ctx context.Context, installationID, id string, priority auth.FundingPriority) (*auth.ExternalAPIKey, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	for _, k := range f.keys {
+		if k.ID == id && k.InstallationID == installationID {
+			k.FundingPriority = priority
+			return k, nil
+		}
+	}
+	return nil, auth.ErrExternalAPIKeyNotFound
+}
+
+func (f *fakeExternalAPIKeyRepo) ActiveFundingPriority(ctx context.Context, installationID, provider string) (auth.FundingPriority, error) {
+	for _, k := range f.keys {
+		if k.InstallationID == installationID && k.Provider == provider {
+			return k.FundingPriority, nil
+		}
+	}
+	return "", f.err
+}
+
 type fakeInstallationRepository struct {
 	excludedModelsByID              map[string][]string
 	excludedModelsExternalByID      map[string]string

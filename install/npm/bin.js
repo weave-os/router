@@ -11,7 +11,7 @@ const packageName = JSON.parse(
   readFileSync(path.join(__dirname, "package.json"), "utf8"),
 ).name;
 
-const defaultEntrypointURL = "https://router.weaveos.com/start";
+const defaultEntrypointURL = "https://app.weaveos.com/start";
 
 if (packageName === "@weave-os/router" && args.length === 0) {
   openDefaultEntrypoint(defaultEntrypointURL);

@@ -66,6 +66,7 @@ var compactionSummarizerModels = []string{
 	"claude-opus-5-5",
 	"claude-fable-5",
 	"claude-fable-5-1",
+	"claude-fable-5-2",
 }
 
 // FallbackSpec declares the only fallback family and fixed alternatives a policy permits.

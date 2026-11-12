@@ -77,6 +77,8 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		BlindExperimentArm:              blindExperimentArmPtr(row.BlindExperimentArm),
 		BlindExperimentAssignmentSource: blindExperimentAssignmentSourcePtr(row.BlindExperimentAssignmentSource),
 		BlindExperimentSubjectKey:       row.BlindExperimentSubjectKey,
+		BlindExperimentMode:             blindExperimentModePtr(row.BlindExperimentMode),
+		BlindExperimentSessionKey:       row.BlindExperimentSessionKey,
 		CohortExperimentID:              uuidStringPtr(row.CohortExperimentID),
 		CohortGroupID:                   int16PtrToInt64(row.CohortGroupID),
 		CohortPhaseIndex:                int16PtrToInt64(row.CohortPhaseIndex),
@@ -84,6 +86,10 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		CohortScheduledArm:              blindExperimentArmPtr(row.CohortScheduledArm),
 		CohortTreatmentApplied:          row.CohortTreatmentApplied,
 		CohortBypassReason:              cohortBypassReasonPtr(row.CohortBypassReason),
+		BlindExperimentModelSource:      blindExperimentModelSourcePtr(row.BlindExperimentModelSource),
+		BlindExperimentTreatmentApplied: row.BlindExperimentTreatmentApplied,
+		BlindExperimentBaselineModel:    row.BlindExperimentBaselineModel,
+		BlindExperimentModelChanged:     row.BlindExperimentModelChanged,
 		PolicyPinRequested:              row.PolicyPinRequested,
 		PolicyPinHonoured:               row.PolicyPinHonoured,
 		StickyHit:                       row.StickyHit != nil && *row.StickyHit,
@@ -165,12 +171,28 @@ func blindExperimentAssignmentSourcePtr(value *string) *auth.BlindExperimentAssi
 	return &source
 }
 
+func blindExperimentModePtr(value *string) *auth.BlindExperimentMode {
+	if value == nil {
+		return nil
+	}
+	mode := auth.BlindExperimentMode(*value)
+	return &mode
+}
+
 func cohortBypassReasonPtr(value *string) *auth.CohortBypassReason {
 	if value == nil {
 		return nil
 	}
 	reason := auth.CohortBypassReason(*value)
 	return &reason
+}
+
+func blindExperimentModelSourcePtr(value *string) *auth.BlindExperimentModelSource {
+	if value == nil {
+		return nil
+	}
+	source := auth.BlindExperimentModelSource(*value)
+	return &source
 }
 
 func int16PtrToInt64(value *int16) *int64 {

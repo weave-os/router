@@ -1402,7 +1402,7 @@ func (s *Service) runTurnLoop(
 	// A model rescued earlier in this agent turn stays out until the next
 	// real user prompt, which starts a new turn and readmits it.
 	if turnStrikes := mergeSessionStrikes(pin.TurnStrikes, hmmHistory.TurnStrikes); len(turnStrikes) > 0 {
-		if env.EndsWithUserPrompt() {
+		if routingEndsWithUserPrompt(ctx, env) {
 			s.clearTurnStrikes(ctx, res.SessionKey, res.PinRole)
 		} else {
 			demoted = mergeSessionStrikes(demoted, turnStrikes)
@@ -1887,6 +1887,11 @@ func (s *Service) runTurnLoop(
 	// entry path would observe search decay and prefix trimming twice and lose
 	// the already-computed translation eligibility and pin-drop evidence.
 	routeRemaining := func() (turnLoopResult, error) {
+		holdToolResult := res.AuthoritativePerTurn && req.Escalation == nil &&
+			res.TurnType == turntype.ToolResult && s.ResolveHMMToolResultHold(ctx)
+		if holdToolResult {
+			res.AuthoritativePerTurn = false
+		}
 		// A command-only continuation has no user-authored text to classify.
 		// Keep an eligible session model instead of rescoring synthetic client
 		// wrappers or switching to the requested baseline mid-conversation.
@@ -1911,7 +1916,7 @@ func (s *Service) runTurnLoop(
 		// translate.userPromptTextGJSON strips tool_result blocks from the embed input.
 		// Switches degrade safely — handover.RewriteEnvelope strips orphaned tool_results.
 		if req.Escalation == nil && !res.AuthoritativePerTurn &&
-			!s.ResolveScoreToolResultTurns(ctx) &&
+			(!s.ResolveScoreToolResultTurns(ctx) || holdToolResult) &&
 			res.TurnType == turntype.ToolResult &&
 			pinFound {
 			decision := pinDecision(pin)

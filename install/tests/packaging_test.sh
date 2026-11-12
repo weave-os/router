@@ -94,6 +94,13 @@ for d in "$root"/codex-skills/*/; do
 done
 check "no packaged Codex skill lacks a registry entry" "" "$orphans"
 
+missing=""
+for rel in SKILL.md scripts/pin-coordinator.sh agents/build-researcher.md agents/build-implementer.md \
+  agents/build-verifier.md agents/build-reviewer.md; do
+  [ -f "$root/skills/build/$rel" ] || missing="$missing $rel"
+done
+check "the build skill tree is packaged" "" "$missing"
+
 # Pi adapters travel through the existing pi.skills bundle path, not the
 # installer, so assert the manifest still points at them.
 check "the package still declares its pi extension" "./pi-router/src/index.ts" \
@@ -123,18 +130,18 @@ chmod +x "$home/bin/opencode"
 entrypoint_output="$(HOME="$home" PATH="$home/bin:$PATH" NO_COLOR=1 \
   node "$root/bin.js" 2>&1)"
 check "the canonical no-argument entrypoint opens the hosted start page" \
-  "https://router.weaveos.com/start" "$(cat "$browser_log" 2>/dev/null || true)"
+  "https://app.weaveos.com/start" "$(cat "$browser_log" 2>/dev/null || true)"
 check "the no-argument entrypoint says which page it opened" "yes" \
-  "$(grep -Fq 'opening https://router.weaveos.com/start' <<<"$entrypoint_output" && echo yes || echo no)"
+  "$(grep -Fq 'opening https://app.weaveos.com/start' <<<"$entrypoint_output" && echo yes || echo no)"
 
 # Drive bin.js exactly as `npx @weave-os/router` does. A tarball missing any
 # runtime asset fails here even though every string assertion above passed.
 HOME="$home" PATH="$home/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
   node "$root/bin.js" --codex --scope user --quiet --base-url http://127.0.0.1:9 >/dev/null 2>&1 || true
 
-installed="$(cd "$home/.codex/skills" 2>/dev/null && ls -d */ 2>/dev/null | tr -d '/' | sort | tr '\n' ' ' | sed 's/ $//')"
+installed="$(cd "$home/.codex/skills" 2>/dev/null && ls -d */ 2>/dev/null | tr -d '/' | grep -vx build | sort | tr '\n' ' ' | sed 's/ $//')"
 check "the packed entrypoint installs every Codex skill" \
-  "disable-routing fm force-model force-parent rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$installed"
+  "disable-routing fm force-model force-parent list-models rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$installed"
 
 mkdir -p "$work/packed-opencode/.weave"
 printf '%s\n' 'export default legacyPlugin' >"$work/packed-opencode/.weave/opencode-weave.ts"

@@ -27,6 +27,16 @@ func TestClassifyDispatchError_UnknownErrorIsUnmatched(t *testing.T) {
 	assert.False(t, ok, "an error not matching any known sentinel must not be classified")
 }
 
+func TestClassifyDispatchError_ClaudeEnterpriseOnlyIsNotRetryable(t *testing.T) {
+	classification, ok := proxy.ClassifyDispatchError(fmt.Errorf("dispatch: %w", proxy.ErrClaudeEnterpriseSubscriptionUnavailable))
+	require.True(t, ok)
+	require.Equal(t, http.StatusPaymentRequired, classification.Status)
+	require.True(t, classification.NoClientRetry)
+	require.False(t, classification.RetryAfter)
+	require.Equal(t, "warn", classification.LogLevel)
+	require.Contains(t, classification.Message, "Enterprise-only billing")
+}
+
 func TestClassifyDispatchError_ImageLimitExceeded(t *testing.T) {
 	err := fmt.Errorf("route: %w", policy.ErrImageLimitExceeded)
 	classification, ok := proxy.ClassifyDispatchError(err)
@@ -43,9 +53,11 @@ func TestClassifyDispatchError_SubscriptionPoolFailures(t *testing.T) {
 		err        error
 		kind       proxy.DispatchErrorKind
 		statusCode int
+		logLevel   string
 	}{
-		{name: "exhausted", err: proxy.ErrSubscriptionPoolExhausted, kind: proxy.DispatchErrorSubscriptionPoolExhausted, statusCode: http.StatusTooManyRequests},
-		{name: "unavailable", err: proxy.ErrSubscriptionPoolUnavailable, kind: proxy.DispatchErrorSubscriptionPoolUnavailable, statusCode: http.StatusServiceUnavailable},
+		{name: "exhausted", err: proxy.ErrSubscriptionPoolExhausted, kind: proxy.DispatchErrorSubscriptionPoolExhausted, statusCode: http.StatusTooManyRequests, logLevel: "warn"},
+		{name: "unavailable", err: proxy.ErrSubscriptionPoolUnavailable, kind: proxy.DispatchErrorSubscriptionPoolUnavailable, statusCode: http.StatusServiceUnavailable, logLevel: "error"},
+		{name: "throttled", err: proxy.ErrSubscriptionPoolThrottled, kind: proxy.DispatchErrorSubscriptionPoolThrottled, statusCode: http.StatusTooManyRequests, logLevel: "warn"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -53,6 +65,7 @@ func TestClassifyDispatchError_SubscriptionPoolFailures(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, test.kind, classification.Kind)
 			require.Equal(t, test.statusCode, classification.Status)
+			require.Equal(t, test.logLevel, classification.LogLevel)
 			require.True(t, classification.RetryAfter)
 		})
 	}
@@ -392,6 +405,20 @@ func TestClassifyDispatchError_NoRoutableModels(t *testing.T) {
 	assert.False(t, cls.RetryAfter)
 }
 
+func TestClassifyDispatchError_NoProviderCredentials(t *testing.T) {
+	err := fmt.Errorf("hmm_embedding: no eligible candidate: %w: %w",
+		policy.ErrNoProviderCredentials, hmm.ErrHMMUnavailable)
+
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorNoEligibleProvider, cls.Kind)
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.Contains(t, cls.Message, "add a provider key")
+	assert.Contains(t, cls.Message, "re-enable an excluded provider")
+	assert.False(t, cls.RetryAfter)
+}
+
 func TestClassifyDispatchError_HMMUnavailableStaysAnOutage(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(fmt.Errorf("hmm: sidecar decide: %w", hmm.ErrHMMUnavailable))
 
@@ -430,4 +457,13 @@ func TestClassifyDispatchError_QwenWarmingIsActionable(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, classification.Status)
 	assert.Contains(t, classification.Message, "prepare-model")
 	assert.True(t, classification.RetryAfter)
+}
+
+func TestClassifyDispatchError_PassthroughModelUnknownOutsideRoutingPolicyIsNeutral(t *testing.T) {
+	cls, ok := proxy.ClassifyDispatchError(&proxy.PassthroughModelUnknownError{Model: "auto"})
+
+	require.True(t, ok)
+	assert.NotContains(t, cls.Message, "as-is", "an experiment subject must not learn the request skipped routing")
+	assert.NotContains(t, cls.Message, "passthrough")
+	assert.NotContains(t, cls.Message, "routing")
 }
