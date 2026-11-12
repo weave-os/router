@@ -688,7 +688,7 @@ func (s *Service) classifierModelDecision(ctx context.Context, headers http.Head
 		return router.Decision{}, false
 	}
 	req.RequestedModel = policy.ClassifierModel
-	dec, err := s.callerModelPassthroughDecision(ctx, req)
+	dec, err := s.passthroughModelDecision(ctx, req)
 	if err != nil || !s.clients.Has(dec.Provider) {
 		return router.Decision{}, false
 	}
@@ -1104,7 +1104,7 @@ func (s *Service) runTurnLoop(
 		if automaticProbe {
 			return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
 		}
-		decision, err := s.callerModelPassthroughDecision(ctx, req)
+		decision, err := s.passthroughModelDecision(ctx, req)
 		if err != nil {
 			return res, err
 		}

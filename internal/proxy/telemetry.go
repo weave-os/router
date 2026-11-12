@@ -99,6 +99,7 @@ type InsertTelemetryParams struct {
 	BlindExperimentModelSource      auth.BlindExperimentModelSource
 	BlindExperimentTreatmentApplied *bool
 	BlindExperimentBaselineModel    string
+	BlindExperimentBaselineSource   auth.BlindExperimentBaselineSource
 	BlindExperimentModelChanged     *bool
 	EstimatedInputTokens            int32
 	StickyHit                       bool
@@ -400,7 +401,8 @@ func applyBlindExperimentTelemetry(ctx context.Context, params *InsertTelemetryP
 	outcome := blindExperimentOutcomeFor(ctx, state, routed, params.RequestedModel, params.DecisionModel)
 	params.BlindExperimentModelSource = outcome.source
 	params.BlindExperimentTreatmentApplied = &outcome.treatmentApplied
-	params.BlindExperimentBaselineModel = outcome.baselineModel
+	params.BlindExperimentBaselineModel = outcome.baseline.model
+	params.BlindExperimentBaselineSource = outcome.baseline.source
 	params.BlindExperimentModelChanged = outcome.modelChanged
 	if state.CohortExperimentID != "" {
 		phaseIndex := int16(state.CohortPhaseIndex)

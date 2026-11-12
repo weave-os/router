@@ -221,6 +221,13 @@ async function ensureProjectFilesPrivate(root, target) {
 // model as-is (X-Weave-Model-Passthrough).
 const claudeWeaveAutoModel = "weave-auto[1m]";
 const isClaudeWeaveAuto = (model) => model === "weave-auto" || model === claudeWeaveAutoModel;
+// priorModelId mirrors install.sh's prior_model_id: the X-Weave-Prior-Model
+// value for a model id, minus Claude Code's [1m] suffix; "" for Weave Auto or junk.
+const priorModelId = (model) => {
+  const id = typeof model === "string" ? model.replace(/\[1m\]$/, "") : "";
+  return id.length <= 128 && /^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/.test(id) && id !== "unset" && id !== "weave-auto" ? id : "";
+};
+const recordedPriorModel = (value) => (value === "unset" ? "unset" : priorModelId(value));
 const claudeWeaveAutoOption = { model: claudeWeaveAutoModel, label: "Weave Auto", description: "Weave picks the best model for each turn", behavesAs: "claude-opus-5-5" };
 
 function stripClaudeWeaveAuto(layer) {
@@ -250,17 +257,23 @@ function installClaude(paths, baseUrl, key, email, attribution) {
   // Before passthrough every model was routed, so a saved model was never a pin:
   // move those installs (and new ones) to Weave Auto once, then keep the user's picks.
   const weaveAutoRollout = ![settings, localSettings].some((layer) => /^X-Weave-Model-Passthrough:/im.test(layer?.env?.ANTHROPIC_CUSTOM_HEADERS || ""));
-  const previousHeaders = customHeaders.split("\n").filter((header) => !/^X-(?:Weave-Router-Key|Weave-User-Email|Weave-User-Name|Weave-Model-Passthrough|App):/i.test(header));
+  // An earlier install's record wins so updates never replace the pre-Weave pick.
+  const recordedPrior = customHeaders.split("\n").map((header) => header.match(/^X-Weave-Prior-Model:\s*(\S*)\s*$/i)?.[1]).find((value) => value !== undefined);
+  const modelLayers = [localSettings, settings, readJson(path.join(process.env.USERPROFILE || process.env.HOME, ".claude", "settings.json"))];
+  const currentModel = modelLayers.map((layer) => layer?.env?.ANTHROPIC_MODEL).find(Boolean) || process.env.ANTHROPIC_MODEL || modelLayers.map((layer) => layer?.model).find(Boolean);
+  const priorModel = recordedPriorModel(recordedPrior) || priorModelId(currentModel) || "unset";
+  const previousHeaders = customHeaders.split("\n").filter((header) => !/^X-(?:Weave-Router-Key|Weave-User-Email|Weave-User-Name|Weave-Model-Passthrough|Weave-Prior-Model|App):/i.test(header));
   const routerHeaders = [
     `X-Weave-Router-Key: ${key}`,
     ...(email ? [`X-Weave-User-Email: ${email}`] : []),
     "X-App: claude-code",
     "X-Weave-Model-Passthrough: 1",
+    `X-Weave-Prior-Model: ${priorModel}`,
   ];
   settings.env ||= {};
   settings.env.ANTHROPIC_BASE_URL = baseUrl;
   if (paths.localConfig) {
-    if (settings.env.ANTHROPIC_CUSTOM_HEADERS) settings.env.ANTHROPIC_CUSTOM_HEADERS = settings.env.ANTHROPIC_CUSTOM_HEADERS.split("\n").filter((header) => !/^X-(?:Weave-Router-Key|Weave-User-Email|Weave-User-Name):/i.test(header)).join("\n");
+    if (settings.env.ANTHROPIC_CUSTOM_HEADERS) settings.env.ANTHROPIC_CUSTOM_HEADERS = settings.env.ANTHROPIC_CUSTOM_HEADERS.split("\n").filter((header) => !/^X-(?:Weave-Router-Key|Weave-User-Email|Weave-User-Name|Weave-Prior-Model):/i.test(header)).join("\n");
     localSettings.env ||= {};
     localSettings.env.ANTHROPIC_CUSTOM_HEADERS = [...previousHeaders, ...routerHeaders].filter(Boolean).join("\n");
   } else {
@@ -295,6 +308,7 @@ function installCodex(paths, baseUrl, key, email) {
   writeJson(paths.state, state);
   const currentModel = settings.model;
   const hasUserModel = typeof currentModel === "string" && currentModel !== "weave-auto";
+  const priorModel = recordedPriorModel(settings.model_providers?.weave?.http_headers?.["X-Weave-Prior-Model"]) || priorModelId(currentModel) || "unset";
   settings.model_provider = "weave";
   if (!hasUserModel) settings.model = "weave-auto";
   settings.model_providers ||= {};
@@ -310,6 +324,7 @@ function installCodex(paths, baseUrl, key, email) {
       "X-App": "codex",
       "X-Weave-Codex-Native-Model-Pin": "1",
       "X-Weave-Codex-Model-Catalog": "1",
+      "X-Weave-Prior-Model": priorModel,
     },
   };
   writeToml(paths.config, settings);
@@ -397,7 +412,7 @@ function uninstall(paths, target) {
     restoreField(settings.env, "CLAUDE_CODE_AUTO_MODE_SERVER", state.env?.CLAUDE_CODE_AUTO_MODE_SERVER, "0");
     for (const layer of [settings, localSettings]) if (layer) stripClaudeWeaveAuto(layer);
     const customHeaders = (headerBlock, originalAppHeaders) => {
-      const preservedHeaders = (headerBlock || "").split("\n").filter((header) => !/^X-Weave-(?:Router-Key|User-Email|User-Name|Model-Passthrough):/i.test(header) && !/^X-App:\s*claude-code\s*$/i.test(header));
+      const preservedHeaders = (headerBlock || "").split("\n").filter((header) => !/^X-Weave-(?:Router-Key|User-Email|User-Name|Model-Passthrough|Prior-Model):/i.test(header) && !/^X-App:\s*claude-code\s*$/i.test(header));
       if (!preservedHeaders.some((header) => /^X-App:/i.test(header))) preservedHeaders.push(...(originalAppHeaders || []));
       return preservedHeaders.filter(Boolean).join("\n");
     };

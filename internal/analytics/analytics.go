@@ -59,6 +59,7 @@ type Decision struct {
 	BlindExperimentModelSource      *auth.BlindExperimentModelSource      `json:"blind_experiment_model_source"`
 	BlindExperimentTreatmentApplied *bool                                 `json:"blind_experiment_treatment_applied"`
 	BlindExperimentBaselineModel    *string                               `json:"blind_experiment_baseline_model"`
+	BlindExperimentBaselineSource   *auth.BlindExperimentBaselineSource   `json:"blind_experiment_baseline_source"`
 	BlindExperimentModelChanged     *bool                                 `json:"blind_experiment_model_changed"`
 	// PolicyPin* are null when the turn carried no x-weave-policy-pin header.
 	PolicyPinRequested *bool `json:"policy_pin_requested"`

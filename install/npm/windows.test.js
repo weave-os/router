@@ -77,10 +77,12 @@ test("the native installer writes each client's config and keeps existing settin
   assert.equal(claude.model, "weave-auto[1m]");
   assert.equal(claude.modelPicker.options[0].model, "weave-auto[1m]");
   assert.deepEqual(claude.attribution, { commit: "original commit", custom: "keep" });
+  assert.match(claude.env.ANTHROPIC_CUSTOM_HEADERS, /^X-Weave-Prior-Model: unset$/m);
   const codexConfig = fs.readFileSync(path.join(temporaryHome, ".codex", "config.toml"), "utf8");
   assert.match(codexConfig, /model = "gpt-4.1"/);
   assert.match(codexConfig, /model_provider = "weave"/);
   assert.equal(TOML.parse(codexConfig).model_providers.weave.model_catalog_url, `${baseUrl}/v1/codex/models`);
+  assert.equal(TOML.parse(codexConfig).model_providers.weave.http_headers["X-Weave-Prior-Model"], "gpt-4.1");
   assert.equal(TOML.parse(codexConfig).model_providers.weave.http_headers["X-Weave-Codex-Model-Catalog"], "1");
   assert.equal(TOML.parse(codexConfig).profiles.work.model_provider, "openai");
   await runInstaller("--codex", "--non-interactive", "--base-url", baseUrl, "--email", "user@example.com");
@@ -409,4 +411,27 @@ test("native installer rejects a non-http return URL and a return URL on uninsta
   await assert.rejects(runInstaller("--claude", "--non-interactive", "--base-url", baseUrl, "--return-url", "javascript:alert(1)"), (error) => error.stderr.includes("http:// or https://"));
   await assert.rejects(runInstaller("--claude", "--uninstall", "--return-url", "https://app.example.test"), (error) => error.stderr.includes("only for install"));
   await assert.rejects(runInstallerAt(path.join(temporaryHome, "env-return-url"), ["--claude", "--non-interactive", "--base-url", baseUrl], { envOverrides: { WEAVE_ROUTER_RETURN_URL: "file:///C:/Windows" } }), (error) => error.stderr.includes("WEAVE_ROUTER_RETURN_URL must be an http:// or https://"));
+});
+
+test("the native installer records the pre-Weave model once", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "weave-router-prior-"));
+  const claudeSettings = path.join(home, ".claude", "settings.json");
+  fs.mkdirSync(path.dirname(claudeSettings), { recursive: true });
+  fs.writeFileSync(claudeSettings, JSON.stringify({ model: "claude-sonnet-4-6[1m]" }));
+  const codexConfigPath = path.join(home, ".codex", "config.toml");
+  fs.mkdirSync(path.dirname(codexConfigPath), { recursive: true });
+  fs.writeFileSync(codexConfigPath, 'model = "gpt-5.4"\n');
+  const priorHeader = () => JSON.parse(fs.readFileSync(claudeSettings, "utf8")).env.ANTHROPIC_CUSTOM_HEADERS.split("\n").filter((header) => header.startsWith("X-Weave-Prior-Model:"));
+  const codexPrior = () => TOML.parse(fs.readFileSync(codexConfigPath, "utf8")).model_providers.weave.http_headers["X-Weave-Prior-Model"];
+  try {
+    for (const target of ["claude", "codex"]) await runInstallerAt(home, [`--${target}`, "--non-interactive", "--base-url", baseUrl]);
+    assert.deepEqual(priorHeader(), ["X-Weave-Prior-Model: claude-sonnet-4-6"]);
+    assert.equal(codexPrior(), "gpt-5.4");
+    fs.writeFileSync(codexConfigPath, fs.readFileSync(codexConfigPath, "utf8").replace('model = "gpt-5.4"', 'model = "weave-auto"'));
+    for (const target of ["claude", "codex"]) await runInstallerAt(home, [`--${target}`, "--non-interactive", "--base-url", baseUrl]);
+    assert.deepEqual(priorHeader(), ["X-Weave-Prior-Model: claude-sonnet-4-6"], "a reinstall keeps the first record");
+    assert.equal(codexPrior(), "gpt-5.4", "a reinstall keeps the first record");
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });
