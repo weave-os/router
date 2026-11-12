@@ -119,7 +119,7 @@
             "Provider": "anthropic",
             "Reason": "golden_route",
             "Role": "default_mid",
-            "Strategy": "cluster",
+            "Strategy": "hmm_embedding",
             "TurnCount": 1
           }
         },
@@ -131,7 +131,7 @@
             "OutputTokens": 7,
             "ServedModel": "claude-haiku-4-5",
             "ServedProvider": "anthropic",
-            "Strategy": "cluster"
+            "Strategy": "hmm_embedding"
           }
         }
       ],
@@ -186,7 +186,7 @@
           },
           "SpanType": "router.upstream",
           "StopReason": "end_turn",
-          "Strategy": "cluster",
+          "Strategy": "hmm_embedding",
           "TurnType": "main_loop",
           "UpstreamFinishReason": "end_turn",
           "UpstreamStatusCode": 200,
