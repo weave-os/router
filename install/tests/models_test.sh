@@ -72,13 +72,8 @@ catalog='{"models":[{"model":"claude-opus-5","provider":"anthropic"},{"model":"g
 models='[{"model":"claude-opus-5","provider":"anthropic","enabled":true},{"model":"claude-haiku-4-5","provider":"anthropic","enabled":false},{"model":"gpt-5.6","provider":"openai","enabled":true}]'
 providers='[{"provider":"anthropic","enabled":true},{"provider":"openai","enabled":false}]'
 
-# A managed router has no serving policy to list without ?scope=catalog.
 case "$path" in
   "/v1/router/models?scope=catalog") emit 200 "$catalog" ;;
-  /v1/router/models)
-    [ "${ROUTER_MODE:-full}" = "managed" ] && emit 503 '{"error":"hmm roster unavailable"}'
-    emit 200 "$catalog"
-    ;;
 esac
 
 if [ "${ROUTER_MODE:-full}" = "managed" ]; then
