@@ -1,0 +1,33 @@
+internal/subscriptions/runtime_test.go
+  s_4a5b20b31cab48::t_7f9bb48328f641 1128-1189
+internal/subscriptions/runtime.go
+  s_4a5b20b31cab48::t_a5d27b4ee075c7 170-171,237-255,258-269,272-276,278-286
+cmd/router/subscription_selection_test.go
+  s_4a5b20b31cab48::t_8ff92aa2bb5618 40
+  s_4a5b20b31cab48::t_6323e1fefee2ec 1-39,41-43
+db/queries/model_router_subscription_accounts.sql
+  s_4a5b20b31cab48::t_29702c4c4302ae 140
+internal/flags/flags.go
+  s_4a5b20b31cab48::t_c79affdf358364 213
+cmd/router/main.go
+  s_4a5b20b31cab48::t_aa85a116a4defb 1578
+  s_4a5b20b31cab48::t_2998dee40014ea 1775-1820
+internal/sqlc/model_router_subscription_accounts.sql.go
+  s_4a5b20b31cab48::t_a6bc3808f16fe7 862,885
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c427b3766180806611e0a14ed5ec419f5495c337",
+  "prompts": {},
+  "sessions": {
+    "s_4a5b20b31cab48": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c1ea-4f9f-7f23-9ba4-1c6d2643e4ff",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

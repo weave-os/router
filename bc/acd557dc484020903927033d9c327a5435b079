@@ -1,0 +1,27 @@
+internal/api/admin/display_settings_test.go
+  s_d3d78e624b1f05::t_81cc88e28b7175 107-122,125-126
+  s_d3d78e624b1f05::t_f5de260adf2454 123-124
+internal/api/admin/display_settings.go
+  s_d3d78e624b1f05::t_87322899783473 79,85-87
+  s_d3d78e624b1f05::t_1b834c2bfd88df 88
+install/README.md
+  s_d3d78e624b1f05::t_a46e7c33a5383d 548,558
+install/tests/cc-statusline_test.sh
+  s_d3d78e624b1f05::t_80cf1011dbe17b 59-65,704,736,756
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bcacd557dc484020903927033d9c327a5435b079",
+  "prompts": {},
+  "sessions": {
+    "s_d3d78e624b1f05": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b40a-800d-7ed0-b670-64eddd2dbd0d",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
