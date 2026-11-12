@@ -68,7 +68,8 @@ func NewUsageExtractor(provider string) *UsageExtractor {
 }
 
 // Consume sniffs p for token usage data. Partial writes are safe: bytes are
-// buffered in leftover until a complete frame arrives.
+// buffered in leftover while incomplete SSE frames await completion; JSON
+// bytes are re-probed on every write.
 func (u *UsageExtractor) Consume(p []byte) {
 	if u == nil {
 		return

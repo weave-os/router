@@ -2938,6 +2938,10 @@ type usageExtractorProvider interface {
 	NewUsageExtractor(http.ResponseWriter, string) (*telemetry.UsageExtractor, http.ResponseWriter)
 }
 
+type translationMetricsProvider interface {
+	TranslationMetrics() telemetry.TranslationMetrics
+}
+
 func (s *Service) newUsageExtractor(inner http.ResponseWriter, provider string) (*telemetry.UsageExtractor, http.ResponseWriter) {
 	if factory, ok := s.emitter.(usageExtractorProvider); ok {
 		return factory.NewUsageExtractor(inner, provider)
@@ -2945,8 +2949,19 @@ func (s *Service) newUsageExtractor(inner http.ResponseWriter, provider string) 
 	return newFallbackUsageExtractor(inner, provider)
 }
 
+func (s *Service) translationMetricsPort() telemetry.TranslationMetrics {
+	if s.translationMetrics != nil {
+		return s.translationMetrics
+	}
+	if provider, ok := s.emitter.(translationMetricsProvider); ok {
+		return provider.TranslationMetrics()
+	}
+	return nil
+}
+
 // WithTranslationMetrics installs adapter-backed translation counters on the
-// service and returns it for constructor chaining. A nil value disables them.
+// service and returns it for constructor chaining. A nil value preserves the
+// emitter-backed fallback when one is available.
 func (s *Service) WithTranslationMetrics(metrics telemetry.TranslationMetrics) *Service {
 	s.translationMetrics = metrics
 	return s
