@@ -451,13 +451,13 @@ func (s *Service) rotatePersonalAPIKey(ctx context.Context, target *APIKey, crea
 	if s.personalCredentials == nil {
 		return nil, "", ErrPersonalCredentialRequired
 	}
-	params, raw := newAPIKeyParams(target.InstallationID, target.Scope, target.Name, createdBy)
+	params, rawToken := newAPIKeyParams(target.InstallationID, target.Scope, target.Name, createdBy)
 	key, err := s.personalCredentials.RotateProjected(ctx, target.CredentialSubjectID, target.ID, params)
 	if err != nil {
 		return nil, "", err
 	}
 	s.invalidateInstallation(target.InstallationID)
-	return key, raw, nil
+	return key, rawToken, nil
 }
 
 // DeleteAPIKey soft-deletes an API key and invalidates the installation's

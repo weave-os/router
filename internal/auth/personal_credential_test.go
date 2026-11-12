@@ -31,11 +31,11 @@ func TestIssueScopedAPIKey_PersonalIssuerOwnsRoutingKeys(t *testing.T) {
 	issuer := &recordingPersonalIssuer{}
 	svc := auth.NewService(nil, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).WithPersonalCredentialIssuer(issuer)
 
-	key, raw, err := svc.IssueScopedAPIKey(context.Background(), "inst-1", auth.ScopeRouting, nil, nil)
+	key, rawToken, err := svc.IssueScopedAPIKey(context.Background(), "inst-1", auth.ScopeRouting, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "subject-1", key.CredentialSubjectID)
 	require.Len(t, issuer.created, 1)
-	hash, _, _ := auth.APITokenFingerprint(raw)
+	hash, _, _ := auth.APITokenFingerprint(rawToken)
 	assert.Equal(t, hash, issuer.created[0].KeyHash)
 	assert.Equal(t, 0, repo.createCount())
 
