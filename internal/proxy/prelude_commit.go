@@ -29,11 +29,7 @@ func (b *preludeBuffer) writeCommitOnOutput(p []byte) (int, error) {
 			break
 		}
 		if !translate.StreamEventCommitsOutput(*b.commitFormat, event) {
-			if !translate.StreamEventIsKeepalive(*b.commitFormat, event) {
-				_, _ = b.held.Write(b.pending[:consumed])
-			} else if _, err := sse.WriteJSONChunk(b.inner, b.pending[:consumed]); err != nil {
-				return 0, err
-			}
+			_, _ = b.held.Write(b.pending[:consumed])
 			b.pending = b.pending[consumed:]
 			continue
 		}

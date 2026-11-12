@@ -219,14 +219,3 @@ func StreamEventCommitsOutput(format Format, event []byte) bool {
 	}
 	return noticeProviderContent(format, event) || noticeTerminal(format, event)
 }
-
-// StreamEventIsKeepalive reports whether an SSE event is a provider keepalive
-// the client may see before the stream commits: it carries no response state a
-// retry would duplicate.
-func StreamEventIsKeepalive(format Format, event []byte) bool {
-	if format == FormatAnthropic {
-		eventType, _ := sse.ParseEvent(event)
-		return string(eventType) == "ping"
-	}
-	return false
-}
