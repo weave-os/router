@@ -1653,6 +1653,9 @@ func main() {
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}
+	if hmmRosterModels == nil {
+		hmmRosterModels = catalogRosterSource{}
+	}
 	server.RegisterWithFeatures(engine, authSvc, proxySvc, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)
 
 	port := config.GetOr("PORT", "8080")
