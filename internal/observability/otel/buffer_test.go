@@ -104,8 +104,13 @@ func TestBuffer_NilReceiver_NoOps(t *testing.T) {
 	assert.NotPanics(t, func() { buf.Flush() })
 
 	ctx := context.Background()
-	got := telemetry.WithRecorder(ctx, nil)
-	assert.Equal(t, ctx, got)
+	var recorder telemetry.Recorder = buf
+	got := telemetry.WithRecorder(ctx, recorder)
+	assert.NotEqual(t, ctx, got)
+	assert.NotPanics(t, func() {
+		telemetry.Record(got, makeSpan("typed-nil"))
+		telemetry.Flush(got)
+	})
 }
 
 func TestBuffer_RecordAndFlush(t *testing.T) {

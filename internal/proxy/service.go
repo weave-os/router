@@ -2925,7 +2925,7 @@ func (s *Service) rememberGatewayRejectsPromptCacheKey(key string) {
 	s.noPromptCacheKeyGateways.Store(key, struct{}{})
 }
 
-// newTelemetryRecorder returns a request-scoped recorder, or nil when telemetry is disabled.
+// newTelemetryRecorder returns a request-scoped recorder, or nil when telemetry is disabled — guards against a nil-interface method-call panic.
 func (s *Service) newTelemetryRecorder() telemetry.Recorder {
 	if s.emitter == nil {
 		return nil

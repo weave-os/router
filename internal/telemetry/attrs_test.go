@@ -1,4 +1,4 @@
-package otel_test
+package telemetry_test
 
 import (
 	"testing"
