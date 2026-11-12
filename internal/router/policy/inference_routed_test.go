@@ -132,7 +132,7 @@ func TestResolveRouted_CatalogBindingsOnlyKeepsValidWalks(t *testing.T) {
 		},
 		"gateway keeps aliased model": {
 			Decision: router.Decision{Model: "gpt-5.5", Provider: providers.ProviderOpenAIGateway},
-			Bindings: []catalog.ProviderBinding{{Provider: providers.ProviderOpenAIGateway}},
+			Bindings: []catalog.ProviderBinding{{Provider: providers.ProviderOpenAIGateway, ServesAliases: true}},
 		},
 		"unknown model keeps caller binding": {
 			Decision: router.Decision{Model: "not-in-catalog", Provider: providers.ProviderFireworks},

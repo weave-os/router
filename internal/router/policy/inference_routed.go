@@ -3,7 +3,6 @@ package policy
 import (
 	"fmt"
 
-	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 )
@@ -138,8 +137,9 @@ func checkCatalogBound(request RoutedResolutionRequest, spec PolicySpec) error {
 		return nil
 	}
 	for _, providerBinding := range request.Bindings {
-		// Gateways serve whatever models their aliases name, not catalog rows.
-		if providers.IsGateway(providerBinding.Provider) {
+		// Alias-serving upstreams (gateways, declared custom endpoints) name
+		// their own models, not catalog rows.
+		if providerBinding.ServesAliases {
 			continue
 		}
 		if index, _ := catalogBinding(model, providerBinding); index < 0 {

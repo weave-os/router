@@ -150,6 +150,11 @@ type ProviderBinding struct {
 	// SubscriptionOverflowOnly hides the binding from routing and failover; only
 	// an installation's exhausted-subscription OpenRouter lane dispatches it.
 	SubscriptionOverflowOnly bool
+	// ServesAliases marks a binding whose upstream names its own models through
+	// the installation's aliases (a customer-hosted gateway or a declared custom
+	// endpoint) rather than catalog rows: it is exempt from deployment-funded
+	// catalog validation, which only checks bindings the catalog lists.
+	ServesAliases bool
 }
 
 // ToolUseQuality marks a model's reliability under has_tools=true turns.

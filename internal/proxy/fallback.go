@@ -374,7 +374,7 @@ func (s *Service) shouldFailover(ctx context.Context) bool {
 // When failover is disabled or unavailable, returns a single-element
 // slice carrying the already-resolved decision provider.
 func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision router.Decision) []catalog.ProviderBinding {
-	primary := catalog.ProviderBinding{Provider: decision.Provider}
+	primary := catalog.ProviderBinding{Provider: decision.Provider, ServesAliases: providers.IsGateway(decision.Provider)}
 	imageCount := requestImageCountFromContext(ctx)
 	if !s.shouldFailover(ctx) {
 		if binding, ok := catalog.BindingFor(decision.Model, decision.Provider); ok &&
