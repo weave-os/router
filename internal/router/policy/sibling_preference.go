@@ -46,10 +46,10 @@ func applySiblingPreferences(req router.Request, resolved ResolvedCandidates, gr
 			if _, eligible := index.eligibleRosterIDs[base]; !eligible {
 				return true
 			}
-			if _, dup := seen[base]; dup {
+			if _, dup := seen[arm]; dup {
 				return true
 			}
-			seen[base] = struct{}{}
+			seen[arm] = struct{}{}
 			return false
 		})
 		rank := func(arm string) int {

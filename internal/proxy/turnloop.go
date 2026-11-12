@@ -1845,6 +1845,9 @@ func (s *Service) runTurnLoop(
 		)
 		commandContinuationFound = false
 	}
+	if siblingPreferencesErr != nil {
+		return res, fmt.Errorf("load session sibling preferences: %w", siblingPreferencesErr)
+	}
 	if commandContinuationFound && automaticPinEligible(commandContinuation, req) {
 		decision := pinDecision(commandContinuation)
 		res.Decision = decision
