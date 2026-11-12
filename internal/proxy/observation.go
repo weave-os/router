@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/timing"
 )
 
-func applyServingSpanAttrs(ctx context.Context, attributes *otel.AttrBuilder) {
+func applyServingSpanAttrs(ctx context.Context, attributes *telemetry.AttrBuilder) {
 	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
 	if !managed {
 		return
@@ -261,7 +261,7 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 }
 
 // applySpanAttrs records routing fields on an OTel AttrBuilder.
-func (o observationContext) applySpanAttrs(b *otel.AttrBuilder) {
+func (o observationContext) applySpanAttrs(b *telemetry.AttrBuilder) {
 	if o.FreshClassifierMargin != nil {
 		b.Float64("routing.fresh_classifier_margin", *o.FreshClassifierMargin)
 	}

@@ -13,7 +13,6 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
@@ -21,6 +20,7 @@ import (
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -635,11 +635,10 @@ func (s *Service) bypassToAnthropic(
 
 	// Tap the response stream so the bypass span carries token usage for
 	// Weave's router cost-savings metric — subscription turns are otherwise invisible.
-	var extractor *otel.UsageExtractor
+	var extractor *telemetry.UsageExtractor
 	if s.usageRequired() || streamCost != nil {
-		extractor = otel.NewUsageExtractor(respW, decision.Provider)
+		extractor, respW = s.newUsageExtractor(respW, decision.Provider)
 		extractor.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) })
-		respW = extractor
 	}
 
 	if streamCost != nil {
@@ -711,7 +710,7 @@ func (s *Service) bypassToAnthropic(
 	if upstreamErr != nil {
 		outcomeErr = upstreamErr
 	}
-	bypassBuilder := otel.NewAttrBuilder(18).
+	bypassBuilder := telemetry.NewAttrBuilder(18).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("router_user_id", auth.UserIDFrom(ctx)).
@@ -735,13 +734,13 @@ func (s *Service) bypassToAnthropic(
 		Float64("cost.actual_input_usd", inputCost).
 		Float64("cost.actual_output_usd", outputCost).Int64("upstream.status_code", int64(upstreamStatus(outcomeErr)))
 	s.applySubscriptionSpanTelemetry(ctx, bypassBuilder, feats.Model, decision.Model)
-	otel.Record(ctx, otel.Span{
+	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.usage_bypass",
 		Start: requestStart,
 		End:   time.Now(),
 		Attrs: bypassBuilder.Build(),
 	})
-	otel.Flush(ctx)
+	telemetry.Flush(ctx)
 
 	// Persist a router.upstream telemetry row so bypass turns appear in the
 	// telemetry table. Routing-brain fields stay NULL; decision_reason
