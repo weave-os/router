@@ -63,6 +63,7 @@ async def test_cohere_batches_texts_as_documents(bedrock) -> None:
     assert len(vectors) == 100
     assert [len(request["texts"]) for request in fake.requests] == [96, 4]
     assert {request["input_type"] for request in fake.requests} == {"search_document"}
+    assert {request["output_dimension"] for request in fake.requests} == {2}
 
 
 @pytest.mark.parametrize(

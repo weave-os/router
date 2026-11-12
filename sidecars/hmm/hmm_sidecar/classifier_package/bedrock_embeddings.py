@@ -52,11 +52,14 @@ def _request_body(model: str, texts: list[str], dim: int | None) -> dict[str, An
             body["dimensions"] = dim
         return body
     if model.startswith(COHERE_PREFIX):
-        return {
+        body: dict[str, Any] = {
             "texts": texts,
             "input_type": "search_document",
             "embedding_types": ["float"],
         }
+        if dim is not None:
+            body["output_dimension"] = dim
+        return body
     raise EmbeddingError(f"unsupported Bedrock embedding model {model!r}")
 
 
@@ -118,7 +121,8 @@ async def embed_texts_uncached(
     **_unused_provider_options: Any,
 ) -> dict[str, EmbeddingVector] | tuple[dict[str, EmbeddingVector], EmbeddingRunInfo]:
     unique_texts = list(dict.fromkeys(texts))
-    client = _client()
+    # Building the boto3 client can hit the network for role credentials.
+    client = await asyncio.to_thread(_client)
     batches = _batches(model, unique_texts)
     vectors: dict[str, EmbeddingVector] = {}
     concurrency = max(vertex_request_concurrency, 1)
