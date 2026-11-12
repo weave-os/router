@@ -4318,7 +4318,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// headers prime the observer so the retry skips exhausted capacity; a
 	// depleted-credit retry preserves the model and tries only subscriptions.
 	if routeRes.UsageBypass && routeRes.Decision.Provider == providers.ProviderAnthropic {
-		err := s.bypassToAnthropic(ctx, env, feats, routeRes.modelSwitched(), requestStart, requestID, externalID, routeRes.TurnType, routeRes.Decision.Reason, r, w)
+		err := s.bypassToAnthropic(ctx, env, feats, routeRes.modelSwitched(), requestStart, requestID, externalID, routeRes.TurnType, routeRes.Decision.Reason, routeRes.blindExperimentBaseline, r, w)
 		if !errors.Is(err, errBypassRetryable) {
 			if !agentShadowMode {
 				s.firePolicyShadowForServingDecision(ctx, routeRes.Decision, req)

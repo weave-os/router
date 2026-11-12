@@ -227,7 +227,7 @@ const priorModelId = (model) => {
   const id = typeof model === "string" ? model.replace(/\[1m\]$/, "") : "";
   return id.length <= 128 && /^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/.test(id) && id !== "unset" && id !== "weave-auto" ? id : "";
 };
-const recordedPriorModel = (value) => (value === "unset" ? "unset" : priorModelId(value));
+const recordedPriorModel = (value) => (value === undefined ? "" : value.trim() === "unset" ? "unset" : priorModelId(String(value).trim()) || "unset");
 const claudeWeaveAutoOption = { model: claudeWeaveAutoModel, label: "Weave Auto", description: "Weave picks the best model for each turn", behavesAs: "claude-opus-5-5" };
 
 function stripClaudeWeaveAuto(layer) {
@@ -260,9 +260,9 @@ function installClaude(paths, baseUrl, key, email, attribution) {
   // An earlier install's record wins so updates never replace the pre-Weave pick.
   // User settings come last: a project install inherits the user install's record.
   const userSettings = readJson(path.join(process.env.USERPROFILE || process.env.HOME, ".claude", "settings.json"));
-  const recordedPrior = [customHeaders, userSettings.env?.ANTHROPIC_CUSTOM_HEADERS || ""].join("\n").split("\n").map((header) => header.match(/^X-Weave-Prior-Model:\s*(\S*)\s*$/i)?.[1]).find((value) => value !== undefined);
+  const recordedPrior = [customHeaders, userSettings.env?.ANTHROPIC_CUSTOM_HEADERS || ""].join("\n").split("\n").map((header) => header.match(/^X-Weave-Prior-Model:(.*)$/i)?.[1]).find((value) => value !== undefined);
   const modelLayers = [localSettings, settings, userSettings];
-  const currentModel = modelLayers.map((layer) => layer?.env?.ANTHROPIC_MODEL).find(Boolean) || process.env.ANTHROPIC_MODEL || modelLayers.map((layer) => layer?.model).find(Boolean);
+  const currentModel = process.env.ANTHROPIC_MODEL || modelLayers.map((layer) => layer?.env?.ANTHROPIC_MODEL).find(Boolean) || modelLayers.map((layer) => layer?.model).find(Boolean);
   const priorModel = recordedPriorModel(recordedPrior) || priorModelId(currentModel) || "unset";
   const previousHeaders = customHeaders.split("\n").filter((header) => !/^X-(?:Weave-Router-Key|Weave-User-Email|Weave-User-Name|Weave-Model-Passthrough|Weave-Prior-Model|App):/i.test(header));
   const routerHeaders = [

@@ -3069,18 +3069,23 @@ prior_model_id() {
 }
 
 # recorded_prior_model prints an X-Weave-Prior-Model value an earlier install
-# recorded in a newline-delimited header list on stdin, "unset" included.
+# recorded in a newline-delimited header list on stdin; "unset" for a malformed one.
 recorded_prior_model() {
   local found
-  found="$(sed -n 's/^[[:space:]]*X-Weave-Prior-Model:[[:space:]]*//p' | head -n 1 | tr -d '[:space:]')"
-  [ "$found" = "unset" ] && printf 'unset' && return 0
-  prior_model_id "$found"
+  found="$(sed -n 's/^[[:space:]]*X-Weave-Prior-Model:/=/p' | head -n 1)"
+  [ -n "$found" ] || return 0
+  found="$(printf '%s' "${found#=}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  if [ "$found" != "unset" ]; then
+    found="$(prior_model_id "$found")"
+  fi
+  printf '%s' "${found:-unset}"
 }
 
 # claude_prior_model prints the X-Weave-Prior-Model value for this install: an
 # earlier install's record when one exists, so updates never replace the
-# pre-Weave pick, else the model Claude Code runs now (ANTHROPIC_MODEL over the
-# saved model, highest settings layer first), else "unset".
+# pre-Weave pick, else the model Claude Code runs now (shell ANTHROPIC_MODEL,
+# then settings ANTHROPIC_MODEL, then the saved model, as
+# prepare_claude_context_window reads them), else "unset".
 claude_prior_model() {
   local source found="" current=""
   # User settings come last: a project install inherits the user install's record.
@@ -3092,11 +3097,11 @@ claude_prior_model() {
     found="$(json_get "$source" '.env.ANTHROPIC_CUSTOM_HEADERS' | recorded_prior_model)"
     [ -z "$found" ] || { printf '%s' "$found"; return 0; }
   done
+  current="${ANTHROPIC_MODEL:-}"
   for source in "$context_settings_file" "$settings_file" "$HOME/.claude/settings.json"; do
     [ -f "$source" ] || continue
     [ -n "$current" ] || current="$(json_get "$source" '.env.ANTHROPIC_MODEL')"
   done
-  [ -n "$current" ] || current="${ANTHROPIC_MODEL:-}"
   for source in "$context_settings_file" "$settings_file" "$HOME/.claude/settings.json"; do
     [ -f "$source" ] || continue
     [ -n "$current" ] || current="$(json_get "$source" '.model')"

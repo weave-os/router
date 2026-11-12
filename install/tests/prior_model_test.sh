@@ -34,7 +34,10 @@ codex() {
     bash "$installer" --codex --scope user --quiet --base-url http://127.0.0.1:9 "$@" </dev/null >"$work/output" 2>&1 \
     || { cat "$work/output" >&2; fail "codex install $*"; }
 }
-claude_prior() { jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // ""' "$1" | sed -n 's/^X-Weave-Prior-Model: //p'; }
+claude_prior() {
+  [ -f "$1" ] || { printf '<missing %s>' "$1"; return; }
+  jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // ""' "$1" | sed -n 's/^X-Weave-Prior-Model: //p'
+}
 codex_prior() {
   python3 - "$1" <<'PY'
 import sys, tomllib
@@ -72,15 +75,15 @@ HOME="$home" PATH="$work/bin:$PATH" NO_COLOR=1 bash "$uninstaller" --claude --sc
   || { cat "$work/output" >&2; fail "uninstall"; }
 expect "$(claude_prior "$settings")" "" "uninstall removes the record"
 
-# ANTHROPIC_MODEL beats the saved model: settings env first, then the shell.
+# ANTHROPIC_MODEL beats the saved model: the shell first, then settings env.
 home="$(new_home env)"
 settings="$home/.claude/settings.json"
 printf '%s\n' '{"model":"claude-sonnet-4-6","env":{"ANTHROPIC_MODEL":"claude-opus-4-7"}}' >"$settings"
-claude "$home" "claude-haiku-4-5" --scope user
+claude "$home" "" --scope user
 expect "$(claude_prior "$settings")" claude-opus-4-7 "settings ANTHROPIC_MODEL is recorded"
 home="$(new_home shell)"
 settings="$home/.claude/settings.json"
-printf '%s\n' '{"model":"claude-sonnet-4-6"}' >"$settings"
+printf '%s\n' '{"model":"claude-sonnet-4-6","env":{"ANTHROPIC_MODEL":"claude-opus-4-7"}}' >"$settings"
 claude "$home" "claude-haiku-4-5" --scope user
 expect "$(claude_prior "$settings")" claude-haiku-4-5 "shell ANTHROPIC_MODEL is recorded"
 
@@ -92,6 +95,13 @@ for saved in '{}' '{"model":"weave-auto[1m]"}' '{"model":"not a model"}'; do
   claude "$home" "" --scope user
   expect "$(claude_prior "$settings")" unset "settings $saved"
 done
+
+# A malformed record stays unset instead of adopting the current model.
+home="$(new_home malformed)"
+settings="$home/.claude/settings.json"
+printf '%s\n' '{"model":"claude-sonnet-4-6","env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: rk_test\nX-Weave-Prior-Model: claude sonnet 4.6"}}' >"$settings"
+claude "$home" "" --scope user
+expect "$(claude_prior "$settings")" unset "malformed record"
 
 # An existing install from before this header keeps routing and records unset
 # rather than its current Weave Auto selection.

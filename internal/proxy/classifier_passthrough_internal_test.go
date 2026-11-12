@@ -210,7 +210,7 @@ func TestBypass_ClassifierPassthrough_TelemetryReason(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+classifierTestSubToken)
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
 
-	err = svc.bypassToAnthropic(ctx, env, feats, false, time.Now(), "req-cls-1", "ext-1", turntype.Classifier, reasonClassifierPassthrough, req, rec)
+	err = svc.bypassToAnthropic(ctx, env, feats, false, time.Now(), "req-cls-1", "ext-1", turntype.Classifier, reasonClassifierPassthrough, blindExperimentBaseline{}, req, rec)
 	require.NoError(t, err)
 
 	select {
