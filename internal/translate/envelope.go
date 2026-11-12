@@ -876,31 +876,99 @@ func rewriteMessageBlocks(
 		return body, nil
 	}
 	if droppedMessage {
-		msgRaws = keepSystemMessagesBeforeAssistant(msgRaws)
+		msgRaws, _ = placeAnthropicSystemMessages(msgRaws)
 	}
 
 	return sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(msgRaws, ",")+"]"))
 }
 
-// keepSystemMessagesBeforeAssistant moves each run of role:"system" messages
-// that no longer directly precedes an assistant turn to just before the next
-// one, or to the end. Anthropic 400s on a system message followed by a user
-// message, which a dropped assistant turn can leave behind.
-func keepSystemMessagesBeforeAssistant(msgRaws []string) []string {
-	out := make([]string, 0, len(msgRaws))
-	var pending []string
+// placeAnthropicSystemMessages moves each run of role:"system" messages that
+// Anthropic would reject to the nearest later valid position, or the nearest
+// earlier one when none follows. A system message must follow a user turn (or
+// an assistant turn ending in a server tool result) and precede an assistant
+// turn or end the array; dropping a turn from history can strand one. The
+// directive-only form (empty content) is valid anywhere and stays put.
+func placeAnthropicSystemMessages(msgRaws []string) ([]string, bool) {
+	turns := make([]gjson.Result, 0, len(msgRaws))
+	runs := make(map[int][]string)
+	directives := make(map[int][]string)
 	for _, raw := range msgRaws {
-		switch gjson.Get(raw, "role").String() {
-		case "system":
-			pending = append(pending, raw)
+		msg := gjson.Parse(raw)
+		if msg.Get("role").String() == "system" {
+			if content := msg.Get("content"); content.IsArray() && len(content.Array()) == 0 {
+				directives[len(turns)] = append(directives[len(turns)], raw)
+			} else {
+				runs[len(turns)] = append(runs[len(turns)], raw)
+			}
 			continue
-		case "assistant":
-			out = append(out, pending...)
-			pending = pending[:0]
 		}
-		out = append(out, raw)
+		turns = append(turns, msg)
 	}
-	return append(out, pending...)
+	if len(runs) == 0 {
+		return msgRaws, false
+	}
+	valid := func(boundary int) bool {
+		if boundary == 0 || !canPrecedeAnthropicSystem(turns[boundary-1]) {
+			return false
+		}
+		return boundary == len(turns) || turns[boundary].Get("role").String() == "assistant"
+	}
+	placed := make(map[int][]string, len(runs))
+	moved := false
+	for boundary := 0; boundary <= len(turns); boundary++ {
+		run, ok := runs[boundary]
+		if !ok {
+			continue
+		}
+		target := boundary
+		if !valid(boundary) {
+			target = nearestValidBoundary(boundary, len(turns), valid)
+			moved = moved || target != boundary
+		}
+		placed[target] = append(placed[target], run...)
+	}
+	if !moved {
+		return msgRaws, false
+	}
+	out := make([]string, 0, len(msgRaws))
+	for boundary := 0; boundary <= len(turns); boundary++ {
+		out = append(out, directives[boundary]...)
+		out = append(out, placed[boundary]...)
+		if boundary < len(turns) {
+			out = append(out, turns[boundary].Raw)
+		}
+	}
+	return out, true
+}
+
+func nearestValidBoundary(from, last int, valid func(int) bool) int {
+	for boundary := from + 1; boundary <= last; boundary++ {
+		if valid(boundary) {
+			return boundary
+		}
+	}
+	for boundary := from - 1; boundary >= 0; boundary-- {
+		if valid(boundary) {
+			return boundary
+		}
+	}
+	return from
+}
+
+func canPrecedeAnthropicSystem(msg gjson.Result) bool {
+	switch msg.Get("role").String() {
+	case "user":
+		return true
+	case "assistant":
+		content := msg.Get("content").Array()
+		if len(content) == 0 {
+			return false
+		}
+		blockType := content[len(content)-1].Get("type").String()
+		return strings.HasSuffix(blockType, "_tool_result") && blockType != "tool_result"
+	default:
+		return false
+	}
 }
 
 // stripThinkingBlocksBytes removes thinking/redacted_thinking blocks from
