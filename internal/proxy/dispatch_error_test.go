@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"weave-os/router/internal/billing"
@@ -180,6 +181,8 @@ func TestClassifyDispatchError_RoutingSentinelsKeepStatusAndKind(t *testing.T) {
 				assert.Equal(t, tc.kind, cls.Kind)
 				assert.Equal(t, tc.status, cls.Status)
 				assert.Equal(t, tc.retryAfter, cls.RetryAfter)
+				assert.NotContains(t, strings.ToLower(cls.Message), "cluster")
+				assert.NotContains(t, strings.ToLower(cls.LogMessage), "cluster")
 			}
 		})
 	}
