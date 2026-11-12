@@ -234,9 +234,10 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			attemptStarted := time.Now()
 			attemptErr := in.attempt(credentialCtx, decision, guarded)
 			if attemptErr == nil && in.buf != nil {
+				// A release failure is an attempt outcome, not a lease abort:
+				// the attempt stays booked with the state the buffer reached.
 				if releaseErr := in.buf.releaseHeld(); releaseErr != nil {
-					lease.Release()
-					return dispatchAbort{err: releaseErr}
+					attemptErr = releaseErr
 				}
 			}
 			// Health bookkeeping must persist even if the caller has gone.

@@ -68,7 +68,7 @@ func (b *preludeBuffer) Write(p []byte) (int, error) {
 		return sse.WriteJSONChunk(b.inner, p)
 	}
 	if b.sealed {
-		if b.commitFormat != nil && !b.Committed() {
+		if b.commitFormat != nil {
 			return b.writeCommitOnOutput(p)
 		}
 		// Post-Seal first write: commit buffered prelude, then pass through.

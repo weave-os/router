@@ -13,20 +13,27 @@ func (b *preludeBuffer) CommitOnOutput(format translate.Format) {
 }
 
 func (b *preludeBuffer) writeCommitOnOutput(p []byte) (int, error) {
-	b.pending = append(b.pending, p...)
-	if len(b.pending) > maxHeldCommitBytes-b.held.Len() {
+	if b.held.Len()+len(b.pending)+len(p) > maxHeldCommitBytes {
 		if err := b.commitAndWriteHeld(); err != nil {
+			return 0, err
+		}
+		if _, err := sse.WriteJSONChunk(b.inner, p); err != nil {
 			return 0, err
 		}
 		return len(p), nil
 	}
+	b.pending = append(b.pending, p...)
 	for len(b.pending) > 0 {
 		event, consumed := sse.SplitNext(b.pending)
 		if consumed == 0 {
 			break
 		}
 		if !translate.StreamEventCommitsOutput(*b.commitFormat, event) {
-			_, _ = b.held.Write(b.pending[:consumed])
+			if !translate.StreamEventIsKeepalive(*b.commitFormat, event) {
+				_, _ = b.held.Write(b.pending[:consumed])
+			} else if _, err := sse.WriteJSONChunk(b.inner, b.pending[:consumed]); err != nil {
+				return 0, err
+			}
 			b.pending = b.pending[consumed:]
 			continue
 		}
