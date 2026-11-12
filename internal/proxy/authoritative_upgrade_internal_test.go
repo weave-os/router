@@ -284,7 +284,7 @@ func TestUpgradeShadowPreservesHigherPrecedencePaths(t *testing.T) {
 		wantModel  string
 	}{
 		{name: "forced pin", forced: true, wantModel: upgradeTestPinModel},
-		{name: "compaction hard pin", compaction: true, wantModel: upgradeTestPinModel},
+		{name: "compaction session pin", compaction: true, wantModel: upgradeTestPinModel},
 		{name: "policy deadline fallback", deadline: true, wantModel: upgradeTestPinModel},
 		{name: "active escalation floor", escalated: true, wantModel: upgradeTestFreshModel},
 	} {
@@ -304,7 +304,7 @@ func TestUpgradeShadowPreservesHigherPrecedencePaths(t *testing.T) {
 				policyRouter = &erroringTestRouter{err: policyDeadlineTestErr}
 			}
 			strategy := router.Strategy("upgrade-precedence-test")
-			svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
+			svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, false, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
 				WithAuthorityCacheShadow(true).WithPolicyDeadlineFallback(true).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: strategy, Router: policyRouter, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())
@@ -318,7 +318,7 @@ func TestUpgradeShadowPreservesHigherPrecedencePaths(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantModel, res.Decision.Model)
 			assert.Nil(t, res.UpgradeShadow)
-			assert.Equal(t, tc.compaction, res.HardPinned)
+			assert.False(t, res.HardPinned)
 			assert.Equal(t, tc.deadline, res.PolicyFallback)
 		})
 	}

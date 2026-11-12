@@ -10,7 +10,7 @@ import (
 
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -18,15 +18,15 @@ import (
 )
 
 type fakeDeployedModels struct {
-	entries []cluster.DeployedEntry
+	entries []router.DeployedEntry
 }
 
-func (f fakeDeployedModels) DefaultDeployedModels() []cluster.DeployedEntry { return f.entries }
+func (f fakeDeployedModels) DefaultDeployedModels() []router.DeployedEntry { return f.entries }
 
 func TestCatalogModelsHandler_SortsByProviderThenModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	src := fakeDeployedModels{entries: []cluster.DeployedEntry{
+	src := fakeDeployedModels{entries: []router.DeployedEntry{
 		{Model: "gpt-5.5", Provider: providers.ProviderOpenAI},
 		{Model: "claude-opus-4-7", Provider: providers.ProviderAnthropic},
 		{Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic},
@@ -73,12 +73,12 @@ func TestCatalogModelsHandler_EmptyListReturnsEmptyArray(t *testing.T) {
 }
 
 type fakeHMMRoster struct {
-	entries []cluster.DeployedEntry
+	entries []router.DeployedEntry
 	err     error
 	calls   int
 }
 
-func (f *fakeHMMRoster) HMMDeployedModels(context.Context) ([]cluster.DeployedEntry, error) {
+func (f *fakeHMMRoster) HMMDeployedModels(context.Context) ([]router.DeployedEntry, error) {
 	f.calls++
 	if f.err != nil {
 		return nil, f.err
@@ -89,10 +89,10 @@ func (f *fakeHMMRoster) HMMDeployedModels(context.Context) ([]cluster.DeployedEn
 func TestCatalogModelsHandler_HMMStrategyReturnsRosterNotCluster(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	clusterSrc := fakeDeployedModels{entries: []cluster.DeployedEntry{
+	clusterSrc := fakeDeployedModels{entries: []router.DeployedEntry{
 		{Model: "gpt-5.5", Provider: providers.ProviderOpenAI},
 	}}
-	hmmSrc := &fakeHMMRoster{entries: []cluster.DeployedEntry{
+	hmmSrc := &fakeHMMRoster{entries: []router.DeployedEntry{
 		{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
 		{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 	}}
@@ -119,7 +119,7 @@ func TestCatalogModelsHandler_HMMStrategyReturnsRosterNotCluster(t *testing.T) {
 func TestCatalogModelsHandler_HMMStrategyFallsBackToClusterWhenNoSource(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	clusterSrc := fakeDeployedModels{entries: []cluster.DeployedEntry{
+	clusterSrc := fakeDeployedModels{entries: []router.DeployedEntry{
 		{Model: "gpt-5.5", Provider: providers.ProviderOpenAI},
 	}}
 
@@ -155,10 +155,10 @@ func TestCatalogModelsHandler_HMMRosterErrorReturns503(t *testing.T) {
 func TestCatalogModelsHandler_ScopeCatalogReturnsFullCatalog(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	clusterSrc := fakeDeployedModels{entries: []cluster.DeployedEntry{
+	clusterSrc := fakeDeployedModels{entries: []router.DeployedEntry{
 		{Model: "gpt-5.5", Provider: providers.ProviderOpenAI},
 	}}
-	hmmSrc := &fakeHMMRoster{entries: []cluster.DeployedEntry{
+	hmmSrc := &fakeHMMRoster{entries: []router.DeployedEntry{
 		{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
 	}}
 

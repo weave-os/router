@@ -14,6 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 )
 
@@ -76,15 +77,8 @@ type rankingsFile struct {
 	Rankings map[string]map[string]float32 `json:"rankings"`
 }
 
-// DeployedEntry is one routable target. Direct columns are 1:1
-// (Model == BenchColumn); proxy entries reuse another column's scores.
-type DeployedEntry struct {
-	Model       string `json:"model"`
-	Provider    string `json:"provider"`
-	BenchColumn string `json:"bench_column"`
-	Proxy       bool   `json:"proxy,omitempty"`
-	ProxyNote   string `json:"proxy_note,omitempty"`
-}
+// DeployedEntry aliases router.DeployedEntry.
+type DeployedEntry = router.DeployedEntry
 
 // ModelRegistry is the deserialized model_registry.json.
 type ModelRegistry struct {
@@ -642,14 +636,10 @@ func CheapestModelInSet(meta *ArtifactMetadata, registry *ModelRegistry, availab
 	return cheapestModelFiltered(meta, registry, available, denySet, allowSet, RequestBindings{})
 }
 
-// RequestBindings carries a key's model_aliases (Custom) and enrolled gateway
-// providers (Gateways); a non-empty Gateways set means gateway-exclusive routing.
-type RequestBindings struct {
-	Custom   map[string][]string
-	Gateways map[string]struct{}
-}
+// RequestBindings aliases router.RequestBindings.
+type RequestBindings = router.RequestBindings
 
-func (b RequestBindings) resolve(modelID, registryProvider string, available map[string]struct{}) string {
+func resolveBinding(b RequestBindings, modelID, registryProvider string, available map[string]struct{}) string {
 	if len(b.Gateways) > 0 {
 		return resolveGatewayProvider(modelID, available, b.Custom, b.Gateways)
 	}
@@ -659,7 +649,7 @@ func (b RequestBindings) resolve(modelID, registryProvider string, available map
 // candidates returns the models these selectors may pick from: the bundle's
 // roster, plus — for a gateway-exclusive key — the catalog models it aliases
 // that this bundle never trained on (a gateway serves whatever its aliases name).
-func (b RequestBindings) candidates(registry *ModelRegistry) []DeployedEntry {
+func bindingCandidates(b RequestBindings, registry *ModelRegistry) []DeployedEntry {
 	if len(b.Gateways) == 0 {
 		return registry.DeployedModels
 	}
@@ -702,8 +692,8 @@ func inputCostPer1K(meta *ArtifactMetadata, model string) (float64, bool) {
 
 func cheapestModelFiltered(meta *ArtifactMetadata, registry *ModelRegistry, available, denySet, allowSet map[string]struct{}, bindings RequestBindings) (provider, model string, ok bool) {
 	var bestCost float64 = -1
-	for _, e := range bindings.candidates(registry) {
-		resolved := bindings.resolve(e.Model, e.Provider, available)
+	for _, e := range bindingCandidates(bindings, registry) {
+		resolved := resolveBinding(bindings, e.Model, e.Provider, available)
 		if resolved == "" {
 			continue
 		}
@@ -752,8 +742,8 @@ func FastestModelForRequest(meta *ArtifactMetadata, registry *ModelRegistry, ava
 
 func fastestModelFiltered(meta *ArtifactMetadata, registry *ModelRegistry, available, denySet, allowSet map[string]struct{}, bindings RequestBindings) (provider, model string, ok bool) {
 	var bestSpeed float64 = -1
-	for _, e := range bindings.candidates(registry) {
-		resolved := bindings.resolve(e.Model, e.Provider, available)
+	for _, e := range bindingCandidates(bindings, registry) {
+		resolved := resolveBinding(bindings, e.Model, e.Provider, available)
 		if resolved == "" {
 			continue
 		}
