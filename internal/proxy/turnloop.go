@@ -15,7 +15,6 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/catalog"
@@ -1254,7 +1253,7 @@ func (s *Service) runTurnLoop(
 		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 	if res.TurnType == turntype.Compaction {
-		return s.routeCompaction(ctx, req, res, reqHeaders, threadSessionKey, installationID, forceModelFound, forceModelPin)
+		return s.routeCompaction(ctx, compactionTurn{env, req, res, reqHeaders, threadSessionKey, apiKeyID, forceModelFound, forceModelPin})
 	}
 
 	// res.SessionKey must stay zero in no-pin-store mode, but trim detection
@@ -1293,10 +1292,7 @@ func (s *Service) runTurnLoop(
 	// Natural expiry retains the model/provider and may still use a renewed
 	// one-shot command continuation, but an explicit clear must never be
 	// undone by a stale continuation row.
-	clearedPinReason := ""
-	if !pinFound && pin.Model == "" && pin.Provider == "" && pin.Reason != "" {
-		clearedPinReason = pin.Reason
-	}
+	clearedPinReason := clearedSessionPinReason(pin, pinFound)
 	hmmHistory := s.loadHMMHistory(ctx, res.SessionKey, res.PinRole)
 	forceHistory := sessionpin.Pin{}
 	if forceModelFound || forceModelCleared {
@@ -1311,10 +1307,7 @@ func (s *Service) runTurnLoop(
 		forceModelPin, forceModelFound = pin, true
 		req.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
 	}
-	if forceModelCleared && pinFound && isUserForcedReason(pin.Reason) {
-		pinFound = false
-		pin = sessionpin.Pin{}
-	}
+	pin, pinFound = dropForceModelClearedPin(pin, pinFound, forceModelCleared)
 	commandContinuation := sessionpin.Pin{}
 	commandContinuationFound := false
 	if res.TurnType == turntype.MainLoop {
@@ -1348,15 +1341,7 @@ func (s *Service) runTurnLoop(
 	} else if pinFound && isUserForcedReason(pin.Reason) {
 		forcedProvider = pin.Provider
 	}
-	if forcedProvider != "" {
-		filtered := make([]string, 0, len(disabledProviders))
-		for _, provider := range disabledProviders {
-			if provider != forcedProvider {
-				filtered = append(filtered, provider)
-			}
-		}
-		disabledProviders = filtered
-	}
+	disabledProviders = strikesExceptProvider(disabledProviders, forcedProvider)
 	if len(disabledProviders) > 0 {
 		res.SessionDisabledProviders = disabledProviders
 		// nil EnabledProviders means "unrestricted"; skip rather than
@@ -1602,15 +1587,7 @@ func (s *Service) runTurnLoop(
 	// automatic routing: usage-bypass and pinned paths never consult
 	// preferences, so a store outage must not reject them.
 	var siblingPreferencesErr error
-	if store, supported := s.pinStore.(sessionpin.SiblingPreferenceStore); supported && installationID != uuid.Nil && threadSessionKey != ([sessionpin.SessionKeyLen]byte{}) {
-		res.SiblingPreferenceKey = deriveConversationSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey, requestcontext.SiblingPreferenceConversationKey)
-		var err error
-		req.SiblingPreferences, err = store.GetSiblingPreferences(ctx, installationID, res.SiblingPreferenceKey, res.Strategy)
-		if err != nil {
-			log.Error("Session sibling preferences unavailable", "err", err)
-			siblingPreferencesErr = err
-		}
-	}
+	req.SiblingPreferences, siblingPreferencesErr = loadSiblingPreferences(ctx, s, env, apiKeyID, installationID, threadSessionKey, &res)
 
 	// A pin the router chose itself stops being reusable the moment Weave
 	// disables its model deployment-wide. Dropping it here — before the
@@ -1630,11 +1607,7 @@ func (s *Service) runTurnLoop(
 		pinFound = false
 		pin = sessionpin.Pin{}
 	}
-	if pinFound && !isUserForcedReason(pin.Reason) && sessionpin.SiblingPinSuperseded(pin, req) {
-		log.Info("Session sibling preference supersedes automatic pin", "pin_model", pin.Model, "group", pin.PolicyGroup)
-		pinFound = false
-		pin = sessionpin.Pin{}
-	}
+	pin, pinFound = dropSupersededSiblingPin(pin, pinFound, req, log)
 
 	// Previous-turn-maxed-out guard: when an OSS model's tool-call tokens fail
 	// to parse server-side (kimi/qwen3), the upstream emits them as content and
@@ -1823,7 +1796,7 @@ func (s *Service) runTurnLoop(
 	}
 	if commandContinuationFound && automaticPinEligible(commandContinuation, req) {
 		if siblingPreferencesErr != nil {
-			return res, fmt.Errorf("load session sibling preferences: %w", siblingPreferencesErr)
+			return res, siblingPreferenceReadError(siblingPreferencesErr)
 		}
 		decision := pinDecision(commandContinuation)
 		res.Decision = decision
@@ -1864,7 +1837,7 @@ func (s *Service) runTurnLoop(
 		return res, nil
 	}
 	if siblingPreferencesErr != nil {
-		return res, fmt.Errorf("load session sibling preferences: %w", siblingPreferencesErr)
+		return res, siblingPreferenceReadError(siblingPreferencesErr)
 	}
 
 	if pinFound && res.AuthoritativePerTurn && req.ForceCluster == "" &&

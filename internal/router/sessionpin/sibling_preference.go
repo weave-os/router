@@ -16,10 +16,22 @@ func SiblingPinSuperseded(pin Pin, req router.Request) bool {
 	return remembered && preference.Model != "" && pin.Model != preference.Model
 }
 
+// SiblingPreferenceWrite is one "the sibling that rescued the group now leads
+// it" record for a conversation digest.
+type SiblingPreferenceWrite struct {
+	InstallationID uuid.UUID
+	SessionKey     [SessionKeyLen]byte
+	Strategy       router.Strategy
+	Group          escalation.Group
+	Preferred      string
+	Displaced      []string
+	StartedAt      time.Time
+}
+
 // SiblingPreferenceStore persists conversation-scoped model order independent
 // of expiring thread pins. Successful writes reject older request starts.
 type SiblingPreferenceStore interface {
 	GetSiblingPreferences(context.Context, uuid.UUID, [SessionKeyLen]byte, router.Strategy) (map[escalation.Group]router.SiblingPreference, error)
-	RecordSiblingPreference(context.Context, uuid.UUID, [SessionKeyLen]byte, router.Strategy, escalation.Group, string, []string, time.Time) (bool, error)
+	RecordSiblingPreference(context.Context, SiblingPreferenceWrite) (bool, error)
 	ClearSiblingWinnerExclusions(context.Context, [SessionKeyLen]byte, router.Strategy, []string, string, time.Time) error
 }

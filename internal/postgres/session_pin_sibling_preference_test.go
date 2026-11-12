@@ -32,19 +32,19 @@ func TestSessionSiblingPreferencePostgresMergeAndIsolation(t *testing.T) {
 	startedAt := time.Now().UTC().Truncate(time.Microsecond)
 	primary := catalog.ModelIDClaudeOpus48.String()
 	sibling := catalog.ModelIDGPT56Luna.String()
-	written, err := store.RecordSiblingPreference(ctx, installation, key, router.StrategyHMM, escalation.High, sibling, []string{primary}, startedAt)
+	written, err := store.RecordSiblingPreference(ctx, sessionpin.SiblingPreferenceWrite{InstallationID: installation, SessionKey: key, Strategy: router.StrategyHMM, Group: escalation.High, Preferred: sibling, Displaced: []string{primary}, StartedAt: startedAt})
 	require.NoError(t, err)
 	require.True(t, written)
 	var wg sync.WaitGroup
 	recordErrs := make(chan error, 3)
 	for _, displaced := range []string{catalog.ModelIDClaudeOpus47.String(), catalog.ModelIDClaudeSonnet46.String()} {
 		wg.Go(func() {
-			_, err := store.RecordSiblingPreference(ctx, installation, key, router.StrategyHMM, escalation.High, sibling, []string{displaced}, startedAt)
+			_, err := store.RecordSiblingPreference(ctx, sessionpin.SiblingPreferenceWrite{InstallationID: installation, SessionKey: key, Strategy: router.StrategyHMM, Group: escalation.High, Preferred: sibling, Displaced: []string{displaced}, StartedAt: startedAt})
 			recordErrs <- err
 		})
 	}
 	wg.Go(func() {
-		_, err := store.RecordSiblingPreference(ctx, installation, key, router.StrategyHMM, escalation.Medium, primary, []string{sibling}, startedAt)
+		_, err := store.RecordSiblingPreference(ctx, sessionpin.SiblingPreferenceWrite{InstallationID: installation, SessionKey: key, Strategy: router.StrategyHMM, Group: escalation.Medium, Preferred: primary, Displaced: []string{sibling}, StartedAt: startedAt})
 		recordErrs <- err
 	})
 	wg.Wait()
@@ -58,10 +58,10 @@ func TestSessionSiblingPreferencePostgresMergeAndIsolation(t *testing.T) {
 	assert.Equal(t, sibling, got[escalation.High].Model)
 	assert.ElementsMatch(t, []string{primary, catalog.ModelIDClaudeOpus47.String(), catalog.ModelIDClaudeSonnet46.String()}, got[escalation.High].DisplacedModels)
 	assert.Equal(t, primary, got[escalation.Medium].Model)
-	written, err = store.RecordSiblingPreference(ctx, installation, key, router.StrategyHMM, escalation.High, primary, []string{sibling}, startedAt.Add(time.Second))
+	written, err = store.RecordSiblingPreference(ctx, sessionpin.SiblingPreferenceWrite{InstallationID: installation, SessionKey: key, Strategy: router.StrategyHMM, Group: escalation.High, Preferred: primary, Displaced: []string{sibling}, StartedAt: startedAt.Add(time.Second)})
 	require.NoError(t, err)
 	require.True(t, written)
-	written, err = store.RecordSiblingPreference(ctx, installation, key, router.StrategyHMM, escalation.High, sibling, []string{primary}, startedAt)
+	written, err = store.RecordSiblingPreference(ctx, sessionpin.SiblingPreferenceWrite{InstallationID: installation, SessionKey: key, Strategy: router.StrategyHMM, Group: escalation.High, Preferred: sibling, Displaced: []string{primary}, StartedAt: startedAt})
 	require.NoError(t, err)
 	require.False(t, written, "late completion must not overwrite a newer turn")
 	got, err = store.GetSiblingPreferences(ctx, installation, key, router.StrategyHMM)

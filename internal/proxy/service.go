@@ -6039,8 +6039,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		} else {
 			rescuedArmDemoted, rescuedArmDemotionReason = s.maybeStrikeArmAfterRescuedFailure(ctx, siblingRescueRan, routeRes.HardPinned, rescuedPrimaryErr, rescuedPrimary, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 		}
-		s.strikeRescuedModelsForTurn(ctx, proxyErr, decision, routeRes.HardPinned, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
-		s.rememberSuccessfulSibling(ctx, routeRes, primaryDecision, decision, proxyErr, requestStart)
+		recordRescuedTurnOutcome(ctx, s, proxyErr, decision, routeRes, primaryDecision, requestStart)
 		if proxyErr != nil {
 			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, siblingRescueRan, preludeBuf.Committed(), routeRes.HardPinned, primarySubscriptionArmFailure, primaryDecision, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 			if armDemoted == "" && unrescuedStallDemoted != "" {
@@ -9187,8 +9186,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		} else {
 			rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = s.maybeStrikeArmAfterRescuedFailure(ctx, siblingRescueRan, routeRes.HardPinned, rescuedPrimaryErr, rescuedPrimary, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 		}
-		s.strikeRescuedModelsForTurn(ctx, proxyErr, decision, routeRes.HardPinned, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
-		s.rememberSuccessfulSibling(ctx, routeRes, primaryDecision, decision, proxyErr, requestStart)
+		recordRescuedTurnOutcome(ctx, s, proxyErr, decision, routeRes, primaryDecision, requestStart)
 		if proxyErr != nil {
 			unrescuedStallDemoted := s.maybeDemoteArmAfterUnrescuedStall(ctx, siblingRescueRan, committed(preludeBuf) || committed(responsesPreludeBuf), routeRes.HardPinned, primarySubscriptionArmFailure, primaryDecision, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 			if armDemotedOAI == "" && unrescuedStallDemoted != "" {

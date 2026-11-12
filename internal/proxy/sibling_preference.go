@@ -2,18 +2,65 @@ package proxy
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
 	"github.com/google/uuid"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 )
 
-func (s *Service) rememberSuccessfulSibling(ctx context.Context, turn turnLoopResult, primary, served router.Decision, proxyErr error, startedAt time.Time) {
+// recordRescuedTurnOutcome keeps the pin-side bookkeeping a rescued turn
+// leaves behind in one call: the strike on the failed primary, then the
+// remembered winner for the conversation's group.
+func recordRescuedTurnOutcome(ctx context.Context, s *Service, proxyErr error, decision router.Decision, turn turnLoopResult, primary router.Decision, startedAt time.Time) {
+	s.strikeRescuedModelsForTurn(ctx, proxyErr, decision, turn.HardPinned, turn.SessionKey, stickyStateRole(turn), turn.PinRole)
+	rememberSuccessfulSibling(ctx, s.pinStore, turn, primary, decision, proxyErr, startedAt)
+}
+
+// loadSiblingPreferences reads the conversation's remembered group winners for
+// turns that still route automatically. It writes res.SiblingPreferenceKey so
+// the write path uses the same digest. Pinned and utility paths never consult
+// the result, so a store outage must not reject them: the caller defers the
+// error to the routed path.
+func loadSiblingPreferences(ctx context.Context, s *Service, env *translate.RequestEnvelope, apiKeyID string, installationID uuid.UUID, threadSessionKey [sessionpin.SessionKeyLen]byte, res *turnLoopResult) (map[escalation.Group]router.SiblingPreference, error) {
 	store, supported := s.pinStore.(sessionpin.SiblingPreferenceStore)
+	if !supported || installationID == uuid.Nil || threadSessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+		return nil, nil
+	}
+	res.SiblingPreferenceKey = deriveConversationSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey, requestcontext.SiblingPreferenceConversationKey)
+	preferences, err := store.GetSiblingPreferences(ctx, installationID, res.SiblingPreferenceKey, res.Strategy)
+	if err != nil {
+		observability.FromContext(ctx).Error("Session sibling preferences unavailable", "err", err)
+		return nil, err
+	}
+	return preferences, nil
+}
+
+func siblingPreferenceReadError(err error) error {
+	return fmt.Errorf("load session sibling preferences: %w", err)
+}
+
+// dropSupersededSiblingPin clears an automatic pin whose group remembers a
+// different winner: reusing it would replay the model that already failed this
+// conversation.
+func dropSupersededSiblingPin(pin sessionpin.Pin, found bool, req router.Request, log *slog.Logger) (sessionpin.Pin, bool) {
+	if found && !isUserForcedReason(pin.Reason) && sessionpin.SiblingPinSuperseded(pin, req) {
+		log.Info("Session sibling preference supersedes automatic pin", "pin_model", pin.Model, "group", pin.PolicyGroup)
+		return sessionpin.Pin{}, false
+	}
+	return pin, found
+}
+
+func rememberSuccessfulSibling(ctx context.Context, pinStore sessionpin.Store, turn turnLoopResult, primary, served router.Decision, proxyErr error, startedAt time.Time) {
+	store, supported := pinStore.(sessionpin.SiblingPreferenceStore)
 	failures := turnFailuresFromContext(ctx)
 	if !supported || failures == nil || proxyErr != nil || turn.HardPinned || turn.CallerModelPassthrough ||
 		turn.SiblingPreferenceKey == ([sessionpin.SessionKeyLen]byte{}) || turn.InstallationID == uuid.Nil || isUserForcedReason(served.Reason) {
@@ -28,7 +75,15 @@ func (s *Service) rememberSuccessfulSibling(ctx context.Context, turn turnLoopRe
 		return
 	}
 	log := observability.FromContext(ctx)
-	written, err := store.RecordSiblingPreference(context.Background(), turn.InstallationID, turn.SiblingPreferenceKey, strategyForTurnLoopResult(turn), group, served.Model, displaced, startedAt)
+	written, err := store.RecordSiblingPreference(context.Background(), sessionpin.SiblingPreferenceWrite{
+		InstallationID: turn.InstallationID,
+		SessionKey:     turn.SiblingPreferenceKey,
+		Strategy:       strategyForTurnLoopResult(turn),
+		Group:          group,
+		Preferred:      served.Model,
+		Displaced:      displaced,
+		StartedAt:      startedAt,
+	})
 	if err != nil {
 		log.Error("Session sibling preference write failed", "err", err, "group", group, "model", served.Model)
 		return
@@ -41,4 +96,22 @@ func (s *Service) rememberSuccessfulSibling(ctx context.Context, turn turnLoopRe
 	}
 
 	log.Info("Successful sibling preferred for session group", "group", group, "model", served.Model, "displaced_models", displaced)
+}
+
+// clearedSessionPinReason reads the reason off a stored deliberate clear: an
+// expired, blank pin. Natural expiry has no reason and must not produce one.
+func clearedSessionPinReason(pin sessionpin.Pin, pinFound bool) string {
+	if !pinFound && pin.Model == "" && pin.Provider == "" && pin.Reason != "" {
+		return pin.Reason
+	}
+	return ""
+}
+
+// dropForceModelClearedPin drops a user-forced stored pin when the turn already
+// carries a cleared /force-model pin — the clear is newer and wins.
+func dropForceModelClearedPin(pin sessionpin.Pin, pinFound, forceModelCleared bool) (sessionpin.Pin, bool) {
+	if forceModelCleared && pinFound && isUserForcedReason(pin.Reason) {
+		return sessionpin.Pin{}, false
+	}
+	return pin, pinFound
 }

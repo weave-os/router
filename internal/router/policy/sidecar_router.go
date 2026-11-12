@@ -428,9 +428,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	}
 	requestRouteID := uuid.NewString()
 	pin, pinned := router.HonouredPolicyPin(ctx)
-	if pinned {
-		req.SiblingPreferences = nil
-	}
+	dropSiblingPreferencesOnPolicyPin(&req, pinned)
 	if pinned && r.armSelector == nil {
 		return router.Decision{}, fmt.Errorf("%s: roster pin requires router-owned arm selection: %w", strategy, router.ErrPolicyPinUnavailable)
 	}
@@ -605,38 +603,17 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	res.RankedFallback = applySiblingPreferences(req, resolved, res.RankedFallback)
 	// Overrides have already constrained the group. Its remembered order may
 	// replace the selected arm, but may not move the request to another group.
-	if arm := preferredSiblingArm(req, res.RankedFallback, res.PolicyGroup, overrideRosterID); arm != overrideRosterID {
-		overrideRosterID = arm
-		overrideArmID = siblingArmID(indexCandidates(resolved), arm)
-		if overrideReason == router.SelectionOverrideNone {
-			overrideReason = router.SelectionOverrideSibling
-		}
-		reselected = true
-		observability.FromContext(ctx).Info("Session sibling preference applied", "group", res.PolicyGroup, "arm", arm)
-	}
-	effectiveOverrides := siblingPreferenceOverrides(req)
+	sel := reselectRememberedSibling(ctx, siblingArmSelection{RosterID: overrideRosterID, ArmID: overrideArmID, Reason: overrideReason, Reselected: reselected}, req, resolved, res.RankedFallback, res.PolicyGroup)
+	overrideRosterID, overrideArmID, overrideReason, reselected = sel.RosterID, sel.ArmID, sel.Reason, sel.Reselected
 	if escalationDecision != nil {
 		escalationDecision.Effective = escalation.Group(res.PolicyGroup)
 	}
-	selectedRosterArmID := overrideArmID
-	if selectedRosterArmID == "" {
-		selectedRosterArmID = overrideRosterID
-	}
+	selectedRosterArmID := armOrRosterID(overrideArmID, overrideRosterID)
 	if routerArmScoresByGroup != nil {
 		res.ArmScores = routerArmScoresByGroup[res.PolicyGroup]
 	}
 	if selectionTrace.SelectedArm != "" {
-		if len(req.SiblingPreferences) > 0 {
-			selectionTrace.EffectiveOrders = maps.Clone(selectionTrace.EffectiveOrders)
-			if selectionTrace.EffectiveOrders == nil {
-				selectionTrace.EffectiveOrders = make(map[string][]string)
-			}
-			for _, group := range res.RankedFallback {
-				if _, remembered := req.SiblingPreferences[escalation.Group(group.Group)]; remembered {
-					selectionTrace.EffectiveOrders[group.Group] = slices.Clone(group.EligibleArms)
-				}
-			}
-		}
+		recordRememberedOrders(&selectionTrace, req, res.RankedFallback)
 		selectionTrace.SelectedGroup = res.PolicyGroup
 		selectionTrace.SelectedArm = overrideRosterID
 		selectionTrace.OverrideReason = overrideReason
@@ -725,18 +702,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		"score", res.Score,
 	)
 	rescueGroups := EscalatingRescueGroups(res.PolicyGroup, req.ForceCluster, res.RankedFallback)
-	rescueOverrides := effectiveOverrides
-	// The cooling pool keeps the configured allowlists: dropping a remembered
-	// group's list here would readmit a soft-excluded model outside it.
-	poolOverrides := req.ClusterArmOverrides
-	if escalationDecision != nil && escalationDecision.Constrained {
-		groupNames := make([]string, 0, len(rescueGroups))
-		for _, group := range rescueGroups {
-			groupNames = append(groupNames, group.Group)
-		}
-		rescueOverrides = escalationArmOverrides(rescueOverrides, groupNames...)
-		poolOverrides = escalationArmOverrides(poolOverrides, groupNames...)
-	}
+	effectiveOverrides, rescueOverrides, poolOverrides := siblingRoutingOverrides(req, rescueGroups, escalationDecision != nil && escalationDecision.Constrained)
 	return router.Decision{
 		Provider: binding.Provider,
 		Model:    binding.CatalogID,
@@ -862,9 +828,7 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 			selectedArm, selectedGroup = override.RosterID, override.Group
 		}
 	}
-	pick.RankedFallback = applySiblingPreferences(req, resolved, pick.RankedFallback)
-	selectedArm = preferredSiblingArm(req, pick.RankedFallback, selectedGroup, selectedArm)
-	effectiveOverrides := siblingPreferenceOverrides(req)
+	selectedArm, effectiveOverrides := siblingOrderedSelection(req, resolved, &pick.RankedFallback, selectedGroup, selectedArm)
 	binding, found := resolved.BindingForSelection("", selectedArm)
 	if !found {
 		return router.Decision{}, fmt.Errorf("%s: unscorable roster selected an ineligible arm: %w: %w", r.config.Strategy, ErrNoEligibleArm, r.config.Unavailable)

@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -37,23 +38,23 @@ func (s *siblingPreferenceRecordingStore) GetSiblingPreferences(_ context.Contex
 	return s.preferences[key], s.readErr
 }
 
-func (s *siblingPreferenceRecordingStore) RecordSiblingPreference(_ context.Context, _ uuid.UUID, key [sessionpin.SessionKeyLen]byte, _ router.Strategy, group escalation.Group, preferred string, displaced []string, startedAt time.Time) (bool, error) {
+func (s *siblingPreferenceRecordingStore) RecordSiblingPreference(_ context.Context, w sessionpin.SiblingPreferenceWrite) (bool, error) {
 	if s.preferences == nil {
 		s.preferences = make(map[[sessionpin.SessionKeyLen]byte]map[escalation.Group]router.SiblingPreference)
 	}
-	if s.preferences[key] == nil {
-		s.preferences[key] = make(map[escalation.Group]router.SiblingPreference)
+	if s.preferences[w.SessionKey] == nil {
+		s.preferences[w.SessionKey] = make(map[escalation.Group]router.SiblingPreference)
 	}
-	previous := s.preferences[key][group]
-	for _, model := range displaced {
+	previous := s.preferences[w.SessionKey][w.Group]
+	for _, model := range w.Displaced {
 		if !slices.Contains(previous.DisplacedModels, model) {
 			previous.DisplacedModels = append(previous.DisplacedModels, model)
 		}
 	}
-	previous.DisplacedModels = slices.DeleteFunc(previous.DisplacedModels, func(model string) bool { return model == preferred })
-	previous.Model = preferred
-	previous.StartedAt = startedAt
-	s.preferences[key][group] = previous
+	previous.DisplacedModels = slices.DeleteFunc(previous.DisplacedModels, func(model string) bool { return model == w.Preferred })
+	previous.Model = w.Preferred
+	previous.StartedAt = w.StartedAt
+	s.preferences[w.SessionKey][w.Group] = previous
 	return true, nil
 }
 
@@ -126,7 +127,9 @@ func TestSiblingFallbackPersistsAcrossClusterChanges(t *testing.T) {
 	compaction := `{"model":"claude-opus-4-8","system":"Your task is to create a detailed summary","messages":[{"role":"user","content":"summarize"}]}`
 	compactionRec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(compaction), compactionRec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(compaction))))
+	t.Log("compaction served:", compactionRec.Header().Get(HeaderRouterModel), "pins:", store.pins)
 	fourth := serve()
+	t.Log("failed after fourth:", client.failed)
 	assert.Equal(t, sibling, fourth.Header().Get(HeaderRouterModel))
 	assert.Len(t, client.failed, failedCalls, "returning to High keeps the successful sibling")
 
@@ -149,50 +152,59 @@ func TestSiblingFallbackPersistsAcrossClusterChanges(t *testing.T) {
 
 func TestSuccessfulSiblingIsRememberedOnBothIngresses(t *testing.T) {
 	for _, openAI := range []bool{false, true} {
-		for _, siblingFails := range []bool{false, true} {
-			for _, crossGroup := range []bool{false, true} {
-				store := &siblingPreferenceRecordingStore{}
-				decision := rescuableDecision("cluster:v0.2", true)
-				decision.Metadata.PolicyGroup = string(escalation.High)
-				decision.Metadata.SiblingModels = []string{rescuedPrimaryModel}
-				if !crossGroup {
-					decision.Metadata.SiblingModels = append(decision.Metadata.SiblingModels, rescuerModel)
-				}
-				overload := &providers.UpstreamErrorResponse{Status: http.StatusServiceUnavailable}
-				primary := &failingClient{err: overload}
-				sibling := &servingClient{}
-				if siblingFails {
-					sibling.err = overload
-				}
-				svc := newRescuedFailureTurnService(store, decision, primary, sibling, false)
-				body := anthropicMessagesBody()
-				if openAI {
-					body = openaiChatBody()
-				}
-				req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(body)))
-				rec := httptest.NewRecorder()
-				var err error
-				if openAI {
-					err = svc.ProxyOpenAIChatCompletion(rescuedFailureCtx(), body, rec, req)
-				} else {
-					err = svc.ProxyMessages(rescuedFailureCtx(), body, rec, req)
-				}
-				if siblingFails {
-					require.Error(t, err)
-				} else {
-					require.NoError(t, err)
-				}
-				if siblingFails || crossGroup {
-					assert.Empty(t, store.preferences, "failed or cross-group rescues cannot replace a group's preference")
-					continue
-				}
-				require.Len(t, store.preferences, 1)
-				for _, preferences := range store.preferences {
-					assert.Equal(t, rescuerModel, preferences[escalation.High].Model)
-					assert.Equal(t, []string{rescuedPrimaryModel}, preferences[escalation.High].DisplacedModels)
+		t.Run(map[bool]string{false: "anthropic", true: "openai"}[openAI], func(t *testing.T) {
+			for _, siblingFails := range []bool{false, true} {
+				for _, crossGroup := range []bool{false, true} {
+					t.Run(fmt.Sprintf("siblingFails=%v/crossGroup=%v", siblingFails, crossGroup), func(t *testing.T) {
+						assertSiblingRemembered(t, openAI, siblingFails, crossGroup)
+					})
 				}
 			}
-		}
+		})
+	}
+}
+
+func assertSiblingRemembered(t *testing.T, openAI, siblingFails, crossGroup bool) {
+	t.Helper()
+	store := &siblingPreferenceRecordingStore{}
+	decision := rescuableDecision("cluster:v0.2", true)
+	decision.Metadata.PolicyGroup = string(escalation.High)
+	decision.Metadata.SiblingModels = []string{rescuedPrimaryModel}
+	if !crossGroup {
+		decision.Metadata.SiblingModels = append(decision.Metadata.SiblingModels, rescuerModel)
+	}
+	overload := &providers.UpstreamErrorResponse{Status: http.StatusServiceUnavailable}
+	primary := &failingClient{err: overload}
+	sibling := &servingClient{}
+	if siblingFails {
+		sibling.err = overload
+	}
+	svc := newRescuedFailureTurnService(store, decision, primary, sibling, false)
+	body := anthropicMessagesBody()
+	if openAI {
+		body = openaiChatBody()
+	}
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(body)))
+	rec := httptest.NewRecorder()
+	var err error
+	if openAI {
+		err = svc.ProxyOpenAIChatCompletion(rescuedFailureCtx(), body, rec, req)
+	} else {
+		err = svc.ProxyMessages(rescuedFailureCtx(), body, rec, req)
+	}
+	if siblingFails {
+		require.Error(t, err)
+	} else {
+		require.NoError(t, err)
+	}
+	if siblingFails || crossGroup {
+		assert.Empty(t, store.preferences, "failed or cross-group rescues cannot replace a group's preference")
+		return
+	}
+	require.Len(t, store.preferences, 1)
+	for _, preferences := range store.preferences {
+		assert.Equal(t, rescuerModel, preferences[escalation.High].Model)
+		assert.Equal(t, []string{rescuedPrimaryModel}, preferences[escalation.High].DisplacedModels)
 	}
 }
 
@@ -251,7 +263,8 @@ func TestUtilityTurnsDoNotConsultSiblingPreferences(t *testing.T) {
 		body string
 	}{
 		{turntype.Probe, `{"model":"claude-opus-4-8","max_tokens":1,"messages":[{"role":"user","content":"probe"}]}`},
-		{turntype.Compaction, `{"model":"claude-opus-4-8","system":"Your task is to create a detailed summary","messages":[{"role":"user","content":"summarize"}]}`},
+		// Compaction is not a utility turn: it routes on the session pin or the
+		// scorer, so it consults preferences like any automatic routed turn.
 		{turntype.TitleGen, `{"model":"claude-opus-4-8","output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}}},"messages":[{"role":"user","content":"title"}]}`},
 		{turntype.Classifier, `{"model":"claude-opus-4-8","max_tokens":64,"messages":[{"role":"user","content":"classify"}]}`},
 		{turntype.Recap, `{"model":"claude-opus-4-8","messages":[{"role":"user","content":"The user stepped away and is coming back. Recap in under 30 words."}]}`},
