@@ -171,7 +171,7 @@
             "Provider": "fireworks",
             "Reason": "golden_route",
             "Role": "default_mid",
-            "Strategy": "cluster",
+            "Strategy": "hmm_embedding",
             "TurnCount": 1
           }
         }
@@ -203,7 +203,7 @@
             "served_group": ""
           },
           "SpanType": "router.upstream",
-          "Strategy": "cluster",
+          "Strategy": "hmm_embedding",
           "TurnType": "main_loop",
           "UserPrompt": true
         }

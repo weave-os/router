@@ -134,7 +134,7 @@
           },
           "SpanType": "router.upstream",
           "StopReason": "end_turn",
-          "Strategy": "cluster",
+          "Strategy": "hmm_embedding",
           "TurnType": "classifier",
           "UpstreamFinishReason": "end_turn",
           "UpstreamStatusCode": 200,

@@ -113,7 +113,7 @@
             "Provider": "fireworks",
             "Reason": "golden_route",
             "Role": "default_mid",
-            "Strategy": "cluster",
+            "Strategy": "hmm_embedding",
             "TurnCount": 1
           }
         },
@@ -125,7 +125,7 @@
             "OutputTokens": 7,
             "ServedModel": "claude-haiku-4-5",
             "ServedProvider": "fireworks",
-            "Strategy": "cluster"
+            "Strategy": "hmm_embedding"
           }
         }
       ],
@@ -180,7 +180,7 @@
             "served_group": ""
           },
           "SpanType": "router.upstream",
-          "Strategy": "cluster",
+          "Strategy": "hmm_embedding",
           "TurnType": "main_loop",
           "UpstreamStatusCode": 200,
           "UserPrompt": true
