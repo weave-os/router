@@ -123,7 +123,14 @@ func betterMove(fn funcMetrics, candidate, current string, p movePool) bool {
 	if candidateSame != currentSame {
 		return candidateSame
 	}
-	return sum(p[candidate].values) < sum(p[current].values)
+	candidateSize, currentSize := 0, 0
+	for _, value := range p[candidate].values {
+		candidateSize += value
+	}
+	for _, value := range p[current].values {
+		currentSize += value
+	}
+	return candidateSize < currentSize
 }
 
 // shortName returns the bare function name from a funcKey such as "<dir>.<Recv>.<Name>"
@@ -132,14 +139,6 @@ func shortName(key string) string {
 	key, _, _ = strings.Cut(key, "@")
 	_, name, _ := strings.Cut(key[strings.LastIndex(key, "/")+1:], ".")
 	return name
-}
-
-func sum(values map[metric]int) int {
-	total := 0
-	for _, value := range values {
-		total += value
-	}
-	return total
 }
 
 func compareFiles(base, head map[string]fileMetrics, allowed exceptionSet) []violation {

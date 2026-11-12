@@ -230,13 +230,8 @@ func receiverName(expr ast.Expr) string {
 	return "?"
 }
 
-// fieldListSize counts declared names, counting an unnamed or embedded field as one.
 func fieldListSize(fields *ast.FieldList) int {
-	count := 0
-	for _, field := range fields.List {
-		count += max(len(field.Names), 1)
-	}
-	return count
+	return fields.NumFields()
 }
 
 func countNolint(file *ast.File) int {
