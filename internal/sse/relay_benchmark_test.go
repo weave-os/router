@@ -9,16 +9,25 @@ import (
 	"weave-os/router/internal/sse"
 )
 
+// discardFlusher is a streaming http.ResponseWriter; when dst is set it also
+// retains the body so a validation pass can compare it, otherwise it drops it.
 type discardFlusher struct {
 	header  http.Header
+	dst     *bytes.Buffer
 	written int
 	flushes int
 }
 
-func (d *discardFlusher) Header() http.Header         { return d.header }
-func (d *discardFlusher) WriteHeader(int)             {}
-func (d *discardFlusher) Write(p []byte) (int, error) { d.written += len(p); return len(p), nil }
-func (d *discardFlusher) Flush()                      { d.flushes++ }
+func (d *discardFlusher) Header() http.Header { return d.header }
+func (d *discardFlusher) WriteHeader(int)     {}
+func (d *discardFlusher) Write(p []byte) (int, error) {
+	d.written += len(p)
+	if d.dst != nil {
+		d.dst.Write(p)
+	}
+	return len(p), nil
+}
+func (d *discardFlusher) Flush() { d.flushes++ }
 
 func relayStream(n int) []byte {
 	var b bytes.Buffer
@@ -69,12 +78,14 @@ func BenchmarkHotPathSSERelay(b *testing.B) {
 	stream := relayStream(deltas)
 	for _, chunk := range []int{64, 4096} {
 		b.Run("chunk="+strconv.Itoa(chunk), func(b *testing.B) {
-			out := &discardFlusher{header: http.Header{}}
+			var emitted bytes.Buffer
+			capture := &discardFlusher{header: http.Header{}, dst: &emitted}
 			pending := make([]byte, 0, 2*chunk)
-			events, _ := relay(out, stream, chunk, pending)
-			if events != deltas+2 || out.written != len(stream) || out.flushes != events {
-				b.Fatalf("relayed %d events, %d bytes, %d flushes; want %d events, %d bytes", events, out.written, out.flushes, deltas+2, len(stream))
+			events, _ := relay(capture, stream, chunk, pending)
+			if events != deltas+2 || capture.written != len(stream) || capture.flushes != events || emitted.String() != string(stream) {
+				b.Fatalf("relayed %d events, %d bytes, %d flushes; want %d events, %d bytes verbatim", events, capture.written, capture.flushes, deltas+2, len(stream))
 			}
+			out := &discardFlusher{header: http.Header{}}
 			b.SetBytes(int64(len(stream)))
 			b.ReportAllocs()
 			b.ResetTimer()

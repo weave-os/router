@@ -598,6 +598,7 @@ jobs:
       - name: Checkout head
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha }}
           path: head
 
       - name: Checkout base
@@ -619,12 +620,16 @@ jobs:
       - name: Run benchmarks on base
         continue-on-error: true
         working-directory: base
-        run: go test -run '^$' -bench '^BenchmarkHotPath' -benchtime=500ms -count=10 $BENCH_PACKAGES | tee ../base.txt
+        run: |
+          set -o pipefail
+          go test -run '^$' -bench '^BenchmarkHotPath' -benchtime=500ms -count=10 $BENCH_PACKAGES | tee ../base.txt
 
       - name: Run benchmarks on head
         continue-on-error: true
         working-directory: head
-        run: go test -run '^$' -bench '^BenchmarkHotPath' -benchtime=500ms -count=10 $BENCH_PACKAGES | tee ../head.txt
+        run: |
+          set -o pipefail
+          go test -run '^$' -bench '^BenchmarkHotPath' -benchtime=500ms -count=10 $BENCH_PACKAGES | tee ../head.txt
 
       - name: Write benchstat summary
         continue-on-error: true

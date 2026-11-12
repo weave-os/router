@@ -1,7 +1,7 @@
 package translate_test
 
 import (
-	"bytes"
+	"encoding/json"
 	"net/http"
 	"testing"
 
@@ -39,31 +39,116 @@ type hotPathHop struct {
 	name    string
 	parse   func([]byte) (*translate.RequestEnvelope, error)
 	prepare func(*translate.RequestEnvelope) (providers.PreparedRequest, error)
-	// marker is a target-format field proving the body was really re-emitted.
-	marker string
+	// emittedCallNames lists the tool-call names the emitted body carries, so
+	// the check proves the call survived instead of matching a substring that
+	// is also present in the request's tool schemas.
+	emittedCallNames func(body []byte) ([]string, error)
+}
+
+func decodeBody(body []byte) (map[string]any, error) {
+	var v map[string]any
+	err := json.Unmarshal(body, &v)
+	return v, err
+}
+
+func objList(v any) []map[string]any {
+	list, _ := v.([]any)
+	out := make([]map[string]any, 0, len(list))
+	for _, item := range list {
+		if m, ok := item.(map[string]any); ok {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// openAICallNames reads messages[].tool_calls[].function.name.
+func openAICallNames(body []byte) ([]string, error) {
+	v, err := decodeBody(body)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, msg := range objList(v["messages"]) {
+		for _, call := range objList(msg["tool_calls"]) {
+			if fn, ok := call["function"].(map[string]any); ok {
+				if name, ok := fn["name"].(string); ok {
+					names = append(names, name)
+				}
+			}
+		}
+	}
+	return names, nil
+}
+
+// anthropicCallNames reads messages[].content[].name for tool_use blocks.
+func anthropicCallNames(body []byte) ([]string, error) {
+	v, err := decodeBody(body)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, msg := range objList(v["messages"]) {
+		for _, block := range objList(msg["content"]) {
+			if block["type"] == "tool_use" {
+				if name, ok := block["name"].(string); ok {
+					names = append(names, name)
+				}
+			}
+		}
+	}
+	return names, nil
+}
+
+// geminiCallNames reads contents[].parts[].functionCall.name.
+func geminiCallNames(body []byte) ([]string, error) {
+	v, err := decodeBody(body)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, content := range objList(v["contents"]) {
+		for _, part := range objList(content["parts"]) {
+			if call, ok := part["functionCall"].(map[string]any); ok {
+				if name, ok := call["name"].(string); ok {
+					names = append(names, name)
+				}
+			}
+		}
+	}
+	return names, nil
+}
+
+func hasCall(names []string, want string) bool {
+	for _, n := range names {
+		if n == want {
+			return true
+		}
+	}
+	return false
 }
 
 var (
 	hopToOpenAI = hotPathHop{
-		name:   "openai",
-		parse:  translate.ParseOpenAI,
-		marker: `"tool_calls"`,
+		name:             "openai",
+		parse:            translate.ParseOpenAI,
+		emittedCallNames: openAICallNames,
 		prepare: func(e *translate.RequestEnvelope) (providers.PreparedRequest, error) {
 			return e.PrepareOpenAI(http.Header{}, translate.EmitOptions{TargetModel: "gpt-4.1"})
 		},
 	}
 	hopToGemini = hotPathHop{
-		name:   "gemini",
-		parse:  translate.ParseGemini,
-		marker: `"functionCall"`,
+		name:             "gemini",
+		parse:            translate.ParseGemini,
+		emittedCallNames: geminiCallNames,
 		prepare: func(e *translate.RequestEnvelope) (providers.PreparedRequest, error) {
 			return e.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-2.5-flash"})
 		},
 	}
 	hopToAnthropic = hotPathHop{
-		name:   "anthropic",
-		parse:  translate.ParseAnthropic,
-		marker: `"tool_use"`,
+		name:             "anthropic",
+		parse:            translate.ParseAnthropic,
+		emittedCallNames: anthropicCallNames,
 		prepare: func(e *translate.RequestEnvelope) (providers.PreparedRequest, error) {
 			return e.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-sonnet-4-5"})
 		},
@@ -116,8 +201,9 @@ func BenchmarkHotPathRequestTranslation(b *testing.B) {
 				b.Fatal(err)
 			}
 			last := tc.chain[len(tc.chain)-1]
-			if !bytes.Contains(out, []byte(last.marker)) || !bytes.Contains(out, []byte("read_file")) {
-				b.Fatalf("%s output lost the tool call: %s", last.name, out)
+			names, err := last.emittedCallNames(out)
+			if err != nil || !hasCall(names, "read_file") {
+				b.Fatalf("%s output lost the read_file tool call (calls: %v, err: %v)", last.name, names, err)
 			}
 			b.SetBytes(int64(len(tc.input)))
 			b.ReportAllocs()
