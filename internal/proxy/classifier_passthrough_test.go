@@ -51,7 +51,7 @@ func classifierPassthroughFixture(t *testing.T, obs *usage.Observer) (*proxy.Ser
 }
 
 func classifierSubscriptionCtx() context.Context {
-	return context.WithValue(authedCtx(uuid.New().String()), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken)
+	return claudeCreditFallbackContext(context.WithValue(authedCtx(uuid.New().String()), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken))
 }
 
 func classifierRequest() (*httptest.ResponseRecorder, *http.Request) {
@@ -102,7 +102,7 @@ func TestClassifier_NoSubscription_ServesClassifierModel(t *testing.T) {
 	svc, fr, p, store := classifierPassthroughFixture(t, nil)
 	rec, req := classifierRequest()
 
-	require.NoError(t, svc.ProxyMessages(authedCtx(uuid.New().String()), []byte(classifierBody), rec, req))
+	require.NoError(t, svc.ProxyMessages(claudeCreditFallbackContext(authedCtx(uuid.New().String())), []byte(classifierBody), rec, req))
 
 	assert.Equal(t, 0, fr.routeCalls, "an API-billed classifier must not be scored")
 	assert.Equal(t, classifierServedMdl, rec.Header().Get(proxy.HeaderRouterModel))
@@ -134,7 +134,7 @@ func TestClassifier_ExhaustedHeaderSubscription_IsScored(t *testing.T) {
 	rec, req := classifierRequest()
 	req.Header.Set("Authorization", "Bearer "+bypassSubToken)
 
-	require.NoError(t, svc.ProxyMessages(authedCtx(uuid.New().String()), []byte(classifierBody), rec, req))
+	require.NoError(t, svc.ProxyMessages(claudeCreditFallbackContext(authedCtx(uuid.New().String())), []byte(classifierBody), rec, req))
 
 	assert.Equal(t, 1, fr.routeCalls)
 	assert.Equal(t, classifierScorerPickMdl, rec.Header().Get(proxy.HeaderRouterModel))
@@ -213,7 +213,7 @@ func TestClassifier_SubscriptionOnly_Exhausted_Refuses402(t *testing.T) {
 	assert.Empty(t, p.proxyBodies, "no paid dispatch may occur when the subscription cannot serve the classifier")
 }
 
-func TestClassifier_SubscriptionOnly_UsageBilledOverage_PassesThrough(t *testing.T) {
+func TestClassifier_SubscriptionOnly_VerifiedEnterpriseOverage_PassesThrough(t *testing.T) {
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
 		RepresentativeClaim: usage.AnthropicClaimOverage,
@@ -221,6 +221,7 @@ func TestClassifier_SubscriptionOnly_UsageBilledOverage_PassesThrough(t *testing
 		UnifiedResetAt:      time.Now().Add(72 * time.Hour),
 	})
 	svc, fr, p, _ := classifierPassthroughFixture(t, obs)
+	svc.WithClaudeSubscriptionPlanReader(fixedSubscriptionPlanReader{providers.SubscriptionPlanEnterprise})
 	rec, req := classifierRequest()
 
 	require.NoError(t, svc.ProxyMessages(billing.WithSubscriptionOnly(classifierSubscriptionCtx(), billing.SubscriptionOnlyCreditsDepleted), []byte(classifierBody), rec, req))

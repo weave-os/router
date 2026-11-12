@@ -239,6 +239,7 @@ var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference p
 // error. On final-attempt error it flushes the upstream's own envelope to w
 // instead of a generic 502.
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
+	ctx = withClaudeEnterpriseTurn(ctx, in.initialDecision)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, in.subscriptionStateHeaders)
 	if in.subscriptionStateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.buildAlternative != nil {
 		return s.dispatchSubscriptionStateModels(ctx, in)
@@ -316,6 +317,21 @@ func clearWithheldPassthrough(rw *translate.ResponsesWriter, buf *preludeBuffer)
 		rw.ForgetWithheldHeaders()
 	}
 	return rw.ClearPassthrough()
+}
+
+// errResponsesPassthroughStuck reports a non-OpenAI attempt that cannot run
+// because the Responses writer already forwarded native bytes for an earlier
+// OpenAI attempt and can no longer translate.
+var errResponsesPassthroughStuck = errors.New("responses passthrough already carries native output; another wire format cannot continue it")
+
+// leaveResponsesPassthrough returns a passthrough writer to translation before
+// an attempt that speaks another wire format. It returns errResponsesPassthroughStuck
+// when the writer is still in passthrough and cannot be cleared.
+func leaveResponsesPassthrough(rw *translate.ResponsesWriter, buf *preludeBuffer) error {
+	if !rw.Passthrough() || clearWithheldPassthrough(rw, buf) {
+		return nil
+	}
+	return errResponsesPassthroughStuck
 }
 
 // subscriptionRotationBudget bounds how long included-capacity accounts and

@@ -59,6 +59,12 @@ func (s *Service) ResolveScoreToolResultTurns(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyScoreToolResultTurns, s.scoreToolResultTurns)
 }
 
+// ResolveHMMToolResultHold reports whether tool-result turns keep the session
+// pin chosen on the turn's first call instead of following per-turn selection.
+func (s *Service) ResolveHMMToolResultHold(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyHMMToolResultHold, false)
+}
+
 // ResolvePrefixTrimFreeSwitch reports whether a trimmed prompt prefix counts as a
 // free switch point.
 func (s *Service) ResolvePrefixTrimFreeSwitch(ctx context.Context) bool {

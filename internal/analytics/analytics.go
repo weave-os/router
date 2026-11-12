@@ -49,6 +49,8 @@ type Decision struct {
 	BlindExperimentArm              *auth.BlindExperimentArm              `json:"blind_experiment_arm"`
 	BlindExperimentAssignmentSource *auth.BlindExperimentAssignmentSource `json:"blind_experiment_assignment_source"`
 	BlindExperimentSubjectKey       *string                               `json:"blind_experiment_subject_key"`
+	BlindExperimentMode             *auth.BlindExperimentMode             `json:"blind_experiment_mode"`
+	BlindExperimentSessionKey       *string                               `json:"blind_experiment_session_key"`
 	CohortExperimentID              *string                               `json:"cohort_experiment_id"`
 	CohortGroupID                   *int64                                `json:"cohort_group_id"`
 	CohortPhaseIndex                *int64                                `json:"cohort_phase_index"`
@@ -56,6 +58,10 @@ type Decision struct {
 	CohortScheduledArm              *auth.BlindExperimentArm              `json:"cohort_scheduled_arm"`
 	CohortTreatmentApplied          *bool                                 `json:"cohort_treatment_applied"`
 	CohortBypassReason              *auth.CohortBypassReason              `json:"cohort_bypass_reason"`
+	BlindExperimentModelSource      *auth.BlindExperimentModelSource      `json:"blind_experiment_model_source"`
+	BlindExperimentTreatmentApplied *bool                                 `json:"blind_experiment_treatment_applied"`
+	BlindExperimentBaselineModel    *string                               `json:"blind_experiment_baseline_model"`
+	BlindExperimentModelChanged     *bool                                 `json:"blind_experiment_model_changed"`
 	// PolicyPin* are null when the turn carried no x-weave-policy-pin header.
 	PolicyPinRequested *bool `json:"policy_pin_requested"`
 	PolicyPinHonoured  *bool `json:"policy_pin_honoured"`

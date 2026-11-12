@@ -23,6 +23,8 @@ func TestLatestInFamily(t *testing.T) {
 		{"OpenAI keeps size", "gpt-5.4-mini", []string{"gpt-5.5-mini", "gpt-5.6-luna", "gpt-6-astra"}, "gpt-5.5-mini"},
 		{"newest unavailable", "claude-sonnet-4-5", []string{"claude-sonnet-4-5", "claude-sonnet-4-6"}, "claude-sonnet-4-6"},
 		{"no downgrade", "claude-sonnet-5", []string{"claude-sonnet-4-6"}, ""},
+		{"force-model-only sibling", "claude-fable-5-1", []string{"claude-fable-5-1", "claude-fable-5-2"}, "claude-fable-5-1"},
+		{"force-model-only self", "claude-fable-5-2", []string{"claude-fable-5-2"}, "claude-fable-5-2"},
 		{"unknown ID", "unknown-1", []string{"unknown-1"}, ""},
 		{"unversioned catalog ID", "gpt-4o", []string{"gpt-4o", "gpt-5.5"}, "gpt-4o"},
 		{"dated unversioned alias", "gpt-4o-2024-08-06", []string{"gpt-4o", "gpt-5.5"}, "gpt-4o"},

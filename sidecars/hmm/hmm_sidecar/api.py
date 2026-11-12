@@ -23,10 +23,37 @@ from .embeddings import (
 from .policy import FrozenPolicy
 from .package_policy import PackagePolicy
 from .schemas import SELECTION_AUTHORITY_FIELDS
+from .classifier_api import (
+    ResolvedClassifierRelease,
+    ResolvedClassifierSelection,
+    UnknownClassifierRelease,
+    create_classifier_router,
+)
+from .local_classifier_resolver import resolve_local_classifier_resolver
 
 log = logging.getLogger(__name__)
 VERSION = os.environ.get("VERSION", "dev")
 LOG_LEVEL = os.environ.get("HMM_LOG_LEVEL", "INFO").upper()
+
+
+class _LocalClassifierResolverSlot:
+    """Stable route dependency populated from local files during app startup."""
+
+    def __init__(self) -> None:
+        self.resolver = None
+
+    async def resolve(self, release_id: str) -> ResolvedClassifierRelease:
+        if self.resolver is None:
+            raise UnknownClassifierRelease(release_id)
+        return await self.resolver.resolve(release_id)
+
+    async def resolve_selection(self, selection_id: str) -> ResolvedClassifierSelection:
+        if self.resolver is None:
+            raise UnknownClassifierRelease(selection_id)
+        return await self.resolver.resolve_selection(selection_id)
+
+
+local_classifier_resolver = _LocalClassifierResolverSlot()
 
 
 def configure_logging() -> None:
@@ -115,6 +142,14 @@ async def lifespan(application: FastAPI):
         application.state.policy = policies[registry.default.package_sha256]
         application.state.policies = policies
         application.state.embedding_probe_similarity = similarity
+        local_resolver = resolve_local_classifier_resolver(registry, policies)
+        local_classifier_resolver.resolver = local_resolver
+        application.state.classifier_release_id = (
+            local_resolver.release_id if local_resolver is not None else None
+        )
+        application.state.classifier_selection_id = (
+            local_resolver.selection_id if local_resolver is not None else None
+        )
         application.state.startup_error = None
         log.info(
             "HMM sidecar loaded %d frozen package(s); default %s",
@@ -129,10 +164,14 @@ async def lifespan(application: FastAPI):
         application.state.policies = {}
         application.state.embedding_probe_similarity = None
         application.state.startup_error = f"{type(exc).__name__}: {exc}"
+        local_classifier_resolver.resolver = None
+        application.state.classifier_release_id = None
+        application.state.classifier_selection_id = None
     yield
 
 
 app = FastAPI(title="WorkWeave frozen HMM sidecar", lifespan=lifespan)
+app.include_router(create_classifier_router(local_classifier_resolver))
 
 
 def _artifacts() -> FrozenArtifacts | None:

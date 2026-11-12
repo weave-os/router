@@ -793,6 +793,43 @@ func TestProxyOpenAIChatCompletion_ResponseSignalTelemetry(t *testing.T) {
 	}
 }
 
+func TestProxyOpenAIChatCompletion_AnthropicTranslatedResponseSignals(t *testing.T) {
+	const installID = "99999999-9999-9999-9999-999999999999"
+	frames := []string{
+		`event: message_start` + "\n" + `data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-5-5","content":[],"usage":{"input_tokens":11,"output_tokens":1}}}`,
+		`event: content_block_start` + "\n" + `data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_file","input":{}}}`,
+		`event: content_block_delta` + "\n" + `data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"main.go\"}"}}`,
+		`event: content_block_stop` + "\n" + `data: {"type":"content_block_stop","index":0}`,
+		`event: message_delta` + "\n" + `data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}`,
+		`event: message_stop` + "\n" + `data: {"type":"message_stop"}`,
+	}
+	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		for _, f := range frames {
+			_, _ = w.Write([]byte(f + "\n\n"))
+		}
+	}}
+	telem := newCaptureTelemetry()
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-5-5"}},
+		map[string]providers.Client{providers.ProviderAnthropic: provider},
+		nil, false, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-5-5", telem,
+	)
+	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
+	_ = svc.ProxyOpenAIChatCompletion(ctx, []byte(chatToolTurnBody), rec, httpReq)
+
+	assert.Contains(t, rec.Body.String(), `"finish_reason":"tool_calls"`, "client stream must carry the translated tool call")
+	row := telem.firstRow(t)
+	assert.True(t, row.CrossFormat)
+	assert.Equal(t, ptrTo("tool_use"), row.UpstreamFinishReason)
+	assert.Equal(t, ptrTo("tool_calls"), row.StopReason)
+	assert.Equal(t, ptrTo(int32(1)), row.ToolUseBlocks)
+}
+
 // TestProxyOpenAIChatCompletion_NativeChatResponseSignals covers the
 // chat/completions passthrough, where no translator runs and the usage
 // extractor's parse of the upstream stream is the only account of the turn.
@@ -961,3 +998,27 @@ func TestProxyOpenAIResponses_NativeResponseSignals(t *testing.T) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+func (*captureTelemetry) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryDashboardFact, error) {
+	return nil, nil
+}
+
+func (*captureTelemetry) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryActiveUsers, error) {
+	return nil, nil
+}
+
+func (*captureTelemetry) GetTelemetryDashboardPeople(context.Context, string) ([]proxy.TelemetryPerson, error) {
+	return nil, nil
+}
+
+func (*captureTelemetry) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]proxy.TelemetrySubscriptionSeat, error) {
+	return nil, nil
+}
+
+func (*captureTelemetry) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]proxy.TelemetryDrillDownRow, error) {
+	return nil, nil
+}
+
+func (*captureTelemetry) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryIndividualFact, error) {
+	return nil, nil
+}

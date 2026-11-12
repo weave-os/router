@@ -5,7 +5,8 @@ import "context"
 type subscriptionExtraUsageContextKey struct{}
 
 // WithSubscriptionExtraUsage lets this request spend the caller's own
-// subscription extra usage (Codex credits) once its included quota is spent.
+// subscription extra usage once included quota is spent. This permits Codex
+// credits and Claude Enterprise overage, without lifting provider cooldowns.
 func WithSubscriptionExtraUsage(ctx context.Context) context.Context {
 	return context.WithValue(ctx, subscriptionExtraUsageContextKey{}, true)
 }

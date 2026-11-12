@@ -23,6 +23,7 @@ import (
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/policy"
@@ -135,9 +136,14 @@ type Features struct {
 	// subscriber's included Router allowance. Nil leaves every request on the
 	// org/prepaid billing gates alone.
 	SubscriberAllowance *entitlement.Service
+	// SubscriptionPoolsEnabled mirrors ROUTER_SUBSCRIPTION_POOLS_ENABLED so the
+	// dashboard can tell a disabled pool from an empty one.
+	SubscriptionPoolsEnabled bool
 	// SubscriptionLogins runs browser reconnects for the control plane. Nil
 	// leaves enrollment on `router login` alone.
 	SubscriptionLogins admin.SubscriptionLoginFlow
+	// PolicyStatus adds the active stable policy release to /v1/version.
+	PolicyStatus admin.PolicyStatusSource
 }
 
 // RegisterWithFeatures is Register with optional request features enabled.
@@ -206,7 +212,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 
 	// /v1/version reports the binary's git commit + build time (via -ldflags),
 	// used by the README's managed-deployment badge. Public build metadata, unauthed like /health.
-	engine.GET("/v1/version", middleware.WithTimeout(healthTimeout), admin.VersionHandler)
+	engine.GET("/v1/version", middleware.WithTimeout(healthTimeout), admin.VersionHandler(features.PolicyStatus))
 	var registeredStrategies []router.Strategy
 	var strategyAvailability middleware.StrategyAvailability
 	if proxySvc != nil {
@@ -315,6 +321,12 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		metrics.GET("/metrics/timeseries", admin.MetricsTimeseriesHandler(proxySvc))
 		metrics.GET("/metrics/details", admin.MetricsDetailsHandler(proxySvc))
 		metrics.GET("/metrics/model-breakdown", admin.MetricsModelBreakdownHandler(proxySvc))
+		metrics.GET("/metrics/series", admin.MetricsSeriesHandler(proxySvc))
+		metrics.GET("/metrics/report-summary", admin.MetricsReportSummaryHandler(proxySvc))
+		metrics.GET("/metrics/people", admin.MetricsPeopleHandler(proxySvc))
+		metrics.GET("/metrics/drill-down", admin.MetricsDrillDownHandler(proxySvc))
+		metrics.GET("/metrics/individuals", admin.MetricsIndividualsHandler(proxySvc))
+		metrics.GET("/subscription-pool", admin.SubscriptionPoolHandler(proxySvc, features.SubscriptionPoolsEnabled, time.Now))
 
 		// Mutations: admin cookie REQUIRED. rk_ tokens are rejected so a leaked data-plane key can't mint fresh router keys or rotate provider credentials.
 		mgmt := engine.Group("/admin/v1", middleware.WithTimeout(adminTimeout), middleware.WithAdminOnly(authSvc))
@@ -325,6 +337,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		mgmt.GET("/provider-keys", admin.ListExternalKeysHandler(authSvc))
 		mgmt.POST("/provider-keys", admin.UpsertExternalKeyHandler(authSvc, deployedModels))
 		mgmt.PUT("/provider-keys/:id/model-aliases", admin.UpdateExternalKeyAliasesHandler(authSvc, deployedModels))
+		mgmt.PUT("/provider-keys/:id/funding-priority", admin.UpdateExternalKeyFundingPriorityHandler(authSvc))
 		// Discovery hits the provider endpoint itself; the group's adminTimeout
 		// (10s) bounds that upstream GET /models call.
 		mgmt.GET("/provider-keys/:id/models", admin.ListUpstreamModelsHandler(authSvc, proxySvc))
@@ -431,8 +444,11 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	passthroughGroup.GET("/v1/models", openaiapi.ModelsHandler(anthropicapi.PassthroughHandler(proxySvc), proxySvc.CodexModelCatalog))
 	passthroughGroup.GET("/v1/models/:model", anthropicapi.PassthroughHandler(proxySvc))
 	passthroughGroup.GET("/v1/codex/models", openaiapi.CodexCatalogHandler(proxySvc.CodexSelectionCatalog))
-	// Rides the passthrough group (cheap, no billing middleware) — read-only, no routing side-effects.
-	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler(authSvc))
+	// Rides the passthrough group (cheap, no billing middleware). Resolving the caller may upsert its router user; no routing side-effects.
+	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler(authSvc, func(c *gin.Context) context.Context {
+		ctx := requestcontext.WithClientIdentity(c.Request.Context(), proxy.ClientIdentityFromHeaders(c.Request.Header))
+		return proxy.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c))
+	}, authSvc))
 
 	// Read-only product surface: the Codex status hook's rk_ key and API clients'
 	// ra_ keys read one installation's committed cost. Deliberately outside

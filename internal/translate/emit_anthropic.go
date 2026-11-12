@@ -808,20 +808,18 @@ func writeAnthropicToolChoice(jw *jsonWriter, body []byte, autoOnly bool) {
 	jw.Raw(string(tw.Bytes()))
 }
 
+// anthropicSamplingParams are the sampling controls Fable 5.1+ reject.
+var anthropicSamplingParams = []string{"temperature", "top_p", "top_k"}
+
 func writeAnthropicSamplingParams(jw *jsonWriter, body []byte, capabilities router.ModelSpec) {
-	if !capabilities.Supports(router.CapTemperatureUnsupported) {
-		if value := gjson.GetBytes(body, "temperature"); value.Exists() {
-			jw.Key("temperature")
+	if capabilities.Supports(router.CapSamplingParamsUnsupported) {
+		return
+	}
+	for _, key := range anthropicSamplingParams {
+		if value := gjson.GetBytes(body, key); value.Exists() {
+			jw.Key(key)
 			jw.Raw(value.Raw)
 		}
-	}
-	if value := gjson.GetBytes(body, "top_p"); value.Exists() {
-		jw.Key("top_p")
-		jw.Raw(value.Raw)
-	}
-	if value := gjson.GetBytes(body, "top_k"); value.Exists() {
-		jw.Key("top_k")
-		jw.Raw(value.Raw)
 	}
 }
 
@@ -944,8 +942,8 @@ func containsAnthropicSystemOnlyContentBlocks(body []byte) bool {
 // (Anthropic's API 400s on them after a mid-session model switch). Only the
 // leading run is hoisted; mid-conversation ones are rewritten as user messages
 // in place to keep the cached prefix stable. Message-scoped output_config is
-// moved to the request-level field before demotion so role-specific options are
-// not left on a user message.
+// moved to the request-level field and system-only clear_at is dropped before
+// demotion, since Anthropic 400s on either field on a user message.
 func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
@@ -982,6 +980,13 @@ func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 				}
 				if config.Type != gjson.Null && hoistedOutputConfig == "" {
 					hoistedOutputConfig = config.Raw
+				}
+			}
+			if gjson.GetBytes(demoted, "clear_at").Exists() {
+				var err error
+				demoted, err = sjson.DeleteBytes(demoted, "clear_at")
+				if err != nil {
+					return nil, fmt.Errorf("remove demoted system clear_at: %w", err)
 				}
 			}
 			demoted, err := sjson.SetBytes(demoted, "role", "user")

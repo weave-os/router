@@ -1,11 +1,13 @@
 "use client";
 
-import { EmptyHint, ErrorBanner } from "./shared";
-import { Button } from "@/components/molecules/Button";
-import { Card } from "@/components/molecules/Card";
-import { Appearance, Intent } from "@/components/types";
 import { api, type DeployedModel } from "@/lib/api";
+import { Button } from "@/shared/components/molecules/Button";
+import { Card } from "@/shared/components/molecules/Card";
+import { Appearance, Intent } from "@/shared/components/types";
+
 import { useEffect, useState } from "react";
+
+import { EmptyHint, ErrorBanner } from "./shared";
 
 export function ModelSelectionPanel() {
   const [available, setAvailable] = useState<DeployedModel[] | null>(null);
@@ -31,8 +33,7 @@ export function ModelSelectionPanel() {
   }, []);
 
   const dirty =
-    excluded.size !== savedExcluded.size ||
-    Array.from(excluded).some(m => !savedExcluded.has(m));
+    excluded.size !== savedExcluded.size || Array.from(excluded).some(m => !savedExcluded.has(m));
 
   function toggle(model: string) {
     if (envOverrideActive) return;
@@ -90,7 +91,9 @@ export function ModelSelectionPanel() {
       <Card className="p-0">
         <Card.Content>
           {available.length === 0 ? (
-            <EmptyHint>No deployed models. Check ROUTER_CLUSTER_VERSION and provider keys.</EmptyHint>
+            <EmptyHint>
+              No deployed models. Check ROUTER_CLUSTER_VERSION and provider keys.
+            </EmptyHint>
           ) : (
             <div className="divide-y divide-border">
               {Array.from(grouped.entries()).map(([provider, models]) => (
@@ -131,7 +134,7 @@ export function ModelSelectionPanel() {
             onClick={save}
             disabled={!dirty || saving || envOverrideActive}
             intent={Intent.Primary}
-            appearance={Appearance.Filled}
+            appearance={Appearance.Tinted}
           >
             {saving ? "Saving…" : "Save"}
           </Button>

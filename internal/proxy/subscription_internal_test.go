@@ -46,7 +46,7 @@ func TestResolveAndInjectCredentials_AnthropicBYOKBeatsSubscription(t *testing.T
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, InstallationIDContextKey{}, testInstallationID)
 	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-api-byok")},
+		{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("sk-ant-api-byok")},
 	})
 	ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, "sk-ant-oat01-subscription-token")
 
@@ -78,7 +78,7 @@ func TestResolveAndInjectCredentials_SubscriptionIgnoredForNonAnthropic(t *testi
 
 func TestResolveAndInjectCredentials_AnthropicBYOKBeatsInboundSubscription(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-api-byok")},
+		{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("sk-ant-api-byok")},
 	})
 	headers := http.Header{"Authorization": []string{"Bearer sk-ant-oat01-subscription-token"}}
 	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
@@ -273,7 +273,7 @@ func TestResolveAndInjectCredentials_CodexSubscriptionIgnoredForNonOpenAI(t *tes
 	// resolve it.
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
 	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-api-byok")},
+		{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("sk-ant-api-byok")},
 	})
 	ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestJWT)
 	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-999")
@@ -358,7 +358,7 @@ func TestServedOnSubscription(t *testing.T) {
 
 func TestResolveSummarizerCreds_ReturnsBYOK(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-api-byok")},
+		{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("sk-ant-api-byok")},
 	})
 	creds := resolveSummarizerCreds(ctx, providers.ProviderAnthropic, http.Header{})
 	require.NotNil(t, creds)

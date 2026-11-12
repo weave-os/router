@@ -1,0 +1,19 @@
+.mainPanel,
+.settingsPanel {
+  transition: transform var(--wv-duration-panel) var(--wv-ease-in-out-cubic);
+}
+
+.track[data-active-panel="settings"] .mainPanel {
+  transform: translateX(-100%);
+}
+
+.track[data-active-panel="main"] .settingsPanel {
+  transform: translateX(100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mainPanel,
+  .settingsPanel {
+    transition: none;
+  }
+}

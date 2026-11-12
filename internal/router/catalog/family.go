@@ -44,7 +44,7 @@ func versionLess(a, b [2]int) bool {
 }
 
 // LatestInFamily returns the newest eligible catalog model in id's family,
-// never an older version. Variant suffixes remain separate families. Unknown
+// never an older version or a ForceModelOnly sibling. Variant suffixes remain separate families. Unknown
 // IDs return empty; new naming schemes need an explicit family mapping.
 func LatestInFamily(id string, eligible func(string) bool) string {
 	model, known := ByID(id)
@@ -62,7 +62,7 @@ func LatestInFamily(id string, eligible func(string) bool) string {
 	}
 	for _, candidate := range Models {
 		candidateFamily, candidateVersion, ok := FamilyAndVersion(candidate.ID)
-		if !ok || candidateFamily != family || !versionLess(version, candidateVersion) || !eligible(candidate.ID) {
+		if !ok || candidate.ForceModelOnly || candidateFamily != family || !versionLess(version, candidateVersion) || !eligible(candidate.ID) {
 			continue
 		}
 		latest, version = candidate.ID, candidateVersion

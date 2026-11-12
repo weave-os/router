@@ -1,0 +1,11 @@
+{
+  "schema_version": "router_candidate_requirements_v1",
+  "requirements": {
+    "runtime_contract": "router_managed_runtime_v1",
+    "policy_schema": "hmm_go_selection_policy_v1",
+    "supported_api_majors": [
+      4,
+      5
+    ]
+  }
+}

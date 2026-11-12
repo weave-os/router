@@ -1,9 +1,11 @@
 "use client";
 
-import { ErrorBanner } from "./shared";
-import { Card } from "@/components/molecules/Card";
 import { api, type RouterConfig } from "@/lib/api";
+import { Card } from "@/shared/components/molecules/Card";
+
 import { useEffect, useState } from "react";
+
+import { ErrorBanner } from "./shared";
 
 interface ConfigRow {
   label: string;
@@ -21,7 +23,8 @@ function buildRows(cfg: RouterConfig): ConfigRow[] {
     {
       label: "Embed only user message",
       value: cfg.embed_only_user_message ? "Enabled" : "Disabled",
-      description: "Whether the router embeds user-role text only (no system, assistant, or tool_result content) for cluster routing",
+      description:
+        "Whether the router embeds user-role text only (no system, assistant, or tool_result content) for cluster routing",
     },
     {
       label: "Sticky decision TTL",
@@ -75,10 +78,7 @@ export function ConfigPanel() {
           ) : (
             <ul className="divide-y divide-border">
               {buildRows(config).map(row => (
-                <li
-                  key={row.label}
-                  className="flex items-start justify-between gap-6 px-5 py-4"
-                >
+                <li key={row.label} className="flex items-start justify-between gap-6 px-5 py-4">
                   <div className="flex-1">
                     <p className="text-xs font-medium text-foreground">{row.label}</p>
                     <p className="mt-0.5 text-2xs text-muted-foreground">{row.description}</p>

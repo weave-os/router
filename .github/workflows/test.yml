@@ -103,8 +103,8 @@ jobs:
       - name: Check policy registry and inference boundary
         run: make inference-boundary
 
-  go-checks:
-    name: Go checks
+  go-static-checks:
+    name: Go static and database checks
     needs: changed-paths
     if: ${{ needs.changed-paths.outputs.go == 'true' }}
     runs-on: ubuntu-latest
@@ -212,16 +212,6 @@ jobs:
       - name: Run tests with vetting
         run: go test -vet=all -count=1 ./...
 
-      - name: Check agreement shadow state on disposable Postgres
-        env:
-          PGPASSWORD: router
-          ROUTER_AGREEMENT_SHADOW_TEST_DATABASE_URL: postgres://router:router@127.0.0.1:5432/agreement_shadow_test?sslmode=disable&search_path=router
-        run: |
-          createdb -h 127.0.0.1 -p 5432 -U router agreement_shadow_test
-          psql -h 127.0.0.1 -p 5432 -U router -d agreement_shadow_test -c "CREATE SCHEMA router;"
-          migrate -path ./db/migrations -database "$ROUTER_AGREEMENT_SHADOW_TEST_DATABASE_URL" up
-          go test -race ./internal/postgres -run TestAgreementShadowPostgresAtomicity -count=1
-
       - name: Check managed serving admission on ephemeral Postgres
         env:
           ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router
@@ -258,6 +248,66 @@ jobs:
         env:
           ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router
         run: go test -count=1 ./scripts/subscription_verification_check
+
+  # These checks exercise the compatibility boundary against a disposable
+  # database and native runtime assets. Run them beside the static/database
+  # checks so their downloads and two ORT builds do not extend that job's tail.
+  go-runtime-checks:
+    name: Go runtime compatibility checks
+    needs: changed-paths
+    if: ${{ needs.changed-paths.outputs.go == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: router
+          POSTGRES_PASSWORD: router
+          POSTGRES_DB: router
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U router -d router"
+          --health-interval 1s
+          --health-timeout 3s
+          --health-retries 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+          cache-dependency-path: go.sum
+
+      - name: Install golang-migrate
+        run: |
+          curl -L https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz \
+            | tar xvz
+          sudo mv migrate /usr/local/bin/migrate
+
+      - name: Pre-create router schema and apply migrations
+        env:
+          PGPASSWORD: router
+        run: |
+          psql -h localhost -p 5432 -U router -d router -c "CREATE SCHEMA IF NOT EXISTS router;"
+          migrate -path ./db/migrations \
+            -database 'postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router' up
+
+      - name: Check agreement shadow state on disposable Postgres
+        env:
+          PGPASSWORD: router
+          ROUTER_AGREEMENT_SHADOW_TEST_DATABASE_URL: postgres://router:router@127.0.0.1:5432/agreement_shadow_test?sslmode=disable&search_path=router
+        run: |
+          createdb -h 127.0.0.1 -p 5432 -U router agreement_shadow_test
+          psql -h 127.0.0.1 -p 5432 -U router -d agreement_shadow_test -c "CREATE SCHEMA router;"
+          migrate -path ./db/migrations -database "$ROUTER_AGREEMENT_SHADOW_TEST_DATABASE_URL" up
+          go test -race ./internal/postgres -run TestAgreementShadowPostgresAtomicity -count=1
 
       - name: Check legacy worker startup with serving dependencies unavailable
         env:
@@ -308,24 +358,6 @@ jobs:
             ROUTER_ONNX_ASSETS_DIR="$native_fixture/assets" \
             ROUTER_ONNX_LIBRARY_DIR="$native_fixture/native/lib" \
             go run ./scripts/legacy_runtime_check
-
-      # Records what this successful run tested so the squash merge's main
-      # push can reuse it; see scripts/go_ci_evidence.sh.
-      - name: Record tested Go checks tree
-        if: ${{ github.event_name == 'pull_request' }}
-        run: |
-          mkdir -p "$RUNNER_TEMP/go-checks-evidence"
-          jq -n --arg tree "$(git rev-parse 'HEAD^{tree}')" --arg parent_tree "$(git rev-parse 'HEAD^1^{tree}')" \
-            '{tree: $tree, parent_tree: $parent_tree}' >"$RUNNER_TEMP/go-checks-evidence/evidence"
-
-      - name: Upload tested Go checks tree
-        if: ${{ github.event_name == 'pull_request' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: go-checks-evidence
-          path: ${{ runner.temp }}/go-checks-evidence/evidence
-          if-no-files-found: error
-          retention-days: 30
 
   # Separate job: needs no Go toolchain, Postgres, or network. The statusline is
   # shipped to users as a standalone script, so a regression there is invisible
@@ -507,6 +539,50 @@ jobs:
         run: |
           docker compose -f docker-compose.yml -f sidecars/hmm/docker-compose.yml \
             --profile hmm config --quiet
+
+  # Keep a stable job name for branch protection and post-merge evidence. The
+  # constituent jobs above do the work in parallel; this job only validates the
+  # fan-in and records the tested trees for safe squash-merge reuse.
+  go-checks:
+    name: Go checks
+    needs:
+      - changed-paths
+      - go-static-checks
+      - go-runtime-checks
+    if: ${{ always() && needs.changed-paths.outputs.go == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require Go check jobs
+        env:
+          STATIC_RESULT: ${{ needs.go-static-checks.result }}
+          RUNTIME_RESULT: ${{ needs.go-runtime-checks.result }}
+        run: |
+          printf '%s\n' "Static/database checks: $STATIC_RESULT" "Runtime compatibility checks: $RUNTIME_RESULT"
+          if [ "$STATIC_RESULT" != success ] || [ "$RUNTIME_RESULT" != success ]; then
+            exit 1
+          fi
+
+      - name: Checkout tested tree
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Record tested Go checks tree
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/go-checks-evidence"
+          jq -n --arg tree "$(git rev-parse 'HEAD^{tree}')" --arg parent_tree "$(git rev-parse 'HEAD^1^{tree}')" \
+            '{tree: $tree, parent_tree: $parent_tree}' >"$RUNNER_TEMP/go-checks-evidence/evidence"
+
+      - name: Upload tested Go checks tree
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-checks-evidence
+          path: ${{ runner.temp }}/go-checks-evidence/evidence
+          if-no-files-found: error
+          retention-days: 30
 
   # Keep the branch ruleset's required `Test` check stable while the expensive
   # jobs run in parallel. `always()` ensures a failed or cancelled dependency

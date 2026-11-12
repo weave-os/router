@@ -360,7 +360,7 @@ weave_sync_commands 2>/dev/null || true
 # responses can land out of order, and the loser's mv would replace a newer
 # setting with an older one AND stamp it fresh, pinning the gate on a stale
 # value for a full TTL. Refreshes are therefore serialized per cache key on a
-# mkdir mutex (atomic everywhere; flock is absent on macOS), held across both
+# directory mutex (flock is absent on macOS), held across both
 # the fetch and the write. A refresh that finds the mutex held exits rather
 # than queueing — the in-flight one is at least as fresh as anything it would
 # fetch, so waiting only to overwrite it is the bug. The one path that is not
@@ -377,21 +377,33 @@ weave_hidden_gate() {
   local cache="$cache_dir/display-settings${script_slug}"
   local ttl="${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-3600}"
 
-  # Linked plans that need a fresh login, from the last successful refresh.
-  weave_disconnected_plans="$(cat "$cache.plans" 2>/dev/null)"
-
-  local now mtime fresh="false"
+  local grace="${WEAVE_DISPLAY_SETTINGS_HIDDEN_GRACE_SECONDS:-604800}"
+  local now mtime fresh="false" stale_hidden="false"
   now="$(date +%s 2>/dev/null)" || now=0
+
+  # Linked plans that need a fresh login. Only a refresh within the TTL is
+  # trusted: an older list may name a plan that has since recovered.
+  weave_disconnected_plans=""
+  if [ -f "$cache.plans" ]; then
+    mtime="$(stat -c %Y "$cache.plans" 2>/dev/null || stat -f %m "$cache.plans" 2>/dev/null)" || mtime=0
+    if [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
+      weave_disconnected_plans="$(cat "$cache.plans" 2>/dev/null)"
+    fi
+  fi
   if [ -f "$cache" ]; then
     mtime="$(stat -c %Y "$cache" 2>/dev/null || stat -f %m "$cache" 2>/dev/null)" || mtime=0
     if [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
       fresh="true"
+    elif [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$grace" ] \
+      && [ "$(cat "$cache" 2>/dev/null)" = "1" ]; then
+      stale_hidden="true"
     fi
   fi
 
-  # Foreground decision: only a fresh cache hides the surfaces. Anything else
-  # (no cache, stale cache, unreadable cache) renders normally so a slow or
-  # unreachable router can never stall a turn or wedge the statusline blank.
+  # Foreground decision: a fresh cache decides. A hidden cache past the TTL
+  # stays hidden for the grace period while it refreshes, so an hourly expiry
+  # never flashes routing details to someone who must not see them. Anything
+  # else renders normally so an unreachable router cannot wedge it blank.
   if [ "$fresh" = "true" ]; then
     [ "$(cat "$cache" 2>/dev/null)" = "1" ]
     return
@@ -411,10 +423,9 @@ weave_hidden_gate() {
   (
     exec </dev/null
 
-    # Take the per-cache-key mutex, or bail. mkdir is the portable atomic
-    # test-and-set. A crashed holder would otherwise block refreshes forever,
-    # so a lock older than the fetch timeout is treated as abandoned and
-    # reclaimed. Releasing from a trap covers every exit path below.
+    # Take the per-cache-key mutex, or bail. Old locks are reclaimed so a
+    # crashed holder cannot block refreshes forever. Releasing from a trap
+    # covers every exit path below.
     lock="$cache.lock"
     if ! mkdir "$lock" 2>/dev/null; then
       lock_mtime="$(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null)" || lock_mtime=0
@@ -438,7 +449,10 @@ weave_hidden_gate() {
       rm -rf "$dead" 2>/dev/null
       mkdir "$lock" 2>/dev/null || exit 0
     fi
-    trap 'rmdir "$lock" 2>/dev/null' EXIT
+    # Some mkdir implementations return success to both racing creators.
+    # Shell noclobber supplies the exclusive claim independently of mkdir.
+    (set -C; : > "$lock/owner") 2>/dev/null || exit 0
+    trap 'rm -f "$lock/owner"; rmdir "$lock" 2>/dev/null' EXIT
 
     self_dir="$(cd "$(dirname "$self")" 2>/dev/null && pwd)"
     settings_base="$HOME"
@@ -455,6 +469,9 @@ weave_hidden_gate() {
     if [ -z "$key" ] && [ -f "$local_settings" ]; then
       key="$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // "" | split("\n")[] | select(startswith("X-Weave-Router-Key:")) | sub("^X-Weave-Router-Key:[[:space:]]*";"")' "$local_settings" 2>/dev/null | head -n1)"
     fi
+    if [ -z "$key" ] && [ -n "${ANTHROPIC_CUSTOM_HEADERS:-}" ]; then
+      key="$(printf '%s\n' "$ANTHROPIC_CUSTOM_HEADERS" | sed -n 's/^X-Weave-Router-Key:[[:space:]]*\([A-Za-z0-9_-]*\)[[:space:]]*$/\1/p' | head -n1)"
+    fi
     if [ -z "$base_url" ] && [ -f "$settings" ]; then
       base_url="$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$settings" 2>/dev/null)"
     fi
@@ -467,6 +484,12 @@ weave_hidden_gate() {
     header_file="$(mktemp "$cache_dir/.headers.XXXXXX")" || exit 0
     chmod 600 "$header_file"
     printf 'header = "X-Weave-Router-Key: %s"\n' "$key" >"$header_file"
+    custom_headers="${ANTHROPIC_CUSTOM_HEADERS:-}"
+    for f in "$settings" "$local_settings"; do
+      [ -n "$custom_headers" ] || [ ! -f "$f" ] || custom_headers="$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // ""' "$f" 2>/dev/null)"
+    done
+    printf '%s\n' "$custom_headers" | grep -E '^X-Weave-User-(Email|Name):[[:space:]]*[A-Za-z0-9@._+ -]+$' \
+      | sed 's/^\(.*\)$/header = "\1"/' >>"$header_file" 2>/dev/null || true
     if ! body="$(curl -fsS --max-time 5 -K "$header_file" "$url" 2>/dev/null)"; then
       rm -f "$header_file"
       exit 0
@@ -484,7 +507,18 @@ weave_hidden_gate() {
     rm -f "$tmp" 2>/dev/null
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
-  return 1
+  # A cold cache waits briefly for its first refresh so a subject whose
+  # surfaces are hidden does not see one full render before the cache exists.
+  if [ ! -f "$cache" ] && [ ! -f "$cache.cold-waited" ]; then
+    : >"$cache.cold-waited" 2>/dev/null
+    local tries="${WEAVE_DISPLAY_SETTINGS_COLD_WAIT_TENTHS:-20}"
+    while [ "$tries" -gt 0 ] && [ ! -f "$cache" ]; do
+      sleep 0.1 2>/dev/null || break
+      tries=$(( tries - 1 ))
+    done
+    [ "$(cat "$cache" 2>/dev/null)" = "1" ] && return 0
+  fi
+  [ "$stale_hidden" = "true" ]
 }
 
 if weave_hidden_gate </dev/null; then
@@ -530,6 +564,7 @@ prices='{
   "input": {
     "claude-fable-5":                   0.01,
     "claude-fable-5-1":                 0.01,
+    "claude-fable-5-2":                 0.008,
     "claude-haiku-4-5":                 0.001,
     "claude-haiku-5-5":                 0.0001,
     "claude-opus-4-0":                  0.015,
@@ -595,6 +630,7 @@ prices='{
     "grok-4.6":                         0.002,
     "grok-4.7":                         0.002,
     "inclusionai/ling-3.0-flash":       0.00006,
+    "meta/muse-spark-open":             0.00125,
     "minimax/minimax-m2.7":             0.0003,
     "minimax/minimax-m3":               0.0003,
     "minimax/minimax-m3.1-flash":       0.00015,
@@ -604,7 +640,9 @@ prices='{
     "moonshotai/kimi-k2.7":             0.00095,
     "moonshotai/kimi-k3":               0.003,
     "moonshotai/kimi-k3.1":             0.002,
+    "muse-ember-1.0":                   0.0001,
     "muse-spark-1.3":                   0.00125,
+    "muse-wonder-1.0":                  0.004,
     "qwen/qwen3-235b-a22b-2507":        0.0002266,
     "qwen/qwen3-30b-a3b-instruct-2507": 0.00015,
     "qwen/qwen3-coder":                 0.0009,
@@ -626,6 +664,7 @@ prices='{
   "output": {
     "claude-fable-5":                   0.05,
     "claude-fable-5-1":                 0.05,
+    "claude-fable-5-2":                 0.04,
     "claude-haiku-4-5":                 0.005,
     "claude-haiku-5-5":                 0.0005,
     "claude-opus-4-0":                  0.075,
@@ -691,6 +730,7 @@ prices='{
     "grok-4.6":                         0.006,
     "grok-4.7":                         0.006,
     "inclusionai/ling-3.0-flash":       0.00018,
+    "meta/muse-spark-open":             0.00425,
     "minimax/minimax-m2.7":             0.0012,
     "minimax/minimax-m3":               0.0012,
     "minimax/minimax-m3.1-flash":       0.0006,
@@ -700,7 +740,9 @@ prices='{
     "moonshotai/kimi-k2.7":             0.004,
     "moonshotai/kimi-k3":               0.015,
     "moonshotai/kimi-k3.1":             0.01,
+    "muse-ember-1.0":                   0.0005,
     "muse-spark-1.3":                   0.00425,
+    "muse-wonder-1.0":                  0.02,
     "qwen/qwen3-235b-a22b-2507":        0.0009064,
     "qwen/qwen3-30b-a3b-instruct-2507": 0.0006,
     "qwen/qwen3-coder":                 0.0027,
@@ -722,6 +764,7 @@ prices='{
   "cache_read": {
     "claude-fable-5":                   0.1,
     "claude-fable-5-1":                 0.025,
+    "claude-fable-5-2":                 0.025,
     "claude-haiku-4-5":                 0.1,
     "claude-haiku-5-5":                 0.1,
     "claude-opus-4-0":                  0.1,
@@ -735,7 +778,7 @@ prices='{
     "claude-sonnet-4-5":                0.1,
     "claude-sonnet-4-6":                0.1,
     "claude-sonnet-5":                  0.1,
-    "claude-sonnet-5-5":                0.1,
+    "claude-sonnet-5-5":                0.05,
     "deepseek/deepseek-v4-flash":       0.1,
     "deepseek/deepseek-v4-pro":         0.0862,
     "deepseek/deepseek-v4-pro-0813":    0.0862,
@@ -787,6 +830,7 @@ prices='{
     "grok-4.6":                         0.25,
     "grok-4.7":                         0.25,
     "inclusionai/ling-3.0-flash":       0.2,
+    "meta/muse-spark-open":             0.12,
     "minimax/minimax-m2.7":             0.2,
     "minimax/minimax-m3":               0.2,
     "minimax/minimax-m3.1-flash":       0.1,
@@ -796,7 +840,9 @@ prices='{
     "moonshotai/kimi-k2.7":             0.2,
     "moonshotai/kimi-k3":               0.1,
     "moonshotai/kimi-k3.1":             0.1,
+    "muse-ember-1.0":                   0.04,
     "muse-spark-1.3":                   0.12,
+    "muse-wonder-1.0":                  0.05,
     "qwen/qwen3-235b-a22b-2507":        0.5,
     "qwen/qwen3-30b-a3b-instruct-2507": 0.1684,
     "qwen/qwen3-coder":                 0.1684,
@@ -1138,8 +1184,8 @@ if [ -n "${weave_disconnected_plans:-}" ]; then
 fi
 for weave_plan in ${weave_disconnected_plans:-}; do
   case "$weave_plan" in
-    claude) status_text="$status_text · Claude plan disconnected: run npx @weave-os/router login claude$weave_login_scope" ;;
-    codex) status_text="$status_text · Codex plan disconnected: run npx @weave-os/router login codex$weave_login_scope" ;;
+    claude) status_text="$status_text · Claude plan needs login: npx @weave-os/router login claude$weave_login_scope" ;;
+    codex) status_text="$status_text · Codex plan needs login: npx @weave-os/router login codex$weave_login_scope" ;;
   esac
 done
 

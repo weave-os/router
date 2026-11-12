@@ -168,6 +168,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	hasFixedTarget := request.ForceModel != "" || callerModelPassthroughActive(ctx) ||
 		in.origin == policy.OverrideSourceDeployment || in.origin == policy.OverrideSourceRequest
 	readmitted := false
+	var includedFailure error
 	for len(includedModels) > 0 && rotationBudget.remaining > 0 {
 		attemptModels := includedModels
 		if !hasFixedTarget {
@@ -203,7 +204,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			var err error
 			target, err = s.Route(attemptCtx, attemptReq)
 			if err != nil {
-				if errors.Is(err, policy.ErrNoEligibleArm) || errors.Is(err, cluster.ErrAllowlistEmptiesPool) || errors.Is(err, policy.ErrNoRoutableModels) {
+				if paidLaneEmpty(err) {
 					if !readmitted && readmitSessionStrikes(ctx, &request) {
 						readmitted = true
 						continue
@@ -225,6 +226,9 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		if !isSubscriptionPoolError(err) && !errors.Is(err, ErrCreditsExhaustedSubscriptionUnavailable) && !providers.IsRetryable(err) &&
 			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !anthropicSubscriptionThirdPartyRefused(err) {
 			return winner, err
+		}
+		if providers.IsUpstreamRateLimited(err) {
+			includedFailure = err
 		}
 		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider)
 		recordSiblingFailure(ctx, target.Model)
@@ -261,27 +265,41 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			break
 		}
 		if hasFixedTarget {
-			return -1, cluster.ErrAllowlistEmptiesPool
+			return -1, includedFailureOr(includedFailure, cluster.ErrAllowlistEmptiesPool)
 		}
 		if permitted {
 			request.ExcludedModels = mergeExcludedModels(request.ExcludedModels, map[string]struct{}{target.Model: {}})
 			paidCtx, paidReq = s.subscriptionStateRequest(paidCtx, request, paidModels)
 		}
 		if len(paidReq.AllowedModels) == 0 {
-			return -1, cluster.ErrAllowlistEmptiesPool
+			return -1, includedFailureOr(includedFailure, cluster.ErrAllowlistEmptiesPool)
 		}
 		var err error
 		target, err = s.Route(paidCtx, paidReq)
 		if err != nil {
 			fallback, ok := s.openRouterOverflowFallbackTarget(paidCtx, paidReq, paidModels, in.initialDecision)
 			if !ok {
-				return -1, err
+				return -1, includedFailureOr(includedFailure, err)
 			}
 			target = fallback
 		}
 	}
 	observability.FromContext(ctx).Info("Included subscription targets unavailable; using exhausted model set", "model", target.Model, "provider", target.Provider)
 	return s.dispatchSubscriptionStateTarget(paidCtx, in, target, false)
+}
+
+// includedFailureOr reports the included lane's last upstream rate limit when
+// the paid lane has nothing eligible: the caller is throttled (429 with
+// Retry-After), not facing a routing outage.
+func includedFailureOr(includedFailure, paidErr error) error {
+	if includedFailure == nil || !paidLaneEmpty(paidErr) {
+		return paidErr
+	}
+	return includedFailure
+}
+
+func paidLaneEmpty(err error) bool {
+	return errors.Is(err, policy.ErrNoEligibleArm) || errors.Is(err, cluster.ErrAllowlistEmptiesPool) || errors.Is(err, policy.ErrNoRoutableModels)
 }
 
 // includedSubscriptionModels lists every model a live subscription can serve,
