@@ -2933,6 +2933,37 @@ func (s *Service) newTelemetryRecorder() telemetry.Recorder {
 	return s.emitter.NewRecorder()
 }
 
+type usageExtractorProvider interface {
+	NewUsageExtractor(http.ResponseWriter, string) (*telemetry.UsageExtractor, http.ResponseWriter)
+}
+
+type translationMetricsProvider interface {
+	TranslationMetrics() telemetry.TranslationMetrics
+}
+
+func (s *Service) newUsageExtractor(inner http.ResponseWriter, provider string) (*telemetry.UsageExtractor, http.ResponseWriter) {
+	if factory, ok := s.emitter.(usageExtractorProvider); ok {
+		return factory.NewUsageExtractor(inner, provider)
+	}
+	return newFallbackUsageExtractor(inner, provider)
+}
+
+func (s *Service) recordTranslationCompatibility(ctx context.Context, requirement, sourceFormat, targetFamily, mode string, enforced bool) {
+	if provider, ok := s.emitter.(translationMetricsProvider); ok {
+		if metrics := provider.TranslationMetrics(); metrics != nil {
+			metrics.RecordTranslationCompatibility(ctx, requirement, sourceFormat, targetFamily, mode, enforced)
+		}
+	}
+}
+
+func (s *Service) recordTranslationTransform(ctx context.Context, code, action, sourceFormat, mode string) {
+	if provider, ok := s.emitter.(translationMetricsProvider); ok {
+		if metrics := provider.TranslationMetrics(); metrics != nil {
+			metrics.RecordTranslationTransform(ctx, code, action, sourceFormat, mode)
+		}
+	}
+}
+
 // WithBillingService installs the credit-billing service. Nil disables the
 // per-request debit hook. Wired only in managed mode by the composition
 // root; the WithBalanceCheck middleware is paired with it so a request
@@ -3625,9 +3656,8 @@ func (s *Service) anthropicNativeAttempt(
 		if noticeErr != nil {
 			return fmt.Errorf("emit Anthropic router notice: %w", noticeErr)
 		}
-		ex := telemetry.NewUsageExtractor(attemptSink, d.Provider)
+		ex, proxyWriter := s.newUsageExtractor(attemptSink, d.Provider)
 		ex.SetRequestCacheTTL1h(requestCacheTTL1h)
-		var proxyWriter http.ResponseWriter = ex
 		setExtractor(ex)
 		var terminal *streamTerminalObserver
 		if env.Stream() {
@@ -4862,7 +4892,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				logUpstreamBody(log, routeRes.SessionKey, d, feats, prep.Body)
 				var usage translate.UsageSink
 				if s.usageRequired() || streamCost != nil {
-					extractor = telemetry.NewUsageExtractor(nil, d.Provider)
+					extractor = telemetry.NewUsageExtractor(d.Provider)
 					usage = extractor
 				}
 				var translator translate.ResponseTranslator
@@ -4994,7 +5024,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				respSummary = translate.ResponseSummary{}
 				var usage translate.UsageSink
 				if s.usageRequired() || streamCost != nil {
-					extractor = telemetry.NewUsageExtractor(nil, d.Provider)
+					extractor = telemetry.NewUsageExtractor(d.Provider)
 					usage = extractor
 				}
 				// SSE chain: Gemini → OpenAI → Anthropic.
@@ -8213,7 +8243,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				case surface == surfaceResponsesTranslated:
 					var usage translate.UsageSink
 					if s.usageRequired() {
-						extractor = telemetry.NewUsageExtractor(nil, d.Provider)
+						extractor = telemetry.NewUsageExtractor(d.Provider)
 						usage = extractor
 					}
 					translator = translate.NewResponsesToOpenAIChatWriter(attemptSink, d.Model, usage).
@@ -8234,12 +8264,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					nativeTerminal = newResponsesTerminalObserver(attemptSink)
 					proxyWriter = nativeTerminal
 					if s.usageRequired() {
-						extractor = telemetry.NewUsageExtractor(nativeTerminal, d.Provider)
-						proxyWriter = extractor
+						extractor, proxyWriter = s.newUsageExtractor(nativeTerminal, d.Provider)
 					}
 				case s.usageRequired() || isResponses:
-					extractor = telemetry.NewUsageExtractor(attemptSink, d.Provider)
-					proxyWriter = extractor
+					extractor, proxyWriter = s.newUsageExtractor(attemptSink, d.Provider)
 				}
 				if surface == surfaceChat && isResponses {
 					responsesWriter.SetUsageSource(extractor.UsageFacts)
@@ -8413,7 +8441,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (error, func(error) error) {
 				var usage translate.UsageSink
 				if s.usageRequired() {
-					extractor = telemetry.NewUsageExtractor(nil, d.Provider)
+					extractor = telemetry.NewUsageExtractor(d.Provider)
 					usage = extractor
 				}
 				attemptSink, noticeErr := makeMarkerSink(reconnectNoticeForAttempt(actx, r.Header, targetNotice))
@@ -8483,7 +8511,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				}
 				var usage translate.UsageSink
 				if s.usageRequired() {
-					extractor = telemetry.NewUsageExtractor(nil, providers.ProviderAnthropic)
+					extractor = telemetry.NewUsageExtractor(providers.ProviderAnthropic)
 					extractor.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(attemptPrep.Body) })
 					usage = extractor
 				}

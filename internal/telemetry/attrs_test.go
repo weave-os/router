@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 
 	"weave-os/router/internal/telemetry"
 )
@@ -70,19 +69,19 @@ func TestAttrBuilder_TypedValuesMatchProtobuf(t *testing.T) {
 
 	stringVal := attrs[0].Value
 	assert.Equal(t, "test", stringVal.GetStringValue())
-	assert.IsType(t, &commonv1.AnyValue_StringValue{}, stringVal.Value)
+	assert.Equal(t, "string", stringVal.Kind())
 
 	intVal := attrs[1].Value
 	assert.Equal(t, int64(-100), intVal.GetIntValue())
-	assert.IsType(t, &commonv1.AnyValue_IntValue{}, intVal.Value)
+	assert.Equal(t, "int", intVal.Kind())
 
 	floatVal := attrs[2].Value
 	assert.Equal(t, -2.5, floatVal.GetDoubleValue())
-	assert.IsType(t, &commonv1.AnyValue_DoubleValue{}, floatVal.Value)
+	assert.Equal(t, "float", floatVal.Kind())
 
 	boolVal := attrs[3].Value
 	assert.False(t, boolVal.GetBoolValue())
-	assert.IsType(t, &commonv1.AnyValue_BoolValue{}, boolVal.Value)
+	assert.Equal(t, "bool", boolVal.Kind())
 }
 
 func TestAttrBuilder_IntSliceEmitsArrayOfInts(t *testing.T) {
@@ -92,16 +91,15 @@ func TestAttrBuilder_IntSliceEmitsArrayOfInts(t *testing.T) {
 
 	assert.Len(t, attrs, 1)
 	assert.Equal(t, "routing.cluster_ids", attrs[0].Key)
-	assert.IsType(t, &commonv1.AnyValue_ArrayValue{}, attrs[0].Value.Value)
+	assert.Equal(t, "array", attrs[0].Value.Kind())
 
-	arr := attrs[0].Value.GetArrayValue()
-	assert.NotNil(t, arr)
-	assert.Len(t, arr.Values, 3)
-	assert.Equal(t, int64(7), arr.Values[0].GetIntValue())
-	assert.Equal(t, int64(0), arr.Values[1].GetIntValue())
-	assert.Equal(t, int64(42), arr.Values[2].GetIntValue())
-	for _, v := range arr.Values {
-		assert.IsType(t, &commonv1.AnyValue_IntValue{}, v.Value)
+	arr := attrs[0].Value.ArrayValues()
+	assert.Len(t, arr, 3)
+	assert.Equal(t, int64(7), arr[0].GetIntValue())
+	assert.Equal(t, int64(0), arr[1].GetIntValue())
+	assert.Equal(t, int64(42), arr[2].GetIntValue())
+	for _, v := range arr {
+		assert.Equal(t, "int", v.Kind())
 	}
 }
 
@@ -112,7 +110,7 @@ func TestAttrBuilder_IntSliceNilEmitsEmptyArray(t *testing.T) {
 
 	assert.Len(t, attrs, 1)
 	assert.Equal(t, "routing.cluster_ids", attrs[0].Key)
-	arr := attrs[0].Value.GetArrayValue()
+	arr := attrs[0].Value.ArrayValues()
 	assert.NotNil(t, arr)
-	assert.Len(t, arr.Values, 0)
+	assert.Len(t, arr, 0)
 }

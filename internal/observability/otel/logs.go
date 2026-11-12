@@ -33,7 +33,7 @@ func logRecordToProto(r telemetry.LogRecord, traceID [16]byte) *logsv1.LogRecord
 		SeverityNumber:       severityNumber(r.Severity),
 		SeverityText:         severityText(r.Severity),
 		Body:                 &commonv1.AnyValue{Value: &commonv1.AnyValue_StringValue{StringValue: r.Name}},
-		Attributes:           r.Attrs,
+		Attributes:           attrsToProto(r.Attrs),
 		TraceId:              traceID[:],
 		SpanId:               spanID[:],
 	}

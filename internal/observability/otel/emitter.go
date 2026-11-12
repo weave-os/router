@@ -54,8 +54,16 @@ type Emitter struct {
 	// calls so a late Enqueue cannot panic with "send on closed channel".
 	// Enqueue acquires RLock for the lifetime of the send; Shutdown takes
 	// Lock to flip closed and close(queue) atomically.
-	closeMu sync.RWMutex
-	closed  atomic.Bool
+	closeMu            sync.RWMutex
+	closed             atomic.Bool
+	translationMetrics translationMetrics
+}
+
+func (e *Emitter) TranslationMetrics() telemetry.TranslationMetrics {
+	if e == nil {
+		return nil
+	}
+	return &e.translationMetrics
 }
 
 // NewEmitter starts the worker pool and returns a ready emitter. Returns
@@ -116,6 +124,13 @@ func (e *Emitter) NewRecorder() telemetry.Recorder {
 		return nil
 	}
 	return NewBuffer(e)
+}
+
+// NewUsageExtractor returns the vendor-neutral parser and its HTTP adapter.
+// The parser remains in the inner ring while the adapter owns response I/O.
+func (e *Emitter) NewUsageExtractor(inner http.ResponseWriter, provider string) (*telemetry.UsageExtractor, http.ResponseWriter) {
+	wrapper := NewUsageExtractor(inner, provider)
+	return wrapper.Extractor(), wrapper
 }
 
 // Enqueue submits a span to the export queue. Non-blocking: drops on queue-full

@@ -17,7 +17,6 @@ import (
 	"weave-os/router/internal/translate"
 
 	"github.com/tidwall/gjson"
-	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
 // ContentCaptureMode controls how much request/response content the router
@@ -196,7 +195,7 @@ func sha256Hex(b []byte) string {
 // and appending content attributes per capture mode. Under CaptureOff, only
 // permanent upstream 4xx failures emit a metadata-only alert event. base is cloned
 // before appending so the span's attributes aren't mutated.
-func (s *Service) recordCallLog(ctx context.Context, base []*commonv1.KeyValue, routeMs int64, proxyErr error, reqBody, respBody []byte, respTruncated bool) {
+func (s *Service) recordCallLog(ctx context.Context, base []telemetry.Attr, routeMs int64, proxyErr error, reqBody, respBody []byte, respTruncated bool) {
 	mode := s.effectiveCaptureMode(ctx)
 	if mode == CaptureOff {
 		s.recordPermanentError(ctx, base, proxyErr, len(reqBody))
@@ -290,7 +289,7 @@ const (
 )
 
 // recordPermanentError includes a bounded provider error response for diagnosis.
-func (s *Service) recordPermanentError(ctx context.Context, base []*commonv1.KeyValue, proxyErr error, requestBytes int) {
+func (s *Service) recordPermanentError(ctx context.Context, base []telemetry.Attr, proxyErr error, requestBytes int) {
 	if proxyErr == nil {
 		return
 	}
@@ -305,7 +304,7 @@ func (s *Service) recordPermanentError(ctx context.Context, base []*commonv1.Key
 		return
 	}
 
-	attrs := make([]*commonv1.KeyValue, 0, 20)
+	attrs := make([]telemetry.Attr, 0, 20)
 	responsesSurface := false
 	for _, attr := range base {
 		switch attr.Key {
@@ -323,7 +322,7 @@ func (s *Service) recordPermanentError(ctx context.Context, base []*commonv1.Key
 	})
 }
 
-func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int, redact Redactor, responsesSurface ...bool) []*commonv1.KeyValue {
+func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int, redact Redactor, responsesSurface ...bool) []telemetry.Attr {
 	isResponsesSurface := len(responsesSurface) > 0 && responsesSurface[0]
 	attrs := telemetry.NewAttrBuilder(8).
 		String("upstream.error_class", string(classifyPermanentError(proxyErr, isResponsesSurface))).

@@ -56,7 +56,7 @@ func spanToProto(s telemetry.Span, traceID [16]byte) *tracev1.Span {
 		Name:              s.Name,
 		StartTimeUnixNano: uint64(s.Start.UnixNano()),
 		EndTimeUnixNano:   uint64(s.End.UnixNano()),
-		Attributes:        s.Attrs,
+		Attributes:        attrsToProto(s.Attrs),
 		Kind:              tracev1.Span_SPAN_KIND_INTERNAL,
 	}
 }

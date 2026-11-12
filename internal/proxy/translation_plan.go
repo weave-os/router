@@ -318,7 +318,7 @@ func (s *Service) applyTranslationPlan(ctx context.Context, req router.Request) 
 		req.ExcludedModels = plan.ExcludedModels
 	}
 	for _, exclusion := range plan.Exclusions {
-		telemetry.RecordTranslationCompatibility(ctx,
+		s.recordTranslationCompatibility(ctx,
 			exclusion.Code,
 			string(req.TranslationRequirements.SourceFormat),
 			familyName(plan.TargetFamily),

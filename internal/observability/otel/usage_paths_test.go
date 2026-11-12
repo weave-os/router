@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	telemetry "weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/usage"
 

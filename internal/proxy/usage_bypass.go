@@ -637,9 +637,8 @@ func (s *Service) bypassToAnthropic(
 	// Weave's router cost-savings metric — subscription turns are otherwise invisible.
 	var extractor *telemetry.UsageExtractor
 	if s.usageRequired() || streamCost != nil {
-		extractor = telemetry.NewUsageExtractor(respW, decision.Provider)
+		extractor, respW = s.newUsageExtractor(respW, decision.Provider)
 		extractor.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) })
-		respW = extractor
 	}
 
 	if streamCost != nil {

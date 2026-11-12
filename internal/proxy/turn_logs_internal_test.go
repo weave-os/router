@@ -14,9 +14,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/protobuf/proto"
-
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
+	"google.golang.org/protobuf/proto"
 
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
@@ -26,9 +26,15 @@ import (
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/telemetry"
-
-	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 )
+
+func attrsByTelemetryKey(attrs []telemetry.Attr) map[string]telemetry.AttrValue {
+	out := make(map[string]telemetry.AttrValue, len(attrs))
+	for _, attr := range attrs {
+		out[attr.Key] = attr.Value
+	}
+	return out
+}
 
 func attrsByKey(attrs []*commonv1.KeyValue) map[string]*commonv1.AnyValue {
 	out := make(map[string]*commonv1.AnyValue, len(attrs))
@@ -336,7 +342,7 @@ func TestPermanentErrorDiagnostics_LogsResponseWithoutTrustingUnknownProviderTyp
 		},
 		Body: []byte(`{"error":{"type":"private-type-value","message":"private-message-value"}}`),
 	}
-	attrs := attrsByKey(permanentErrorDiagnosticAttrs(proxyErr, 23, nil))
+	attrs := attrsByTelemetryKey(permanentErrorDiagnosticAttrs(proxyErr, 23, nil))
 
 	assert.Equal(t, string(permanentErrorClassUnclassified), attrs["upstream.error_class"].GetStringValue())
 	assert.Equal(t, string(errorBodyFormatJSON), attrs["upstream.error_body_format"].GetStringValue())
@@ -355,7 +361,7 @@ func TestPermanentErrorDiagnostics_BoundsAndRedactsErrorResponse(t *testing.T) {
 		return strings.Repeat("r", maxLoggedErrorResponseBytes+10)
 	}
 
-	attrs := attrsByKey(permanentErrorDiagnosticAttrs(proxyErr, 1, redact))
+	attrs := attrsByTelemetryKey(permanentErrorDiagnosticAttrs(proxyErr, 1, redact))
 
 	assert.Equal(t, strings.Repeat("r", maxLoggedErrorResponseBytes), attrs["upstream.error_response"].GetStringValue())
 	assert.Equal(t, true, attrs["upstream.error_response_truncated"].GetBoolValue())
@@ -367,7 +373,7 @@ func TestPermanentErrorDiagnostics_TruncatesOnUTF8Boundary(t *testing.T) {
 		Status: http.StatusBadRequest,
 		Body:   responseBody,
 	}
-	attrs := attrsByKey(permanentErrorDiagnosticAttrs(proxyErr, 1, nil))
+	attrs := attrsByTelemetryKey(permanentErrorDiagnosticAttrs(proxyErr, 1, nil))
 	response := attrs["upstream.error_response"].GetStringValue()
 	assert.LessOrEqual(t, len(response), maxLoggedErrorResponseBytes)
 	assert.True(t, utf8.ValidString(response))
@@ -377,14 +383,14 @@ func TestPermanentErrorDiagnostics_TruncatesOnUTF8Boundary(t *testing.T) {
 
 func TestPermanentErrorDiagnostics_ClassifiesCappedJSONAndGeminiStatus(t *testing.T) {
 	cappedJSON := append([]byte(`{"error":{"type":"invalid_request_error","message":"`), bytes.Repeat([]byte("x"), providers.MaxBufferedErrorBytes)...)
-	attrs := attrsByKey(permanentErrorDiagnosticAttrs(&providers.UpstreamErrorResponse{
+	attrs := attrsByTelemetryKey(permanentErrorDiagnosticAttrs(&providers.UpstreamErrorResponse{
 		Status: http.StatusBadRequest, Body: cappedJSON, BodyBytes: int64(len(cappedJSON)), BodyCapped: true,
 	}, 1, nil))
 	assert.Equal(t, string(permanentErrorClassInvalidRequest), attrs["upstream.error_class"].GetStringValue())
 	assert.Equal(t, string(errorBodyFormatJSON), attrs["upstream.error_body_format"].GetStringValue())
 	assert.True(t, attrs["upstream.error_body_capped"].GetBoolValue())
 
-	geminiAttrs := attrsByKey(permanentErrorDiagnosticAttrs(&providers.UpstreamErrorResponse{
+	geminiAttrs := attrsByTelemetryKey(permanentErrorDiagnosticAttrs(&providers.UpstreamErrorResponse{
 		Status: http.StatusBadRequest, Body: []byte(`{"error":{"status":"INVALID_ARGUMENT"}}`),
 	}, 1, nil))
 	assert.Equal(t, string(permanentErrorClassInvalidRequest), geminiAttrs["upstream.error_class"].GetStringValue())
@@ -522,7 +528,7 @@ func TestApplyRoutingStateAttrs_EmitsExactThreadAndTransition(t *testing.T) {
 	}
 	b := telemetry.NewAttrBuilder(4)
 	applyRoutingStateAttrs(b, res, "claude-opus-4-7", key)
-	attrs := attrsByKey(b.Build())
+	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Equal(t, "0102030405060708090a0b0c0d0e0f10", attrs["routing.session_key"].GetStringValue())
 	assert.Equal(t, "default_high", attrs["routing.pin_role"].GetStringValue())
@@ -533,7 +539,7 @@ func TestApplyRoutingStateAttrs_EmitsExactThreadAndTransition(t *testing.T) {
 func TestApplyRoutingStateAttrs_FirstSelectionIsNotAChange(t *testing.T) {
 	b := telemetry.NewAttrBuilder(4)
 	applyRoutingStateAttrs(b, turnLoopResult{PinRole: sessionpin.DefaultRole}, "claude-haiku-4-5", [sessionpin.SessionKeyLen]byte{})
-	attrs := attrsByKey(b.Build())
+	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Empty(t, attrs["routing.session_key"].GetStringValue())
 	assert.Empty(t, attrs["routing.prior_served_model"].GetStringValue())
@@ -554,7 +560,7 @@ func TestApplyRoutingStateAttrs_MarksOnlyTheLLMEscalationApplyingTurn(t *testing
 		t.Run(tt.name, func(t *testing.T) {
 			b := telemetry.NewAttrBuilder(5)
 			applyRoutingStateAttrs(b, turnLoopResult{llmEscalation: tt.turn}, "gpt-5.5", [sessionpin.SessionKeyLen]byte{})
-			attrs := attrsByKey(b.Build())
+			attrs := attrsByTelemetryKey(b.Build())
 
 			assert.Equal(t, tt.want, attrs["routing.llm_escalation_applied"].GetBoolValue())
 		})
@@ -565,7 +571,7 @@ func TestApplyRoutingStateAttrs_UsesRequestKeyWhenRoutingKeyIsEmpty(t *testing.T
 	key := [sessionpin.SessionKeyLen]byte{1, 2, 3}
 	b := telemetry.NewAttrBuilder(4)
 	applyRoutingStateAttrs(b, turnLoopResult{}, "claude-haiku-4-5", key)
-	attrs := attrsByKey(b.Build())
+	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Equal(t, "01020300000000000000000000000000", attrs["routing.session_key"].GetStringValue())
 }
@@ -573,7 +579,7 @@ func TestApplyRoutingStateAttrs_UsesRequestKeyWhenRoutingKeyIsEmpty(t *testing.T
 func TestApplyPlannerAttrs_OmitsDetailsWhenSkipped(t *testing.T) {
 	b := telemetry.NewAttrBuilder(8)
 	applyPlannerAttrs(b, turnLoopResult{PlannerDecision: planner.Decision{Reason: planner.ReasonNoPin}})
-	attrs := attrsByKey(b.Build())
+	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Contains(t, attrs, "planner.outcome")
 	assert.NotContains(t, attrs, "planner.shadow_outcome")
@@ -605,7 +611,7 @@ func TestApplyPlannerAttrs_EmitsDetailsWhenEvaluated(t *testing.T) {
 	}
 	b := telemetry.NewAttrBuilder(16)
 	applyPlannerAttrs(b, res)
-	attrs := attrsByKey(b.Build())
+	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Equal(t, "stay", attrs["planner.outcome"].GetStringValue())
 	assert.Equal(t, planner.ReasonEVNegative, attrs["planner.reason"].GetStringValue())

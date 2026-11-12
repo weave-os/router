@@ -18,7 +18,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
 type capturingTelemetryEmitter struct {
@@ -134,8 +133,8 @@ func TestTelemetryPort_CommandFeedbackRecordsAndFlushes(t *testing.T) {
 func telemetrySpanStrings(span telemetry.Span) map[string]string {
 	values := make(map[string]string, len(span.Attrs))
 	for _, attr := range span.Attrs {
-		if value, ok := attr.Value.Value.(*commonv1.AnyValue_StringValue); ok {
-			values[attr.Key] = value.StringValue
+		if attr.Value.Kind() == "string" {
+			values[attr.Key] = attr.Value.GetStringValue()
 		}
 	}
 	return values
