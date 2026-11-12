@@ -169,7 +169,7 @@ func rescuesCompactionOverflow(turnType turntype.TurnType, err error) bool {
 // compact a conversation the other gateway can still serve.
 func (s *Service) overflowRescueDecisions(ctx context.Context, failed router.Decision, turnType turntype.TurnType, est, sigSavings, outputReserve int) []router.Decision {
 	gateways := s.gatewayProvidersForRequest(ctx)
-	if turnType == turntype.Compaction || len(gateways) == 0 {
+	if len(gateways) == 0 {
 		return nil
 	}
 	req := router.Request{

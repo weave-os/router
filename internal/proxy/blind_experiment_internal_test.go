@@ -231,7 +231,6 @@ func blindExperimentUtilityTurnBodies() []struct {
 	}{
 		{turntype.Probe, `{"model":"claude-opus-4-8","max_tokens":1,"messages":[{"role":"user","content":"quota"}]}`},
 		{turntype.TitleGen, `{"model":"claude-opus-4-8","max_tokens":1024,"output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}}},"messages":[{"role":"user","content":"title"}]}`},
-		{turntype.Compaction, `{"model":"claude-opus-4-8","max_tokens":1024,"system":"Your task is to create a detailed summary","messages":[{"role":"user","content":"summary"}]}`},
 		{turntype.SubAgentDispatch, `{"model":"claude-opus-4-8","max_tokens":1024,"metadata":{"user_id":"subagent:Explore"},"messages":[{"role":"user","content":"list go files"}]}`},
 	}
 }
@@ -242,7 +241,6 @@ func runBlindExperimentUtilityTurn(t *testing.T, ctx context.Context, body strin
 	service := NewService(routerSpy, nil, nil, false, nil, newStubPinStore(), false,
 		providers.ProviderGoogle, experimentUtilityHardPinModel, nil).
 		WithExplicitUtilityHardPin(true).
-		WithCompactionHardPin(true).
 		WithSubAgentOverride(providers.ProviderGoogle, experimentSubAgentOverrideModel)
 	envelope, err := translate.ParseAnthropic([]byte(body))
 	require.NoError(t, err)

@@ -139,7 +139,7 @@ func TestOverflowRescueDecisionsSkipRescuerPastItsWindow(t *testing.T) {
 
 	lunaWindow := catalog.ContextWindowForBinding(catalog.ModelGPT6Luna, providers.ProviderOpenAIGateway)
 	assert.Empty(t, svc.overflowRescueDecisions(ctx, failed, "main_loop", lunaWindow, 0, contextWindowOutputReserve))
-	assert.Empty(t, svc.overflowRescueDecisions(ctx, failed, "compaction", 1000, 0, contextWindowOutputReserve), "compaction has its own rescue list")
+	assert.Len(t, svc.overflowRescueDecisions(ctx, failed, "compaction", 1000, 0, contextWindowOutputReserve), 1, "compaction rescues across gateways like any turn")
 }
 
 // Readmitting a cooling model must not widen the rescue past the

@@ -51,19 +51,27 @@ func (*gatewayCompactionClient) Passthrough(context.Context, providers.PreparedR
 
 // A gateway-exclusive tenant (Anthropic models behind
 // an Anthropic-spec gateway, OpenAI models behind an OpenAI-spec gateway,
-// allowlist of one model each) whose generic utility pin is the fastest model.
+// allowlist of one model each) whose scorer ranks the Anthropic model first.
 func gatewayCompactionFixture(anthropicErr error) (*Service, context.Context, *gatewayCompactionClient, *gatewayCompactionClient) {
 	anthropicGateway := &gatewayCompactionClient{provider: providers.ProviderAnthropicGateway, failWith: anthropicErr}
 	openAIGateway := &gatewayCompactionClient{provider: providers.ProviderOpenAIGateway}
 	fastest := func(HardPinRequest) (string, string, bool) {
 		return providers.ProviderOpenAIGateway, catalog.ModelGPT6Luna, true
 	}
-	svc := NewService(nil, map[string]providers.Client{
+	scored := router.Decision{
+		Provider: providers.ProviderAnthropicGateway,
+		Model:    gatewayCompactionOpusModel,
+		Metadata: &router.RoutingMetadata{
+			RosterFailover:     true,
+			RescueModels:       []string{catalog.ModelGPT6Luna},
+			CandidateProviders: map[string]string{catalog.ModelGPT6Luna: providers.ProviderOpenAIGateway},
+		},
+	}
+	svc := NewService(fixedRouter{decision: scored}, map[string]providers.Client{
 		providers.ProviderAnthropicGateway: anthropicGateway,
 		providers.ProviderOpenAIGateway:    openAIGateway,
 	}, nil, false, nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil).
 		WithHardPinResolver(fastest).
-		WithCompactionHardPin(true).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	ctx := rescuedFailureCtx()
 	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, gatewayCompactionOpusModel})
@@ -82,17 +90,16 @@ func proxyGatewayCompaction(t *testing.T, svc *Service, ctx context.Context) (*h
 	return rec, err
 }
 
-// Gateway tenants previously skipped the summarizer cascade and compacted on
-// the fastest utility model even when their gateway aliases a reviewed
-// Anthropic summarizer.
-func TestGatewayCompactionUsesReachableSummarizer(t *testing.T) {
+// A gateway tenant's compaction without a session pin is served on the
+// scorer's pick behind the held gateway, not the fastest utility model.
+func TestGatewayCompactionUsesScoredModel(t *testing.T) {
 	svc, ctx, anthropicGateway, openAIGateway := gatewayCompactionFixture(nil)
 
 	rec, err := proxyGatewayCompaction(t, svc, ctx)
 
 	require.NoError(t, err)
 	assert.Equal(t, gatewayCompactionOpusModel, rec.Header().Get(HeaderRouterModel))
-	assert.Equal(t, []string{gatewayCompactionOpusModel}, anthropicGateway.models, "the allowlisted summarizer behind the held gateway serves the turn")
+	assert.Equal(t, []string{gatewayCompactionOpusModel}, anthropicGateway.models, "the scored model behind the held gateway serves the turn")
 	assert.Empty(t, openAIGateway.models)
 }
 
@@ -109,7 +116,7 @@ func TestGatewayCompactionFailsOverBeforeCommit(t *testing.T) {
 	for _, model := range anthropicGateway.models {
 		assert.Equal(t, gatewayCompactionOpusModel, model)
 	}
-	assert.Equal(t, []string{catalog.ModelGPT6Luna}, openAIGateway.models, "the generic utility model rescues the failed summarizer")
+	assert.Equal(t, []string{catalog.ModelGPT6Luna}, openAIGateway.models, "the scorer's next candidate rescues the failed model")
 	assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(HeaderRouterModel))
 	assert.Contains(t, rec.Body.String(), "summary")
 }

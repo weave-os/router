@@ -625,7 +625,7 @@ func defaultPolicySpecs() []PolicySpec {
 			PolicyID:           "client-compaction",
 			PolicyRevision:     "2",
 			Owner:              inferencePolicyOwner,
-			Rationale:          "Serve the client-supplied compaction turn on the session's own warm model when it is summary-grade, else the deployment compaction hard pin, rather than inventing another router summary operation.",
+			Rationale:          "Serve the client-supplied compaction turn on the model serving the session, else on the scorer's pick, never on a utility hard pin, rather than inventing another router summary operation.",
 			SelectionStrategy:  SelectionStrategyDeploymentHardPin,
 			CandidateSource:    CandidateSourceDeployment,
 			HardConstraints:    append([]Constraint(nil), mainConstraints...),

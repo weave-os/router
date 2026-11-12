@@ -123,7 +123,6 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true}}).
 				WithAvailableModels(modelSet([]string{gatewayCompactionOpusModel, catalog.ModelGPT6Luna})).
 				WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})).
-				WithCompactionHardPin(true).
 				WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 			ctx := context.WithValue(withClaudeCreditFallback(context.Background()), APIKeyIDContextKey{}, "synthetic-key")
 			ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())

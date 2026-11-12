@@ -1,6 +1,6 @@
 {
   "schema_version": "inference_policy_registry_v2",
-  "registry_revision": "sha256:58acde3181ff1bad99025bc811b25189085ee3f07101658e706c145f6ee0a8b2",
+  "registry_revision": "sha256:afd118eac773971c5f32cccf4e9994d241b35b7935fccfd78a16f5d06f48223d",
   "policies": [
     {
       "purpose": "agent_shadow_evaluation",
@@ -111,7 +111,7 @@
       "policy_id": "client-compaction",
       "policy_revision": "2",
       "owner": "@steventohme",
-      "rationale": "Serve the client-supplied compaction turn on the session's own warm model when it is summary-grade, else the deployment compaction hard pin, rather than inventing another router summary operation.",
+      "rationale": "Serve the client-supplied compaction turn on the model serving the session, else on the scorer's pick, never on a utility hard pin, rather than inventing another router summary operation.",
       "selection_strategy": "deployment_hard_pin",
       "candidate_source": "deployment",
       "hard_constraints": [
