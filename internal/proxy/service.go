@@ -405,15 +405,6 @@ type Service struct {
 	// compactionHandoverSummarizer serves runCompactionHandover under its own
 	// policy purpose; nil reuses summarizer.
 	compactionHandoverSummarizer handover.Summarizer
-	// compactionModel is the Anthropic-family model Claude Code's own
-	// compaction turn is pinned to when the session has no warm Anthropic
-	// pin. Empty means policy.PrecompactionDefaultModel.
-	compactionModel string
-	// compactionHardPinEnabled routes Claude Code's own compaction turn through
-	// compactionHardPin instead of the generic utility hard-pin. Off unless
-	// the composition root enables it (an operator ROUTER_HARD_PIN_MODEL
-	// keeps winning for every hard-pinned turn).
-	compactionHardPinEnabled bool
 	// availableModels is the boot-time set of model names whose providers are
 	// registered. Read by the planner to decide whether a pin's model is still
 	// routable.
@@ -726,7 +717,8 @@ func suppressMarkerIfRequested(ctx context.Context, h http.Header, marker string
 // machineReadTurn reports turns whose reply the client parses, so they carry
 // no router text.
 func machineReadTurn(res turnLoopResult) bool {
-	return res.SuggestionMode || res.CallerModelPassthrough || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe
+	return res.SuggestionMode || res.CallerModelPassthrough || isUnpinnedScoredTurn(res.TurnType) ||
+		res.TurnType == turntype.Probe || res.TurnType == turntype.Compaction
 }
 
 // Child replies feed back into the parent, so slow-start notices would pollute
@@ -2604,24 +2596,6 @@ func (s *Service) WithCompactionHandoverSummarizer(sz handover.Summarizer) *Serv
 // those turns on normal routing.
 func (s *Service) WithWebSearchExecutor(ex websearch.Executor) *Service {
 	s.webSearch = ex
-	return s
-}
-
-// WithCompactionModel overrides the Sonnet-class default summarizer for the
-// compaction cascade and Claude Code's native compaction turn
-// (ROUTER_COMPACTION_MODEL). A model with no Anthropic binding is rejected
-// at boot by the caller; empty keeps policy.PrecompactionDefaultModel.
-func (s *Service) WithCompactionModel(model string) *Service {
-	s.compactionModel = model
-	return s
-}
-
-// WithCompactionHardPin enables pinning Claude Code's native compaction turn
-// to the session's Anthropic model (or the compaction model) instead of the
-// generic utility hard-pin. The composition root leaves it off when the
-// operator set an explicit ROUTER_HARD_PIN_MODEL.
-func (s *Service) WithCompactionHardPin(enabled bool) *Service {
-	s.compactionHardPinEnabled = enabled
 	return s
 }
 
@@ -5165,7 +5139,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// not buy a paid sibling.
 	subscriptionOnlySibling := siblingViable && !s.shouldFailover(ctx) &&
 		!s.gatewaySiblingAllowed(ctx, siblingDecisions[0]) && s.subscriptionSiblingAllowed(ctx)
-	overflowRescue := s.overflowRescueDecisions(ctx, decision, routeRes.TurnType, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
+	overflowRescue := s.overflowRescueDecisions(ctx, decision, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
 	overflowRescueViable := len(overflowRescue) > 0 &&
 		!agentShadowMode &&
 		!routeRes.CallerModelPassthrough &&
@@ -8613,7 +8587,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		s.siblingRescueAllowed(ctx, s.gatewaySiblingAllowed(ctx, siblingDecisions[0]))
 	subscriptionOnlySibling := siblingViable && !s.shouldFailover(ctx) &&
 		!s.gatewaySiblingAllowed(ctx, siblingDecisions[0]) && s.subscriptionSiblingAllowed(ctx)
-	overflowRescue := s.overflowRescueDecisions(ctx, decision, routeRes.TurnType, overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
+	overflowRescue := s.overflowRescueDecisions(ctx, decision, overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
 	overflowRescueViable := len(overflowRescue) > 0 &&
 		!routeRes.CallerModelPassthrough &&
 		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&

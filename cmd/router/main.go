@@ -936,11 +936,10 @@ func main() {
 		subAgentPolicyProvider = hardPinProvider
 		subAgentPolicyModel = hardPinModel
 	}
-	// The client's own compaction turn is served by proxy.compactionHardPin on
-	// Anthropic unless the operator pinned every utility turn explicitly.
-	compactionHardPin := !hardPinOverrideConfigured
+	// Pi handoff summaries are authorized under the client-compaction purpose:
+	// on Anthropic unless the operator pinned every utility turn explicitly.
 	clientCompactionProvider, clientCompactionModel := providers.ProviderAnthropic, compactionModel
-	if !compactionHardPin {
+	if hardPinOverrideConfigured {
 		clientCompactionProvider, clientCompactionModel = hardPinProvider, hardPinModel
 	}
 	deploymentTargets := []policy.PurposeTargetOverride{
@@ -1490,8 +1489,6 @@ func main() {
 		WithSummarizer(summarizer).
 		WithCompactionHandoverSummarizer(compactionHandoverSz).
 		WithWebSearchExecutor(cortexWebSearch(logger)).
-		WithCompactionModel(compactionModel).
-		WithCompactionHardPin(compactionHardPin).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)

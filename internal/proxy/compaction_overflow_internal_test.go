@@ -16,7 +16,6 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
-	"weave-os/router/internal/router/sessionpin"
 )
 
 // cortexPromptTooLong is the 71-byte 400 Cortex's AI gateway
@@ -116,11 +115,9 @@ func TestNonCompactionOverflowKeepsPromptTooLong(t *testing.T) {
 	assert.Contains(t, class.Message, "Compact the conversation")
 }
 
-// Summarizer selection skips a summarizer whose served window the estimate
-// exceeds on the binding that would serve it.
-func TestCompactionSummarizersRespectBindingWindow(t *testing.T) {
+// Cross-gateway rescue only offers models held behind another gateway.
+func TestCrossGatewayRescuersSkipPrimaryGateway(t *testing.T) {
 	svc, ctx, _, _ := gatewayCompactionFixture(nil)
-	_ = ctx
 	req := router.Request{
 		GatewayProviders: map[string]struct{}{providers.ProviderAnthropicGateway: {}, providers.ProviderOpenAIGateway: {}},
 		CustomBindings: map[string][]string{
@@ -129,14 +126,7 @@ func TestCompactionSummarizersRespectBindingWindow(t *testing.T) {
 			catalog.ModelGPT6Luna:            {providers.ProviderOpenAIGateway},
 		},
 	}
-	summarizers := svc.compactionSummarizers(context.Background(), [sessionpin.SessionKeyLen]byte{}, "", req)
-	require.NotEmpty(t, summarizers)
-
-	req.EstimatedInputTokens = catalog.ContextWindowForBinding(policy.PrecompactionDefaultModel, providers.ProviderAnthropicGateway)
-	for _, s := range svc.compactionSummarizers(context.Background(), [sessionpin.SessionKeyLen]byte{}, "", req) {
-		assert.Greater(t, contextWindowForRequest(s.model, s.provider), req.EstimatedInputTokens, s.model)
-	}
-	crossProvider := svc.crossGatewayRescuers(ctx, summarizers[0], req)
+	crossProvider := svc.crossGatewayRescuers(ctx, compactionSummarizer{provider: providers.ProviderAnthropicGateway, model: gatewayCompactionOpusModel}, req)
 	require.Len(t, crossProvider, 1)
 	assert.Equal(t, catalog.ModelGPT6Luna, crossProvider[0].model)
 	assert.Equal(t, providers.ProviderOpenAIGateway, crossProvider[0].provider)
