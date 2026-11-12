@@ -15,11 +15,12 @@ import (
 func main() {
 	base := flag.String("base", "origin/main", "ref whose merge base with HEAD is the comparison point")
 	flag.Parse()
-	root, err := repoRoot()
+	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "arch_ratchet:", err)
+		fmt.Fprintln(os.Stderr, "arch_ratchet: locate repository root:", err)
 		os.Exit(2)
 	}
+	root := strings.TrimSpace(string(out))
 	result, err := run(repo{root: root}, *base)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "arch_ratchet:", err)
@@ -31,14 +32,6 @@ func main() {
 	}
 	report(os.Stderr, result)
 	os.Exit(1)
-}
-
-func repoRoot() (string, error) {
-	out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
-	if err != nil {
-		return "", fmt.Errorf("locate repository root: %w", err)
-	}
-	return strings.TrimSpace(string(out)), nil
 }
 
 func report(w io.Writer, result runResult) {

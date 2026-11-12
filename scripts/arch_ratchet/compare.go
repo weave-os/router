@@ -1,7 +1,6 @@
 package main
 
 import (
-	"cmp"
 	"fmt"
 	"maps"
 	"slices"
@@ -164,22 +163,9 @@ func compareTotals(base, head map[string]fileMetrics, allowed exceptionSet) []vi
 	return appendGrowth(violations, "model/provider name matching outside "+catalogDir, metricModelMatching, baseMatching, headMatching, allowed)
 }
 
-func compareSurface(base, head proxySurface, allowed exceptionSet) []violation {
-	var violations []violation
-	violations = appendGrowth(violations, "proxy.Service", metricServiceFields, base.serviceFields, head.serviceFields, allowed)
-	violations = appendGrowth(violations, "proxy.Service", metricServiceMethods, base.serviceMethods, head.serviceMethods, allowed)
-	return appendGrowth(violations, proxyDir, metricContextKeys, base.contextKeys, head.contextKeys, allowed)
-}
-
 func appendGrowth(violations []violation, subject string, m metric, before, after int, allowed exceptionSet) []violation {
 	if after <= before || allowed.permits(subject, m, after) {
 		return violations
 	}
 	return append(violations, violation{subject: subject, metric: m, before: before, after: after, limit: -1})
-}
-
-func sortViolations(violations []violation) {
-	slices.SortFunc(violations, func(a, b violation) int {
-		return cmp.Or(cmp.Compare(a.subject, b.subject), cmp.Compare(a.metric, b.metric))
-	})
 }

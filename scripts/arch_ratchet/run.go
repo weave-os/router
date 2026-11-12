@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"path"
 	"path/filepath"
 	"slices"
@@ -39,7 +40,9 @@ func run(r repo, base string) (runResult, error) {
 		}
 		violations = append(violations, surfaceViolations...)
 	}
-	sortViolations(violations)
+	slices.SortFunc(violations, func(a, b violation) int {
+		return cmp.Or(cmp.Compare(a.subject, b.subject), cmp.Compare(a.metric, b.metric))
+	})
 	return runResult{baseRev: baseRev, checkedFiles: len(changed), violations: violations}, nil
 }
 
@@ -85,5 +88,8 @@ func compareProxySurface(r repo, baseRev string, allowed exceptionSet) ([]violat
 	if err != nil {
 		return nil, err
 	}
-	return compareSurface(baseSurface, headSurface, allowed), nil
+	var violations []violation
+	violations = appendGrowth(violations, "proxy.Service", metricServiceFields, baseSurface.serviceFields, headSurface.serviceFields, allowed)
+	violations = appendGrowth(violations, "proxy.Service", metricServiceMethods, baseSurface.serviceMethods, headSurface.serviceMethods, allowed)
+	return appendGrowth(violations, proxyDir, metricContextKeys, baseSurface.contextKeys, headSurface.contextKeys, allowed), nil
 }

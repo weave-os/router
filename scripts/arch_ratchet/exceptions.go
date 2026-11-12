@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 )
 
 const exceptionsPath = "internal/architecture/ratchet_exceptions.json"
@@ -33,20 +34,16 @@ func loadExceptions(filePath string) (exceptionSet, error) {
 		return exceptionSet{}, fmt.Errorf("parse %s: %w", exceptionsPath, err)
 	}
 	for _, entry := range set.Exceptions {
-		if entry.Subject == "" || entry.Reason == "" || !knownMetric(entry.Metric) {
+		if entry.Subject == "" || entry.Reason == "" || !slices.Contains(knownMetrics, entry.Metric) {
 			return exceptionSet{}, fmt.Errorf("%s: each exception needs a subject, a known metric and a reason: %+v", exceptionsPath, entry)
 		}
 	}
 	return set, nil
 }
 
-func knownMetric(m metric) bool {
-	switch m {
-	case metricCognitive, metricLines, metricParams, metricNesting, metricFileLines,
-		metricNolint, metricModelMatching, metricServiceFields, metricServiceMethods, metricContextKeys:
-		return true
-	}
-	return false
+var knownMetrics = []metric{
+	metricCognitive, metricLines, metricParams, metricNesting, metricFileLines,
+	metricNolint, metricModelMatching, metricServiceFields, metricServiceMethods, metricContextKeys,
 }
 
 func (set exceptionSet) permits(subject string, m metric, value int) bool {
