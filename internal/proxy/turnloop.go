@@ -1622,13 +1622,17 @@ func (s *Service) runTurnLoop(
 		pin = sessionpin.Pin{}
 	}
 
+	// The read's failure is enforced only once the turn is known to need
+	// automatic routing: usage-bypass and pinned paths never consult
+	// preferences, so a store outage must not reject them.
+	var siblingPreferencesErr error
 	if store, supported := s.pinStore.(sessionpin.SiblingPreferenceStore); supported && installationID != uuid.Nil && threadSessionKey != ([sessionpin.SessionKeyLen]byte{}) {
 		res.SiblingPreferenceKey = deriveConversationSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey, requestcontext.SiblingPreferenceConversationKey)
 		var err error
 		req.SiblingPreferences, err = store.GetSiblingPreferences(ctx, installationID, res.SiblingPreferenceKey, res.Strategy)
 		if err != nil {
 			log.Error("Session sibling preferences unavailable", "err", err)
-			return res, fmt.Errorf("load session sibling preferences: %w", err)
+			siblingPreferencesErr = err
 		}
 	}
 
@@ -1879,6 +1883,9 @@ func (s *Service) runTurnLoop(
 		res.Decision = dec
 		res.UsageBypass = true
 		return res, nil
+	}
+	if siblingPreferencesErr != nil {
+		return res, fmt.Errorf("load session sibling preferences: %w", siblingPreferencesErr)
 	}
 
 	if pinFound && res.AuthoritativePerTurn && req.ForceCluster == "" &&

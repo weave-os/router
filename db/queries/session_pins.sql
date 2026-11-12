@@ -510,5 +510,6 @@ SET demoted_models = array_remove(demoted_models, @preferred_model::varchar),
     turn_strikes = array_remove(turn_strikes, @preferred_model::varchar)
 WHERE session_key = @session_key::bytea
   AND role = ANY(@roles::text[])
-  AND routing_strategy = @expected_routing_strategy::varchar
+  AND (routing_strategy = @expected_routing_strategy::varchar
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen')))
   AND COALESCE((model_failure_at ->> @preferred_model::text)::timestamptz, '-infinity'::timestamptz) <= @request_started_at::timestamptz;

@@ -19,7 +19,8 @@ SET demoted_models = array_remove(demoted_models, $1::varchar),
     turn_strikes = array_remove(turn_strikes, $1::varchar)
 WHERE session_key = $2::bytea
   AND role = ANY($3::text[])
-  AND routing_strategy = $4::varchar
+  AND (routing_strategy = $4::varchar
+    OR (routing_strategy = '' AND $4::varchar NOT IN ('hmm_beta', 'hmm_qwen')))
   AND COALESCE((model_failure_at ->> $1::text)::timestamptz, '-infinity'::timestamptz) <= $5::timestamptz
 `
 
@@ -41,7 +42,8 @@ type ClearSiblingWinnerExclusionsParams struct {
 //	    turn_strikes = array_remove(turn_strikes, $1::varchar)
 //	WHERE session_key = $2::bytea
 //	  AND role = ANY($3::text[])
-//	  AND routing_strategy = $4::varchar
+//	  AND (routing_strategy = $4::varchar
+//	    OR (routing_strategy = '' AND $4::varchar NOT IN ('hmm_beta', 'hmm_qwen')))
 //	  AND COALESCE((model_failure_at ->> $1::text)::timestamptz, '-infinity'::timestamptz) <= $5::timestamptz
 func (q *Queries) ClearSiblingWinnerExclusions(ctx context.Context, arg ClearSiblingWinnerExclusionsParams) error {
 	_, err := q.db.Exec(ctx, clearSiblingWinnerExclusions,

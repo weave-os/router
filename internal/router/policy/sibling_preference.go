@@ -24,10 +24,33 @@ func applySiblingPreferences(req router.Request, resolved ResolvedCandidates, gr
 		}
 		override, hasOverride := req.ClusterArmOverrides[group.Group]
 		arms := slices.Clone(effectiveArms(group, override, hasOverride, index.catalogToRoster, index.eligibleRosterIDs))
+		// Arm-enumerating strategies list arm IDs here; normalize each entry to
+		// its roster ID so eligibility and ordering apply uniformly.
+		for i, arm := range arms {
+			base, effort := splitEffort(arm)
+			if _, eligible := index.eligibleRosterIDs[base]; eligible {
+				continue
+			}
+			rosterID, mapped := index.armToRoster[base]
+			if !mapped {
+				continue
+			}
+			if effort != "" {
+				rosterID += ":" + effort
+			}
+			arms[i] = rosterID
+		}
+		seen := make(map[string]struct{}, len(arms))
 		arms = slices.DeleteFunc(arms, func(arm string) bool {
 			base, _ := splitEffort(arm)
-			_, eligible := index.eligibleRosterIDs[base]
-			return !eligible
+			if _, eligible := index.eligibleRosterIDs[base]; !eligible {
+				return true
+			}
+			if _, dup := seen[base]; dup {
+				return true
+			}
+			seen[base] = struct{}{}
+			return false
 		})
 		rank := func(arm string) int {
 			binding, ok := resolved.BindingForSelection(siblingArmID(index, arm), arm)

@@ -149,6 +149,7 @@ func ApplyClusterArmOverridesRequireMatch(
 type candidateIndex struct {
 	catalogToRoster   map[string]string
 	rosterToArm       map[string]string
+	armToRoster       map[string]string
 	eligibleRosterIDs map[string]struct{}
 }
 
@@ -156,6 +157,7 @@ func indexCandidates(resolved ResolvedCandidates) candidateIndex {
 	index := candidateIndex{
 		catalogToRoster:   make(map[string]string, len(resolved.Candidates)),
 		rosterToArm:       make(map[string]string, len(resolved.Candidates)),
+		armToRoster:       make(map[string]string, len(resolved.Candidates)),
 		eligibleRosterIDs: make(map[string]struct{}, len(resolved.Candidates)),
 	}
 	for _, candidate := range resolved.Candidates {
@@ -164,6 +166,9 @@ func indexCandidates(resolved ResolvedCandidates) candidateIndex {
 		}
 		if _, exists := index.rosterToArm[candidate.RosterID]; !exists {
 			index.rosterToArm[candidate.RosterID] = candidate.ArmID
+		}
+		if _, exists := index.armToRoster[candidate.ArmID]; !exists {
+			index.armToRoster[candidate.ArmID] = candidate.RosterID
 		}
 		index.eligibleRosterIDs[candidate.RosterID] = struct{}{}
 	}

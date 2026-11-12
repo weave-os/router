@@ -123,6 +123,9 @@ func TestSiblingFallbackPersistsAcrossClusterChanges(t *testing.T) {
 	third := serve()
 	assert.Equal(t, medium, third.Header().Get(HeaderRouterModel))
 	group = escalation.High
+	compaction := `{"model":"claude-opus-4-8","system":"Your task is to create a detailed summary","messages":[{"role":"user","content":"summarize"}]}`
+	compactionRec := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(compaction), compactionRec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(compaction))))
 	body = strings.Replace(body, "start", "compacted history", 1)
 	fourth := serve()
 	assert.Equal(t, sibling, fourth.Header().Get(HeaderRouterModel))

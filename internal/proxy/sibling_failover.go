@@ -177,9 +177,10 @@ func (s *Service) rescueWalkOrReadmitCooling(
 		return decisions
 	}
 	if overloaded := slices.Sorted(maps.Keys(s.overloadOpenModels(ctx))); len(decisions) == 0 && len(overloaded) > 0 {
-		if decisions = s.readmissionWalk(ctx, failed, candidates, overloaded, reason, excludedModels, est, sigSavings, outputReserve, providerFor); len(decisions) > 0 {
-			return decisions
-		}
+		// Overload-open arms are tried before the bounded strike readmission
+		// below, not instead of it: a readmitted arm that fails pre-commit must
+		// still leave the struck last resort available.
+		decisions = append(decisions, s.readmissionWalk(ctx, failed, candidates, overloaded, reason, excludedModels, est, sigSavings, outputReserve, providerFor)...)
 	}
 	struck := strikesInRescuePool(failed, candidates, sessionStrikeReadmitModelsFromContext(ctx))
 	if len(struck) == 0 {

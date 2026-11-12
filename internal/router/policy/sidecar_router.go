@@ -726,12 +726,16 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	)
 	rescueGroups := EscalatingRescueGroups(res.PolicyGroup, req.ForceCluster, res.RankedFallback)
 	rescueOverrides := effectiveOverrides
+	// The cooling pool keeps the configured allowlists: dropping a remembered
+	// group's list here would readmit a soft-excluded model outside it.
+	poolOverrides := req.ClusterArmOverrides
 	if escalationDecision != nil && escalationDecision.Constrained {
 		groupNames := make([]string, 0, len(rescueGroups))
 		for _, group := range rescueGroups {
 			groupNames = append(groupNames, group.Group)
 		}
 		rescueOverrides = escalationArmOverrides(rescueOverrides, groupNames...)
+		poolOverrides = escalationArmOverrides(poolOverrides, groupNames...)
 	}
 	return router.Decision{
 		Provider: binding.Provider,
@@ -743,7 +747,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			Escalation:                    escalationDecision,
 			CandidateModels:               resolved.CandidateModels(),
 			RescueModels:                  RescueModelOrder(rescueOverrides, rescueGroups, resolved),
-			SidecarRescuePool:             RescueCoolingPool(rescueOverrides, rescueGroups, resolved),
+			SidecarRescuePool:             RescueCoolingPool(poolOverrides, rescueGroups, resolved),
 			RosterFailover:                len(res.RankedFallback) > 0 && (req.ForceCluster != "" || escalation.Rank(escalation.Group(res.PolicyGroup)) >= 0),
 			CandidateProviders:            resolved.CandidateProviders(),
 			CandidateScores:               resolved.CatalogCandidateScores(res.CandidateScores),
