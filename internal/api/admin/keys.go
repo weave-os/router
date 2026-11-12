@@ -186,6 +186,7 @@ type externalKeyResponse struct {
 	FederationConfig *auth.AnthropicFederationConfig `json:"federation_config,omitempty"`
 	AuthAccount      string                          `json:"auth_account,omitempty"`
 	AuthUser         string                          `json:"auth_user,omitempty"`
+	FundingPriority  auth.FundingPriority            `json:"funding_priority"`
 	LastUsedAt       *time.Time                      `json:"last_used_at"`
 	CreatedAt        time.Time                       `json:"created_at"`
 }
@@ -214,6 +215,8 @@ type upsertExternalKeyRequest struct {
 	FederationConfig *auth.AnthropicFederationConfig `json:"federation_config"`
 	AuthAccount      *string                         `json:"auth_account"`
 	AuthUser         *string                         `json:"auth_user"`
+	// FundingPriority is key_first or plan_first; omitted means plan_first.
+	FundingPriority auth.FundingPriority `json:"funding_priority"`
 }
 
 func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
@@ -234,6 +237,7 @@ func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
 		FederationConfig: k.FederationConfig,
 		AuthAccount:      k.AuthAccount,
 		AuthUser:         k.AuthUser,
+		FundingPriority:  k.FundingPriority,
 		LastUsedAt:       k.LastUsedAt,
 		CreatedAt:        k.CreatedAt,
 	}
@@ -300,12 +304,14 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 			FederationConfig: req.FederationConfig,
 			AuthAccount:      req.AuthAccount,
 			AuthUser:         req.AuthUser,
+			FundingPriority:  req.FundingPriority,
 		})
 		if err != nil {
 			if errors.Is(err, auth.ErrUnknownModel) || errors.Is(err, auth.ErrInvalidModelAlias) ||
 				errors.Is(err, auth.ErrInvalidIdentityHeader) || errors.Is(err, auth.ErrInvalidForwardedHeader) ||
 				errors.Is(err, auth.ErrInvalidKeypairAuth) ||
-				errors.Is(err, auth.ErrInvalidEntraAuth) || errors.Is(err, auth.ErrInvalidAnthropicFederation) {
+				errors.Is(err, auth.ErrInvalidEntraAuth) || errors.Is(err, auth.ErrInvalidAnthropicFederation) ||
+				errors.Is(err, auth.ErrInvalidFundingPriority) {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}
@@ -358,6 +364,45 @@ func UpdateExternalKeyAliasesHandler(authSvc *auth.Service, models DeployedModel
 				return
 			}
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to update model aliases."})
+			return
+		}
+		c.JSON(http.StatusOK, toExternalKeyResponse(key))
+	}
+}
+
+type updateExternalKeyFundingPriorityRequest struct {
+	FundingPriority auth.FundingPriority `json:"funding_priority"`
+}
+
+// UpdateExternalKeyFundingPriorityHandler sets whether a stored key is spent
+// before or after the caller's subscription; returns 404 for missing or cross-tenant ids.
+func UpdateExternalKeyFundingPriorityHandler(authSvc *auth.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		installation, ok := resolveInstallation(c, authSvc)
+		if !ok {
+			return
+		}
+		id := c.Param("id")
+		if id == "" {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Missing ID."})
+			return
+		}
+		var req updateExternalKeyFundingPriorityRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request body."})
+			return
+		}
+		key, err := authSvc.SetExternalAPIKeyFundingPriority(c.Request.Context(), installation.ID, id, req.FundingPriority)
+		if err != nil {
+			if errors.Is(err, auth.ErrInvalidFundingPriority) {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			if errors.Is(err, auth.ErrExternalAPIKeyNotFound) {
+				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Provider key not found."})
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to update funding priority."})
 			return
 		}
 		c.JSON(http.StatusOK, toExternalKeyResponse(key))

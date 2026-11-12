@@ -166,7 +166,7 @@ func (c *OAuthClient) completeCodexLogin(ctx context.Context, pending PendingLog
 		RefreshToken string `json:"refresh_token"`
 		IDToken      string `json:"id_token"`
 	}
-	if err := c.doTokenRequest(req, ProviderCodex, &token); err != nil {
+	if err := c.doTokenRequest(req, ProviderCodex, &token, authorization.AuthorizationCode, authorization.CodeVerifier); err != nil {
 		return CompletedLogin{}, err
 	}
 	identity := token.IDToken
@@ -232,7 +232,7 @@ func (c *OAuthClient) postJSON(ctx context.Context, provider Provider, endpoint 
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", tokenUserAgent)
-	return c.doTokenRequest(req, provider, response)
+	return c.doTokenRequest(req, provider, response, body["code"], body["code_verifier"], body["device_auth_id"], body["user_code"], body["state"])
 }
 
 func randomURLToken() (string, error) {

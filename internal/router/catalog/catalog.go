@@ -17,6 +17,15 @@ const ModelGPT6Luna = "gpt-6-luna"
 // ModelMiMoV26Flash is the canonical Xiaomi MiMo-V2.6-Flash model ID.
 const ModelMiMoV26Flash = "xiaomi/mimo-v2.6-flash"
 
+// ModelMuseSparkOpen is the canonical Meta Muse Spark Open model ID.
+const ModelMuseSparkOpen = "meta/muse-spark-open"
+
+// ModelMuseEmber is the canonical Meta Muse Ember model ID.
+const ModelMuseEmber = "muse-ember-1.0"
+
+// ModelMuseWonder is the canonical Meta Muse Wonder model ID.
+const ModelMuseWonder = "muse-wonder-1.0"
+
 // Tier is the coarse capability bucket. Higher is stronger; integer
 // ordering is load-bearing (planner compares freshTier > pinTier).
 type Tier int
@@ -241,6 +250,9 @@ type Model struct {
 	// rejects an advisor ranked below the request model. Values mirror Claude
 	// Code's model catalog; 0 means the model takes no advisor.
 	AdvisorRank int
+	// ForceModelOnly keeps the model off family advancement: it serves only
+	// when a caller names it, never as a newer stand-in for an older sibling.
+	ForceModelOnly bool
 	// CodexSubscriptionFallback explicitly permits trying a Codex subscription
 	// for this model outside the native Codex automatic roster. Unsupported
 	// targets must fall back to the selected model's API credential.
@@ -396,6 +408,13 @@ var Models = []Model{
 	{ID: "claude-fable-5-1", Source: SourceClosedSource, Tier: TierHigh, AdvisorRank: 9, ContextWindow: 1_000_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.025, USInferenceGeoMultiplier: USInferenceGeoMultiplier}},
 		{Provider: providers.ProviderOpenRouter, UpstreamID: "anthropic/claude-fable-5.1", SubscriptionOverflowOnly: true, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.025}},
+	}},
+	// Fable 5.2: $8/$40, cache reads at $0.20/MTok (0.025x), fast mode $16/$80.
+	// Same wire quirks as Fable 5.1. Not a cluster roster member until it has
+	// quality labels.
+	{ID: "claude-fable-5-2", Source: SourceClosedSource, Tier: TierHigh, AdvisorRank: 10, ForceModelOnly: true, ContextWindow: 1_000_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00, CacheReadMultiplier: 0.025, USInferenceGeoMultiplier: USInferenceGeoMultiplier}, FastPrice: Pricing{InputUSDPer1M: 16.00, OutputUSDPer1M: 80.00}},
+		{Provider: providers.ProviderOpenRouter, UpstreamID: "anthropic/claude-fable-5.2", SubscriptionOverflowOnly: true, Price: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00, CacheReadMultiplier: 0.025}},
 	}},
 
 	// --- OpenAI GPT-4.x (legacy) ---
@@ -603,6 +622,20 @@ var Models = []Model{
 	// license is verified either way.
 	{ID: "muse-spark-1.3", Source: SourceUnknown, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderMeta, Price: Pricing{InputUSDPer1M: 1.25, OutputUSDPer1M: 4.25, CacheReadMultiplier: 0.12}},
+	}},
+	// Muse Ember ($0.10/$0.50, cache reads $0.004) and Muse Wonder ($4/$20,
+	// cache reads $0.20) are served only by Meta's Model API.
+	{ID: ModelMuseEmber, Source: SourceUnknown, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderMeta, Price: Pricing{InputUSDPer1M: 0.10, OutputUSDPer1M: 0.50, CacheReadMultiplier: 0.004 / 0.10}},
+	}},
+	{ID: ModelMuseWonder, Source: SourceUnknown, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderMeta, Price: Pricing{InputUSDPer1M: 4.00, OutputUSDPer1M: 20.00, CacheReadMultiplier: 0.20 / 4.00}},
+	}},
+	// Muse Spark Open: the open-weight 816B-A42B release. Every host lists
+	// $1.25/$4.25; Together is the one the router supports.
+	{ID: ModelMuseSparkOpen, Source: SourceOpenSource, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderTogether, UpstreamID: "meta-models/Muse-Spark-Open-816B-A42B",
+			Price: Pricing{InputUSDPer1M: 1.25, OutputUSDPer1M: 4.25, CacheReadMultiplier: 0.15 / 1.25}},
 	}},
 
 	// --- Google Gemini 2.x ---

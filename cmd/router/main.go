@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -604,6 +605,7 @@ func main() {
 		WithClusterModelLists(repo.ClusterModelLists).
 		WithUserClusterModelLists(repo.UserClusterModelLists, userClusterCache).
 		WithBlindExperiments(repo.BlindExperiments, blindExperimentCache).
+		WithBlindExperimentSessions(repo.BlindExperimentSessions).
 		WithRoutingPolicies(repo.RoutingPolicies, routingPolicyCache).
 		WithWIFTokenSource(buildWIFTokenSource(logger)).
 		WithAnthropicFederationTokenSource(buildAnthropicFederationTokenSource(deploymentMode)).
@@ -1391,6 +1393,7 @@ func main() {
 
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
 		WithClaudeSubscriptionPlanReader(anthropicClient).
+		WithExternalKeyUsageRecorder(authSvc).
 		WithCodexExtraCredits(allowCodexCredits).
 		WithSessionStrategyStore(sessionStrategyStore).
 		WithSessionTurnClock(sessionTurnClock).
@@ -1567,6 +1570,15 @@ func main() {
 		panic(err)
 	}
 	usageObserver := usage.NewObserver(observerSalt, subscriptionTTL, time.Now)
+	if subscriptionRuntime != nil {
+		subscriptionRuntime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, now time.Time) subscriptions.CandidateSignal {
+			snapshot, observed := usageObserver.Snapshot(usageObserver.Key([]byte("subscription-account:" + accountID)))
+			if !observed {
+				return subscriptions.CandidateSignal{}
+			}
+			return subscriptionCandidateSignal(snapshot, now)
+		})
+	}
 	// Bound memory: evict expired observations periodically (the usage package
 	// spawns no goroutines of its own).
 	go func() {
@@ -1759,6 +1771,46 @@ func buildExploringRouter(rtr router.Router, logger *slog.Logger) router.Router 
 		"deployed_models", len(providers),
 	)
 	return banditexplore.New(rtr, providerFor, epsilon)
+}
+
+func subscriptionCandidateSignal(snapshot usage.Snapshot, now time.Time) subscriptions.CandidateSignal {
+	if snapshot.OverageInUse {
+		signal := subscriptions.CandidateSignal{Observed: true, Billable: true, UsedFraction: 1}
+		if snapshot.UnifiedResetAt.After(now) {
+			signal.ResetAt = snapshot.UnifiedResetAt
+		}
+		signal.ObservedAt = snapshot.ObservedAt
+		return signal
+	}
+
+	signal := subscriptions.CandidateSignal{Exhausted: snapshot.ExhaustedAsOf(now), ObservedAt: snapshot.ObservedAt}
+	for _, window := range []usage.Window{snapshot.Primary, snapshot.Secondary} {
+		if math.IsNaN(window.UsedPercent) || math.IsInf(window.UsedPercent, 0) || window.UsedPercent < 0 || window.UsedPercent > 1 {
+			return subscriptions.CandidateSignal{}
+		}
+		if window.WindowMinutes <= 0 && window.UsedPercent <= 0 {
+			continue
+		}
+		resetAt := window.ResetAt
+		if resetAt.IsZero() && window.WindowMinutes > 0 {
+			observedAt := window.ObservedAt
+			if observedAt.IsZero() {
+				observedAt = snapshot.ObservedAt
+			}
+			resetAt = observedAt.Add(time.Duration(window.WindowMinutes) * time.Minute)
+		}
+		if !resetAt.IsZero() && !resetAt.After(now) {
+			continue
+		}
+		if !signal.Observed || window.UsedPercent > signal.UsedFraction {
+			signal.Observed = true
+			signal.UsedFraction = window.UsedPercent
+		}
+		if resetAt.After(now) && (signal.ResetAt.IsZero() || resetAt.Before(signal.ResetAt)) {
+			signal.ResetAt = resetAt
+		}
+	}
+	return signal
 }
 
 // parseOtelHeaders parses a comma-separated key=value string into a map.

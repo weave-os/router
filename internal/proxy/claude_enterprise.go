@@ -25,7 +25,7 @@ func claudeEnterpriseOnly(ctx context.Context) bool {
 }
 
 func claudeEnterpriseEnabled(ctx context.Context) bool {
-	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || anthropicBYOKConfigured(ctx) {
+	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || anthropicBYOKFirst(ctx) {
 		return false
 	}
 	if overrides, ok := flags.OverridesFromContext(ctx); ok {
