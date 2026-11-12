@@ -110,7 +110,7 @@ func TestService_UtilityHardPin_CatalogTargetPerInstallation(t *testing.T) {
 			rec := httptest.NewRecorder()
 			httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
-			require.NoError(t, svc.ProxyMessages(setup.ctx(uuid.New().String()), []byte(exploreBody), rec, httpReq))
+			require.NoError(t, svc.ProxyMessages(legacyExploreCtx(setup.ctx(uuid.New().String())), []byte(exploreBody), rec, httpReq))
 
 			assert.Equal(t, 0, fr.routeCalls, "utility hard pins bypass the scorer")
 			assert.Equal(t, setup.wantModel, rec.Header().Get(proxy.HeaderRouterModel))
@@ -131,7 +131,7 @@ func TestService_UtilityHardPin_NoEligibleProviderIs400(t *testing.T) {
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
-	err := svc.ProxyMessages(setup.ctx(uuid.New().String()), []byte(exploreBody), rec, httpReq)
+	err := svc.ProxyMessages(legacyExploreCtx(setup.ctx(uuid.New().String())), []byte(exploreBody), rec, httpReq)
 
 	require.ErrorIs(t, err, router.ErrNoEligibleProvider)
 	assert.NotErrorIs(t, err, router.ErrRoutingUnavailable)
@@ -139,4 +139,10 @@ func TestService_UtilityHardPin_NoEligibleProviderIs400(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, proxy.DispatchErrorNoEligibleProvider, class.Kind)
 	assert.Equal(t, http.StatusBadRequest, class.Status)
+}
+
+// legacyExploreCtx selects a non-HMM strategy, the only kind on which the
+// legacy hardPinExplore default still hard-pins sub-agent turns.
+func legacyExploreCtx(ctx context.Context) context.Context {
+	return router.WithStrategy(ctx, router.StrategyRL)
 }

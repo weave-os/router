@@ -14,9 +14,8 @@ Anthropic, OpenAI, and Gemini APIs, so you can use it with coding tools or your
 own application. You can use the hosted router or run it yourself with your own
 provider keys. For the best experience, use the managed router hosted by Weave.
 
-The router uses an embedding and a cluster scorer to choose from enabled models.
-It supports streaming, tool calls, and vision. The scorer is based on
-[Avengers-Pro](https://arxiv.org/abs/2508.12631).
+The router uses an HMM classifier policy to choose from enabled models.
+It supports streaming, tool calls, and vision.
 
 ## Get started
 
@@ -96,31 +95,30 @@ other provider options, see the [configuration reference](docs/CONFIGURATION.md)
 The optional self-hosted HMM is a barebones, frozen version of the policy. It
 doesn't include the managed service's training, online learning, or registry.
 For the best experience, use the [Weave-managed router](#get-started). The
-self-hosted stack defaults to the cluster scorer; starting the HMM sidecar does
-not change that default. See the [HMM guide](sidecars/hmm/README.md) for setup
-and how to select it.
+self-hosted stack defaults to it (`hmm_embedding`). The local compose stack
+boots on a stub classifier (`smoke/hmmstub`) that puts every turn in one
+routing group; `make up-hmm` swaps in the real sidecar. See the
+[HMM guide](sidecars/hmm/README.md) for setup.
 
 ### Architecture
 
-The router, cluster scorer, database, and dashboard run locally. Requests go
+The router, HMM policy sidecar, database, and dashboard run locally. Requests go
 from the router to your configured model provider; you can also send traces to
-an OpenTelemetry collector. The optional HMM sidecar uses a compatible embedding
+an OpenTelemetry collector. The HMM sidecar uses a compatible embedding
 service; its default configuration calls Google's embedding API.
 
 ```mermaid
 flowchart LR
     client["Claude Code, Codex, opencode,<br/>pi, Cursor, your own app"]
     router["Router :8080<br/>/v1/messages · /v1/chat/completions<br/>/v1beta/models · /v1/route"]
-    scorer["Cluster scorer<br/>in-process ONNX embedder"]
-    hmm["HMM policy sidecar :8093<br/>optional, make up-hmm"]
+    hmm["HMM policy sidecar :8093<br/>stub by default, make up-hmm"]
     pg[("Postgres<br/>installations, rk_ keys,<br/>encrypted BYOK keys, usage")]
     ui["Dashboard /ui<br/>selfhosted mode only"]
     providers["Anthropic · OpenAI · Gemini<br/>OpenRouter and any<br/>OpenAI-compatible endpoint"]
     otel["Your OTLP collector<br/>Honeycomb, Datadog, Grafana"]
 
     client -->|"rk_… bearer token,<br/>streamed response back"| router
-    router -->|"embed and score the action"| scorer
-    router -.->|"ROUTER_DEFAULT_STRATEGY=hmm"| hmm
+    router -->|"classify the turn"| hmm
     router -->|"auth, config, usage"| pg
     pg --> ui
     router -->|"provider key from env or BYOK"| providers

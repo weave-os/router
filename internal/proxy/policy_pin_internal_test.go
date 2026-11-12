@@ -64,17 +64,17 @@ func (r pinnedStubRouter) Route(context.Context, router.Request) (router.Decisio
 
 func TestRouteWithStrategyRefusesDecisionsThatDidNotServeThePin(t *testing.T) {
 	unpinned := pinnedStubRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-sonnet-5"}}
-	svc := &Service{router: unpinned}
+	svc := serviceWithDefaultRouter(unpinned)
 
-	_, err := svc.routeWithStrategy(pinnedContext(true), router.StrategyCluster, router.Request{})
-	assert.ErrorIs(t, err, router.ErrPolicyPinUnavailable, "the cluster router cannot serve an artifact pin; falling through silently is forbidden")
+	_, err := svc.routeWithStrategy(pinnedContext(true), router.StrategyHMMEmbedding, router.Request{})
+	assert.ErrorIs(t, err, router.ErrPolicyPinUnavailable, "a router that ignores an artifact pin must not be served silently")
 
-	decision, err := svc.routeWithStrategy(pinnedContext(false), router.StrategyCluster, router.Request{})
+	decision, err := svc.routeWithStrategy(pinnedContext(false), router.StrategyHMMEmbedding, router.Request{})
 	require.NoError(t, err, "an unauthorized pin must not affect routing")
 	assert.Equal(t, "claude-sonnet-5", decision.Model)
 
-	svc.router = pinnedStubRouter{decision: router.Decision{Model: "m", Metadata: &router.RoutingMetadata{PolicyPinHonoured: true}}}
-	_, err = svc.routeWithStrategy(pinnedContext(true), router.StrategyCluster, router.Request{})
+	svc = serviceWithDefaultRouter(pinnedStubRouter{decision: router.Decision{Model: "m", Metadata: &router.RoutingMetadata{PolicyPinHonoured: true}}})
+	_, err = svc.routeWithStrategy(pinnedContext(true), router.StrategyHMMEmbedding, router.Request{})
 	assert.NoError(t, err)
 }
 

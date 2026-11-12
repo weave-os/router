@@ -193,3 +193,33 @@ func TestNewGoogleIDTokenCredentialsBuildsImpersonatedProviderFromFederationFile
 	require.NotNil(t, idTokenCredentials)
 	assert.Empty(t, idTokenCredentials.JSON(), "impersonated ID-token credentials must not re-load the federation file")
 }
+
+func TestFederatedSourceCredentialsAcceptsOnlyExternalAccount(t *testing.T) {
+	externalAccount := []byte(`{
+		"type": "external_account",
+		"audience": "//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/pool/providers/ci",
+		"subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+		"token_url": "https://sts.googleapis.com/v1/token",
+		"credential_source": {"file": "/tmp/oidc-token"}
+	}`)
+	sourceCredentials, err := federatedSourceCredentials(externalAccount)
+	require.NoError(t, err)
+	require.NotNil(t, sourceCredentials)
+
+	for name, credentialsJSON := range map[string][]byte{
+		"service account key":              []byte(`{"type":"service_account","client_email":"sa@example.iam.gserviceaccount.com","private_key":"x"}`),
+		"authorized user":                  []byte(`{"type":"authorized_user","client_id":"id","client_secret":"secret","refresh_token":"token"}`),
+		"impersonated service account":     []byte(`{"type":"impersonated_service_account","service_account_impersonation_url":"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/sa@example.iam.gserviceaccount.com:generateAccessToken","source_credentials":{"type":"authorized_user"}}`),
+		"external account authorized user": []byte(`{"type":"external_account_authorized_user","token_url":"https://sts.googleapis.com/v1/oauthtoken"}`),
+		"gdch service account":             []byte(`{"type":"gdch_service_account","project":"p"}`),
+		"client credentials without type":  []byte(`{"installed":{"client_id":"id","client_secret":"secret"}}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			sourceCredentials, err := federatedSourceCredentials(credentialsJSON)
+
+			require.Error(t, err)
+			assert.Nil(t, sourceCredentials)
+			assert.Contains(t, err.Error(), `expected type "external_account"`)
+		})
+	}
+}
