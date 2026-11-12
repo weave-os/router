@@ -119,3 +119,14 @@ func TestConversationMessagesForRoutingConvertsAtProxyBoundary(t *testing.T) {
 	assert.True(t, messages[1].ToolResults[0].IsError)
 	assert.Equal(t, "raw output", messages[1].ToolResults[0].Text)
 }
+
+func TestResponsesRoutingEnvelopeDropsHistoricalDirectives(t *testing.T) {
+	body := []byte(`{"model":"gpt","messages":[` +
+		`{"role":"user","content":"/fm astra"},` +
+		`{"role":"user","content":"now write the parser"}]}`)
+	ctx, err := withResponsesRoutingEnvelope(context.Background(), body)
+	require.NoError(t, err)
+	routingEnv := routingEnvelopeForRequest(ctx, nil)
+	require.NotNil(t, routingEnv)
+	assert.Equal(t, "now write the parser", routingEnv.FirstUserMessageText(), "a prior-turn directive must not shape model selection")
+}

@@ -119,6 +119,9 @@ type EmitOptions struct {
 type RequestEnvelope struct {
 	body   []byte
 	format Format
+	// threadDiscriminator is the opening user text as the client sent it,
+	// captured before router-only history is stripped from body.
+	threadDiscriminator *string
 }
 
 // Clone returns an independent copy of the envelope; mutations to either
@@ -127,7 +130,7 @@ func (e *RequestEnvelope) Clone() *RequestEnvelope {
 	if e == nil {
 		return nil
 	}
-	return &RequestEnvelope{body: append([]byte(nil), e.body...), format: e.format}
+	return &RequestEnvelope{body: append([]byte(nil), e.body...), format: e.format, threadDiscriminator: e.threadDiscriminator}
 }
 
 // ParseOpenAI validates body as a JSON object and wraps it in a RequestEnvelope.
@@ -282,6 +285,24 @@ func (e *RequestEnvelope) FirstUserMessageText() string {
 	default:
 		return ""
 	}
+}
+
+// ThreadDiscriminatorText is the opening user text the session key hashes.
+// Once StripHistoricalCommands has run it is the pre-strip text, so removing an
+// opening directive from the model-visible body does not re-key the thread.
+func (e *RequestEnvelope) ThreadDiscriminatorText() string {
+	if e.threadDiscriminator != nil {
+		return *e.threadDiscriminator
+	}
+	return e.FirstUserMessageText()
+}
+
+func (e *RequestEnvelope) captureThreadDiscriminator() {
+	if e.threadDiscriminator != nil {
+		return
+	}
+	text := e.FirstUserMessageText()
+	e.threadDiscriminator = &text
 }
 
 // HasTools reports whether the request has a non-empty tools array.

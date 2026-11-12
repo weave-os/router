@@ -19,6 +19,9 @@ func withResponsesRoutingEnvelope(ctx context.Context, body []byte) (context.Con
 	if err := env.StripCommandOutcomes(); err != nil {
 		return ctx, fmt.Errorf("strip Responses routing outcomes: %w", err)
 	}
+	if _, err := env.StripHistoricalCommands(); err != nil {
+		return ctx, fmt.Errorf("strip Responses routing directives: %w", err)
+	}
 	env.StripRouterFeedbackArtifacts()
 	env.StripBetaArtifacts()
 	return context.WithValue(ctx, responsesRoutingEnvelopeContextKey{}, env), nil
