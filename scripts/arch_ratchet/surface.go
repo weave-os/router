@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"strconv"
 )
 
 const proxyDir = "internal/proxy"
@@ -63,18 +64,47 @@ func serviceMethodCount(file *ast.File) int {
 }
 
 func collectContextKeys(file *ast.File, keys map[string]bool) {
+	contextNames, dotImport := contextImports(file)
 	ast.Inspect(file, func(node ast.Node) bool {
 		call, ok := node.(*ast.CallExpr)
 		if !ok || len(call.Args) != 3 {
 			return true
 		}
-		selector, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || selector.Sel.Name != "WithValue" {
-			return true
-		}
-		if pkg, isIdent := selector.X.(*ast.Ident); isIdent && pkg.Name == "context" {
-			keys[types.ExprString(call.Args[1])] = true
+		switch fun := call.Fun.(type) {
+		case *ast.SelectorExpr:
+			if fun.Sel.Name != "WithValue" {
+				return true
+			}
+			if pkg, isIdent := fun.X.(*ast.Ident); isIdent && contextNames[pkg.Name] {
+				keys[types.ExprString(call.Args[1])] = true
+			}
+		case *ast.Ident:
+			if dotImport && fun.Name == "WithValue" {
+				keys[types.ExprString(call.Args[1])] = true
+			}
 		}
 		return true
 	})
+}
+
+// contextImports returns the local names the file binds to the context package, plus
+// whether it dot-imports context (which allows unqualified WithValue calls).
+func contextImports(file *ast.File) (map[string]bool, bool) {
+	names := map[string]bool{}
+	dot := false
+	for _, imp := range file.Imports {
+		path, err := strconv.Unquote(imp.Path.Value)
+		if err != nil || path != "context" {
+			continue
+		}
+		switch {
+		case imp.Name == nil:
+			names["context"] = true
+		case imp.Name.Name == ".":
+			dot = true
+		case imp.Name.Name != "_":
+			names[imp.Name.Name] = true
+		}
+	}
+	return names, dot
 }

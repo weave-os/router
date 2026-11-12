@@ -23,16 +23,11 @@ func (v violation) String() string {
 		v.subject, v.metric, v.before, v.after, v.limit)
 }
 
-// indexFuncs keys every function by funcKey. When one key occurs more than once (build
-// tag variants of a function in different files), each occurrence is qualified with its
-// file so none overwrites another.
-func indexFuncs(files map[string]fileMetrics) map[string]funcMetrics {
-	occurrences := map[string]int{}
-	for _, file := range files {
-		for _, fn := range file.funcs {
-			occurrences[fn.key]++
-		}
-	}
+// indexFuncs keys every function by funcKey. When one key occurs more than once across
+// base and head combined (build tag variants of a function in different files, or a
+// variant added or removed by the diff), each occurrence is qualified with its file so
+// a surviving variant is never re-keyed and none overwrites another.
+func indexFuncs(files map[string]fileMetrics, occurrences map[string]int) map[string]funcMetrics {
 	funcs := map[string]funcMetrics{}
 	for _, filePath := range sortedKeys(files) {
 		for _, fn := range files[filePath].funcs {
@@ -53,7 +48,19 @@ func indexFuncs(files map[string]fileMetrics) map[string]funcMetrics {
 // the diff passes as moved when it claims a distinct removed function at least as large
 // on every metric it exceeds; each removed function covers at most one move.
 func compareFuncs(base, head map[string]fileMetrics, allowed exceptionSet) []violation {
-	baseFuncs, headFuncs := indexFuncs(base), indexFuncs(head)
+	occurrences := map[string]int{}
+	for _, files := range []map[string]fileMetrics{base, head} {
+		side := map[string]int{}
+		for _, file := range files {
+			for _, fn := range file.funcs {
+				side[fn.key]++
+			}
+		}
+		for key, n := range side {
+			occurrences[key] = max(occurrences[key], n)
+		}
+	}
+	baseFuncs, headFuncs := indexFuncs(base, occurrences), indexFuncs(head, occurrences)
 	moves := newMovePool(baseFuncs, headFuncs)
 	var violations []violation
 	for _, key := range sortedKeys(headFuncs) {
@@ -138,6 +145,9 @@ func sum(values map[metric]int) int {
 func compareFiles(base, head map[string]fileMetrics, allowed exceptionSet) []violation {
 	var violations []violation
 	for _, filePath := range sortedKeys(head) {
+		if strings.HasSuffix(filePath, "_test.go") {
+			continue
+		}
 		after, before := head[filePath].codeLines, base[filePath].codeLines
 		if after > limitFileLines && after > before && !allowed.permits(filePath, metricFileLines, after) {
 			violations = append(violations, violation{subject: filePath, metric: metricFileLines, before: before, after: after, limit: limitFileLines})

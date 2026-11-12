@@ -34,8 +34,8 @@ func loadExceptions(filePath string) (exceptionSet, error) {
 		return exceptionSet{}, fmt.Errorf("parse %s: %w", exceptionsPath, err)
 	}
 	for _, entry := range set.Exceptions {
-		if entry.Subject == "" || entry.Reason == "" || !slices.Contains(knownMetrics, entry.Metric) {
-			return exceptionSet{}, fmt.Errorf("%s: each exception needs a subject, a known metric and a reason: %+v", exceptionsPath, entry)
+		if entry.Subject == "" || entry.Reason == "" || entry.Max <= 0 || !slices.Contains(knownMetrics, entry.Metric) {
+			return exceptionSet{}, fmt.Errorf("%s: each exception needs a subject, a known metric, a positive max and a reason: %+v", exceptionsPath, entry)
 		}
 	}
 	return set, nil

@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
 	"go/parser"
+	"go/printer"
 	"go/scanner"
 	"go/token"
+	"hash/fnv"
 	"path"
 	"strings"
 
@@ -89,7 +92,9 @@ func measureFile(filePath string, src []byte) (metrics fileMetrics, generated bo
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
 			if d.Body != nil {
-				metrics.funcs = append(metrics.funcs, measureFunc(fset, codeLines, funcKey(dir, filePath, d), d))
+				key := funcKey(dir, filePath, d)
+				metrics.funcs = append(metrics.funcs, measureFunc(fset, codeLines, key, d))
+				metrics.funcs = append(metrics.funcs, measureFuncLits(fset, codeLines, key, d.Body)...)
 			}
 		case *ast.GenDecl:
 			metrics.funcs = append(metrics.funcs, measurePackageFuncLits(fset, codeLines, dir, d)...)
@@ -110,8 +115,35 @@ func measureFunc(fset *token.FileSet, codeLines map[int]bool, key string, fn *as
 	}
 }
 
+// measureFuncLits measures the function literals directly inside body, keyed by a
+// content hash so an inserted or edited literal never re-keys an unchanged one.
+func measureFuncLits(fset *token.FileSet, codeLines map[int]bool, prefix string, body *ast.BlockStmt) []funcMetrics {
+	var funcs []funcMetrics
+	ast.Inspect(body, func(node ast.Node) bool {
+		lit, ok := node.(*ast.FuncLit)
+		if !ok {
+			return true
+		}
+		fn := &ast.FuncDecl{Name: ast.NewIdent("func"), Type: lit.Type, Body: lit.Body}
+		funcs = append(funcs, measureFunc(fset, codeLines, funcLitKey(prefix, lit), fn))
+		return false
+	})
+	return funcs
+}
+
+// funcLitKey identifies a function literal by its rendered source, so it keeps its
+// identity when other literals are inserted before it and counts as a move (not a
+// rename) when its own body is edited.
+func funcLitKey(prefix string, lit *ast.FuncLit) string {
+	var src bytes.Buffer
+	_ = printer.Fprint(&src, token.NewFileSet(), lit)
+	sum := fnv.New32a()
+	_, _ = sum.Write(src.Bytes())
+	return fmt.Sprintf("%s.func%x", prefix, sum.Sum32())
+}
+
 // measurePackageFuncLits measures function literals in package-level var and const
-// values, keyed like the compiler names them: <dir>.<var>.func<N>.
+// values, keyed <dir>.<var>.func<hash>.
 func measurePackageFuncLits(fset *token.FileSet, codeLines map[int]bool, dir string, decl *ast.GenDecl) []funcMetrics {
 	var funcs []funcMetrics
 	for _, spec := range decl.Specs {
@@ -120,17 +152,14 @@ func measurePackageFuncLits(fset *token.FileSet, codeLines map[int]bool, dir str
 			continue
 		}
 		name := value.Names[0].Name
-		count := 0
 		for _, expr := range value.Values {
 			ast.Inspect(expr, func(node ast.Node) bool {
 				lit, ok := node.(*ast.FuncLit)
 				if !ok {
 					return true
 				}
-				count++
-				key := fmt.Sprintf("%s.%s.func%d", dir, name, count)
 				fn := &ast.FuncDecl{Name: ast.NewIdent(name), Type: lit.Type, Body: lit.Body}
-				funcs = append(funcs, measureFunc(fset, codeLines, key, fn))
+				funcs = append(funcs, measureFunc(fset, codeLines, funcLitKey(dir+"."+name, lit), fn))
 				return false
 			})
 		}
@@ -153,7 +182,10 @@ func codeLineSet(src []byte) map[int]bool {
 		if tok == token.SEMICOLON && lit == "\n" {
 			continue
 		}
-		lines[file.Line(pos)] = true
+		startLine := file.Line(pos)
+		for line := startLine; line <= startLine+strings.Count(lit, "\n"); line++ {
+			lines[line] = true
+		}
 	}
 }
 

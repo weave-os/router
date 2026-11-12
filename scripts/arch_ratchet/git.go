@@ -76,17 +76,13 @@ func (r repo) listDirAt(rev, dir string) ([]string, error) {
 }
 
 func (r repo) listDirWorktree(dir string) ([]string, error) {
-	entries, err := os.ReadDir(filepath.Join(r.root, dir))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil
-	}
+	out, err := r.git("ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", dir+"/")
 	if err != nil {
-		return nil, fmt.Errorf("list %s: %w", dir, err)
+		return nil, err
 	}
 	var paths []string
-	for _, entry := range entries {
-		path := dir + "/" + entry.Name()
-		if !entry.IsDir() && isMeasuredPath(path) {
+	for _, path := range splitNul(out) {
+		if isMeasuredPath(path) && filepath.Dir(path) == dir {
 			paths = append(paths, path)
 		}
 	}
@@ -97,6 +93,9 @@ func (r repo) listDirWorktree(dir string) ([]string, error) {
 func (r repo) readAt(rev string, paths []string) (map[string][]byte, error) {
 	var request bytes.Buffer
 	for _, path := range paths {
+		if strings.Contains(path, "\n") {
+			return nil, fmt.Errorf("cat-file --batch cannot address path with newline: %q", path)
+		}
 		fmt.Fprintf(&request, "%s:%s\n", rev, path)
 	}
 	cmd := exec.Command("git", "cat-file", "--batch")
@@ -149,6 +148,10 @@ func readBatchEntry(reader *bufio.Reader) ([]byte, bool, error) {
 func (r repo) readWorktree(paths []string) (map[string][]byte, error) {
 	files := make(map[string][]byte, len(paths))
 	for _, path := range paths {
+		info, statErr := os.Lstat(filepath.Join(r.root, path))
+		if statErr != nil || info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
 		content, err := os.ReadFile(filepath.Join(r.root, path))
 		if errors.Is(err, os.ErrNotExist) {
 			continue
@@ -176,7 +179,7 @@ func splitNul(outputs ...[]byte) []string {
 }
 
 func isMeasuredPath(path string) bool {
-	if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+	if !strings.HasSuffix(path, ".go") {
 		return false
 	}
 	for _, skipped := range []string{"vendor/", "internal/sqlc/", "node_modules/"} {

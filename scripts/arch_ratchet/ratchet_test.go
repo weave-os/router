@@ -50,13 +50,17 @@ func (s *Service) Do(a, b, c, d int, e, f, g string, h bool) {
 `
 	metrics, _, err := measureFile("internal/x/service.go", []byte(src))
 	require.NoError(t, err)
-	require.Len(t, metrics.funcs, 1)
+	require.Len(t, metrics.funcs, 2)
 	fn := metrics.funcs[0]
 	assert.Equal(t, "internal/x.Service.Do", fn.key)
 	assert.Equal(t, 8, fn.values[metricParams])
 	assert.Equal(t, 3, fn.values[metricNesting])
 	assert.Equal(t, 19, fn.values[metricLines])
 	assert.Positive(t, fn.values[metricCognitive])
+	lit := metrics.funcs[1]
+	assert.Regexp(t, `^internal/x\.Service\.Do\.func[0-9a-f]+$`, lit.key)
+	assert.Equal(t, 0, lit.values[metricParams])
+	assert.Equal(t, 2, lit.values[metricNesting])
 	assert.Equal(t, 21, metrics.codeLines)
 }
 
@@ -176,9 +180,10 @@ func TestMeasureFileMeasuresPackageLevelFuncLiterals(t *testing.T) {
 	metrics, _, err := measureFile("internal/x/handlers.go", []byte(src))
 	require.NoError(t, err)
 	require.Len(t, metrics.funcs, 2)
-	assert.Equal(t, "internal/x.handlers.func1", metrics.funcs[0].key)
+	assert.Regexp(t, `^internal/x\.handlers\.func[0-9a-f]+$`, metrics.funcs[0].key)
 	assert.Equal(t, 122, metrics.funcs[0].values[metricLines])
-	assert.Equal(t, "internal/x.handlers.func2", metrics.funcs[1].key)
+	assert.Regexp(t, `^internal/x\.handlers\.func[0-9a-f]+$`, metrics.funcs[1].key)
+	assert.NotEqual(t, metrics.funcs[0].key, metrics.funcs[1].key)
 }
 
 func TestCompareFilesFlagsNewAndGrowingLongFiles(t *testing.T) {
