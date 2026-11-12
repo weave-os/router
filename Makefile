@@ -49,6 +49,9 @@ check-candidate-requirements: ## Check that the Router candidate requirements de
 inference-boundary: check-inference-policy ## Reject new inference/provider bypasses and stale policy docs
 	go test ./internal/router/policy ./internal/architecture
 
+arch-ratchet: ## Fail if this branch grows functions or files past the size and complexity limits (BASE=origin/main)
+	go run ./scripts/arch_ratchet -base $(or $(BASE),origin/main)
+
 generate-agent-guides: ## Generate AGENTS.md mirrors from authoritative CLAUDE.md guides
 	@python3 scripts/generate_agent_guides.py
 
@@ -267,7 +270,7 @@ check: check-agent-guides check-docs inference-boundary check-candidate-requirem
 	fi
 	@echo "All checks passed."
 
-.PHONY: doctor check-plan check-changed
+.PHONY: doctor check-plan check-changed arch-ratchet
 doctor: ## Read-only agent prerequisite discovery (no services or cloud calls)
 	python3 scripts/agent_checks.py doctor
 
