@@ -17,13 +17,13 @@ import (
 
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 )
 
@@ -259,7 +259,7 @@ func TestUpgradeShadowCapturesMarginOnStayButNotReplay(t *testing.T) {
 	obs := buildObservationContext(context.Background(), served, fresh, CaptureOff)
 	assert.Equal(t, &zero, obs.FreshClassifierMargin)
 	assert.Equal(t, string(escalation.High), obs.FreshPolicyGroup)
-	builder := otel.NewAttrBuilder(4)
+	builder := telemetry.NewAttrBuilder(4)
 	obs.applySpanAttrs(builder)
 	found := false
 	for _, attr := range builder.Build() {
