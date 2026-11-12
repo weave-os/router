@@ -876,13 +876,15 @@ func (s *Service) runTurnLoop(
 	req.ClientApp = ClientIdentityFrom(ctx).ClientApp
 	if transforms, ok := ctx.Value(responsesTransformsContextKey{}).([]translate.ResponseTransform); ok {
 		for _, transform := range transforms {
-			s.recordTranslationTransform(
-				ctx,
-				transform.Code,
-				transform.Action,
-				string(req.TranslationRequirements.SourceFormat),
-				string(s.translationCompatibilityMode),
-			)
+			if s.translationMetrics != nil {
+				s.translationMetrics.RecordTranslationTransform(
+					ctx,
+					transform.Code,
+					transform.Action,
+					string(req.TranslationRequirements.SourceFormat),
+					string(s.translationCompatibilityMode),
+				)
+			}
 			telemetry.RecordLog(ctx, telemetry.LogRecord{
 				Name: "translation.transform",
 				Time: time.Now(),

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	telemetry "weave-os/router/internal/observability/otel"
+	otel "weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/usage"
@@ -22,7 +22,7 @@ const (
 	anthropicNoSplitBody = `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":3,"cache_creation_input_tokens":322,"cache_read_input_tokens":8895,"output_tokens":4}}`
 )
 
-func writeAll(t *testing.T, ext *telemetry.UsageExtractor, chunks ...string) {
+func writeAll(t *testing.T, ext *otel.UsageExtractor, chunks ...string) {
 	t.Helper()
 	for _, chunk := range chunks {
 		_, err := ext.Write([]byte(chunk))
@@ -31,7 +31,7 @@ func writeAll(t *testing.T, ext *telemetry.UsageExtractor, chunks ...string) {
 }
 
 func TestUsageExtractor_AnthropicNonStreamingReportsCacheSplitSpeedAndGeo(t *testing.T) {
-	ext := telemetry.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderAnthropic)
+	ext := otel.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderAnthropic)
 	writeAll(t, ext, anthropicSplitBody)
 
 	assert.Equal(t, catalog.UsageModifiers{CacheCreation1h: 300, InferenceGeo: catalog.InferenceGeoUS}, ext.UsageModifiers())
@@ -40,7 +40,7 @@ func TestUsageExtractor_AnthropicNonStreamingReportsCacheSplitSpeedAndGeo(t *tes
 }
 
 func TestUsageExtractor_AnthropicStreamingKeepsMessageStartSplitAcrossMessageDelta(t *testing.T) {
-	ext := telemetry.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderAnthropic)
+	ext := otel.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderAnthropic)
 	writeAll(t, ext,
 		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":3,\"cache_creation_input_tokens\":9217,\"cache_read_input_tokens\":0,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":9217},\"output_tokens\":1,\"service_tier\":\"standard\",\"inference_geo\":\"global\"}}}\n\n",
 		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"input_tokens\":3,\"cache_creation_input_tokens\":9217,\"cache_read_input_tokens\":0,\"output_tokens\":4}}\n\n",
@@ -53,7 +53,7 @@ func TestUsageExtractor_AnthropicStreamingKeepsMessageStartSplitAcrossMessageDel
 }
 
 func TestUsageExtractor_GatewayStreamingSplitIsParsedByFamily(t *testing.T) {
-	ext := telemetry.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderAnthropicGateway)
+	ext := otel.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderAnthropicGateway)
 	writeAll(t, ext,
 		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":5,\"cache_creation_input_tokens\":100,\"cache_creation\":{\"ephemeral_5m_input_tokens\":60,\"ephemeral_1h_input_tokens\":40}}}}\n\n",
 	)
@@ -79,7 +79,7 @@ func TestUsageExtractor_UnreportedSplitFallsBackToRequestTTL(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ext := telemetry.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderAnthropicGateway)
+			ext := otel.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderAnthropicGateway)
 			checked := false
 			ext.SetRequestCacheTTL1h(func() bool {
 				checked = true
@@ -94,7 +94,7 @@ func TestUsageExtractor_UnreportedSplitFallsBackToRequestTTL(t *testing.T) {
 }
 
 func TestUsageExtractor_RecordedUsageModifiersFeedTranslatedPaths(t *testing.T) {
-	ext := telemetry.NewUsageExtractor(nil, providers.ProviderAnthropic)
+	ext := otel.NewUsageExtractor(nil, providers.ProviderAnthropic)
 	ext.RecordProviderUsage(usage.Facts{Present: true, CacheWrite: usage.Reported(500), CacheRead: usage.Reported(0), CacheWrite1h: usage.Reported(200), Speed: catalog.SpeedFast, SpeedReported: true, InferenceGeo: catalog.InferenceGeoUS, InferenceGeoReported: true})
 	ext.RecordProviderUsage(usage.Facts{})
 
@@ -103,7 +103,7 @@ func TestUsageExtractor_RecordedUsageModifiersFeedTranslatedPaths(t *testing.T) 
 }
 
 func TestUsageExtractor_NilUsageModifiersAreZero(t *testing.T) {
-	var ext *telemetry.UsageExtractor
+	var ext *otel.UsageExtractor
 	assert.Equal(t, catalog.UsageModifiers{}, ext.UsageModifiers())
 	assert.Empty(t, ext.Speed())
 	assert.Empty(t, ext.InferenceGeo())

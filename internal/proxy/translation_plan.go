@@ -318,13 +318,16 @@ func (s *Service) applyTranslationPlan(ctx context.Context, req router.Request) 
 		req.ExcludedModels = plan.ExcludedModels
 	}
 	for _, exclusion := range plan.Exclusions {
-		s.recordTranslationCompatibility(ctx,
-			exclusion.Code,
-			string(req.TranslationRequirements.SourceFormat),
-			familyName(plan.TargetFamily),
-			string(s.translationCompatibilityMode),
-			exclusion.Enforced,
-		)
+		if s.translationMetrics != nil {
+			s.translationMetrics.RecordTranslationCompatibility(
+				ctx,
+				exclusion.Code,
+				string(req.TranslationRequirements.SourceFormat),
+				familyName(plan.TargetFamily),
+				string(s.translationCompatibilityMode),
+				exclusion.Enforced,
+			)
+		}
 		telemetry.RecordLog(ctx, telemetry.LogRecord{
 			Name: "translation.compatibility",
 			Time: time.Now(),

@@ -2938,10 +2938,6 @@ type usageExtractorProvider interface {
 	NewUsageExtractor(http.ResponseWriter, string) (*telemetry.UsageExtractor, http.ResponseWriter)
 }
 
-type translationMetricsProvider interface {
-	TranslationMetrics() telemetry.TranslationMetrics
-}
-
 func (s *Service) newUsageExtractor(inner http.ResponseWriter, provider string) (*telemetry.UsageExtractor, http.ResponseWriter) {
 	if factory, ok := s.emitter.(usageExtractorProvider); ok {
 		return factory.NewUsageExtractor(inner, provider)
@@ -2949,32 +2945,8 @@ func (s *Service) newUsageExtractor(inner http.ResponseWriter, provider string) 
 	return newFallbackUsageExtractor(inner, provider)
 }
 
-func (s *Service) recordTranslationCompatibility(ctx context.Context, requirement, sourceFormat, targetFamily, mode string, enforced bool) {
-	if s.translationMetrics != nil {
-		s.translationMetrics.RecordTranslationCompatibility(ctx, requirement, sourceFormat, targetFamily, mode, enforced)
-		return
-	}
-	if provider, ok := s.emitter.(translationMetricsProvider); ok {
-		if metrics := provider.TranslationMetrics(); metrics != nil {
-			metrics.RecordTranslationCompatibility(ctx, requirement, sourceFormat, targetFamily, mode, enforced)
-		}
-	}
-}
-
-func (s *Service) recordTranslationTransform(ctx context.Context, code, action, sourceFormat, mode string) {
-	if s.translationMetrics != nil {
-		s.translationMetrics.RecordTranslationTransform(ctx, code, action, sourceFormat, mode)
-		return
-	}
-	if provider, ok := s.emitter.(translationMetricsProvider); ok {
-		if metrics := provider.TranslationMetrics(); metrics != nil {
-			metrics.RecordTranslationTransform(ctx, code, action, sourceFormat, mode)
-		}
-	}
-}
-
 // WithTranslationMetrics installs adapter-backed translation counters on the
-// service and returns it for constructor chaining; nil preserves emitter lookup.
+// service and returns it for constructor chaining. A nil value disables them.
 func (s *Service) WithTranslationMetrics(metrics telemetry.TranslationMetrics) *Service {
 	s.translationMetrics = metrics
 	return s

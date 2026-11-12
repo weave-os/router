@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	telemetry "weave-os/router/internal/observability/otel"
+	otel "weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/usage"
@@ -65,7 +65,7 @@ func TestUsageFactsNativeAndTranslatedPaths(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			native := telemetry.NewUsageExtractor(httptest.NewRecorder(), tt.provider)
+			native := otel.NewUsageExtractor(httptest.NewRecorder(), tt.provider)
 			_, err := native.Write([]byte(tt.body))
 			require.NoError(t, err)
 			assert.True(t, native.UsageFacts().Present)
@@ -75,11 +75,11 @@ func TestUsageFactsNativeAndTranslatedPaths(t *testing.T) {
 					label = "streaming"
 				}
 				t.Run(label, func(t *testing.T) {
-					nativeStream := telemetry.NewUsageExtractor(httptest.NewRecorder(), tt.provider)
+					nativeStream := otel.NewUsageExtractor(httptest.NewRecorder(), tt.provider)
 					_, err := nativeStream.Write([]byte(tt.sseBody))
 					require.NoError(t, err)
 					assert.Equal(t, native.UsageFacts(), nativeStream.UsageFacts())
-					sink := telemetry.NewUsageExtractor(nil, tt.provider)
+					sink := otel.NewUsageExtractor(nil, tt.provider)
 					rec := httptest.NewRecorder()
 					w := tt.translator(rec, sink)
 					if p, ok := w.(interface{ Prelude(bool) error }); tt.prelude && ok {

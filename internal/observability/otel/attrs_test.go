@@ -51,8 +51,10 @@ func TestAttrsToProtoPreservesScalarKindsAndZeroValues(t *testing.T) {
 }
 
 func TestAttrsToProtoConvertsIntegerArrays(t *testing.T) {
-	value := telemetry.NewAttrBuilder(1).IntSlice("ids", []int{7, 0, 42}).Build()[0].Value
-	out := attrsToProto([]telemetry.Attr{{Key: "ids", Value: value}})
+	out := attrsToProto([]telemetry.Attr{{
+		Key:   "ids",
+		Value: telemetry.NewAttrBuilder(1).IntSlice("ids", []int{7, 0, 42}).Build()[0].Value,
+	}})
 
 	array := out[0].Value.GetArrayValue()
 	if array == nil || len(array.Values) != 3 {

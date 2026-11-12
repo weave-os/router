@@ -40,13 +40,7 @@ func (m *translationMetrics) init() {
 }
 
 func (m *translationMetrics) RecordTranslationCompatibility(ctx context.Context, requirement, sourceFormat, targetFamily, mode string, enforced bool) {
-	if m == nil {
-		return
-	}
 	m.init()
-	if m.compatibilityCounter == nil {
-		return
-	}
 	m.compatibilityCounter.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("translation.requirement", requirement),
 		attribute.String("translation.source_format", sourceFormat),
@@ -57,13 +51,7 @@ func (m *translationMetrics) RecordTranslationCompatibility(ctx context.Context,
 }
 
 func (m *translationMetrics) RecordTranslationTransform(ctx context.Context, code, action, sourceFormat, mode string) {
-	if m == nil {
-		return
-	}
 	m.init()
-	if m.transformCounter == nil {
-		return
-	}
 	m.transformCounter.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("translation.code", code),
 		attribute.String("translation.action", action),

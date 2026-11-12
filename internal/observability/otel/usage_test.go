@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	telemetry "weave-os/router/internal/observability/otel"
+	otel "weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/usage"
 
@@ -16,7 +16,7 @@ import (
 
 func TestUsageExtractor_AnthropicNonStreaming(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "anthropic")
+	ext := otel.NewUsageExtractor(rec, "anthropic")
 
 	body := `{"id":"msg_123","type":"message","role":"assistant","content":[{"type":"text","text":"Hello!"}],"model":"claude-sonnet-4-5","stop_reason":"end_turn","usage":{"input_tokens":42,"output_tokens":17}}`
 	_, err := ext.Write([]byte(body))
@@ -29,7 +29,7 @@ func TestUsageExtractor_AnthropicNonStreaming(t *testing.T) {
 
 func TestUsageExtractor_AnthropicStreaming(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "anthropic")
+	ext := otel.NewUsageExtractor(rec, "anthropic")
 
 	events := []string{
 		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-sonnet-4-5\",\"usage\":{\"input_tokens\":100,\"output_tokens\":0}}}\n\n",
@@ -49,7 +49,7 @@ func TestUsageExtractor_AnthropicStreaming(t *testing.T) {
 
 func TestUsageExtractor_OpenAINonStreaming(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "openai")
+	ext := otel.NewUsageExtractor(rec, "openai")
 
 	body := `{"id":"chatcmpl-1","object":"chat.completion","choices":[{"message":{"role":"assistant","content":"Hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":15,"completion_tokens":8,"total_tokens":23}}`
 	_, err := ext.Write([]byte(body))
@@ -62,7 +62,7 @@ func TestUsageExtractor_OpenAINonStreaming(t *testing.T) {
 
 func TestUsageExtractor_OpenAIStreaming(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "openai")
+	ext := otel.NewUsageExtractor(rec, "openai")
 
 	events := []string{
 		"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n",
@@ -87,7 +87,7 @@ func TestUsageExtractor_OpenAIResponsesStreaming(t *testing.T) {
 	// not the chat-completions prompt_tokens shape. Billing the 5% subscription
 	// fee depends on this parse.
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "openai")
+	ext := otel.NewUsageExtractor(rec, "openai")
 
 	events := []string{
 		"event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n",
@@ -108,7 +108,7 @@ func TestUsageExtractor_OpenAIResponsesStreaming(t *testing.T) {
 
 func TestUsageExtractor_OpenAIResponsesCacheWriteTokens(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "openai")
+	ext := otel.NewUsageExtractor(rec, "openai")
 
 	events := []string{
 		"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"usage\":{\"input_tokens\":1200,\"output_tokens\":34,\"input_tokens_details\":{\"cached_tokens\":800,\"cache_write_tokens\":256}}}}\n\n",
@@ -129,7 +129,7 @@ func TestUsageExtractor_ReasoningTokens(t *testing.T) {
 		"chat":      {"openai", "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":120,\"completion_tokens\":34,\"completion_tokens_details\":{\"reasoning_tokens\":21}}}\n\n"},
 		"gemini":    {"google", "data: {\"usageMetadata\":{\"promptTokenCount\":120,\"candidatesTokenCount\":13,\"thoughtsTokenCount\":21}}\n\n"},
 	} {
-		ext := telemetry.NewUsageExtractor(httptest.NewRecorder(), tc.provider)
+		ext := otel.NewUsageExtractor(httptest.NewRecorder(), tc.provider)
 		_, err := ext.Write([]byte(tc.body))
 		require.NoError(t, err)
 		assert.Equal(t, 21, ext.ReasoningTokens(), name)
@@ -149,7 +149,7 @@ func TestUsageExtractor_BilledOutputIncludesReasoningExactlyOnce(t *testing.T) {
 		"xai_via_openrouter": {providers.ProviderOpenRouter, openAIChat},
 		"openai":             {providers.ProviderOpenAI, openAIChat},
 	} {
-		ext := telemetry.NewUsageExtractor(httptest.NewRecorder(), tc.provider)
+		ext := otel.NewUsageExtractor(httptest.NewRecorder(), tc.provider)
 		_, err := ext.Write([]byte(tc.body))
 		require.NoError(t, err)
 		in, out := ext.Tokens()
@@ -162,12 +162,12 @@ func TestUsageExtractor_BilledOutputIncludesReasoningExactlyOnce(t *testing.T) {
 func TestUsageExtractor_RecordedXAIUsageIncludesReasoning(t *testing.T) {
 	// Cross-format turns record usage from the translator rather than sniffing
 	// the client-bound bytes; the xAI correction must apply on that path too.
-	ext := telemetry.NewUsageExtractor(nil, providers.ProviderXAI)
+	ext := otel.NewUsageExtractor(nil, providers.ProviderXAI)
 	ext.RecordProviderUsage(usage.Facts{Present: true, Input: usage.Reported(663), Output: usage.Reported(50), Reasoning: usage.Reported(124)})
 	_, out := ext.Tokens()
 	assert.Equal(t, 174, out)
 
-	nonReasoning := telemetry.NewUsageExtractor(nil, providers.ProviderXAI)
+	nonReasoning := otel.NewUsageExtractor(nil, providers.ProviderXAI)
 	nonReasoning.RecordProviderUsage(usage.Facts{Present: true, Input: usage.Reported(663), Output: usage.Reported(50)})
 	_, out = nonReasoning.Tokens()
 	assert.Equal(t, 50, out)
@@ -175,7 +175,7 @@ func TestUsageExtractor_RecordedXAIUsageIncludesReasoning(t *testing.T) {
 
 func TestUsageExtractor_OpenAIResponsesNonStreaming(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "openai")
+	ext := otel.NewUsageExtractor(rec, "openai")
 
 	body := `{"id":"resp_2","object":"response","usage":{"input_tokens":50,"output_tokens":9,"input_tokens_details":{"cached_tokens":0}}}`
 	_, err := ext.Write([]byte(body))
@@ -188,7 +188,7 @@ func TestUsageExtractor_OpenAIResponsesNonStreaming(t *testing.T) {
 
 func TestUsageExtractor_GoogleStreaming(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "google")
+	ext := otel.NewUsageExtractor(rec, "google")
 
 	events := []string{
 		"data: {\"id\":\"chatcmpl-g\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"delta\":{\"content\":\"Yo\"}}]}\n\n",
@@ -208,7 +208,7 @@ func TestUsageExtractor_GoogleStreaming(t *testing.T) {
 
 func TestUsageExtractor_NoUsageReturnsZero(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "anthropic")
+	ext := otel.NewUsageExtractor(rec, "anthropic")
 
 	body := `{"id":"msg_1","type":"message","content":[]}`
 	_, err := ext.Write([]byte(body))
@@ -225,7 +225,7 @@ func TestUsageExtractor_NoUsageReturnsZero(t *testing.T) {
 
 func TestUsageExtractor_AnthropicCacheTokens_NonStreaming(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "anthropic")
+	ext := otel.NewUsageExtractor(rec, "anthropic")
 
 	body := `{"id":"msg_456","type":"message","role":"assistant","content":[{"type":"text","text":"OK"}],"model":"claude-sonnet-4-5","stop_reason":"end_turn","usage":{"input_tokens":42,"output_tokens":17,"cache_creation_input_tokens":256,"cache_read_input_tokens":1024}}`
 	_, err := ext.Write([]byte(body))
@@ -242,7 +242,7 @@ func TestUsageExtractor_AnthropicCacheTokens_NonStreaming(t *testing.T) {
 
 func TestUsageExtractor_AnthropicCacheTokens_Streaming(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "anthropic")
+	ext := otel.NewUsageExtractor(rec, "anthropic")
 
 	// cache tokens arrive in message_start; subsequent message_delta carries
 	// only output_tokens and must not clobber the cache values.
@@ -268,7 +268,7 @@ func TestUsageExtractor_AnthropicCacheTokens_Streaming(t *testing.T) {
 
 func TestUsageExtractor_OpenAICacheTokens_NonStreaming(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "openai")
+	ext := otel.NewUsageExtractor(rec, "openai")
 
 	// OpenAI exposes cached prompt tokens via prompt_tokens_details.cached_tokens.
 	// GPT-5.4 and earlier have no write field, so cache_creation stays at 0.
@@ -287,7 +287,7 @@ func TestUsageExtractor_OpenAICacheTokens_NonStreaming(t *testing.T) {
 
 func TestUsageExtractor_OpenAIChatCompletionsCacheWriteTokens(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "openai")
+	ext := otel.NewUsageExtractor(rec, "openai")
 
 	body := `{"id":"chatcmpl-2","object":"chat.completion","choices":[{"message":{"role":"assistant","content":"Hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":80,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":42,"cache_write_tokens":16}}}`
 	_, err := ext.Write([]byte(body))
@@ -300,7 +300,7 @@ func TestUsageExtractor_OpenAIChatCompletionsCacheWriteTokens(t *testing.T) {
 
 func TestUsageExtractor_OpenAICacheTokens_Streaming(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "openai")
+	ext := otel.NewUsageExtractor(rec, "openai")
 
 	events := []string{
 		"data: {\"id\":\"chatcmpl-2\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n",
@@ -324,7 +324,7 @@ func TestUsageExtractor_OpenAICacheTokens_Streaming(t *testing.T) {
 
 func TestUsageExtractor_GoogleNativeCacheTokens_NonStreaming(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "google")
+	ext := otel.NewUsageExtractor(rec, "google")
 
 	// Native Gemini :generateContent body — no "usage" field, only "usageMetadata"
 	// with cachedContentTokenCount. Without the native-shape branch the
@@ -344,7 +344,7 @@ func TestUsageExtractor_GoogleNativeCacheTokens_NonStreaming(t *testing.T) {
 
 func TestUsageExtractor_GoogleNativeThoughtsTokensCountAsOutput(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "google")
+	ext := otel.NewUsageExtractor(rec, "google")
 
 	body := `{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":7,"thoughtsTokenCount":250,"totalTokenCount":357}}`
 	_, err := ext.Write([]byte(body))
@@ -359,7 +359,7 @@ func TestUsageExtractor_AnthropicGatewayStreaming(t *testing.T) {
 	// Gateway providers use the native path (no translator RecordUsage call),
 	// so the extractor's sniffing is the only usage source.
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "anthropic_gateway")
+	ext := otel.NewUsageExtractor(rec, "anthropic_gateway")
 
 	events := []string{
 		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":100,\"output_tokens\":0,\"cache_read_input_tokens\":900}}}\n\n",
@@ -380,7 +380,7 @@ func TestUsageExtractor_AnthropicGatewayStreaming(t *testing.T) {
 
 func TestUsageExtractor_OpenAIGatewayStreaming(t *testing.T) {
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "openai_gateway")
+	ext := otel.NewUsageExtractor(rec, "openai_gateway")
 
 	events := []string{
 		"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"delta\":{\"content\":\"Hi\"}}]}\n\n",
@@ -401,7 +401,7 @@ func TestUsageExtractor_RecordedUsageSurvivesUsagelessChunk(t *testing.T) {
 	// Some OpenAI-compat upstreams keep emitting a null/empty usage object
 	// after the terminal chunk; that must not wipe the counts already seen.
 	rec := httptest.NewRecorder()
-	ext := telemetry.NewUsageExtractor(rec, "openai_gateway")
+	ext := otel.NewUsageExtractor(rec, "openai_gateway")
 
 	events := []string{
 		"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":12}}\n\n",
@@ -418,7 +418,7 @@ func TestUsageExtractor_RecordedUsageSurvivesUsagelessChunk(t *testing.T) {
 }
 
 func TestUsageExtractor_RecordCacheUsage_NilReceiver(t *testing.T) {
-	var ext *telemetry.UsageExtractor
+	var ext *otel.UsageExtractor
 	creation, read := ext.CacheTokens()
 	assert.Equal(t, 0, creation)
 	assert.Equal(t, 0, read)
@@ -504,7 +504,7 @@ func TestUsageExtractor_AnthropicResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ext := telemetry.NewUsageExtractor(httptest.NewRecorder(), tt.provider)
+			ext := otel.NewUsageExtractor(httptest.NewRecorder(), tt.provider)
 			for _, w := range tt.writes {
 				_, err := ext.Write([]byte(w))
 				require.NoError(t, err)
@@ -612,7 +612,7 @@ func TestUsageExtractor_OpenAIChatResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ext := telemetry.NewUsageExtractor(httptest.NewRecorder(), tt.provider)
+			ext := otel.NewUsageExtractor(httptest.NewRecorder(), tt.provider)
 			for _, w := range tt.writes {
 				_, err := ext.Write([]byte(w))
 				require.NoError(t, err)
@@ -627,7 +627,7 @@ func TestUsageExtractor_OpenAIChatResponse(t *testing.T) {
 }
 
 func TestUsageExtractor_OpenAIChatResponse_NilReceiver(t *testing.T) {
-	var ext *telemetry.UsageExtractor
+	var ext *otel.UsageExtractor
 	finishReason, toolCalls, observed := ext.OpenAIChatResponse()
 	assert.Equal(t, "", finishReason)
 	assert.Equal(t, 0, toolCalls)
@@ -635,7 +635,7 @@ func TestUsageExtractor_OpenAIChatResponse_NilReceiver(t *testing.T) {
 }
 
 func TestUsageExtractor_AnthropicResponse_NilReceiver(t *testing.T) {
-	var ext *telemetry.UsageExtractor
+	var ext *otel.UsageExtractor
 	stopReason, toolUseBlocks, observed := ext.AnthropicResponse()
 	assert.Equal(t, "", stopReason)
 	assert.Equal(t, 0, toolUseBlocks)
@@ -689,7 +689,7 @@ func TestUsageExtractor_OutputLimitEvidence(t *testing.T) {
 					}
 				}
 				rec := httptest.NewRecorder()
-				ext := telemetry.NewUsageExtractor(rec, tc.provider)
+				ext := otel.NewUsageExtractor(rec, tc.provider)
 				for start := 0; start < len(body); start += 7 {
 					_, err := ext.Write([]byte(body[start:min(start+7, len(body))]))
 					require.NoError(t, err)
@@ -704,18 +704,18 @@ func TestUsageExtractor_OutputLimitEvidence(t *testing.T) {
 }
 
 func TestUsageExtractor_OutputLimitIsAttemptScoped(t *testing.T) {
-	capped := telemetry.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderOpenAI)
+	capped := otel.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderOpenAI)
 	_, err := capped.Write([]byte("data: {\"choices\":[{\"finish_reason\":\"length\"}]}\n\n"))
 	require.NoError(t, err)
 	_, err = capped.Write([]byte("data: {\"choices\":[],\"usage\":{\"completion_tokens\":128}}\n\n"))
 	require.NoError(t, err)
 	assert.True(t, capped.OutputLimitReached(), "usage-only tails cannot erase the terminal cap")
 
-	winner := telemetry.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderOpenAI)
+	winner := otel.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderOpenAI)
 	_, err = winner.Write([]byte("data: {\"choices\":[{\"finish_reason\":\"tool_calls\"}],\"usage\":{\"completion_tokens\":32000}}\n\n"))
 	require.NoError(t, err)
 	assert.False(t, winner.OutputLimitReached(), "another attempt has independent terminal evidence")
-	assert.False(t, (*telemetry.UsageExtractor)(nil).OutputLimitReached())
+	assert.False(t, (*otel.UsageExtractor)(nil).OutputLimitReached())
 }
 
 // usageSignals are the turn-ending signals the extractor derives from complete
@@ -742,7 +742,7 @@ type usageTotals struct {
 	cacheRead     int
 }
 
-func signalsOf(ext *telemetry.UsageExtractor) usageSignals {
+func signalsOf(ext *otel.UsageExtractor) usageSignals {
 	stopReason, toolUseBlocks, anthropicObserved := ext.AnthropicResponse()
 	finishReason, toolCalls, chatObserved := ext.OpenAIChatResponse()
 	return usageSignals{
@@ -756,7 +756,7 @@ func signalsOf(ext *telemetry.UsageExtractor) usageSignals {
 	}
 }
 
-func totalsOf(ext *telemetry.UsageExtractor) usageTotals {
+func totalsOf(ext *otel.UsageExtractor) usageTotals {
 	input, output := ext.Tokens()
 	cacheCreation, cacheRead := ext.CacheTokens()
 	return usageTotals{signals: signalsOf(ext), input: input, output: output, cacheCreation: cacheCreation, cacheRead: cacheRead}
@@ -784,7 +784,7 @@ func chunkEvery(body string, size int) []string {
 	return chunks
 }
 
-func writeChunks(t *testing.T, ext *telemetry.UsageExtractor, chunks []string) {
+func writeChunks(t *testing.T, ext *otel.UsageExtractor, chunks []string) {
 	t.Helper()
 	for _, chunk := range chunks {
 		_, err := ext.Write([]byte(chunk))
@@ -915,19 +915,19 @@ func TestUsageExtractor_FragmentationMatchesSingleWrite(t *testing.T) {
 	}
 	prefixSignals := func(t *testing.T, provider, prefix string) usageSignals {
 		t.Helper()
-		ext := telemetry.NewUsageExtractor(httptest.NewRecorder(), provider)
+		ext := otel.NewUsageExtractor(httptest.NewRecorder(), provider)
 		writeChunks(t, ext, []string{prefix})
 		return signalsOf(ext)
 	}
 	for _, fx := range fixtures {
 		t.Run(fx.name, func(t *testing.T) {
-			oracle := telemetry.NewUsageExtractor(httptest.NewRecorder(), fx.provider)
+			oracle := otel.NewUsageExtractor(httptest.NewRecorder(), fx.provider)
 			writeChunks(t, oracle, []string{fx.body})
 			require.Equal(t, fx.want, totalsOf(oracle), "single write must produce the expected totals")
 
 			for _, size := range chunkSizesFor(fx.body) {
 				rec := httptest.NewRecorder()
-				ext := telemetry.NewUsageExtractor(rec, fx.provider)
+				ext := otel.NewUsageExtractor(rec, fx.provider)
 				writeChunks(t, ext, chunkEvery(fx.body, size))
 				assert.Equal(t, fx.want, totalsOf(ext), "chunk size %d", size)
 				assert.Equal(t, fx.body, rec.Body.String(), "chunk size %d", size)
@@ -938,7 +938,7 @@ func TestUsageExtractor_FragmentationMatchesSingleWrite(t *testing.T) {
 			}
 			for i := 1; i < len(fx.body); i++ {
 				rec := httptest.NewRecorder()
-				ext := telemetry.NewUsageExtractor(rec, fx.provider)
+				ext := otel.NewUsageExtractor(rec, fx.provider)
 				writeChunks(t, ext, []string{fx.body[:i]})
 				require.Equal(t, prefixSignals(t, fx.provider, fx.body[:i]), signalsOf(ext), "signals after the first write, split at %d", i)
 				writeChunks(t, ext, []string{fx.body[i:]})
@@ -956,7 +956,7 @@ func TestUsageExtractor_JSONFallbackObservesUsageOnTheWriteThatCompletesIt(t *te
 	body := `{"id":"msg_1","type":"message","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":42,"output_tokens":17}}`
 	usageEnd := strings.Index(body, `"output_tokens":17}`) + len(`"output_tokens":17}`)
 
-	ext := telemetry.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderAnthropic)
+	ext := otel.NewUsageExtractor(httptest.NewRecorder(), providers.ProviderAnthropic)
 	writeChunks(t, ext, []string{body[:usageEnd]})
 	input, output := ext.Tokens()
 	assert.Equal(t, 42, input)
