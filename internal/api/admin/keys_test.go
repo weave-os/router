@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -388,7 +389,7 @@ func upsertKeyEngine(svc *auth.Service) *gin.Engine {
 	return upsertKeyEngineWithModels(svc, nil)
 }
 
-func upsertKeyEngineWithModels(svc *auth.Service, models admin.DeployedModelsSource) *gin.Engine {
+func upsertKeyEngineWithModels(svc *auth.Service, models admin.HMMRosterSource) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.POST("/admin/v1/provider-keys", func(c *gin.Context) {
@@ -538,7 +539,7 @@ func TestUpsertExternalKeyHandler_PersistsAndReturnsModelAliases(t *testing.T) {
 	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropic), "")
 
 	repo := &fakeExternalAPIKeyRepo{}
-	models := fakeDeployedModels{entries: []router.DeployedEntry{
+	models := &fakeHMMRoster{entries: []router.DeployedEntry{
 		{Model: "claude-fable-5", Provider: providers.ProviderAnthropic},
 	}}
 	rec := postProviderKeyWithAliases(
@@ -563,7 +564,7 @@ func TestUpsertExternalKeyHandler_RejectsAliasForUnknownModel(t *testing.T) {
 	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropic), "")
 
 	repo := &fakeExternalAPIKeyRepo{}
-	models := fakeDeployedModels{entries: []router.DeployedEntry{
+	models := &fakeHMMRoster{entries: []router.DeployedEntry{
 		{Model: "claude-fable-5", Provider: providers.ProviderAnthropic},
 	}}
 	rec := postProviderKeyWithAliases(
@@ -645,7 +646,7 @@ func TestUpsertExternalKeyHandler_RejectsCollidingHeaderDestinationsBeforeReplac
 		"invalid effective configuration must leave the active key untouched")
 }
 
-func aliasUpdateEngine(svc *auth.Service, models admin.DeployedModelsSource) *gin.Engine {
+func aliasUpdateEngine(svc *auth.Service, models admin.HMMRosterSource) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.PUT("/admin/v1/provider-keys/:id/model-aliases", func(c *gin.Context) {
@@ -667,7 +668,7 @@ func TestUpdateExternalKeyAliasesHandler_ReplacesAliasesWithoutTheSecret(t *test
 	repo := &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{
 		{ID: "ext-1", InstallationID: "inst-1", Provider: providers.ProviderOpenAIGateway},
 	}}
-	models := fakeDeployedModels{entries: []router.DeployedEntry{{Model: "gpt-5", Provider: providers.ProviderOpenAI}}}
+	models := &fakeHMMRoster{entries: []router.DeployedEntry{{Model: "gpt-5", Provider: providers.ProviderOpenAI}}}
 
 	rec := putModelAliases(aliasUpdateEngine(newUpsertKeyService(repo), models), "ext-1", map[string]string{"gpt-5": "openai-gpt-5"})
 
@@ -685,7 +686,7 @@ func TestUpdateExternalKeyAliasesHandler_RejectsUnknownCatalogModel(t *testing.T
 	repo := &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{
 		{ID: "ext-1", InstallationID: "inst-1", Provider: providers.ProviderOpenAIGateway},
 	}}
-	models := fakeDeployedModels{entries: []router.DeployedEntry{{Model: "gpt-5", Provider: providers.ProviderOpenAI}}}
+	models := &fakeHMMRoster{entries: []router.DeployedEntry{{Model: "gpt-5", Provider: providers.ProviderOpenAI}}}
 
 	rec := putModelAliases(aliasUpdateEngine(newUpsertKeyService(repo), models), "ext-1", map[string]string{"gpt-6": "openai-gpt-6"})
 
@@ -693,11 +694,31 @@ func TestUpdateExternalKeyAliasesHandler_RejectsUnknownCatalogModel(t *testing.T
 	assert.Nil(t, repo.keys[0].ModelAliases, "a typo'd catalog id must fail at write time, not silently at runtime")
 }
 
+func TestExternalKeyHandlers_RosterUnavailableIs503(t *testing.T) {
+	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropic), "")
+	models := &fakeHMMRoster{err: errors.New("policy not loaded")}
+
+	repo := &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{
+		{ID: "ext-1", InstallationID: "inst-1", Provider: providers.ProviderOpenAIGateway},
+	}}
+	upsert := postProviderKeyWithAliases(
+		upsertKeyEngineWithModels(newUpsertKeyService(repo), models),
+		providers.ProviderAnthropic,
+		map[string]string{"claude-fable-5": "gateway-claude-fable-5"},
+	)
+	assert.Equal(t, http.StatusServiceUnavailable, upsert.Code)
+	assert.Zero(t, repo.created, "aliases must not be stored unvalidated when the roster is unavailable")
+
+	update := putModelAliases(aliasUpdateEngine(newUpsertKeyService(repo), models), "ext-1", map[string]string{"gpt-5": "openai-gpt-5"})
+	assert.Equal(t, http.StatusServiceUnavailable, update.Code)
+	assert.Nil(t, repo.keys[0].ModelAliases)
+}
+
 func TestUpdateExternalKeyAliasesHandler_ForeignKeyIsNotFound(t *testing.T) {
 	repo := &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{
 		{ID: "ext-1", InstallationID: "inst-2", Provider: providers.ProviderOpenAIGateway},
 	}}
-	models := fakeDeployedModels{entries: []router.DeployedEntry{{Model: "gpt-5", Provider: providers.ProviderOpenAI}}}
+	models := &fakeHMMRoster{entries: []router.DeployedEntry{{Model: "gpt-5", Provider: providers.ProviderOpenAI}}}
 
 	rec := putModelAliases(aliasUpdateEngine(newUpsertKeyService(repo), models), "ext-1", map[string]string{"gpt-5": "openai-gpt-5"})
 

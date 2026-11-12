@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
 )
 
@@ -54,6 +55,30 @@ func TestHMMRosterSource_MapsAndCaches(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, first, second)
 	assert.Equal(t, int64(1), fetch.calls.Load())
+}
+
+type stubActivePolicyFetcher struct {
+	*stubRosterFetcher
+	active atomic.Pointer[policyregistry.Snapshot]
+}
+
+func (s *stubActivePolicyFetcher) Active() *policyregistry.Snapshot { return s.active.Load() }
+
+func TestHMMRosterSource_RefetchesWhenActivePolicyChanges(t *testing.T) {
+	fetch := &stubActivePolicyFetcher{stubRosterFetcher: &stubRosterFetcher{ids: []string{"openai/gpt-5.6-sol"}}}
+	fetch.active.Store(&policyregistry.Snapshot{})
+	src := newHMMRosterSource(fetch, 0)
+
+	_, err := src.HMMDeployedModels(context.Background())
+	require.NoError(t, err)
+
+	fetch.ids = []string{"anthropic/claude-opus-5"}
+	fetch.active.Store(&policyregistry.Snapshot{})
+	updated, err := src.HMMDeployedModels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, updated, 1)
+	assert.Equal(t, "claude-opus-5", updated[0].Model, "a newly activated policy must not wait out the TTL")
+	assert.Equal(t, int64(2), fetch.calls.Load())
 }
 
 // countingHandler counts records at or above WARN; slog.Handler for tests.

@@ -50,7 +50,7 @@ class _FakeRouter(BaseHTTPRequestHandler):
             return self._send(401, {"error": "invalid_key"})
         if self.path == "/v1/version":
             return self._send(
-                200, {"commit": "7523cdb", "display": "#1209 (7523cdb)", "cluster_version": "artifacts/latest"}
+                200, {"commit": "7523cdb", "display": "#1209 (7523cdb)", "policy_release_id": "rel-7523cdb"}
             )
         if self.path == "/v1/router/hmm-roster":
             return self._send(200, {"roster_sha256": "ae0e" * 16})
@@ -83,6 +83,7 @@ def test_probe_reports_version_roster_and_beta_ack(fake_router: str) -> None:
     assert probe.roster_sha256 == "ae0e" * 16
     rendered = probe.render()
     assert "router commit: #1209 (7523cdb)" in rendered
+    assert "stable policy release: rel-7523cdb" in rendered
     assert "beta lane enabled for this key: yes" in rendered
     ((headers, body),) = _FakeRouter.responses_requests
     assert body == {"model": "gpt-5.6-sol", "input": "/beta", "stream": False}

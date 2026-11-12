@@ -30,7 +30,7 @@ type updateAllowedModelsRequest struct {
 // GetAllowedModelsHandler returns deployed models and the installation's
 // positive allowlist. An empty list means no restriction — every deployed
 // model is routable, subject to the separate exclusion list.
-func GetAllowedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource) gin.HandlerFunc {
+func GetAllowedModelsHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
 		if !ok {
@@ -50,7 +50,7 @@ func GetAllowedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource) gin.
 // UpdateAllowedModelsHandler replaces the installation's positive allowlist.
 // 400 on unknown model IDs, and on an allowlist with no routable member.
 // Unlike the exclusion list there is no env override to contend with.
-func UpdateAllowedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource, routable RoutableModelsSource) gin.HandlerFunc {
+func UpdateAllowedModelsHandler(authSvc *auth.Service, routable RoutableModelsSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		installation, ok := resolveInstallation(c, authSvc)

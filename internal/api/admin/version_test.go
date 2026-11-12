@@ -34,12 +34,11 @@ func TestVersionHandler(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var body struct {
-		Commit         string `json:"commit"`
-		CommitShort    string `json:"commit_short"`
-		PR             string `json:"pr"`
-		Display        string `json:"display"`
-		BuildTime      string `json:"build_time"`
-		ClusterVersion string `json:"cluster_version"`
+		Commit      string `json:"commit"`
+		CommitShort string `json:"commit_short"`
+		PR          string `json:"pr"`
+		Display     string `json:"display"`
+		BuildTime   string `json:"build_time"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 
@@ -47,7 +46,7 @@ func TestVersionHandler(t *testing.T) {
 	assert.Equal(t, "0fb46ee", body.CommitShort)
 	assert.Equal(t, "572", body.PR)
 	assert.Equal(t, "#572 (0fb46ee)", body.Display)
-	assert.Equal(t, "v0.71", body.ClusterVersion)
+	assert.NotContains(t, rec.Body.String(), "cluster_version")
 	assert.NotContains(t, rec.Body.String(), "policy_release_id")
 }
 

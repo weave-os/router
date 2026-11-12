@@ -204,6 +204,9 @@ const (
 	// ModelIDGemini4Argon is the canonical Gemini 4 Argon routing ID.
 	ModelIDGemini4Argon       ModelID = router.ModelGemini4Argon
 	ModelIDClaudeHaiku45      ModelID = "claude-haiku-4-5"
+	ModelIDClaudeHaiku55      ModelID = "claude-haiku-5-5"
+	ModelIDGPT41Nano          ModelID = "gpt-4.1-nano"
+	ModelIDGPT41Mini          ModelID = "gpt-4.1-mini"
 	ModelIDClaudeSonnet46     ModelID = "claude-sonnet-4-6"
 	ModelIDClaudeOpus47       ModelID = "claude-opus-4-7"
 	ModelIDGPT56Luna          ModelID = "gpt-5.6-luna"
