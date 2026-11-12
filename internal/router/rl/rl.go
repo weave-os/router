@@ -12,7 +12,7 @@
 //
 // It is opt-in via the x-weave-router-strategy: rl header and is never a silent
 // fallback — every failure path returns ErrPolicyUnavailable so the API layer
-// maps it to HTTP 503 (the same contract as cluster.ErrClusterUnavailable),
+// maps it to HTTP 503 (the same contract as router.ErrRoutingUnavailable),
 // rather than masking a regression by quietly serving a default model.
 package rl
 

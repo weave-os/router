@@ -698,7 +698,6 @@ type ResponsesWriter struct {
 	nativeSequenceShift         int64
 	outputIndexOffset           int
 	footerText                  string
-	footerEmitted               bool
 	sawToolCall                 bool
 	hasUpstreamOutput           bool
 	nativeHeldEvents            [][]byte

@@ -245,19 +245,6 @@ func openAIContentNeedsChatCompletions(body []byte) bool {
 	return unsupported
 }
 
-// reasoningEffortFromAnthropic is retained for callers that only need the
-// legacy effort projection. Target validation belongs to ApplyReasoningIntent.
-func reasoningEffortFromAnthropic(body []byte) string {
-	intent := ParseReasoningIntent(FormatAnthropic, body)
-	switch intent.Kind {
-	case ReasoningLevel:
-		return intent.Level
-	case ReasoningBudget:
-		return effortForBudget(intent.BudgetTokens)
-	}
-	return ""
-}
-
 // responsesReasoningEffort preserves client-selected effort. Routing policy may
 // select a model, but translation must not silently promote a valid level.
 func responsesReasoningEffort(eff, model string) string {
