@@ -77,3 +77,13 @@ func TestConversationIdentitySurvivesCompactionAndSubagents(t *testing.T) {
 		assert.Equal(t, "conversation", requestcontext.CanonicalConversationID(headers, []byte(body), requestcontext.ConversationChat))
 	}
 }
+
+func TestCursorAgentSessionIDStorePathWithSpaces(t *testing.T) {
+	const agentID = "5fd236bb-2901-4cf0-8fa6-8f6ec342b8d2"
+	text := "<user_info>\\nAvailable persistent agent stores:\\n- Current agent's store: /Users/dev/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/" + agentID + "/files\\n- User's personal store: /Users/dev/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/t1-u2/files\\n</user_info>"
+	body := `{"messages":[{"role":"user","content":"` + text + `"}]}`
+	assert.Equal(t, agentID, requestcontext.CursorAgentSessionID([]byte(body)))
+
+	personalOnly := strings.Replace(body, "Current agent's store: /Users/dev/Library/Application Support/Cursor/AgentStores/cursor_agent_stores/"+agentID+"/files", "Current agent's store: none", 1)
+	assert.Empty(t, requestcontext.CursorAgentSessionID([]byte(personalOnly)), "the personal store must never be read as the agent id")
+}

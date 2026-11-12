@@ -21,7 +21,7 @@ func (s *Service) WithClaudeSubscriptionPlanReader(reader providers.Subscription
 }
 
 func (s *Service) withClaudeSubscriptionProfile(ctx context.Context, headers http.Header) context.Context {
-	if s.claudePlans == nil || subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || anthropicBYOKConfigured(ctx) {
+	if s.claudePlans == nil || subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || anthropicBYOKFirst(ctx) {
 		return ctx
 	}
 	var token []byte

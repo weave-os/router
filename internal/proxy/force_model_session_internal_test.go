@@ -352,7 +352,7 @@ func TestRunTurnLoop_SessionForceOverridesAuxiliaryHardPin(t *testing.T) {
 func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *testing.T) {
 	const (
 		apiKeyID     = "api-key"
-		fableModelID = "claude-fable-5-1"
+		fableModelID = "claude-fable-5-2"
 		astraModelID = "gpt-6-astra"
 	)
 	installationID := uuid.New()

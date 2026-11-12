@@ -13,7 +13,7 @@ Tracks the most recent rate-limit utilization each subscription backend reports 
 
 Quota observations guide temporary account cooldown and reset. Only Claude accounts identified as Enterprise by the authenticated provider profile use Enterprise-only billing. Pro, Max, Team and unknown plans are never identified from quota or overage observations. Organizations may explicitly opt out to restore Weave-funded fallback for verified Enterprise accounts. These observations cannot guarantee that a request never crosses into provider-enabled extra usage.
 
-Configured native Anthropic BYOK takes precedence over both caller OAuth and linked Claude accounts, including unknown quota. It disables Claude subscription bypass and does not require subscription exhaustion proof to dispatch on that key. This prevents a cold OAuth probe from already billing Enterprise overage; a BYOK credential failure never authorizes a subscription fallback. Codex subscription precedence is unchanged.
+A `key_first` BYOK key (every Anthropic key predating funding priorities) takes precedence over both caller OAuth and linked accounts of its provider, including unknown quota. It disables that provider's subscription bypass and does not require subscription exhaustion proof to dispatch on that key. This prevents a cold OAuth probe from already billing Enterprise overage; a BYOK credential failure never authorizes a subscription fallback. A `plan_first` key (the default for new keys, including OpenAI keys) leaves subscriptions first and serves turns no subscription credential covers.
 
 ## Consumers (both in package `proxy`)
 

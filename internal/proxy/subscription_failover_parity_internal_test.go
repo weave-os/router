@@ -166,8 +166,13 @@ func parityIngresses() []parityIngress {
 
 // byokCtx adds a BYOK key for the ingress' provider.
 func (in parityIngress) byokCtx(ctx context.Context) context.Context {
+	// Mirrors stored keys: Anthropic rows predating funding priorities are key-first.
+	priority := auth.FundingPriorityPlanFirst
+	if in.provider == providers.ProviderAnthropic {
+		priority = auth.FundingPriorityKeyFirst
+	}
 	return context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: in.provider, Plaintext: []byte(in.byokKey)},
+		{Provider: in.provider, Plaintext: []byte(in.byokKey), FundingPriority: priority},
 	})
 }
 
