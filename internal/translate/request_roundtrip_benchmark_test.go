@@ -70,15 +70,13 @@ var (
 	}
 )
 
-// translateChain parses body with the first hop's parser, then emits each
-// later hop's format from the previous hop's output.
 func translateChain(body []byte, chain []hotPathHop) ([]byte, error) {
 	for i := 1; i < len(chain); i++ {
-		env, err := chain[i-1].parse(body)
+		envelope, err := chain[i-1].parse(body)
 		if err != nil {
 			return nil, err
 		}
-		prepared, err := chain[i].prepare(env)
+		prepared, err := chain[i].prepare(envelope)
 		if err != nil {
 			return nil, err
 		}

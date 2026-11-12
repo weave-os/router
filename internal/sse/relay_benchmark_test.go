@@ -9,7 +9,6 @@ import (
 	"weave-os/router/internal/sse"
 )
 
-// discardFlusher is a streaming http.ResponseWriter that drops the body.
 type discardFlusher struct {
 	header  http.Header
 	written int
@@ -21,7 +20,6 @@ func (d *discardFlusher) WriteHeader(int)             {}
 func (d *discardFlusher) Write(p []byte) (int, error) { d.written += len(p); return len(p), nil }
 func (d *discardFlusher) Flush()                      { d.flushes++ }
 
-// relayStream is an upstream Anthropic stream of n text deltas.
 func relayStream(n int) []byte {
 	var b bytes.Buffer
 	b.WriteString("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_bench\",\"role\":\"assistant\",\"content\":[],\"usage\":{\"input_tokens\":100,\"output_tokens\":1}}}\n\n")
