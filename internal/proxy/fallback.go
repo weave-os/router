@@ -17,7 +17,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -254,7 +253,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 	}
 	if subscriptionStateModelsEnabled(ctx) && !subscriptionAttemptOnly(ctx) {
 		if _, allowed := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[in.initialDecision.Model]; !allowed {
-			return -1, cluster.ErrAllowlistEmptiesPool
+			return -1, router.ErrAllowlistEmptiesPool
 		}
 		if openRouterOverflowEnabled(ctx) && subscriptionAPIOnly(ctx) {
 			var err error

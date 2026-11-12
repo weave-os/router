@@ -7,7 +7,6 @@ import (
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 
@@ -58,7 +57,7 @@ func (s *Service) runAgentShadowEvaluationRoute(
 		return turnLoopResult{}, fmt.Errorf("agent-shadow planned model %q: %w", model, err)
 	}
 	if _, excluded := req.ExcludedModels[model]; excluded {
-		return turnLoopResult{}, fmt.Errorf("agent-shadow planned model %q is no longer eligible: %w", model, cluster.ErrNoEligibleProvider)
+		return turnLoopResult{}, fmt.Errorf("agent-shadow planned model %q is no longer eligible: %w", model, router.ErrNoEligibleProvider)
 	}
 	if req.EnabledProviders != nil {
 		if _, enabled := req.EnabledProviders[provider]; !enabled {
@@ -71,7 +70,7 @@ func (s *Service) runAgentShadowEvaluationRoute(
 				}
 			}
 			if provider == "" {
-				return turnLoopResult{}, fmt.Errorf("agent-shadow model %q has no enabled provider: %w", model, cluster.ErrNoEligibleProvider)
+				return turnLoopResult{}, fmt.Errorf("agent-shadow model %q has no enabled provider: %w", model, router.ErrNoEligibleProvider)
 			}
 		}
 	}
