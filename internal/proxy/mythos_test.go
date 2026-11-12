@@ -43,3 +43,22 @@ func TestMythos52ExplicitSelectionDispatchesExactModel(t *testing.T) {
 		})
 	}
 }
+
+func TestMythos52ExplicitSelectionWithAdvisor(t *testing.T) {
+	for _, advisor := range []string{"claude-fable-5-2", "claude-mythos-5-2"} {
+		t.Run(advisor, func(t *testing.T) {
+			fresh := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "fresh"}}
+			svc, upstream := newPinSvcCapturing(fresh, newFakePinStore())
+			body := []byte(`{"model":"claude-opus-5","max_tokens":20000,"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"advisor_20260301","name":"advisor","model":"` + advisor + `"}]}`)
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+			req.Header.Set(proxy.ForceModelHeader, "claude-mythos-5-2")
+			require.NoError(t, svc.ProxyMessages(authedCtx(uuid.NewString()), body, rec, req))
+			require.Len(t, upstream.proxyBodies, 1)
+			assert.Equal(t, "claude-mythos-5-2", rec.Header().Get(proxy.HeaderRouterModel))
+			assert.Equal(t, "claude-mythos-5-2", gjson.GetBytes(upstream.proxyBodies[0], "model").String())
+			assert.Equal(t, advisor, gjson.GetBytes(upstream.proxyBodies[0], "tools.0.model").String())
+			assert.Zero(t, fresh.routeCalls)
+		})
+	}
+}

@@ -293,6 +293,9 @@ func TestMythos52ExplicitOnlyAndPricing(t *testing.T) {
 	assert.Equal(t, 1_000_000, model.ContextWindow)
 	assert.Equal(t, 128_000, model.MaxOutputTokens)
 	assert.True(t, model.ForceModelOnly)
+	rank, ranked := AdvisorRankFor(id)
+	require.True(t, ranked)
+	assert.Equal(t, 10, rank)
 	require.Len(t, model.Providers, 1)
 	assert.Equal(t, providers.ProviderAnthropic, model.Providers[0].Provider)
 	available := map[string]struct{}{providers.ProviderAnthropic: {}}
