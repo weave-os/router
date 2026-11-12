@@ -23,7 +23,7 @@ Router PRs [#884](https://github.com/weave-os/router/pull/884) and [#792](https:
 | Classifier turn | `classifier` | main inference (scored, no session pin) | ingress surface purpose; `aux-classifier` policy retained but no longer dispatched | Phase 7 |
 | Probe turn | ingress purpose for auto/empty/`weave-*` routing models; `probe` for concrete requested target or explicit override | auxiliary inference | independent scorer without conversation state, concrete requested target, or explicit override | Phase 7 |
 | Sub-agent dispatch | `sub_agent_dispatch` | auxiliary inference | turn-type/operator hard pin | Phase 7 |
-| Client compaction turn | `client_compaction` | client authoritative | client body on the session pin, else the scorer | Phase 7 |
+| Client compaction turn | `client_compaction` | client authoritative | client body on an eligible forced model, else the session pin, else the scorer | Phase 7 |
 | Agent shadow evaluation | `agent_shadow_evaluation` | auxiliary inference | request-scoped explicit catalog target | Phase 8 |
 | Anthropic `count_tokens` | `count_tokens` | metadata passthrough | named-provider passthrough with local estimate rescue | Phase 5 metadata method |
 | Upstream model listing | `upstream_model_listing` | metadata passthrough | provider adapter list methods | remains non-selection |

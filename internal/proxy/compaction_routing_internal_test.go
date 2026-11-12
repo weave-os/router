@@ -160,7 +160,7 @@ func TestCompactionStaysOnSessionPin(t *testing.T) {
 			assert.Equal(t, turntype.Compaction, turn.TurnType)
 			assert.Equal(t, test.pin.Model, turn.Decision.Model)
 			assert.Equal(t, test.pin.Provider, turn.Decision.Provider)
-			assert.Zero(t, f.scorerCalls.Load(), "a usable session pin skips the scorer")
+			assert.Equal(t, compactionStrategyModel, turn.Fresh.Model, "the scorer still supplies rescue candidates")
 		})
 	}
 }

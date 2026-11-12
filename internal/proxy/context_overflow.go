@@ -162,12 +162,12 @@ func rescuesCompactionOverflow(turnType turntype.TurnType, err error) bool {
 	return turnType == turntype.Compaction && isContextOverflow(err)
 }
 
-// overflowRescueDecisions lists the stand-ins for an upstream overflow on a
-// turn other than the harness's own compaction: gateway-held models behind
+// overflowRescueDecisions lists the stand-ins for an upstream overflow on any
+// turn: gateway-held models behind
 // another gateway that the estimate fits. Peers on the failed gateway share the
 // window that just rejected the request, so without this the client is told to
 // compact a conversation the other gateway can still serve.
-func (s *Service) overflowRescueDecisions(ctx context.Context, failed router.Decision, turnType turntype.TurnType, est, sigSavings, outputReserve int) []router.Decision {
+func (s *Service) overflowRescueDecisions(ctx context.Context, failed router.Decision, est, sigSavings, outputReserve int) []router.Decision {
 	gateways := s.gatewayProvidersForRequest(ctx)
 	if len(gateways) == 0 {
 		return nil

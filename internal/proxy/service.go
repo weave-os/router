@@ -717,7 +717,8 @@ func suppressMarkerIfRequested(ctx context.Context, h http.Header, marker string
 // machineReadTurn reports turns whose reply the client parses, so they carry
 // no router text.
 func machineReadTurn(res turnLoopResult) bool {
-	return res.SuggestionMode || res.CallerModelPassthrough || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe
+	return res.SuggestionMode || res.CallerModelPassthrough || isUnpinnedScoredTurn(res.TurnType) ||
+		res.TurnType == turntype.Probe || res.TurnType == turntype.Compaction
 }
 
 // Child replies feed back into the parent, so slow-start notices would pollute
@@ -5138,7 +5139,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// not buy a paid sibling.
 	subscriptionOnlySibling := siblingViable && !s.shouldFailover(ctx) &&
 		!s.gatewaySiblingAllowed(ctx, siblingDecisions[0]) && s.subscriptionSiblingAllowed(ctx)
-	overflowRescue := s.overflowRescueDecisions(ctx, decision, routeRes.TurnType, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
+	overflowRescue := s.overflowRescueDecisions(ctx, decision, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
 	overflowRescueViable := len(overflowRescue) > 0 &&
 		!agentShadowMode &&
 		!routeRes.CallerModelPassthrough &&
@@ -8586,7 +8587,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		s.siblingRescueAllowed(ctx, s.gatewaySiblingAllowed(ctx, siblingDecisions[0]))
 	subscriptionOnlySibling := siblingViable && !s.shouldFailover(ctx) &&
 		!s.gatewaySiblingAllowed(ctx, siblingDecisions[0]) && s.subscriptionSiblingAllowed(ctx)
-	overflowRescue := s.overflowRescueDecisions(ctx, decision, routeRes.TurnType, overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
+	overflowRescue := s.overflowRescueDecisions(ctx, decision, overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
 	overflowRescueViable := len(overflowRescue) > 0 &&
 		!routeRes.CallerModelPassthrough &&
 		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&

@@ -132,14 +132,13 @@ func TestOverflowRescueDecisionsSkipRescuerPastItsWindow(t *testing.T) {
 	svc, ctx, _, _ := gatewayOverflowFixture(nil, nil)
 	failed := router.Decision{Provider: providers.ProviderAnthropicGateway, Model: gatewayCompactionOpusModel}
 
-	fits := svc.overflowRescueDecisions(ctx, failed, "main_loop", 1000, 0, contextWindowOutputReserve)
+	fits := svc.overflowRescueDecisions(ctx, failed, 1000, 0, contextWindowOutputReserve)
 	require.Len(t, fits, 1)
 	assert.Equal(t, catalog.ModelGPT6Luna, fits[0].Model)
 	assert.Equal(t, providers.ProviderOpenAIGateway, fits[0].Provider)
 
 	lunaWindow := catalog.ContextWindowForBinding(catalog.ModelGPT6Luna, providers.ProviderOpenAIGateway)
-	assert.Empty(t, svc.overflowRescueDecisions(ctx, failed, "main_loop", lunaWindow, 0, contextWindowOutputReserve))
-	assert.Len(t, svc.overflowRescueDecisions(ctx, failed, "compaction", 1000, 0, contextWindowOutputReserve), 1, "compaction rescues across gateways like any turn")
+	assert.Empty(t, svc.overflowRescueDecisions(ctx, failed, lunaWindow, 0, contextWindowOutputReserve))
 }
 
 // Readmitting a cooling model must not widen the rescue past the
@@ -155,7 +154,7 @@ func TestOverflowRescueDecisionsKeepReadmissionInsideTheRescuers(t *testing.T) {
 	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{mini: time.Now().Add(time.Hour)})
 	failed := router.Decision{Provider: providers.ProviderAnthropicGateway, Model: gatewayCompactionOpusModel}
 
-	decisions := svc.overflowRescueDecisions(ctx, failed, "main_loop", 1000, 0, contextWindowOutputReserve)
+	decisions := svc.overflowRescueDecisions(ctx, failed, 1000, 0, contextWindowOutputReserve)
 
 	models := make([]string, 0, len(decisions))
 	for _, d := range decisions {
