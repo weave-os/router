@@ -214,7 +214,7 @@ func deriveSessionKey(env *translate.RequestEnvelope, apiKeyID, clientSessionID 
 		// separates them, and the harnesses that lead with system rewrite it
 		// per turn (cwd, timestamps), so folding it in there rerolls the key —
 		// and with it the upstream prompt_cache_key — on every turn.
-		disc := env.FirstUserMessageText()
+		disc := env.ThreadDiscriminatorText()
 		if disc == "" && clientSessionID == "" {
 			disc = env.SystemText()
 		}
