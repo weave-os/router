@@ -145,10 +145,12 @@ func TestStripHistoricalCommands_SkillExecKeepsOtherContentAndTools(t *testing.T
 			beforeOutput := map[string]any{"role": "tool", "tool_call_id": "call_before", "content": "ordinary output"}
 			assistant := map[string]any{"role": "assistant", "content": "working", "tool_calls": []any{
 				map[string]any{"id": "call_skill", "type": "function", "function": map[string]any{"name": "exec", "arguments": `{"cmd":"/x/skills/fm/scripts/emit.sh fable"}`}},
+				map[string]any{"id": "call_skill_parallel", "type": "function", "function": map[string]any{"name": "exec", "arguments": `{"cmd":"/x/skills/fm/scripts/emit.sh fable"}`}},
 				map[string]any{"id": "call_read", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"}},
 			}}
 			results := []any{
 				map[string]any{"role": "tool", "tool_call_id": "call_skill", "content": " /force-model fable"},
+				map[string]any{"role": "tool", "tool_call_id": "call_skill_parallel", "content": " /force-model fable"},
 				map[string]any{"role": "tool", "tool_call_id": "call_read", "content": "source"},
 			}
 			if format == FormatAnthropic {
@@ -157,14 +159,17 @@ func TestStripHistoricalCommands_SkillExecKeepsOtherContentAndTools(t *testing.T
 				}}
 				beforeOutput = map[string]any{"role": "user", "content": []any{
 					map[string]any{"type": "tool_result", "tool_use_id": "call_before", "content": "ordinary output"},
+					map[string]any{"type": "text", "text": "<system-reminder>tool continuation</system-reminder>"},
 				}}
 				assistant = map[string]any{"role": "assistant", "content": []any{
 					map[string]any{"type": "text", "text": "working"},
 					map[string]any{"type": "tool_use", "id": "call_skill", "name": "exec", "input": map[string]any{"code": "/x/skills/fm/scripts/emit.sh fable"}},
+					map[string]any{"type": "tool_use", "id": "call_skill_parallel", "name": "exec", "input": map[string]any{"code": "/x/skills/fm/scripts/emit.sh fable"}},
 					map[string]any{"type": "tool_use", "id": "call_read", "name": "exec", "input": map[string]any{}},
 				}}
 				results = []any{map[string]any{"role": "user", "content": []any{
 					map[string]any{"type": "tool_result", "tool_use_id": "call_skill", "content": " /force-model fable"},
+					map[string]any{"type": "tool_result", "tool_use_id": "call_skill_parallel", "content": " /force-model fable"},
 					map[string]any{"type": "tool_result", "tool_use_id": "call_read", "content": "source"},
 				}}}
 			}

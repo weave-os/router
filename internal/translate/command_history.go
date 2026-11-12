@@ -65,7 +65,7 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 			}
 		}
 		role := msg.Get("role").String()
-		if role == "user" && !isSkillAttachment(messages, i) && !onlyToolResults(msg.Get("content")) {
+		if role == "user" && !isSkillAttachment(messages, i) && classifyLastMessageGJSON(role, msg.Get("content")) == "user_prompt" {
 			skillExec.path = ""
 		}
 		raw, edited, keep, err := stripHistoricalSkillToolMessage(msg, &skillExec)
@@ -166,7 +166,6 @@ func (tracker *skillExecTracker) dropCall(id, name, code string) bool {
 			tracker.droppedCallIDs = make(map[string]struct{})
 		}
 		tracker.droppedCallIDs[id] = struct{}{}
-		tracker.path = ""
 		return true
 	}
 	delete(tracker.droppedCallIDs, id)
@@ -176,18 +175,6 @@ func (tracker *skillExecTracker) dropCall(id, name, code string) bool {
 func (tracker *skillExecTracker) isDroppedOutput(id string) bool {
 	_, dropped := tracker.droppedCallIDs[id]
 	return dropped
-}
-
-func onlyToolResults(content gjson.Result) bool {
-	if !content.IsArray() || len(content.Array()) == 0 {
-		return false
-	}
-	for _, part := range content.Array() {
-		if part.Get("type").Str != "tool_result" {
-			return false
-		}
-	}
-	return true
 }
 
 func stripHistoricalSkillToolMessage(msg gjson.Result, tracker *skillExecTracker) (raw string, edited, keep bool, err error) {

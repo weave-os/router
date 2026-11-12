@@ -2,6 +2,7 @@ package translate_test
 
 import (
 	"encoding/json"
+	"maps"
 	"strings"
 	"testing"
 
@@ -86,13 +87,17 @@ func TestStripHistoricalCommandsFromResponsesInput_DropsSkillExecCallAndOutput(t
 					directiveOutput = " /router-feedback too slow"
 				}
 				output := map[string]any{"type": callType + "_call_output", "call_id": "call_skill", "output": "Script completed\nOutput:\n" + directiveOutput}
+				parallelCall := maps.Clone(call)
+				parallelCall["call_id"] = "call_skill_parallel"
+				parallelOutput := maps.Clone(output)
+				parallelOutput["call_id"] = "call_skill_parallel"
 				ordinaryCall := map[string]any{"type": "function_call", "call_id": "call_read", "name": "exec", "arguments": `{}`}
 				ordinaryOutput := map[string]any{"type": "function_call_output", "call_id": "call_read", "output": "source"}
 				body := responsesBody(t,
 					codexUserItem(directive), codexUserItem(strings.ReplaceAll(codexSkillBlob, "fm", skillName)),
 					codexAssistantItem("Running the skill."),
 					map[string]any{"type": "reasoning", "id": "rs_skill", "encrypted_content": "opaque", "summary": []any{}},
-					call, output, output,
+					call, parallelCall, output, parallelOutput, output,
 					codexUserItem("read source"), ordinaryCall, ordinaryOutput, codexUserItem("next turn"),
 				)
 
@@ -234,6 +239,8 @@ func TestStripHistoricalCommandsFromResponsesInput_LeavesToolItemsPaired(t *test
 	require.Len(t, items, 7)
 	assert.Equal(t, "function_call", items[3].Get("type").Str)
 	assert.Equal(t, "function_call_output", items[4].Get("type").Str, "a later user turn ends skill-call cleanup")
+	assert.Equal(t, "c1", items[3].Get("call_id").Str)
+	assert.Equal(t, "c1", items[4].Get("call_id").Str)
 
 	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
 	require.NoError(t, err)
