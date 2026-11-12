@@ -133,7 +133,6 @@ class SmokeRunnerTest(unittest.TestCase):
             "docker-compose.yml",
             "smoke/mitmproxy/docker-compose.yml",
             "smoke/mitmproxy/docker-compose.ci-cache.yml",
-            "smoke/hmmstub/docker-compose.yml",
         ):
             target = self.repo / relative
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -471,7 +470,6 @@ class ComposeMergeTest(unittest.TestCase):
             for source, target in (
                 ("docker-compose.yml", "base.yml"),
                 ("smoke/mitmproxy/docker-compose.yml", "proxy.yml"),
-                ("smoke/hmmstub/docker-compose.yml", "hmmstub.yml"),
             ):
                 shutil.copy2(SOURCE_ROOT / source, root / target)
             with patch.dict(
@@ -493,8 +491,6 @@ class ComposeMergeTest(unittest.TestCase):
                 str(root / "base.yml"),
                 "-f",
                 str(root / "proxy.yml"),
-                "-f",
-                str(root / "hmmstub.yml"),
                 "-f",
                 str(root / "isolation.yml"),
                 "config",

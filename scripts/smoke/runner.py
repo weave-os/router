@@ -226,8 +226,6 @@ class SmokeRun:
             "-f",
             str(REPO_ROOT / "smoke/mitmproxy/docker-compose.yml"),
             "-f",
-            str(REPO_ROOT / "smoke/hmmstub/docker-compose.yml"),
-            "-f",
             str(override),
         ]
         if os.environ.get("SMOKE_CI_CACHE") == "1":

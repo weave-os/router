@@ -16,10 +16,10 @@ echo 'GOOGLE_API_KEY=...' >> .env.local
 make up-hmm
 ```
 
-The router defaults to `hmm_embedding` and refuses to boot unless a policy
-release that pins this sidecar is configured (`ROUTER_POLICY_RELEASE_DIR`, or
-`ROUTER_POLICY_ENVIRONMENT` for a registry). Stop the stack with
-`make down-hmm`.
+The router defaults to `hmm_embedding`. Plain `make up` serves a stub
+classifier; `make up-hmm` routes through this sidecar instead and takes its
+policy release from `ROUTER_POLICY_ENVIRONMENT`, which must pin this sidecar.
+Stop the stack with `make down-hmm`.
 
 The Compose configuration downloads the public
 [`hmm-model-v1`](https://github.com/weave-os/router/releases/tag/hmm-model-v1)
