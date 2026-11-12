@@ -276,7 +276,7 @@ alias itself is still the customer-side fix — this only caps the bill at one 4
 **The hard-pin tier resolves against the same bindings.** Compaction and explicitly
 deployment-pinned utility turns bypass the scorer, so `hardPinResolver` gets its
 own `HardPinRequest` carrying `CustomBindings` + `GatewayProviders` and selects
-via `cluster.FastestModelForRequest`. Without them a gateway-only installation
+via the catalog-backed `policy.UtilityTarget`. Without them a gateway-only installation
 resolved nothing and every such turn 503'd `ErrClusterUnavailable` ("cluster
 scorer failed") while its scored turns routed fine — prod 2026-08-26. An empty
 result under a gateway now reports `ErrGatewayServesNoDeployedModel` for the

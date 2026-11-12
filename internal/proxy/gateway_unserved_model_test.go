@@ -74,7 +74,7 @@ func TestService_HardPin_TitleGen_GatewayModelNotFound_ExcludedOnLaterTurns(t *t
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
 
-	// Mimics cluster.FastestModelForRequest: the cheapest aliased candidate
+	// Mimics policy.UtilityTarget: the cheapest aliased candidate
 	// wins unless the request's exclusions rule it out.
 	var seen []proxy.HardPinRequest
 	resolver := func(req proxy.HardPinRequest) (string, string, bool) {

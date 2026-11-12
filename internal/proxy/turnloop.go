@@ -18,7 +18,6 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
@@ -1178,8 +1177,9 @@ func (s *Service) runTurnLoop(
 				}
 			}
 			if !ok {
-				// Gateway empty result = no aliases configured (customer fix), not a router fault.
-				hardPinErr := cluster.ErrClusterUnavailable
+				// No servable utility model is a configuration fault the customer
+				// can fix, so it must not surface as a retryable router outage.
+				hardPinErr := router.ErrNoEligibleProvider
 				switch {
 				case s.hardPinBlockedByContextWindow(ctx, threadSessionKey, res, hardPinReq, req):
 					hardPinErr = policy.ErrContextWindowExceeded

@@ -10,7 +10,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -305,7 +304,7 @@ func TestTurnLoop_CompactionHardPinContextOverflowIsNotRoutingOutage(t *testing.
 	sizeExcluded := map[string]struct{}{summarizer: {}, policy.PrecompactionDefaultModel: {}}
 	err := run(t, resolver, sizeExcluded)
 	require.ErrorIs(t, err, policy.ErrContextWindowExceeded)
-	assert.NotErrorIs(t, err, cluster.ErrClusterUnavailable)
+	assert.NotErrorIs(t, err, router.ErrNoEligibleProvider)
 	class, ok := ClassifyDispatchError(err)
 	require.True(t, ok)
 	assert.Equal(t, http.StatusBadRequest, class.Status)
@@ -316,5 +315,5 @@ func TestTurnLoop_CompactionHardPinContextOverflowIsNotRoutingOutage(t *testing.
 		"a summarizer only the compaction path can reach still classifies the size-only failure")
 
 	err = run(t, resolver, nil)
-	assert.ErrorIs(t, err, cluster.ErrClusterUnavailable, "exclusions unrelated to size keep the routing-outage class")
+	assert.ErrorIs(t, err, router.ErrNoEligibleProvider, "exclusions unrelated to size keep the no-eligible-provider class")
 }

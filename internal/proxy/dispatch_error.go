@@ -12,7 +12,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandit"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/router/hmm"
@@ -484,15 +483,6 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			RetryAfter: true,
 			LogLevel:   "error",
 			LogMessage: "Policy routing unavailable",
-		}, true
-	case errors.Is(err, cluster.ErrClusterUnavailable):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorClusterUnavailable,
-			Status:     http.StatusServiceUnavailable,
-			Message:    "Router unavailable: cluster scorer failed and no fallback is configured.",
-			RetryAfter: true,
-			LogLevel:   "error",
-			LogMessage: "Cluster routing unavailable",
 		}, true
 	case errors.Is(err, router.ErrRoutingUnavailable):
 		return DispatchErrorClass{
