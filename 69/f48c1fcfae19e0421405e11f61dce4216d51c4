@@ -1,0 +1,53 @@
+internal/proxy/service.go
+  s_49ced6f07c756e::t_1ce71545ea5594 809-813,972-974
+  s_49ced6f07c756e::t_3368b53be8d8db 6088,6103
+  s_49ced6f07c756e::t_4c226cf0b5ee0e 227-228
+internal/router/hmm/selection/selector.go
+  s_49ced6f07c756e::t_4c226cf0b5ee0e 57-58
+docs/CONFIGURATION.md
+  s_49ced6f07c756e::t_4c226cf0b5ee0e 665
+  s_49ced6f07c756e::t_75a5a07f8ae303 666-677
+internal/router/policy/escalation.go
+  s_49ced6f07c756e::t_4c226cf0b5ee0e 85-108
+internal/router/escalation/escalation.go
+  s_49ced6f07c756e::t_4c226cf0b5ee0e 54-55,57-59,62-65
+  s_49ced6f07c756e::t_1ce71545ea5594 67-88,91,93,95,97,99,101
+internal/router/policy/sidecar_router.go
+  s_49ced6f07c756e::t_bb6976d2c33104 641-644,654
+  s_49ced6f07c756e::t_3368b53be8d8db 653,655-656
+  s_49ced6f07c756e::t_4c226cf0b5ee0e 461-462,466,469-470
+  s_49ced6f07c756e::t_87014fe41f7f86 471
+internal/router/policy/arm_selector.go
+  s_49ced6f07c756e::t_4c226cf0b5ee0e 28-30
+internal/proxy/turnloop.go
+  s_49ced6f07c756e::t_1ce71545ea5594 356-357,802-804,1970-1981
+internal/proxy/sliding_threshold.go
+  s_49ced6f07c756e::t_1ce71545ea5594 4,11-28,30,32,40-47,56-57,59-63,65-68,73-75
+  s_49ced6f07c756e::t_bb6976d2c33104 5,29,31,33-39,48,53-55,58,64,69-72
+  s_49ced6f07c756e::t_f3c56a4d33eda2 49-52
+  s_49ced6f07c756e::t_c6e395d884eebc 76
+internal/flags/flags.go
+  s_49ced6f07c756e::t_4c226cf0b5ee0e 314
+internal/router/router.go
+  s_49ced6f07c756e::t_4c226cf0b5ee0e 100-101
+internal/router/escalation/sliding_threshold_test.go
+  s_49ced6f07c756e::t_17c0498e06b412 11,21-22,24-25
+internal/proxy/sliding_threshold_internal_test.go
+  s_49ced6f07c756e::t_10fa858f398fd3 4,6-7,16,36,44-53,55-57,93-94,115-146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "69f48c1fcfae19e0421405e11f61dce4216d51c4",
+  "prompts": {},
+  "sessions": {
+    "s_49ced6f07c756e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18fd7-d898-7121-b75b-0f8e4394e9dc",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

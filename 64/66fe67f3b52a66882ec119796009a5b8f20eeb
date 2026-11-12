@@ -1,0 +1,26 @@
+internal/proxy/service.go
+  s_49df7faaffb6d3::t_ac1f5e6622defc 77
+internal/subscriptions/plan_resolver_test.go
+  s_49df7faaffb6d3::t_523d5a06dffe38 5
+  s_49df7faaffb6d3::t_ac1f5e6622defc 1-4,6-104
+internal/subscriptions/plan_resolver.go
+  s_49df7faaffb6d3::t_ac1f5e6622defc 1-76
+internal/proxy/subscription_profile.go
+  s_49df7faaffb6d3::t_ac1f5e6622defc 8,18,43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6466fe67f3b52a66882ec119796009a5b8f20eeb",
+  "prompts": {},
+  "sessions": {
+    "s_49df7faaffb6d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b46d-ba9e-7bb0-96d6-04aceeaa203b",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,67 @@
+docs/CONFIGURATION.md
+  s_820054ea85251d::t_462241a0a643c9 498-502
+internal/proxy/service.go
+  s_820054ea85251d::t_084104b8dfa34b 33
+  s_820054ea85251d::t_5c3095c2b83e02 305-309,1984-1987
+  s_820054ea85251d::t_c045370ed8f16a 1988-1990
+internal/proxy/flag_resolution.go
+  s_820054ea85251d::t_cc53573ac9b907 191-197
+internal/proxy/turnloop.go
+  s_820054ea85251d::t_9e70e12757d132 870-871,876-880
+  s_820054ea85251d::t_99bc2ffcc4b176 872-875
+  s_820054ea85251d::t_ac00d4f9320c4d 317-319
+  s_820054ea85251d::t_caa36230744c1e 881
+internal/proxy/AGENTS.md
+  s_820054ea85251d::t_f4bdad208a41f0 61,99-115
+  s_820054ea85251d::t_86a8da50b58c81 116
+cmd/router/main.go
+  s_820054ea85251d::t_7ee4d9f4537763 54
+  s_820054ea85251d::t_0f331bcdf40cbd 812-821,1304,1398-1399
+internal/proxy/overload_breaker_internal_test.go
+  s_820054ea85251d::t_492cbbc68747ad 1-4,6-34,36-49,52-53,55-56,59-61,69-172,176-181,186,188-189,191-257
+  s_820054ea85251d::t_3269013c19ff4f 5,50-51,54,57-58,62-68
+  s_820054ea85251d::t_f77085f2877d00 35,173-175,182-185,187,190
+internal/proxy/dispatch_plan.go
+  s_820054ea85251d::t_abfd3e15cfc1dc 278
+internal/proxy/CLAUDE.md
+  s_820054ea85251d::t_d0692b1465f1fc 61,99-115
+  s_820054ea85251d::t_f4329437b7f863 116
+internal/proxy/global_automatic_exclusions.go
+  s_820054ea85251d::t_19170c5617c02c 107-108,110-120,138-144,146
+AGENTS.md
+  s_820054ea85251d::t_f4bdad208a41f0 155
+internal/proxy/overload_breaker.go
+  s_820054ea85251d::t_57eaee429a4bd7 17-25
+  s_820054ea85251d::t_c3d1363a6697a7 39,61,83
+  s_820054ea85251d::t_9cd1f5f7a200a9 1-16,26-38,40-60,62-72,74-82,84-106,114-120
+  s_820054ea85251d::t_df7b60535276e5 73,107-113
+CLAUDE.md
+  s_820054ea85251d::t_f4bdad208a41f0 155
+internal/router/breaker/breaker.go
+  s_820054ea85251d::t_755ba41186f2ed 1-41,44-48,50-52,54-70,75-83,86-117,120-131,140-148,167-172,174-180,182-199,201-205,210-214,216,220-236,249-252,254,262-263,265-286
+  s_820054ea85251d::t_f2f8cd640c3481 42-43,49,53,118-119,132-139,149-166,206-209,217,219,237
+  s_820054ea85251d::t_e8df5a22263b0c 71-74,84-85,173,181,200,218,238-248,253,255-261,264
+  s_820054ea85251d::t_ce421ba9696686 215
+internal/router/breaker/breaker_test.go
+  s_820054ea85251d::t_dff92f5c0003fb 1-217
+internal/flags/flags.go
+  s_820054ea85251d::t_0d24414392e6a5 152
+  s_820054ea85251d::t_b34992aac57df3 111,398-402
+  s_820054ea85251d::t_3da31182a3b543 403-404
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "84dd22fa179d258c7b2999c8714bc4ed78fb8eb7",
+  "prompts": {},
+  "sessions": {
+    "s_820054ea85251d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15795-f71b-71b3-a470-34c0f2ed2beb",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

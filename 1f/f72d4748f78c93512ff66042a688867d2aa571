@@ -1,0 +1,32 @@
+internal/proxy/subscription_funding_internal_test.go
+  s_5184255b00bb11::t_d3d152f423a62c 5,206-238
+  s_5184255b00bb11::t_953bcaaa24c616 239
+internal/proxy/subscription_state_models_internal_test.go
+  s_5184255b00bb11::t_d3d152f423a62c 77,84,115-117
+internal/proxy/managed_subscriptions_test.go
+  s_5184255b00bb11::t_ab4c50b16e6256 132
+internal/proxy/usage/usage_test.go
+  s_5184255b00bb11::t_16019229fad5c2 128
+internal/proxy/subscription_state_models.go
+  s_5184255b00bb11::t_16019229fad5c2 218-220
+internal/proxy/managed_subscriptions.go
+  s_5184255b00bb11::t_16019229fad5c2 436,621-625
+internal/proxy/usage/usage.go
+  s_5184255b00bb11::t_16019229fad5c2 54-56,119,122-128,130,133-136,235-241,256,283-288
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1ff72d4748f78c93512ff66042a688867d2aa571",
+  "prompts": {},
+  "sessions": {
+    "s_5184255b00bb11": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a13253-bc94-77f2-9506-bf359f389866",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

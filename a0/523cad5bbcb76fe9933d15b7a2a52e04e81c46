@@ -1,0 +1,44 @@
+internal/proxy/dispatch_plan.go
+  s_49df7faaffb6d3::t_d02a782f81f854 227-230
+internal/subscriptions/runtime.go
+  s_49df7faaffb6d3::t_435df33625fc82 62,68-71,195
+internal/proxy/managed_subscriptions.go
+  s_49df7faaffb6d3::t_435df33625fc82 348
+  s_49df7faaffb6d3::t_efa48a7df7cd54 342-344
+internal/subscriptions/runtime_test.go
+  s_49df7faaffb6d3::t_435df33625fc82 22-23,25-27
+internal/auth/subscription_plans.go
+  s_49df7faaffb6d3::t_435df33625fc82 9,26,49-66,68-70
+internal/proxy/claude_enterprise.go
+  s_49df7faaffb6d3::t_435df33625fc82 59-60
+internal/providers/anthropic/subscription_plan_test.go
+  s_49df7faaffb6d3::t_435df33625fc82 8,11,30-31,63-64,72
+internal/proxy/subscription_profile_internal_test.go
+  s_49df7faaffb6d3::t_8f5d6b239886ba 116-117,131-141
+  s_49df7faaffb6d3::t_efa48a7df7cd54 118-130
+internal/auth/subscription_plans_test.go
+  s_49df7faaffb6d3::t_8f5d6b239886ba 6-7,58-96
+  s_49df7faaffb6d3::t_ea78b6323832f0 97
+docs/SUBSCRIPTION_ROUTING.md
+  s_49df7faaffb6d3::t_fb44c46b0ac84b 91-93
+internal/proxy/usage/AGENTS.md
+  s_49df7faaffb6d3::t_b81228cd6e40ae 22
+internal/proxy/usage/CLAUDE.md
+  s_49df7faaffb6d3::t_89ecb6adc258b1 22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a0523cad5bbcb76fe9933d15b7a2a52e04e81c46",
+  "prompts": {},
+  "sessions": {
+    "s_49df7faaffb6d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b46d-ba9e-7bb0-96d6-04aceeaa203b",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+internal/providers/openai/codex_quota.go
+  s_2a2bb68f460a0e::t_beeb4381cf2921 39
+internal/proxy/dispatch_plan.go
+  s_2a2bb68f460a0e::t_beeb4381cf2921 242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d5e8a3c845f5a1431f0fe7bcd935850ffd8d115b",
+  "prompts": {},
+  "sessions": {
+    "s_2a2bb68f460a0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ccb7-f08d-77d0-90e8-3d30f68fe881",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
