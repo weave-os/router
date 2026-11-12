@@ -182,26 +182,26 @@ func goldenStreamScenarios(ingress string) []goldenScenario {
 	singleRequest := []goldenRequest{{body: ingressBody(ingress, true)}}
 	compat := goldenCompatStream(goldenCompatWire, "partial")
 	native := goldenAnthropicStream(goldenAnthropicModel, "partial")
-	sseHeaders := map[string]string{"Content-Type": "text/event-stream"}
+	eventStreamHeaders := map[string]string{"Content-Type": "text/event-stream"}
 	return []goldenScenario{
 		{name: prefix + "cut_after_role_chunk", ingress: ingress, requests: singleRequest,
 			decisions: []router.Decision{goldenCompatDecision},
 			upstreams: map[string][]goldenStep{
-				providers.ProviderFireworks:  {{status: http.StatusOK, headers: sseHeaders, frames: compat[:1], err: io.ErrUnexpectedEOF}},
+				providers.ProviderFireworks:  {{status: http.StatusOK, headers: eventStreamHeaders, frames: compat[:1], err: io.ErrUnexpectedEOF}},
 				providers.ProviderOpenRouter: {compatOK(true, "rescued")}}},
 		{name: prefix + "cut_after_content_chunk", ingress: ingress, requests: singleRequest,
 			decisions: []router.Decision{goldenCompatDecision},
 			upstreams: map[string][]goldenStep{
-				providers.ProviderFireworks:  {{status: http.StatusOK, headers: sseHeaders, frames: compat[:2], err: io.ErrUnexpectedEOF}},
+				providers.ProviderFireworks:  {{status: http.StatusOK, headers: eventStreamHeaders, frames: compat[:2], err: io.ErrUnexpectedEOF}},
 				providers.ProviderOpenRouter: {compatOK(true, "never")}}},
 		{name: prefix + "native_cut_after_content", ingress: ingress, requests: singleRequest,
 			decisions: []router.Decision{goldenAnthropicDecision},
 			upstreams: map[string][]goldenStep{
-				providers.ProviderAnthropic: {{status: http.StatusOK, headers: sseHeaders, frames: native[:3], err: io.ErrUnexpectedEOF}}}},
+				providers.ProviderAnthropic: {{status: http.StatusOK, headers: eventStreamHeaders, frames: native[:3], err: io.ErrUnexpectedEOF}}}},
 		{name: prefix + "client_cancel_mid_stream", ingress: ingress, requests: singleRequest,
 			decisions: []router.Decision{goldenAnthropicDecision},
 			upstreams: map[string][]goldenStep{
-				providers.ProviderAnthropic: {{status: http.StatusOK, headers: sseHeaders, frames: native[:3], cancel: true}}}},
+				providers.ProviderAnthropic: {{status: http.StatusOK, headers: eventStreamHeaders, frames: native[:3], cancel: true}}}},
 	}
 }
 
@@ -234,7 +234,7 @@ func goldenClaudeCodeCtx(ctx context.Context) context.Context {
 // goldenAnthropicOnlyScenarios cover behavior that only the Messages ingress
 // or cross-request state exercises.
 func goldenAnthropicOnlyScenarios() []goldenScenario {
-	sseHeaders := map[string]string{"Content-Type": "text/event-stream"}
+	eventStreamHeaders := map[string]string{"Content-Type": "text/event-stream"}
 	stopped := goldenAnthropicStream(goldenAnthropicModel, "Fixed test a. Next I will fix b and c.")
 	toolCall := []string{
 		goldenSSE("message_start", `{"type":"message_start","message":{"id":"msg_up","type":"message","role":"assistant","model":"`+goldenSiblingModel+`","content":[],"stop_reason":null,"usage":{"input_tokens":12,"output_tokens":1}}}`),
@@ -253,16 +253,16 @@ func goldenAnthropicOnlyScenarios() []goldenScenario {
 		{name: "anthropic_messages_stream_early_stop_redo", ingress: ingressAnthropic,
 			decisions: []router.Decision{earlyStop},
 			upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {
-				{status: http.StatusOK, headers: sseHeaders, frames: stopped},
-				{status: http.StatusOK, headers: sseHeaders, frames: toolCall}}},
-			requests: []goldenRequest{{body: goldenToolResultBody, ctx: goldenClaudeCodeCtx}},
+				{status: http.StatusOK, headers: eventStreamHeaders, frames: stopped},
+				{status: http.StatusOK, headers: eventStreamHeaders, frames: toolCall}}},
+			requests: []goldenRequest{{body: goldenToolResultBody, decorateContext: goldenClaudeCodeCtx}},
 			configure: func(svc *proxy.Service, _ *goldenHarness) *proxy.Service {
 				return svc.WithEarlyStopRedo(flags.EarlyStopRedoOn)
 			}},
 		{name: "anthropic_messages_nonstream_classifier_subscription_exhausted_paid_fallback", ingress: ingressAnthropic,
 			decisions: []router.Decision{goldenRescueDecision},
 			upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(false, "0")}},
-			requests:  []goldenRequest{{body: goldenClassifierBody, ctx: goldenSubscriptionCtx}},
+			requests:  []goldenRequest{{body: goldenClassifierBody, decorateContext: goldenSubscriptionCtx}},
 			configure: exhaustSubscription},
 		{name: "anthropic_messages_stream_overload_breaker_cooldown", ingress: ingressAnthropic,
 			decisions: []router.Decision{goldenRescueDecision, goldenCompatDecision},

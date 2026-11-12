@@ -117,7 +117,7 @@
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
             "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "RegistryRevision": "sha256:58acde3181ff1bad99025bc811b25189085ee3f07101658e706c145f6ee0a8b2"
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
@@ -139,7 +139,7 @@
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
             "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "RegistryRevision": "sha256:58acde3181ff1bad99025bc811b25189085ee3f07101658e706c145f6ee0a8b2"
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
@@ -161,7 +161,7 @@
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
             "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "RegistryRevision": "sha256:58acde3181ff1bad99025bc811b25189085ee3f07101658e706c145f6ee0a8b2"
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
@@ -179,7 +179,7 @@
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
             "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "RegistryRevision": "sha256:58acde3181ff1bad99025bc811b25189085ee3f07101658e706c145f6ee0a8b2"
           },
           "Target": {
             "CatalogID": "deepseek/deepseek-v4-pro",
@@ -443,7 +443,7 @@
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
             "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "RegistryRevision": "sha256:58acde3181ff1bad99025bc811b25189085ee3f07101658e706c145f6ee0a8b2"
           },
           "Target": {
             "BindingIndex": -1,
@@ -798,7 +798,7 @@
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
             "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "RegistryRevision": "sha256:58acde3181ff1bad99025bc811b25189085ee3f07101658e706c145f6ee0a8b2"
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
@@ -820,7 +820,7 @@
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
             "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "RegistryRevision": "sha256:58acde3181ff1bad99025bc811b25189085ee3f07101658e706c145f6ee0a8b2"
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
@@ -842,7 +842,7 @@
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
             "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "RegistryRevision": "sha256:58acde3181ff1bad99025bc811b25189085ee3f07101658e706c145f6ee0a8b2"
           },
           "Target": {
             "CatalogID": "claude-opus-4-7",
@@ -860,7 +860,7 @@
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
             "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "RegistryRevision": "sha256:58acde3181ff1bad99025bc811b25189085ee3f07101658e706c145f6ee0a8b2"
           },
           "Target": {
             "CatalogID": "deepseek/deepseek-v4-pro",
@@ -1130,7 +1130,7 @@
             "PolicyID": "main-anthropic-messages",
             "PolicyRevision": "3",
             "Purpose": "anthropic_messages",
-            "RegistryRevision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c"
+            "RegistryRevision": "sha256:58acde3181ff1bad99025bc811b25189085ee3f07101658e706c145f6ee0a8b2"
           },
           "Target": {
             "BindingIndex": -1,

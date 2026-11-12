@@ -52,11 +52,10 @@ type goldenScenario struct {
 }
 
 type goldenRequest struct {
-	body    string
-	headers map[string]string
+	body string
 	// advance moves the fake clock before the request is served.
-	advance time.Duration
-	ctx     func(context.Context) context.Context
+	advance         time.Duration
+	decorateContext func(context.Context) context.Context
 	// noTelemetry marks requests refused before a request row is emitted.
 	noTelemetry bool
 }
@@ -193,8 +192,8 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 	base := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "golden-key")
 	base = context.WithValue(base, proxy.InstallationIDContextKey{}, goldenInstallationID)
 	base = context.WithValue(base, proxy.ExternalIDContextKey{}, "golden-org")
-	if req.ctx != nil {
-		base = req.ctx(base)
+	if req.decorateContext != nil {
+		base = req.decorateContext(base)
 	}
 	ctx, cancel := context.WithCancel(base)
 	defer cancel()
@@ -210,9 +209,6 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 	}
 	httpReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(req.body)).WithContext(ctx)
 	httpReq.Header.Set("Content-Type", "application/json")
-	for k, v := range req.headers {
-		httpReq.Header.Set(k, v)
-	}
 	rec := httptest.NewRecorder()
 	var err error
 	if ingress == ingressOpenAI {

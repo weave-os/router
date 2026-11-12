@@ -357,7 +357,7 @@ func (s *goldenPinStore) DisableProvider(_ context.Context, key [sessionpin.Sess
 
 // expireRow writes the expired marker, seeding an absent row and leaving a row
 // another strategy has since replaced untouched.
-func (s *goldenPinStore) expireRow(expired sessionpin.Pin, mark func(*sessionpin.Pin)) {
+func (s *goldenPinStore) expireRow(expired sessionpin.Pin, applyExpiryMarker func(*sessionpin.Pin)) {
 	k := pinKey(expired.SessionKey, expired.Role)
 	prior, ok := s.pins[k]
 	if ok && prior.Strategy != expired.Strategy {
@@ -366,7 +366,7 @@ func (s *goldenPinStore) expireRow(expired sessionpin.Pin, mark func(*sessionpin
 	if ok {
 		preservePinHistory(&expired, prior)
 	}
-	mark(&expired)
+	applyExpiryMarker(&expired)
 	s.pins[k] = expired
 }
 
