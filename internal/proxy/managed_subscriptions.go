@@ -314,7 +314,6 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		}
 		if winner, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); winner != nil {
 			if _, attempted := winner.AttemptedAccounts[lease.AccountID+"\x00"+model]; attempted {
-				diagnostics.skip(lease, subscriptionSkipAlreadyAttempted)
 				lease.Release()
 				owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 				continue

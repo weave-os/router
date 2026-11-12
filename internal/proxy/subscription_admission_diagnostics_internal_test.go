@@ -46,11 +46,6 @@ func TestSubscriptionAdmissionReportsSkipGateAndPreservesRotation(t *testing.T) 
 			s.subscriptionModels.denyManagedClientApp("skipped", providers.ProviderAnthropic, ClientIdentityFrom(ctx).ClientApp, now.Add(time.Minute))
 			return ctx
 		}},
-		{name: "previous attempt", reason: subscriptionSkipAlreadyAttempted, configure: func(_ *Service, ctx context.Context, _ *scriptedSubscriptionLeaser) context.Context {
-			state := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
-			state.AttemptedAccounts = map[string]struct{}{"skipped\x00" + model: {}}
-			return ctx
-		}},
 		{name: "plan", reason: subscriptionSkipPlanIneligible, configure: func(_ *Service, ctx context.Context, l *scriptedSubscriptionLeaser) context.Context {
 			l.leases[0].State = auth.SubscriptionAccountStateExhausted
 			l.leases[0].CooldownUntil = now.Add(time.Hour)
@@ -82,7 +77,7 @@ func TestSubscriptionAdmissionReportsSkipGateAndPreservesRotation(t *testing.T) 
 				Skipped   int                                   `json:"skipped_count"`
 				Reasons   map[subscriptionAccountSkipReason]int `json:"skip_reasons"`
 				Accounts  []subscriptionAccountSkip             `json:"skipped_accounts"`
-				Elapsed   int64                                 `json:"admission_ms"`
+				Elapsed   *int64                                `json:"admission_ms"`
 			}
 			var summaries int
 			for _, line := range bytes.Split(bytes.TrimSpace(output.Bytes()), []byte("\n")) {
@@ -104,7 +99,8 @@ func TestSubscriptionAdmissionReportsSkipGateAndPreservesRotation(t *testing.T) 
 			require.Equal(t, 1, event.Skipped)
 			require.Equal(t, map[subscriptionAccountSkipReason]int{scenario.reason: 1}, event.Reasons)
 			require.Equal(t, []subscriptionAccountSkip{{AccountID: "skipped", Tier: auth.SubscriptionTierShared, Reason: scenario.reason}}, event.Accounts)
-			require.GreaterOrEqual(t, event.Elapsed, int64(0))
+			require.NotNil(t, event.Elapsed)
+			require.GreaterOrEqual(t, *event.Elapsed, int64(0))
 			require.NotContains(t, output.String(), "private-access-token")
 			require.NotContains(t, output.String(), "winner-token")
 		})

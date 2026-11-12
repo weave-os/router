@@ -15,7 +15,6 @@ type subscriptionAccountSkipReason string
 const (
 	subscriptionSkipRepeatedLease    subscriptionAccountSkipReason = "repeated_lease"
 	subscriptionSkipOutsideAdmission subscriptionAccountSkipReason = "outside_admission_snapshot"
-	subscriptionSkipAlreadyAttempted subscriptionAccountSkipReason = "already_attempted"
 	subscriptionSkipClientAppDenied  subscriptionAccountSkipReason = "client_app_denied"
 	subscriptionSkipOverloadCooldown subscriptionAccountSkipReason = "overload_cooldown"
 	subscriptionSkipModelDenied      subscriptionAccountSkipReason = "model_denied"
