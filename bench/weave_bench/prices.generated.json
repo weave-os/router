@@ -1,5 +1,5 @@
 {
-  "pricing_version": "catalog-sha256:4e5766ccc4a7082f",
+  "pricing_version": "catalog-sha256:911924f2cd43c5aa",
   "models": {
     "claude-fable-5": {
       "input_usd_per_million": 10,
@@ -10,6 +10,12 @@
     "claude-fable-5-1": {
       "input_usd_per_million": 10,
       "output_usd_per_million": 50,
+      "cache_read_multiplier": 0.025,
+      "cache_write_multiplier": 1.25
+    },
+    "claude-fable-5-2": {
+      "input_usd_per_million": 8,
+      "output_usd_per_million": 40,
       "cache_read_multiplier": 0.025,
       "cache_write_multiplier": 1.25
     },
@@ -403,6 +409,12 @@
       "cache_read_multiplier": 0.2,
       "cache_write_multiplier": 1.25
     },
+    "meta/muse-spark-open": {
+      "input_usd_per_million": 1.25,
+      "output_usd_per_million": 4.25,
+      "cache_read_multiplier": 0.12,
+      "cache_write_multiplier": 1.25
+    },
     "minimax/minimax-m2.7": {
       "input_usd_per_million": 0.3,
       "output_usd_per_million": 1.2,
@@ -457,10 +469,22 @@
       "cache_read_multiplier": 0.1,
       "cache_write_multiplier": 1.25
     },
+    "muse-ember-1.0": {
+      "input_usd_per_million": 0.1,
+      "output_usd_per_million": 0.5,
+      "cache_read_multiplier": 0.04,
+      "cache_write_multiplier": 1.25
+    },
     "muse-spark-1.3": {
       "input_usd_per_million": 1.25,
       "output_usd_per_million": 4.25,
       "cache_read_multiplier": 0.12,
+      "cache_write_multiplier": 1.25
+    },
+    "muse-wonder-1.0": {
+      "input_usd_per_million": 4,
+      "output_usd_per_million": 20,
+      "cache_read_multiplier": 0.05,
       "cache_write_multiplier": 1.25
     },
     "qwen/qwen3-235b-a22b-2507": {

@@ -1,15 +1,19 @@
 package subscriptions_test
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -252,4 +256,73 @@ func TestRuntimeReplicaDropsCachedTokenRejectedElsewhere(t *testing.T) {
 	require.NoError(t, err)
 	defer next.Release()
 	require.NotEqual(t, rejectedToken, next.AccessToken, "a replica must not replay a token another replica saw rejected")
+}
+
+func TestRuntimeFailedDisconnectWriteDoesNotEmitCommittedDisconnect(t *testing.T) {
+	store := newRejectionStore(auth.SubscriptionProviderClaude)
+	seedSustainedRejections(store, "account-1")
+	store.stateErr = fmt.Errorf("synthetic disconnect write rejected")
+	var output bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&output, nil)))
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: http.StatusUnauthorized}
+	}), nil)
+	_, _, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "")
+	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
+	require.NotContains(t, output.String(), `"subscription_event":"reconnect_required"`, "a rejected state write must not page as a committed disconnect")
+	require.NotContains(t, output.String(), "Subscription account needs reconnect after repeated refresh rejections")
+	require.Contains(t, output.String(), "synthetic disconnect write rejected")
+}
+
+type simultaneousCredentialRejections struct {
+	*runtimeStore
+	recorded sync.WaitGroup
+}
+
+func (s *simultaneousCredentialRejections) RecordSubscriptionCredentialRejection(ctx context.Context, owner auth.SubscriptionOwner, accountID string, input auth.SubscriptionCredentialRejectionInput) (auth.SubscriptionCredentialRejection, error) {
+	rejection, err := s.runtimeStore.RecordSubscriptionCredentialRejection(ctx, owner, accountID, input)
+	s.recorded.Done()
+	s.recorded.Wait()
+	return rejection, err
+}
+
+func TestRuntimeConcurrentRejectionsEmitOneDisconnectSignal(t *testing.T) {
+	store := &simultaneousCredentialRejections{runtimeStore: newRejectionStore(auth.SubscriptionProviderClaude)}
+	seedSustainedRejections(store.runtimeStore, "account-1")
+	store.recorded.Add(2)
+	var output bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&output, nil)))
+	runtime := subscriptions.NewRuntime(store, nil, nil)
+	var callers sync.WaitGroup
+	callers.Add(2)
+	failures := make(chan error, 2)
+	for range 2 {
+		go func() {
+			defer callers.Done()
+			_, err := runtime.RejectCredential(ctx, testOwner, subscriptions.ProviderClaude, "account-1", http.StatusUnauthorized)
+			failures <- err
+		}()
+	}
+	callers.Wait()
+	close(failures)
+	for err := range failures {
+		require.NoError(t, err)
+	}
+	require.Equal(t, 1, strings.Count(output.String(), `"subscription_event":"reconnect_required"`))
+}
+
+func TestRuntimeRejectedHealthWritePreservesEnabledState(t *testing.T) {
+	store := newRejectionStore(auth.SubscriptionProviderClaude)
+	seedSustainedRejections(store, "account-1")
+	store.stateErr = fmt.Errorf("synthetic rejected health transition")
+	var output bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&output, nil)))
+	runtime := subscriptions.NewRuntime(store, nil, nil)
+	reconnect, err := runtime.RejectCredential(ctx, testOwner, subscriptions.ProviderClaude, "account-1", http.StatusUnauthorized)
+	require.ErrorIs(t, err, store.stateErr)
+	require.False(t, reconnect)
+	require.True(t, store.accounts[0].Enabled)
+	require.NotEqual(t, auth.SubscriptionAccountStateReconnectRequired, store.accounts[0].State)
+	require.Empty(t, store.healthStates)
+	require.NotContains(t, output.String(), `"subscription_event":"reconnect_required"`)
 }

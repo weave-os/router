@@ -7,6 +7,7 @@ SELECT
     COALESCE(configuration.enabled, FALSE)::boolean AS enabled,
     COALESCE(configuration.router_on_percentage, 100)::smallint AS router_on_percentage,
     COALESCE(configuration.seed::text, '')::text AS seed,
+    COALESCE(configuration.session_mode, FALSE)::boolean AS session_mode,
     assignment.canonical_subject_key,
     assignment.automatic_arm,
     assignment.manual_override,
@@ -52,6 +53,23 @@ LEFT JOIN router.blind_router_experiment_group_memberships membership
 WHERE router_user.id = @router_user_id::uuid
   AND router_user.installation_id = @installation_id::uuid
   AND router_user.deleted_at IS NULL;
+
+-- name: GetBlindRouterExperimentForInstallation :one
+SELECT
+    enabled,
+    router_on_percentage,
+    seed::text AS seed,
+    session_mode,
+    COALESCE(cohort_experiment_id::text, '')::text AS cohort_experiment_id
+FROM router.blind_router_experiment_configurations
+WHERE installation_id = @installation_id::uuid;
+
+-- name: ClaimBlindExperimentSessionArm :one
+INSERT INTO router.blind_experiment_session_assignments (installation_id, session_key, arm)
+VALUES (@installation_id::uuid, @session_key::text, @arm::text)
+ON CONFLICT (installation_id, session_key)
+    DO UPDATE SET arm = router.blind_experiment_session_assignments.arm
+RETURNING arm::text AS arm;
 
 -- Reports whether an installation has an enabled blind experiment, for callers
 -- whose router user cannot be identified.
