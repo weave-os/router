@@ -40,10 +40,17 @@ type rosterFetcher interface {
 	Roster(ctx context.Context) ([]string, error)
 }
 
+// activePolicySource reports the active policy snapshot so a cached roster is
+// dropped as soon as a new policy activates, not after the TTL.
+type activePolicySource interface {
+	Active() *policyregistry.Snapshot
+}
+
 // hmmRosterSource adapts active Go policy arms to deployed-model entries.
 // On fetch failure it serves the prior snapshot rather than blanking the roster.
 type hmmRosterSource struct {
 	fetch        rosterFetcher
+	active       activePolicySource
 	fetchTimeout time.Duration
 
 	// group collapses concurrent refreshes via singleflight — exactly one
@@ -52,6 +59,7 @@ type hmmRosterSource struct {
 
 	mu              sync.Mutex
 	cached          []router.DeployedEntry
+	cachedPolicy    *policyregistry.Snapshot
 	fetchedAt       time.Time
 	haveCache       bool
 	warnedRosterKey string
@@ -62,15 +70,29 @@ func newHMMRosterSource(fetch rosterFetcher, fetchTimeout time.Duration) *hmmRos
 	if fetchTimeout <= 0 {
 		fetchTimeout = policyclient.DefaultTimeout
 	}
-	return &hmmRosterSource{fetch: fetch, fetchTimeout: fetchTimeout}
+	active, _ := fetch.(activePolicySource)
+	return &hmmRosterSource{fetch: fetch, active: active, fetchTimeout: fetchTimeout}
+}
+
+func (s *hmmRosterSource) activePolicy() *policyregistry.Snapshot {
+	if s.active == nil {
+		return nil
+	}
+	return s.active.Active()
+}
+
+// fresh reports whether the cache may be served; callers hold s.mu.
+func (s *hmmRosterSource) fresh(policy *policyregistry.Snapshot) bool {
+	return s.haveCache && s.cachedPolicy == policy && time.Since(s.fetchedAt) < hmmRosterTTL
 }
 
 // HMMDeployedModels returns catalog entries for the HMM roster. Serves a
 // cached snapshot when fresh; collapses concurrent refreshes via singleflight.
 // On failure with a prior snapshot returns stale; otherwise surfaces the error.
 func (s *hmmRosterSource) HMMDeployedModels(ctx context.Context) (entries []router.DeployedEntry, err error) {
+	policy := s.activePolicy()
 	s.mu.Lock()
-	if s.haveCache && time.Since(s.fetchedAt) < hmmRosterTTL {
+	if s.fresh(policy) {
 		cached := cloneDeployedEntries(s.cached)
 		s.mu.Unlock()
 		return cached, nil
@@ -102,8 +124,9 @@ func (s *hmmRosterSource) HMMDeployedModels(ctx context.Context) (entries []rout
 func (s *hmmRosterSource) refresh(ctx context.Context) ([]router.DeployedEntry, error) {
 	// TTL check in HMMDeployedModels isn't atomic with the singleflight join;
 	// re-check under lock so a stampede costs one sidecar fetch, not one per straggler.
+	policy := s.activePolicy()
 	s.mu.Lock()
-	if s.haveCache && time.Since(s.fetchedAt) < hmmRosterTTL {
+	if s.fresh(policy) {
 		cached := cloneDeployedEntries(s.cached)
 		s.mu.Unlock()
 		return cached, nil
@@ -125,6 +148,7 @@ func (s *hmmRosterSource) refresh(ctx context.Context) ([]router.DeployedEntry, 
 	mapped := hmm.DeployedModelsForRosterIDs(rosterIDs)
 	s.mu.Lock()
 	s.cached = mapped
+	s.cachedPolicy = policy
 	s.fetchedAt = time.Now()
 	s.haveCache = true
 	s.mu.Unlock()
