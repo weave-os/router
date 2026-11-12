@@ -358,7 +358,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	// Must precede the ErrNoEligibleProvider case: ErrAllowlistEmptiesPool
 	// wraps it, so the generic case would otherwise match first and report a
 	// missing-provider-keys problem for what is actually a config decision.
-	case errors.Is(err, cluster.ErrAllowlistEmptiesPool):
+	case errors.Is(err, router.ErrAllowlistEmptiesPool):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorAllowlistEmptiesPool,
 			Status:     http.StatusBadRequest,
@@ -366,7 +366,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Model allowlist leaves no eligible candidates",
 		}, true
-	case errors.Is(err, cluster.ErrNoEligibleProvider):
+	case errors.Is(err, router.ErrNoEligibleProvider):
 		return noEligibleProviderClass(), true
 	case errors.Is(err, billing.ErrUserMonthlySpendLimitReached):
 		return DispatchErrorClass{
@@ -385,7 +385,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "error",
 			LogMessage: "Spend-limit check unavailable",
 		}, true
-	case errors.Is(err, cluster.ErrInvalidRoutingKnobs):
+	case errors.Is(err, router.ErrInvalidRoutingKnobs):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorInvalidRoutingKnobs,
 			Status:     http.StatusBadRequest,
@@ -493,6 +493,15 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			RetryAfter: true,
 			LogLevel:   "error",
 			LogMessage: "Cluster routing unavailable",
+		}, true
+	case errors.Is(err, router.ErrRoutingUnavailable):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorClusterUnavailable,
+			Status:     http.StatusServiceUnavailable,
+			Message:    "Router unavailable: no routing policy could serve this request.",
+			RetryAfter: true,
+			LogLevel:   "error",
+			LogMessage: "Routing unavailable",
 		}, true
 	default:
 		return DispatchErrorClass{}, false

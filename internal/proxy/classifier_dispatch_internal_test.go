@@ -16,7 +16,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
@@ -188,7 +187,7 @@ func TestClassifierDispatchUsesConfiguredSubscriptionState(t *testing.T) {
 	svc.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: routing, Capabilities: capabilities, Unavailable: router.ErrClassifierUnavailable})
 	recorder := httptest.NewRecorder()
 	err := svc.ProxyMessages(ctx, []byte(`{"model":"claude-sonnet-4-6","max_tokens":1024,"messages":[{"role":"user","content":"first"}]}`), recorder, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
-	require.ErrorIs(t, err, cluster.ErrAllowlistEmptiesPool, "a classifier-selected model outside both configured state sets must be refused")
+	require.ErrorIs(t, err, router.ErrAllowlistEmptiesPool, "a classifier-selected model outside both configured state sets must be refused")
 	require.Empty(t, upstream.body)
 }
 

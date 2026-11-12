@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router"
 )
 
 type stubRosterFetcher struct {
@@ -191,7 +191,7 @@ func TestHMMRosterSource_CallerCancelDoesNotAbortSharedFetch(t *testing.T) {
 
 	cancelCtx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
-	var liveEntries []cluster.DeployedEntry
+	var liveEntries []router.DeployedEntry
 	var liveErr error
 
 	wg.Add(2)
