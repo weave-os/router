@@ -498,6 +498,19 @@ func TestCompactionTracker_NoFalsePositiveWhenBothGrow(t *testing.T) {
 	assert.False(t, ct.checkAndRecord(key, install, "high", 14, 6), "flat toolCallCount (no new tool call) must not fire")
 }
 
+func TestCompactionTracker_NoFalsePositiveWhenUserTypesPrompt(t *testing.T) {
+	ct := newCompactionTracker()
+	key := sessionKeyFromString("session-typed-prompt")
+	install := uuid.New()
+
+	// The loop detector keeps four tool-call signatures before the user types.
+	ct.checkAndRecord(key, install, "high", 9, 4)
+
+	// A typed prompt resets that window to zero while the history strictly grows.
+	assert.False(t, ct.checkAndRecord(key, install, "high", 11, 0),
+		"a typed user prompt must not be reported as rolling-window trimming")
+}
+
 func TestCompactionTracker_NilReceiverIsNoOp(t *testing.T) {
 	var ct *compactionTracker
 	key := sessionKeyFromString("session-nil")

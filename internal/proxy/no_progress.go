@@ -200,9 +200,12 @@ func (t *compactionTracker) checkAndRecord(sessionKey [sessionpin.SessionKeyLen]
 	if messageCount < last.msgCount && last.msgCount >= compactionMinHistoryMessages {
 		return true
 	}
-	// Rolling-window trimming: messageCount flat, tool-call count shrinks
-	// (gated to reject Explore's flat ~3-message window).
-	if toolCallCount < last.toolCallCount && messageCount >= compactionMinHistoryMessages {
+	// Rolling-window trimming: messageCount flat or lower, tool-call count
+	// shrinks (gated to reject Explore's flat ~3-message window). A typed user
+	// prompt also resets the loop-detector window, but grows messageCount.
+	if toolCallCount < last.toolCallCount &&
+		messageCount <= last.msgCount &&
+		messageCount >= compactionMinHistoryMessages {
 		return true
 	}
 	return false
