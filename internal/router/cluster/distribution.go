@@ -3,22 +3,15 @@ package cluster
 import (
 	"fmt"
 	"sort"
+
+	"weave-os/router/internal/router"
 )
 
-// ModelShare is one model's share of a projected routing distribution.
-type ModelShare struct {
-	Model string  `json:"model"`
-	Share float64 `json:"share"` // fraction in [0, 1]
-}
+// ModelShare aliases router.ModelShare.
+type ModelShare = router.ModelShare
 
-// DistributionPoint is the projected model mix at one dial position (shares
-// sum to 1, modulo rounding); ProjectedCostPer1KInputUSD is the share-weighted
-// input price for the dashboard's "spend vs all-Opus" readout.
-type DistributionPoint struct {
-	QualityBias                float64      `json:"quality_bias"`
-	Models                     []ModelShare `json:"models"`
-	ProjectedCostPer1KInputUSD float64      `json:"projected_cost_per_1k_input_usd"`
-}
+// DistributionPoint aliases router.DistributionPoint.
+type DistributionPoint = router.DistributionPoint
 
 // defaultActiveKnobs returns a fresh copy of the bundle's default routing
 // knobs (Alpha/AlphaFloor cloned so callers can mutate without leaking into

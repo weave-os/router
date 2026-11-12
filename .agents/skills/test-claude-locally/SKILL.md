@@ -145,7 +145,7 @@ For fixes to `internal/billing` + `internal/server/middleware/balance_check.go` 
 
 ## Testing compaction (`/compact`)
 
-- **A persisted force-model pin outranks the compaction hard-pin.** A session seeded with `/force-model` stays pinned after the line is removed, so `/compact` never takes the compaction path. Seed without it (or clear the session's forced pin) and confirm `hard_pinned=true` with the compaction hard-pin reason in `ProxyMessages complete` before trusting the result.
+- **A persisted force-model pin outranks the compaction session pin.** A session seeded with `/force-model` stays pinned after the line is removed, so `/compact` serves the forced model while it stays eligible (enabled, not excluded, fits the window). Seed without it (or clear the session's forced pin) and confirm `turn_type=compaction` in `turnloop classified`, then the session's model (or a scored pick when no pin applies) as `decision_model` in `ProxyMessages complete` before trusting the result.
 - **`claude -p /compact --output-format json` can report success when compaction failed** (`is_error=false`, `subtype=success`, exit 0). Check the `result` text, the router logs, and whether the transcript gained an `isCompactSummary` entry. A successful print-mode compaction can have an empty `result`.
 - **Claude Code hides the router's 400 body** behind "Compaction failed · conversation could not be reduced below the context limit"; the raw response is in `--debug-file`.
 - **A 5xx without `x-should-retry: false` is retried by the SDK** (11 attempts, ~3 minutes) before Claude Code shows the error.

@@ -16,7 +16,6 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/telemetry"
@@ -163,7 +162,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	hardExcluded := append(append([]string(nil), geminiUnsigned...), imageLimitExcluded...)
 	overflowEstimate := env.ContextOverflowTokenEstimate()
 	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, excluded, s.availableModels)
-	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders, cluster.RequestBindings{Custom: s.customBindingsForRequest(ctx), Gateways: s.gatewayProvidersForRequest(ctx)})
+	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders, router.RequestBindings{Custom: s.customBindingsForRequest(ctx), Gateways: s.gatewayProvidersForRequest(ctx)})
 	excluded = withoutModels(excluded, overflowAdmitted)
 	if len(ctxOverflowed) > 0 {
 		log.Info("context window pre-filter: excluded over-capacity models",

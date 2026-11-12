@@ -16,7 +16,6 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
@@ -360,6 +359,6 @@ func TestClientSelectedModelKeepsPolicyPassthroughStrict(t *testing.T) {
 		ExcludedModels:   map[string]struct{}{catalog.ModelIDClaudeSonnet46.String(): {}},
 	})
 
-	require.ErrorIs(t, err, cluster.ErrNoEligibleProvider)
+	require.ErrorIs(t, err, router.ErrNoEligibleProvider)
 	assert.Equal(t, 0, routerSpy.routeCalls)
 }

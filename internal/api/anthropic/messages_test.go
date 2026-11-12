@@ -201,7 +201,7 @@ func TestMessagesHandler_MalformedBodyReturns400(t *testing.T) {
 }
 
 func TestMessagesHandler_NoEligibleProviderReturns400(t *testing.T) {
-	svc := newTestService(&fakeRouter{err: cluster.ErrNoEligibleProvider}, "", nil)
+	svc := newTestService(&fakeRouter{err: router.ErrNoEligibleProvider}, "", nil)
 	engine := messagesEngine(svc)
 
 	rec := postMessages(engine, []byte(validAnthropicBody))
@@ -212,7 +212,7 @@ func TestMessagesHandler_NoEligibleProviderReturns400(t *testing.T) {
 }
 
 func TestMessagesHandler_InvalidRoutingKnobsReturns400(t *testing.T) {
-	svc := newTestService(&fakeRouter{err: cluster.ErrInvalidRoutingKnobs}, "", nil)
+	svc := newTestService(&fakeRouter{err: router.ErrInvalidRoutingKnobs}, "", nil)
 	engine := messagesEngine(svc)
 
 	rec := postMessages(engine, []byte(validAnthropicBody))
@@ -400,7 +400,7 @@ func routeEngine(svc *proxy.Service) *gin.Engine {
 }
 
 func TestRouteHandler_InvalidRoutingKnobsReturns400(t *testing.T) {
-	svc := newTestService(&fakeRouter{err: cluster.ErrInvalidRoutingKnobs}, "", nil)
+	svc := newTestService(&fakeRouter{err: router.ErrInvalidRoutingKnobs}, "", nil)
 	engine := routeEngine(svc)
 
 	rec := httptest.NewRecorder()

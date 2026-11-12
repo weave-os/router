@@ -19,16 +19,13 @@ import (
 // a routing decision. Callers map to HTTP 503.
 var ErrClusterUnavailable = errors.New("cluster: routing unavailable")
 
-// ErrNoEligibleProvider is returned when req.EnabledProviders has no
-// overlap with boot-time candidates. Callers map to HTTP 4xx.
-var ErrNoEligibleProvider = errors.New("cluster: no eligible provider for request")
-
-// ErrAllowlistEmptiesPool wraps ErrNoEligibleProvider so existing errors.Is
-// checks keep matching, while naming the allowlist instead of the desugared exclusion list.
-var ErrAllowlistEmptiesPool = fmt.Errorf("cluster: model allowlist leaves no eligible candidates: %w", ErrNoEligibleProvider)
-
-// ErrInvalidRoutingKnobs is returned when effective routing knobs fail validation.
-var ErrInvalidRoutingKnobs = errors.New("cluster: invalid routing knobs")
+// Aliases of the router sentinels, kept so errors.Is identity holds for
+// callers that still name the cluster package.
+var (
+	ErrNoEligibleProvider   = router.ErrNoEligibleProvider
+	ErrAllowlistEmptiesPool = router.ErrAllowlistEmptiesPool
+	ErrInvalidRoutingKnobs  = router.ErrInvalidRoutingKnobs
+)
 
 // Config carries the scorer's runtime knobs.
 type Config struct {
@@ -526,7 +523,7 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 		bindings := RequestBindings{Custom: req.CustomBindings, Gateways: req.GatewayProviders}
 		eligibleModels = eligibleModels[:0:0]
 		for _, c := range s.candidates {
-			r := bindings.resolve(c.Model, c.Provider, req.EnabledProviders)
+			r := resolveBinding(bindings, c.Model, c.Provider, req.EnabledProviders)
 			if r == "" {
 				continue
 			}
