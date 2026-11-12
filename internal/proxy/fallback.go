@@ -292,9 +292,10 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 		Decision: in.initialDecision,
 		Bindings: in.bindings,
 		Origin:   in.origin,
-		// Without caller or BYOK credentials the walk runs on the declared
-		// deployment keys, which only serve catalog bindings.
-		CatalogBindingsOnly: s.deploymentKeyedProviders != nil && s.shouldFailover(ctx),
+		// Deployment credentials only serve catalog bindings. The walk is
+		// caller-funded when a credential was resolved for the decision's
+		// provider; an unrelated BYOK or client key does not lift the check.
+		CatalogBindingsOnly: s.deploymentKeyedProviders != nil && !s.byokOnly && CredentialsFromContext(ctx) == nil,
 	})
 	if err != nil {
 		return -1, err

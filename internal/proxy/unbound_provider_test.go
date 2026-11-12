@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openaicompat"
@@ -28,21 +29,32 @@ func TestProxy_UnboundProviderDecisionFailsClosed(t *testing.T) {
 	require.False(t, bound, "fixture needs a provider the catalog does not bind for the model")
 
 	cases := map[string]struct {
-		serve              func(*proxy.Service, http.ResponseWriter) error
+		ctx                context.Context
+		serve              func(context.Context, *proxy.Service, http.ResponseWriter) error
 		wantErrKind        proxy.DispatchErrorKind
 		wantAnthropicCalls int32
 	}{
 		"messages rescues on the baseline binding": {
-			serve: func(svc *proxy.Service, w http.ResponseWriter) error {
+			serve: func(ctx context.Context, svc *proxy.Service, w http.ResponseWriter) error {
 				body := []byte(`{"model":"claude-sonnet-4-5","max_tokens":4096,"messages":[{"role":"user","content":"Say hi"}]}`)
-				return svc.ProxyMessages(context.Background(), body, w, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("")))
+				return svc.ProxyMessages(ctx, body, w, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("")))
 			},
 			wantAnthropicCalls: 1,
 		},
 		"chat fails closed": {
-			serve: func(svc *proxy.Service, w http.ResponseWriter) error {
+			serve: func(ctx context.Context, svc *proxy.Service, w http.ResponseWriter) error {
 				body := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}]}`)
-				return svc.ProxyOpenAIChatCompletion(context.Background(), body, w, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("")))
+				return svc.ProxyOpenAIChatCompletion(ctx, body, w, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("")))
+			},
+			wantErrKind: proxy.DispatchErrorPlanUnresolvable,
+		},
+		"an unrelated BYOK key does not lift the deployment-funded check": {
+			ctx: context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+				{Provider: providers.ProviderAnthropic, Plaintext: []byte("caller-anthropic-key")},
+			}),
+			serve: func(ctx context.Context, svc *proxy.Service, w http.ResponseWriter) error {
+				body := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}]}`)
+				return svc.ProxyOpenAIChatCompletion(ctx, body, w, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("")))
 			},
 			wantErrKind: proxy.DispatchErrorPlanUnresolvable,
 		},
@@ -72,7 +84,11 @@ func TestProxy_UnboundProviderDecisionFailsClosed(t *testing.T) {
 				nil, false, nil, nil, false, providers.ProviderAnthropic, model, nil,
 			).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderFireworks: {}, providers.ProviderAnthropic: {}})
 
-			err := tc.serve(svc, httptest.NewRecorder())
+			ctx := tc.ctx
+			if ctx == nil {
+				ctx = context.Background()
+			}
+			err := tc.serve(ctx, svc, httptest.NewRecorder())
 
 			assert.Zero(t, unboundCalls.Load(), "unbound provider must never be dispatched to")
 			assert.Equal(t, tc.wantAnthropicCalls, anthropicCalls.Load())
