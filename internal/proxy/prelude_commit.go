@@ -1,16 +1,61 @@
 package proxy
 
 import (
+	"net/http"
+
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/translate"
 )
 
 const maxHeldCommitBytes = 64 << 10
 
+// streamCommitFormat enables commit-on-output only for streamed responses;
+// a buffered non-streamed response keeps the classic first-write commit.
+func streamCommitFormat(env *translate.RequestEnvelope, format translate.Format) []translate.Format {
+	if env.Stream() {
+		return []translate.Format{format}
+	}
+	return nil
+}
+
 // CommitOnOutput defers a sealed prelude until output or terminal data arrives.
 func (b *preludeBuffer) CommitOnOutput(format translate.Format) {
 	b.commitOnOutput = true
 	b.commitFormat = format
+}
+
+func (b *preludeBuffer) commit() error {
+	if b.committed.Swap(true) {
+		return nil
+	}
+	if !b.preludeSent {
+		if b.bufStatus != 0 {
+			sse.PrepareJSONResponse(b.inner)
+			b.inner.WriteHeader(b.bufStatus)
+		}
+		if b.bufBody.Len() > 0 {
+			if _, err := sse.WriteJSONChunk(b.inner, b.bufBody.Bytes()); err != nil {
+				return err
+			}
+		}
+		b.preludeSent = true
+	}
+	b.bufStatus = 0
+	b.bufBody.Reset()
+	if f, ok := b.inner.(http.Flusher); ok {
+		f.Flush()
+	}
+	return nil
+}
+
+// releaseHeldResult flushes events a served attempt held short of commit.
+// A release failure is the attempt's outcome, not a lease abort: the attempt
+// stays booked with the state the buffer reached.
+func (b *preludeBuffer) releaseHeldResult(winnerIdx int, err error) (int, error) {
+	if err != nil || b == nil {
+		return winnerIdx, err
+	}
+	return winnerIdx, b.releaseHeld()
 }
 
 func (b *preludeBuffer) writeCommitOnOutput(p []byte) (int, error) {
