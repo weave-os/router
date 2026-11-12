@@ -551,16 +551,13 @@ func IsHTTP2ConnectionLoss(err error) bool {
 		return false
 	}
 	msg := err.Error()
-	return strings.Contains(msg, "http2: client connection lost") ||
-		strings.Contains(msg, "http2: server sent GOAWAY and closed the connection") ||
-		isBareHTTP2ConnectionError(err)
-}
-
-// isBareHTTP2ConnectionError matches net/http's unexported HTTP/2
-// ConnectionError, whose whole message is "connection error: <code>".
-func isBareHTTP2ConnectionError(err error) bool {
-	for ; err != nil; err = errors.Unwrap(err) {
-		if strings.HasPrefix(err.Error(), "connection error: ") {
+	if strings.Contains(msg, "http2: client connection lost") ||
+		strings.Contains(msg, "http2: server sent GOAWAY and closed the connection") {
+		return true
+	}
+	// net/http's unexported HTTP/2 ConnectionError has the bare message "connection error: <code>".
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		if strings.HasPrefix(e.Error(), "connection error: ") {
 			return true
 		}
 	}

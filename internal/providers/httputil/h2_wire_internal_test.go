@@ -48,8 +48,7 @@ func rawH2Upstream(t *testing.T, onRequest func(fr *http2.Framer, conn net.Conn,
 					}
 				case *http2.HeadersFrame:
 					var block bytes.Buffer
-					enc := hpack.NewEncoder(&block)
-					_ = enc.WriteField(hpack.HeaderField{Name: ":status", Value: "200"})
+					_ = hpack.NewEncoder(&block).WriteField(hpack.HeaderField{Name: ":status", Value: "200"})
 					if fr.WriteHeaders(http2.HeadersFrameParam{StreamID: f.StreamID, BlockFragment: block.Bytes(), EndHeaders: true}) != nil {
 						return
 					}

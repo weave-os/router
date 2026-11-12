@@ -258,10 +258,13 @@ func TestResponsesSSEIdleTimeoutFromEnv_OverrideRespected(t *testing.T) {
 func TestNewTransport_ConfiguresHTTP2Keepalives(t *testing.T) {
 	tr := NewTransport(10*time.Second, 10*time.Second)
 
-	sendPingAfter, ping := h2KeepaliveFor(DefaultResponseHeaderTimeout)
+	origIdle, origPing := DefaultH2ReadIdleTimeout, DefaultH2PingTimeout
+	t.Cleanup(func() { DefaultH2ReadIdleTimeout, DefaultH2PingTimeout = origIdle, origPing })
+	DefaultH2ReadIdleTimeout, DefaultH2PingTimeout = 15*time.Second, 5*time.Second
+	tr = NewTransport(10*time.Second, 10*time.Second)
 	require.NotNil(t, tr.HTTP2, "h2 keepalives are unset")
-	assert.Equal(t, sendPingAfter, tr.HTTP2.SendPingTimeout)
-	assert.Equal(t, ping, tr.HTTP2.PingTimeout)
+	assert.Equal(t, 15*time.Second, tr.HTTP2.SendPingTimeout)
+	assert.Equal(t, 5*time.Second, tr.HTTP2.PingTimeout)
 	assert.True(t, tr.ForceAttemptHTTP2, "custom dialer disables h2 unless forced")
 }
 
