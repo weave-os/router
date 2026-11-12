@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -134,6 +135,11 @@ func (s *Service) compactionSummarizers(ctx context.Context, sessionKey [session
 		provider, _ := summarizerProvider(latest, req)
 		out = append(out, compactionSummarizer{provider: provider, model: latest, source: step.source})
 	}
+	if len(out) == 0 && req.ClientApp == ClientAppCodex && billing.SubscriptionOnlyFromContext(ctx) {
+		if requested, ok := s.compactionRequestedModel(req); ok {
+			out = append(out, requested)
+		}
+	}
 	return out
 }
 
@@ -242,23 +248,7 @@ func (s *Service) compactionSessionModel(ctx context.Context, sessionKey [sessio
 	}
 	model, _ = hmm.SplitEffort(model)
 	model = catalog.LatestInFamily(model, func(candidate string) bool {
-		m, known := catalog.ByID(candidate)
-		if !known || m.Tier == catalog.TierLow {
-			return false
-		}
-		binding, bound := s.servedBinding(candidate, served.Provider, req)
-		if !bound || binding.Provider == providers.ProviderAnthropic {
-			return false
-		}
-		if s.availableModels != nil {
-			if _, available := s.availableModels[candidate]; !available {
-				return false
-			}
-		}
-		if _, excluded := req.ExcludedModels[candidate]; excluded {
-			return false
-		}
-		return !automaticallyDisabled(req, candidate)
+		return s.codexSummarizerEligible(candidate, served.Provider, req)
 	})
 	if model == "" {
 		return "", "", false
@@ -268,6 +258,40 @@ func (s *Service) compactionSessionModel(ctx context.Context, sessionKey [sessio
 		return "", "", false
 	}
 	return binding.Provider, model, true
+}
+
+// compactionRequestedModel serves a subscription-only Codex compaction on the
+// model Codex asked for, as Codex does natively, since the paid utility pin is
+// excluded and would otherwise leave the turn with no route.
+func (s *Service) compactionRequestedModel(req router.Request) (compactionSummarizer, bool) {
+	model, _ := hmm.SplitEffort(req.RequestedModel)
+	if !s.codexSummarizerEligible(model, "", req) {
+		return compactionSummarizer{}, false
+	}
+	binding, _ := s.servedBinding(model, "", req)
+	return compactionSummarizer{provider: binding.Provider, model: model, source: policy.OverrideSourceRequest}, true
+}
+
+// codexSummarizerEligible reports whether a non-Anthropic, summary-grade
+// model may serve a Codex compaction turn for this request.
+func (s *Service) codexSummarizerEligible(model, servedProvider string, req router.Request) bool {
+	m, known := catalog.ByID(model)
+	if !known || m.Tier == catalog.TierLow {
+		return false
+	}
+	binding, bound := s.servedBinding(model, servedProvider, req)
+	if !bound || binding.Provider == providers.ProviderAnthropic {
+		return false
+	}
+	if s.availableModels != nil {
+		if _, available := s.availableModels[model]; !available {
+			return false
+		}
+	}
+	if _, excluded := req.ExcludedModels[model]; excluded {
+		return false
+	}
+	return !automaticallyDisabled(req, model)
 }
 
 // latestServedPin picks the pin whose last turn ended most recently among

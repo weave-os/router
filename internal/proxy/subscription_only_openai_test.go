@@ -140,3 +140,35 @@ func TestSubscriptionOnly_OpenAI_SubFailure_NoPaidFailover(t *testing.T) {
 	assert.True(t, p.proxyCreds[0].OAuth, "only the caller's own subscription may be attempted")
 	assert.Len(t, p.proxyBodies, 1, "only the subscription attempt may dispatch; no paid failover")
 }
+
+// A Codex compaction turn under depleted credits has no paid utility model to
+// hard-pin to, so it must serve on the caller's requested Codex model rather
+// than 503 "routing unavailable" and leave the client retrying.
+func TestSubscriptionOnly_OpenAI_CodexCompactionServesRequestedModel(t *testing.T) {
+	p := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"summary\"}\n\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"status\":\"completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n")
+	}}
+	var resolverCalls int
+	noPaidUtilityModel := func(proxy.HardPinRequest) (string, string, bool) {
+		resolverCalls++
+		return "", "", false
+	}
+	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.4-mini", nil).
+		WithHardPinResolver(noPaidUtilityModel).
+		WithCompactionHardPin(true)
+
+	body := `{"model":"gpt-5.6-terra","messages":[{"role":"user","content":"You are performing a CONTEXT CHECKPOINT COMPACTION. Create a summary."}],"max_tokens":4096,"stream":true}`
+	rec, req := codexSubRequest(t, body)
+	ctx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted)
+	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req))
+	require.Positive(t, resolverCalls, "the turn must reach the compaction hard pin")
+	require.Len(t, p.proxyBodies, 1)
+	assert.Contains(t, string(p.proxyBodies[0]), `"gpt-5.6-terra"`)
+	require.NotNil(t, p.proxyCreds[0])
+	assert.True(t, p.proxyCreds[0].OAuth, "compaction must serve on the caller's own Codex subscription")
+}
