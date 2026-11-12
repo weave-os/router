@@ -23,8 +23,6 @@ func (catalogRosterSource) HMMDeployedModels(context.Context) ([]router.Deployed
 	return entries, nil
 }
 
-// deployedModelsSource falls back to the catalog when no process-wide HMM
-// roster is configured.
 func deployedModelsSource(hmmRoster admin.HMMRosterSource) admin.HMMRosterSource {
 	if hmmRoster == nil {
 		return catalogRosterSource{}
