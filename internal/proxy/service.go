@@ -4019,6 +4019,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if err := env.StripCommandOutcomes(); err != nil {
 		return fmt.Errorf("strip command outcomes: %w", err)
 	}
+	if removed, err := env.StripHistoricalCommands(); err != nil {
+		return fmt.Errorf("strip historical router commands: %w", err)
+	} else if removed > 0 {
+		log.Info("Stripped historical router commands from Anthropic history", "removed_messages", removed)
+	}
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
 		log.Info("Stripped router-feedback artifacts from Anthropic history", "removed_messages", removed)
 	}
@@ -7454,6 +7459,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if err := env.StripCommandOutcomes(); err != nil {
 		return fmt.Errorf("strip command outcomes: %w", err)
 	}
+	if removed, err := env.StripHistoricalCommands(); err != nil {
+		return fmt.Errorf("strip historical router commands: %w", err)
+	} else if removed > 0 {
+		log.Info("Stripped historical router commands from OpenAI history", "removed_messages", removed)
+	}
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
 		log.Info("Stripped router-feedback artifacts from OpenAI history", "removed_messages", removed)
 	}
@@ -9425,6 +9435,10 @@ func stripResponsesTerminalArtifacts(body []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("strip Responses router command: %w", err)
 	}
+	stripped, err = translate.StripHistoricalCommandsFromResponsesInput(stripped)
+	if err != nil {
+		return nil, err
+	}
 	return stripResponsesVisualArtifacts(stripped)
 }
 
@@ -9460,8 +9474,9 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 			return err
 		}
 		// Keep router directives in the portable projection so the shared chat
-		// path can record them and identify Codex skill invocations. The native
-		// body has already been sanitized for direct Responses dispatch.
+		// path can record them, identify Codex skill invocations, and key the
+		// session on the opening message before stripping it. The native body
+		// has already been sanitized for direct Responses dispatch.
 		conversionBody, err = stripResponsesVisualArtifacts(body)
 		if err != nil {
 			return err

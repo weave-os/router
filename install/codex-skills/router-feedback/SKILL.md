@@ -12,4 +12,5 @@ Do not send a user message and do not type a Codex slash command.
 
 The script prints a leading-space `/router-feedback` line. The Weave Router reads that
 exec output, records the feedback, and continues this turn — so run the script once and
-do not repeat its output as your answer. Then report the router's response.
+do not repeat its output as your answer. The router renders its own
+acknowledgment, so do not restate or reason about it; end the turn.

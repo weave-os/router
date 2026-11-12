@@ -92,6 +92,37 @@ Policy and opt-outs stay in proxy; sinks reuse the existing protocol encoders af
 conversion. Read [the notice contract](../../docs/ROUTER_NOTICES.md) before adding
 notice kinds or changing prelude/retry behavior.
 
+## Router directives in replayed history (load-bearing)
+
+Clients resend the whole conversation each turn, so a directive the user typed on an
+earlier turn (`/fm`, `$router-session`, …) returns as an ordinary user message after
+its ack was already stripped. Left in place the model reads it, reasons about it, and
+sometimes re-runs the skill (Codex, prod 2026-10). [`command_history.go`](command_history.go)
+removes it: `StripHistoricalCommands` for `messages` bodies and
+`StripHistoricalCommandsFromResponsesInput` for the native Codex body. Which
+directives count comes from `routerDirectives` in
+[`directive_registry.go`](directive_registry.go); its test fails when
+`install/directives.tsv` declares a directive that is neither listed there nor named
+in `notRouterHandled` (the client-side toggles, plus `beta`, which
+`StripBetaArtifacts` owns), so a new directive must be registered or explicitly
+exempted. Four
+rules: the trailing user turn is never touched (that is where `Extract*Command` must
+still find a live directive); the first user message is stripped too, but
+`StripHistoricalCommands` first captures its original text and `deriveSessionKey`
+hashes that (`ThreadDiscriminatorText`), so the pin an opening directive created
+survives — which is why the portable Codex projection keeps its directives until the
+chat path has bound the session key; the Codex `<skill>` attachment and its `exec`
+call of that skill's `scripts/emit.sh` go with the directive, including all results
+matching the removed call ID; unrelated calls and content are kept. On `messages`
+bodies an unmarked ack (no tool call) left at the head
+of the history once the opening directive is gone goes too — the native Responses
+body leaves acks to `StripCommandOutcomesFromResponsesInput`; and
+any text the user wrote alongside the directive is kept, so only the command line
+goes. Each directive family's own parser decides what counts, so the bare-only
+directives (`router-session`, `router-models`) with trailing arguments never fired
+and are not stripped. Tool-output directives stay the job of
+`StripRouterCommandsFromResponsesInput`.
+
 ## Invariants
 
 - **No I/O.** No HTTP, no DB, no filesystem.
