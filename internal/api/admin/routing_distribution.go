@@ -21,7 +21,7 @@ import (
 // by excludedModels / excludedProviders. Implemented by *cluster.Multiversion
 // in production; callers can pass a fake in tests.
 type RoutingDistributionSource interface {
-	DefaultRoutingDistribution(gridN int, excludedModels, excludedProviders map[string]struct{}) ([]cluster.DistributionPoint, error)
+	DefaultRoutingDistribution(gridN int, excludedModels, excludedProviders map[string]struct{}) ([]router.DistributionPoint, error)
 }
 
 // AdmittedDistributionRosterSource returns only the request's effective policy.
@@ -34,7 +34,7 @@ type AdmittedDistributionRosterSource interface {
 const maxDistributionGrid = 101
 
 type routingDistributionResponse struct {
-	Points []cluster.DistributionPoint `json:"points"`
+	Points []router.DistributionPoint `json:"points"`
 }
 
 // RoutingDistributionHandler serves GET /v1/router/routing-distribution. For a
@@ -74,7 +74,7 @@ func routingDistributionHandler(dist RoutingDistributionSource, admitted Admitte
 		excludedModels := parseCSVSet(c.Query("excluded_models"))
 		excludedProviders := parseCSVSet(c.Query("excluded_providers"))
 		strategy := router.Strategy(strings.ToLower(strings.TrimSpace(c.Query("strategy"))))
-		var points []cluster.DistributionPoint
+		var points []router.DistributionPoint
 		var err error
 		if admitted != nil {
 			if strategy != "" && strategy != router.StrategyHMM && strategy != router.StrategyHMMEmbedding {
@@ -105,7 +105,7 @@ func routingDistributionHandler(dist RoutingDistributionSource, admitted Admitte
 			// An exclusion set that empties the eligible pool is a client
 			// configuration error (4xx), not a server outage — same sentinel
 			// mapping cluster routing uses. Everything else is a 503.
-			if errors.Is(err, cluster.ErrNoEligibleProvider) {
+			if errors.Is(err, router.ErrNoEligibleProvider) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "exclusions leave no eligible models"})
 				return
 			}

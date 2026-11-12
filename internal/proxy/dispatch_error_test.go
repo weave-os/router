@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandit"
 	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/decisionmodel"
@@ -151,8 +152,40 @@ func TestClassifyDispatchError_ClusterUnavailableRetriesAndLogsError(t *testing.
 	assert.Equal(t, "error", cls.LogLevel)
 }
 
+// The cluster package keeps aliases of the routing sentinels while callers
+// migrate; both spellings and wrapped forms must classify identically.
+func TestClassifyDispatchError_RoutingSentinelsKeepStatusAndKind(t *testing.T) {
+	cases := []struct {
+		name       string
+		err        error
+		kind       proxy.DispatchErrorKind
+		status     int
+		retryAfter bool
+	}{
+		{"no eligible provider", router.ErrNoEligibleProvider, proxy.DispatchErrorNoEligibleProvider, http.StatusBadRequest, false},
+		{"cluster alias no eligible provider", cluster.ErrNoEligibleProvider, proxy.DispatchErrorNoEligibleProvider, http.StatusBadRequest, false},
+		{"allowlist empties pool", router.ErrAllowlistEmptiesPool, proxy.DispatchErrorAllowlistEmptiesPool, http.StatusBadRequest, false},
+		{"cluster alias allowlist empties pool", cluster.ErrAllowlistEmptiesPool, proxy.DispatchErrorAllowlistEmptiesPool, http.StatusBadRequest, false},
+		{"invalid routing knobs", router.ErrInvalidRoutingKnobs, proxy.DispatchErrorInvalidRoutingKnobs, http.StatusBadRequest, false},
+		{"cluster alias invalid routing knobs", cluster.ErrInvalidRoutingKnobs, proxy.DispatchErrorInvalidRoutingKnobs, http.StatusBadRequest, false},
+		{"cluster unavailable", cluster.ErrClusterUnavailable, proxy.DispatchErrorClusterUnavailable, http.StatusServiceUnavailable, true},
+		{"routing unavailable", router.ErrRoutingUnavailable, proxy.DispatchErrorClusterUnavailable, http.StatusServiceUnavailable, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, err := range []error{tc.err, fmt.Errorf("hard-pin: %w", tc.err)} {
+				cls, ok := proxy.ClassifyDispatchError(err)
+				require.True(t, ok, "expected %v to be classified", err)
+				assert.Equal(t, tc.kind, cls.Kind)
+				assert.Equal(t, tc.status, cls.Status)
+				assert.Equal(t, tc.retryAfter, cls.RetryAfter)
+			}
+		})
+	}
+}
+
 func TestClassifyDispatchError_NoEligibleProviderIsClientErrorAndWarns(t *testing.T) {
-	cls, ok := proxy.ClassifyDispatchError(cluster.ErrNoEligibleProvider)
+	cls, ok := proxy.ClassifyDispatchError(router.ErrNoEligibleProvider)
 
 	require.True(t, ok)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
@@ -164,7 +197,7 @@ func TestClassifyDispatchError_NoEligibleProviderIsClientErrorAndWarns(t *testin
 // ErrAllowlistEmptiesPool wraps ErrNoEligibleProvider, so switch ordering is
 // load-bearing: the generic case must not match first and misattribute the cause.
 func TestClassifyDispatchError_AllowlistEmptiesPoolPrecedesNoEligibleProvider(t *testing.T) {
-	cls, ok := proxy.ClassifyDispatchError(cluster.ErrAllowlistEmptiesPool)
+	cls, ok := proxy.ClassifyDispatchError(router.ErrAllowlistEmptiesPool)
 
 	require.True(t, ok)
 	assert.Equal(t, proxy.DispatchErrorAllowlistEmptiesPool, cls.Kind)

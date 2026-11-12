@@ -1076,7 +1076,7 @@ func TestService_HardPin_SubAgentOverrideIneligibleProviderErrors(t *testing.T) 
 	err := svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, cluster.ErrNoEligibleProvider)
+	assert.ErrorIs(t, err, router.ErrNoEligibleProvider)
 }
 
 // OpenAI ingress: same Stage 1 path via ProxyOpenAIChatCompletion.

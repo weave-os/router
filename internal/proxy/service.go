@@ -32,7 +32,6 @@ import (
 	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/router/handover"
@@ -1558,7 +1557,7 @@ func excludeContextOverflowModels(est, sigSavings, outputReserve int, enabledPro
 // its native prompt-too-long error so the client compacts. Only models the
 // request can be served on count: one it cannot reach neither hides a total
 // overflow nor sets the widest window.
-func admitWidestOnTotalOverflow(ruledOut map[string]struct{}, overflowed []string, available, enabledProviders map[string]struct{}, bindings cluster.RequestBindings) []string {
+func admitWidestOnTotalOverflow(ruledOut map[string]struct{}, overflowed []string, available, enabledProviders map[string]struct{}, bindings router.RequestBindings) []string {
 	if len(overflowed) == 0 {
 		return nil
 	}
@@ -1589,7 +1588,7 @@ func admitWidestOnTotalOverflow(ruledOut map[string]struct{}, overflowed []strin
 // catalog or configuration-declared binding; a gateway-exclusive request is
 // served only through its gateways' aliases. No enabled set, or a model
 // without catalog bindings, counts as servable.
-func servableUnder(model string, enabledProviders map[string]struct{}, bindings cluster.RequestBindings) bool {
+func servableUnder(model string, enabledProviders map[string]struct{}, bindings router.RequestBindings) bool {
 	if len(bindings.Gateways) > 0 {
 		for _, provider := range bindings.Custom[model] {
 			if _, gateway := bindings.Gateways[provider]; gateway {
@@ -4249,7 +4248,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	overflowEstimate := env.ContextOverflowTokenEstimate()
 	gatewayProviders := s.gatewayProvidersForRequest(ctx)
 	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, excluded, s.availableModels)
-	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders, cluster.RequestBindings{Custom: customBindings, Gateways: gatewayProviders})
+	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders, router.RequestBindings{Custom: customBindings, Gateways: gatewayProviders})
 	excluded = withoutModels(excluded, overflowAdmitted)
 	if len(ctxOverflowed) > 0 {
 		log.Info("context window pre-filter: excluded over-capacity models",
@@ -7674,7 +7673,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	hardExcludedOAI := append(append([]string(nil), geminiUnsignedOAI...), imageLimitExcludedOAI...)
 	overflowEstimateOAI := env.ContextOverflowTokenEstimate()
 	excludedOAI, ctxOverflowedOAI := excludeContextOverflowModels(overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI, enabledProviders, excludedOAI, s.availableModels)
-	overflowAdmittedOAI := admitWidestOnTotalOverflow(excludedOAI, ctxOverflowedOAI, s.availableModels, enabledProviders, cluster.RequestBindings{Custom: s.customBindingsForRequest(ctx), Gateways: s.gatewayProvidersForRequest(ctx)})
+	overflowAdmittedOAI := admitWidestOnTotalOverflow(excludedOAI, ctxOverflowedOAI, s.availableModels, enabledProviders, router.RequestBindings{Custom: s.customBindingsForRequest(ctx), Gateways: s.gatewayProvidersForRequest(ctx)})
 	excludedOAI = withoutModels(excludedOAI, overflowAdmittedOAI)
 	if len(ctxOverflowedOAI) > 0 {
 		log.Info("context window pre-filter: excluded over-capacity models",
