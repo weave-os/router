@@ -25,7 +25,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/subscriptions"
 )
@@ -51,7 +50,7 @@ func (stateModelRouter) Route(_ context.Context, req router.Request) (router.Dec
 			}
 		}
 	}
-	return router.Decision{}, cluster.ErrAllowlistEmptiesPool
+	return router.Decision{}, router.ErrAllowlistEmptiesPool
 }
 
 type stateModelLeaser struct {

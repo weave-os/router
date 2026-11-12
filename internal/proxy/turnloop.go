@@ -1175,11 +1175,11 @@ func (s *Service) runTurnLoop(
 		default:
 			if req.EnabledProviders != nil {
 				if _, enabled := req.EnabledProviders[provider]; !enabled {
-					return res, fmt.Errorf("hard-pin provider %q is ineligible for %s: %w", provider, res.TurnType, cluster.ErrNoEligibleProvider)
+					return res, fmt.Errorf("hard-pin provider %q is ineligible for %s: %w", provider, res.TurnType, router.ErrNoEligibleProvider)
 				}
 			}
 			if _, excluded := req.ExcludedModels[model]; excluded {
-				return res, fmt.Errorf("hard-pin model %q is ineligible for %s: %w", model, res.TurnType, cluster.ErrNoEligibleProvider)
+				return res, fmt.Errorf("hard-pin model %q is ineligible for %s: %w", model, res.TurnType, router.ErrNoEligibleProvider)
 			}
 			if automaticallyDisabled(req, model) {
 				// A statically configured hard pin has no alternative to fall
@@ -2050,7 +2050,7 @@ func (s *Service) runTurnLoop(
 					_, available = s.availableModels[rerouted.Model]
 				}
 				if !available || !pinEligible(reroutedPin, rerouteReq) {
-					return res, fmt.Errorf("authoritative policy returned excluded model %q after reroute: %w", rerouted.Model, cluster.ErrNoEligibleProvider)
+					return res, fmt.Errorf("authoritative policy returned excluded model %q after reroute: %w", rerouted.Model, router.ErrNoEligibleProvider)
 				}
 				res.Fresh = rerouted
 				res.Decision = rerouted

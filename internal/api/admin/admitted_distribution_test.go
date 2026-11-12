@@ -13,7 +13,6 @@ import (
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
@@ -43,7 +42,7 @@ func TestAdmittedRoutingDistributionUsesEachRequestsPolicy(t *testing.T) {
 			engine.ServeHTTP(recorder, request)
 			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 			var response struct {
-				Points []cluster.DistributionPoint `json:"points"`
+				Points []router.DistributionPoint `json:"points"`
 			}
 			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
 			require.Len(t, response.Points, 2)
