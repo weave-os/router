@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -56,7 +57,9 @@ func (s *Service) routeCompaction(
 		cortexGateways: cortexGatewayProvidersForRequest(ctx),
 		now:            time.Now(),
 	}
-	if decision, ok := session.decision(ctx, sessionKey, res.PinRole, req); ok {
+	decision, strikes, ok := session.decision(ctx, sessionKey, res.PinRole, req)
+	req = strikes.apply(req)
+	if ok {
 		// The scorer's roster gives the session model sibling rescue candidates.
 		scoreReq := req
 		scoreReq.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
@@ -93,9 +96,36 @@ type compactionSession struct {
 	now            time.Time
 }
 
-func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (router.Decision, bool) {
+// sessionStrikes are the providers and models a session's failures withdrew
+// from automatic selection.
+type sessionStrikes struct {
+	disabledProviders []string
+	demotedModels     []string
+}
+
+// apply withdraws the strikes from the request so the scorer cannot reselect
+// them.
+func (st sessionStrikes) apply(req router.Request) router.Request {
+	if req.EnabledProviders != nil && len(st.disabledProviders) > 0 {
+		enabled := maps.Clone(req.EnabledProviders)
+		for _, provider := range st.disabledProviders {
+			delete(enabled, provider)
+		}
+		req.EnabledProviders = enabled
+	}
+	if len(st.demotedModels) > 0 {
+		demoted := make(map[string]struct{}, len(st.demotedModels))
+		for _, model := range st.demotedModels {
+			demoted[model] = struct{}{}
+		}
+		req.AutomaticExcludedModels = mergeExcludedModels(req.AutomaticExcludedModels, demoted)
+	}
+	return req
+}
+
+func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (router.Decision, sessionStrikes, bool) {
 	var served sessionpin.Pin
-	var disabledProviders, demotedModels []string
+	var strikes sessionStrikes
 	for _, pinRole := range []string{role, hmmHistoryRole(role)} {
 		pin, found, err := c.pins.Get(ctx, sessionKey, pinRole)
 		if err != nil {
@@ -105,8 +135,8 @@ func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.
 		if !found {
 			continue
 		}
-		disabledProviders = mergeSessionStrikes(disabledProviders, pin.DisabledProviders)
-		demotedModels = mergeSessionStrikes(demotedModels, pin.DemotedModels)
+		strikes.disabledProviders = mergeSessionStrikes(strikes.disabledProviders, pin.DisabledProviders)
+		strikes.demotedModels = mergeSessionStrikes(strikes.demotedModels, pin.DemotedModels)
 		if pinRole == role && !pin.PinnedUntil.After(c.now) {
 			continue
 		}
@@ -118,7 +148,7 @@ func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.
 	}
 	model, effort := hmm.SplitEffort(model)
 	if model == "" {
-		return router.Decision{}, false
+		return router.Decision{}, strikes, false
 	}
 	if effort == "" && model == served.Model {
 		effort = served.Effort
@@ -129,21 +159,21 @@ func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.
 	}
 	binding, bound := servedBinding(model, served.Provider, providerSet, req.CustomBindings)
 	if !bound {
-		return router.Decision{}, false
+		return router.Decision{}, strikes, false
 	}
 	if c.available != nil {
 		if _, available := c.available[model]; !available {
-			return router.Decision{}, false
+			return router.Decision{}, strikes, false
 		}
 	}
 	pin := sessionpin.Pin{Provider: binding.Provider, Model: model, Effort: effort, Reason: compactionSessionPinTier}
 	fits := req.EstimatedInputTokens <= 0 ||
 		req.EstimatedInputTokens+contextWindowOutputReserve <= gatewayContextWindow(c.cortexGateways, model, binding.Provider)
-	struck := slices.Contains(disabledProviders, binding.Provider) || slices.Contains(demotedModels, model)
+	struck := slices.Contains(strikes.disabledProviders, binding.Provider) || slices.Contains(strikes.demotedModels, model)
 	if !fits || struck || !automaticPinEligible(pin, req) {
-		return router.Decision{}, false
+		return router.Decision{}, strikes, false
 	}
-	return pinDecision(pin), true
+	return pinDecision(pin), strikes, true
 }
 
 // crossGatewayRescuers lists the request's gateway-held models on another

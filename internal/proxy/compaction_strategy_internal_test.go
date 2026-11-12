@@ -143,7 +143,7 @@ func TestCompactionCrossStrategyHistoryHonorsEligibility(t *testing.T) {
 				now:       time.Now(),
 			}
 			ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
-			_, ok := session.decision(ctx, [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, test.req)
+			_, _, ok := session.decision(ctx, [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, test.req)
 			assert.False(t, ok)
 		})
 	}

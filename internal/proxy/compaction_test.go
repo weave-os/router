@@ -90,12 +90,12 @@ func TestCompactionSessionDecision(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			session := compactionSession{pins: test.store, providers: openAIAndAnthropic, available: test.available, now: time.Now()}
-			decision, ok := session.decision(ctx, key, sessionpin.DefaultRole, test.req)
+			decision, _, ok := session.decision(ctx, key, sessionpin.DefaultRole, test.req)
 			assert.Equal(t, test.wantModel != "", ok)
 			assert.Equal(t, test.wantModel, decision.Model)
 			assert.Equal(t, test.wantEffort, decision.Effort)
 			if ok {
-				assert.Equal(t, test.store.byRole[firstServedRole(test.store)].Provider, decision.Provider)
+				assert.Equal(t, latestServedProvider(test.store), decision.Provider)
 			}
 		})
 	}
@@ -121,9 +121,17 @@ func TestTurnLoop_CompactionReadsClientIdentityBeforeSessionPin(t *testing.T) {
 	assert.Equal(t, sessionModel, turn.Decision.Model)
 }
 
-func firstServedRole(store *rolePinStore) string {
-	if _, ok := store.byRole[hmmHistoryRole(sessionpin.DefaultRole)]; ok {
-		return hmmHistoryRole(sessionpin.DefaultRole)
+func latestServedProvider(store *rolePinStore) string {
+	var latest sessionpin.Pin
+	for _, pin := range store.byRole {
+		latest = latestServedPin(latest, pin)
 	}
-	return sessionpin.DefaultRole
+	return latest.Provider
+}
+
+func TestSessionStrikesWithdrawStruckArmsFromScoring(t *testing.T) {
+	strikes := sessionStrikes{disabledProviders: []string{providers.ProviderOpenAI}, demotedModels: []string{"claude-opus-4-8"}}
+	req := strikes.apply(router.Request{EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}}})
+	assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}}, req.EnabledProviders)
+	assert.Contains(t, req.AutomaticExcludedModels, "claude-opus-4-8")
 }
