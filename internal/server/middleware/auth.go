@@ -293,10 +293,6 @@ func extractToken(c *gin.Context) string {
 	return auth.RoutingTokenFromHeaders(c.Request.Header)
 }
 
-func extractBearer(header string) string {
-	return auth.BearerToken(header)
-}
-
 func handleAuthError(c *gin.Context, err error) {
 	logger := observability.FromGin(c)
 	switch {

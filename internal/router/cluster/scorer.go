@@ -2,7 +2,6 @@ package cluster
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -16,8 +15,9 @@ import (
 )
 
 // ErrClusterUnavailable is returned when the cluster scorer cannot produce
-// a routing decision. Callers map to HTTP 503.
-var ErrClusterUnavailable = errors.New("cluster: routing unavailable")
+// a routing decision. It wraps router.ErrRoutingUnavailable, which callers
+// map to HTTP 503.
+var ErrClusterUnavailable = fmt.Errorf("cluster: %w", router.ErrRoutingUnavailable)
 
 // Aliases of the router sentinels, kept so errors.Is identity holds for
 // callers that still name the cluster package.

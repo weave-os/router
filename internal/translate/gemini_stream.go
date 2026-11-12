@@ -264,10 +264,6 @@ func (t *GeminiToOpenAISSETranslator) translateEvent(raw []byte) error {
 	return nil
 }
 
-func (t *GeminiToOpenAISSETranslator) emitFirstChunk() error {
-	return t.ensureStarted()
-}
-
 func (t *GeminiToOpenAISSETranslator) emitTextDelta(text string) error {
 	if err := t.ensureStarted(); err != nil {
 		return err
