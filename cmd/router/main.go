@@ -708,8 +708,9 @@ func main() {
 
 	hardPinExplore := config.GetOr("ROUTER_HARD_PIN_EXPLORE", "true") == "true"
 	hardPinOverrideConfigured := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_MODEL", "")) != ""
-	// The boot-time pin serves only when the per-request resolver below is not
-	// wired, i.e. under the ROUTER_HARD_PIN_MODEL operator override.
+	// The boot-time pin seeds the title-gen, classifier, probe and sub-agent
+	// deployment targets; hard-pinned turns serve it directly only when the
+	// per-request resolver below is not wired (ROUTER_HARD_PIN_MODEL override).
 	hardPinProvider, hardPinModel, err := resolveHardPinModel()
 	if err != nil {
 		logger.Error("Invalid hard-pin model configuration; refusing to boot", "err", err)
@@ -728,16 +729,7 @@ func main() {
 	// excluded_models.
 	var hardPinResolver proxy.HardPinResolver
 	if !hardPinOverrideConfigured {
-		hardPinResolver = func(req proxy.HardPinRequest) (string, string, bool) {
-			return policy.UtilityTarget(policy.UtilityTargetRequest{
-				EnabledProviders: req.EnabledProviders,
-				ExcludedModels:   req.ExcludedModels,
-				Bindings: router.RequestBindings{
-					Custom:   req.CustomBindings,
-					Gateways: req.GatewayProviders,
-				},
-			})
-		}
+		hardPinResolver = proxy.CatalogUtilityHardPin
 		logger.Info("Hard-pin resolver wired (per-request catalog utility target, applies excluded_models)", "default_model", policy.UtilityHardPinDefaultModel, "byok_only", byokOnly)
 	} else {
 		logger.Info("Hard-pin resolver not wired: ROUTER_HARD_PIN_MODEL operator override is set and absolute by design", "model", hardPinModel)

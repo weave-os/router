@@ -123,7 +123,7 @@ func TestUtilityTarget_NeverPicksTextOnlyModel(t *testing.T) {
 				ExcludedModels:   set(policy.UtilityHardPinDefaultModel),
 			})
 			if !ok {
-				return
+				t.Skip("no image-capable utility model on this provider")
 			}
 			m, known := catalog.ByID(model)
 			require.True(t, known)

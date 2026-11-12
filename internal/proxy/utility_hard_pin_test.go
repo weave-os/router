@@ -16,26 +16,9 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 )
-
-// catalogUtilityResolver is the production hard-pin wiring from cmd/router.
-func catalogUtilityResolver(req proxy.HardPinRequest) (string, string, bool) {
-	return policy.UtilityTarget(policy.UtilityTargetRequest{
-		EnabledProviders: req.EnabledProviders,
-		ExcludedModels:   req.ExcludedModels,
-		Bindings:         router.RequestBindings{Custom: req.CustomBindings, Gateways: req.GatewayProviders},
-	})
-}
-
-var utilityHardPinTurns = []struct {
-	name string
-	body string
-}{
-	{"title_gen", titleGenBody},
-	{"probe", `{"model":"claude-opus-4-8","max_tokens":1,"messages":[{"role":"user","content":"quota"}]}`},
-	{"sub_agent", exploreBody},
-}
 
 type utilityHardPinSetup struct {
 	name      string
@@ -78,11 +61,11 @@ func newUtilityHardPinSvc(setup utilityHardPinSetup, fr *fakeRouter) *proxy.Serv
 		fr, clients, nil, false, nil, newFakePinStore(), true,
 		policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel,
 		nil,
-	).WithByokOnly(setup.byokOnly).WithExplicitUtilityHardPin(true).WithHardPinResolver(catalogUtilityResolver)
+	).WithByokOnly(setup.byokOnly).WithHardPinResolver(proxy.CatalogUtilityHardPin)
 }
 
-// Utility hard pins resolve from the catalog against each installation's
-// reachable providers, exclusions and gateway aliases.
+// Explore sub-agent hard pins resolve from the catalog against each
+// installation's reachable providers, exclusions and gateway aliases.
 func TestService_UtilityHardPin_CatalogTargetPerInstallation(t *testing.T) {
 	setups := []utilityHardPinSetup{
 		{
@@ -92,7 +75,7 @@ func TestService_UtilityHardPin_CatalogTargetPerInstallation(t *testing.T) {
 			ctx: func(id string) context.Context {
 				return authedCtxWithExternalKey(id, providers.ProviderOpenAI, []byte("sk-byok"))
 			},
-			wantModel: "gpt-4.1-nano",
+			wantModel: catalog.ModelIDGPT41Nano.String(),
 			wantVia:   providers.ProviderOpenAI,
 		},
 		{
@@ -101,40 +84,38 @@ func TestService_UtilityHardPin_CatalogTargetPerInstallation(t *testing.T) {
 			ctx: func(id string) context.Context {
 				return context.WithValue(authedCtx(id), proxy.InstallationExcludedModelsContextKey{}, []string{policy.UtilityHardPinDefaultModel})
 			},
-			wantModel: "claude-haiku-5-5",
+			wantModel: catalog.ModelIDClaudeHaiku55.String(),
 			wantVia:   providers.ProviderAnthropic,
 		},
 		{
 			name:      "custom_binding",
 			clients:   []string{providers.ProviderOpenAIGateway},
 			byokOnly:  true,
-			ctx:       gatewayKeyCtx(providers.ProviderOpenAIGateway, "gpt-4.1-mini"),
-			wantModel: "gpt-4.1-mini",
+			ctx:       gatewayKeyCtx(providers.ProviderOpenAIGateway, catalog.ModelIDGPT41Mini.String()),
+			wantModel: catalog.ModelIDGPT41Mini.String(),
 			wantVia:   providers.ProviderOpenAIGateway,
 		},
 		{
 			name:      "gateway_only",
 			clients:   []string{providers.ProviderAnthropic, providers.ProviderAnthropicGateway},
-			ctx:       gatewayKeyCtx(providers.ProviderAnthropicGateway, "claude-sonnet-4-6", policy.UtilityHardPinDefaultModel),
+			ctx:       gatewayKeyCtx(providers.ProviderAnthropicGateway, catalog.ModelIDClaudeSonnet46.String(), policy.UtilityHardPinDefaultModel),
 			wantModel: policy.UtilityHardPinDefaultModel,
 			wantVia:   providers.ProviderAnthropicGateway,
 		},
 	}
 	for _, setup := range setups {
-		for _, turn := range utilityHardPinTurns {
-			t.Run(setup.name+"/"+turn.name, func(t *testing.T) {
-				fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7"}}
-				svc := newUtilityHardPinSvc(setup, fr)
-				rec := httptest.NewRecorder()
-				httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+		t.Run(setup.name, func(t *testing.T) {
+			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus47.String()}}
+			svc := newUtilityHardPinSvc(setup, fr)
+			rec := httptest.NewRecorder()
+			httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
-				require.NoError(t, svc.ProxyMessages(setup.ctx(uuid.New().String()), []byte(turn.body), rec, httpReq))
+			require.NoError(t, svc.ProxyMessages(setup.ctx(uuid.New().String()), []byte(exploreBody), rec, httpReq))
 
-				assert.Equal(t, 0, fr.routeCalls, "utility hard pins bypass the scorer")
-				assert.Equal(t, setup.wantModel, rec.Header().Get(proxy.HeaderRouterModel))
-				assert.Equal(t, setup.wantVia, rec.Header().Get(proxy.HeaderRouterProvider))
-			})
-		}
+			assert.Equal(t, 0, fr.routeCalls, "utility hard pins bypass the scorer")
+			assert.Equal(t, setup.wantModel, rec.Header().Get(proxy.HeaderRouterModel))
+			assert.Equal(t, setup.wantVia, rec.Header().Get(proxy.HeaderRouterProvider))
+		})
 	}
 }
 
@@ -146,20 +127,16 @@ func TestService_UtilityHardPin_NoEligibleProviderIs400(t *testing.T) {
 		byokOnly: true,
 		ctx:      authedCtx,
 	}
-	for _, turn := range utilityHardPinTurns {
-		t.Run(turn.name, func(t *testing.T) {
-			svc := newUtilityHardPinSvc(setup, &fakeRouter{})
-			rec := httptest.NewRecorder()
-			httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	svc := newUtilityHardPinSvc(setup, &fakeRouter{})
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
-			err := svc.ProxyMessages(setup.ctx(uuid.New().String()), []byte(turn.body), rec, httpReq)
+	err := svc.ProxyMessages(setup.ctx(uuid.New().String()), []byte(exploreBody), rec, httpReq)
 
-			require.ErrorIs(t, err, router.ErrNoEligibleProvider)
-			assert.NotErrorIs(t, err, router.ErrRoutingUnavailable)
-			class, ok := proxy.ClassifyDispatchError(err)
-			require.True(t, ok)
-			assert.Equal(t, proxy.DispatchErrorNoEligibleProvider, class.Kind)
-			assert.Equal(t, http.StatusBadRequest, class.Status)
-		})
-	}
+	require.ErrorIs(t, err, router.ErrNoEligibleProvider)
+	assert.NotErrorIs(t, err, router.ErrRoutingUnavailable)
+	class, ok := proxy.ClassifyDispatchError(err)
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorNoEligibleProvider, class.Kind)
+	assert.Equal(t, http.StatusBadRequest, class.Status)
 }

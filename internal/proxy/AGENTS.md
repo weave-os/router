@@ -273,10 +273,12 @@ has catalog bindings to walk), and a model stays routable unless **every**
 gateway key aliasing it has refused, since a second endpoint may serve it. The
 alias itself is still the customer-side fix — this only caps the bill at one 404.
 
-**The hard-pin tier resolves against the same bindings.** Compaction and explicitly
-deployment-pinned utility turns bypass the scorer, so `hardPinResolver` gets its
-own `HardPinRequest` carrying `CustomBindings` + `GatewayProviders` and selects
-via the catalog-backed `policy.UtilityTarget`. Without them a gateway-only installation
+**The hard-pin tier resolves against the same bindings.** Explore sub-agent hard
+pins bypass the scorer, so `hardPinResolver` gets its own `HardPinRequest`
+carrying `CustomBindings` + `GatewayProviders` and selects via the catalog-backed
+`policy.UtilityTarget` (`CatalogUtilityHardPin`). Title-gen and probe hard-pin only
+under the `ROUTER_HARD_PIN_MODEL` override, which leaves the resolver unwired;
+compaction never hard-pins (`routeCompaction` keeps the session pin or scores). Without them a gateway-only installation
 resolved nothing and every such turn 503'd `ErrClusterUnavailable` ("cluster
 scorer failed") while its scored turns routed fine — prod 2026-08-26. An empty
 result under a gateway now reports `ErrGatewayServesNoDeployedModel` for the
