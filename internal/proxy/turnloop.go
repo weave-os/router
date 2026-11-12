@@ -229,9 +229,10 @@ type turnLoopResult struct {
 	UsageBypass bool
 	// CallerModelPassthrough records direct dispatch under the internal
 	// experiment without changing usage-bypass billing semantics.
-	CallerModelPassthrough bool
-	PinTier                string
-	PinAgeSec              int64
+	CallerModelPassthrough  bool
+	blindExperimentBaseline blindExperimentBaseline
+	PinTier                 string
+	PinAgeSec               int64
 	// ForcedPinDropped records that a /force-model pin existed but could not be
 	// served (provider not enabled, excluded, or not image-capable); surfaced so
 	// the turn does not silently contradict the "force-model applied" ack.
@@ -688,7 +689,7 @@ func (s *Service) classifierModelDecision(ctx context.Context, headers http.Head
 		return router.Decision{}, false
 	}
 	req.RequestedModel = policy.ClassifierModel
-	dec, err := s.callerModelPassthroughDecision(ctx, req)
+	dec, err := s.passthroughModelDecision(ctx, req)
 	if err != nil || !s.clients.Has(dec.Provider) {
 		return router.Decision{}, false
 	}
@@ -828,6 +829,7 @@ func (s *Service) runTurnLoop(
 	subAgentHint = subAgentHintForRequest(ctx, subAgentHint)
 	shadowStartedAt := time.Now()
 	defer func() {
+		res.blindExperimentBaseline = s.activeBlindExperimentBaseline(ctx, req)
 		if routeErr == nil {
 			routeErr = policyPinServed(ctx, res)
 			if routeErr == nil {
@@ -1104,7 +1106,7 @@ func (s *Service) runTurnLoop(
 		if automaticProbe {
 			return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
 		}
-		decision, err := s.callerModelPassthroughDecision(ctx, req)
+		decision, err := s.passthroughModelDecision(ctx, req)
 		if err != nil {
 			return res, err
 		}

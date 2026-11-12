@@ -33,6 +33,9 @@ type ClientIdentity struct {
 	// OpenCodeSubagent marks an OpenCode child-session request. Routing
 	// metadata only: never used for auth, billing, or provider eligibility.
 	OpenCodeSubagent bool
+	// PriorModel is the model the installer found selected before it switched
+	// the client to Weave Auto; empty when unrecorded or malformed.
+	PriorModel string
 }
 
 // OpenCodeSessionHeader carries OpenCode's own session id (ses_...), which

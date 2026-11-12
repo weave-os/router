@@ -115,6 +115,7 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		BlindExperimentModelSource:               stringPtrOrNil(string(p.BlindExperimentModelSource)),
 		BlindExperimentTreatmentApplied:          p.BlindExperimentTreatmentApplied,
 		BlindExperimentBaselineModel:             stringPtrOrNil(p.BlindExperimentBaselineModel),
+		BlindExperimentBaselineSource:            stringPtrOrNil(string(p.BlindExperimentBaselineSource)),
 		BlindExperimentModelChanged:              p.BlindExperimentModelChanged,
 		EstimatedInputTokens:                     p.EstimatedInputTokens,
 		ContextSnapshot:                          p.ContextSnapshot,

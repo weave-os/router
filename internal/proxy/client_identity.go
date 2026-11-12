@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -11,6 +12,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/turntype"
 )
 
@@ -41,6 +43,7 @@ func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 		ClientApp:   NormalizeClientApp(xApp, h.Get("User-Agent")),
 		Eval:        eval,
 		RolloutID:   NormalizeRolloutID(h.Get(RolloutIDHeader)),
+		PriorModel:  NormalizePriorModel(h.Get(PriorModelHeader)),
 	}
 	if id.ClientApp == ClientAppOpencode {
 		id.OpenCodeSubagent = requestcontext.IsOpenCodeSubagent(h)
@@ -176,6 +179,27 @@ func NormalizeRolloutID(s string) string {
 	}
 	return s
 }
+
+// PriorModelHeader carries the model the installer found selected before it
+// switched the client to Weave Auto ("unset" when none was configured).
+const PriorModelHeader = "X-Weave-Prior-Model"
+
+const maxPriorModelLen = 128
+
+var priorModelID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$`)
+
+// NormalizePriorModel returns a recorded prior model id, or "" for "unset",
+// routing aliases and anything that is not a plain model id. A Claude Code
+// context-window suffix ("[1m]") is dropped since the wire model omits it.
+func NormalizePriorModel(s string) string {
+	s = strings.TrimSuffix(strings.TrimSpace(s), "[1m]")
+	if len(s) > maxPriorModelLen || !priorModelID.MatchString(s) || strings.EqualFold(s, priorModelUnset) || router.IsRoutingModel(s) {
+		return ""
+	}
+	return s
+}
+
+const priorModelUnset = "unset"
 
 // NormalizeEmail trims, lower-cases, and structurally validates an email to
 // match the case-sensitive unique index on (installation_id, email).

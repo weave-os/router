@@ -138,7 +138,7 @@ func TestRoutingPolicyPassthroughUnknownModelIsAttributedToPolicy(t *testing.T) 
 	ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 	require.NoError(t, err)
 
-	_, err = service.callerModelPassthroughDecision(ctx, router.Request{
+	_, err = service.passthroughModelDecision(ctx, router.Request{
 		RequestedModel:   "auto",
 		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
 	})
@@ -225,7 +225,7 @@ func TestClientSelectedModelBypassesRoutingAndPins(t *testing.T) {
 func TestClientSelectedUnknownModelIsNotAttributedToPolicy(t *testing.T) {
 	service := NewService(nil, nil, nil, false, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 
-	_, err := service.callerModelPassthroughDecision(auth.WithClientModelPassthrough(context.Background()), router.Request{
+	_, err := service.passthroughModelDecision(auth.WithClientModelPassthrough(context.Background()), router.Request{
 		RequestedModel:   "auto",
 		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
 	})

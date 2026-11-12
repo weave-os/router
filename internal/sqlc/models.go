@@ -739,6 +739,7 @@ type RouterModelRouterRequestTelemetry struct {
 	BlindExperimentTreatmentApplied *bool
 	BlindExperimentBaselineModel    *string
 	BlindExperimentModelChanged     *bool
+	BlindExperimentBaselineSource   *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {

@@ -864,6 +864,35 @@ codex_existing_option() {
   ' "$config_file"
 }
 
+# codex_prior_model prints the X-Weave-Prior-Model value for config.toml: an
+# earlier install's record in the weave provider's headers when one exists,
+# else the saved top-level model unless it is Weave Auto, else "unset".
+codex_prior_model() {
+  local config_file="$1" found="" saved
+  if [ -f "$config_file" ]; then
+    found="$(awk '
+      /^[[:space:]]*#/ { next }
+      /^[[:space:]]*\[/ {
+        in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/)
+        next
+      }
+      in_provider && match($0, /["\047]?X-Weave-Prior-Model["\047]?[[:space:]]*=[[:space:]]*("[^"]*"|\047[^\047]*\047)/) {
+        hdr = substr($0, RSTART, RLENGTH)
+        sub(/^[^=]*=[[:space:]]*/, "", hdr)
+        hdr = substr(hdr, 2, length(hdr) - 2)
+        print "X-Weave-Prior-Model: " hdr
+        exit
+      }
+    ' "$config_file" 2>/dev/null | recorded_prior_model)"
+  fi
+  if [ -z "$found" ]; then
+    saved="$(codex_existing_option "$config_file" model)"
+    saved="$(printf '%s' "${saved:1}" | sed -n -e "s/^[^=]*=[[:space:]]*\"\([^\"]*\)\".*/\1/p" -e "s/^[^=]*=[[:space:]]*'\([^']*\)'.*/\1/p")"
+    found="$(prior_model_id "$saved")"
+  fi
+  printf '%s' "${found:-unset}"
+}
+
 # write_codex_config writes a managed [model_providers.weave] block to the
 # Codex CLI's config.toml. Sets `model_provider = "weave"` at the top level so
 # Codex picks the routed provider by default. The provider requires OpenAI
@@ -937,6 +966,7 @@ write_codex_config() {
   # that share the same router key. The router otherwise has to guess from
   # User-Agent.
   headers_parts="${headers_parts}, \"X-App\" = \"codex\", \"X-Weave-Codex-Native-Model-Pin\" = \"1\", \"X-Weave-Codex-Model-Catalog\" = \"1\""
+  headers_parts="${headers_parts}, \"X-Weave-Prior-Model\" = \"$(toml_escape "$(codex_prior_model "$config_file")")\""
   # No strategy header: pinning one here freezes installed clients on whatever
   # policy was current at install time, so a deployment-default change never
   # reaches them. Every endpoint, hosted or self-hosted, uses its own default.
@@ -3027,6 +3057,58 @@ CLAUDE_WEAVE_AUTO_STRIP_JQ='(if (.model == "weave-auto" or .model == "weave-auto
       | (if (.modelPicker.options | length) == 0 then del(.modelPicker.options) else . end)
       | (if (.modelPicker | length) == 0 then del(.modelPicker) else . end)
     else . end)'
+
+# prior_model_id prints $1 as a recordable X-Weave-Prior-Model value, minus
+# Claude Code's [1m] suffix. Weave Auto, "unset" and malformed ids print nothing.
+prior_model_id() {
+  local id="${1%\[1m\]}" pattern='^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$'
+  case "$id" in ""|unset|weave-auto) return 0 ;; esac
+  if [ "${#id}" -le 128 ] && [[ "$id" =~ $pattern ]]; then
+    printf '%s' "$id"
+  fi
+}
+
+# recorded_prior_model prints an X-Weave-Prior-Model value an earlier install
+# recorded in a newline-delimited header list on stdin; "unset" for a malformed one.
+recorded_prior_model() {
+  local found
+  found="$(sed -n 's/^[[:space:]]*X-Weave-Prior-Model:/=/p' | head -n 1)"
+  [ -n "$found" ] || return 0
+  found="$(printf '%s' "${found#=}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  if [ "$found" != "unset" ]; then
+    found="$(prior_model_id "$found")"
+  fi
+  printf '%s' "${found:-unset}"
+}
+
+# claude_prior_model prints the X-Weave-Prior-Model value for this install: an
+# earlier install's record when one exists, so updates never replace the
+# pre-Weave pick, else the model Claude Code runs now (shell ANTHROPIC_MODEL,
+# then settings ANTHROPIC_MODEL, then the saved model, as
+# prepare_claude_context_window reads them), else "unset".
+claude_prior_model() {
+  local source found="" current=""
+  # User settings come last: a project install inherits the user install's record.
+  for source in "$settings_dir/.weave-parked.json" "$local_settings_file" "$settings_file" \
+    "$HOME/.claude/.weave-parked.json" "$HOME/.claude/settings.json"; do
+    if [ -z "$source" ] || [ ! -f "$source" ]; then
+      continue
+    fi
+    found="$(json_get "$source" '.env.ANTHROPIC_CUSTOM_HEADERS' | recorded_prior_model)"
+    [ -z "$found" ] || { printf '%s' "$found"; return 0; }
+  done
+  current="${ANTHROPIC_MODEL:-}"
+  for source in "$context_settings_file" "$settings_file" "$HOME/.claude/settings.json"; do
+    [ -f "$source" ] || continue
+    [ -n "$current" ] || current="$(json_get "$source" '.env.ANTHROPIC_MODEL')"
+  done
+  for source in "$context_settings_file" "$settings_file" "$HOME/.claude/settings.json"; do
+    [ -f "$source" ] || continue
+    [ -n "$current" ] || current="$(json_get "$source" '.model')"
+  done
+  found="$(prior_model_id "$current")"
+  printf '%s' "${found:-unset}"
+}
 
 # claude_model_unset reports whether no Claude Code settings layer or
 # ANTHROPIC_MODEL selects a model, so defaulting to Weave Auto overrides nothing.
@@ -8098,8 +8180,9 @@ trap '_spin_cleanup; rm -f "$tmp_patch"' EXIT INT TERM HUP
 # Factored out so the /validate fallback can rewrite both files with a
 # replacement key without re-running the whole install.
 write_claude_settings() {
-  local block_key="$1"
+  local block_key="$1" prior_model
   prepare_claude_context_window
+  prior_model="$(claude_prior_model)"
   # Before passthrough every model was routed, so a model saved back then was
   # never a pin. Move those installs (and new ones) to Weave Auto once; later
   # updates keep whatever the user picks.
@@ -8122,7 +8205,7 @@ write_claude_settings() {
   if [ -n "$user_name" ]; then
     custom_headers="$custom_headers"$'\n'"X-Weave-User-Name: $user_name"
   fi
-  custom_headers="$custom_headers"$'\n'"X-App: claude-code"$'\n'"X-Weave-Model-Passthrough: 1"
+  custom_headers="$custom_headers"$'\n'"X-App: claude-code"$'\n'"X-Weave-Model-Passthrough: 1"$'\n'"X-Weave-Prior-Model: $prior_model"
 
   # Setting ANTHROPIC_BASE_URL makes Claude Code treat us as non-first-party.
   # Force tool-search deferral to match first-party Claude Code; "auto" can inline

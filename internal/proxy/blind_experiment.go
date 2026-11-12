@@ -69,8 +69,13 @@ func blindExperimentModelSource(ctx context.Context, routed *turnLoopResult) aut
 type blindExperimentOutcome struct {
 	source           auth.BlindExperimentModelSource
 	treatmentApplied bool
-	baselineModel    string
+	baseline         blindExperimentBaseline
 	modelChanged     *bool
+}
+
+type blindExperimentBaseline struct {
+	model  string
+	source auth.BlindExperimentBaselineSource
 }
 
 func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentState, routed *turnLoopResult, requestedModel, servedModel string) blindExperimentOutcome {
@@ -78,32 +83,78 @@ func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentSt
 	outcome := blindExperimentOutcome{
 		source:           source,
 		treatmentApplied: blindExperimentTreatmentApplied(state.Arm, source),
-		baselineModel:    blindExperimentBaselineModel(ctx, requestedModel),
+		baseline:         blindExperimentGuessedBaseline(ctx, requestedModel),
 	}
-	if source != auth.BlindExperimentModelSourceNotDispatched && outcome.baselineModel != "" {
+	if routed != nil && routed.blindExperimentBaseline.model != "" {
+		outcome.baseline = routed.blindExperimentBaseline
+	}
+	if source != auth.BlindExperimentModelSourceNotDispatched && outcome.baseline.model != "" {
 		if servedModel == "" {
 			servedModel = routed.Decision.Model
 		}
-		modelChanged := servedModel != outcome.baselineModel
+		modelChanged := servedModel != outcome.baseline.model
 		outcome.modelChanged = &modelChanged
 	}
 	return outcome
 }
 
-// blindExperimentBaselineModel is the model the client would run without
-// routing: its requested model, or its default for an automatic-routing alias
-// or an id the catalog no longer serves. Empty for an automatic-routing alias from a client with no default.
-func blindExperimentBaselineModel(ctx context.Context, requestedModel string) string {
+// blindExperimentBaselineFor is the model the client would run without
+// routing: for an automatic-routing alias, the model the installer recorded
+// before switching it to Weave Auto when this request can be served on it;
+// otherwise blindExperimentGuessedBaseline. Both arms use it, so their
+// baselines agree.
+func (s *Service) blindExperimentBaselineFor(ctx context.Context, req router.Request) blindExperimentBaseline {
+	if decision, ok := s.priorModelDecision(ctx, req); ok {
+		return blindExperimentBaseline{model: decision.Model, source: auth.BlindExperimentBaselineSourcePriorInstall}
+	}
+	return blindExperimentGuessedBaseline(ctx, req.RequestedModel)
+}
+
+func (s *Service) activeBlindExperimentBaseline(ctx context.Context, req router.Request) blindExperimentBaseline {
+	if _, active := auth.BlindExperimentFrom(ctx); !active {
+		return blindExperimentBaseline{}
+	}
+	return s.blindExperimentBaselineFor(ctx, req)
+}
+
+// blindExperimentGuessedBaseline is the requested model, or the client default
+// for an automatic-routing alias or an id the catalog no longer serves. Empty
+// for an automatic-routing alias from a client with no default.
+func blindExperimentGuessedBaseline(ctx context.Context, requestedModel string) blindExperimentBaseline {
 	baseline := clientRequestedModel(ctx, requestedModel)
 	if router.IsRoutingModel(baseline) {
-		return ""
+		return blindExperimentBaseline{}
+	}
+	if baseline != requestedModel {
+		return blindExperimentBaseline{model: baseline, source: auth.BlindExperimentBaselineSourceClientDefault}
 	}
 	if _, known := catalog.ByID(baseline); !known {
 		if clientDefault := clientBaselineModel(ctx); clientDefault != "" {
-			return clientDefault
+			return blindExperimentBaseline{model: clientDefault, source: auth.BlindExperimentBaselineSourceClientDefault}
 		}
 	}
-	return baseline
+	return blindExperimentBaseline{model: baseline, source: auth.BlindExperimentBaselineSourceRequestedModel}
+}
+
+// priorModelDecision serves an automatic-routing alias on the installer-recorded
+// prior model, with client aliases such as "sonnet" resolved, when the usual
+// passthrough checks admit it for this request.
+func (s *Service) priorModelDecision(ctx context.Context, req router.Request) (router.Decision, bool) {
+	prior := ClientIdentityFrom(ctx).PriorModel
+	if prior == "" || !router.IsRoutingModel(req.RequestedModel) {
+		return router.Decision{}, false
+	}
+	model, known := lookupForceModelName(prior)
+	if !known {
+		return router.Decision{}, false
+	}
+	req.RequestedModel = model
+	decision, err := s.callerModelPassthroughDecision(ctx, req)
+	if err != nil {
+		observability.FromContext(ctx).Debug("Recorded prior model cannot serve this request", "model", model, "err", err)
+		return router.Decision{}, false
+	}
+	return decision, true
 }
 
 // applyBlindExperimentOutcomeAttrs records the assigned arm and what actually
@@ -118,8 +169,9 @@ func applyBlindExperimentOutcomeAttrs(ctx context.Context, b *otel.AttrBuilder, 
 		String("routing.blind_experiment_assignment_source", string(state.AssignmentSource)).
 		String("routing.blind_experiment_model_source", string(outcome.source)).
 		Bool("routing.blind_experiment_treatment_applied", outcome.treatmentApplied)
-	if outcome.baselineModel != "" {
-		b.String("routing.blind_experiment_baseline_model", outcome.baselineModel)
+	if outcome.baseline.model != "" {
+		b.String("routing.blind_experiment_baseline_model", outcome.baseline.model).
+			String("routing.blind_experiment_baseline_source", string(outcome.baseline.source))
 	}
 	if outcome.modelChanged != nil {
 		b.Bool("routing.blind_experiment_model_changed", *outcome.modelChanged)
@@ -190,7 +242,7 @@ func (s *Service) blindExperimentPassthroughDecision(ctx context.Context, req ro
 	if !blindExperimentPassthroughActive(ctx) {
 		return router.Decision{}, false, nil
 	}
-	decision, err := s.callerModelPassthroughDecision(ctx, req)
+	decision, err := s.passthroughModelDecision(ctx, req)
 	return decision, true, err
 }
 
@@ -201,7 +253,7 @@ func (s *Service) passthroughDecision(ctx context.Context, req router.Request) (
 	if !auth.RoutingPassthroughFrom(ctx) {
 		return ctx, router.Decision{}, false, nil
 	}
-	decision, err := s.callerModelPassthroughDecision(ctx, req)
+	decision, err := s.passthroughModelDecision(ctx, req)
 	if err == nil || !auth.ClientModelPassthroughFrom(ctx) {
 		return ctx, decision, true, err
 	}
@@ -210,20 +262,35 @@ func (s *Service) passthroughDecision(ctx context.Context, req router.Request) (
 	if !auth.RoutingPassthroughFrom(ctx) {
 		return ctx, router.Decision{}, false, nil
 	}
-	decision, err = s.callerModelPassthroughDecision(ctx, req)
+	decision, err = s.passthroughModelDecision(ctx, req)
 	return ctx, decision, true, err
 }
 
-func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router.Request) (router.Decision, error) {
+// passthroughModelDecision serves the model the client would run without
+// routing; in the passthrough arm that is the installer-recorded prior model
+// when this request can use it.
+func (s *Service) passthroughModelDecision(ctx context.Context, req router.Request) (router.Decision, error) {
+	experimentArm := blindExperimentPassthroughActive(ctx) && !auth.RoutingPassthroughFrom(ctx) && !auth.ClientModelPassthroughFrom(ctx)
+	if experimentArm {
+		if decision, ok := s.priorModelDecision(ctx, req); ok {
+			return decision, nil
+		}
+	}
 	// A passthrough arm or router-off policy keeps a Weave Auto user on the
 	// model their client would run without Weave.
 	req.RequestedModel = clientRequestedModel(ctx, req.RequestedModel)
-	experimentArm := blindExperimentPassthroughActive(ctx) && !auth.RoutingPassthroughFrom(ctx) && !auth.ClientModelPassthroughFrom(ctx)
 	if experimentArm && len(req.GatewayProviders) == 0 {
-		if baseline := blindExperimentBaselineModel(ctx, req.RequestedModel); baseline != "" {
-			req.RequestedModel = baseline
+		if baseline := blindExperimentGuessedBaseline(ctx, req.RequestedModel); baseline.model != "" {
+			req.RequestedModel = baseline.model
 		}
 	}
+	return s.callerModelPassthroughDecision(ctx, req)
+}
+
+// callerModelPassthroughDecision serves req.RequestedModel verbatim when the
+// installation's allowlists, the request's exclusions and images, and its
+// providers or gateway admit it.
+func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router.Request) (router.Decision, error) {
 	if !modelPermittedByAllowlist(ctx, req.RequestedModel) || !modelInRequestSubset(ctx, req.RequestedModel) {
 		return router.Decision{}, fmt.Errorf("requested model %q is not allowed: %w", req.RequestedModel, cluster.ErrAllowlistEmptiesPool)
 	}

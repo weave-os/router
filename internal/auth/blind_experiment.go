@@ -232,3 +232,13 @@ const (
 	BlindExperimentModelSourceUsageBypass              BlindExperimentModelSource = "usage_bypass"
 	BlindExperimentModelSourceNotDispatched            BlindExperimentModelSource = "not_dispatched"
 )
+
+// BlindExperimentBaselineSource names where an experiment turn's baseline
+// model came from, so a recorded pre-Weave pick is distinguishable from a guess.
+type BlindExperimentBaselineSource string
+
+const (
+	BlindExperimentBaselineSourceRequestedModel BlindExperimentBaselineSource = "requested_model"
+	BlindExperimentBaselineSourcePriorInstall   BlindExperimentBaselineSource = "prior_install"
+	BlindExperimentBaselineSourceClientDefault  BlindExperimentBaselineSource = "client_default"
+)
