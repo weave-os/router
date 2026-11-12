@@ -9,9 +9,7 @@ const maxHeldCommitBytes = 64 << 10
 
 // CommitOnOutput defers a sealed prelude until output or terminal data arrives.
 func (b *preludeBuffer) CommitOnOutput(format translate.Format) {
-	b.isCommitEvent = func(event []byte) bool {
-		return translate.StreamEventCommitsOutput(format, event)
-	}
+	b.commitFormat = &format
 }
 
 func (b *preludeBuffer) writeCommitOnOutput(p []byte) (int, error) {
@@ -27,7 +25,7 @@ func (b *preludeBuffer) writeCommitOnOutput(p []byte) (int, error) {
 		if consumed == 0 {
 			break
 		}
-		if !b.isCommitEvent(event) {
+		if !translate.StreamEventCommitsOutput(*b.commitFormat, event) {
 			_, _ = b.held.Write(b.pending[:consumed])
 			b.pending = b.pending[consumed:]
 			continue
