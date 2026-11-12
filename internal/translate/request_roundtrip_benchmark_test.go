@@ -3,6 +3,7 @@ package translate_test
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"testing"
 
 	"weave-os/router/internal/providers"
@@ -51,7 +52,7 @@ func decodeBody(body []byte) (map[string]any, error) {
 	return v, err
 }
 
-func objList(v any) []map[string]any {
+func objectList(v any) []map[string]any {
 	list, _ := v.([]any)
 	out := make([]map[string]any, 0, len(list))
 	for _, item := range list {
@@ -69,8 +70,8 @@ func openAICallNames(body []byte) ([]string, error) {
 		return nil, err
 	}
 	var names []string
-	for _, msg := range objList(v["messages"]) {
-		for _, call := range objList(msg["tool_calls"]) {
+	for _, msg := range objectList(v["messages"]) {
+		for _, call := range objectList(msg["tool_calls"]) {
 			if fn, ok := call["function"].(map[string]any); ok {
 				if name, ok := fn["name"].(string); ok {
 					names = append(names, name)
@@ -88,8 +89,8 @@ func anthropicCallNames(body []byte) ([]string, error) {
 		return nil, err
 	}
 	var names []string
-	for _, msg := range objList(v["messages"]) {
-		for _, block := range objList(msg["content"]) {
+	for _, msg := range objectList(v["messages"]) {
+		for _, block := range objectList(msg["content"]) {
 			if block["type"] == "tool_use" {
 				if name, ok := block["name"].(string); ok {
 					names = append(names, name)
@@ -107,8 +108,8 @@ func geminiCallNames(body []byte) ([]string, error) {
 		return nil, err
 	}
 	var names []string
-	for _, content := range objList(v["contents"]) {
-		for _, part := range objList(content["parts"]) {
+	for _, content := range objectList(v["contents"]) {
+		for _, part := range objectList(content["parts"]) {
 			if call, ok := part["functionCall"].(map[string]any); ok {
 				if name, ok := call["name"].(string); ok {
 					names = append(names, name)
@@ -117,15 +118,6 @@ func geminiCallNames(body []byte) ([]string, error) {
 		}
 	}
 	return names, nil
-}
-
-func hasCall(names []string, want string) bool {
-	for _, n := range names {
-		if n == want {
-			return true
-		}
-	}
-	return false
 }
 
 var (
@@ -202,7 +194,7 @@ func BenchmarkHotPathRequestTranslation(b *testing.B) {
 			}
 			last := tc.chain[len(tc.chain)-1]
 			names, err := last.emittedCallNames(out)
-			if err != nil || !hasCall(names, "read_file") {
+			if err != nil || !slices.Contains(names, "read_file") {
 				b.Fatalf("%s output lost the read_file tool call (calls: %v, err: %v)", last.name, names, err)
 			}
 			b.SetBytes(int64(len(tc.input)))
