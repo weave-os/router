@@ -58,7 +58,9 @@ func (s *Service) routeCompaction(
 	}
 	if decision, ok := session.decision(ctx, sessionKey, res.PinRole, req); ok {
 		// The scorer's roster gives the session model sibling rescue candidates.
-		if fresh, err := s.routeFor(ctx, req); err == nil {
+		scoreReq := req
+		scoreReq.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
+		if fresh, err := s.routeFor(ctx, scoreReq); err == nil {
 			res.Fresh = fresh
 		}
 		res.Decision = decision
