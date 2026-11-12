@@ -29,7 +29,7 @@ Plus the action loop, handover adapter, and session-key derivation in sibling fi
 | is a model quirk | catalog data in [`../router/catalog`](../router/catalog/CLAUDE.md) | typed `catalog.Model` / `catalog.ProviderBinding` fields |
 | is new I/O | a port (interface) in the owning context, an adapter package, wiring in `cmd/router` | e.g. `sessionpin.Store`, implemented by `postgres.SessionPinRepo` |
 
-Accounting, shadows/experiments and the semantic cache stay in the orchestrator for now.
+Accounting and shadows/experiments stay in the orchestrator for now.
 
 **Until a context package exists, new logic goes in a new focused file in its context's group above, as a free function or a small collaborator struct whose dependencies are explicit constructor or function parameters.** Never add a `Service` method or field for it: `Service` methods have no visible dependencies and every one can reach all of `Service`'s state, which is how it reached its current size. Thread request-scoped values as parameters, not new context keys. No I/O in the logic itself; new repo methods are an interface in the inner ring, implemented in `internal/postgres/`. Tests drive the function or collaborator directly with in-memory fakes and real assertions.
 

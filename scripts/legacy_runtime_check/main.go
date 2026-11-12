@@ -115,45 +115,7 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	}
 	defer logFile.Close()
 	command := exec.CommandContext(ctx, binary)
-	// Do not inherit developer provider keys, cloud credentials, sidecars, or release configuration;
-	// the only policy release and classifier are the stub fixture passed below.
-	command.Env = []string{
-		"PATH=" + os.Getenv("PATH"),
-		"DATABASE_URL=" + dsn,
-		"PORT=" + fmt.Sprint(port),
-		"ROUTER_DEPLOYMENT_MODE=" + string(mode),
-		"PUBSUB_EMULATOR_HOST=" + pubsubAddress,
-		"PUBSUB_PROJECT_ID=legacy-runtime-fixture",
-		"PUBSUB_TOPIC_ROUTER_INVALIDATION=legacy-invalidation",
-		"PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION=legacy-invalidation",
-		"OPENAI_API_KEY=fixture-never-sent-to-provider",
-		"OPENAI_BASE_URL=http://127.0.0.1:1",
-		"ROUTER_SEMANTIC_CACHE_ENABLED=false",
-		"ROUTER_POLICY_RELEASE_DIR=" + policy.releaseDir,
-		"ROUTER_HMM_SIDECAR_URL=" + policy.classifierURL,
-		"ROUTER_HMM_SIDECAR_AUTH=none",
-		"GIN_MODE=release",
-	}
-	// Workers that still build the retired cluster scorer need native assets;
-	// leaving these unset proves the current worker boots without them.
-	for _, key := range []string{"ROUTER_ONNX_ASSETS_DIR", "ROUTER_ONNX_LIBRARY_DIR"} {
-		if value := os.Getenv(key); value != "" {
-			command.Env = append(command.Env, key+"="+value)
-		}
-	}
-	if mode == server.DeploymentModeSelfHosted {
-		// Self-hosted only: these prove the worker leaves ROUTER_SERVING_*
-		// unread while the assertion-key opt-in is absent. The managed leg is
-		// an unstamped legacy worker and must set none of them, because any
-		// ROUTER_SERVING_* variable set in managed mode without the assertion
-		// key refuses to boot (cmd/router/serving_runtime.go).
-		command.Env = append(command.Env,
-			"ROUTER_SERVING_REGISTRY_URI=invalid-disabled-registry",
-			"ROUTER_SERVING_CONFIGURATION_URI=invalid-disabled-configuration",
-			"ROUTER_SERVING_CONFIGURATION_GENERATION=invalid-disabled-generation",
-			"ROUTER_SERVING_TARGET=invalid-disabled-target",
-		)
-	}
+	command.Env = workerEnv(dsn, pubsubAddress, port, policy, mode)
 	command.Stdout = logFile
 	command.Stderr = logFile
 	if err := command.Start(); err != nil {
@@ -227,6 +189,49 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	}
 	slog.Info("Legacy worker started and served authenticated requests without serving dependencies", "mode", mode, "log", logFile.Name())
 	return nil
+}
+
+func workerEnv(dsn, pubsubAddress string, port int, policy policyFixture, mode server.DeploymentMode) []string {
+	// Do not inherit developer provider keys, cloud credentials, sidecars, or release configuration;
+	// the only policy release and classifier are the stub fixture passed below.
+	env := []string{
+		"PATH=" + os.Getenv("PATH"),
+		"DATABASE_URL=" + dsn,
+		"PORT=" + fmt.Sprint(port),
+		"ROUTER_DEPLOYMENT_MODE=" + string(mode),
+		"PUBSUB_EMULATOR_HOST=" + pubsubAddress,
+		"PUBSUB_PROJECT_ID=legacy-runtime-fixture",
+		"PUBSUB_TOPIC_ROUTER_INVALIDATION=legacy-invalidation",
+		"PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION=legacy-invalidation",
+		"OPENAI_API_KEY=fixture-never-sent-to-provider",
+		"OPENAI_BASE_URL=http://127.0.0.1:1",
+		"ROUTER_SEMANTIC_CACHE_ENABLED=false",
+		"ROUTER_POLICY_RELEASE_DIR=" + policy.releaseDir,
+		"ROUTER_HMM_SIDECAR_URL=" + policy.classifierURL,
+		"ROUTER_HMM_SIDECAR_AUTH=none",
+		"GIN_MODE=release",
+	}
+	// Workers that still build the retired cluster scorer need native assets;
+	// leaving these unset proves the current worker boots without them.
+	for _, key := range []string{"ROUTER_ONNX_ASSETS_DIR", "ROUTER_ONNX_LIBRARY_DIR"} {
+		if value := os.Getenv(key); value != "" {
+			env = append(env, key+"="+value)
+		}
+	}
+	if mode == server.DeploymentModeSelfHosted {
+		// Self-hosted only: these prove the worker leaves ROUTER_SERVING_*
+		// unread while the assertion-key opt-in is absent. The managed leg is
+		// an unstamped legacy worker and must set none of them, because any
+		// ROUTER_SERVING_* variable set in managed mode without the assertion
+		// key refuses to boot (cmd/router/serving_runtime.go).
+		env = append(env,
+			"ROUTER_SERVING_REGISTRY_URI=invalid-disabled-registry",
+			"ROUTER_SERVING_CONFIGURATION_URI=invalid-disabled-configuration",
+			"ROUTER_SERVING_CONFIGURATION_GENERATION=invalid-disabled-generation",
+			"ROUTER_SERVING_TARGET=invalid-disabled-target",
+		)
+	}
+	return env
 }
 
 func expectResponse(client *http.Client, request *http.Request, status int, contains string) error {

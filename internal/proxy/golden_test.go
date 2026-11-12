@@ -22,6 +22,7 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -143,7 +144,7 @@ func newGoldenHarness(t *testing.T, sc goldenScenario) *goldenHarness {
 	require.NoError(t, err)
 
 	rt := &goldenRouter{decisions: sc.decisions, err: sc.routeErr, rec: h.rec}
-	svc := proxy.NewService(rt, providerMap, nil, false, nil, h.pins, false,
+	svc := proxy.NewService(rt, providerMap, nil, h.pins, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", h.telemetry).
 		WithDeploymentKeyedProviders(available).
 		WithProviderOverloaded(false, breaker.New(breaker.Defaults(), h.clock.Now)).
@@ -190,6 +191,7 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 	base := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "golden-key")
 	base = context.WithValue(base, proxy.InstallationIDContextKey{}, goldenInstallationID)
 	base = context.WithValue(base, proxy.ExternalIDContextKey{}, "golden-org")
+	base = flags.WithOverrides(base, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEmbedOnlyUserMessage: false}})
 	if req.decorateContext != nil {
 		base = req.decorateContext(base)
 	}
