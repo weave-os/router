@@ -53,8 +53,7 @@ func TestProxy_UnboundProviderDecisionFailsClosed(t *testing.T) {
 				{Provider: providers.ProviderAnthropic, Plaintext: []byte("caller-anthropic-key")},
 			}),
 			serve: func(ctx context.Context, svc *proxy.Service, w http.ResponseWriter) error {
-				body := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}]}`)
-				return svc.ProxyOpenAIChatCompletion(ctx, body, w, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("")))
+				return svc.ProxyOpenAIChatCompletion(ctx, []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}]}`), w, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader("")))
 			},
 			wantErrKind: proxy.DispatchErrorPlanUnresolvable,
 		},
