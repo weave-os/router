@@ -18,13 +18,13 @@ import (
 )
 
 type fakeDistributionRoster struct {
-	roster *rosterdata.Roster
-	err    error
-	calls  int
+	roster     *rosterdata.Roster
+	err        error
+	strategies []router.Strategy
 }
 
-func (f *fakeDistributionRoster) DistributionRoster(context.Context) (*rosterdata.Roster, error) {
-	f.calls++
+func (f *fakeDistributionRoster) DistributionRoster(ctx context.Context) (*rosterdata.Roster, error) {
+	f.strategies = append(f.strategies, router.StrategyFromContext(ctx))
 	return f.roster, f.err
 }
 
@@ -94,7 +94,8 @@ func TestRoutingDistributionHandler_ProjectsHMMRosterGrid(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 		assert.Len(t, got.Points, 3, "grid query param sets the number of dial positions")
 	}
-	assert.Equal(t, 3, src.calls)
+	assert.Equal(t, []router.Strategy{router.StrategyFromContext(context.Background()), router.StrategyHMM, router.StrategyHMMEmbedding}, src.strategies,
+		"the requested strategy selects which policy roster is projected")
 }
 
 func TestRoutingDistributionHandler_ExclusionsNarrowThePool(t *testing.T) {
@@ -103,6 +104,10 @@ func TestRoutingDistributionHandler_ExclusionsNarrowThePool(t *testing.T) {
 	rec := getDistribution(engine, "?grid=2&excluded_models=%20gpt-5.6-luna%20,")
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.Equal(t, []string{"grok-4.6"}, distributionModels(t, rec), "trimmed CSV exclusions must reach the projection")
+
+	rec = getDistribution(engine, "?grid=2&excluded_providers=openai")
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Equal(t, []string{"grok-4.6"}, distributionModels(t, rec), "provider exclusions must reach the projection")
 
 	rec = getDistribution(engine, "?grid=2&excluded_models=gpt-5.6-luna,grok-4.6")
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "exclusions that empty the pool are a client config error")
@@ -115,7 +120,7 @@ func TestRoutingDistributionHandler_RejectsBadGrid(t *testing.T) {
 		rec := getDistribution(engine, "?grid="+bad)
 		assert.Equal(t, http.StatusBadRequest, rec.Code, "grid=%q should be rejected", bad)
 	}
-	assert.Zero(t, src.calls)
+	assert.Empty(t, src.strategies)
 }
 
 func TestRoutingDistributionHandler_RejectsNonHMMStrategy(t *testing.T) {
@@ -125,7 +130,7 @@ func TestRoutingDistributionHandler_RejectsNonHMMStrategy(t *testing.T) {
 		rec := getDistribution(engine, "?strategy="+string(strategy))
 		assert.Equal(t, http.StatusBadRequest, rec.Code, strategy)
 	}
-	assert.Zero(t, src.calls, "no legacy projection may stand in for a non-HMM strategy")
+	assert.Empty(t, src.strategies, "no legacy projection may stand in for a non-HMM strategy")
 }
 
 func TestRoutingDistributionHandler_SourceErrorIs503(t *testing.T) {

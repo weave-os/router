@@ -62,7 +62,11 @@ func RoutingDistributionHandler(source DistributionRosterSource) gin.HandlerFunc
 			c.JSON(http.StatusBadRequest, gin.H{"error": "routing distribution requires an HMM strategy"})
 			return
 		}
-		roster, err := source.DistributionRoster(c.Request.Context())
+		ctx := c.Request.Context()
+		if strategy != "" {
+			ctx = router.WithStrategy(ctx, strategy)
+		}
+		roster, err := source.DistributionRoster(ctx)
 		if err != nil {
 			observability.FromGin(c).Error("Routing distribution roster unavailable", "strategy", strategy, "grid", gridN, "err", err)
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "routing distribution unavailable"})

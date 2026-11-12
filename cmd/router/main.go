@@ -1653,7 +1653,7 @@ func main() {
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}
-	if hmmRosterModels == nil {
+	if hmmRosterModels == nil && deploymentMode == server.DeploymentModeSelfHosted {
 		hmmRosterModels = catalogRosterSource{}
 	}
 	server.RegisterWithFeatures(engine, authSvc, proxySvc, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)

@@ -24,7 +24,7 @@ type HMMRosterSource interface {
 
 // CatalogModelsHandler returns the deployed-models catalog: the serving HMM
 // policy roster, or the catalog projections for ?scope=selection|catalog.
-// Read-only, unauthed metadata, mounted in both selfhosted and managed modes.
+// Read-only, unauthed metadata, mounted whenever a roster source is wired.
 //
 // The list is publicly known (we publish per-version model registries on the
 // RouterArena leaderboard) so there is no leak risk from leaving this open.

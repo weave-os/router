@@ -419,7 +419,8 @@ func UpdateExternalKeyFundingPriorityHandler(authSvc *auth.Service) gin.HandlerF
 	}
 }
 
-// deployedModelIDs is the alias-validation set; nil source means skip validation.
+// deployedModelIDs is the alias-validation set; nil source (tests only: the
+// self-hosted composition root always wires one) means skip validation.
 func deployedModelIDs(ctx context.Context, models HMMRosterSource) (map[string]struct{}, error) {
 	if models == nil {
 		return nil, nil

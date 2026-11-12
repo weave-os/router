@@ -235,8 +235,9 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	}
 
 	// Projects the quality-vs-price dial's model mix across dial positions
-	// for the dashboard's distribution preview. Same unauthed rationale as
-	// /v1/router/models.
+	// for the dashboard's distribution preview. Self-hosted serves it unauthed
+	// (same rationale as /v1/router/models); managed binds it to the admitted
+	// request.
 	if features.ServingAdmission != nil {
 		discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.RoutingDistributionHandler(policyregistry.AdmittedRosterSource{}))
 	} else if features.RoutingDistribution != nil {

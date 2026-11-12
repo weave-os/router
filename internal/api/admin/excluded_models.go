@@ -44,7 +44,7 @@ func entriesToDTO(entries []router.DeployedEntry) []deployedModelDTO {
 	return out
 }
 
-// GetExcludedModelsHandler returns deployed models and the installation's
+// GetExcludedModelsHandler returns the model catalog and the installation's
 // exclusion list. `env_override_active` tells the UI to render read-only.
 func GetExcludedModelsHandler(authSvc *auth.Service, override ExclusionOverrideSource) gin.HandlerFunc {
 	return func(c *gin.Context) {

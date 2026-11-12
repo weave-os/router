@@ -138,6 +138,7 @@ func (s *hmmRosterSource) refresh(ctx context.Context) ([]router.DeployedEntry, 
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if s.haveCache {
+			s.cachedPolicy = policy
 			s.fetchedAt = time.Now().Add(hmmRosterRetryBackoff - hmmRosterTTL)
 			return cloneDeployedEntries(s.cached), nil
 		}
