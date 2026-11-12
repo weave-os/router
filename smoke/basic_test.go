@@ -80,6 +80,9 @@ func TestForceHeaderRejections(t *testing.T) {
 		if !strings.Contains(string(r.body), "invalid_request_error") {
 			t.Errorf("want an invalid_request_error envelope, got: %s", truncate(r.body, 600))
 		}
+		if !strings.Contains(string(r.body), "maximum") {
+			t.Errorf("want the refused cluster quoted back, got: %s", truncate(r.body, 600))
+		}
 	})
 
 	t.Run("force-model naming no catalog model is refused", func(t *testing.T) {

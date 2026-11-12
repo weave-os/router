@@ -211,7 +211,7 @@ dev: ## Run with hot-reload (CompileDaemon)
 		-graceful-kill=true \
 		-log-prefix=false
 
-up: ## Start the compose stack in the background (no install.sh wiring)
+up: ## Start the compose stack in the background (no install.sh wiring; the router needs an HMM policy, see docker-compose.yml)
 	docker compose up --build -d
 
 up-hmm: ## Start the stack with the opt-in frozen HMM policy sidecar

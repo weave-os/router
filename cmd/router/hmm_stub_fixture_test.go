@@ -36,5 +36,5 @@ func TestHMMStubReleaseServesTheEmbeddingDefault(t *testing.T) {
 		Route(context.Background(), router.Request{PromptText: "Explain a binary search."})
 	require.NoError(t, err)
 	assert.Equal(t, providers.ProviderOpenAI, decision.Provider)
-	assert.NotEmpty(t, decision.Model)
+	assert.Equal(t, "gpt-5.6-sol", decision.Model)
 }

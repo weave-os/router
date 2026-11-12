@@ -5,6 +5,10 @@
 # limits, default credentials below). Do not deploy this compose file to any
 # environment exposed beyond localhost.
 #
+# The router defaults to the HMM policy (hmm_embedding) and refuses to boot
+# without one: run the HMM sidecar (`make up-hmm`) and set
+# ROUTER_POLICY_RELEASE_DIR to a policy release that pins it.
+#
 # Usage:
 #   docker compose up --build
 #   # Optional capture in .env.local: ROUTER_HTTP_CAPTURE_FILE=/router-captures/router-traffic.jsonl
