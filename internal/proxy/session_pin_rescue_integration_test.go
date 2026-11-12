@@ -63,7 +63,9 @@ func TestProxyMessages_CrossModelRescueKeepsNextTurnOnPinnedBinding(t *testing.T
 		attempt := len(anthropicModels)
 		mu.Unlock()
 		if attempt <= dispatch.MaxSameBindingRetries+1 {
-			writeOverloadedResponse(w)
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(statusOverloaded)
+			_, _ = io.WriteString(w, overloadedSSE)
 			return
 		}
 		writeAnthropicSuccess(w)
@@ -95,7 +97,10 @@ func TestProxyMessages_CrossModelRescueKeepsNextTurnOnPinnedBinding(t *testing.T
 	first := runRescueTurn(t, svc, []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"start this session"}]}`))
 	require.Equal(t, providers.ProviderFireworks, first.Header().Get(proxy.HeaderRouterProvider))
 	require.Equal(t, "deepseek/deepseek-v4-pro", first.Header().Get(proxy.HeaderRouterModel))
-	requireRescueUsage(t, store)
+	store.mu.Lock()
+	require.NotEmpty(t, store.usages, "the rescued turn must write usage to its pin")
+	assert.Equal(t, providers.ProviderFireworks, store.usages[len(store.usages)-1].ServedProvider)
+	store.mu.Unlock()
 
 	second := runRescueTurn(t, svc, []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"start this session"},{"role":"assistant","content":"first answer"},{"role":"user","content":"continue with a new prompt"}]}`))
 	mu.Lock()
@@ -122,20 +127,6 @@ func runRescueTurn(t *testing.T, svc *proxy.Service, body []byte) *httptest.Resp
 	)
 	require.NoError(t, svc.ProxyMessages(ctx, body, recorder, req))
 	return recorder
-}
-
-func requireRescueUsage(t *testing.T, store *providerRescuePinStore) {
-	t.Helper()
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	require.NotEmpty(t, store.usages, "the rescued turn must write usage to its pin")
-	assert.Equal(t, providers.ProviderFireworks, store.usages[len(store.usages)-1].ServedProvider)
-}
-
-func writeOverloadedResponse(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.WriteHeader(statusOverloaded)
-	_, _ = io.WriteString(w, overloadedSSE)
 }
 
 func writeAnthropicSuccess(w http.ResponseWriter) {

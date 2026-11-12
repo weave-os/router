@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -290,7 +291,9 @@ func (s *goldenPinStore) UpdateUsage(_ context.Context, key [sessionpin.SessionK
 	if usage.OutputLimitReached {
 		p.LastOutputLimitAt = usage.EndedAt
 	}
-	p.Provider = usage.ServedProvider
+	if p.Model == "" || usage.ServedModel == p.Model || strings.HasPrefix(usage.ServedModel, p.Model+":") {
+		p.Provider = usage.ServedProvider
+	}
 	s.pins[pinKey(key, role)] = p
 	return nil
 }
