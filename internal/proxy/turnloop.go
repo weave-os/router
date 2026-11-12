@@ -1845,10 +1845,10 @@ func (s *Service) runTurnLoop(
 		)
 		commandContinuationFound = false
 	}
-	if siblingPreferencesErr != nil {
-		return res, fmt.Errorf("load session sibling preferences: %w", siblingPreferencesErr)
-	}
 	if commandContinuationFound && automaticPinEligible(commandContinuation, req) {
+		if siblingPreferencesErr != nil {
+			return res, fmt.Errorf("load session sibling preferences: %w", siblingPreferencesErr)
+		}
 		decision := pinDecision(commandContinuation)
 		res.Decision = decision
 		res.StickyHit = true
