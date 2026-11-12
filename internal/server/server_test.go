@@ -12,7 +12,6 @@ import (
 	"weave-os/router/internal/analytics"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
 
@@ -25,7 +24,7 @@ import (
 // registration tests; the handler closures it backs are never invoked.
 type fakeDeployedModelsSource struct{}
 
-func (fakeDeployedModelsSource) DefaultDeployedModels() []cluster.DeployedEntry { return nil }
+func (fakeDeployedModelsSource) DefaultDeployedModels() []router.DeployedEntry { return nil }
 
 type healthCheckerFunc func(context.Context) error
 
@@ -299,12 +298,19 @@ func TestParseDefaultStrategy(t *testing.T) {
 		"":            router.StrategyHMMEmbedding,
 		"  ":          router.StrategyHMMEmbedding,
 		" HMM ":       router.StrategyHMM,
-		"hmm_qwen":    router.StrategyHMMQwen,
 		"future-lane": router.Strategy("future-lane"),
 	} {
 		strategy, err := server.ParseDefaultStrategy(raw)
 		require.NoError(t, err, raw)
 		assert.Equal(t, expected, strategy, raw)
+	}
+}
+
+func TestParseDefaultStrategyRejectsOptInLanes(t *testing.T) {
+	for _, strategy := range []router.Strategy{router.StrategyHMMBeta, router.StrategyHMMQwen, router.StrategyLLMClassifier} {
+		_, err := server.ParseDefaultStrategy(string(strategy))
+		require.Error(t, err, strategy)
+		assert.Contains(t, err.Error(), "not a valid deployment default")
 	}
 }
 

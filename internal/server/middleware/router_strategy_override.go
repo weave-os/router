@@ -45,8 +45,8 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 	for _, strategy := range available {
 		allowed[strategy] = struct{}{}
 	}
-	// Managed workers keep the configured default unnormalized so the 503
-	// log names the unregistered strategy.
+	// Managed workers use the default exactly as passed; other installs use it
+	// normalized against the registered strategies.
 	managedDefaultStrategy := defaultStrategy
 	defaultStrategy = NormalizeRouterStrategyDefault(defaultStrategy, available...)
 	selectable := func(strategy router.Strategy) bool {

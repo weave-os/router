@@ -552,73 +552,6 @@ const exploreBody = `{
 	"messages":[{"role":"user","content":"list go files"}]
 }`
 
-// In byokOnly mode, the per-request resolver must override the boot-time
-// hard-pin so compaction lands on a model the request can authenticate to.
-func TestService_HardPin_Compaction_ByokOnly_UsesRequestResolver(t *testing.T) {
-	store := newFakePinStore()
-	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
-
-	resolver := func(req proxy.HardPinRequest) (string, string, bool) {
-		if _, ok := req.EnabledProviders[providers.ProviderAnthropic]; ok {
-			return providers.ProviderAnthropic, "claude-haiku-anthropic-byok", true
-		}
-		if _, ok := req.EnabledProviders[providers.ProviderOpenRouter]; ok {
-			return providers.ProviderOpenRouter, "deepseek/cheap", true
-		}
-		return "", "", false
-	}
-
-	providerMap := map[string]providers.Client{
-		providers.ProviderAnthropic:  &fakeProvider{},
-		providers.ProviderOpenRouter: &fakeProvider{},
-	}
-	// Boot-time hard-pin points at OpenRouter; resolver must override to
-	// Anthropic since the installation only BYOKs Anthropic.
-	svc := proxy.NewService(
-		fr, providerMap, nil, false, nil, store, false,
-		providers.ProviderOpenRouter, "deepseek/cheap",
-		nil,
-	).WithByokOnly(true).WithHardPinResolver(resolver)
-
-	ctx := authedCtxWithExternalKey(uuid.New().String(), providers.ProviderAnthropic, []byte("sk-ant-test"))
-	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(compactionBody), rec, httpReq))
-
-	assert.Equal(t, 0, fr.routeCalls, "compaction must bypass the cluster scorer")
-	assert.Equal(t, "claude-haiku-anthropic-byok", rec.Header().Get(proxy.HeaderRouterModel),
-		"per-request resolver must land hard-pin on the installation's BYOK provider, not the boot-time default")
-}
-
-// With no BYOK and resolver ok=false, hard-pin must surface
-// ErrClusterUnavailable rather than dispatch to an unauthenticatable default.
-func TestService_HardPin_Compaction_ByokOnly_NoEligibleProviderErrors(t *testing.T) {
-	store := newFakePinStore()
-	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
-
-	resolver := func(req proxy.HardPinRequest) (string, string, bool) {
-		if _, ok := req.EnabledProviders[providers.ProviderAnthropic]; ok {
-			return providers.ProviderAnthropic, "claude-haiku", true
-		}
-		return "", "", false
-	}
-
-	providerMap := map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}
-	svc := proxy.NewService(
-		fr, providerMap, nil, false, nil, store, false,
-		providers.ProviderOpenRouter, "deepseek/cheap",
-		nil,
-	).WithByokOnly(true).WithHardPinResolver(resolver)
-
-	ctx := authedCtx(uuid.New().String()) // no external keys
-	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	err := svc.ProxyMessages(ctx, []byte(compactionBody), rec, httpReq)
-	require.Error(t, err, "hard-pin with no eligible provider must surface an error, not silently dispatch")
-	assert.ErrorIs(t, err, cluster.ErrClusterUnavailable,
-		"error must be ErrClusterUnavailable so handlers map it to HTTP 503")
-}
-
 // classifierBody: small max_tokens, no tools — DetectFromEnvelope tags this
 // Classifier. It is scored like a main-loop turn but never reads or writes a
 // session pin.
@@ -720,7 +653,7 @@ func TestService_HardPin_TitleGen_AppliesExcludedModels(t *testing.T) {
 		"excluded model must never be served on the hard-pin tier")
 }
 
-func TestService_HardPin_CompactionAlwaysRoutesToHaiku(t *testing.T) {
+func TestService_CompactionWithoutSessionPinIsScored(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
 	svc := newPinSvc(fr, store)
@@ -730,14 +663,13 @@ func TestService_HardPin_CompactionAlwaysRoutesToHaiku(t *testing.T) {
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(compactionBody), rec, httpReq))
 
-	assert.Equal(t, 0, fr.routeCalls, "compaction must bypass the cluster scorer")
-	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
-	assert.Equal(t, 2, store.getCalls, "compaction checks session and legacy thread force state before hard-pinning")
+	assert.Equal(t, 1, fr.routeCalls, "compaction without a session pin is scored, not hard-pinned")
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
 
 	select {
 	case <-store.upsertCh:
-		t.Fatal("compaction turn must not write a session pin (would overwrite main-loop model)")
-	case <-time.After(100 * time.Millisecond):
+	case <-time.After(time.Second):
+		t.Fatal("a scored compaction anchors the session pin")
 	}
 }
 
@@ -1078,7 +1010,7 @@ func TestService_HardPin_SubAgentOverrideIneligibleProviderErrors(t *testing.T) 
 	err := svc.ProxyMessages(ctx, []byte(exploreBody), rec, httpReq)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, cluster.ErrNoEligibleProvider)
+	assert.ErrorIs(t, err, router.ErrNoEligibleProvider)
 }
 
 // OpenAI ingress: same Stage 1 path via ProxyOpenAIChatCompletion.

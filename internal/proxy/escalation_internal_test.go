@@ -169,7 +169,6 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 		{name: "hidden embedding HMM", strategy: router.StrategyHMMEmbedding},
 		{name: "visible embedding HMM", strategy: router.StrategyHMMEmbedding, showMarker: true},
 		{name: "hidden HMM", strategy: router.StrategyHMM},
-		{name: "hidden cluster", strategy: router.StrategyCluster},
 		{name: "hidden RL", strategy: router.StrategyRL},
 		{name: "hidden beta HMM", strategy: router.StrategyHMMBeta},
 		{name: "hidden bandit", strategy: router.StrategyBandit},

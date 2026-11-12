@@ -9,7 +9,6 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/telemetry"
 )
@@ -225,17 +224,17 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 		}
 	}
 	if !modelPermittedByAllowlist(ctx, req.RequestedModel) || !modelInRequestSubset(ctx, req.RequestedModel) {
-		return router.Decision{}, fmt.Errorf("requested model %q is not allowed: %w", req.RequestedModel, cluster.ErrAllowlistEmptiesPool)
+		return router.Decision{}, fmt.Errorf("requested model %q is not allowed: %w", req.RequestedModel, router.ErrAllowlistEmptiesPool)
 	}
 	if _, excluded := req.ExcludedModels[req.RequestedModel]; excluded {
-		return router.Decision{}, fmt.Errorf("requested model %q cannot serve this request: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+		return router.Decision{}, fmt.Errorf("requested model %q cannot serve this request: %w", req.RequestedModel, router.ErrNoEligibleProvider)
 	}
 	if _, excluded := req.SafetyExcludedModels[req.RequestedModel]; excluded {
-		return router.Decision{}, fmt.Errorf("requested model %q cannot serve this request: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+		return router.Decision{}, fmt.Errorf("requested model %q cannot serve this request: %w", req.RequestedModel, router.ErrNoEligibleProvider)
 	}
 	if req.HasImages && (!catalog.AcceptsImages(req.RequestedModel) ||
 		req.ImageCount > 0 && !catalog.AcceptsImageCount(req.RequestedModel, req.ImageCount, req.EnabledProviders)) {
-		return router.Decision{}, fmt.Errorf("requested model %q cannot accept images: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+		return router.Decision{}, fmt.Errorf("requested model %q cannot accept images: %w", req.RequestedModel, router.ErrNoEligibleProvider)
 	}
 	if len(req.GatewayProviders) > 0 {
 		provider, found := gatewayProviderFor(req.RequestedModel, req.CustomBindings, req.GatewayProviders)
@@ -267,7 +266,7 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 	}
 	if availableProviders == nil {
 		if model.PrimaryProvider() == "" {
-			return router.Decision{}, fmt.Errorf("requested model %q has no available provider: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+			return router.Decision{}, fmt.Errorf("requested model %q has no available provider: %w", req.RequestedModel, router.ErrNoEligibleProvider)
 		}
 		return router.Decision{
 			Provider: model.PrimaryProvider(),
@@ -278,7 +277,7 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 
 	binding, found := catalog.ResolveBindingWithCustom(req.RequestedModel, availableProviders, req.CustomBindings)
 	if !found {
-		return router.Decision{}, fmt.Errorf("requested model %q has no available provider: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+		return router.Decision{}, fmt.Errorf("requested model %q has no available provider: %w", req.RequestedModel, router.ErrNoEligibleProvider)
 	}
 	return router.Decision{
 		Provider: binding.Provider,

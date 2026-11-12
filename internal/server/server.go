@@ -111,8 +111,9 @@ func DefaultStrategyFromEnv() (router.Strategy, error) {
 }
 
 // ParseDefaultStrategy normalizes a raw ROUTER_DEFAULT_STRATEGY value; empty
-// means hmm_embedding. The retired cluster strategy is rejected so a stale
-// setting fails boot instead of silently routing on a different policy.
+// means hmm_embedding. The retired cluster strategy and the per-installation
+// opt-in lanes are rejected so a bad setting fails boot instead of passing
+// /readyz and then answering every default-following request with 503.
 func ParseDefaultStrategy(raw string) (router.Strategy, error) {
 	strategy := router.Strategy(strings.ToLower(strings.TrimSpace(raw)))
 	switch strategy {
@@ -120,6 +121,9 @@ func ParseDefaultStrategy(raw string) (router.Strategy, error) {
 		return router.StrategyHMMEmbedding, nil
 	case router.StrategyCluster:
 		return "", fmt.Errorf("ROUTER_DEFAULT_STRATEGY=%q is no longer supported: the cluster scorer is retired; unset it to use %q or set another registered strategy", raw, router.StrategyHMMEmbedding)
+	}
+	if router.IsBetaStrategy(strategy) || strategy == router.StrategyLLMClassifier {
+		return "", fmt.Errorf("ROUTER_DEFAULT_STRATEGY=%q is not a valid deployment default: beta and classifier lanes are opt-in per installation", raw)
 	}
 	return strategy, nil
 }

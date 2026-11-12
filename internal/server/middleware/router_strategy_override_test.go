@@ -195,26 +195,20 @@ func TestRouterStrategyOverride_PersistedInstallationBetaActivatesBeta(t *testin
 }
 
 func TestRouterStrategyOverride_PersistedBetaFailsClosedWhenBetaUnregistered(t *testing.T) {
-	got := runStrategyOverride(
-		t,
-		&auth.Installation{ID: "inst-beta", RoutingStrategy: router.StrategyHMMBeta},
-		"",
-		router.StrategyHMM,
-	)
-	assert.Empty(t, got, "a beta lane that failed to load must not be selectable")
+	probe := probeStrategyOverride(t, &auth.Installation{ID: "inst-beta", RoutingStrategy: router.StrategyHMMBeta}, false,
+		router.StrategyHMMEmbedding, router.StrategyHMM, router.StrategyHMMEmbedding)
+
+	assert.Equal(t, http.StatusServiceUnavailable, probe.status, "a beta lane that failed to load must not be selectable")
+	assert.False(t, probe.reached)
 }
 
 func TestRouterStrategyOverride_PersistedBetaFailsClosedWhileBetaLaneEmpty(t *testing.T) {
 	betaLaneEmpty := func(strategy router.Strategy) bool { return strategy != router.StrategyHMMBeta }
-	got := runStrategyOverrideWithAvailability(
-		t,
-		&auth.Installation{ID: "inst-beta", RoutingStrategy: router.StrategyHMMBeta},
-		"",
-		betaLaneEmpty,
-		router.StrategyHMM,
-		router.StrategyHMMBeta,
-	)
-	assert.Empty(t, got, "a registered beta lane with no snapshot must not be selectable")
+	probe := probeStrategyOverrideWith(t, &auth.Installation{ID: "inst-beta", RoutingStrategy: router.StrategyHMMBeta}, false, "",
+		router.StrategyHMMEmbedding, betaLaneEmpty, router.StrategyHMMEmbedding, router.StrategyHMMBeta)
+
+	assert.Equal(t, http.StatusServiceUnavailable, probe.status, "a registered beta lane with no snapshot must not be selectable")
+	assert.False(t, probe.reached)
 }
 
 func TestRouterStrategyOverride_BetaHeaderIgnoredWhileBetaLaneEmpty(t *testing.T) {
@@ -231,14 +225,11 @@ func TestRouterStrategyOverride_BetaHeaderIgnoredWhileBetaLaneEmpty(t *testing.T
 }
 
 func TestRouterStrategyOverride_BetaUnselectableWithoutAvailabilitySource(t *testing.T) {
-	got := runStrategyOverrideWithAvailability(
-		t,
-		&auth.Installation{ID: "inst-beta", RoutingStrategy: router.StrategyHMMBeta},
-		"",
-		nil,
-		router.StrategyHMMBeta,
-	)
-	assert.Empty(t, got)
+	probe := probeStrategyOverrideWith(t, &auth.Installation{ID: "inst-beta", RoutingStrategy: router.StrategyHMMBeta}, false, "",
+		router.StrategyHMMEmbedding, nil, router.StrategyHMMEmbedding, router.StrategyHMMBeta)
+
+	assert.Equal(t, http.StatusServiceUnavailable, probe.status)
+	assert.False(t, probe.reached)
 }
 
 func TestRouterStrategyOverride_DeploymentDefaultBetaFailsClosed(t *testing.T) {
@@ -298,6 +289,11 @@ func probeStrategyOverride(t *testing.T, installation *auth.Installation, manage
 
 func probeStrategyOverrideWithHeader(t *testing.T, installation *auth.Installation, managedServing bool, header string, defaultStrategy router.Strategy, available ...router.Strategy) strategyProbe {
 	t.Helper()
+	return probeStrategyOverrideWith(t, installation, managedServing, header, defaultStrategy, allRegisteredLive, available...)
+}
+
+func probeStrategyOverrideWith(t *testing.T, installation *auth.Installation, managedServing bool, header string, defaultStrategy router.Strategy, liveAvailability middleware.StrategyAvailability, available ...router.Strategy) strategyProbe {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) {
@@ -308,7 +304,7 @@ func probeStrategyOverrideWithHeader(t *testing.T, installation *auth.Installati
 		}
 		c.Next()
 	})
-	engine.Use(middleware.WithRouterStrategyDefault(defaultStrategy, allRegisteredLive, available...))
+	engine.Use(middleware.WithRouterStrategyDefault(defaultStrategy, liveAvailability, available...))
 	probe := strategyProbe{}
 	engine.GET("/probe", func(c *gin.Context) {
 		probe.reached = true
