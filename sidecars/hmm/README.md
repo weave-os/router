@@ -145,16 +145,16 @@ per-message profile; only the encoder differs. Configure the endpoint with:
 
 | Variable | Meaning |
 |---|---|
-| `HMM_EMBEDDING_PROVIDER` | `openai-compatible` (required; Gemini packages need it unset, `google` or `gemini`) |
+| `HMM_EMBEDDING_PROVIDER` | `openai-compatible` or `bedrock` (required; Gemini packages need it unset, `google` or `gemini`) |
 | `HMM_EMBEDDING_BASE_URL` | endpoint root serving `POST /embeddings`, e.g. `http://tei/v1` |
 | `HMM_EMBEDDING_MODEL` | must equal the package's `embedding_model` exactly |
 | `HMM_EMBEDDING_API_KEY` | optional bearer token |
 
 A package trained on an Amazon Bedrock model instead declares
 `provider: bedrock`, `sequence_representation: bedrock-raw-router-v5-element-v1`
-and a Bedrock model id (`amazon.titan-embed-text-v2:*`, sent with the declared
-`dimensions` and `normalize: true`, or `cohere.embed-*`, sent as
-`search_document`). Set `HMM_EMBEDDING_PROVIDER=bedrock`, `HMM_EMBEDDING_MODEL`
+and a Bedrock model id (`amazon.titan-embed-text-v2:0`, prefix-matched on
+`amazon.titan-embed-text-v2`; sent with the declared `dimensions` and
+`normalize: true`, or `cohere.embed-*`, sent as `search_document`). Set `HMM_EMBEDDING_PROVIDER=bedrock`, `HMM_EMBEDDING_MODEL`
 to that id, and `AWS_REGION` plus any standard AWS credential source (instance or
 task role, `AWS_PROFILE`, or static keys) with `bedrock:InvokeModel`.
 

@@ -8,9 +8,10 @@ import hashlib
 import math
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 
@@ -59,15 +60,22 @@ from hmm_sidecar.inference_deadline import LastReadoutStore, infer_within_deadli
 EMBEDDING_BATCH_SIZE = 8
 EMBEDDING_PROBE_TEXT = "Weave Router embedding probe"
 REFERENCE_PROBE_MIN_COSINE = 0.999
-# HMM_EMBEDDING_PROVIDER value and embedder for each customer-model provider.
+
+
+class CustomerModelEmbedder(NamedTuple):
+    # HMM_EMBEDDING_PROVIDER value and embedder for one customer-model provider.
+    provider: str
+    embed: Callable[..., Any]
+
+
 CUSTOMER_MODEL_EMBEDDERS = {
-    EmbeddingProvider.OPENAI_COMPATIBLE: (
-        openai_compatible_embeddings.PROVIDER,
-        openai_compatible_embeddings.embed_texts_uncached,
+    EmbeddingProvider.OPENAI_COMPATIBLE: CustomerModelEmbedder(
+        provider=openai_compatible_embeddings.PROVIDER,
+        embed=openai_compatible_embeddings.embed_texts_uncached,
     ),
-    EmbeddingProvider.BEDROCK: (
-        bedrock_embeddings.PROVIDER,
-        bedrock_embeddings.embed_texts_uncached,
+    EmbeddingProvider.BEDROCK: CustomerModelEmbedder(
+        provider=bedrock_embeddings.PROVIDER,
+        embed=bedrock_embeddings.embed_texts_uncached,
     ),
 }
 # Unset keeps the pre-existing Gemini deployments valid.
@@ -228,7 +236,7 @@ class PackageClassifier:
             offload_posterior=True,
             embed_uncached=(
                 functools.partial(
-                    CUSTOMER_MODEL_EMBEDDERS[profile.config.provider][1],
+                    CUSTOMER_MODEL_EMBEDDERS[profile.config.provider].embed,
                     expected_dim=profile.embedding_dim,
                 )
                 if profile.config.provider in CUSTOMER_MODEL_EMBEDDERS
@@ -330,7 +338,9 @@ class PackageClassifier:
                     f"embedding probe for package model {model!r} over transport"
                     f" {configured_transport!r} failed: {error}"
                 ) from error
-        package_provider = CUSTOMER_MODEL_EMBEDDERS[self.profile.config.provider][0]
+        package_provider = CUSTOMER_MODEL_EMBEDDERS[
+            self.profile.config.provider
+        ].provider
         if configured_provider != package_provider:
             raise EmbeddingError(
                 f"package model {model!r} needs HMM_EMBEDDING_PROVIDER="

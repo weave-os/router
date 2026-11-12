@@ -10,6 +10,7 @@ from hmm_sidecar.classifier_package.gemini_embeddings import EmbeddingError
 
 TITAN = "amazon.titan-embed-text-v2:0"
 COHERE = "cohere.embed-english-v3"
+COHERE_V4 = "cohere.embed-v4:0"
 
 
 class _FakeBedrock:
@@ -27,7 +28,8 @@ class _FakeBedrock:
 def bedrock(monkeypatch: pytest.MonkeyPatch):
     def install(reply):
         fake = _FakeBedrock(reply)
-        monkeypatch.setattr(bedrock_embeddings, "_client", lambda: fake)
+        bedrock_embeddings._CLIENTS.clear()
+        monkeypatch.setattr(bedrock_embeddings, "_client", lambda *a, **k: fake)
         return fake
 
     return install
@@ -63,6 +65,22 @@ async def test_cohere_batches_texts_as_documents(bedrock) -> None:
     assert len(vectors) == 100
     assert [len(request["texts"]) for request in fake.requests] == [96, 4]
     assert {request["input_type"] for request in fake.requests} == {"search_document"}
+    # Embed v3 has a fixed width and rejects a caller-supplied dimension.
+    assert all("output_dimension" not in request for request in fake.requests)
+
+
+async def test_cohere_v4_sends_the_declared_width(bedrock) -> None:
+    fake = bedrock(
+        lambda request: {
+            "embeddings": {"float": [[1.0, 0.0] for _ in request["texts"]]}
+        }
+    )
+
+    vectors = await bedrock_embeddings.embed_texts_uncached(
+        ["a", "b"], model=COHERE_V4, expected_dim=2
+    )
+
+    assert len(vectors) == 2
     assert {request["output_dimension"] for request in fake.requests} == {2}
 
 
@@ -101,6 +119,10 @@ def test_client_reads_aws_region_and_fails_clearly_without_one(
 ) -> None:
     monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
     monkeypatch.setenv("AWS_CONFIG_FILE", "/nonexistent")
+    # Keep the credential chain from reaching the instance metadata service.
+    monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test")
     monkeypatch.setenv("AWS_REGION", "us-west-2")
     assert bedrock_embeddings._client().meta.region_name == "us-west-2"
 

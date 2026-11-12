@@ -275,9 +275,10 @@ def legacy_gemini_user_agent_turn_window_profile() -> ServingProfile:
     )
 
 
-# The only configuration serving supports: Gemini per-message documents with
-# user/agent-only tool evidence and one lookback round. Packages declaring any
-# other combination are rejected at load.
+# The only built-in configuration serving supports: Gemini per-message
+# documents with user/agent-only tool evidence and one lookback round.
+# Customer-model packages resolve through _CUSTOMER_MODEL_REPRESENTATIONS
+# below; packages declaring any other combination are rejected at load.
 _PROFILES: tuple[ServingProfile, ...] = (_GEMINI_ELEMENT_PROFILE,)
 
 
@@ -297,21 +298,17 @@ _PROFILES_BY_CONFIG: Mapping[ServingConfig, ServingProfile] = {
 # only the encoder (model id and width) differs, and the package declares it.
 _CUSTOMER_MODEL_REPRESENTATIONS: Mapping[ServingConfig, SequenceRepresentation] = {
     ServingConfig(
-        provider=provider,
+        provider=EmbeddingProvider.OPENAI_COMPATIBLE,
         tool_evidence=ToolEvidenceMode.USER_AGENT_ONLY,
         document_window=DocumentWindow.PER_MESSAGE,
         lookback_rounds=ONE_TURN_MAX_TURNS,
-    ): representation
-    for provider, representation in (
-        (
-            EmbeddingProvider.OPENAI_COMPATIBLE,
-            SequenceRepresentation.OPENAI_COMPATIBLE_RAW_ROUTER_V5_ELEMENT,
-        ),
-        (
-            EmbeddingProvider.BEDROCK,
-            SequenceRepresentation.BEDROCK_RAW_ROUTER_V5_ELEMENT,
-        ),
-    )
+    ): SequenceRepresentation.OPENAI_COMPATIBLE_RAW_ROUTER_V5_ELEMENT,
+    ServingConfig(
+        provider=EmbeddingProvider.BEDROCK,
+        tool_evidence=ToolEvidenceMode.USER_AGENT_ONLY,
+        document_window=DocumentWindow.PER_MESSAGE,
+        lookback_rounds=ONE_TURN_MAX_TURNS,
+    ): SequenceRepresentation.BEDROCK_RAW_ROUTER_V5_ELEMENT,
 }
 
 
