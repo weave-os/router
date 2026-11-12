@@ -53,10 +53,19 @@ type subscriptionSeatResponse struct {
 	OwnerHasRoutingKey bool                      `json:"owner_has_routing_key"`
 }
 
+type subscriptionSeatsResponse struct {
+	Enabled bool                       `json:"enabled"`
+	Seats   []subscriptionSeatResponse `json:"seats"`
+}
+
 // ListSubscriptionSeatsHandler serves GET /admin/v1/subscription-accounts so an
 // admin can unlink any seat, including one whose owner lost every routing key.
 func ListSubscriptionSeatsHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !authSvc.SubscriptionAccountsEnabled() {
+			c.JSON(http.StatusOK, subscriptionSeatsResponse{Enabled: false, Seats: []subscriptionSeatResponse{}})
+			return
+		}
 		seats, err := authSvc.ListSubscriptionSeats(c.Request.Context())
 		if err != nil {
 			observability.FromGin(c).Error("Failed to list subscription seats", "err", err)
@@ -67,7 +76,7 @@ func ListSubscriptionSeatsHandler(authSvc *auth.Service) gin.HandlerFunc {
 		for _, seat := range seats {
 			response = append(response, subscriptionSeatResponse(seat))
 		}
-		c.JSON(http.StatusOK, gin.H{"seats": response})
+		c.JSON(http.StatusOK, subscriptionSeatsResponse{Enabled: true, Seats: response})
 	}
 }
 

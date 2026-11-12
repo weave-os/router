@@ -130,6 +130,17 @@ func TestAdminSubscriptionOwnersReportsDisabledPools(t *testing.T) {
 	require.JSONEq(t, `{"enabled":false,"owners":[]}`, recorder.Body.String())
 }
 
+func TestAdminSubscriptionSeatsReportsDisabledPools(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.GET("/admin/v1/subscription-accounts", admin.ListSubscriptionSeatsHandler(auth.NewService(nil, nil, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now)))
+
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/admin/v1/subscription-accounts", nil))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.JSONEq(t, `{"enabled":false,"seats":[]}`, recorder.Body.String())
+}
+
 func TestAdminCanUnlinkSeatWhoseOwnerHasNoRoutingKey(t *testing.T) {
 	const accountID = "6f1c2c7e-3c35-4f4f-9d43-1d0a3d3e7c11"
 	repo := &adminLoginAccountRepo{seats: []auth.SubscriptionSeat{{
@@ -141,7 +152,7 @@ func TestAdminCanUnlinkSeatWhoseOwnerHasNoRoutingKey(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/admin/v1/subscription-accounts", nil))
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
-	require.JSONEq(t, `{"seats":[{"account_id":"`+accountID+`","subscriber_id":"`+testSubscriberID+`","provider":"claude","display_name":"ada@claude","enabled":true,"owner_display_name":"Ada","owner_email":"ada@example.com","owner_has_routing_key":false}]}`, recorder.Body.String())
+	require.JSONEq(t, `{"enabled":true,"seats":[{"account_id":"`+accountID+`","subscriber_id":"`+testSubscriberID+`","provider":"claude","display_name":"ada@claude","enabled":true,"owner_display_name":"Ada","owner_email":"ada@example.com","owner_has_routing_key":false}]}`, recorder.Body.String())
 
 	recorder = httptest.NewRecorder()
 	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodDelete, "/admin/v1/subscription-accounts/"+testSubscriberID+"/"+accountID, nil))

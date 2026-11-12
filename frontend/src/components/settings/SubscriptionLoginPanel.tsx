@@ -253,13 +253,17 @@ export function SubscriptionLoginPanel({ onLinked }: { onLinked?: () => void }) 
 // key, so an admin can always unlink a seat and let it be linked again.
 export function SubscriptionSeatsPanel({ refreshKey }: { refreshKey: number }) {
   const [seats, setSeats] = useState<SubscriptionSeat[] | null>(null);
+  const [enabled, setEnabled] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [unlinking, setUnlinking] = useState<string | null>(null);
 
   useEffect(() => {
     api.subscriptionLogins
       .seats()
-      .then(response => setSeats(response.seats))
+      .then(response => {
+        setEnabled(response.enabled);
+        setSeats(response.seats);
+      })
       .catch((err: unknown) => setError(String(err)));
   }, [refreshKey]);
 
@@ -278,6 +282,14 @@ export function SubscriptionSeatsPanel({ refreshKey }: { refreshKey: number }) {
 
   if (seats == null) {
     return error != null ? <ErrorBanner>{error}</ErrorBanner> : null;
+  }
+  if (!enabled) {
+    return (
+      <EmptyHint>
+        Subscription pools are turned off. Set ROUTER_SUBSCRIPTION_POOLS_ENABLED=true on the router,
+        then restart it.
+      </EmptyHint>
+    );
   }
   if (seats.length === 0) {
     return <EmptyHint>No subscriptions are linked yet.</EmptyHint>;

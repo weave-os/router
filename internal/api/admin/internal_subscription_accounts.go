@@ -96,6 +96,10 @@ func InternalUpdateSubscriptionAccountHandler(authSvc *auth.Service) gin.Handler
 // requested subscriber.
 func InternalDeleteSubscriptionAccountHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !authSvc.SubscriptionAccountsEnabled() {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "subscription_accounts_unavailable"})
+			return
+		}
 		owner, ok := internalSubscriptionOwner(c)
 		if !ok {
 			return

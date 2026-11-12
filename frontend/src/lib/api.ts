@@ -88,6 +88,11 @@ export interface SubscriptionSeat {
   owner_has_routing_key: boolean;
 }
 
+export interface SubscriptionSeatsResponse {
+  enabled: boolean;
+  seats: SubscriptionSeat[];
+}
+
 export interface StartedSubscriptionLogin {
   login_token: string;
   verification_url: string;
@@ -172,7 +177,7 @@ export const api = {
       );
       return "status" in outcome ? null : outcome;
     },
-    seats: () => request<{ seats: SubscriptionSeat[] }>("/subscription-accounts"),
+    seats: () => request<SubscriptionSeatsResponse>("/subscription-accounts"),
     unlink: (subscriberID: string, accountID: string) =>
       request<void>(`/subscription-accounts/${subscriberID}/${accountID}`, { method: "DELETE" }),
   },
