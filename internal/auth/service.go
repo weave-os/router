@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"golang.org/x/sync/singleflight"
 )
@@ -72,28 +73,31 @@ func (NoOpInstallationChangeNotifier) NotifyInstallationChanged(string) {}
 
 // Service authenticates incoming bearer tokens. Identity only; routing/dispatch lives in proxy.Service.
 type Service struct {
-	installations             InstallationRepository
-	apiKeys                   APIKeyRepository
-	credentialSubjects        CredentialSubjectLookup
-	externalKeys              ExternalAPIKeyRepository
-	users                     UserRepository
-	clusterModelLists         ClusterModelListRepository
-	userClusterModelLists     UserClusterModelListRepository
-	blindExperiments          BlindExperimentRepository
-	routingPolicies           RoutingPolicyRepository
-	routingPolicyCache        *RoutingPolicyCache
-	cache                     APIKeyCache
-	userCache                 UserCache
-	userClusterCache          UserClusterListCache
-	blindExperimentCache      BlindExperimentCache
-	blindExperimentFetches    singleflight.Group
-	subscriptionAccounts      SubscriptionAccountRepository
-	codexEnrollmentVerifier   CodexEnrollmentVerifier
-	notifier                  InstallationChangeNotifier
-	now                       Clock
-	encryptor                 Encryptor
-	keypairTokens             *KeypairTokenCache
-	anthropicFederationTokens AnthropicFederationTokenSource
+	installations              InstallationRepository
+	apiKeys                    APIKeyRepository
+	credentialSubjects         CredentialSubjectLookup
+	externalKeys               ExternalAPIKeyRepository
+	users                      UserRepository
+	clusterModelLists          ClusterModelListRepository
+	userClusterModelLists      UserClusterModelListRepository
+	blindExperiments           BlindExperimentRepository
+	routingPolicies            RoutingPolicyRepository
+	routingPolicyCache         *RoutingPolicyCache
+	cache                      APIKeyCache
+	userCache                  UserCache
+	userClusterCache           UserClusterListCache
+	blindExperimentCache       BlindExperimentCache
+	blindExperimentSessions    BlindExperimentSessionRepository
+	blindExperimentSessionArms *lru.Cache[string, BlindExperimentArm]
+	blindExperimentFetches     singleflight.Group
+	subscriptionAccounts       SubscriptionAccountRepository
+	codexEnrollmentVerifier    CodexEnrollmentVerifier
+	notifier                   InstallationChangeNotifier
+	now                        Clock
+	externalKeyMarks           externalKeyMarks
+	encryptor                  Encryptor
+	keypairTokens              *KeypairTokenCache
+	anthropicFederationTokens  AnthropicFederationTokenSource
 	// wifTokens is nil unless the deployment runs with a workload identity;
 	// WIF keys are then dropped rather than sent without a credential.
 	wifTokens WIFTokenSource
@@ -473,7 +477,9 @@ type UpsertExternalAPIKeyParams struct {
 	AuthType         AuthType
 	AuthAccount      *string
 	AuthUser         *string
-	CreatedBy        *string
+	// FundingPriority orders the key against subscriptions; empty means plan-first.
+	FundingPriority FundingPriority
+	CreatedBy       *string
 }
 
 // UpsertExternalAPIKey replaces the provider's key for the installation.
@@ -515,6 +521,10 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 		return nil, err
 	}
 	federation, err := NormalizeAnthropicFederation(authType, provider, trimmedValue(normalizedBaseURL), params.FederationConfig)
+	if err != nil {
+		return nil, err
+	}
+	fundingPriority, err := s.upsertFundingPriority(ctx, installationID, provider, params.FundingPriority)
 	if err != nil {
 		return nil, err
 	}
@@ -588,6 +598,7 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 		AuthType:         authType,
 		AuthAccount:      authAccount,
 		AuthUser:         authUser,
+		FundingPriority:  fundingPriority,
 		CreatedBy:        params.CreatedBy,
 	})
 	if err != nil {
@@ -604,6 +615,36 @@ func (s *Service) SetExternalAPIKeyModelAliases(ctx context.Context, installatio
 		return nil, err
 	}
 	key, err := s.externalKeys.UpdateModelAliases(ctx, installationID, id, normalized)
+	if err != nil {
+		return nil, err
+	}
+	s.invalidateInstallation(installationID)
+	return key, nil
+}
+
+// upsertFundingPriority keeps the replaced key's priority when the caller omits
+// one, so rotating a migrated key_first key does not move its traffic onto plans.
+func (s *Service) upsertFundingPriority(ctx context.Context, installationID, provider string, requested FundingPriority) (FundingPriority, error) {
+	if requested != "" {
+		return NormalizeFundingPriority(requested)
+	}
+	activePriority, err := s.externalKeys.ActiveFundingPriority(ctx, installationID, provider)
+	if err != nil {
+		return "", err
+	}
+	return NormalizeFundingPriority(activePriority)
+}
+
+// SetExternalAPIKeyFundingPriority rejects an empty priority (no plan-first default, unlike upsert) and invalidates the installation's cached auth on success.
+func (s *Service) SetExternalAPIKeyFundingPriority(ctx context.Context, installationID, id string, priority FundingPriority) (*ExternalAPIKey, error) {
+	if priority == "" {
+		return nil, ErrInvalidFundingPriority
+	}
+	normalized, err := NormalizeFundingPriority(priority)
+	if err != nil {
+		return nil, err
+	}
+	key, err := s.externalKeys.UpdateFundingPriority(ctx, installationID, id, normalized)
 	if err != nil {
 		return nil, err
 	}

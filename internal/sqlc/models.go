@@ -18,6 +18,13 @@ type RouterAgreementShadowState struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type RouterBlindExperimentSessionAssignment struct {
+	InstallationID uuid.UUID
+	SessionKey     string
+	Arm            string
+	CreatedAt      pgtype.Timestamptz
+}
+
 type RouterBlindRouterExperimentAssignment struct {
 	RouterUserID        uuid.UUID
 	InstallationID      uuid.UUID
@@ -42,6 +49,7 @@ type RouterBlindRouterExperimentConfiguration struct {
 	CohortEndsAt       pgtype.Timestamptz
 	CohortTimezone     *string
 	CohortRevision     *int32
+	SessionMode        bool
 }
 
 type RouterBlindRouterExperimentEmergencyOverride struct {
@@ -413,6 +421,8 @@ type RouterModelRouterExternalAPIKey struct {
 	BaggageHeader *string
 	// Non-secret Anthropic federation rule, organization, service account, workspace and audience identifiers
 	FederationConfig []byte
+	// key_first spends this key before any subscription for its provider; plan_first uses it only when no subscription can serve the turn
+	FundingPriority string
 }
 
 // Ordered upstream attempts per inference operation; joins to model_router_request_telemetry on (installation_id, request_id)
@@ -500,6 +510,7 @@ type RouterModelRouterInstallation struct {
 	ModelsExcludedWhenSubscriptionActive   []string
 	ModelsExcludedWhenSubscriptionInactive []string
 	PickedModelCreditFallbackEnabled       bool
+	WeaveCreditInferenceEnabled            bool
 }
 
 type RouterModelRouterRequestTelemetry struct {
@@ -739,6 +750,8 @@ type RouterModelRouterRequestTelemetry struct {
 	BlindExperimentTreatmentApplied *bool
 	BlindExperimentBaselineModel    *string
 	BlindExperimentModelChanged     *bool
+	BlindExperimentMode             *string
+	BlindExperimentSessionKey       *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {
@@ -1273,6 +1286,24 @@ type RouterSubscriberEntitlement struct {
 	ProjectedAt                      pgtype.Timestamptz
 	CreatedAt                        pgtype.Timestamptz
 	UpdatedAt                        pgtype.Timestamptz
+}
+
+type RouterSubscriptionCredentialEvent struct {
+	ID                  uuid.UUID
+	AccountID           uuid.UUID
+	SubscriberID        pgtype.UUID
+	Provider            string
+	EventKind           string
+	Reason              string
+	ProviderErrorType   string
+	ProviderRequestID   string
+	UpstreamStatus      int32
+	RequestID           string
+	RefreshLeaseID      pgtype.UUID
+	TokenRefreshVersion int64
+	RejectionCount      int32
+	FirstRejectedAt     pgtype.Timestamp
+	CreatedAt           pgtype.Timestamptz
 }
 
 type RouterTaskDomainProfile struct {

@@ -142,15 +142,16 @@ const (
 	KeyPlanUserClusterLists                 Key = "plan_user_cluster_lists"
 )
 
-// These keys were valid organization overrides before struggle escalation was
-// removed. Keep them parse-only so an installation row written by an older
-// revision cannot invalidate unrelated active overrides during a rolling
+// These keys were valid organization overrides before their respective flags
+// were retired. Keep them parse-only so an installation row written by an
+// older revision cannot invalidate unrelated active overrides during a rolling
 // deploy. They are never registered, published, or read by routing code.
 const (
 	retiredKeyStruggleEscalationEnabled Key = "struggle_escalation_enabled"
 	retiredKeyStruggleEscalationHoldout Key = "struggle_escalation_holdout_pct"
 	retiredKeyStruggleEvidenceArming    Key = "struggle_evidence_arming"
 	retiredKeySubscriberPaidFallback    Key = "subscriber_paid_fallback_enabled"
+	retiredKeySubscriptionPoolQuota     Key = "subscription_pool_quota_aware_selection_enabled"
 )
 
 var retiredOverrideKeys = map[Key]struct{}{
@@ -158,6 +159,7 @@ var retiredOverrideKeys = map[Key]struct{}{
 	retiredKeyStruggleEscalationHoldout: {},
 	retiredKeyStruggleEvidenceArming:    {},
 	retiredKeySubscriberPaidFallback:    {},
+	retiredKeySubscriptionPoolQuota:     {},
 }
 
 // Definition describes one overridable flag. DeploymentDefault is not stored
@@ -178,7 +180,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 29
+const RegistryVersion = 30
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var

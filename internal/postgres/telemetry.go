@@ -105,6 +105,8 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		BlindExperimentArm:                       stringPtrOrNil(string(p.BlindExperimentArm)),
 		BlindExperimentAssignmentSource:          stringPtrOrNil(string(p.BlindExperimentAssignmentSource)),
 		BlindExperimentSubjectKey:                stringPtrOrNil(p.BlindExperimentSubjectKey),
+		BlindExperimentMode:                      stringPtrOrNil(string(p.BlindExperimentMode)),
+		BlindExperimentSessionKey:                stringPtrOrNil(p.BlindExperimentSessionKey),
 		CohortExperimentID:                       uuidOrNil(p.CohortExperimentID),
 		CohortGroupID:                            p.CohortGroupID,
 		CohortPhaseIndex:                         p.CohortPhaseIndex,

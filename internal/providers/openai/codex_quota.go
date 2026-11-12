@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -17,8 +18,9 @@ import (
 )
 
 type codexQuotaWindow struct {
-	UsedPercent *float64 `json:"used_percent"`
-	ResetAt     int64    `json:"reset_at"`
+	UsedPercent   *float64 `json:"used_percent"`
+	ResetAt       int64    `json:"reset_at"`
+	WindowSeconds int64    `json:"limit_window_seconds"`
 }
 type codexIncludedQuota struct {
 	Allowed      *bool             `json:"allowed"`
@@ -29,7 +31,13 @@ type codexIncludedQuota struct {
 
 // Usage is checked before inference because exhausted subscriptions can accept
 // inference by spending purchased credits rather than returning a quota error.
-func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) error {
+func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quotaErr error) {
+	started := time.Now()
+	upstreamStatus := 0
+	defer func() {
+		observability.FromContext(ctx).Info("Codex quota preflight completed", "quota_preflight_ms", time.Since(started).Milliseconds(),
+			"model", model, "admitted", quotaErr == nil, "upstream_status", upstreamStatus)
+	}()
 	parentCtx := ctx
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
@@ -53,6 +61,7 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) erro
 		return codexQuotaTransportUnavailable(err, 0)
 	}
 	defer resp.Body.Close()
+	upstreamStatus = resp.StatusCode
 	if resp.StatusCode != http.StatusOK {
 		log.Warn("Codex quota preflight rejected", "upstream_status", resp.StatusCode)
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
@@ -106,8 +115,33 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) erro
 	}
 	allowCredits := creditReason == codexCreditsAvailable && quotaStatus.RateLimit != nil &&
 		(quotaStatus.RateLimit.Primary != nil || quotaStatus.RateLimit.Secondary != nil)
+	err = validateCodexIncludedQuota(quotaStatus.RateLimit, planReported || limitReached)
+	// Publish only account-wide, validated windows through the existing header
+	// observation boundary. Model-specific limits must not poison other models.
+	if quotaStatus.RateLimit != nil && (err == nil || codexIncludedLimitReached(err)) {
+		headers := make(http.Header)
+		for i, window := range []*codexQuotaWindow{quotaStatus.RateLimit.Primary, quotaStatus.RateLimit.Secondary} {
+			if window == nil {
+				continue
+			}
+			prefix := "x-codex-primary-"
+			if i == 1 {
+				prefix = "x-codex-secondary-"
+			}
+			headers.Set(prefix+"used-percent", strconv.FormatFloat(*window.UsedPercent, 'f', -1, 64))
+			if window.ResetAt > 0 {
+				headers.Set(prefix+"reset-at", strconv.FormatInt(window.ResetAt, 10))
+			}
+			if window.WindowSeconds >= 60 && window.WindowSeconds/60 <= int64((1<<63-1)/time.Minute) {
+				headers.Set(prefix+"window-minutes", strconv.FormatInt(window.WindowSeconds/60, 10))
+			}
+		}
+		if len(headers) > 0 {
+			providers.ObserveUpstreamHeaders(ctx, headers)
+		}
+	}
 	// Windows go first so an exhausted window keeps its reset time.
-	if err = validateCodexIncludedQuota(quotaStatus.RateLimit, planReported || limitReached); err != nil && !(allowCredits && codexIncludedLimitReached(err)) {
+	if err != nil && !(allowCredits && codexIncludedLimitReached(err)) {
 		logCodexQuotaDenial(log, err, "plan_type", quotaStatus.PlanType, "has_rate_limit", quotaStatus.RateLimit != nil, "credit_reason", creditReason, "allow_credits", allowCredits)
 		return err
 	}

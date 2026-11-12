@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -44,5 +45,15 @@ func TestChatClientIdentityIgnoresAgentStoreForOtherClients(t *testing.T) {
 	h.Set("User-Agent", "curl/8")
 	if got := ChatClientIdentity(h, cursorChatBody("u", "22d7b4e0-95b6-47ba-aecb-329729a4066e")).SessionID; got != "" {
 		t.Fatalf("non-Cursor session id = %q, want empty", got)
+	}
+}
+
+func TestChatClientIdentityReadsCursorAgentFromMacOSStorePath(t *testing.T) {
+	const agentID = "5fd236bb-2901-4cf0-8fa6-8f6ec342b8d2"
+	body := strings.ReplaceAll(string(cursorChatBody("google-oauth2|user_01ABC", agentID)),
+		"/tmp/cursor-1000/", "/Users/dev/Library/Application Support/Cursor/AgentStores/")
+	got := ChatClientIdentity(cursorHeaders(), []byte(body))
+	if got.SessionID != agentID {
+		t.Fatalf("session id = %q, want the Cursor agent id from a store path containing a space", got.SessionID)
 	}
 }
