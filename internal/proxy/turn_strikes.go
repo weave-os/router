@@ -98,8 +98,6 @@ func (s *Service) clearTurnStrikes(ctx context.Context, sessionKey [sessionpin.S
 	}
 }
 
-// strikesExceptProvider drops a forced pin's own provider from session-level
-// breaker state; explicit force exempts that provider.
 func strikesExceptProvider(providers []string, forced string) []string {
 	if forced == "" {
 		return providers

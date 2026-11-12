@@ -44,19 +44,30 @@ func loadSiblingPreferences(ctx context.Context, s *Service, env *translate.Requ
 	return preferences, nil
 }
 
-func siblingPreferenceReadError(err error) error {
-	return fmt.Errorf("load session sibling preferences: %w", err)
+func clearedSessionPinReason(pin sessionpin.Pin, pinFound bool) string {
+	if !pinFound && pin.Model == "" && pin.Provider == "" && pin.Reason != "" {
+		return pin.Reason
+	}
+	return ""
 }
 
-// dropSupersededSiblingPin clears an automatic pin whose group remembers a
-// different winner: reusing it would replay the model that already failed this
-// conversation.
+func dropForceModelClearedPin(pin sessionpin.Pin, pinFound, forceModelCleared bool) (sessionpin.Pin, bool) {
+	if forceModelCleared && pinFound && isUserForcedReason(pin.Reason) {
+		return sessionpin.Pin{}, false
+	}
+	return pin, pinFound
+}
+
 func dropSupersededSiblingPin(pin sessionpin.Pin, found bool, req router.Request, log *slog.Logger) (sessionpin.Pin, bool) {
 	if found && !isUserForcedReason(pin.Reason) && sessionpin.SiblingPinSuperseded(pin, req) {
 		log.Info("Session sibling preference supersedes automatic pin", "pin_model", pin.Model, "group", pin.PolicyGroup)
 		return sessionpin.Pin{}, false
 	}
 	return pin, found
+}
+
+func siblingPreferenceReadError(err error) error {
+	return fmt.Errorf("load session sibling preferences: %w", err)
 }
 
 func rememberSuccessfulSibling(ctx context.Context, pinStore sessionpin.Store, turn turnLoopResult, primary, served router.Decision, proxyErr error, startedAt time.Time) {
@@ -96,22 +107,4 @@ func rememberSuccessfulSibling(ctx context.Context, pinStore sessionpin.Store, t
 	}
 
 	log.Info("Successful sibling preferred for session group", "group", group, "model", served.Model, "displaced_models", displaced)
-}
-
-// clearedSessionPinReason reads the reason off a stored deliberate clear: an
-// expired, blank pin. Natural expiry has no reason and must not produce one.
-func clearedSessionPinReason(pin sessionpin.Pin, pinFound bool) string {
-	if !pinFound && pin.Model == "" && pin.Provider == "" && pin.Reason != "" {
-		return pin.Reason
-	}
-	return ""
-}
-
-// dropForceModelClearedPin drops a user-forced stored pin when the turn already
-// carries a cleared /force-model pin — the clear is newer and wins.
-func dropForceModelClearedPin(pin sessionpin.Pin, pinFound, forceModelCleared bool) (sessionpin.Pin, bool) {
-	if forceModelCleared && pinFound && isUserForcedReason(pin.Reason) {
-		return sessionpin.Pin{}, false
-	}
-	return pin, pinFound
 }

@@ -58,9 +58,9 @@ func (s *Service) routeCompaction(ctx context.Context, t compactionTurn) (turnLo
 	// Compaction routes like any other automatic turn: a group winner the
 	// session already rescued to leads, and its displaced model is dead for
 	// the rest of the turn.
-	preferences, prefErr := loadSiblingPreferences(ctx, s, t.env, t.apiKeyID, res.InstallationID, t.sessionKey, &res)
-	if prefErr != nil {
-		return res, siblingPreferenceReadError(prefErr)
+	preferences, preferencesErr := loadSiblingPreferences(ctx, s, t.env, t.apiKeyID, res.InstallationID, t.sessionKey, &res)
+	if preferencesErr != nil {
+		return res, siblingPreferenceReadError(preferencesErr)
 	}
 	req.SiblingPreferences = preferences
 	session := compactionSession{
@@ -185,7 +185,7 @@ func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.
 	pin := sessionpin.Pin{Provider: binding.Provider, Model: model, Effort: effort, Reason: compactionSessionPinTier}
 	fits := req.EstimatedInputTokens <= 0 ||
 		req.EstimatedInputTokens+contextWindowOutputReserve <= gatewayContextWindow(c.cortexGateways, model, binding.Provider)
-	struck := slices.Contains(strikes.disabledProviders, binding.Provider) || slices.Contains(strikes.demotedModels, model) || siblingDisplacedPreference(req, served.PolicyGroup, model)
+	struck := slices.Contains(strikes.disabledProviders, binding.Provider) || slices.Contains(strikes.demotedModels, model) || slices.Contains(req.SiblingPreferences[escalation.Group(served.PolicyGroup)].DisplacedModels, model)
 	if !fits || struck || !automaticPinEligible(pin, req) {
 		return router.Decision{}, strikes, false
 	}
@@ -262,7 +262,3 @@ func servedBinding(model, servedProvider string, providerSet map[string]struct{}
 // siblingDisplacedPreference reports whether the served pin's group remembers
 // a winner that displaced this model: it stays a last-resort candidate but is
 // not the pick.
-func siblingDisplacedPreference(req router.Request, group, model string) bool {
-	preference, remembered := req.SiblingPreferences[escalation.Group(group)]
-	return remembered && slices.Contains(preference.DisplacedModels, model)
-}

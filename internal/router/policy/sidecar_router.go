@@ -603,8 +603,8 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	res.RankedFallback = applySiblingPreferences(req, resolved, res.RankedFallback)
 	// Overrides have already constrained the group. Its remembered order may
 	// replace the selected arm, but may not move the request to another group.
-	sel := reselectRememberedSibling(ctx, siblingArmSelection{RosterID: overrideRosterID, ArmID: overrideArmID, Reason: overrideReason, Reselected: reselected}, req, resolved, res.RankedFallback, res.PolicyGroup)
-	overrideRosterID, overrideArmID, overrideReason, reselected = sel.RosterID, sel.ArmID, sel.Reason, sel.Reselected
+	selection := reselectRememberedSibling(ctx, siblingArmSelection{RosterID: overrideRosterID, ArmID: overrideArmID, Reason: overrideReason, Reselected: reselected}, req, resolved, res.RankedFallback, res.PolicyGroup)
+	overrideRosterID, overrideArmID, overrideReason, reselected = selection.RosterID, selection.ArmID, selection.Reason, selection.Reselected
 	if escalationDecision != nil {
 		escalationDecision.Effective = escalation.Group(res.PolicyGroup)
 	}

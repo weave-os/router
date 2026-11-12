@@ -106,15 +106,6 @@ func preferredSiblingArm(req router.Request, groups []PreviewGroup, selectedGrou
 	return selectedArm
 }
 
-// siblingOrderedSelection applies the remembered order to the pick's groups
-// and returns the possibly reselected arm plus the derived override map.
-func siblingOrderedSelection(req router.Request, resolved ResolvedCandidates, groups *[]PreviewGroup, group, arm string) (string, map[string][]string) {
-	*groups = applySiblingPreferences(req, resolved, *groups)
-	return preferredSiblingArm(req, *groups, group, arm), siblingPreferenceOverrides(req)
-}
-
-// siblingArmSelection is the routed-arm tuple a remembered preference may
-// replace when it picks a different arm in the selected group.
 type siblingArmSelection struct {
 	RosterID   string
 	ArmID      string
@@ -122,37 +113,21 @@ type siblingArmSelection struct {
 	Reselected bool
 }
 
-// reselectRememberedSibling swaps the override selection for the remembered
-// group winner. The preference may reorder the selected group, never move the
-// request to another group.
-func reselectRememberedSibling(ctx context.Context, sel siblingArmSelection, req router.Request, resolved ResolvedCandidates, groups []PreviewGroup, group string) siblingArmSelection {
-	if arm := preferredSiblingArm(req, groups, group, sel.RosterID); arm != sel.RosterID {
-		sel.RosterID = arm
-		sel.ArmID = siblingArmID(indexCandidates(resolved), arm)
-		if sel.Reason == router.SelectionOverrideNone {
-			sel.Reason = router.SelectionOverrideSibling
+func reselectRememberedSibling(ctx context.Context, selection siblingArmSelection, req router.Request, resolved ResolvedCandidates, groups []PreviewGroup, group string) siblingArmSelection {
+	if arm := preferredSiblingArm(req, groups, group, selection.RosterID); arm != selection.RosterID {
+		selection.RosterID = arm
+		selection.ArmID = siblingArmID(indexCandidates(resolved), arm)
+		if selection.Reason == router.SelectionOverrideNone {
+			selection.Reason = router.SelectionOverrideSibling
 		}
-		sel.Reselected = true
+		selection.Reselected = true
 		observability.FromContext(ctx).Info("Session sibling preference applied", "group", group, "arm", arm)
 	}
-	return sel
-}
-
-// siblingOrderingForRoute produces the preference-ordered groups and the three
-// override maps a route derives from them.
-func siblingOrderingForRoute(req router.Request, resolved ResolvedCandidates, groups, rescueGroups []PreviewGroup, escalationConstrained bool) (ordered []PreviewGroup, effective, rescue, pool map[string][]string) {
-	ordered = applySiblingPreferences(req, resolved, groups)
-	effective, rescue, pool = siblingRoutingOverrides(req, rescueGroups, escalationConstrained)
-	return ordered, effective, rescue, pool
+	return selection
 }
 
 // dropSiblingPreferencesOnPolicyPin makes an honoured policy pin authoritative:
 // it chooses the arm itself, so remembered group orders do not apply.
-func dropSiblingPreferencesOnPolicyPin(req *router.Request, pinned bool) {
-	if pinned {
-		req.SiblingPreferences = nil
-	}
-}
 
 // siblingRoutingOverrides derives the three override maps a route needs once
 // preferences reorder a group: the effective map, the rescue order's map, and
@@ -216,4 +191,15 @@ func siblingModelsForGroup(group string, groups []PreviewGroup, effectiveOverrid
 		}
 	}
 	return nil
+}
+
+func siblingOrderedSelection(req router.Request, resolved ResolvedCandidates, groups *[]PreviewGroup, group, arm string) (string, map[string][]string) {
+	*groups = applySiblingPreferences(req, resolved, *groups)
+	return preferredSiblingArm(req, *groups, group, arm), siblingPreferenceOverrides(req)
+}
+
+func dropSiblingPreferencesOnPolicyPin(req *router.Request, pinned bool) {
+	if pinned {
+		req.SiblingPreferences = nil
+	}
 }

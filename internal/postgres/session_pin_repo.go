@@ -50,14 +50,14 @@ func (r *SessionPinRepo) GetSiblingPreferences(ctx context.Context, installation
 	return preferences, nil
 }
 
-func (r *SessionPinRepo) RecordSiblingPreference(ctx context.Context, w sessionpin.SiblingPreferenceWrite) (bool, error) {
-	encoded, err := json.Marshal(w.Displaced)
+func (r *SessionPinRepo) RecordSiblingPreference(ctx context.Context, write sessionpin.SiblingPreferenceWrite) (bool, error) {
+	encoded, err := json.Marshal(write.Displaced)
 	if err != nil {
 		return false, err
 	}
 	rows, err := dbbudget.Queries(r.tx).RecordSessionSiblingPreference(ctx, sqlc.RecordSessionSiblingPreferenceParams{
-		InstallationID: w.InstallationID, SessionKey: w.SessionKey[:], RoutingStrategy: string(w.Strategy), PolicyGroup: string(w.Group),
-		PreferredModel: w.Preferred, DisplacedModels: encoded, StartedAt: pgtype.Timestamptz{Time: w.StartedAt.UTC(), Valid: true},
+		InstallationID: write.InstallationID, SessionKey: write.SessionKey[:], RoutingStrategy: string(write.Strategy), PolicyGroup: string(write.Group),
+		PreferredModel: write.Preferred, DisplacedModels: encoded, StartedAt: pgtype.Timestamptz{Time: write.StartedAt.UTC(), Valid: true},
 	})
 	return rows > 0, err
 }

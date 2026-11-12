@@ -209,8 +209,6 @@ func effectiveArms(
 	return out
 }
 
-// armOrRosterID falls back to the roster arm ID when the sidecar did not send
-// an arm-level identifier.
 func armOrRosterID(armID, rosterID string) string {
 	if armID != "" {
 		return armID

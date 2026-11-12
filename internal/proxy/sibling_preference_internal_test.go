@@ -38,23 +38,23 @@ func (s *siblingPreferenceRecordingStore) GetSiblingPreferences(_ context.Contex
 	return s.preferences[key], s.readErr
 }
 
-func (s *siblingPreferenceRecordingStore) RecordSiblingPreference(_ context.Context, w sessionpin.SiblingPreferenceWrite) (bool, error) {
+func (s *siblingPreferenceRecordingStore) RecordSiblingPreference(_ context.Context, write sessionpin.SiblingPreferenceWrite) (bool, error) {
 	if s.preferences == nil {
 		s.preferences = make(map[[sessionpin.SessionKeyLen]byte]map[escalation.Group]router.SiblingPreference)
 	}
-	if s.preferences[w.SessionKey] == nil {
-		s.preferences[w.SessionKey] = make(map[escalation.Group]router.SiblingPreference)
+	if s.preferences[write.SessionKey] == nil {
+		s.preferences[write.SessionKey] = make(map[escalation.Group]router.SiblingPreference)
 	}
-	previous := s.preferences[w.SessionKey][w.Group]
-	for _, model := range w.Displaced {
+	previous := s.preferences[write.SessionKey][write.Group]
+	for _, model := range write.Displaced {
 		if !slices.Contains(previous.DisplacedModels, model) {
 			previous.DisplacedModels = append(previous.DisplacedModels, model)
 		}
 	}
-	previous.DisplacedModels = slices.DeleteFunc(previous.DisplacedModels, func(model string) bool { return model == w.Preferred })
-	previous.Model = w.Preferred
-	previous.StartedAt = w.StartedAt
-	s.preferences[w.SessionKey][w.Group] = previous
+	previous.DisplacedModels = slices.DeleteFunc(previous.DisplacedModels, func(model string) bool { return model == write.Preferred })
+	previous.Model = write.Preferred
+	previous.StartedAt = write.StartedAt
+	s.preferences[write.SessionKey][write.Group] = previous
 	return true, nil
 }
 
