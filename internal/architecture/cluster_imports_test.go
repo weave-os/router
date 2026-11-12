@@ -25,11 +25,7 @@ var clusterImportAllowlist = []string{
 	"internal/api/admin/routing_distribution.go",
 	"internal/api/anthropic/messages_test.go",
 	"internal/proxy/compaction_strategy_internal_test.go",
-	"internal/proxy/compaction_test.go",
-	"internal/proxy/dispatch_error.go",
 	"internal/proxy/dispatch_error_test.go",
-	"internal/proxy/service_session_pin_test.go",
-	"internal/proxy/turnloop.go",
 	"internal/server/middleware/cluster_version_override.go",
 	"internal/server/middleware/cluster_version_override_test.go",
 }

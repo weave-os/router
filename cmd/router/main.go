@@ -206,9 +206,8 @@ func main() {
 	}
 
 	providerMap := make(map[string]providers.Client)
-	// envKeyedProviders = providers with a real deployment-level API key.
-	// Feeds resolveHardPinModel so compaction only lands where deployment
-	// auth actually exists — a BYOK/passthrough-only provider would 401.
+	// envKeyedProviders = providers with a real deployment-level API key; a
+	// BYOK/passthrough-only provider would 401 without request credentials.
 	envKeyedProviders := make(map[string]struct{})
 	// True when Anthropic has no deployment key but is reachable via client
 	// auth passthrough (Claude Code's OAuth/x-api-key flow). Must stay out of
@@ -709,12 +708,10 @@ func main() {
 
 	hardPinExplore := config.GetOr("ROUTER_HARD_PIN_EXPLORE", "true") == "true"
 	hardPinOverrideConfigured := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_MODEL", "")) != ""
-	// Hard-pin compaction runs on every installation, so it must land on a
-	// provider with real deployment auth (env-keyed, excluding BYOK/passthrough)
-	// or it 401s. In managed/byokOnly mode no provider has deployment auth, so
-	// the boot-time pin here is just a fallback — per-request resolution below
-	// does the real work.
-	hardPinProvider, hardPinModel, err := resolveHardPinModel(envKeyedProviders, logger)
+	// The boot-time pin seeds the title-gen, classifier, probe and sub-agent
+	// deployment targets; hard-pinned turns serve it directly only when the
+	// per-request resolver below is not wired (ROUTER_HARD_PIN_MODEL override).
+	hardPinProvider, hardPinModel, err := resolveHardPinModel()
 	if err != nil {
 		logger.Error("Invalid hard-pin model configuration; refusing to boot", "err", err)
 		panic(err)
@@ -724,32 +721,16 @@ func main() {
 	}
 	logger.Info("Hard-pin model resolved", "provider", hardPinProvider, "model", hardPinModel, "byok_only", byokOnly)
 
-	// Per-request hard-pin resolver: closes over the default cluster bundle so
-	// the proxy can resolve per-request against the request's enabled-providers
-	// and the installation's excluded_models (the hard-pin tier bypasses the
-	// scorer, the only component that otherwise applies excluded_models).
-	// nil if the bundle fails to load, falling back to boot-time hardPin{Provider,Model}.
-	// Not wired when ROUTER_HARD_PIN_MODEL is set — an operator override is
-	// absolute and must never be silently rewritten by excluded_models.
+	// Per-request hard-pin resolver: picks the catalog utility target for the
+	// request's enabled providers, excluded_models and bindings (the hard-pin
+	// tier bypasses the scorer, the only component that otherwise applies
+	// excluded_models). Not wired when ROUTER_HARD_PIN_MODEL is set — an
+	// operator override is absolute and must never be silently rewritten by
+	// excluded_models.
 	var hardPinResolver proxy.HardPinResolver
 	if !hardPinOverrideConfigured {
-		reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
-		if version, vErr := cluster.ResolveVersion(reqVersion); vErr == nil {
-			if bundle, bErr := cluster.LoadBundle(version); bErr == nil {
-				meta, registry := bundle.Metadata, bundle.Registry
-				hardPinResolver = func(req proxy.HardPinRequest) (string, string, bool) {
-					return cluster.FastestModelForRequest(meta, registry, req.EnabledProviders, req.ExcludedModels, nil, router.RequestBindings{
-						Custom:   req.CustomBindings,
-						Gateways: req.GatewayProviders,
-					})
-				}
-				logger.Info("Hard-pin resolver wired (per-request fastest model from cluster bundle, applies excluded_models)", "version", version, "byok_only", byokOnly)
-			} else {
-				logger.Warn("Hard-pin resolver disabled: cluster bundle failed to load; hard-pin will fall back to boot-time defaults and cannot apply excluded_models", "err", bErr, "version", version)
-			}
-		} else {
-			logger.Warn("Hard-pin resolver disabled: could not resolve cluster version; hard-pin will fall back to boot-time defaults and cannot apply excluded_models", "err", vErr)
-		}
+		hardPinResolver = proxy.CatalogUtilityHardPin
+		logger.Info("Hard-pin resolver wired (per-request catalog utility target, applies excluded_models)", "default_model", policy.UtilityHardPinDefaultModel, "byok_only", byokOnly)
 	} else {
 		logger.Info("Hard-pin resolver not wired: ROUTER_HARD_PIN_MODEL operator override is set and absolute by design", "model", hardPinModel)
 	}
@@ -2362,11 +2343,10 @@ func resolveCompactionModel(summarizerProvider string) (string, error) {
 	return m, nil
 }
 
-// resolveHardPinModel returns the (provider, model) for Explore and utility
-// hard-pins (Claude Code's compaction turn prefers the compaction model):
-// operator override wins, else the fastest available model in the default
-// bundle, else the policy-owned utility hard-pin default.
-func resolveHardPinModel(available map[string]struct{}, logger *slog.Logger) (provider, model string, resolutionErr error) {
+// resolveHardPinModel returns the boot-time (provider, model) for Explore and
+// utility hard pins: the operator override, else the policy-owned utility
+// hard-pin default.
+func resolveHardPinModel() (provider, model string, resolutionErr error) {
 	configuredModel := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_MODEL", ""))
 	configuredProvider := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_PROVIDER", ""))
 	if configuredModel != "" {
@@ -2378,24 +2358,7 @@ func resolveHardPinModel(available map[string]struct{}, logger *slog.Logger) (pr
 	if configuredProvider != "" {
 		return "", "", errors.New("ROUTER_HARD_PIN_PROVIDER requires ROUTER_HARD_PIN_MODEL")
 	}
-
-	reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
-	defaultVersion, err := cluster.ResolveVersion(reqVersion)
-	if err != nil {
-		logger.Warn("Hard-pin model: could not resolve cluster version; using default", "err", err, "default_model", policy.UtilityHardPinDefaultModel)
-		return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
-	}
-	bundle, err := cluster.LoadBundle(defaultVersion)
-	if err != nil {
-		logger.Warn("Hard-pin model: could not load bundle; using default", "err", err, "default_model", policy.UtilityHardPinDefaultModel)
-		return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
-	}
-	p, m, ok := cluster.FastestModel(bundle.Metadata, bundle.Registry, available)
-	if !ok {
-		logger.Warn("Hard-pin model: no model found for available providers; using default", "default_model", policy.UtilityHardPinDefaultModel)
-		return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
-	}
-	return p, m, nil
+	return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
 }
 
 // envVarHint returns the env var name for a provider's API key, for log
