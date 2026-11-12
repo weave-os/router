@@ -356,6 +356,7 @@ export function canonicalizeModelId(modelId: string): string {
 export const ROUTER_MODEL_DISPLAY_NAMES = {
   "anthropic/claude-fable-5": "Claude Fable 5",
   "anthropic/claude-fable-5.1": "Claude Fable 5.1",
+  "anthropic/claude-fable-5.2": "Claude Fable 5.2",
   "anthropic/claude-haiku-4.5": "Claude Haiku 4.5",
   "anthropic/claude-haiku-5.5": "Claude Haiku 5.5",
   "anthropic/claude-opus-4-5": "Claude Opus 4.5",
@@ -459,6 +460,7 @@ type RouterModelDisplayName =
 export const ROUTER_MODEL_SHORT_NAMES = {
   "Claude Fable 5": "Fable 5",
   "Claude Fable 5.1": "Fable 5.1",
+  "Claude Fable 5.2": "Fable 5.2",
   "Claude Haiku 4.5": "Haiku 4.5",
   "Claude Haiku 5.5": "Haiku 5.5",
   "Claude Opus 4.5": "Opus 4.5",

@@ -327,6 +327,21 @@ func clearWithheldPassthrough(rw *translate.ResponsesWriter, buf *preludeBuffer)
 	return rw.ClearPassthrough()
 }
 
+// errResponsesPassthroughStuck reports a non-OpenAI attempt that cannot run
+// because the Responses writer already forwarded native bytes for an earlier
+// OpenAI attempt and can no longer translate.
+var errResponsesPassthroughStuck = errors.New("responses passthrough already carries native output; another wire format cannot continue it")
+
+// leaveResponsesPassthrough returns a passthrough writer to translation before
+// an attempt that speaks another wire format. It returns errResponsesPassthroughStuck
+// when the writer is still in passthrough and cannot be cleared.
+func leaveResponsesPassthrough(rw *translate.ResponsesWriter, buf *preludeBuffer) error {
+	if !rw.Passthrough() || clearWithheldPassthrough(rw, buf) {
+		return nil
+	}
+	return errResponsesPassthroughStuck
+}
+
 // subscriptionRotationBudget bounds how long included-capacity accounts and
 // model alternatives may be leased and admitted, shared across one request's
 // rotation walk. It never cancels an attempt already in flight: provider

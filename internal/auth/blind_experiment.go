@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"time"
 )
 
@@ -47,24 +48,41 @@ const (
 	BlindExperimentAssignmentManual BlindExperimentAssignmentSource = "manual"
 )
 
+// BlindExperimentMode is how an experiment assigns arms.
+type BlindExperimentMode string
+
+const (
+	// BlindExperimentModeUser draws once per canonical subject.
+	BlindExperimentModeUser BlindExperimentMode = "user"
+	// BlindExperimentModeCohort follows a scheduled group treatment.
+	BlindExperimentModeCohort BlindExperimentMode = "cohort"
+	// BlindExperimentModeSession draws once per credential-scoped client
+	// session, so subagents and side calls inherit the parent's arm.
+	BlindExperimentModeSession BlindExperimentMode = "session"
+)
+
 // BlindExperimentState is the active request-scoped experiment decision.
 // Inactive states are cached but never stashed on a request context.
 type BlindExperimentState struct {
-	Active              bool
-	Enabled             bool
-	Arm                 BlindExperimentArm
-	AssignmentSource    BlindExperimentAssignmentSource
-	CanonicalSubjectKey string
-	CohortExperimentID  string
-	CohortGroupID       int
-	CohortRevision      int
-	CohortPhaseIndex    int
-	ScheduledArm        BlindExperimentArm
-	CohortStartsAt      time.Time
-	CohortEndsAt        time.Time
-	CohortSchedule      []BlindExperimentPhase
-	CohortOverrides     []BlindExperimentEmergencyOverride
-	ManualOverride      BlindExperimentArm
+	Active                    bool
+	Enabled                   bool
+	Arm                       BlindExperimentArm
+	AssignmentSource          BlindExperimentAssignmentSource
+	CanonicalSubjectKey       string
+	CohortExperimentID        string
+	CohortGroupID             int
+	CohortRevision            int
+	CohortPhaseIndex          int
+	ScheduledArm              BlindExperimentArm
+	CohortStartsAt            time.Time
+	CohortEndsAt              time.Time
+	CohortSchedule            []BlindExperimentPhase
+	CohortOverrides           []BlindExperimentEmergencyOverride
+	ManualOverride            BlindExperimentArm
+	Mode                      BlindExperimentMode
+	SessionSubjectKey         string
+	sessionSeed               string
+	sessionRouterOnPercentage int
 }
 
 // BlindExperimentEmergencyOverride temporarily replaces the scheduled arm.
@@ -89,6 +107,7 @@ type BlindExperimentRecord struct {
 	Enabled             bool
 	RouterOnPercentage  int
 	Seed                string
+	SessionMode         bool
 	CanonicalSubjectKey string
 	AutomaticArm        BlindExperimentArm
 	ManualOverride      BlindExperimentArm
@@ -161,10 +180,22 @@ func resolveBlindExperiment(record BlindExperimentRecord, routerUserID string) B
 			CohortSchedule:      record.CohortSchedule,
 			CohortOverrides:     record.CohortOverrides,
 			ManualOverride:      record.ManualOverride,
+			Mode:                BlindExperimentModeCohort,
 		}
 	}
 	if !record.Enabled {
 		return BlindExperimentState{}
+	}
+	if record.SessionMode {
+		return BlindExperimentState{
+			Active:                    true,
+			Arm:                       AssignBlindExperimentArm(record.Seed, subjectKey, record.RouterOnPercentage),
+			AssignmentSource:          BlindExperimentAssignmentAutomatic,
+			CanonicalSubjectKey:       subjectKey,
+			Mode:                      BlindExperimentModeSession,
+			sessionSeed:               record.Seed,
+			sessionRouterOnPercentage: record.RouterOnPercentage,
+		}
 	}
 	automaticArm := record.AutomaticArm
 	if !automaticArm.Valid() {
@@ -176,6 +207,7 @@ func resolveBlindExperiment(record BlindExperimentRecord, routerUserID string) B
 			Arm:                 record.ManualOverride,
 			AssignmentSource:    BlindExperimentAssignmentManual,
 			CanonicalSubjectKey: subjectKey,
+			Mode:                BlindExperimentModeUser,
 		}
 	}
 	return BlindExperimentState{
@@ -183,7 +215,29 @@ func resolveBlindExperiment(record BlindExperimentRecord, routerUserID string) B
 		Arm:                 automaticArm,
 		AssignmentSource:    BlindExperimentAssignmentAutomatic,
 		CanonicalSubjectKey: subjectKey,
+		Mode:                BlindExperimentModeUser,
 	}
+}
+
+// BlindExperimentSessionSubjectKey scopes a client session id to the
+// credential it arrived on. Empty when either side is unknown.
+func BlindExperimentSessionSubjectKey(credentialIdentity, clientSessionID string) string {
+	if credentialIdentity == "" || clientSessionID == "" {
+		return ""
+	}
+	digest := sha256.Sum256([]byte(credentialIdentity + "\x00" + clientSessionID))
+	return "session:" + hex.EncodeToString(digest[:16])
+}
+
+// ForSession draws a session-mode arm from the session key. Other modes and
+// requests without a session key keep the user-level arm.
+func (state BlindExperimentState) ForSession(sessionSubjectKey string) BlindExperimentState {
+	if !state.Active || sessionSubjectKey == "" || state.Mode != BlindExperimentModeSession {
+		return state
+	}
+	state.Arm = AssignBlindExperimentArm(state.sessionSeed, sessionSubjectKey, state.sessionRouterOnPercentage)
+	state.SessionSubjectKey = sessionSubjectKey
+	return state
 }
 
 // AtTime resolves a cached cohort schedule for this request, including the

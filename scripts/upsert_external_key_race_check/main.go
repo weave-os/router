@@ -264,6 +264,12 @@ func (r *holdingExternalRepo) SoftDelete(ctx context.Context, installationID, id
 func (r *holdingExternalRepo) UpdateModelAliases(ctx context.Context, installationID, id string, aliases map[string]string) (*auth.ExternalAPIKey, error) {
 	return r.inner.UpdateModelAliases(ctx, installationID, id, aliases)
 }
+func (r *holdingExternalRepo) UpdateFundingPriority(ctx context.Context, installationID, id string, priority auth.FundingPriority) (*auth.ExternalAPIKey, error) {
+	return r.inner.UpdateFundingPriority(ctx, installationID, id, priority)
+}
+func (r *holdingExternalRepo) ActiveFundingPriority(ctx context.Context, installationID, provider string) (auth.FundingPriority, error) {
+	return r.inner.ActiveFundingPriority(ctx, installationID, provider)
+}
 func (r *holdingExternalRepo) MarkUsed(ctx context.Context, id string) error {
 	return r.inner.MarkUsed(ctx, id)
 }
