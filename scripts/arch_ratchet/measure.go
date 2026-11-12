@@ -92,7 +92,7 @@ func measureFile(filePath string, src []byte) (metrics fileMetrics, generated bo
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
 			if d.Body != nil {
-				key := funcKey(dir, filePath, d)
+				key := funcKey(dir, filePath, file.Name.Name, d)
 				metrics.funcs = append(metrics.funcs, measureFunc(fset, codeLines, key, d))
 				metrics.funcs = append(metrics.funcs, measureFuncLits(fset, codeLines, key, d.Body)...)
 			}
@@ -200,9 +200,13 @@ func linesWithin(fset *token.FileSet, fn *ast.FuncDecl, codeLines map[int]bool) 
 }
 
 // funcKey identifies a function by package directory, receiver and name, so moving it
-// between files of one package keeps its identity.
-func funcKey(dir, filePath string, fn *ast.FuncDecl) string {
+// between files of one package keeps its identity. An external test package (foo_test)
+// is qualified so its helpers can't reuse the tested package's keys.
+func funcKey(dir, filePath, pkg string, fn *ast.FuncDecl) string {
 	name := fn.Name.Name
+	if pkg != path.Base(dir) {
+		name = pkg + "." + name
+	}
 	if fn.Recv == nil && name == "init" {
 		return dir + ".init@" + path.Base(filePath)
 	}

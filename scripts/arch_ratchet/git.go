@@ -148,11 +148,18 @@ func readBatchEntry(reader *bufio.Reader) ([]byte, bool, error) {
 func (r repo) readWorktree(paths []string) (map[string][]byte, error) {
 	files := make(map[string][]byte, len(paths))
 	for _, path := range paths {
-		info, statErr := os.Lstat(filepath.Join(r.root, path))
-		if statErr != nil || info.Mode()&os.ModeSymlink != 0 {
+		full := filepath.Join(r.root, path)
+		info, statErr := os.Lstat(full)
+		if errors.Is(statErr, os.ErrNotExist) {
 			continue
 		}
-		content, err := os.ReadFile(filepath.Join(r.root, path))
+		if statErr != nil {
+			return nil, fmt.Errorf("stat %s: %w", path, statErr)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		content, err := os.ReadFile(full)
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
