@@ -59,13 +59,6 @@ type Emitter struct {
 	translationMetrics translationMetrics
 }
 
-func (e *Emitter) TranslationMetrics() telemetry.TranslationMetrics {
-	if e == nil {
-		return nil
-	}
-	return &e.translationMetrics
-}
-
 // NewEmitter starts the worker pool and returns a ready emitter. Returns
 // (nil, nil) when cfg.Endpoint is empty (OTel disabled).
 func NewEmitter(cfg EmitterConfig) (*Emitter, error) {

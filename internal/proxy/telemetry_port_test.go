@@ -34,10 +34,6 @@ func (e *capturingTelemetryEmitter) NewUsageExtractor(inner http.ResponseWriter,
 	return wrapper.Extractor(), wrapper
 }
 
-func (*capturingTelemetryEmitter) TranslationMetrics() telemetry.TranslationMetrics {
-	return nil
-}
-
 type capturingTelemetryRecorder struct {
 	spans            []telemetry.Span
 	logs             []telemetry.LogRecord

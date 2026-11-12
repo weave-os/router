@@ -26,10 +26,6 @@ func (usageProjectionEmitter) NewRecorder() telemetry.Recorder {
 	return nil
 }
 
-func (usageProjectionEmitter) TranslationMetrics() telemetry.TranslationMetrics {
-	return nil
-}
-
 func (usageProjectionEmitter) NewUsageExtractor(inner http.ResponseWriter, provider string) (*telemetry.UsageExtractor, http.ResponseWriter) {
 	wrapper := otel.NewUsageExtractor(inner, provider)
 	return wrapper.Extractor(), wrapper

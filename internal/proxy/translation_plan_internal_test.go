@@ -3,13 +3,11 @@ package proxy
 import (
 	"context"
 	"errors"
-	"net/http"
 	"testing"
 	"weave-os/router/internal/dispatch"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/telemetry"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,22 +18,6 @@ type translationMetricsRecorder struct {
 		requirement, sourceFormat, targetFamily, mode string
 		enforced                                      bool
 	}
-}
-
-type translationMetricsEmitter struct {
-	metrics telemetry.TranslationMetrics
-}
-
-func (translationMetricsEmitter) NewRecorder() telemetry.Recorder {
-	return nil
-}
-
-func (translationMetricsEmitter) NewUsageExtractor(http.ResponseWriter, string) (*telemetry.UsageExtractor, http.ResponseWriter) {
-	return nil, nil
-}
-
-func (e translationMetricsEmitter) TranslationMetrics() telemetry.TranslationMetrics {
-	return e.metrics
 }
 
 func (m *translationMetricsRecorder) RecordTranslationCompatibility(_ context.Context, requirement, sourceFormat, targetFamily, mode string, enforced bool) {
@@ -232,11 +214,9 @@ func TestApplyTranslationPlanRecordsCompatibilityMetrics(t *testing.T) {
 	}{"prompt_cache_control_native_required", "anthropic_messages", "anthropic", "shadow", false}, metrics.compatibility[0])
 }
 
-func TestApplyTranslationPlanPrefersInjectedTranslationMetrics(t *testing.T) {
-	emitterMetrics := &translationMetricsRecorder{}
+func TestApplyTranslationPlanUsesInjectedTranslationMetrics(t *testing.T) {
 	injectedMetrics := &translationMetricsRecorder{}
 	svc := compatibilityService(TranslationCompatibilityShadow)
-	svc.emitter = translationMetricsEmitter{metrics: emitterMetrics}
 	svc.WithTranslationMetrics(injectedMetrics)
 
 	_, err := svc.applyTranslationPlan(context.Background(), router.Request{
@@ -252,7 +232,6 @@ func TestApplyTranslationPlanPrefersInjectedTranslationMetrics(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, injectedMetrics.compatibility, 1)
-	assert.Empty(t, emitterMetrics.compatibility)
 }
 
 func TestApplyTranslationPlan_IntrinsicallyIncompatible(t *testing.T) {

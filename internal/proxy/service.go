@@ -63,7 +63,6 @@ import (
 type TelemetryEmitter interface {
 	NewRecorder() telemetry.Recorder
 	NewUsageExtractor(http.ResponseWriter, string) (*telemetry.UsageExtractor, http.ResponseWriter)
-	TranslationMetrics() telemetry.TranslationMetrics
 }
 
 // Service orchestrates routing decisions and provider dispatch.
