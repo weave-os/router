@@ -12,7 +12,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/translate"
 )
@@ -265,14 +264,14 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			break
 		}
 		if hasFixedTarget {
-			return -1, includedFailureOr(includedFailure, cluster.ErrAllowlistEmptiesPool)
+			return -1, includedFailureOr(includedFailure, router.ErrAllowlistEmptiesPool)
 		}
 		if permitted {
 			request.ExcludedModels = mergeExcludedModels(request.ExcludedModels, map[string]struct{}{target.Model: {}})
 			paidCtx, paidReq = s.subscriptionStateRequest(paidCtx, request, paidModels)
 		}
 		if len(paidReq.AllowedModels) == 0 {
-			return -1, includedFailureOr(includedFailure, cluster.ErrAllowlistEmptiesPool)
+			return -1, includedFailureOr(includedFailure, router.ErrAllowlistEmptiesPool)
 		}
 		var err error
 		target, err = s.Route(paidCtx, paidReq)
@@ -299,7 +298,7 @@ func includedFailureOr(includedFailure, paidErr error) error {
 }
 
 func paidLaneEmpty(err error) bool {
-	return errors.Is(err, policy.ErrNoEligibleArm) || errors.Is(err, cluster.ErrAllowlistEmptiesPool) || errors.Is(err, policy.ErrNoRoutableModels)
+	return errors.Is(err, policy.ErrNoEligibleArm) || errors.Is(err, router.ErrAllowlistEmptiesPool) || errors.Is(err, policy.ErrNoRoutableModels)
 }
 
 // includedSubscriptionModels lists every model a live subscription can serve,

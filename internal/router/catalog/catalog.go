@@ -199,6 +199,9 @@ const (
 	// ModelIDGemini4Argon is the canonical Gemini 4 Argon routing ID.
 	ModelIDGemini4Argon       ModelID = router.ModelGemini4Argon
 	ModelIDClaudeHaiku45      ModelID = "claude-haiku-4-5"
+	ModelIDClaudeHaiku55      ModelID = "claude-haiku-5-5"
+	ModelIDGPT41Nano          ModelID = "gpt-4.1-nano"
+	ModelIDGPT41Mini          ModelID = "gpt-4.1-mini"
 	ModelIDClaudeSonnet46     ModelID = "claude-sonnet-4-6"
 	ModelIDClaudeOpus47       ModelID = "claude-opus-4-7"
 	ModelIDGPT56Luna          ModelID = "gpt-5.6-luna"
@@ -233,6 +236,8 @@ type Model struct {
 	// ContextWindow is the model's total input+output token budget in tokens.
 	// 0 means use catalog.DefaultContextWindow.
 	ContextWindow int
+	// MaxOutputTokens is the model's documented output limit. Zero means unknown.
+	MaxOutputTokens int
 	// ToolUseQuality: default ToolUseUnknown; set ToolUseLow to remove the
 	// model from agentic argmax pools.
 	ToolUseQuality ToolUseQuality
@@ -415,6 +420,9 @@ var Models = []Model{
 	{ID: "claude-fable-5-2", Source: SourceClosedSource, Tier: TierHigh, AdvisorRank: 10, ForceModelOnly: true, ContextWindow: 1_000_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00, CacheReadMultiplier: 0.025, USInferenceGeoMultiplier: USInferenceGeoMultiplier}, FastPrice: Pricing{InputUSDPer1M: 16.00, OutputUSDPer1M: 80.00}},
 		{Provider: providers.ProviderOpenRouter, UpstreamID: "anthropic/claude-fable-5.2", SubscriptionOverflowOnly: true, Price: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00, CacheReadMultiplier: 0.025}},
+	}},
+	{ID: "claude-mythos-5-2", Source: SourceClosedSource, AdvisorRank: 10, ForceModelOnly: true, ContextWindow: 1_000_000, MaxOutputTokens: 128_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00, CacheReadMultiplier: 0.025, USInferenceGeoMultiplier: USInferenceGeoMultiplier}, FastPrice: Pricing{InputUSDPer1M: 16.00, OutputUSDPer1M: 80.00}},
 	}},
 
 	// --- OpenAI GPT-4.x (legacy) ---

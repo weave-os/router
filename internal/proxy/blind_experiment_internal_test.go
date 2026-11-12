@@ -11,7 +11,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
@@ -156,7 +155,7 @@ func TestCallerModelPassthroughRejectsUnknownModelWithoutBlamingProviderKeys(t *
 	require.ErrorAs(t, err, &unknown)
 	assert.Equal(t, "auto", unknown.Model)
 	assert.False(t, unknown.RoutingPolicyPassthrough, "the blind-experiment arm is not the org routing policy")
-	assert.NotErrorIs(t, err, cluster.ErrNoEligibleProvider,
+	assert.NotErrorIs(t, err, router.ErrNoEligibleProvider,
 		"a routing placeholder must not surface as the missing-provider-keys error")
 }
 
@@ -217,7 +216,7 @@ func TestCallerModelPassthroughHonorsExcludedModels(t *testing.T) {
 	)
 
 	require.Error(t, err)
-	assert.ErrorIs(t, err, cluster.ErrNoEligibleProvider)
+	assert.ErrorIs(t, err, router.ErrNoEligibleProvider)
 	assert.Zero(t, routerSpy.routeCalls, "an excluded requested model must fail directly instead of falling through to automatic routing")
 }
 
@@ -231,7 +230,6 @@ func blindExperimentUtilityTurnBodies() []struct {
 	}{
 		{turntype.Probe, `{"model":"claude-opus-4-8","max_tokens":1,"messages":[{"role":"user","content":"quota"}]}`},
 		{turntype.TitleGen, `{"model":"claude-opus-4-8","max_tokens":1024,"output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}}},"messages":[{"role":"user","content":"title"}]}`},
-		{turntype.Compaction, `{"model":"claude-opus-4-8","max_tokens":1024,"system":"Your task is to create a detailed summary","messages":[{"role":"user","content":"summary"}]}`},
 		{turntype.SubAgentDispatch, `{"model":"claude-opus-4-8","max_tokens":1024,"metadata":{"user_id":"subagent:Explore"},"messages":[{"role":"user","content":"list go files"}]}`},
 	}
 }
@@ -242,7 +240,6 @@ func runBlindExperimentUtilityTurn(t *testing.T, ctx context.Context, body strin
 	service := NewService(routerSpy, nil, nil, false, nil, newStubPinStore(), false,
 		providers.ProviderGoogle, experimentUtilityHardPinModel, nil).
 		WithExplicitUtilityHardPin(true).
-		WithCompactionHardPin(true).
 		WithSubAgentOverride(providers.ProviderGoogle, experimentSubAgentOverrideModel)
 	envelope, err := translate.ParseAnthropic([]byte(body))
 	require.NoError(t, err)
@@ -541,7 +538,7 @@ func TestBlindPassthroughUnknownModelBaselineHonoursExclusions(t *testing.T) {
 			assert.Empty(t, decision.Model)
 			var unknown *PassthroughModelUnknownError
 			assert.False(t, errors.As(err, &unknown), "the error must be the one router_on gives for an ineligible model")
-			assert.True(t, errors.Is(err, cluster.ErrNoEligibleProvider) || errors.Is(err, cluster.ErrAllowlistEmptiesPool))
+			assert.True(t, errors.Is(err, router.ErrNoEligibleProvider) || errors.Is(err, router.ErrAllowlistEmptiesPool))
 		})
 	}
 }

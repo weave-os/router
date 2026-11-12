@@ -21,7 +21,7 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 	const apiKeyID = "parent-scope-test-key"
 	installationID := uuid.New()
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "shared-parent-session"})
-	ctx = router.WithStrategy(ctx, router.StrategyCluster)
+	ctx = router.WithStrategy(ctx, router.StrategyHMMEmbedding)
 	parent, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"max_tokens":4096,"messages":[{"role":"user","content":"Implement a synthetic feature"}]}`, catalog.ModelIDClaudeOpus48.String())))
 	require.NoError(t, err)
 	child, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"max_tokens":4096,"messages":[{"role":"user","content":"Research a synthetic helper"}]}`, catalog.ModelIDClaudeOpus48.String())))
@@ -92,7 +92,8 @@ func TestForceParentDoesNotOverrideChildCompaction(t *testing.T) {
 	compaction, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","max_tokens":4096,"messages":[{"role":"user","content":"Implement the parser"},{"role":"assistant","content":"Inspecting the source"},{"role":"user","content":"Your task is to create a detailed summary. Do not call any tools."}]}`))
 	require.NoError(t, err)
 	store := newForceModelMapStore()
-	svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeSonnet46.String(), nil).WithCompactionHardPin(true)
+	scored := router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String()}
+	svc := NewService(fixedRouter{decision: scored}, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, false, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeSonnet46.String(), nil)
 	parentKey := deriveSessionKeyForRequest(ctx, parent, apiKeyID)
 	require.Equal(t, parentKey, deriveSessionKeyForRequest(ctx, compaction, apiKeyID))
 	features := compaction.RoutingFeatures(false)

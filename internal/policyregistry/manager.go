@@ -276,6 +276,16 @@ func (m *Manager) AllRosterArms() ([]string, error) {
 // Roster returns the active harness-aware arm union for deployed-model discovery.
 func (m *Manager) Roster(context.Context) ([]string, error) { return m.AllRosterArms() }
 
+// DistributionRoster exposes the active policy for the dial preview.
+func (m *Manager) DistributionRoster(ctx context.Context) (*rosterdata.Roster, error) {
+	snapshot := m.Active()
+	if snapshot == nil || snapshot.Policy == nil {
+		return nil, ErrNoActivePolicy
+	}
+	roster, _ := snapshot.policyForStrategy(router.StrategyFromContext(ctx))
+	return roster, nil
+}
+
 // DynamicRouter loads one snapshot once per operation and delegates to its bound router.
 type DynamicRouter struct {
 	manager  *Manager

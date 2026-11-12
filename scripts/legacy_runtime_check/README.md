@@ -2,8 +2,10 @@
 
 This boots the real ORT-enabled worker in both `selfhosted` and `managed`
 modes against an already-migrated, disposable loopback Postgres database.
-It starts its own loopback Pub/Sub gRPC fixture. No real provider or cloud
-credentials are inherited, and no inference provider is called.
+It starts its own loopback Pub/Sub gRPC fixture and serves the stub HMM
+classifier and baked policy release from `smoke/hmmstub`, because workers boot
+on the `hmm_embedding` default. No real provider or cloud credentials are
+inherited, and no inference provider is called.
 
 ```bash
 ROUTER_TEST_DATABASE_URL='postgres://fixture-user:fixture-password@localhost:5432/router?sslmode=disable&search_path=router' \

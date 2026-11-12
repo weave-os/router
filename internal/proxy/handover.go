@@ -422,7 +422,7 @@ func (s *Service) runCompactionHandover(ctx context.Context, env *translate.Requ
 		out.FallbackToFullHistory = true
 		log.Info("Compaction handover: summarizer skipped (tenant boundary); preserved compacted body instead", "decision_model", decisionModel)
 	default:
-		summCtx := ctx
+		var summCtx context.Context
 		if sumCreds != nil {
 			summCtx = context.WithValue(ctx, CredentialsContextKey{}, sumCreds)
 		} else {

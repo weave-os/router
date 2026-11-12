@@ -34,3 +34,10 @@ services:
         - type=gha,scope=router-smoke-seed
       cache_to:
         - type=gha,scope=router-smoke-seed,mode=max
+
+  hmm-stub:
+    build:
+      cache_from:
+        - type=gha,scope=router-smoke-hmm-stub
+      cache_to:
+        - type=gha,scope=router-smoke-hmm-stub,mode=max

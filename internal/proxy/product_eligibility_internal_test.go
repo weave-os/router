@@ -56,7 +56,7 @@ func TestUnsubscribedRequestKeepsUnrestrictedRouting(t *testing.T) {
 // table, or its deployed-set default — is refused rather than dispatched.
 func TestMaxRouteRefusesAClosedSourceDecision(t *testing.T) {
 	closedRouter := &registryRouter{decision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic}}
-	svc := &Service{router: closedRouter}
+	svc := serviceWithDefaultRouter(closedRouter)
 
 	_, err := svc.Route(maxScopedContext(), router.Request{})
 
@@ -66,7 +66,7 @@ func TestMaxRouteRefusesAClosedSourceDecision(t *testing.T) {
 
 func TestMaxRouteRefusesAnUnknownSourceDecision(t *testing.T) {
 	unknownRouter := &registryRouter{decision: router.Decision{Model: "muse-spark-1.3", Provider: providers.ProviderMeta}}
-	svc := &Service{router: unknownRouter}
+	svc := serviceWithDefaultRouter(unknownRouter)
 
 	_, err := svc.Route(maxScopedContext(), router.Request{})
 
@@ -75,7 +75,7 @@ func TestMaxRouteRefusesAnUnknownSourceDecision(t *testing.T) {
 
 func TestMaxRouteServesOpenSourceDecision(t *testing.T) {
 	openRouter := &registryRouter{decision: router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: providers.ProviderFireworks}}
-	svc := &Service{router: openRouter}
+	svc := serviceWithDefaultRouter(openRouter)
 
 	decision, err := svc.Route(maxScopedContext(), router.Request{})
 
@@ -89,7 +89,7 @@ func TestMaxRouteServesOpenSourceDecision(t *testing.T) {
 // buy a closed-source model.
 func TestFundingCannotWidenMaxEligibility(t *testing.T) {
 	closedRouter := &registryRouter{decision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic}}
-	svc := &Service{router: closedRouter}
+	svc := serviceWithDefaultRouter(closedRouter)
 
 	for name, ctx := range map[string]context.Context{
 		// Included allowance paying for the turn.

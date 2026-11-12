@@ -305,15 +305,6 @@ func clusterAllowlistsPinModel(overrides map[string][]string, model string) bool
 	return true
 }
 
-// armDemotionReason is the completion line's companion to arm_demoted: empty
-// unless a model was actually withdrawn this turn.
-func armDemotionReason(demotedModel string) string {
-	if demotedModel == "" {
-		return ""
-	}
-	return string(sessionpin.DemotionReasonCommittedStreamFailure)
-}
-
 // armDemotionLogFields is the completion line's account of the turn's strikes.
 // arm_demoted and arm_demotion_reason name the one strike most turns write;
 // the committed-stream strike wins when both landed (the rescuer served and

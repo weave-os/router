@@ -21,20 +21,7 @@ type policyCatalogEntry struct {
 // surface to the control plane. It contains no tenant or request data.
 func PolicyCatalogHandler(service *proxy.Service, defaultStrategy router.Strategy) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		entries := []policyCatalogEntry{{
-			Strategy:  router.StrategyCluster,
-			Available: service != nil && service.PolicyStrategyAvailable(router.StrategyCluster),
-			Capabilities: policy.Capabilities{
-				SchemaVersion:          policy.SchemaVersionV1,
-				HonorsPreferredModels:  true,
-				HonorsQualityPriceBias: true,
-				SupportsPreview:        true,
-				SupportsShadow:         true,
-				// The cluster scorer has no ranked fallback to re-select
-				// against, so per-cluster model selections are inert on it.
-				HonorsClusterModelLists: false,
-			},
-		}}
+		entries := []policyCatalogEntry{}
 		if service != nil {
 			for _, strategy := range service.RegisteredStrategies() {
 				capabilities, _ := service.PolicyCapabilitiesForRequest(c.Request.Context(), strategy)

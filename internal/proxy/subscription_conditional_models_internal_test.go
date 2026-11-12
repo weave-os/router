@@ -11,7 +11,6 @@ import (
 )
 
 const conditionalModelsSubscriptionToken = "sk-ant-oat01-conditional-models"
-const conditionalModelsCodexToken = "chatgpt-jwt-conditional-models"
 
 func conditionalModelsContext(active, inactive []string) context.Context {
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, conditionalModelsSubscriptionToken)

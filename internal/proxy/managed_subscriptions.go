@@ -234,6 +234,9 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 
+	diagnostics := subscriptionAdmissionDiagnostics{started: time.Now()}
+	defer diagnostics.log(ctx, poolProvider, model)
+
 	owner := subscriptionOwnerFromContext(ctx)
 	if winner, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); winner != nil {
 		for pair := range winner.AttemptedAccounts {
@@ -287,6 +290,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			return poolSpent()
 		}
 		if seen[lease.AccountID] {
+			diagnostics.skip(lease, subscriptionSkipRepeatedLease)
 			lease.Release()
 			return poolSpent()
 		}
@@ -300,6 +304,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 				}
 			}
 			if !admitted {
+				diagnostics.skip(lease, subscriptionSkipOutsideAdmission)
 				lease.Release()
 				observability.FromContext(ctx).Warn("Subscription lease is outside the request admission snapshot", "account_id", lease.AccountID, "provider", poolProvider)
 				unadmitted = true
@@ -315,18 +320,21 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			}
 		}
 		if poolProvider == subscriptions.ProviderClaude && s.subscriptionModels.managedClientAppDenied(lease.AccountID, provider, ClientIdentityFrom(ctx).ClientApp, s.clockNow()) {
+			diagnostics.skip(lease, subscriptionSkipClientAppDenied)
 			markSubscriptionClientAppRefused(ctx)
 			lease.Release()
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 			continue
 		}
 		if s.subscriptionModels.managedDenied(managedOverloadOwner(lease.AccountID), lease.AccountID, provider, model, s.clockNow()) {
+			diagnostics.skip(lease, subscriptionSkipOverloadCooldown)
 			s.markSubscriptionPoolUnavailable(ctx, poolProvider)
 			lease.Release()
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 			continue
 		}
 		if s.subscriptionModels.managedDenied("account:"+lease.AccountID, lease.AccountID, provider, model, s.clockNow()) {
+			diagnostics.skip(lease, subscriptionSkipModelDenied)
 			if poolProvider == subscriptions.ProviderCodex {
 				modelDenial = codexSubscriptionModelUnavailable(model)
 			} else {
@@ -352,16 +360,19 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		snapshot, observed := s.managedSubscriptionUsageSnapshot(lease.AccountID, lease.AccessToken)
 		allowClaudeOverage := poolProvider == subscriptions.ProviderClaude && claudeEnterpriseOnly(credentialCtx)
 		if poolProvider == subscriptions.ProviderClaude && !lease.AllowsPlanAttempt(claudeSubscriptionPlan(credentialCtx), claudeEnterpriseEnabled(ctx), s.clockNow()) {
+			diagnostics.skip(lease, subscriptionSkipPlanIneligible)
 			lease.Release()
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 			continue
 		}
 		if observed && snapshot.OverageInUse && !allowClaudeOverage {
+			diagnostics.skip(lease, subscriptionSkipPaidOverage)
 			lease.Release()
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 			continue
 		}
 		if observed && snapshot.ExhaustedAsOf(s.clockNow()) && !allowClaudeOverage && !(poolProvider == subscriptions.ProviderCodex && s.codexExtraCreditsAllowed()) {
+			diagnostics.skip(lease, subscriptionSkipQuotaExhausted)
 			resetAt := linkedSubscriptionResetAt(snapshot, s.clockNow())
 			recordManagedQuotaProof(ctx, lease.AccountID, resetAt)
 			if err := exhaustManagedSubscription(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID, resetAt); err != nil {
@@ -371,6 +382,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 			continue
 		}
+		diagnostics.admitted = true
 		return credentialCtx, lease, true, nil
 	}
 }

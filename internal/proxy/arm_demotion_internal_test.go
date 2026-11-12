@@ -945,12 +945,6 @@ func TestIsCommittedStreamFailure_SSEErrorFrameKeepsCause(t *testing.T) {
 	}
 }
 
-// The completion line's reason field is only populated on a real demotion.
-func TestArmDemotionReason(t *testing.T) {
-	assert.Equal(t, "", armDemotionReason(""))
-	assert.Equal(t, "committed_stream_failure", armDemotionReason(demotedArm))
-}
-
 // arm_demoted names the committed-stream strike when it landed and the
 // rescued-primary strike otherwise; rescued_arm_demoted keeps the primary
 // visible when both landed on one turn.
