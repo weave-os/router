@@ -11,7 +11,7 @@ import (
 
 	"weave-os/router/internal/analytics"
 	"weave-os/router/internal/policyregistry"
-	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
 
@@ -24,7 +24,7 @@ import (
 // registration tests; the handler closures it backs are never invoked.
 type fakeDeployedModelsSource struct{}
 
-func (fakeDeployedModelsSource) DefaultDeployedModels() []cluster.DeployedEntry { return nil }
+func (fakeDeployedModelsSource) DefaultDeployedModels() []router.DeployedEntry { return nil }
 
 type healthCheckerFunc func(context.Context) error
 

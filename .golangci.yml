@@ -7,8 +7,11 @@ linters:
   default: none
   enable:
     - depguard
+    - dupl
     - errorlint
   settings:
+    dupl:
+      threshold: 100
     errorlint:
       comparison: true
       asserts: true
@@ -66,3 +69,12 @@ linters:
               desc: inner-ring packages record through internal/telemetry; cmd/router wires the otel adapter
             - pkg: weave-os/router/internal/observability/apm
               desc: inner-ring packages record through internal/telemetry; cmd/router wires the apm adapter
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - dupl
+
+issues:
+  # Duplicate-code findings apply to new code only; existing clones are tracked for removal.
+  new-from-merge-base: origin/main

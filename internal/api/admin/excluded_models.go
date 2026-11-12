@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/cluster"
 
@@ -17,7 +18,7 @@ import (
 // DeployedModelsSource exposes the routable models the cluster scorer knows
 // about. Implemented by *cluster.Multiversion; tests can pass a fake.
 type DeployedModelsSource interface {
-	DefaultDeployedModels() []cluster.DeployedEntry
+	DefaultDeployedModels() []router.DeployedEntry
 }
 
 // ExclusionOverrideSource reports the deployment-wide ROUTER_EXCLUDED_MODELS
@@ -47,7 +48,7 @@ func deployedModelsDTO(models DeployedModelsSource) []deployedModelDTO {
 
 // entriesToDTO converts deployed entries to sorted DTO form, shared by the
 // cluster source and the HMM roster source so both wire shapes stay identical.
-func entriesToDTO(entries []cluster.DeployedEntry) []deployedModelDTO {
+func entriesToDTO(entries []router.DeployedEntry) []deployedModelDTO {
 	out := make([]deployedModelDTO, 0, len(entries))
 	for _, e := range entries {
 		out = append(out, deployedModelDTO{Model: e.Model, Provider: e.Provider, FastMode: catalog.SupportsFastMode(e.Model)})
