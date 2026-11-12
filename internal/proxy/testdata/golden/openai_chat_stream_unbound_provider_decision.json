@@ -1,0 +1,254 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_chat",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "gpt-5",
+          "model": "claude-haiku-4-5",
+          "provider": "fireworks",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "fireworks",
+          "wire_model": "claude-haiku-4-5",
+          "outbound_body": {
+            "max_tokens": 8192,
+            "messages": [
+              {
+                "content": "Say hi",
+                "role": "user"
+              }
+            ],
+            "model": "claude-haiku-4-5",
+            "stream": true,
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-chat-completions",
+            "PolicyRevision": "3",
+            "Purpose": "openai_chat_completions",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "BindingIndex": -1,
+            "CatalogID": "claude-haiku-4-5",
+            "Provider": "fireworks",
+            "UpstreamID": "claude-haiku-4-5"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "19",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "200000",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "claude-haiku-4-5",
+          "X-Router-Provider": "fireworks"
+        },
+        "events": [
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "✦ **Weave Router** → claude-haiku-4-5 · best pick for this turn\n\n",
+                    "role": "assistant"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-\u003cid\u003e",
+              "model": "claude-haiku-4-5",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "",
+                    "role": "assistant"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-up",
+              "model": "claude-haiku-4-5",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "served"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-up",
+              "model": "claude-haiku-4-5",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {},
+                  "finish_reason": "stop",
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-up",
+              "model": "claude-haiku-4-5",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [],
+              "id": "chatcmpl-up",
+              "model": "claude-haiku-4-5",
+              "object": "chat.completion.chunk",
+              "usage": {
+                "completion_tokens": 7,
+                "prompt_tokens": 12,
+                "total_tokens": 19
+              }
+            }
+          },
+          {
+            "data": "[DONE]"
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_high",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "claude-haiku-4-5",
+            "Provider": "fireworks",
+            "Reason": "golden_route",
+            "Role": "default_high",
+            "Strategy": "cluster",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_high",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "claude-haiku-4-5",
+            "ServedProvider": "fireworks",
+            "Strategy": "cluster"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -47,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 47,
+          "OrganizationID": "golden-org",
+          "RouterModel": "claude-haiku-4-5"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000012,
+          "ActualOutputCostUSD": 0.000035,
+          "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 200000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 19,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "gpt-5",
+            "served_model": "claude-haiku-4-5",
+            "version": 1
+          },
+          "DecisionModel": "claude-haiku-4-5",
+          "DecisionProvider": "fireworks",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "concatenated_stream",
+          "EstimatedInputTokens": 1,
+          "FinalModelFamily": "claude-haiku",
+          "FreshDecisionModel": "claude-haiku-4-5",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "claude-haiku",
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedInputCostUSD": 0.00003,
+          "RequestedModel": "gpt-5",
+          "RequestedOutputCostUSD": 0.00007,
+          "Role": "default_high",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StopReason": "stop",
+          "Strategy": "cluster",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "openai_chat_stream_unbound_provider_decision"
+}

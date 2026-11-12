@@ -182,7 +182,7 @@ Pick by responsibility, then read that package's `CLAUDE.md`:
 |---|---|---|
 | HTTP endpoint (handler + route) | `internal/api/<group>/` | [internal/api/CLAUDE.md](internal/api/CLAUDE.md) |
 | Identity / API-key logic | `internal/auth` (method on `*Service`) | [internal/auth/CLAUDE.md](internal/auth/CLAUDE.md) |
-| Per-action orchestration | `internal/proxy` (method on `*Service`) | [internal/proxy/CLAUDE.md](internal/proxy/CLAUDE.md) |
+| Per-action orchestration | `internal/proxy`, in the owning bounded context (never a new `Service` method or field) | [internal/proxy/CLAUDE.md § Where new behavior goes](internal/proxy/CLAUDE.md#where-new-behavior-goes) |
 | Execution authorization / provider attempts | `internal/router/policy` / `internal/dispatch` | [docs/INFERENCE_BOUNDARY.md](docs/INFERENCE_BOUNDARY.md) |
 | Managed admission / release identity | `internal/server/middleware` / `internal/policyregistry` | [docs/SERVING_CONTROL.md](docs/SERVING_CONTROL.md) |
 | Balance check / inference debit | `internal/billing` (method on `*Service`) | — |
@@ -202,6 +202,8 @@ Pick by responsibility, then read that package's `CLAUDE.md`:
 | Doc under `docs/` | `docs/` | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) |
 
 **Default rule:** put logic in the package that uses it. Only promote to a shared home (`auth`, `proxy`, `translate`, `config`, `observability`, `sse`, `timing`) when 3+ packages need the same logic.
+
+Agent skills in `.agents/skills/` (also `.claude/skills/`) walk through placement and refactoring: `where-does-this-go` for any new behavior, `extract-to-context` for structural moves, `fix-lint-gate-failure` when a CI gate fails, and `add-context-port`, `add-model-or-quirk`, `add-flag-or-experiment`, `golden-traces` for those tasks. List them with `ls .agents/skills`.
 
 ## Adding a new helper
 
@@ -273,6 +275,10 @@ A helper that logs on the request path takes `ctx` and calls `observability.From
 - **Never introduce DI container, reflection-based wiring, or service locator.** Composition = plain Go function calls in `cmd/router/main.go`.
 - **Never log secrets, raw API keys, or full request bodies.** First 8 + last 4 chars on `auth.APIKey` are safe form. BYOK secrets at rest go through `auth.Encryptor` (Tink AES-256-GCM); plaintext only in memory for request lifetime.
 - **Never edit generated files** under `internal/sqlc/`. Regenerate with `make generate`. SQLC's "DO NOT EDIT" header is load-bearing.
+- **Never grow a function or file past the complexity limits.** A function over cognitive complexity 25, 100 lines, 7 params or nesting depth 5 may not grow, and no new one may appear; the same holds for non-test files over 500 lines. Split along a concept boundary. Enforced by the architecture ratchet (`make arch-ratchet`, PR-only CI).
+- **Never add `//nolint`, and never raise a ratchet baseline or add an exception to pass a gate.** Reviewed exceptions in `internal/architecture/ratchet_exceptions.json` need a CODEOWNER and a reason.
+- **Never add fields or methods to `proxy.Service`**, and never add context-key types in `internal/proxy`. New behavior goes in its bounded context as a free function or small collaborator with explicit dependencies; see [internal/proxy/CLAUDE.md](internal/proxy/CLAUDE.md#where-new-behavior-goes).
+- **Never match model or provider names by string (`strings.HasPrefix(model, …)`, `strings.Contains`) outside `internal/router/catalog`.** Add a typed catalog field and read it.
 
 ## Deployment modes
 

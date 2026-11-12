@@ -1,0 +1,147 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "claude-haiku-4-5",
+          "model": "claude-opus-4-7",
+          "provider": "anthropic",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-opus-4-7",
+          "outbound_body": {
+            "max_tokens": 64,
+            "messages": [
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "text": "Rate this",
+                    "type": "text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-opus-4-7"
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-opus-4-7",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-opus-4-7"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "23",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1000000",
+          "X-Router-Cost-Input-Usd": "0.00006",
+          "X-Router-Cost-Output-Usd": "0.000175",
+          "X-Router-Cost-Usd": "0.000235",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "claude-opus-4-7",
+          "X-Router-Provider": "anthropic"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "0",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "claude-haiku-4-5",
+          "role": "assistant",
+          "stop_reason": "end_turn",
+          "type": "message",
+          "usage": {
+            "input_tokens": 12,
+            "output_tokens": 7
+          }
+        }
+      },
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -235,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 235,
+          "OrganizationID": "golden-org",
+          "RouterModel": "claude-opus-4-7"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.00006,
+          "ActualOutputCostUSD": 0.000175,
+          "CandidateModels": [
+            "claude-opus-4-7",
+            "deepseek/deepseek-v4-pro"
+          ],
+          "CaptureMode": "off",
+          "DecisionModel": "claude-opus-4-7",
+          "DecisionProvider": "anthropic",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "concatenated_stream",
+          "EstimatedInputTokens": 2,
+          "FinalModelFamily": "claude-opus",
+          "FreshDecisionModel": "claude-opus-4-7",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "claude-opus",
+          "LatestToolCallCounts": {},
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "RequestedInputCostUSD": 0.000012,
+          "RequestedModel": "claude-haiku-4-5",
+          "RequestedOutputCostUSD": 0.000035,
+          "Role": "default_low",
+          "SelectionTrace": {
+            "served_group": "golden-group"
+          },
+          "SpanType": "router.upstream",
+          "StopReason": "end_turn",
+          "Strategy": "cluster",
+          "TurnType": "classifier",
+          "UpstreamFinishReason": "end_turn",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "anthropic_messages_nonstream_classifier_subscription_exhausted_paid_fallback"
+}
