@@ -21,8 +21,6 @@ const clusterPackagePath = modulePath + "/internal/router/cluster"
 var clusterImportRoots = []string{"cmd/router/", "cmd/routing-report/", "internal/router/cluster/"}
 
 var clusterImportAllowlist = []string{
-	"internal/api/admin/excluded_models.go",
-	"internal/api/admin/routing_distribution.go",
 	"internal/api/anthropic/messages_test.go",
 	"internal/proxy/compaction_strategy_internal_test.go",
 	"internal/proxy/dispatch_error_test.go",
