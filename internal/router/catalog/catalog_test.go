@@ -285,6 +285,34 @@ func TestGemini4ArgonCatalogRow(t *testing.T) {
 	assert.NotContains(t, RoutingTargetSet(available), model.ID)
 }
 
+func TestMythos52ExplicitOnlyAndPricing(t *testing.T) {
+	const id = "claude-mythos-5-2"
+	model, ok := ByID(id)
+	require.True(t, ok)
+	assert.Equal(t, SourceClosedSource, model.Source)
+	assert.Equal(t, 1_000_000, model.ContextWindow)
+	assert.Equal(t, 128_000, model.MaxOutputTokens)
+	assert.True(t, model.ForceModelOnly)
+	require.Len(t, model.Providers, 1)
+	assert.Equal(t, providers.ProviderAnthropic, model.Providers[0].Provider)
+	available := map[string]struct{}{providers.ProviderAnthropic: {}}
+	assert.NotContains(t, RoutingTargetSet(available), id)
+	assert.NotContains(t, HMMRoutingTargetSet(available), id)
+	assert.Equal(t, id, LatestInFamily(id, func(string) bool { return true }))
+
+	price, ok := PriceFor(providers.ProviderAnthropic, id)
+	require.True(t, ok)
+	assert.InDelta(t, 8, EffectiveInputCost(1_000_000, 0, 0, price, providers.ProviderAnthropic, UsageModifiers{}), 1e-9)
+	assert.InDelta(t, 10, EffectiveInputCost(0, 1_000_000, 0, price, providers.ProviderAnthropic, UsageModifiers{}), 1e-9)
+	assert.InDelta(t, 16, EffectiveInputCost(0, 1_000_000, 0, price, providers.ProviderAnthropic, UsageModifiers{CacheCreation1h: 1_000_000}), 1e-9)
+	assert.InDelta(t, 0.20, EffectiveInputCost(0, 0, 1_000_000, price, providers.ProviderAnthropic, UsageModifiers{}), 1e-9)
+	assert.InDelta(t, 40, EffectiveOutputCost(0, 1_000_000, price, UsageModifiers{}), 1e-9)
+	fast, ok := FastPriceFor(providers.ProviderAnthropic, id)
+	require.True(t, ok)
+	assert.InDelta(t, 16, EffectiveInputCost(1_000_000, 0, 0, fast, providers.ProviderAnthropic, UsageModifiers{}), 1e-9)
+	assert.InDelta(t, 80, EffectiveOutputCost(0, 1_000_000, fast, UsageModifiers{}), 1e-9)
+}
+
 func TestRoutingTargetSet_FiltersByTierAndRegisteredProviders(t *testing.T) {
 	targets := RoutingTargetSet(map[string]struct{}{providers.ProviderOpenAI: {}})
 
