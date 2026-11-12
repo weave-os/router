@@ -28,7 +28,7 @@ func TestModelPreparationMountedOnlyWithManagedAdmissionAndRequiresAuth(t *testi
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			engine := gin.New()
-			server.RegisterWithFeatures(engine, nil, nil, nil, nil, tc.mode, nil, nil, nil, nil, server.Features{ServingAdmission: tc.admission})
+			server.RegisterWithFeatures(engine, nil, nil, nil, tc.mode, nil, nil, nil, nil, server.Features{ServingAdmission: tc.admission})
 			routes := routeSet(engine)
 			for _, route := range []string{"POST /v1/router/models/:model/prepare", "GET /v1/router/models/:model/prepare/:operation"} {
 				_, mounted := routes[route]

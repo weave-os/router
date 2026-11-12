@@ -15,11 +15,25 @@ Routing/dispatch service. Per-action orchestrator that composes scorer, planner,
 
 Plus the action loop, handover adapter, cache writer, and session-key derivation in sibling files.
 
-## Adding a method to `*proxy.Service`
+## Where new behavior goes
 
-1. **Define method on `*proxy.Service`.** No I/O directly here — push into a provider adapter or repo. Inner-ring imports (`router`, `providers`, `translate`, `telemetry`, `observability`, `internal/router/*`, `internal/proxy/usage`) + small utility libs are fine.
-2. **If you need new repo methods**, surface them as an interface in the inner-ring package, implement in `internal/postgres/`. Example: `sessionpin.Store` in [`../router/sessionpin/store.go`](../router/sessionpin/store.go), implemented by `postgres.SessionPinRepo`.
-3. **Update `service_test.go` fakes** to satisfy the expanded interface. Real assertions on return values, not "mock called with X".
+`*proxy.Service` is being split into five bounded contexts. Pick the context by what the change does, then read the files it owns today (`rg -l '<concept>' internal/proxy --type go`):
+
+| If the change… | Context | Owns today |
+|---|---|---|
+| changes wire format or streaming | Protocol & Ingress (pure format conversion stays in [`translate`](../translate/CLAUDE.md)) | the four `Proxy*` entrypoints, `gemini.go`, `responses_*.go`, `stream_*.go` |
+| touches keys, BYOK, OAuth or subscriptions | Credential Brokerage | `credentials.go`, `credential_key_parts.go`, `managed_subscriptions.go`, `subscription_*.go` |
+| chooses or filters models | Routing Policy (inference purposes register in `internal/router/policy`) | `turnloop.go`, `escalation*.go`, `classifier_*.go`, `force_model*.go`, `*_model_selection.go` |
+| does retry, fallback or provider calls | Inference Execution (port: `inference.Executor`; start of the implementation: `dispatch.Executor`) | `dispatch_plan.go`, `fallback.go`, `*_failover.go`, `early_stop_redo.go`, `context_overflow.go`, `*overload*.go`, `rate_limit_cooldown.go`, `attempt_trace.go`, `arm_demotion.go` |
+| handles commands, compaction, handover or loops | Conversation Lifecycle | `beta.go`, `command_*.go`, `*compaction.go`, `handover.go`, `loop_detection.go`, `no_progress.go`, `spiral_detection.go`, `struggle_detection.go`, `text_repetition*.go` |
+| is a model quirk | catalog data in [`../router/catalog`](../router/catalog/CLAUDE.md) | typed `catalog.Model` / `catalog.ProviderBinding` fields |
+| is new I/O | a port (interface) in the owning context, an adapter package, wiring in `cmd/router` | e.g. `sessionpin.Store`, implemented by `postgres.SessionPinRepo` |
+
+Accounting, shadows/experiments and the semantic cache stay in the orchestrator for now.
+
+**Until a context package exists, new logic goes in a new focused file in its context's group above, as a free function or a small collaborator struct whose dependencies are explicit constructor or function parameters.** Never add a `Service` method or field for it: `Service` methods have no visible dependencies and every one can reach all of `Service`'s state, which is how it reached its current size. Thread request-scoped values as parameters, not new context keys. No I/O in the logic itself; new repo methods are an interface in the inner ring, implemented in `internal/postgres/`. Tests drive the function or collaborator directly with in-memory fakes and real assertions.
+
+CI enforces this. The architecture ratchet (`make arch-ratchet`, a PR-only step) fails a PR when `proxy.Service` gains fields or methods, `internal/proxy` gains context-key types, a function over cognitive complexity 25 / 100 lines / 7 params / nesting depth 5 grows or a new one appears, a non-test file over 500 lines grows or a new one appears, model/provider-name string matching outside `internal/router/catalog` grows, or the `//nolint` count grows. Reviewed exceptions live in `internal/architecture/ratchet_exceptions.json`. golangci-lint's `dupl` gate rejects duplicated new code, and `make inference-boundary` rejects new provider calls outside the inference boundary. Fix a failure by splitting along a concept boundary, never by adding `//nolint` or an exception.
 
 ## Per-action flow (cache-aware action routing)
 
@@ -273,10 +287,12 @@ has catalog bindings to walk), and a model stays routable unless **every**
 gateway key aliasing it has refused, since a second endpoint may serve it. The
 alias itself is still the customer-side fix — this only caps the bill at one 404.
 
-**The hard-pin tier resolves against the same bindings.** Compaction and explicitly
-deployment-pinned utility turns bypass the scorer, so `hardPinResolver` gets its
-own `HardPinRequest` carrying `CustomBindings` + `GatewayProviders` and selects
-via `cluster.FastestModelForRequest`. Without them a gateway-only installation
+**The hard-pin tier resolves against the same bindings.** Explore sub-agent hard
+pins bypass the scorer, so `hardPinResolver` gets its own `HardPinRequest`
+carrying `CustomBindings` + `GatewayProviders` and selects via the catalog-backed
+`policy.UtilityTarget` (`CatalogUtilityHardPin`). Title-gen and probe hard-pin only
+under the `ROUTER_HARD_PIN_MODEL` override, which leaves the resolver unwired;
+compaction never hard-pins (`routeCompaction` keeps the session pin or scores). Without them a gateway-only installation
 resolved nothing and every such turn 503'd `ErrClusterUnavailable` ("cluster
 scorer failed") while its scored turns routed fine — prod 2026-08-26. An empty
 result under a gateway now reports `ErrGatewayServesNoDeployedModel` for the

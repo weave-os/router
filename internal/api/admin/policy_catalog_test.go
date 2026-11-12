@@ -26,7 +26,7 @@ func (policyCatalogRouter) Route(context.Context, router.Request) (router.Decisi
 func TestPolicyCatalogHandlerReportsDefaultAndCapabilities(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := proxy.NewService(
-		policyCatalogRouter{}, nil, nil, false, nil, nil, false, "", "", nil,
+		nil, nil, nil, false, nil, nil, false, "", "", nil,
 	).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: router.StrategyHMM,
 		Router:   policyCatalogRouter{},
@@ -64,13 +64,11 @@ func TestPolicyCatalogHandlerReportsDefaultAndCapabilities(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &payload))
 	assert.Equal(t, policy.SchemaVersionV1, payload.SchemaVersion)
 	assert.Equal(t, "hmm", payload.DefaultStrategy)
-	require.Len(t, payload.Strategies, 3)
-	assert.Equal(t, "cluster", payload.Strategies[0].Strategy)
-	assert.True(t, payload.Strategies[0].Capabilities.SupportsPreview)
-	assert.True(t, payload.Strategies[0].Capabilities.SupportsShadow)
-	assert.Equal(t, "hmm", payload.Strategies[1].Strategy)
-	assert.True(t, payload.Strategies[1].Available)
-	assert.Equal(t, string(router.StrategyHMMBeta), payload.Strategies[2].Strategy,
+	require.Len(t, payload.Strategies, 2, "the retired cluster strategy must not be listed")
+	assert.Equal(t, "hmm", payload.Strategies[0].Strategy)
+	assert.True(t, payload.Strategies[0].Available)
+	assert.True(t, payload.Strategies[0].Capabilities.HonorsPreferredModels)
+	assert.Equal(t, string(router.StrategyHMMBeta), payload.Strategies[1].Strategy,
 		"beta is listed so the control plane can pin an installation to the beta lane")
-	assert.True(t, payload.Strategies[2].Available)
+	assert.True(t, payload.Strategies[1].Available)
 }

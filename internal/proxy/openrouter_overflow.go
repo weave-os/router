@@ -7,7 +7,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 )
 
 // openRouterOverflowEnabled reports whether the installation serves exhausted
@@ -111,11 +110,11 @@ func (s *Service) withOpenRouterOverflowTarget(ctx context.Context, in failoverI
 	target := openRouterOverflowTarget(ctx, in.initialDecision)
 	bindings := s.openRouterOverflowBindings(ctx, target)
 	if len(bindings) == 0 {
-		return ctx, in, cluster.ErrAllowlistEmptiesPool
+		return ctx, in, router.ErrAllowlistEmptiesPool
 	}
 	if in.initialDecision.Provider != target.Provider {
 		if in.buildAlternative == nil {
-			return ctx, in, cluster.ErrAllowlistEmptiesPool
+			return ctx, in, router.ErrAllowlistEmptiesPool
 		}
 		attempt, err := in.buildAlternative(target)
 		if err != nil {

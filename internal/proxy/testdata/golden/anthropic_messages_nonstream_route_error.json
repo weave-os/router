@@ -1,0 +1,20 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "claude-sonnet-4-5",
+          "error": "no eligible model"
+        }
+      ],
+      "dispatch_attempts": [],
+      "response": {},
+      "dispatch_error": {
+        "outcome": "error: no eligible model"
+      }
+    }
+  ],
+  "scenario": "anthropic_messages_nonstream_route_error"
+}

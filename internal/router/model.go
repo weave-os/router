@@ -183,9 +183,10 @@ var openAICompatBase = NewSpec()
 var registry = map[string]ModelSpec{
 	// claude-fable-5 has adaptive thinking always on (disabled is rejected);
 	// 1M context is native, so CapExtendedContext's beta header is a no-op.
-	"claude-fable-5":   anthropicAdaptiveFallback,
-	"claude-fable-5-1": anthropicFable51,
-	"claude-fable-5-2": anthropicFable51,
+	"claude-fable-5":    anthropicAdaptiveFallback,
+	"claude-fable-5-1":  anthropicFable51,
+	"claude-fable-5-2":  anthropicFable51,
+	"claude-mythos-5-2": anthropicFable51,
 	"claude-opus-5-5": NewSpecWithReasoning(
 		ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true},
 		CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback,

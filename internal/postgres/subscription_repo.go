@@ -344,12 +344,6 @@ func (r *subscriptionAccountRepo) PersistSubscriptionTokens(ctx context.Context,
 	return nil
 }
 
-func toAuthSubscriptionAccount(row sqlc.RouterModelRouterSubscriptionAccount) *auth.SubscriptionAccount {
-	account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
-	account.CredentialRejections = int(row.CredentialRejectionCount)
-	return account
-}
-
 func toAuthSubscriptionAccountListRow(row sqlc.ListModelRouterSubscriptionAccountsRow) *auth.SubscriptionAccount {
 	account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
 	account.CredentialRejections = int(row.CredentialRejectionCount)

@@ -38,7 +38,7 @@ class RouterProbe:
     def render(self) -> str:
         lines = [
             f"router commit: {self.version.get('display') or self.version.get('commit')}",
-            f"cluster version: {self.version.get('cluster_version')}",
+            f"stable policy release: {self.version.get('policy_release_id') or 'unavailable'}",
             f"stable HMM roster sha256: {self.roster_sha256 or 'unavailable'}",
             f"/beta ack: {self.beta_ack.strip() or '(empty)'}",
             f"beta lane enabled for this key: {'yes' if self.beta_enabled else 'NO'}",

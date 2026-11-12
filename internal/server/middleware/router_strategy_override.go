@@ -12,11 +12,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// RouterStrategyOverrideHeader selects the routing strategy for a request.
-// Accepted values are "cluster" (the default scorer), "rl" (the trained
-// RL/DPO policy router), and "bandit" (Thompson sampling over a frozen
-// posterior). Absent or unrecognized values fall through to the deployment
-// default.
+// RouterStrategyOverrideHeader selects a registered routing strategy for a
+// request. Absent, unregistered or retired ("cluster") values fall through to
+// the deployment default.
 const RouterStrategyOverrideHeader = "x-weave-router-strategy"
 
 // StrategyAvailability reports whether a registered strategy has a live router
@@ -30,9 +28,10 @@ type StrategyAvailability func(router.Strategy) bool
 // hmm_beta may be pinned per installation (or requested by an authorized header)
 // but never becomes the deployment default, so a broken beta lane cannot take
 // every installation with it. Beta is also gated on live availability: the lane
-// is registered even when its manager never loaded a snapshot, and a pin to an
-// empty lane must fall back to cluster rather than 503 every turn. A nil
-// liveAvailability leaves beta unselectable.
+// is registered even when its manager never loaded a snapshot. A persisted
+// strategy that is unregistered or unavailable fails closed with 503
+// routing_strategy_unavailable; a persisted "cluster" follows the default.
+// A nil liveAvailability leaves beta unselectable.
 func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability StrategyAvailability, available ...router.Strategy) gin.HandlerFunc {
 	if len(available) == 0 {
 		available = []router.Strategy{
@@ -42,13 +41,12 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 			router.StrategyBandit,
 		}
 	}
-	allowed := make(map[router.Strategy]struct{}, len(available)+1)
-	allowed[router.StrategyCluster] = struct{}{}
+	allowed := make(map[router.Strategy]struct{}, len(available))
 	for _, strategy := range available {
 		allowed[strategy] = struct{}{}
 	}
-	// Managed workers keep the configured default unclamped: an unregistered
-	// default must fail closed below rather than score traffic on cluster.
+	// Managed workers use the default exactly as passed; other installs use it
+	// normalized against the registered strategies.
 	managedDefaultStrategy := defaultStrategy
 	defaultStrategy = NormalizeRouterStrategyDefault(defaultStrategy, available...)
 	selectable := func(strategy router.Strategy) bool {
@@ -68,6 +66,9 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 		}
 
 		strategy := router.Strategy(strings.ToLower(strings.TrimSpace(string(installation.RoutingStrategy))))
+		if strategy == router.StrategyCluster {
+			strategy = ""
+		}
 		identity, managedServing := requestcontext.ServingIdentityFromContext(c.Request.Context())
 		if managedServing && identity.Plan != "" {
 			profile, ok := entitlement.ServingProfileFor(entitlement.Plan(identity.Plan))
@@ -94,22 +95,15 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 			strategy = defaultStrategy
 		}
 		if !selectable(strategy) {
-			if managedServing {
-				observability.FromGin(c).Error(
-					"Persisted router strategy is not registered or unavailable on this managed worker",
-					"installation_id", installation.ID,
-					"persisted_strategy", installation.RoutingStrategy,
-					"effective_strategy", strategy,
-				)
-				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "routing_strategy_unavailable"})
-				return
-			}
-			observability.FromGin(c).Warn(
-				"Persisted router strategy is not registered or unavailable; using cluster",
+			observability.FromGin(c).Error(
+				"Persisted or default router strategy is not registered or unavailable",
 				"installation_id", installation.ID,
-				"persisted_strategy", strategy,
+				"persisted_strategy", installation.RoutingStrategy,
+				"effective_strategy", strategy,
+				"managed_serving", managedServing,
 			)
-			strategy = router.StrategyCluster
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "routing_strategy_unavailable"})
+			return
 		}
 
 		raw := strings.ToLower(strings.TrimSpace(c.GetHeader(RouterStrategyOverrideHeader)))
@@ -134,12 +128,12 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 	}
 }
 
-// NormalizeRouterStrategyDefault clamps an unregistered deployment default to
-// cluster. hmm_beta is never a valid default: it is an opt-in lane pinned per
-// installation or per session, not a fleet-wide policy.
+// NormalizeRouterStrategyDefault returns "" for a deployment default that is
+// not registered, so installations following it fail closed. hmm_beta is never
+// a valid default: it is an opt-in lane pinned per installation or per
+// session, not a fleet-wide policy.
 func NormalizeRouterStrategyDefault(defaultStrategy router.Strategy, available ...router.Strategy) router.Strategy {
-	allowed := make(map[router.Strategy]struct{}, len(available)+1)
-	allowed[router.StrategyCluster] = struct{}{}
+	allowed := make(map[router.Strategy]struct{}, len(available))
 	for _, strategy := range available {
 		if router.IsBetaStrategy(strategy) || strategy == router.StrategyLLMClassifier {
 			continue
@@ -147,7 +141,7 @@ func NormalizeRouterStrategyDefault(defaultStrategy router.Strategy, available .
 		allowed[strategy] = struct{}{}
 	}
 	if !strategyAllowed(defaultStrategy, allowed) {
-		return router.StrategyCluster
+		return ""
 	}
 	return defaultStrategy
 }

@@ -13,6 +13,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -102,7 +103,12 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
-	if maxOutputTokens := modelMaxOutputTokens[router.StripDateSuffix(opts.TargetModel)]; maxOutputTokens > 0 {
+	modelID := router.StripDateSuffix(opts.TargetModel)
+	maxOutputTokens := modelMaxOutputTokens[modelID]
+	if model, ok := catalog.ByID(modelID); ok && model.MaxOutputTokens > 0 {
+		maxOutputTokens = model.MaxOutputTokens
+	}
+	if maxOutputTokens > 0 {
 		body = clampFieldBytes(body, "max_tokens", int64(maxOutputTokens))
 	}
 	return providers.PreparedRequest{Body: body, Headers: deriveAnthropicHeaders(in, opts, body), ResponseToolNames: toolAliases}, nil
@@ -406,16 +412,9 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 	}
 }
 
-// cacheControlMember is the router-generated Anthropic prompt-cache breakpoint.
-const cacheControlMember = `"cache_control":{"type":"ephemeral"}`
-
-// appendCacheControl inserts the cache_control marker into a raw JSON content
+// appendCacheControlRaw inserts a cache_control policy into a raw JSON content
 // block we constructed (final byte is the closing brace); guard fails open on
 // anything unexpected.
-func appendCacheControl(block string) string {
-	return appendCacheControlRaw(block, `{"type":"ephemeral"}`)
-}
-
 func appendCacheControlRaw(block, policy string) string {
 	if len(block) < 2 || block[len(block)-1] != '}' || !strings.Contains(block, ":") {
 		return block
@@ -426,13 +425,9 @@ func appendCacheControlRaw(block, policy string) string {
 	return block[:len(block)-1] + `,"cache_control":` + policy + "}"
 }
 
-// cacheControlOnLastBlock adds a cache_control breakpoint to a message's final
-// content block, promoting string content to a text block to carry it
-// (Anthropic treats "x" and [{"type":"text","text":"x"}] identically).
-func cacheControlOnLastBlock(msg string) string {
-	return cacheControlOnLastBlockWithPolicy(msg, `{"type":"ephemeral"}`)
-}
-
+// cacheControlOnLastBlockWithPolicy adds a cache_control breakpoint to a
+// message's final content block, promoting string content to a text block to
+// carry it (Anthropic treats "x" and [{"type":"text","text":"x"}] identically).
 func cacheControlOnLastBlockWithPolicy(msg, policy string) string {
 	if policy == "" {
 		return msg

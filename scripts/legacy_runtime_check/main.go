@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
@@ -28,6 +29,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/server"
+	"weave-os/router/smoke/hmmstub"
 )
 
 func main() {
@@ -70,19 +72,37 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Workers boot on the hmm_embedding default, so serve a stub classifier
+	// and its baked release instead of real classifier infrastructure.
+	releaseDir, err := os.MkdirTemp("", "router-legacy-policy-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(releaseDir)
+	if err := hmmstub.WriteRelease(releaseDir); err != nil {
+		return err
+	}
+	classifier := httptest.NewServer(hmmstub.Handler())
+	defer classifier.Close()
+	policy := policyFixture{releaseDir: releaseDir, classifierURL: classifier.URL}
 	pubsub := grpc.NewServer()
 	pubsubpb.RegisterSubscriberServer(pubsub, pubsubFixture{})
 	defer pubsub.Stop()
 	go func() { _ = pubsub.Serve(listener) }()
 	for _, mode := range []server.DeploymentMode{server.DeploymentModeSelfHosted, server.DeploymentModeManaged} {
-		if err := checkWorker(ctx, binary, dsn, listener.Addr().String(), token, mode); err != nil {
+		if err := checkWorker(ctx, binary, dsn, listener.Addr().String(), token, policy, mode); err != nil {
 			return fmt.Errorf("%s worker: %w", mode, err)
 		}
 	}
 	return nil
 }
 
-func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, mode server.DeploymentMode) error {
+type policyFixture struct {
+	releaseDir    string
+	classifierURL string
+}
+
+func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, policy policyFixture, mode server.DeploymentMode) error {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
@@ -95,7 +115,8 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	}
 	defer logFile.Close()
 	command := exec.CommandContext(ctx, binary)
-	// Do not inherit developer provider keys, cloud credentials, sidecars, or release configuration.
+	// Do not inherit developer provider keys, cloud credentials, sidecars, or release configuration;
+	// the only policy release and classifier are the stub fixture passed below.
 	command.Env = []string{
 		"PATH=" + os.Getenv("PATH"),
 		"DATABASE_URL=" + dsn,
@@ -110,6 +131,9 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 		"OPENAI_API_KEY=fixture-never-sent-to-provider",
 		"OPENAI_BASE_URL=http://127.0.0.1:1",
 		"ROUTER_SEMANTIC_CACHE_ENABLED=false",
+		"ROUTER_POLICY_RELEASE_DIR=" + policy.releaseDir,
+		"ROUTER_HMM_SIDECAR_URL=" + policy.classifierURL,
+		"ROUTER_HMM_SIDECAR_AUTH=none",
 		"GIN_MODE=release",
 	}
 	if mode == server.DeploymentModeSelfHosted {

@@ -104,11 +104,13 @@ jobs:
             server
             mitmproxy
             seed
+            hmm-stub
           load: true
           set: |
             server.tags=router-server
             mitmproxy.tags=router-mitmproxy
             seed.tags=router-seed
+            hmm-stub.tags=router-hmm-stub
 
       - name: Record Smoke image build time
         run: echo "SMOKE_BUILD_SECONDS=$(( $(date +%s) - SMOKE_BUILD_STARTED_AT ))" >> "$GITHUB_ENV"
@@ -191,11 +193,13 @@ jobs:
             server
             mitmproxy
             seed
+            hmm-stub
           load: true
           set: |
             server.tags=router-server
             mitmproxy.tags=router-mitmproxy
             seed.tags=router-seed
+            hmm-stub.tags=router-hmm-stub
 
       - name: Record Smoke image build time
         run: echo "SMOKE_BUILD_SECONDS=$(( $(date +%s) - SMOKE_BUILD_STARTED_AT ))" >> "$GITHUB_ENV"

@@ -195,6 +195,7 @@ const (
 	SubscriptionCredentialEventLeaseAttempted     SubscriptionCredentialEventKind = "account_lease_attempted"
 	SubscriptionCredentialEventCandidateEvaluated SubscriptionCredentialEventKind = "candidate_evaluated"
 	SubscriptionCredentialEventAttempted          SubscriptionCredentialEventKind = "account_attempted"
+	SubscriptionCredentialEventAdmissionEvaluated SubscriptionCredentialEventKind = "account_admission_evaluated"
 )
 
 // SubscriptionCredentialRejectionInput describes one provider credential

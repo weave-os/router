@@ -54,7 +54,6 @@ import (
 	routerpubsub "weave-os/router/internal/pubsub"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandit"
-	"weave-os/router/internal/router/banditexplore"
 	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
@@ -206,9 +205,8 @@ func main() {
 	}
 
 	providerMap := make(map[string]providers.Client)
-	// envKeyedProviders = providers with a real deployment-level API key.
-	// Feeds resolveHardPinModel so compaction only lands where deployment
-	// auth actually exists — a BYOK/passthrough-only provider would 401.
+	// envKeyedProviders = providers with a real deployment-level API key; a
+	// BYOK/passthrough-only provider would 401 without request credentials.
 	envKeyedProviders := make(map[string]struct{})
 	// True when Anthropic has no deployment key but is reachable via client
 	// auth passthrough (Claude Code's OAuth/x-api-key flow). Must stay out of
@@ -710,12 +708,10 @@ func main() {
 
 	hardPinExplore := config.GetOr("ROUTER_HARD_PIN_EXPLORE", "true") == "true"
 	hardPinOverrideConfigured := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_MODEL", "")) != ""
-	// Hard-pin compaction runs on every installation, so it must land on a
-	// provider with real deployment auth (env-keyed, excluding BYOK/passthrough)
-	// or it 401s. In managed/byokOnly mode no provider has deployment auth, so
-	// the boot-time pin here is just a fallback — per-request resolution below
-	// does the real work.
-	hardPinProvider, hardPinModel, err := resolveHardPinModel(envKeyedProviders, logger)
+	// The boot-time pin seeds the title-gen, classifier, probe and sub-agent
+	// deployment targets; hard-pinned turns serve it directly only when the
+	// per-request resolver below is not wired (ROUTER_HARD_PIN_MODEL override).
+	hardPinProvider, hardPinModel, err := resolveHardPinModel()
 	if err != nil {
 		logger.Error("Invalid hard-pin model configuration; refusing to boot", "err", err)
 		panic(err)
@@ -725,32 +721,16 @@ func main() {
 	}
 	logger.Info("Hard-pin model resolved", "provider", hardPinProvider, "model", hardPinModel, "byok_only", byokOnly)
 
-	// Per-request hard-pin resolver: closes over the default cluster bundle so
-	// the proxy can resolve per-request against the request's enabled-providers
-	// and the installation's excluded_models (the hard-pin tier bypasses the
-	// scorer, the only component that otherwise applies excluded_models).
-	// nil if the bundle fails to load, falling back to boot-time hardPin{Provider,Model}.
-	// Not wired when ROUTER_HARD_PIN_MODEL is set — an operator override is
-	// absolute and must never be silently rewritten by excluded_models.
+	// Per-request hard-pin resolver: picks the catalog utility target for the
+	// request's enabled providers, excluded_models and bindings (the hard-pin
+	// tier bypasses the scorer, the only component that otherwise applies
+	// excluded_models). Not wired when ROUTER_HARD_PIN_MODEL is set — an
+	// operator override is absolute and must never be silently rewritten by
+	// excluded_models.
 	var hardPinResolver proxy.HardPinResolver
 	if !hardPinOverrideConfigured {
-		reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
-		if version, vErr := cluster.ResolveVersion(reqVersion); vErr == nil {
-			if bundle, bErr := cluster.LoadBundle(version); bErr == nil {
-				meta, registry := bundle.Metadata, bundle.Registry
-				hardPinResolver = func(req proxy.HardPinRequest) (string, string, bool) {
-					return cluster.FastestModelForRequest(meta, registry, req.EnabledProviders, req.ExcludedModels, nil, cluster.RequestBindings{
-						Custom:   req.CustomBindings,
-						Gateways: req.GatewayProviders,
-					})
-				}
-				logger.Info("Hard-pin resolver wired (per-request fastest model from cluster bundle, applies excluded_models)", "version", version, "byok_only", byokOnly)
-			} else {
-				logger.Warn("Hard-pin resolver disabled: cluster bundle failed to load; hard-pin will fall back to boot-time defaults and cannot apply excluded_models", "err", bErr, "version", version)
-			}
-		} else {
-			logger.Warn("Hard-pin resolver disabled: could not resolve cluster version; hard-pin will fall back to boot-time defaults and cannot apply excluded_models", "err", vErr)
-		}
+		hardPinResolver = proxy.CatalogUtilityHardPin
+		logger.Info("Hard-pin resolver wired (per-request catalog utility target, applies excluded_models)", "default_model", policy.UtilityHardPinDefaultModel, "byok_only", byokOnly)
 	} else {
 		logger.Info("Hard-pin resolver not wired: ROUTER_HARD_PIN_MODEL operator override is set and absolute by design", "model", hardPinModel)
 	}
@@ -937,11 +917,10 @@ func main() {
 		subAgentPolicyProvider = hardPinProvider
 		subAgentPolicyModel = hardPinModel
 	}
-	// The client's own compaction turn is served by proxy.compactionHardPin on
-	// Anthropic unless the operator pinned every utility turn explicitly.
-	compactionHardPin := !hardPinOverrideConfigured
+	// Pi handoff summaries are authorized under the client-compaction purpose:
+	// on Anthropic unless the operator pinned every utility turn explicitly.
 	clientCompactionProvider, clientCompactionModel := providers.ProviderAnthropic, compactionModel
-	if !compactionHardPin {
+	if hardPinOverrideConfigured {
 		clientCompactionProvider, clientCompactionModel = hardPinProvider, hardPinModel
 	}
 	deploymentTargets := []policy.PurposeTargetOverride{
@@ -1020,10 +999,6 @@ func main() {
 		logger.Info("Handover summarizer disabled (provider not registered); switch turns will preserve full history instead", "requested_provider", handoverProviderName)
 	}
 
-	// OFF by default: wraps only the proxy's routing entrypoint, so rtr stays
-	// the *cluster.Multiversion the admin cast and semantic cache reference.
-	routeEntry := buildExploringRouter(rtr, logger)
-
 	// Off unless WV_CAPTURE_CONTENT is set; managed deploys set "full". Redactor
 	// is nil (no-op) here — managed wires one.
 	captureMode := proxy.ParseCaptureMode(config.GetOr("WV_CAPTURE_CONTENT", ""))
@@ -1078,6 +1053,7 @@ func main() {
 	var policyStatus admin.PolicyStatusSource
 	var hmmRosterSources map[router.Strategy]policy.RosterSource
 	var hmmRosterModels admin.HMMRosterSource
+	var routingDistribution admin.DistributionRosterSource
 	var hmmBetaCapabilities policy.Capabilities
 	var servingAdmission *middleware.ServingAdmissionConfig
 	testPlansEnabled := strings.EqualFold(config.GetOr("ROUTER_TEST_PLANS_ENABLED", "false"), "true")
@@ -1203,6 +1179,7 @@ func main() {
 			router.StrategyHMMEmbedding: stableManager,
 		}
 		hmmRosterModels = newHMMRosterSource(stableManager, hmmTimeout)
+		routingDistribution = stableManager
 		escalationObserver = stableDynamicRouter
 
 		var betaManager *policyregistry.Manager
@@ -1392,7 +1369,7 @@ func main() {
 	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
-	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+	proxySvc := proxy.NewService(nil, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
 		WithTranslationMetrics(otel.NewTranslationMetrics()).
 		WithClaudeSubscriptionPlanReader(anthropicClient).
 		WithExternalKeyUsageRecorder(authSvc).
@@ -1491,8 +1468,6 @@ func main() {
 		WithSummarizer(summarizer).
 		WithCompactionHandoverSummarizer(compactionHandoverSz).
 		WithWebSearchExecutor(cortexWebSearch(logger)).
-		WithCompactionModel(compactionModel).
-		WithCompactionHardPin(compactionHardPin).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
@@ -1617,11 +1592,13 @@ func main() {
 		observability.AccessLog(),
 	)
 
-	// Lets the admin model-selection handler surface deployed models; nil
-	// fallback keeps non-cluster routers bootable.
-	deployedModels, _ := rtr.(*cluster.Multiversion)
 	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
-	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker, proxySvc, server.DefaultStrategyFromEnv())
+	defaultStrategy, defaultStrategyErr := server.DefaultStrategyFromEnv()
+	if defaultStrategyErr != nil {
+		logger.Error("ROUTER_DEFAULT_STRATEGY is invalid; refusing to boot", "err", defaultStrategyErr)
+		panic(defaultStrategyErr)
+	}
+	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker, proxySvc, defaultStrategy)
 	if defaultStrategyErr := readinessChecker.checkDefaultStrategy(); defaultStrategyErr != nil {
 		logger.Error("ROUTER_DEFAULT_STRATEGY has no router configured; refusing to boot", "err", defaultStrategyErr)
 		panic(defaultStrategyErr)
@@ -1672,11 +1649,15 @@ func main() {
 		SubscriberAllowance:      subscriberAllowanceSvc,
 		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
 		PolicyStatus:             policyStatus,
+		RoutingDistribution:      routingDistribution,
 	}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}
-	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)
+	if hmmRosterModels == nil && deploymentMode == server.DeploymentModeSelfHosted {
+		hmmRosterModels = catalogRosterSource{}
+	}
+	server.RegisterWithFeatures(engine, authSvc, proxySvc, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)
 
 	port := config.GetOr("PORT", "8080")
 	address := ":" + port
@@ -1737,42 +1718,6 @@ func main() {
 	apmCtx, apmCancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer apmCancel()
 	apm.ShutdownWithContext(apmCtx)
-}
-
-// buildExploringRouter optionally wraps rtr in the quality-tie-band explorer.
-// OFF unless ROUTER_EXPLORE_ENABLED=true (band half-width ROUTER_EXPLORE_EPSILON,
-// default 0.05). Intended for staging/small slices — never flip fleet-wide
-// without a bake-off.
-func buildExploringRouter(rtr router.Router, logger *slog.Logger) router.Router {
-	if !strings.EqualFold(config.GetOr("ROUTER_EXPLORE_ENABLED", "false"), "true") {
-		return rtr
-	}
-	multi, ok := rtr.(*cluster.Multiversion)
-	if !ok {
-		logger.Warn("ROUTER_EXPLORE_ENABLED set but router is not a cluster.Multiversion; exploration disabled")
-		return rtr
-	}
-
-	providers := make(map[string]string)
-	for _, e := range multi.DefaultDeployedModels() {
-		// First binding wins; the default bundle lists a model's primary
-		// provider first, which matches the scorer's default resolution.
-		if _, seen := providers[e.Model]; !seen {
-			providers[e.Model] = e.Provider
-		}
-	}
-	providerFor := func(model string) (string, bool) {
-		p, ok := providers[model]
-		return p, ok
-	}
-
-	epsilon := float32(parseEnvFloat("ROUTER_EXPLORE_EPSILON", 0.05))
-	logger.Info(
-		"Quality-tie-band exploration ENABLED (non-prod / shadow expected)",
-		"band_width", epsilon,
-		"deployed_models", len(providers),
-	)
-	return banditexplore.New(rtr, providerFor, epsilon)
 }
 
 func subscriptionCandidateSignal(snapshot usage.Snapshot, now time.Time) subscriptions.CandidateSignal {
@@ -2366,11 +2311,10 @@ func resolveCompactionModel(summarizerProvider string) (string, error) {
 	return m, nil
 }
 
-// resolveHardPinModel returns the (provider, model) for Explore and utility
-// hard-pins (Claude Code's compaction turn prefers the compaction model):
-// operator override wins, else the fastest available model in the default
-// bundle, else the policy-owned utility hard-pin default.
-func resolveHardPinModel(available map[string]struct{}, logger *slog.Logger) (provider, model string, resolutionErr error) {
+// resolveHardPinModel returns the boot-time (provider, model) for Explore and
+// utility hard pins: the operator override, else the policy-owned utility
+// hard-pin default.
+func resolveHardPinModel() (provider, model string, resolutionErr error) {
 	configuredModel := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_MODEL", ""))
 	configuredProvider := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_PROVIDER", ""))
 	if configuredModel != "" {
@@ -2382,24 +2326,7 @@ func resolveHardPinModel(available map[string]struct{}, logger *slog.Logger) (pr
 	if configuredProvider != "" {
 		return "", "", errors.New("ROUTER_HARD_PIN_PROVIDER requires ROUTER_HARD_PIN_MODEL")
 	}
-
-	reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
-	defaultVersion, err := cluster.ResolveVersion(reqVersion)
-	if err != nil {
-		logger.Warn("Hard-pin model: could not resolve cluster version; using default", "err", err, "default_model", policy.UtilityHardPinDefaultModel)
-		return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
-	}
-	bundle, err := cluster.LoadBundle(defaultVersion)
-	if err != nil {
-		logger.Warn("Hard-pin model: could not load bundle; using default", "err", err, "default_model", policy.UtilityHardPinDefaultModel)
-		return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
-	}
-	p, m, ok := cluster.FastestModel(bundle.Metadata, bundle.Registry, available)
-	if !ok {
-		logger.Warn("Hard-pin model: no model found for available providers; using default", "default_model", policy.UtilityHardPinDefaultModel)
-		return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
-	}
-	return p, m, nil
+	return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
 }
 
 // envVarHint returns the env var name for a provider's API key, for log

@@ -10,11 +10,12 @@ import (
 var ErrStrategyUnavailable = errors.New("router: strategy unavailable")
 
 // Strategy identifies the routing policy selected for a request. The zero
-// value ("") means the deployment default (cluster).
+// value ("") means the deployment default.
 type Strategy string
 
 const (
-	// StrategyCluster is the default cluster-scorer strategy (AvengersPro).
+	// StrategyCluster is the retired cluster-scorer strategy. It is never
+	// routable; persisted or requested values follow the deployment default.
 	StrategyCluster Strategy = "cluster"
 	// StrategyRL routes via the trained RL/DPO policy served by the
 	// out-of-process policy sidecar. Opt-in only; never the silent default.
@@ -62,11 +63,11 @@ func WithStrategy(ctx context.Context, s Strategy) context.Context {
 }
 
 // StrategyFromContext returns the per-request strategy override, or
-// StrategyCluster when none was set.
+// StrategyHMMEmbedding (the default policy strategy) when none was set.
 func StrategyFromContext(ctx context.Context) Strategy {
 	s, ok := ctx.Value(strategyContextKey{}).(Strategy)
 	if !ok || s == "" {
-		return StrategyCluster
+		return StrategyHMMEmbedding
 	}
 	return s
 }

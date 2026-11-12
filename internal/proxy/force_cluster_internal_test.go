@@ -54,10 +54,10 @@ func TestApplyForceClusterHeader_ThreadsLabelOnHMMStrategy(t *testing.T) {
 	}
 }
 
-// The default cluster strategy scores anonymous centroids, so there is no named
-// group to constrain to — refusing beats serving an unconstrained model.
+// A non-HMM strategy has no named classifier group to constrain to —
+// refusing beats serving an unconstrained model.
 func TestApplyForceClusterHeader_RejectsNonSidecarStrategy(t *testing.T) {
-	ctx := router.WithStrategy(context.Background(), router.StrategyCluster)
+	ctx := router.WithStrategy(context.Background(), router.StrategyRL)
 
 	label, err := applyForceClusterHeader(ctx, forceClusterRequest(t, "maximum"))
 
@@ -83,7 +83,8 @@ func TestProxyMessages_ForceClusterOnNonSidecarStrategyRejects(t *testing.T) {
 	body := `{"model":"claude-opus-4-8","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`
 	rec := httptest.NewRecorder()
 
-	err := svc.ProxyMessages(context.Background(), []byte(body), rec, forceClusterRequest(t, "maximum"))
+	ctx := router.WithStrategy(context.Background(), router.StrategyRL)
+	err := svc.ProxyMessages(ctx, []byte(body), rec, forceClusterRequest(t, "maximum"))
 
 	require.ErrorIs(t, err, ErrForcedClusterUnsupportedStrategy)
 	assert.Zero(t, fr.routeCalls, "must abort before routing runs")

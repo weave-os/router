@@ -49,6 +49,9 @@ check-candidate-requirements: ## Check that the Router candidate requirements de
 inference-boundary: check-inference-policy ## Reject new inference/provider bypasses and stale policy docs
 	go test ./internal/router/policy ./internal/architecture
 
+arch-ratchet: ## Fail if this branch grows functions or files past the size and complexity limits (BASE=origin/main)
+	go run ./scripts/arch_ratchet -base $(or $(BASE),origin/main)
+
 generate-agent-guides: ## Generate AGENTS.md mirrors from authoritative CLAUDE.md guides
 	@python3 scripts/generate_agent_guides.py
 
@@ -211,10 +214,10 @@ dev: ## Run with hot-reload (CompileDaemon)
 		-graceful-kill=true \
 		-log-prefix=false
 
-up: ## Start the compose stack in the background (no install.sh wiring)
+up: ## Start the compose stack in the background on the stub HMM policy (no install.sh wiring)
 	docker compose up --build -d
 
-up-hmm: ## Start the stack with the opt-in frozen HMM policy sidecar
+up-hmm: ## Start the stack with the frozen HMM sidecar instead of the stub (needs ROUTER_POLICY_ENVIRONMENT)
 	docker compose -f docker-compose.yml -f sidecars/hmm/docker-compose.yml \
 		--profile hmm build hmm-sidecar
 	CLASSIFIER_IMAGE_DIGEST=$$(docker image inspect --format '{{.Id}}' \
@@ -267,7 +270,7 @@ check: check-agent-guides check-docs inference-boundary check-candidate-requirem
 	fi
 	@echo "All checks passed."
 
-.PHONY: doctor check-plan check-changed
+.PHONY: doctor check-plan check-changed arch-ratchet
 doctor: ## Read-only agent prerequisite discovery (no services or cloud calls)
 	python3 scripts/agent_checks.py doctor
 

@@ -81,10 +81,7 @@ func newGoogleIDTokenCredentials(audience string) (*auth.Credentials, error) {
 	if federated == nil {
 		return idtoken.NewCredentials(&idtoken.Options{Audience: audience})
 	}
-	sourceCredentials, err := credentials.DetectDefault(&credentials.DetectOptions{
-		CredentialsJSON: federated.sourceCredentialsJSON,
-		Scopes:          []string{cloudPlatformScope},
-	})
+	sourceCredentials, err := federatedSourceCredentials(federated.sourceCredentialsJSON)
 	if err != nil {
 		return nil, fmt.Errorf("build federated source credentials: %w", err)
 	}
@@ -93,6 +90,14 @@ func newGoogleIDTokenCredentials(audience string) (*auth.Credentials, error) {
 		TargetPrincipal: federated.targetServiceAccount,
 		IncludeEmail:    true,
 		Credentials:     sourceCredentials,
+	})
+}
+
+// federatedSourceCredentials refuses anything but external_account, the only
+// type parseWorkloadIdentityFederation emits.
+func federatedSourceCredentials(sourceCredentialsJSON []byte) (*auth.Credentials, error) {
+	return credentials.NewCredentialsFromJSON(credentials.ExternalAccount, sourceCredentialsJSON, &credentials.DetectOptions{
+		Scopes: []string{cloudPlatformScope},
 	})
 }
 
