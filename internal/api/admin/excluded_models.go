@@ -10,16 +10,9 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 
 	"github.com/gin-gonic/gin"
 )
-
-// DeployedModelsSource exposes the routable models the cluster scorer knows
-// about. Implemented by *cluster.Multiversion; tests can pass a fake.
-type DeployedModelsSource interface {
-	DefaultDeployedModels() []router.DeployedEntry
-}
 
 // ExclusionOverrideSource reports the deployment-wide ROUTER_EXCLUDED_MODELS
 // override, if active. Implemented by *proxy.Service.
@@ -40,14 +33,8 @@ type updateExcludedModelsRequest struct {
 	Excluded []string `json:"excluded"`
 }
 
-// deployedModelsDTO converts the deployed-models list to sorted DTO form,
-// centralized so the GET and PUT responses cannot drift apart.
-func deployedModelsDTO(models DeployedModelsSource) []deployedModelDTO {
-	return entriesToDTO(models.DefaultDeployedModels())
-}
-
-// entriesToDTO converts deployed entries to sorted DTO form, shared by the
-// cluster source and the HMM roster source so both wire shapes stay identical.
+// entriesToDTO converts deployed entries to sorted DTO form, matching the
+// catalog listings' wire shape.
 func entriesToDTO(entries []router.DeployedEntry) []deployedModelDTO {
 	out := make([]deployedModelDTO, 0, len(entries))
 	for _, e := range entries {
@@ -59,7 +46,7 @@ func entriesToDTO(entries []router.DeployedEntry) []deployedModelDTO {
 
 // GetExcludedModelsHandler returns deployed models and the installation's
 // exclusion list. `env_override_active` tells the UI to render read-only.
-func GetExcludedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource, override ExclusionOverrideSource) gin.HandlerFunc {
+func GetExcludedModelsHandler(authSvc *auth.Service, override ExclusionOverrideSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
 		if !ok {
@@ -90,7 +77,7 @@ func GetExcludedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource, ove
 
 // UpdateExcludedModelsHandler replaces the installation's exclusion list.
 // 400 on unknown model IDs; 403 if the env override is active.
-func UpdateExcludedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource, override ExclusionOverrideSource) gin.HandlerFunc {
+func UpdateExcludedModelsHandler(authSvc *auth.Service, override ExclusionOverrideSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		installation, ok := resolveInstallation(c, authSvc)
@@ -134,7 +121,4 @@ func UpdateExcludedModelsHandler(authSvc *auth.Service, _ DeployedModelsSource, 
 	}
 }
 
-var (
-	_ DeployedModelsSource    = (*cluster.Multiversion)(nil)
-	_ ExclusionOverrideSource = (*proxy.Service)(nil)
-)
+var _ ExclusionOverrideSource = (*proxy.Service)(nil)

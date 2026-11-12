@@ -16,7 +16,7 @@ Presentation layer. Handlers adapt HTTP ↔ Service. Read [root CLAUDE.md](../..
 ## Import rules
 
 - May import `internal/auth` (Service handle + middleware-context types) and `internal/proxy` (routing/dispatch service handle).
-- May import `internal/observability` for logging, `internal/providers` for shared sentinel errors, `internal/router/cluster` for `ErrClusterUnavailable` sentinel + `DeployedModelsSource` interface, `internal/analytics` for the export Service handle + row/schema types.
+- May import `internal/observability` for logging, `internal/providers` for shared sentinel errors, `internal/router/cluster` for the `ErrClusterUnavailable` sentinel, `internal/analytics` for the export Service handle + row/schema types.
 - **Must not import** `internal/postgres`, any concrete `internal/providers/*` adapter, or `internal/translate` directly.
 - Concrete instances reach presentation only via constructor params from composition root.
 
