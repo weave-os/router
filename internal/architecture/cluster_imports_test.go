@@ -15,18 +15,11 @@ import (
 
 const clusterPackagePath = modulePath + "/internal/router/cluster"
 
-// The legacy cluster scorer is being removed. Only the offline report tool and
-// the composition root may depend on it; every other importer is listed here
-// and the list may only shrink.
-var clusterImportRoots = []string{"cmd/router/", "cmd/routing-report/", "internal/router/cluster/"}
+// The legacy cluster scorer is being removed. Only the offline report tool may
+// depend on it; every other importer is listed here and the list may only shrink.
+var clusterImportRoots = []string{"cmd/routing-report/", "internal/router/cluster/"}
 
-var clusterImportAllowlist = []string{
-	"internal/api/anthropic/messages_test.go",
-	"internal/proxy/compaction_strategy_internal_test.go",
-	"internal/proxy/dispatch_error_test.go",
-	"internal/server/middleware/cluster_version_override.go",
-	"internal/server/middleware/cluster_version_override_test.go",
-}
+var clusterImportAllowlist = []string{}
 
 func TestClusterPackageImportsOnlyShrink(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))

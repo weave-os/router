@@ -12,7 +12,7 @@ import (
 )
 
 func TestResolveEffort_SourcesAndClamping(t *testing.T) {
-	svc := NewService(nil, nil, nil, false, nil, nil, false,
+	svc := NewService(nil, nil, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).WithEffortEscalation(true)
 
 	for _, tc := range []struct {

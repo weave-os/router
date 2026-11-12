@@ -93,10 +93,9 @@ func TestBandSwapServed_UnservableChoiceFallsBackToAnchor(t *testing.T) {
 	}
 
 	s := &Service{
-		embedOnlyUserMessage: true,
-		bandSwap:             clf,
-		availableModels:      map[string]struct{}{large: {}, small: {}},
-		clients:              dispatch.NewClients(map[string]providers.Client{"anthropic": nil}),
+		bandSwap:        clf,
+		availableModels: map[string]struct{}{large: {}, small: {}},
+		clients:         dispatch.NewClients(map[string]providers.Client{"anthropic": nil}),
 	}
 	pin := sessionpin.Pin{
 		Provider: "anthropic", Model: anchor,

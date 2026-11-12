@@ -287,7 +287,7 @@ func codexQuotaService(client providers.Client) *Service {
 	svc := NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}},
 		map[string]providers.Client{providers.ProviderOpenAI: client},
-		nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil,
+		nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 	svc.retrySleep = noopSleep
 	return svc

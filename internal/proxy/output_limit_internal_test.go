@@ -57,7 +57,7 @@ func TestMaxedOutServedModel_RequiresMatchingTerminalEvidence(t *testing.T) {
 }
 
 func TestNormalizeHMMStayPin_HighOutputIsNotExhaustion(t *testing.T) {
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, false, nil, nil, false,
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, nil, false,
 		providers.ProviderAnthropic, outputLimitFirstModel, nil)
 	pin := sessionpin.Pin{Provider: providers.ProviderAnthropic, LastServedModel: outputLimitFirstModel,
 		LastOutputTokens: 32000, LastTurnEndedAt: time.Now().Add(-time.Second), PinnedUntil: time.Now().Add(time.Hour)}
@@ -81,7 +81,7 @@ func TestPostCommandContinuation_UsesTerminalEvidence(t *testing.T) {
 				pin.LastOutputLimitAt = pin.LastTurnEndedAt
 			}
 			store.pins[forceModelMapKey(key, pin.Role)] = pin
-			svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil)
+			svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil)
 			ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
 			svc.grantPostCommandContinuation(ctx, uuid.New(), key, pin.Role)
 			got, found := svc.consumePostCommandContinuation(ctx, key, pin.Role)
@@ -97,7 +97,7 @@ func TestPostCommandContinuation_UsesTerminalEvidence(t *testing.T) {
 
 func TestRefreshPin_PreservesOutputLimitEvidence(t *testing.T) {
 	store := newStubPinStore()
-	svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil)
+	svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil)
 	ended := time.Now().Add(-time.Second)
 	pin := sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: outputLimitSecondModel, LastServedModel: outputLimitFirstModel,
 		LastTurnEndedAt: ended, LastOutputLimitAt: ended, LastOutputTokens: 128}
@@ -167,7 +167,7 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 					if trueCap && action == 3 {
 						upstream.stopReason, upstream.output = "max_tokens", 128
 					}
-					svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, false, nil, store, false,
+					svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, store, false,
 						providers.ProviderAnthropic, outputLimitFirstModel, nil).
 						WithHMMDowngradeHysteresisTurns(0).
 						WithNativeAnthropicResponseSignals(false).

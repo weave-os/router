@@ -109,7 +109,7 @@ func TestSessionCostRouteAcceptsReadKeysWithoutServingAdmission(t *testing.T) {
 	authSvc := auth.NewService(nil, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).
 		WithCredentialSubjectLookup(readSubjectRepo{"subject-disabled": {ID: "subject-disabled", ProjectionComplete: true, AccessEnabled: false, EnrollmentGeneration: 1}})
 	telemetry := &costTelemetry{}
-	proxySvc := proxy.NewService(nil, nil, nil, false, nil, nil, false, "", "", telemetry)
+	proxySvc := proxy.NewService(nil, nil, nil, nil, false, "", "", telemetry)
 	engine := gin.New()
 	engine.UseRawPath = true
 	engine.UnescapePathValues = true

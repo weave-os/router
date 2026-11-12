@@ -31,16 +31,12 @@ func applyServingSpanAttrs(ctx context.Context, attributes *telemetry.AttrBuilde
 // observationContext bundles per-request routing values shared by the OTel
 // span and telemetry row.
 type observationContext struct {
-	// ClusterIDs is the top-p cluster set, widened to int32 for SQLC's INT[].
-	ClusterIDs []int32
 	// CandidateModels mirrors the scorer's eligible argmax set.
 	CandidateModels []string
 	// ChosenScore is the argmax score. Pointer so 0.0 stays distinct from
 	// "not a cluster decision".
 	ChosenScore *float64
-	// ClusterRouterVersion is the artifact version that produced this decision.
-	ClusterRouterVersion string
-	// Strategy is the routing model that produced this decision ("cluster", "hmm", "rl", "bandit").
+	// Strategy is the routing model that produced this decision ("hmm", "rl").
 	// NULL on hard-pins that bypass routing so per-strategy decision counts aren't inflated.
 	Strategy string
 	// RouteID is the opaque sidecar correlation id (HMM/RL) that joins a route
@@ -127,12 +123,6 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 		}
 	}
 	if md := decision.Metadata; md != nil {
-		if len(md.ClusterIDs) > 0 {
-			obs.ClusterIDs = make([]int32, len(md.ClusterIDs))
-			for i, k := range md.ClusterIDs {
-				obs.ClusterIDs[i] = int32(k)
-			}
-		}
 		if len(md.CandidateModels) > 0 {
 			obs.CandidateModels = append([]string(nil), md.CandidateModels...)
 		}
@@ -140,7 +130,6 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 		// would silently drop legitimate zero scores.
 		score := float64(md.ChosenScore)
 		obs.ChosenScore = &score
-		obs.ClusterRouterVersion = md.ClusterRouterVersion
 		if md.Strategy != "" {
 			obs.Strategy = md.Strategy
 		}
@@ -268,14 +257,6 @@ func (o observationContext) applySpanAttrs(b *telemetry.AttrBuilder) {
 	if o.FreshPolicyGroup != "" {
 		b.String("routing.fresh_policy_group", o.FreshPolicyGroup)
 	}
-	if len(o.ClusterIDs) > 0 {
-		// Widen int32 → int for AttrBuilder.IntSlice.
-		ids := make([]int, len(o.ClusterIDs))
-		for i, k := range o.ClusterIDs {
-			ids[i] = int(k)
-		}
-		b.IntSlice("routing.cluster_ids", ids)
-	}
 	if o.ChosenScore != nil {
 		b.Float64("routing.chosen_score", *o.ChosenScore)
 	}
@@ -284,9 +265,6 @@ func (o observationContext) applySpanAttrs(b *telemetry.AttrBuilder) {
 	}
 	if len(o.CandidateScores) > 0 {
 		b.String("routing.candidate_scores", string(o.CandidateScores))
-	}
-	if o.ClusterRouterVersion != "" {
-		b.String("routing.cluster_version", o.ClusterRouterVersion)
 	}
 	if o.Strategy != "" {
 		b.String("routing.strategy", o.Strategy)

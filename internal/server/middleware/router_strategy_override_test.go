@@ -74,11 +74,6 @@ func TestRouterStrategyOverride_AppliesRL(t *testing.T) {
 	assert.Equal(t, router.StrategyRL, got, "rl header must select the RL strategy")
 }
 
-func TestRouterStrategyOverride_AppliesBandit(t *testing.T) {
-	got := runStrategyOverride(t, overrideEnabledInstallation(), "bandit")
-	assert.Equal(t, router.StrategyBandit, got, "bandit header must select the bandit strategy")
-}
-
 func TestRouterStrategyOverride_AppliesHMM(t *testing.T) {
 	got := runStrategyOverride(t, overrideEnabledInstallation(), "hmm")
 	assert.Equal(t, router.StrategyHMM, got, "hmm header must select the HMM strategy")

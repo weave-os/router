@@ -8,7 +8,7 @@
 // Parity: the served head is an embedding-only LightGBM multiclass booster
 // trained offline (repo: ml_dev/router_action_classifier) on the same Jina v2
 // INT8 user-message embedding the scorer already produces and stores in
-// res.Fresh.Metadata.Embedding when ROUTER_EMBED_ONLY_USER_MESSAGE is on (the
+// res.Fresh.Metadata.Embedding when embed_only_user_message is on (the
 // default). Inference runs through the pure-Go `leaves` reader over the booster
 // text dump — no Python, ONNX, or cgo. Pure inner-ring: no I/O beyond the
 // compiled-in model.

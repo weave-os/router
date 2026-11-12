@@ -80,7 +80,7 @@ func TestPinExpiry_UserForcedNeverExpires(t *testing.T) {
 // can never silently drop the user's directive.
 func TestSetForceModelSessionPin_WritesNeverExpiresSentinel(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	var key [sessionpin.SessionKeyLen]byte
@@ -97,7 +97,7 @@ func TestSetForceModelSessionPin_WritesNeverExpiresSentinel(t *testing.T) {
 
 func TestSetForceModelSessionPin_IsStrategyIndependent(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMBeta)

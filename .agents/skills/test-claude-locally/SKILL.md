@@ -152,7 +152,7 @@ For fixes to `internal/billing` + `internal/server/middleware/balance_check.go` 
 
 ## Notes
 
-- Local cluster version comes from `ROUTER_CLUSTER_VERSION` in `.env.local`; it may differ from prod, which is why `/force-model` (not the scorer) is the reliable way to hit one model.
+- Local routing uses the stub HMM classifier and baked policy release by default, so it may differ from prod; `/force-model` is the reliable way to hit one model.
 - GLM-5.1's primary binding is Together (then Fireworks, then OpenRouter) — see `internal/router/catalog/catalog.go`.
 - To confirm a deploy contains a given router commit: the prod Cloud Run revision name maps to a monorepo commit; `git ls-tree <monorepo-commit> router-internal/router` shows the pinned router submodule SHA.
 

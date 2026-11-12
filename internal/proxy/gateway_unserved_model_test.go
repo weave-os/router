@@ -95,7 +95,7 @@ func TestService_HardPin_TitleGen_GatewayModelNotFound_ExcludedOnLaterTurns(t *t
 	gateway := &aliasGateway{unserved: unservedAlias}
 	svc := proxy.NewService(
 		fr, map[string]providers.Client{providers.ProviderOpenAIGateway: gateway},
-		nil, false, nil, store, false,
+		nil, store, false,
 		providers.ProviderAnthropic, servedAlias,
 		nil,
 	).WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
@@ -139,7 +139,7 @@ func TestService_HardPin_TitleGen_GatewayModelNotFound_KeepsServedAliasesRoutabl
 	gateway := &aliasGateway{unserved: unservedAlias}
 	svc := proxy.NewService(
 		fr, map[string]providers.Client{providers.ProviderOpenAIGateway: gateway},
-		nil, false, nil, store, false,
+		nil, store, false,
 		providers.ProviderAnthropic, servedAlias,
 		nil,
 	).WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
@@ -171,7 +171,7 @@ func TestService_HardPin_TitleGen_VendorModelNotFound_DoesNotExcludeModel(t *tes
 	vendor := &aliasGateway{unserved: servedAlias}
 	svc := proxy.NewService(
 		fr, map[string]providers.Client{providers.ProviderAnthropic: vendor},
-		nil, false, nil, store, false,
+		nil, store, false,
 		providers.ProviderAnthropic, servedAlias,
 		nil,
 	).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver).

@@ -57,7 +57,7 @@ func TestProxyOpenAIResponses_ForcedOpusPlaintextAgentTask(t *testing.T) {
 		Provider: providers.ProviderAnthropic, Model: "claude-opus-5-5", Reason: translate.ReasonUserForceModel,
 	}}, map[string]providers.Client{
 		providers.ProviderAnthropic: anthropic.NewClient("test-key", upstream.URL),
-	}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5-5", nil)
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5-5", nil)
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	parentBody := []byte(`{"model":"gpt-6.1-sol","stream":true,"input":"Delegate project test inspection","tools":[{"type":"namespace","name":"collaboration","tools":[{"type":"function","name":"spawn_agent","parameters":{"type":"object","properties":{"message":{"type":"string"}}}}]}]}`)
 	parentSink := httptest.NewRecorder()
@@ -100,7 +100,7 @@ func TestProxyOpenAIResponses_EncryptedAgentTaskKeepsNativePayload(t *testing.T)
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-6.1-sol"}}
 	svc := proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderOpenAI: native, providers.ProviderAnthropic: &fakeProvider{},
-	}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-6.1-sol", nil)
+	}, nil, nil, false, providers.ProviderOpenAI, "gpt-6.1-sol", nil)
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	body := []byte(`{"model":"gpt-6.1-sol","input":[{"type":"agent_message","author":"parent","recipient":"child","content":[{"type":"input_text","text":"Message Type: NEW_TASK\nPayload:\n"},{"type":"encrypted_content","encrypted_content":"opaque-task"}]}]}`)
 	sink := httptest.NewRecorder()
@@ -113,7 +113,7 @@ func TestProxyOpenAIResponses_EncryptedAgentTaskKeepsNativePayload(t *testing.T)
 	blockedUpstream := &fakeProvider{}
 	blockedService := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5-5"}}, map[string]providers.Client{
 		providers.ProviderAnthropic: blockedUpstream,
-	}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5-5", nil)
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5-5", nil)
 	err := blockedService.ProxyOpenAIResponses(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
 	assert.ErrorIs(t, err, proxy.ErrTranslationCompatibleProviderUnavailable)
 	assert.Empty(t, blockedUpstream.proxyBodies, "never substitute the clear routing header for an opaque task")

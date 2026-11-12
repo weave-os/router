@@ -79,7 +79,7 @@ func runAuthorityShadowTurnWithPin(
 	store.getFound = true
 	store.getPin = pin
 	svc := NewService(
-		nil, nil, nil, false, nil, store, false,
+		nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithAuthorityCacheShadow(enabled).
 		WithPlanner(planner.EVConfig{

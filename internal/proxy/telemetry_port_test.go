@@ -58,7 +58,7 @@ func TestTelemetryPort_LinkFeedbackRecordsAndFlushes(t *testing.T) {
 	recorder := &capturingTelemetryRecorder{}
 	emitter := &capturingTelemetryEmitter{recorder: recorder}
 	comment := "The response was helpful."
-	service := proxy.NewService(nil, nil, emitter, false, nil, nil, false, "", "", nil).
+	service := proxy.NewService(nil, nil, emitter, nil, false, "", "", nil).
 		WithFeedback(&fakeFeedbackRepoForSpanTest{}, feedbacktoken.NewSigner("secret", time.Hour), "https://router.example.com")
 
 	err := service.SubmitFeedback(context.Background(), proxy.SubmitFeedbackParams{
@@ -103,8 +103,6 @@ func TestTelemetryPort_CommandFeedbackRecordsAndFlushes(t *testing.T) {
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		emitter,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,

@@ -404,7 +404,6 @@ var Registry = []Definition{
 	},
 	{
 		Key:            KeyEmbedOnlyUserMessage,
-		EnvVar:         "ROUTER_EMBED_ONLY_USER_MESSAGE",
 		Kind:           KindBool,
 		Description:    "Embed user-role text only, instead of the concatenated stream.",
 		OrgOverridable: true,

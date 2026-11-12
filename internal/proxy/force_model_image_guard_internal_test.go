@@ -43,7 +43,7 @@ func TestRunTurnLoop_ForcedTextOnlyModel_DropsPinForImageTurn(t *testing.T) {
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: time.Now().Add(time.Hour),
 	}}
-	svc := NewService(fr, nil, nil, false, nil, store, false,
+	svc := NewService(fr, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithAvailableModels(fr.available).
 		WithPlannerEnabled(false)
@@ -84,7 +84,7 @@ func TestRunTurnLoop_ForcedTextOnlyModel_HonoredWithoutImages(t *testing.T) {
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: time.Now().Add(time.Hour),
 	}}
-	svc := NewService(fr, nil, nil, false, nil, store, false,
+	svc := NewService(fr, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithAvailableModels(fr.available).
 		WithPlannerEnabled(false)
@@ -110,7 +110,7 @@ func TestRunTurnLoop_ForcedImageCapModel_ReachesProvider(t *testing.T) {
 	const imageCount = 17
 	available := map[string]struct{}{model: {}}
 	fr := &tierProbeRouter{available: available}
-	svc := NewService(fr, nil, nil, false, nil, &forcedPinStore{}, false,
+	svc := NewService(fr, nil, nil, &forcedPinStore{}, false,
 		providers.ProviderDeepInfra, model, nil).
 		WithAvailableModels(available).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderDeepInfra: {}}).

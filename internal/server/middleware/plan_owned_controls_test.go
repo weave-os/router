@@ -38,7 +38,6 @@ func TestMaxServingForcesProfileStrategyAndIgnoresCustomerHeaders(t *testing.T) 
 			c.Next()
 		})
 		engine.Use(
-			middleware.WithClusterVersionOverride(),
 			middleware.WithRouterStrategyDefault(router.StrategyCluster, allRegisteredLive, router.StrategyHMM, router.StrategyRL),
 			middleware.WithAllowedModelsOverride(planOwnedAllowedModelsGate{}),
 			middleware.WithRoutingKnobsOverride(),
@@ -52,8 +51,7 @@ func TestMaxServingForcesProfileStrategyAndIgnoresCustomerHeaders(t *testing.T) 
 		})
 
 		request := httptest.NewRequest(http.MethodGet, "/probe", nil)
-		request.Header.Set(middleware.RouterStrategyOverrideHeader, "bandit")
-		request.Header.Set(middleware.ClusterVersionOverrideHeader, "customer-roster")
+		request.Header.Set(middleware.RouterStrategyOverrideHeader, "rl")
 		request.Header.Set(proxy.AllowedModelsHeader, "unknown-model")
 		request.Header.Set(middleware.HeaderAlpha, "not-a-number")
 		request.Header.Set(middleware.ForceEffortOverrideHeader, "invalid")

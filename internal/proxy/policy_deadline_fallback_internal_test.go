@@ -114,8 +114,6 @@ func buildPolicyDeadlineFallbackService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil},
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,

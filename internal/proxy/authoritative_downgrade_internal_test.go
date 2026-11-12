@@ -30,8 +30,6 @@ func authoritativeDowngradeService(store *stubPinStore, fresh router.Decision) *
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,

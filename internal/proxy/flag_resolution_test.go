@@ -14,15 +14,15 @@ import (
 // newFlagTestService builds a Service with no providers wired: these tests only
 // exercise flag resolution, which touches nothing but the Service's flag fields
 // and the request context.
-func newFlagTestService(embedOnly bool) *proxy.Service {
+func newFlagTestService() *proxy.Service {
 	return proxy.NewService(
-		nil, map[string]providers.Client{}, nil, embedOnly, nil, nil,
+		nil, map[string]providers.Client{}, nil, nil,
 		false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	)
 }
 
 func TestResolversFallBackToDeploymentDefault(t *testing.T) {
-	svc := newFlagTestService(true).
+	svc := newFlagTestService().
 		WithStruggleShadowConfig(true).
 		WithSpiralShadowConfig(false).
 		WithLoopEscalationConfig(true, 10).
@@ -40,7 +40,7 @@ func TestResolversFallBackToDeploymentDefault(t *testing.T) {
 func TestPerOrgOverrideBeatsDeploymentDefault(t *testing.T) {
 	// The motivating case: the deployment ships the struggle detector on, and one
 	// organization turns it off (and vice versa for a default-off flag).
-	svc := newFlagTestService(true).
+	svc := newFlagTestService().
 		WithStruggleShadowConfig(true).
 		WithSiblingFailover(false).
 		WithLoopEscalationConfig(true, 10)
@@ -62,7 +62,7 @@ func TestPerOrgOverrideBeatsDeploymentDefault(t *testing.T) {
 }
 
 func TestCCTaskToolsCrossVendorResolution(t *testing.T) {
-	svc := newFlagTestService(true)
+	svc := newFlagTestService()
 	assert.False(t, svc.ResolveCCTaskToolsCrossVendor(context.Background()),
 		"the task-list tools stay stripped until an installation opts in")
 
@@ -71,7 +71,7 @@ func TestCCTaskToolsCrossVendorResolution(t *testing.T) {
 	})
 	assert.True(t, svc.ResolveCCTaskToolsCrossVendor(on))
 
-	deploymentOn := newFlagTestService(true).WithCCTaskToolsCrossVendor(true)
+	deploymentOn := newFlagTestService().WithCCTaskToolsCrossVendor(true)
 	assert.True(t, deploymentOn.ResolveCCTaskToolsCrossVendor(context.Background()))
 	off := flags.WithOverrides(context.Background(), flags.Overrides{
 		Bools: map[flags.Key]bool{flags.KeyCCTaskToolsCrossVendor: false},
@@ -80,7 +80,7 @@ func TestCCTaskToolsCrossVendorResolution(t *testing.T) {
 }
 
 func TestStringFlagOverride(t *testing.T) {
-	svc := newFlagTestService(true).
+	svc := newFlagTestService().
 		WithCyberRefusalRepin(true).
 		WithCyberRefusalFallbackModel("claude-sonnet-5")
 
@@ -92,17 +92,12 @@ func TestStringFlagOverride(t *testing.T) {
 	assert.Equal(t, "claude-opus-5", svc.ResolveCyberRefusalFallbackModel(ctx))
 }
 
-func TestHeaderOverrideBeatsPerOrgOverride(t *testing.T) {
-	// embed_only_user_message is the one registered flag that also has a header
-	// override, so it pins the full precedence chain:
-	// header > per-org > deployment default.
-	svc := newFlagTestService(false)
+func TestEmbedOnlyUserMessageDefaultsOnAndHonorsPerOrgOverride(t *testing.T) {
+	svc := newFlagTestService()
+	assert.True(t, svc.ResolveEmbedOnlyUserMessage(context.Background()))
 
-	orgOn := flags.WithOverrides(context.Background(), flags.Overrides{
-		Bools: map[flags.Key]bool{flags.KeyEmbedOnlyUserMessage: true},
+	orgOff := flags.WithOverrides(context.Background(), flags.Overrides{
+		Bools: map[flags.Key]bool{flags.KeyEmbedOnlyUserMessage: false},
 	})
-	assert.True(t, svc.ResolveEmbedOnlyUserMessage(orgOn), "per-org override beats the deployment default")
-
-	headerOff := context.WithValue(orgOn, proxy.EmbedOnlyUserMessageContextKey{}, false)
-	assert.False(t, svc.ResolveEmbedOnlyUserMessage(headerOff), "header override beats the per-org override")
+	assert.False(t, svc.ResolveEmbedOnlyUserMessage(orgOff))
 }

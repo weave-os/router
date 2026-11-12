@@ -246,7 +246,7 @@ rm -f docker-compose.override.yml
 
 ## Notes
 
-- Local cluster version comes from `ROUTER_CLUSTER_VERSION` in `.env.local`; it may differ from prod, which is why `/force-model` (not the scorer) is the reliable way to hit one model.
+- Local routing uses the stub HMM classifier and baked policy release by default, so it may differ from prod; `/force-model` is the reliable way to hit one model.
 - Native Codex models `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna` use the caller's ChatGPT OAuth plan when subscription routing is on. Other OpenAI / Anthropic / Gemini / OpenAI-compatible models use WorkWeave deployment or BYOK credentials, same as Claude Code.
 - To confirm a deploy contains a given router commit: the prod Cloud Run revision name maps to a monorepo commit; `git ls-tree <monorepo-commit> router-internal/router` shows the pinned router submodule SHA.
 - `codex exec --ignore-user-config` is **not** a substitute for `CODEX_HOME`: it skips `$CODEX_HOME/config.toml` entirely (so you'd have no weave-local provider) while auth still uses `CODEX_HOME`. Always write a full throwaway config.

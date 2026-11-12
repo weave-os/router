@@ -115,7 +115,7 @@ func TestCodexAgentRoutingIsolation(t *testing.T) {
 	routing.WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
 	store := &codexRoutingPinStore{stubPinStore: newStubPinStore(), pins: make(map[codexRoutingPinKey]sessionpin.Pin)}
 	upstream := &codexTitleProvider{}
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, false, nil, store, false, providers.ProviderOpenAI, codexRoutingLuna.String(), nil).
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, store, false, providers.ProviderOpenAI, codexRoutingLuna.String(), nil).
 		WithOpenAIResponsesBroad(true).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: routing, Capabilities: capabilities}).
 		WithAuthoritativeUpgradeSlidingThreshold(true).

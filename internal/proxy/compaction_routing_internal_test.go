@@ -47,7 +47,7 @@ func newCompactionRoutingFixture(t *testing.T, scored router.Decision) compactio
 	store := newForceModelMapStore()
 	svc := NewService(compactionScorer{decision: scored, calls: calls},
 		map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil},
-		nil, false, nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil).
+		nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil).
 		WithHardPinResolver(func(req HardPinRequest) (string, string, bool) {
 			return policy.UtilityTarget(policy.UtilityTargetRequest{
 				EnabledProviders: req.EnabledProviders,

@@ -60,7 +60,7 @@ func TestManagedPoolOverloadIsRememberedAcrossRequests(t *testing.T) {
 		{AccountID: "first", AccessToken: "first-seat", ProviderAccount: "first-provider"},
 		{AccountID: "second", AccessToken: "second-seat", ProviderAccount: "second-provider"},
 	}}}
-	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).
+	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).
 		WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 	svc.retrySleep = noopSleep

@@ -41,7 +41,7 @@ func TestCodexRoutesAgentRepliesWithoutChangingProviderInput(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			selected := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "scored"}}
 			upstream := &fakeProvider{proxyResponse: responsesTextUpstream}
-			svc := proxy.NewService(selected, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, false, nil, nil, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, nil).
+			svc := proxy.NewService(selected, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, nil, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, nil).
 				WithOpenAIResponsesBroad(true).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: selected, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 			body := []byte(`{"model":"weave-auto","stream":true,"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}],"input":[
@@ -82,7 +82,7 @@ func TestCodexRoutingHistoryStripsConsumedToolCommands(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			selected := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "scored"}}
 			upstream := &fakeProvider{proxyResponse: responsesTextUpstream}
-			svc := proxy.NewService(selected, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, false, nil, newFakePinStore(), false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, nil).
+			svc := proxy.NewService(selected, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, newFakePinStore(), false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, nil).
 				WithOpenAIResponsesBroad(true).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: selected, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 			body := []byte(`{"model":"weave-auto","stream":true,"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}],"input":[

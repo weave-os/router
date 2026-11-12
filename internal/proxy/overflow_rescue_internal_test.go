@@ -54,7 +54,7 @@ func gatewayOverflowFixture(anthropicErr, openAIErr error) (*Service, context.Co
 	}}, map[string]providers.Client{
 		providers.ProviderAnthropicGateway: anthropicGateway,
 		providers.ProviderOpenAIGateway:    openAIGateway,
-	}, nil, false, nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil).
+	}, nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	return routed, ctx, anthropicGateway, openAIGateway
 }

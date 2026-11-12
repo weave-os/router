@@ -35,7 +35,7 @@ func (f *fakeFeedbackRepo) GetContext(_ context.Context, _, _ string) (proxy.Fee
 }
 
 func newService(repo proxy.FeedbackRepository, signer *token.Signer) *proxy.Service {
-	return proxy.NewService(nil, nil, nil, false, nil, nil, false, "", "", nil).
+	return proxy.NewService(nil, nil, nil, nil, false, "", "", nil).
 		WithFeedback(repo, signer, "https://router.example.com")
 }
 

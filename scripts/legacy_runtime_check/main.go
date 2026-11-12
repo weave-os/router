@@ -122,8 +122,6 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 		"DATABASE_URL=" + dsn,
 		"PORT=" + fmt.Sprint(port),
 		"ROUTER_DEPLOYMENT_MODE=" + string(mode),
-		"ROUTER_ONNX_ASSETS_DIR=" + os.Getenv("ROUTER_ONNX_ASSETS_DIR"),
-		"ROUTER_ONNX_LIBRARY_DIR=" + os.Getenv("ROUTER_ONNX_LIBRARY_DIR"),
 		"PUBSUB_EMULATOR_HOST=" + pubsubAddress,
 		"PUBSUB_PROJECT_ID=legacy-runtime-fixture",
 		"PUBSUB_TOPIC_ROUTER_INVALIDATION=legacy-invalidation",
@@ -135,6 +133,13 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 		"ROUTER_HMM_SIDECAR_URL=" + policy.classifierURL,
 		"ROUTER_HMM_SIDECAR_AUTH=none",
 		"GIN_MODE=release",
+	}
+	// Workers that still build the retired cluster scorer need native assets;
+	// leaving these unset proves the current worker boots without them.
+	for _, key := range []string{"ROUTER_ONNX_ASSETS_DIR", "ROUTER_ONNX_LIBRARY_DIR"} {
+		if value := os.Getenv(key); value != "" {
+			command.Env = append(command.Env, key+"="+value)
+		}
 	}
 	if mode == server.DeploymentModeSelfHosted {
 		// Self-hosted only: these prove the worker leaves ROUTER_SERVING_*

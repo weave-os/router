@@ -293,7 +293,7 @@ func TestRunTurnLoop_PinTurnCountsCurrentTurnInclusively(t *testing.T) {
 		FirstPinnedAt:   time.Now().Add(-struggleEarlyWall - time.Minute),
 		LastServedModel: "claude-sonnet-4-6",
 	}
-	svc := NewService(fr, nil, nil, false, nil, store, false,
+	svc := NewService(fr, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithAvailableModels(fr.available).
 		WithPlannerEnabled(false)

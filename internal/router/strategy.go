@@ -32,10 +32,6 @@ const (
 	StrategyHMMQwen Strategy = "hmm_qwen"
 	// StrategyDecisionModel asks the decision model judge for task and call complexity and picks models in Go.
 	StrategyDecisionModel Strategy = "decision_model"
-	// StrategyBandit routes via Thompson sampling over a frozen
-	// ts_posterior.json (cluster×model reward posterior). Opt-in only; wired
-	// when ROUTER_BANDIT_POSTERIOR_FILE is set at boot.
-	StrategyBandit Strategy = "bandit"
 	// StrategyLLMClassifier requires an authenticated, release-bound thread handshake.
 	StrategyLLMClassifier Strategy = "llm_classifier"
 )

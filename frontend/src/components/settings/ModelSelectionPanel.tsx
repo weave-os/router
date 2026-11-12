@@ -92,7 +92,7 @@ export function ModelSelectionPanel() {
         <Card.Content>
           {available.length === 0 ? (
             <EmptyHint>
-              No deployed models. Check ROUTER_CLUSTER_VERSION and provider keys.
+              No deployed models. Check the routing policy and provider keys.
             </EmptyHint>
           ) : (
             <div className="divide-y divide-border">

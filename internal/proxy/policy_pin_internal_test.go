@@ -138,7 +138,7 @@ func (r *countingPinnedRouter) Route(context.Context, router.Request) (router.De
 func pinnedTurnLoopService(t *testing.T, rt router.Router, store sessionpin.Store) *Service {
 	t.Helper()
 	clients := map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderOpenAI: nil}
-	return NewService(rt, clients, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	return NewService(rt, clients, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 }
 
 func pinnedTurnLoopEnvelope(t *testing.T) (*translate.RequestEnvelope, translate.RoutingFeatures) {

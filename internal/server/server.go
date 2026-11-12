@@ -165,7 +165,6 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			proxy.HeaderRouterProvider,
 			proxy.HeaderRouterModel,
 			proxy.HeaderRouterContextWindow,
-			proxy.HeaderRouterCache,
 			proxy.HeaderRouterFallbackFrom,
 			proxy.HeaderRouterFallbackAttempt,
 			proxy.HeaderRouterCostUSD,
@@ -393,8 +392,6 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		)
 	}
 	messagesMiddleware = append(messagesMiddleware,
-		middleware.WithEmbedOnlyUserMessageOverride(),
-		middleware.WithClusterVersionOverride(),
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
@@ -425,8 +422,6 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		)
 	}
 	chatCompletionMiddleware = append(chatCompletionMiddleware,
-		middleware.WithEmbedOnlyUserMessageOverride(),
-		middleware.WithClusterVersionOverride(),
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
@@ -490,8 +485,6 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		)
 	}
 	routeMiddleware = append(routeMiddleware,
-		middleware.WithEmbedOnlyUserMessageOverride(),
-		middleware.WithClusterVersionOverride(),
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
@@ -511,7 +504,6 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	previewMiddleware = append(previewMiddleware, servingAdmissionMiddleware...)
 	previewMiddleware = append(previewMiddleware, subscriberProductScopeMiddleware...)
 	previewMiddleware = append(previewMiddleware,
-		middleware.WithEmbedOnlyUserMessageOverride(),
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),

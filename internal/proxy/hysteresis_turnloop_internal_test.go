@@ -67,8 +67,6 @@ func TestTurnLoopHoldsPinnedEffortOnLowGapEscalation(t *testing.T) {
 				nil,
 				nil,
 				nil,
-				false,
-				nil,
 				store,
 				false,
 				providers.ProviderAnthropic,

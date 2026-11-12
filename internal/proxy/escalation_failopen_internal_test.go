@@ -24,7 +24,7 @@ func TestEscalationCommitFailurePreservesEligibilityAndTurnEvidence(t *testing.T
 		role: {Provider: providers.ProviderGoogle, Model: "gemini-3-pro-preview", Strategy: router.StrategyHMMEmbedding, PinnedUntil: time.Now().Add(time.Hour)},
 	}}
 	clients := map[string]providers.Client{providers.ProviderAnthropic: &stripFailureProvider{}, providers.ProviderGoogle: &stripFailureProvider{}}
-	svc := NewService(nil, clients, nil, false, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := NewService(nil, clients, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithEscalation(store, observer).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1}})
 	svc.scopedSearchRequirement = true

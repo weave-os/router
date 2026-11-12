@@ -58,7 +58,7 @@ func TestSpentOwnClaudePlanNudgesOnlyWithoutACoveringLinkedSeat(t *testing.T) {
 			observer := usage.NewObserver([]byte("salt"), time.Hour, time.Now)
 			observer.Record(observer.Key([]byte(ownToken)), usage.Snapshot{Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080}})
 			model := "claude-sonnet-4-6"
-			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: model, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL)}, nil, false, nil, nil, false, providers.ProviderAnthropic, model, nil).
+			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: model, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL)}, nil, nil, false, providers.ProviderAnthropic, model, nil).
 				WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: tc.leases, repeatLast: true}).
 				WithUsageObserver(observer).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
@@ -108,7 +108,7 @@ func TestSpentOwnCodexPlanNudgesOnlyWithoutACoveringLinkedSeat(t *testing.T) {
 				lease.AccessToken = "pool-seat"
 				leases = append(leases, lease)
 			}
-			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).
+			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).
 				WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: leases, repeatLast: true}).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 				WithUsageObserver(usage.NewObserver([]byte("test-salt"), time.Hour, time.Now))
@@ -160,7 +160,7 @@ func TestSpentOwnClaudePlanNudgesWhenTheLastLinkedSeatRunsOutMidTurn(t *testing.
 	observer := usage.NewObserver([]byte("salt"), time.Hour, time.Now)
 	observer.Record(observer.Key([]byte(ownToken)), usage.Snapshot{Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080}})
 	model := "claude-sonnet-4-6"
-	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: model, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL)}, nil, false, nil, nil, false, providers.ProviderAnthropic, model, nil).
+	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: model, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL)}, nil, nil, false, providers.ProviderAnthropic, model, nil).
 		WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "teammate", AccessToken: "sk-ant-oat01-teammate", ProviderAccount: "teammate-provider", Tier: auth.SubscriptionTierShared}}}).
 		WithUsageObserver(observer).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
@@ -206,7 +206,7 @@ func TestSpentOwnCodexPlanNudgesWhenTheLastLinkedSeatRunsOutMidTurn(t *testing.T
 			client.SetCodexBaseURL(server.URL)
 			observer := usage.NewObserver([]byte("test-salt"), time.Hour, time.Now)
 			observer.Record(observer.Key([]byte(codexTestToken)), usage.Snapshot{Primary: usage.Window{UsedPercent: 1, WindowMinutes: codexQuotaWindowMinutes, ResetAt: time.Now().Add(3 * time.Hour)}})
-			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).
+			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).
 				WithManagedSubscriptions(&scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "teammate", AccessToken: "pool-seat", ProviderAccount: "teammate-provider", Tier: auth.SubscriptionTierShared}}, repeatLast: true}).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 				WithUsageObserver(observer)
