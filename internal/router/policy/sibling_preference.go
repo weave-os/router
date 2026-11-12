@@ -133,19 +133,19 @@ func reselectRememberedSibling(ctx context.Context, selection siblingArmSelectio
 // preferences reorder a group: the effective map, the rescue order's map, and
 // the cooling pool's map. The pool keeps the configured allowlists: dropping a
 // remembered group's list would readmit a soft-excluded model outside it.
-func siblingRoutingOverrides(req router.Request, groups []PreviewGroup, escalationConstrained bool) (effective, rescue, pool map[string][]string) {
-	effective = siblingPreferenceOverrides(req)
-	rescue = effective
-	pool = req.ClusterArmOverrides
+func siblingRoutingOverrides(req router.Request, groups []PreviewGroup, escalationConstrained bool) (effectiveOverrides, rescueOverrides, poolOverrides map[string][]string) {
+	effectiveOverrides = siblingPreferenceOverrides(req)
+	rescueOverrides = effectiveOverrides
+	poolOverrides = req.ClusterArmOverrides
 	if escalationConstrained {
 		groupNames := make([]string, 0, len(groups))
 		for _, group := range groups {
 			groupNames = append(groupNames, group.Group)
 		}
-		rescue = escalationArmOverrides(rescue, groupNames...)
-		pool = escalationArmOverrides(pool, groupNames...)
+		rescueOverrides = escalationArmOverrides(rescueOverrides, groupNames...)
+		poolOverrides = escalationArmOverrides(poolOverrides, groupNames...)
 	}
-	return effective, rescue, pool
+	return effectiveOverrides, rescueOverrides, poolOverrides
 }
 
 // recordRememberedOrders stamps each remembered group's effective arm order on
