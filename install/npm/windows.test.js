@@ -431,6 +431,9 @@ test("the native installer records the pre-Weave model once", async () => {
     for (const target of ["claude", "codex"]) await runInstallerAt(home, [`--${target}`, "--non-interactive", "--base-url", baseUrl]);
     assert.deepEqual(priorHeader(), ["X-Weave-Prior-Model: claude-sonnet-4-6"], "a reinstall keeps the first record");
     assert.equal(codexPrior(), "gpt-5.4", "a reinstall keeps the first record");
+    fs.writeFileSync(codexConfigPath, fs.readFileSync(codexConfigPath, "utf8").replace(/X-Weave-Prior-Model"? = "gpt-5\.4"/, 'X-Weave-Prior-Model" = 7').replace(/([{,] )X-Weave-Prior-Model" = 7/, '$1"X-Weave-Prior-Model" = 7'));
+    await runInstallerAt(home, ["--codex", "--non-interactive", "--base-url", baseUrl]);
+    assert.equal(codexPrior(), "unset", "a malformed record is repaired as unset");
     const project = path.join(home, "project");
     fs.mkdirSync(project);
     await runFile("git", ["init", "-q", project]);

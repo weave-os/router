@@ -227,7 +227,11 @@ const priorModelId = (model) => {
   const id = typeof model === "string" ? model.replace(/\[1m\]$/, "") : "";
   return id.length <= 128 && /^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$/.test(id) && id !== "unset" && id !== "weave-auto" ? id : "";
 };
-const recordedPriorModel = (value) => (value === undefined ? "" : value.trim() === "unset" ? "unset" : priorModelId(String(value).trim()) || "unset");
+const recordedPriorModel = (value) => {
+  if (value === undefined) return "";
+  const id = typeof value === "string" ? value.trim() : "";
+  return id === "unset" ? "unset" : priorModelId(id) || "unset";
+};
 const claudeWeaveAutoOption = { model: claudeWeaveAutoModel, label: "Weave Auto", description: "Weave picks the best model for each turn", behavesAs: "claude-opus-5-5" };
 
 function stripClaudeWeaveAuto(layer) {
