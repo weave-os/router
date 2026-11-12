@@ -13,6 +13,12 @@ import (
 
 var _ telemetry.TranslationMetrics = (*translationMetrics)(nil)
 
+// NewTranslationMetrics returns the OTel implementation of the translation
+// metrics port. It is independent of the per-request span emitter.
+func NewTranslationMetrics() telemetry.TranslationMetrics {
+	return &translationMetrics{}
+}
+
 type translationMetrics struct {
 	once                 sync.Once
 	compatibilityCounter metric.Int64Counter

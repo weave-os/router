@@ -99,6 +99,7 @@ type Service struct {
 	// scopedSearchRequirement.
 	searchUse            *searchUseTracker
 	emitter              TelemetryEmitter
+	translationMetrics   telemetry.TranslationMetrics
 	embedOnlyUserMessage bool
 	semanticCache        *cache.Cache
 	// pinStore persists session-sticky routing decisions. Nil when the feature
@@ -2949,6 +2950,10 @@ func (s *Service) newUsageExtractor(inner http.ResponseWriter, provider string) 
 }
 
 func (s *Service) recordTranslationCompatibility(ctx context.Context, requirement, sourceFormat, targetFamily, mode string, enforced bool) {
+	if s.translationMetrics != nil {
+		s.translationMetrics.RecordTranslationCompatibility(ctx, requirement, sourceFormat, targetFamily, mode, enforced)
+		return
+	}
 	if provider, ok := s.emitter.(translationMetricsProvider); ok {
 		if metrics := provider.TranslationMetrics(); metrics != nil {
 			metrics.RecordTranslationCompatibility(ctx, requirement, sourceFormat, targetFamily, mode, enforced)
@@ -2957,11 +2962,21 @@ func (s *Service) recordTranslationCompatibility(ctx context.Context, requiremen
 }
 
 func (s *Service) recordTranslationTransform(ctx context.Context, code, action, sourceFormat, mode string) {
+	if s.translationMetrics != nil {
+		s.translationMetrics.RecordTranslationTransform(ctx, code, action, sourceFormat, mode)
+		return
+	}
 	if provider, ok := s.emitter.(translationMetricsProvider); ok {
 		if metrics := provider.TranslationMetrics(); metrics != nil {
 			metrics.RecordTranslationTransform(ctx, code, action, sourceFormat, mode)
 		}
 	}
+}
+
+// WithTranslationMetrics installs the adapter-backed translation counters.
+func (s *Service) WithTranslationMetrics(metrics telemetry.TranslationMetrics) *Service {
+	s.translationMetrics = metrics
+	return s
 }
 
 // WithBillingService installs the credit-billing service. Nil disables the

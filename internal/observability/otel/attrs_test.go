@@ -18,17 +18,32 @@ func TestAttrsToProtoPreservesScalarKindsAndZeroValues(t *testing.T) {
 	}
 
 	out := attrsToProto(attrs)
+	if _, ok := out[0].Value.Value.(*commonv1.AnyValue_StringValue); !ok {
+		t.Fatalf("empty string has unexpected type %T", out[0].Value.Value)
+	}
 	if got := out[0].Value.GetStringValue(); got != "" {
 		t.Fatalf("empty string = %q", got)
+	}
+	if _, ok := out[1].Value.Value.(*commonv1.AnyValue_IntValue); !ok {
+		t.Fatalf("zero int has unexpected type %T", out[1].Value.Value)
 	}
 	if got := out[1].Value.GetIntValue(); got != 0 {
 		t.Fatalf("zero int = %d", got)
 	}
+	if _, ok := out[2].Value.Value.(*commonv1.AnyValue_DoubleValue); !ok {
+		t.Fatalf("zero float has unexpected type %T", out[2].Value.Value)
+	}
 	if got := out[2].Value.GetDoubleValue(); got != 0 {
 		t.Fatalf("zero float = %v", got)
 	}
+	if _, ok := out[3].Value.Value.(*commonv1.AnyValue_BoolValue); !ok {
+		t.Fatalf("false has unexpected type %T", out[3].Value.Value)
+	}
 	if got := out[3].Value.GetBoolValue(); got {
 		t.Fatal("false value became true")
+	}
+	if _, ok := out[4].Value.Value.(*commonv1.AnyValue_ArrayValue); !ok {
+		t.Fatalf("empty array has unexpected type %T", out[4].Value.Value)
 	}
 	if got := out[4].Value.GetArrayValue(); got == nil || len(got.Values) != 0 {
 		t.Fatalf("empty array = %#v", got)
