@@ -91,9 +91,7 @@ export function ModelSelectionPanel() {
       <Card className="p-0">
         <Card.Content>
           {available.length === 0 ? (
-            <EmptyHint>
-              No deployed models. Check the routing policy and provider keys.
-            </EmptyHint>
+            <EmptyHint>No deployed models. Check the routing policy and provider keys.</EmptyHint>
           ) : (
             <div className="divide-y divide-border">
               {Array.from(grouped.entries()).map(([provider, models]) => (
