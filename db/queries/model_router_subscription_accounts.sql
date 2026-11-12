@@ -551,6 +551,7 @@ LEFT JOIN LATERAL (
     FROM router.model_router_subscription_account_installations AS registration
     JOIN router.model_router_users AS u
       ON u.installation_id = registration.installation_id
+     AND registration.subscription_account_id = a.id
      AND u.credential_subject_id = a.subscriber_id
      AND u.deleted_at IS NULL
     LEFT JOIN router.credential_subject_identities AS identity

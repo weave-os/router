@@ -39,8 +39,7 @@ function describeError(err: unknown, fallback: string) {
 // A poll can fail transiently (network, 5xx) while the person is still approving
 // the device code, so only client errors and expiry end the Codex flow.
 function isRetryableLoginPollError(err: unknown) {
-  const message = describeError(err, "");
-  const status = /^([0-9]{3}):/.exec(message)?.[1];
+  const status = /^([0-9]{3}):/.exec(describeError(err, ""))?.[1];
   if (status != null) return status.startsWith("5");
   return true;
 }
