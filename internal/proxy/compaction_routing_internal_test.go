@@ -12,7 +12,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
@@ -40,22 +39,21 @@ type compactionRoutingFixture struct {
 	installationID uuid.UUID
 }
 
-// The cluster bundle's fastest-model resolver stands in for the generic
-// utility hard pin; compaction must never reach it.
+// The production utility selector stands in for the generic utility hard
+// pin; compaction must never reach it.
 func newCompactionRoutingFixture(t *testing.T, scored router.Decision) compactionRoutingFixture {
 	t.Helper()
-	version, err := cluster.ResolveVersion(cluster.LatestVersion)
-	require.NoError(t, err)
-	bundle, err := cluster.LoadBundle(version)
-	require.NoError(t, err)
 	calls := &atomic.Int32{}
 	store := newForceModelMapStore()
 	svc := NewService(compactionScorer{decision: scored, calls: calls},
 		map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil},
 		nil, false, nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil).
 		WithHardPinResolver(func(req HardPinRequest) (string, string, bool) {
-			return cluster.FastestModelForRequest(bundle.Metadata, bundle.Registry, req.EnabledProviders, req.ExcludedModels, nil,
-				cluster.RequestBindings{Custom: req.CustomBindings, Gateways: req.GatewayProviders})
+			return policy.UtilityTarget(policy.UtilityTargetRequest{
+				EnabledProviders: req.EnabledProviders,
+				ExcludedModels:   req.ExcludedModels,
+				Bindings:         router.RequestBindings{Custom: req.CustomBindings, Gateways: req.GatewayProviders},
+			})
 		})
 	return compactionRoutingFixture{svc: svc, store: store, scorerCalls: calls, installationID: uuid.New()}
 }
@@ -73,23 +71,20 @@ func (f compactionRoutingFixture) pinSession(t *testing.T, ctx context.Context, 
 	f.svc.writeNewPin(ctx, f.installationID, deriveSessionKeyForRequest(ctx, env, "test-key"), role, decision)
 }
 
-func openAIBundleModels(t *testing.T) map[string]struct{} {
-	t.Helper()
-	version, err := cluster.ResolveVersion(cluster.LatestVersion)
-	require.NoError(t, err)
-	bundle, err := cluster.LoadBundle(version)
-	require.NoError(t, err)
+func openAICatalogModels() map[string]struct{} {
 	out := map[string]struct{}{}
-	for _, entry := range bundle.Registry.DeployedModels {
-		if entry.Provider == providers.ProviderOpenAI {
-			out[entry.Model] = struct{}{}
+	for _, m := range catalog.Models {
+		for _, b := range m.Providers {
+			if b.Provider == providers.ProviderOpenAI {
+				out[m.ID] = struct{}{}
+			}
 		}
 	}
 	return out
 }
 
 // A resumed Codex thread whose first request is a compaction has no session
-// pin yet. With the cluster bundle's OpenAI models excluded and only OpenAI
+// pin yet. With every OpenAI catalog model excluded and only OpenAI
 // enabled, compaction used to fail with a retryable "cluster scorer failed"
 // 503 on every retry instead of asking the scorer.
 func TestCompactionWithoutSessionPinUsesScorer(t *testing.T) {
@@ -101,11 +96,11 @@ func TestCompactionWithoutSessionPinUsesScorer(t *testing.T) {
 
 	turn, err := f.run(t, ctx, env, router.Request{
 		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
-		ExcludedModels:   openAIBundleModels(t),
+		ExcludedModels:   openAICatalogModels(),
 	})
 
 	require.NoError(t, err)
-	assert.NotErrorIs(t, err, cluster.ErrClusterUnavailable)
+	assert.NotErrorIs(t, err, router.ErrRoutingUnavailable)
 	assert.Equal(t, turntype.Compaction, turn.TurnType)
 	assert.Equal(t, compactionStrategyModel, turn.Decision.Model)
 	assert.Equal(t, int32(1), f.scorerCalls.Load())
@@ -166,7 +161,7 @@ func TestCompactionStaysOnSessionPin(t *testing.T) {
 }
 
 // A pin the request can no longer use falls through to the scorer, not to the
-// cluster utility model.
+// utility hard-pin model.
 func TestCompactionIneligibleSessionPinUsesScorer(t *testing.T) {
 	scored := router.Decision{Provider: providers.ProviderOpenAI, Model: compactionStrategyModel, Reason: "cluster_scored"}
 	f := newCompactionRoutingFixture(t, scored)

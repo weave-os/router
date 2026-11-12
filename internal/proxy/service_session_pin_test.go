@@ -17,7 +17,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
@@ -615,8 +614,8 @@ func TestService_HardPin_TitleGen_AppliesExcludedModels(t *testing.T) {
 	const excludedModel = "gemini-3.1-flash-lite-preview"
 	const allowedFallback = "claude-haiku-4-5"
 
-	// Mimics cluster.FastestModelInSet: fastest candidate is excluded, so
-	// resolver must fall through to the next allowed candidate.
+	// The preferred candidate is excluded, so the resolver must fall through
+	// to the next allowed candidate.
 	resolver := func(req proxy.HardPinRequest) (string, string, bool) {
 		if _, denied := req.ExcludedModels[excludedModel]; !denied {
 			return providers.ProviderGoogle, excludedModel, true
@@ -1732,7 +1731,7 @@ func TestService_HardPin_TitleGen_GatewayExclusive_NoAliasReportsConfigError(t *
 	require.Error(t, err)
 	assert.ErrorIs(t, err, policy.ErrGatewayServesNoDeployedModel,
 		"gateway-exclusive hard-pin must name the alias list, not report the router unavailable")
-	assert.NotErrorIs(t, err, cluster.ErrClusterUnavailable)
+	assert.NotErrorIs(t, err, router.ErrRoutingUnavailable)
 }
 
 // authedCtxWithGatewayKey attaches an openai_gateway BYOK key, optionally

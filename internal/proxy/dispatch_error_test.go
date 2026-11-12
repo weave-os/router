@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"weave-os/router/internal/billing"
@@ -143,10 +144,11 @@ func TestClassifyDispatchError_UpstreamErrorResponsePreservesStatus(t *testing.T
 	assert.Equal(t, http.StatusTooManyRequests, cls.Status)
 }
 
-func TestClassifyDispatchError_ClusterUnavailableRetriesAndLogsError(t *testing.T) {
-	cls, ok := proxy.ClassifyDispatchError(cluster.ErrClusterUnavailable)
+func TestClassifyDispatchError_RoutingUnavailableRetriesAndLogsError(t *testing.T) {
+	cls, ok := proxy.ClassifyDispatchError(router.ErrRoutingUnavailable)
 
 	require.True(t, ok)
+	assert.NotContains(t, cls.Message, "cluster")
 	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
 	assert.True(t, cls.RetryAfter)
 	assert.Equal(t, "error", cls.LogLevel)
@@ -179,6 +181,8 @@ func TestClassifyDispatchError_RoutingSentinelsKeepStatusAndKind(t *testing.T) {
 				assert.Equal(t, tc.kind, cls.Kind)
 				assert.Equal(t, tc.status, cls.Status)
 				assert.Equal(t, tc.retryAfter, cls.RetryAfter)
+				assert.NotContains(t, strings.ToLower(cls.Message), "cluster")
+				assert.NotContains(t, strings.ToLower(cls.LogMessage), "cluster")
 			}
 		})
 	}
