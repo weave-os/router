@@ -410,11 +410,10 @@ func (s *Service) ListAPIKeys(ctx context.Context, installationID string) ([]*AP
 	return visible, nil
 }
 
-// RotateAPIKey soft-deletes the named key and issues a replacement under the
-// same installation, carrying forward its name. Returns ErrAPIKeyNotFound if
-// keyID isn't an active key owned by installationID, or if SoftDelete matches
-// 0 rows: a concurrent rotate or delete already transitioned the key, so
-// minting a successor would leave an untracked credential.
+// RotateAPIKey replaces the named key under the same installation, carrying
+// forward its name. Installation-shared keys soft-delete then issue; subject-owned
+// keys rotate through RotateProjected, which returns ErrAPIKeyNotFound on a 0-row
+// soft delete and ErrPersonalCredentialRequired for a revoked or incomplete subject.
 func (s *Service) RotateAPIKey(ctx context.Context, installationID, keyID string, createdBy *string) (*APIKey, string, error) {
 	existing, err := s.apiKeys.ListForInstallation(ctx, installationID)
 	if err != nil {

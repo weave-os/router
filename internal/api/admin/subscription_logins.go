@@ -87,7 +87,7 @@ func AdminStartSubscriptionLoginHandler(authSvc *auth.Service, flow Subscription
 }
 
 func AdminCompleteSubscriptionLoginHandler(authSvc *auth.Service, flow SubscriptionLoginFlow) gin.HandlerFunc {
-	return completeSubscriptionLoginHandler(authSvc, flow, adminSubscriptionOwner(authSvc))
+	return completeSubscriptionLoginHandler(authSvc, flow, internalSubscriptionOwner)
 }
 
 // adminSubscriptionOwner only accepts subscribers with a live routing key, so

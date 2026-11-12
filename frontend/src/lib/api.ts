@@ -170,10 +170,14 @@ export const api = {
         body: JSON.stringify({ provider }),
       }),
     /** Resolves to null while a Codex device login is still waiting for approval. */
-    complete: async (subscriberID: string, loginToken: string, authCode?: string) => {
+    complete: async (subscriberID: string, loginToken: string, authCode?: string, signal?: AbortSignal) => {
       const outcome = await request<LinkedSubscriptionAccount | { status: "pending" }>(
         `/subscription-logins/${subscriberID}/complete`,
-        { method: "POST", body: JSON.stringify({ login_token: loginToken, code: authCode ?? "" }) },
+        {
+          method: "POST",
+          body: JSON.stringify({ login_token: loginToken, code: authCode ?? "" }),
+          ...(signal == null ? {} : { signal }),
+        },
       );
       return "status" in outcome ? null : outcome;
     },

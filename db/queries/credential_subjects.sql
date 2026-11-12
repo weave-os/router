@@ -11,7 +11,7 @@ VALUES (@subject_id::uuid, @installation_id::uuid);
 -- name: LockInstallationForPersonalIssuance :one
 SELECT id FROM router.model_router_installations
 WHERE id = @installation_id::uuid AND deleted_at IS NULL
-FOR UPDATE;
+FOR NO KEY UPDATE;
 
 -- Personal issuance never rebinds or rotates an installation-shared key.
 -- name: InsertPersonalRoutingKey :one

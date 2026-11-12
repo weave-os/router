@@ -17,7 +17,7 @@ import { Appearance, Intent } from "@/shared/components/types";
 
 import { ExternalLink } from "lucide-react";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { EmptyHint, ErrorBanner } from "./shared";
 
@@ -30,6 +30,19 @@ interface ActiveLogin {
   provider: SubscriptionLoginProvider;
   subscriberID: string;
   started: StartedSubscriptionLogin;
+}
+
+function describeError(err: unknown, fallback: string) {
+  return err instanceof Error && err.message !== "" ? err.message : fallback;
+}
+
+// A poll can fail transiently (network, 5xx) while the person is still approving
+// the device code, so only client errors and expiry end the Codex flow.
+function isRetryableLoginPollError(err: unknown) {
+  const message = describeError(err, "");
+  const status = /^([0-9]{3}):/.exec(message)?.[1];
+  if (status != null) return status.startsWith("5");
+  return true;
 }
 
 // The key identity disambiguates owners whose keys share a name or have none.
@@ -53,6 +66,7 @@ export function SubscriptionLoginPanel({ onLinked }: { onLinked?: () => void }) 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [linked, setLinked] = useState<LinkedSubscriptionAccount | null>(null);
+  const loginAbort = useRef<AbortController | null>(null);
 
   useEffect(() => {
     api.subscriptionLogins
@@ -61,7 +75,7 @@ export function SubscriptionLoginPanel({ onLinked }: { onLinked?: () => void }) 
         setOwners(response);
         setSubscriberID(response.owners[0]?.subscriber_id ?? "");
       })
-      .catch((err: unknown) => setError(String(err)));
+      .catch((err: unknown) => setError(describeError(err, "Failed to load subscription owners.")));
   }, []);
 
   // Codex uses a device code: poll until the person approves it on OpenAI's page.
@@ -69,23 +83,35 @@ export function SubscriptionLoginPanel({ onLinked }: { onLinked?: () => void }) 
     if (login == null || login.provider !== "codex") return;
     let cancelled = false;
     const intervalMs = Math.max(login.started.poll_interval_seconds ?? 5, 1) * 1000;
+    const expiresAt = Date.parse(login.started.expires_at);
     const poll = async () => {
       try {
         const account = await api.subscriptionLogins.complete(
           login.subscriberID,
           login.started.login_token,
+          undefined,
+          loginAbort.current?.signal,
         );
-        if (cancelled) return;
+        if (cancelled || loginAbort.current?.signal.aborted === true) return;
         if (account == null) {
-          timer = setTimeout(poll, intervalMs);
+          if (Date.now() < expiresAt) {
+            timer = setTimeout(poll, intervalMs);
+          } else {
+            setError("The Codex sign-in expired before it was approved.");
+            setLogin(null);
+          }
           return;
         }
         setLinked(account);
         setLogin(null);
         onLinked?.();
       } catch (err) {
-        if (cancelled) return;
-        setError(String(err));
+        if (cancelled || loginAbort.current?.signal.aborted === true) return;
+        if (isRetryableLoginPollError(err) && Date.now() < expiresAt) {
+          timer = setTimeout(poll, intervalMs);
+          return;
+        }
+        setError(describeError(err, "Failed to finish the Codex sign-in."));
         setLogin(null);
       }
     };
@@ -103,10 +129,11 @@ export function SubscriptionLoginPanel({ onLinked }: { onLinked?: () => void }) 
     setAuthCode("");
     try {
       const started = await api.subscriptionLogins.start(subscriberID, provider);
+      loginAbort.current = new AbortController();
       setLogin({ provider, started, subscriberID });
       window.open(started.verification_url, "_blank", "noopener,noreferrer");
     } catch (err) {
-      setError(String(err));
+      setError(describeError(err, "Failed to start the subscription login."));
     } finally {
       setBusy(false);
     }
@@ -121,12 +148,15 @@ export function SubscriptionLoginPanel({ onLinked }: { onLinked?: () => void }) 
         login.subscriberID,
         login.started.login_token,
         authCode.trim(),
+        loginAbort.current?.signal,
       );
+      if (loginAbort.current?.signal.aborted === true) return;
       setLinked(account);
       setLogin(null);
       onLinked?.();
     } catch (err) {
-      setError(String(err));
+      if (loginAbort.current?.signal.aborted === true) return;
+      setError(describeError(err, "Failed to link the subscription."));
     } finally {
       setBusy(false);
     }
@@ -239,7 +269,11 @@ export function SubscriptionLoginPanel({ onLinked }: { onLinked?: () => void }) 
             appearance={Appearance.Hollow}
             size="sm"
             className="self-start"
-            onClick={() => setLogin(null)}
+            onClick={() => {
+              loginAbort.current?.abort();
+              setLogin(null);
+              setAuthCode("");
+            }}
           >
             Cancel
           </Button>
@@ -264,7 +298,7 @@ export function SubscriptionSeatsPanel({ refreshKey }: { refreshKey: number }) {
         setEnabled(response.enabled);
         setSeats(response.seats);
       })
-      .catch((err: unknown) => setError(String(err)));
+      .catch((err: unknown) => setError(describeError(err, "Failed to load linked subscriptions.")));
   }, [refreshKey]);
 
   async function unlink(seat: SubscriptionSeat) {
@@ -274,7 +308,7 @@ export function SubscriptionSeatsPanel({ refreshKey }: { refreshKey: number }) {
       await api.subscriptionLogins.unlink(seat.subscriber_id, seat.account_id);
       setSeats(current => current?.filter(other => other.account_id !== seat.account_id) ?? null);
     } catch (err) {
-      setError(String(err));
+      setError(describeError(err, "Failed to unlink the subscription."));
     } finally {
       setUnlinking(null);
     }
@@ -307,6 +341,7 @@ export function SubscriptionSeatsPanel({ refreshKey }: { refreshKey: number }) {
             <Text className="truncate text-xs text-muted-foreground">
               {seat.owner_display_name || seat.owner_email || "Unknown owner"}
               {seat.owner_has_routing_key ? "" : " · no routing key, not serving requests"}
+              {seat.enabled ? "" : " · disabled"}
             </Text>
           </div>
           <Button

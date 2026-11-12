@@ -45,13 +45,26 @@ func TestIssueScopedAPIKey_PersonalIssuerOwnsRoutingKeys(t *testing.T) {
 	assert.Equal(t, 1, repo.createCount())
 }
 
+func setStoredCredentialSubject(t *testing.T, repo *statefulAPIKeyRepo, keyID, subjectID string) {
+	t.Helper()
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	for _, key := range repo.keys {
+		if key.ID == keyID {
+			key.CredentialSubjectID = subjectID
+			return
+		}
+	}
+	require.FailNow(t, "stored API key not found", keyID)
+}
+
 func TestRotateAPIKey_PersonalKeyKeepsSubject(t *testing.T) {
 	repo := newStatefulAPIKeyRepo()
 	issuer := &recordingPersonalIssuer{}
 	svc := auth.NewService(nil, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now)
 	seed, _, err := svc.IssueAPIKey(context.Background(), "inst-1", nil, nil)
 	require.NoError(t, err)
-	seed.CredentialSubjectID = "subject-1"
+	setStoredCredentialSubject(t, repo, seed.ID, "subject-1")
 
 	_, _, err = svc.RotateAPIKey(context.Background(), "inst-1", seed.ID, nil)
 	require.ErrorIs(t, err, auth.ErrPersonalCredentialRequired)

@@ -331,15 +331,14 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		// Mutations: admin cookie REQUIRED. rk_ tokens are rejected so a leaked data-plane key can't mint fresh router keys or rotate provider credentials.
 		mgmt := engine.Group("/admin/v1", middleware.WithTimeout(adminTimeout), middleware.WithAdminOnly(authSvc))
 		mgmt.GET("/keys", admin.ListAPIKeysHandler(authSvc))
-		mgmt.GET("/subscription-owners", admin.ListSubscriptionOwnersHandler(
-			authSvc,
-			features.SubscriptionLogins != nil && authSvc.CanSealSubscriptionLogins(),
-		))
+		subscriptionLoginsEnabled := features.SubscriptionLogins != nil && authSvc.CanSealSubscriptionLogins()
+		mgmt.GET("/subscription-owners", admin.ListSubscriptionOwnersHandler(authSvc, subscriptionLoginsEnabled))
 		mgmt.GET("/subscription-accounts", admin.ListSubscriptionSeatsHandler(authSvc))
 		mgmt.DELETE("/subscription-accounts/:subscriberID/:accountID", admin.InternalDeleteSubscriptionAccountHandler(authSvc))
-		if features.SubscriptionLogins != nil {
-			mgmt.POST("/subscription-logins/:subscriberID", admin.AdminStartSubscriptionLoginHandler(authSvc, features.SubscriptionLogins))
-			mgmt.POST("/subscription-logins/:subscriberID/complete", admin.AdminCompleteSubscriptionLoginHandler(authSvc, features.SubscriptionLogins))
+		if subscriptionLoginsEnabled {
+			subscriptionLogins := engine.Group("/admin/v1", middleware.WithTimeout(subscriptionAccountTimeout), middleware.WithAdminOnly(authSvc))
+			subscriptionLogins.POST("/subscription-logins/:subscriberID", admin.AdminStartSubscriptionLoginHandler(authSvc, features.SubscriptionLogins))
+			subscriptionLogins.POST("/subscription-logins/:subscriberID/complete", admin.AdminCompleteSubscriptionLoginHandler(authSvc, features.SubscriptionLogins))
 		}
 		mgmt.POST("/keys", admin.IssueAPIKeyHandler(authSvc))
 		mgmt.POST("/keys/:id/rotate", admin.RotateAPIKeyHandler(authSvc))

@@ -90,11 +90,13 @@ func TestAdminLoginEnrollsThePickedSubscriberThroughTheirRoutingKey(t *testing.T
 
 func TestAdminLoginRefusesSubscriberWithoutRoutingKeyBeforeContactingProvider(t *testing.T) {
 	repo := &adminLoginAccountRepo{loginAccountRepo: loginAccountRepo{withoutRoutingKey: true}}
-	engine := adminLoginTestEngine(t, repo, &fakeLoginFlow{})
+	flow := &fakeLoginFlow{}
+	engine := adminLoginTestEngine(t, repo, flow)
 
 	recorder := adminPost(t, engine, "/admin/v1/subscription-logins/"+testSubscriberID, map[string]string{"provider": "claude"})
 	require.Equal(t, http.StatusConflict, recorder.Code, recorder.Body.String())
 	require.Contains(t, recorder.Body.String(), "routing_key_required")
+	require.Empty(t, flow.startAttempts)
 }
 
 func TestAdminLoginTokenOnlyCompletesForTheSubscriberItWasStartedFor(t *testing.T) {
@@ -128,6 +130,19 @@ func TestAdminSubscriptionOwnersReportsDisabledPools(t *testing.T) {
 	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/admin/v1/subscription-owners", nil))
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.JSONEq(t, `{"enabled":false,"owners":[]}`, recorder.Body.String())
+}
+
+func TestAdminDeleteSubscriptionAccountReportsDisabledPools(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.DELETE("/admin/v1/subscription-accounts/:subscriberID/:accountID", admin.InternalDeleteSubscriptionAccountHandler(auth.NewService(nil, nil, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now)))
+
+	req := httptest.NewRequest(http.MethodDelete, "/admin/v1/subscription-accounts/"+testSubscriberID+"/00000000-0000-0000-0000-000000000000", nil)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, req)
+
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code, recorder.Body.String())
+	require.JSONEq(t, `{"error":"subscription_accounts_unavailable"}`, recorder.Body.String())
 }
 
 func TestAdminSubscriptionSeatsReportsDisabledPools(t *testing.T) {
