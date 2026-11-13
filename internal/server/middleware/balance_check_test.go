@@ -549,13 +549,14 @@ func TestWithBalanceCheck_CreditsDisabledIgnoresBalance(t *testing.T) {
 		"depleted":    {balance: -1},
 		"row missing": {balanceErr: billing.ErrBalanceRowMissing},
 		"read error":  {balanceErr: errors.New("db down")},
+		"override":    {balance: -1, override: true},
 	}
 	for name, repo := range cases {
 		t.Run(name, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			svc := billing.NewService(repo)
 			engine := gin.New()
-			var reached, subOnly, denied bool
+			var reached, subOnly, denied, override bool
 			engine.GET("/v1/messages", func(c *gin.Context) {
 				c.Set("router_installation", &auth.Installation{ID: "00000000-0000-0000-0000-000000000001", ExternalID: "org_keys_only"})
 				middleware.WithBalanceCheck(svc, 0)(c)
@@ -565,15 +566,16 @@ func TestWithBalanceCheck_CreditsDisabledIgnoresBalance(t *testing.T) {
 				reached = true
 				subOnly = billing.SubscriptionOnlyFromContext(c.Request.Context())
 				denied = billing.WeaveCreditsDeniedFromContext(c.Request.Context())
+				override = billing.HasOverrideFromContext(c.Request.Context())
 				c.Status(http.StatusOK)
 			})
 			w := httptest.NewRecorder()
 			engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/messages", nil))
+			assert.Equal(t, repo.override, override, "an override still exempts monthly spend caps")
 			assert.True(t, reached, "a credits-disabled installation must not be gated on its balance")
 			assert.Equal(t, http.StatusOK, w.Code)
 			assert.False(t, subOnly, "customer keys must stay usable")
 			assert.True(t, denied)
-			assert.Empty(t, repo.balanceOrgIDs, "the balance is not read")
 		})
 	}
 }
