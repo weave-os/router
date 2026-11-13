@@ -23,7 +23,6 @@ var configuredPolicyStrategyPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}
 
 var reservedPolicyStrategies = map[router.Strategy]struct{}{
 	router.StrategyLLMClassifier: {},
-	router.StrategyCluster:       {},
 	router.StrategyRL:            {},
 	router.StrategyHMM:           {},
 	router.StrategyHMMEmbedding:  {},
@@ -70,7 +69,7 @@ func buildConfiguredPolicySidecars(
 		if !configuredPolicyStrategyPattern.MatchString(string(strategy)) {
 			return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS strategy %q must match %s", strategy, configuredPolicyStrategyPattern)
 		}
-		if _, reserved := reservedPolicyStrategies[strategy]; reserved {
+		if _, reserved := reservedPolicyStrategies[strategy]; reserved || router.IsRetiredStrategy(strategy) {
 			return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS strategy %q is reserved", strategy)
 		}
 		if _, duplicate := seen[strategy]; duplicate {

@@ -1,6 +1,6 @@
 # Legacy worker compatibility fixture
 
-This boots the real ORT-enabled worker in both `selfhosted` and `managed`
+This boots the real worker in both `selfhosted` and `managed`
 modes against an already-migrated, disposable loopback Postgres database.
 It starts its own loopback Pub/Sub gRPC fixture and serves the stub HMM
 classifier and baked policy release from `smoke/hmmstub`, because workers boot
@@ -12,10 +12,6 @@ ROUTER_TEST_DATABASE_URL='postgres://fixture-user:fixture-password@localhost:543
 ROUTER_TEST_WORKER_BINARY=/absolute/path/to/router \
 go run ./scripts/legacy_runtime_check
 ```
-
-The current worker boots without ONNX assets. Set `ROUTER_ONNX_ASSETS_DIR` and
-`ROUTER_ONNX_LIBRARY_DIR` only when checking an older worker that still builds
-the cluster scorer; they are forwarded only when set.
 
 Use only a newly created local database, never a shared developer database.
 The command creates random installations/keys and retains its worker logs in
@@ -29,13 +25,12 @@ feature stays dormant. The managed leg is an unstamped legacy worker and sets
 no `ROUTER_SERVING_*` variable at all, because in `managed` mode any such
 variable being set without `ROUTER_SERVING_ASSERTION_KEY` refuses to boot.
 
-`.github/workflows/test.yml` prepares native assets pinned by `Dockerfile`,
+`.github/workflows/test.yml` builds both workers with `CGO_ENABLED=0`,
 denies the fixture database role access to all new managed-serving tables,
 and runs this command against both the proposed binary and the retained base
 binary on the upgraded schema. Migrations run up/down/up only on that CI
 database; a deployed database must never be downgraded for worker rollback.
 
-The proposed worker runs with no native assets; the retained base binary still
-receives them. Private GCS/IAM,
+Private GCS/IAM,
 production HMM/classifier identity, gateway cutover, and real streaming
 provider behavior still require their separate validation gates.

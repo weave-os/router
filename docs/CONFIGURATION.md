@@ -21,7 +21,6 @@ This page is the exhaustive reference; the [README](../README.md) has the
 - [Task-domain classifier](#task-domain-classifier)
 - [BYOK encryption](#byok-encryption)
 - [Telemetry (OpenTelemetry)](#telemetry-opentelemetry)
-- [Cluster-routing artifacts](#cluster-routing-artifacts)
 
 ## Task-domain classifier
 
@@ -636,8 +635,6 @@ the admission caches using the same Pub/Sub project and topic.
 | `ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT` | `none` | Shadow classifier (`llm_escalation` or `switchyard_llm_v1`) for installations with no escalation selection and no active classifier. `switchyard_llm_v1` requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`; `llm_escalation` requires `ROUTER_LLM_ESCALATION_URL` and `ROUTER_LLM_ESCALATION_API_KEY`; startup fails otherwise. Shadow judging uses its own pool of 8 slots per instance. Each successful verdict is written to the judge's auxiliary telemetry row (`classifier_predicted_label`); failed judgments keep their cost row with no label. |
 | `ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED` | `false` | Allows `switchyard_llm_v1` to be selected as the active classifier. Keep false during shadow evaluation; requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`. |
 | `ROUTER_PROVIDER_OVERLOADED`      | `true`                       | Per-model 529 circuit breaker. Provider-direct overloaded responses from every organization feed one shared circuit per model (3 overloaded operations within 2 minutes open it); once it opens, the model leaves automatic selection only for organizations that have each observed 2 overloads themselves. Traffic through an organization's own gateway gets a circuit of its own that no other organization feeds or sees. `/force-model` still reaches the model, and one request probes it after 30s, doubling to a 10-minute cap on each failed probe. Thresholds are fixed in `internal/router/breaker/thresholds.go`. Org-overridable as `provider_overloaded`. |
-| `ROUTER_ONNX_ASSETS_DIR`          | `/opt/router/assets`         | Directory containing `model.onnx` + `tokenizer.json`. |
-| `ROUTER_ONNX_LIBRARY_DIR`         | *(system default)*           | Path to `libonnxruntime` (e.g. `/opt/homebrew/lib` on Apple Silicon). |
 
 If the cluster scorer can't run (missing model, embed timeout, etc.), the
 router returns HTTP 503 — it does *not* silently fall back to a default
@@ -1009,55 +1006,6 @@ asking for `full` under a `hashed` deployment still gets `hashed`.
 The first five follow the [OTel SDK env spec](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/);
 `OTEL_BSP_*` follows the [Batch Span Processor spec](https://opentelemetry.io/docs/specs/otel/trace/sdk/#batch-span-processor).
 `OTEL_EXPORT_WORKERS` is a router-specific extension.
-
-## Cluster-routing artifacts
-
-Each embedder the cluster scorer can use needs two files at runtime —
-`model.onnx` (INT8-quantized) and `tokenizer.json` — in its own subdirectory
-of the assets root, keyed by embedder ID:
-
-- `jina-v2-base-code-int8/` — from the public
-  [`jinaai/jina-embeddings-v2-base-code`](https://huggingface.co/jinaai/jina-embeddings-v2-base-code)
-  HuggingFace repo (Jina's own INT8 export; we don't maintain our own
-  quantization). Default for every bundle through v0.66; the flat legacy
-  layout (`<root>/model.onnx`) still resolves for this embedder.
-- `qwen3-embedding-0.6b-int8/` — produced by `scripts/export_qwen3_onnx.py`
-  (Qwen3-Embedding-0.6B with last-token pooling baked into the graph) and
-  uploaded to the public
-  [`weave-eng/qwen3-embedding-0.6b-onnx-router`](https://huggingface.co/weave-eng/qwen3-embedding-0.6b-onnx-router)
-  HF repo. Only needed when serving a bundle whose `metadata.yaml` declares
-  this embedder; the runtime loads embedders lazily.
-
-Neither is committed to git.
-
-**Docker (default):** the Dockerfile downloads the files at image build time
-into `/opt/router/assets/<embedder-id>/`. Both repos are public — no token
-needed (the optional `hf_token` secret still works for rate-limit headroom);
-set `HF_QWEN_REPO=` (empty) to skip the Qwen pull for Jina-only deploys.
-
-**`make dev` (host-mode hot reload):** fetch the Jina files once into a local
-directory and point `ROUTER_ONNX_ASSETS_DIR` at it:
-
-```bash
-mkdir -p assets/jina-v2-base-code-int8
-BASE="https://huggingface.co/jinaai/jina-embeddings-v2-base-code/resolve/516f4baf13dec4ddddda8631e019b5737c8bc250"
-curl -L "$BASE/onnx/model_quantized.onnx" -o assets/jina-v2-base-code-int8/model.onnx
-curl -L "$BASE/tokenizer.json" -o assets/jina-v2-base-code-int8/tokenizer.json
-echo "ROUTER_ONNX_ASSETS_DIR=$(pwd)/assets" >> .env.local
-```
-
-To also serve Qwen bundles locally, run `scripts/export_qwen3_onnx.py
---out-dir assets/qwen3-embedding-0.6b-int8` (or download the uploaded export
-into that directory).
-
-The pinned revisions (`HF_MODEL_REVISION`, `HF_QWEN_REVISION`) in the
-Dockerfile keep local dev and the container build on the same weights. Bump
-deliberately if you want a newer export.
-
-The committed cluster artifacts (centroids, rankings, model registry,
-metadata) live under `internal/router/cluster/artifacts/v<X.Y>/`. The
-`artifacts/latest` pointer selects the version the offline routing report
-reads; the worker no longer loads them.
 
 ## Response context snapshot
 

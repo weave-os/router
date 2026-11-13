@@ -65,7 +65,7 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 		}
 
 		strategy := router.Strategy(strings.ToLower(strings.TrimSpace(string(installation.RoutingStrategy))))
-		if strategy == router.StrategyCluster {
+		if router.IsRetiredStrategy(strategy) {
 			strategy = ""
 		}
 		identity, managedServing := requestcontext.ServingIdentityFromContext(c.Request.Context())

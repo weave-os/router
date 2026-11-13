@@ -118,7 +118,7 @@ func TestPinCacheCold_OrdinaryAndHMMShareTheSameRule(t *testing.T) {
 func TestConsumePostCommandContinuation_RequiresEffectiveStrategy(t *testing.T) {
 	store := newStubPinStore()
 	store.consumeHit = true
-	store.consumePin = sessionpin.Pin{Strategy: router.StrategyCluster}
+	store.consumePin = sessionpin.Pin{Strategy: router.StrategyHMMEmbedding}
 	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
@@ -1360,9 +1360,9 @@ func TestLoadPin_RequiresBetaStrategyMatch(t *testing.T) {
 		found   bool
 	}{
 		{name: "beta exact", request: router.StrategyHMMBeta, stored: router.StrategyHMMBeta, found: true},
-		{name: "beta rejects stable", request: router.StrategyHMMBeta, stored: router.StrategyCluster, found: false},
+		{name: "beta rejects stable", request: router.StrategyHMMBeta, stored: router.StrategyHMMEmbedding, found: false},
 		{name: "beta rejects legacy", request: router.StrategyHMMBeta, stored: "", found: false},
-		{name: "stable rejects beta", request: router.StrategyCluster, stored: router.StrategyHMMBeta, found: false},
+		{name: "stable rejects beta", request: router.StrategyHMMEmbedding, stored: router.StrategyHMMBeta, found: false},
 	}
 
 	for _, tt := range tests {

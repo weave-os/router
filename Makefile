@@ -176,19 +176,8 @@ db: ## Start the compose Postgres only (port 5433)
 	@echo '  DATABASE_URL=postgresql://router:router@localhost:5433/router?sslmode=disable'
 
 dev: ## Run with hot-reload (CompileDaemon)
-	# `-tags ORT` is required for hugot v0.7+ to enable the ONNX Runtime
-	# backend. Without it, cluster.NewEmbedder fails at boot and the
-	# router falls open to the heuristic (Anthropic-only) — which silently
-	# breaks any eval that expects v0.X-cluster routing. The Dockerfile
-	# already builds with this tag; do not drop it from any production-
-	# bound build either. See router/CLAUDE.md "Cluster routing (P0)".
-	#
-	# CGO_LDFLAGS (libtokenizers) and ROUTER_ONNX_LIBRARY_DIR
-	# (libonnxruntime) come from .env.local on macOS — see the comments
-	# there for setup. On Linux the brew/.local paths don't apply; the
-	# Dockerfile is the production path.
 	CompileDaemon \
-		-build="go build -tags ORT -o ./bin/server ./cmd/router" \
+		-build="go build -o ./bin/server ./cmd/router" \
 		-command="./bin/server" \
 		-exclude-dir="vendor" \
 		-exclude-dir=".vscode" \

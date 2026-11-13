@@ -15,7 +15,7 @@ func TestPreferenceValidateAcceptsBetaClassifiers(t *testing.T) {
 
 	assert.NoError(t, (sessionstrategy.Preference{Strategy: router.StrategyHMMBeta}).Validate())
 	assert.NoError(t, (sessionstrategy.Preference{Strategy: router.StrategyHMMQwen}).Validate())
-	for _, strategy := range []router.Strategy{"", "stable", router.StrategyHMM, router.StrategyCluster} {
+	for _, strategy := range []router.Strategy{"", "stable", router.StrategyHMM, router.Strategy("cluster")} {
 		assert.ErrorIs(t, (sessionstrategy.Preference{Strategy: strategy}).Validate(), sessionstrategy.ErrInvalidStrategy)
 	}
 }

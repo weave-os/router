@@ -246,8 +246,6 @@ class SmokeRun:
             "ROUTER_POLICY_RELEASE_DIR": "/policy/release",
             "ROUTER_HMM_SIDECAR_URL": f"http://{ComposeService.HMM_STUB}:8093",
             "ROUTER_HMM_SIDECAR_AUTH": "none",
-            "ROUTER_ONNX_ASSETS_DIR": "/opt/router/assets",
-            "ROUTER_ONNX_LIBRARY_DIR": "/usr/lib",
             "PUBSUB_EMULATOR_HOST": "pubsub-emulator:8085",
             "PUBSUB_PROJECT_ID": "router-local",
             "PUBSUB_TOPIC_ROUTER_INVALIDATION": "router-installation-invalidate",

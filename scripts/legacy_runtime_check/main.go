@@ -48,7 +48,7 @@ func run() error {
 	}
 	binary, err := filepath.Abs(os.Getenv("ROUTER_TEST_WORKER_BINARY"))
 	if err != nil || os.Getenv("ROUTER_TEST_WORKER_BINARY") == "" {
-		return errors.New("ROUTER_TEST_WORKER_BINARY must name the real ORT-enabled worker binary")
+		return errors.New("ROUTER_TEST_WORKER_BINARY must name the real worker binary")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
@@ -210,13 +210,6 @@ func workerEnv(dsn, pubsubAddress string, port int, policy policyFixture, mode s
 		"ROUTER_HMM_SIDECAR_URL=" + policy.classifierURL,
 		"ROUTER_HMM_SIDECAR_AUTH=none",
 		"GIN_MODE=release",
-	}
-	// Workers that still build the retired cluster scorer need native assets;
-	// leaving these unset proves the current worker boots without them.
-	for _, key := range []string{"ROUTER_ONNX_ASSETS_DIR", "ROUTER_ONNX_LIBRARY_DIR"} {
-		if value := os.Getenv(key); value != "" {
-			env = append(env, key+"="+value)
-		}
 	}
 	if mode == server.DeploymentModeSelfHosted {
 		// Self-hosted only: these prove the worker leaves ROUTER_SERVING_*
