@@ -2885,7 +2885,7 @@ func (s *Service) Clients() *dispatch.Clients {
 // WithPolicyStrategy registers one non-default router and its lifecycle
 // capabilities. Outcome and feedback reporters are discovered from the router.
 func (s *Service) WithPolicyStrategy(spec policy.StrategySpec) *Service {
-	if spec.Strategy == "" || spec.Strategy == router.StrategyCluster {
+	if spec.Strategy == "" || router.IsRetiredStrategy(spec.Strategy) {
 		return s
 	}
 	if s.strategies == nil {

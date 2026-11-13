@@ -65,8 +65,6 @@ Three concentric layers. Imports flow inward only.
 |  |                            impls)                            |  |
 |  |  internal/sqlc            (generated; regenerate via        |  |
 |  |                            `make generate`)                 |  |
-|  |  internal/router/cluster  (Router impl: AvengersPro,        |  |
-|  |                            Multiversion)                    |  |
 |  |  internal/providers/*     (Client impls: anthropic, openai, |  |
 |  |                            google native, openaicompat,     |  |
 |  |                            httputil)                        |  |
@@ -150,7 +148,7 @@ Three concentric layers. Imports flow inward only.
 - **Small utility third-party libs allowed at every layer.** Layering = about *where I/O and behavior live*, not banning go.mod entries. Reach for vetted small lib (`golang-lru`, `uuid`, error helpers) before rolling own. Reject heavyweight frameworks (DI containers, ORMs, metaprogramming kits).
 - **Inner-ring packages are I/O-free.** `internal/inference`, `internal/router`, `internal/providers`, `internal/translate`, `internal/sse`, `internal/timing`, `internal/telemetry`, `internal/requestcontext`, `internal/feedback`, `internal/router/{breaker,catalog,handover,planner,policy,sessionpin,turntype}`, `internal/proxy/usage` define interfaces, value types, pure functions only. Adding I/O method (HTTP, DB, queue, FS) = layering violation; put on `auth.Service` / `proxy.Service` / `billing.Service` or adapter subpackage. Pure-Go utility libs fine.
 - **Adapters depend only on inner ring.** `internal/postgres` may also import `internal/sqlc`. Adapters never import each other — `internal/postgres` doesn't know `internal/api/admin` etc. Provider adapters (`internal/providers/<name>/`) read request-scoped credentials, effective base URL / model alias, caller identity, and forwarded headers from the inner-ring `internal/requestcontext` package — never from `internal/proxy` (enforced by `internal/architecture`). `internal/dispatch` is the only inner-ring package that dereferences `providers.Client`: `proxy.Service` holds a `dispatch.Clients` registry and runs policy-resolved operations through `dispatch.Executor` (wired in `cmd/router/main.go`), which validates the prepared wire model against the plan target before any upstream I/O and emits ordered attempt events. Upstream response headers are reported through `providers.ObserveUpstreamHeaders`, whose observer is attached by proxy. `internal/server/middleware` and `internal/providers/httputil` (both adapters) stamp/read request latency via `internal/timing`'s `Timing` value type instead of importing `internal/observability/otel` directly — `Timing` used to live in `otel` and was pulled out specifically so these adapters (and `internal/providers/{anthropic,openai,google,openaicompat}`) don't need a concrete dependency on the OTel exporter adapter just to stamp a timestamp. `internal/proxy` also imports `internal/timing` (an inner-ring package importing another inner-ring package, which is allowed) to read timing back into span attributes. Proxy records spans and logs through `telemetry.Recorder`, implemented by `*otel.Emitter`'s buffers and wired in `cmd/router`; depguard enforces the boundary.
-- **`internal/api/*` and `internal/server`** depend on `internal/auth` (Service handle + middleware-context types), `internal/proxy` (routing/dispatch service handle), and `internal/router` (`Router` interface + `Request`/`Decision` types — `internal/server/middleware/auth.go` and `routing_knobs_override.go` construct/read `router.Request`/`router.Decision` for header-driven overrides). May import `internal/observability` for logging, `internal/providers` for shared sentinel errors, and `internal/router` for the shared routing sentinels (`ErrNoEligibleProvider`, `ErrAllowlistEmptiesPool`, `ErrInvalidRoutingKnobs`, `ErrRoutingUnavailable`) and roster types (`DeployedEntry`, `RequestBindings`, `DistributionPoint`, `ModelShare`). The legacy `internal/router/cluster` package is being removed: only `cmd/router` and `cmd/routing-report` may add new imports; existing non-command importers remain in the shrink-only allowlist in `internal/architecture/cluster_imports_test.go`. Must not import `internal/postgres`, any concrete `internal/providers/*` adapter, or `internal/translate` directly. Concrete instances reach presentation only via constructor params from composition root.
+- **`internal/api/*` and `internal/server`** depend on `internal/auth` (Service handle + middleware-context types), `internal/proxy` (routing/dispatch service handle), and `internal/router` (`Router` interface + `Request`/`Decision` types — `internal/server/middleware/auth.go` and `routing_knobs_override.go` construct/read `router.Request`/`router.Decision` for header-driven overrides). May import `internal/observability` for logging, `internal/providers` for shared sentinel errors, and `internal/router` for the shared routing sentinels (`ErrNoEligibleProvider`, `ErrAllowlistEmptiesPool`, `ErrInvalidRoutingKnobs`, `ErrRoutingUnavailable`) and roster types (`DeployedEntry`, `RequestBindings`, `DistributionPoint`, `ModelShare`). Must not import `internal/postgres`, any concrete `internal/providers/*` adapter, or `internal/translate` directly. Concrete instances reach presentation only via constructor params from composition root.
 - **`internal/config` and `internal/observability` are leaf utilities** — must not import any other package under `internal/`. Third-party utility deps fine; today pull only stdlib + gin (request-scoped logger middleware). `internal/observability/otel` subpackage *is* an adapter (builds real OTLP exporter) and can import other internal packages; parent `internal/observability` stays a leaf.
 - **Worker composition happens in `cmd/router/main.go`.** Workers own authentication, admission, policy selection and inference.
 
@@ -192,7 +190,6 @@ Pick by responsibility, then read that package's `CLAUDE.md`:
 | Native web-search server tool (no I/O) | `internal/websearch` | — |
 | New upstream provider | `internal/providers/<name>/` | [internal/providers/CLAUDE.md](internal/providers/CLAUDE.md) |
 | New `Router` implementation | `internal/router/<name>/` | [internal/router/CLAUDE.md](internal/router/CLAUDE.md) |
-| Cluster scorer / artifacts | `internal/router/cluster/` | [internal/router/cluster/CLAUDE.md](internal/router/cluster/CLAUDE.md) |
 | New model / per-model pricing data | `internal/router/catalog/` | [internal/router/catalog/CLAUDE.md](internal/router/catalog/CLAUDE.md) |
 | Cache-aware action routing internals | `internal/router/{planner,handover,sessionpin,turntype}/` | each has its own CLAUDE.md |
 | Anthropic usage-bypass gate | `internal/proxy/usage` | [internal/proxy/usage/CLAUDE.md](internal/proxy/usage/CLAUDE.md) |
@@ -293,12 +290,9 @@ When adding new endpoint, put inside `selfhosted` block in `server.Register` unl
 
 The eval harness is a sibling uv project, **not in this repo** — lives at `router-internal/eval/` in the Weave monorepo and runs as a Modal app. It exercises the router via staging headers; see that package's README.
 
-**Per-request router selection (server side):**
-
-
 **What to NOT do:**
 
-- **Do NOT re-introduce heuristic-vs-cluster A/B switch.** Heuristic retired because silent-fallback behavior masked cluster regressions. If need to compare strategies, ship alternate strategy as another `internal/router/X` package + promote on own merits, not as runtime fallback.
+- **Do NOT re-introduce a runtime fallback between strategies.** The retired heuristic fallback masked routing regressions. If need to compare strategies, ship alternate strategy as another `internal/router/X` package + promote on own merits, not as runtime fallback.
 - **Do NOT add runtime override that picks specific model directly.** Whole point is comparing *router strategies*, not per-request model overrides.
 
 ## Quick reference

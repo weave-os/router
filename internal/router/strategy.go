@@ -14,9 +14,6 @@ var ErrStrategyUnavailable = errors.New("router: strategy unavailable")
 type Strategy string
 
 const (
-	// StrategyCluster is the retired cluster-scorer strategy. It is never
-	// routable; persisted or requested values follow the deployment default.
-	StrategyCluster Strategy = "cluster"
 	// StrategyRL routes via the trained RL/DPO policy served by the
 	// out-of-process policy sidecar. Opt-in only; never the silent default.
 	StrategyRL Strategy = "rl"
@@ -40,6 +37,17 @@ const (
 // lifecycle semantics.
 func IsHMMStrategy(strategy Strategy) bool {
 	return strategy == StrategyHMM || strategy == StrategyHMMEmbedding || IsBetaStrategy(strategy)
+}
+
+// retiredClusterStrategy is the removed cluster-scorer strategy. Older
+// installations and deployments may still carry it.
+const retiredClusterStrategy Strategy = "cluster"
+
+// IsRetiredStrategy reports whether strategy names a removed routing policy.
+// It is never routable: persisted values follow the deployment default and a
+// configured default refuses boot.
+func IsRetiredStrategy(strategy Strategy) bool {
+	return strategy == retiredClusterStrategy
 }
 
 // IsBetaStrategy identifies explicit session classifier overrides.

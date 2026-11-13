@@ -19,7 +19,7 @@ description: Decide where new router behavior belongs before writing code — wh
 | is a model quirk | catalog data (see `add-model-or-quirk`) |
 | is new I/O | a port in the owning context, an adapter package, wiring in `cmd/router` (see `add-context-port`) |
 
-Accounting, shadows/experiments and the semantic cache stay in the orchestrator for now. The proxy guide's "Where new behavior goes" section in [internal/proxy/CLAUDE.md](../../../internal/proxy/CLAUDE.md) maps each context to the files that own it today.
+Accounting and shadows/experiments stay in the orchestrator for now. The proxy guide's "Where new behavior goes" section in [internal/proxy/CLAUDE.md](../../../internal/proxy/CLAUDE.md) maps each context to the files that own it today.
 
 ## Steps
 

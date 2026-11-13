@@ -242,9 +242,8 @@ git status smoke/mitmproxy/cassettes/   # review the diff, then commit
 
 ## CI build caching
 
-The router's own `Dockerfile` is expensive to build cold: ONNX runtime +
-tokenizer downloads, a Next.js build for the mini UI, then a CGO-linked Go
-compile. `.github/workflows/smoke.yml` sets `SMOKE_CI_CACHE=1`, which makes
+The router's own `Dockerfile` is expensive to build cold: a Next.js build for
+the mini UI, then the Go compile. `.github/workflows/smoke.yml` sets `SMOKE_CI_CACHE=1`, which makes
 `run.sh` add a fourth compose overlay,
 `smoke/mitmproxy/docker-compose.ci-cache.yml`, layering `cache_from`/`cache_to:
 type=gha,mode=max` onto both the `server` and `mitmproxy` builds.

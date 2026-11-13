@@ -70,7 +70,7 @@ func TestAdmittedRoutingDistributionRejectsNonHMMAndAppliesExclusions(t *testing
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.GET("/v1/router/routing-distribution", admin.RoutingDistributionHandler(policyregistry.AdmittedRosterSource{}))
-	for _, query := range []string{"strategy=" + string(router.StrategyCluster), "strategy=" + string(router.StrategyRL), "strategy=" + string(router.StrategyHMMBeta), "strategy=unknown", "excluded_models=gpt-5.6-luna", "grid=102"} {
+	for _, query := range []string{"strategy=cluster", "strategy=" + string(router.StrategyRL), "strategy=" + string(router.StrategyHMMBeta), "strategy=unknown", "excluded_models=gpt-5.6-luna", "grid=102"} {
 		request := httptest.NewRequest(http.MethodGet, "/v1/router/routing-distribution?"+query, nil)
 		request = request.WithContext(policyregistry.WithServingSnapshot(request.Context(), profileDistributionSnapshot("openai/gpt-5.6-luna")))
 		recorder := httptest.NewRecorder()

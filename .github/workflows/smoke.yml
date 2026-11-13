@@ -130,7 +130,7 @@ jobs:
           OPENAI_API_KEY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.proxy_mode != 'replay-only' && secrets.OPENAI_API_KEY || '' }}
           # Layers the server/mitmproxy Docker builds against the GitHub
           # Actions cache (type=gha) via smoke/mitmproxy/docker-compose.ci-cache.yml
-          # — the ONNX/tokenizer downloads, npm build, and Go compile are what
+          # — the npm build and Go compile are what
           # actually make a cold build slow; a warm cache turns an ~8-12 minute
           # build into low single-digit minutes.
           SMOKE_CI_CACHE: "1"

@@ -66,11 +66,11 @@ func TestSessionPinRepo_UpdateUsageProviderTracksPinnedModel(t *testing.T) {
 			pin := sessionpin.Pin{
 				SessionKey: key, Role: sessionpin.DefaultRole, InstallationID: installationID,
 				Provider: tc.pinnedProvider, Model: tc.pinnedModel, Reason: "test",
-				Strategy: router.StrategyCluster, TurnCount: 1, PinnedUntil: time.Now().Add(time.Hour),
+				Strategy: router.StrategyHMMEmbedding, TurnCount: 1, PinnedUntil: time.Now().Add(time.Hour),
 			}
 			require.NoError(t, repo.Upsert(ctx, pin))
 			require.NoError(t, repo.UpdateUsage(ctx, key, pin.Role, sessionpin.Usage{
-				Strategy: router.StrategyCluster, EndedAt: time.Now().UTC(),
+				Strategy: router.StrategyHMMEmbedding, EndedAt: time.Now().UTC(),
 				ServedModel: tc.servedModel, ServedProvider: tc.servedProvider,
 			}))
 

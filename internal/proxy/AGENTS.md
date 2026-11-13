@@ -2,7 +2,7 @@
 
 > **Mirror notice.** Generated from [CLAUDE.md](CLAUDE.md). Edit CLAUDE.md, then run `make generate-agent-guides`; CI rejects drift.
 
-Routing/dispatch service. Per-action orchestrator that composes scorer, planner, handover, cache, sessionpin, catalog, turntype, usage, billing, providers, and translate. Read [root CLAUDE.md](../../CLAUDE.md) first.
+Routing/dispatch service. Per-action orchestrator that composes the routing policy, planner, handover, sessionpin, catalog, turntype, usage, billing, providers, and translate. Read [root CLAUDE.md](../../CLAUDE.md) first.
 
 ## Surface
 
@@ -260,8 +260,7 @@ carrying `CustomBindings` + `GatewayProviders` and selects via the catalog-backe
 `policy.UtilityTarget` (`CatalogUtilityHardPin`). Title-gen and probe hard-pin only
 under the `ROUTER_HARD_PIN_MODEL` override, which leaves the resolver unwired;
 compaction never hard-pins (`routeCompaction` keeps the session pin or scores). Without them a gateway-only installation
-resolved nothing and every such turn 503'd `ErrClusterUnavailable` ("cluster
-scorer failed") while its scored turns routed fine — prod 2026-08-26. An empty
+resolved nothing and every such turn 503'd as routing unavailable while its scored turns routed fine — prod 2026-08-26. An empty
 result under a gateway now reports `ErrGatewayServesNoDeployedModel` for the
 same reason the resolver does: the alias list is the thing to fix.
 

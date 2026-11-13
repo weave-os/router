@@ -104,7 +104,7 @@ func TestRouterStrategyOverride_ClusterHeaderIgnored(t *testing.T) {
 	} {
 		installation := overrideEnabledInstallation()
 		installation.RoutingStrategy = tc.persisted
-		got := runStrategyOverride(t, installation, string(router.StrategyCluster))
+		got := runStrategyOverride(t, installation, "cluster")
 		assert.Equal(t, tc.expected, got)
 	}
 }
@@ -138,7 +138,7 @@ func TestRouterStrategyOverride_PersistedClusterFollowsDeploymentDefault(t *test
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) {
 		c.Set("router_installation", &auth.Installation{
-			ID: "inst-cluster-holdout", RoutingStrategy: router.StrategyCluster,
+			ID: "inst-cluster-holdout", RoutingStrategy: router.Strategy("cluster"),
 		})
 		c.Next()
 	})
@@ -162,7 +162,7 @@ func TestRouterStrategyOverride_PersistedClusterFollowsDeploymentDefault(t *test
 func TestNormalizeRouterStrategyDefault(t *testing.T) {
 	assert.Equal(t, router.StrategyHMM, middleware.NormalizeRouterStrategyDefault(router.StrategyHMM, router.StrategyHMM))
 	assert.Empty(t, middleware.NormalizeRouterStrategyDefault(router.Strategy("typo"), router.StrategyHMM))
-	assert.Empty(t, middleware.NormalizeRouterStrategyDefault(router.StrategyCluster, router.StrategyHMM))
+	assert.Empty(t, middleware.NormalizeRouterStrategyDefault(router.Strategy("cluster"), router.StrategyHMM))
 	assert.Empty(t,
 		middleware.NormalizeRouterStrategyDefault(router.StrategyHMMBeta, router.StrategyHMMBeta),
 		"beta cannot be activated by a deployment default")
@@ -355,7 +355,7 @@ func TestRouterStrategyOverride_NonManagedUnavailableStrategyFailsClosed(t *test
 	}{
 		{name: "persisted", persisted: router.StrategyRL, defaultStrategy: router.StrategyHMMEmbedding},
 		{name: "default", persisted: "", defaultStrategy: router.StrategyHMM},
-		{name: "persisted cluster with unregistered default", persisted: router.StrategyCluster, defaultStrategy: router.StrategyHMM},
+		{name: "persisted cluster with unregistered default", persisted: router.Strategy("cluster"), defaultStrategy: router.StrategyHMM},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			installation := &auth.Installation{ID: "inst-self-hosted", RoutingStrategy: tc.persisted}
