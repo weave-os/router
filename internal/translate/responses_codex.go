@@ -80,34 +80,6 @@ func codexFeedbackSkillInvocation(input gjson.Result) bool {
 	return matched
 }
 
-var codexForceModelSkillScript = regexp.MustCompile(`/skills/(force-model|fm|force-parent|unforce-model|ufm)/scripts/emit\.sh`)
-
-// codexForceModelSkillToolOutput reports whether the latest tool output since
-// the last user message answers a call that ran a force-model skill script.
-func codexForceModelSkillToolOutput(input gjson.Result) bool {
-	if !input.IsArray() {
-		return false
-	}
-	skillCalls := make(map[string]struct{})
-	matched := false
-	for _, item := range input.Array() {
-		switch item.Get("type").Str {
-		case "message":
-			if item.Get("role").Str == "user" && !codexFeedbackSkillInstructions(item.Get("content")) {
-				clear(skillCalls)
-				matched = false
-			}
-		case "function_call", "custom_tool_call":
-			if codexForceModelSkillScript.MatchString(item.Get("input").Str + item.Get("arguments").Str) {
-				skillCalls[item.Get("call_id").Str] = struct{}{}
-			}
-		case "function_call_output", "custom_tool_call_output":
-			_, matched = skillCalls[item.Get("call_id").Str]
-		}
-	}
-	return matched
-}
-
 func codexFeedbackToolOutput(output gjson.Result) bool {
 	if output.Type == gjson.String {
 		return routerFeedbackCommandFound(output.Str)
@@ -244,8 +216,7 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 
 	converter.collectDeclaredTools(root)
 	converter.requireNativeForForcedWebSearch(root.Get("tool_choice"))
-	converter.result.CodexFeedbackSkill = codexFeedbackSkillInvocation(root.Get("input"))
-	converter.result.CodexForceModelSkill = codexForceModelSkillToolOutput(root.Get("input"))
+	converter.result.CodexSkill = codexSkillTurnFor(root.Get("input"))
 	converter.result.CodexModelSwitch = codexModelSwitchPresent(root.Get("input"))
 	converter.result.CodexModelInstructions = codexModelInstructionsPresent(root.Get("input"))
 	messages := converter.convertInput(root.Get("input"))

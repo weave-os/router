@@ -149,22 +149,6 @@ func foldModelSpelling(name string) string {
 	return modelSpellingSeparators.ReplaceAllString(name, "-")
 }
 
-// cutSpelledEffort splits an effort level typed without the colon
-// ("astra high", "gpt-6-sol-max", "astra extra high") off the end of name.
-func cutSpelledEffort(name string) (head, level string, ok bool) {
-	folded := foldModelSpelling(name)
-	for _, spelled := range []string{"-extra-high", "-x-high"} {
-		if head, ok := strings.CutSuffix(strings.ToLower(folded), spelled); ok && head != "" {
-			return head, "xhigh", true
-		}
-	}
-	idx := strings.LastIndexByte(folded, '-')
-	if idx <= 0 || !looksLikeEffortAlias(folded[idx+1:]) {
-		return "", "", false
-	}
-	return folded[:idx], folded[idx+1:], true
-}
-
 // forceModelNames lists every exact name /force-model accepts, keyed to its
 // catalog ID: servable catalog IDs, Claude IDs without "claude-", aliases,
 // and bare catalog names.
@@ -376,18 +360,6 @@ func stripEffortSuffix(model string) (effort string, modelOut string) {
 		return "", model
 	}
 	return router.CanonicalizeEffort(tail), model[:idx]
-}
-
-// looksLikeEffortAlias guards against future catalog IDs that contain `:`,
-// ensuring the colon is only treated as a suffix separator for known levels.
-func looksLikeEffortAlias(tail string) bool {
-	switch strings.ToLower(strings.TrimSpace(tail)) {
-	case "fast", "low", "medium", "med", "high", "max", "xhigh",
-		"ultra", "minimal", "min":
-		return true
-	default:
-		return false
-	}
 }
 
 const (

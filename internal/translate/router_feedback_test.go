@@ -400,7 +400,7 @@ func TestExtractRouterFeedbackCommand_CodexSkillResponsesToolResult(t *testing.T
 	})
 	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
 	require.NoError(t, err)
-	assert.True(t, converted.CodexFeedbackSkill)
+	assert.Equal(t, translate.CodexSkillTurnFeedback, converted.CodexSkill)
 
 	env, err := translate.ParseOpenAI(converted.Body)
 	require.NoError(t, err)
@@ -424,7 +424,7 @@ func TestCodexFeedbackSkillDoesNotLatchAcrossTurns(t *testing.T) {
 	})
 	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
 	require.NoError(t, err)
-	assert.False(t, converted.CodexFeedbackSkill)
+	assert.NotEqual(t, translate.CodexSkillTurnFeedback, converted.CodexSkill)
 }
 
 func TestExtractRouterFeedbackCommand_CodexExecDocumentationIsNotCommand(t *testing.T) {
