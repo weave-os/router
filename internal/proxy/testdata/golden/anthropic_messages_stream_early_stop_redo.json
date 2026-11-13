@@ -324,6 +324,16 @@
             "ServedProvider": "anthropic",
             "Strategy": "hmm_embedding"
           }
+        },
+        {
+          "op": "strike_turn_model",
+          "role": "default_high",
+          "detail": "claude-haiku-4-5"
+        },
+        {
+          "op": "strike_turn_model",
+          "role": "default_high_hmm_history",
+          "detail": "claude-haiku-4-5"
         }
       ],
       "billing": [

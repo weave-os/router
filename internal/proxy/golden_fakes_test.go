@@ -22,6 +22,9 @@ import (
 // goldenEpoch anchors the fake clock; pins and cooldowns compare against it.
 var errGoldenAllExcluded = errors.New("golden router: every candidate excluded")
 
+// errGoldenUpstreamReset cuts a stream the way a reset upstream connection does.
+var errGoldenUpstreamReset = errors.New("golden upstream: connection reset")
+
 var goldenEpoch = time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 
 type goldenClock struct {
@@ -401,6 +404,28 @@ func (s *goldenPinStore) ExpireAndCoolDownModel(_ context.Context, expired sessi
 		p.DemotionCooldowns[model] = until
 	})
 	s.event("expire_and_cool_down", expired.Role, map[string]any{"model": model, "reason": reason, "cooldown": until.Sub(s.clock.Now()).String()})
+	return nil
+}
+
+func (s *goldenPinStore) StrikeTurnModel(_ context.Context, key [sessionpin.SessionKeyLen]byte, role, model string) error {
+	s.rec.mu.Lock()
+	defer s.rec.mu.Unlock()
+	if p, ok := s.pins[pinKey(key, role)]; ok && !slices.Contains(p.TurnStrikes, model) {
+		p.TurnStrikes = append(slices.Clone(p.TurnStrikes), model)
+		s.pins[pinKey(key, role)] = p
+	}
+	s.event("strike_turn_model", role, model)
+	return nil
+}
+
+func (s *goldenPinStore) ClearTurnStrikes(_ context.Context, key [sessionpin.SessionKeyLen]byte, role string) error {
+	s.rec.mu.Lock()
+	defer s.rec.mu.Unlock()
+	if p, ok := s.pins[pinKey(key, role)]; ok {
+		p.TurnStrikes = nil
+		s.pins[pinKey(key, role)] = p
+	}
+	s.event("clear_turn_strikes", role, nil)
 	return nil
 }
 
