@@ -723,7 +723,11 @@ out="$(render_auto_mode "$c/user/.weave/cc-statusline.sh" https://router.example
 check_contains "routed install without the auto mode opt-out shows the update hint" "$out" "$AUTO_MODE_HINT"
 check_not_contains "user-scope update hint carries no scope flags" "$out" "$AUTO_MODE_HINT --"
 out="$(render_auto_mode "$c/proj/.claude/cc-statusline.sh" https://router.example.test)"
-check_contains "project-scope update hint targets the project install" "$out" "$AUTO_MODE_HINT --scope project --dir $c/proj"
+check_contains "project-scope update hint targets the project install" "$out" "$AUTO_MODE_HINT --scope project"
+check_not_contains "project-scope update hint omits --dir, which would move the key into settings.json" "$out" "$AUTO_MODE_HINT --scope project --dir"
+mkdir -p "$c/dir/.claude"; make_installed "$c/dir/.claude/cc-statusline.sh"
+out="$(render_auto_mode "$c/dir/.claude/cc-statusline.sh" https://router.example.test)"
+check_contains "--dir install update hint names its directory" "$out" "$AUTO_MODE_HINT --dir $c/dir"
 for auto_mode_value in 0 1; do
   out="$(render_auto_mode "$c/user/.weave/cc-statusline.sh" https://router.example.test CLAUDE_CODE_AUTO_MODE_SERVER="$auto_mode_value")"
   check_not_contains "CLAUDE_CODE_AUTO_MODE_SERVER=$auto_mode_value suppresses the update hint" "$out" "$AUTO_MODE_HINT"

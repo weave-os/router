@@ -8142,27 +8142,32 @@ if weave_router_routing_on && [ -z "${CLAUDE_CODE_AUTO_MODE_SERVER+set}" ]; then
 fi
 
 # Point repair commands at this install: a bare command reads the user-scope
-# config, which a project or --dir install doesn't use.
-weave_install_scope_args=""
+# config, which a project or --dir install doesn't use. `update` must not get
+# --dir for a project install: with --dir it writes the router key into the
+# tracked settings.json instead of settings.local.json.
+weave_login_scope_args=""
+weave_update_scope_args=""
 if [ -n "${weave_disconnected_plans:-}" ] || [ "$weave_needs_auto_mode_update" = "true" ]; then
   weave_sl_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
   case "$weave_sl_dir" in
     */.claude)
-      weave_install_scope_args=" --dir $(printf '%q' "${weave_sl_dir%/.claude}")"
+      weave_login_scope_args=" --dir $(printf '%q' "${weave_sl_dir%/.claude}")"
+      weave_update_scope_args="$weave_login_scope_args"
       if grep -q 'X-Weave-Router-Key' "$weave_sl_dir/settings.local.json" 2>/dev/null; then
-        weave_install_scope_args=" --scope project$weave_install_scope_args"
+        weave_login_scope_args=" --scope project$weave_login_scope_args"
+        weave_update_scope_args=" --scope project"
       fi
       ;;
   esac
 fi
 for weave_plan in ${weave_disconnected_plans:-}; do
   case "$weave_plan" in
-    claude) status_text="$status_text · Claude plan needs login: npx @weave-os/router login claude$weave_install_scope_args" ;;
-    codex) status_text="$status_text · Codex plan needs login: npx @weave-os/router login codex$weave_install_scope_args" ;;
+    claude) status_text="$status_text · Claude plan needs login: npx @weave-os/router login claude$weave_login_scope_args" ;;
+    codex) status_text="$status_text · Codex plan needs login: npx @weave-os/router login codex$weave_login_scope_args" ;;
   esac
 done
 if [ "$weave_needs_auto_mode_update" = "true" ]; then
-  status_text="$status_text · update to stop the auto mode gateway notice: npx @weave-os/router update --claude$weave_install_scope_args"
+  status_text="$status_text · update to stop the auto mode gateway notice: npx @weave-os/router update --claude$weave_update_scope_args"
 fi
 
 # /router-status reads this back through the prompt hook, so it can answer
