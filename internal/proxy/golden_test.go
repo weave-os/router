@@ -382,13 +382,21 @@ var goldenVolatileKey = regexp.MustCompile(`(?i)(_at|_ms|latency|timestamp)$`)
 // goldenMintedID matches response ids the router mints per request.
 var goldenMintedID = regexp.MustCompile(`\bchatcmpl-[0-9a-f]{16}\b`)
 
-// goldenMintedItemID matches Responses/Gemini item ids minted from a counter
-// and the wall clock.
-var goldenMintedItemID = regexp.MustCompile(`\b(resp|msg|fc|ctc|rs)_[0-9a-z]{5,}\b`)
+// goldenMintedItemID matches Responses/Gemini item ids minted from an unpadded
+// counter and clock fragment, so they can be as short as two characters.
+// goldenFixtureItemID is the scripted upstream id, which passes through as-is.
+var goldenMintedItemID = regexp.MustCompile(`\b(resp|msg|fc|ctc|rs)_[0-9a-z]{2,}\b`)
+
+const goldenFixtureItemID = "msg_up"
 
 func scrubGoldenString(s string) string {
 	s = goldenMintedID.ReplaceAllString(s, "chatcmpl-<id>")
-	s = goldenMintedItemID.ReplaceAllString(s, "${1}_<id>")
+	s = goldenMintedItemID.ReplaceAllStringFunc(s, func(id string) string {
+		if id == goldenFixtureItemID {
+			return id
+		}
+		return id[:strings.IndexByte(id, '_')] + "_<id>"
+	})
 	return goldenUUID.ReplaceAllStringFunc(s, func(id string) string {
 		if id == goldenInstallationID {
 			return id

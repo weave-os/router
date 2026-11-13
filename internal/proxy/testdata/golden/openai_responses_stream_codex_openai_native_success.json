@@ -177,6 +177,7 @@
                 "type": "message"
               },
               "output_index": 1,
+              "sequence_number": 7,
               "type": "response.output_item.added"
             }
           },
@@ -185,8 +186,9 @@
             "data": {
               "content_index": 0,
               "delta": "hi",
-              "item_id": "msg_up",
+              "item_id": "msg-upstream",
               "output_index": 1,
+              "sequence_number": 8,
               "type": "response.output_text.delta"
             }
           },
@@ -207,6 +209,7 @@
                 "type": "message"
               },
               "output_index": 1,
+              "sequence_number": 9,
               "type": "response.output_item.done"
             }
           },
@@ -252,6 +255,7 @@
                   "total_tokens": 19
                 }
               },
+              "sequence_number": 10,
               "type": "response.completed"
             }
           }

@@ -69,12 +69,13 @@
             "event": "response.created",
             "data": {
               "response": {
-                "id": "resp_up",
+                "id": "resp-upstream",
                 "model": "gpt-5.5",
                 "object": "response",
                 "output": [],
                 "status": "in_progress"
               },
+              "sequence_number": 0,
               "type": "response.created"
             }
           },
@@ -89,6 +90,7 @@
                 "type": "message"
               },
               "output_index": 0,
+              "sequence_number": 1,
               "type": "response.output_item.added"
             }
           },
@@ -97,8 +99,9 @@
             "data": {
               "content_index": 0,
               "delta": "partial",
-              "item_id": "msg_up",
+              "item_id": "msg-upstream",
               "output_index": 0,
+              "sequence_number": 2,
               "type": "response.output_text.delta"
             }
           },
@@ -110,12 +113,13 @@
                   "code": "server_error",
                   "message": "upstream failed"
                 },
-                "id": "resp_up",
+                "id": "resp-upstream",
                 "model": "gpt-5.5",
                 "object": "response",
                 "output": [],
                 "status": "failed"
               },
+              "sequence_number": 3,
               "type": "response.failed"
             }
           }
