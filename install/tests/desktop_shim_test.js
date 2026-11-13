@@ -120,9 +120,11 @@ test("desktop shim", async (t) => {
   let heldStreamClosed;
   const heldStreamClosedPromise = new Promise((resolve) => { heldStreamClosed = resolve; });
   let rejectEventsFor = new Set();
+  let stallEventsFor = new Set();
   const router = recordingServer((req, res) => {
     if (req.url.endsWith("/v1/client-events")) {
       const key = req.headers["x-weave-router-key"];
+      if (stallEventsFor.delete(key)) return;
       res.writeHead(rejectEventsFor.delete(key) ? 503 : 204);
       res.end();
       return;
@@ -310,6 +312,24 @@ test("desktop shim", async (t) => {
     await waitFor(() => fs.existsSync(`${rotatedConfig}.connected`), "accepted report");
     assert.equal(router.events.length, 3);
     assert.equal(router.events.at(-1).headers["x-weave-router-key"], "rk_desktop_rotated");
+  });
+
+  await t.test("a timed-out report is retried", async () => {
+    const stalledConfig = path.join(work, "stalled.json");
+    fs.writeFileSync(stalledConfig, JSON.stringify({ ...JSON.parse(fs.readFileSync(configFile, "utf8")), router_key: "rk_desktop_stalled", report_timeout_ms: 100 }));
+    stallEventsFor = new Set(["rk_desktop_stalled"]);
+    const stalled = shim.start(shim.loadConfig(stalledConfig));
+    await once(stalled, "listening");
+    t.after(() => stalled.close());
+    const send = () => viaProxy(stalled.address().port, ca, { method: "POST", reqPath: "/v1/messages", headers: { "user-agent": CODE_TAB_USER_AGENT }, body: "{}" });
+    const before = router.events.length;
+
+    await send();
+    await waitFor(() => router.events.length > before, "first report");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await send();
+    await waitFor(() => fs.existsSync(`${stalledConfig}.connected`), "report after the timeout");
+    assert.equal(router.events.length, before + 2);
   });
 
   await t.test("health endpoint answers", async () => {

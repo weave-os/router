@@ -49,6 +49,7 @@ function loadConfig(file) {
     port: Number(parsed.listen_port ?? 47821),
     router: new URL(parsed.router_base_url),
     routerKey: typeof parsed.router_key === "string" ? parsed.router_key : "",
+    reportTimeoutMs: Number(parsed.report_timeout_ms ?? 5000),
     anthropic: new URL(parsed.anthropic_origin || `https://${INTERCEPT_HOST}`),
     cert: fs.readFileSync(parsed.cert_file),
     key: fs.readFileSync(parsed.key_file),
@@ -127,7 +128,7 @@ function reportConnected(cfg) {
     method: "POST",
     path: `${target.pathname.replace(/\/+$/, "")}/v1/client-events`,
     headers: { "content-type": "application/json", "content-length": Buffer.byteLength(body), [ROUTER_KEY_HEADER]: cfg.routerKey },
-    timeout: 5000,
+    timeout: cfg.reportTimeoutMs,
   }, (res) => {
     res.resume();
     if (res.statusCode >= 200 && res.statusCode < 300) {
@@ -139,7 +140,7 @@ function reportConnected(cfg) {
       cfg.connectedReport = undefined;
     }
   });
-  req.on("timeout", () => req.destroy());
+  req.on("timeout", () => req.destroy(new Error("connected report timed out")));
   req.on("error", () => { cfg.connectedReport = undefined; });
   req.end(body);
 }
