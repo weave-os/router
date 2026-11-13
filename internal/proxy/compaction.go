@@ -2,222 +2,243 @@ package proxy
 
 import (
 	"context"
-	"errors"
-	"fmt"
+	"maps"
 	"net/http"
+	"slices"
+	"strings"
+	"time"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/handover"
-	"workweave/router/internal/router/turntype"
-	"workweave/router/internal/translate"
+	"github.com/google/uuid"
+
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/sessionpin"
 )
 
-// ErrContextWindowExceeded is returned after the full compaction cascade
-// (tool-result cleanup, summarization, trim) still can't fit any eligible
-// model's window. Maps to HTTP 413, distinct from ErrNoEligibleProvider.
-var ErrContextWindowExceeded = errors.New("proxy: request context exceeds every eligible model's window")
+const compactionSessionPinTier = "compaction_session_pin"
 
-const (
-	// DefaultCompactionTriggerPct is the fraction of the largest eligible
-	// model's window at which the cascade engages. Mirrors Claude Code's own
-	// ~0.85 auto-compact trigger: compacting below the window (not at overflow)
-	// keeps the pre-summary history small enough for a summarizer to ingest.
-	DefaultCompactionTriggerPct = 0.85
-	// compactionRecentTurns is how many trailing non-system messages survive a
-	// summarization rewrite, so the model keeps immediate working context.
-	compactionRecentTurns = 12
-	// compactionToolResultKeep is how many trailing tool results Tier-1 cleanup
-	// leaves intact; older ones are replaced with a placeholder.
-	compactionToolResultKeep = 5
-	// compactionSummaryOutputReserve is headroom (summary output + margin) the
-	// selected summarizer model needs above the history it must ingest.
-	compactionSummaryOutputReserve = DefaultCompactionMaxTokens + 8_000
-	// largeWindowSummarizerModel is the big-context Anthropic-family model used
-	// to summarize histories too large for the cheap default summarizer. It is
-	// Anthropic-family so the Anthropic-only ProviderSummarizer can target it
-	// with no cross-format translation.
-	largeWindowSummarizerModel = "claude-fable-5"
-)
-
-// compactionSummarizerModels are the Anthropic-family models the cascade may
-// summarize with, ordered cheapest-first. The selector picks the first whose
-// context window can ingest the (post-Tier-1) history plus summary headroom.
-var compactionSummarizerModels = []string{DefaultHandoverModel, largeWindowSummarizerModel}
-
-// CompactionSummarizer summarizes prior conversation with the structured
-// compaction prompt against an explicit model. Implemented by
-// *ProviderSummarizer; declared here so the Service depends on the behavior,
-// not the concrete type.
-type CompactionSummarizer interface {
-	SummarizeForCompaction(ctx context.Context, env *translate.RequestEnvelope, model string, maxTokens int) (string, handover.Usage, error)
-	Provider() string
+// compactionSummarizer is a model a harness compaction turn may be served on,
+// with the override source that authorizes it.
+type compactionSummarizer struct {
+	provider string
+	model    string
+	source   policy.OverrideSource
 }
 
-// compactionResult records what the cascade did, for logging and billing.
-type compactionResult struct {
-	Applied            bool
-	ToolResultsCleared int
-	Summarized         bool
-	SummaryModel       string
-	SummaryUsage       handover.Usage
-	TrimmedToRecent    int
-	FinalEstimate      int
+// routeCompaction serves a client's own compaction turn on the model serving
+// the session, whose prompt cache is warm, and otherwise scores it like any
+// other turn. A utility hard pin is never a fallback: its fixed roster may be
+// excluded or too small for the transcript, which left the client retrying a
+// compaction that could not route.
+func (s *Service) routeCompaction(
+	ctx context.Context,
+	req router.Request,
+	res turnLoopResult,
+	reqHeaders http.Header,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+	installationID uuid.UUID,
+	forceModelFound bool,
+	forceModelPin sessionpin.Pin,
+) (turnLoopResult, error) {
+	if s.pinStore == nil {
+		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+	}
+	res.SessionKey = sessionKey
+	if forceModelFound && forcedPinEligible(forceModelPin, req) {
+		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+	}
+	session := compactionSession{
+		pins:           s.pinStore,
+		providers:      s.clients.NameSet(),
+		available:      s.availableModels,
+		cortexGateways: cortexGatewayProvidersForRequest(ctx),
+		now:            time.Now(),
+	}
+	decision, strikes, ok := session.decision(ctx, sessionKey, res.PinRole, req)
+	req = strikes.apply(req)
+	if ok {
+		// The scorer's roster gives the session model sibling rescue candidates.
+		scoreReq := req
+		scoreReq.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
+		if fresh, err := s.routeFor(ctx, scoreReq); err == nil {
+			res.Fresh = fresh
+		}
+		res.Decision = decision
+		res.StickyHit = true
+		res.PinModel = decision.Model
+		res.PinTier = compactionSessionPinTier
+		res.Origin = policy.OverrideSourceSession
+		return res, nil
+	}
+	res, err := s.routeWithoutPin(ctx, req, res, reqHeaders, false, sessionpin.Pin{})
+	if err != nil || res.UsageBypass || res.CallerModelPassthrough {
+		return res, err
+	}
+	s.writeNewPin(ctx, installationID, sessionKey, res.PinRole, res.Decision)
+	return res, nil
 }
 
-// maxEligibleContextWindow returns the largest effective context window among
-// available routing models that are not policy-excluded. A signature-stripping
-// (non-Anthropic) target gets sigSavings added to its window: the translator
-// drops base64 thought-signature blocks before dispatch, so that model can
-// serve sigSavings more of this request's estimated tokens — mirroring the
-// per-model discount in excludeContextOverflowModels, so a signature-heavy
-// session isn't falsely 413'd when a stripping model would still fit. Zero when
-// none are known (availableModels unset), which disables compaction.
-func (s *Service) maxEligibleContextWindow(policyExcluded map[string]struct{}, sigSavings int) int {
-	maxWindow := 0
-	for model := range s.availableModels {
-		if _, excluded := policyExcluded[model]; excluded {
+// compactionSession decides which session model a client compaction turn
+// stays on: the model that last served the session, when this request can
+// still use it. The active thread pin and HMM history compete by completion
+// time; both are read across strategies because a compaction may arrive under
+// a different strategy than the turns it summarizes.
+type compactionSession struct {
+	pins sessionpin.Store
+	// providers binds the served model when the request leaves
+	// EnabledProviders unrestricted.
+	providers      map[string]struct{}
+	available      map[string]struct{}
+	cortexGateways map[string]struct{}
+	now            time.Time
+}
+
+// sessionStrikes are the providers and models a session's failures withdrew
+// from automatic selection.
+type sessionStrikes struct {
+	disabledProviders []string
+	demotedModels     []string
+}
+
+// apply withdraws the strikes from the request so the scorer cannot reselect
+// them.
+func (st sessionStrikes) apply(req router.Request) router.Request {
+	if req.EnabledProviders != nil && len(st.disabledProviders) > 0 {
+		enabled := maps.Clone(req.EnabledProviders)
+		for _, provider := range st.disabledProviders {
+			delete(enabled, provider)
+		}
+		req.EnabledProviders = enabled
+	}
+	if len(st.demotedModels) > 0 {
+		demoted := make(map[string]struct{}, len(st.demotedModels))
+		for _, model := range st.demotedModels {
+			demoted[model] = struct{}{}
+		}
+		req.AutomaticExcludedModels = mergeExcludedModels(req.AutomaticExcludedModels, demoted)
+	}
+	return req
+}
+
+func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (router.Decision, sessionStrikes, bool) {
+	var served sessionpin.Pin
+	var strikes sessionStrikes
+	for _, pinRole := range []string{role, hmmHistoryRole(role)} {
+		pin, found, err := c.pins.Get(ctx, sessionKey, pinRole)
+		if err != nil {
+			observability.FromContext(ctx).Error("Compaction session history unavailable", "role", pinRole, "err", err)
 			continue
 		}
-		w := contextWindowForRequest(model)
-		if sigSavings > 0 && modelStripsAnthropicSignatures(model) {
-			w += sigSavings
+		if !found {
+			continue
 		}
-		if w > maxWindow {
-			maxWindow = w
+		strikes.disabledProviders = mergeSessionStrikes(strikes.disabledProviders, pin.DisabledProviders)
+		strikes.demotedModels = mergeSessionStrikes(strikes.demotedModels, pin.DemotedModels)
+		if pinRole == role && !pin.PinnedUntil.After(c.now) {
+			continue
 		}
+		served = latestServedPin(served, pin)
 	}
-	return maxWindow
-}
-
-// selectCompactionSummarizer returns the cheapest configured summarizer model
-// whose context window can ingest historyTokens plus summary headroom, or ""
-// when none can (caller falls back to trimming).
-func (s *Service) selectCompactionSummarizer(historyTokens int) string {
-	need := historyTokens + compactionSummaryOutputReserve
-	for _, m := range compactionSummarizerModels {
-		if catalog.ContextWindowFor(m) >= need {
-			return m
-		}
-	}
-	return ""
-}
-
-// maybeCompact runs the compaction cascade when needed ≥ compactionTriggerPct
-// of maxWindow: (1) clear old tool results, (2) summarize with a window-aware
-// model, (3) progressive trim. Mutates env in place — caller MUST recompute
-// estimates when res.Applied is true. Returns ErrContextWindowExceeded if the
-// history overflows even after all tiers; no-ops when pct is zero/unset, below
-// threshold, or the turn is hard-pinned (Claude Code's own compaction turn must
-// not be rewritten, and probe/title-gen/classifier turns bypass the scorer).
-func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelope, tt turntype.TurnType, outputReserve, maxWindow int, reqHeaders http.Header) (compactionResult, error) {
-	log := observability.FromContext(ctx)
-	var res compactionResult
-	if s.compactionTriggerPct <= 0 || maxWindow <= 0 || env == nil || s.isHardPinnedTurn(ctx, tt) {
-		return res, nil
-	}
-
-	needed := func() int { return env.ContextOverflowTokenEstimate() + outputReserve }
-	fits := func() bool { return needed() <= maxWindow }
-	trigger := int(float64(maxWindow) * s.compactionTriggerPct)
-	if needed() < trigger {
-		return res, nil
-	}
-	log.Info("Compaction cascade engaged",
-		"needed", needed(),
-		"trigger", trigger,
-		"max_window", maxWindow,
-	)
-
-	// Tier 1: clear stale tool results (cheap, local, no model call).
-	if n := env.ClearOldToolResults(compactionToolResultKeep); n > 0 {
-		res.Applied = true
-		res.ToolResultsCleared = n
-		log.Info("Compaction Tier-1: cleared old tool results", "cleared", n, "needed_after", needed())
-	}
-	if fits() {
-		res.FinalEstimate = needed()
-		return res, nil
-	}
-
-	// Tier 3: structured summarization with a window-aware model.
-	// Authoritative-policy turns skip LLM summarization; deterministic cleanup and rescue trimming still run.
-	if s.compactionSummarizer != nil && !s.authoritativePerTurnSelection(ctx) {
-		if summary, usage, model, ok := s.runCompactionSummary(ctx, env, reqHeaders); ok {
-			env.RewriteForCompaction(summary, compactionRecentTurns)
-			res.Applied = true
-			res.Summarized = true
-			res.SummaryModel = model
-			res.SummaryUsage = usage
-			log.Info("Compaction Tier-3: history summarized", "summary_model", model, "needed_after", needed())
-		}
-	}
-	if fits() {
-		res.FinalEstimate = needed()
-		return res, nil
-	}
-
-	// Rescue: trim recent turns progressively until the request fits.
-	for _, n := range []int{compactionRecentTurns, 6, 3, 1} {
-		if env.TrimLastNMessages(n) > 0 {
-			res.Applied = true
-			res.TrimmedToRecent = n
-		}
-		if fits() {
-			res.FinalEstimate = needed()
-			log.Info("Compaction rescue: trimmed to recent turns", "kept_recent", n, "needed_after", needed())
-			return res, nil
-		}
-	}
-
-	// Floor: even the last user turn overflows the largest window.
-	res.FinalEstimate = needed()
-	return res, fmt.Errorf("context ~%d tokens over largest window %d: %w", res.FinalEstimate, maxWindow, ErrContextWindowExceeded)
-}
-
-// billCompactionSummary debits the compaction summary call as its own ledger
-// row and records its session-tagged telemetry row (mirrors the
-// switch-handover summary billing). No-ops when billing is unwired or the
-// usage carries no tokens.
-func (s *Service) billCompactionSummary(ctx context.Context, requestID, externalID string, usage handover.Usage) {
-	s.billAuxiliaryInference(ctx, requestID, auxSuffixPrecompactionSummary, externalID, usage)
-}
-
-// runCompactionSummary picks a window-aware summarizer model and dispatches the
-// structured summary call, honoring the tenant-boundary credential rules used
-// by the switch-handover path. Returns ok=false (and logs) when no summarizer
-// fits the history, the tenant boundary forbids the call, or the call fails —
-// in every such case the caller falls through to trimming.
-func (s *Service) runCompactionSummary(ctx context.Context, env *translate.RequestEnvelope, reqHeaders http.Header) (string, handover.Usage, string, bool) {
-	log := observability.FromContext(ctx)
-
-	model := s.selectCompactionSummarizer(env.ContextOverflowTokenEstimate())
+	model := served.LastServedModel
 	if model == "" {
-		log.Info("Compaction Tier-3 skipped: history exceeds every summarizer window", "history", env.ContextOverflowTokenEstimate())
-		return "", handover.Usage{}, "", false
+		model = served.Model
 	}
+	model, effort := hmm.SplitEffort(model)
+	if model == "" {
+		return router.Decision{}, strikes, false
+	}
+	if effort == "" && model == served.Model {
+		effort = served.Effort
+	}
+	providerSet := req.EnabledProviders
+	if providerSet == nil {
+		providerSet = c.providers
+	}
+	binding, bound := servedBinding(model, served.Provider, providerSet, req.CustomBindings)
+	if !bound {
+		return router.Decision{}, strikes, false
+	}
+	if c.available != nil {
+		if _, available := c.available[model]; !available {
+			return router.Decision{}, strikes, false
+		}
+	}
+	pin := sessionpin.Pin{Provider: binding.Provider, Model: model, Effort: effort, Reason: compactionSessionPinTier}
+	fits := req.EstimatedInputTokens <= 0 ||
+		req.EstimatedInputTokens+contextWindowOutputReserve <= gatewayContextWindow(c.cortexGateways, model, binding.Provider)
+	struck := slices.Contains(strikes.disabledProviders, binding.Provider) || slices.Contains(strikes.demotedModels, model)
+	if !fits || struck || !automaticPinEligible(pin, req) {
+		return router.Decision{}, strikes, false
+	}
+	return pinDecision(pin), strikes, true
+}
 
-	sumProvider := s.compactionSummarizer.Provider()
-	sumCreds := resolveSummarizerCreds(ctx, sumProvider, reqHeaders)
-	if sumCreds == nil && s.requestUsesNonDeploymentCreds(ctx, reqHeaders) {
-		log.Info("Compaction Tier-3 skipped: would cross tenant boundary", "sum_provider", sumProvider)
-		return "", handover.Usage{}, "", false
+// crossGatewayRescuers lists the request's gateway-held models on another
+// gateway than the primary's, highest tier then widest window first. Every
+// model behind one gateway shares a tokenizer and window, so an overflow there
+// is only rescuable across gateways: Claude
+// counts the same transcript as roughly 1.5x the tokens gpt-6-luna does, so a
+// nominally smaller window can still fit it.
+func (s *Service) crossGatewayRescuers(ctx context.Context, primary compactionSummarizer, req router.Request) []compactionSummarizer {
+	cortexGateways := cortexGatewayProvidersForRequest(ctx)
+	var out []compactionSummarizer
+	for model := range req.CustomBindings {
+		provider, held := gatewayProviderFor(model, req.CustomBindings, req.GatewayProviders)
+		if !held || provider == primary.provider || catalog.TierFor(model) < catalog.TierMid {
+			continue
+		}
+		if _, excluded := req.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
+			continue
+		}
+		if s.availableModels != nil {
+			if _, available := s.availableModels[model]; !available {
+				continue
+			}
+		}
+		out = append(out, compactionSummarizer{provider: provider, model: model, source: policy.OverrideSourceDeployment})
 	}
-	summCtx := ctx
-	if sumCreds != nil {
-		summCtx = context.WithValue(ctx, CredentialsContextKey{}, sumCreds)
-	} else {
-		summCtx = clearCredentials(ctx)
-	}
+	slices.SortFunc(out, func(a, b compactionSummarizer) int {
+		if ta, tb := catalog.TierFor(a.model), catalog.TierFor(b.model); ta != tb {
+			return int(tb) - int(ta)
+		}
+		if wa, wb := gatewayContextWindow(cortexGateways, a.model, a.provider), gatewayContextWindow(cortexGateways, b.model, b.provider); wa != wb {
+			return wb - wa
+		}
+		return strings.Compare(a.model, b.model)
+	})
+	return out
+}
 
-	summary, usage, err := s.compactionSummarizer.SummarizeForCompaction(summCtx, env, model, DefaultCompactionMaxTokens)
-	if err != nil {
-		log.Warn("Compaction summarizer failed; falling back to trim", "err", err, "model", model)
-		return "", handover.Usage{}, "", false
+// latestServedPin picks the pin whose last turn ended most recently among
+// those that record a served model.
+func latestServedPin(pins ...sessionpin.Pin) sessionpin.Pin {
+	var latest sessionpin.Pin
+	found := false
+	for _, pin := range pins {
+		if pin.LastServedModel == "" && pin.Model == "" {
+			continue
+		}
+		if !found || pin.LastTurnEndedAt.After(latest.LastTurnEndedAt) {
+			latest = pin
+			found = true
+		}
 	}
-	if summary == "" {
-		log.Warn("Compaction summarizer returned empty; falling back to trim", "model", model)
-		return "", handover.Usage{}, "", false
+	return latest
+}
+
+// servedBinding resolves the provider binding for a session's served model:
+// the provider that served it when that provider is still in providerSet and
+// binds the model, else the first binding in providerSet (a failed turn may
+// leave the stored provider stale).
+func servedBinding(model, servedProvider string, providerSet map[string]struct{}, custom map[string][]string) (catalog.ProviderBinding, bool) {
+	if _, enabled := providerSet[servedProvider]; enabled {
+		pinned := map[string]struct{}{servedProvider: {}}
+		if binding, valid := catalog.ResolveBindingWithCustom(model, pinned, custom); valid {
+			return binding, true
+		}
 	}
-	return summary, usage, model, true
+	return catalog.ResolveBindingWithCustom(model, providerSet, custom)
 }

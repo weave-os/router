@@ -4,7 +4,7 @@
 -- cluster_router_version, ttft_ms, cache_*_tokens, device_id, session_id) are
 -- nullable; non-cluster decisions and pinned-route turns leave them NULL.
 -- turn_type is the turntype classification (main_loop, tool_result, probe,
--- title_gen, compaction, classifier, sub_agent_dispatch); NULL only on rows
+-- title_gen, compaction, classifier, recap, sub_agent_dispatch); NULL only on rows
 -- written before the column existed.
 -- rollout_id is the client-supplied x-weave-rollout-id correlation id used by
 -- eval/training harnesses to join graded rollout rewards onto decisions; NULL
@@ -20,10 +20,43 @@
 -- the upstream credential; credential_source names the precedence branch it came
 -- from. All NULL on deployment-key turns. Matching prefix/suffix values across
 -- distinct router_user_ids reveal one subscription paying for many seats.
+-- planner_* columns persist the cache-eviction planner's per-turn verdict
+-- (outcome, reason, pin identity, EV terms in USD micros, shadow). NULL when
+-- the planner did not run. Named `_usd_micros` so they cannot be confused
+-- with the existing `*_cost_usd` bigint-micros columns.
+-- pin_tier is the actual served-path turn-loop tier, used to partition authority-shadow
+-- results by the gate that already handled the turn. NULL on pre-column rows or when
+-- telemetry was created without a turn-loop tier.
 -- unified_limit_headers is the verbatim anthropic-ratelimit-unified-* header
 -- set observed on this turn (Claude Code cost-observing-proxy Phase 0
 -- instrumentation). NULL on non-subscription turns and on rows written before
 -- the column existed. Nothing reads it yet.
+-- codex_limit_headers is the verbatim x-codex-{primary,secondary,credits}-*
+-- header set observed on a Codex-subscription-served turn. NULL otherwise.
+-- inference_* / plan_* / fallback_reason / accounting_outcome / usage_known are
+-- the inference-policy provenance of the operation (purpose, policy entry and
+-- revisions, policy-selected target, why the served target differs, how usage
+-- was accounted). NULL on rows written before the columns existed and on paths
+-- not yet migrated to the executor.
+-- client_git_head_sha / client_git_branch / client_git_dirty are the git
+-- context parsed from the Claude Code system prompt on a trial-mode session's
+-- first turn. NULL on every other turn and whenever the block was absent or
+-- unparseable; never read on the routing path.
+-- effort_* columns persist the per-turn effort resolution: the arm's own
+-- level, the level that won precedence, the level written on the wire after
+-- the target menu clamp, and which precedence branch produced it. NULL when
+-- the target expresses no effort.
+-- user_prompt marks a turn whose trailing input is text a person typed rather
+-- than a tool result or harness notice; user_prompt_gap_ms is how long after
+-- the session's previous response finished that prompt arrived, and
+-- user_prompt_gap_prior_model is the model that served that response. The gap
+-- is NULL on the session's first prompt and when the previous response
+-- overlapped this one. error_class buckets how the turn failed (NULL on a
+-- normal completion) and failure_owner names who owns that failure. latest_tool_call_counts is {tool: {calls, errors}} over
+-- only the tool results this request delivered, unlike tool_error_counts,
+-- which re-counts the whole history on every turn.
+-- failover_used marks a turn a rescue served; failover_attempted marks any turn
+-- on which a rescue was dispatched, whether or not it served.
 -- name: InsertRequestTelemetry :exec
 INSERT INTO router.model_router_request_telemetry (
     installation_id,
@@ -38,6 +71,7 @@ INSERT INTO router.model_router_request_telemetry (
     decision_reason,
     estimated_input_tokens,
     sticky_hit,
+    pin_tier,
     embed_input,
     input_tokens,
     output_tokens,
@@ -63,24 +97,59 @@ INSERT INTO router.model_router_request_telemetry (
     policy_artifact_id,
     policy_artifact_sha256,
     roster_version,
+    classifier_artifact_id,
+    classifier_artifact_sha256,
+    classifier_predicted_label,
+    classifier_class_order,
+    classifier_probabilities,
+    selection_policy_release_id,
+    selection_policy_sha256,
+    selection_head_generation,
+    selection_trace,
     sidecar_schema_version,
     training_allowed,
     capture_mode,
     debug_ref,
     ttft_ms,
     cache_creation_tokens,
+    cache_creation_1h_tokens,
     cache_read_tokens,
+    reasoning_tokens,
+    speed,
+    inference_geo,
     device_id,
     session_id,
     router_user_id,
     client_app,
+    blind_experiment_arm,
+    blind_experiment_assignment_source,
+    blind_experiment_subject_key,
+    blind_experiment_mode,
+    blind_experiment_session_key,
+    cohort_experiment_id,
+    cohort_group_id,
+    cohort_phase_index,
+    cohort_revision,
+    cohort_scheduled_arm,
+    cohort_treatment_applied,
+    cohort_bypass_reason,
+    blind_experiment_model_source,
+    blind_experiment_treatment_applied,
+    blind_experiment_baseline_model,
+    blind_experiment_model_changed,
     turn_type,
     rollout_id,
     upstream_finish_reason,
     stop_reason,
     tool_use_blocks,
     invalid_tool_args_blocks,
+    last_tool_use_name,
+    last_tool_use_input_bytes,
+    tool_error_counts,
+    autonomy_append_fired,
+    workspace_append_fired,
     failover_used,
+    failover_attempted,
     degenerate_shadow,
     session_key,
     role,
@@ -91,7 +160,87 @@ INSERT INTO router.model_router_request_telemetry (
     credential_key_prefix,
     credential_key_suffix,
     credential_source,
-    unified_limit_headers
+    subscription_account_id,
+    subscription_owner_id,
+    subscription_tier,
+    intended_model_family,
+    final_model_family,
+    unified_limit_headers,
+    codex_limit_headers,
+    policy_pin_requested,
+    policy_pin_honoured,
+    planner_outcome,
+    planner_reason,
+    planner_pin_model,
+    planner_pin_provider,
+    planner_expected_savings_usd_micros,
+    planner_eviction_cost_usd_micros,
+    planner_pin_cache_cold,
+    planner_shadow_outcome,
+    planner_shadow_savings_usd_micros,
+    authority_shadow_outcome,
+    authority_shadow_would_diverge,
+    authority_shadow_reason,
+    authority_shadow_stay_model,
+    authority_shadow_stay_provider,
+    authority_shadow_savings_usd_micros,
+    authority_shadow_eviction_cost_usd_micros,
+    authority_shadow_pin_cache_cold,
+    authority_shadow_corrected_outcome,
+    authority_shadow_corrected_savings_usd_micros,
+    authority_shadow_stay_score,
+    authority_shadow_fresh_score,
+    spiral_err_streak,
+    spiral_errored_results,
+    spiral_tool_results,
+    spiral_max_same_file_edits,
+    spiral_same_file_path_hash,
+    spiral_repeat_frac,
+    spiral_monologue_len,
+    spiral_tool_call_count,
+    spiral_message_count,
+    spiral_ping_pong_len,
+    spiral_steps_since_progress,
+    spiral_edit_attempted,
+    spiral_reasons,
+    requested_allowed_models,
+    inference_purpose,
+    inference_policy_id,
+    inference_registry_revision,
+    inference_policy_revision,
+    plan_model,
+    plan_provider,
+    fallback_reason,
+    accounting_outcome,
+    usage_known,
+    client_git_head_sha,
+    client_git_branch,
+    client_git_dirty,
+    effort_arm,
+    effort_selected,
+    effort_sent,
+    effort_source,
+    subscriber_plan,
+    entitlement_version,
+    capacity_source,
+    retail_usage_usd_micros,
+    included_usage_usd_micros,
+    linked_usage_usd_micros,
+    prepaid_usage_usd_micros,
+    settlement_failed,
+    serving_profile_id,
+    serving_profile_version,
+    serving_release_id,
+    serving_binding_id,
+    serving_target,
+    boost_optimizer_version,
+    user_prompt,
+    user_prompt_gap_ms,
+    user_prompt_gap_prior_model,
+    error_class,
+    failure_owner,
+    latest_tool_call_counts,
+    context_snapshot
 ) VALUES (
     @installation_id::uuid,
     sqlc.narg('api_key_id')::uuid,
@@ -105,6 +254,7 @@ INSERT INTO router.model_router_request_telemetry (
     @decision_reason::varchar,
     @estimated_input_tokens::int,
     @sticky_hit::boolean,
+    sqlc.narg('pin_tier')::varchar,
     @embed_input::varchar,
     @input_tokens::int,
     @output_tokens::int,
@@ -130,24 +280,59 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('policy_artifact_id')::varchar,
     sqlc.narg('policy_artifact_sha256')::varchar,
     sqlc.narg('roster_version')::varchar,
+    sqlc.narg('classifier_artifact_id')::varchar,
+    sqlc.narg('classifier_artifact_sha256')::varchar,
+    sqlc.narg('classifier_predicted_label')::varchar,
+    sqlc.narg('classifier_class_order')::varchar[],
+    sqlc.narg('classifier_probabilities')::jsonb,
+    sqlc.narg('selection_policy_release_id')::varchar,
+    sqlc.narg('selection_policy_sha256')::varchar,
+    sqlc.narg('selection_head_generation')::bigint,
+    sqlc.narg('selection_trace')::jsonb,
     sqlc.narg('sidecar_schema_version')::varchar,
     @training_allowed::boolean,
     @capture_mode::varchar,
     sqlc.narg('debug_ref')::varchar,
     sqlc.narg('ttft_ms')::bigint,
     sqlc.narg('cache_creation_tokens')::int,
+    sqlc.narg('cache_creation_1h_tokens')::int,
     sqlc.narg('cache_read_tokens')::int,
+    sqlc.narg('reasoning_tokens')::int,
+    sqlc.narg('speed')::text,
+    sqlc.narg('inference_geo')::text,
     sqlc.narg('device_id')::varchar,
     sqlc.narg('session_id')::varchar,
     sqlc.narg('router_user_id')::uuid,
     sqlc.narg('client_app')::text,
+    sqlc.narg('blind_experiment_arm')::varchar,
+    sqlc.narg('blind_experiment_assignment_source')::varchar,
+    sqlc.narg('blind_experiment_subject_key')::varchar,
+    sqlc.narg('blind_experiment_mode')::varchar,
+    sqlc.narg('blind_experiment_session_key')::varchar,
+    sqlc.narg('cohort_experiment_id')::uuid,
+    sqlc.narg('cohort_group_id')::smallint,
+    sqlc.narg('cohort_phase_index')::smallint,
+    sqlc.narg('cohort_revision')::integer,
+    sqlc.narg('cohort_scheduled_arm')::varchar,
+    sqlc.narg('cohort_treatment_applied')::boolean,
+    sqlc.narg('cohort_bypass_reason')::varchar,
+    sqlc.narg('blind_experiment_model_source')::varchar,
+    sqlc.narg('blind_experiment_treatment_applied')::boolean,
+    sqlc.narg('blind_experiment_baseline_model')::varchar,
+    sqlc.narg('blind_experiment_model_changed')::boolean,
     @turn_type::varchar,
     sqlc.narg('rollout_id')::varchar,
     sqlc.narg('upstream_finish_reason')::text,
     sqlc.narg('stop_reason')::text,
     sqlc.narg('tool_use_blocks')::int,
     sqlc.narg('invalid_tool_args_blocks')::int,
+    sqlc.narg('last_tool_use_name')::varchar,
+    sqlc.narg('last_tool_use_input_bytes')::int,
+    sqlc.narg('tool_error_counts')::jsonb,
+    sqlc.narg('autonomy_append_fired')::boolean,
+    sqlc.narg('workspace_append_fired')::boolean,
     sqlc.narg('failover_used')::boolean,
+    sqlc.narg('failover_attempted')::boolean,
     sqlc.narg('degenerate_shadow')::boolean,
     sqlc.narg('session_key')::bytea,
     sqlc.narg('role')::varchar,
@@ -158,7 +343,87 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('credential_key_prefix')::varchar,
     sqlc.narg('credential_key_suffix')::varchar,
     sqlc.narg('credential_source')::varchar,
-    sqlc.narg('unified_limit_headers')::jsonb
+    sqlc.narg('subscription_account_id')::uuid,
+    sqlc.narg('subscription_owner_id')::uuid,
+    sqlc.narg('subscription_tier')::varchar,
+    sqlc.narg('intended_model_family')::varchar,
+    sqlc.narg('final_model_family')::varchar,
+    sqlc.narg('unified_limit_headers')::jsonb,
+    sqlc.narg('codex_limit_headers')::jsonb,
+    sqlc.narg('policy_pin_requested')::boolean,
+    sqlc.narg('policy_pin_honoured')::boolean,
+    sqlc.narg('planner_outcome')::varchar,
+    sqlc.narg('planner_reason')::varchar,
+    sqlc.narg('planner_pin_model')::varchar,
+    sqlc.narg('planner_pin_provider')::varchar,
+    sqlc.narg('planner_expected_savings_usd_micros')::bigint,
+    sqlc.narg('planner_eviction_cost_usd_micros')::bigint,
+    sqlc.narg('planner_pin_cache_cold')::boolean,
+    sqlc.narg('planner_shadow_outcome')::varchar,
+    sqlc.narg('planner_shadow_savings_usd_micros')::bigint,
+    sqlc.narg('authority_shadow_outcome')::varchar,
+    sqlc.narg('authority_shadow_would_diverge')::boolean,
+    sqlc.narg('authority_shadow_reason')::varchar,
+    sqlc.narg('authority_shadow_stay_model')::varchar,
+    sqlc.narg('authority_shadow_stay_provider')::varchar,
+    sqlc.narg('authority_shadow_savings_usd_micros')::bigint,
+    sqlc.narg('authority_shadow_eviction_cost_usd_micros')::bigint,
+    sqlc.narg('authority_shadow_pin_cache_cold')::boolean,
+    sqlc.narg('authority_shadow_corrected_outcome')::varchar,
+    sqlc.narg('authority_shadow_corrected_savings_usd_micros')::bigint,
+    sqlc.narg('authority_shadow_stay_score')::double precision,
+    sqlc.narg('authority_shadow_fresh_score')::double precision,
+    sqlc.narg('spiral_err_streak')::int,
+    sqlc.narg('spiral_errored_results')::int,
+    sqlc.narg('spiral_tool_results')::int,
+    sqlc.narg('spiral_max_same_file_edits')::int,
+    sqlc.narg('spiral_same_file_path_hash')::varchar,
+    sqlc.narg('spiral_repeat_frac')::double precision,
+    sqlc.narg('spiral_monologue_len')::int,
+    sqlc.narg('spiral_tool_call_count')::int,
+    sqlc.narg('spiral_message_count')::int,
+    sqlc.narg('spiral_ping_pong_len')::int,
+    sqlc.narg('spiral_steps_since_progress')::int,
+    sqlc.narg('spiral_edit_attempted')::boolean,
+    sqlc.narg('spiral_reasons')::varchar[],
+    sqlc.narg('requested_allowed_models')::varchar[],
+    sqlc.narg('inference_purpose')::varchar,
+    sqlc.narg('inference_policy_id')::varchar,
+    sqlc.narg('inference_registry_revision')::varchar,
+    sqlc.narg('inference_policy_revision')::varchar,
+    sqlc.narg('plan_model')::varchar,
+    sqlc.narg('plan_provider')::varchar,
+    sqlc.narg('fallback_reason')::varchar,
+    sqlc.narg('accounting_outcome')::varchar,
+    sqlc.narg('usage_known')::boolean,
+    sqlc.narg('client_git_head_sha')::varchar,
+    sqlc.narg('client_git_branch')::varchar,
+    sqlc.narg('client_git_dirty')::boolean,
+    sqlc.narg('effort_arm')::varchar,
+    sqlc.narg('effort_selected')::varchar,
+    sqlc.narg('effort_sent')::varchar,
+    sqlc.narg('effort_source')::varchar,
+    sqlc.narg('subscriber_plan')::varchar,
+    sqlc.narg('entitlement_version')::bigint,
+    sqlc.narg('capacity_source')::varchar,
+    sqlc.narg('retail_usage_usd_micros')::bigint,
+    sqlc.narg('included_usage_usd_micros')::bigint,
+    sqlc.narg('linked_usage_usd_micros')::bigint,
+    sqlc.narg('prepaid_usage_usd_micros')::bigint,
+    sqlc.narg('settlement_failed')::boolean,
+    sqlc.narg('serving_profile_id')::varchar,
+    sqlc.narg('serving_profile_version')::varchar,
+    sqlc.narg('serving_release_id')::varchar,
+    sqlc.narg('serving_binding_id')::varchar,
+    sqlc.narg('serving_target')::varchar,
+    sqlc.narg('boost_optimizer_version')::varchar,
+    sqlc.narg('user_prompt')::boolean,
+    sqlc.narg('user_prompt_gap_ms')::bigint,
+    sqlc.narg('user_prompt_gap_prior_model')::varchar,
+    sqlc.narg('error_class')::varchar,
+    sqlc.narg('failure_owner')::varchar,
+    sqlc.narg('latest_tool_call_counts')::jsonb,
+    sqlc.narg('context_snapshot')::jsonb
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING;
 
@@ -514,8 +779,8 @@ LIMIT 1 OFFSET @turn_offset::int;
 -- so only ingest order can guarantee "resume here and miss nothing".
 -- cursor_created_at / cursor_id are NULL on the first page and carry the last
 -- row of the previous page thereafter. The columns selected are the tier-b
--- export set; scorer internals (cluster_ids, candidate_scores, propensity,
--- alpha_breakdown, policy artifacts) and credential fragments are withheld.
+-- export set; immutable policy and roster identities are included for benchmark
+-- joins, while scorer internals and credential fragments remain withheld.
 -- name: GetRoutingDecisionsForExport :many
 SELECT
     t.id,
@@ -524,6 +789,7 @@ SELECT
     t.request_id,
     t.trace_id,
     t.session_id,
+    t.rollout_id,
     t.device_id,
     t.client_app,
     t.turn_type,
@@ -533,23 +799,67 @@ SELECT
     t.requested_model,
     t.decision_model,
     t.decision_provider,
+    t.route_id,
+    t.strategy,
+    t.policy_route_key,
+    t.cluster_router_version,
     t.candidate_models,
     t.chosen_score,
     t.decision_reason,
+    t.blind_experiment_arm,
+    t.blind_experiment_assignment_source,
+    t.blind_experiment_subject_key,
+    t.blind_experiment_mode,
+    t.blind_experiment_session_key,
+    t.cohort_experiment_id,
+    t.cohort_group_id,
+    t.cohort_phase_index,
+    t.cohort_revision,
+    t.cohort_scheduled_arm,
+    t.cohort_treatment_applied,
+    t.cohort_bypass_reason,
+    t.blind_experiment_model_source,
+    t.blind_experiment_treatment_applied,
+    t.blind_experiment_baseline_model,
+    t.blind_experiment_model_changed,
+    t.policy_pin_requested,
+    t.policy_pin_honoured,
     t.sticky_hit,
     t.failover_used,
     t.cross_format,
+    t.error_class,
+    t.failure_owner,
     t.estimated_input_tokens,
     t.input_tokens,
     t.output_tokens,
     t.cache_creation_tokens,
     t.cache_read_tokens,
-    -- The turn ran on the caller's own Claude/Codex subscription, so its
-    -- quota already paid for it and the export reports $0 against the real
-    -- token counts. credential_source itself stays internal.
+    t.cache_creation_1h_tokens,
+    t.reasoning_tokens,
+    t.speed,
+    t.inference_geo,
+    -- A Claude response with the plain overage claim used paid credits, even though the caller's
+    -- OAuth credential served it. Historical rows retain that evidence in
+    -- unified_limit_headers; newer rows also use subscription_overage source.
     -- COALESCE because credential_source is NULL on deployment-key turns, and
     -- NULL IN (...) is NULL, which cannot scan into the generated bool.
-    COALESCE(t.credential_source IN ('subscription', 'codex_subscription'), false)::boolean AS subscription_served,
+    COALESCE(
+        t.credential_source IN ('subscription', 'codex_subscription')
+        -- Successful rows recorded before status capture carry 0 and no error class.
+        AND ((t.upstream_status_code >= 200 AND t.upstream_status_code < 300)
+             OR (t.upstream_status_code = 0 AND t.error_class IS NULL))
+        AND (
+            t.unified_limit_headers->>'anthropic-ratelimit-unified-representative-claim' = 'overage'
+            AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' = 'true'
+        ) IS DISTINCT FROM true,
+        false
+    )::boolean AS subscription_served,
+    t.credential_source,
+    t.subscription_account_id,
+    t.subscription_owner_id,
+    t.subscription_tier,
+    t.intended_model_family,
+    t.final_model_family,
     t.actual_input_cost_usd,
     t.actual_output_cost_usd,
     t.route_latency_ms,
@@ -560,7 +870,29 @@ SELECT
     t.upstream_finish_reason,
     t.stop_reason,
     t.tool_use_blocks,
-    t.invalid_tool_args_blocks
+    t.invalid_tool_args_blocks,
+    t.subscriber_plan,
+    t.entitlement_version,
+    t.capacity_source,
+    t.retail_usage_usd_micros,
+    t.included_usage_usd_micros,
+    t.linked_usage_usd_micros,
+    t.prepaid_usage_usd_micros,
+    t.settlement_failed,
+    t.serving_profile_id,
+    t.serving_profile_version,
+    t.serving_release_id,
+    t.serving_binding_id,
+    t.serving_target,
+    t.boost_optimizer_version,
+    t.policy_artifact_id,
+    t.policy_artifact_sha256,
+    t.roster_version,
+    t.selection_policy_release_id,
+    t.selection_policy_sha256,
+    t.client_git_head_sha,
+    t.client_git_branch,
+    t.client_git_dirty
 FROM router.model_router_request_telemetry t
 LEFT JOIN router.model_router_users u
     ON u.id = t.router_user_id
@@ -575,3 +907,258 @@ WHERE t.installation_id = @installation_id::uuid
   )
 ORDER BY t.created_at ASC, t.id ASC
 LIMIT @row_limit::int;
+
+-- Committed cost of one client session for this installation. Includes
+-- served turns and billed auxiliary inference so the total matches the
+-- Weave public session-cost contract. No-rows when the session has no
+-- committed telemetry yet.
+-- name: GetSessionCost :one
+SELECT
+    t.session_id,
+    COUNT(*)::bigint AS request_count,
+    COALESCE(SUM(t.actual_input_cost_usd), 0)::bigint AS actual_input_cost_usd,
+    COALESCE(SUM(t.actual_output_cost_usd), 0)::bigint AS actual_output_cost_usd,
+    COALESCE(SUM(t.requested_input_cost_usd), 0)::bigint AS requested_input_cost_usd,
+    COALESCE(SUM(t.requested_output_cost_usd), 0)::bigint AS requested_output_cost_usd,
+    COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
+    COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
+    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+    MAX(t.created_at)::timestamptz AS last_recorded_at,
+    BOOL_OR(COALESCE(t.blind_experiment_arm, '') <> '')::boolean AS blind_experiment,
+    (SELECT latest.context_snapshot
+     FROM router.model_router_request_telemetry latest
+     WHERE latest.installation_id = @installation_id::uuid
+       AND latest.session_id = @session_id::varchar
+       AND latest.span_type = 'router.upstream'
+       AND latest.turn_type IN ('main_loop', 'tool_result', 'compaction')
+     ORDER BY latest.timestamp DESC, latest.created_at DESC
+     LIMIT 1) AS context_snapshot
+FROM router.model_router_request_telemetry t
+WHERE t.installation_id = @installation_id::uuid
+  AND t.session_id = @session_id::varchar
+  AND t.span_type IN ('router.upstream', 'router.auxiliary_inference')
+GROUP BY t.session_id;
+
+-- Dashboard facts per bucket and dimension; the admin layer derives every
+-- chart series from these sums. Reason markers mirror the hosted classifier:
+-- user_forced prefix, _hard_pin utility suffix, cluster_argmax passthrough.
+-- name: GetTelemetryDashboardFacts :many
+SELECT
+    date_trunc(@granularity::text, timestamp)::timestamptz AS bucket,
+    COALESCE(decision_model, '')::text AS decision_model,
+    (credential_source IN ('subscription', 'codex_subscription'))::boolean AS subscription_served,
+    (CASE
+        WHEN blind_experiment_arm = 'passthrough' OR decision_reason = 'cluster_argmax' THEN 'passthrough'
+        WHEN decision_reason LIKE 'user_forced%' THEN 'forced'
+        WHEN (decision_reason LIKE '%\_hard\_pin' OR decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough'))
+             AND credential_source IN ('subscription', 'codex_subscription')
+             AND COALESCE(requested_model, '') = COALESCE(decision_model, '') THEN 'subscription_bypass'
+        WHEN decision_reason LIKE '%\_hard\_pin' OR decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
+        ELSE 'router_pick'
+    END)::text AS decision_type,
+    (lower(COALESCE(requested_model, '')) IN ('weave', 'auto', 'weave-auto')
+        OR lower(COALESCE(requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+    COUNT(*)::bigint AS request_count,
+    COALESCE(SUM(input_tokens), 0)::bigint AS input_tokens,
+    COALESCE(SUM(output_tokens), 0)::bigint AS output_tokens,
+    COALESCE(SUM(cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+    COALESCE(SUM(cache_read_tokens), 0)::bigint AS cache_read_tokens,
+    COALESCE(SUM(actual_input_cost_usd + actual_output_cost_usd), 0)::bigint AS actual_cost_usd
+FROM router.model_router_request_telemetry
+WHERE span_type = 'router.upstream'
+  AND timestamp >= @from_time::timestamptz
+  AND timestamp < @to_time::timestamptz
+  AND (sqlc.narg(installation_id)::uuid IS NULL OR installation_id = sqlc.narg(installation_id)::uuid)
+GROUP BY 1, 2, 3, 4, 5
+ORDER BY 1;
+
+-- Distinct people per bucket ('total' = one bucket for the window, so a person
+-- counts once). Linked people carry a router user; unlinked traffic counts once
+-- per API key.
+-- name: GetTelemetryDashboardActiveUsers :many
+SELECT
+    (CASE WHEN @granularity::text = 'total' THEN @from_time::timestamptz
+          ELSE date_trunc(@granularity::text, timestamp) END)::timestamptz AS bucket,
+    (router_user_id IS NOT NULL)::boolean AS linked,
+    COUNT(DISTINCT COALESCE(router_user_id::text, api_key_id::text, installation_id::text))::bigint AS user_count
+FROM router.model_router_request_telemetry
+WHERE span_type = 'router.upstream'
+  AND timestamp >= @from_time::timestamptz
+  AND timestamp < @to_time::timestamptz
+  AND (sqlc.narg(installation_id)::uuid IS NULL OR installation_id = sqlc.narg(installation_id)::uuid)
+GROUP BY 1, 2
+ORDER BY 1;
+
+-- Everyone who could route: roster users (linked) and API keys that sent
+-- traffic without a router user (unlinked), with their latest request ever.
+-- One telemetry scan feeds both halves; idle users would otherwise walk the
+-- installation's full history once each.
+-- name: GetTelemetryDashboardPeople :many
+WITH activity AS MATERIALIZED (
+    SELECT
+        t.installation_id,
+        t.router_user_id,
+        t.api_key_id,
+        MAX(t.timestamp) AS last_request_at
+    FROM router.model_router_request_telemetry t
+    WHERE t.span_type = 'router.upstream'
+      AND (t.router_user_id IS NOT NULL OR t.api_key_id IS NOT NULL)
+      AND (sqlc.narg(installation_id)::uuid IS NULL OR t.installation_id = sqlc.narg(installation_id)::uuid)
+    GROUP BY t.installation_id, t.router_user_id, t.api_key_id
+)
+SELECT
+    u.id::text AS person_id,
+    true AS linked,
+    COALESCE(NULLIF(u.display_name, ''), u.email, '')::text AS display_name,
+    COALESCE(u.email, '')::text AS email,
+    linked_activity.last_request_at::timestamptz AS last_request_at
+FROM router.model_router_users u
+LEFT JOIN (
+    SELECT a.installation_id, a.router_user_id, MAX(a.last_request_at) AS last_request_at
+    FROM activity a
+    WHERE a.router_user_id IS NOT NULL
+    GROUP BY a.installation_id, a.router_user_id
+) linked_activity ON linked_activity.installation_id = u.installation_id
+    AND linked_activity.router_user_id = u.id
+WHERE u.deleted_at IS NULL
+  AND (sqlc.narg(installation_id)::uuid IS NULL OR u.installation_id = sqlc.narg(installation_id)::uuid)
+UNION ALL
+SELECT
+    a.api_key_id::text AS person_id,
+    false AS linked,
+    COALESCE(MAX(k.name), '')::text AS display_name,
+    ''::text AS email,
+    MAX(a.last_request_at)::timestamptz AS last_request_at
+FROM activity a
+LEFT JOIN router.model_router_api_keys k ON k.id = a.api_key_id
+WHERE a.router_user_id IS NULL
+GROUP BY a.api_key_id;
+
+-- Subscription accounts registered to the pool with their latest quota reading.
+-- A seat registered to several installations appears once; its quota is a
+-- property of the physical subscription, not of who borrowed it.
+-- name: GetTelemetrySubscriptionPoolSeats :many
+SELECT
+    account.id,
+    account.provider,
+    account.display_name,
+    account.enabled,
+    account.health_state,
+    account.cooldown_until::timestamptz AS cooldown_until,
+    COALESCE(owner.name, '')::text AS owner_name,
+    served.requests::bigint AS served_requests,
+    reading.timestamp::timestamptz AS limits_observed_at,
+    reading.unified_limit_headers,
+    reading.codex_limit_headers
+FROM router.model_router_subscription_accounts account
+LEFT JOIN LATERAL (
+    SELECT COALESCE(NULLIF(u.display_name, ''), u.email, k.name) AS name
+    FROM router.model_router_subscription_account_installations registration
+    LEFT JOIN router.model_router_users u
+      ON u.credential_subject_id = account.subscriber_id AND u.installation_id = registration.installation_id AND u.deleted_at IS NULL
+    LEFT JOIN router.model_router_api_keys k
+      ON k.credential_subject_id = account.subscriber_id AND k.installation_id = registration.installation_id AND k.deleted_at IS NULL
+    WHERE registration.subscription_account_id = account.id AND account.subscriber_id IS NOT NULL
+      AND COALESCE(NULLIF(u.display_name, ''), u.email, k.name) IS NOT NULL
+    ORDER BY u.id IS NULL, k.created_at
+    LIMIT 1
+) owner ON TRUE
+CROSS JOIN LATERAL (
+    SELECT COUNT(*) AS requests FROM router.model_router_request_telemetry t
+    WHERE t.subscription_account_id = account.id AND t.span_type = 'router.upstream' AND t.timestamp >= @served_since::timestamptz
+      AND t.upstream_status_code >= 200 AND t.upstream_status_code < 300
+) served
+LEFT JOIN LATERAL (
+    SELECT t.timestamp, t.unified_limit_headers, t.codex_limit_headers FROM router.model_router_request_telemetry t
+    WHERE t.subscription_account_id = account.id AND t.span_type = 'router.upstream' AND t.timestamp >= @readings_since::timestamptz
+      AND (t.unified_limit_headers IS NOT NULL OR t.codex_limit_headers IS NOT NULL)
+    ORDER BY t.timestamp DESC LIMIT 1
+) reading ON TRUE
+WHERE EXISTS (
+    SELECT 1 FROM router.model_router_subscription_account_installations registration
+    WHERE registration.subscription_account_id = account.id
+      AND (sqlc.narg(installation_id)::uuid IS NULL OR registration.installation_id = sqlc.narg(installation_id)::uuid)
+)
+ORDER BY account.provider, account.created_at, account.id;
+
+-- One row per person, session and requested/decision model pair, for the
+-- dashboard drill-down. Unlinked traffic is keyed by its API key.
+-- name: GetTelemetryDashboardDrillDown :many
+SELECT
+    COALESCE(t.router_user_id::text, t.api_key_id::text, t.installation_id::text)::text AS person_id,
+    (t.router_user_id IS NOT NULL)::boolean AS linked,
+    COALESCE(NULLIF(MAX(u.display_name), ''), MAX(u.email), MAX(k.name), '')::text AS display_name,
+    COALESCE(MAX(u.email), '')::text AS email,
+    COALESCE(t.session_id, '')::text AS session_id,
+    COALESCE(t.client_app, '')::text AS client_app,
+    COALESCE(t.requested_model, '')::text AS requested_model,
+    COALESCE(t.decision_model, '')::text AS decision_model,
+    COALESCE(array_agg(DISTINCT t.decision_provider) FILTER (WHERE COALESCE(t.decision_provider, '') <> ''), '{}')::text[] AS providers,
+    (t.credential_source IN ('subscription', 'codex_subscription'))::boolean AS subscription_served,
+    (CASE
+        WHEN t.blind_experiment_arm = 'passthrough' OR t.decision_reason = 'cluster_argmax' THEN 'passthrough'
+        WHEN t.decision_reason LIKE 'user_forced%' THEN 'forced'
+        WHEN (t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough'))
+             AND t.credential_source IN ('subscription', 'codex_subscription')
+             AND COALESCE(t.requested_model, '') = COALESCE(t.decision_model, '') THEN 'subscription_bypass'
+        WHEN t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
+        ELSE 'router_pick'
+    END)::text AS decision_type,
+    (lower(COALESCE(t.requested_model, '')) IN ('weave', 'auto', 'weave-auto')
+        OR lower(COALESCE(t.requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+    MIN(t.timestamp)::timestamptz AS started_at,
+    MAX(t.timestamp)::timestamptz AS finished_at,
+    COUNT(*)::bigint AS request_count,
+    COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
+    COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
+    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+    COALESCE(SUM(t.actual_input_cost_usd + t.actual_output_cost_usd), 0)::bigint AS actual_cost_usd
+FROM router.model_router_request_telemetry t
+LEFT JOIN router.model_router_users u ON u.id = t.router_user_id
+LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
+WHERE t.span_type = 'router.upstream'
+  AND t.timestamp >= @from_time::timestamptz
+  AND t.timestamp < @to_time::timestamptz
+  AND (sqlc.narg(installation_id)::uuid IS NULL OR t.installation_id = sqlc.narg(installation_id)::uuid)
+GROUP BY 1, 2, 5, 6, 7, 8, 10, 11, 12
+ORDER BY started_at DESC;
+
+-- Dashboard facts per person, bucket and dimension, for the Individuals page.
+-- Unlinked traffic is keyed by its API key, like the drill-down.
+-- name: GetTelemetryDashboardIndividualFacts :many
+SELECT
+    COALESCE(t.router_user_id::text, t.api_key_id::text, t.installation_id::text)::text AS person_id,
+    (t.router_user_id IS NOT NULL)::boolean AS linked,
+    COALESCE(NULLIF(MAX(u.display_name), ''), MAX(u.email), MAX(k.name), '')::text AS display_name,
+    COALESCE(MAX(u.email), '')::text AS email,
+    date_trunc(@granularity::text, t.timestamp)::timestamptz AS bucket,
+    COALESCE(t.decision_model, '')::text AS decision_model,
+    (t.credential_source IN ('subscription', 'codex_subscription'))::boolean AS subscription_served,
+    (CASE
+        WHEN t.blind_experiment_arm = 'passthrough' OR t.decision_reason = 'cluster_argmax' THEN 'passthrough'
+        WHEN t.decision_reason LIKE 'user_forced%' THEN 'forced'
+        WHEN (t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough'))
+             AND t.credential_source IN ('subscription', 'codex_subscription')
+             AND COALESCE(t.requested_model, '') = COALESCE(t.decision_model, '') THEN 'subscription_bypass'
+        WHEN t.decision_reason LIKE '%\_hard\_pin' OR t.decision_reason IN ('usage_bypass', 'classifier_subscription_passthrough') THEN 'utility'
+        ELSE 'router_pick'
+    END)::text AS decision_type,
+    (lower(COALESCE(t.requested_model, '')) IN ('weave', 'auto', 'weave-auto')
+        OR lower(COALESCE(t.requested_model, '')) LIKE 'weave-hmm-%')::boolean AS automatic_alias,
+    COUNT(*)::bigint AS request_count,
+    COALESCE(SUM(t.input_tokens), 0)::bigint AS input_tokens,
+    COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
+    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
+    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
+    COALESCE(SUM(t.actual_input_cost_usd + t.actual_output_cost_usd), 0)::bigint AS actual_cost_usd
+FROM router.model_router_request_telemetry t
+LEFT JOIN router.model_router_users u ON u.id = t.router_user_id
+LEFT JOIN router.model_router_api_keys k ON k.id = t.api_key_id
+WHERE t.span_type = 'router.upstream'
+  AND t.timestamp >= @from_time::timestamptz
+  AND t.timestamp < @to_time::timestamptz
+  AND (sqlc.narg(installation_id)::uuid IS NULL OR t.installation_id = sqlc.narg(installation_id)::uuid)
+GROUP BY 1, 2, 5, 6, 7, 8, 9
+ORDER BY 5;

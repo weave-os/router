@@ -3,8 +3,9 @@ package postgres
 import (
 	"context"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres/dbbudget"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -24,7 +25,7 @@ func (r *userRepo) UpsertByEmail(ctx context.Context, params auth.UpsertUserPara
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.UpsertModelRouterUserByEmail(ctx, sqlc.UpsertModelRouterUserByEmailParams{
 		InstallationID:    installationID,
 		Email:             params.Email,
@@ -37,14 +38,15 @@ func (r *userRepo) UpsertByEmail(ctx context.Context, params auth.UpsertUserPara
 	// The merge-or-insert CTE returns a generated UNION row type with the
 	// same fields as RouterModelRouterUser; map by field to reuse toAuthUser.
 	return toAuthUser(sqlc.RouterModelRouterUser{
-		ID:                row.ID,
-		InstallationID:    row.InstallationID,
-		Email:             row.Email,
-		ClaudeAccountUUID: row.ClaudeAccountUUID,
-		FirstSeenAt:       row.FirstSeenAt,
-		LastSeenAt:        row.LastSeenAt,
-		DeletedAt:         row.DeletedAt,
-		DisplayName:       row.DisplayName,
+		ID:                  row.ID,
+		InstallationID:      row.InstallationID,
+		Email:               row.Email,
+		ClaudeAccountUUID:   row.ClaudeAccountUUID,
+		FirstSeenAt:         row.FirstSeenAt,
+		LastSeenAt:          row.LastSeenAt,
+		DeletedAt:           row.DeletedAt,
+		DisplayName:         row.DisplayName,
+		CredentialSubjectID: row.CredentialSubjectID,
 	}), nil
 }
 
@@ -57,11 +59,31 @@ func (r *userRepo) UpsertByAccountUUID(ctx context.Context, params auth.UpsertUs
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.UpsertModelRouterUserByAccountUUID(ctx, sqlc.UpsertModelRouterUserByAccountUUIDParams{
 		InstallationID:    installationID,
 		ClaudeAccountUUID: accountUUID,
 		DisplayName:       nullableTextArg(params.DisplayName),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return toAuthUser(row), nil
+}
+
+func (r *userRepo) UpsertByCredentialSubject(ctx context.Context, params auth.UpsertUserByCredentialSubjectParams) (*auth.User, error) {
+	installationID, err := uuid.Parse(params.InstallationID)
+	if err != nil {
+		return nil, err
+	}
+	credentialSubjectID, err := uuid.Parse(params.CredentialSubjectID)
+	if err != nil {
+		return nil, err
+	}
+	row, err := dbbudget.Queries(r.tx).UpsertModelRouterUserByCredentialSubject(ctx, sqlc.UpsertModelRouterUserByCredentialSubjectParams{
+		InstallationID:      installationID,
+		CredentialSubjectID: credentialSubjectID,
+		DisplayName:         nullableTextArg(params.DisplayName),
 	})
 	if err != nil {
 		return nil, err
@@ -74,7 +96,7 @@ func (r *userRepo) Get(ctx context.Context, id string) (*auth.User, error) {
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.GetModelRouterUser(ctx, parsed)
 	if err != nil {
 		return nil, err
@@ -87,7 +109,7 @@ func (r *userRepo) ListForInstallation(ctx context.Context, installationID strin
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.ListModelRouterUsersForInstallation(ctx, parsed)
 	if err != nil {
 		return nil, err

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"workweave/router/internal/sse"
+	"weave-os/router/internal/sse"
 
 	"github.com/tidwall/gjson"
 )
@@ -47,7 +47,8 @@ type AnthropicRoutingFooterWriter struct {
 
 	footer string
 
-	buf bytes.Buffer
+	buf     bytes.Buffer
+	scanner sse.Scanner
 
 	streaming      bool
 	headersEmitted bool
@@ -91,13 +92,14 @@ func (w *AnthropicRoutingFooterWriter) WriteHeader(code int) {
 	ct := w.inner.Header().Get("Content-Type")
 	w.streaming = strings.Contains(ct, "text/event-stream") && code < 400
 	w.headersEmitted = true
+	sse.PrepareJSONResponse(w.inner)
 	w.inner.WriteHeader(code)
 }
 
 func (w *AnthropicRoutingFooterWriter) Write(data []byte) (int, error) {
 	if !w.streaming || w.footer == "" {
 		// Non-streaming or no footer: fully transparent passthrough.
-		return w.inner.Write(data)
+		return sse.WriteJSONChunk(w.inner, data)
 	}
 	return w.processUpstream(data)
 }
@@ -119,7 +121,7 @@ func (w *AnthropicRoutingFooterWriter) processUpstream(data []byte) (int, error)
 	// an event split across two Write calls is parsed whole, not truncated.
 	w.buf.Write(data)
 	for {
-		event, n := sse.SplitNext(w.buf.Bytes())
+		event, n := w.scanner.Next(w.buf.Bytes())
 		if n == 0 {
 			break
 		}

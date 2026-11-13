@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -120,6 +120,30 @@ func TestParseRouterFeedbackCommand(t *testing.T) {
 			// /rfoo must not match the alias prefix.
 			name:      "rf alias without space boundary is ignored",
 			input:     "/rfoo bar",
+			wantFound: false,
+		},
+		{
+			name:       "codex dollar rf plus shortcut",
+			input:      "$rf+",
+			wantRating: "up",
+			wantFound:  true,
+		},
+		{
+			name:         "codex dollar rf space minus with note",
+			input:        "$rf - too slow",
+			wantRating:   "down",
+			wantFeedback: "too slow",
+			wantFound:    true,
+		},
+		{
+			name:         "codex dollar rf alias with feedback text",
+			input:        "$rf kept thrashing between models",
+			wantFeedback: "kept thrashing between models",
+			wantFound:    true,
+		},
+		{
+			name:      "dollar rfoo without space boundary is ignored",
+			input:     "$rfoo bar",
 			wantFound: false,
 		},
 		{
@@ -322,6 +346,120 @@ func TestExtractRouterFeedbackCommand_OpenAIFormat(t *testing.T) {
 	assert.Equal(t, "", lastOpenAIUserMessageText(t, env))
 }
 
+func TestExtractRouterFeedbackCommand_ToolResultContinuesAgentTurn(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_skill", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+			map[string]any{"role": "tool", "tool_call_id": "call_skill", "content": " /router-feedback too slow"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	res, found := env.ExtractRouterFeedbackCommand()
+	require.True(t, found)
+	assert.True(t, res.FromToolResult)
+	assert.Equal(t, "too slow", res.Feedback)
+	assert.Equal(t, "", lastOpenAIUserMessageText(t, env))
+}
+
+func TestExtractRouterFeedbackCommand_CodexExecPreamble(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_skill", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+			map[string]any{"role": "tool", "tool_call_id": "call_skill", "content": "Script completed\nWall time: 0.0 seconds\nOutput:\n /router-feedback too slow"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	res, found := env.ExtractRouterFeedbackCommand()
+	require.True(t, found)
+	assert.True(t, res.FromToolResult)
+	assert.Equal(t, "too slow", res.Feedback)
+}
+
+func TestExtractRouterFeedbackCommand_CodexSkillResponsesToolResult(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-terra",
+		"input": []any{
+			map[string]any{"type": "message", "role": "user", "content": "$rf +"},
+			map[string]any{"type": "message", "role": "user", "content": "<skill>\n<name>rf</name>\nrun the feedback skill\n</skill>"},
+			map[string]any{"type": "custom_tool_call", "call_id": "call_skill", "name": "exec", "input": "..."},
+			map[string]any{"type": "custom_tool_call_output", "call_id": "call_skill", "output": "Script completed\n"},
+			map[string]any{"type": "custom_tool_call_output", "call_id": "call_skill", "output": []any{
+				map[string]any{"type": "input_text", "text": "Script completed\nOutput:\n"},
+				map[string]any{"type": "input_text", "text": " /router-feedback +\n"},
+			}},
+		},
+	})
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.Equal(t, translate.CodexSkillTurnFeedback, converted.CodexSkill)
+
+	env, err := translate.ParseOpenAI(converted.Body)
+	require.NoError(t, err)
+	res, found := env.ExtractRouterFeedbackCommand()
+	require.True(t, found)
+	assert.True(t, res.FromToolResult)
+	assert.Equal(t, translate.RouterFeedbackRatingUp, res.Rating)
+}
+
+func TestCodexFeedbackSkillDoesNotLatchAcrossTurns(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-terra",
+		"input": []any{
+			map[string]any{"type": "message", "role": "user", "content": "$rf +"},
+			map[string]any{"type": "message", "role": "user", "content": "<skill>\n<name>rf</name>\nrun the feedback skill\n</skill>"},
+			map[string]any{"type": "custom_tool_call", "call_id": "call_skill", "name": "exec", "input": "..."},
+			map[string]any{"type": "custom_tool_call_output", "call_id": "call_skill", "output": " /router-feedback +\n"},
+			map[string]any{"type": "message", "role": "user", "content": "continue working"},
+			map[string]any{"type": "custom_tool_call_output", "call_id": "call_other", "output": " /router-feedback +\n"},
+		},
+	})
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.NotEqual(t, translate.CodexSkillTurnFeedback, converted.CodexSkill)
+}
+
+func TestCodexSkillTurnLatestForceModelOutputWinsOverEarlierFeedback(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-terra",
+		"input": []any{
+			map[string]any{"type": "message", "role": "user", "content": "$rf +"},
+			map[string]any{"type": "message", "role": "user", "content": "<skill>\n<name>rf</name>\nrun the feedback skill\n</skill>"},
+			map[string]any{"type": "custom_tool_call", "call_id": "call_rf", "name": "exec", "input": "..."},
+			map[string]any{"type": "custom_tool_call_output", "call_id": "call_rf", "output": " /router-feedback +\n"},
+			map[string]any{"type": "custom_tool_call", "call_id": "call_fm", "name": "exec", "input": "/x/skills/fm/scripts/emit.sh astra"},
+			map[string]any{"type": "custom_tool_call_output", "call_id": "call_fm", "output": " /force-model astra\n"},
+		},
+	})
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.Equal(t, translate.CodexSkillTurnForceModel, converted.CodexSkill)
+}
+
+func TestExtractRouterFeedbackCommand_CodexExecDocumentationIsNotCommand(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-sol",
+		"messages": []any{
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_skill", "type": "function", "function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+			map[string]any{"role": "tool", "tool_call_id": "call_skill", "content": "Script completed\nOutput:\n---\nname: router-feedback\n```text\n /router-feedback too slow\n```"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	_, found := env.ExtractRouterFeedbackCommand()
+	assert.False(t, found, "a command example in exec output must not record feedback")
+}
+
 func TestExtractRouterFeedbackCommand_ArrayContentMultipleTextBlocks(t *testing.T) {
 	// Claude Code splits slash-command turns into an injected-tags block plus
 	// the typed directive; the parser must scan every text block.
@@ -367,4 +505,28 @@ func TestExtractRouterFeedbackCommand_GeminiFormatIgnored(t *testing.T) {
 
 	_, found := env.ExtractRouterFeedbackCommand()
 	assert.False(t, found, "Gemini format should not be scanned for router-feedback commands")
+}
+
+// emit.sh forwards "$*", so a multi-line note arrives under one "Output:" preamble; parsing only the first line would truncate the note and leak the rest upstream.
+func TestExtractRouterFeedbackCommand_CodexExecMultiLineNote(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-terra",
+		"messages": []any{
+			map[string]any{"role": "assistant", "tool_calls": []any{map[string]any{
+				"id": "call_skill", "type": "function",
+				"function": map[string]any{"name": "exec", "arguments": "{}"},
+			}}},
+			map[string]any{
+				"role": "tool", "tool_call_id": "call_skill",
+				"content": "Script completed\nWall time 0.1 seconds\nOutput:\n /router-feedback it broke\nsecond line of the note\n",
+			},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	res, found := env.ExtractRouterFeedbackCommand()
+	require.True(t, found)
+	assert.Equal(t, "it broke\nsecond line of the note", res.Feedback)
+	assert.True(t, res.FromToolResult)
 }

@@ -23,7 +23,7 @@ test_path="$fake_bin:$PATH"
 run_hosted_install() {
   HOME="$home" PATH="$test_path" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
     bash "$installer" --codex --scope user --quiet \
-      --base-url https://router.workweave.ai
+      --base-url https://router.weaveos.com
 }
 
 run_install() {
@@ -52,6 +52,19 @@ fail() {
   exit 1
 }
 
+assert_top_level_setting() {
+  local setting="$1" expected="$2"
+  python3 - "$config" "$setting" "$expected" <<'PY' \
+    || fail "Codex $setting is not top-level $expected"
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as config_file:
+    config = tomllib.load(config_file)
+assert config.get(sys.argv[2]) == sys.argv[3], config.get(sys.argv[2])
+PY
+}
+
 # Old installer versions placed Markdown wrappers here, but current Codex does
 # not discover them as slash commands. The upgrade must remove only those
 # canonical files and leave unrelated user prompts alone.
@@ -66,14 +79,40 @@ config="$home/.codex/config.toml"
 [ -f "$config" ] || fail "Codex config was not created"
 grep -qx 'model_provider = "weave"' "$config" \
   || fail "Weave was not selected as the default provider"
+grep -qx 'model = "weave-auto"' "$config" \
+  || fail "fresh Codex installs do not start in automatic routing mode"
+assert_top_level_setting model weave-auto
+grep -Fq '"X-Weave-Codex-Native-Model-Pin" = "1"' "$config" \
+  || fail "Codex native model selection was not enabled"
 grep -qx 'requires_openai_auth = true' "$config" \
   || fail "Weave provider does not require ChatGPT OAuth"
-grep -Fq '"X-Weave-Router-Strategy" = "hmm"' "$config" \
-  || fail "Codex provider does not select HMM routing"
+grep -Eqx 'model_catalog_url = "[^"]+/v1/codex/models"' "$config" \
+  || fail "API-key Codex logins do not get the Weave model catalog"
+grep -Fq '"X-Weave-Codex-Model-Catalog" = "1"' "$config" \
+  || fail "Codex catalog clients are not marked for model-instructions switches"
+grep -qx 'features.hooks = true' "$config" \
+  || fail "Codex hooks were not enabled"
+grep -Fq '[[hooks.SessionStart]]' "$config" \
+  || fail "Codex SessionStart hook was not installed"
+grep -Fq '[[hooks.Stop]]' "$config" \
+  || fail "Codex Stop hook was not installed"
+grep -Fq '[[hooks.PreCompact]]' "$config" \
+  || fail "Codex PreCompact hook was not installed"
+if grep -Fq '[[hooks.PreToolUse]]' "$config"; then
+  fail "ordinary Codex installs registered classifier-only hooks"
+fi
+status_helper="$home/.weave/codex-status.sh"
+  [ "$(grep -Fc "command = \"$status_helper\"" "$config")" -eq 4 ] \
+  || fail "Codex hooks do not point at the installed status helper"
+[ -f "$status_helper" ] || fail "Codex status helper was not installed"
+grep -Fq '<!-- weave-router managed codex status -->' "$status_helper" \
+  || fail "Codex status helper has no ownership marker"
+if grep -Fq 'X-Weave-Router-Strategy' "$config"; then
+  fail "Codex provider pinned a routing strategy instead of the router default"
+fi
 
-# Self-hosted routers may not have the optional HMM sidecar. Both --local and
-# a custom --base-url must keep the router's own default instead of forcing a
-# 503, while a later public-hosted install restores the explicit HMM header.
+# No install target pins a strategy: every endpoint, hosted or self-hosted,
+# uses the router's own deployment default.
 run_local_install
 grep -Fq 'base_url = "http://localhost:8080/v1"' "$config" \
   || fail "Codex --local did not select the local router"
@@ -87,8 +126,9 @@ if grep -Fq 'X-Weave-Router-Strategy' "$config"; then
   fail "Codex custom --base-url forced the optional HMM strategy"
 fi
 run_hosted_install
-grep -Fq '"X-Weave-Router-Strategy" = "hmm"' "$config" \
-  || fail "public-hosted Codex reinstall did not restore HMM routing"
+if grep -Fq 'X-Weave-Router-Strategy' "$config"; then
+  fail "public-hosted Codex reinstall pinned a routing strategy"
+fi
 
 # The stale wrappers must no longer suggest unsupported `/prompts:*` aliases.
 for command in force-model unforce-model router-feedback fm ufm rf; do
@@ -104,6 +144,17 @@ grep -Fq '<!-- weave-router managed disable-routing skill -->' "$skill" \
   || fail "Codex disable-routing skill has no ownership marker"
 grep -Fq 'weave-router off --codex' "$skill" \
   || fail "Codex disable-routing skill does not use the safe off toggle"
+
+for alias in fm ufm rf; do
+  alias_skill="$home/.codex/skills/$alias/SKILL.md"
+  [ -f "$alias_skill" ] || fail "Codex \$$alias skill was not installed"
+  grep -Fq "<!-- weave-router managed $alias skill -->" "$alias_skill" \
+    || fail "Codex \$$alias skill has no ownership marker"
+done
+for name in force-model fm unforce-model ufm router-feedback rf; do
+  emit="$home/.codex/skills/$name/scripts/emit.sh"
+  [ -x "$emit" ] || fail "Codex \$$name skill is missing an executable emit.sh"
+done
 if HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" disable-routing --claude --scope user --quiet >/dev/null 2>&1; then
   fail "disable-routing accepted a non-Codex target"
 fi
@@ -113,8 +164,13 @@ fi
 run_disable_routing
 grep -qx '# model_provider = "weave"  # weave-router: off (run on to re-enable)' "$config" \
   || fail "disable-routing did not turn off the Codex provider"
+grep -qx '# model = "weave-auto"  # weave-router: off (run on to re-enable)' "$config" \
+  || fail "disable-routing left the Weave-only model active on the direct provider"
 [ "$(grep -c '^\[model_providers\.weave\]$' "$config")" -eq 1 ] \
   || fail "disable-routing removed or duplicated the managed provider"
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
+grep -qx 'model = "weave-auto"' "$config" \
+  || fail "router-on did not restore automatic routing"
 
 # A repeat install must refresh one managed block, not duplicate its auth rule.
 run_hosted_install
@@ -123,6 +179,140 @@ run_hosted_install
 
 run_uninstall
 [ ! -e "$skill" ] || fail "uninstall did not remove the Codex disable-routing skill"
+[ ! -e "$status_helper" ] || fail "uninstall did not remove the Codex status helper"
+
+# Reinstalling while routing is off must clear the old installer comments.
+# Otherwise a later off/on cycle restores duplicate top-level TOML keys.
+run_hosted_install
+run_disable_routing
+run_hosted_install
+run_disable_routing
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
+assert_top_level_setting model_provider weave
+assert_top_level_setting model weave-auto
+run_disable_routing
+run_uninstall
+if grep -Fq 'weave-router: off' "$config"; then
+  fail "uninstall left Codex off-state comments behind"
+fi
+
+printf 'model = "gpt-6-sol"\n' >"$config"
+run_hosted_install
+[ "$(grep -cx 'model = "gpt-6-sol"' "$config")" -eq 1 ] \
+  || fail "install replaced a user-selected native model"
+if grep -qx 'model = "weave-auto"' "$config"; then
+  fail "install duplicated a user-selected native model"
+fi
+run_uninstall
+grep -qx 'model = "gpt-6-sol"' "$config" \
+  || fail "uninstall removed the user's native model selection"
+
+# Earlier installs kept the default model inside the managed block. If Codex
+# changed that line, reinstall must promote the selected model and effort to
+# top-level user settings before replacing the block.
+rm -f "$config"
+run_hosted_install
+awk '
+  /^model = "weave-auto"$/ { next }
+  /^# >>> weave-router managed/ {
+    print
+    print "model = \"gpt-6-sol\""
+    print "model_reasoning_effort = \"max\""
+    next
+  }
+  { print }
+' "$config" >"$work/old-codex-config.toml"
+mv "$work/old-codex-config.toml" "$config"
+run_hosted_install
+assert_top_level_setting model gpt-6-sol
+assert_top_level_setting model_reasoning_effort max
+run_hosted_install
+assert_top_level_setting model gpt-6-sol
+run_uninstall
+assert_top_level_setting model gpt-6-sol
+assert_top_level_setting model_reasoning_effort max
+
+# An older block could also leave Codex's newly written selection after its
+# end marker, which TOML scopes to the last table in that block.
+rm -f "$config"
+run_hosted_install
+awk '
+  /^model = "weave-auto"$/ { next }
+  /^# >>> weave-router managed/ { print; print "model = \"weave-auto\""; next }
+  /^# <<< weave-router managed/ {
+    print
+    print "model = \"gpt-6-sol\""
+    print "model_reasoning_effort = \"max\""
+    next
+  }
+  { print }
+' "$config" >"$work/after-marker-config.toml"
+mv "$work/after-marker-config.toml" "$config"
+run_hosted_install
+assert_top_level_setting model gpt-6-sol
+assert_top_level_setting model_reasoning_effort max
+run_uninstall
+
+# A selection written after the Weave provider header is scoped to that table
+# by TOML, not to Codex. Reinstall repairs its scope while replacing the table.
+cat >"$config" <<'MISPLACED'
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.weaveos.com/v1"
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+MISPLACED
+run_hosted_install
+assert_top_level_setting model gpt-5.6-sol
+assert_top_level_setting model_reasoning_effort high
+run_uninstall
+
+for name in force-model fm unforce-model ufm router-feedback rf \
+            router-off router-on router-status router-models; do
+  [ ! -e "$home/.codex/skills/$name" ] \
+    || fail "uninstall left the Codex \$$name skill directory behind"
+done
+
+# A pre-existing hooks scalar or table is incompatible with inline lifecycle
+# arrays. Preserve either user shape and install routing without managed hooks.
+for hooks_shape in scalar table; do
+  if [ "$hooks_shape" = scalar ]; then
+    # The literal ${HOME} is the point: it must survive the install unexpanded.
+    # shellcheck disable=SC2016
+    printf '%s\n' 'hooks = "${HOME}/.codex/hooks.json"' >"$config"
+  else
+    printf '%s\n' '[hooks]' 'enabled = true' >"$config"
+  fi
+  run_hosted_install
+  grep -Fq 'model_provider = "weave"' "$config" \
+    || fail "hooks conflict prevented Codex routing setup ($hooks_shape)"
+  if grep -Fq '[[hooks.SessionStart]]' "$config" || grep -Fq '[[hooks.Stop]]' "$config"; then
+    fail "installer added inline hooks to conflicting hooks $hooks_shape config"
+  fi
+  if [ "$hooks_shape" = scalar ]; then
+    # shellcheck disable=SC2016
+    grep -Fq 'hooks = "${HOME}/.codex/hooks.json"' "$config" \
+      || fail "installer did not preserve hooks path"
+  else
+    grep -Fq 'enabled = true' "$config" \
+      || fail "installer did not preserve hooks table"
+  fi
+  run_uninstall
+  [ ! -e "$status_helper" ] || fail "uninstall left the status helper after hooks conflict test"
+done
+
+# A user-owned status helper must not be overwritten or made executable by the
+# managed hooks. The installer refuses the install rather than wiring around it.
+mkdir -p "$(dirname "$status_helper")"
+printf '%s\n' 'user-authored status helper' >"$status_helper"
+if run_hosted_install; then
+  fail "installer accepted an unowned Codex status helper"
+fi
+grep -qx 'user-authored status helper' "$status_helper" \
+  || fail "installer modified an unowned Codex status helper"
+rm -f "$status_helper"
+mkdir -p "$(dirname "$status_helper")"
 
 # A same-named user skill is not ours to overwrite or remove. This also
 # covers an upgrade on a machine where the name was already taken.
@@ -134,5 +324,655 @@ grep -qx 'user-authored skill' "$skill" \
 run_uninstall
 grep -qx 'user-authored skill' "$skill" \
   || fail "uninstall removed a user-owned Codex disable-routing skill"
+
+
+# ---------- Codex rewrites config.toml and our comment markers do not survive ----------
+#
+# Codex round-trips the whole file through a TOML serializer whenever it
+# persists its own state (hook trust hashes, project trust levels, the model
+# NUX table). Comments are dropped, so the managed markers disappear while
+# `[model_providers.weave]` survives -- re-emitted in the serializer's own
+# shape: keys alphabetized and our inline `http_headers` expanded into a
+# [model_providers.weave.http_headers] subtable.
+#
+# Every reader and writer keyed on the markers alone broke on that config:
+# install appended a second provider table (TOML rejects a table declared
+# twice, so Codex refused to start), the endpoint reader reported a live
+# install as absent, the key reader missed the router key, and uninstall left
+# the provider and its key on disk. Seed exactly that file for each case.
+seed_codex_normalized_config() {
+  rm -rf "$home/.codex" "$home/.weave"
+  mkdir -p "$home/.codex"
+  cat >"$config" <<'NORMALIZED'
+model_provider = "weave"
+model = "weave-auto"
+
+[features]
+hooks = true
+
+[hooks.state."/Users/a/.codex/config.toml:stop:0:0"]
+enabled = true
+trusted_hash = "sha256:deadbeef"
+
+[model_providers.weave]
+base_url = "https://router.weaveos.com/v1"
+name = "Weave Router"
+requires_openai_auth = true
+wire_api = "responses"
+
+[model_providers.weave.http_headers]
+X-App = "codex"
+X-Weave-Router-Key = "rk_normalized_key"
+X-Weave-Codex-Native-Model-Pin = "1"
+
+[projects."/Users/a/Code/weave"]
+trust_level = "trusted"
+NORMALIZED
+}
+
+# assert_config_parses fails when config.toml is not loadable TOML -- the exact
+# check Codex performs at startup, and the one that caught the duplicate table.
+# Skipped rather than faked where no python3 is available; the count assertions
+# below still pin the regression.
+assert_config_parses() {
+  command -v python3 >/dev/null 2>&1 || return 0
+  python3 - "$config" <<'PARSE' || fail "$1"
+import sys, tomllib
+with open(sys.argv[1], "rb") as fh:
+    tomllib.load(fh)
+PARSE
+}
+
+seed_codex_normalized_config
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" off --codex --scope user --quiet >/dev/null
+if grep -qx 'model = "weave-auto"' "$config"; then
+  fail "router-off left automatic mode active after Codex rewrote config"
+fi
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
+grep -qx 'model = "weave-auto"' "$config" \
+  || fail "router-on did not restore automatic mode after Codex rewrote config"
+
+# Codex may serialize an off-state without comments, leaving the configured
+# provider but no model_provider line. Router-on must restore it at top level.
+seed_codex_normalized_config
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" off --codex --scope user --quiet >/dev/null
+awk '!/^[[:space:]]*#/' "$config" >"$work/markerless-off.toml"
+mv "$work/markerless-off.toml" "$config"
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
+assert_top_level_setting model_provider weave
+assert_top_level_setting model weave-auto
+assert_config_parses "router-on produced invalid TOML from a markerless off-state"
+[ "$(grep -c '^\[model_providers\.weave\]$' "$config")" -eq 1 ] \
+  || fail "router-on duplicated the markerless Weave provider"
+
+# A named model remains the user's choice across the same off/on recovery.
+seed_codex_normalized_config
+sed 's/^model = "weave-auto"$/model = "gpt-6-sol"/' "$config" >"$work/named-codex-config.toml"
+mv "$work/named-codex-config.toml" "$config"
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" off --codex --scope user --quiet >/dev/null
+awk '!/^[[:space:]]*#/' "$config" >"$work/markerless-named-off.toml"
+mv "$work/markerless-named-off.toml" "$config"
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
+assert_top_level_setting model_provider weave
+assert_top_level_setting model gpt-6-sol
+seed_codex_normalized_config
+run_hosted_install
+assert_config_parses "install over a Codex-rewritten config produced unparseable TOML"
+[ "$(grep -c '^\[model_providers\.weave\]$' "$config")" -eq 1 ] \
+  || fail "install over a Codex-rewritten config duplicated [model_providers.weave]"
+[ "$(grep -c '^\[model_providers\.weave\.http_headers\]$' "$config")" -eq 0 ] \
+  || fail "install over a Codex-rewritten config left the serializer's headers subtable"
+[ "$(grep -c '^model_provider = "weave"$' "$config")" -eq 1 ] \
+  || fail "install over a Codex-rewritten config duplicated the top-level model_provider"
+[ "$(grep -c '^model = "weave-auto"$' "$config")" -eq 1 ] \
+  || fail "install over a Codex-rewritten config duplicated the automatic model"
+# Unrelated Codex-owned state is not ours to drop while rewriting around it.
+grep -Fq '[hooks.state."/Users/a/.codex/config.toml:stop:0:0"]' "$config" \
+  || fail "install over a Codex-rewritten config dropped Codex hook state"
+grep -Fq '[projects."/Users/a/Code/weave"]' "$config" \
+  || fail "install over a Codex-rewritten config dropped Codex project trust"
+
+# The endpoint reader backs `login`/`status`. Reading only between the markers
+# reported "No Weave Router install found for codex in this scope" on a
+# perfectly good install, which sent users through a reinstall to fix it.
+seed_codex_normalized_config
+router_status="$(HOME="$home" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" status --scope user 2>&1 || true)"
+printf '%s' "$router_status" | grep -q 'Codex        on' \
+  || fail "status did not detect a Codex install whose markers Codex had dropped"
+if printf '%s' "$router_status" | grep -q "Couldn't read Codex's router endpoint"; then
+  fail "status could not read the endpoint of a Codex install whose markers Codex had dropped"
+fi
+
+# `off` comments out model_provider but keeps the provider table, so status
+# must report the toggle state rather than the table's endpoint.
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" off --codex --scope user >/dev/null 2>&1
+router_status="$(HOME="$home" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" status --codex --scope user 2>&1 || true)"
+printf '%s' "$router_status" | grep -q 'Codex        on' \
+  && fail "status reported Codex on the router after off --codex"
+printf '%s' "$router_status" | grep -q 'Codex        off' \
+  || fail "status did not report Codex as off after off --codex"
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user >/dev/null 2>&1
+
+# `login codex` is where users hit this first: it refused to enroll a
+# subscription against a working install and told them to run the installer
+# again. The offline validation failure confirms that the install was found.
+login_out="$(HOME="$home" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" login codex --scope user 2>&1 || true)"
+printf '%s' "$login_out" | grep -Fq 'Could not reach the router at https://router.weaveos.com' \
+  || fail "login codex did not validate an install whose markers Codex had dropped"
+
+# The key reader has to accept both spellings of the header name: our writer
+# emits one quoted inline table, Codex re-emits it as a bare key in a subtable.
+# Missing it made a re-install mint a second router key -- or, non-interactively,
+# fail outright with no key to fall back on.
+seed_codex_normalized_config
+HOME="$home" PATH="$test_path" NO_COLOR=1 WEAVE_ROUTER_KEY="" \
+  bash "$installer" --codex --scope user --quiet --non-interactive \
+    --base-url https://router.weaveos.com </dev/null >/dev/null 2>&1 \
+  || fail "re-install could not reuse the key from a Codex-rewritten config"
+grep -Fq 'rk_normalized_key' "$config" \
+  || fail "re-install replaced the router key already in a Codex-rewritten config"
+
+# Uninstall reported success while leaving the provider -- and the key inside
+# it -- behind, so routing kept working and the credential stayed on disk.
+seed_codex_normalized_config
+run_uninstall
+[ "$(grep -c '^\[model_providers\.weave\]$' "$config")" -eq 0 ] \
+  || fail "uninstall left the provider table from a Codex-rewritten config"
+if grep -Fq 'rk_normalized_key' "$config"; then
+  fail "uninstall left the router key in a Codex-rewritten config"
+fi
+if grep -Fq 'model_provider = "weave"' "$config"; then
+  fail "uninstall left Codex routed at the Weave provider"
+fi
+if grep -Fq 'model = "weave-auto"' "$config"; then
+  fail "uninstall left a Weave-only model on the direct provider"
+fi
+# Codex's own state still has to survive an uninstall.
+grep -Fq '[projects."/Users/a/Code/weave"]' "$config" \
+  || fail "uninstall dropped Codex project trust"
+
+# A provider whose name merely starts with "weave" is a different provider and
+# must be left alone -- the table matcher is anchored, not a prefix search.
+seed_codex_normalized_config
+cat >>"$config" <<'NEIGHBOUR'
+
+[model_providers.weaver]
+base_url = "https://example.invalid/v1"
+name = "Weaver"
+NEIGHBOUR
+run_hosted_install
+grep -Fq '[model_providers.weaver]' "$config" \
+  || fail "install removed an unrelated provider whose name starts with weave"
+run_uninstall
+grep -Fq '[model_providers.weaver]' "$config" \
+  || fail "uninstall removed an unrelated provider whose name starts with weave"
+
+rm -rf "$home/.codex" "$home/.weave"
+
+
+# ---------- the UserPromptSubmit local-toggle hook ----------
+#
+# 0.2.17 shipped a UserPromptSubmit hook answering $fm / $rf / $router-session
+# locally; #1257 retired it once the router answered those itself. The hook is
+# back, scoped to the four directives the router CANNOT answer -- they rewrite
+# config.toml on this machine. An upgrade from either release has to land the
+# helper and its registration together and exactly once: a registration
+# pointing at a missing script makes Codex fail every prompt, and a duplicate
+# one runs the toggle twice.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+directive_helper="$home/.weave/codex-directive.sh"
+printf '%s\n' '#!/usr/bin/env bash' '# <!-- weave-router managed codex directive -->' 'exit 0' \
+  >"$directive_helper"
+chmod 700 "$directive_helper"
+
+# A config in the shape 0.2.17 leaves behind once Codex has normalized it: our
+# registrations outside the markers, duplicated by a later install, sharing a
+# Stop group with a third-party hook.
+cat >"$config" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.weaveos.com/v1"
+
+[model_providers.weave.http_headers]
+X-Weave-Router-Key = "rk_prior"
+
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "$directive_helper"
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "$home/.weave/codex-status.sh"
+
+[[hooks.SessionStart]]
+
+[[hooks.SessionStart.hooks]]
+command = "$home/.weave/codex-status.sh"
+type = "command"
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+command = "$home/.weave/codex-status.sh"
+type = "command"
+
+[[hooks.Stop.hooks]]
+command = "$home/.git-ai/bin/git-ai checkpoint codex"
+type = "command"
+TOML
+
+run_hosted_install
+assert_config_parses "upgrading from the directive-hook release produced unparseable TOML"
+
+[ -f "$directive_helper" ] \
+  || fail "the upgrade did not install the local-toggle hook"
+grep -Fq '<!-- weave-router managed codex directive -->' "$directive_helper" \
+  || fail "the installed directive helper carries no ownership marker"
+# The helper the upgrade replaced was a 0.2.17 stub; the real one drives the
+# local toggles, so the marker alone is not enough to say it was refreshed.
+# Literal on purpose: this is the text of the installed script, not an
+# expansion this test should perform.
+# shellcheck disable=SC2016
+grep -Fq 'weave-router "$toggle" --codex' "$directive_helper" \
+  || fail "the upgrade left the 0.2.17 directive helper in place instead of replacing it"
+# Exactly once: the prior release's registration must be collapsed, not joined.
+[ "$(grep -c "command = \"$directive_helper\"" "$config")" -eq 1 ] \
+  || fail "expected exactly one UserPromptSubmit registration, got $(grep -c "command = \"$directive_helper\"" "$config")"
+# A registration is only safe if the script it names is actually there.
+registered_hook="$(awk -F'"' '/^command = /{print $2}' "$config" | grep -F 'codex-directive.sh' | head -1)"
+[ -x "$registered_hook" ] \
+  || fail "the registered UserPromptSubmit command is not an executable file: $registered_hook"
+
+# The duplicates are the same orphan class: Codex normalized our block out of
+# the markers, so the previous install could not see them and appended more.
+# Stripping by helper filename collapses them to the one the block re-adds.
+[ "$(grep -c "command = \"$home/.weave/codex-status.sh\"" "$config")" -eq 4 ] \
+  || fail "expected exactly one status registration per event, got $(grep -c "command = \"$home/.weave/codex-status.sh\"" "$config")"
+
+# A third party's hook in a group we also wrote to must survive.
+grep -Fq 'git-ai checkpoint codex' "$config" \
+  || fail "the upgrade removed a third-party hook sharing a group with ours"
+
+# Routing itself still lands.
+grep -Fq 'model_provider = "weave"' "$config" \
+  || fail "the upgrade did not leave Codex routed at the Weave provider"
+
+run_uninstall
+rm -rf "$home/.codex" "$home/.weave"
+
+# A third party is free to name its hook weave-status.sh. Removal matches the
+# exact paths this installation owns, so a same-named hook somewhere else is not
+# ours to delete -- a filename pattern would have taken it.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/elsewhere"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 0' >"$home/elsewhere/weave-status.sh"
+chmod 755 "$home/elsewhere/weave-status.sh"
+cat >"$config" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.weaveos.com/v1"
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "$home/elsewhere/weave-status.sh"
+TOML
+
+run_hosted_install
+assert_config_parses "a same-named third-party hook produced unparseable TOML"
+grep -Fq "command = \"$home/elsewhere/weave-status.sh\"" "$config" \
+  || fail "removal matched on filename and deleted a third-party hook we do not own"
+[ -x "$home/elsewhere/weave-status.sh" ] \
+  || fail "the installer removed a third-party script it does not own"
+rm -rf "$home/.codex" "$home/.weave" "$home/elsewhere"
+
+# remove_codex_directive_helper only deletes a file carrying our ownership
+# marker. A user who happens to keep their own codex-directive.sh at that path
+# must get it back untouched -- the retirement is ours to clean up, not theirs.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.weave"
+unowned="$home/.weave/codex-directive.sh"
+printf '%s\n' 'user-authored directive helper' >"$unowned"
+run_hosted_install
+grep -qx 'user-authored directive helper' "$unowned" \
+  || fail "the retirement deleted or rewrote a user-owned file at the helper path"
+grep -Fq 'model_provider = "weave"' "$config" \
+  || fail "an unowned file at the helper path blocked Codex routing setup"
+assert_config_parses "an unowned file at the helper path produced unparseable TOML"
+rm -f "$unowned"
+rm -rf "$home/.codex" "$home/.weave"
+
+# ...and their hook registration survives with it. Keeping the file while
+# stripping its wiring would leave a script Codex never runs, which is worse
+# than either consistent outcome.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+unowned="$home/.weave/codex-directive.sh"
+printf '%s\n' 'user-authored directive helper' >"$unowned"
+chmod 755 "$unowned"
+cat >"$config" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.weaveos.com/v1"
+
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "$unowned"
+TOML
+
+run_hosted_install
+assert_config_parses "an unowned helper with a registration produced unparseable TOML"
+grep -qx 'user-authored directive helper' "$unowned" \
+  || fail "the retirement deleted a user-owned helper that had its own registration"
+grep -Fq "command = \"$unowned\"" "$config" \
+  || fail "the retirement unwired a user-owned helper it had just refused to delete"
+rm -f "$unowned"
+rm -rf "$home/.codex" "$home/.weave"
+
+# A dangling symlink at the helper path is the user's, not residue. `-e` is
+# false for one, so the missing-file rule would otherwise claim it and unwire a
+# link they created.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+dangling="$home/.weave/codex-directive.sh"
+ln -s "$home/.weave/nothing-here.sh" "$dangling"
+cat >"$config" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.weaveos.com/v1"
+
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "$dangling"
+TOML
+run_hosted_install
+grep -Fq "command = \"$dangling\"" "$config" \
+  || fail "a dangling symlink at the helper path was treated as our own residue"
+[ -L "$dangling" ] || fail "the installer removed a user-created symlink"
+rm -f "$dangling"
+rm -rf "$home/.codex" "$home/.weave"
+
+# A symlinked status helper still has to be unwired, or reinstall stacks the
+# duplicates this strip exists to remove: the old registrations survive while
+# the managed block writes a fresh pair. The marker is read through the link.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+linked_target="$home/.weave/codex-status-real.sh"
+printf '%s\n' '#!/usr/bin/env bash' '# <!-- weave-router managed codex status -->' 'exit 0' \
+  >"$linked_target"
+chmod 700 "$linked_target"
+ln -s "$linked_target" "$home/.weave/codex-status.sh"
+cat >"$config" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.weaveos.com/v1"
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "$home/.weave/codex-status.sh"
+
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = "$home/.weave/codex-status.sh"
+TOML
+
+run_hosted_install
+assert_config_parses "a symlinked status helper produced unparseable TOML"
+[ "$(grep -c '^\[\[hooks\.SessionStart\]\]$' "$config")" -eq 1 ] \
+  || fail "a symlinked status helper stacked duplicate SessionStart registrations"
+[ "$(grep -c '^\[\[hooks\.Stop\]\]$' "$config")" -eq 1 ] \
+  || fail "a symlinked status helper stacked duplicate Stop registrations"
+[ -L "$home/.weave/codex-status.sh" ] \
+  || fail "the installer replaced the status symlink instead of writing through it"
+rm -rf "$home/.codex" "$home/.weave"
+
+# A symlinked DIRECTIVE helper is a different case from a symlinked status one:
+# this helper gets deleted, and deletion refuses to act through a link. Claiming
+# it would strip the registration and then decline the delete, leaving a helper
+# Codex no longer runs. It must stay wired, and the install must still finish.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+marked_target="$home/.weave/directive-real.sh"
+printf '%s\n' '#!/usr/bin/env bash' '# <!-- weave-router managed codex directive -->' 'exit 0' \
+  >"$marked_target"
+chmod 700 "$marked_target"
+ln -s "$marked_target" "$home/.weave/codex-directive.sh"
+cat >"$config" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.weaveos.com/v1"
+
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "$home/.weave/codex-directive.sh"
+TOML
+
+run_hosted_install
+assert_config_parses "a symlinked directive helper produced unparseable TOML"
+grep -Fq "command = \"$home/.weave/codex-directive.sh\"" "$config" \
+  || fail "a symlinked directive helper was unwired even though it cannot be deleted"
+[ -L "$home/.weave/codex-directive.sh" ] \
+  || fail "the installer deleted through a symlinked directive helper"
+# The install has to complete: aborting here leaves it half-applied over a file
+# it was never going to touch.
+[ -f "$home/.codex/skills/fm/SKILL.md" ] \
+  || fail "a symlinked directive helper aborted the install before skills landed"
+rm -rf "$home/.codex" "$home/.weave"
+
+# Uninstall must not abort on a symlinked helper either: refusing before the
+# config rewrite left Codex wired to the router the uninstall was removing.
+rm -rf "$home/.codex" "$home/.weave"
+run_hosted_install
+status_target="$home/.weave/status-real.sh"
+mv "$home/.weave/codex-status.sh" "$status_target"
+ln -s "$status_target" "$home/.weave/codex-status.sh"
+run_uninstall || fail "a symlinked status helper aborted the uninstall outright"
+if [ -f "$config" ] && grep -Fq 'model_provider = "weave"' "$config"; then
+  fail "a symlinked status helper aborted uninstall before the config was cleaned"
+fi
+[ -L "$home/.weave/codex-status.sh" ] \
+  || fail "uninstall deleted through a symlinked status helper"
+rm -rf "$home/.codex" "$home/.weave"
+
+# Ownership is decided by each helper's own marker. The status marker must not
+# vouch for the directive path: the deletion sites check exact markers, so a
+# prefix match would unwire a file the installer then declines to delete.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+crossmarked="$home/.weave/codex-directive.sh"
+printf '%s\n' '#!/usr/bin/env bash' '# <!-- weave-router managed codex status -->' 'exit 0' \
+  >"$crossmarked"
+chmod 755 "$crossmarked"
+cat >"$config" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.weaveos.com/v1"
+
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "$crossmarked"
+TOML
+run_hosted_install
+grep -Fq "command = \"$crossmarked\"" "$config" \
+  || fail "the status marker vouched for the directive path and unwired it"
+[ -f "$crossmarked" ] || fail "the installer deleted a file whose marker does not match its path"
+rm -f "$crossmarked"
+rm -rf "$home/.codex" "$home/.weave"
+
+
+# ---------- project scope gitignores every generated helper ----------
+#
+# Each of these is per-teammate and carries or executes install-specific state,
+# so committing one either leaks a key or ships one developer's absolute paths
+# to everyone else. The directive helper was documented as ignored before it
+# actually was.
+proj_home="$work/proj-home"
+proj_repo="$work/proj-repo"
+mkdir -p "$proj_home" "$proj_repo"
+git -C "$proj_repo" init -q .
+git -C "$proj_repo" config user.email test@example.com
+git -C "$proj_repo" config user.name test
+( cd "$proj_repo" && HOME="$proj_home" PATH="$test_path" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
+    bash "$installer" --codex --scope project --quiet \
+      --base-url https://router.weaveos.com >/dev/null 2>&1 )
+
+for entry in \
+  ".codex/config.toml" \
+  ".codex/weave-status.sh" \
+  ".codex/weave-directive.sh" \
+  ".codex/.weave-router-disabled"
+do
+  grep -qxF "$entry" "$proj_repo/.gitignore" \
+    || fail "project install did not gitignore $entry"
+done
+
+# Whatever the installer generated in .codex must actually be covered by those
+# rules -- an entry list that drifts from the files written is the failure mode.
+# The count guards the sweep itself: a traversal that returns nothing would let
+# this pass while checking no paths at all.
+swept=0
+while IFS= read -r generated; do
+  [ -n "$generated" ] || continue
+  swept=$((swept + 1))
+  ( cd "$proj_repo" && git check-ignore -q "$generated" ) \
+    || fail "project install left $generated tracked by git"
+done < <(cd "$proj_repo" && find .codex -maxdepth 1 -type f)
+# config.toml, the status helper, and the local-toggle directive hook.
+[ "$swept" -ge 3 ] \
+  || fail "the gitignore sweep inspected only $swept generated file(s); expected at least 3"
+
+# A project-scope install has to bake its own scope into the hook, because the
+# installed copy cannot work out at run time which install it belongs to.
+proj_hook="$proj_repo/.codex/weave-directive.sh"
+[ -f "$proj_hook" ] || fail "project install did not write the local-toggle hook"
+grep -Fq -- '--scope project' "$proj_hook" \
+  || fail "project-scope hook did not bake in its scope; it would flip the user-scope install"
+grep -Fq '{{SCOPE}}' "$proj_hook" \
+  && fail "the installed hook still carries the unsubstituted {{SCOPE}} token"
+
+
+# ---------- an unowned file at the hook path is never registered ----------
+#
+# The status helper hard-fails the install when something unowned sits at its
+# path. This hook must not: the toggles still work as skills, so refusing to
+# install the router over a stray file costs far more than it protects. What
+# it must never do is register that file as a command Codex runs on every
+# prompt.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+stray="$home/.weave/codex-directive.sh"
+printf '%s\n' '#!/usr/bin/env bash' '# someone else, entirely' 'exit 0' >"$stray"
+chmod 700 "$stray"
+
+run_hosted_install || fail "an unowned directive helper must not fail the install"
+assert_config_parses "install over an unowned directive helper produced unparseable TOML"
+
+grep -Fq 'someone else, entirely' "$stray" \
+  || fail "the install overwrote a user-owned file at the directive hook path"
+if grep -Fq "command = \"$stray\"" "$config"; then
+  fail "the install registered an unowned script to run on every prompt"
+fi
+grep -Fq 'model_provider = "weave"' "$config" \
+  || fail "an unowned directive helper stopped routing from being configured"
+
+
+# ---------- a symlink at the hook path is never ours ----------
+#
+# Three ways this went wrong, all one rule. Following a marked symlink let a
+# reinstall overwrite whatever it pointed at, anywhere on disk. A dangling
+# symlink is invisible to -e, so the user-owned guard passed and the install
+# created the missing target. And refuse_if_symlink exited the whole
+# installer, which contradicts this hook being optional.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+outside="$work/not-the-codex-dir.txt"
+printf '%s\n' 'important unrelated file' >"$outside"
+ln -s "$outside" "$home/.weave/codex-directive.sh"
+
+run_hosted_install || fail "a symlink at the hook path must not fail the install"
+assert_config_parses "install over a symlinked directive helper produced unparseable TOML"
+
+grep -Fq 'important unrelated file' "$outside" \
+  || fail "the install followed the symlink and overwrote its target"
+if grep -Fq "command = \"$home/.weave/codex-directive.sh\"" "$config"; then
+  fail "the install registered a symlinked hook path"
+fi
+grep -Fq 'model_provider = "weave"' "$config" \
+  || fail "a symlinked hook path stopped routing from being configured"
+
+# A symlink whose target carries OUR marker is still not ours: the write would
+# land outside the Codex directory just the same.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+marked="$work/marked-target.sh"
+printf '%s\n' '#!/usr/bin/env bash' '# <!-- weave-router managed codex directive -->' 'exit 0' >"$marked"
+ln -s "$marked" "$home/.weave/codex-directive.sh"
+run_hosted_install || fail "a marked symlink must not fail the install"
+# Literal on purpose: matching the installed script's text, not expanding it.
+# shellcheck disable=SC2016
+if ! grep -Fq 'exit 0' "$marked" || grep -Fq 'weave-router "$toggle"' "$marked"; then
+  fail "the install wrote through a marked symlink to its target"
+fi
+
+# A DANGLING symlink: -e is false, so an existence-based guard would sail past
+# it, create the target, then register it as a command Codex runs every prompt.
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home/.codex" "$home/.weave"
+missing="$work/does-not-exist.sh"
+rm -f "$missing"
+ln -s "$missing" "$home/.weave/codex-directive.sh"
+run_hosted_install || fail "a dangling symlink must not fail the install"
+[ ! -e "$missing" ] \
+  || fail "the install wrote through a dangling symlink and created its target"
+if grep -Fq "command = \"$home/.weave/codex-directive.sh\"" "$config"; then
+  fail "the install registered a dangling symlink as the prompt hook"
+fi
+
+rm -f "$outside" "$marked"
+
+
+# ---------- uninstall takes the hook and its registration together ----------
+rm -rf "$home/.codex" "$home/.weave"
+mkdir -p "$home"
+run_hosted_install
+hook="$home/.weave/codex-directive.sh"
+[ -f "$hook" ] || fail "fresh install did not write the local-toggle hook"
+grep -Fq "command = \"$hook\"" "$config" \
+  || fail "fresh install did not register the local-toggle hook"
+
+run_uninstall || fail "uninstall failed with the local-toggle hook installed"
+[ ! -e "$hook" ] || fail "uninstall left the local-toggle hook on disk"
+if [ -f "$config" ] && grep -Fq 'hooks.UserPromptSubmit' "$config"; then
+  fail "uninstall left a UserPromptSubmit registration behind"
+fi
+
+# A classifier opt-in must never write the local proxy into config unless
+# healthz proves it is armed and chained to the intended router. This test's
+# fake curl refuses that probe.
+if WEAVE_CAPTURE_LLM_CLASSIFIER=1 WEAVE_CAPTURE_PROXY_URL=http://127.0.0.1:41984 run_hosted_install; then
+  fail "classifier install succeeded with an unavailable capture proxy"
+fi
+if [ -f "$config" ] && grep -Fq 'base_url = "http://127.0.0.1:41984/v1"' "$config"; then
+  fail "failed classifier probe modified the Codex provider"
+fi
 
 echo "Codex installer routing regression tests passed"

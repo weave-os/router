@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/anthropic"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -69,7 +69,7 @@ func TestBearerScheme_UsesBYOKCredentialBaseURLAndToken(t *testing.T) {
 	// installation's stored BYOK credential.
 	c := anthropic.NewClient("", "", anthropic.WithAuthScheme(anthropic.AuthBearer))
 	prep, clientReq := messagesRequest()
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:  []byte("byok-token"),
 		Source:  "byok",
 		BaseURL: upstream.URL,

@@ -9,8 +9,8 @@ name: Smoke
 #
 # The PR job runs in replay-only mode against the cassettes committed under
 # smoke/mitmproxy/cassettes/ — no upstream API keys, safe on fork PRs, fully
-# deterministic. It's still path-gated to the regression-prone surfaces only;
-# docs, artifacts, the HMM sidecar, and the frontend never trigger it.
+# deterministic. The shared agent_checks selector chooses request-path changes;
+# the workflow itself is unfiltered so new components cannot bypass selection.
 #
 # A separate nightly job (needs ANTHROPIC_API_KEY; OPENAI_API_KEY optional) re-
 # records the cassettes against the real APIs to catch upstream drift (a
@@ -18,17 +18,6 @@ name: Smoke
 # never runs on a fork.
 on:
   pull_request:
-    paths:
-      - 'internal/proxy/**'
-      - 'internal/translate/**'
-      - 'internal/providers/**'
-      - 'internal/router/catalog/**'
-      - 'cmd/router/**'
-      - 'smoke/**'
-      - 'scripts/smoke/**'
-      - 'docker-compose.yml'
-      - 'Dockerfile'
-      - '.github/workflows/smoke.yml'
   schedule:
     # Nightly cassette-refresh: catches Anthropic-side drift the path-gated PR
     # job (replay-only, no key) can't see. Time chosen off any round hour.
@@ -51,10 +40,41 @@ permissions:
   contents: read
 
 jobs:
-  smoke:
-    name: Smoke (replay-only)
+  changes:
+    name: Select smoke validation
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    outputs:
+      smoke: ${{ steps.select.outputs.smoke }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test isolated smoke orchestration without starting Docker
+        run: python3 -m unittest discover -s scripts/smoke -p 'test_*.py' -v
+
+      - name: Select suites using the local agent validation contract
+        id: select
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "smoke=true" >> "$GITHUB_OUTPUT"
+          else
+            SELECTED=$(python3 scripts/agent_checks.py selected smoke --base "$BASE_SHA" --head "$HEAD_SHA")
+            echo "smoke=$SELECTED" >> "$GITHUB_OUTPUT"
+          fi
+
+  smoke:
+    name: Smoke (replay-only)
+    needs: changes
+    if: github.event_name != 'schedule' && needs.changes.outputs.smoke == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,10 +87,38 @@ jobs:
         with:
           version: latest
 
+      - name: Verify loopback ingress without opening runtime egress
+        env:
+          SMOKE_TEST_DOCKER: "1"
+        run: python3 scripts/smoke/test_runner.py ComposeMergeTest.test_replay_ingress_reaches_internal_server_without_default_route
+
+      - name: Start Smoke image build timer
+        run: echo "SMOKE_BUILD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Build Smoke images with GitHub Actions cache
+        uses: docker/bake-action@v6
+        with:
+          source: .
+          files: ./docker-bake.smoke.hcl
+          targets: |
+            server
+            mitmproxy
+            seed
+            hmm-stub
+          load: true
+          set: |
+            server.tags=router-server
+            mitmproxy.tags=router-mitmproxy
+            seed.tags=router-seed
+            hmm-stub.tags=router-hmm-stub
+
+      - name: Record Smoke image build time
+        run: echo "SMOKE_BUILD_SECONDS=$(( $(date +%s) - SMOKE_BUILD_STARTED_AT ))" >> "$GITHUB_ENV"
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.26.10'
           cache-dependency-path: go.sum
 
       - name: Run smoke suite
@@ -78,26 +126,37 @@ jobs:
           SMOKE_PROXY_MODE: ${{ github.event.inputs.proxy_mode || 'replay-only' }}
           # Only present for a manual record/replay-or-record dispatch; unused
           # (and unnecessary) for the default replay-only path.
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.proxy_mode != 'replay-only' && secrets.ANTHROPIC_API_KEY || '' }}
+          OPENAI_API_KEY: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.proxy_mode != 'replay-only' && secrets.OPENAI_API_KEY || '' }}
           # Layers the server/mitmproxy Docker builds against the GitHub
           # Actions cache (type=gha) via smoke/mitmproxy/docker-compose.ci-cache.yml
-          # — the ONNX/tokenizer downloads, npm build, and Go compile are what
+          # — the npm build and Go compile are what
           # actually make a cold build slow; a warm cache turns an ~8-12 minute
           # build into low single-digit minutes.
           SMOKE_CI_CACHE: "1"
+          SMOKE_PREBUILT: "1"
         run: ./scripts/smoke/run.sh
 
   refresh-cassettes:
     name: Refresh cassettes (nightly)
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Push + PR-create as the weave-bot machine user (not the default
+          # GITHUB_TOKEN), so the cassette-refresh branch/PR actually triggers
+          # required CI: PRs opened by GITHUB_TOKEN don't fire pull_request
+          # workflows (anti-recursion), so required checks never run and
+          # auto-merge waits forever. WEAVE_BOT_TOKEN needs push + PRs
+          # (classic repo, or a fine-grained PAT with Contents R/W + Pull
+          # requests R/W); a Contents-only token 403s on gh pr calls.
+          token: ${{ secrets.WEAVE_BOT_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -110,7 +169,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: '1.26.10'
           cache-dependency-path: go.sum
 
       - name: Require Anthropic key
@@ -122,17 +181,41 @@ jobs:
             exit 1
           fi
 
+      - name: Start Smoke image build timer
+        run: echo "SMOKE_BUILD_STARTED_AT=$(date +%s)" >> "$GITHUB_ENV"
+
+      - name: Build Smoke images with GitHub Actions cache
+        uses: docker/bake-action@v6
+        with:
+          source: .
+          files: ./docker-bake.smoke.hcl
+          targets: |
+            server
+            mitmproxy
+            seed
+            hmm-stub
+          load: true
+          set: |
+            server.tags=router-server
+            mitmproxy.tags=router-mitmproxy
+            seed.tags=router-seed
+            hmm-stub.tags=router-hmm-stub
+
+      - name: Record Smoke image build time
+        run: echo "SMOKE_BUILD_SECONDS=$(( $(date +%s) - SMOKE_BUILD_STARTED_AT ))" >> "$GITHUB_ENV"
+
       - name: Record fresh cassettes against the real API
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           SMOKE_PROXY_MODE: record
           SMOKE_CI_CACHE: "1"
+          SMOKE_PREBUILT: "1"
         run: ./scripts/smoke/run.sh
 
       - name: Open a PR if the cassettes changed
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.WEAVE_BOT_TOKEN }}
         run: |
           # git diff alone misses brand-new cassette files (a new scenario, or
           # the very first recording) since they're untracked, not modified —
@@ -144,13 +227,45 @@ jobs:
             exit 0
           fi
           BRANCH="smoke-cassette-refresh-$(date -u +%Y%m%d)"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Match the identity that performs the auto-squash-merge
+          # (workweave-bot <bot@workweave.ai>). GitHub's squash merge adds a
+          # Co-authored-by trailer for every branch-commit author that isn't
+          # the merger, so authoring under any other identity leaves a stray
+          # co-author on the merged commit.
+          git config user.name "workweave-bot"
+          git config user.email "bot@workweave.ai"
+          OPEN=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json number --jq 'length')
+          if [ "$OPEN" -gt 0 ]; then
+            echo "Open cassette-refresh PR for $BRANCH already exists; nothing to do."
+            exit 0
+          fi
           git checkout -b "$BRANCH"
           git add smoke/mitmproxy/cassettes/
           git commit -m "chore(smoke): nightly cassette refresh"
-          git push origin "$BRANCH" --force
-          gh pr create --title "chore(smoke): nightly cassette refresh $(date -u +%Y-%m-%d)" \
-            --body "A provider's response shape drifted from what the smoke suite's committed cassettes expect. Review the diff — a real behavior change on the provider's side, or just cosmetic (timestamps/ids)? See docs/SMOKE.md." \
-            --base main --head "$BRANCH" 2>&1 | tee pr-create.log || \
-            echo "::warning::PR creation failed or a PR for this branch already exists; see pr-create.log"
+          # A closed refresh PR leaves its branch behind, and the commit
+          # rebuilt here is not necessarily a descendant of it, so a plain
+          # push can be rejected. No open PR uses this branch, so overwriting
+          # it is safe.
+          git push --force --set-upstream origin "$BRANCH"
+          gh pr create --repo "$GITHUB_REPOSITORY" \
+            --title "chore(smoke): nightly cassette refresh $(date -u +%Y-%m-%d)" \
+            --body "A provider's response shape drifted from what the smoke suite's committed cassettes expect. Review the diff — a real behavior change on the provider's side, or just cosmetic (timestamps/ids)? See docs/SMOKE.md.
+
+          This PR will auto-merge once required checks pass." \
+            --base main --head "$BRANCH"
+
+      - name: Enable auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.WEAVE_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          BRANCH="smoke-cassette-refresh-$(date -u +%Y%m%d)"
+          OPEN=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --state open --json number --jq 'length')
+          if [ "$OPEN" -eq 0 ]; then
+            echo "No open cassette-refresh PR for $BRANCH; skipping auto-merge."
+            exit 0
+          fi
+          gh pr merge "$BRANCH" \
+            --repo "$GITHUB_REPOSITORY" \
+            --auto \
+            --squash

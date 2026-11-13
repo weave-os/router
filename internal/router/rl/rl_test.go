@@ -5,9 +5,9 @@ import (
 	"errors"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/rl"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/rl"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -56,7 +56,7 @@ func TestRouteMapsRosterChoiceBackToCatalogModel(t *testing.T) {
 	// The policy picks by OpenRouter-style roster ID; the router must dispatch
 	// the corresponding catalog model via its own provider.
 	dec := &fakeDecider{result: rl.Result{Model: "anthropic/claude-opus-4-8", Score: 1.5, ScoreLabel: "DPO score", StateLabel: "implementing"}}
-	r := rl.New(dec, deployed("claude-opus-4-8", "deepseek/deepseek-v4-flash"), allProviders)
+	r := rl.New(dec, deployed("claude-opus-4-8", "deepseek/deepseek-v4.1-flash"), allProviders)
 
 	decision, err := r.Route(context.Background(), router.Request{
 		PromptText:       "refactor the auth module",
@@ -75,12 +75,12 @@ func TestRouteMapsRosterChoiceBackToCatalogModel(t *testing.T) {
 		rosterIDs[c.RosterID] = c.Provider
 	}
 	assert.Equal(t, providers.ProviderAnthropic, rosterIDs["anthropic/claude-opus-4-8"])
-	assert.Equal(t, providers.ProviderMakora, rosterIDs["deepseek/deepseek-v4-flash"])
+	assert.Equal(t, providers.ProviderMakora, rosterIDs["deepseek/deepseek-v4.1-flash"])
 }
 
 func TestRouteOmitsModelsWithNoEnabledProvider(t *testing.T) {
 	dec := &fakeDecider{result: rl.Result{Model: "anthropic/claude-opus-4-8"}}
-	r := rl.New(dec, deployed("claude-opus-4-8", "deepseek/deepseek-v4-flash"), allProviders)
+	r := rl.New(dec, deployed("claude-opus-4-8", "deepseek/deepseek-v4.1-flash"), allProviders)
 
 	_, err := r.Route(context.Background(), router.Request{
 		PromptText:       "hi",
@@ -88,14 +88,14 @@ func TestRouteOmitsModelsWithNoEnabledProvider(t *testing.T) {
 	})
 	require.NoError(t, err)
 	for _, c := range dec.got.Candidates {
-		assert.NotEqual(t, "deepseek/deepseek-v4-flash", c.RosterID,
+		assert.NotEqual(t, "deepseek/deepseek-v4.1-flash", c.RosterID,
 			"makora not enabled, so the deepseek model must not be offered")
 	}
 }
 
 func TestRouteExcludesRequestedExclusions(t *testing.T) {
-	dec := &fakeDecider{result: rl.Result{Model: "deepseek/deepseek-v4-flash"}}
-	r := rl.New(dec, deployed("claude-opus-4-8", "deepseek/deepseek-v4-flash"), allProviders)
+	dec := &fakeDecider{result: rl.Result{Model: "deepseek/deepseek-v4.1-flash"}}
+	r := rl.New(dec, deployed("claude-opus-4-8", "deepseek/deepseek-v4.1-flash"), allProviders)
 
 	_, err := r.Route(context.Background(), router.Request{
 		PromptText:       "hi",
@@ -137,7 +137,7 @@ func TestRouteNilEnabledProvidersIsUnrestricted(t *testing.T) {
 	// policy must still be offered the deployed models via their primary
 	// provider, not an empty set.
 	dec := &fakeDecider{result: rl.Result{Model: "anthropic/claude-opus-4-8"}}
-	r := rl.New(dec, deployed("claude-opus-4-8", "deepseek/deepseek-v4-flash"), allProviders)
+	r := rl.New(dec, deployed("claude-opus-4-8", "deepseek/deepseek-v4.1-flash"), allProviders)
 
 	decision, err := r.Route(context.Background(), router.Request{
 		PromptText:       "hi",
@@ -170,10 +170,10 @@ func TestRouteToolTurnDropsToolUseLowFromCandidatesAndIndex(t *testing.T) {
 }
 
 func TestRouteImageTurnDropsImageUnsupported(t *testing.T) {
-	// deepseek/deepseek-v4-flash is image-unsupported; opus is vision-capable.
+	// Qwen Coder Next is text-only; Opus is vision-capable.
 	// An image turn must drop the text-only model when a capable one survives.
 	dec := &fakeDecider{result: rl.Result{Model: "anthropic/claude-opus-4-8"}}
-	r := rl.New(dec, deployed("claude-opus-4-8", "deepseek/deepseek-v4-flash"), allProviders)
+	r := rl.New(dec, deployed("claude-opus-4-8", "qwen/qwen3-coder-next"), allProviders)
 
 	_, err := r.Route(context.Background(), router.Request{
 		PromptText:       "what is in this image",
@@ -182,7 +182,7 @@ func TestRouteImageTurnDropsImageUnsupported(t *testing.T) {
 	})
 	require.NoError(t, err)
 	for _, c := range dec.got.Candidates {
-		assert.NotEqual(t, "deepseek/deepseek-v4-flash", c.RosterID,
+		assert.NotEqual(t, "qwen/qwen3-coder-next", c.RosterID,
 			"image-unsupported model must not be offered on an image turn")
 	}
 }

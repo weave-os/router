@@ -25,14 +25,25 @@ import {
 	DEFAULT_READONLY_TOOLS,
 	DISPATCH_CONCURRENCY,
 	getRouterBaseUrl,
+	LSP_BROKER_ENV,
+	LSP_BROKER_TOKEN_ENV,
 	MAX_SUBAGENTS,
 	PROVIDER_NAME,
 	resolveIdentity,
 	resolveRouterKey,
 	ROUTED_MODEL_STDERR_PREFIX,
-	SUBAGENT_MODEL,
 	SUBAGENT_TIMEOUT_MS,
+	WEAVE_AUTO_MODEL_ID,
 } from "./config.js";
+
+/**
+ * The slice of the LSP subsystem dispatch depends on: hand me the env a child
+ * needs to reach a warm server pool. Declared here, by the consumer, so
+ * dispatch and lsp stay unaware of each other and index.ts does the wiring.
+ */
+export interface SubagentEnvProvider {
+	ensure(): Promise<Record<string, string>>;
+}
 
 const SIGKILL_GRACE_MS = 5000;
 
@@ -123,8 +134,9 @@ function runChild(
 	key: string,
 	signal: AbortSignal | undefined,
 	index: number,
+	lspEnv: Record<string, string> | undefined,
 ): Promise<ChildResult> {
-	const args = ["--print", "--mode", "json", "--no-session", "-e", selfPath, "--model", `${PROVIDER_NAME}/${SUBAGENT_MODEL}`];
+	const args = ["--print", "--mode", "json", "--no-session", "-e", selfPath, "--model", `${PROVIDER_NAME}/${WEAVE_AUTO_MODEL_ID}`];
 
 	// Secure-by-default tool gating. Task input is model-influenced, so without an
 	// explicit opt-in we never hand a child write/exec tools: model-requested
@@ -147,12 +159,17 @@ function runChild(
 		tools = tools.map((t) => t.trim()).filter((t) => t !== "" && !DANGEROUS_SUBAGENT_TOOLS.has(t.toLowerCase()));
 		if (tools.length === 0) tools = DEFAULT_READONLY_TOOLS;
 	}
+	// All five lsp operations are read-only, so granting it does not widen the
+	// capability gate above. Only offered when the parent actually has a broker
+	// listening; otherwise the child's tool list is exactly what it is today.
+	if (tools && lspEnv && !tools.includes("lsp")) tools = [...tools, "lsp"];
 	if (tools) args.push("--tools", tools.join(","));
 	args.push(task.prompt);
 
 	const identity = resolveIdentity();
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
+		...lspEnv,
 		WEAVE_PI_SUBAGENT: "1",
 		WEAVE_PI_SUBAGENT_ID: randomUUID(),
 		WEAVE_ROUTER_KEY: key,
@@ -165,6 +182,12 @@ function runChild(
 	delete env.WEAVE_ROUTING_SPEED_WEIGHT;
 	delete env.WEAVE_ROUTING_OUTPUT_COST_RATIO;
 	delete env.WEAVE_ROUTING_EXPECTED_OUTPUT_TOKENS;
+	// With no broker there must be no broker env at all, so a child never tries
+	// to dial a socket that isn't there.
+	if (!lspEnv) {
+		delete env[LSP_BROKER_ENV];
+		delete env[LSP_BROKER_TOKEN_ENV];
+	}
 	if (identity.email) env.WEAVE_USER_EMAIL = identity.email;
 	if (identity.name) env.WEAVE_USER_NAME = identity.name;
 
@@ -282,7 +305,7 @@ function lastStderrLine(stderr: string): string {
 	return lines.length > 0 ? lines[lines.length - 1] : "";
 }
 
-export function registerDispatch(pi: ExtensionAPI, selfPath: string): void {
+export function registerDispatch(pi: ExtensionAPI, selfPath: string, lspBroker?: SubagentEnvProvider): void {
 	pi.registerTool({
 		name: "dispatch",
 		label: "Dispatch",
@@ -308,9 +331,19 @@ export function registerDispatch(pi: ExtensionAPI, selfPath: string): void {
 				};
 			}
 
+			// Start the broker before fan-out so N children share the parent's warm
+			// language servers instead of each cold-starting its own. A broker that
+			// will not start is not fatal: children just run without the lsp tool.
+			let lspEnv: Record<string, string> | undefined;
+			try {
+				lspEnv = await lspBroker?.ensure();
+			} catch {
+				lspEnv = undefined;
+			}
+
 			const readOnly = params.readOnly ?? true;
 			const results = await mapWithConcurrencyLimit(params.tasks, DISPATCH_CONCURRENCY, (task, index) =>
-				runChild(selfPath, task, readOnly, ctx.cwd, key, signal, index),
+				runChild(selfPath, task, readOnly, ctx.cwd, key, signal, index, lspEnv),
 			);
 
 			const succeeded = results.filter((r) => r.exitCode === 0 && !r.error).length;

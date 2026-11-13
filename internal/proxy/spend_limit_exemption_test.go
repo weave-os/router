@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/billing"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/proxy/usage"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,7 +51,7 @@ func (r *capturingBillingRepo) GetUserMonthlySpendAndLimit(context.Context, stri
 func (r *capturingBillingRepo) GetOrgMonthlySpendAndLimit(context.Context, string) (int64, *int64, error) {
 	return 0, nil, nil
 }
-func (r *capturingBillingRepo) GetAutopayConfig(context.Context, string) (bool, int64, error) {
+func (r *capturingBillingRepo) GetAutopayConfig(context.Context, billing.Owner) (bool, int64, error) {
 	return false, 0, nil
 }
 func (r *capturingBillingRepo) BillingTablesExist(context.Context) (bool, error) { return true, nil }
@@ -78,7 +78,7 @@ func TestProxyMessages_OverEngineerCap_CoveringSubscription_ServesFreeNo402(t *t
 	obs.Record(obs.Key([]byte(subToken)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithUsageObserver(obs).
 		WithBillingService(billing.NewService(repo))
 
@@ -92,7 +92,7 @@ func TestProxyMessages_OverEngineerCap_CoveringSubscription_ServesFreeNo402(t *t
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	req.Header.Set("Authorization", "Bearer "+subToken)
-	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`)
+	body := []byte(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req),
 		"an over-cap engineer with a covering subscription must not be 402'd")
@@ -100,8 +100,54 @@ func TestProxyMessages_OverEngineerCap_CoveringSubscription_ServesFreeNo402(t *t
 	require.Len(t, p.proxyBodies, 1, "the turn must serve on the subscription exactly once")
 	require.NotNil(t, p.proxyCreds[0], "the dispatch must carry the caller's subscription credential")
 	assert.True(t, p.proxyCreds[0].OAuth, "the turn must serve on the caller's own Claude subscription")
-	assert.Contains(t, rec.Body.String(), "credits are depleted",
-		"a subscription-only turn must surface the depleted-credits warning")
+	assert.Contains(t, rec.Body.String(), "spend cap has been reached",
+		"a cap-driven subscription-only turn must name the spend cap")
+	assert.NotContains(t, rec.Body.String(), "credits are depleted",
+		"a reached cap must not claim the organization's credits are depleted")
+
+	for _, d := range repo.recordedDebits() {
+		assert.Equal(t, int64(0), d.DeltaUsdMicros,
+			"a subscription-served turn must debit $0 even over the engineer cap")
+	}
+}
+
+func TestProxyMessages_OverEngineerCap_WarningAlreadyShown_NotRepeated(t *testing.T) {
+	const subToken = "sk-ant-oat01-covering-subscription"
+	limit := int64(10_000_000)
+	repo := &capturingBillingRepo{userSpent: 10_002_854, userLimit: &limit} // over the cap
+
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6"}}
+	p := &fakeProvider{proxyResponse: bypassStreamResponse}
+	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+	obs.Record(obs.Key([]byte(subToken)), usage.Snapshot{
+		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
+	})
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithUsageObserver(obs).
+		WithBillingService(billing.NewService(repo))
+
+	// The auth middleware resolves these onto ctx: org id, user id, the
+	// usage-bypass config, and the Claude subscription token.
+	ctx := context.WithValue(context.Background(), proxy.ExternalIDContextKey{}, "org-capped")
+	ctx = context.WithValue(ctx, auth.UserIDContextKey{}, "engineer-1")
+	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true})
+	ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, subToken)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req.Header.Set("Authorization", "Bearer "+subToken)
+	body := []byte(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hi"},` +
+		`{"role":"assistant","content":[{"type":"text","text":"✦ **Weave Router** → a Weave router spend cap has been reached, so this turn is running on your own Anthropic subscription and paid model fallback is disabled.\n\nhello"}]},` +
+		`{"role":"user","content":"again"}]}`)
+
+	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req),
+		"an over-cap engineer with a covering subscription must not be 402'd")
+
+	require.Len(t, p.proxyBodies, 1, "the turn must serve on the subscription exactly once")
+	require.NotNil(t, p.proxyCreds[0], "the dispatch must carry the caller's subscription credential")
+	assert.True(t, p.proxyCreds[0].OAuth, "the turn must serve on the caller's own Claude subscription")
+	assert.NotContains(t, rec.Body.String(), "spend cap has been reached",
+		"a warning the conversation already shows must not repeat every turn")
 
 	for _, d := range repo.recordedDebits() {
 		assert.Equal(t, int64(0), d.DeltaUsdMicros,
@@ -118,7 +164,7 @@ func TestProxyMessages_OverEngineerCap_NoSubscription_402s(t *testing.T) {
 
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6"}}
 	p := &fakeProvider{proxyResponse: bypassStreamResponse}
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithBillingService(billing.NewService(repo))
 
 	// Usage-bypass enabled but no subscription credential on the request.
@@ -160,7 +206,7 @@ func TestProxyMessages_OverEngineerCap_ExhaustedSubscription_Refuses402(t *testi
 	obs.Record(obs.Key([]byte(subToken)), usage.Snapshot{
 		Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080},
 	})
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithUsageObserver(obs).
 		WithBillingService(billing.NewService(repo))
 
@@ -174,7 +220,7 @@ func TestProxyMessages_OverEngineerCap_ExhaustedSubscription_Refuses402(t *testi
 	req.Header.Set("Authorization", "Bearer "+subToken)
 	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`)
 
-	err := svc.ProxyMessages(ctx, body, rec, req)
+	err := svc.ProxyMessages(claudeCreditFallbackContext(ctx), body, rec, req)
 	require.Error(t, err, "over-cap engineer with an exhausted subscription must be refused")
 	assert.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable,
 		"the refusal must be the credits-exhausted sentinel so the API mapper emits HTTP 402 with the top-up CTA")

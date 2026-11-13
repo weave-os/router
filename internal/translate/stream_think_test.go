@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 
 	"github.com/tidwall/gjson"
 

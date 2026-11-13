@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -53,7 +53,7 @@ func TestProxyOpenAIChatCompletion_StripRoutingMarkerFailure_ReturnsError(t *tes
 
 	fr := &stripFailureRouter{}
 	fp := &stripFailureProvider{}
-	svc := NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, false, nil, nil, false,
+	svc := NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	body := `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`
@@ -77,7 +77,7 @@ func TestProxyMessages_StripRoutingMarkerFailure_ReturnsError(t *testing.T) {
 
 	fr := &stripFailureRouter{}
 	fp := &stripFailureProvider{}
-	svc := NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, false, nil, nil, false,
+	svc := NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	body := `{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"}]}`

@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"workweave/router/internal/billing"
+	"weave-os/router/internal/billing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

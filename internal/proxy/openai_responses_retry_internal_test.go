@@ -1,0 +1,282 @@
+package proxy
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
+)
+
+// staticRouter answers every routing call with one decision.
+type staticRouter struct{ decision router.Decision }
+
+func (s staticRouter) Route(context.Context, router.Request) (router.Decision, error) {
+	return s.decision, nil
+}
+
+// responsesRetryClient fails its first dispatch retryably and answers the next
+// one with a complete non-streaming Responses body, recording each endpoint.
+type responsesRetryClient struct {
+	endpoints []providers.Endpoint
+}
+
+func (*responsesRetryClient) SupportsSubscriptions() bool { return true }
+
+// writeChatCompletionText streams text as a complete chat/completions turn.
+func writeChatCompletionText(w http.ResponseWriter, text string) {
+	content, _ := json.Marshal(text)
+	for _, frame := range []string{
+		`{"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":` + string(content) + `},"finish_reason":null}]}`,
+		`{"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":3}}`,
+		"[DONE]",
+	} {
+		_, _ = io.WriteString(w, "data: "+frame+"\n\n")
+	}
+}
+
+func (c *responsesRetryClient) Proxy(_ context.Context, _ router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+	c.endpoints = append(c.endpoints, prep.Endpoint)
+	if len(c.endpoints) == 1 {
+		return &providers.UpstreamErrorResponse{
+			Status: http.StatusServiceUnavailable,
+			Body:   []byte(`{"error":{"message":"overloaded"}}`),
+		}
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	if prep.Endpoint == providers.EndpointChatCompletions {
+		writeChatCompletionText(w, "served after retry")
+		return nil
+	}
+	for _, frame := range []string{
+		`{"type":"response.output_text.delta","output_index":0,"delta":"served after retry"}`,
+		`{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"served after retry"}]}],"usage":{"input_tokens":12,"output_tokens":3}}}`,
+	} {
+		_, _ = io.WriteString(w, "data: "+frame+"\n\n")
+	}
+	return nil
+}
+
+func (c *responsesRetryClient) Passthrough(context.Context, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
+	return providers.ErrNotImplemented
+}
+
+// A single-binding OpenAI model retries in place on a retryable fault, and the
+// retry must stay on /v1/responses: silently re-sending a reasoning + tools turn
+// to chat/completions is the 400 this migration exists to remove.
+func TestProxyOpenAIChatCompletion_SameBindingRetryStaysOnResponses(t *testing.T) {
+	client := &responsesRetryClient{}
+	svc := NewService(
+		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
+		map[string]providers.Client{providers.ProviderOpenAI: client},
+		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
+	)
+	svc.retrySleep = noopSleep
+
+	body := `{"model":"auto","stream":false,"max_tokens":256,"messages":[{"role":"user","content":"read main.go"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}],"reasoning_effort":"medium"}`
+	rec := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec,
+		httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))))
+
+	assert.Equal(t, []providers.Endpoint{providers.EndpointResponses, providers.EndpointResponses}, client.endpoints)
+	assert.NotContains(t, rec.Body.String(), "overloaded", "the failed pre-commit attempt must not reach the client")
+	assert.Equal(t, "served after retry", gjson.GetBytes(rec.Body.Bytes(), "choices.0.message.content").String())
+}
+
+// alwaysFailingClient answers every dispatch with the same retryable fault.
+type alwaysFailingClient struct{ calls int }
+
+func (c *alwaysFailingClient) Proxy(context.Context, router.Decision, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
+	c.calls++
+	return &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"type":"error","error":{"type":"overloaded_error"}}`)}
+}
+
+func (c *alwaysFailingClient) Passthrough(context.Context, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
+	return providers.ErrNotImplemented
+}
+
+// An Anthropic-ingress turn whose Anthropic binding is exhausted is rescued by a
+// same-cluster OpenAI candidate — the rescue must be rebuilt for the candidate's
+// family, which now means /v1/responses, and reach the client as Anthropic SSE.
+func TestProxyMessages_SiblingFailoverOntoOpenAIUsesResponses(t *testing.T) {
+	failing := &alwaysFailingClient{}
+	rescue := &responsesRetryClient{}
+	decision := router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-opus-5",
+		Reason:   "test",
+		Metadata: &router.RoutingMetadata{
+			CandidateModels:    []string{"claude-opus-5", "gpt-5.6-luna"},
+			CandidateProviders: map[string]string{"gpt-5.6-luna": providers.ProviderOpenAI},
+		},
+	}
+	svc := NewService(
+		staticRouter{decision: decision},
+		map[string]providers.Client{
+			providers.ProviderAnthropic: failing,
+			providers.ProviderOpenAI:    rescue,
+		},
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{
+		providers.ProviderAnthropic: {},
+		providers.ProviderOpenAI:    {},
+	})
+	svc.retrySleep = noopSleep
+
+	body := `{"model":"claude-opus-5","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"read main.go"}],"tools":[{"name":"read_file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}],"thinking":{"type":"adaptive"}}`
+	rec := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyMessages(context.Background(), []byte(body), rec,
+		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))))
+
+	assert.Positive(t, failing.calls, "the routed Anthropic binding must be tried first")
+	require.Len(t, rescue.endpoints, 2, "the rescue retries in place on its own binding")
+	assert.Equal(t, providers.EndpointResponses, rescue.endpoints[1],
+		"a sibling rescue onto direct OpenAI must dispatch on /v1/responses")
+	out := rec.Body.String()
+	assert.Contains(t, out, "event: content_block_delta", "the Anthropic client still gets Anthropic SSE")
+	assert.Contains(t, out, "served after retry")
+}
+
+type emptyThenOKResponsesClient struct {
+	calls     int
+	streaming bool
+}
+
+func (c *emptyThenOKResponsesClient) Proxy(_ context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+	c.calls++
+	if c.calls == 1 {
+		if c.streaming {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_empty\",\"status\":\"completed\",\"output\":[]}}\n\n")
+			return nil
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "{\"id\":\"resp_empty\",\"status\":\"completed\",\"output\":[]}")
+		return nil
+	}
+	if c.streaming {
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, frame := range []string{
+			"{\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"ok\"}",
+			"{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_ok\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}],\"usage\":{\"input_tokens\":2,\"output_tokens\":1}}}",
+		} {
+			_, _ = io.WriteString(w, "data: "+frame+"\n\n")
+		}
+		return nil
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, "{\"id\":\"resp_ok\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}],\"usage\":{\"input_tokens\":2,\"output_tokens\":1}}")
+	return nil
+}
+
+func (c *emptyThenOKResponsesClient) Passthrough(context.Context, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
+	return providers.ErrNotImplemented
+}
+
+func TestProxyOpenAIResponses_RetriesNativeEmptyCompletion(t *testing.T) {
+	client := &emptyThenOKResponsesClient{}
+	svc := NewService(
+		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
+		map[string]providers.Client{providers.ProviderOpenAI: client},
+		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
+	)
+	svc.retrySleep = noopSleep
+	body := "{\"model\":\"gpt-5.6-luna\",\"input\":\"hi\"}"
+	rec := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyOpenAIResponses(context.Background(), []byte(body), rec,
+		httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))))
+	assert.Equal(t, 2, client.calls)
+	assert.Contains(t, rec.Body.String(), "resp_ok")
+}
+
+func TestProxyOpenAIResponses_RetriesNativeStreamingEmptyCompletion(t *testing.T) {
+	client := &emptyThenOKResponsesClient{streaming: true}
+	svc := NewService(
+		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
+		map[string]providers.Client{providers.ProviderOpenAI: client},
+		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
+	)
+	svc.retrySleep = noopSleep
+	body := "{\"model\":\"gpt-5.6-luna\",\"stream\":true,\"input\":\"hi\"}"
+	rec := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyOpenAIResponses(context.Background(), []byte(body), rec,
+		httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))))
+	assert.Equal(t, 2, client.calls)
+	assert.Contains(t, rec.Body.String(), "ok")
+}
+
+func TestProxyOpenAIChatCompletion_RetriesNonStreamingEmptyCompletion(t *testing.T) {
+	client := &emptyThenOKResponsesClient{streaming: true}
+	svc := NewService(
+		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
+		map[string]providers.Client{providers.ProviderOpenAI: client},
+		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
+	)
+	svc.retrySleep = noopSleep
+	body := "{\"model\":\"auto\",\"stream\":false,\"max_tokens\":256,\"messages\":[{\"role\":\"user\",\"content\":\"read main.go\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"read_file\",\"parameters\":{\"type\":\"object\"}}}],\"reasoning_effort\":\"medium\"}"
+	rec := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec,
+		httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))))
+	assert.Equal(t, 2, client.calls)
+	assert.Contains(t, rec.Body.String(), "ok")
+}
+
+type emptyThenOKChatCompletionsClient struct {
+	calls       int
+	beforeProxy func()
+}
+
+func (c *emptyThenOKChatCompletionsClient) Proxy(_ context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+	c.calls++
+	if c.beforeProxy != nil {
+		c.beforeProxy()
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	if c.calls == 1 {
+		_, err := io.WriteString(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":99,\"completion_tokens\":7,\"total_tokens\":106}}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n")
+		return err
+	}
+	_, err := io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"retry succeeded\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	return err
+}
+
+func (c *emptyThenOKChatCompletionsClient) Passthrough(context.Context, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
+	return providers.ErrNotImplemented
+}
+
+func TestProxyOpenAIResponses_RetriesTranslatedStreamingEmptyCompletion(t *testing.T) {
+	const servedModel = "grok-4.6"
+	rec := httptest.NewRecorder()
+	client := &emptyThenOKChatCompletionsClient{beforeProxy: func() {
+		assert.Contains(t, rec.Body.String(), "event: response.created\n", "the client must see the prelude before provider dispatch, even without a notice")
+	}}
+	svc := NewService(
+		staticRouter{decision: router.Decision{Provider: providers.ProviderXAI, Model: servedModel, Reason: "test"}},
+		map[string]providers.Client{providers.ProviderXAI: client},
+		nil, nil, false, providers.ProviderXAI, servedModel, nil,
+	)
+	svc.retrySleep = noopSleep
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	body := "{\"model\":\"gpt-6-astra\",\"stream\":true,\"input\":\"Continue the task.\"}"
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
+	req.Header.Set("X-Weave-Routing-Marker", "off")
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, []byte(body), rec, req))
+	assert.Equal(t, 2, client.calls)
+	out := rec.Body.String()
+	assert.Equal(t, 1, strings.Count(out, "event: response.created\n"), "retry must retain exactly one client-visible response envelope")
+	assert.NotContains(t, out, "response.failed")
+	assert.Contains(t, out, "retry succeeded")
+	assert.Contains(t, out, `"input_tokens":0`, "usage from the failed attempt must not leak into the retry")
+}

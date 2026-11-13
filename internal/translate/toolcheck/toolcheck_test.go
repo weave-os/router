@@ -1,10 +1,12 @@
 package toolcheck
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 // readTools mirrors the Claude Code Read tool shape: one required param,
@@ -285,4 +287,71 @@ func TestCheck_NestedCoercion(t *testing.T) {
 	require.NotNil(t, got.Issue)
 	assert.True(t, got.Issue.Repaired)
 	assert.JSONEq(t, `{"opts":{"depth":3}}`, got.Args)
+}
+
+func TestCheck_PreservesNumberLexemeWhenCoercingToString(t *testing.T) {
+	v := Compile([]byte(`[{"name":"TextValue","input_schema":{"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}}]`))
+	require.NotNil(t, v)
+
+	got := v.Check("TextValue", `{"value":1e+06}`)
+	require.NotNil(t, got.Issue)
+	assert.True(t, got.Issue.Repaired)
+	assert.Equal(t, `"1e+06"`, gjson.Get(got.Args, "value").Raw)
+}
+
+func TestCheck_UsesSJSONFloatSpellingWhenCoercingToNumber(t *testing.T) {
+	v := Compile([]byte(`[{"name":"NumberValue","input_schema":{"type":"object","properties":{"value":{"type":"number"}},"required":["value"]}}]`))
+	require.NotNil(t, v)
+
+	got := v.Check("NumberValue", `{"value":"1e3"}`)
+	require.NotNil(t, got.Issue)
+	assert.True(t, got.Issue.Repaired)
+	assert.Equal(t, `1000`, gjson.Get(got.Args, "value").Raw)
+}
+
+func TestCheckNestedUnionRepairsSurviveAncestorWrapping(t *testing.T) {
+	for _, union := range []string{"anyOf", "oneOf"} {
+		for depth := 1; depth <= 5; depth++ {
+			for _, extra := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%s/depth-%d/extra-%t", union, depth, extra), func(t *testing.T) {
+					schema, args, want := nestedUnionFixture(union, depth, extra)
+					validator := Compile([]byte(`[{"name":"Nested","input_schema":` + schema + `}]`))
+					verdict := validator.Check("Nested", args)
+					require.NotNil(t, verdict.Issue)
+					assert.True(t, verdict.Issue.Repaired)
+					assert.Equal(t, want, verdict.Args)
+					assert.Equal(t, 1, countRepairAction(verdict.Issue.Actions, "coerce_string_to_number"))
+					assert.Equal(t, depth, countRepairAction(verdict.Issue.Actions, "wrap_scalar_in_array"))
+					if extra {
+						assert.Equal(t, depth, countRepairAction(verdict.Issue.Actions, "drop_unknown_key"))
+					}
+				})
+			}
+		}
+	}
+}
+
+func nestedUnionFixture(union string, depth int, extra bool) (schema, args, want string) {
+	schema, args, want = `{"type":"integer"}`, `"1"`, `1`
+	for i := 0; i < depth; i++ {
+		object := `{"type":"object","properties":{"n":` + schema + `},"required":["n"],"additionalProperties":false}`
+		schema = `{"` + union + `":[` + object + `,{"type":"array","items":` + object + `}]}`
+		args = `{"n":` + args
+		if extra {
+			args += `,"extra":true`
+		}
+		args += `}`
+		want = `[{"n":` + want + `}]`
+	}
+	return `{"type":"object","properties":{"x":` + schema + `},"required":["x"]}`, `{"x":` + args + `}`, `{"x":` + want + `}`
+}
+
+func countRepairAction(actions []string, want string) int {
+	count := 0
+	for _, action := range actions {
+		if action == want {
+			count++
+		}
+	}
+	return count
 }

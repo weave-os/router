@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	feedbackapi "workweave/router/internal/api/feedback"
+	feedbackapi "weave-os/router/internal/api/feedback"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"

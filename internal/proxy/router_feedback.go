@@ -9,14 +9,15 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/observability/otel"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/policy"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 )
@@ -66,9 +67,9 @@ const (
 	RouterFeedbackSourceAuto = "auto"
 )
 
-// handleRouterFeedbackCommand persists a /router-feedback submission, emits a
-// router.feedback.command span on the standard OTel pipeline, and returns a
-// synthetic acknowledgment without dispatching to any upstream.
+// handleRouterFeedbackCommand persists a /router-feedback submission and emits
+// a router.feedback.command span. User-issued commands receive a synthetic
+// acknowledgment; agent-issued tool-result commands continue through routing.
 func (s *Service) handleRouterFeedbackCommand(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -77,20 +78,22 @@ func (s *Service) handleRouterFeedbackCommand(
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
+	synthetic bool,
 ) error {
 	log := observability.FromContext(ctx)
 	role := roleForTier(catalog.TierFor(env.Model()))
 
+	ack := newCommandAcknowledgment(translate.CommandRouterFeedback)
+	ack.clientApp = ClientIdentityFrom(ctx).ClientApp
 	feedback := strings.TrimSpace(cmd.Feedback)
 	rating := cmd.Rating
 	if rating == "" && feedback == "" {
-		// No verdict and no note. Message is formatted as a routing marker so
-		// StripRoutingMarkerFromMessages strips it from later requests.
-		msg := "✦ **Weave Router** → Router-feedback needs a verdict or a note, e.g. /rf+ or /rf- too slow.\n\n"
-		if env.SourceFormat() == translate.FormatOpenAI {
-			msg = "Weave Router: router-feedback needs a verdict or a note, e.g. /rf+ or /rf- too slow."
+		ack.feedback = feedbackEmpty
+		ack.outcome.Disposition = translate.CommandRejected
+		if synthetic {
+			return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
 		}
-		return writeSyntheticCommandResponse(w, env, msg, inputTokens)
+		return nil
 	}
 
 	// The model to attribute: pin's last served (or target), overridden by the resolved telemetry turn when a sequence was specified.
@@ -103,11 +106,12 @@ func (s *Service) handleRouterFeedbackCommand(
 		if err != nil {
 			log.Error("/router-feedback: sequence lookup failed", "sequence", cmd.Sequence, "err", err)
 			if errors.Is(err, sql.ErrNoRows) {
-				msg := "✦ **Weave Router** → No turn found at that sequence number. Try `/rf` without a number for the last turn.\n\n"
-				if env.SourceFormat() == translate.FormatOpenAI {
-					msg = "Weave Router: No turn found at that sequence number. Try `/rf` without a number for the last turn."
+				ack.feedback = feedbackMissingSequence
+				ack.outcome.Disposition = translate.CommandRejected
+				if synthetic {
+					return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
 				}
-				return writeSyntheticCommandResponse(w, env, msg, inputTokens)
+				return nil
 			}
 			// Infrastructure error: log it, fall through to the pin path so the
 			// rating is persisted with the pin's servedModel rather than dropped.
@@ -118,19 +122,22 @@ func (s *Service) handleRouterFeedbackCommand(
 			telemetryStrategy = turn.Strategy
 			log.Info("/router-feedback: resolved sequence to telemetry turn",
 				"sequence", cmd.Sequence,
-				"request_id", telemetryRequestID,
+				"rated_request_id", telemetryRequestID,
 				"served_model", servedModel,
 			)
 		}
 	}
 	if servedModel == "" && s.pinStore != nil {
-		if pin, found, err := s.pinStore.Get(ctx, sessionKey, role); err != nil {
+		pin := sessionpin.Pin{}
+		if storedPin, found, err := s.pinStore.Get(ctx, sessionKey, role); err != nil {
 			log.Error("/router-feedback: pin lookup failed", "err", err)
-		} else if found {
-			servedModel = pin.LastServedModel
-			if servedModel == "" {
-				servedModel = pin.Model
-			}
+		} else if found && pinMatchesEffectiveStrategy(ctx, storedPin) {
+			pin = storedPin
+		}
+		forceHistory := s.loadForceModelHistory(ctx, sessionKey, role)
+		servedModel, _ = switchHistoryFromPins(pin, forceHistory)
+		if servedModel == "" {
+			servedModel = pin.Model
 		}
 	}
 
@@ -144,7 +151,7 @@ func (s *Service) handleRouterFeedbackCommand(
 			SessionKey:     sessionKey[:],
 			Role:           role,
 			RouterUserID:   routerUserID,
-			ClientApp:      clientID.ClientApp,
+			ClientApp:      clientID.TelemetryClientApp(),
 			SessionID:      clientID.SessionID,
 			RequestedModel: env.Model(),
 			ServedModel:    servedModel,
@@ -175,7 +182,7 @@ func (s *Service) handleRouterFeedbackCommand(
 			RouterUserID:   routerUserID,
 		}
 		if err := s.feedbackRepo.Upsert(context.Background(), upsertParams); err != nil {
-			log.Error("/router-feedback: request_feedback upsert failed", "request_id", telemetryRequestID, "err", err)
+			log.Error("/router-feedback: request_feedback upsert failed", "rated_request_id", telemetryRequestID, "err", err)
 		}
 	}
 
@@ -186,7 +193,7 @@ func (s *Service) handleRouterFeedbackCommand(
 		strategy = router.Strategy(telemetryStrategy)
 	}
 	if registered, ok := s.strategies[strategy]; ok && registered.feedback != nil {
-		trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
+		trainingAllowed := policyTrainingAllowedForRequest(ctx)
 		// Delta only matches the rated turn for sequence 0 (latest) or -1 (the last assistant segment in env).
 		// For anything older, suppress the delta; request_id + route_id give the sidecar the join key.
 		trainingDelta := []router.ConversationMessage(nil)
@@ -197,13 +204,13 @@ func (s *Service) handleRouterFeedbackCommand(
 	}
 
 	now := time.Now()
-	attrs := otel.NewAttrBuilder(15).
+	attrs := telemetry.NewAttrBuilder(15).
 		String("external_id", externalID).
 		String("router_user_id", routerUserID).
 		String("client.device_id", clientID.DeviceID).
 		String("client.session_id", clientID.SessionID).
 		String("client.user_agent", clientID.UserAgent).
-		String("client.app", clientID.ClientApp).
+		String("client.app", clientID.TelemetryClientApp()).
 		String("requested.model", env.Model()).
 		String("feedback.served_model", servedModel).
 		String("feedback.role", role).
@@ -217,13 +224,13 @@ func (s *Service) handleRouterFeedbackCommand(
 	if telemetryRouteID != "" {
 		attrs = attrs.String("feedback.route_id", telemetryRouteID)
 	}
-	otel.Record(ctx, otel.Span{
+	telemetry.Record(ctx, telemetry.Span{
 		Name:  routerFeedbackCommandSpanName,
 		Start: now,
 		End:   now,
 		Attrs: attrs.Build(),
 	})
-	otel.Flush(ctx)
+	telemetry.Flush(ctx)
 
 	log.Info("router.feedback.command",
 		"rating", rating,
@@ -232,11 +239,15 @@ func (s *Service) handleRouterFeedbackCommand(
 		"requested_model", env.Model(),
 		"role", role,
 		"sequence", cmd.Sequence,
-		"request_id", telemetryRequestID,
+		"rated_request_id", telemetryRequestID,
 		"route_id", telemetryRouteID,
 	)
 
-	return writeSyntheticCommandResponse(w, env, routerFeedbackAck(env.SourceFormat(), rating), inputTokens)
+	if synthetic {
+		ack.feedback, ack.rating = feedbackRecorded, rating
+		return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
+	}
+	return nil
 }
 
 func (s *Service) reportRouterFeedback(
@@ -268,7 +279,7 @@ func (s *Service) reportRouterFeedback(
 		"requested_model":   requestedModel,
 		"served_model":      servedModel,
 		"router_user_id":    routerUserID,
-		"client_app":        clientID.ClientApp,
+		"client_app":        clientID.TelemetryClientApp(),
 		"client_session_id": clientID.SessionID,
 		"source":            source,
 		"request_id":        requestID,
@@ -285,7 +296,7 @@ func (s *Service) reportRouterFeedback(
 		rolloutID = persistedRolloutID
 	}
 	payload["rollout_id"] = rolloutID
-	trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
+	trainingAllowed := policyTrainingAllowedForRequest(ctx)
 	payload["training_allowed"] = trainingAllowed
 	if installationID != uuid.Nil {
 		payload["installation_id"] = installationID.String()
@@ -294,7 +305,10 @@ func (s *Service) reportRouterFeedback(
 		payload["training_conversation_delta"] = trainingDelta
 	}
 	log := observability.FromContext(ctx)
-	observability.SafeGo(log, policyFeedbackReportTimeout, "reportPolicyFeedback", func(reportCtx context.Context) {
+	if identity, managed := requestcontext.ServingIdentityFromContext(ctx); managed {
+		payload["serving_identity"] = identity
+	}
+	observability.SafeGoContext(ctx, log, policyFeedbackReportTimeout, "reportPolicyFeedback", func(reportCtx context.Context) {
 		if err := reporter.ReportFeedback(reportCtx, payload); err != nil {
 			log.Error("/router-feedback: policy feedback report failed", "strategy", strategy, "err", err)
 		}
@@ -331,23 +345,6 @@ func routerFeedbackTrainingDelta(env *translate.RequestEnvelope) []router.Conver
 	return append([]router.ConversationMessage(nil), messages[start:ratedAssistant+1]...)
 }
 
-// routerFeedbackAck renders the acknowledgment, echoing the verdict. The
-// Anthropic-format ack is wrapped as a routing marker so it gets stripped
-// from subsequent turns.
-func routerFeedbackAck(format translate.Format, rating string) string {
-	verdict := ""
-	switch rating {
-	case translate.RouterFeedbackRatingUp:
-		verdict = " 👍"
-	case translate.RouterFeedbackRatingDown:
-		verdict = " 👎"
-	}
-	if format == translate.FormatOpenAI {
-		return "Weave Router: Feedback recorded" + verdict + ". Thank you."
-	}
-	return "✦ **Weave Router** → Feedback recorded" + verdict + ". Thank you.\n\n"
-}
-
 // persistedFeedbackText is the value written to router.router_feedback.feedback.
 // Verdict-only submissions get a compact emoji so the NOT NULL column is never empty.
 func persistedFeedbackText(rating, feedback string) string {
@@ -361,15 +358,4 @@ func persistedFeedbackText(rating, feedback string) string {
 		return "👎"
 	}
 	return ""
-}
-
-// writeSyntheticCommandResponse writes a router-command acknowledgment in the
-// inbound wire format without dispatching upstream.
-func writeSyntheticCommandResponse(w http.ResponseWriter, env *translate.RequestEnvelope, msg string, inputTokens int) error {
-	switch env.SourceFormat() {
-	case translate.FormatOpenAI:
-		return writeSyntheticOpenAIResponse(w, env, msg, inputTokens)
-	default:
-		return writeSyntheticAnthropicResponse(w, env, msg, inputTokens)
-	}
 }

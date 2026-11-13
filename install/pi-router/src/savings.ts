@@ -60,7 +60,7 @@ function normalizedUsage(usage: TokenUsage): TokenUsage | undefined {
 function modelCostUsd(model: string, usage: TokenUsage): number | undefined {
 	const price = MODEL_PRICING[normalizeModelId(model)];
 	if (!price) return undefined;
-	const inputTokens = usage.input + 1.25 * usage.cacheWrite + 0.1 * usage.cacheRead;
+	const inputTokens = usage.input + 1.25 * usage.cacheWrite + price.cacheReadMultiplier * usage.cacheRead;
 	return (inputTokens * price.inputUsdPerMillion + usage.output * price.outputUsdPerMillion) / 1_000_000;
 }
 

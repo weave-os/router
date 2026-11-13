@@ -3,7 +3,7 @@ package admin
 import (
 	"testing"
 
-	"workweave/router/internal/auth"
+	"weave-os/router/internal/auth"
 
 	"github.com/stretchr/testify/assert"
 )

@@ -3,9 +3,11 @@ package translate_test
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -63,9 +65,181 @@ func TestResponsesWriter_RestoresCodexCustomToolFromSplitChatArguments(t *testin
 	assert.Equal(t, "exec", item["name"])
 	assert.Equal(t, "call_exec", item["call_id"])
 	assert.Equal(t, "const x = 1;", item["input"])
+	// ctc_ required for custom_tool_call; Codex replays this id next turn.
+	assert.Truef(t, strings.HasPrefix(item["id"].(string), "ctc_"), "custom_tool_call id %q must start with ctc_", item["id"])
 	output := completed["response"].(map[string]any)["output"].([]any)
 	assert.Equal(t, "custom_tool_call", output[0].(map[string]any)["type"])
 	assert.Equal(t, "const x = 1;", output[0].(map[string]any)["input"])
+	assert.Truef(t, strings.HasPrefix(output[0].(map[string]any)["id"].(string), "ctc_"), "response.completed custom_tool_call id %q must start with ctc_", output[0].(map[string]any)["id"])
+}
+
+func TestResponsesWriter_RecoversRawCustomToolArguments(t *testing.T) {
+	tests := []struct {
+		name      string
+		arguments []string
+		want      string
+	}{
+		{
+			name:      "split_raw_input",
+			arguments: []string{"text((1 + ", "2) * 3);"},
+			want:      "text((1 + 2) * 3);",
+		},
+		{
+			name:      "json_string_literal",
+			arguments: []string{`"text(1);"`},
+			want:      "text(1);",
+		},
+		{
+			name:      "input_wrapper",
+			arguments: []string{`{"input":"x"}`},
+			want:      "x",
+		},
+		{
+			name:      "raw_whitespace",
+			arguments: []string{"  text(1); \n"},
+			want:      "  text(1); \n",
+		},
+	}
+
+	mappings := customExecToolMappings(t)
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			w := translate.NewResponsesWriter(rec, "synthetic-model")
+			w.SetToolMappings(mappings)
+			require.NoError(t, w.Prelude(true))
+
+			for index, arguments := range test.arguments {
+				finishReason := any(nil)
+				if index == len(test.arguments)-1 {
+					finishReason = "tool_calls"
+				}
+				_, err := w.Write(customExecToolChunk(t, arguments, index == 0, finishReason))
+				require.NoError(t, err)
+			}
+			require.NoError(t, w.Finalize())
+
+			var done map[string]any
+			for _, event := range parseSSEEvents(t, rec.Body.Bytes()) {
+				if event["type"] != "response.output_item.done" {
+					continue
+				}
+				item, _ := event["item"].(map[string]any)
+				if item["type"] == "custom_tool_call" {
+					done = item
+					break
+				}
+			}
+			require.NotNil(t, done)
+			assert.Equal(t, test.want, done["input"])
+		})
+	}
+}
+
+func TestResponsesWriter_CustomToolObjectErrorsRemainTyped(t *testing.T) {
+	w := translate.NewResponsesWriter(httptest.NewRecorder(), "synthetic-model")
+	w.SetToolMappings(customExecToolMappings(t))
+	require.NoError(t, w.Prelude(true))
+	_, err := w.Write(customExecToolChunk(t, `{"input":"x","extra":1}`, true, "tool_calls"))
+	if err == nil {
+		err = w.Finalize()
+	}
+	require.ErrorIs(t, err, translate.ErrCustomToolArguments)
+	require.ErrorContains(t, err, "expected exactly one input field")
+}
+
+func TestResponsesWriter_NonCustomToolStillFallsBackForRawArguments(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "synthetic-model")
+	require.NoError(t, w.Prelude(true))
+	_, err := w.Write(nonCustomToolChunk(t, "raw tool input", "tool_calls"))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	for _, event := range parseSSEEvents(t, rec.Body.Bytes()) {
+		if event["type"] != "response.output_item.done" {
+			continue
+		}
+		item, _ := event["item"].(map[string]any)
+		if item["type"] == "function_call" {
+			assert.Equal(t, "{}", item["arguments"])
+			return
+		}
+	}
+	t.Fatal("missing function_call output item")
+}
+
+func TestResponsesWriter_NonStreamingCustomToolAcceptsRawArguments(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "synthetic-model")
+	w.SetToolMappings(customExecToolMappings(t))
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	body := map[string]any{
+		"choices": []any{map[string]any{"message": map[string]any{
+			"role": "assistant",
+			"tool_calls": []any{map[string]any{
+				"id": "call_exec", "type": "function",
+				"function": map[string]any{"name": "exec", "arguments": "text(1);"},
+			}},
+		}}},
+	}
+	raw, err := json.Marshal(body)
+	require.NoError(t, err)
+	_, err = w.Write(raw)
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	var response map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	output := response["output"].([]any)
+	require.Len(t, output, 1)
+	assert.Equal(t, "custom_tool_call", output[0].(map[string]any)["type"])
+	assert.Equal(t, "text(1);", output[0].(map[string]any)["input"])
+}
+
+func customExecToolMappings(t *testing.T) map[string]translate.ResponsesToolMapping {
+	t.Helper()
+	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(
+		[]byte(`{"model":"synthetic-model","stream":true,"input":"Use exec.","tools":[{"type":"custom","name":"exec","description":"Run JavaScript.","format":{"type":"grammar","syntax":"javascript","definition":"program"}}]}`),
+		translate.ResponsesConversionOptions{PortableCodex: true},
+	)
+	require.NoError(t, err)
+	require.Len(t, conversion.ToolMappings, 1)
+	require.True(t, conversion.ToolMappings["exec"].Custom)
+	return conversion.ToolMappings
+}
+
+func customExecToolChunk(t *testing.T, arguments string, includeName bool, finishReason any) []byte {
+	t.Helper()
+	function := map[string]any{"arguments": arguments}
+	toolCall := map[string]any{"index": 0, "function": function}
+	if includeName {
+		toolCall["id"] = "call_exec"
+		toolCall["type"] = "function"
+		function["name"] = "exec"
+	}
+	return responsesToolChunk(t, toolCall, finishReason)
+}
+
+func nonCustomToolChunk(t *testing.T, arguments string, finishReason any) []byte {
+	t.Helper()
+	return responsesToolChunk(t, map[string]any{
+		"index": 0, "id": "call_other", "type": "function",
+		"function": map[string]any{"name": "run_shell", "arguments": arguments},
+	}, finishReason)
+}
+
+func responsesToolChunk(t *testing.T, toolCall map[string]any, finishReason any) []byte {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"choices": []any{map[string]any{
+			"index": 0, "delta": map[string]any{"tool_calls": []any{toolCall}},
+			"finish_reason": finishReason,
+		}},
+	})
+	require.NoError(t, err)
+	return []byte("data: " + string(payload) + "\n\n")
 }
 
 func TestResponsesWriter_RestoresCodexFunctionNamespace(t *testing.T) {
@@ -94,6 +268,7 @@ func TestResponsesWriter_RestoresCodexFunctionNamespace(t *testing.T) {
 		assert.Equal(t, "send_message", item["name"])
 		assert.Equal(t, "collaboration", item["namespace"])
 		assert.JSONEq(t, `{"target":"/root"}`, item["arguments"].(string))
+		assert.Truef(t, strings.HasPrefix(item["id"].(string), "fc_"), "function_call id %q must start with fc_", item["id"])
 		return
 	}
 	t.Fatal("missing namespaced function_call output item")
@@ -128,6 +303,7 @@ func TestResponsesWriter_NonStreamingRestoresCodexCustomTool(t *testing.T) {
 	assert.Equal(t, "custom_tool_call", output[0].(map[string]any)["type"])
 	assert.Equal(t, "exec", output[0].(map[string]any)["name"])
 	assert.Equal(t, "return 1;", output[0].(map[string]any)["input"])
+	assert.Truef(t, strings.HasPrefix(output[0].(map[string]any)["id"].(string), "ctc_"), "non-streaming custom_tool_call id %q must start with ctc_", output[0].(map[string]any)["id"])
 }
 
 func TestResponsesWriter_RejectsMalformedCodexCustomWrapperAndTerminatesFailed(t *testing.T) {
@@ -181,6 +357,8 @@ func TestResponsesWriter_PortableCodexBuffersUntilLateCustomToolName(t *testing.
 		item := event["item"].(map[string]any)
 		assert.NotEmpty(t, item["name"])
 		assert.Equal(t, "custom_tool_call", item["type"])
+		// id must be ctc_ even though name (and thus mapping.Custom) arrives late.
+		assert.Truef(t, strings.HasPrefix(item["id"].(string), "ctc_"), "late-named custom_tool_call id %q must start with ctc_", item["id"])
 		customAdded = customAdded || event["type"] == "response.output_item.added"
 		customDone = customDone || event["type"] == "response.output_item.done"
 		if event["type"] == "response.output_item.done" {
@@ -191,7 +369,7 @@ func TestResponsesWriter_PortableCodexBuffersUntilLateCustomToolName(t *testing.
 	assert.True(t, customDone)
 }
 
-func TestResponsesWriter_PortableCodexRejectsNamelessToolCall(t *testing.T) {
+func TestResponsesWriter_PortableCodexSuppressesNamelessToolCall(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
 	w.SetToolMappings(map[string]translate.ResponsesToolMapping{
@@ -201,8 +379,8 @@ func TestResponsesWriter_PortableCodexRejectsNamelessToolCall(t *testing.T) {
 	w.WriteHeader(200)
 
 	_, err := w.Write([]byte(`data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_bad","type":"function","function":{"arguments":"{}"}}]},"finish_reason":"tool_calls"}]}` + "\n\n"))
-	require.ErrorContains(t, err, "missing a function name")
-	require.Error(t, w.FinalizeError(err))
+	require.ErrorIs(t, err, providers.ErrUpstreamEmptyCompletion)
+	require.NoError(t, w.FinalizeError(err))
 	assert.Contains(t, rec.Body.String(), `"type":"response.failed"`)
 	assert.NotContains(t, rec.Body.String(), `"type":"function_call"`)
 	assert.NotContains(t, rec.Body.String(), `"type":"custom_tool_call"`)

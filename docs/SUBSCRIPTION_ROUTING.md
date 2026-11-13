@@ -1,0 +1,282 @@
+# Subscription routing
+
+Every newly registered subscription has a verified user owner. Account management
+uses the verified personal key subject and a live installation membership check;
+client identity headers cannot grant management rights. Unassigned historical
+accounts remain visible for administrator assignment but never enter serving.
+
+Each request reads candidates from the primary database: the requester's personal
+accounts first, then accounts registered to the installation whose owners remain
+active members. Organization sharing defaults on; disabling sharing retains
+personal capacity. A personal key borrows shared capacity only while its owner
+is still an active member; a live installation-shared key (no credential
+subject) borrows it whenever sharing is on. Enrollment keys are attribution only and do not partition
+serving pools. Refresh, quota, cooldown, and rotation use physical account identity.
+For routed requests, resolving a caller-presented OAuth credential does not bypass
+linked-account selection: the authorized pool serves first and rotates accounts
+on failure. The caller's credential remains available if no admitted linked seat
+can serve. Explicit own-plan model picks retain their caller-login funding rule.
+The ten-second admission budget is shared across account and model alternatives,
+including executor re-entry. Only credential leasing consumes it; time spent
+running provider inference does not prevent another eligible seat from being tried.
+An admitted attempt finishes under provider timeouts and the caller deadline.
+Linked account/model pairs are attempted once per request, within its admission snapshot.
+Budget expiry refuses further admission; it never grants permission to buy API.
+
+Within each personal/shared tier, selection prefers observed included headroom,
+then unknown quota, then spent or billable quota. Among equally healthy seats,
+less in-flight work takes priority, followed by the earliest active quota reset
+and lower peak utilization across active windows. Unknown seats rotate ahead of
+affinity until observations distinguish them; affinity breaks remaining ties. The next expiry and
+peak utilization are independent signals: a lightly used five-hour window can
+expire before a more utilized weekly window.
+
+One lower-ranked unknown or idle seat may receive an ordinary inference attempt
+after nine other selections, at most once every 30 seconds per requester,
+installation and provider. A seat must have been idle for five minutes, or never
+selected on this replica. Exploration stays within the winning ownership tier
+and never promotes known spent, billable, disabled, cooling or excluded seats.
+It adds no network probe; Codex's existing preflight publishes validated
+account-wide utilization and actual reset times to the quota observer.
+Reservations include credential acquisition and end on failure or lease release.
+Load, observations and exploration are replica-local advisory signals.
+
+Structured subscription events record bounded candidate comparisons, observation
+and expiry timestamps, selection reasons, credential-lease timing, and failed
+as well as successful inference attempts. Codex preflight timing is logged
+separately. These logs complement winner-attributed request telemetry; they do
+not establish fleet-wide utilization or latency improvement by themselves.
+
+Automatic alternatives reuse the existing policy's request-compatible ordering
+and preserve the selected quality tier, tool/context exclusions and provider
+allowlist. Explicit models stay fixed. Boost follows stable source ordering; Max
+retains its existing subscription exclusion. After eligible included capacity is
+positively quota-exhausted, authorized API capacity serves the originally selected model unless
+subscription-aware model sets are configured. Each set is stored as the
+models unchecked for that state, so a newly deployed model joins both sets
+until someone excludes it. With those sets enabled, the
+active set is a preference for included Claude/Codex targets and the exhausted
+set limits paid fallback. Any request-compatible model a live subscription can
+serve stays eligible on included capacity, so a failed active-set model is
+rescued by another included model before paid fallback. Exhausting Claude does
+not make its models eligible for paid use while Codex remains available. Every
+selected included target must actually use a subscription; after included
+targets are unavailable, the router selects a request-compatible model from the
+exhausted set, subject to the same funding authorization. The installation allowlist and request safety constraints still
+apply to both lanes. An empty exhausted set refuses paid fallback. Disabling the sets retains
+ordinary routing; Max continues to ignore linked subscriptions and these sets.
+Paid switch and compaction handover summaries respect the exhausted set instead
+of silently buying an active-only model. If a switch summary is rejected, the
+original history is preserved; if a compaction summary is rejected, the already
+compacted body remains unchanged. Committed streams are never replayed, and
+terminal upstream failures are accounted as errors.
+
+A model the user picked in the client (sent with `X-Weave-Model-Passthrough: 1`
+and served as-is) funds the way the native client would. On the caller's own
+Claude/ChatGPT login it stays on that login (unless a `key_first` key for that
+provider is connected, which pays instead): observed exhaustion or paid
+overage does not move it off, Codex may spend that login's own credits, and the
+provider's own refusal reaches the client instead of a metered rescue. Without
+a login for the served provider it funds like a routed request (the managed
+pool's included quota, then Weave credits). The installation setting
+`picked_model_credit_fallback_enabled` restores the routed funding rules for
+picks. A picked model the installation cannot serve as-is is routed instead and
+funds as routed traffic. A Codex `/model` pick (`X-Weave-Codex-Native-Model-Pin: 1`)
+served as selected funds the same way.
+
+The installation setting `weave_credit_inference_enabled` decides whether
+Weave's own provider keys, paid from Weave credits, may fund a turn at all.
+Installations that existed before the setting keep it on; new installations
+start with it off. While it is off, routing only considers providers that a
+connected provider key or the caller's presented or linked Claude/ChatGPT plan
+can pay for, and the dispatch check refuses any remaining deployment-key
+attempt with a 402 (`ErrWeaveCreditsDisabled`) before provider I/O, so nothing
+is debited. A forced or picked model no customer credential can serve gets the
+same 402. Self-hosted deployments never apply it.
+
+Native OpenAI Codex and Anthropic adapters accept subscription OAuth credentials.
+Anthropic-compatible bearer gateways do not advertise native Claude subscription
+support.
+An adapter's subscription capability describes transport support, not a guarantee
+that the provider cannot charge extra usage. Codex checks the authenticated
+read-only `/backend-api/wham/usage` endpoint
+before each inference attempt. Missing, unavailable, malformed, or exhausted
+included quota skips that account even when purchased OpenAI credits are present,
+by default. A self-hosted operator can explicitly set
+`ROUTER_CODEX_ALLOW_EXTRA_CREDITS=true` to permit available subscription credits.
+For attempts that require extra credits, the authenticated usage response must
+report `has_credits=true` (the numeric
+balance may be hidden), or unlimited credits. When a balance is reported,
+it must be a positive finite number. Unknown quota, exhausted model-specific
+quota, workspace/member spending limits, and provider authentication or quota
+rejections still block the attempt. Unavailable credits block attempts that need
+extra credits; they do not block remaining included usage. This setting affects both enrolled Codex
+accounts and caller-presented Codex subscription logins on that self-hosted
+deployment. Available subscription credits are tried before any separately
+authorized OpenAI API-key fallback. It neither buys credits nor authorizes
+API-key fallback. Provider-side balances and spending limits remain authoritative.
+The same check covers matching model-specific limits using the final upstream
+model after aliases. A model-specific rejection rotates the attempt without
+marking the whole account exhausted or placing it on cooldown. Claude accounts with no
+quota observation may serve. Claude subscription identity comes exclusively from
+the authenticated `/api/oauth/profile` response's `organization.organization_type`:
+`claude_pro`, `claude_max`, `claude_team`, or `claude_enterprise`. OAuth presence,
+organization names, rate-limit tiers, quota windows and overage headers never
+establish identity. Profile readings are cached per credential for five minutes;
+unknown or failed reads are retried after fifteen seconds. While
+`claude_enterprise_only` is enabled, an unknown Claude profile cannot authorize
+paid fallback for that Claude turn.
+
+`claude_enterprise_only` applies only to a provider-verified Enterprise account,
+keeping its requests on that account through provider-authorized overage. The
+organization flag cannot make an ordinary or unknown seat Enterprise, including
+in mixed shared pools. Organizations may explicitly disable the policy to permit
+Weave-funded fallback. Pro, Max and Team seats retain ordinary included-quota,
+account rotation and authorized paid-fallback rules.
+Requests with no registered or caller-presented Claude subscription credential
+continue to use normal API funding. Each BYOK key carries a funding priority
+(`funding_priority`): a `key_first` key retains precedence over caller OAuth,
+linked accounts and Enterprise-only billing, including an explicit organization
+override; a `plan_first` key (the default for newly connected keys) leaves
+those subscriptions first and funds only turns no subscription can serve, such
+as another provider's harness routed to this provider, or a plan with quota
+exhaustion evidence. Anthropic keys connected before funding priorities were
+introduced are `key_first`; OpenAI keys default to `plan_first`.
+A key's `last_used_at` is stamped (at most once a minute per key and replica)
+after it successfully serves a request; a turn on a subscription, a caller
+credential or the deployment key does not count.
+In Enterprise-only mode observed included-quota exhaustion does not suppress a
+Claude account, while an actual provider refusal remains authoritative. Claude
+turns fail if their account cannot serve them; retry, failover, and auxiliary
+dispatch cannot charge them to Weave credits or another provider. The setting
+is ignored while subscription routing is disabled and does not change funding
+for independently selected non-Claude models. With Enterprise-only off, quota
+failures rotate to another eligible account before authorized Weave-funded API
+capacity serves the selected model. Depleted Weave credits
+prohibit paid API fallback, not subscription use.
+
+## Paid inference authorization
+
+Immediately before every provider inference call, the dispatch executor checks
+the final credentials against credential-free admission facts retained from the
+primary candidate read. OAuth suppression, API-only model sets, BYOK, gateway
+bindings, and auxiliary calls cannot erase those facts. A non-OAuth call is
+permitted only when no compatible authorized pool exists, or every account in
+that pool has positive included-quota exhaustion evidence with an unexpired reset.
+Presented direct subscriptions require the same proof. One exception is scoped
+to the turn: an eligible buffered upstream 5xx observed during plan inference
+marks that pool as unable to serve the turn for a bounded cooldown, and paid rescue of the same turn (the
+same model or a scored sibling) is admitted while the mark is live. The mark is
+not quota evidence and is never persisted to the account. Model compatibility is
+catalog-based; an unrelated provider's available subscription does not block an
+API-only model. Rescue eligibility never overrides the final paid-credential
+funding guard: depleted credits and spend caps still prohibit paid dispatch.
+
+Quota-verification failures are not inference-capacity failures. Preflight
+timeouts, quota-endpoint errors, and unverifiable responses retain a shared typed
+cause even when normalized to a buffered 503. They never create a capacity mark
+or authorize paid rescue. Internal preflight timeouts remain retryable while the
+caller is live; caller cancellation remains nonretryable. Another included seat
+may serve, but uncertainty alone must surface an error rather than buy capacity.
+
+An enrollment-read error, lease contention, refresh/auth failure, model denial,
+third-party refusal, generic 429, transport failure, or spent admission budget
+does not prove pool quota exhaustion. These failures rotate eligible included
+seats when possible, otherwise return an error without paid rescue. Generic 429s
+are cooldowns, not exhausted state. Rotation retains the original upstream error
+alongside the pool-unavailable classification. The guard is terminal within an
+executor operation even when its underlying cause would otherwise be retryable.
+
+Anthropic third-party refusals are classified narrowly per account and client
+app. The router does not infer that all non-Claude-Code clients are incompatible
+or forge provider attestation headers; a refusal cannot authorize paid rescue.
+A forced Claude turn whose seats all refused the client app fails with 403.
+
+The one exception is an admin opt-in on a single router key. A key with
+`paid_fallback_on_subscription_refusal` set serves those forced turns on paid
+API capacity. Anthropic's refusal applies to every subscription's plan limits,
+so once any Claude seat refuses the turn's client app, the whole Claude pool,
+shared seats included, counts as spent. The router leases no further seats, so a
+colleague's extra usage is never spent, and seats it never leased cannot block
+the paid attempt. Routed turns and every other failure keep the
+rules above, and no request header can opt in. There is no admin API for the
+flag; an operator sets it directly and it takes effect within the five-minute
+API-key cache TTL:
+
+```sql
+UPDATE router.model_router_api_keys
+SET paid_fallback_on_subscription_refusal = TRUE
+WHERE id = '<api-key-id>'::uuid AND deleted_at IS NULL;
+```
+
+Enterprise-only Claude billing disables this paid-refusal opt-in. The request
+remains on the Claude account or returns the provider's refusal.
+
+Providers control extra usage through account settings and credits. Quota headers
+are observations, not an atomic included-only reservation: an unobserved Claude
+account or
+an in-flight request can cross into provider-enabled extra usage before the router
+observes it. Disable extra usage at the provider to require a strict no-extra-usage
+boundary. The router never enables extra usage on the provider account. Except for the
+explicit self-hosted Codex credit opt-in above, it does not use known overage as a
+last-resort account, and observed paid overage is excluded from included-capacity
+billing and coverage. Replay tests exercise real adapters against synthetic HTTP
+upstreams without replacing their subscription capability.
+
+Migration 0121 preserves historical registration through the enrolling key,
+including soft-deleted keys. Duplicate provider/external-account identities are
+quarantined together without reallocating owners or overwriting tokens. An active
+physical-identity unique index prevents concurrent duplicate serving enrollment.
+Ordinary owner assignment does not resolve a quarantined conflict: administrators
+must deliberately reconcile duplicate identities first. The down migration keeps
+quarantined rows disabled and restores the older owner-present constraint as
+NOT VALID, so existing ownerless rows stay inert without reassignment while new
+ownerless rows are rejected.
+
+## Codex workspace and user identity
+
+Codex `chatgpt_account_id` identifies the ChatGPT workspace, not its members.
+The router preserves it as `external_account_id`, the `ChatGPT-Account-ID`
+request header, and the encryption binding. Enrollment performs a server-side
+OAuth refresh and stores the provider-returned `chatgpt_user_id` (or `user_id`)
+separately as `provider_user_id`. Display names, email headers, and owner assignment
+never establish this provider identity. Two verified users in one workspace are
+separate seats; the same user/workspace cannot be enrolled for another owner,
+even when its existing row is disabled. Refresh rejects a changed or missing
+verified user or workspace before publishing credentials.
+
+Migration 0122 disables historical Codex rows until their provider user is
+verified. To recover an assigned row, use that owner's verified personal routing
+key and run `npx @weave-os/router login codex` with a fresh provider login. The
+verified reconnect updates that owner's legacy row, retaining its ID and workspace
+binding, and leaves other owners' rows untouched. An unresolved row cannot be
+restored with Enable. Unassigned rows require administrator assignment before
+reconnect; assignment alone does not enable them. Reconnect restores registration,
+but quota, cooldown, and model eligibility checks still apply to serving.
+OAuth exchange can rotate the refresh token even if persistence fails; repeat a
+fresh provider login after a failed enrollment rather than reusing an old token.
+
+Rollback disables Codex rows before restoring workspace-only indices. If one
+owner has enrolled multiple provider users in the same workspace, the old unique
+index cannot represent them: rollback fails transactionally until an operator
+reconciles those registrations. It never chooses a seat, deletes credentials, or
+reassigns ownership automatically.
+
+### Enabling Codex subscription credits locally
+
+Add `ROUTER_CODEX_ALLOW_EXTRA_CREDITS=true` to the server environment (for the
+standard Docker Compose setup, `.env.local` is loaded through `env_file`). Recreate
+only the `server` service using your existing Compose files and project name;
+restarting an existing container does not reload its environment. No harness
+settings or provider API keys change. Set it back to `false` and recreate the
+server to restore included-only admission. The startup log reports the effective
+`allow_extra_credits` value.
+
+Existing authentication failures and durable account cooldowns are preserved;
+enabling credits does not clear a previously recorded cooldown. Wait for its
+expiry or use the existing account-management flow after resolving the provider
+rejection. Included-quota observations alone no longer suppress an opted-in
+Codex account: every admitted attempt verifies fresh quota/credit metadata.
+Configure the spending allowance with OpenAI; this switch is spending consent,
+not a router-enforced monetary cap. No inference is needed to test the option;
+regression tests use synthetic quota responses and a local provider server.

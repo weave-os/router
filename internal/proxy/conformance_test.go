@@ -19,9 +19,9 @@ import (
 	"strings"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/require"
 )
@@ -68,7 +68,7 @@ func runConformanceCase(t *testing.T, c conformanceCase) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: c.provider, Model: c.model}},
 		map[string]providers.Client{c.provider: c.newClient(srv.URL)},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{c.provider: {}})
 
 	rec := httptest.NewRecorder()

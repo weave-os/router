@@ -7,8 +7,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/sessionpin"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
 )
 
 // repinFakeStore is a minimal sessionpin.Store for the re-pin unit tests.
@@ -34,22 +35,26 @@ func (f *repinFakeStore) Upsert(_ context.Context, p sessionpin.Pin) error {
 func (f *repinFakeStore) UpdateUsage(context.Context, [sessionpin.SessionKeyLen]byte, string, sessionpin.Usage) error {
 	return nil
 }
-func (f *repinFakeStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (f *repinFakeStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	return 0, nil
 }
-func (f *repinFakeStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (f *repinFakeStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
-func (f *repinFakeStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (f *repinFakeStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	return 0, nil
 }
-func (f *repinFakeStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (f *repinFakeStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
-func (f *repinFakeStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
+func (*repinFakeStore) ExpireAndDemoteModel(context.Context, sessionpin.Pin, string, sessionpin.DemotionReason) error {
 	return nil
 }
-func (f *repinFakeStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
+
+func (f *repinFakeStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string, router.Strategy) error {
+	return nil
+}
+func (f *repinFakeStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (sessionpin.Pin, bool, error) {
 	return sessionpin.Pin{}, false, nil
 }
 func (f *repinFakeStore) SweepExpired(context.Context) error { return nil }
@@ -73,6 +78,40 @@ data: {"type":"message_start","message":{"id":"msg_2","model":"claude-opus-4-8"}
 event: message_delta
 data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null}}
 `
+
+func TestRefusalCategory(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"api_refusal_category", `{"api_refusal_category":"reasoning_extraction"}`, "reasoning_extraction"},
+		{"rendered client text", "safeguards flagged this message. Details: [reasoning_extraction] Request ID: req_1", "reasoning_extraction"},
+		{"no category", `"stop_reason":"refusal"`, ""},
+		{"unterminated field", `{"api_refusal_category":"cyber`, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := refusalCategory([]byte(c.in)); got != c.want {
+				t.Fatalf("refusalCategory(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestRefusalObserver_CapturesCategory(t *testing.T) {
+	rec := httptest.NewRecorder()
+	obs := newRefusalObserver(rec)
+	if _, err := obs.Write([]byte(`data: {"type":"message_delta","delta":{"stop_reason":"refusal","api_refusal_category":"reasoning_extraction"}}`)); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if !obs.refused {
+		t.Fatal("refusal not detected")
+	}
+	if obs.category != "reasoning_extraction" {
+		t.Fatalf("category = %q, want reasoning_extraction", obs.category)
+	}
+}
 
 func TestDetectRefusalSignal(t *testing.T) {
 	cases := []struct {
@@ -134,7 +173,7 @@ func repinCtx() context.Context {
 
 func TestMaybeRepinOnRefusal_RepinsToFallbackModel(t *testing.T) {
 	store := &repinFakeStore{} // no existing pin -> no PairedModel
-	s := &Service{pinStore: store, cyberRefusalFallbackModel: "claude-sonnet-5"}
+	s := &Service{pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 	obs := &refusalObserver{refused: true}
 	served := router.Decision{Provider: "anthropic", Model: "claude-opus-4-8"}
 
@@ -160,7 +199,7 @@ func TestMaybeRepinOnRefusal_PrefersPairedModel(t *testing.T) {
 		hasPin: true,
 		getPin: sessionpin.Pin{PairedModel: "claude-haiku-4-5", PairedProvider: "anthropic"},
 	}
-	s := &Service{pinStore: store, cyberRefusalFallbackModel: "claude-sonnet-5"}
+	s := &Service{pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 	obs := &refusalObserver{refused: true}
 	served := router.Decision{Provider: "anthropic", Model: "claude-opus-4-8"}
 
@@ -177,13 +216,37 @@ func TestMaybeRepinOnRefusal_PrefersPairedModel(t *testing.T) {
 	}
 }
 
+// OpenAI's classifier declines the request on any of its models, so the pin's
+// runner-up is only an escape when it is another vendor.
+func TestRepinOffRefusingModel_SkipsPairedModelOnTheRefusingVendor(t *testing.T) {
+	store := &repinFakeStore{
+		hasPin: true,
+		getPin: sessionpin.Pin{PairedModel: "gpt-5.4", PairedProvider: providers.ProviderOpenAI},
+	}
+	s := &Service{pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
+	served := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol"}
+
+	s.repinOffRefusingModel(repinCtx(), [sessionpin.SessionKeyLen]byte{8, 9}, "main_loop", served,
+		providers.CyberPolicyErrorCode, providers.ProviderOpenAI)
+
+	if len(store.upserts) != 1 {
+		t.Fatalf("expected 1 upsert, got %d", len(store.upserts))
+	}
+	if got := store.upserts[0].Model; got != "claude-sonnet-5" {
+		t.Fatalf("re-pinned to %q, want the off-vendor fallback claude-sonnet-5", got)
+	}
+	if got := store.upserts[0].Provider; got != providers.ProviderAnthropic {
+		t.Fatalf("re-pin provider = %q, want anthropic", got)
+	}
+}
+
 func TestMaybeRepinOnRefusal_NoOpCases(t *testing.T) {
 	served := router.Decision{Provider: "anthropic", Model: "claude-opus-4-8"}
 	key := [sessionpin.SessionKeyLen]byte{7}
 
-	t.Run("nil observer (flag off)", func(t *testing.T) {
+	t.Run("nil observer", func(t *testing.T) {
 		store := &repinFakeStore{}
-		s := &Service{pinStore: store, cyberRefusalFallbackModel: "claude-sonnet-5"}
+		s := &Service{pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 		s.maybeRepinOnRefusal(repinCtx(), nil, key, "main_loop", served)
 		if len(store.upserts) != 0 {
 			t.Fatalf("nil observer should not re-pin, got %d upserts", len(store.upserts))
@@ -192,16 +255,25 @@ func TestMaybeRepinOnRefusal_NoOpCases(t *testing.T) {
 
 	t.Run("no refusal observed", func(t *testing.T) {
 		store := &repinFakeStore{}
-		s := &Service{pinStore: store, cyberRefusalFallbackModel: "claude-sonnet-5"}
+		s := &Service{pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 		s.maybeRepinOnRefusal(repinCtx(), &refusalObserver{refused: false}, key, "main_loop", served)
 		if len(store.upserts) != 0 {
 			t.Fatalf("no refusal should not re-pin, got %d upserts", len(store.upserts))
 		}
 	})
 
+	t.Run("re-pin disabled", func(t *testing.T) {
+		store := &repinFakeStore{}
+		s := &Service{pinStore: store, cyberRefusalRepin: false, cyberRefusalFallbackModel: "claude-sonnet-5"}
+		s.maybeRepinOnRefusal(repinCtx(), &refusalObserver{refused: true}, key, "main_loop", served)
+		if len(store.upserts) != 0 {
+			t.Fatalf("re-pin disabled should not upsert, got %d", len(store.upserts))
+		}
+	})
+
 	t.Run("served model already the fallback", func(t *testing.T) {
 		store := &repinFakeStore{}
-		s := &Service{pinStore: store, cyberRefusalFallbackModel: "claude-sonnet-5"}
+		s := &Service{pinStore: store, cyberRefusalRepin: true, cyberRefusalFallbackModel: "claude-sonnet-5"}
 		alreadyFallback := router.Decision{Provider: "anthropic", Model: "claude-sonnet-5"}
 		s.maybeRepinOnRefusal(repinCtx(), &refusalObserver{refused: true}, key, "main_loop", alreadyFallback)
 		if len(store.upserts) != 0 {

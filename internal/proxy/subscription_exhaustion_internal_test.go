@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/proxy/usage"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,7 +51,7 @@ func TestResolveAndInjectCredentials_SuppressedSubscriptionFallsThroughToBYOK(t 
 }
 
 func TestResolveAndInjectCredentials_SuppressedSubscriptionFallsThroughToDeployment(t *testing.T) {
-	// No BYOK, dedicated subscription header present, subscription suppressed:
+	// No BYOK, subscription credential present, subscription suppressed:
 	// resolution resolves to NO credential, so the Anthropic provider client uses
 	// its own deployment key (the Weave key).
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken)
@@ -133,14 +133,14 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 		assert.True(t, s.claudeSubscriptionExhausted(context.Background(), headers()))
 	})
 
-	t.Run("exhausted but no fallback key — keep using the subscription", func(t *testing.T) {
-		// Without a deployment / BYOK Anthropic key there is nothing to fall
-		// through to; dropping the token would 400 instead of 429, which is worse.
+	t.Run("exhausted without fallback key is unavailable", func(t *testing.T) {
+		// Without a deployment / BYOK Anthropic key, a spent plan is still
+		// unavailable: the turn is refused rather than billing overage or 429ing.
 		s := &Service{
 			usageObserver:            observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
 			deploymentKeyedProviders: map[string]struct{}{},
 		}
-		assert.False(t, s.claudeSubscriptionExhausted(context.Background(), headers()))
+		assert.True(t, s.claudeSubscriptionExhausted(context.Background(), headers()))
 	})
 
 	t.Run("subscription has headroom", func(t *testing.T) {

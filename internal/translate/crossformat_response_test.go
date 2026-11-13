@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -291,7 +291,7 @@ func TestAnthropicToOpenAIResponse_StopReasonMapping(t *testing.T) {
 	cases := []struct{ anthropic, openai string }{
 		{"end_turn", "stop"},
 		{"max_tokens", "length"},
-		{"tool_use", "tool_calls"},
+		{"tool_use", "stop"},
 		{"stop_sequence", "stop"},
 	}
 	for _, c := range cases {

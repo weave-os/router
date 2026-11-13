@@ -3,8 +3,8 @@ package catalog_test
 import (
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router/catalog"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

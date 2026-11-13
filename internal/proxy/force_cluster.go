@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router"
 )
 
 // ForceClusterHeader constrains serving to one of the policy sidecar's
@@ -53,6 +53,9 @@ func (e *ForcedClusterUnsupportedStrategyError) Unwrap() error {
 // request's roster, so that check lives in the policy router; this is the one
 // half that can be answered — and refused — before paying for a round trip.
 func applyForceClusterHeader(ctx context.Context, r *http.Request) (string, error) {
+	if planHasDedicatedServingPolicy(ctx) {
+		return "", nil
+	}
 	label := strings.ToLower(strings.TrimSpace(r.Header.Get(ForceClusterHeader)))
 	if label == "" {
 		return "", nil

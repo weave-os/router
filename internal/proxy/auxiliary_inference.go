@@ -4,10 +4,11 @@ import (
 	"context"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/billing"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/handover"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/llmescalation"
 
 	"github.com/google/uuid"
 )
@@ -24,6 +25,12 @@ import (
 // policy produced). Consumers that want the true session total opt in by
 // naming this span type — see the Weave public session-cost endpoint.
 const SpanTypeAuxiliaryInference = "router.auxiliary_inference"
+
+// SpanTypePlatformAuxiliaryInference is Weave-funded overhead. It remains
+// outside customer session-cost and billing paths while preserving usage.
+const SpanTypePlatformAuxiliaryInference = "router.platform_auxiliary_inference"
+
+const decisionReasonEscalationJudge = "escalation_judge"
 
 // Auxiliary request-id suffixes. They mirror the credit-ledger's
 // router_request_id suffixes exactly, so a ledger row and its telemetry row
@@ -51,6 +58,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		return
 	}
 	pricing, _ := catalog.PrimaryPriceFor(usage.Model)
+	usageMods := catalog.UsageModifiers{CacheCreation1h: usage.CacheCreation1h, InferenceGeo: catalog.InferenceGeo(usage.InferenceGeo)}
 	apiKeyID := apiKeyIDFromContext(ctx)
 	auxRequestID := requestID + requestIDSuffix
 
@@ -69,7 +77,8 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		CacheCreation:   usage.CacheCreation,
 		CacheRead:       usage.CacheRead,
 		Pricing:         pricing,
-		HasOverride:     billing.HasOverrideFromContext(ctx),
+		UsageModifiers:  usageMods,
+		HasOverride:     billing.HasOverrideFromContext(ctx) || weaveCreditsDenied(ctx),
 		ByokServed:      byokServed,
 		APIKeyID:        apiKeyID,
 		RouterUserID:    auth.UserIDFrom(ctx),
@@ -80,9 +89,8 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		return
 	}
 	clientID := ClientIdentityFrom(ctx)
-	inputCost := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheRead,
-		pricing.InputUSDPer1M, pricing, usage.Provider)
-	outputCost := catalog.EffectiveOutputCost(usage.OutputTokens, pricing.OutputUSDPer1M)
+	inputCost := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheRead, pricing, usage.Provider, usageMods)
+	outputCost := catalog.EffectiveOutputCost(catalog.PromptTokens(usage.InputTokens, usage.CacheCreation, usage.CacheRead, usage.Provider), usage.OutputTokens, pricing, usageMods)
 
 	s.fireTelemetry(InsertTelemetryParams{
 		InstallationID:   installationID.String(),
@@ -104,11 +112,53 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		InputTokens:            int32(usage.InputTokens),
 		OutputTokens:           int32(usage.OutputTokens),
 		CacheCreationTokens:    cacheTokenPtr(usage.CacheCreation),
+		CacheCreation1hTokens:  cacheCreation1hPtr(usage.CacheCreation, usage.CacheCreation1h),
 		CacheReadTokens:        cacheTokenPtr(usage.CacheRead),
+		InferenceGeo:           usage.InferenceGeo,
 		DeviceID:               clientID.DeviceID,
 		SessionID:              clientID.SessionID,
 		RouterUserID:           auth.UserIDFrom(ctx),
-		ClientApp:              clientID.ClientApp,
+		ClientApp:              clientID.TelemetryClientApp(),
 		RolloutID:              clientID.RolloutID,
+	})
+}
+
+func (s *Service) recordEscalationJudgeInference(installationID, requestID string, mode llmescalation.Mode, job llmescalation.Job, judgment llmescalation.Judgment, failure llmescalation.FailureCode) {
+	succeeded := failure == llmescalation.FailureNone
+	if s.telemetry == nil || installationID == "" || (!judgment.Usage.Known && !succeeded) {
+		return
+	}
+	verdict := ""
+	if succeeded && judgment.Escalate {
+		verdict = "escalate"
+	} else if succeeded {
+		verdict = "continue"
+	}
+	inputCost, outputCost := 0.0, 0.0
+	if pricing, found := catalog.PriceFor(job.Provider, job.Model); found {
+		inputCost = catalog.EffectiveInputCost(judgment.Usage.InputTokens, 0, judgment.Usage.CacheReadTokens, pricing, job.Provider, catalog.UsageModifiers{})
+		outputCost = catalog.EffectiveOutputCost(catalog.PromptTokens(judgment.Usage.InputTokens, 0, judgment.Usage.CacheReadTokens, job.Provider), judgment.Usage.OutputTokens, pricing, catalog.UsageModifiers{})
+	}
+	if judgment.CostSource == llmescalation.CostSourceProviderReported {
+		inputCost, outputCost = judgment.CostUSD, 0
+	}
+	s.fireTelemetry(InsertTelemetryParams{
+		InstallationID:   installationID,
+		RequestID:        requestID + "_escalation_judge_" + job.ID,
+		SpanType:         SpanTypePlatformAuxiliaryInference,
+		TraceID:          requestID,
+		Timestamp:        time.Now(),
+		DecisionModel:    job.Model,
+		DecisionProvider: job.Provider,
+		DecisionReason:   decisionReasonEscalationJudge,
+		// The verdict rides the durable telemetry row because session state is swept.
+		ClassifierArtifactID:     string(mode) + "/" + job.Version,
+		ClassifierPredictedLabel: verdict,
+		InputTokens:              int32(judgment.Usage.InputTokens),
+		OutputTokens:             int32(judgment.Usage.OutputTokens),
+		CacheReadTokens:          cacheTokenPtr(judgment.Usage.CacheReadTokens),
+		ActualInputCostUSD:       inputCost,
+		ActualOutputCostUSD:      outputCost,
+		SessionID:                job.Lifetime,
 	})
 }

@@ -4,7 +4,10 @@ package sessionpin
 
 import (
 	"context"
+	"sort"
 	"time"
+
+	"weave-os/router/internal/router"
 
 	"github.com/google/uuid"
 )
@@ -34,6 +37,13 @@ type Pin struct {
 	InstallationID uuid.UUID
 	Provider       string
 	Model          string
+	// Effort is the reasoning level the user forced alongside Model (the
+	// `:level` suffix of /force-model or x-weave-force-model); empty means the
+	// model's default. Persisted so later turns served from the pin carry it.
+	Effort string
+	// ForcedThreadKey restricts an explicit pin to this thread digest. Empty
+	// means the force applies to every thread in the client conversation.
+	ForcedThreadKey string
 	// PairedProvider/PairedModel are the scorer's runner-up pick, refreshed by
 	// Upsert on a genuine scorer re-run, preserved on a same-model refresh, and
 	// cleared on a model change without a fresh pair (force-model, loop-break,
@@ -43,19 +53,27 @@ type Pin struct {
 	PairedProvider string
 	PairedModel    string
 	Reason         string
+	// Strategy is the routing strategy that produced the pin. During rollout,
+	// non-beta stable strategies may accept an empty legacy value; beta never does.
+	Strategy router.Strategy
 	// PolicyGroup is the HMM complexity cluster the pinned decision came from
 	// (RoutingMetadata.PolicyGroup). Compared to the fresh decision's group to
 	// distinguish a within-cluster reroute from a genuine cluster change.
-	PolicyGroup               string
-	TurnCount                 int
-	PinnedUntil               time.Time
-	FirstPinnedAt             time.Time
-	LastSeenAt                time.Time
-	LastInputTokens           int
-	LastCachedReadTokens      int
-	LastCachedWriteTokens     int
-	LastOutputTokens          int
-	LastTurnEndedAt           time.Time
+	PolicyGroup           string
+	TurnCount             int
+	PinnedUntil           time.Time
+	FirstPinnedAt         time.Time
+	LastSeenAt            time.Time
+	LastInputTokens       int
+	LastCachedReadTokens  int
+	LastCachedWriteTokens int
+	LastOutputTokens      int
+	LastTurnEndedAt       time.Time
+	// LastOutputLimitAt marks a confirmed cap only while nonzero and equal to
+	// LastTurnEndedAt. An older writer can refresh usage without this field;
+	// the mismatch retires its stale marker. UpdateUsage clears it on healthy
+	// writes; Upsert preserves it within a strategy and clears it on replacement.
+	LastOutputLimitAt         time.Time
 	ConsecutiveUpstreamErrors int
 	// LastServedModel is the model that served the previous turn (written by
 	// UpdateUsage, untouched by Upsert). Comparing it to the new target model
@@ -72,23 +90,102 @@ type Pin struct {
 	// pinned provider. Distinct from ConsecutiveUpstreamErrors: a 529 is
 	// retryable in-turn, so it never trips that counter.
 	ConsecutiveOverloadErrors int
+	// ConsecutiveDowngradeVotes counts consecutive turns on which the HMM
+	// authoritative-per-turn classifier proposed a cheaper model than the pinned
+	// one while downgrade hysteresis held the pin. Unlike the error counters,
+	// Upsert takes the incoming value: the turn loop derives it from the pin it
+	// read at the start of the turn.
+	ConsecutiveDowngradeVotes int
+	// ConsecutiveUpgradeVotes counts consecutive expensive same-group HMM
+	// upgrade proposals that the evidence policy held. Upsert takes the
+	// incoming value, matching ConsecutiveDowngradeVotes.
+	ConsecutiveUpgradeVotes int
 	// DisabledProviders are providers struck out for this pin's session
 	// after repeated 529 exhaustion (see DisableProvider). Only grows for
 	// the life of the row; Upsert never touches it.
 	DisabledProviders []string
+	// DemotedModels are models struck out for this pin's session after an
+	// upstream failure (see ExpireAndDemoteModel and DemotionReason). Only
+	// grows for the life of the row; Upsert never touches it.
+	DemotedModels []string
+	// DemotionCooldowns are models withdrawn from this pin's session only
+	// until the recorded instant (see CooldownStore.ExpireAndCoolDownModel):
+	// a rescued upstream rate limit is throttling, not a dead arm. A model
+	// present in DemotedModels is out regardless of any cooldown here.
+	DemotionCooldowns map[string]time.Time
+	// TurnStrikes are models that failed and were rescued during the current
+	// agent turn (see TurnStrikeStore). They stay out of the session until the
+	// next real user prompt clears them.
+	TurnStrikes []string
+	// TokenizerCalibration is this row's evidence for converting token counts
+	// between tokenizer families (see TokenizerCalibration). Only
+	// TokenizerCalibrationStore writes it; Upsert and UpdateUsage leave it.
+	TokenizerCalibration TokenizerCalibration
+}
+
+// DemotionReason names why a model was withdrawn from automatic selection for
+// one session.
+type DemotionReason string
+
+// DemotionReasonCommittedStreamFailure marks an arm whose stream died after
+// the prelude committed, so the turn could neither retry nor fail over.
+const DemotionReasonCommittedStreamFailure DemotionReason = "committed_stream_failure"
+
+// DemotionReasonRescuedFailure marks the primary arm of a turn whose attempt
+// failed pre-commit and was handed to a same-cluster sibling.
+const DemotionReasonRescuedFailure DemotionReason = "rescued_failure"
+
+// DemotionReasonResponseHeaderTimeout marks a primary model whose upstream
+// timed out before sending response headers.
+const DemotionReasonResponseHeaderTimeout DemotionReason = "response_header_timeout"
+
+// DemotionReasonUnrescuedStall marks a watchdog failure that exhausted the
+// turn before output without finding an eligible rescue candidate.
+const DemotionReasonUnrescuedStall DemotionReason = "unrescued_stall"
+
+// DemotionReasonRateLimited marks the primary arm of a turn whose attempt was
+// rate-limited upstream (429) pre-commit and handed to a same-cluster sibling.
+// Unlike the other reasons the withdrawal is time-limited.
+const DemotionReasonRateLimited DemotionReason = "rate_limited"
+
+// DemotionReasonTransientFailure marks a rescued transient gateway failure
+// whose model is withdrawn only for the configured cooldown.
+const DemotionReasonTransientFailure DemotionReason = "transient_failure"
+
+// ActiveCooldowns returns the models whose cooldown in cooldowns has not yet
+// elapsed at now, sorted for deterministic exclusion order.
+func ActiveCooldowns(cooldowns map[string]time.Time, now time.Time) []string {
+	active := make([]string, 0, len(cooldowns))
+	for model, until := range cooldowns {
+		if now.Before(until) {
+			active = append(active, model)
+		}
+	}
+	sort.Strings(active)
+	return active
 }
 
 // Usage captures the previous turn's upstream token accounting.
 type Usage struct {
+	// Strategy is the routing strategy whose pin may receive this usage. The
+	// update is ignored when the row has since been replaced by another strategy.
+	Strategy          router.Strategy
 	InputTokens       int
 	CachedReadTokens  int
 	CachedWriteTokens int
 	OutputTokens      int
 	EndedAt           time.Time
+	// OutputLimitReached is true only when the upstream terminal payload of
+	// the turn this usage came from reported an output-limit stop reason.
+	// UpdateUsage stamps Pin.LastOutputLimitAt with EndedAt when set and
+	// clears it otherwise. Token count alone never sets it.
+	OutputLimitReached bool
 	// ServedModel is the model that served the turn this usage came from.
 	ServedModel string
 	// ServedProvider is the provider binding that served the turn. UpdateUsage
-	// persists it into Provider so the next policy sees actual cache affinity.
+	// persists it into Provider only when the pinned model is empty or matches the
+	// served model (including model:effort variants), preserving the pinned binding
+	// across cross-model rescue.
 	ServedProvider string
 	// PriorServedModel is optional prior-turn evidence known by the caller.
 	// UpdateUsage uses it to latch HasEverSwitched when the stored row is new
@@ -100,8 +197,8 @@ type Usage struct {
 }
 
 // Store is the I/O surface for session pins. Get returns (zero, false, nil)
-// when no row exists; UpdateUsage/IncrementUpstreamErrors/ResetUpstreamErrors
-// are no-ops on an evicted or missing pin.
+// when no row exists. In-place mutations are no-ops on an evicted, missing, or
+// different-strategy pin so a late request cannot mutate a replacement row.
 //
 // IncrementUpstreamErrors atomically bumps the error counter and returns the
 // new count so the turn loop can two-strike-evict without a cross-pod
@@ -111,20 +208,66 @@ type Store interface {
 	// Consume atomically removes and returns one unexpired pin. It is used for
 	// one-shot continuations, where a Get followed by an expiry write could let
 	// two concurrent requests reuse the same pin.
-	Consume(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) (Pin, bool, error)
+	Consume(ctx context.Context, sessionKey [SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (Pin, bool, error)
 	Upsert(ctx context.Context, p Pin) error
 	UpdateUsage(ctx context.Context, sessionKey [SessionKeyLen]byte, role string, usage Usage) error
-	IncrementUpstreamErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) (int, error)
-	ResetUpstreamErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) error
+	IncrementUpstreamErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (int, error)
+	ResetUpstreamErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string, expectedStrategy router.Strategy) error
 	// IncrementOverloadErrors atomically bumps ConsecutiveOverloadErrors and
 	// returns the new count, mirroring IncrementUpstreamErrors but for
 	// client-visible 529 exhaustion instead of non-retryable 4xx.
-	IncrementOverloadErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) (int, error)
+	IncrementOverloadErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (int, error)
 	// ResetOverloadErrors clears ConsecutiveOverloadErrors after a successful
 	// turn, mirroring ResetUpstreamErrors.
-	ResetOverloadErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) error
+	ResetOverloadErrors(ctx context.Context, sessionKey [SessionKeyLen]byte, role string, expectedStrategy router.Strategy) error
 	// DisableProvider appends provider to DisabledProviders (deduped) and
 	// resets ConsecutiveOverloadErrors in the same write.
-	DisableProvider(ctx context.Context, sessionKey [SessionKeyLen]byte, role, provider string) error
+	DisableProvider(ctx context.Context, sessionKey [SessionKeyLen]byte, role, provider string, expectedStrategy router.Strategy) error
+	// ExpireAndDemoteModel writes expired (an already-expired marker for one
+	// (SessionKey, Role) row, see Upsert) and appends model to that row's
+	// DemotedModels (deduped) in a single write. The row is seeded when absent;
+	// an existing row is rewritten only while it still belongs to
+	// expired.Strategy (same match as Consume), so a late failure from a
+	// request whose pin another strategy has since replaced touches nothing.
+	// The reason is recorded on the pin's eviction trail, not on the row.
+	ExpireAndDemoteModel(ctx context.Context, expired Pin, model string, reason DemotionReason) error
 	SweepExpired(ctx context.Context) error
+}
+
+// CooldownStore is the time-limited counterpart of Store.ExpireAndDemoteModel.
+// It is a separate contract so a Store that only knows lifetime strikes keeps
+// satisfying Store; callers fall back to a lifetime demotion when the store
+// does not implement it.
+type CooldownStore interface {
+	// ExpireAndCoolDownModel writes expired like ExpireAndDemoteModel but
+	// records model in the row's DemotionCooldowns until the given instant
+	// (overwriting an earlier cooldown for the same model) instead of
+	// appending it to DemotedModels. Same seeding and strategy guard.
+	ExpireAndCoolDownModel(ctx context.Context, expired Pin, model string, until time.Time, reason DemotionReason) error
+}
+
+// TurnStrikeStore keeps a rescued model out of a session for the rest of the
+// agent turn. It is a separate contract so a Store without it keeps satisfying
+// Store; callers skip the strike when the store does not implement it.
+type TurnStrikeStore interface {
+	// StrikeTurnModel adds model to an existing row's TurnStrikes (deduped).
+	StrikeTurnModel(ctx context.Context, sessionKey [SessionKeyLen]byte, role, model string) error
+	// ClearTurnStrikes empties the row's TurnStrikes when a new user prompt
+	// starts the next agent turn.
+	ClearTurnStrikes(ctx context.Context, sessionKey [SessionKeyLen]byte, role string) error
+}
+
+// RecoveryProbeStore atomically admits one half-open request for a session/model
+// pair across router workers. The token makes release safe after lease expiry
+// and reacquisition by a later request.
+type RecoveryProbeStore interface {
+	// AcquireRecoveryProbe claims the probe for leaseFor, measured on the
+	// store's own clock so every worker agrees on when an abandoned lease frees.
+	AcquireRecoveryProbe(ctx context.Context, sessionKey [SessionKeyLen]byte, model string, token uuid.UUID, leaseFor time.Duration) (bool, error)
+	ReleaseRecoveryProbe(ctx context.Context, sessionKey [SessionKeyLen]byte, model string, token uuid.UUID) error
+	// ClearDemotionCooldown removes model from the (sessionKey, role) row's
+	// DemotionCooldowns after a successful probe, unless the stored expiry is
+	// later than observedUntil: a newer cooldown from a concurrent failure
+	// must survive the recovery that preceded it.
+	ClearDemotionCooldown(ctx context.Context, sessionKey [SessionKeyLen]byte, role, model string, observedUntil time.Time) error
 }

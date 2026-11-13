@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 )
 
 type fakeDecider struct {
@@ -103,22 +103,26 @@ func TestRouterMapsSidecarRosterModelBackToCatalogDecision(t *testing.T) {
 	assert.False(t, candidate.Capabilities.SupportsImages)
 }
 
-func TestRouterUsesSeparatelySelectableEmbeddingStrategy(t *testing.T) {
-	decider := &fakeDecider{res: Result{Model: "moonshotai/kimi-k2.7-code"}}
-	r := newWithRoutingTargets(
-		router.StrategyHMMEmbedding,
-		decider,
-		map[string]struct{}{"moonshotai/kimi-k2.7": {}},
-		map[string]struct{}{providers.ProviderFireworks: {}},
-	)
+func TestRouterUsesSeparatelySelectableHMMStrategies(t *testing.T) {
+	for _, strategy := range []router.Strategy{router.StrategyHMMEmbedding, router.StrategyHMMBeta} {
+		t.Run(string(strategy), func(t *testing.T) {
+			decider := &fakeDecider{res: Result{Model: "moonshotai/kimi-k2.7-code"}}
+			r := newWithRoutingTargets(
+				strategy,
+				decider,
+				map[string]struct{}{"moonshotai/kimi-k2.7": {}},
+				map[string]struct{}{providers.ProviderFireworks: {}},
+			)
 
-	decision, err := r.Route(context.Background(), router.Request{PromptText: "hello"})
+			decision, err := r.Route(context.Background(), router.Request{PromptText: "hello"})
 
-	require.NoError(t, err)
-	assert.Equal(t, router.StrategyHMMEmbedding, decider.query.Strategy)
-	require.NotNil(t, decision.Metadata)
-	assert.Equal(t, string(router.StrategyHMMEmbedding), decision.Metadata.Strategy)
-	assert.Contains(t, decision.Reason, "hmm_policy")
+			require.NoError(t, err)
+			assert.Equal(t, strategy, decider.query.Strategy)
+			require.NotNil(t, decision.Metadata)
+			assert.Equal(t, string(strategy), decision.Metadata.Strategy)
+			assert.Contains(t, decision.Reason, "hmm_policy")
+		})
+	}
 }
 
 func TestRouterKeepsGeneratedRouteIDWhenSidecarOmitsIt(t *testing.T) {
@@ -195,7 +199,7 @@ func TestCatalogRoutingTargetsResolveCurrentHMMRosterArmsToProviders(t *testing.
 		gotRosterIDs = append(gotRosterIDs, candidate.RosterID)
 	}
 	for _, rosterID := range []string{
-		"deepseek/deepseek-v4-flash",
+		"deepseek/deepseek-v4.1-flash",
 		"qwen/qwen3-coder-next",
 		"openai/gpt-5.4-nano",
 		"minimax/minimax-m3",
@@ -204,11 +208,47 @@ func TestCatalogRoutingTargetsResolveCurrentHMMRosterArmsToProviders(t *testing.
 		"anthropic/claude-sonnet-5",
 		"anthropic/claude-opus-5",
 		"openai/gpt-5.6-terra",
+		"openai/gpt-5.6-luna-pro",
+		"openai/gpt-5.6-sol-pro",
 		"z-ai/glm-5.2",
 		"google/gemini-3.1-pro-preview",
+		"x-ai/grok-4.6",
+		"x-ai/grok-4.7",
 	} {
 		assert.Contains(t, gotRosterIDs, rosterID)
 	}
+}
+
+func TestRosterIDForMapsBareGrokIDsToXAIRosterSlugs(t *testing.T) {
+	grok46, ok := catalog.ByID("grok-4.6")
+	require.True(t, ok)
+	assert.Equal(t, "x-ai/grok-4.6", rosterIDFor(grok46))
+
+	grok45, ok := catalog.ByID("grok-4.5")
+	require.True(t, ok)
+	assert.Equal(t, "x-ai/grok-4.5", rosterIDFor(grok45))
+
+	// The reverse mapping must land on the bare catalog ID the dispatch path
+	// consumes, not echo the prefixed roster slug back.
+	assert.Equal(t, "grok-4.6", CatalogIDForRoster("x-ai/grok-4.6"))
+	assert.Equal(t, "grok-4.5", CatalogIDForRoster("x-ai/grok-4.5"))
+
+	grok47, ok := catalog.ByID("grok-4.7")
+	require.True(t, ok)
+	assert.Equal(t, "x-ai/grok-4.7", rosterIDFor(grok47))
+	assert.Equal(t, "grok-4.7", CatalogIDForRoster("x-ai/grok-4.7"))
+}
+
+func TestRosterIDForMapsBareMuseSparkToMetaRosterSlug(t *testing.T) {
+	muse, ok := catalog.ByID("muse-spark-1.3")
+	require.True(t, ok)
+	assert.Equal(t, "meta/muse-spark-1.3", rosterIDFor(muse))
+	assert.Equal(t, "muse-spark-1.3", CatalogIDForRoster("meta/muse-spark-1.3"))
+
+	got := DeployedModelsForRosterIDs([]string{"meta/muse-spark-1.3", "meta/muse-spark-1.3:xhigh"})
+	require.Len(t, got, 1)
+	assert.Equal(t, "muse-spark-1.3", got[0].Model)
+	assert.Equal(t, providers.ProviderMeta, got[0].Provider)
 }
 
 func TestRouterOffersAndSelectsTerraWithoutLegacyDeployedSet(t *testing.T) {
@@ -224,6 +264,26 @@ func TestRouterOffersAndSelectsTerraWithoutLegacyDeployedSet(t *testing.T) {
 	assert.Equal(t, "gpt-5.6-terra", decision.Model)
 	assert.Equal(t, providers.ProviderOpenAI, decision.Provider)
 	assert.Contains(t, candidateRosterIDs(decider.query.Candidates), "openai/gpt-5.6-terra")
+}
+
+func TestRouterOffersAndSelectsHMMOnlyGPT56ProTargets(t *testing.T) {
+	for _, model := range []string{"gpt-5.6-luna-pro", "gpt-5.6-sol-pro"} {
+		t.Run(model, func(t *testing.T) {
+			rosterID := "openai/" + model
+			decider := &fakeDecider{res: Result{
+				Model:    rosterID,
+				Provider: providers.ProviderOpenAI,
+			}}
+			r := New(decider, map[string]struct{}{providers.ProviderOpenAI: {}})
+
+			decision, err := r.Route(context.Background(), router.Request{PromptText: "solve this"})
+
+			require.NoError(t, err)
+			assert.Equal(t, model, decision.Model)
+			assert.Equal(t, providers.ProviderOpenAI, decision.Provider)
+			assert.Contains(t, candidateRosterIDs(decider.query.Candidates), rosterID)
+		})
+	}
 }
 
 func TestRouterDoesNotOfferTerraWithoutRegisteredOpenAIProvider(t *testing.T) {

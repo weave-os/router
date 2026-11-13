@@ -5,31 +5,48 @@ package policyclient
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/taskdomain"
 )
 
-// DefaultTimeout bounds a single delegated policy decision.
-const DefaultTimeout = 3 * time.Second
+// DefaultTimeout bounds a single delegated policy decision. It has to hold more
+// than one full attempt: 2x1.8s + a 50ms backoff = 3.65s, so the old 3s starved
+// attempt 2 and left attempt 3 unreachable.
+const DefaultTimeout = 4500 * time.Millisecond
 
 const (
 	defaultRouteAttempts = 3
 	routeRetryBackoff    = 50 * time.Millisecond
 )
 
-// Per-attempt bound so a stalled instance cannot consume the whole decision budget and prevent retries.
+// Per-attempt bound so a stalled instance cannot consume the whole decision
+// budget and prevent retries. Sized so a second full attempt still fits
+// (2 x fraction x timeout + backoff <= timeout); three full attempts
+// deliberately do not fit — the third covers fast failures only. The bound must
+// exceed the sidecar's own inference deadline (HMM: 1.5s), or the router
+// cancels a request it was about to answer. 0.4 x 4.5s = 1.8s satisfies both.
 const (
-	defaultAttemptFraction = 0.6
+	defaultAttemptFraction = 0.4
 	minAttemptTimeout      = 500 * time.Millisecond
+	// sidecarInferenceFloor is the smallest per-attempt bound that still
+	// outlives a policy sidecar's own inference deadline (constant, not
+	// fraction-scaling). Applied only when the budget can afford a retry too.
+	sidecarInferenceFloor = 1800 * time.Millisecond
 )
 
 // Option customizes a policy sidecar client.
@@ -48,6 +65,10 @@ func DeriveAttemptTimeout(timeout time.Duration) time.Duration {
 		timeout = DefaultTimeout
 	}
 	attemptTimeout := time.Duration(float64(timeout) * defaultAttemptFraction)
+	// Budgets too small to seat the floor and still leave a retry keep the old behaviour.
+	if attemptTimeout < sidecarInferenceFloor && timeout >= sidecarInferenceFloor+minAttemptTimeout {
+		attemptTimeout = sidecarInferenceFloor
+	}
 	if attemptTimeout < minAttemptTimeout {
 		attemptTimeout = minAttemptTimeout
 	}
@@ -61,16 +82,79 @@ const (
 	maxRouteMessages           = 96
 	maxRouteMessageTextChars   = 3000
 	maxRouteMessageTotalChars  = 48000
+	maxRouteTools              = 96
 	maxRouteToolCallInputKeys  = 24
 	maxRouteToolCallInputChars = 80
+	// Interaction-state classifiers embed up to 8,000 bytes of one message; a
+	// tighter clip serves a different document than they trained on.
+	interactionStateRouteMessageTextChars  = 8000
+	interactionStateRouteMessageTotalChars = 128000
 )
 
 // Client calls a versioned policy sidecar.
 type Client struct {
-	baseURL        string
-	client         *http.Client
-	timeout        time.Duration
-	attemptTimeout time.Duration
+	taskDomain       taskdomain.Resolver
+	baseURL          string
+	classifierClient *Client
+	client           *http.Client
+	timeout          time.Duration
+	attemptTimeout   time.Duration
+}
+
+// NewWithClassifierService composes a classifier-only v5 client with the
+// existing integration client used for outcomes, feedback and escalation.
+func NewWithClassifierService(integrationClient, classifierClient *Client) (*Client, error) {
+	if integrationClient == nil || classifierClient == nil {
+		return nil, errors.New("policy client requires integration and classifier clients")
+	}
+	combined := *integrationClient
+	if integrationClient != classifierClient {
+		combined.classifierClient = classifierClient
+	} else {
+		combined.classifierClient = nil
+	}
+	return &combined, nil
+}
+
+func (c *Client) v5ClassifierClient() (*Client, error) {
+	if c == nil {
+		return nil, errors.New("policy client is required")
+	}
+	if c.classifierClient != nil {
+		return c.classifierClient, nil
+	}
+	return c, nil
+}
+
+func validClassifierSHA256(value string) bool {
+	if len(value) != sha256.Size*2 || strings.ToLower(value) != value {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func taxonomyDigest(classOrder []string) string {
+	// json.Marshal cannot fail for a []string.
+	encoded, _ := json.Marshal(classOrder)
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:])
+}
+
+func decodeStrictJSON(payload []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("JSON response contains trailing data")
+		}
+		return err
+	}
+	return nil
 }
 
 // New builds a policy sidecar client. A nil HTTP client uses a bounded default.
@@ -79,8 +163,16 @@ func New(baseURL string, client *http.Client, timeout time.Duration, opts ...Opt
 		timeout = DefaultTimeout
 	}
 	if client == nil {
-		client = &http.Client{Timeout: timeout}
+		// Same no-redirect policy as newGoogleIDTokenHTTPClient (auth.go):
+		// a 3xx fails the != 200 status checks instead of being followed.
+		client = &http.Client{
+			Timeout: timeout,
+			CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 	}
+	client = observability.WrapHTTPClient(client)
 	sidecar := &Client{
 		baseURL:        strings.TrimRight(baseURL, "/"),
 		client:         client,
@@ -91,6 +183,110 @@ func New(baseURL string, client *http.Client, timeout time.Duration, opts ...Opt
 		opt(sidecar)
 	}
 	return sidecar
+}
+
+// ClassifierHealth is the immutable classifier identity reported by readiness.
+type ClassifierHealth struct {
+	SchemaVersion         string                                        `json:"schema_version"`
+	ClassifierArtifactID  string                                        `json:"classifier_artifact_id"`
+	ClassifierSHA256      string                                        `json:"classifier_artifact_sha256"`
+	ClassifierImageDigest string                                        `json:"classifier_image_digest"`
+	ClassifierClassOrder  []string                                      `json:"classifier_class_order"`
+	ClassifierTaxonomySHA string                                        `json:"classifier_taxonomy_sha256"`
+	ClassifierVariants    map[router.Strategy]policy.ClassifierArtifact `json:"classifier_variants,omitempty"`
+}
+
+// ClassifierCapabilitiesV5 is the release-specific v5 contract negotiated at activation.
+type ClassifierCapabilitiesV5 struct {
+	SchemaVersion         string                       `json:"schema_version"`
+	APIMajor              policy.ClassifierAPIMajor    `json:"api_major"`
+	ClassifierSelectionID string                       `json:"classifier_selection_id"`
+	ClassifierReleaseID   string                       `json:"classifier_release_id"`
+	WireSchema            string                       `json:"wire_schema"`
+	ClassOrder            []string                     `json:"class_order"`
+	TaxonomySHA256        string                       `json:"classifier_taxonomy_sha256"`
+	ClassifierVariants    []policy.ClassifierVariantID `json:"classifier_variants"`
+	SupportsPreview       bool                         `json:"supports_preview"`
+	ReportsOutcomes       bool                         `json:"-"`
+	ReportsFeedback       bool                         `json:"-"`
+}
+
+type classifierRequestV5 struct {
+	SchemaVersion         string                     `json:"schema_version"`
+	ClassifierSelectionID string                     `json:"classifier_selection_id"`
+	ClassifierReleaseID   string                     `json:"classifier_release_id"`
+	ClassifierVariantID   policy.ClassifierVariantID `json:"classifier_variant_id"`
+	RequestID             string                     `json:"request_id"`
+	SessionID             string                     `json:"session_id,omitempty"`
+	Harness               string                     `json:"harness"`
+	PromptText            string                     `json:"prompt_text,omitempty"`
+	LatestUserText        string                     `json:"latest_user_text,omitempty"`
+	TurnIndex             int                        `json:"turn_index"`
+	IsSubagent            bool                       `json:"is_subagent"`
+	VisibleTurnIndex      *int                       `json:"visible_turn_index,omitempty"`
+	SessionTurnCount      *int                       `json:"session_turn_count,omitempty"`
+	TurnType              string                     `json:"turn_type,omitempty"`
+	CacheState            string                     `json:"cache_state,omitempty"`
+	PriorOutputTokens     *int                       `json:"prior_output_tokens,omitempty"`
+	SessionEverSwitched   *bool                      `json:"session_ever_switched,omitempty"`
+	HistoryTruncated      *bool                      `json:"history_truncated,omitempty"`
+	ConversationMessages  []routeMessage             `json:"conversation_messages,omitempty"`
+	OmittedUserTurnCount  *int                       `json:"omitted_user_turn_count,omitempty"`
+	AvailableTools        []string                   `json:"available_tools,omitempty"`
+	InvokedTools          []string                   `json:"invoked_tools,omitempty"`
+	Tools                 []routeTool                `json:"tools,omitempty"`
+	EstimatedInputTokens  int                        `json:"estimated_input_tokens"`
+	HasTools              bool                       `json:"has_tools"`
+	HasImages             bool                       `json:"has_images"`
+}
+
+type classifierResponseV5 struct {
+	SchemaVersion            string                     `json:"schema_version"`
+	RequestID                string                     `json:"request_id"`
+	ClassifierSelectionID    string                     `json:"classifier_selection_id"`
+	ClassifierReleaseID      string                     `json:"classifier_release_id"`
+	ClassifierVariantID      policy.ClassifierVariantID `json:"classifier_variant_id"`
+	ClassifierArtifactID     string                     `json:"classifier_artifact_id"`
+	ClassifierArtifactSHA256 string                     `json:"classifier_artifact_sha256"`
+	ClassifierTaxonomySHA256 string                     `json:"classifier_taxonomy_sha256"`
+	PredictedLabel           string                     `json:"predicted_label"`
+	ClassOrder               []string                   `json:"class_order"`
+	ClassProbabilities       map[string]float64         `json:"class_probabilities"`
+	ClassifierConfidence     float64                    `json:"classifier_confidence"`
+	ClassifierMargin         float64                    `json:"classifier_margin"`
+	HMMStateID               *int                       `json:"hmm_state_id"`
+	HMMStatePath             []int                      `json:"hmm_state_path"`
+	HMMStateProbabilities    []float64                  `json:"hmm_state_probabilities"`
+	Error                    string                     `json:"error"`
+	Detail                   string                     `json:"detail"`
+}
+
+// ReadClassifierHealth returns the exact classifier identity behind a tagged revision.
+func (c *Client) ReadClassifierHealth(ctx context.Context) (ClassifierHealth, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/readyz", nil)
+	if err != nil {
+		return ClassifierHealth{}, fmt.Errorf("build policy readiness request: %w", err)
+	}
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return ClassifierHealth{}, fmt.Errorf("call policy readiness endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return ClassifierHealth{}, fmt.Errorf("read policy readiness response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return ClassifierHealth{}, fmt.Errorf("policy readiness status %d", resp.StatusCode)
+	}
+	var health ClassifierHealth
+	if err := json.Unmarshal(payload, &health); err != nil {
+		return ClassifierHealth{}, fmt.Errorf("decode policy readiness response: %w", err)
+	}
+	if health.SchemaVersion != policy.SchemaVersionV4 || health.ClassifierArtifactID == "" || health.ClassifierSHA256 == "" || health.ClassifierImageDigest == "" || len(health.ClassifierClassOrder) == 0 || health.ClassifierTaxonomySHA == "" {
+		return ClassifierHealth{}, errors.New("policy readiness response has incomplete classifier identity")
+	}
+	return health, nil
 }
 
 // CheckHealth verifies that the policy sidecar is ready to serve traffic.
@@ -104,7 +300,6 @@ func (c *Client) CheckHealth(ctx context.Context) error {
 		return fmt.Errorf("call policy readiness endpoint: %w", err)
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("policy readiness status %d", resp.StatusCode)
 	}
@@ -143,64 +338,58 @@ func (c *Client) Capabilities(ctx context.Context) (policy.Capabilities, error) 
 	if err := json.Unmarshal(payload, &capabilities); err != nil {
 		return policy.Capabilities{}, fmt.Errorf("decode policy capabilities response: %w", err)
 	}
-	if capabilities.SchemaVersion != policy.SchemaVersionV1 && capabilities.SchemaVersion != policy.SchemaVersionV2 {
+	if !supportedSchema(capabilities.SchemaVersion) {
 		return policy.Capabilities{}, fmt.Errorf("unsupported policy capabilities schema %q", capabilities.SchemaVersion)
 	}
 	return capabilities, nil
 }
 
-// rosterResponse is the shape of the sidecar's GET /roster body.
-type rosterResponse struct {
-	SchemaVersion string              `json:"schema_version"`
-	RosterVersion string              `json:"roster_version"`
-	RosterIDs     []string            `json:"roster_ids"`
-	Clusters      map[string][]string `json:"clusters"`
-}
-
-// Roster fetches roster arm IDs from the sidecar; unlike the cluster
-// artifact registry, this is the set the HMM strategy actually routes across.
-func (c *Client) Roster(ctx context.Context) ([]string, error) {
-	roster, err := c.fetchRoster(ctx)
+// CapabilitiesForClassifierRelease fetches strict v5 capabilities for one exact target selection and release.
+func (c *Client) CapabilitiesForClassifierRelease(ctx context.Context, selectionID, releaseID string) (ClassifierCapabilitiesV5, error) {
+	classifierClient, err := c.v5ClassifierClient()
 	if err != nil {
-		return nil, err
+		return ClassifierCapabilitiesV5{}, err
 	}
-	return roster.RosterIDs, nil
-}
-
-// ClusterRoster fetches the sidecar's frozen per-cluster arm roster.
-func (c *Client) ClusterRoster(ctx context.Context) (policy.RosterSnapshot, error) {
-	roster, err := c.fetchRoster(ctx)
-	if err != nil {
-		return policy.RosterSnapshot{}, err
+	if !validClassifierSHA256(selectionID) || !validClassifierSHA256(releaseID) {
+		return ClassifierCapabilitiesV5{}, errors.New("classifier capabilities require exact selection and release digests")
 	}
-	return policy.RosterSnapshot{Clusters: roster.Clusters, RosterSHA256: roster.RosterVersion}, nil
-}
-
-func (c *Client) fetchRoster(ctx context.Context) (rosterResponse, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/roster", nil)
+	endpoint := classifierClient.baseURL + "/v5/capabilities?classifier_selection_id=" + selectionID + "&classifier_release_id=" + releaseID
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return rosterResponse{}, fmt.Errorf("build policy roster request: %w", err)
+		return ClassifierCapabilitiesV5{}, fmt.Errorf("build v5 classifier capabilities request: %w", err)
 	}
-	resp, err := c.client.Do(req)
+	resp, err := classifierClient.client.Do(req)
 	if err != nil {
-		return rosterResponse{}, fmt.Errorf("call policy roster endpoint: %w", err)
+		return ClassifierCapabilitiesV5{}, fmt.Errorf("call v5 classifier capabilities endpoint: %w", err)
 	}
 	defer resp.Body.Close()
 	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return rosterResponse{}, fmt.Errorf("read policy roster response: %w", err)
+		return ClassifierCapabilitiesV5{}, fmt.Errorf("read v5 classifier capabilities response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return rosterResponse{}, fmt.Errorf("policy roster status %d", resp.StatusCode)
+		return ClassifierCapabilitiesV5{}, fmt.Errorf("v5 classifier capabilities status %d", resp.StatusCode)
 	}
-	var roster rosterResponse
-	if err := json.Unmarshal(payload, &roster); err != nil {
-		return rosterResponse{}, fmt.Errorf("decode policy roster response: %w", err)
+	var capabilities ClassifierCapabilitiesV5
+	if err := decodeStrictJSON(payload, &capabilities); err != nil {
+		return ClassifierCapabilitiesV5{}, fmt.Errorf("decode v5 classifier capabilities: %w", err)
 	}
-	if roster.SchemaVersion != policy.SchemaVersionV1 && roster.SchemaVersion != policy.SchemaVersionV2 {
-		return rosterResponse{}, fmt.Errorf("unsupported policy roster schema %q", roster.SchemaVersion)
+	if capabilities.SchemaVersion != policy.SchemaVersionV5 || capabilities.APIMajor != policy.ClassifierAPIMajorV5 ||
+		capabilities.WireSchema != policy.SchemaVersionV5 || capabilities.ClassifierSelectionID != selectionID ||
+		capabilities.ClassifierReleaseID != releaseID || len(capabilities.ClassOrder) == 0 ||
+		!validClassifierSHA256(capabilities.TaxonomySHA256) || taxonomyDigest(capabilities.ClassOrder) != capabilities.TaxonomySHA256 ||
+		!slices.Contains(capabilities.ClassifierVariants, policy.ClassifierVariantPrimary) {
+		return ClassifierCapabilitiesV5{}, errors.New("v5 classifier capabilities do not match the selected release")
 	}
-	return roster, nil
+	if classifierClient != c {
+		integrationCapabilities, err := c.Capabilities(ctx)
+		if err != nil {
+			return ClassifierCapabilitiesV5{}, fmt.Errorf("read integration sidecar capabilities: %w", err)
+		}
+		capabilities.ReportsOutcomes = integrationCapabilities.ReportsOutcomes
+		capabilities.ReportsFeedback = integrationCapabilities.ReportsFeedback
+	}
+	return capabilities, nil
 }
 
 func (c *Client) post(ctx context.Context, path string, payload map[string]interface{}, label string) error {
@@ -237,18 +426,20 @@ func (c *Client) post(ctx context.Context, path string, payload map[string]inter
 
 type routeRequest struct {
 	SchemaVersion             string            `json:"schema_version"`
+	ArtifactSHA256            string            `json:"artifact_sha256,omitempty"`
 	Strategy                  string            `json:"strategy"`
 	ExecutionMode             string            `json:"execution_mode"`
 	RouteID                   string            `json:"route_id"`
 	OrganizationID            string            `json:"organization_id,omitempty"`
 	InstallationID            string            `json:"installation_id,omitempty"`
 	ClientApp                 string            `json:"client_app,omitempty"`
-	Harness                   string            `json:"harness,omitempty"`
+	Harness                   string            `json:"harness"`
 	RolloutID                 string            `json:"rollout_id,omitempty"`
 	RequestedModel            string            `json:"requested_model,omitempty"`
 	PromptText                string            `json:"prompt_text"`
-	LatestUserText            string            `json:"latest_user_text,omitempty"`
+	LatestUserText            string            `json:"latest_user_text"`
 	TurnIndex                 int               `json:"turn_index"`
+	IsSubagent                bool              `json:"is_subagent"`
 	VisibleTurnIndex          *int              `json:"visible_turn_index,omitempty"`
 	SessionTurnCount          *int              `json:"session_turn_count,omitempty"`
 	TurnType                  string            `json:"turn_type,omitempty"`
@@ -261,6 +452,8 @@ type routeRequest struct {
 	ConversationMessages      []routeMessage    `json:"conversation_messages,omitempty"`
 	TrainingConversationDelta []routeMessage    `json:"training_conversation_delta,omitempty"`
 	AvailableTools            []string          `json:"available_tools,omitempty"`
+	InvokedTools              []string          `json:"invoked_tools,omitempty"`
+	Tools                     []routeTool       `json:"tools,omitempty"`
 	FeedbackKey               string            `json:"feedback_key,omitempty"`
 	FeedbackRole              string            `json:"feedback_role,omitempty"`
 	ClientSessionID           string            `json:"client_session_id,omitempty"`
@@ -277,6 +470,48 @@ type routeRequest struct {
 	Candidates                []routeCandidate  `json:"candidates"`
 	CandidateModels           []string          `json:"candidate_models"`
 	CandidateProviders        map[string]string `json:"candidate_providers"`
+}
+
+type classifierRequestV4 struct {
+	SchemaVersion             string         `json:"schema_version"`
+	Strategy                  string         `json:"strategy"`
+	ExecutionMode             string         `json:"execution_mode"`
+	RouteID                   string         `json:"route_id"`
+	OrganizationID            string         `json:"organization_id,omitempty"`
+	InstallationID            string         `json:"installation_id,omitempty"`
+	ClientApp                 string         `json:"client_app,omitempty"`
+	Harness                   string         `json:"harness"`
+	RolloutID                 string         `json:"rollout_id,omitempty"`
+	PromptText                string         `json:"prompt_text"`
+	LatestUserText            string         `json:"latest_user_text"`
+	TurnIndex                 int            `json:"turn_index"`
+	IsSubagent                bool           `json:"is_subagent"`
+	VisibleTurnIndex          *int           `json:"visible_turn_index,omitempty"`
+	SessionTurnCount          *int           `json:"session_turn_count,omitempty"`
+	TurnType                  string         `json:"turn_type,omitempty"`
+	CacheState                string         `json:"cache_state,omitempty"`
+	PriorOutputTokens         *int           `json:"prior_output_tokens,omitempty"`
+	SessionEverSwitched       *bool          `json:"session_ever_switched,omitempty"`
+	HistoryTruncated          *bool          `json:"history_truncated,omitempty"`
+	ConversationMessages      []routeMessage `json:"conversation_messages,omitempty"`
+	TrainingConversationDelta []routeMessage `json:"training_conversation_delta,omitempty"`
+	AvailableTools            []string       `json:"available_tools,omitempty"`
+	InvokedTools              []string       `json:"invoked_tools,omitempty"`
+	Tools                     []routeTool    `json:"tools,omitempty"`
+	FeedbackKey               string         `json:"feedback_key,omitempty"`
+	FeedbackRole              string         `json:"feedback_role,omitempty"`
+	ClientSessionID           string         `json:"client_session_id,omitempty"`
+	EstimatedInputTokens      int            `json:"estimated_input_tokens"`
+	HasTools                  bool           `json:"has_tools"`
+	HasImages                 bool           `json:"has_images"`
+	TrainingAllowed           bool           `json:"training_allowed"`
+	CaptureMode               string         `json:"capture_mode,omitempty"`
+	DebugEnabled              bool           `json:"debug_enabled"`
+	// OmittedUserTurnCount is how many text-bearing user turns the route-message
+	// window dropped from the front of ConversationMessages, so a sidecar can
+	// number the visible turns as the full conversation does. Sent only to a
+	// classifier package that declared interaction-state inputs.
+	OmittedUserTurnCount *int `json:"omitted_user_turn_count,omitempty"`
 }
 
 type routeCandidate struct {
@@ -315,6 +550,12 @@ type routeMessage struct {
 	Text        string            `json:"text,omitempty"`
 	ToolCalls   []routeToolCall   `json:"tool_calls,omitempty"`
 	ToolResults []routeToolResult `json:"tool_results,omitempty"`
+}
+
+type routeTool struct {
+	Name           string `json:"name"`
+	Type           string `json:"type,omitempty"`
+	ServerExecuted bool   `json:"server_executed,omitempty"`
 }
 
 type routeToolCall struct {
@@ -368,17 +609,52 @@ type routeResponse struct {
 	DebugRef             string                 `json:"debug_ref"`
 	Debug                map[string]interface{} `json:"debug"`
 	RankedFallback       []policy.PreviewGroup  `json:"ranked_fallback"`
+	ArmScores            map[string]float32     `json:"arm_scores"`
+	PredictedLabel       string                 `json:"predicted_label"`
+	ClassProbabilities   map[string]float64     `json:"class_probabilities"`
 	Timings              *routeTimings          `json:"timings"`
 	Error                string                 `json:"error"`
 }
 
-// routeTimings is the sidecar's optional per-request latency breakdown.
-// Fields are nil (not zero) when the sidecar didn't measure that stage;
+type classifierResponseV4 struct {
+	SchemaVersion         string                 `json:"schema_version"`
+	RouteID               string                 `json:"route_id"`
+	ClassifierArtifactID  string                 `json:"classifier_artifact_id"`
+	ClassifierSHA256      string                 `json:"classifier_artifact_sha256"`
+	PredictedLabel        string                 `json:"predicted_label"`
+	ClassOrder            []string               `json:"class_order"`
+	ClassProbabilities    map[string]float64     `json:"class_probabilities"`
+	ClassifierConfidence  *float64               `json:"classifier_confidence"`
+	ClassifierMargin      *float64               `json:"classifier_margin"`
+	HMMStateID            int                    `json:"hmm_state_id"`
+	HMMStatePath          []int                  `json:"hmm_state_path"`
+	HMMStateProbabilities []float64              `json:"hmm_state_probabilities"`
+	DebugRef              string                 `json:"debug_ref,omitempty"`
+	Debug                 map[string]interface{} `json:"debug,omitempty"`
+	Timings               *routeTimings          `json:"timings,omitempty"`
+	Error                 string                 `json:"error,omitempty"`
+}
+
+// routeTimings is the sidecar's optional per-request latency breakdown plus
+// serving stats. Fields are nil (not zero) when not measured/reported;
 // route_ms spans the whole decision and is a superset of the other stages.
 type routeTimings struct {
-	RouteMs  *float64 `json:"route_ms"`
-	SelectMs *float64 `json:"select_ms"`
-	EmbedMs  *float64 `json:"embed_ms"`
+	RouteMs             *float64 `json:"route_ms"`
+	SelectMs            *float64 `json:"select_ms"`
+	EmbedMs             *float64 `json:"embed_ms"`
+	EmbedCacheHits      *int64   `json:"embed_cache_hits"`
+	EmbedCacheMisses    *int64   `json:"embed_cache_misses"`
+	EmbedCacheEvictions *int64   `json:"embed_cache_evictions"`
+	RoutesInflight      *int64   `json:"routes_inflight"`
+	OverrunsLive        *int64   `json:"overruns_live"`
+}
+
+// Timings are telemetry, not classifier facts: the sidecar may add stages the
+// router does not consume, so they are decoded leniently even when the
+// enclosing response is decoded with DisallowUnknownFields.
+func (t *routeTimings) UnmarshalJSON(payload []byte) error {
+	type lenientRouteTimings routeTimings
+	return json.Unmarshal(payload, (*lenientRouteTimings)(t))
 }
 
 // decomposeTimings converts sidecar wire timings into non-overlapping stages; nil when nothing was measured.
@@ -409,6 +685,26 @@ func floatOrZero(value *float64) float64 {
 	return *value
 }
 
+// extractServingStats reads the sidecar's serving stats from the same wire
+// payload as decomposeTimings, but separately: stats are exempt from the
+// route_ms consistency check that can drop the latency breakdown wholesale.
+func extractServingStats(wire *routeTimings) *router.SidecarServingStats {
+	if wire == nil {
+		return nil
+	}
+	if wire.EmbedCacheHits == nil && wire.EmbedCacheMisses == nil && wire.EmbedCacheEvictions == nil &&
+		wire.RoutesInflight == nil && wire.OverrunsLive == nil {
+		return nil
+	}
+	return &router.SidecarServingStats{
+		EmbedCacheHits:      wire.EmbedCacheHits,
+		EmbedCacheMisses:    wire.EmbedCacheMisses,
+		EmbedCacheEvictions: wire.EmbedCacheEvictions,
+		RoutesInflight:      wire.RoutesInflight,
+		OverrunsLive:        wire.OverrunsLive,
+	}
+}
+
 type previewResponse struct {
 	SchemaVersion         string                `json:"schema_version"`
 	RouteID               string                `json:"route_id"`
@@ -428,6 +724,172 @@ type previewResponse struct {
 
 // Decide posts the supplied candidate set and returns the sidecar selection.
 func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result, error) {
+	if c.taskDomain != nil && query.ExecutionMode == policy.ExecutionModeServing && query.TaskDomain != nil {
+		return c.decideWithTaskDomain(ctx, query)
+	}
+	if query.ClassifierReleaseID != "" || query.ClassifierSelectionID != "" {
+		return c.decideV5(ctx, query)
+	}
+	if query.SchemaVersion == policy.SchemaVersionV5 {
+		return policy.Result{}, errors.New("v5 classifier request requires a pinned release and selection")
+	}
+	return c.decide(ctx, query)
+}
+
+func (c *Client) decideV5(ctx context.Context, query policy.Query) (policy.Result, error) {
+	wire, err := c.classifyV5(ctx, "/v5/classify", query)
+	if err != nil {
+		return policy.Result{}, err
+	}
+	stateID := 0
+	if wire.HMMStateID != nil {
+		stateID = *wire.HMMStateID
+	}
+	return policy.Result{
+		SchemaVersion: policy.SchemaVersionV5, RouteID: wire.RequestID,
+		PolicyArtifactID: wire.ClassifierArtifactID, PolicyArtifactSHA256: wire.ClassifierArtifactSHA256,
+		ClassifierReleaseID: wire.ClassifierReleaseID, ClassifierSelectionID: wire.ClassifierSelectionID,
+		ClassifierVariantID: wire.ClassifierVariantID, ClassifierTaxonomySHA256: wire.ClassifierTaxonomySHA256,
+		PredictedLabel: wire.PredictedLabel, ClassOrder: wire.ClassOrder, ClassProbabilities: wire.ClassProbabilities,
+		Confidence: pointerTo(wire.ClassifierConfidence), Margin: pointerTo(wire.ClassifierMargin),
+		HMMStateID: stateID, HMMStatePath: wire.HMMStatePath, HMMStateProbabilities: wire.HMMStateProbabilities,
+	}, nil
+}
+
+// classifyV5 calls one v5 classifier endpoint and returns a response whose pinned identity and facts are verified.
+func (c *Client) classifyV5(ctx context.Context, path string, query policy.Query) (classifierResponseV5, error) {
+	requestBody, err := marshalClassifierRequestV5(query)
+	if err != nil {
+		return classifierResponseV5{}, err
+	}
+	classifierClient, err := c.v5ClassifierClient()
+	if err != nil {
+		return classifierResponseV5{}, err
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	status, payload, err := classifierClient.doPolicyRequest(requestCtx, path, requestBody)
+	if err != nil {
+		return classifierResponseV5{}, err
+	}
+	var wire classifierResponseV5
+	if err := decodeStrictJSON(payload, &wire); err != nil {
+		return classifierResponseV5{}, fmt.Errorf("decode v5 classifier %s response (status %d): %w", path, status, err)
+	}
+	if status != http.StatusOK {
+		if pinErr := classifierPinUnavailable(query, status); pinErr != nil {
+			return classifierResponseV5{}, pinErr
+		}
+		if wire.Error != "" {
+			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, status, wire.Error)
+		}
+		if wire.Detail != "" {
+			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, status, wire.Detail)
+		}
+		return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d", path, status)
+	}
+	if err := validateClassifierResponseV5(query, wire); err != nil {
+		return classifierResponseV5{}, fmt.Errorf("invalid v5 classifier %s response: %w", path, err)
+	}
+	return wire, nil
+}
+
+func marshalClassifierRequestV5(query policy.Query) ([]byte, error) {
+	if query.SchemaVersion != policy.SchemaVersionV5 || !validClassifierSHA256(query.ClassifierReleaseID) ||
+		!validClassifierSHA256(query.ClassifierSelectionID) || !validClassifierVariantID(query.ClassifierVariantID) {
+		return nil, errors.New("v5 classifier request requires API, release, selection, and variant identities")
+	}
+	messageLimits := classifierRouteMessageLimits(query)
+	messages := convertRouteMessages(query.ConversationMessages, messageLimits)
+	turnIndex := turnIndex(messages)
+	var visibleTurnIndex *int
+	var sessionTurnCount *int
+	var sessionEverSwitched *bool
+	var historyTruncated *bool
+	var turnType string
+	var cacheState string
+	var priorOutputTokens *int
+	if query.TurnContext != nil {
+		turnIndex = query.TurnContext.VisibleTurnIndex
+		visibleTurnIndex = pointerTo(query.TurnContext.VisibleTurnIndex)
+		sessionTurnCount = pointerTo(query.TurnContext.SessionTurnCount)
+		sessionEverSwitched = pointerTo(query.TurnContext.SessionEverSwitched)
+		historyTruncated = pointerTo(query.TurnContext.HistoryTruncated || routeMessagesExceedLimits(query.ConversationMessages, messageLimits))
+		turnType = query.TurnContext.TurnType
+		cacheState = query.TurnContext.CacheState
+		priorOutputTokens = query.TurnContext.PriorOutputTokens
+	}
+	var omittedUserTurnCount *int
+	if query.InteractionStateInputs {
+		omittedUserTurnCount = pointerTo(userTextTurnCount(query.ConversationMessages) - routedUserTextTurnCount(messages))
+	}
+	invokedTools := clipRouteValues(invokedToolNames(query.ConversationMessages), maxRouteToolCallInputKeys, maxRouteToolCallInputChars)
+	return json.Marshal(classifierRequestV5{
+		SchemaVersion: string(policy.SchemaVersionV5), ClassifierSelectionID: query.ClassifierSelectionID,
+		ClassifierReleaseID: query.ClassifierReleaseID, ClassifierVariantID: query.ClassifierVariantID,
+		RequestID: query.RouteID, SessionID: query.ClientSessionID, Harness: policy.HarnessForClientApp(query.ClientApp),
+		PromptText: query.PromptText, LatestUserText: latestUserText(messages), TurnIndex: turnIndex,
+		IsSubagent: turnType == "sub_agent_dispatch", VisibleTurnIndex: visibleTurnIndex,
+		SessionTurnCount: sessionTurnCount, TurnType: turnType, CacheState: cacheState,
+		PriorOutputTokens: priorOutputTokens, SessionEverSwitched: sessionEverSwitched,
+		HistoryTruncated: historyTruncated, ConversationMessages: messages,
+		OmittedUserTurnCount: omittedUserTurnCount,
+		AvailableTools:       clipRouteValues(unionToolNames(query.AvailableTools, invokedTools), maxRouteToolCallInputKeys, maxRouteToolCallInputChars),
+		InvokedTools:         invokedTools, Tools: routeTools(query.Tools), EstimatedInputTokens: query.EstimatedInputTokens,
+		HasTools: query.HasTools, HasImages: query.HasImages,
+	})
+}
+
+// validateClassifierResponseV5 fails a mismatched pinned identity as ErrPolicyPinUnavailable and malformed facts as a protocol error.
+func validateClassifierResponseV5(query policy.Query, response classifierResponseV5) error {
+	if response.ClassifierReleaseID != query.ClassifierReleaseID || response.ClassifierSelectionID != query.ClassifierSelectionID ||
+		response.ClassifierVariantID != query.ClassifierVariantID ||
+		(query.ClassifierArtifactSHA256 != "" && response.ClassifierArtifactSHA256 != query.ClassifierArtifactSHA256) {
+		return router.ErrPolicyPinUnavailable
+	}
+	if response.RequestID != query.RouteID {
+		return errors.New("v5 classifier response answers another request")
+	}
+	if response.SchemaVersion != policy.SchemaVersionV5 || response.ClassifierArtifactID == "" ||
+		!validClassifierSHA256(response.ClassifierArtifactSHA256) || !validClassifierSHA256(response.ClassifierTaxonomySHA256) ||
+		response.PredictedLabel == "" || len(response.ClassOrder) == 0 || len(response.ClassProbabilities) != len(response.ClassOrder) {
+		return errors.New("v5 classifier response is missing identity or facts")
+	}
+	if taxonomyDigest(response.ClassOrder) != response.ClassifierTaxonomySHA256 {
+		return errors.New("v5 classifier taxonomy digest does not match class order")
+	}
+	for _, label := range response.ClassOrder {
+		if _, exists := response.ClassProbabilities[label]; !exists {
+			return fmt.Errorf("v5 classifier probabilities omit class %q", label)
+		}
+	}
+	if _, exists := response.ClassProbabilities[response.PredictedLabel]; !exists {
+		return errors.New("v5 classifier prediction is outside class order")
+	}
+	if (response.HMMStateID == nil) != (response.HMMStatePath == nil) || (response.HMMStateID == nil) != (response.HMMStateProbabilities == nil) {
+		return errors.New("v5 HMM state facts must be present together")
+	}
+	return nil
+}
+
+func validClassifierVariantID(variantID policy.ClassifierVariantID) bool {
+	switch variantID {
+	case policy.ClassifierVariantPrimary, policy.ClassifierVariantHMMBeta, policy.ClassifierVariantQwen:
+		return true
+	default:
+		return false
+	}
+}
+
+func classifierPinUnavailable(query policy.Query, status int) error {
+	if query.ClassifierReleaseID == "" || query.ClassifierSelectionID == "" ||
+		(status != http.StatusNotFound && status != http.StatusForbidden && status != http.StatusConflict) {
+		return nil
+	}
+	return fmt.Errorf("classifier release %q is unavailable for selection %q: %w", query.ClassifierReleaseID, query.ClassifierSelectionID, router.ErrPolicyPinUnavailable)
+}
+
+func (c *Client) decide(ctx context.Context, query policy.Query) (policy.Result, error) {
 	body, err := marshalRouteRequest(query)
 	if err != nil {
 		return policy.Result{}, err
@@ -435,27 +897,66 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 
 	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	resp, payload, err := c.doPolicyRequest(requestCtx, "/route", body)
+	status, payload, err := c.doPolicyRequest(requestCtx, "/route", body)
 	if err != nil {
 		return policy.Result{}, err
 	}
 
 	var parsed routeResponse
 	if err := json.Unmarshal(payload, &parsed); err != nil {
-		return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", resp.StatusCode, err)
+		return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", status, err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		if parsed.Error != "" {
-			return policy.Result{}, fmt.Errorf("policy sidecar status %d: %s", resp.StatusCode, parsed.Error)
+	if status != http.StatusOK {
+		if err := unknownArtifactErr(query, status); err != nil {
+			return policy.Result{}, err
 		}
-		return policy.Result{}, fmt.Errorf("policy sidecar status %d", resp.StatusCode)
+		if parsed.Error != "" {
+			return policy.Result{}, fmt.Errorf("policy sidecar status %d: %s", status, parsed.Error)
+		}
+		return policy.Result{}, fmt.Errorf("policy sidecar status %d", status)
 	}
-	if parsed.SchemaVersion != "" && parsed.SchemaVersion != policy.SchemaVersionV1 && parsed.SchemaVersion != policy.SchemaVersionV2 {
-		return policy.Result{}, fmt.Errorf("unsupported policy route schema %q", parsed.SchemaVersion)
+	if parsed.SchemaVersion == policy.SchemaVersionV4 {
+		classifier, decodeErr := decodeClassifierResponseV4(payload)
+		if decodeErr != nil {
+			return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", status, decodeErr)
+		}
+		return policy.Result{
+			SchemaVersion:         classifier.SchemaVersion,
+			RouteID:               classifier.RouteID,
+			Score:                 valueOrZero(classifier.ClassifierConfidence),
+			Confidence:            classifier.ClassifierConfidence,
+			Margin:                classifier.ClassifierMargin,
+			PolicyArtifactID:      classifier.ClassifierArtifactID,
+			PolicyArtifactSHA256:  classifier.ClassifierSHA256,
+			DebugRef:              classifier.DebugRef,
+			Debug:                 classifier.Debug,
+			PredictedLabel:        classifier.PredictedLabel,
+			ClassOrder:            classifier.ClassOrder,
+			ClassProbabilities:    classifier.ClassProbabilities,
+			HMMStateID:            classifier.HMMStateID,
+			HMMStatePath:          classifier.HMMStatePath,
+			HMMStateProbabilities: classifier.HMMStateProbabilities,
+			Timings:               decomposeTimings(classifier.Timings),
+			ServingStats:          extractServingStats(classifier.Timings),
+		}, nil
 	}
 	selectedModel := firstNonEmpty(parsed.SelectedRosterID, parsed.Model)
-	if parsed.SelectedArmID == "" && selectedModel == "" {
-		return policy.Result{}, fmt.Errorf("policy sidecar returned empty arm and model")
+	switch parsed.SchemaVersion {
+	case policy.SchemaVersionV3:
+		// Classifier-only contract: the caller selects the arm, so a response
+		// naming one is a contract violation rather than a harmless extra.
+		if parsed.SelectedArmID != "" || selectedModel != "" || parsed.SelectedProvider != "" {
+			return policy.Result{}, fmt.Errorf("policy sidecar returned a selected arm or provider on schema %s", policy.SchemaVersionV3)
+		}
+		if len(parsed.RankedFallback) == 0 {
+			return policy.Result{}, fmt.Errorf("policy sidecar returned no ranked fallback on schema %s", policy.SchemaVersionV3)
+		}
+	case "", policy.SchemaVersionV1, policy.SchemaVersionV2:
+		if parsed.SelectedArmID == "" && selectedModel == "" {
+			return policy.Result{}, fmt.Errorf("policy sidecar returned empty arm and model")
+		}
+	default:
+		return policy.Result{}, fmt.Errorf("unsupported policy route schema %q", parsed.SchemaVersion)
 	}
 	score := parsed.Score
 	if parsed.ChosenScore != nil {
@@ -485,8 +986,35 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 		DebugRef:             parsed.DebugRef,
 		Debug:                parsed.Debug,
 		RankedFallback:       parsed.RankedFallback,
+		ArmScores:            parsed.ArmScores,
+		PredictedLabel:       parsed.PredictedLabel,
+		ClassProbabilities:   parsed.ClassProbabilities,
 		Timings:              decomposeTimings(parsed.Timings),
+		ServingStats:         extractServingStats(parsed.Timings),
 	}, nil
+}
+
+func decodeClassifierResponseV4(payload []byte) (classifierResponseV4, error) {
+	var response classifierResponseV4
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&response); err != nil {
+		return classifierResponseV4{}, err
+	}
+	if response.ClassifierArtifactID == "" || response.ClassifierSHA256 == "" {
+		return classifierResponseV4{}, fmt.Errorf("classifier response is missing artifact identity")
+	}
+	if response.PredictedLabel == "" || len(response.ClassOrder) == 0 || len(response.ClassProbabilities) == 0 {
+		return classifierResponseV4{}, fmt.Errorf("classifier response is missing class facts")
+	}
+	return response, nil
+}
+
+func valueOrZero(value *float64) float64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 // Preview evaluates the supplied candidate set without serving or callbacks.
@@ -494,27 +1022,48 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 	if query.ExecutionMode != policy.ExecutionModePreview {
 		return policy.PreviewResult{}, fmt.Errorf("policy preview requires preview execution mode")
 	}
+	if query.ClassifierReleaseID != "" || query.ClassifierSelectionID != "" {
+		return c.previewV5(ctx, query)
+	}
+	if query.SchemaVersion == policy.SchemaVersionV5 {
+		return policy.PreviewResult{}, errors.New("v5 classifier preview requires a pinned release and selection")
+	}
 	body, err := marshalRouteRequest(query)
 	if err != nil {
 		return policy.PreviewResult{}, err
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	resp, payload, err := c.doPolicyRequest(requestCtx, "/preview", body)
+	status, payload, err := c.doPolicyRequest(requestCtx, "/preview", body)
 	if err != nil {
 		return policy.PreviewResult{}, err
 	}
 	var parsed previewResponse
 	if err := json.Unmarshal(payload, &parsed); err != nil {
-		return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", resp.StatusCode, err)
+		return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", status, err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		if parsed.Error != "" {
-			return policy.PreviewResult{}, fmt.Errorf("policy preview status %d: %s", resp.StatusCode, parsed.Error)
+	if status != http.StatusOK {
+		if err := unknownArtifactErr(query, status); err != nil {
+			return policy.PreviewResult{}, err
 		}
-		return policy.PreviewResult{}, fmt.Errorf("policy preview status %d", resp.StatusCode)
+		if parsed.Error != "" {
+			return policy.PreviewResult{}, fmt.Errorf("policy preview status %d: %s", status, parsed.Error)
+		}
+		return policy.PreviewResult{}, fmt.Errorf("policy preview status %d", status)
 	}
-	if parsed.SchemaVersion != policy.SchemaVersionV1 && parsed.SchemaVersion != policy.SchemaVersionV2 {
+	if parsed.SchemaVersion == policy.SchemaVersionV4 {
+		classifier, decodeErr := decodeClassifierResponseV4(payload)
+		if decodeErr != nil {
+			return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", status, decodeErr)
+		}
+		return policy.PreviewResult{
+			SchemaVersion: classifier.SchemaVersion, RouteID: classifier.RouteID,
+			PolicyArtifactID: classifier.ClassifierArtifactID, PolicyArtifactSHA256: classifier.ClassifierSHA256,
+			HMMStateID: classifier.HMMStateID, HMMStatePath: classifier.HMMStatePath, HMMStateProbabilities: classifier.HMMStateProbabilities,
+			ClassOrder: classifier.ClassOrder, ClassProbabilities: classifier.ClassProbabilities, PredictedLabel: classifier.PredictedLabel,
+		}, nil
+	}
+	if !supportedSchema(parsed.SchemaVersion) {
 		return policy.PreviewResult{}, fmt.Errorf("unsupported policy preview schema %q", parsed.SchemaVersion)
 	}
 	return policy.PreviewResult{
@@ -534,6 +1083,36 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 	}, nil
 }
 
+func (c *Client) previewV5(ctx context.Context, query policy.Query) (policy.PreviewResult, error) {
+	wire, err := c.classifyV5(ctx, "/v5/preview", query)
+	if err != nil {
+		return policy.PreviewResult{}, err
+	}
+	stateID := 0
+	if wire.HMMStateID != nil {
+		stateID = *wire.HMMStateID
+	}
+	return policy.PreviewResult{
+		SchemaVersion: policy.SchemaVersionV5, RouteID: wire.RequestID,
+		PolicyArtifactID: wire.ClassifierArtifactID, PolicyArtifactSHA256: wire.ClassifierArtifactSHA256,
+		ClassifierReleaseID: wire.ClassifierReleaseID, ClassifierSelectionID: wire.ClassifierSelectionID,
+		ClassifierVariantID: wire.ClassifierVariantID, ClassifierTaxonomySHA256: wire.ClassifierTaxonomySHA256,
+		ClassOrder: wire.ClassOrder, ClassProbabilities: wire.ClassProbabilities, PredictedLabel: wire.PredictedLabel,
+		HMMStateID: stateID, HMMStatePath: wire.HMMStatePath, HMMStateProbabilities: wire.HMMStateProbabilities,
+	}, nil
+}
+
+// supportedSchema reports whether a sidecar declares a wire contract this
+// client speaks.
+func supportedSchema(version string) bool {
+	switch version {
+	case policy.SchemaVersionV1, policy.SchemaVersionV2, policy.SchemaVersionV3, policy.SchemaVersionV4:
+		return true
+	default:
+		return false
+	}
+}
+
 func marshalRouteRequest(query policy.Query) ([]byte, error) {
 	schemaVersion := query.SchemaVersion
 	if schemaVersion == "" {
@@ -550,7 +1129,12 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 		models = append(models, providerKey)
 		providerMap[providerKey] = candidate.Provider
 	}
-	messages := routeMessages(query.ConversationMessages)
+	routeLimits := classifierRouteMessageLimits(query)
+	messages := convertRouteMessages(query.ConversationMessages, routeLimits)
+	var omittedUserTurnCount *int
+	if query.InteractionStateInputs {
+		omittedUserTurnCount = pointerTo(userTextTurnCount(query.ConversationMessages) - routedUserTextTurnCount(messages))
+	}
 	wireTurnIndex := turnIndex(messages)
 	var visibleTurnIndex *int
 	var sessionTurnCount *int
@@ -568,7 +1152,7 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 		sessionEverSwitched = pointerTo(query.TurnContext.SessionEverSwitched)
 		historyTruncated = pointerTo(
 			query.TurnContext.HistoryTruncated ||
-				routeMessagesTruncated(query.ConversationMessages),
+				routeMessagesExceedLimits(query.ConversationMessages, routeLimits),
 		)
 		turnType = query.TurnContext.TurnType
 		previousServedModel = query.TurnContext.PreviousServedModel
@@ -580,20 +1164,42 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 	if router.IsHMMStrategy(query.Strategy) && query.TrainingAllowed {
 		trainingDelta = trainingRouteMessageDelta(query.ConversationMessages)
 	}
+	harness := policy.HarnessForClientApp(query.ClientApp)
+	invokedTools := clipRouteValues(invokedToolNames(query.ConversationMessages), maxRouteToolCallInputKeys, maxRouteToolCallInputChars)
+	availableTools := clipRouteValues(unionToolNames(query.AvailableTools, invokedTools), maxRouteToolCallInputKeys, maxRouteToolCallInputChars)
+	if schemaVersion == policy.SchemaVersionV4 {
+		body, err := json.Marshal(classifierRequestV4{
+			SchemaVersion: schemaVersion, Strategy: string(query.Strategy), ExecutionMode: query.ExecutionMode, RouteID: query.RouteID,
+			OrganizationID: query.OrganizationID, InstallationID: query.InstallationID, ClientApp: query.ClientApp, Harness: harness, RolloutID: query.RolloutID,
+			PromptText: query.PromptText, LatestUserText: latestUserText(messages), TurnIndex: wireTurnIndex, IsSubagent: turnType == "sub_agent_dispatch",
+			VisibleTurnIndex: visibleTurnIndex, SessionTurnCount: sessionTurnCount, TurnType: turnType, CacheState: cacheState, PriorOutputTokens: priorOutputTokens,
+			SessionEverSwitched: sessionEverSwitched, HistoryTruncated: historyTruncated, ConversationMessages: messages,
+			OmittedUserTurnCount: omittedUserTurnCount, TrainingConversationDelta: trainingDelta,
+			AvailableTools: availableTools, InvokedTools: invokedTools, Tools: routeTools(query.Tools),
+			FeedbackKey: query.FeedbackKey, FeedbackRole: query.FeedbackRole, ClientSessionID: query.ClientSessionID, EstimatedInputTokens: query.EstimatedInputTokens,
+			HasTools: query.HasTools, HasImages: query.HasImages, TrainingAllowed: query.TrainingAllowed, CaptureMode: query.CaptureMode, DebugEnabled: query.DebugEnabled,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("marshal classifier request: %w", err)
+		}
+		return body, nil
+	}
 	body, err := json.Marshal(routeRequest{
 		SchemaVersion:             schemaVersion,
+		ArtifactSHA256:            query.ArtifactSHA256,
 		Strategy:                  string(query.Strategy),
 		ExecutionMode:             query.ExecutionMode,
 		RouteID:                   query.RouteID,
 		OrganizationID:            query.OrganizationID,
 		InstallationID:            query.InstallationID,
 		ClientApp:                 query.ClientApp,
-		Harness:                   query.ClientApp,
+		Harness:                   harness,
 		RolloutID:                 query.RolloutID,
 		RequestedModel:            query.RequestedModel,
 		PromptText:                query.PromptText,
 		LatestUserText:            latestUserText(messages),
 		TurnIndex:                 wireTurnIndex,
+		IsSubagent:                turnType == "sub_agent_dispatch",
 		VisibleTurnIndex:          visibleTurnIndex,
 		SessionTurnCount:          sessionTurnCount,
 		TurnType:                  turnType,
@@ -605,7 +1211,9 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 		HistoryTruncated:          historyTruncated,
 		ConversationMessages:      messages,
 		TrainingConversationDelta: trainingDelta,
-		AvailableTools:            clipRouteValues(query.AvailableTools, maxRouteToolCallInputKeys, maxRouteToolCallInputChars),
+		AvailableTools:            availableTools,
+		InvokedTools:              invokedTools,
+		Tools:                     routeTools(query.Tools),
 		FeedbackKey:               query.FeedbackKey,
 		FeedbackRole:              query.FeedbackRole,
 		ClientSessionID:           query.ClientSessionID,
@@ -666,17 +1274,22 @@ func pointerTo[T any](value T) *T {
 	return &value
 }
 
-func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) (*http.Response, []byte, error) {
-	var lastErr error
+func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) (int, []byte, error) {
+	// lastStatusErr is the sidecar's own diagnosis; it diverges from lastErr when the budget cuts a final attempt short.
+	var lastErr, lastStatusErr error
 	for attempt := 1; attempt <= defaultRouteAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
-			return nil, nil, fmt.Errorf("policy sidecar retries exhausted: %w", err)
+			return 0, nil, exhaustedPolicyErr(lastStatusErr, lastErr, err)
 		}
-		resp, payload, done, attemptErr := c.doPolicyAttempt(ctx, attempt, path, body)
+		status, payload, done, attemptErr := c.doPolicyAttempt(ctx, attempt, path, body)
 		if done {
-			return resp, payload, attemptErr
+			return status, payload, attemptErr
 		}
 		lastErr = attemptErr
+		var statusErr *PolicyStatusError
+		if errors.As(attemptErr, &statusErr) {
+			lastStatusErr = attemptErr
+		}
 		if attempt == defaultRouteAttempts {
 			break
 		}
@@ -684,11 +1297,59 @@ func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) 
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil, nil, fmt.Errorf("policy sidecar retries exhausted: %w", ctx.Err())
+			return 0, nil, exhaustedPolicyErr(lastStatusErr, lastErr, ctx.Err())
 		case <-timer.C:
 		}
 	}
-	return nil, nil, fmt.Errorf("policy sidecar retries exhausted: %w", lastErr)
+	return 0, nil, exhaustedPolicyErr(lastStatusErr, lastErr, nil)
+}
+
+// preferStatusErr picks the sidecar's own status over a transport failure, so an
+// exhausted ladder surfaces the sidecar's diagnosis and not the budget expiry.
+func preferStatusErr(statusErr, lastErr error) error {
+	if statusErr != nil {
+		return statusErr
+	}
+	return lastErr
+}
+
+// exhaustedPolicyErr reports why the ladder ended. Both the sidecar's status and
+// the deadline are preserved: the status is the sidecar's own diagnosis; the
+// deadline keeps isPolicyDeadlineErr matching so the policy-deadline fallback
+// still degrades rather than surfacing the 503 that fallback exists to prevent.
+func exhaustedPolicyErr(statusErr, lastErr, ctxErr error) error {
+	primary := preferStatusErr(statusErr, lastErr)
+	deadline := cancellationSignal(ctxErr, lastErr, statusErr)
+	switch {
+	case primary == nil && deadline == nil:
+		return errors.New("policy sidecar retries exhausted")
+	case primary == nil:
+		return fmt.Errorf("policy sidecar retries exhausted: %w", deadline)
+	// errors.Is keeps a transport deadline from being printed twice; the
+	// sentinel is already reachable through primary.
+	case deadline == nil || errors.Is(primary, deadline):
+		return fmt.Errorf("policy sidecar retries exhausted: %w", primary)
+	default:
+		return fmt.Errorf("policy sidecar retries exhausted: %w: %w", primary, deadline)
+	}
+}
+
+// cancellationSignal returns the first context sentinel reachable from any
+// candidate, so preferring a status error for its diagnosis never costs the
+// caller the deadline it needs to degrade on.
+func cancellationSignal(candidates ...error) error {
+	for _, candidate := range candidates {
+		if candidate == nil {
+			continue
+		}
+		if errors.Is(candidate, context.DeadlineExceeded) {
+			return context.DeadlineExceeded
+		}
+		if errors.Is(candidate, context.Canceled) {
+			return context.Canceled
+		}
+	}
+	return nil
 }
 
 // doPolicyAttempt runs one bounded attempt; returns done=true on a final outcome (success or fatal error).
@@ -697,29 +1358,47 @@ func (c *Client) doPolicyAttempt(
 	attempt int,
 	path string,
 	body []byte,
-) (*http.Response, []byte, bool, error) {
+) (int, []byte, bool, error) {
 	attemptCtx, cancel := c.attemptContext(ctx)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
 	if err != nil {
-		return nil, nil, true, fmt.Errorf("build policy route request: %w", err)
+		return 0, nil, true, fmt.Errorf("build policy route request: %w", err)
 	}
 	req.Header.Set("content-type", "application/json")
+	if deadline, ok := attemptCtx.Deadline(); ok {
+		req.Header.Set(policy.ClassifierTimeoutHeader, strconv.FormatInt(min(max(time.Until(deadline).Milliseconds(), 1), policy.MaxClassifierTimeoutMilliseconds), 10))
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("call policy sidecar: %w", err))
+		return 0, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("call policy sidecar: %w", err))
+	}
+	if resp.StatusCode == http.StatusRequestEntityTooLarge {
+		resp.Body.Close()
+		return 0, nil, true, fmt.Errorf(
+			"policy sidecar rejected %d-byte %s request (status %d): %w",
+			len(body), path, resp.StatusCode, policy.ErrContextWindowExceeded,
+		)
 	}
 	payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	resp.Body.Close()
 	if readErr != nil {
-		return nil, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("read policy route response: %w", readErr))
+		return 0, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("read policy route response: %w", readErr))
+	}
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		var failure struct {
+			Error policy.ClassifierErrorCode `json:"error"`
+		}
+		if json.Unmarshal(payload, &failure) == nil && failure.Error == policy.ClassifierWarmingCode {
+			return 0, nil, true, policy.ErrClassifierWarming
+		}
 	}
 	if !isTransientPolicyStatus(resp.StatusCode) {
-		return resp, payload, true, nil
+		return resp.StatusCode, payload, true, nil
 	}
-	return nil, nil, false, policyStatusError(resp.StatusCode, payload)
+	return 0, nil, false, policyStatusError(resp.StatusCode, payload)
 }
 
 // attemptContext bounds one attempt so a single stalled instance cannot spend
@@ -751,15 +1430,36 @@ func isTransientPolicyStatus(status int) bool {
 		status == http.StatusGatewayTimeout
 }
 
+// unknownArtifactErr maps the sidecar's 404 for a selected artifact_sha256 to
+// the pin sentinel so the turn fails closed instead of retrying elsewhere.
+func unknownArtifactErr(query policy.Query, status int) error {
+	if query.ArtifactSHA256 == "" || status != http.StatusNotFound {
+		return nil
+	}
+	return fmt.Errorf("policy sidecar has no artifact %q: %w", query.ArtifactSHA256, router.ErrPolicyPinUnavailable)
+}
+
+// PolicyStatusError is a non-2xx response from the sidecar, typed so the retry
+// ladder can prefer it over a transport error: a status is the sidecar's own
+// diagnosis; "context deadline exceeded" only says the budget ran out.
+type PolicyStatusError struct {
+	Status  int
+	Message string
+}
+
+func (e *PolicyStatusError) Error() string {
+	if e.Message != "" {
+		return fmt.Sprintf("policy sidecar status %d: %s", e.Status, e.Message)
+	}
+	return fmt.Sprintf("policy sidecar status %d", e.Status)
+}
+
 func policyStatusError(status int, payload []byte) error {
 	var parsed struct {
 		Error string `json:"error"`
 	}
 	_ = json.Unmarshal(payload, &parsed)
-	if parsed.Error != "" {
-		return fmt.Errorf("policy sidecar status %d: %s", status, parsed.Error)
-	}
-	return fmt.Errorf("policy sidecar status %d", status)
+	return &PolicyStatusError{Status: status, Message: parsed.Error}
 }
 
 func wireRoutingKnobs(knobs *router.Overrides) *routingKnobs {
@@ -789,39 +1489,68 @@ type routeMessageLimits struct {
 	maxToolCallInputChars int
 	includeToolCallInput  bool
 	includeToolResultText bool
+	// dropTextAfterBudgetCut gives every message older than the first one the
+	// shared budget cuts no text, so the routed text-bearing user turns are
+	// always the newest ones and omitted_user_turn_count can locate them.
+	dropTextAfterBudgetCut bool
+}
+
+var defaultRouteMessageLimits = routeMessageLimits{
+	maxMessages:           maxRouteMessages,
+	maxTextChars:          maxRouteMessageTextChars,
+	maxTotalTextChars:     maxRouteMessageTotalChars,
+	maxToolCallInputKeys:  maxRouteToolCallInputKeys,
+	maxToolCallInputChars: maxRouteToolCallInputChars,
+}
+
+var interactionStateRouteMessageLimits = routeMessageLimits{
+	maxMessages:            maxRouteMessages,
+	maxTextChars:           interactionStateRouteMessageTextChars,
+	maxTotalTextChars:      interactionStateRouteMessageTotalChars,
+	maxToolCallInputKeys:   maxRouteToolCallInputKeys,
+	maxToolCallInputChars:  maxRouteToolCallInputChars,
+	dropTextAfterBudgetCut: true,
+}
+
+// classifierRouteMessageLimits keeps every classifier package on the history
+// clip it was trained on; only a package that declared interaction-state
+// inputs gets the wider one.
+func classifierRouteMessageLimits(query policy.Query) routeMessageLimits {
+	if query.InteractionStateInputs {
+		return interactionStateRouteMessageLimits
+	}
+	return defaultRouteMessageLimits
 }
 
 func routeMessages(messages []router.ConversationMessage) []routeMessage {
-	return convertRouteMessages(messages, routeMessageLimits{
-		maxMessages:           maxRouteMessages,
-		maxTextChars:          maxRouteMessageTextChars,
-		maxTotalTextChars:     maxRouteMessageTotalChars,
-		maxToolCallInputKeys:  maxRouteToolCallInputKeys,
-		maxToolCallInputChars: maxRouteToolCallInputChars,
-	})
+	return convertRouteMessages(messages, defaultRouteMessageLimits)
 }
 
 func routeMessagesTruncated(messages []router.ConversationMessage) bool {
-	if len(messages) > maxRouteMessages {
+	return routeMessagesExceedLimits(messages, defaultRouteMessageLimits)
+}
+
+func routeMessagesExceedLimits(messages []router.ConversationMessage, limits routeMessageLimits) bool {
+	if len(messages) > limits.maxMessages {
 		return true
 	}
 	totalText := 0
 	for _, message := range messages {
 		text := strings.TrimSpace(message.Text)
-		if len(text) > maxRouteMessageTextChars {
+		if len(text) > limits.maxTextChars {
 			return true
 		}
 		totalText += len(text)
-		if totalText > maxRouteMessageTotalChars {
+		if totalText > limits.maxTotalTextChars {
 			return true
 		}
 		for _, call := range message.ToolCalls {
-			if len(strings.TrimSpace(call.Name)) > maxRouteToolCallInputChars ||
-				len(call.InputKeys) > maxRouteToolCallInputKeys {
+			if len(strings.TrimSpace(call.Name)) > limits.maxToolCallInputChars ||
+				len(call.InputKeys) > limits.maxToolCallInputKeys {
 				return true
 			}
 			for _, key := range call.InputKeys {
-				if len(strings.TrimSpace(key)) > maxRouteToolCallInputChars {
+				if len(strings.TrimSpace(key)) > limits.maxToolCallInputChars {
 					return true
 				}
 			}
@@ -860,29 +1589,71 @@ func trainingRouteMessageDelta(messages []router.ConversationMessage) []routeMes
 	})
 }
 
+// routeMessageWindow keeps the newest maxMessages messages, except that the
+// newest user message carrying text is always kept: a long agent tool loop can
+// push every text-bearing user turn out of the window, and a routing history
+// without one describes no request at all.
+func routeMessageWindow(messages []router.ConversationMessage, maxMessages int) []router.ConversationMessage {
+	if maxMessages <= 0 || len(messages) <= maxMessages {
+		return messages
+	}
+	window := messages[len(messages)-maxMessages:]
+	if userTextIndex(window) >= 0 {
+		return window
+	}
+	boundary := userTextIndex(messages[:len(messages)-maxMessages])
+	if boundary < 0 {
+		return window
+	}
+	kept := make([]router.ConversationMessage, 0, maxMessages)
+	kept = append(kept, messages[boundary])
+	return append(kept, window[1:]...)
+}
+
+// userTextIndex is the index of the newest user message carrying text, or -1.
+func userTextIndex(messages []router.ConversationMessage) int {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if routeRole(messages[i].Role) == "user" && strings.TrimSpace(messages[i].Text) != "" {
+			return i
+		}
+	}
+	return -1
+}
+
 func convertRouteMessages(messages []router.ConversationMessage, limits routeMessageLimits) []routeMessage {
 	if len(messages) == 0 {
 		return nil
 	}
-	start := 0
-	if limits.maxMessages > 0 && len(messages) > limits.maxMessages {
-		start = len(messages) - limits.maxMessages
+	messages = routeMessageWindow(messages, limits.maxMessages)
+	// Reserve the task before newer assistant text consumes the shared budget.
+	latestUserTextIndex := userTextIndex(messages)
+	boundaryReserve := 0
+	if latestUserTextIndex >= 0 && limits.maxTotalTextChars > 0 {
+		boundaryReserve = len(clipRouteText(clipRouteText(messages[latestUserTextIndex].Text, limits.maxTextChars), limits.maxTotalTextChars))
 	}
-	reversed := make([]routeMessage, 0, len(messages)-start)
+	reversed := make([]routeMessage, 0, len(messages))
 	totalText := 0
-	for i := len(messages) - 1; i >= start; i-- {
+	budgetCut := false
+	for i := len(messages) - 1; i >= 0; i-- {
 		message := messages[i]
 		role := routeRole(message.Role)
 		if role == "" {
 			continue
 		}
 		text := clipRouteText(message.Text, limits.maxTextChars)
-		if limits.maxTotalTextChars > 0 && totalText+len(text) > limits.maxTotalTextChars {
-			remaining := limits.maxTotalTextChars - totalText
-			if remaining <= 0 {
+		if limits.maxTotalTextChars > 0 {
+			budget := limits.maxTotalTextChars
+			if i > latestUserTextIndex {
+				budget -= boundaryReserve
+			}
+			if budgetCut && i != latestUserTextIndex {
 				text = ""
-			} else {
-				text = clipRouteText(text, remaining)
+			} else if remaining := budget - totalText; remaining < len(text) {
+				budgetCut = limits.dropTextAfterBudgetCut
+				text = ""
+				if remaining > 0 {
+					text = clipRouteText(message.Text, remaining)
+				}
 			}
 		}
 		totalText += len(text)
@@ -961,6 +1732,9 @@ func clipRouteText(text string, limit int) string {
 	if limit <= 0 || len(text) <= limit {
 		return text
 	}
+	for limit > 0 && !utf8.RuneStart(text[limit]) {
+		limit--
+	}
 	return strings.TrimSpace(text[:limit])
 }
 
@@ -973,17 +1747,80 @@ func latestUserText(messages []routeMessage) string {
 	return ""
 }
 
+// invokedToolNames lists tools the conversation has actually called, in first-
+// call order. Sidecars use the advertised/invoked split for capability guards
+// and must not rebuild it by scanning history.
+func invokedToolNames(messages []router.ConversationMessage) []string {
+	var names []string
+	for _, message := range messages {
+		for _, call := range message.ToolCalls {
+			if name := strings.TrimSpace(call.Name); name != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	return dedupeStrings(names)
+}
+
+func unionToolNames(advertised, invoked []string) []string {
+	merged := make([]string, 0, len(advertised)+len(invoked))
+	for _, name := range advertised {
+		if trimmed := strings.TrimSpace(name); trimmed != "" {
+			merged = append(merged, trimmed)
+		}
+	}
+	merged = append(merged, invoked...)
+	return dedupeStrings(merged)
+}
+
+func dedupeStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
 func turnIndex(messages []routeMessage) int {
+	count := routedUserTextTurnCount(messages)
+	if count <= 1 {
+		return 0
+	}
+	return count - 1
+}
+
+// routedUserTextTurnCount counts the text-bearing user turns a routed history
+// still carries after windowing and budget clipping.
+func routedUserTextTurnCount(messages []routeMessage) int {
 	count := 0
 	for _, message := range messages {
 		if message.Role == "user" && strings.TrimSpace(message.Text) != "" {
 			count++
 		}
 	}
-	if count <= 1 {
-		return 0
+	return count
+}
+
+// userTextTurnCount counts the text-bearing user turns of the full history.
+// Under interactionStateRouteMessageLimits clipping drops the oldest messages
+// first, so the difference from the routed count is the number of turns
+// missing from the front of the routed window.
+func userTextTurnCount(messages []router.ConversationMessage) int {
+	count := 0
+	for _, message := range messages {
+		if routeRole(message.Role) == "user" && strings.TrimSpace(message.Text) != "" {
+			count++
+		}
 	}
-	return count - 1
+	return count
 }
 
 func firstNonEmpty(values ...string) string {
@@ -1002,6 +1839,33 @@ func firstFloat(values ...*float64) *float64 {
 		}
 	}
 	return nil
+}
+
+func routeTools(tools []router.ToolDescriptor) []routeTool {
+	if len(tools) == 0 {
+		return nil
+	}
+	if len(tools) > maxRouteTools {
+		tools = tools[:maxRouteTools]
+	}
+	out := make([]routeTool, 0, len(tools))
+	seen := make(map[routeTool]struct{}, len(tools))
+	for _, tool := range tools {
+		wireTool := routeTool{
+			Name:           clipRouteText(tool.Name, maxRouteToolCallInputChars),
+			Type:           clipRouteText(tool.Type, maxRouteToolCallInputChars),
+			ServerExecuted: tool.ServerExecuted,
+		}
+		if wireTool.Name == "" && wireTool.Type == "" {
+			continue
+		}
+		if _, ok := seen[wireTool]; ok {
+			continue
+		}
+		seen[wireTool] = struct{}{}
+		out = append(out, wireTool)
+	}
+	return out
 }
 
 func clipRouteValues(values []string, maxValues, maxChars int) []string {
@@ -1031,4 +1895,3 @@ var _ policy.Decider = (*Client)(nil)
 var _ policy.PreviewDecider = (*Client)(nil)
 var _ policy.OutcomeReporter = (*Client)(nil)
 var _ policy.FeedbackReporter = (*Client)(nil)
-var _ policy.RosterSource = (*Client)(nil)

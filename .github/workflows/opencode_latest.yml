@@ -1,0 +1,49 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: OpenCode latest compatibility
+
+on:
+  schedule:
+    - cron: '23 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Deliberately separate from the required Test gate: latest v2 may break
+# before the supported CLI pin has been reviewed and updated.
+jobs:
+  latest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install latest OpenCode v2
+        run: |
+          formula="$(curl --fail --location --silent --show-error \
+            https://raw.githubusercontent.com/anomalyco/homebrew-tap/HEAD/opencode-v2.rb)"
+          version="$(printf '%s\n' "$formula" | sed -n 's/^  version "\([^"]*\)"$/\1/p' | head -n 1)"
+          checksum="$(printf '%s\n' "$formula" | awk '
+            /^  on_linux do$/ { in_linux=1; next }
+            in_linux && /url "[^"]*opencode-linux-x64-baseline\.tar\.gz"/ {
+              if (getline > 0) {
+                sub(/^.*sha256 "/, "")
+                sub(/".*$/, "")
+                print
+                exit
+              }
+            }
+            in_linux && /^  end$/ { exit }
+          ')"
+          test -n "$version" && test -n "$checksum"
+          archive="$RUNNER_TEMP/opencode-v2.tar.gz"
+          curl --fail --location --silent --show-error \
+            "https://opencode.ai/files/bin/$version/opencode-linux-x64-baseline.tar.gz" \
+            --output "$archive"
+          echo "$checksum  $archive" | sha256sum --check
+          tar -xzf "$archive" -C "$RUNNER_TEMP" opencode
+          chmod +x "$RUNNER_TEMP/opencode"
+          echo "$RUNNER_TEMP" >>"$GITHUB_PATH"
+          echo "OPENCODE_BIN=$RUNNER_TEMP/opencode" >>"$GITHUB_ENV"
+          echo "OPENCODE_EXPECTED_VERSION=$version" >>"$GITHUB_ENV"
+      - name: Run real OpenCode v2 compatibility
+        run: bash install/pi-router/test/opencode_smoke.sh

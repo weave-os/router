@@ -25,9 +25,13 @@ INSERT INTO router.model_router_external_api_keys (
     model_aliases,
     identity_header_name,
     identity_header_format,
+    forwarded_client_headers,
+    baggage_header,
+    federation_config,
     auth_type,
     auth_account,
     auth_user,
+    funding_priority,
     created_by
 )
 VALUES (
@@ -43,31 +47,39 @@ VALUES (
     $10::jsonb,
     $11::text,
     $12::text,
-    $13::text,
+    $13::text[],
     $14::text,
-    $15::text,
-    $16
+    $15::jsonb,
+    $16::text,
+    $17::text,
+    $18::text,
+    $19::text,
+    $20
 )
-RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user
+RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header, federation_config, funding_priority
 `
 
 type CreateExternalAPIKeyParams struct {
-	InstallationID       uuid.UUID
-	ExternalID           string
-	Provider             string
-	KeyCiphertext        []byte
-	KeyPrefix            string
-	KeySuffix            string
-	KeyFingerprint       string
-	Name                 *string
-	BaseURL              *string
-	ModelAliases         []byte
-	IdentityHeaderName   *string
-	IdentityHeaderFormat *string
-	AuthType             string
-	AuthAccount          *string
-	AuthUser             *string
-	CreatedBy            *string
+	InstallationID         uuid.UUID
+	ExternalID             string
+	Provider               string
+	KeyCiphertext          []byte
+	KeyPrefix              string
+	KeySuffix              string
+	KeyFingerprint         string
+	Name                   *string
+	BaseURL                *string
+	ModelAliases           []byte
+	IdentityHeaderName     *string
+	IdentityHeaderFormat   *string
+	ForwardedClientHeaders []string
+	BaggageHeader          *string
+	FederationConfig       []byte
+	AuthType               string
+	AuthAccount            *string
+	AuthUser               *string
+	FundingPriority        string
+	CreatedBy              *string
 }
 
 // Creates a new external API key for an installation. The unique index on
@@ -87,9 +99,13 @@ type CreateExternalAPIKeyParams struct {
 //	    model_aliases,
 //	    identity_header_name,
 //	    identity_header_format,
+//	    forwarded_client_headers,
+//	    baggage_header,
+//	    federation_config,
 //	    auth_type,
 //	    auth_account,
 //	    auth_user,
+//	    funding_priority,
 //	    created_by
 //	)
 //	VALUES (
@@ -105,12 +121,16 @@ type CreateExternalAPIKeyParams struct {
 //	    $10::jsonb,
 //	    $11::text,
 //	    $12::text,
-//	    $13::text,
+//	    $13::text[],
 //	    $14::text,
-//	    $15::text,
-//	    $16
+//	    $15::jsonb,
+//	    $16::text,
+//	    $17::text,
+//	    $18::text,
+//	    $19::text,
+//	    $20
 //	)
-//	RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user
+//	RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header, federation_config, funding_priority
 func (q *Queries) CreateExternalAPIKey(ctx context.Context, arg CreateExternalAPIKeyParams) (RouterModelRouterExternalAPIKey, error) {
 	row := q.db.QueryRow(ctx, createExternalAPIKey,
 		arg.InstallationID,
@@ -125,9 +145,13 @@ func (q *Queries) CreateExternalAPIKey(ctx context.Context, arg CreateExternalAP
 		arg.ModelAliases,
 		arg.IdentityHeaderName,
 		arg.IdentityHeaderFormat,
+		arg.ForwardedClientHeaders,
+		arg.BaggageHeader,
+		arg.FederationConfig,
 		arg.AuthType,
 		arg.AuthAccount,
 		arg.AuthUser,
+		arg.FundingPriority,
 		arg.CreatedBy,
 	)
 	var i RouterModelRouterExternalAPIKey
@@ -153,12 +177,47 @@ func (q *Queries) CreateExternalAPIKey(ctx context.Context, arg CreateExternalAP
 		&i.AuthType,
 		&i.AuthAccount,
 		&i.AuthUser,
+		&i.DeletedBy,
+		&i.ForwardedClientHeaders,
+		&i.BaggageHeader,
+		&i.FederationConfig,
+		&i.FundingPriority,
 	)
 	return i, err
 }
 
+const getActiveExternalAPIKeyFundingPriority = `-- name: GetActiveExternalAPIKeyFundingPriority :one
+SELECT funding_priority
+FROM router.model_router_external_api_keys
+WHERE installation_id = $1::uuid
+  AND provider = $2::varchar
+  AND deleted_at IS NULL
+LIMIT 1
+`
+
+type GetActiveExternalAPIKeyFundingPriorityParams struct {
+	InstallationID uuid.UUID
+	Provider       string
+}
+
+// Reads the active key's funding priority for a provider without loading its secret,
+// so an upsert that omits a priority can keep it.
+//
+//	SELECT funding_priority
+//	FROM router.model_router_external_api_keys
+//	WHERE installation_id = $1::uuid
+//	  AND provider = $2::varchar
+//	  AND deleted_at IS NULL
+//	LIMIT 1
+func (q *Queries) GetActiveExternalAPIKeyFundingPriority(ctx context.Context, arg GetActiveExternalAPIKeyFundingPriorityParams) (string, error) {
+	row := q.db.QueryRow(ctx, getActiveExternalAPIKeyFundingPriority, arg.InstallationID, arg.Provider)
+	var funding_priority string
+	err := row.Scan(&funding_priority)
+	return funding_priority, err
+}
+
 const getActiveExternalAPIKeysForInstallation = `-- name: GetActiveExternalAPIKeysForInstallation :many
-SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user
+SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header, federation_config, funding_priority
 FROM router.model_router_external_api_keys
 WHERE installation_id = $1::uuid
   AND deleted_at IS NULL
@@ -168,7 +227,7 @@ ORDER BY provider, created_at DESC
 // Returns all active external API keys for an installation. Used by the auth
 // cache to populate the ExternalKeys map on cache miss.
 //
-//	SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user
+//	SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header, federation_config, funding_priority
 //	FROM router.model_router_external_api_keys
 //	WHERE installation_id = $1::uuid
 //	  AND deleted_at IS NULL
@@ -204,6 +263,11 @@ func (q *Queries) GetActiveExternalAPIKeysForInstallation(ctx context.Context, i
 			&i.AuthType,
 			&i.AuthAccount,
 			&i.AuthUser,
+			&i.DeletedBy,
+			&i.ForwardedClientHeaders,
+			&i.BaggageHeader,
+			&i.FederationConfig,
+			&i.FundingPriority,
 		); err != nil {
 			return nil, err
 		}
@@ -283,13 +347,71 @@ func (q *Queries) SoftDeleteExternalAPIKeyByProvider(ctx context.Context, arg So
 	return err
 }
 
+const updateExternalAPIKeyFundingPriority = `-- name: UpdateExternalAPIKeyFundingPriority :one
+UPDATE router.model_router_external_api_keys
+SET funding_priority = $1::text, updated_at = CURRENT_TIMESTAMP
+WHERE id = $2::uuid
+  AND installation_id = $3::uuid
+  AND deleted_at IS NULL
+RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header, federation_config, funding_priority
+`
+
+type UpdateExternalAPIKeyFundingPriorityParams struct {
+	FundingPriority string
+	ID              uuid.UUID
+	InstallationID  uuid.UUID
+}
+
+// Sets whether one key is spent before or after the caller's subscription,
+// without touching the stored secret. Cross-tenant safe via installation_id predicate.
+//
+//	UPDATE router.model_router_external_api_keys
+//	SET funding_priority = $1::text, updated_at = CURRENT_TIMESTAMP
+//	WHERE id = $2::uuid
+//	  AND installation_id = $3::uuid
+//	  AND deleted_at IS NULL
+//	RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header, federation_config, funding_priority
+func (q *Queries) UpdateExternalAPIKeyFundingPriority(ctx context.Context, arg UpdateExternalAPIKeyFundingPriorityParams) (RouterModelRouterExternalAPIKey, error) {
+	row := q.db.QueryRow(ctx, updateExternalAPIKeyFundingPriority, arg.FundingPriority, arg.ID, arg.InstallationID)
+	var i RouterModelRouterExternalAPIKey
+	err := row.Scan(
+		&i.ID,
+		&i.InstallationID,
+		&i.ExternalID,
+		&i.Provider,
+		&i.KeyCiphertext,
+		&i.KeyPrefix,
+		&i.KeySuffix,
+		&i.KeyFingerprint,
+		&i.Name,
+		&i.LastUsedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
+		&i.CreatedBy,
+		&i.BaseURL,
+		&i.ModelAliases,
+		&i.IdentityHeaderName,
+		&i.IdentityHeaderFormat,
+		&i.AuthType,
+		&i.AuthAccount,
+		&i.AuthUser,
+		&i.DeletedBy,
+		&i.ForwardedClientHeaders,
+		&i.BaggageHeader,
+		&i.FederationConfig,
+		&i.FundingPriority,
+	)
+	return i, err
+}
+
 const updateExternalAPIKeyModelAliases = `-- name: UpdateExternalAPIKeyModelAliases :one
 UPDATE router.model_router_external_api_keys
 SET model_aliases = $1::jsonb, updated_at = CURRENT_TIMESTAMP
 WHERE id = $2::uuid
   AND installation_id = $3::uuid
   AND deleted_at IS NULL
-RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user
+RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header, federation_config, funding_priority
 `
 
 type UpdateExternalAPIKeyModelAliasesParams struct {
@@ -307,7 +429,7 @@ type UpdateExternalAPIKeyModelAliasesParams struct {
 //	WHERE id = $2::uuid
 //	  AND installation_id = $3::uuid
 //	  AND deleted_at IS NULL
-//	RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user
+//	RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header, federation_config, funding_priority
 func (q *Queries) UpdateExternalAPIKeyModelAliases(ctx context.Context, arg UpdateExternalAPIKeyModelAliasesParams) (RouterModelRouterExternalAPIKey, error) {
 	row := q.db.QueryRow(ctx, updateExternalAPIKeyModelAliases, arg.ModelAliases, arg.ID, arg.InstallationID)
 	var i RouterModelRouterExternalAPIKey
@@ -333,6 +455,11 @@ func (q *Queries) UpdateExternalAPIKeyModelAliases(ctx context.Context, arg Upda
 		&i.AuthType,
 		&i.AuthAccount,
 		&i.AuthUser,
+		&i.DeletedBy,
+		&i.ForwardedClientHeaders,
+		&i.BaggageHeader,
+		&i.FederationConfig,
+		&i.FundingPriority,
 	)
 	return i, err
 }

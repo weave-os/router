@@ -10,11 +10,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/planner"
-	"workweave/router/internal/router/sessionpin"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/planner"
+	"weave-os/router/internal/router/sessionpin"
 )
 
 // stubPinStore is a minimal sessionpin.Store for testing recordTurnUsage.
@@ -26,6 +26,10 @@ type stubPinStore struct {
 	usageRoles []string
 	getPin     sessionpin.Pin
 	getFound   bool
+	getRoles   []string
+	consumePin sessionpin.Pin
+	consumeHit bool
+	consumeFor router.Strategy
 	upserts    []sessionpin.Pin
 	upsertErr  error
 }
@@ -34,9 +38,13 @@ func newStubPinStore() *stubPinStore {
 	return &stubPinStore{}
 }
 
-func (s *stubPinStore) Get(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
+func (s *stubPinStore) Get(ctx context.Context, _ [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return sessionpin.Pin{}, false, err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.getRoles = append(s.getRoles, role)
 	return s.getPin, s.getFound, nil
 }
 
@@ -59,28 +67,35 @@ func (s *stubPinStore) UpdateUsage(_ context.Context, _ [sessionpin.SessionKeyLe
 	return nil
 }
 
-func (s *stubPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (s *stubPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	return 0, nil
 }
 
-func (s *stubPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (s *stubPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
 
-func (s *stubPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (s *stubPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	return 0, nil
 }
 
-func (s *stubPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (s *stubPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
 
-func (s *stubPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
+func (*stubPinStore) ExpireAndDemoteModel(context.Context, sessionpin.Pin, string, sessionpin.DemotionReason) error {
 	return nil
 }
 
-func (s *stubPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
-	return sessionpin.Pin{}, false, nil
+func (s *stubPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string, router.Strategy) error {
+	return nil
+}
+
+func (s *stubPinStore) Consume(_ context.Context, _ [sessionpin.SessionKeyLen]byte, _ string, expected router.Strategy) (sessionpin.Pin, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.consumeFor = expected
+	return s.consumePin, s.consumeHit, nil
 }
 
 func (s *stubPinStore) SweepExpired(context.Context) error { return nil }
@@ -100,6 +115,23 @@ func TestPinCacheCold_OrdinaryAndHMMShareTheSameRule(t *testing.T) {
 	assert.True(t, pinCacheCold(cold, false), "an expired pin is cold without a prefix break")
 }
 
+func TestConsumePostCommandContinuation_RequiresEffectiveStrategy(t *testing.T) {
+	store := newStubPinStore()
+	store.consumeHit = true
+	store.consumePin = sessionpin.Pin{Strategy: router.StrategyHMMEmbedding}
+	svc := NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	ctx := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
+
+	_, found := svc.consumePostCommandContinuation(ctx, [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole)
+	assert.False(t, found, "a non-beta continuation must not cross into a beta session")
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	assert.Equal(t, router.StrategyHMMBeta, store.consumeFor,
+		"the atomic consume must be filtered by the effective strategy in storage too")
+}
+
 func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 	t.Parallel()
 
@@ -115,15 +147,18 @@ func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 	applyPinEvidence(&withHistory, sessionpin.Pin{
 		Provider:        providers.ProviderFireworks,
 		Model:           "accounts/fireworks/models/qwen3-235b-a22b",
+		PolicyGroup:     "high",
 		LastTurnEndedAt: time.Now().Add(-time.Second),
 	})
 	assert.Equal(t, providers.ProviderFireworks, withHistory.PinProvider)
+	assert.Equal(t, "high", withHistory.PinPolicyGroup)
 	require.NotNil(t, withHistory.PriorTurnGapMS)
 	assert.Greater(t, *withHistory.PriorTurnGapMS, int64(0))
 
 	clearPinEvidence(&withHistory)
 	assert.Empty(t, withHistory.PinModel)
 	assert.Empty(t, withHistory.PinProvider)
+	assert.Empty(t, withHistory.PinPolicyGroup)
 	assert.Zero(t, withHistory.PinAgeSec)
 	assert.Nil(t, withHistory.PriorTurnGapMS)
 }
@@ -131,11 +166,26 @@ func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 func TestCacheablePrefixTokens_UsesReadOrWriteEvidence(t *testing.T) {
 	t.Parallel()
 
-	pin := sessionpin.Pin{LastCachedReadTokens: 4_000, LastCachedWriteTokens: 3_000}
-	assert.Equal(t, 4_000, cacheablePrefixTokens(sessionpin.Pin{LastCachedWriteTokens: 4_000}, 10_000, false))
-	assert.Equal(t, 2_000, cacheablePrefixTokens(sessionpin.Pin{LastCachedReadTokens: 4_000}, 2_000, false))
-	assert.Equal(t, 7_000, cacheablePrefixTokens(pin, 10_000, false))
-	assert.Zero(t, cacheablePrefixTokens(pin, 10_000, true))
+	// Read and write both count as prior-turn cache evidence. The prior total
+	// is 10k (compat basis: LastInputTokens already includes cached).
+	writeOnly := sessionpin.Pin{LastInputTokens: 10_000, LastCachedWriteTokens: 4_000}
+	got, known := cacheablePrefixTokens(writeOnly, 10_000, false)
+	assert.True(t, known)
+	assert.Equal(t, 4_000, got)
+
+	// The share is scale-free: the same 0.4 on a 2k prompt is 800 tokens, not
+	// the old min(evidence, total) clamp.
+	readOnly := sessionpin.Pin{LastInputTokens: 10_000, LastCachedReadTokens: 4_000}
+	got, _ = cacheablePrefixTokens(readOnly, 2_000, false)
+	assert.Equal(t, 800, got)
+
+	both := sessionpin.Pin{LastInputTokens: 10_000, LastCachedReadTokens: 4_000, LastCachedWriteTokens: 3_000}
+	got, _ = cacheablePrefixTokens(both, 10_000, false)
+	assert.Equal(t, 7_000, got)
+
+	trimmed, trimmedKnown := cacheablePrefixTokens(both, 10_000, true)
+	assert.Zero(t, trimmed)
+	assert.True(t, trimmedKnown, "a client trim is a measured eviction, not missing evidence")
 }
 
 // TestRecordTurnUsage_WritesToStore guards the synchronous UpdateUsage write:
@@ -146,8 +196,6 @@ func TestRecordTurnUsage_WritesToStore(t *testing.T) {
 	svc := NewService(
 		nil,
 		nil,
-		nil,
-		false,
 		nil,
 		store,
 		false,
@@ -165,7 +213,7 @@ func TestRecordTurnUsage_WritesToStore(t *testing.T) {
 		SessionKey: sessionKey,
 		PinRole:    sessionpin.DefaultRole,
 	}
-	svc.recordTurnUsage(res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -179,13 +227,39 @@ func TestRecordTurnUsage_WritesToStore(t *testing.T) {
 	assert.False(t, store.lastUsage.EndedAt.IsZero(), "EndedAt must be stamped — the planner uses IsZero() as its no-prior-usage gate")
 }
 
-func TestRecordTurnUsage_ForwardsSwitchHistory(t *testing.T) {
+func TestRecordTurnUsage_PassthroughDoesNotReadOrWritePins(t *testing.T) {
 	store := newStubPinStore()
 	svc := NewService(
 		nil,
 		nil,
 		nil,
+		store,
 		false,
+		"anthropic", "claude-haiku-4-5",
+		nil,
+	)
+
+	var sessionKey [sessionpin.SessionKeyLen]byte
+	sessionKey[0] = 1
+	svc.recordTurnUsage(context.Background(), turnLoopResult{
+		Decision:               router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6"},
+		SessionKey:             sessionKey,
+		PinRole:                sessionpin.DefaultRole,
+		CallerModelPassthrough: true,
+	}, providers.ProviderAnthropic, "claude-sonnet-4-6", 1200, 80, 200, 900, false)
+
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	assert.Empty(t, store.getRoles, "passthrough accounting must not read session pins")
+	assert.Zero(t, store.usageHits, "passthrough accounting must not update session pins")
+	assert.Empty(t, store.upserts, "passthrough accounting must not create session pins")
+}
+
+func TestRecordTurnUsage_ForwardsSwitchHistory(t *testing.T) {
+	store := newStubPinStore()
+	svc := NewService(
+		nil,
+		nil,
 		nil,
 		store,
 		false,
@@ -205,7 +279,7 @@ func TestRecordTurnUsage_ForwardsSwitchHistory(t *testing.T) {
 		PriorServedModel:    "claude-opus-4-7",
 		SessionEverSwitched: true,
 	}
-	svc.recordTurnUsage(res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -220,8 +294,6 @@ func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -235,12 +307,13 @@ func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 
 	res := turnLoopResult{
 		InstallationID: uuid.New(),
+		Strategy:       router.StrategyHMMBeta,
 		Decision: router.Decision{
 			Provider: "anthropic",
 			Model:    "claude-sonnet-5",
 			Reason:   "hmm_policy(label=high)",
 			Metadata: &router.RoutingMetadata{
-				Strategy: string(router.StrategyHMM),
+				Strategy: string(router.StrategyHMMBeta),
 				RouteID:  "route-1",
 			},
 		},
@@ -251,7 +324,7 @@ func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 		// latch has_ever_switched without mutating the active routing role.
 		PriorServedModel: "claude-haiku-4-5",
 	}
-	svc.recordTurnUsage(res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -260,6 +333,7 @@ func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 	assert.Equal(t, "hmm_policy(label=high)", store.upserts[0].Reason)
 	assert.Equal(t, providers.ProviderAnthropic, store.upserts[0].Provider)
 	assert.Empty(t, store.upserts[0].Model, "HMM history rows must not be routable pins")
+	assert.Equal(t, router.StrategyHMMBeta, store.upserts[0].Strategy)
 	assert.Equal(t, []string{hmmHistoryRole(sessionpin.DefaultRole)}, store.usageRoles)
 	assert.NotContains(t, store.usageRoles, sessionpin.DefaultRole, "HMM turns must not mutate the active routing pin role")
 	assert.Equal(t, 1200, store.lastUsage.InputTokens)
@@ -268,6 +342,7 @@ func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 	assert.Equal(t, 80, store.lastUsage.OutputTokens)
 	assert.Equal(t, "claude-sonnet-5", store.lastUsage.ServedModel)
 	assert.Equal(t, "claude-haiku-4-5", store.lastUsage.PriorServedModel)
+	assert.Equal(t, router.StrategyHMMBeta, store.lastUsage.Strategy)
 }
 
 func TestRecordTurnUsage_HMMModelChangeWritesCurrentUsageOnly(t *testing.T) {
@@ -275,8 +350,6 @@ func TestRecordTurnUsage_HMMModelChangeWritesCurrentUsageOnly(t *testing.T) {
 	svc := NewService(
 		nil,
 		nil,
-		nil,
-		false,
 		nil,
 		store,
 		false,
@@ -305,7 +378,7 @@ func TestRecordTurnUsage_HMMModelChangeWritesCurrentUsageOnly(t *testing.T) {
 		PinTier:          "hmm_fresh_unpinned",
 		PriorServedModel: "claude-haiku-4-5",
 	}
-	svc.recordTurnUsage(res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -322,8 +395,6 @@ func TestRecordHMMTurnHistory_ZeroUsageRefreshesTTLButSkipsUsageWriteback(t *tes
 	svc := NewService(
 		nil,
 		nil,
-		nil,
-		false,
 		nil,
 		store,
 		false,
@@ -351,7 +422,7 @@ func TestRecordHMMTurnHistory_ZeroUsageRefreshesTTLButSkipsUsageWriteback(t *tes
 		PinRole:    sessionpin.DefaultRole,
 	}
 	// A failed/empty upstream turn: all usage counts zero.
-	svc.recordTurnUsage(res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -368,8 +439,6 @@ func TestRecordHMMTurnHistory_ZeroUsagePreservesPriorProvider(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderMakora: nil, providers.ProviderOpenAI: nil},
-		nil,
-		false,
 		nil,
 		store,
 		false,
@@ -394,7 +463,7 @@ func TestRecordHMMTurnHistory_ZeroUsagePreservesPriorProvider(t *testing.T) {
 		PinRole:    sessionpin.DefaultRole,
 	}
 
-	svc.recordTurnUsage(res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -408,8 +477,6 @@ func TestNormalizeHMMStayPin_RepairsMismatchedProvider(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderMakora: nil, providers.ProviderOpenAI: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
@@ -417,14 +484,14 @@ func TestNormalizeHMMStayPin_RepairsMismatchedProvider(t *testing.T) {
 	)
 	pin := sessionpin.Pin{
 		Provider:        providers.ProviderOpenAI,
-		LastServedModel: "deepseek/deepseek-v4-flash",
+		LastServedModel: "deepseek/deepseek-v4.1-flash",
 		LastTurnEndedAt: time.Now(),
 		PinnedUntil:     time.Now().Add(time.Hour),
 	}
 
 	normalized, ok := svc.normalizeHMMStayPin(router.Request{}, pin)
 	require.True(t, ok)
-	assert.Equal(t, "deepseek/deepseek-v4-flash", normalized.Model)
+	assert.Equal(t, "deepseek/deepseek-v4.1-flash", normalized.Model)
 	assert.Equal(t, providers.ProviderMakora, normalized.Provider,
 		"a sticky HMM pin must resolve the provider from its retained model")
 }
@@ -434,8 +501,6 @@ func TestNormalizeHMMStayPin_ReResolvesDisabledProvider(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderMakora: nil, providers.ProviderOpenAI: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
@@ -443,7 +508,7 @@ func TestNormalizeHMMStayPin_ReResolvesDisabledProvider(t *testing.T) {
 	)
 	pin := sessionpin.Pin{
 		Provider:        providers.ProviderOpenAI,
-		LastServedModel: "deepseek/deepseek-v4-flash",
+		LastServedModel: "deepseek/deepseek-v4.1-flash",
 		LastTurnEndedAt: time.Now(),
 		PinnedUntil:     time.Now().Add(time.Hour),
 	}
@@ -461,8 +526,6 @@ func TestNormalizeHMMStayPin_PreservesCatalogRoutableTerra(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderOpenAI: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -490,8 +553,6 @@ func TestRecordTurnUsage_HMMEVStayWritesHistoryOnly(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -512,7 +573,7 @@ func TestRecordTurnUsage_HMMEVStayWritesHistoryOnly(t *testing.T) {
 		},
 		Fresh: router.Decision{
 			Provider: providers.ProviderMakora,
-			Model:    "deepseek/deepseek-v4-flash",
+			Model:    "deepseek/deepseek-v4.1-flash",
 			Reason:   "hmm_policy(classifier 'fast')",
 			Metadata: &router.RoutingMetadata{
 				Strategy: string(router.StrategyHMM),
@@ -523,7 +584,7 @@ func TestRecordTurnUsage_HMMEVStayWritesHistoryOnly(t *testing.T) {
 		PinRole:    sessionpin.DefaultRole,
 		PinTier:    "hmm_ev_stay_ev_negative",
 	}
-	svc.recordTurnUsage(res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -557,8 +618,6 @@ func TestHMMCostGate_StaysOnWarmCacheWhenCheaperFreshDoesNotClearEV(t *testing.T
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -571,7 +630,7 @@ func TestHMMCostGate_StaysOnWarmCacheWhenCheaperFreshDoesNotClearEV(t *testing.T
 	}
 	fresh := router.Decision{
 		Provider: providers.ProviderMakora,
-		Model:    "deepseek/deepseek-v4-flash",
+		Model:    "deepseek/deepseek-v4.1-flash",
 		Reason:   "hmm_policy(classifier 'fast')",
 		Metadata: &router.RoutingMetadata{
 			Strategy:    string(router.StrategyHMM),
@@ -602,8 +661,6 @@ func TestHMMCostGate_SwitchesCheaperFreshWhenEVPositive(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -616,7 +673,7 @@ func TestHMMCostGate_SwitchesCheaperFreshWhenEVPositive(t *testing.T) {
 	}
 	fresh := router.Decision{
 		Provider: providers.ProviderMakora,
-		Model:    "deepseek/deepseek-v4-flash",
+		Model:    "deepseek/deepseek-v4.1-flash",
 		Reason:   "hmm_policy(classifier 'fast')",
 		Metadata: &router.RoutingMetadata{
 			Strategy:    string(router.StrategyHMM),
@@ -635,7 +692,7 @@ func TestHMMCostGate_SwitchesCheaperFreshWhenEVPositive(t *testing.T) {
 	)
 
 	assert.False(t, sticky)
-	assert.Equal(t, "deepseek/deepseek-v4-flash", decision.Model)
+	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Equal(t, "claude-sonnet-5", stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
 	assert.Equal(t, planner.ReasonEVPositive, plan.Reason)
@@ -644,9 +701,7 @@ func TestHMMCostGate_SwitchesCheaperFreshWhenEVPositive(t *testing.T) {
 func TestHMMCostGate_SameTierPinSuppressesLateralSwitchWhenEnabled(t *testing.T) {
 	svc := NewService(
 		nil,
-		map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderMakora: nil},
-		nil,
-		false,
+		map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderOpenRouter: nil},
 		nil,
 		nil,
 		false,
@@ -659,8 +714,8 @@ func TestHMMCostGate_SameTierPinSuppressesLateralSwitchWhenEnabled(t *testing.T)
 		LastTurnEndedAt: time.Now().Add(-30 * time.Second),
 	}
 	fresh := router.Decision{
-		Provider: providers.ProviderMakora,
-		Model:    "deepseek/deepseek-v4-flash",
+		Provider: providers.ProviderOpenRouter,
+		Model:    "deepseek/deepseek-v4.1-flash",
 		Reason:   "hmm_policy(classifier 'fast')",
 		Metadata: &router.RoutingMetadata{
 			Strategy:    string(router.StrategyHMM),
@@ -682,7 +737,7 @@ func TestHMMCostGate_SameTierPinSuppressesLateralSwitchWhenEnabled(t *testing.T)
 		false,
 	)
 	assert.False(t, sticky)
-	assert.Equal(t, "deepseek/deepseek-v4-flash", decision.Model)
+	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Equal(t, "gpt-4.1-mini", stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
 	assert.Equal(t, planner.ReasonEVPositive, plan.Reason)
@@ -710,8 +765,6 @@ func TestHMMCostGate_SameTierPinDoesNotBlockCrossTierSwitch(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -724,7 +777,7 @@ func TestHMMCostGate_SameTierPinDoesNotBlockCrossTierSwitch(t *testing.T) {
 	}
 	fresh := router.Decision{
 		Provider: providers.ProviderMakora,
-		Model:    "deepseek/deepseek-v4-flash",
+		Model:    "deepseek/deepseek-v4.1-flash",
 		Reason:   "hmm_policy(classifier 'fast')",
 		Metadata: &router.RoutingMetadata{
 			Strategy:    string(router.StrategyHMM),
@@ -744,7 +797,7 @@ func TestHMMCostGate_SameTierPinDoesNotBlockCrossTierSwitch(t *testing.T) {
 	)
 
 	assert.False(t, sticky)
-	assert.Equal(t, "deepseek/deepseek-v4-flash", decision.Model)
+	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Equal(t, "claude-sonnet-5", stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
 	assert.Equal(t, planner.ReasonEVPositive, plan.Reason)
@@ -754,8 +807,6 @@ func TestHMMCostGate_SameTierPinDoesNotBlockConfidentUpgrade(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderFireworks: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -800,8 +851,6 @@ func TestHMMCostGate_SameTierPinIgnoresUnknownTierModels(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -814,7 +863,7 @@ func TestHMMCostGate_SameTierPinIgnoresUnknownTierModels(t *testing.T) {
 	}
 	fresh := router.Decision{
 		Provider: providers.ProviderMakora,
-		Model:    "deepseek/deepseek-v4-flash",
+		Model:    "deepseek/deepseek-v4.1-flash",
 		Reason:   "hmm_policy(classifier 'fast')",
 		Metadata: &router.RoutingMetadata{
 			Strategy:    string(router.StrategyHMM),
@@ -834,7 +883,7 @@ func TestHMMCostGate_SameTierPinIgnoresUnknownTierModels(t *testing.T) {
 	)
 
 	assert.False(t, sticky)
-	assert.Equal(t, "deepseek/deepseek-v4-flash", decision.Model)
+	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Equal(t, "claude-opus-4-5", stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
 	assert.Equal(t, planner.ReasonEVPositive, plan.Reason)
@@ -844,8 +893,6 @@ func TestHMMCostGate_PhaseChangeFollowsFreshDecision(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -862,7 +909,7 @@ func TestHMMCostGate_PhaseChangeFollowsFreshDecision(t *testing.T) {
 	}
 	fresh := router.Decision{
 		Provider: providers.ProviderMakora,
-		Model:    "deepseek/deepseek-v4-flash",
+		Model:    "deepseek/deepseek-v4.1-flash",
 		Reason:   "hmm_policy(classifier 'balanced')",
 		Metadata: &router.RoutingMetadata{
 			Strategy:    string(router.StrategyHMM),
@@ -881,7 +928,7 @@ func TestHMMCostGate_PhaseChangeFollowsFreshDecision(t *testing.T) {
 	)
 
 	assert.False(t, sticky)
-	assert.Equal(t, "deepseek/deepseek-v4-flash", decision.Model)
+	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Equal(t, "claude-sonnet-5", stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
 	assert.Equal(t, hmmReasonPhaseChange, plan.Reason)
@@ -891,8 +938,6 @@ func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecision(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -908,7 +953,7 @@ func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecision(t *testing.T) {
 	}
 	fresh := router.Decision{
 		Provider: providers.ProviderMakora,
-		Model:    "deepseek/deepseek-v4-flash",
+		Model:    "deepseek/deepseek-v4.1-flash",
 		Reason:   "hmm_policy(classifier 'balanced')",
 		Metadata: &router.RoutingMetadata{
 			Strategy:    string(router.StrategyHMM),
@@ -927,7 +972,7 @@ func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecision(t *testing.T) {
 	)
 
 	assert.False(t, sticky)
-	assert.Equal(t, "deepseek/deepseek-v4-flash", decision.Model)
+	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Equal(t, "claude-sonnet-5", stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
 	assert.Equal(t, hmmReasonPhaseChange, plan.Reason)
@@ -937,8 +982,6 @@ func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderFireworks: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -957,7 +1000,7 @@ func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 		Metadata: &router.RoutingMetadata{
 			Strategy:    string(router.StrategyHMM),
 			RouteID:     "route-1",
-			ChosenScore: 0.84,
+			ChosenScore: 0.49,
 		},
 	}
 
@@ -976,7 +1019,7 @@ func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 	assert.Equal(t, planner.OutcomeStay, plan.Outcome)
 	assert.Equal(t, hmmReasonUpgradeConfidenceLow, plan.Reason)
 
-	fresh.Metadata.ChosenScore = 0.85
+	fresh.Metadata.ChosenScore = 0.50
 	decision, plan, sticky, stayModel = svc.hmmCostGatedDecision(
 		router.Request{},
 		sessionpin.Pin{},
@@ -997,8 +1040,6 @@ func TestHMMCostGate_LowConfidenceUpgradeKeepsIndependentPlannerSwitch(t *testin
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderFireworks: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -1022,7 +1063,7 @@ func TestHMMCostGate_LowConfidenceUpgradeKeepsIndependentPlannerSwitch(t *testin
 		Metadata: &router.RoutingMetadata{
 			Strategy:    string(router.StrategyHMM),
 			RouteID:     "route-1",
-			ChosenScore: 0.84,
+			ChosenScore: 0.49,
 		},
 	}
 
@@ -1047,8 +1088,6 @@ func TestHMMCostGate_IgnoresExpiredActivePin(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -1063,7 +1102,7 @@ func TestHMMCostGate_IgnoresExpiredActivePin(t *testing.T) {
 	}
 	fresh := router.Decision{
 		Provider: providers.ProviderMakora,
-		Model:    "deepseek/deepseek-v4-flash",
+		Model:    "deepseek/deepseek-v4.1-flash",
 		Reason:   "hmm_policy(classifier 'fast')",
 		Metadata: &router.RoutingMetadata{
 			Strategy:    string(router.StrategyHMM),
@@ -1082,7 +1121,7 @@ func TestHMMCostGate_IgnoresExpiredActivePin(t *testing.T) {
 	)
 
 	assert.False(t, sticky)
-	assert.Equal(t, "deepseek/deepseek-v4-flash", decision.Model)
+	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Empty(t, stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
 	assert.Equal(t, planner.ReasonNoPin, plan.Reason)
@@ -1092,8 +1131,6 @@ func TestHMMCostGate_IgnoresNonHMMActivePin(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -1112,7 +1149,7 @@ func TestHMMCostGate_IgnoresNonHMMActivePin(t *testing.T) {
 	}
 	fresh := router.Decision{
 		Provider: providers.ProviderMakora,
-		Model:    "deepseek/deepseek-v4-flash",
+		Model:    "deepseek/deepseek-v4.1-flash",
 		Reason:   "hmm_policy(classifier 'fast')",
 		Metadata: &router.RoutingMetadata{
 			Strategy:    string(router.StrategyHMM),
@@ -1131,7 +1168,7 @@ func TestHMMCostGate_IgnoresNonHMMActivePin(t *testing.T) {
 	)
 
 	assert.False(t, sticky, "a non-HMM cluster pin must not win an HMM EV stay")
-	assert.Equal(t, "deepseek/deepseek-v4-flash", decision.Model)
+	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Empty(t, stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
 	assert.Equal(t, planner.ReasonNoPin, plan.Reason)
@@ -1141,8 +1178,6 @@ func TestHMMCostGate_HonorsHMMReasonedActivePin(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -1161,7 +1196,7 @@ func TestHMMCostGate_HonorsHMMReasonedActivePin(t *testing.T) {
 	}
 	fresh := router.Decision{
 		Provider: providers.ProviderMakora,
-		Model:    "deepseek/deepseek-v4-flash",
+		Model:    "deepseek/deepseek-v4.1-flash",
 		Reason:   "hmm_policy(classifier 'fast')",
 		Metadata: &router.RoutingMetadata{
 			Strategy:    string(router.StrategyHMM),
@@ -1187,11 +1222,10 @@ func TestHMMCostGate_HonorsHMMReasonedActivePin(t *testing.T) {
 }
 
 func TestHMMCostGate_IgnoresMaxedHistory(t *testing.T) {
+	endedAt := time.Now().Add(-30 * time.Second)
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -1199,15 +1233,16 @@ func TestHMMCostGate_IgnoresMaxedHistory(t *testing.T) {
 		nil,
 	)
 	history := sessionpin.Pin{
-		Provider:         providers.ProviderAnthropic,
-		LastServedModel:  "claude-sonnet-5",
-		LastOutputTokens: prevTurnMaxedOutThreshold,
-		LastTurnEndedAt:  time.Now().Add(-30 * time.Second),
-		PinnedUntil:      time.Now().Add(time.Hour),
+		Provider:          providers.ProviderAnthropic,
+		LastServedModel:   "claude-sonnet-5",
+		LastOutputTokens:  8192,
+		LastTurnEndedAt:   endedAt,
+		LastOutputLimitAt: endedAt,
+		PinnedUntil:       time.Now().Add(time.Hour),
 	}
 	fresh := router.Decision{
 		Provider: providers.ProviderMakora,
-		Model:    "deepseek/deepseek-v4-flash",
+		Model:    "deepseek/deepseek-v4.1-flash",
 		Reason:   "hmm_policy(classifier 'fast')",
 		Metadata: &router.RoutingMetadata{
 			Strategy:    string(router.StrategyHMM),
@@ -1226,7 +1261,7 @@ func TestHMMCostGate_IgnoresMaxedHistory(t *testing.T) {
 	)
 
 	assert.False(t, sticky)
-	assert.Equal(t, "deepseek/deepseek-v4-flash", decision.Model)
+	assert.Equal(t, "deepseek/deepseek-v4.1-flash", decision.Model)
 	assert.Empty(t, stayModel)
 	assert.Equal(t, planner.OutcomeSwitch, plan.Outcome)
 	assert.Equal(t, planner.ReasonNoPin, plan.Reason)
@@ -1240,8 +1275,6 @@ func TestLoadPin_DoesNotServeExpiredPostgresPinButKeepsEmitHistory(t *testing.T)
 	svc := NewService(
 		nil,
 		nil,
-		nil,
-		false,
 		nil,
 		store,
 		false,
@@ -1289,8 +1322,6 @@ func TestLoadPin_ServesFreshPostgresPin(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -1317,6 +1348,44 @@ func TestLoadPin_ServesFreshPostgresPin(t *testing.T) {
 	require.True(t, found, "non-expired Postgres row must be returned")
 	assert.Equal(t, "claude-opus-4-7", pin.Model)
 	assert.Equal(t, "anthropic", pin.Provider)
+}
+
+func TestLoadPin_RequiresBetaStrategyMatch(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		request router.Strategy
+		stored  router.Strategy
+		found   bool
+	}{
+		{name: "beta exact", request: router.StrategyHMMBeta, stored: router.StrategyHMMBeta, found: true},
+		{name: "beta rejects stable", request: router.StrategyHMMBeta, stored: router.StrategyHMMEmbedding, found: false},
+		{name: "beta rejects legacy", request: router.StrategyHMMBeta, stored: "", found: false},
+		{name: "stable rejects beta", request: router.StrategyHMMEmbedding, stored: router.StrategyHMMBeta, found: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := newStubPinStore()
+			store.getFound = true
+			store.getPin = sessionpin.Pin{
+				Provider:    providers.ProviderAnthropic,
+				Model:       "claude-opus-4-7",
+				Strategy:    tt.stored,
+				PinnedUntil: time.Now().Add(time.Hour),
+			}
+			svc := NewService(nil, nil, nil, store, false,
+				providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+			ctx := router.WithStrategy(context.Background(), tt.request)
+
+			pin, found := svc.loadPin(ctx, [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole)
+			assert.Equal(t, tt.found, found)
+			if !tt.found {
+				assert.Equal(t, sessionpin.Pin{}, pin, "a mismatched pin must not leak reuse or history evidence")
+			}
+		})
+	}
 }
 
 func TestSwitchHistoryFromPins_UsesHMMHistory(t *testing.T) {
@@ -1396,22 +1465,18 @@ func TestService_NewService_HMMUpgradeConfidenceDefaults(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
 		nil,
 	)
-	assert.Equal(t, defaultHMMUpgradeConfidenceThreshold, svc.hmmUpgradeConfidenceThreshold)
+	assert.Equal(t, DefaultHMMUpgradeConfidenceThreshold, svc.hmmUpgradeConfidenceThreshold)
 }
 
 func TestService_WithHMMUpgradeConfidenceThreshold(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -1436,8 +1501,6 @@ func TestHMMCostGate_UpgradeThresholdConfigurable(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderFireworks: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,

@@ -6,28 +6,42 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/translate"
+	providerusage "weave-os/router/internal/usage"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"workweave/router/internal/translate"
+	"github.com/tidwall/gjson"
 )
 
-// fakeUsageSink records the last RecordUsage / RecordCacheUsage calls.
+// fakeUsageSink records cumulative provider snapshots and
+// latches RecordOutputLimitReached.
 type fakeUsageSink struct {
-	input         int
-	output        int
-	cacheCreation int
-	cacheRead     int
+	facts              providerusage.Facts
+	input              int
+	output             int
+	cacheCreation      int
+	cacheRead          int
+	reasoning          int
+	outputLimitReached bool
+	cacheCreation1h    int
+	cacheSplitReported bool
+	speed              string
+	inferenceGeo       string
 }
 
-func (f *fakeUsageSink) RecordUsage(input, output int) {
-	f.input = input
-	f.output = output
+func (f *fakeUsageSink) RecordProviderUsage(update providerusage.Facts) {
+	f.facts.Merge(update)
+	snapshot := f.facts
+	f.input, f.output = snapshot.Input.Value, snapshot.BilledOutputTokens()
+	f.cacheCreation, f.cacheRead = snapshot.CacheWrite.Value, snapshot.CacheRead.Value
+	f.reasoning = snapshot.Reasoning.Value
+	f.cacheCreation1h, f.cacheSplitReported = snapshot.CacheWrite1h.Value, snapshot.CacheSplitReported()
+	f.speed, f.inferenceGeo = string(snapshot.Speed), string(snapshot.InferenceGeo)
 }
 
-func (f *fakeUsageSink) RecordCacheUsage(creation, read int) {
-	f.cacheCreation = creation
-	f.cacheRead = read
+func (f *fakeUsageSink) RecordOutputLimitReached() {
+	f.outputLimitReached = true
 }
 
 // Catches typos in the message_start cache_creation_input_tokens /
@@ -196,7 +210,7 @@ func TestSSETranslator_FinalChunkCarriesPromptTokensFromMessageStart(t *testing.
 	assert.Contains(t, finalChunk, `"total_tokens":59`)
 }
 
-// UsageExtractor guards RecordUsage with if value > 0, so input tokens from
+// Absent input in a later snapshot preserves input tokens from
 // handleMessageStart must not be overwritten by the zero re-read in
 // handleMessageDelta.
 func TestSSETranslator_SinkAccumulatesInputAndOutputAcrossStream(t *testing.T) {
@@ -218,4 +232,183 @@ func TestSSETranslator_SinkAccumulatesInputAndOutputAcrossStream(t *testing.T) {
 	}
 
 	assert.Equal(t, 17, sink.output, "sink must record output tokens from message_delta")
+}
+
+func TestAnthropicSSETranslator_ForwardsOpenAICacheWriteTokens(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sink := &fakeUsageSink{}
+	translator := translate.NewAnthropicSSETranslator(rec, "gpt-5.6-sol", sink)
+
+	translator.Header().Set("Content-Type", "text/event-stream")
+	translator.WriteHeader(http.StatusOK)
+
+	events := []string{
+		"data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"hi\"},\"finish_reason\":null}]}\n\n",
+		"data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":80,\"completion_tokens\":12,\"prompt_tokens_details\":{\"cached_tokens\":64,\"cache_write_tokens\":16}}}\n\n",
+		"data: [DONE]\n\n",
+	}
+	for _, e := range events {
+		_, err := translator.Write([]byte(e))
+		require.NoError(t, err)
+	}
+
+	assert.Equal(t, 16, sink.cacheCreation)
+	assert.Equal(t, 64, sink.cacheRead)
+	assert.Contains(t, rec.Body.String(), `"cache_creation_input_tokens":16`)
+	assert.Contains(t, rec.Body.String(), `"cache_read_input_tokens":64`)
+}
+
+func TestResponsesToAnthropicWriter_ForwardsCacheWriteTokens(t *testing.T) {
+	const fixture = `event: response.completed
+data: {"type":"response.completed","response":{"id":"r","status":"completed","model":"gpt-5.6-sol","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":1200,"input_tokens_details":{"cached_tokens":800,"cache_write_tokens":256},"output_tokens":340}}}
+
+`
+	rec := httptest.NewRecorder()
+	sink := &fakeUsageSink{}
+	w := translate.NewResponsesToAnthropicWriter(rec, "gpt-5.6-sol", sink)
+	require.NoError(t, w.Prelude(true))
+	_, err := w.Write([]byte(fixture))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	assert.Equal(t, 256, sink.cacheCreation)
+	assert.Equal(t, 800, sink.cacheRead)
+	got := w.Summary()
+	assert.Equal(t, 256, got.CacheCreationTokens)
+	assert.Equal(t, 800, got.CacheReadTokens)
+	body := rec.Body.String()
+	assert.Contains(t, body, `"cache_creation_input_tokens":256`)
+	assert.Contains(t, body, `"cache_read_input_tokens":800`)
+}
+
+func TestOpenAICacheTokens_PrefersCacheWriteTokens(t *testing.T) {
+	object := gjsonMust(`{"input_tokens_details":{"cached_tokens":10,"cache_write_tokens":4,"cache_creation_tokens":99}}`)
+	facts := providerusage.ParseOpenAI(object)
+	w, r := facts.CacheWrite.Value, facts.CacheRead.Value
+	assert.Equal(t, 4, w)
+	assert.Equal(t, 10, r)
+}
+
+func TestOpenAICacheTokens_FallsBackToCacheCreationTokens(t *testing.T) {
+	object := gjsonMust(`{"prompt_tokens_details":{"cached_tokens":7,"cache_creation_tokens":3}}`)
+	facts := providerusage.ParseOpenAI(object)
+	w, r := facts.CacheWrite.Value, facts.CacheRead.Value
+	assert.Equal(t, 3, w)
+	assert.Equal(t, 7, r)
+}
+
+func gjsonMust(raw string) gjson.Result {
+	return gjson.Parse(raw)
+}
+
+func TestResponsesToAnthropicWriter_NonStreamingSinkKeepsInclusiveInput(t *testing.T) {
+	const fixture = `event: response.completed
+data: {"type":"response.completed","response":{"id":"r","status":"completed","model":"gpt-5.6-sol","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":1200,"input_tokens_details":{"cached_tokens":800,"cache_write_tokens":256},"output_tokens":340}}}
+
+`
+	rec := httptest.NewRecorder()
+	sink := &fakeUsageSink{}
+	w := translate.NewResponsesToAnthropicWriter(rec, "gpt-5.6-sol", sink)
+	require.NoError(t, w.Prelude(false))
+	_, err := w.Write([]byte(fixture))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	assert.Equal(t, 1200, sink.input, "billing sink must keep OpenAI inclusive input_tokens")
+	assert.Equal(t, 256, sink.cacheCreation)
+	assert.Equal(t, 800, sink.cacheRead)
+	assert.Contains(t, rec.Body.String(), `"input_tokens":144`)
+	assert.Contains(t, rec.Body.String(), `"cache_creation_input_tokens":256`)
+}
+
+func TestResponsesToAnthropicWriter_ForwardsReasoningTokens(t *testing.T) {
+	const fixture = `event: response.completed
+data: {"type":"response.completed","response":{"id":"r","status":"completed","model":"gpt-6-luna","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":1200,"output_tokens":340,"output_tokens_details":{"reasoning_tokens":300}}}}
+
+`
+	for _, stream := range []bool{true, false} {
+		sink := &fakeUsageSink{}
+		w := translate.NewResponsesToAnthropicWriter(httptest.NewRecorder(), "gpt-6-luna", sink)
+		require.NoError(t, w.Prelude(stream))
+		_, err := w.Write([]byte(fixture))
+		require.NoError(t, err)
+		require.NoError(t, w.Finalize())
+		assert.Equal(t, 300, sink.reasoning, "stream=%v", stream)
+	}
+}
+
+func TestOpenAIReasoningTokens_PrefersResponsesShapeWithoutDoubleCounting(t *testing.T) {
+	object := gjson.Parse(`{"output_tokens_details":{"reasoning_tokens":21},"completion_tokens_details":{"reasoning_tokens":7}}`)
+	assert.Equal(t, 21, providerusage.ParseOpenAI(object).Reasoning.Value)
+	assert.Equal(t, 7, providerusage.ParseOpenAI(gjson.Parse(`{"completion_tokens_details":{"reasoning_tokens":7}}`)).Reasoning.Value)
+}
+
+func TestSSETranslator_ForwardsAnthropicUsageModifiers(t *testing.T) {
+	t.Run("streaming message_start", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		sink := &fakeUsageSink{}
+		translator := translate.NewSSETranslator(rec, "claude-opus-5", sink)
+		translator.Header().Set("Content-Type", "text/event-stream")
+		translator.WriteHeader(http.StatusOK)
+
+		event := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":3,\"output_tokens\":0,\"cache_creation_input_tokens\":9217,\"cache_creation\":{\"ephemeral_5m_input_tokens\":17,\"ephemeral_1h_input_tokens\":9200},\"speed\":\"fast\",\"inference_geo\":\"us\"}}}\n\n"
+		_, err := translator.Write([]byte(event))
+		require.NoError(t, err)
+
+		assert.Equal(t, 9200, sink.cacheCreation1h)
+		assert.True(t, sink.cacheSplitReported)
+		assert.Equal(t, "fast", sink.speed)
+		assert.Equal(t, "us", sink.inferenceGeo)
+	})
+	t.Run("non-streaming body without split", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		sink := &fakeUsageSink{}
+		translator := translate.NewSSETranslator(rec, "claude-opus-5", sink)
+		translator.Header().Set("Content-Type", "application/json")
+		translator.WriteHeader(http.StatusOK)
+		_, err := translator.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":4,"cache_creation_input_tokens":322}}`))
+		require.NoError(t, err)
+		require.NoError(t, translator.Finalize())
+
+		assert.Equal(t, 322, sink.cacheCreation)
+		assert.False(t, sink.cacheSplitReported)
+		assert.Zero(t, sink.cacheCreation1h)
+		assert.Empty(t, sink.speed)
+		assert.Empty(t, sink.inferenceGeo)
+	})
+	t.Run("non-streaming body with split", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		sink := &fakeUsageSink{}
+		translator := translate.NewSSETranslator(rec, "claude-opus-5", sink)
+		translator.Header().Set("Content-Type", "application/json")
+		translator.WriteHeader(http.StatusOK)
+		_, err := translator.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":4,"cache_creation_input_tokens":322,"cache_creation":{"ephemeral_5m_input_tokens":22,"ephemeral_1h_input_tokens":300},"speed":"fast","inference_geo":"us"}}`))
+		require.NoError(t, err)
+		require.NoError(t, translator.Finalize())
+
+		assert.True(t, sink.cacheSplitReported)
+		assert.Equal(t, 300, sink.cacheCreation1h)
+		assert.Equal(t, "fast", sink.speed)
+		assert.Equal(t, "us", sink.inferenceGeo)
+	})
+}
+
+func TestAnthropicRequestCacheTTL1h(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "no breakpoints", body: `{"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`, want: false},
+		{name: "default 5m breakpoint", body: `{"system":[{"type":"text","text":"s","cache_control":{"type":"ephemeral"}}]}`, want: false},
+		{name: "explicit 5m breakpoint", body: `{"tools":[{"name":"t","cache_control":{"type":"ephemeral","ttl":"5m"}}]}`, want: false},
+		{name: "all block breakpoints 1h", body: `{"tools":[{"name":"t","cache_control":{"type":"ephemeral","ttl":"1h"}}],"system":[{"type":"text","text":"s","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","ttl":"1h"}}]}]}`, want: true},
+		{name: "top-level automatic 1h", body: `{"cache_control":{"type":"ephemeral","ttl":"1h"},"messages":[{"role":"user","content":"hi"}]}`, want: true},
+		{name: "1h prefix with 5m tail", body: `{"system":[{"type":"text","text":"s","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral"}}]}]}`, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, translate.AnthropicRequestCacheTTL1h([]byte(tc.body)))
+		})
+	}
 }

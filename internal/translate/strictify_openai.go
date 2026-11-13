@@ -2,6 +2,7 @@ package translate
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 )
@@ -55,6 +56,98 @@ func strictifyOpenAISchema(schema any) (out any, ok bool) {
 	return res, true
 }
 
+// closeOpenAISchemaObjects closes fallback object schemas when doing so keeps
+// their declared properties and composition semantics satisfiable.
+func closeOpenAISchemaObjects(schema any) (any, bool) {
+	root, isMap := schema.(map[string]any)
+	if !isMap {
+		return nil, false
+	}
+	return closeOpenAISchemaNode(root), true
+}
+
+func closeOpenAISchemaNode(node map[string]any) map[string]any {
+	closed := maps.Clone(node)
+
+	// Closing an object that composes properties from another schema can
+	// reject keys required by that schema. Keep such a node open while still
+	// visiting its independently declared child schemas.
+	composed := false
+	for _, keyword := range []string{"allOf", "anyOf", "oneOf"} {
+		if _, present := node[keyword]; present {
+			composed = true
+			break
+		}
+	}
+	_, hasProperties := node["properties"].(map[string]any)
+	if schemaNodeIsObject(node) && hasProperties && !composed {
+		if additional, present := node["additionalProperties"]; present && additional != false {
+			// Preserve freeform dictionaries while continuing through sibling
+			// schemas below.
+		} else {
+			closed["additionalProperties"] = false
+		}
+	}
+
+	for _, keyword := range []string{"properties", "items", "additionalProperties", "allOf", "anyOf", "oneOf", "not", "if", "then", "else"} {
+		value, present := node[keyword]
+		if !present {
+			continue
+		}
+		switch nested := value.(type) {
+		case map[string]any:
+			if keyword == "properties" {
+				closedProperties := make(map[string]any, len(nested))
+				for name, property := range nested {
+					propertySchema, isSchema := property.(map[string]any)
+					if !isSchema {
+						closedProperties[name] = property
+						continue
+					}
+					closedProperties[name] = closeOpenAISchemaNode(propertySchema)
+				}
+				closed[keyword] = closedProperties
+				continue
+			}
+			closed[keyword] = closeOpenAISchemaNode(nested)
+		case []any:
+			children := make([]any, 0, len(nested))
+			for _, item := range nested {
+				childSchema, isSchema := item.(map[string]any)
+				if !isSchema {
+					children = append(children, item)
+					continue
+				}
+				if keyword == "allOf" {
+					children = append(children, childSchema)
+					continue
+				}
+				children = append(children, closeOpenAISchemaNode(childSchema))
+			}
+			closed[keyword] = children
+		}
+	}
+	return closed
+}
+
+func schemaNodeIsObject(node map[string]any) bool {
+	if node["type"] == "object" {
+		return true
+	}
+	_, hasProperties := node["properties"].(map[string]any)
+	if hasProperties {
+		return true
+	}
+	if types, union := node["type"].([]any); union {
+		for _, schemaType := range types {
+			if schemaType == "object" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // strictifyNode transforms one schema node, recursing into properties, items,
 // and anyOf branches.
 func strictifyNode(node map[string]any, depth int, propCount *int) (out map[string]any, ok bool) {
@@ -65,6 +158,25 @@ func strictifyNode(node map[string]any, depth int, propCount *int) (out map[stri
 		if _, present := node[kw]; present {
 			return nil, false
 		}
+	}
+
+	// Strict mode closes objects; freeform dictionaries must keep their keys.
+	if additional, present := node["additionalProperties"]; present && additional != false {
+		return nil, false
+	}
+	if types, union := node["type"].([]any); union {
+		for _, schemaType := range types {
+			if schemaType == "object" {
+				return nil, false
+			}
+		}
+	}
+	properties, hasProperties := node["properties"].(map[string]any)
+	if !schemaHasStrictType(node) && !hasProperties {
+		return nil, false
+	}
+	if node["type"] == "object" && len(properties) == 0 && node["additionalProperties"] != false {
+		return nil, false
 	}
 
 	res := make(map[string]any, len(node))
@@ -191,23 +303,32 @@ func strictifyNode(node map[string]any, depth int, propCount *int) (out map[stri
 	return res, true
 }
 
+// optionalNote tells the model that null on a made-nullable property means
+// "omit": the strict schema alone reads as all-required, and gpt-5.x fills
+// optionals it should leave out (Bash.timeout, Read.limit, Agent.isolation).
+const optionalNote = "(Optional; pass null to omit.)"
+
 // makeNullable adds null as an accepted type: strict mode requires every
 // property in `required`, so optionality is expressed via null union instead.
 func makeNullable(node map[string]any) map[string]any {
+	node = withOptionalNote(node)
 	switch t := node["type"].(type) {
 	case string:
 		if t == "null" {
 			return node
 		}
 		node["type"] = []any{t, "null"}
+		addNullToEnum(node)
 		return node
 	case []any:
 		for _, v := range t {
 			if s, isStr := v.(string); isStr && s == "null" {
+				addNullToEnum(node)
 				return node
 			}
 		}
 		node["type"] = append(t, "null")
+		addNullToEnum(node)
 		return node
 	}
 	if branches, present := node["anyOf"].([]any); present {
@@ -233,6 +354,37 @@ func makeNullable(node map[string]any) map[string]any {
 		branch[k] = v
 	}
 	return map[string]any{"anyOf": []any{branch, map[string]any{"type": "null"}}}
+}
+
+// addNullToEnum admits null on a typed enum node. `enum` constrains the value
+// independently of `type`, so a ["string","null"] union whose enum lacks null
+// still forces the model to pick a member on every call.
+func addNullToEnum(node map[string]any) {
+	values, present := node["enum"].([]any)
+	if !present {
+		return
+	}
+	for _, v := range values {
+		if v == nil {
+			return
+		}
+	}
+	out := make([]any, 0, len(values)+1)
+	out = append(out, values...)
+	node["enum"] = append(out, nil)
+}
+
+func withOptionalNote(node map[string]any) map[string]any {
+	desc, _ := node["description"].(string)
+	if strings.Contains(desc, optionalNote) {
+		return node
+	}
+	if desc == "" {
+		node["description"] = optionalNote
+	} else {
+		node["description"] = desc + " " + optionalNote
+	}
+	return node
 }
 
 // typeIncludesArray reports whether a node's "type" value (string or union

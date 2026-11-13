@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -11,18 +12,57 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/anthropic"
-	"workweave/router/internal/providers/openai"
-	"workweave/router/internal/providers/openaicompat"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/sessionpin"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/providers/openai"
+	"weave-os/router/internal/providers/openaicompat"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type observedResponseWriter struct {
+	header  http.Header
+	body    bytes.Buffer
+	mu      sync.Mutex
+	flushed chan struct{}
+	once    sync.Once
+}
+
+func newObservedResponseWriter() *observedResponseWriter {
+	return &observedResponseWriter{
+		header:  make(http.Header),
+		flushed: make(chan struct{}),
+	}
+}
+
+func (w *observedResponseWriter) Header() http.Header {
+	return w.header
+}
+
+func (w *observedResponseWriter) WriteHeader(int) {}
+
+func (w *observedResponseWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.body.Write(p)
+}
+
+func (w *observedResponseWriter) Flush() {
+	w.once.Do(func() {
+		close(w.flushed)
+	})
+}
+
+func (w *observedResponseWriter) BodyString() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.body.String()
+}
 
 // TestProxyMessages_FireworksFailureFallbackToOpenRouter wires the real
 // dispatch + translator + openaicompat clients against stub upstreams
@@ -84,7 +124,7 @@ func TestProxyMessages_FireworksFailureFallbackToOpenRouter(t *testing.T) {
 			"fireworks":  openaicompat.NewClient("test-fw-key", fireworks.URL),
 			"openrouter": openaicompat.NewClient("test-or-key", openrouter.URL),
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		"fireworks":  {},
 		"openrouter": {},
@@ -156,7 +196,7 @@ func TestProxyMessages_BothBindingsFail(t *testing.T) {
 			"fireworks":  openaicompat.NewClient("test-fw-key", fireworks.URL),
 			"openrouter": openaicompat.NewClient("test-or-key", openrouter.URL),
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		"fireworks":  {},
 		"openrouter": {},
@@ -168,17 +208,11 @@ func TestProxyMessages_BothBindingsFail(t *testing.T) {
 
 	_ = svc.ProxyMessages(context.Background(), body, rec, req)
 
-	// Client sees the FINAL (OpenRouter's) status code and a translated
-	// Anthropic-shape error envelope, not the raw OpenAI shape.
-	assert.Equal(t, http.StatusBadGateway, rec.Code, "exhaustion surfaces the last attempt's status")
-	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"), "exhaustion writes a JSON HTTP response, not SSE")
-
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got), "body must be JSON")
-	assert.Equal(t, "error", got["type"], "Anthropic-shape error envelope: top-level `type` == \"error\"")
-	innerErr, ok := got["error"].(map[string]any)
-	require.True(t, ok, "Anthropic-shape error envelope: `error` is a nested object")
-	assert.Contains(t, innerErr["message"], "openrouter also down")
+	assert.Equal(t, http.StatusBadGateway, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	assert.NotContains(t, rec.Body.String(), "✦ **Weave Router**")
+	assert.NotContains(t, rec.Body.String(), "event: error")
+	assert.Contains(t, rec.Body.String(), "openrouter also down")
 }
 
 // TestProxyMessages_SingleBindingPreservesEagerPrelude asserts that
@@ -237,14 +271,57 @@ func TestProxyMessages_SingleBindingPreservesEagerPrelude(t *testing.T) {
 	assert.Empty(t, rec.Header().Get(proxy.HeaderRouterFallbackFrom))
 }
 
-// TestProxyMessages_SingleBindingStreamingPreCommitError asserts the fixed
-// behavior: when a single-binding cross-format streaming request gets an
-// upstream error BEFORE any upstream byte arrives, the preludeBuffer
-// discards the buffered prelude and the client receives a clean
-// Anthropic-shape JSON error envelope at the upstream's status — not a
-// stranded `message_start` text-only turn that Claude Code would reject
-// for missing tool_use. This is the v0.58 SWE-bench bake-off regression
-// fix.
+func TestProxyMessages_RoutingMarkerWaitsForProviderOutput(t *testing.T) {
+	providerStarted := make(chan struct{})
+	releaseProvider := make(chan struct{})
+	defer func() {
+		select {
+		case <-releaseProvider:
+		default:
+			close(releaseProvider)
+		}
+	}()
+	svc := makeProxyService(
+		router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"},
+		map[string]providers.Client{
+			providers.ProviderAnthropic: &fakeProvider{
+				proxyResponse: func(w http.ResponseWriter) {
+					close(providerStarted)
+					<-releaseProvider
+					_, _ = w.Write([]byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
+				},
+			},
+		},
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+
+	writer := newObservedResponseWriter()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-haiku-4-5","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	done := make(chan error, 1)
+	go func() {
+		done <- svc.ProxyMessages(context.Background(), body, writer, req)
+	}()
+
+	select {
+	case <-providerStarted:
+	case <-time.After(time.Second):
+		t.Fatal("provider was not dispatched")
+	}
+	select {
+	case <-writer.flushed:
+		t.Fatal("routing marker committed HTTP 200 before provider output")
+	case <-time.After(50 * time.Millisecond):
+	}
+	assert.Empty(t, writer.BodyString())
+
+	close(releaseProvider)
+	require.NoError(t, <-done)
+	assert.Contains(t, writer.BodyString(), "✦ **Weave Router**")
+}
+
+// TestProxyMessages_SingleBindingStreamingPreCommitError asserts that an
+// upstream failure before provider output remains an HTTP error. Claude Code
+// can otherwise treat a marker-only 200 stream as a successful turn.
 func TestProxyMessages_SingleBindingStreamingPreCommitError(t *testing.T) {
 	// Stub upstream OpenAI-compat provider that 503s on every request.
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -262,8 +339,9 @@ func TestProxyMessages_SingleBindingStreamingPreCommitError(t *testing.T) {
 		map[string]providers.Client{
 			providers.ProviderOpenAI: openaicompat.NewClient("test-key", stub.URL),
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
+		WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -271,17 +349,12 @@ func TestProxyMessages_SingleBindingStreamingPreCommitError(t *testing.T) {
 
 	_ = svc.ProxyMessages(context.Background(), body, rec, req)
 
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code,
-		"pre-commit upstream error surfaces upstream's status, not a stranded HTTP 200")
-	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"),
-		"pre-commit error is a clean JSON envelope, not a half-emitted SSE stream")
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
 	respBody := rec.Body.String()
-	assert.NotContains(t, respBody, "event: message_start",
-		"prelude bytes were buffered and discarded — no stranded marker on the wire")
-	assert.NotContains(t, respBody, "✦ **Weave Router**",
-		"routing marker discarded with the prelude buffer")
-	assert.Contains(t, respBody, `"type":"error"`, "Anthropic-shape error envelope")
+	assert.NotContains(t, respBody, "event: message_start")
+	assert.NotContains(t, respBody, "✦ **Weave Router**")
 	assert.Contains(t, respBody, "upstream unavailable", "translated upstream message reaches the client")
 }
 
@@ -313,8 +386,9 @@ func TestProxyMessages_AnthropicSSEOverloadRetriesSameBinding(t *testing.T) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}},
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-key", upstream.URL)},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
+		WithRetrySleep(noRetrySleep)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-haiku-4-5","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
@@ -347,8 +421,9 @@ func TestProxyMessages_AnthropicSSEOverloadExhaustionRecords529(t *testing.T) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5"}},
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-key", upstream.URL)},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry,
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
+		WithRetrySleep(noRetrySleep)
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-test")
 	rec := httptest.NewRecorder()
@@ -366,6 +441,7 @@ func TestProxyMessages_AnthropicSSEOverloadExhaustionRecords529(t *testing.T) {
 	assert.Equal(t, 529, rec.Code)
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 	assert.NotContains(t, rec.Body.String(), "event: message_start")
+	assert.NotContains(t, rec.Body.String(), "event: error")
 	assert.Contains(t, rec.Body.String(), "overloaded_error")
 	row := telemetry.firstRow(t)
 	assert.Equal(t, int32(529), row.UpstreamStatusCode)
@@ -396,9 +472,10 @@ func TestProxyMessages_TwoConsecutiveOverloadExhaustionsDisableProvider(t *testi
 	svc := proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-key", upstream.URL)},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
-		WithPlannerEnabled(false) // first-decision-wins: a pin hit serves straight through without scorer-vs-planner EV noise.
+		WithPlannerEnabled(false).
+		WithRetrySleep(noRetrySleep) // first-decision-wins: a pin hit serves straight through without scorer-vs-planner EV noise.
 
 	ctx := authedCtx(uuid.New().String())
 	body := []byte(`{"model":"claude-haiku-4-5","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
@@ -466,11 +543,12 @@ func TestProxyMessages_BaselineOverloadExhaustionDoesNotDisableAnthropic(t *test
 			providers.ProviderFireworks: openaicompat.NewClient("test-fw-key", ossUpstream.URL),
 			providers.ProviderAnthropic: anthropic.NewClient("test-key", anthropicUpstream.URL),
 		},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderFireworks: {},
 		providers.ProviderAnthropic: {},
-	}).WithPlannerEnabled(false)
+	}).WithPlannerEnabled(false).
+		WithRetrySleep(noRetrySleep)
 
 	ctx := authedCtx(uuid.New().String())
 	// "model" resolves baselineFor to claude-haiku-4-5 (a known Anthropic
@@ -530,11 +608,11 @@ func TestProxyMessages_ResponsesFailureBeforeOutputFallsBackToBaseline(t *testin
 			providers.ProviderOpenAI:    openai.NewClient("test-key", openAIUpstream.URL),
 			providers.ProviderAnthropic: baseline,
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderOpenAI:    {},
 		providers.ProviderAnthropic: {},
-	})
+	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -550,16 +628,53 @@ func TestProxyMessages_ResponsesFailureBeforeOutputFallsBackToBaseline(t *testin
 	assert.NotContains(t, rec.Body.String(), "event: error")
 }
 
-// sequencedGeminiClient is a providers.Client that returns a scripted result
+// A routed model with a larger window than the requested baseline can carry a
+// prompt the baseline cannot; a pre-commit exhaustion on the routed model must
+// not rescue onto a baseline that Anthropic would 400 as "prompt is too long".
+func TestProxyMessages_BaselineFailoverSkipsBaselineOverContextWindow(t *testing.T) {
+	openAIUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":{"message":"bad gateway"}}`))
+	}))
+	defer openAIUpstream.Close()
+
+	baseline := &fakeProvider{}
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.5", Reason: "test"}},
+		map[string]providers.Client{
+			providers.ProviderOpenAI:    openai.NewClient("test-key", openAIUpstream.URL),
+			providers.ProviderAnthropic: baseline,
+		},
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{
+		providers.ProviderOpenAI:    {},
+		providers.ProviderAnthropic: {},
+	}).WithRetrySleep(noRetrySleep)
+
+	// ~230K estimated tokens: fits gpt-5.5 (1.05M) but not claude-haiku-4-5 (200K).
+	filler := strings.Repeat("tool output line ", 230_000*4/len("tool output line "))
+	body := []byte(`{"model":"claude-haiku-4-5","stream":true,"messages":[{"role":"user","content":"` + filler + `"}]}`)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	err := svc.ProxyMessages(context.Background(), body, rec, req)
+	require.Error(t, err, "the routed model's 502 surfaces when no baseline can fit the prompt")
+	assert.Empty(t, baseline.proxyBodies, "baseline failover must not dispatch a prompt larger than the baseline's context window")
+}
+
+// sequencedClient is a providers.Client that returns a scripted result
 // per call (and captures the prepared body each time) so a test can assert the
 // router re-emitted a different body on retry.
-type sequencedGeminiClient struct {
+type sequencedClient struct {
 	mu        sync.Mutex
 	bodies    [][]byte
 	responses []func(w http.ResponseWriter) error
 }
 
-func (c *sequencedGeminiClient) Proxy(_ context.Context, _ router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+func (*sequencedClient) SupportsSubscriptions() bool { return true }
+
+func (c *sequencedClient) Proxy(_ context.Context, _ router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	c.mu.Lock()
 	i := len(c.bodies)
 	c.bodies = append(c.bodies, append([]byte(nil), prep.Body...))
@@ -570,7 +685,7 @@ func (c *sequencedGeminiClient) Proxy(_ context.Context, _ router.Decision, prep
 	return nil
 }
 
-func (c *sequencedGeminiClient) Passthrough(_ context.Context, _ providers.PreparedRequest, _ http.ResponseWriter, _ *http.Request) error {
+func (c *sequencedClient) Passthrough(_ context.Context, _ providers.PreparedRequest, _ http.ResponseWriter, _ *http.Request) error {
 	return nil
 }
 
@@ -585,7 +700,7 @@ func TestProxyMessages_GeminiValidated400RetriesWithAuto(t *testing.T) {
 	geminiSSE := `data: {"candidates":[{"content":{"parts":[{"text":"I am an AI assistant."}],"role":"model"},"index":0}]}` + "\n\n" +
 		`data: {"candidates":[{"content":{"parts":[]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":4,"totalTokenCount":9}}` + "\n\n"
 
-	client := &sequencedGeminiClient{
+	client := &sequencedClient{
 		responses: []func(w http.ResponseWriter) error{
 			// Call 1: VALIDATED-mode INVALID_ARGUMENT, pre-commit (no write).
 			func(http.ResponseWriter) error {
@@ -603,7 +718,7 @@ func TestProxyMessages_GeminiValidated400RetriesWithAuto(t *testing.T) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-3.1-pro-preview"}},
 		map[string]providers.Client{providers.ProviderGoogle: client},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderGoogle: {}})
 
 	rec := httptest.NewRecorder()
@@ -630,7 +745,7 @@ func TestProxyMessages_GeminiValidated400RetriesWithAuto(t *testing.T) {
 // for VALIDATED-mode schema-grammar rejections, and re-emitting would waste an
 // upstream call.
 func TestProxyMessages_GeminiNon400NotRetried(t *testing.T) {
-	client := &sequencedGeminiClient{
+	client := &sequencedClient{
 		responses: []func(w http.ResponseWriter) error{
 			func(http.ResponseWriter) error {
 				return &providers.UpstreamStatusError{Status: http.StatusServiceUnavailable}
@@ -641,7 +756,7 @@ func TestProxyMessages_GeminiNon400NotRetried(t *testing.T) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-3.1-pro-preview"}},
 		map[string]providers.Client{providers.ProviderGoogle: client},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderGoogle: {}})
 
 	rec := httptest.NewRecorder()
@@ -653,4 +768,80 @@ func TestProxyMessages_GeminiNon400NotRetried(t *testing.T) {
 	_ = svc.ProxyMessages(context.Background(), body, rec, req)
 
 	assert.Len(t, client.bodies, 1, "a 503 is not a VALIDATED-schema 400 — no AUTO retry")
+}
+
+// TestProxyMessages_OutputConfigFormat400RetriesWithoutIt reproduces a gateway
+// 400 on output_config.format (Cortex documents the knob, so it goes out as
+// written; only a rejection licenses one re-emit without it).
+func TestProxyMessages_OutputConfigFormat400RetriesWithoutIt(t *testing.T) {
+	anthropicSSE := "event: message_start\n" +
+		`data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-5","content":[],"stop_reason":null,"usage":{"input_tokens":5,"output_tokens":0}}}` + "\n\n" +
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+
+	client := &sequencedClient{
+		responses: []func(w http.ResponseWriter) error{
+			func(http.ResponseWriter) error {
+				return &providers.UpstreamErrorResponse{
+					Status: http.StatusBadRequest,
+					Body:   []byte(`{"message":"output_config.format: Extra inputs are not permitted"}`),
+				}
+			},
+			func(w http.ResponseWriter) error {
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, anthropicSSE)
+				return nil
+			},
+		},
+	}
+
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropicGateway, Model: "claude-sonnet-5"}},
+		map[string]providers.Client{providers.ProviderAnthropicGateway: client},
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropicGateway: {}})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-sonnet-5","stream":true,"max_tokens":1024,` +
+		`"output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}}}}},` +
+		`"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}},"required":["file_path"]}}],` +
+		`"messages":[{"role":"user","content":"who are you"}]}`)
+
+	require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, req))
+
+	require.Len(t, client.bodies, 2, "the rejected attempt is re-emitted once without the knob")
+	assert.Contains(t, string(client.bodies[0]), `"output_config"`, "the knob goes out as the client wrote it")
+	assert.NotContains(t, string(client.bodies[1]), "output_config", "the retry drops it, pruning the emptied container")
+	assert.Contains(t, rec.Body.String(), "event: message_stop", "client sees the rescued stream, not the 400")
+}
+
+// A 400 that doesn't name the structured-output knob must not burn a second
+// upstream call — an identical re-emit would just 400 again.
+func TestProxyMessages_UnrelatedAnthropic400NotRetried(t *testing.T) {
+	client := &sequencedClient{
+		responses: []func(w http.ResponseWriter) error{
+			func(http.ResponseWriter) error {
+				return &providers.UpstreamErrorResponse{
+					Status: http.StatusBadRequest,
+					Body:   []byte(`{"message":"messages: at least one message is required"}`),
+				}
+			},
+		},
+	}
+
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropicGateway, Model: "claude-sonnet-5"}},
+		map[string]providers.Client{providers.ProviderAnthropicGateway: client},
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropicGateway: {}})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-sonnet-5","stream":true,"max_tokens":1024,` +
+		`"output_config":{"format":{"type":"json_schema"}},"messages":[{"role":"user","content":"hi"}]}`)
+
+	_ = svc.ProxyMessages(context.Background(), body, rec, req)
+
+	assert.Len(t, client.bodies, 1, "only a knob rejection licenses the unstructured retry")
 }

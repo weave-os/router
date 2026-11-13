@@ -20,13 +20,19 @@ import (
 // sweep loops) that must run until the parent ctx cancels rather than a
 // bounded timeout: cmd/router/main.go's safeGo.
 func SafeGo(log *slog.Logger, timeout time.Duration, name string, fn func(ctx context.Context)) {
+	SafeGoContext(context.Background(), log, timeout, name, fn)
+}
+
+// SafeGoContext retains request values (including immutable serving identity) but
+// gives completed-request side effects an independent, bounded cancellation lifetime.
+func SafeGoContext(parent context.Context, log *slog.Logger, timeout time.Duration, name string, fn func(ctx context.Context)) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Error("Background goroutine panicked", "goroutine", name, "panic", r)
 			}
 		}()
-		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), timeout)
 		defer cancel()
 		fn(ctx)
 	}()

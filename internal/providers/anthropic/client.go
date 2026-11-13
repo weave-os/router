@@ -11,14 +11,34 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/httputil"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/timing"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/httputil"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/timing"
 )
 
 const DefaultBaseURL = "https://api.anthropic.com"
+
+// largePromptBodyBytes is the request-body size past which a turn rides
+// largePromptHTTP. Anthropic withholds response headers until prefill
+// completes even when streaming, and cache-miss prefill near the 1M window
+// has a tail past the default 30s guard. 1 MiB sits well below the prompt
+// sizes where that tail appears (~250K-500K tokens depending on density).
+const largePromptBodyBytes = 1 << 20
+
+// largePromptResponseHeaderTimeout is the time-to-first-byte guard for turns
+// over largePromptBodyBytes. Dead connections are still caught by the h2
+// keepalive PING, and streaming inactivity by StreamBody's watchdog. Tunable
+// via ROUTER_ANTHROPIC_LARGE_PROMPT_HEADER_TIMEOUT_SECONDS.
+var largePromptResponseHeaderTimeout = httputil.TimeoutFromEnv("ROUTER_ANTHROPIC_LARGE_PROMPT_HEADER_TIMEOUT_SECONDS", 120*time.Second)
+
+// WaferMessagesBaseURL is Wafer Serverless' Anthropic-compatible Messages
+// endpoint; pair with WithAuthScheme(AuthBearer) and a Wafer-ZDR default header.
+const WaferMessagesBaseURL = "https://pass.wafer.ai"
 
 // AuthScheme selects which credential header an Anthropic-spec upstream expects.
 type AuthScheme int
@@ -39,13 +59,77 @@ func WithAuthScheme(scheme AuthScheme) Option {
 	return func(c *Client) { c.authScheme = scheme }
 }
 
+// WithModelListHTTPClient supplies the client used only for model discovery.
+// A nil client is ignored so a misconfigured option cannot strip the
+// constructor's destination-checked default and panic on the first call.
+func WithModelListHTTPClient(client *http.Client) Option {
+	return func(c *Client) {
+		if client == nil {
+			return
+		}
+		c.modelHTTP = client
+	}
+}
+
+// WithDefaultHeaders returns c with headers set on every upstream request.
+// Prepared and inbound per-request headers can override these values.
+func (c *Client) WithDefaultHeaders(h http.Header) *Client {
+	c.defaultHeaders = h.Clone()
+	return c
+}
+
+// WithProtectedHeaders returns c with headers that cannot be overridden by
+// prepared or inbound per-request headers.
+func (c *Client) WithProtectedHeaders(h http.Header) *Client {
+	c.protectedHeaders = h.Clone()
+	return c
+}
+
+// WithModelIDMap returns c with a rewrite map for the request body's
+// top-level "model" field (see rewriteModelField). Pass nil to disable.
+func (c *Client) WithModelIDMap(modelIDMap map[string]string) *Client {
+	c.modelIDMap = modelIDMap
+	return c
+}
+
+// rewriteModelField rewrites the body's top-level "model" via modelIDMap
+// (mirrors openaicompat's rewriteModelField). Nil map or missing key = no-op.
+func rewriteModelField(body []byte, modelIDMap map[string]string) []byte {
+	if len(modelIDMap) == 0 || len(body) == 0 {
+		return body
+	}
+	model := gjson.GetBytes(body, "model").String()
+	upstream, ok := modelIDMap[model]
+	if !ok {
+		return body
+	}
+	out, err := sjson.SetBytes(body, "model", upstream)
+	if err != nil {
+		return body
+	}
+	return out
+}
+
 type Client struct {
-	apiKey  string
-	baseURL string
-	http    *http.Client
+	apiKey    string
+	baseURL   string
+	http      *http.Client
+	modelHTTP *http.Client
+	// largePromptHTTP carries the wider time-to-first-byte guard for bodies
+	// over largePromptBodyBytes; see largePromptResponseHeaderTimeout.
+	largePromptHTTP *http.Client
 	// authScheme is the credential header this upstream expects; zero value
 	// (AuthAPIKeyHeader) preserves Anthropic's own behavior.
 	authScheme AuthScheme
+	// modelIDMap rewrites the body's "model" field when the router slug differs
+	// from the upstream ID (e.g. "z-ai/glm-5.2" -> "GLM-5.2"). Nil = no rewrite.
+	modelIDMap map[string]string
+	// defaultHeaders are set on every upstream request (Proxy + Passthrough)
+	// before prep.Headers / inbound headers apply.
+	defaultHeaders http.Header
+	// protectedHeaders are set after prep.Headers / inbound headers apply, so
+	// provider-mandated values cannot be overridden.
+	protectedHeaders http.Header
 	// sseIdleTimeout overrides httputil.DefaultSSEIdleTimeout when > 0; tests set
 	// it small so the output-stall watchdog fires before this one.
 	sseIdleTimeout time.Duration
@@ -57,13 +141,21 @@ type Client struct {
 	throughputMinElapsed time.Duration
 	throughputMinDeltas  int
 	throughputOverride   bool
+	// versionMemo resolves gateway base URLs that already carry the "/v1"
+	// segment this adapter appends.
+	versionMemo providers.GatewayVersionMemo
 }
+
+// SupportsSubscriptions excludes bearer gateways from native Claude OAuth.
+func (c *Client) SupportsSubscriptions() bool { return c.authScheme == AuthAPIKeyHeader }
 
 func NewClient(apiKey, baseURL string, opts ...Option) *Client {
 	c := &Client{
-		apiKey:  apiKey,
-		baseURL: baseURL,
-		http:    &http.Client{Transport: httputil.NewTransport(10*time.Second, 10*time.Second)},
+		apiKey:          apiKey,
+		baseURL:         baseURL,
+		http:            httputil.NewClient(httputil.NewTransport(10*time.Second, 10*time.Second)),
+		largePromptHTTP: httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(10*time.Second, 10*time.Second, largePromptResponseHeaderTimeout)),
+		modelHTTP:       httputil.NewDefaultModelDiscoveryClient(),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -74,6 +166,24 @@ func NewClient(apiKey, baseURL string, opts ...Option) *Client {
 		c.baseURL = DefaultBaseURL
 	}
 	return c
+}
+
+// NewClientWithHeaderTimeouts is NewClient with injected header-timeout
+// values so tests can exercise transport selection without real-latency waits.
+func NewClientWithHeaderTimeouts(apiKey, baseURL string, defaultTimeout, largePromptTimeout time.Duration) *Client {
+	c := NewClient(apiKey, baseURL)
+	c.http = httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(10*time.Second, 10*time.Second, defaultTimeout))
+	c.largePromptHTTP = httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(10*time.Second, 10*time.Second, largePromptTimeout))
+	return c
+}
+
+// httpFor picks the HTTP client for an upstream body: large prompts get the
+// wider time-to-first-byte guard, everything else the default transport.
+func (c *Client) httpFor(body []byte) *http.Client {
+	if len(body) >= largePromptBodyBytes && c.largePromptHTTP != nil {
+		return c.largePromptHTTP
+	}
+	return c.http
 }
 
 // NewClientWithStallTimeouts is NewClient with watchdog budgets injected for testing.
@@ -111,24 +221,53 @@ func (c *Client) throughputParams() (window, minElapsed time.Duration, minDeltas
 	return httputil.DefaultThroughputWindow, httputil.DefaultThroughputMinElapsed, httputil.DefaultMinThroughputDeltasPerWindow
 }
 
-// oauthBetaToken is the anthropic-beta flag Anthropic requires for Claude
-// subscription (Claude.ai OAuth) tokens on /v1/messages.
-const oauthBetaToken = "oauth-2025-04-20"
+// applyDefaultHeaders sets c.defaultHeaders on req before callers layer their
+// own headers on top.
+func (c *Client) applyDefaultHeaders(req *http.Request) {
+	for k, vs := range c.defaultHeaders {
+		req.Header[http.CanonicalHeaderKey(k)] = append([]string(nil), vs...)
+	}
+}
+
+// forwardClientUserAgent relays the caller's User-Agent unless a configured
+// header already set one. Gateways key client-specific request handling off
+// it, which Go's default agent would hide.
+func forwardClientUserAgent(upstream, inbound *http.Request) {
+	if upstream.Header.Get("User-Agent") != "" {
+		return
+	}
+	if v := inbound.UserAgent(); v != "" {
+		upstream.Header.Set("User-Agent", v)
+	}
+}
+
+// applyProtectedHeaders restores c.protectedHeaders after callers layer their
+// own headers.
+func (c *Client) applyProtectedHeaders(req *http.Request) {
+	for k, vs := range c.protectedHeaders {
+		req.Header[http.CanonicalHeaderKey(k)] = append([]string(nil), vs...)
+	}
+}
+
+// oauthBetaToken is required for both subscription and federated OAuth bearers.
+const oauthBetaToken = string(auth.AnthropicBetaOAuth)
 
 // subscriptionTokenPrefix marks a Claude subscription bearer (sk-ant-oat… /
 // sk-ant-oat01…) used to gate the oauth beta header on the pure-passthrough path.
 const subscriptionTokenPrefix = "sk-ant-oat"
 
+var errInboundSubscriptionRelay = errors.New("refusing to relay inbound Claude subscription bearer without resolved credentials")
+
 // setAuth resolves credentials in precedence order: resolved per-request
 // credential (subscription/BYOK/client), deployment key, then client-sent auth
-// headers. A subscription OAuth credential authenticates via Authorization:
-// Bearer and must NOT send x-api-key; everything else uses x-api-key.
+// headers. Subscription and federated API credentials use Authorization:
+// Bearer; API key credentials use x-api-key.
 //
 // The passthrough tier scrubs router-issued Bearer tokens via
 // httputil.SanitizeInboundAuthHeader before relaying inbound auth upstream.
 func (c *Client) setAuth(ctx context.Context, upstream *http.Request, inbound *http.Request) {
-	if creds := proxy.CredentialsFromContext(ctx); creds != nil {
-		if creds.OAuth || c.authScheme == AuthBearer {
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil {
+		if creds.OAuth || creds.AuthType == auth.AuthTypeAnthropicWIF || c.authScheme == AuthBearer {
 			upstream.Header.Set("authorization", "Bearer "+string(creds.APIKey))
 			return
 		}
@@ -163,7 +302,9 @@ func (c *Client) setAuth(ctx context.Context, upstream *http.Request, inbound *h
 // the upstream request so it merges with, rather than is clobbered by, the
 // model-capability-filtered anthropic-beta that translate produced.
 func (c *Client) applyOAuthBeta(ctx context.Context, upstream, inbound *http.Request) {
-	if !c.subscriptionAuth(ctx, inbound) {
+	creds := requestcontext.CredentialsFromContext(ctx)
+	federated := creds != nil && creds.AuthType == auth.AuthTypeAnthropicWIF
+	if !federated && !c.subscriptionAuth(ctx, inbound) {
 		return
 	}
 	upstream.Header.Set("anthropic-beta", mergeBeta(upstream.Header.Get("anthropic-beta"), oauthBetaToken))
@@ -176,16 +317,27 @@ func (c *Client) applyOAuthBeta(ctx context.Context, upstream, inbound *http.Req
 // suppressed (exhausted) subscription failing over to the deployment key
 // otherwise sends key auth plus an OAuth-only beta, which Anthropic rejects.
 func (c *Client) subscriptionAuth(ctx context.Context, inbound *http.Request) bool {
-	if creds := proxy.CredentialsFromContext(ctx); creds != nil {
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil {
 		return creds.OAuth
 	}
 	if c.apiKey != "" {
 		return false
 	}
-	if raw, found := strings.CutPrefix(inbound.Header.Get("authorization"), "Bearer "); found {
-		return strings.HasPrefix(strings.TrimSpace(raw), subscriptionTokenPrefix)
+	scheme, token, found := strings.Cut(strings.TrimSpace(inbound.Header.Get("authorization")), " ")
+	return found && strings.EqualFold(scheme, "Bearer") && strings.HasPrefix(strings.TrimSpace(token), subscriptionTokenPrefix)
+}
+
+// claudeSubscriptionAuth reports whether this request authenticates with a
+// Claude subscription bearer specifically, as opposed to any other OAuth-style
+// credential a Bearer gateway may resolve.
+func (c *Client) claudeSubscriptionAuth(ctx context.Context, inbound *http.Request) bool {
+	if !c.subscriptionAuth(ctx, inbound) {
+		return false
 	}
-	return false
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil {
+		return strings.HasPrefix(string(creds.APIKey), subscriptionTokenPrefix)
+	}
+	return true
 }
 
 // mergeBeta appends token to a comma-separated anthropic-beta value if absent,
@@ -203,30 +355,66 @@ func mergeBeta(existing, token string) string {
 }
 
 func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil && creds.CredentialError != nil {
+		return creds.CredentialError
+	}
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 
-	baseURL := proxy.EffectiveBaseURL(ctx, c.baseURL)
-	body := proxy.ApplyModelAlias(ctx, prep.Body, decision.Model)
-	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/messages", bytes.NewReader(body))
+	// Suppression must survive the adapter boundary: falling back to inbound
+	// auth here would resurrect a disabled or known exhausted subscription.
+	if requestcontext.CredentialsFromContext(ctx) == nil && c.authScheme != AuthBearer && c.subscriptionAuth(ctx, r) {
+		return errInboundSubscriptionRelay
+	}
+
+	baseURL := requestcontext.EffectiveBaseURL(ctx, c.baseURL)
+	body := rewriteModelField(prep.Body, c.modelIDMap)
+	// Applied after the catalog map so a BYOK endpoint's own naming wins.
+	body = requestcontext.ApplyModelAlias(ctx, body, decision.Model)
+	if c.claudeSubscriptionAuth(ctx, r) {
+		body = ensureClaudeCodeIdentity(body)
+	}
+
+	// 404s are buffered before reaching w, so a duplicate "/v1" can be re-tried.
+	// A non-404 on the retried path is the real error and is memoized; only a
+	// second 404 falls back to the probe so a genuine model-not-found is preserved.
+	urls := c.versionMemo.URLs(baseURL, "/v1/messages")
+	firstErr := c.proxyTo(ctx, cancel, urls[0], body, decision, prep, w, r)
+	if len(urls) == 1 || !providers.IsUpstreamModelNotFound(firstErr) {
+		return firstErr
+	}
+	err := c.proxyTo(ctx, cancel, urls[1], body, decision, prep, w, r)
+	if err == nil || !providers.IsUpstreamModelNotFound(err) {
+		c.versionMemo.Learn(baseURL)
+		return err
+	}
+	return firstErr
+}
+
+func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, url string, body []byte, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
+	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("build upstream request: %w", err)
 	}
 	upstream.Header.Set("content-type", "application/json")
+	c.applyDefaultHeaders(upstream)
 	c.setAuth(ctx, upstream, r)
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
+	c.applyProtectedHeaders(upstream)
 	c.applyOAuthBeta(ctx, upstream, r)
-	proxy.ApplyWIFTokenType(ctx, upstream)
-	proxy.ApplyIdentityHeader(ctx, upstream)
+	requestcontext.ApplyWIFTokenType(ctx, upstream)
+	requestcontext.ApplyIdentityHeader(ctx, upstream)
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
+	forwardClientUserAgent(upstream, r)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}
 
 	t := timing.TimingFrom(ctx)
 	t.StampUpstreamRequest()
-	resp, err := c.http.Do(upstream)
+	resp, err := c.httpFor(body).Do(upstream)
 	if err != nil {
 		return fmt.Errorf("upstream call: %w", err)
 	}
@@ -246,18 +434,22 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 			t.StampUpstreamEOF()
 		}
 		httputil.LogUpstreamStatus(
-			"Upstream Anthropic returned error status",
+			ctx,
+			upstreamErrorLogMessage(requestcontext.EffectiveBaseURL(ctx, c.baseURL) != DefaultBaseURL, "Upstream Anthropic returned error status"),
 			resp.StatusCode,
 			"routed_model", decision.Model,
+			"upstream_host", upstream.URL.Host,
 			"body_preview", httputil.PreviewBytes(bufBody),
 			"body_total_bytes", totalRead,
 		)
 		errHeaders := http.Header{}
 		providers.CopyUpstreamHeaders(httputil.HeaderCapture{H: errHeaders}, resp)
 		return &providers.UpstreamErrorResponse{
-			Status:  resp.StatusCode,
-			Headers: errHeaders,
-			Body:    bufBody,
+			Status:     resp.StatusCode,
+			Headers:    errHeaders,
+			Body:       bufBody,
+			BodyBytes:  totalRead,
+			BodyCapped: totalRead > int64(len(bufBody)),
 		}
 	}
 
@@ -271,6 +463,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 				providers.CopyUpstreamHeaders(httputil.HeaderCapture{H: errHeaders}, resp)
 				buffered.Headers = errHeaders
 				httputil.LogUpstreamStatus(
+					ctx,
 					"Upstream Anthropic returned SSE error event",
 					buffered.Status,
 					"routed_model", decision.Model,
@@ -295,7 +488,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 			outMark()
 			tpMark()
 		}
-		if arm.ArmOutputProgress(combined) {
+		if arm.ArmOutputProgress(timing.FirstOutputMark(ctx, combined)) {
 			defer outStop()
 			defer tpStop()
 		} else {
@@ -308,7 +501,14 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 }
 
 func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
-	url := proxy.EffectiveBaseURL(ctx, c.baseURL) + r.URL.Path
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil && creds.CredentialError != nil {
+		return creds.CredentialError
+	}
+	if requestcontext.CredentialsFromContext(ctx) == nil && c.authScheme != AuthBearer && c.subscriptionAuth(ctx, r) {
+		return errInboundSubscriptionRelay
+	}
+	passthroughBase := requestcontext.EffectiveBaseURL(ctx, c.baseURL)
+	url := passthroughBase + r.URL.Path
 	if r.URL.RawQuery != "" {
 		url += "?" + r.URL.RawQuery
 	}
@@ -317,6 +517,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	if err != nil {
 		return fmt.Errorf("build upstream passthrough request: %w", err)
 	}
+	c.applyDefaultHeaders(upstream)
 	if ct := r.Header.Get("content-type"); ct != "" {
 		upstream.Header.Set("content-type", ct)
 	}
@@ -324,13 +525,16 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
+	c.applyProtectedHeaders(upstream)
 	c.applyOAuthBeta(ctx, upstream, r)
-	proxy.ApplyWIFTokenType(ctx, upstream)
+	requestcontext.ApplyWIFTokenType(ctx, upstream)
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
+	forwardClientUserAgent(upstream, r)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}
 
-	resp, err := c.http.Do(upstream)
+	resp, err := c.httpFor(prep.Body).Do(upstream)
 	if err != nil {
 		return fmt.Errorf("upstream passthrough call: %w", err)
 	}
@@ -339,10 +543,22 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	if resp.StatusCode >= 400 {
-		return httputil.WritePassthroughError(w, resp, nil, nil, "Upstream Anthropic returned error status (passthrough)", "path", r.URL.Path)
+		return httputil.WritePassthroughError(r.Context(), w, resp, nil, nil, upstreamErrorLogMessage(passthroughBase != DefaultBaseURL, "Upstream Anthropic returned error status")+" (passthrough)", "upstream_host", upstream.URL.Host, "path", r.URL.Path)
 	}
 	_, err = io.Copy(w, resp.Body)
 	return err
 }
 
 var _ providers.Client = (*Client)(nil)
+
+// BaseURL is the deployment endpoint, used when a request carries none.
+func (c *Client) BaseURL() string { return c.baseURL }
+
+// upstreamErrorLogMessage keeps a customer gateway's failure from being logged
+// as Anthropic's own.
+func upstreamErrorLogMessage(viaGateway bool, direct string) string {
+	if viaGateway {
+		return "Upstream gateway returned error status"
+	}
+	return direct
+}

@@ -1,0 +1,170 @@
+---
+name: test-claude-locally
+description: Run the Weave router locally in docker compose and drive it with `claude -p` to reproduce and verify routing/translation behavior for a specific upstream model (e.g. GLM-5.1, DeepSeek, Qwen). Use when verifying a router fix end-to-end, reproducing a prod routing bug, confirming a model's streaming behavior (nudges, tool-call suppression, loop/no-progress breaks), or testing a `/force-model` route — without touching the user's global Claude Code config.
+---
+
+---
+name: test-claude-locally
+description: Run the local Docker Compose router with a seeded installation and Claude CLI against real or mock upstreams to verify routing and log behavior.
+---
+
+# Testing the router locally
+
+> For an **automated** pre-merge regression net (fixture-driven, asserts caching/streaming/decision-headers against real Anthropic), run `make smoke` — see [docs/SMOKE.md](../../../docs/SMOKE.md). This skill is the interactive counterpart: stand the stack up by hand and drive it with `claude -p` to reproduce or verify a one-off bug.
+
+Stand up the router in docker compose, point a one-off `claude -p` session at it via `--settings`, and read the local server logs to confirm behavior. Two upstream modes: the **real** provider API (needs a working key + credits) or a **mock** upstream that emits an exact SSE shape (deterministic, no credits).
+
+## Critical gotchas (read first)
+
+- **`~/.claude/settings.json` `env` overrides inherited env vars.** Setting `ANTHROPIC_BASE_URL` in the shell does NOT redirect `claude` — settings.json wins and the request silently goes to prod. Always redirect with `claude --settings <file>` (see `scripts/local-settings.json`). Never edit the user's global `~/.claude.json` or `~/.claude/settings.json` — that breaks their live session.
+- **`claude -p` is stateless across invocations.** A standalone `/force-model` call does not persist to the next `claude -p`. Put `/force-model <model>` as the first line of the SAME prompt that contains the task.
+- **The router ignores the request's `model` field** and routes via the routing policy. The ONLY way to pin a specific model is `/force-model` through a Claude Code session (raw curl cannot).
+- **Port 8085 conflict.** The monorepo's pubsub emulator may already own host port 8085. Drop the router's host binding with a `docker-compose.override.yml` (see workflow). The server still reaches the emulator over the compose network.
+- **No credits / no key = no reproduction.** If the real upstream returns an error (e.g. OpenRouter "Insufficient credits"), use the mock-upstream path instead.
+
+## Workflow
+
+```
+- [ ] 1. Bring up the stack (handle port 8085)
+- [ ] 2. Seed an API key
+- [ ] 3. Choose upstream: real provider OR mock
+- [ ] 4. Write a one-off local-settings.json
+- [ ] 5. Drive with `claude -p --settings`, forcing the target model
+- [ ] 6. Read local logs to verify behavior
+- [ ] 7. Clean up
+```
+
+### 1. Bring up the stack
+
+```bash
+cd <router-repo>
+# Drop the pubsub host-port binding to avoid an 8085 conflict:
+cat > docker-compose.override.yml <<'EOF'
+services:
+  pubsub-emulator:
+    ports: !reset []
+EOF
+docker compose up -d --build server   # --build picks up code changes
+until curl -sf http://localhost:8080/health >/dev/null; do sleep 2; done
+```
+
+The override file is gitignored-by-intent scaffolding — delete it in cleanup.
+
+### 2. Seed an API key
+
+```bash
+docker compose run --rm seed
+```
+
+Copy the `rk_...` key it prints.
+
+### 3. Choose the upstream
+
+**Real provider** — set the provider key in `.env.local` (e.g. `FIREWORKS_API_KEY=...`) and restart `docker compose up -d server`. Confirm the boot log shows `<Provider> provider enabled` with the real base_url. Use this to confirm a model genuinely produces the behavior.
+
+**Mock upstream** — for a deterministic, credit-free repro of a precise SSE shape. Point the provider's base URL at a local mock and restart:
+
+```bash
+python3 scripts/mock_openai_upstream.py >/tmp/mock.log 2>&1 &   # serves :8099
+# In docker-compose.override.yml under `server:`, add:
+#   environment:
+#     FIREWORKS_BASE_URL: http://host.docker.internal:8099/v1
+#     FIREWORKS_API_KEY: sk-mock
+#   extra_hosts: ["host.docker.internal:host-gateway"]
+docker compose up -d server
+```
+
+Edit the mock's emitted chunks to match the upstream shape you're reproducing. Provider→env-var names live in `internal/providers/provider.go`; base-URL overrides are read in `cmd/router/main.go` (`<PROVIDER>_BASE_URL`).
+
+### 4. One-off local settings
+
+```bash
+cat > /tmp/local-settings.json <<EOF
+{ "env": {
+  "ANTHROPIC_BASE_URL": "http://localhost:8080",
+  "ANTHROPIC_CUSTOM_HEADERS": "X-Weave-Router-Key: rk_REPLACE_ME"
+}}
+EOF
+```
+
+### 5. Drive it
+
+```bash
+cd <scratch-dir-with-files-to-act-on>
+env -u CLAUDE_CODE_SESSION_ID -u ANTHROPIC_BASE_URL -u ANTHROPIC_CUSTOM_HEADERS \
+  claude -p 'First send exactly: /force-model z-ai/glm-5.1
+Then <task that requires tool use>, then stop.' \
+  --settings /tmp/local-settings.json --max-turns 10 --verbose
+```
+
+### 6. Verify via logs
+
+The decision + completion log per action (one `ProxyMessages complete`) carries the signals you need. Strip ANSI first:
+
+```bash
+docker compose logs server --since=3m 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' \
+  | grep 'ProxyMessages complete' | grep 'decision_model=z-ai/glm-5.1'
+```
+
+Useful fields: `decision_model`, `decision_provider`, `upstream_finish_reason`, `suppressed_tool_calls`, `text_only_turn_nudged`, `tool_use_blocks`, `resp_stop_reason`, `stop_reason_demoted`. Also grep for `recovery nudge`, `tool-call loop`, `no-progress`.
+
+**Confirm the model was actually served** before drawing conclusions:
+```bash
+docker compose logs server --since=3m 2>&1 | sed -E 's/\x1b\[[0-9;]*m//g' \
+  | grep 'ProxyMessages complete' | grep -oE 'decision_model=[^ ]+' | sort | uniq -c
+```
+If you only see other models, `/force-model` didn't take — recheck step 5.
+
+### 7. Clean up
+
+```bash
+pkill -f mock_openai_upstream.py 2>/dev/null
+rm -f docker-compose.override.yml /tmp/local-settings.json
+# `docker compose down` if you want to stop the stack
+```
+
+## Testing the balance gate / subscription usage-bypass (managed billing)
+
+For fixes to `internal/billing` + `internal/server/middleware/balance_check.go` + the usage-bypass path (`internal/proxy/usage_bypass.go`), the setup differs from the model-behavior workflow above:
+
+- **The balance gate only attaches in managed mode with billing enabled.** Set `ROUTER_DEPLOYMENT_MODE=managed` on the `server` service. Billing auto-enables when the `router` schema's billing tables exist (they do after `migrate`), logged as `Router billing enabled`. In default selfhosted mode `WithBalanceCheck` is never wired and none of this triggers.
+- **The Anthropic provider has no `ANTHROPIC_BASE_URL` override** (unlike Fireworks/Together/etc.) — `cmd/router/main.go` hardcodes `anthropic.DefaultBaseURL`. To point Anthropic at a mock, temporarily edit that line to `config.GetOr("ANTHROPIC_BASE_URL", anthropic.DefaultBaseURL)`, rebuild, and **revert it after testing** (don't ship it in the fix PR). The boot log line still prints `DefaultBaseURL` cosmetically — verify the mock is actually hit via the mock's own logs, not the boot log.
+- **Requests must be MainLoop-shaped to reach the usage-bypass decision.** Short prompts (small `max_tokens`, no tools) classify as `Probe`/`Classifier`/`TitleGen` — all **hard-pinned**, short-circuiting before the usage-bypass and scorer branches. A trivial `"say hi"` will wrongly hit the refusal path. Use a realistic turn: `tools` present + `max_tokens>=4096` + a normal user message. Confirm `turn_type=main_loop` in the `turnloop classified` log before trusting the result.
+- **Drive with raw `curl`** on the production router-key path — no `claude` binary needed, and it lets you pin the requested model (the usage-bypass path serves the *requested* model verbatim, so no `/force-model` needed here):
+  ```bash
+  curl -sS -N -D /tmp/h.txt -X POST http://localhost:8080/v1/messages \
+    -H "Authorization: Bearer $RK" \
+    -H "X-Weave-Anthropic-Subscription: sk-ant-oat01-anything" \
+    -H "anthropic-version: 2023-06-01" -H "Content-Type: application/json" \
+    -d '{"model":"claude-sonnet-4-5","max_tokens":4096,"stream":true,"tools":[{"name":"Bash","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"<realistic multi-sentence task>"}]}'
+  ```
+  A fake `sk-ant-oat...` token is enough for router-side classification; the mock doesn't validate it.
+- **Set DB state directly** (host `psql -h localhost -p 5433 -U router -d router`, password `router`, `SET search_path TO router`): `UPDATE model_router_installations SET usage_bypass_enabled=true WHERE external_id='__router_admin__';` and upsert `organization_credit_balance` with `balance_usd_micros` below `SubscriptionOverdraftFloorMicros` (−5_000_000). Assert no debit via `SELECT count(*) FROM organization_credit_ledger WHERE organization_id='__router_admin__';` before/after.
+- **Deterministic mock that branches on the requested model** is the cleanest way to drive both the serve path and the refusal path from one server: return 200 SSE for one model and 429 for another (the usage-bypass path forwards the requested model verbatim, so branching on `model` in the request body is reliable).
+- **What good looks like:** header `X-Router-Decision: usage_bypass`, the depleted-credits warning injected as content-block index 0 (real content re-indexed to 1), log `Balance past subscription overdraft floor: serving subscription-only`. Retryable upstream error → log `Subscription-only bypass hit retryable error; refusing instead of paid reroute` → HTTP 402. No subscription header below floor → `insufficient_credits` 402 that never logs `ProxyMessages start`.
+
+## Testing compaction (`/compact`)
+
+- **A persisted force-model pin outranks the compaction session pin.** A session seeded with `/force-model` stays pinned after the line is removed, so `/compact` serves the forced model while it stays eligible (enabled, not excluded, fits the window). Seed without it (or clear the session's forced pin) and confirm `turn_type=compaction` in `turnloop classified`, then the session's model (or a scored pick when no pin applies) as `decision_model` in `ProxyMessages complete` before trusting the result.
+- **`claude -p /compact --output-format json` can report success when compaction failed** (`is_error=false`, `subtype=success`, exit 0). Check the `result` text, the router logs, and whether the transcript gained an `isCompactSummary` entry. A successful print-mode compaction can have an empty `result`.
+- **Claude Code hides the router's 400 body** behind "Compaction failed · conversation could not be reduced below the context limit"; the raw response is in `--debug-file`.
+- **A 5xx without `x-should-retry: false` is retried by the SDK** (11 attempts, ~3 minutes) before Claude Code shows the error.
+
+## Notes
+
+- Local routing uses the stub HMM classifier and baked policy release by default, so it may differ from prod; `/force-model` is the reliable way to hit one model.
+- GLM-5.1's primary binding is Together (then Fireworks, then OpenRouter) — see `internal/router/catalog/catalog.go`.
+- To confirm a deploy contains a given router commit: the prod Cloud Run revision name maps to a monorepo commit; `git ls-tree <monorepo-commit> router-internal/router` shows the pinned router submodule SHA.
+
+## Content-capture and stdout privacy checks
+
+- Self-hosted capture defaults to off. For a positive control, set `WV_CAPTURE_CONTENT=full` on the Compose server and leave the seeded installation's `content_capture_mode` NULL. Deployment off wins over installation full; installation off wins over deployment full.
+- Direct SQL changes to `router.model_router_installations.content_capture_mode` do not invalidate cached auth. Restart the server after a direct update, or use the admin endpoint that publishes invalidation.
+- For headless requests, `x-weave-force-model: <catalog model>` pins the target without a slash-command exchange. Supply it alongside `X-Weave-Router-Key` through the one-off Claude settings. `--settings` accepts inline JSON as well as a file, allowing locally seeded keys to remain in shell memory.
+- Newer Claude versions may prepend environment context to the main user message. Its `last_preview` can therefore show environment text rather than the task; title-generation requests may contain the task canary. Add a raw authenticated Messages request when exact preview equality matters.
+- To provoke a real Anthropic 400 through either Messages or Chat Completions, use a tool schema with an invalid nested JSON Schema type, e.g. `{"type":"object","properties":{"canary":{"type":"not_a_valid_json_schema_type"}}}`. Verify `upstream_status=400` and a nonempty error body with capture on before asserting it is blank off. Unknown model pins can fail locally, invalid tool names are sanitized, and invalid caller API keys are ignored on the router-keyed paid-credential path.
+- Search the entire container log for unique off-mode canaries, not only completion records. Include start records and conversation-tail diagnostics. Save logs before recreating the container, which replaces its log history.
+
+### Devin Secrets Needed
+
+- `ANTHROPIC_API_KEY` for real Anthropic checks. Pass it through the process environment to Compose; do not copy it into tracked files or plaintext test artifacts.

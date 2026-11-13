@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"workweave/router/internal/billing"
-	"workweave/router/internal/server/middleware"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -98,6 +98,10 @@ func runOrgMonthlyCapSub(t *testing.T, routePath string, setInstall func(*gin.Co
 		}
 		reached = true
 		subOnly = billing.SubscriptionOnlyFromContext(c.Request.Context())
+		if subOnly {
+			reason, _ := billing.SubscriptionOnlyReasonFromContext(c.Request.Context())
+			assert.Equal(t, billing.SubscriptionOnlySpendCapReached, reason, "a reached cap must not report depleted credits")
+		}
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()
@@ -128,12 +132,15 @@ func TestOrgMonthlySpendCap_CapReachedNoSubscriptionStillRejected(t *testing.T) 
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 }
 
-func TestOrgMonthlySpendCap_CapReachedSubscriptionWithoutBypassRejected(t *testing.T) {
+func TestOrgMonthlySpendCap_CapReachedSubscriptionWithoutBypassServesSubscriptionOnly(t *testing.T) {
+	// Exemption depends only on whether the request presents a covering subscription,
+	// not on UsageBypassEnabled (matching WithBalanceCheck).
 	repo := &stubBillingRepo{orgMonthSpent: 1_000_000, orgMonthLimit: capPtr(1_000_000)}
 	setInstall := func(c *gin.Context) { withInstallation(c, "org_prepaid") }
-	w, reached, _ := runOrgMonthlyCapSub(t, "/v1/messages", setInstall, "Bearer sk-ant-oat-abc123", repo)
-	assert.False(t, reached, "exemption must not apply without the usage-bypass gate")
-	assert.Equal(t, http.StatusPaymentRequired, w.Code)
+	w, reached, subOnly := runOrgMonthlyCapSub(t, "/v1/messages", setInstall, "Bearer sk-ant-oat-abc123", repo)
+	assert.True(t, reached, "a covered turn must pass even when the org lacks the usage-bypass toggle")
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.True(t, subOnly, "the request must be flagged subscription-only")
 }
 
 func TestOrgMonthlySpendCap_OverridePassesThrough(t *testing.T) {
@@ -157,5 +164,18 @@ func TestOrgMonthlySpendCap_OverridePassesThrough(t *testing.T) {
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/probe", nil))
 	assert.True(t, reached, "billing-override orgs bypass the monthly cap")
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestOrgMonthlySpendCap_ExemptsSubscriberAllowanceCoveredRequest(t *testing.T) {
+	// A covered turn debits 0, so it never adds to the org's monthly spend and
+	// a reached cap must not 402 it.
+	repo := &stubBillingRepo{orgMonthSpent: 1_000_000, orgMonthLimit: capPtr(1_000_000)}
+	setInstall := func(c *gin.Context) {
+		withInstallation(c, "org_subscriber")
+		stashSubscriberCoverage(c)
+	}
+	w, reached, _ := runOrgMonthlyCapSub(t, "/v1/messages", setInstall, "", repo)
+	assert.True(t, reached, "an allowance-covered turn is not gated on the org monthly spend cap")
 	assert.Equal(t, http.StatusOK, w.Code)
 }

@@ -24,6 +24,34 @@ contain OpenRouter bindings. A production sidecar must not send prompts,
 outcomes, or feedback to OpenRouter for auxiliary inference either; use the
 same direct provider stack approved for the router deployment.
 
+Request-shape recognition and compatibility are router responsibilities. A
+sidecar may use generic tool evidence for classification, but it must not detect
+native search (or another wire capability) to select, exclude, reorder, or
+allowlist providers/models. Go applies those constraints before invoking the
+sidecar, and isolated pass-through turns do not invoke it at all.
+
+Turn facts are router-owned as well. `harness`, `latest_user_text`,
+`turn_index`, `is_subagent`, `available_tools`, and `invoked_tools` on the
+`policy_router_v4` request are authoritative: a sidecar consumes them verbatim
+and must not recompute them from `conversation_messages`, `client_app`, or
+`prompt_text`. `available_tools` is the advertised set unioned with every tool
+already invoked in the full conversation (before any wire truncation);
+`invoked_tools` is that invoked subset on its own. The reviewed top-level
+field list lives in `internal/policyclient/testdata/classifier_request_v4_fields.txt`;
+adding or removing a wire field is a contract change and updates that fixture.
+
+`harness` is the router's policy identity for the calling agent, derived from
+`client_app` by `policy.HarnessForClientApp`
+(`internal/router/policy/harness.go`): `claude_code`, `codex`, `pi`, `cursor`,
+`opencode`, `api` (generic API and Gemini CLI callers), or `unknown`. For
+`claude_code`, `codex`, `pi`, and `opencode` the same spelling is the roster
+key under which a Go selection policy may declare per-harness arms,
+membership, pins, and vendor preferences (`rosterdata.Harness`); a harness with
+no roster entry serves the pooled cluster order, which is what every promoted
+policy does for `opencode` today. A sidecar must degrade a `harness` value outside its own
+vocabulary to its pooled default rather than reject the route, so adding a
+harness here never changes what an older sidecar serves.
+
 There is no strategy fallback. If a serving policy cannot return a valid
 selection after bounded transient retries, the client receives HTTP 503.
 Availability comes from healthy replicas, readiness gates, immutable artifacts,
@@ -66,10 +94,24 @@ When `authoritative_per_turn_selection=true`, each eligible main-loop or
 tool-result `/route` selection is model-authoritative for that turn. Go still
 owns hard eligibility, explicit force-model/operator pins, credentials, and
 same-model provider retries. It disables automatic session reuse, EV planner
-overrides, model-changing baseline failover, semantic-cache hits, and
+overrides, model-changing baseline failover, and
 router-generated summarizer calls for those turns. Post-selection synthetic
 loop breakers are also bypassed so one accepted policy action maps to one
 selected model dispatch attempt.
+
+An optional `interaction_state_package_sha256s` list names the loaded
+classifier packages that were trained on interaction-state inputs. A v4
+request goes to such a package only from the strategy that package serves.
+For those requests, the router clips each routed message at 8,000 bytes
+(128,000 in total) instead of 3,000 (48,000 in total). Once the shared budget
+cuts a message, older messages carry no text. The request also sets
+`omitted_user_turn_count`. Every other package receives the default request
+unchanged, and a sidecar that omits the list receives only default requests.
+
+The subscription usage-bypass gate is deliberately outside that list: it
+decides whether a turn is routed and billed at all, so a caller's own prepaid
+Claude/Codex quota still passes straight through and the `/route` call is never
+made for that turn.
 
 ## Route contract
 
@@ -146,9 +188,30 @@ holds any policy-internal arm, bucket, cluster, or mode. During migration,
 }
 ```
 
+A sidecar may additionally emit optional typed fields: `predicted_label`
+(the classifier's predicted complexity label) and `class_probabilities` (its
+per-class probability map). Sidecars that omit them keep the legacy behavior
+unchanged.
+
 The router rejects empty selections, unknown roster IDs, provider mismatches,
 and unsupported schema versions. Rich `debug` data is internal to the sidecar;
 only an opaque `debug_ref` is projected when authorized debug mode is enabled.
+
+### `policy_router_v3`: classifier-only
+
+A strategy whose router owns arm selection (today: the HMM strategies, see
+[HMM_GO_SELECTION.md](HMM_GO_SELECTION.md)) speaks `policy_router_v3` instead.
+A v3 `/route` response classifies and ranks; it does not decide:
+
+- `selected_roster_id`, `selected_provider` and `model` are `null` — naming an
+  arm is a contract violation, not an extra;
+- `ranked_fallback` is required, and is the only selection input the router
+  reads;
+- `predicted_label` and `class_probabilities` carry the classification.
+
+There is no dual-support window: such a router rejects a `policy_router_v1` or
+`v2` response, and a missing or arm-less `ranked_fallback` fails the turn with
+HTTP 503 rather than serving a sidecar pick.
 
 `POST /outcome` reports `selected_model`, `selected_provider`, `served_model`,
 `served_provider`, `selected_served_model_match`, and
@@ -191,8 +254,8 @@ resolve `latest`, local files, or an unverified mutable URL.
 6. Exercise serving and shadow traffic for every supported harness. Verify
    model/provider/artifact/roster/route-key/rollout telemetry and lifecycle
    callbacks join on `route_id`.
-7. Start with installation allowlisting. Keep the deployment default at
-   `cluster` until error, latency, provider, privacy, and quality gates pass.
+7. Start with installation allowlisting. Keep the deployment default on
+   the current promoted strategy until error, latency, provider, privacy, and quality gates pass.
 8. Promote globally by changing `ROUTER_DEFAULT_STRATEGY`. Keep an explicit
    installation override available for operational rollback; do not add an
    automatic per-request fallback.
@@ -205,8 +268,8 @@ export ROUTER_POLICY_SIDECAR_AUTH='{"quality-v2":"google-id-token"}'
 export ROUTER_POLICY_SIDECAR_TIMEOUT_MS=3000
 ```
 
-The strategy ID must match `[a-z][a-z0-9_-]{0,63}` and cannot be `cluster`,
-`rl`, `hmm`, or `bandit`. New policies use catalog IDs as roster IDs at the
+The strategy ID must match `[a-z][a-z0-9_-]{0,63}` and cannot be a built-in
+strategy ID such as `rl`, `hmm`, `hmm_embedding`, or `llm_classifier`. New policies use catalog IDs as roster IDs at the
 wire boundary; an artifact with different internal labels translates them
 inside the sidecar. `google-id-token` authentication uses the exact configured
 origin as the token audience and fails router startup when credentials cannot

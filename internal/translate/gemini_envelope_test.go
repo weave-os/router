@@ -3,7 +3,7 @@ package translate_test
 import (
 	"testing"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -133,7 +133,7 @@ func TestRequestEnvelope_RoutingFeatures_Gemini_LastKind(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env, err := translate.ParseGemini([]byte(tc.body))
 			require.NoError(t, err)
-			feats := env.RoutingFeatures(false)
+			feats := env.RoutingFeatures()
 			assert.Equal(t, tc.wantKind, feats.LastKind)
 		})
 	}

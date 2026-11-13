@@ -32,10 +32,9 @@ type Repo interface {
 	// and its configured monthly cap. nil limitMicros means no cap is set.
 	GetOrgMonthlySpendAndLimit(ctx context.Context, organizationID string) (spentMicros int64, limitMicros *int64, err error)
 
-	// GetAutopayConfig reports the org's autopay state and recharge
-	// threshold. A missing config row returns enabled=false, nil error
-	// ("autopay off"), not an error.
-	GetAutopayConfig(ctx context.Context, orgID string) (enabled bool, thresholdMicros int64, err error)
+	// GetAutopayConfig reports one prepaid owner's autopay state and recharge
+	// threshold. A missing config row returns enabled=false, nil error.
+	GetAutopayConfig(ctx context.Context, owner Owner) (enabled bool, thresholdMicros int64, err error)
 
 	// BillingTablesExist is a boot-time check for the three billing tables.
 	// A missing table means the migration hasn't run yet.
@@ -58,7 +57,17 @@ type DebitParams struct {
 	// APIKeyID, if non-empty, attributes the debit to that key, bumping its
 	// lifetime spent_usd_micros in the same transaction.
 	APIKeyID string
+	// DelegatedSessionID and DelegatedTaskID, if non-empty, attribute the debit
+	// to a delegated session token's session and task under APIKeyID (its issuer).
+	DelegatedSessionID string
+	DelegatedTaskID    string
 	// RouterUserID, if non-empty, attributes the debit to that engineer and bumps
 	// the org's monthly counter; org counter is always bumped regardless.
 	RouterUserID string
+}
+
+// DelegatedSpendReader reads a delegated session's and task's spend-to-date
+// fresh from storage, bypassing every cache.
+type DelegatedSpendReader interface {
+	GetDelegatedTokenSpend(ctx context.Context, issuerKeyID, sessionID, taskID string) (sessionSpentMicros, taskSpentMicros int64, err error)
 }

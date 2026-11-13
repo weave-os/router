@@ -11,8 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/observability"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,6 +29,7 @@ type fakeAPIKeyRepository struct {
 
 	// markUsedPanic, when true, causes MarkUsed to panic so fireMarkUsed recovery can be exercised.
 	markUsedPanic bool
+	markUsedErr   error
 
 	mu       sync.Mutex
 	markUsed []string
@@ -78,14 +80,25 @@ func (f *fakeAPIKeyRepository) ListForInstallation(ctx context.Context, installa
 	return nil, errors.New("not used by these tests")
 }
 
-func (f *fakeAPIKeyRepository) MarkUsed(ctx context.Context, id string) error {
+func (f *fakeAPIKeyRepository) MarkUsed(ctx context.Context, id string) (bool, error) {
 	if f.markUsedPanic {
 		panic("boom: mark used")
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.markUsedErr != nil {
+		f.markUsed = append(f.markUsed, id)
+		return false, f.markUsedErr
+	}
+	firstUse := true
+	for _, seen := range f.markUsed {
+		if seen == id {
+			firstUse = false
+			break
+		}
+	}
 	f.markUsed = append(f.markUsed, id)
-	return nil
+	return firstUse, nil
 }
 
 func (f *fakeAPIKeyRepository) SoftDelete(ctx context.Context, installationID, id string) (int64, error) {
@@ -129,8 +142,28 @@ func (f *fakeExternalAPIKeyRepo) UpdateModelAliases(ctx context.Context, install
 	return nil, f.err
 }
 
-func (f *fakeExternalAPIKeyRepo) MarkUsed(ctx context.Context, id string) error {
-	return nil
+func (f *fakeExternalAPIKeyRepo) MarkUsed(ctx context.Context, id string) error { return nil }
+
+func (f *fakeExternalAPIKeyRepo) UpdateFundingPriority(ctx context.Context, installationID, id string, priority auth.FundingPriority) (*auth.ExternalAPIKey, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	for _, k := range f.keys {
+		if k.ID == id && k.InstallationID == installationID {
+			k.FundingPriority = priority
+			return k, nil
+		}
+	}
+	return nil, auth.ErrExternalAPIKeyNotFound
+}
+
+func (f *fakeExternalAPIKeyRepo) ActiveFundingPriority(ctx context.Context, installationID, provider string) (auth.FundingPriority, error) {
+	for _, k := range f.keys {
+		if k.InstallationID == installationID && k.Provider == provider {
+			return k.FundingPriority, nil
+		}
+	}
+	return "", f.err
 }
 
 type fakeInstallationRepository struct {
@@ -146,23 +179,45 @@ type fakeInstallationRepository struct {
 	subscriptionRoutingDisabledByID map[string]bool
 	contentCaptureModeByID          map[string]*string
 	hideTerminalSurfacesByID        map[string]bool
+	showModelSelectionReasoningByID map[string]bool
+	flagOverridesByID               map[string]flags.Overrides
+	fastModeModelsByID              map[string][]string
+	// firstRequestServedIDs counts MarkFirstRequestServed calls per installation.
+	firstRequestServedIDs map[string]int
+	mu                    sync.Mutex
 	// updateErr, when set, is returned by Update* methods instead of recording —
 	// simulates a zero-row update (stale/soft-deleted/cross-tenant id), which the
 	// real postgres repo surfaces as auth.ErrInstallationNotFound.
 	updateErr error
 }
 
-func (fakeInstallationRepository) Create(ctx context.Context, params auth.CreateInstallationParams) (*auth.Installation, error) {
+func (*fakeInstallationRepository) Create(ctx context.Context, params auth.CreateInstallationParams) (*auth.Installation, error) {
 	return nil, errors.New("not used")
 }
-func (fakeInstallationRepository) Get(ctx context.Context, externalID, id string) (*auth.Installation, error) {
+func (*fakeInstallationRepository) Get(ctx context.Context, externalID, id string) (*auth.Installation, error) {
 	return nil, errors.New("not used")
 }
-func (fakeInstallationRepository) ListForExternalID(ctx context.Context, externalID string) ([]*auth.Installation, error) {
+func (*fakeInstallationRepository) ListForExternalID(ctx context.Context, externalID string) ([]*auth.Installation, error) {
 	return nil, errors.New("not used")
 }
-func (fakeInstallationRepository) SoftDelete(ctx context.Context, externalID, id string) error {
+func (*fakeInstallationRepository) SoftDelete(ctx context.Context, externalID, id string) error {
 	return errors.New("not used")
+}
+func (f *fakeInstallationRepository) MarkFirstRequestServed(ctx context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.firstRequestServedIDs == nil {
+		f.firstRequestServedIDs = map[string]int{}
+	}
+	f.firstRequestServedIDs[id]++
+	return nil
+}
+
+// firstRequestServedCount reports how many times the installation was stamped.
+func (f *fakeInstallationRepository) firstRequestServedCount(id string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.firstRequestServedIDs[id]
 }
 func (f *fakeInstallationRepository) UpdateExcludedModels(ctx context.Context, externalID, id string, models []string) error {
 	if f.updateErr != nil {
@@ -176,6 +231,16 @@ func (f *fakeInstallationRepository) UpdateExcludedModels(ctx context.Context, e
 	}
 	f.excludedModelsByID[id] = append([]string{}, models...)
 	f.excludedModelsExternalByID[id] = externalID
+	return nil
+}
+func (f *fakeInstallationRepository) UpdateFastModeModels(ctx context.Context, externalID, id string, models []string) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	if f.fastModeModelsByID == nil {
+		f.fastModeModelsByID = map[string][]string{}
+	}
+	f.fastModeModelsByID[id] = append([]string{}, models...)
 	return nil
 }
 func (f *fakeInstallationRepository) UpdateAllowedModels(ctx context.Context, externalID, id string, models []string) error {
@@ -236,6 +301,16 @@ func (f *fakeInstallationRepository) UpdateSubscriptionRoutingDisabled(ctx conte
 	f.subscriptionRoutingDisabledByID[id] = disabled
 	return nil
 }
+func (f *fakeInstallationRepository) UpdateFlagOverrides(ctx context.Context, externalID, id string, overrides flags.Overrides) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	if f.flagOverridesByID == nil {
+		f.flagOverridesByID = map[string]flags.Overrides{}
+	}
+	f.flagOverridesByID[id] = overrides
+	return nil
+}
 func (f *fakeInstallationRepository) UpdateHideTerminalSurfaces(ctx context.Context, externalID, id string, hide bool) error {
 	if f.updateErr != nil {
 		return f.updateErr
@@ -244,6 +319,16 @@ func (f *fakeInstallationRepository) UpdateHideTerminalSurfaces(ctx context.Cont
 		f.hideTerminalSurfacesByID = map[string]bool{}
 	}
 	f.hideTerminalSurfacesByID[id] = hide
+	return nil
+}
+func (f *fakeInstallationRepository) UpdateShowModelSelectionReasoning(ctx context.Context, externalID, id string, show bool) error {
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+	if f.showModelSelectionReasoningByID == nil {
+		f.showModelSelectionReasoningByID = map[string]bool{}
+	}
+	f.showModelSelectionReasoningByID[id] = show
 	return nil
 }
 func (f *fakeInstallationRepository) UpdateUsageBypass(ctx context.Context, externalID, id string, enabled bool, threshold *float64) error {
@@ -268,12 +353,24 @@ func frozenClock() auth.Clock {
 
 func makeService(t *testing.T, rows ...fakeKeyRow) (*auth.Service, *fakeAPIKeyRepository) {
 	t.Helper()
+	svc, apiKeys, _ := makeServiceWithInstallations(t, rows...)
+	return svc, apiKeys
+}
+
+// makeServiceWithInstallations is makeService plus a handle on the installation
+// repo, for tests that assert on the installation-level onboarding stamp.
+func makeServiceWithInstallations(
+	t *testing.T,
+	rows ...fakeKeyRow,
+) (*auth.Service, *fakeAPIKeyRepository, *fakeInstallationRepository) {
+	t.Helper()
 	apiKeys := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}
 	for _, row := range rows {
 		apiKeys.byHash[row.apiKey.KeyHash] = row
 	}
+	installations := &fakeInstallationRepository{}
 	svc := auth.NewService(
-		&fakeInstallationRepository{},
+		installations,
 		apiKeys,
 		nil,
 		nil,
@@ -281,7 +378,7 @@ func makeService(t *testing.T, rows ...fakeKeyRow) (*auth.Service, *fakeAPIKeyRe
 		nil,
 		frozenClock(),
 	)
-	return svc, apiKeys
+	return svc, apiKeys, installations
 }
 
 type recordingAPIKeyCache struct {
@@ -471,6 +568,76 @@ func TestService_VerifyAPIKey_HappyPathReturnsInstallationAndKey(t *testing.T) {
 		"VerifyAPIKey must asynchronously call MarkUsed with the matched key id")
 }
 
+// VerifyAPIKey must stamp the installation-level onboarding flag, not just
+// the key's last_used_at, so the flag survives key rotation.
+func TestService_VerifyAPIKey_StampsInstallationFirstRequestServed(t *testing.T) {
+	rawToken := "rk_first_request_token_for_test"
+	keyHash := auth.HashAPIKeySHA256(rawToken)
+
+	install := &auth.Installation{ID: "install_onboard", ExternalID: "org_acme", Name: "prod"}
+	key := &auth.APIKey{
+		ID:             "key_onboard",
+		InstallationID: install.ID,
+		KeyHash:        keyHash,
+		Scope:          auth.ScopeRouting,
+	}
+
+	svc, _, installations := makeServiceWithInstallations(t, fakeKeyRow{apiKey: key, installation: install})
+
+	_, _, _, _, err := svc.VerifyAPIKey(context.Background(), rawToken)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		return installations.firstRequestServedCount("install_onboard") == 1
+	}, 500*time.Millisecond, 10*time.Millisecond,
+		"a routed request must stamp the installation's first_request_served_at")
+}
+
+// An analytics read is not a routed request and must not advance onboarding.
+func TestService_VerifyAnalyticsKey_DoesNotStampFirstRequestServed(t *testing.T) {
+	rawToken := "ra_analytics_token_for_test"
+	keyHash := auth.HashAPIKeySHA256(rawToken)
+
+	install := &auth.Installation{ID: "install_analytics", ExternalID: "org_acme", Name: "prod"}
+	key := &auth.APIKey{
+		ID:             "key_analytics",
+		InstallationID: install.ID,
+		KeyHash:        keyHash,
+		Scope:          auth.ScopeAnalyticsRead,
+	}
+
+	svc, apiKeys, installations := makeServiceWithInstallations(t, fakeKeyRow{apiKey: key, installation: install})
+
+	_, _, err := svc.VerifyAnalyticsAPIKey(context.Background(), rawToken)
+	require.NoError(t, err)
+
+	// Wait for the async MarkUsed to land, so the assertion below observes the
+	// completed goroutine rather than racing ahead of it.
+	require.Eventually(t, func() bool {
+		return len(apiKeys.markUsedSnapshot()) == 1
+	}, 500*time.Millisecond, 10*time.Millisecond)
+
+	assert.Zero(t, installations.firstRequestServedCount("install_analytics"),
+		"reading the analytics export must not mark the installation as having served a request")
+}
+
+type synchronizedLogBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (b *synchronizedLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.Write(p)
+}
+
+func (b *synchronizedLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.String()
+}
+
 func TestService_VerifyAPIKey_RecoversFromMarkUsedPanic(t *testing.T) {
 	rawToken := "rk_panic_token_for_test_only"
 	keyHash := auth.HashAPIKeySHA256(rawToken)
@@ -499,7 +666,7 @@ func TestService_VerifyAPIKey_RecoversFromMarkUsedPanic(t *testing.T) {
 	// first Get() call races SetDefault and resets the handler.
 	observability.Get()
 
-	var buf bytes.Buffer
+	var buf synchronizedLogBuffer
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
 	t.Cleanup(func() { slog.SetDefault(prev) })
@@ -774,6 +941,39 @@ func TestService_VerifyAPIKey_ExternalKeysAreCached(t *testing.T) {
 		"the repo must only be called once; the second call must be served from cache")
 }
 
+func TestService_SetInstallationFastModeModels(t *testing.T) {
+	installRepo := &fakeInstallationRepository{}
+	svc := auth.NewService(installRepo, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, nil, nil, auth.NoOpAPIKeyCache{}, nil, frozenClock())
+
+	fastCapable := map[string]struct{}{"gpt-5.6-luna": {}, "claude-opus-4-7": {}}
+
+	t.Run("persists deduped list", func(t *testing.T) {
+		out, err := svc.SetInstallationFastModeModels(context.Background(), "ext-1", "inst-1", []string{"gpt-5.6-luna", "gpt-5.6-luna", "claude-opus-4-7"}, fastCapable)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"gpt-5.6-luna", "claude-opus-4-7"}, out)
+		assert.Equal(t, []string{"gpt-5.6-luna", "claude-opus-4-7"}, installRepo.fastModeModelsByID["inst-1"])
+	})
+
+	t.Run("rejects model without a fast tier", func(t *testing.T) {
+		_, err := svc.SetInstallationFastModeModels(context.Background(), "ext-1", "inst-1", []string{"claude-sonnet-4-6"}, fastCapable)
+		require.ErrorIs(t, err, auth.ErrModelNotFastCapable)
+	})
+
+	t.Run("nil models persists empty slice", func(t *testing.T) {
+		out, err := svc.SetInstallationFastModeModels(context.Background(), "ext-3", "inst-3", nil, fastCapable)
+		require.NoError(t, err)
+		assert.Equal(t, []string{}, out)
+		assert.Equal(t, []string{}, installRepo.fastModeModelsByID["inst-3"])
+	})
+
+	t.Run("zero-row update surfaces repo error", func(t *testing.T) {
+		failing := &fakeInstallationRepository{updateErr: auth.ErrInstallationNotFound}
+		failingSvc := auth.NewService(failing, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, nil, nil, auth.NoOpAPIKeyCache{}, nil, frozenClock())
+		_, err := failingSvc.SetInstallationFastModeModels(context.Background(), "ext-1", "inst-1", []string{"gpt-5.6-luna"}, fastCapable)
+		require.ErrorIs(t, err, auth.ErrInstallationNotFound)
+	})
+}
+
 func TestService_SetInstallationExcludedModels(t *testing.T) {
 	installRepo := &fakeInstallationRepository{}
 	svc := auth.NewService(installRepo, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, nil, nil, auth.NoOpAPIKeyCache{}, nil, frozenClock())
@@ -889,6 +1089,43 @@ func TestService_SetInstallationContentCaptureMode(t *testing.T) {
 	})
 }
 
+func TestService_SetInstallationFlagOverrides(t *testing.T) {
+	installRepo := &fakeInstallationRepository{}
+	svc := auth.NewService(installRepo, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, nil, nil, auth.NoOpAPIKeyCache{}, nil, frozenClock())
+
+	t.Run("persists a registered override", func(t *testing.T) {
+		set := flags.Overrides{Bools: map[flags.Key]bool{flags.KeyStruggleShadowEnabled: false}}
+		require.NoError(t, svc.SetInstallationFlagOverrides(context.Background(), "ext-1", "inst-1", set))
+		assert.Equal(t, set, installRepo.flagOverridesByID["inst-1"])
+	})
+
+	t.Run("an empty set clears every override", func(t *testing.T) {
+		require.NoError(t, svc.SetInstallationFlagOverrides(context.Background(), "ext-1", "inst-1", flags.Overrides{}))
+		assert.True(t, installRepo.flagOverridesByID["inst-1"].IsEmpty())
+	})
+
+	// Overrides built directly from map literals skip ParseOverrides' validation,
+	// so the Service re-checks. Persisting an unregistered key would store a value
+	// the read path then rejects, disabling every override for that org.
+	t.Run("rejects an unregistered key without writing", func(t *testing.T) {
+		bad := flags.Overrides{Bools: map[flags.Key]bool{flags.Key("not_a_flag"): true}}
+		err := svc.SetInstallationFlagOverrides(context.Background(), "ext-1", "inst-2", bad)
+		require.ErrorIs(t, err, auth.ErrFlagNotOverridable)
+		_, written := installRepo.flagOverridesByID["inst-2"]
+		assert.False(t, written)
+	})
+}
+
+func TestService_FlagOverridesDisabledEscapeHatch(t *testing.T) {
+	installRepo := &fakeInstallationRepository{}
+	newSvc := func() *auth.Service {
+		return auth.NewService(installRepo, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}, nil, nil, auth.NoOpAPIKeyCache{}, nil, frozenClock())
+	}
+
+	assert.False(t, newSvc().FlagOverridesDisabled(), "overrides are honored by default")
+	assert.True(t, newSvc().WithFlagOverridesDisabled(true).FlagOverridesDisabled())
+}
+
 // A zero-row update (stale / soft-deleted / cross-tenant id) surfaces from the
 // repo as ErrInstallationNotFound. Every Set* method must propagate it AND must
 // not invalidate the cache — otherwise the write looks successful and the next
@@ -996,6 +1233,14 @@ func TestService_WriteHooksInvalidateAndNotify(t *testing.T) {
 			"routing-preference writes must drop the cached installation so the next request sees the new dial")
 		assert.Equal(t, []string{installID}, nf.snapshot(),
 			"routing-preference writes must publish NOTIFY so peer replicas drop their cache too")
+	})
+
+	t.Run("SetInstallationShowModelSelectionReasoning", func(t *testing.T) {
+		svc, cache, nf := makeSvc()
+		err := svc.SetInstallationShowModelSelectionReasoning(context.Background(), "ext-1", installID, true)
+		require.NoError(t, err)
+		assert.Equal(t, []string{installID}, cache.invalidationSnapshot())
+		assert.Equal(t, []string{installID}, nf.snapshot())
 	})
 
 	t.Run("UpsertExternalAPIKey", func(t *testing.T) {

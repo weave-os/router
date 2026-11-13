@@ -7,9 +7,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,8 +32,17 @@ func TestApplyForceClusterHeader_AbsentIsNoOp(t *testing.T) {
 	assert.Empty(t, label)
 }
 
+func TestApplyForceClusterHeader_PlanOwnedRequestIgnoresHeader(t *testing.T) {
+	ctx := router.WithStrategy(planOwnedContext(), router.StrategyHMM)
+
+	label, err := applyForceClusterHeader(ctx, forceClusterRequest(t, "maximum"))
+
+	require.NoError(t, err)
+	assert.Empty(t, label)
+}
+
 func TestApplyForceClusterHeader_ThreadsLabelOnHMMStrategy(t *testing.T) {
-	for _, strategy := range []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding} {
+	for _, strategy := range []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding, router.StrategyHMMBeta} {
 		t.Run(string(strategy), func(t *testing.T) {
 			ctx := router.WithStrategy(context.Background(), strategy)
 
@@ -45,10 +54,10 @@ func TestApplyForceClusterHeader_ThreadsLabelOnHMMStrategy(t *testing.T) {
 	}
 }
 
-// The default cluster strategy scores anonymous centroids, so there is no named
-// group to constrain to — refusing beats serving an unconstrained model.
+// A non-HMM strategy has no named classifier group to constrain to —
+// refusing beats serving an unconstrained model.
 func TestApplyForceClusterHeader_RejectsNonSidecarStrategy(t *testing.T) {
-	ctx := router.WithStrategy(context.Background(), router.StrategyCluster)
+	ctx := router.WithStrategy(context.Background(), router.StrategyRL)
 
 	label, err := applyForceClusterHeader(ctx, forceClusterRequest(t, "maximum"))
 
@@ -68,13 +77,14 @@ func TestApplyForceClusterHeader_RejectsNonSidecarStrategy(t *testing.T) {
 func TestProxyMessages_ForceClusterOnNonSidecarStrategyRejects(t *testing.T) {
 	fr := &stripFailureRouter{}
 	fp := &stripFailureProvider{}
-	svc := NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, false, nil, nil, false,
+	svc := NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	body := `{"model":"claude-opus-4-8","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`
 	rec := httptest.NewRecorder()
 
-	err := svc.ProxyMessages(context.Background(), []byte(body), rec, forceClusterRequest(t, "maximum"))
+	ctx := router.WithStrategy(context.Background(), router.StrategyRL)
+	err := svc.ProxyMessages(ctx, []byte(body), rec, forceClusterRequest(t, "maximum"))
 
 	require.ErrorIs(t, err, ErrForcedClusterUnsupportedStrategy)
 	assert.Zero(t, fr.routeCalls, "must abort before routing runs")
@@ -103,7 +113,7 @@ func TestProxyMessages_ForceClusterReachesRouterRequest(t *testing.T) {
 		Reason:   "hmm_policy:force_cluster",
 	}}
 	fp := &stripFailureProvider{}
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, false, nil, nil, false,
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: strategy, Router: fr})
 

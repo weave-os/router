@@ -3,7 +3,7 @@ package translate
 import (
 	"testing"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,6 +30,56 @@ func TestTranslationRequirements_DetectsAnthropicPreservationSemantics(t *testin
 	assert.True(t, req.Audio)
 	assert.True(t, req.Files)
 	assert.True(t, req.CitationsOrSearch)
+	upload, err := ParseAnthropic([]byte(`{"messages":[{"role":"user","content":[{"type":"container_upload","file_id":"file_123"}]}]}`))
+	require.NoError(t, err)
+	assert.True(t, upload.TranslationRequirements(router.EndpointAnthropicMessages).Files)
+}
+
+func TestTranslationRequirements_NativeServerToolsAreStructural(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{
+			name: "Claude Code client WebSearch and WebFetch",
+			body: `{"tools":[{"name":"WebSearch","input_schema":{"type":"object"}},{"name":"WebFetch","input_schema":{"type":"object"}}]}`,
+			want: false,
+		},
+		{
+			name: "Anthropic native web search",
+			body: `{"tools":[{"type":"web_search_20250305","name":"web_search"}]}`,
+			want: true,
+		},
+		{
+			name: "newer Anthropic web search revisions",
+			body: `{"tools":[{"type":"web_search_20260209","name":"web_search"},{"type":"web_search_20260318","name":"web_search"}]}`,
+			want: true,
+		},
+		{
+			name: "MCP tool named web_search",
+			body: `{"tools":[{"name":"web_search","input_schema":{"type":"object"}}]}`,
+			want: false,
+		},
+		{
+			name: "prior tool use only",
+			body: `{"messages":[{"role":"assistant","content":[{"type":"tool_use","name":"web_search","id":"toolu_1","input":{}}]}]}`,
+			want: false,
+		},
+		{
+			name: "user text only",
+			body: `{"messages":[{"role":"user","content":"please inspect the literal string web_search"}]}`,
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env, err := ParseAnthropic([]byte(tt.body))
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, env.TranslationRequirements(router.EndpointAnthropicMessages).CitationsOrSearch)
+		})
+	}
 }
 
 func TestTranslationRequirements_DetectsOpenAIMediaAndSearch(t *testing.T) {

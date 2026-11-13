@@ -1,0 +1,131 @@
+package policy
+
+import (
+	"context"
+	"errors"
+
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/escalation"
+)
+
+func (r *SidecarRouter) selectEscalationArm(ctx context.Context, req router.Request, input SelectionInput, resolved ResolvedCandidates, constrained bool) (SelectionPick, error) {
+	pick, err := r.armSelector(ctx, input)
+	if !constrained || (err != nil && !errors.Is(err, ErrNoEligibleArm)) {
+		return pick, err
+	}
+	group := pick.Group
+	if group == "" {
+		group = input.ForcedGroup
+	}
+	overrides := escalationArmOverrides(req.ClusterArmOverrides, group)
+	if _, hasOverride := overrides[group]; !hasOverride {
+		return pick, err
+	}
+	// Key-configured arms may extend the artifact roster. Preserve that explicit
+	// order, but only inside the successfully constrained class.
+	override, overrideErr := ApplyClusterArmOverridesRequireMatch(overrides, pick.RankedFallback, resolved, pick.Arm, group)
+	if overrideErr != nil {
+		return SelectionPick{}, ErrNoEligibleArm
+	}
+	pick.Group = override.Group
+	pick.Arm = override.RosterID
+	return pick, nil
+}
+
+// escalationArmOverrides serves the key's escalation target list in place of
+// each escalated group's list; without a target the overrides are unchanged.
+func escalationArmOverrides(overrides map[string][]string, groups ...string) map[string][]string {
+	target, hasTarget := overrides[escalation.TargetClusterLabel]
+	if !hasTarget {
+		return overrides
+	}
+	escalated := make(map[string][]string, len(groups))
+	for _, group := range groups {
+		escalated[group] = target
+	}
+	return escalated
+}
+
+func constrainEscalation(req router.Request, input SelectionInput, resolved ResolvedCandidates) (SelectionInput, *escalation.Decision, bool) {
+	if req.Escalation == nil || req.ForceCluster != "" || req.ForceModel != "" {
+		return input, nil, false
+	}
+	base := escalation.Group(input.PredictedLabel)
+	if escalation.Rank(base) < 0 {
+		return input, nil, false
+	}
+	effective := escalation.Higher(base, req.Escalation.Floor)
+	decision := &escalation.Decision{Baseline: base, Effective: effective, Outcome: escalation.OutcomeBelowThreshold}
+	hasFloor := escalation.Rank(req.Escalation.Floor) >= 0
+	if hasFloor {
+		decision.Outcome = escalation.OutcomeFloor
+	}
+	if req.Escalation.Escalate {
+		if effective == escalation.Maximum {
+			decision.Outcome = escalation.OutcomeMaximum
+		} else {
+			effective = escalation.Maximum
+			decision.Effective = effective
+			decision.Outcome = escalation.OutcomePromoted
+		}
+	}
+	if !hasFloor && decision.Outcome != escalation.OutcomePromoted {
+		return input, decision, false
+	}
+	if constrained, available := escalationGroupInput(req, input, resolved, effective); available {
+		return constrained, decision, true
+	}
+	return fallbackEscalation(req, input, resolved, decision)
+}
+
+// A failed increment can retain an earlier floor; exhausting that floor returns
+// to ordinary routing without claiming that the constraint was applied.
+func fallbackEscalation(req router.Request, input SelectionInput, resolved ResolvedCandidates, decision *escalation.Decision) (SelectionInput, *escalation.Decision, bool) {
+	failedGroup := decision.Effective
+	decision.Constrained = false
+	decision.Outcome = escalation.OutcomeNoTarget
+	if escalation.Rank(req.Escalation.Floor) >= 0 {
+		floorGroup := escalation.Higher(decision.Baseline, req.Escalation.Floor)
+		if floorGroup != failedGroup {
+			if constrained, available := escalationGroupInput(req, input, resolved, floorGroup); available {
+				decision.Effective = floorGroup
+				return constrained, decision, true
+			}
+		}
+	}
+	decision.Effective = decision.Baseline
+	return input, decision, false
+}
+
+// slidingThresholdGroupInput leads selection with the step group when the
+// sliding threshold moves the session part of the way toward the classified
+// group. The classifier's ranking stays behind it, so higher groups remain in
+// the fallback and rescue order.
+func slidingThresholdGroupInput(req router.Request, input SelectionInput) SelectionInput {
+	if req.SlidingThresholdPinGroup == "" || req.ForceCluster != "" || input.ForcedGroup != "" {
+		return input
+	}
+	classified := escalation.Group(input.PredictedLabel)
+	probability, scored := input.ClassProbabilities[input.PredictedLabel]
+	if !scored {
+		return input
+	}
+	target, covered := escalation.SlidingThresholdTarget(req.SlidingThresholdPinGroup, classified, probability)
+	if !covered || target == "" || target == classified {
+		return input
+	}
+	if _, classifiable := input.ClassProbabilities[string(target)]; !classifiable {
+		return input
+	}
+	input.LeadGroup = string(target)
+	return input
+}
+
+func escalationGroupInput(_ router.Request, input SelectionInput, _ ResolvedCandidates, effective escalation.Group) (SelectionInput, bool) {
+	group := string(effective)
+	if _, classified := input.ClassProbabilities[group]; classified {
+		input.ForcedGroup = group
+		return input, true
+	}
+	return input, false
+}

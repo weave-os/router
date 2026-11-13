@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/httputil"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/timing"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/httputil"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/timing"
+	"weave-os/router/internal/translate"
 )
 
 // NativeBaseURL is Google's native Generative Language base URL.
@@ -45,7 +45,7 @@ func NewNativeClient(apiKey, baseURL string) *NativeClient {
 	return &NativeClient{
 		apiKey:  apiKey,
 		baseURL: baseURL,
-		http:    &http.Client{Transport: httputil.NewTransport(5*time.Second, 5*time.Second)},
+		http:    httputil.NewClient(httputil.NewTransport(5*time.Second, 5*time.Second)),
 	}
 }
 
@@ -92,7 +92,7 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 		method = ":streamGenerateContent"
 		query = "?alt=sse"
 	}
-	url := proxy.EffectiveBaseURL(ctx, c.baseURL) + "/v1beta/models/" + proxy.EffectiveUpstreamModel(ctx, decision.Model) + method + query
+	url := requestcontext.EffectiveBaseURL(ctx, c.baseURL) + "/v1beta/models/" + requestcontext.EffectiveUpstreamModel(ctx, decision.Model) + method + query
 
 	upstream, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(prep.Body))
 	if err != nil {
@@ -103,7 +103,8 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
-	proxy.ApplyIdentityHeader(ctx, upstream)
+	requestcontext.ApplyIdentityHeader(ctx, upstream)
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if stream {
 		upstream.Header.Set("Accept", "text/event-stream")
 	}
@@ -120,7 +121,7 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 
 	if resp.StatusCode >= 400 {
 		// Caller decides retry vs render; do not commit the downstream writer.
-		body, _, readErr := httputil.ReadCapped(resp.Body, providers.MaxBufferedErrorBytes)
+		body, totalRead, readErr := httputil.ReadCapped(resp.Body, providers.MaxBufferedErrorBytes)
 		if len(body) > 0 {
 			t.StampUpstreamFirstByte()
 		}
@@ -130,9 +131,11 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 		headers := http.Header{}
 		providers.CopyUpstreamHeaders(httputil.HeaderCapture{H: headers}, resp)
 		return &providers.UpstreamErrorResponse{
-			Status:  resp.StatusCode,
-			Headers: headers,
-			Body:    body,
+			Status:     resp.StatusCode,
+			Headers:    headers,
+			Body:       body,
+			BodyBytes:  totalRead,
+			BodyCapped: totalRead > int64(len(body)),
 		}
 	}
 
@@ -151,7 +154,7 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 	// byte-idle-guarded only.
 	if arm, ok := w.(providers.OutputProgressArmer); ok {
 		outMark, outStop := httputil.StartIdleWatchdogCause(ctx, cancel, c.outputStallTimeout(), httputil.ErrUpstreamOutputStall)
-		if arm.ArmOutputProgress(outMark) {
+		if arm.ArmOutputProgress(timing.FirstOutputMark(ctx, outMark)) {
 			defer outStop()
 		} else {
 			outStop()
@@ -169,7 +172,7 @@ func (c *NativeClient) Passthrough(ctx context.Context, prep providers.PreparedR
 	} else if !strings.HasPrefix(suffix, "/v1beta") {
 		suffix = "/v1beta" + suffix
 	}
-	url := proxy.EffectiveBaseURL(ctx, c.baseURL) + suffix
+	url := requestcontext.EffectiveBaseURL(ctx, c.baseURL) + suffix
 	if r.URL.RawQuery != "" {
 		url += "?" + r.URL.RawQuery
 	}
@@ -185,6 +188,7 @@ func (c *NativeClient) Passthrough(ctx context.Context, prep providers.PreparedR
 	for k, vs := range prep.Headers {
 		upstream.Header[http.CanonicalHeaderKey(k)] = vs
 	}
+	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("Accept"); v != "" {
 		upstream.Header.Set("Accept", v)
 	}
@@ -198,7 +202,7 @@ func (c *NativeClient) Passthrough(ctx context.Context, prep providers.PreparedR
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	if resp.StatusCode >= 400 {
-		return httputil.WritePassthroughError(w, resp, nil, nil, "Upstream Google returned error status (passthrough)", "path", r.URL.Path)
+		return httputil.WritePassthroughError(r.Context(), w, resp, nil, nil, "Upstream Google returned error status (passthrough)", "path", r.URL.Path)
 	}
 	_, err = io.Copy(w, resp.Body)
 	return err
@@ -206,7 +210,7 @@ func (c *NativeClient) Passthrough(ctx context.Context, prep providers.PreparedR
 
 // applyAPIKey sets x-goog-api-key, preferring BYOK credentials over the deployment-level key.
 func (c *NativeClient) applyAPIKey(ctx context.Context, req *http.Request) {
-	if creds := proxy.CredentialsFromContext(ctx); creds != nil && len(creds.APIKey) > 0 {
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil && len(creds.APIKey) > 0 {
 		req.Header.Set("x-goog-api-key", string(creds.APIKey))
 		return
 	}

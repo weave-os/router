@@ -25,9 +25,9 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
 
-	"workweave/router/internal/config"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/version"
+	"weave-os/router/internal/config"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/version"
 )
 
 // serviceName is the resource attribute the SigNoz UI groups spans + metrics
@@ -41,7 +41,9 @@ var (
 )
 
 // Init wires the OTel SDK against the SigNoz collector using
-// WV_APM_OTLP_ENDPOINT (host:port for OTLP/gRPC). Empty = no-op. Idempotent.
+// WV_APM_OTLP_ENDPOINT (host:port for OTLP/gRPC). With an empty endpoint it
+// still enables W3C trace-context propagation but does not export telemetry.
+// Idempotent.
 // Mirrors backend/internal/app/telemetry/otel.go's init() so the router
 // reports the same resource attribute shape as the rest of Weave.
 func Init() {
@@ -50,6 +52,11 @@ func Init() {
 
 func initLocked() {
 	log := observability.Get()
+
+	// Configure extraction/injection even when exporting is disabled. This
+	// keeps distributed trace headers flowing through the router in no-op APM
+	// deployments, and lets request logs retain an inbound parent trace.
+	otel.SetTextMapPropagator(propagation.TraceContext{})
 
 	endpoint := config.GetOr("WV_APM_OTLP_ENDPOINT", "")
 	if endpoint == "" {
@@ -91,11 +98,6 @@ func initLocked() {
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 	)
 	otel.SetTracerProvider(tracerProvider)
-
-	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
-		propagation.TraceContext{},
-		propagation.Baggage{},
-	))
 
 	metricExporter, err := otlpmetricgrpc.New(ctx, metricGRPCOpts(endpoint, insecure)...)
 	if err != nil {
@@ -149,7 +151,7 @@ func Middleware() gin.HandlerFunc {
 		serviceName,
 		otelgin.WithGinFilter(func(c *gin.Context) bool {
 			path := c.FullPath()
-			return path != "/health" && path != "/readyz" && path != "/validate"
+			return path != "/health" && path != "/readyz" && path != "/startupz" && path != "/validate"
 		}),
 	)
 }

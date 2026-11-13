@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"workweave/router/internal/sse"
+	"weave-os/router/internal/sse"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -29,7 +29,8 @@ type GeminiRoutingFooterWriter struct {
 
 	footer string
 
-	buf bytes.Buffer
+	buf     bytes.Buffer
+	scanner sse.Scanner
 
 	streaming       bool
 	headersEmitted  bool
@@ -61,12 +62,13 @@ func (w *GeminiRoutingFooterWriter) WriteHeader(code int) {
 	ct := w.inner.Header().Get("Content-Type")
 	w.streaming = strings.Contains(ct, "text/event-stream") && code < 400
 	w.headersEmitted = true
+	sse.PrepareJSONResponse(w.inner)
 	w.inner.WriteHeader(code)
 }
 
 func (w *GeminiRoutingFooterWriter) Write(data []byte) (int, error) {
 	if !w.streaming || w.footer == "" {
-		return w.inner.Write(data)
+		return sse.WriteJSONChunk(w.inner, data)
 	}
 	return w.processUpstream(data)
 }
@@ -84,7 +86,7 @@ func (w *GeminiRoutingFooterWriter) Flush() {
 func (w *GeminiRoutingFooterWriter) processUpstream(data []byte) (int, error) {
 	w.buf.Write(data)
 	for {
-		event, n := sse.SplitNext(w.buf.Bytes())
+		event, n := w.scanner.Next(w.buf.Bytes())
 		if n == 0 {
 			break
 		}

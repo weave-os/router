@@ -9,7 +9,7 @@ const shortLen = 7
 
 var (
 	// Commit is the git SHA the binary was built from. Overridden at build
-	// time with `-ldflags "-X workweave/router/internal/version.Commit=<sha>"`.
+	// time with `-ldflags "-X weave-os/router/internal/version.Commit=<sha>"`.
 	Commit = "unknown"
 	// BuildTime is the RFC3339 UTC build timestamp, stamped the same way.
 	BuildTime = "unknown"

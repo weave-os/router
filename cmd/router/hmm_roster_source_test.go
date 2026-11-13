@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -11,7 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/router/cluster"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/router"
 )
 
 type stubRosterFetcher struct {
@@ -52,6 +55,104 @@ func TestHMMRosterSource_MapsAndCaches(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, first, second)
 	assert.Equal(t, int64(1), fetch.calls.Load())
+}
+
+type stubActivePolicyFetcher struct {
+	*stubRosterFetcher
+	active atomic.Pointer[policyregistry.Snapshot]
+}
+
+func (s *stubActivePolicyFetcher) Active() *policyregistry.Snapshot { return s.active.Load() }
+
+func TestHMMRosterSource_RefetchesWhenActivePolicyChanges(t *testing.T) {
+	fetch := &stubActivePolicyFetcher{stubRosterFetcher: &stubRosterFetcher{ids: []string{"openai/gpt-5.6-sol"}}}
+	fetch.active.Store(&policyregistry.Snapshot{})
+	src := newHMMRosterSource(fetch, 0)
+
+	_, err := src.HMMDeployedModels(context.Background())
+	require.NoError(t, err)
+
+	fetch.ids = []string{"anthropic/claude-opus-5"}
+	fetch.active.Store(&policyregistry.Snapshot{})
+	updated, err := src.HMMDeployedModels(context.Background())
+	require.NoError(t, err)
+	require.Len(t, updated, 1)
+	assert.Equal(t, "claude-opus-5", updated[0].Model, "a newly activated policy must not wait out the TTL")
+	assert.Equal(t, int64(2), fetch.calls.Load())
+}
+
+// countingHandler counts records at or above WARN; slog.Handler for tests.
+type countingHandler struct {
+	warns atomic.Int64
+}
+
+func (h *countingHandler) Enabled(context.Context, slog.Level) bool { return true }
+func (h *countingHandler) Handle(_ context.Context, r slog.Record) error {
+	if r.Level >= slog.LevelWarn {
+		h.warns.Add(1)
+	}
+	return nil
+}
+func (h *countingHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+func (h *countingHandler) WithGroup(string) slog.Handler      { return h }
+
+func TestHMMRosterSource_WarnsOncePerRosterOnInvalidArms(t *testing.T) {
+	fetch := &stubRosterFetcher{ids: []string{"openai/gpt-5.6-sol", "newvendor/model-x"}}
+	src := newHMMRosterSource(fetch, 0)
+	handler := &countingHandler{}
+	ctx := observability.WithLogger(context.Background(), slog.New(handler))
+
+	entries, err := src.HMMDeployedModels(ctx)
+	require.NoError(t, err)
+	// Serving behavior is unchanged: the unknown arm is still silently dropped.
+	require.Len(t, entries, 1)
+	assert.Equal(t, "gpt-5.6-sol", entries[0].Model)
+	assert.Equal(t, int64(1), handler.warns.Load())
+
+	// A repeated refresh of the same roster must not warn again.
+	src.mu.Lock()
+	src.fetchedAt = src.fetchedAt.Add(-2 * hmmRosterTTL)
+	src.mu.Unlock()
+	_, err = src.HMMDeployedModels(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), handler.warns.Load())
+
+	// A different roster with invalid arms warns anew.
+	fetch.ids = []string{"openai/gpt-5.6-sol", "othervendor/model-y"}
+	src.mu.Lock()
+	src.fetchedAt = src.fetchedAt.Add(-2 * hmmRosterTTL)
+	src.mu.Unlock()
+	_, err = src.HMMDeployedModels(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), handler.warns.Load())
+
+	// A clean roster resets the dedup key...
+	fetch.ids = []string{"openai/gpt-5.6-sol"}
+	src.mu.Lock()
+	src.fetchedAt = src.fetchedAt.Add(-2 * hmmRosterTTL)
+	src.mu.Unlock()
+	_, err = src.HMMDeployedModels(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), handler.warns.Load())
+
+	// ...so the same invalid roster reappearing warns again.
+	fetch.ids = []string{"openai/gpt-5.6-sol", "othervendor/model-y"}
+	src.mu.Lock()
+	src.fetchedAt = src.fetchedAt.Add(-2 * hmmRosterTTL)
+	src.mu.Unlock()
+	_, err = src.HMMDeployedModels(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), handler.warns.Load())
+}
+
+func TestHMMRosterSource_ValidRosterEmitsNoWarn(t *testing.T) {
+	fetch := &stubRosterFetcher{ids: []string{"openai/gpt-5.6-sol"}}
+	src := newHMMRosterSource(fetch, 0)
+	handler := &countingHandler{}
+
+	_, err := src.HMMDeployedModels(observability.WithLogger(context.Background(), slog.New(handler)))
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), handler.warns.Load())
 }
 
 func TestHMMRosterSource_UsesConfiguredFetchTimeout(t *testing.T) {
@@ -115,7 +216,7 @@ func TestHMMRosterSource_CallerCancelDoesNotAbortSharedFetch(t *testing.T) {
 
 	cancelCtx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
-	var liveEntries []cluster.DeployedEntry
+	var liveEntries []router.DeployedEntry
 	var liveErr error
 
 	wg.Add(2)

@@ -2,8 +2,10 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -25,15 +27,26 @@ type ExternalAPIKey struct {
 	// IdentityHeader and IdentityHeaderFormat name and shape the header sent to this key's endpoint; empty forwards nothing.
 	IdentityHeader       string
 	IdentityHeaderFormat string
+	// ForwardedClientHeaders are inbound client header names copied verbatim to this key's endpoint.
+	ForwardedClientHeaders []string
+	// BaggageHeader is this endpoint's JSON baggage header, re-emitted with the
+	// caller's email under on-behalf-of; empty forwards nothing.
+	BaggageHeader string
 	// AuthType is how Plaintext authenticates upstream; see AuthType* constants.
-	AuthType string
-	// AuthAccount and AuthUser identify the principal a minted JWT is issued
-	// for; empty unless AuthType is AuthTypeKeypairJWT. Under AuthTypeWIF the
-	// principal comes from the attestation, so both stay empty.
+	AuthType         AuthType
+	FederationConfig *AnthropicFederationConfig
+	// CredentialError marks a failed derived credential for this request only.
+	// It must never be persisted or replaced by a deployment credential.
+	CredentialError error
+	// AuthAccount and AuthUser identify the upstream principal; empty unless
+	// AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
 	AuthAccount string
 	AuthUser    string
-	CreatedAt   time.Time
-	LastUsedAt  *time.Time
+	// FundingPriority orders this key against the caller's subscription for
+	// the same provider; see FundingPriority*.
+	FundingPriority FundingPriority
+	CreatedAt       time.Time
+	LastUsedAt      *time.Time
 	// Plaintext is populated after decrypt; never logged.
 	Plaintext []byte
 }
@@ -52,19 +65,60 @@ type CreateExternalAPIKeyParams struct {
 	// IdentityHeader and IdentityHeaderFormat are set or cleared together.
 	IdentityHeader       *string
 	IdentityHeaderFormat *string
-	AuthType             string
-	// AuthAccount and AuthUser are required for AuthTypeKeypairJWT, nil otherwise.
-	AuthAccount *string
-	AuthUser    *string
-	CreatedBy   *string
+	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough; nil forwards nothing.
+	ForwardedClientHeaders []string
+	BaggageHeader          *string
+	FederationConfig       *AnthropicFederationConfig
+	AuthType               AuthType
+	// AuthAccount and AuthUser identify the upstream principal; empty unless
+	// AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
+	AuthAccount     *string
+	AuthUser        *string
+	FundingPriority FundingPriority
+	CreatedBy       *string
 }
 
-// AuthTypeBearer sends the secret verbatim; AuthTypeKeypairJWT signs a short-lived JWT with it;
-// AuthTypeWIF stores no secret and attests the router's own workload identity per request.
+// FundingPriority orders a provider key against the caller's subscription
+// (Claude or ChatGPT plan) for the same provider.
+type FundingPriority string
+
 const (
-	AuthTypeBearer     = "bearer"
-	AuthTypeKeypairJWT = "keypair_jwt"
-	AuthTypeWIF        = "wif"
+	// FundingPriorityKeyFirst spends the key before any subscription, so a
+	// subscriber's turns bill to the key instead of their plan.
+	FundingPriorityKeyFirst FundingPriority = "key_first"
+	// FundingPriorityPlanFirst spends the key only when no subscription can
+	// serve the turn: a request from another provider's harness, or a plan
+	// that is suppressed or exhausted.
+	FundingPriorityPlanFirst FundingPriority = "plan_first"
+)
+
+// ErrInvalidFundingPriority is returned for any priority outside the FundingPriority constants; the admin API maps it to HTTP 400.
+var ErrInvalidFundingPriority = errors.New("funding priority must be key_first or plan_first")
+
+// NormalizeFundingPriority defaults an empty value to plan-first, the policy
+// for newly connected keys.
+func NormalizeFundingPriority(p FundingPriority) (FundingPriority, error) {
+	switch p {
+	case "", FundingPriorityPlanFirst:
+		return FundingPriorityPlanFirst, nil
+	case FundingPriorityKeyFirst:
+		return FundingPriorityKeyFirst, nil
+	}
+	return "", ErrInvalidFundingPriority
+}
+
+// AuthType selects how a stored provider credential authenticates upstream.
+type AuthType string
+
+const (
+	AuthTypeBearer     AuthType = "bearer"
+	AuthTypeKeypairJWT AuthType = "keypair_jwt"
+	// AuthTypeAzureEntra exchanges the stored client secret for a short-lived Entra token;
+	// AuthAccount is the tenant ID, AuthUser is the client ID.
+	AuthTypeAzureEntra AuthType = "azure_entra"
+	AuthTypeWIF        AuthType = "wif"
+	// AuthTypeAnthropicWIF exchanges an OIDC assertion for a native Anthropic API token.
+	AuthTypeAnthropicWIF AuthType = "anthropic_wif"
 )
 
 // Identity header formats. IdentityFormatEmail sends the bare address;
@@ -77,14 +131,60 @@ const (
 // maxIdentityHeaderNameLength bounds the configured field name.
 const maxIdentityHeaderNameLength = 128
 
-// headersRejectedForIdentity are request-critical headers a tenant must not redirect identity into.
-var headersRejectedForIdentity = map[string]struct{}{
-	"authorization":  {},
-	"x-api-key":      {},
-	"host":           {},
-	"content-type":   {},
-	"content-length": {},
-	"accept":         {},
+const (
+	weaveHeaderPrefix     = "x-weave-"
+	forwardedHeaderPrefix = "x-forwarded-"
+)
+
+// protectedForwardingHeaders are request-control, credential, metadata, and
+// framing fields that tenant configuration must never read or overwrite.
+var protectedForwardingHeaders = map[string]struct{}{
+	"accept":                               {},
+	"accept-encoding":                      {},
+	"anthropic-beta":                       {},
+	"anthropic-version":                    {},
+	"api-key":                              {},
+	"authentication":                       {},
+	"authentication-info":                  {},
+	"authorization":                        {},
+	"chatgpt-account-id":                   {},
+	"connection":                           {},
+	"content-encoding":                     {},
+	"content-length":                       {},
+	"content-type":                         {},
+	"cookie":                               {},
+	"forwarded":                            {},
+	"host":                                 {},
+	"keep-alive":                           {},
+	"metadata":                             {},
+	"metadata-flavor":                      {},
+	"ocp-apim-subscription-key":            {},
+	"openai-organization":                  {},
+	"openai-project":                       {},
+	"proxy-authenticate":                   {},
+	"proxy-authorization":                  {},
+	"proxy-connection":                     {},
+	"set-cookie":                           {},
+	"te":                                   {},
+	"trailer":                              {},
+	"transfer-encoding":                    {},
+	"upgrade":                              {},
+	"www-authenticate":                     {},
+	"x-access-token":                       {},
+	"x-amz-content-sha256":                 {},
+	"x-amz-date":                           {},
+	"x-amz-security-token":                 {},
+	"x-amz-target":                         {},
+	"x-api-key":                            {},
+	"x-auth-token":                         {},
+	"x-authentication":                     {},
+	"x-aws-ec2-metadata-token":             {},
+	"x-aws-ec2-metadata-token-ttl-seconds": {},
+	"x-goog-api-key":                       {},
+	"x-goog-metadata-request":              {},
+	"x-real-ip":                            {},
+	"x-original-url":                       {},
+	"x-rewrite-url":                        {},
 }
 
 // NormalizeIdentityHeader validates the header name and format; both nil clears forwarding.
@@ -107,13 +207,114 @@ func NormalizeIdentityHeader(name, format *string) (*string, *string, error) {
 	if !validHeaderName(trimmedName) {
 		return nil, nil, fmt.Errorf("%w: %q is not a valid header name", ErrInvalidIdentityHeader, trimmedName)
 	}
-	if _, rejected := headersRejectedForIdentity[strings.ToLower(trimmedName)]; rejected {
+	if !IsSafeForwardingHeader(trimmedName) {
 		return nil, nil, fmt.Errorf("%w: %q is reserved", ErrInvalidIdentityHeader, trimmedName)
 	}
 	if trimmedFormat != IdentityFormatEmail && trimmedFormat != IdentityFormatJSON {
 		return nil, nil, fmt.Errorf("%w: unknown format %q", ErrInvalidIdentityHeader, trimmedFormat)
 	}
 	return &trimmedName, &trimmedFormat, nil
+}
+
+// maxForwardedClientHeaders bounds one key's passthrough list: enough for a
+// vendor's correlation header set, small enough to keep the auth cache tidy.
+const maxForwardedClientHeaders = 16
+
+// NormalizeForwardedClientHeaders validates and de-duplicates header names; returns nil when none
+// survive so "forwards nothing" has one canonical representation.
+func NormalizeForwardedClientHeaders(raw []string) ([]string, error) {
+	if len(raw) > maxForwardedClientHeaders {
+		return nil, fmt.Errorf("%w: %d headers exceeds the limit of %d", ErrInvalidForwardedHeader, len(raw), maxForwardedClientHeaders)
+	}
+	out := make([]string, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, name := range raw {
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if err := validateForwardableHeader(name); err != nil {
+			return nil, err
+		}
+		lower := strings.ToLower(name)
+		if _, dup := seen[lower]; dup {
+			continue
+		}
+		seen[lower] = struct{}{}
+		out = append(out, name)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+// NormalizeBaggageHeader validates the JSON baggage header name this endpoint
+// reads; nil or blank forwards nothing.
+func NormalizeBaggageHeader(raw *string) (*string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return nil, nil
+	}
+	if err := validateForwardableHeader(trimmed); err != nil {
+		return nil, err
+	}
+	return &trimmed, nil
+}
+
+// ValidateForwardingHeaderConfiguration rejects collisions between the three
+// configurable destinations so runtime behavior never depends on write order.
+func ValidateForwardingHeaderConfiguration(forwarded []string, baggage, identity string) error {
+	seen := make(map[string]struct{}, len(forwarded)+2)
+	for _, name := range forwarded {
+		lowerName := strings.ToLower(name)
+		if _, duplicate := seen[lowerName]; duplicate {
+			return fmt.Errorf("%w: header destinations must be distinct", ErrInvalidForwardedHeader)
+		}
+		seen[lowerName] = struct{}{}
+	}
+	for _, name := range []string{baggage, identity} {
+		if name == "" {
+			continue
+		}
+		lowerName := strings.ToLower(name)
+		if _, collision := seen[lowerName]; collision {
+			return fmt.Errorf("%w: header destinations must be distinct", ErrInvalidForwardedHeader)
+		}
+		seen[lowerName] = struct{}{}
+	}
+	return nil
+}
+
+// validateForwardableHeader rejects malformed names and the request-critical
+// ones a caller could otherwise use to redirect its own credentials upstream.
+func validateForwardableHeader(name string) error {
+	if !IsSafeForwardingHeader(name) {
+		if !validHeaderName(name) {
+			return fmt.Errorf("%w: %q is not a valid header name", ErrInvalidForwardedHeader, name)
+		}
+		return fmt.Errorf("%w: %q is reserved", ErrInvalidForwardedHeader, name)
+	}
+	return nil
+}
+
+// IsSafeForwardingHeader reports whether name may be used as a configurable
+// forwarding, baggage, or identity destination at runtime.
+func IsSafeForwardingHeader(name string) bool {
+	if name == "" || strings.TrimSpace(name) != name || !validHeaderName(name) {
+		return false
+	}
+	lowerName := strings.ToLower(name)
+	if strings.HasPrefix(lowerName, weaveHeaderPrefix) || strings.HasPrefix(lowerName, forwardedHeaderPrefix) {
+		return false
+	}
+	if _, protected := protectedForwardingHeaders[lowerName]; protected {
+		return false
+	}
+	return true
 }
 
 // headerNameChars are the RFC 9110 token characters a field name may contain.
@@ -175,23 +376,41 @@ func NormalizeBaseURL(raw *string) (*string, error) {
 	if trimmed == "" {
 		return nil, nil
 	}
+	if strings.ContainsAny(trimmed, "?#") {
+		return nil, ErrInvalidBaseURL
+	}
 	parsed, err := url.Parse(trimmed)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %q", ErrInvalidBaseURL, trimmed)
+		return nil, ErrInvalidBaseURL
 	}
-	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-		return nil, fmt.Errorf("%w: %q", ErrInvalidBaseURL, trimmed)
+	if (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.Hostname() == "" ||
+		parsed.User != nil || parsed.Opaque != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" ||
+		!validBaseURLPort(parsed) {
+		return nil, ErrInvalidBaseURL
 	}
 	return &trimmed, nil
+}
+
+func validBaseURLPort(parsed *url.URL) bool {
+	if strings.HasSuffix(parsed.Host, ":") {
+		return false
+	}
+	port := parsed.Port()
+	if port == "" {
+		return true
+	}
+	portNumber, err := strconv.Atoi(port)
+	return err == nil && portNumber >= 1 && portNumber <= 65535
 }
 
 // maxKeypairFieldLength bounds the account and user identifiers.
 const maxKeypairFieldLength = 255
 
 // NormalizeAuthType validates authType with its account/user pair. Empty defaults to bearer;
-// keypair_jwt uppercases principal fields; wif accepts neither (the attestation names the principal).
-func NormalizeAuthType(authType string, account, user *string) (string, *string, *string, error) {
-	normalized := strings.ToLower(strings.TrimSpace(authType))
+// keypair_jwt uppercases principal fields; azure_entra preserves the tenant and client IDs;
+// wif accepts neither because the attestation names the principal.
+func NormalizeAuthType(authType AuthType, account, user *string) (AuthType, *string, *string, error) {
+	normalized := AuthType(strings.ToLower(strings.TrimSpace(string(authType))))
 	// An account locator carries its region as dotted suffixes; the JWT claims
 	// want the bare locator. Org-qualified identifiers are hyphenated and unaffected.
 	upperAccount, _, _ := strings.Cut(strings.ToUpper(trimmedValue(account)), ".")
@@ -199,7 +418,18 @@ func NormalizeAuthType(authType string, account, user *string) (string, *string,
 	if normalized == "" {
 		normalized = AuthTypeBearer
 	}
-	if normalized == AuthTypeBearer || normalized == AuthTypeWIF {
+	if normalized == AuthTypeAzureEntra {
+		tenantID := strings.TrimSpace(trimmedValue(account))
+		clientID := strings.TrimSpace(trimmedValue(user))
+		if tenantID == "" || clientID == "" {
+			return "", nil, nil, fmt.Errorf("%w: %s needs both a tenant ID and a client ID", ErrInvalidEntraAuth, AuthTypeAzureEntra)
+		}
+		if len(tenantID) > maxKeypairFieldLength || len(clientID) > maxKeypairFieldLength {
+			return "", nil, nil, fmt.Errorf("%w: tenant ID and client ID are limited to %d characters", ErrInvalidEntraAuth, maxKeypairFieldLength)
+		}
+		return normalized, &tenantID, &clientID, nil
+	}
+	if normalized == AuthTypeBearer || normalized == AuthTypeWIF || normalized == AuthTypeAnthropicWIF {
 		if upperAccount != "" || upperUser != "" {
 			return "", nil, nil, fmt.Errorf("%w: account and user apply to %s only", ErrInvalidKeypairAuth, AuthTypeKeypairJWT)
 		}
@@ -233,6 +463,10 @@ type ExternalAPIKeyRepository interface {
 	SoftDeleteByProvider(ctx context.Context, installationID, provider string) error
 	// UpdateModelAliases replaces one key's alias map, leaving the stored secret untouched.
 	UpdateModelAliases(ctx context.Context, installationID, id string, aliases map[string]string) (*ExternalAPIKey, error)
+	// UpdateFundingPriority sets one key's FundingPriority, leaving the stored secret untouched.
+	UpdateFundingPriority(ctx context.Context, installationID, id string, priority FundingPriority) (*ExternalAPIKey, error)
+	// ActiveFundingPriority returns "" when the provider has no active key.
+	ActiveFundingPriority(ctx context.Context, installationID, provider string) (FundingPriority, error)
 	SoftDelete(ctx context.Context, installationID, id string) error
 	MarkUsed(ctx context.Context, id string) error
 }

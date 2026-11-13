@@ -4,8 +4,8 @@ import (
 	"io"
 	"net/http"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/proxy"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,6 +21,7 @@ func PassthroughHandler(svc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 		if len(body) > proxy.MaxRequestBodyBytes {
+			logOversizeBody(log, c.Request)
 			writeAnthropicError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body too large.")
 			return
 		}
@@ -35,14 +36,14 @@ func PassthroughHandler(svc *proxy.Service) gin.HandlerFunc {
 				return
 			}
 			if c.Writer.Written() {
-				log.Error("Passthrough failed mid-stream", "err", err, "path", c.Request.URL.Path)
+				log.Error("Passthrough failed mid-stream", "err", err)
 				return
 			}
 			if ok && cls.Kind == proxy.DispatchErrorNotImplemented {
 				writeAnthropicError(c, cls.Status, anthropicErrorType(cls.Kind), cls.Message)
 				return
 			}
-			log.Error("Passthrough failed", "err", err, "path", c.Request.URL.Path)
+			log.Error("Passthrough failed", "err", err)
 			writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream call failed.")
 			return
 		}

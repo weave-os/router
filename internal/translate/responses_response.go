@@ -3,7 +3,8 @@ package translate
 import (
 	"fmt"
 
-	"workweave/router/internal/translate/toolcheck"
+	"weave-os/router/internal/translate/toolcheck"
+	"weave-os/router/internal/usage"
 
 	"github.com/tidwall/gjson"
 )
@@ -12,8 +13,8 @@ import (
 // `response` object into a non-streaming Anthropic Messages response. The
 // Responses `output` array carries reasoning / message / function_call items,
 // which map to Anthropic thinking / text / tool_use content blocks.
-func ResponsesToAnthropicResponse(body []byte, requestModel string) ([]byte, error) {
-	out, _, err := responsesToAnthropicResponse(body, requestModel, nil)
+func ResponsesToAnthropicResponse(body []byte, requestModel, reasoningScope string) ([]byte, error) {
+	out, _, err := responsesToAnthropicResponse(body, requestModel, reasoningScope, nil, usage.ParseOpenAI(gjson.GetBytes(body, "usage")), 1)
 	return out, err
 }
 
@@ -21,7 +22,7 @@ func ResponsesToAnthropicResponse(body []byte, requestModel string) ([]byte, err
 // inputs are checked (and safely repaired) against the request's tool schemas
 // via toolValidator, with one toolcheck.Issue returned per offending block. A
 // nil validator degrades to syntax-check-only.
-func responsesToAnthropicResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator) ([]byte, []toolcheck.Issue, error) {
+func responsesToAnthropicResponse(body []byte, requestModel, reasoningScope string, toolValidator *toolcheck.Validator, facts usage.Facts, clientInputScale float64) ([]byte, []toolcheck.Issue, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, nil, fmt.Errorf("unmarshal responses response: invalid JSON")
 	}
@@ -36,14 +37,21 @@ func responsesToAnthropicResponse(body []byte, requestModel string, toolValidato
 	}
 	model := clientFacingModel(requestModel, root.Get("model").String())
 
+	ledger := NewToolCallLedger()
+	accepted := make(map[int]AcceptedToolCall)
+	var issues []toolcheck.Issue
 	hasToolCall := false
-	root.Get("output").ForEach(func(_, item gjson.Result) bool {
-		if item.Get("type").String() == "function_call" {
-			hasToolCall = true
-			return false
+	for index, item := range root.Get("output").Array() {
+		if responsesItemType(item.Get("type").String()) != responsesFunctionCallItem {
+			continue
 		}
-		return true
-	})
+		call := ledger.Close(index, item.Get("call_id").String(), item.Get("name").String(), item.Get("arguments").String()).Accept(toolValidator)
+		accepted[index] = call
+		if call.Issue != nil {
+			issues = append(issues, *call.Issue)
+		}
+		hasToolCall = hasToolCall || call.Suppression == ToolCallNotSuppressed
+	}
 
 	stopReason := "end_turn"
 	if hasToolCall {
@@ -65,13 +73,12 @@ func responsesToAnthropicResponse(body []byte, requestModel string, toolValidato
 
 	jw.Key("content")
 	jw.Arr()
-	var issues []toolcheck.Issue
 	pendingReasoningSignature := ""
-	root.Get("output").ForEach(func(_, item gjson.Result) bool {
+	root.Get("output").ForEach(func(index, item gjson.Result) bool {
 		switch item.Get("type").String() {
 		case "reasoning":
 			text := joinReasoningSummary(item.Get("summary"))
-			sig := encodeOpenAIReasoningSignature(item.Get("id").String(), item.Get("encrypted_content").String())
+			sig := encodeOpenAIReasoningSignature(item.Get("id").String(), item.Get("encrypted_content").String(), reasoningScope)
 			if sig != "" {
 				pendingReasoningSignature = sig
 			}
@@ -103,28 +110,25 @@ func responsesToAnthropicResponse(body []byte, requestModel string, toolValidato
 				return true
 			})
 		case "function_call":
+			call := accepted[int(index.Int())]
+			if call.Suppression != ToolCallNotSuppressed {
+				return true
+			}
 			jw.Obj()
 			jw.Key("type")
 			jw.Str("tool_use")
 			jw.Key("id")
-			id := item.Get("call_id").String()
+			id := ledger.ProjectID(int(index.Int()), sanitizeToolUseID)
 			if pendingReasoningSignature != "" {
 				id = embedOpenAIReasoningSignatureInID(id, pendingReasoningSignature)
 				pendingReasoningSignature = ""
 			}
 			jw.Str(id)
 			jw.Key("name")
-			name := item.Get("name").String()
+			name := call.Name
 			jw.Str(name)
 			jw.Key("input")
-			// Validate (and safely repair) the args against the request's
-			// tool schema; with a nil validator this degrades to the historic
-			// syntax-check + `{}` substitution.
-			verdict := toolValidator.Check(name, item.Get("arguments").String())
-			if verdict.Issue != nil {
-				issues = append(issues, *verdict.Issue)
-			}
-			jw.Raw(verdict.Args)
+			jw.Raw(call.Arguments)
 			jw.EndObj()
 		}
 		return true
@@ -136,18 +140,8 @@ func responsesToAnthropicResponse(body []byte, requestModel string, toolValidato
 	jw.Key("stop_sequence")
 	jw.Null()
 
-	usage := root.Get("usage")
 	jw.Key("usage")
-	jw.Obj()
-	jw.Key("input_tokens")
-	jw.Int(usage.Get("input_tokens").Int())
-	jw.Key("output_tokens")
-	jw.Int(usage.Get("output_tokens").Int())
-	if cached := usage.Get("input_tokens_details.cached_tokens"); cached.Exists() {
-		jw.Key("cache_read_input_tokens")
-		jw.Int(cached.Int())
-	}
-	jw.EndObj()
+	writeAnthropicUsageScaled(jw, facts, clientInputScale)
 
 	jw.EndObj()
 	return jw.Bytes(), issues, nil

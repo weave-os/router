@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -293,7 +293,7 @@ func TestRunTurnLoop_PinTurnCountsCurrentTurnInclusively(t *testing.T) {
 		FirstPinnedAt:   time.Now().Add(-struggleEarlyWall - time.Minute),
 		LastServedModel: "claude-sonnet-4-6",
 	}
-	svc := NewService(fr, nil, nil, false, nil, store, false,
+	svc := NewService(fr, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithAvailableModels(fr.available).
 		WithPlannerEnabled(false)
@@ -302,7 +302,7 @@ func TestRunTurnLoop_PinTurnCountsCurrentTurnInclusively(t *testing.T) {
 		[]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"continue"}]}`),
 	)
 	require.NoError(t, err)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-struggle", uuid.New(), "", http.Header{}, router.Request{
 		RequestedModel: feats.Model,

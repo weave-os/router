@@ -1,0 +1,137 @@
+package middleware
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/subscriptions/entitlement"
+)
+
+// ServingAdmissionConfig is assembled only when the worker is running with managed serving.
+type TestPlanAdmitter interface {
+	Admit(context.Context, string, string, string, string) (policyregistry.ServingAssertion, error)
+}
+
+type ServingAdmissionConfig struct {
+	Decisions         *policyregistry.AdmissionDecisionCache
+	TestPlans         TestPlanAdmitter
+	TestBudgetEnabled bool
+	Store             policyregistry.ServingStore
+	Identity          policyregistry.WorkerIdentity
+	Cache             *policyregistry.ServingRuntimeCache
+	Attribution       policyregistry.RequestAttributionStore
+}
+
+// WithServingAdmission admits the authenticated principal and loads the selected snapshot.
+// A nil config is a no-op so existing self-hosted and old-config managed workers boot unchanged.
+func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
+	if cfg == nil {
+		return func(c *gin.Context) { c.Next() }
+	}
+	return func(c *gin.Context) {
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, requestcontext.MaxRequestBodyBytes+1))
+		if err != nil {
+			observability.FromGin(c).Debug("Worker admission body read failed", "method", c.Request.Method, "err", err)
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_request_body"})
+			return
+		}
+		if len(body) > requestcontext.MaxRequestBodyBytes {
+			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request_body_too_large"})
+			return
+		}
+		if c.Request.Method == http.MethodPost {
+			var requestObject map[string]json.RawMessage
+			if len(bytes.TrimSpace(body)) == 0 || json.Unmarshal(body, &requestObject) != nil || requestObject == nil {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_request_body"})
+				return
+			}
+		}
+		c.Request.Body = io.NopCloser(bytes.NewReader(body))
+		key := APIKeyFrom(c)
+		installation := InstallationFrom(c)
+		if key == nil || installation == nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
+			return
+		}
+		assertion, err := directAssertion(c.Request.Context(), cfg, installation.ID, key.ID, c.Request, body)
+		if err != nil {
+			observability.FromGin(c).Warn("Worker admission rejected", "err", err)
+			if errors.Is(err, policyregistry.ErrRoutingModelChanged) {
+				c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "start_new_thread_to_change_router"})
+				return
+			}
+			if errors.Is(err, policyregistry.ErrRoutingModelSessionRequired) {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "routing_model_requires_conversation_id", "message": err.Error()})
+				return
+			}
+			if isAuthFailure(err) {
+				handleAuthError(c, err)
+				return
+			}
+			if errors.Is(err, errServingFleetMismatch) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "serving_admission_rejected"})
+				return
+			}
+			c.Header("Retry-After", "1")
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "serving_admission_unavailable"})
+			return
+		}
+		snapshot, err := cfg.Cache.Snapshot(c.Request.Context(), assertion.Admission)
+		if err != nil {
+			observability.FromGin(c).Error("Admitted worker snapshot unavailable", "target", assertion.Admission.Target, "activation_id", assertion.Admission.ActivationID, "release_sha256", assertion.Admission.Selection.Release.SHA256, "err", err)
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "serving_snapshot_unavailable"})
+			return
+		}
+		if assertion.TestPlan != nil && (!cfg.TestBudgetEnabled || assertion.TestPlan.PolicyRevision != snapshot.Release.Policy.SHA256) {
+			observability.FromGin(c).Warn("Internal test snapshot or billing scope rejected", "activation_id", assertion.Admission.ActivationID)
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "test_scope_rejected"})
+			return
+		}
+		ctx := policyregistry.WithServingAssertion(c.Request.Context(), assertion)
+		ctx = policyregistry.WithServingSnapshot(ctx, snapshot)
+		if assertion.Admission.Target != policyregistry.TargetInternal {
+			retired, err := proxy.WriteRetiredBetaRequest(c.Writer, c.Request, body)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_request_body"})
+				return
+			}
+			if retired {
+				c.Abort()
+				return
+			}
+		}
+		if assertion.TestPlan != nil && assertion.TestPlan.Plan != policyregistry.TestPlanStable {
+			ctx = entitlement.WithProductScope(ctx, entitlement.Plan(assertion.TestPlan.Plan))
+		}
+		identity, _ := requestcontext.ServingIdentityFromContext(ctx)
+		log := observability.FromContext(ctx).With("serving_target", identity.Target, "serving_activation_id", identity.ActivationID, "serving_release_id", identity.ReleaseID, "serving_binding_id", identity.BindingID, "serving_profile_key", identity.ProfileKey, "serving_profile_revision", identity.ProfileRevision, "serving_binding_generation", identity.BindingGeneration)
+		ctx = observability.PromoteRequestLogger(ctx, log)
+		requestID := observability.RequestIDFromContext(ctx)
+		if cfg.Attribution == nil || requestID == "" {
+			log.Error("Managed worker request attribution is not configured")
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "serving_attribution_unavailable"})
+			return
+		}
+		recordCtx, cancelRecord := context.WithTimeout(ctx, 5*time.Second)
+		err = cfg.Attribution.RecordServingRequest(recordCtx, requestID, assertion)
+		cancelRecord()
+		if err != nil {
+			log.Error("Managed worker request attribution failed", "err", err)
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "serving_attribution_unavailable"})
+			return
+		}
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	}
+}

@@ -1,10 +1,12 @@
 package turntype_test
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
-	"workweave/router/internal/router/turntype"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,6 +76,39 @@ func TestDetectFromEnvelope_Anthropic(t *testing.T) {
 			want: turntype.Compaction,
 		},
 		{
+			// Claude Code 2.x appends the compaction instruction to the trailing
+			// turn alongside the last tool_result; a system-only check misclassifies it.
+			name: "compaction instruction in last user message alongside tool_result",
+			body: `{"model":"claude-sonnet-4-5","system":"You are Claude Code.","messages":[
+				{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":"t1","content":"grep output"},
+					{"type":"text","text":"CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.\nYour task is to create a detailed summary of the conversation so far."}
+				]}
+			]}`,
+			want: turntype.Compaction,
+		},
+		{
+			// The summary phrase alone in a user message is text a human can type;
+			// only Claude Code's template pairs it with the tool-suppression clause.
+			name: "summary phrase without the no-tools clause stays tool_result",
+			body: `{"model":"claude-sonnet-4-5","system":"You are Claude Code.","messages":[
+				{"role":"user","content":[
+					{"type":"tool_result","tool_use_id":"t1","content":"grep output"},
+					{"type":"text","text":"Your task is to create a detailed summary of these findings for the changelog."}
+				]}
+			]}`,
+			want: turntype.ToolResult,
+		},
+		{
+			// Bounded scan: the marker past compactionSniffLen is caller data,
+			// not Claude Code's fixed-length preamble.
+			name: "compaction phrase beyond the sniff bound does not trigger",
+			body: `{"model":"claude-sonnet-4-5","messages":[
+				{"role":"user","content":[{"type":"text","text":"` + strings.Repeat("padding ", 600) + `Your task is to create a detailed summary of the conversation so far."}]}
+			]}`,
+			want: turntype.MainLoop,
+		},
+		{
 			name: "sub-agent via metadata user_id prefix",
 			body: `{"model":"claude-haiku-4-5","metadata":{"user_id":"subagent:Explore"},"messages":[{"role":"user","content":"find all go files"}]}`,
 			want: turntype.SubAgentDispatch,
@@ -85,6 +120,18 @@ func TestDetectFromEnvelope_Anthropic(t *testing.T) {
 			// x-weave-subagent-type now.
 			name: "main_loop with Agent tool description mentioning subagent_type stays main_loop",
 			body: `{"model":"claude-opus-4-7","system":"Use the Agent tool with a subagent_type parameter to dispatch sub-agents.","messages":[{"role":"user","content":"hi"}]}`,
+			want: turntype.MainLoop,
+		},
+		{
+			name: "sub-agent via cc_is_subagent on the billing-header line",
+			body: `{"model":"claude-haiku-4-5","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.141.bb8; cc_entrypoint=cli; cc_is_subagent=true; cch=54d19;\nYou are a background agent."}],"messages":[{"role":"user","content":"grep"}]}`,
+			want: turntype.SubAgentDispatch,
+		},
+		{
+			// The flag is only trusted on the billing-header line; the same
+			// text quoted in the prompt body (docs, injected context) is prose.
+			name: "main_loop with cc_is_subagent quoted in the system prompt body stays main_loop",
+			body: `{"model":"claude-opus-4-7","system":[{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.141.bb8; cc_entrypoint=cli; cch=54d19;\nYou are Claude Code."},{"type":"text","text":"# CLAUDE.md\nSub-agents stamp cc_is_subagent=true on their billing header."}],"messages":[{"role":"user","content":"hi"}]}`,
 			want: turntype.MainLoop,
 		},
 		{
@@ -208,6 +255,18 @@ func TestDetectFromEnvelope_Anthropic(t *testing.T) {
 			want: turntype.Classifier,
 		},
 		{
+			// The security monitor wraps its payload in <transcript> too; the
+			// classifier shape, not the Agent-tool envelope, decides it.
+			name: "security monitor with <transcript> payload is classifier",
+			body: `{"model":"claude-sonnet-5","max_tokens":64,"thinking":{"type":"disabled"},"messages":[{"role":"user","content":"<transcript>\n {\"user\":\"run the tests\"}\n</transcript>"}],"system":"You are a security monitor for autonomous AI coding agents."}`,
+			want: turntype.Classifier,
+		},
+		{
+			name: "explicit sub-agent metadata outranks the classifier shape",
+			body: `{"model":"claude-haiku-4-5","max_tokens":64,"metadata":{"user_id":"subagent:Explore"},"messages":[{"role":"user","content":"<transcript>\nUser: find it\n</transcript>"}]}`,
+			want: turntype.SubAgentDispatch,
+		},
+		{
 			name: "classifier with two messages still classifier",
 			body: `{"model":"claude-opus-4-7","max_tokens":64,"messages":[
 				{"role":"user","content":"transcript"},
@@ -260,13 +319,55 @@ func TestDetectFromEnvelope_Anthropic(t *testing.T) {
 			body: `{"model":"claude-opus-4-7","max_tokens":64,"metadata":{"user_id":"subagent:Explore"},"messages":[{"role":"user","content":"grep"}]}`,
 			want: turntype.SubAgentDispatch,
 		},
+		{
+			// Claude Code's away summary forks the conversation (tools and all)
+			// and appends the recap instruction as the trailing user turn.
+			name: "claude code away-summary recap is recap",
+			body: `{"model":"claude-opus-5","max_tokens":32000,"tools":[{"name":"Bash","input_schema":{"type":"object"}}],"messages":[
+				{"role":"user","content":"review the PR"},
+				{"role":"assistant","content":[{"type":"text","text":"Ready to merge."}]},
+				{"role":"user","content":"The user stepped away and is coming back. Recap in under 40 words, 1-2 plain sentences, no markdown. Lead with the overall goal and current task, then the one next action."}
+			]}`,
+			want: turntype.Recap,
+		},
+		{
+			name: "recap after harness system-reminder blocks is recap",
+			body: `{"model":"claude-opus-5","max_tokens":32000,"messages":[
+				{"role":"user","content":"review the PR"},
+				{"role":"assistant","content":[{"type":"text","text":"Ready to merge."}]},
+				{"role":"user","content":[
+					{"type":"text","text":"<system-reminder>todo list is empty</system-reminder>"},
+					{"type":"text","text":"The user stepped away and is coming back. Recap in under 40 words, 1-2 plain sentences, no markdown."}
+				]}
+			]}`,
+			want: turntype.Recap,
+		},
+		{
+			// A user quoting the instruction is asking about it, not for a recap.
+			name: "user quoting the recap instruction stays main_loop",
+			body: `{"model":"claude-opus-5","max_tokens":32000,"messages":[
+				{"role":"user","content":"what does this Claude Code prompt do: The user stepped away and is coming back. Recap in under 40 words, 1-2 plain sentences, no markdown."}
+			]}`,
+			want: turntype.MainLoop,
+		},
+		{
+			// Only the trailing turn is sniffed: the next real turn carries the
+			// recap exchange in history and must stay a normal turn.
+			name: "turn after a recap stays main_loop",
+			body: `{"model":"claude-opus-5","max_tokens":32000,"tools":[{"name":"Bash","input_schema":{"type":"object"}}],"messages":[
+				{"role":"user","content":"The user stepped away and is coming back. Recap in under 40 words, 1-2 plain sentences, no markdown. Lead with the overall goal and current task, then the one next action."},
+				{"role":"assistant","content":[{"type":"text","text":"Reviewing the PR; next, merge it."}]},
+				{"role":"user","content":"ok merge it"}
+			]}`,
+			want: turntype.MainLoop,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			env, err := translate.ParseAnthropic([]byte(tc.body))
 			require.NoError(t, err)
-			feats := env.RoutingFeatures(false)
+			feats := env.RoutingFeatures()
 			got := turntype.DetectFromEnvelope(env, feats, tc.hint)
 			assert.Equal(t, tc.want, got)
 		})
@@ -314,6 +415,35 @@ func TestDetectFromEnvelope_OpenAI(t *testing.T) {
 			want: turntype.MainLoop,
 		},
 		{
+			// Codex issues its checkpoint compaction as the trailing user turn
+			// (observed on a mid-thread model switch, ~18K tokens in).
+			name: "codex checkpoint compaction prompt is compaction",
+			body: `{"model":"gpt-5.5","messages":[
+				{"role":"system","content":"You are Codex, a coding agent based on GPT-5."},
+				{"role":"user","content":"make me a complex ml algo"},
+				{"role":"assistant","content":"What should it predict?"},
+				{"role":"user","content":"You are performing a CONTEXT CHECKPOINT COMPACTION. Create a handoff summary for another LLM that will resume the task.\n\nInclude:\n- Current progress and key decisions made"}
+			]}`,
+			want: turntype.Compaction,
+		},
+		{
+			// The marker must be in the trailing turn: the post-compaction
+			// resume request quotes the compaction summary but is a real turn.
+			name: "codex post-compaction resume turn stays main_loop",
+			body: `{"model":"gpt-5.6-sol","messages":[
+				{"role":"user","content":"Another language model started to solve this problem and produced a summary of its thinking process. You are performing a CONTEXT CHECKPOINT COMPACTION was the instruction it received."},
+				{"role":"user","content":"yo"}
+			]}`,
+			want: turntype.MainLoop,
+		},
+		{
+			name: "codex compaction phrase beyond the sniff bound does not trigger",
+			body: `{"model":"gpt-5.5","messages":[
+				{"role":"user","content":"` + strings.Repeat("x", 4100) + ` You are performing a CONTEXT CHECKPOINT COMPACTION."}
+			]}`,
+			want: turntype.MainLoop,
+		},
+		{
 			name: "sub-agent via header hint",
 			body: `{"model":"gpt-4o","messages":[{"role":"user","content":"grep"}]}`,
 			hint: "Explore",
@@ -352,7 +482,7 @@ func TestDetectFromEnvelope_OpenAI(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env, err := translate.ParseOpenAI([]byte(tc.body))
 			require.NoError(t, err)
-			feats := env.RoutingFeatures(false)
+			feats := env.RoutingFeatures()
 			got := turntype.DetectFromEnvelope(env, feats, tc.hint)
 			assert.Equal(t, tc.want, got)
 		})
@@ -435,7 +565,7 @@ func TestDetectFromEnvelope_Gemini(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env, err := translate.ParseGemini([]byte(tc.body))
 			require.NoError(t, err)
-			feats := env.RoutingFeatures(false)
+			feats := env.RoutingFeatures()
 			got := turntype.DetectFromEnvelope(env, feats, tc.hint)
 			assert.Equal(t, tc.want, got)
 		})
@@ -445,4 +575,171 @@ func TestDetectFromEnvelope_Gemini(t *testing.T) {
 func TestDetectFromEnvelope_NilEnv(t *testing.T) {
 	got := turntype.DetectFromEnvelope(nil, translate.RoutingFeatures{}, "")
 	assert.Equal(t, turntype.MainLoop, got)
+}
+
+func TestDetectFromEnvelope_CodexTitleHintOverridesToolRegistry(t *testing.T) {
+	env, err := translate.ParseOpenAI([]byte(`{
+		"model":"gpt-5.6-sol",
+		"tools":[{"type":"function","function":{"name":"shell"}}],
+		"response_format":{"type":"json_schema","json_schema":{"schema":{"type":"object","properties":{"title":{"type":"string"}}}}},
+		"messages":[{"role":"user","content":"Generate a title"}]
+	}`))
+	require.NoError(t, err)
+	feats := env.RoutingFeatures()
+	assert.Equal(t, turntype.MainLoop, turntype.DetectFromEnvelope(env, feats, ""),
+		"a tool-bearing Chat Completions request remains a main loop without the Codex signal")
+	feats.TitleGenHint = true
+	assert.Equal(t, turntype.TitleGen, turntype.DetectFromEnvelope(env, feats, ""),
+		"the trusted native Codex shape must hard-pin even when the converted body carries tools")
+}
+
+// OpenCode v2 title requests are identified by their native request prompt.
+func TestDetect_OpenCodeTitlePromptWithoutHeader(t *testing.T) {
+	const titlePrompt = "You are a title generator. You output ONLY a thread title. Nothing else.\n\n<task>\nGenerate a brief title that would help the user find this conversation later."
+	prompt, err := json.Marshal(titlePrompt)
+	require.NoError(t, err)
+	p := string(prompt)
+	const tools = `"tools":[{"type":"function","name":"bash","parameters":{"type":"object"}}],`
+	openCode := turntype.OpenCodeCaller{IsClient: true}
+	tests := []struct {
+		name string
+		body string
+		want turntype.TurnType
+	}{
+		{
+			name: "2.x shape: system prompt and the first user prompt",
+			body: `{"model":"auto","stream":true,"input":[
+				{"role":"system","content":` + p + `},
+				{"role":"user","content":[{"type":"input_text","text":"who are you?"}]}]}`,
+			want: turntype.TitleGen,
+		},
+		{
+			name: "1.x shape: a generate-title user turn before the first prompt",
+			body: `{"model":"auto","stream":true,"input":[
+				{"role":"system","content":` + p + `},
+				{"role":"user","content":"Generate a title for this conversation: "},
+				{"role":"user","content":"fix the flaky auth test"}]}`,
+			want: turntype.TitleGen,
+		},
+		{
+			name: "2.x retitle of a session that already has content",
+			body: `{"model":"auto","stream":true,"input":[
+				{"role":"system","content":` + p + `},
+				{"role":"user","content":"Original request:\nfix the flaky auth test\nRecent conversation:\nuser: it still fails"}]}`,
+			want: turntype.TitleGen,
+		},
+		{
+			name: "prompt delivered as instructions",
+			body: `{"model":"auto","stream":true,"instructions":` + p + `,"input":"who are you?"}`,
+			want: turntype.TitleGen,
+		},
+		{
+			name: "prompt delivered as a developer message",
+			body: `{"model":"auto","stream":true,"input":[
+				{"role":"developer","content":` + p + `},
+				{"role":"user","content":"who are you?"}]}`,
+			want: turntype.TitleGen,
+		},
+		{
+			name: "same prompt with a tool registry stays main_loop",
+			body: `{"model":"auto","stream":true,` + tools + `"input":[
+				{"role":"system","content":` + p + `},
+				{"role":"user","content":"who are you?"}]}`,
+			want: turntype.MainLoop,
+		},
+		{
+			name: "user pasting the title prompt under a normal system prompt stays main_loop",
+			body: `{"model":"auto","stream":true,"input":[
+				{"role":"system","content":"You are an AI agent running in OpenCode."},
+				{"role":"user","content":` + p + `}]}`,
+			want: turntype.MainLoop,
+		},
+		{
+			name: "title prompt with an assistant turn in the window stays main_loop",
+			body: `{"model":"auto","stream":true,"input":[
+				{"role":"system","content":` + p + `},
+				{"role":"user","content":"who are you?"},
+				{"role":"assistant","content":"Identity question"}]}`,
+			want: turntype.MainLoop,
+		},
+		{
+			name: "title prompt heading a longer conversation stays main_loop",
+			body: `{"model":"auto","stream":true,"input":[
+				{"role":"system","content":` + p + `},
+				{"role":"user","content":"one"},
+				{"role":"user","content":"two"},
+				{"role":"user","content":"three"}]}`,
+			want: turntype.MainLoop,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			chat, _, _, err := translate.ResponsesToChatCompletions([]byte(tc.body))
+			require.NoError(t, err)
+			env, err := translate.ParseOpenAI(chat)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, turntype.Detect(env, env.RoutingFeatures(), "", openCode))
+		})
+	}
+
+	t.Run("anthropic system prompt is title_gen", func(t *testing.T) {
+		env, err := translate.ParseAnthropic([]byte(`{"model":"auto","max_tokens":32000,"system":` + p + `,
+			"messages":[{"role":"user","content":"who are you?"}]}`))
+		require.NoError(t, err)
+		assert.Equal(t, turntype.TitleGen, turntype.Detect(env, env.RoutingFeatures(), "", openCode))
+	})
+
+	t.Run("the same body from another client stays main_loop", func(t *testing.T) {
+		chat, _, _, err := translate.ResponsesToChatCompletions([]byte(`{"model":"auto","stream":true,"input":[
+			{"role":"system","content":` + p + `},
+			{"role":"user","content":"who are you?"}]}`))
+		require.NoError(t, err)
+		env, err := translate.ParseOpenAI(chat)
+		require.NoError(t, err)
+		feats := env.RoutingFeatures()
+		assert.Equal(t, turntype.MainLoop, turntype.Detect(env, feats, "", turntype.OpenCodeCaller{}))
+		assert.Equal(t, turntype.MainLoop, turntype.DetectFromEnvelope(env, feats, ""))
+	})
+}
+
+// OpenCode subagent turns look like main-loop turns in the body, so only the
+// caller's child-session signal selects SubAgentDispatch; probes still win.
+func TestDetect_OpenCodeSubagent(t *testing.T) {
+	parse := func(t *testing.T, body string) (*translate.RequestEnvelope, translate.RoutingFeatures) {
+		t.Helper()
+		chat, _, _, err := translate.ResponsesToChatCompletions([]byte(body))
+		require.NoError(t, err)
+		env, err := translate.ParseOpenAI(chat)
+		require.NoError(t, err)
+		return env, env.RoutingFeatures()
+	}
+	env, feats := parse(t, `{"model":"auto","stream":true,
+		"tools":[{"type":"function","name":"bash","parameters":{"type":"object"}}],
+		"input":[{"role":"user","content":"Explore the repository layout"}]}`)
+	subagent := turntype.OpenCodeCaller{IsClient: true, IsSubagent: true}
+
+	assert.Equal(t, turntype.SubAgentDispatch, turntype.Detect(env, feats, "", subagent))
+	assert.Equal(t, turntype.MainLoop, turntype.Detect(env, feats, "", turntype.OpenCodeCaller{IsClient: true}))
+
+	feats.MaxTokens = 1
+	assert.Equal(t, turntype.Probe, turntype.Detect(env, feats, "", subagent))
+}
+
+func TestIsSideRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		model        string
+		lastUserText string
+		want         bool
+	}{
+		{name: "claude code prompt suggestion", model: "claude-opus-5-5", lastUserText: "[SUGGESTION MODE: Suggest what the user might naturally type next into Claude Code.]\n\nFIRST: Look at the user's recent messages.", want: true},
+		{name: "suggestion after system reminder", model: "claude-opus-5-5", lastUserText: "<system-reminder>ctx</system-reminder>\n[SUGGESTION MODE: Suggest what the user might naturally type next into Claude Code.]", want: true},
+		{name: "codex approval reviewer", model: "codex-auto-review", lastUserText: "The following is the Codex agent history", want: true},
+		{name: "user quoting suggestion mode", model: "claude-opus-5-5", lastUserText: "why did I see [SUGGESTION MODE: Suggest what the user might naturally type next] in logs?", want: false},
+		{name: "ordinary turn", model: "gpt-6.1-sol", lastUserText: "continue", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, turntype.IsSideRequest(tc.model, tc.lastUserText))
+		})
+	}
 }

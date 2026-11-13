@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
-# Weave Router uninstaller for Claude Code, Codex, opencode, and pi.
+# Weave Router uninstaller for Claude Code, Codex, opencode, pi, and GitHub Copilot CLI.
 #
-# Default target is Claude Code: removes the env vars, statusLine, and local
+# Without a client flag, every client with Weave Router config is uninstalled
+# in turn. --claude removes the env vars, statusLine, and local
 # router auth that install.sh added; leaves the rest of settings.json
 # untouched. Pass --codex to strip the managed [model_providers.weave]
 # block (and the matching top-level `model_provider`) from Codex's
@@ -14,20 +15,150 @@
 # weave defaults, and remove the router key file.
 #
 # Usage:
-#   npx @workweave/router --uninstall                            # Claude Code, user scope
+#   npx @workweave/router --uninstall                            # every configured client, user scope
+#   npx @workweave/router --uninstall --claude                   # Claude Code only
 #   npx @workweave/router --uninstall --codex                    # Codex, user scope
 #   npx @workweave/router --uninstall --opencode                 # opencode, user scope
 #   npx @workweave/router --uninstall --pi                       # pi, user scope
+#   npx @workweave/router --uninstall --copilot                  # GitHub Copilot CLI (providers.json, skills)
 #   npx @workweave/router --uninstall --scope project            # run inside the repo
 #   npx @workweave/router --uninstall --dir /tmp/test            # --dir alone (user scope, .weave/)
 #   npx @workweave/router --uninstall --scope project --dir /tmp # --dir + project scope (.claude/)
 
 set -euo pipefail
+export PATH="$PATH:$HOME/.weave/bin"
 
 scope="user"
 scope_explicit="false"
 install_dir=""
+script_dir=""
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || script_dir=""
+fi
+
+# ---------- directive registry (embedded) ----------
+#
+# uninstall.sh is served standalone too (the npm bin runs it directly, and it
+# can be piped), so it cannot rely on a sibling registry.sh. The data and
+# helpers are embedded verbatim; install/tests/registry_test.sh asserts they
+# never drift from the canonical files. Regenerate with `make embed-registry`.
+WEAVE_REGISTRY_DATA=$(cat <<'WEAVE_REGISTRY_EOF'
+# Weave Router directive registry
+# canonical|aliases|capability|claude|codex|opencode|pi|cursor|adapter
+# aliases are comma-separated; client columns are yes/no. adapter is the native asset kind.
+force-model|fm|prompt|yes|yes|yes|yes|manual|command,skill
+force-parent||prompt|yes|yes|yes|yes|manual|command,skill
+unforce-model|ufm|prompt|yes|yes|yes|yes|manual|command,skill
+router-feedback|rf|prompt|yes|yes|yes|no|manual|command,skill
+router-off||local-toggle|yes|yes|no|no|manual|command,skill
+router-on||local-toggle|yes|yes|no|no|manual|command,skill
+router-status||local-toggle|yes|yes|no|no|manual|command,skill
+router-session||prompt|yes|yes|no|no|manual|command,skill
+list-models||prompt|yes|yes|no|no|manual|command,skill
+router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
+disable-routing||local-toggle|no|yes|no|no|manual|skill
+beta||prompt|yes|no|no|yes|manual|command
+WEAVE_REGISTRY_EOF
+)
+
+# >>> weave-router registry lib >>>
+weave_registry_rows() {
+  if [ -n "${WEAVE_REGISTRY_DATA:-}" ]; then
+    printf '%s\n' "$WEAVE_REGISTRY_DATA" | awk -F '|' '!/^([[:space:]]*#|[[:space:]]*$)/ { print }'
+    return 0
+  fi
+  local registry="${WEAVE_REGISTRY_FILE:-}"
+  if [ -z "$registry" ]; then
+    local dir
+    dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || return 1
+    registry="$dir/directives.tsv"
+  fi
+  [ -f "$registry" ] || return 1
+  awk -F '|' '!/^([[:space:]]*#|[[:space:]]*$)/ { print }' "$registry"
+}
+
+# weave_registry_names lists every canonical name and alias a client installs.
+weave_registry_names() {
+  local target="$1" canonical aliases capability claude codex opencode pi cursor adapter
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    case "$target" in
+      claude) [ "$claude" = yes ] || continue ;; codex) [ "$codex" = yes ] || continue ;;
+      opencode) [ "$opencode" = yes ] || continue ;; pi) [ "$pi" = yes ] || continue ;;
+      cursor) [ "$cursor" = yes ] || continue ;;
+    esac
+    printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
+  done <<EOF
+$(weave_registry_rows)
+EOF
+}
+
+# weave_registry_skill_names lists the prompt directives a client exposes as a
+# native skill. Local-config toggles are excluded: they mutate config this
+# installer owns and are handled per target, not as a generic prompt.
+weave_registry_skill_names() {
+  local target="$1" canonical aliases capability claude codex opencode pi cursor adapter
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    [ "$capability" = prompt ] || continue
+    case "$target" in
+      claude) [ "$claude" = yes ] || continue ;; codex) [ "$codex" = yes ] || continue ;;
+      opencode) [ "$opencode" = yes ] || continue ;; pi) [ "$pi" = yes ] || continue ;;
+      cursor) [ "$cursor" = yes ] || continue ;;
+    esac
+    printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
+  done <<EOF
+$(weave_registry_rows)
+EOF
+}
+
+# weave_registry_skill_assets lists every directive a client ships as a skill
+# file, including local-config toggles such as Codex's disable-routing. Install
+# and uninstall use this for file management; weave_registry_skill_names is the
+# narrower prompt-only set used when generating prompt adapters.
+weave_registry_skill_assets() {
+  local target="$1" canonical aliases capability claude codex opencode pi cursor adapter
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    case ",$adapter," in *,skill,*) ;; *) continue ;; esac
+    case "$target" in
+      claude) [ "$claude" = yes ] || continue ;; codex) [ "$codex" = yes ] || continue ;;
+      opencode) [ "$opencode" = yes ] || continue ;; pi) [ "$pi" = yes ] || continue ;;
+      cursor) [ "$cursor" = yes ] || continue ;;
+    esac
+    printf '%s\n' "$canonical"
+    [ -n "$aliases" ] && printf '%s\n' "$aliases" | tr ',' '\n'
+  done <<EOF
+$(weave_registry_rows)
+EOF
+}
+
+# weave_registry_canonical_for resolves a name or alias to its canonical
+# directive, and fails when the name is not in the registry at all.
+weave_registry_canonical_for() {
+  local wanted="$1" canonical aliases capability claude codex opencode pi cursor adapter alias
+  while IFS='|' read -r canonical aliases capability claude codex opencode pi cursor adapter; do
+    [ "$wanted" = "$canonical" ] && { printf '%s' "$canonical"; return 0; }
+    IFS=',' read -ra _aliases <<< "$aliases"
+    for alias in ${_aliases[@]+"${_aliases[@]}"}; do
+      [ "$wanted" = "$alias" ] && { printf '%s' "$canonical"; return 0; }
+    done
+  done <<EOF
+$(weave_registry_rows)
+EOF
+  return 1
+}
+# <<< weave-router registry lib <<<
+
 target="claude"
+
+CLAUDE_STATUSLINE_MARKER="# Claude Code statusline for the Weave Router."
+# Mirrors install.sh: removes only the Weave Auto picker row and default.
+CLAUDE_WEAVE_AUTO_STRIP_JQ='(if (.model == "weave-auto" or .model == "weave-auto[1m]") then del(.model) else . end)
+  | (if (.modelPicker | type) == "object" then
+      .modelPicker.options = ((.modelPicker.options // []) | map(select(.model != "weave-auto" and .model != "weave-auto[1m]")))
+      | (if (.modelPicker.options | length) == 0 then del(.modelPicker.options) else . end)
+      | (if (.modelPicker | length) == 0 then del(.modelPicker) else . end)
+    else . end)'
 
 err()  { printf "\033[31merror:\033[0m %s\n" "$*" >&2; }
 warn() { printf "\033[33mwarning:\033[0m %s\n" "$*" >&2; }
@@ -46,6 +177,124 @@ refuse_if_symlink() {
   fi
 }
 
+# build_skill_entry_has_symlink reports whether any component of a manifest entry under the
+# skill dir is a symlink, so cleanup never follows a link out of the skill.
+build_skill_entry_has_symlink() {
+  local path="$1" rel="$2"
+  while [ -n "$rel" ]; do
+    path="$path/${rel%%/*}"
+    [ -L "$path" ] && return 0
+    case "$rel" in */*) rel="${rel#*/}" ;; *) rel="" ;; esac
+  done
+  return 1
+}
+
+# uninstall_build_skill removes the managed build skill tree recorded in its
+# manifest and any marker-bearing build agents, leaving user files in place.
+uninstall_build_skill() {
+  local skills_dir="$1" agents_dir="${2:-}" skill_dir rel agent_file name
+  skill_dir="$skills_dir/build"
+  if [ -L "$skills_dir" ] || [ -L "$skill_dir" ]; then
+    warn "$skill_dir is behind a symlink; leaving the build skill untouched."
+  elif [ -f "$skill_dir/SKILL.md" ] && ! grep -Fq "<!-- weave-router managed build skill -->" "$skill_dir/SKILL.md"; then
+    warn "Leaving user-owned build skill at $skill_dir untouched."
+  elif [ -L "$skill_dir/.weave-router-files" ]; then
+    rm -f "$skill_dir/.weave-router-files"
+    warn "Removed a symlinked build skill manifest at $skill_dir; leaving its files untouched."
+  elif [ -f "$skill_dir/.weave-router-files" ]; then
+    while IFS= read -r rel; do
+      case "$rel" in ""|/*|*..*) continue ;; esac
+      if build_skill_entry_has_symlink "$skill_dir" "$rel"; then continue; fi
+      rm -f "$skill_dir/$rel"
+    done <"$skill_dir/.weave-router-files"
+    rm -f "$skill_dir/.weave-router-files"
+    rmdir "$skill_dir/references" "$skill_dir/scripts" "$skill_dir" 2>/dev/null || true
+    ok "Removed $skill_dir"
+  fi
+  rmdir "$skills_dir" 2>/dev/null || true
+
+  if [ -z "$agents_dir" ] || [ ! -d "$agents_dir" ] || [ -L "$agents_dir" ]; then return 0; fi
+  for agent_file in "$agents_dir"/build-*.md; do
+    if [ ! -f "$agent_file" ] || [ -L "$agent_file" ]; then continue; fi
+    name="$(basename "$agent_file" .md)"
+    grep -Fq "<!-- weave-router managed agent: $name -->" "$agent_file" || continue
+    rm -f "$agent_file"
+    ok "Removed $agent_file"
+  done
+  rmdir "$agents_dir" 2>/dev/null || true
+}
+
+# weave_command_router_owned accepts legacy marker-bearing wrappers and
+# markerless wrappers written by current installers. Current wrappers carry a
+# body copy in a sidecar so ownership survives standalone and piped uninstall.
+weave_command_router_owned() {
+  local command_file="$1" command_name="$2" ownership_file ownership_header ownership_body
+  local source_file expected scope_args="" candidate
+  if grep -Fq "<!-- weave-router managed command: $command_name -->" "$command_file" 2>/dev/null; then
+    return 0
+  fi
+
+  ownership_file="$command_file.weave-router"
+  if [ -f "$ownership_file" ]; then
+    ownership_header="$(sed -n '1p' "$ownership_file" 2>/dev/null || true)"
+    ownership_body="$(sed '1d' "$ownership_file" 2>/dev/null || true)"
+    if [ "$ownership_header" = "weave-router managed command: $command_name" ] \
+       && [ "$(cat "$command_file")" = "$ownership_body" ]; then
+      return 0
+    fi
+  fi
+
+  if [ -n "$install_dir" ]; then
+    scope_args=" --dir $(printf '%q' "$install_dir")"
+  elif [ "$scope" = "project" ]; then
+    scope_args=" --scope project"
+  fi
+
+  for candidate in \
+    "$script_dir/commands" \
+    "$script_dir/../commands"
+  do
+    source_file="$candidate/$command_name.md"
+    [ -f "$source_file" ] || continue
+    expected="$(cat "$source_file")"
+    expected="${expected//\{\{SCOPE\}\}/$scope_args}"
+    [ "$(cat "$command_file")" = "$expected" ] && return 0
+  done
+  return 1
+}
+
+# Git Bash rewrites $HOME's /c/... form to C:/... in arguments to native
+# executables such as jq.exe, so the stored command can use either form.
+statusline_commands_match() {
+  local first_mixed second_mixed
+  [ "$1" = "$2" ] && return 0
+  command -v cygpath >/dev/null 2>&1 || return 1
+  first_mixed="$(cygpath -m -- "$1" 2>/dev/null)" && [ -n "$first_mixed" ] || return 1
+  second_mixed="$(cygpath -m -- "$2" 2>/dev/null)" && [ -n "$second_mixed" ] || return 1
+  [ "$first_mixed" = "$second_mixed" ]
+}
+
+# claude_statusline_router_owned reports whether a settings entry points at the
+# router's statusline. Existing scripts prove ownership with the marker; when a
+# script is missing, the adjacent ownership marker proves that the router wrote
+# it and should remove it with the rest of the router config.
+claude_statusline_router_owned() {
+  local settings_path="$1" expected_command="$2" script_path="$3" ownership_marker_path="$4" configured_command
+  [ -f "$settings_path" ] || return 1
+  configured_command="$(jq -r '.statusLine.command // empty' "$settings_path" 2>/dev/null || true)"
+  statusline_commands_match "$configured_command" "$expected_command" || return 1
+  if [ -f "$script_path" ]; then
+    if grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$script_path" 2>/dev/null; then
+      return 0
+    fi
+    [ -r "$script_path" ] && return 1
+  fi
+  [ -f "$ownership_marker_path" ] \
+    && grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$ownership_marker_path"
+}
+
+uninstall_args=("$@")
+target_explicit="false"
 while [ $# -gt 0 ]; do
   case "$1" in
     --scope)
@@ -58,20 +307,26 @@ while [ $# -gt 0 ]; do
       [ -n "$install_dir" ] || { err "--dir requires a path."; exit 2; }
       ;;
     --codex)
-      target="codex"; shift
+      target="codex"; target_explicit="true"; shift
       ;;
     --opencode)
-      target="opencode"; shift
+      target="opencode"; target_explicit="true"; shift
       ;;
     --pi)
-      target="pi"; shift
+      target="pi"; target_explicit="true"; shift
+      ;;
+    --copilot)
+      target="copilot"; target_explicit="true"; shift
+      ;;
+    --claude-desktop)
+      target="claude-desktop"; target_explicit="true"; shift
       ;;
     --claude)
       # No-op selector for symmetry with --codex / --opencode and install.sh's
       # --claude. Lets `./install.sh --uninstall --claude` (which forwards
       # remaining args here) succeed instead of hitting the unknown-flag
       # catch-all.
-      target="claude"; shift
+      target="claude"; target_explicit="true"; shift
       ;;
     -h|--help)
       # awk avoids GNU `head -n -<N>` (rejected by BSD head on macOS).
@@ -84,21 +339,464 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if { [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ]; } && ! command -v jq >/dev/null 2>&1; then
+# skip_if_not_installed ends a child of a bare --uninstall quietly (exit 3)
+# unless config $1 has a line matching ERE $2 or any further path exists. A
+# client that is installed still needs jq, checked here rather than up front.
+skip_if_not_installed() {
+  [ -n "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] || return 0
+  local config="$1" pattern="$2" installed="false" extra
+  shift 2
+  [ -f "$config" ] && grep -Eq -- "$pattern" "$config" && installed="true"
+  for extra in "$@"; do [ -e "$extra" ] && installed="true"; done
+  [ "$installed" = "true" ] || exit 3
+  [ "$target" = "codex" ] || command -v jq >/dev/null 2>&1 || { err "jq is required for the $target uninstall path."; exit 1; }
+}
+
+client_label() {
+  case "$1" in
+    claude) printf 'Claude Code' ;;
+    codex)  printf 'Codex' ;;
+    copilot) printf 'Copilot CLI' ;;
+    claude-desktop) printf 'Claude Desktop' ;;
+    *)      printf '%s' "$1" ;;
+  esac
+}
+
+# A bare --uninstall removes Weave Router from every client it configured. Each
+# client runs as its own child so its path stays exactly the --<client> one. A
+# piped run with no recoverable source keeps the old Claude Code-only default.
+uninstall_self="$0"
+[ -f "$uninstall_self" ] || uninstall_self=""
+if [ "$target_explicit" = "false" ] && [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] \
+  && { [ -n "$uninstall_self" ] || [ -n "${BASH_EXECUTION_STRING:-}" ]; }; then
+  uninstall_self_tmp=""
+  if [ -z "$uninstall_self" ]; then
+    uninstall_self_tmp="$(mktemp -t weave-uninstall.XXXXXX)"
+    printf '%s\n' "$BASH_EXECUTION_STRING" >"$uninstall_self_tmp"
+    uninstall_self="$uninstall_self_tmp"
+  fi
+  removed=""
+  failed=""
+  for client in claude codex opencode pi copilot claude-desktop; do
+    child_status=0
+    WEAVE_UNINSTALL_ALL_CHILD=1 bash "$uninstall_self" "${uninstall_args[@]+"${uninstall_args[@]}"}" "--$client" || child_status=$?
+    case "$child_status" in
+      0) removed="${removed:+$removed, }$(client_label "$client")" ;;
+      3) ;;
+      *) failed="${failed:+$failed, }$(client_label "$client")" ;;
+    esac
+  done
+  [ -z "$uninstall_self_tmp" ] || rm -f "$uninstall_self_tmp"
+  printf '\n'
+  if [ -z "$removed" ] && [ -z "$failed" ]; then
+    info "Weave Router isn't configured for Claude Code, Codex, opencode, pi, Copilot CLI or Claude Desktop here (scope=$scope); nothing to remove."
+  fi
+  [ -z "$removed" ] || ok "Removed Weave Router from: $removed."
+  if [ -n "$failed" ]; then
+    err "Weave Router may still be routing: $failed. See the errors above."
+    exit 1
+  fi
+  exit 0
+fi
+
+if [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] && { [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ] || [ "$target" = "copilot" ]; } && ! command -v jq >/dev/null 2>&1; then
   err "jq is required for the $target uninstall path."
   exit 1
+fi
+
+# ---------- lifecycle report ----------
+#
+# report_uninstall_event tells this install's router that the uninstall is
+# happening, so it can log and export a lifecycle event. It runs before the
+# key and config are removed (afterwards there is nothing left to
+# authenticate with) and is strictly best-effort: the POST is detached with a
+# short timeout, output discarded, and no failure changes the uninstall.
+# uninstall.sh is served standalone, so the config readers install.sh already
+# has are reduced here to the one field each: the endpoint and key of the
+# managed provider block. A file git tracks is a checkout's, not this user's
+# install, and never supplies a key; a checkout-supplied endpoint never
+# receives one (same gates as install.sh's key_source_is_own and
+# models_endpoint_is_trusted).
+HOSTED_BASE_URL="https://router.weaveos.com"
+LEGACY_HOSTED_BASE_URL="https://router.workweave.ai"
+ROUTER_KEY_HEADER="X-Weave-Router-Key"
+
+uninstall_json_get() {
+  [ -f "$1" ] || return 0
+  jq -r "${2} // empty" "$1" 2>/dev/null || true
+}
+
+# uninstall_file_is_own mirrors key_source_is_own: only a project-scoped file
+# is reachable by a repo, and one git tracks is not this user's install.
+uninstall_file_is_own() {
+  local f="$1"
+  [ -f "$f" ] || return 1
+  [ -L "$f" ] && return 1
+  [ "$scope" = "project" ] && [ -z "$install_dir" ] || return 0
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "$(dirname "$f")" ls-files --error-unmatch -- "$f" >/dev/null 2>&1 && return 1
+  return 0
+}
+
+uninstall_file_is_tracked() {
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "$(dirname "$1")" ls-files --error-unmatch -- "$1" >/dev/null 2>&1
+}
+
+# uninstall_claude_key_from FILE prints the router key header value out of a
+# Claude Code settings-shaped file ({"env":{"ANTHROPIC_CUSTOM_HEADERS":…}}).
+uninstall_claude_key_from() {
+  uninstall_json_get "$1" '.env.ANTHROPIC_CUSTOM_HEADERS' \
+    | sed -n "s/^[[:space:]]*${ROUTER_KEY_HEADER}:[[:space:]]*//p" | head -n 1 | tr -d '[:space:]'
+}
+
+# report_uninstall_event HARNESS ENDPOINT KEY — fire the detached POST. The
+# whole body runs in a subshell with errexit off so no setup failure can
+# escape into the uninstall that still has files to remove.
+report_uninstall_event() {
+  local harness="$1" endpoint="${2%/}" key="$3"
+  (
+    set +e
+    headers="" body=""
+    [ -n "$endpoint" ] && [ -n "$key" ] || exit 0
+    command -v curl >/dev/null 2>&1 || exit 0
+    headers="$(mktemp)" || exit 0
+    chmod 600 "$headers" || { rm -f "$headers"; exit 0; }
+    printf '%s: %s\n' "$ROUTER_KEY_HEADER" "$key" >"$headers" || { rm -f "$headers"; exit 0; }
+    body="$(printf '{"action":"uninstall","harness":"%s"}' "$harness")"
+    (
+      trap 'rm -f "$headers"' EXIT
+      curl -sS --max-time 2 -X POST -H 'Content-Type: application/json' \
+        --header "@$headers" --data-binary "$body" -o /dev/null \
+        "$endpoint/v1/client-events"
+    ) >/dev/null 2>&1 </dev/null &
+  ) >/dev/null 2>&1 || true
+  return 0
+}
+
+# report_claude_uninstall_event reads the endpoint and key the way install.sh's
+# resolve_installed_endpoint / read_installed_key do for Claude Code: the
+# parked sidecar first (while toggled off it holds both), then the settings
+# files. Endpoint and key from the same file are self-consistent; otherwise the
+# endpoint must be the hosted default, vouched for by the private
+# WEAVE_ROUTER_BASE_URL marker beside the key, or live in a file git does not
+# track.
+report_claude_uninstall_event() {
+  local parked candidate endpoint="" base_src="" key="" key_src="" found marked
+  parked="$(dirname "$settings_file")/.weave-parked.json"
+  for candidate in "$parked" "$settings_file" "$local_settings_file"; do
+    if [ -z "$candidate" ] || [ ! -f "$candidate" ] || [ -L "$candidate" ]; then continue; fi
+    found="$(uninstall_json_get "$candidate" '.env.ANTHROPIC_BASE_URL')"
+    case "$found" in ""|https://api.anthropic.com*|http://api.anthropic.com*) continue ;; esac
+    endpoint="${found%/}"; base_src="$candidate"
+    break
+  done
+  [ -n "$endpoint" ] || return 0
+  for candidate in "$local_settings_file" "$settings_file" "$parked"; do
+    if [ -z "$candidate" ] || [ ! -f "$candidate" ] || [ -L "$candidate" ]; then continue; fi
+    key="$(uninstall_claude_key_from "$candidate")"
+    [ -n "$key" ] && { key_src="$candidate"; break; }
+  done
+  [ -n "$key" ] || return 0
+  local trusted="false"
+  if [ "$endpoint" = "${HOSTED_BASE_URL%/}" ] || [ "$endpoint" = "${LEGACY_HOSTED_BASE_URL%/}" ] || [ "$base_src" = "$key_src" ]; then
+    trusted="true"
+  elif [ -n "$local_settings_file" ] && [ -f "$local_settings_file" ] && [ ! -L "$local_settings_file" ]; then
+    marked="$(uninstall_json_get "$local_settings_file" '.env.WEAVE_ROUTER_BASE_URL')"
+    if [ "${marked%/}" = "$endpoint" ]; then
+      uninstall_file_is_tracked "$local_settings_file" || trusted="true"
+    fi
+  fi
+  if [ "$trusted" != "true" ]; then
+    command -v git >/dev/null 2>&1 || return 0
+    uninstall_file_is_tracked "$base_src" && return 0
+  fi
+  report_uninstall_event claude_code "$endpoint" "$key"
+}
+
+# report_codex_uninstall_event reads base_url and the key header out of the
+# [model_providers.weave] table wherever it sits (Codex's serializer drops the
+# managed markers and may move the header into a subtable).
+report_codex_uninstall_event() {
+  local f="$1" endpoint key
+  uninstall_file_is_own "$f" || return 0
+  endpoint="$(awk '
+    /^[[:space:]]*\[/ {
+      in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*\][[:space:]]*(#.*)?$/)
+      next
+    }
+    in_provider && match($0, /^[[:space:]]*base_url[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      line = substr($0, RSTART, RLENGTH)
+      sub(/^.*=[[:space:]]*"/, "", line)
+      sub(/"$/, "", line)
+      print line
+      exit
+    }
+  ' "$f" 2>/dev/null || true)"
+  endpoint="${endpoint%/}"; endpoint="${endpoint%/v1}"
+  key="$(awk '
+    /^[[:space:]]*\[/ {
+      in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/)
+      next
+    }
+    in_provider && match($0, /"?X-Weave-Router-Key"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      hdr = substr($0, RSTART, RLENGTH)
+      sub(/^.*=[[:space:]]*"/, "", hdr)
+      sub(/"$/, "", hdr)
+      print hdr
+      exit
+    }
+  ' "$f" 2>/dev/null || true)"
+  report_uninstall_event codex "$endpoint" "$key"
+}
+
+report_opencode_uninstall_event() {
+  local f="$1" endpoint key
+  uninstall_file_is_own "$f" || return 0
+  endpoint="$(uninstall_json_get "$f" '.provider.weave.options.baseURL')"
+  endpoint="${endpoint%/}"; endpoint="${endpoint%/v1}"
+  key="$(uninstall_json_get "$f" '.provider.weave.options.headers["X-Weave-Router-Key"]')"
+  report_uninstall_event opencode "$endpoint" "$key"
+}
+
+report_pi_uninstall_event() {
+  local models="$1" key_file="$2" endpoint key=""
+  uninstall_file_is_own "$models" || return 0
+  endpoint="$(uninstall_json_get "$models" '.providers.weave.baseUrl')"
+  if uninstall_file_is_own "$key_file"; then
+    key="$(tr -d '[:space:]' <"$key_file" 2>/dev/null || true)"
+  fi
+  [ -n "$key" ] || key="$(uninstall_json_get "$models" '.providers.weave.headers["X-Weave-Router-Key"]')"
+  report_uninstall_event pi "$endpoint" "$key"
+}
+
+report_desktop_uninstall_event() {
+  local f="$1"
+  uninstall_file_is_own "$f" || return 0
+  report_uninstall_event claude_desktop "$(uninstall_json_get "$f" '.router_base_url')" "$(uninstall_json_get "$f" '.router_key')"
+}
+
+# Claude Desktop runs through a local proxy service (see install.sh); remove the
+# service, its certificate and the stored router key.
+if [ "$target" = "claude-desktop" ]; then
+  if [ "$scope" = "project" ]; then
+    [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] || exit 3
+    err "--claude-desktop installs in user scope only; drop --scope project."
+    exit 2
+  fi
+  desktop_shim_dir="${install_dir:-$HOME}/.weave-router/desktop-shim"
+  desktop_shim_config="$desktop_shim_dir/config.json"
+  desktop_shim_plist="$HOME/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist"
+  desktop_shim_unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/weave-router-desktop-shim.service"
+  skip_if_not_installed "$desktop_shim_config" 'router_base_url'
+  # The service files live under $HOME whatever --dir says; only remove the ones
+  # that run this install's config.
+  desktop_shim_config_xml="$(printf '%s' "$desktop_shim_config" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
+  if [ -f "$desktop_shim_plist" ] && grep -Fq "<string>$desktop_shim_config_xml</string>" "$desktop_shim_plist"; then
+    launchctl bootout "gui/$(id -u)/ai.workweave.router-desktop-shim" >/dev/null 2>&1 || true
+    rm -f "$desktop_shim_plist"
+    ok "Removed $desktop_shim_plist"
+  fi
+  if [ -f "$desktop_shim_unit" ] && grep -Fq "\"$desktop_shim_config\"" "$desktop_shim_unit"; then
+    systemctl --user disable --now weave-router-desktop-shim.service >/dev/null 2>&1 || true
+    rm -f "$desktop_shim_unit"
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    ok "Removed $desktop_shim_unit"
+  fi
+  # Undo the trusted certificate and the auto-proxy, but only where they are this install's.
+  desktop_shim_pac="http://127.0.0.1:$(jq -r '.listen_port // 47821' "$desktop_shim_config" 2>/dev/null || echo 47821)/proxy.pac"
+  case "$(uname -s)" in
+    Darwin)
+      if [ -f "$desktop_shim_dir/ca.pem" ] \
+        && security find-certificate -c "Weave Router Claude Desktop proxy" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
+        if ! security remove-trusted-cert "$desktop_shim_dir/ca.pem" \
+          || ! security delete-certificate -Z "$(openssl x509 -noout -fingerprint -sha1 -in "$desktop_shim_dir/ca.pem" | sed 's/.*=//; s/://g')" \
+            "$HOME/Library/Keychains/login.keychain-db" >/dev/null; then
+          desktop_shim_ca_left="true"
+        fi
+      fi
+      while IFS= read -r service; do
+        if [ "$(networksetup -getautoproxyurl "$service" | sed -n 's/^URL: //p')" = "$desktop_shim_pac" ]; then
+          sudo networksetup -setautoproxystate "$service" off
+        fi
+      done < <(networksetup -listallnetworkservices | tail -n +2 | grep -v '^\*')
+      ;;
+    Linux)
+      desktop_shim_ca_store="/usr/local/share/ca-certificates/weave-router-claude-desktop.crt"
+      if [ -f "$desktop_shim_ca_store" ] && cmp -s "$desktop_shim_dir/ca.pem" "$desktop_shim_ca_store"; then
+        if ! { sudo rm -f "$desktop_shim_ca_store" && sudo update-ca-certificates --fresh >/dev/null; }; then
+          desktop_shim_ca_left="true"
+        fi
+      fi
+      if [ "$(gsettings get org.gnome.system.proxy autoconfig-url 2>/dev/null)" = "'$desktop_shim_pac'" ]; then
+        gsettings set org.gnome.system.proxy mode 'none'
+        gsettings reset org.gnome.system.proxy autoconfig-url
+      fi
+      ;;
+  esac
+  # Keep ca.pem and the config while the OS still trusts the CA, so a rerun can remove it.
+  if [ "${desktop_shim_ca_left:-}" = "true" ]; then
+    warn "Could not remove the proxy certificate from the OS trust store (a cancelled password prompt?). Rerun: npx @weave-os/router --uninstall --claude-desktop"
+  elif [ -d "$desktop_shim_dir" ]; then
+    refuse_if_symlink "$desktop_shim_dir"
+    report_desktop_uninstall_event "$desktop_shim_config"
+    rm -rf "$desktop_shim_dir"
+    rmdir "$(dirname "$desktop_shim_dir")" 2>/dev/null || true
+    ok "Removed $desktop_shim_dir"
+  fi
+  info "Quit and reopen Claude Desktop so new sessions go direct to Anthropic."
+  exit 0
 fi
 
 # Markers must stay in sync with install.sh. Keep verbatim.
 WEAVE_CODEX_BEGIN_MARKER="# >>> weave-router managed (do not edit between markers) >>>"
 WEAVE_CODEX_END_MARKER="# <<< weave-router managed <<<"
-WEAVE_CODEX_SKILL_MARKER="<!-- weave-router managed disable-routing skill -->"
 
-# strip_codex_block rewrites config.toml without the managed block and any
+# strip_codex_block rewrites config.toml without the managed block, any
 # top-level `model_provider = "weave"` that lived outside the markers (which
-# can happen if the user copy-pasted our key into their own config). Other
-# top-level model_provider values are preserved so we don't yank a user back
-# into the OpenAI default when they meant to keep their own.
+# can happen if the user copy-pasted our key into their own config), and any
+# `[model_providers.weave]` table outside them. Other top-level model_provider
+# values are preserved so we don't yank a user back into the OpenAI default
+# when they meant to keep their own.
+#
+# The out-of-marker table has to go for the same reason install.sh strips it:
+# Codex rewrites config.toml through a TOML serializer and our comment markers
+# do not survive, so a marker-only uninstall reported success while leaving the
+# provider -- and the router key inside it -- on disk.
+# strip_weave_codex_hooks removes every hook registration this installer owns,
+# matched by helper filename. Marker-scoped removal is not enough: Codex
+# rewrites config.toml through a TOML serializer and our registrations often end
+# up outside the markers, which used to leave them behind after an uninstall.
+# Removal is per sub-entry so a group shared with a third party keeps theirs.
+# Ownership contract for the Codex hook helpers. Every rule here was a bug
+# first; keep them together so the next change has the whole set.
+#
+#   1. Ours is decided per path by that helper's EXACT marker. A prefix match
+#      lets the status marker vouch for the directive path, and the two
+#      deletion sites check exact markers -- so the strip would unwire a file
+#      it then declines to delete.
+#   2. A missing file is ours. Its registration points at nothing, which is
+#      residue we left behind.
+#   3. What a symlink means depends on the helper's lifecycle, so the caller
+#      says which it is.
+#        rewrite (status): the file is rewritten in place and never deleted, so
+#          the link is followed to read the marker. Disowning it instead leaves
+#          the old registrations while the managed block adds a fresh pair,
+#          stacking the duplicates this strip exists to remove.
+#        delete (directive): the file is removed, and removal refuses to act
+#          through a link. Claiming one would strip the registration and then
+#          decline the delete, leaving a helper Codex no longer runs -- rule 4
+#          violated in the one case it exists for.
+#      Either way the check precedes -e, which is false for a dangling link: it
+#      then fails the marker test and stays the user's, rather than being
+#      claimed by rule 2.
+#   4. Registration and file must be decided together. Removing one while
+#      keeping the other leaves a script Codex never runs, with nothing on
+#      screen to explain it.
+#   5. Compare decoded paths. The command value is a TOML basic string and the
+#      writer escapes it, so a raw comparison misses any path with a quote or
+#      backslash.
+# warn_if_symlink reports a symlinked path and returns non-zero so the caller
+# can skip just that file. refuse_if_symlink exits the process, which is right
+# for a path we are about to write but wrong for these helpers: one symlinked
+# helper would abort the whole run, stranding the config rewrite that is the
+# actual work. Neither is deleted through a link either way.
+warn_if_symlink() {
+  local target="$1"
+  [ -L "$target" ] || return 0
+  warn "$target is a symlink (-> $(readlink "$target")); leaving it untouched."
+  return 1
+}
+
+weave_owns_codex_helper() {
+  local path="$1" marker="$2" lifecycle="$3"
+  [ -n "$path" ] && [ -n "$marker" ] && [ -n "$lifecycle" ] || return 1
+  if [ -L "$path" ]; then
+    [ "$lifecycle" = "rewrite" ] || return 1
+    grep -Fq "$marker" "$path" 2>/dev/null
+    return $?
+  fi
+  [ -e "$path" ] || return 0
+  grep -Fq "$marker" "$path" 2>/dev/null
+}
+
+# weave_owned_codex_helpers prints, one per line, whichever of the two helper
+# paths this installation may unwire.
+weave_owned_codex_helpers() {
+  weave_owns_codex_helper "${codex_status_file:-}" '<!-- weave-router managed codex status -->' rewrite \
+    && printf '%s\n' "$codex_status_file"
+  weave_owns_codex_helper "${codex_directive_file:-}" '<!-- weave-router managed codex directive -->' delete \
+    && printf '%s\n' "$codex_directive_file"
+  return 0
+}
+
+strip_weave_codex_hooks() {
+  local config_file="$1"; shift
+  [ -f "$config_file" ] || return 0
+  # Exact paths, never a filename pattern: a third party's hook is free to be
+  # called weave-status.sh, and matching on the basename would delete it.
+  local owned="" candidate
+  for candidate in "$@"; do
+    [ -n "$candidate" ] || continue
+    # A unit separator, not a newline: BSD awk rejects an embedded newline in a
+    # -v value outright ("newline in string"), which silently disabled the whole
+    # pass on macOS.
+    owned="${owned}${candidate}$(printf '\037')"
+  done
+  [ -n "$owned" ] || return 0
+  local tmp; tmp="$(mktemp -t weave-codex-hooks.XXXXXX)"
+  awk -v owned="$owned" '
+    BEGIN {
+      n = split(owned, list, "\037")
+      for (i = 1; i <= n; i++) if (list[i] != "") own[list[i]] = 1
+    }
+    function flush_sub(   i) {
+      if (sub_n == 0) return
+      if (!sub_is_weave) {
+        if (group_pending != "") {
+          print group_pending
+          group_pending = ""
+          if (group_blank) { print ""; group_blank = 0 }
+        }
+        for (i = 1; i <= sub_n; i++) print sub_line[i]
+      }
+      sub_n = 0
+      sub_is_weave = 0
+    }
+    function close_group() { flush_sub(); group_pending = ""; group_blank = 0 }
+    /^[[:space:]]*\[\[hooks\.[A-Za-z]+\.hooks\]\][[:space:]]*$/ {
+      flush_sub(); sub_n = 1; sub_line[1] = $0; next
+    }
+    /^[[:space:]]*\[\[hooks\.[A-Za-z]+\]\][[:space:]]*$/ {
+      close_group(); group_pending = $0; next
+    }
+    /^[[:space:]]*\[/ { close_group(); print; next }
+    {
+      if (sub_n > 0) {
+        sub_line[++sub_n] = $0
+        if (match($0, /^[[:space:]]*command[[:space:]]*=[[:space:]]*"([^"\\]|\\.)*"/)) {
+          v = substr($0, RSTART, RLENGTH)
+          sub(/^[^"]*"/, "", v); sub(/"$/, "", v)
+          # write_codex_config escapes the path before writing it, so undo that
+          # before comparing; quotes first, then backslashes.
+          gsub(/\\"/, "\"", v)
+          gsub(/\\\\/, "\\", v)
+          if (v in own) sub_is_weave = 1
+        }
+        next
+      }
+      if (group_pending != "" && $0 ~ /^[[:space:]]*$/) { group_blank = 1; next }
+      if (group_pending != "") {
+        print group_pending; group_pending = ""
+        if (group_blank) { print ""; group_blank = 0 }
+      }
+      print
+    }
+    END { close_group() }
+  ' "$config_file" >"$tmp" && mv "$tmp" "$config_file"
+  rm -f "$tmp" 2>/dev/null || true
+}
+
 strip_codex_block() {
   local config_file="$1"
   local tmp; tmp="$(mktemp -t weave-codex-uninstall.XXXXXX)"
@@ -106,11 +804,29 @@ strip_codex_block() {
     $0 == begin { skip = 1; next }
     $0 == end   { skip = 0; next }
     skip        { next }
-    /^[[:space:]]*\[/ { in_section = 1 }
+    /^[[:space:]]*\[/ {
+      in_section = 1
+      if ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/) {
+        in_weave_provider = 1
+        next
+      }
+      in_weave_provider = 0
+    }
+    in_weave_provider { next }
+    !in_section && /^[[:space:]]*#[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave".*weave-router: off/ { next }
+    !in_section && /^[[:space:]]*#[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto".*weave-router: off/ { next }
     !in_section && /^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ { next }
+    !in_section && /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { next }
     { print }
   ' "$config_file" >"$tmp"
   mv "$tmp" "$config_file"
+  local owned_helpers=()
+  while IFS= read -r owned_helper; do
+    [ -n "$owned_helper" ] && owned_helpers+=("$owned_helper")
+  done <<EOF
+$(weave_owned_codex_helpers)
+EOF
+  strip_weave_codex_hooks "$config_file" ${owned_helpers[@]+"${owned_helpers[@]}"}
 }
 
 # ---------- opencode uninstall path ----------
@@ -133,6 +849,9 @@ if [ "$target" = "opencode" ]; then
       printf "Project directory to uninstall from [default: %s]: " "$default_project_dir"
       read -r project_dir_choice </dev/tty || project_dir_choice=""
       project_dir="${project_dir_choice:-$default_project_dir}"
+      # Expand a leading ~ since `read` doesn't.
+      # The pattern intentionally matches a literal tilde.
+      # shellcheck disable=SC2088
       case "$project_dir" in
         "~")    project_dir="$HOME" ;;
         "~/"*)  project_dir="$HOME/${project_dir#~/}" ;;
@@ -155,32 +874,51 @@ if [ "$target" = "opencode" ]; then
     refuse_if_symlink "$opencode_dir"
   fi
   opencode_config_file="$opencode_dir/opencode.json"
+  skip_if_not_installed "$opencode_config_file" '"weave(-claude|-codex)?"' "$opencode_dir/.weave-parked.json"
+  opencode_parked="$opencode_dir/.weave-parked.json"
+  opencode_direct_model=""
   refuse_if_symlink "$opencode_config_file"
-
-  # Canonicalize the plugin path exactly as install.sh did (`cd … && pwd`) so
-  # the `plugin` array entry matches on removal — a raw "$opencode_dir/…" string
-  # can differ (symlinks, trailing slash) and leave the entry behind.
-  if [ -d "$opencode_dir" ]; then
-    opencode_plugin="$(cd "$opencode_dir" && pwd)/.weave/opencode-weave.ts"
-  else
-    opencode_plugin="$opencode_dir/.weave/opencode-weave.ts"
+  if [ -f "$opencode_parked" ]; then
+    refuse_if_symlink "$opencode_parked"
+    opencode_direct_model="$(jq -r '.direct_model // empty' "$opencode_parked" 2>/dev/null || true)"
   fi
+
+  # Older installers registered a v1 plugin in opencode.json and copied its
+  # sources into .weave/. Remove those exact legacy registrations and assets.
+  if [ -d "$opencode_dir" ]; then
+    opencode_plugin_dir="$(cd "$opencode_dir" && pwd)/.weave"
+  else
+    opencode_plugin_dir="$opencode_dir/.weave"
+  fi
+
+  report_opencode_uninstall_event "$opencode_config_file" || true
   if [ -f "$opencode_config_file" ]; then
-    # Strip every managed provider (`weave`, the login-only `weave-claude`, and
-    # the legacy `weave-codex` from pre-upgrade installs), the managed plugin
-    # entry from the `plugin` array, and any router-pointing top-level model
-    # (the `weave/`, `weave-claude/`, and `weave-codex/` prefixes — otherwise a
-    # default survives and points at a deleted provider). Other providers,
-    # user-set models that don't reference the router, other plugins, and any
-    # unrelated keys are preserved.
-    cleaned="$(jq --arg plugin "$opencode_plugin" '
+    # Strip every managed provider (`weave`, `weave-claude`, and the legacy
+    # `weave-codex` from pre-upgrade installs), remove any stale legacy plugin
+    # registration, and restore the direct model parked during
+    # install. Other providers, direct models selected while routing was off,
+    # other plugins, and unrelated keys are preserved.
+    cleaned="$(jq --arg direct_model "$opencode_direct_model" '
       (if .provider.weave then del(.provider.weave) else . end)
       | (if .provider["weave-claude"] then del(.provider["weave-claude"]) else . end)
       | (if .provider["weave-codex"] then del(.provider["weave-codex"]) else . end)
       | (if (.provider // {}) == {} then del(.provider) else . end)
-      | (if (.plugin | type) == "array" then .plugin -= [$plugin] else . end)
+      | (if (.providers | type) == "object"
+           then .providers |= del(.weave, ."weave-codex", ."weave-claude")
+           else .
+         end)
+      | (if (.providers | type) == "object" and (.providers | length) == 0
+           then del(.providers)
+           else .
+         end)
+      | (if (.plugin | type) == "array"
+           then .plugin |= map(select((tostring | test("(^|/)opencode-weave\\.ts$")) | not))
+           else .
+         end)
       | (if (.plugin | type) == "array" and (.plugin | length) == 0 then del(.plugin) else . end)
-      | (if (.model // "" | tostring | (startswith("weave/") or startswith("weave-claude/") or startswith("weave-codex/"))) then del(.model) else . end)
+      | (if (.model // "" | tostring | (startswith("weave/") or startswith("weave-claude/") or startswith("weave-codex/")))
+           then (if $direct_model != "" then .model = $direct_model else del(.model) end)
+           else . end)
     ' "$opencode_config_file")"
     printf '%s\n' "$cleaned" >"$opencode_config_file"
 
@@ -197,45 +935,53 @@ if [ "$target" = "opencode" ]; then
     info "No opencode config at $opencode_config_file (already uninstalled?)"
   fi
 
-  # Drop the bundled subscription plugin (no secrets; the config holds the key,
-  # opencode's own auth store holds the ChatGPT/Claude tokens). Remove the
-  # .weave/ dir only if it's left empty so we don't clobber an unrelated user dir.
-  if [ -f "$opencode_plugin" ]; then
-    refuse_if_symlink "$opencode_plugin"
-    rm -f "$opencode_plugin"
-    rmdir "$opencode_dir/.weave" 2>/dev/null || true
-    ok "Removed $opencode_plugin"
+  refuse_if_symlink "$opencode_plugin_dir"
+  legacy_opencode_assets_removed=false
+  for opencode_asset in opencode-weave.ts directives.ts classifier-thread.ts; do
+    refuse_if_symlink "$opencode_plugin_dir/$opencode_asset"
+    if [ -f "$opencode_plugin_dir/$opencode_asset" ]; then
+      rm -f "$opencode_plugin_dir/$opencode_asset"
+      legacy_opencode_assets_removed=true
+    fi
+  done
+  rmdir "$opencode_plugin_dir" 2>/dev/null || true
+  if [ "$legacy_opencode_assets_removed" = "true" ]; then
+    ok "Removed legacy opencode plugin files"
   fi
 
-  # Drop the toggle parked sidecar (holds the parked router model when off).
-  opencode_parked="$opencode_dir/.weave-parked.json"
+  # Drop the toggle parked sidecar after its prior model has been restored.
   if [ -f "$opencode_parked" ]; then
     refuse_if_symlink "$opencode_parked"
     rm -f "$opencode_parked"
     ok "Removed $opencode_parked"
   fi
 
-  # Remove slash command wrapper files this installer owns. Install mirrors
-  # this split: project scope uses <repo>/.opencode/commands/, while user
-  # scope—including a user-style --dir install—uses the global XDG commands
-  # directory so opencode discovers the wrappers from any working directory.
+  # Remove slash command wrapper files this installer owns. Project and --dir
+  # installs keep commands beside their config; user scope uses global XDG.
   remove_opencode_command_dir() {
     local opencode_cmds_dir="$1" cmd cmd_file
     if [ -d "$opencode_cmds_dir" ]; then
       refuse_if_symlink "$opencode_cmds_dir"
-      for cmd in force-model unforce-model router-feedback fm ufm rf; do
+      while IFS= read -r cmd; do
         cmd_file="$opencode_cmds_dir/$cmd.md"
         if [ -f "$cmd_file" ]; then
-          refuse_if_symlink "$cmd_file"
-          rm -f "$cmd_file"
-          ok "Removed $cmd_file"
+          if weave_command_router_owned "$cmd_file" "$cmd"; then
+            refuse_if_symlink "$cmd_file"
+            refuse_if_symlink "$cmd_file.weave-router"
+            rm -f "$cmd_file" "$cmd_file.weave-router"
+            ok "Removed $cmd_file"
+          else
+            warn "Leaving user-owned opencode command at $cmd_file untouched."
+          fi
         fi
-      done
+      done <<EOF
+$(weave_registry_names opencode)
+EOF
       rmdir "$opencode_cmds_dir" 2>/dev/null || true
     fi
   }
 
-  if [ "$scope" = "project" ]; then
+  if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
     opencode_commands_dir="$opencode_dir/.opencode/commands"
   else
     opencode_commands_dir="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/commands"
@@ -254,6 +1000,74 @@ if [ "$target" = "opencode" ]; then
     ok "Weave Router uninstalled from $install_dir (opencode)."
   else
     ok "Weave Router uninstalled (opencode, scope=$scope)."
+  fi
+  exit 0
+fi
+
+# ---------- copilot uninstall path ----------
+
+if [ "$target" = "copilot" ]; then
+  # Mirrors install.sh: user scope only; --dir is a throwaway COPILOT_HOME.
+  if [ -n "$install_dir" ]; then
+    install_dir="$(cd "$install_dir" 2>/dev/null && pwd || echo "$install_dir")"
+    copilot_dir="$install_dir/.copilot"
+  else
+    copilot_dir="${COPILOT_HOME:-$HOME/.copilot}"
+  fi
+  copilot_providers_file="$copilot_dir/providers.json"
+  copilot_settings_file="$copilot_dir/settings.json"
+  copilot_parked_file="$copilot_dir/.weave-parked.json"
+  for path in "$copilot_dir" "$copilot_providers_file" "$copilot_settings_file" "$copilot_parked_file"; do
+    refuse_if_symlink "$path"
+  done
+  skip_if_not_installed "$copilot_providers_file" '"name": *"weave"' "$copilot_parked_file"
+
+  if [ -f "$copilot_providers_file" ]; then
+    report_uninstall_event copilot \
+      "$(jq -r '[(.providers // [])[] | select(.name == "weave") | .baseUrl // empty][0] // empty' "$copilot_providers_file" 2>/dev/null | sed 's#/v1$##')" \
+      "$(jq -r '[(.providers // [])[] | select(.name == "weave") | .headers["X-Weave-Router-Key"] // empty][0] // empty' "$copilot_providers_file" 2>/dev/null)" || true
+    cleaned="$(jq '
+      .providers = [(.providers // [])[] | select(.name != "weave")]
+      | .models = [(.models // [])[] | select(.provider != "weave")]
+    ' "$copilot_providers_file")"
+    if [ "$(printf '%s' "$cleaned" | jq '(.providers | length) + (.models | length) + (del(.providers, .models) | length)')" = "0" ]; then
+      rm -f "$copilot_providers_file"
+      ok "Removed empty $copilot_providers_file"
+    else
+      printf '%s\n' "$cleaned" >"$copilot_providers_file"
+      chmod 600 "$copilot_providers_file"
+      ok "Removed the weave provider from $copilot_providers_file"
+    fi
+  else
+    info "No Copilot CLI providers.json at $copilot_providers_file (already uninstalled?)"
+  fi
+
+  if [ -f "$copilot_settings_file" ]; then
+    direct_model=""
+    [ -f "$copilot_parked_file" ] && direct_model="$(jq -r '.direct_model // empty' "$copilot_parked_file" 2>/dev/null || true)"
+    cleaned="$(jq --arg direct "$direct_model" '
+      if ((.model // "") | startswith("weave/"))
+      then (if $direct != "" then .model = $direct else del(.model) end)
+      else . end
+    ' "$copilot_settings_file")"
+    printf '%s\n' "$cleaned" >"$copilot_settings_file"
+    ok "Restored Copilot CLI default model in $copilot_settings_file${direct_model:+ ($direct_model)}"
+  fi
+  rm -f "$copilot_parked_file"
+
+  # Only remove skills that still carry our ownership marker.
+  if [ -d "$copilot_dir/skills" ] && [ ! -L "$copilot_dir/skills" ]; then
+    for skill_dir in "$copilot_dir"/skills/*/; do
+      [ -d "$skill_dir" ] || continue
+      skill_dir="${skill_dir%/}"
+      name="${skill_dir##*/}"
+      [ -L "$skill_dir" ] && continue
+      if [ ! -f "$skill_dir/SKILL.md" ] || [ -L "$skill_dir/SKILL.md" ]; then continue; fi
+      grep -Fq "<!-- weave-router managed $name skill -->" "$skill_dir/SKILL.md" || continue
+      rm -rf "$skill_dir"
+    done
+    rmdir "$copilot_dir/skills" 2>/dev/null || true
+    ok "Removed Weave Router Copilot skills"
   fi
   exit 0
 fi
@@ -277,6 +1091,9 @@ if [ "$target" = "pi" ]; then
       printf "Project directory to uninstall from [default: %s]: " "$default_project_dir"
       read -r project_dir_choice </dev/tty || project_dir_choice=""
       project_dir="${project_dir_choice:-$default_project_dir}"
+      # Expand a leading ~ since `read` doesn't.
+      # The pattern intentionally matches a literal tilde.
+      # shellcheck disable=SC2088
       case "$project_dir" in
         "~")    project_dir="$HOME" ;;
         "~/"*)  project_dir="$HOME/${project_dir#~/}" ;;
@@ -306,6 +1123,8 @@ if [ "$target" = "pi" ]; then
   refuse_if_symlink "$pi_settings_file"
   refuse_if_symlink "$pi_key_file"
 
+  skip_if_not_installed "$pi_models_file" '"weave"'
+  report_pi_uninstall_event "$pi_models_file" "$pi_key_file" || true
   # models.json: drop provider.weave; remove the file if nothing else remains.
   # Other providers/models the user added are preserved.
   if [ -f "$pi_models_file" ]; then
@@ -328,15 +1147,15 @@ if [ "$target" = "pi" ]; then
   # router. Leaving defaultProvider="weave" after removing the provider would
   # break pi startup, so reverting is the correct reverse of the install.
   # defaultModel is reverted ONLY when defaultProvider was "weave" (the state
-  # install creates): install sets defaultModel only when it was empty, so a user
-  # who independently picked claude-sonnet-4-6 with their own provider keeps it.
+  # install creates) and it names a model install wrote: "auto", or
+  # claude-sonnet-4-6 from installs before weave/auto.
   if [ -f "$pi_settings_file" ]; then
     cleaned="$(jq '
-      (if .packages then .packages -= ["npm:@workweave/router", "npm:@workweave/pi-router"] else . end)
+      (if .packages then .packages -= ["npm:@workweave/router", "npm:@weave-os/router", "npm:@workweave/pi-router"] else . end)
       | (if (.packages // []) == [] then del(.packages) else . end)
       | (if .defaultProvider == "weave"
            then del(.defaultProvider)
-                | (if .defaultModel == "claude-sonnet-4-6" then del(.defaultModel) else . end)
+                | (if .defaultModel == "auto" or .defaultModel == "claude-sonnet-4-6" then del(.defaultModel) else . end)
            else . end)
     ' "$pi_settings_file")"
     printf '%s\n' "$cleaned" >"$pi_settings_file"
@@ -383,6 +1202,9 @@ if [ "$target" = "codex" ]; then
       printf "Project directory to uninstall from [default: %s]: " "$default_project_dir"
       read -r project_dir_choice </dev/tty || project_dir_choice=""
       project_dir="${project_dir_choice:-$default_project_dir}"
+      # Expand a leading ~ since `read` doesn't.
+      # The pattern intentionally matches a literal tilde.
+      # shellcheck disable=SC2088
       case "$project_dir" in
         "~")    project_dir="$HOME" ;;
         "~/"*)  project_dir="$HOME/${project_dir#~/}" ;;
@@ -405,8 +1227,22 @@ if [ "$target" = "codex" ]; then
     refuse_if_symlink "$codex_dir"
   fi
   codex_config_file="$codex_dir/config.toml"
+  if [ "$scope" = "user" ] && [ -z "$install_dir" ]; then
+    codex_status_file="$HOME/.weave/codex-status.sh"
+    codex_directive_file="$HOME/.weave/codex-directive.sh"
+  else
+    codex_status_file="$codex_dir/weave-status.sh"
+    codex_directive_file="$codex_dir/weave-directive.sh"
+  fi
+  codex_status_disabled_marker="$(dirname "$codex_status_file")/.weave-router-disabled"
   refuse_if_symlink "$codex_config_file"
+  refuse_if_symlink "$codex_status_disabled_marker"
+  # The helpers are checked at their own removal sites instead. Refusing here
+  # exits before strip_codex_block, so one symlinked helper left the config
+  # wired to a router the uninstall had just been asked to remove.
 
+  skip_if_not_installed "$codex_config_file" 'model_providers.weave'
+  report_codex_uninstall_event "$codex_config_file" || true
   if [ -f "$codex_config_file" ]; then
     strip_codex_block "$codex_config_file"
     # If the file now contains only whitespace/comments, leave it: the user
@@ -422,39 +1258,96 @@ if [ "$target" = "codex" ]; then
     info "No Codex config at $codex_config_file (already uninstalled?)"
   fi
 
+  # A user config with an existing [features] table receives the installer
+  # hook setting outside the managed block; remove only our tagged line.
+  if [ -f "$codex_config_file" ]; then
+    tmp="$(mktemp -t weave-codex-features-uninstall.XXXXXX)"
+    awk '$0 != "hooks = true # weave-router managed codex hooks" { print }' "$codex_config_file" >"$tmp"
+    mv "$tmp" "$codex_config_file"
+  fi
+
+  if [ -f "$codex_status_file" ] && warn_if_symlink "$codex_status_file"; then
+    if grep -Fq '<!-- weave-router managed codex status -->' "$codex_status_file"; then
+      rm -f "$codex_status_file"
+      rm -f "$codex_status_disabled_marker"
+      ok "Removed $codex_status_file"
+      rmdir "$(dirname "$codex_status_file")" 2>/dev/null || true
+    else
+      warn "Leaving user-owned Codex status helper at $codex_status_file untouched."
+    fi
+  fi
+
+  if [ -f "$codex_directive_file" ] && warn_if_symlink "$codex_directive_file"; then
+    if grep -Fq '<!-- weave-router managed codex directive -->' "$codex_directive_file"; then
+      rm -f "$codex_directive_file"
+      ok "Removed $codex_directive_file"
+      rmdir "$(dirname "$codex_directive_file")" 2>/dev/null || true
+    else
+      warn "Leaving user-owned Codex directive helper at $codex_directive_file untouched."
+    fi
+  fi
+
   # Remove only the prompt files this installer owns; leave any user-authored
   # entries in prompts/ alone. The dir itself is dropped only if empty after.
   codex_prompts_dir="$codex_dir/prompts"
   if [ -d "$codex_prompts_dir" ]; then
     refuse_if_symlink "$codex_prompts_dir"
-    for cmd in force-model unforce-model router-feedback fm ufm rf; do
+    while IFS= read -r cmd; do
       cmd_file="$codex_prompts_dir/$cmd.md"
       if [ -f "$cmd_file" ]; then
         refuse_if_symlink "$cmd_file"
         rm -f "$cmd_file"
         ok "Removed $cmd_file"
       fi
-    done
+    done <<EOF
+$(weave_registry_names codex)
+EOF
     rmdir "$codex_prompts_dir" 2>/dev/null || true
   fi
 
-  # The installer-owned skill switches Codex back to its normal provider. It
-  # is separate from config.toml, so remove it when removing the router too.
-  # A same-named skill without our marker belongs to the user and is preserved.
-  codex_skill_dir="$codex_dir/skills/disable-routing"
-  codex_skill_file="$codex_skill_dir/SKILL.md"
-  if [ -d "$codex_skill_dir" ]; then
-    refuse_if_symlink "$codex_skill_dir"
-    if [ -f "$codex_skill_file" ]; then
-      refuse_if_symlink "$codex_skill_file"
-      if grep -Fq "$WEAVE_CODEX_SKILL_MARKER" "$codex_skill_file"; then
-        rm -f "$codex_skill_file"
-        ok "Removed $codex_skill_file"
-      else
-        warn "Leaving user-owned Codex skill at $codex_skill_file untouched."
+  # disable-routing is handled by the registry-driven loop below, alongside
+  # every other installer-owned skill.
+
+  # A symlinked skills/ or per-skill directory would let the marker check and
+  # the rm below reach a file outside the Codex tree entirely, so refuse the
+  # parents before touching anything beneath them — not just SKILL.md itself.
+  if [ -L "$codex_dir/skills" ]; then
+    warn "$codex_dir/skills is a symlink; leaving Codex skills untouched."
+  else
+    while IFS= read -r canonical; do
+      skill_dir="$codex_dir/skills/$canonical"
+      skill_file="$skill_dir/SKILL.md"
+      if [ -L "$skill_dir" ]; then
+        warn "$skill_dir is a symlink; leaving it untouched."
+        continue
       fi
-    fi
-    rmdir "$codex_skill_dir" 2>/dev/null || true
+      if [ -L "$skill_file" ]; then
+        warn "$skill_file is a symlink; leaving it untouched."
+        continue
+      fi
+      if [ -f "$skill_file" ]; then
+        if grep -Fq "<!-- weave-router managed $canonical skill -->" "$skill_file"; then
+          rm -f "$skill_file"
+          ok "Removed $skill_file"
+          # The prompt skills also ship scripts/emit.sh; leaving it behind
+          # strands a directory Codex still advertises as a skill.
+          emit_file="$skill_dir/scripts/emit.sh"
+          if [ ! -L "$skill_dir/scripts" ] && [ ! -L "$emit_file" ] && [ -f "$emit_file" ]; then
+            rm -f "$emit_file"
+            rmdir "$skill_dir/scripts" 2>/dev/null || true
+          fi
+        else
+          warn "Leaving user-owned Codex skill at $skill_file untouched."
+        fi
+        rmdir "$skill_dir" 2>/dev/null || true
+      fi
+    done <<EOF
+$(weave_registry_skill_assets codex)
+EOF
+    # Drop skills/ when nothing is left in it, matching how the prompts and
+    # Claude command paths clean up their now-empty directories. rmdir refuses
+    # a non-empty dir, so an unrelated user skill keeps it.
+    uninstall_build_skill "$codex_dir/skills"
     rmdir "$codex_dir/skills" 2>/dev/null || true
   fi
 
@@ -477,19 +1370,25 @@ if [ -n "$install_dir" ]; then
   # uses .claude/. Match the installer's scope-dependent statusline placement.
   if [ "$scope" = "project" ]; then
     statusline_file="$install_dir/.claude/cc-statusline.sh"
+    statusline_command="$statusline_file"
   else
     statusline_file="$install_dir/.weave/cc-statusline.sh"
+    statusline_command="$statusline_file"
   fi
+  statusline_ownership_file="$statusline_file.weave-router"
   # Symlink containment: --dir paths come from a user-supplied directory that may
   # be hostile. The later `>` redirect on settings_file and `rm -f` on the
   # statusline script would otherwise follow links out of the directory.
   refuse_if_symlink "$install_dir/.claude"
   refuse_if_symlink "$settings_file"
   refuse_if_symlink "$statusline_file"
+  refuse_if_symlink "$statusline_ownership_file"
 elif [ "$scope" = "user" ]; then
   settings_file="$HOME/.claude/settings.json"
   local_settings_file=""
   statusline_file="$HOME/.weave/cc-statusline.sh"
+  statusline_command="$statusline_file"
+  statusline_ownership_file="$statusline_file.weave-router"
 else
   # Project scope without --dir: mirror install.sh — directory prompt only when
   # scope_explicit is false (interactive install path); explicit --scope project
@@ -500,6 +1399,9 @@ else
     printf "Project directory to uninstall from [default: %s]: " "$default_project_dir"
     read -r project_dir_choice </dev/tty || project_dir_choice=""
     project_dir="${project_dir_choice:-$default_project_dir}"
+    # Expand a leading ~ since `read` doesn't.
+    # The pattern intentionally matches a literal tilde.
+    # shellcheck disable=SC2088
     case "$project_dir" in
       "~")    project_dir="$HOME" ;;
       "~/"*)  project_dir="$HOME/${project_dir#~/}" ;;
@@ -522,6 +1424,8 @@ else
   settings_file="$settings_base/.claude/settings.json"
   local_settings_file="$settings_base/.claude/settings.local.json"
   statusline_file="$settings_base/.claude/cc-statusline.sh"
+  statusline_command="\${CLAUDE_PROJECT_DIR}/.claude/cc-statusline.sh"
+  statusline_ownership_file="$statusline_file.weave-router"
   # Symlink containment: paths come from a git repo or user-supplied directory
   # that may be hostile. The later `>` redirect on settings_file and `rm -f` on
   # the scripts would otherwise follow links out of the repo.
@@ -529,25 +1433,64 @@ else
   refuse_if_symlink "$settings_file"
   refuse_if_symlink "$local_settings_file"
   refuse_if_symlink "$statusline_file"
+  refuse_if_symlink "$statusline_ownership_file"
 fi
+
+skip_if_not_installed "$settings_file" 'ANTHROPIC_BASE_URL|Weave Router|cc-statusline' \
+  "$(dirname "$settings_file")/.weave-parked.json" "$(dirname "$settings_file")/.weave-context-window.json" "$statusline_file"
+statusline_file_owned="false"
+statusline_setting_owned="false"
+context_state_file="$(dirname "$settings_file")/.weave-context-window.json"
+if [ -f "$context_state_file" ]; then
+  refuse_if_symlink "$context_state_file"
+  context_settings_file="${local_settings_file:-$settings_file}"
+  if [ -f "$context_settings_file" ]; then
+    cleaned="$(jq --slurpfile state "$context_state_file" '
+      $state[0] as $s |
+      if .model == $s.managed then
+        if $s.had_model then .model = $s.original else del(.model) end
+      else . end
+    ' "$context_settings_file")"
+    printf '%s\n' "$cleaned" >"$context_settings_file"
+  fi
+  rm -f "$context_state_file"
+  ok "Restored the previous Claude Code model setting (or kept a newer user selection)."
+fi
+if [ -f "$statusline_file" ] && grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$statusline_file"; then
+  statusline_file_owned="true"
+fi
+if claude_statusline_router_owned \
+     "$settings_file" "$statusline_command" "$statusline_file" "$statusline_ownership_file"; then
+  statusline_setting_owned="true"
+  statusline_file_owned="true"
+fi
+
+report_claude_uninstall_event || true
+
 
 if [ -f "$settings_file" ]; then
   # Only remove keys we actually installed: scrub our env vars, and only
   # delete `statusLine` / `apiKeyHelper` when they point at scripts this
   # installer used in older versions. Otherwise an unrelated user-configured
   # statusLine or apiKeyHelper would be silently clobbered.
-  cleaned="$(jq '
+  cleaned="$(jq --arg statusline_setting_owned "$statusline_setting_owned" "$CLAUDE_WEAVE_AUTO_STRIP_JQ"' | 
     if .env then
-      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH))
+      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH, .CLAUDE_CODE_AUTO_MODE_SERVER))
       | (if (.env | length) == 0 then del(.env) else . end)
     else . end
-    | (if (.statusLine.command // "" | tostring | endswith("cc-statusline.sh"))
-         then del(.statusLine) else . end)
+    | (if $statusline_setting_owned == "true" then del(.statusLine) else . end)
+    | (if (.hooks.UserPromptSubmit | type) == "array" then
+        .hooks.UserPromptSubmit |= (map(if (.hooks | type) == "array" then .hooks |= map(select((.command // "" | tostring | test("cc-statusline\\.sh\"? --prompt-hook( |$)")) | not)) else . end) | map(select((.hooks | type) != "array" or (.hooks | length) > 0)))
+        | (if (.hooks.UserPromptSubmit | length) == 0 then del(.hooks.UserPromptSubmit) else . end)
+        | (if (.hooks | length) == 0 then del(.hooks) else . end)
+      else . end)
     | (if (.apiKeyHelper // "" | tostring | endswith("weave-key.sh"))
          then del(.apiKeyHelper) else . end)
-    | (if ((.attribution.commit == "Co-Authored-By: Weave Router <router@workweave.ai>"
+    | (if ((.attribution.commit == "Co-Authored-By: Weave Router <router@weaveos.com>"
+              or .attribution.commit == "Co-Authored-By: Weave Router <router@workweave.ai>"
               or .attribution.commit == "Co-Authored-By: Weave Router <noreply@workweave.ai>")
-              and .attribution.pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)")
+              and (.attribution.pr == "🤖 Generated with [Weave Router](https://router.weaveos.com)"
+                   or .attribution.pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)"))
          then del(.attribution) else . end)
   ' "$settings_file")"
   printf '%s\n' "$cleaned" >"$settings_file"
@@ -558,11 +1501,12 @@ fi
 
 if [ -n "$local_settings_file" ] && [ -f "$local_settings_file" ]; then
   # ANTHROPIC_BASE_URL only lives here when a project install was toggled off
-  # (the off path overrides it to Anthropic in the local file); scrub it too so
-  # uninstall fully reverts a toggled-off install.
-  cleaned="$(jq '
+  # (the off path overrides it to Anthropic in the local file). Project installs
+  # also keep WEAVE_ROUTER_BASE_URL here as a private endpoint marker beside the
+  # router key; scrub both so uninstall fully reverts the local config.
+  cleaned="$(jq "$CLAUDE_WEAVE_AUTO_STRIP_JQ"' |
     if .env then
-      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH))
+      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH, .CLAUDE_CODE_AUTO_MODE_SERVER, .WEAVE_ROUTER_BASE_URL))
       | (if (.env | length) == 0 then del(.env) else . end)
     else . end
     | del(.apiKeyHelper)
@@ -579,12 +1523,24 @@ if [ -f "$parked_file" ]; then
   ok "Removed $parked_file"
 fi
 
-for f in "$statusline_file"; do
-  if [ -f "$f" ]; then
-    rm -f "$f"
-    ok "Removed $f"
+if [ "$statusline_file_owned" = "true" ]; then
+  # The installer now leaves an existing statusline alone. A user may already
+  # have a script at the router's conventional filename, so remove this file
+  # only when its content or ownership marker identifies it as our managed
+  # statusline. The marker must also be removed when the script is already
+  # missing; otherwise a later install could mistake the stale marker for
+  # ownership and overwrite a user-owned statusline.
+  if [ -f "$statusline_file" ]; then
+    rm -f "$statusline_file"
+    ok "Removed $statusline_file"
   fi
-done
+  if [ -f "$statusline_ownership_file" ]; then
+    rm -f "$statusline_ownership_file"
+    ok "Removed $statusline_ownership_file"
+  fi
+elif [ -f "$statusline_file" ]; then
+  warn "Leaving user-owned statusline at $statusline_file untouched."
+fi
 
 # Remove only the slash command files this installer owns; leave any other
 # files in commands/ alone. The directory itself stays if it still contains
@@ -592,17 +1548,25 @@ done
 commands_dir="$(dirname "$settings_file")/commands"
 if [ -d "$commands_dir" ]; then
   refuse_if_symlink "$commands_dir"
-  for cmd in force-model unforce-model router-feedback fm ufm rf router-off router-on router-status router-session router-models models; do
+  while IFS= read -r cmd; do
     cmd_file="$commands_dir/$cmd.md"
     if [ -f "$cmd_file" ]; then
       refuse_if_symlink "$cmd_file"
-      rm -f "$cmd_file"
-      ok "Removed $cmd_file"
+      if weave_command_router_owned "$cmd_file" "$cmd"; then
+        refuse_if_symlink "$cmd_file.weave-router"
+        rm -f "$cmd_file" "$cmd_file.weave-router"
+        ok "Removed $cmd_file"
+      else
+        warn "Leaving user-owned Claude command at $cmd_file untouched."
+      fi
     fi
-  done
+  done <<EOF
+$(weave_registry_names claude)
+EOF
   # Clean up the dir only if we left nothing behind.
   rmdir "$commands_dir" 2>/dev/null || true
 fi
+uninstall_build_skill "$(dirname "$settings_file")/skills" "$(dirname "$settings_file")/agents"
 
 if [ -n "$install_dir" ]; then
   ok "Weave Router uninstalled from $install_dir."

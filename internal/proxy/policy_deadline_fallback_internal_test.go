@@ -12,12 +12,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/hmm"
-	"workweave/router/internal/router/policy"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 )
 
 // policyDeadlineTestErr mirrors the real chain: policyclient wraps context.DeadlineExceeded with %w;
@@ -114,8 +114,6 @@ func buildPolicyDeadlineFallbackService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil},
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,
@@ -143,7 +141,7 @@ func runPolicyDeadlineFallbackTurnLoop(
 		[]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
 	)
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	ctx := router.WithStrategy(context.Background(), strategy)
 	var excluded map[string]struct{}
 	if len(excludedModels) > 0 {

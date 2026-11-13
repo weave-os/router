@@ -3,8 +3,8 @@ package translate_test
 import (
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,9 +37,9 @@ var expectedSessionAffinityMechanism = map[string]sessionAffinityMechanism{
 	providers.ProviderOpenAI:     mechanismPromptCacheKeyBody,
 	providers.ProviderXAI:        mechanismGrokConvIDHeader,
 	providers.ProviderBedrock:    mechanismNone,
-	// A customer endpoint publishes no affinity contract and may reject an
-	// unknown header outright.
-	providers.ProviderOpenAIGateway: mechanismNone,
+	// A customer endpoint may reject unknown headers, so the hint rides the spec
+	// prompt_cache_key body field — a gateway that forwards the body forwards the hint.
+	providers.ProviderOpenAIGateway: mechanismPromptCacheKeyBody,
 }
 
 // defaultMechanismProviders are OpenAI-compat providers intentionally left
@@ -47,8 +47,12 @@ var expectedSessionAffinityMechanism = map[string]sessionAffinityMechanism{
 // x-session-affinity header default is correct for them.
 var defaultMechanismProviders = map[string]struct{}{
 	providers.ProviderFireworks: {},
+	providers.ProviderDeepInfra: {},
 	providers.ProviderMakora:    {},
+	providers.ProviderMiniMax:   {},
 	providers.ProviderTogether:  {},
+	providers.ProviderMeta:      {},
+	providers.ProviderWafer:     {},
 }
 
 // TestSessionAffinityCoversEveryOpenAICompatProvider guards against a new

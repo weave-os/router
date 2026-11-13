@@ -10,8 +10,10 @@ import (
 	"sort"
 	"strings"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/websearch"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -32,13 +34,20 @@ var (
 // PrepareGemini builds a Gemini native REST request body. Native is required for
 // multi-turn tool use on Gemini 3.x: OpenAI-compat doesn't return thought_signature.
 func (e *RequestEnvelope) PrepareGemini(_ http.Header, opts EmitOptions) (providers.PreparedRequest, error) {
-	if isGemini3xModel(opts.TargetModel) && e.HasUnsignedToolCallHistory() {
+	if usesGemini3Contract(opts.TargetModel) && e.HasUnsignedToolCallHistory() {
 		return providers.PreparedRequest{}, fmt.Errorf("%w: Gemini 3.x requires a thoughtSignature on every historical function call", ErrGeminiUnsignedToolHistory)
+	}
+	e, err := e.withWorkspaceSystemAppended(opts)
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
+	e, err = e.withUnambiguousReadPrefixes()
+	if err != nil {
+		return providers.PreparedRequest{}, err
 	}
 	// Strip synthetic top-level "model" and "stream" — belonging to routing, not Gemini.
 	if e.format == FormatGemini {
 		body := e.body
-		var err error
 		body, err = sjson.DeleteBytes(body, "model")
 		if err != nil {
 			return providers.PreparedRequest{}, fmt.Errorf("strip model field: %w", err)
@@ -79,11 +88,14 @@ func (e *RequestEnvelope) PrepareGemini(_ http.Header, opts EmitOptions) (provid
 			return providers.PreparedRequest{}, err
 		}
 	case FormatAnthropic:
-		filtered, removed, err := filterClaudeCodeOnlyToolsFromAnthropicBody(e.body, opts.KeepCrossVendorOrchestrationTools)
+		filtered, ccFilter, err := filterClaudeCodeOnlyToolsFromAnthropicBody(e.body, opts.ccToolFilter())
 		if err != nil {
 			return providers.PreparedRequest{}, fmt.Errorf("strip claude-code-only tools: %w", err)
 		}
-		stats.CCOnlyToolsStripped = removed
+		stats.CCOnlyToolsStripped = ccFilter.ToolsRemoved
+		stats.CCTaskRemindersStripped = ccFilter.TaskRemindersRemoved
+		// See buildOpenAIFromAnthropic: strip native server tools before the reminder gate so Stats reflects what actually reached upstream.
+		filtered, stats.ServerToolsStripped = websearch.StripServerTools(filtered)
 		// Mirror writeGeminiFromAnthropic's reminder gate so Stats reflects
 		// whether the reminder actually reached upstream.
 		if reminder := geminiSystemReminder(opts.TargetModel); reminder != "" && hasNonEmptyTools(filtered) {
@@ -489,10 +501,12 @@ func writeGeminiToolsFromOpenAI(jw *jsonWriter, body []byte) error {
 			}
 			clean, err := sanitizeSchemaForGemini(schema)
 			if err != nil {
-				emitErr = fmt.Errorf("function %q parameters: %w", name, err)
-				return false
+				// Tool schemas are generation hints; a parameterless declaration is
+				// safe — the client validates against the ORIGINAL schema.
+				observability.Get().Warn("Gemini tool schema is unrepresentable — emitting declaration without parameters", "tool_name", name, "err", err)
+			} else {
+				declaration["parameters"] = clean
 			}
-			declaration["parameters"] = clean
 		}
 		declarations = append(declarations, declaration)
 		return true
@@ -544,6 +558,12 @@ func writeGeminiGenerationConfigFromOpenAI(jw *jsonWriter, body []byte, opts Emi
 	}
 	var fields []field
 
+	intent, err := applyGeminiReasoning(ParseReasoningIntent(FormatOpenAI, body), opts)
+	if err != nil {
+		return err
+	}
+	thinking := geminiThinkingActive(intent, opts)
+
 	if r := gjson.GetBytes(body, "temperature"); r.Exists() && r.Type == gjson.Number {
 		fw := newJSONWriter()
 		fw.Float(r.Num)
@@ -556,13 +576,9 @@ func writeGeminiGenerationConfigFromOpenAI(jw *jsonWriter, body []byte, opts Emi
 	}
 	// max_completion_tokens takes precedence over max_tokens if both present.
 	if r := gjson.GetBytes(body, "max_completion_tokens"); r.Exists() && r.Type == gjson.Number {
-		fw := newJSONWriter()
-		fw.Int(clampToModelOutputCap(int64(r.Num), model))
-		fields = append(fields, field{"maxOutputTokens", string(fw.Bytes())})
+		fields = append(fields, field{"maxOutputTokens", geminiMaxOutputTokensRaw(int64(r.Num), thinking, model)})
 	} else if r := gjson.GetBytes(body, "max_tokens"); r.Exists() && r.Type == gjson.Number {
-		fw := newJSONWriter()
-		fw.Int(clampToModelOutputCap(int64(r.Num), model))
-		fields = append(fields, field{"maxOutputTokens", string(fw.Bytes())})
+		fields = append(fields, field{"maxOutputTokens", geminiMaxOutputTokensRaw(int64(r.Num), thinking, model)})
 	}
 	if r := gjson.GetBytes(body, "stop"); r.Exists() {
 		if raw := stopToArrayRaw(r); raw != "" {
@@ -573,10 +589,6 @@ func writeGeminiGenerationConfigFromOpenAI(jw *jsonWriter, body []byte, opts Emi
 		if r.Get("type").String() == "json_object" {
 			fields = append(fields, field{"responseMimeType", `"application/json"`})
 		}
-	}
-	intent, err := applyGeminiReasoning(ParseReasoningIntent(FormatOpenAI, body), opts)
-	if err != nil {
-		return err
 	}
 	if raw, err := geminiThinkingConfigRaw(intent, model); err != nil {
 		return err
@@ -753,10 +765,10 @@ func geminiFunctionResponsePart(name, result string) string {
 	return string(pw.Bytes())
 }
 
-// isGemini3xModel reports whether model is a Gemini 3.x preview, which
-// requires thoughtSignature on every functionCall; 2.x accepts sig-less calls.
-func isGemini3xModel(model string) bool {
-	return strings.HasPrefix(model, "gemini-3")
+// usesGemini3Contract includes Argon, which retains Gemini 3 thinking levels
+// and requires thought signatures on function calls.
+func usesGemini3Contract(model string) bool {
+	return strings.HasPrefix(model, "gemini-3") || model == router.ModelGemini4Argon
 }
 
 // geminiToolMode returns VALIDATED normally, or AUTO when the proxy requested
@@ -774,7 +786,7 @@ func geminiToolMode(downgradeValidated bool) string {
 // writeGeminiToolChoiceFrom{Anthropic,OpenAI} so RequestMutationStats can
 // predict it without re-deriving.
 func geminiEmitsValidatedToolMode(body []byte, model string, format Format) bool {
-	if !hasNonEmptyTools(body) || !isGemini3xModel(model) {
+	if !hasNonEmptyTools(body) || !usesGemini3Contract(model) {
 		return false
 	}
 	var kind toolChoiceKind
@@ -787,32 +799,6 @@ func geminiEmitsValidatedToolMode(body []byte, model string, format Format) bool
 		return false
 	}
 	return kind == toolChoiceAbsent || kind == toolChoiceAuto
-}
-
-// filterOutGeminiFunctionCallParts strips functionCall parts; used when
-// history has tool_use blocks without thoughtSignature (Gemini 3.x would 400).
-func filterOutGeminiFunctionCallParts(parts []string) []string {
-	out := parts[:0]
-	for _, p := range parts {
-		if gjson.Get(p, "functionCall").Exists() {
-			continue
-		}
-		out = append(out, p)
-	}
-	return out
-}
-
-// filterOutGeminiToolResponseParts strips functionResponse parts left dangling
-// by a dropped functionCall; Gemini rejects responses with no matching call.
-func filterOutGeminiToolResponseParts(parts []string) []string {
-	out := parts[:0]
-	for _, p := range parts {
-		if gjson.Get(p, "functionResponse").Exists() {
-			continue
-		}
-		out = append(out, p)
-	}
-	return out
 }
 
 // anthropicUserPartsGJSON converts an Anthropic user content value to raw JSON part strings.
@@ -982,10 +968,12 @@ func writeGeminiToolsFromAnthropic(jw *jsonWriter, body []byte) error {
 			}
 			clean, err := sanitizeSchemaForGemini(schema)
 			if err != nil {
-				emitErr = fmt.Errorf("function %q input_schema: %w", name, err)
-				return false
+				// See writeGeminiToolsFromOpenAI: a widened/missing schema is
+				// always safe here, so degrade instead of failing the request.
+				observability.Get().Warn("Gemini tool schema is unrepresentable — emitting declaration without parameters", "tool_name", name, "err", err)
+			} else {
+				declaration["parameters"] = clean
 			}
-			declaration["parameters"] = clean
 		}
 		declarations = append(declarations, declaration)
 		return true
@@ -1033,7 +1021,7 @@ func writeGeminiToolChoiceFromAnthropic(jw *jsonWriter, body []byte, model strin
 // mode=VALIDATED for schema-constrained decoding; explicit
 // none/required/named choices map straight to a functionCallingConfig mode.
 func writeGeminiToolChoice(jw *jsonWriter, body []byte, model string, downgradeValidated bool, kind toolChoiceKind, name string) {
-	if (kind == toolChoiceAbsent || kind == toolChoiceAuto) && hasNonEmptyTools(body) && isGemini3xModel(model) {
+	if (kind == toolChoiceAbsent || kind == toolChoiceAuto) && hasNonEmptyTools(body) && usesGemini3Contract(model) {
 		writeGeminiFunctionCallingMode(jw, geminiToolMode(downgradeValidated), "")
 		return
 	}
@@ -1079,6 +1067,12 @@ func writeGeminiGenerationConfigFromAnthropic(jw *jsonWriter, body []byte, opts 
 	}
 	var fields []field
 
+	intent, err := applyGeminiReasoning(ParseReasoningIntent(FormatAnthropic, body), opts)
+	if err != nil {
+		return err
+	}
+	thinking := geminiThinkingActive(intent, opts)
+
 	if r := gjson.GetBytes(body, "temperature"); r.Exists() && r.Type == gjson.Number {
 		fw := newJSONWriter()
 		fw.Float(r.Num)
@@ -1090,18 +1084,12 @@ func writeGeminiGenerationConfigFromAnthropic(jw *jsonWriter, body []byte, opts 
 		fields = append(fields, field{"topP", string(fw.Bytes())})
 	}
 	if r := gjson.GetBytes(body, "max_tokens"); r.Exists() && r.Type == gjson.Number {
-		fw := newJSONWriter()
-		fw.Int(clampToModelOutputCap(int64(r.Num), model))
-		fields = append(fields, field{"maxOutputTokens", string(fw.Bytes())})
+		fields = append(fields, field{"maxOutputTokens", geminiMaxOutputTokensRaw(int64(r.Num), thinking, model)})
 	}
 	if r := gjson.GetBytes(body, "stop_sequences"); r.Exists() {
 		if raw := stopToArrayRaw(r); raw != "" {
 			fields = append(fields, field{"stopSequences", raw})
 		}
-	}
-	intent, err := applyGeminiReasoning(ParseReasoningIntent(FormatAnthropic, body), opts)
-	if err != nil {
-		return err
 	}
 	if raw, err := geminiThinkingConfigRaw(intent, model); err != nil {
 		return err
@@ -1120,6 +1108,38 @@ func writeGeminiGenerationConfigFromAnthropic(jw *jsonWriter, body []byte, opts 
 	}
 	jw.EndObj()
 	return nil
+}
+
+// geminiMaxOutputTokensRaw serializes the caller's output budget with
+// reasoning headroom applied: Gemini's maxOutputTokens counts thought tokens,
+// so a thinking target with a tiny budget never reaches visible text.
+func geminiMaxOutputTokensRaw(want int64, thinking bool, model string) string {
+	fw := newJSONWriter()
+	fw.Int(clampToModelOutputCap(reasoningOutputFloor(want, thinking), model))
+	return string(fw.Bytes())
+}
+
+// geminiThinkingActive reports whether the target will spend output tokens on
+// thoughts under the validated intent. An unset intent means the model's
+// default, which is thinking-on for every reasoning-capable Gemini; 3.x keeps
+// thinking even when the caller disables it.
+func geminiThinkingActive(intent ReasoningIntent, opts EmitOptions) bool {
+	caps := opts.Capabilities
+	if len(caps.Reasoning().Levels) == 0 {
+		caps = router.Lookup(opts.TargetModel)
+	}
+	if len(caps.Reasoning().Levels) == 0 {
+		return false
+	}
+	switch intent.Kind {
+	case ReasoningDisabled:
+		return usesGemini3Contract(opts.TargetModel)
+	case ReasoningBudget:
+		return intent.BudgetTokens > 0
+	case ReasoningLevel:
+		return intent.Level != "none"
+	}
+	return true
 }
 
 // clampToModelOutputCap caps v to the model's max output token limit.
@@ -1165,7 +1185,7 @@ func applyGeminiReasoning(intent ReasoningIntent, opts EmitOptions) (ReasoningIn
 	// 3.x accepts only named thinking levels. Normalize at the Gemini boundary so
 	// the generic capability validator still rejects numeric budgets for targets
 	// that genuinely cannot represent them.
-	if isGemini3xModel(opts.TargetModel) && intent.Kind == ReasoningBudget {
+	if usesGemini3Contract(opts.TargetModel) && intent.Kind == ReasoningBudget {
 		intent.Kind = ReasoningLevel
 		intent.Level = effortForBudget(intent.BudgetTokens)
 		intent.NormalizationNotes = append(
@@ -1187,13 +1207,13 @@ func geminiThinkingConfigRaw(intent ReasoningIntent, model string) (string, erro
 		return "", nil
 	}
 	if intent.Kind == ReasoningDisabled {
-		if isGemini3xModel(model) {
+		if usesGemini3Contract(model) {
 			return "", nil
 		}
 		return thinkingConfigRaw("none", model), nil
 	}
 	if intent.Kind == ReasoningBudget {
-		if isGemini3xModel(model) {
+		if usesGemini3Contract(model) {
 			return "", fmt.Errorf("%w: Gemini 3.x does not support thinking budgets", ErrReasoningIncompatible)
 		}
 		fw := newJSONWriter()
@@ -1213,7 +1233,7 @@ func geminiThinkingConfigRaw(intent ReasoningIntent, model string) (string, erro
 func thinkingConfigRaw(effort, model string) string {
 	// 3.x uses thinkingLevel; the legacy numeric thinkingBudget is documented as
 	// suboptimal there and mixing both fields 400s. 2.5 keeps thinkingBudget.
-	if isGemini3xModel(model) {
+	if usesGemini3Contract(model) {
 		var level string
 		switch effort {
 		case "low", "medium", "high":
@@ -1316,21 +1336,36 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 	}
 
 	if allOf, exists := node["allOf"]; exists {
-		merged, err := mergeGeminiAllOf(allOf, path+".allOf")
+		merged, widened, err := mergeGeminiAllOf(allOf, path+".allOf")
 		if err != nil {
 			return nil, err
 		}
 		base := mergeSchemaMaps(node, nil, false)
 		delete(base, "allOf")
-		node, ok = mergeSchemaMapsExact(base, merged)
+		// The merged branches arrived here already nullability-normalized
+		// (type:["x","null"] lowered to type + nullable:true); the sibling map
+		// is still raw, so normalize it before intersecting on equal footing.
+		if err := normalizeGeminiNullableType(base, path); err != nil {
+			return nil, err
+		}
+		node, ok = intersectGeminiSchemas(base, merged)
 		if !ok {
-			return nil, fmt.Errorf("%w at %s.allOf: branches conflict with sibling constraints", ErrGeminiSchemaIncompatible, path)
+			// No longer fatal: generation hints only need a superset-safe schema,
+			// so keep the sibling (base) side on conflict.
+			node = mergeSchemaMapsLenient(base, merged)
+			widened = true
+			observability.Get().Info("Gemini allOf conflicts with sibling constraints — keeping sibling values", "path", path)
+		}
+		if widened {
+			pruneGeminiRequired(node)
 		}
 	}
 	if _, exists := node["oneOf"]; exists {
 		return nil, fmt.Errorf("%w at %s.oneOf: Gemini does not support oneOf", ErrGeminiSchemaIncompatible, path)
 	}
 
+	// Declared before the loop: map iteration is unordered, so a raw nullable sibling must not overwrite this once set.
+	nullableFromAnyOf := false
 	out := make(map[string]any, len(node))
 	for key, child := range node {
 		if key == "$defs" || key == "definitions" || key == "$ref" {
@@ -1380,13 +1415,24 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 			if !ok || len(branches) == 0 {
 				return nil, fmt.Errorf("%w at %s.anyOf: expected non-empty array", ErrGeminiSchemaIncompatible, path)
 			}
-			clean := make([]any, len(branches))
+			clean := make([]any, 0, len(branches))
 			for i, branch := range branches {
-				var err error
-				clean[i], err = sanitizeGeminiSchemaNode(branch, fmt.Sprintf("%s.anyOf[%d]", path, i))
+				if isGeminiNullLikeSchema(branch) {
+					nullableFromAnyOf = true
+					continue
+				}
+				sanitized, err := sanitizeGeminiSchemaNode(branch, fmt.Sprintf("%s.anyOf[%d]", path, i))
 				if err != nil {
 					return nil, err
 				}
+				if isGeminiNullLikeSchema(sanitized) {
+					nullableFromAnyOf = true
+					continue
+				}
+				clean = append(clean, sanitized)
+			}
+			if len(clean) == 0 {
+				return nil, fmt.Errorf("%w at %s.anyOf: expected a non-null branch", ErrGeminiSchemaIncompatible, path)
 			}
 			out[key] = clean
 		case "format":
@@ -1421,11 +1467,27 @@ func sanitizeGeminiSchemaNode(v any, path string) (any, error) {
 	if err := normalizeGeminiNullableType(out, path); err != nil {
 		return nil, err
 	}
+	if nullable, ok := out["nullable"].(bool); ok && nullable {
+		nullableFromAnyOf = true
+	}
+	flattened, err := flattenGeminiAnyOf(out, path)
+	if err != nil {
+		return nil, err
+	}
+	out = flattened
 	if err := validateGeminiRequired(out, path); err != nil {
 		return nil, err
 	}
 	resolveGeminiEnum(out)
-	return out, nil
+	if _, hasType := out["type"]; !hasType {
+		if _, hasEnum := out["enum"]; hasEnum {
+			out["type"] = "string"
+		}
+	}
+	if nullableFromAnyOf {
+		out["nullable"] = true
+	}
+	return stripEmptyNullable(out), nil
 }
 
 // resolveGeminiExclusiveBound writes the inclusive bound key ("minimum" or
@@ -1459,28 +1521,57 @@ func resolveGeminiExclusiveBound(node, out map[string]any, key, exclusiveKey, pa
 	return nil
 }
 
-func mergeGeminiAllOf(v any, path string) (map[string]any, error) {
+// mergeGeminiAllOf merges allOf branches into a single Gemini-representable
+// schema, widening (dropping unrepresentable branches) instead of rejecting.
+// widened reports whether any branch was dropped, so the caller can
+// re-validate constraints (e.g. required) that assumed every branch merged.
+func mergeGeminiAllOf(v any, path string) (merged map[string]any, widened bool, err error) {
 	branches, ok := v.([]any)
 	if !ok || len(branches) == 0 {
-		return nil, fmt.Errorf("%w at %s: expected non-empty array", ErrGeminiSchemaIncompatible, path)
+		return nil, false, fmt.Errorf("%w at %s: expected non-empty array", ErrGeminiSchemaIncompatible, path)
 	}
-	merged := map[string]any{}
+	merged = map[string]any{}
+	var (
+		matched  bool
+		firstErr error
+	)
 	for i, branch := range branches {
-		clean, err := sanitizeGeminiSchemaNode(branch, fmt.Sprintf("%s[%d]", path, i))
-		if err != nil {
-			return nil, err
+		branchPath := fmt.Sprintf("%s[%d]", path, i)
+		clean, cleanErr := sanitizeGeminiSchemaNode(branch, branchPath)
+		if cleanErr != nil {
+			widened = true
+			if firstErr == nil {
+				firstErr = cleanErr
+			}
+			observability.Get().Info("Gemini allOf branch is unrepresentable — widening by dropping it", "path", branchPath, "err", cleanErr)
+			continue
 		}
-		object, ok := clean.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("%w at %s[%d]: branch is not an object schema", ErrGeminiSchemaIncompatible, path, i)
+		object, isObject := clean.(map[string]any)
+		if !isObject {
+			widened = true
+			branchErr := fmt.Errorf("%w at %s: branch is not an object schema", ErrGeminiSchemaIncompatible, branchPath)
+			if firstErr == nil {
+				firstErr = branchErr
+			}
+			observability.Get().Info("Gemini allOf branch is unrepresentable — widening by dropping it", "path", branchPath, "err", branchErr)
+			continue
 		}
-		var mergedOK bool
-		merged, mergedOK = mergeSchemaMapsExact(merged, object)
+		candidate, mergedOK := intersectGeminiSchemas(merged, object)
 		if !mergedOK {
-			return nil, fmt.Errorf("%w at %s[%d]: branches conflict", ErrGeminiSchemaIncompatible, path, i)
+			widened = true
+			if firstErr == nil {
+				firstErr = fmt.Errorf("%w at %s: branch conflicts with prior branches", ErrGeminiSchemaIncompatible, branchPath)
+			}
+			observability.Get().Info("Gemini allOf branch is unrepresentable — widening by dropping it", "path", branchPath, "conflict", "branch conflicts with prior branches")
+			continue
 		}
+		merged = candidate
+		matched = true
 	}
-	return merged, nil
+	if !matched {
+		return nil, false, firstErr
+	}
+	return stripEmptyNullable(merged), widened, nil
 }
 
 func mergeSchemaMaps(base, extra map[string]any, overwrite bool) map[string]any {
@@ -1496,7 +1587,34 @@ func mergeSchemaMaps(base, extra map[string]any, overwrite bool) map[string]any 
 	return out
 }
 
-func mergeSchemaMapsExact(left, right map[string]any) (map[string]any, bool) {
+// geminiAnnotationKeys carry no validation semantics, so two allOf branches
+// disagreeing on one is not a conflict — the left (earlier) value wins.
+// pattern is absent: regexes cannot be intersected, so differing patterns conflict.
+var geminiAnnotationKeys = map[string]struct{}{
+	"description": {},
+	"title":       {},
+	"default":     {},
+	"example":     {},
+}
+
+// geminiStricterBoundKeys map a bound keyword to whether the intersection of
+// two values is the larger one (lower bounds) or the smaller one (upper).
+var geminiStricterBoundKeys = map[string]bool{
+	"minimum":       true,
+	"minLength":     true,
+	"minItems":      true,
+	"minProperties": true,
+	"maximum":       false,
+	"maxLength":     false,
+	"maxItems":      false,
+	"maxProperties": false,
+}
+
+// intersectGeminiSchemas merges two allOf branches: bounds narrow, annotations
+// defer to the left branch, and only disagreeing types or disjoint enums conflict.
+func intersectGeminiSchemas(left, right map[string]any) (map[string]any, bool) {
+	left = clampNullableTyped(left)
+	right = clampNullableTyped(right)
 	out := mergeSchemaMaps(left, nil, false)
 	for key, value := range right {
 		current, exists := out[key]
@@ -1510,7 +1628,7 @@ func mergeSchemaMapsExact(left, right map[string]any) (map[string]any, bool) {
 			if !leftOK || !rightOK {
 				return nil, false
 			}
-			mergedProperties, ok := mergeSchemaMapsExact(leftProperties, rightProperties)
+			mergedProperties, ok := mergeGeminiPropertyMaps(leftProperties, rightProperties)
 			if !ok {
 				return nil, false
 			}
@@ -1524,11 +1642,252 @@ func mergeSchemaMapsExact(left, right map[string]any) (map[string]any, bool) {
 			}
 			continue
 		}
+		if key == "items" {
+			leftItems, leftOK := current.(map[string]any)
+			rightItems, rightOK := value.(map[string]any)
+			if !leftOK || !rightOK {
+				return nil, false
+			}
+			mergedItems, ok := intersectGeminiSchemas(leftItems, rightItems)
+			if !ok {
+				return nil, false
+			}
+			out[key] = mergedItems
+			continue
+		}
+		if _, isAnnotation := geminiAnnotationKeys[key]; isAnnotation {
+			continue
+		}
+		// nullable ANDs across clamps: a typed operand with no nullable key was
+		// explicitly set to false above, so the intersection requires both to
+		// admit null.
+		if key == "nullable" {
+			leftNullable, leftOK := current.(bool)
+			rightNullable, rightOK := value.(bool)
+			if !leftOK || !rightOK {
+				return nil, false
+			}
+			out[key] = leftNullable && rightNullable
+			continue
+		}
+		if key == "enum" {
+			shared, ok := intersectEnums(current, value)
+			if !ok {
+				return nil, false
+			}
+			out[key] = shared
+			continue
+		}
+		if larger, isBound := geminiStricterBoundKeys[key]; isBound {
+			stricter, ok := stricterBound(current, value, larger)
+			if !ok {
+				return nil, false
+			}
+			out[key] = stricter
+			continue
+		}
 		if !semanticJSONEqual(current, value) {
 			return nil, false
 		}
 	}
 	return out, true
+}
+
+// clampNullableTyped makes implicit non-nullability explicit on typed schemas:
+// Gemini treats an absent nullable as false, so AND-ing two ops needs the
+// value present on both sides. A raw operand's type:[T,"null"] array is
+// lowered here too — nested siblings reach intersection before their own
+// sanitize pass normalizes them.
+func clampNullableTyped(schema map[string]any) map[string]any {
+	typeValue, hasType := schema["type"]
+	if !hasType {
+		return schema
+	}
+	if types, isArray := typeValue.([]any); isArray {
+		primary, ok := lowerNullableTypeArray(types)
+		if !ok {
+			return schema
+		}
+		out := mergeSchemaMaps(schema, nil, false)
+		out["type"] = primary
+		out["nullable"] = true
+		return out
+	}
+	if _, hasNullable := schema["nullable"]; hasNullable {
+		return schema
+	}
+	out := mergeSchemaMaps(schema, nil, false)
+	out["nullable"] = false
+	return out
+}
+
+// lowerNullableTypeArray reports the non-null member of an exact [T, "null"]
+// type pair; any other array shape is left for the sanitize pass to reject.
+func lowerNullableTypeArray(types []any) (string, bool) {
+	if len(types) != 2 {
+		return "", false
+	}
+	primary := ""
+	hasNull := false
+	for _, candidate := range types {
+		name, ok := candidate.(string)
+		if !ok {
+			return "", false
+		}
+		if name == "null" {
+			if hasNull {
+				return "", false
+			}
+			hasNull = true
+			continue
+		}
+		if primary != "" {
+			return "", false
+		}
+		primary = name
+	}
+	if primary == "" || !hasNull {
+		return "", false
+	}
+	return primary, true
+}
+
+// stripEmptyNullable removes a nullable:false that is indistinguishable from an
+// absent key, keeping emitted schemas clean. A typed schema may carry a
+// redundant nullable:false after intersection.
+func stripEmptyNullable(schema map[string]any) map[string]any {
+	if _, hasType := schema["type"]; !hasType {
+		return schema
+	}
+	if nullable, ok := schema["nullable"].(bool); ok && !nullable {
+		delete(schema, "nullable")
+	}
+	return schema
+}
+
+// mergeGeminiPropertyMaps merges two `properties` maps. A name declared by
+// both branches has its two subschemas intersected, not compared for equality.
+func mergeGeminiPropertyMaps(left, right map[string]any) (map[string]any, bool) {
+	out := mergeSchemaMaps(left, nil, false)
+	for name, value := range right {
+		current, exists := out[name]
+		if !exists {
+			out[name] = deepCopyJSON(value)
+			continue
+		}
+		leftSchema, leftOK := current.(map[string]any)
+		rightSchema, rightOK := value.(map[string]any)
+		if !leftOK || !rightOK {
+			if !semanticJSONEqual(current, value) {
+				return nil, false
+			}
+			continue
+		}
+		merged, ok := intersectGeminiSchemas(leftSchema, rightSchema)
+		if !ok {
+			return nil, false
+		}
+		out[name] = merged
+	}
+	return out, true
+}
+
+// intersectEnums keeps the members present in both branches, preserving the
+// left order. A disjoint pair is unsatisfiable, so it reports a conflict.
+func intersectEnums(left, right any) (any, bool) {
+	leftValues, leftOK := left.([]any)
+	rightValues, rightOK := right.([]any)
+	if !leftOK || !rightOK {
+		return nil, false
+	}
+	shared := make([]any, 0, len(leftValues))
+	for _, candidate := range leftValues {
+		if valueInEnum(candidate, rightValues) {
+			shared = append(shared, deepCopyJSON(candidate))
+		}
+	}
+	if len(shared) == 0 {
+		return nil, false
+	}
+	return shared, true
+}
+
+// stricterBound returns whichever of the two numeric bounds is the tighter
+// one, which is exactly the intersection for a bound keyword.
+func stricterBound(left, right any, larger bool) (any, bool) {
+	leftValue, leftOK := left.(float64)
+	rightValue, rightOK := right.(float64)
+	if !leftOK || !rightOK {
+		if !semanticJSONEqual(left, right) {
+			return nil, false
+		}
+		return deepCopyJSON(left), true
+	}
+	if larger == (rightValue > leftValue) {
+		return rightValue, true
+	}
+	return leftValue, true
+}
+
+// mergeSchemaMapsLenient merges like intersectGeminiSchemas but never fails:
+// once a branch has been widened away the goal shifts from "prove no conflict"
+// to "produce some representable schema" — properties recurse, required unions,
+// any other conflict keeps left.
+func mergeSchemaMapsLenient(left, right map[string]any) map[string]any {
+	out := mergeSchemaMaps(left, nil, false)
+	for key, value := range right {
+		current, exists := out[key]
+		if !exists {
+			out[key] = deepCopyJSON(value)
+			continue
+		}
+		if key == "properties" {
+			leftProperties, leftOK := current.(map[string]any)
+			rightProperties, rightOK := value.(map[string]any)
+			if !leftOK || !rightOK {
+				continue
+			}
+			out[key] = mergeSchemaMapsLenient(leftProperties, rightProperties)
+			continue
+		}
+		if key == "required" {
+			if merged := uniqueStrings(current, value); merged != nil {
+				out[key] = merged
+			}
+			continue
+		}
+		// Any other conflict keeps left (out[key] is already current).
+	}
+	return out
+}
+
+// pruneGeminiRequired drops required entries whose property was removed by
+// widening; Gemini 400s on required-without-property, defeating the widen.
+func pruneGeminiRequired(node map[string]any) {
+	required, ok := node["required"].([]any)
+	if !ok {
+		return
+	}
+	properties, _ := node["properties"].(map[string]any)
+	if properties == nil {
+		delete(node, "required")
+		return
+	}
+	kept := make([]any, 0, len(required))
+	for _, entry := range required {
+		name, ok := entry.(string)
+		if !ok {
+			continue
+		}
+		if _, exists := properties[name]; exists {
+			kept = append(kept, name)
+		}
+	}
+	if len(kept) == 0 {
+		delete(node, "required")
+		return
+	}
+	node["required"] = kept
 }
 
 func uniqueStrings(left, right any) any {
@@ -1625,10 +1984,20 @@ func resolveGeminiEnum(schema map[string]any) {
 	if !exists {
 		return
 	}
-	if enum, ok := values.([]any); ok && len(enum) > 0 && allStringEnum(enum) {
-		return
+	enum, ok := values.([]any)
+	if ok && len(enum) > 0 && allStringEnum(enum) {
+		filtered := filterEmptyStringEnum(enum)
+		if len(filtered) == 0 {
+			delete(schema, "enum")
+		} else {
+			schema["enum"] = filtered
+		}
+		if _, exists := schema["enum"]; exists {
+			return
+		}
+	} else {
+		delete(schema, "enum")
 	}
-	delete(schema, "enum")
 	// format:"enum" without an enum is itself unrepresentable.
 	if format, _ := schema["format"].(string); format == "enum" {
 		delete(schema, "format")
@@ -1642,6 +2011,100 @@ func allStringEnum(enum []any) bool {
 		}
 	}
 	return true
+}
+
+func filterEmptyStringEnum(enum []any) []any {
+	out := make([]any, 0, len(enum))
+	for _, value := range enum {
+		s, ok := value.(string)
+		if !ok || s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
+func isGeminiNullSchema(v any) bool {
+	node, ok := v.(map[string]any)
+	if !ok {
+		return false
+	}
+	if typeName, ok := node["type"].(string); ok {
+		return typeName == "null"
+	}
+	types, ok := node["type"].([]any)
+	if !ok || len(types) == 0 {
+		return false
+	}
+	for _, candidate := range types {
+		name, ok := candidate.(string)
+		if !ok || name != "null" {
+			return false
+		}
+	}
+	return true
+}
+
+func isGeminiNullLikeSchema(v any) bool {
+	if isGeminiNullSchema(v) {
+		return true
+	}
+	node, ok := v.(map[string]any)
+	if !ok {
+		return false
+	}
+	enum, hasEnum := node["enum"].([]any)
+	if hasEnum {
+		if !allStringEnum(enum) || len(filterEmptyStringEnum(enum)) > 0 {
+			return false
+		}
+	}
+	switch typeValue := node["type"].(type) {
+	case string:
+		if typeValue != "" && typeValue != "null" {
+			return false
+		}
+	case []any:
+		if _, ok := lowerNullableTypeArray(typeValue); ok {
+			return false
+		}
+		if !isGeminiNullSchema(node) {
+			return false
+		}
+	case nil:
+		if !hasEnum {
+			return false
+		}
+	default:
+		return false
+	}
+	for key := range node {
+		switch key {
+		case "enum", "type", "description", "title", "nullable", "default", "example", "format":
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func flattenGeminiAnyOf(schema map[string]any, path string) (map[string]any, error) {
+	branches, ok := schema["anyOf"].([]any)
+	if !ok || len(branches) != 1 {
+		return schema, nil
+	}
+	object, ok := branches[0].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%w at %s.anyOf: branch is not an object schema", ErrGeminiSchemaIncompatible, path)
+	}
+	delete(schema, "anyOf")
+	merged, ok := intersectGeminiSchemas(schema, object)
+	if !ok {
+		return nil, fmt.Errorf("%w at %s.anyOf: flattened branch conflicts with sibling constraints", ErrGeminiSchemaIncompatible, path)
+	}
+	return merged, nil
 }
 
 func valueInEnum(value, enum any) bool {

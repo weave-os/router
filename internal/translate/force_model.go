@@ -21,134 +21,388 @@ const ReasonLoopEscalation = "loop_escalation"
 type ForceModelResult struct {
 	// Model is the target model name; empty when Clear is true.
 	Model string
+	// ParentOnly restricts the pin to the invoking thread.
+	ParentOnly bool
 	// Clear is true for /unforce-model.
 	Clear bool
+	// FromToolResult is true when an agent invoked the command through a tool.
+	FromToolResult bool
 }
 
-// ExtractForceModelCommand scans the last user-role message in env for a
-// /force-model <model> or /unforce-model directive, stripping it from
-// env.body. Returns (zero, false) when no command is present.
+// ExtractForceModelCommand scans the trailing user or tool-result message in env for a
+// /force-model <model> (aliases /model and /fm), /force-parent <model>, or /unforce-model directive,
+// stripping it from env.body.
+// FromToolResult distinguishes agent-issued commands from user-typed ones.
+// Returns (zero, false) when no command is present.
 func (env *RequestEnvelope) ExtractForceModelCommand() (ForceModelResult, bool) {
 	var res ForceModelResult
-	found := env.extractLeadingCommand(func(text string) (bool, string) {
-		r, ok, stripped := parseForceModelCommand(text)
+	found, fromToolResult := env.extractLeadingCommandWithSource(func(text string, fromToolResult bool) (bool, string) {
+		r, ok, stripped := parseForceModelCommandFromSource(text, fromToolResult)
 		if ok {
 			res = r
 		}
 		return ok, stripped
 	})
+	res.FromToolResult = found && fromToolResult
 	return res, found
 }
 
-// extractLeadingCommand scans the last user-role message (Anthropic/OpenAI
-// shapes only) for a directive recognized by parse, which receives candidate
-// text and returns (found, strippedText). On a match, the matched content is
-// replaced in env.body with the stripped remainder.
+// extractLeadingCommand scans the trailing user or tool-result message
+// (Anthropic/OpenAI shapes only) for a directive recognized by parse.
 func (env *RequestEnvelope) extractLeadingCommand(parse func(text string) (found bool, stripped string)) bool {
+	originalBody := env.body
+	found, fromToolResult := env.extractLeadingCommandWithSource(func(text string, _ bool) (bool, string) {
+		return parse(text)
+	})
+	if fromToolResult {
+		env.body = originalBody
+		return false
+	}
+	return found
+}
+
+// isSkillAttachment reports whether msgs[i] is the skill block Codex appends
+// to the message before it, rather than a turn in its own right.
+//
+// Position is half the test. Codex emits the block immediately after the text
+// the user typed, so it is an attachment only when a user message precedes it.
+// One that follows an assistant turn is a real trailing turn, and skipping it
+// would make a completed directive look current: the feedback strip would keep
+// the old command, drop the ack that ended it, and the extractor would record
+// it a second time.
+func isSkillAttachment(msgs []gjson.Result, i int) bool {
+	if i <= 0 || msgs[i].Get("role").String() != "user" {
+		return false
+	}
+	if msgs[i-1].Get("role").String() != "user" {
+		return false
+	}
+	return isSkillInstructionsOnly(msgs[i].Get("content"))
+}
+
+// isSkillInstructionsOnly reports whether a message carries nothing but the
+// <skill>…</skill> block Codex appends when the user invokes `$name`. Codex
+// sends that as its own user message right after the typed directive, so
+// treating it as a newer turn hides the directive from every reader here.
+//
+// Deliberately stricter than a substring test: a message that merely mentions
+// the tag is a real turn and must not be skipped, or a directive from an older
+// turn could fire on a later one.
+func isSkillInstructionsOnly(content gjson.Result) bool {
+	var text string
+	switch {
+	case content.Type == gjson.String:
+		text = content.String()
+	case content.IsArray():
+		var b strings.Builder
+		for _, part := range content.Array() {
+			switch part.Get("type").String() {
+			case "text", "input_text":
+				b.WriteString(part.Get("text").String())
+			default:
+				// A non-text part means real turn content, not an attachment.
+				return false
+			}
+		}
+		text = b.String()
+	default:
+		return false
+	}
+	text = strings.TrimSpace(text)
+	return strings.HasPrefix(text, "<skill>") && strings.HasSuffix(text, "</skill>")
+}
+
+type commandTextCandidate struct {
+	path           string
+	dropPath       string
+	text           string
+	fromToolResult bool
+}
+
+// extractLeadingCommandWithSource returns whether the command came from a
+// tool-result turn as well as whether it matched. The parser receives that
+// provenance so commands with different trust requirements can make the
+// decision before stripping the candidate.
+func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text string, fromToolResult bool) (found bool, stripped string)) (bool, bool) {
 	switch env.format {
 	case FormatAnthropic, FormatOpenAI:
 	default:
-		return false
+		return false, false
 	}
 	msgs := gjson.GetBytes(env.body, "messages")
 	if !msgs.IsArray() {
-		return false
+		return false, false
 	}
 
+	all := msgs.Array()
 	lastIdx := -1
+	lastRole := ""
 	var lastContent gjson.Result
-	msgs.ForEach(func(key, msg gjson.Result) bool {
-		if msg.Get("role").String() == "user" {
-			lastIdx = int(key.Int())
-			lastContent = msg.Get("content")
+	for i := len(all) - 1; i >= 0; i-- {
+		role := all[i].Get("role").String()
+		// Codex splits one user turn into the typed directive and a second user
+		// message carrying the invoked skill's SKILL.md. That block is an
+		// attachment to the same turn, so stopping on it would hide the
+		// directive the user actually typed.
+		if isSkillAttachment(all, i) {
+			continue
 		}
-		return true
-	})
+		switch role {
+		case "user", "tool":
+			lastIdx, lastRole, lastContent = i, role, all[i].Get("content")
+		}
+		if lastIdx >= 0 {
+			break
+		}
+	}
 	if lastIdx < 0 {
-		return false
+		return false, false
+	}
+	// Commands belong only to the trailing turn; skip if a conversational turn
+	// follows. Non-conversational role:"system" notices (Claude Code deferred
+	// tools) don't count as a newer turn.
+	for i := lastIdx + 1; i < len(all); i++ {
+		if isSkillAttachment(all, i) {
+			continue
+		}
+		if isConversationTurn(all[i].Get("role").String()) {
+			return false, false
+		}
 	}
 
-	idxStr := strconv.Itoa(lastIdx)
-
+	idxPath := "messages." + strconv.Itoa(lastIdx) + ".content"
+	// OpenAI marks tool-result provenance with role:"tool", not a content block.
+	// Preserve that message when stripping the command so tool_calls stays paired.
+	isToolMessage := lastRole == "tool"
+	fromToolResult := isToolMessage || followsAssistantToolUse(all, lastIdx)
+	dropPathFor := func(path string) string {
+		if isToolMessage {
+			return ""
+		}
+		return path
+	}
+	var candidates []commandTextCandidate
 	switch {
 	case lastContent.Type == gjson.String:
-		found, stripped := parse(lastContent.String())
-		if !found {
-			return false
-		}
-		if newBody, err := sjson.SetBytes(env.body, "messages."+idxStr+".content", stripped); err == nil {
-			env.body = newBody
-		}
-		return true
-
-	case lastContent.Type == gjson.JSON && lastContent.IsArray():
-		// Scan every text block: Claude Code sometimes splits the user turn
-		// into multiple parts (injected tags in one, typed directive in
-		// another), so checking only the first block could miss it.
-		type textBlock struct {
-			idx  int
-			text string
-		}
-		var blocks []textBlock
+		candidates = append(candidates, commandTextCandidate{
+			path: idxPath, dropPath: dropPathFor("messages." + strconv.Itoa(lastIdx)), text: lastContent.String(), fromToolResult: isToolMessage,
+		})
+	case lastContent.IsArray():
 		lastContent.ForEach(func(key, block gjson.Result) bool {
-			if block.Get("type").String() == "text" {
-				blocks = append(blocks, textBlock{idx: int(key.Int()), text: block.Get("text").String()})
+			blockPath := idxPath + "." + strconv.Itoa(int(key.Int()))
+			switch block.Get("type").String() {
+			case "text":
+				candidates = append(candidates, commandTextCandidate{
+					path: blockPath + ".text", dropPath: dropPathFor(blockPath), text: block.Get("text").String(), fromToolResult: isToolMessage,
+				})
+			case "tool_result":
+				fromToolResult = true
+				candidates = append(candidates, toolResultCommandCandidates(blockPath, block.Get("content"))...)
 			}
 			return true
 		})
-		for _, b := range blocks {
-			found, stripped := parse(b.text)
-			if !found {
-				continue
-			}
-			blockPath := "messages." + idxStr + ".content." + strconv.Itoa(b.idx) + ".text"
-			if newBody, err := sjson.SetBytes(env.body, blockPath, stripped); err == nil {
-				env.body = newBody
-			}
-			return true
-		}
-		return false
-
 	default:
-		return false
+		return false, false
 	}
+
+	for _, candidate := range candidates {
+		found, stripped := parse(candidate.text, candidate.fromToolResult)
+		if !found && !candidate.fromToolResult {
+			if before, query, after, ok := typedMessageInWrapper(candidate.text); ok {
+				if found, stripped = parse(query, candidate.fromToolResult); found {
+					stripped = before + stripped + after
+				}
+			}
+		}
+		if !found {
+			continue
+		}
+		if fromToolResult && stripped == "" && candidate.dropPath != "" {
+			if newBody, ok := dropCommandBlock(env.body, candidate.dropPath, lastIdx); ok {
+				env.body = newBody
+				return true, fromToolResult
+			}
+		}
+		if newBody, err := sjson.SetBytes(env.body, candidate.path, stripped); err == nil {
+			env.body = newBody
+		}
+		return true, fromToolResult
+	}
+	return false, false
 }
 
-// parseForceModelCommand scans text for a /force-model (alias /fm) or
-// /unforce-model (alias /ufm) directive on the first non-empty line.
+const (
+	cursorUserQueryOpen  = "<user_query>"
+	cursorUserQueryClose = "</user_query>"
+)
+
+// cursorUserQuery splits Cursor's turn text, which wraps the typed message in
+// <user_query> after injected context blocks, around that typed message.
+func cursorUserQuery(text string) (before, query, after string, ok bool) {
+	open := strings.Index(text, cursorUserQueryOpen)
+	if open < 0 {
+		return "", "", "", false
+	}
+	head := text[:open]
+	if strings.TrimSpace(head[leadingInjectedPrefixEnd(head):]) != "" {
+		return "", "", "", false
+	}
+	closeIdx := strings.LastIndex(text, cursorUserQueryClose)
+	if closeIdx < open || strings.TrimSpace(text[closeIdx+len(cursorUserQueryClose):]) != "" {
+		return "", "", "", false
+	}
+	start := open + len(cursorUserQueryOpen)
+	return text[:start], text[start:closeIdx], text[closeIdx:], true
+}
+
+// parseInCursorQuery retries parse on the typed message inside Cursor's
+// <user_query> wrapper, re-wrapping the stripped text around it.
+func parseInCursorQuery[T any](text string, parse func(string) (T, bool, string)) (T, bool, string) {
+	res, found, stripped := parse(text)
+	if found {
+		return res, found, stripped
+	}
+	if before, query, after, ok := typedMessageInWrapper(text); ok {
+		if inner, innerFound, innerStripped := parse(query); innerFound {
+			if strings.TrimSpace(innerStripped) == "" {
+				return inner, true, strings.TrimSuffix(before, cursorUserQueryOpen)
+			}
+			return inner, true, before + innerStripped + after
+		}
+	}
+	return res, found, stripped
+}
+
+// dropCommandBlock deletes the block at dropPath, cascading to the whole
+// message when that empties its content array, and reports false when the
+// result would be an empty history (providers reject empty content arrays).
+func dropCommandBlock(body []byte, dropPath string, msgIdx int) ([]byte, bool) {
+	out, err := sjson.DeleteBytes(body, dropPath)
+	if err != nil {
+		return nil, false
+	}
+	msgPath := "messages." + strconv.Itoa(msgIdx)
+	if dropPath != msgPath && gjson.GetBytes(out, msgPath+".content").Get("#").Int() == 0 {
+		if out, err = sjson.DeleteBytes(out, msgPath); err != nil {
+			return nil, false
+		}
+	}
+	if gjson.GetBytes(out, "messages").Get("#").Int() == 0 {
+		return nil, false
+	}
+	return out, true
+}
+
+func toolResultCommandCandidates(blockPath string, content gjson.Result) []commandTextCandidate {
+	if content.Type == gjson.String {
+		return []commandTextCandidate{{
+			path:           blockPath + ".content",
+			text:           content.String(),
+			fromToolResult: true,
+		}}
+	}
+	if !content.IsArray() {
+		return nil
+	}
+	var candidates []commandTextCandidate
+	content.ForEach(func(key, part gjson.Result) bool {
+		if part.Get("type").String() == "text" {
+			candidates = append(candidates, commandTextCandidate{
+				path:           blockPath + ".content." + strconv.Itoa(int(key.Int())) + ".text",
+				text:           part.Get("text").String(),
+				fromToolResult: true,
+			})
+		}
+		return true
+	})
+	return candidates
+}
+
+// isConversationTurn reports whether role is part of the user/assistant
+// exchange, as opposed to an out-of-band notice the client interleaves.
+func isConversationTurn(role string) bool {
+	switch role {
+	case "user", "assistant", "tool":
+		return true
+	}
+	return false
+}
+
+func followsAssistantToolUse(messages []gjson.Result, userIdx int) bool {
+	prev := -1
+	for i := userIdx - 1; i >= 0; i-- {
+		if isConversationTurn(messages[i].Get("role").String()) {
+			prev = i
+			break
+		}
+	}
+	if prev < 0 || messages[prev].Get("role").String() != "assistant" {
+		return false
+	}
+	assistant := messages[prev]
+	if toolCalls := assistant.Get("tool_calls"); toolCalls.IsArray() && len(toolCalls.Array()) > 0 {
+		return true
+	}
+	content := assistant.Get("content")
+	if content.IsArray() {
+		for _, block := range content.Array() {
+			if block.Get("type").String() == "tool_use" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// parseForceModelCommandFromSource scans text for a /force-model (aliases
+// /model and /fm) or /unforce-model (alias /ufm) directive on the first
+// non-empty line. The dollar-prefixed forms are accepted for clients whose
+// native skill namespace is `$` (notably Codex) when they forward the token
+// verbatim.
+//
+// It applies the trust boundary for the model alias before the command text
+// can be stripped. Tool results may contain arbitrary model documentation or
+// output, so only the established skill commands are accepted from that
+// provenance.
+//
 // Restricted to the leading line so pasted content (snippets, transcripts)
 // starting with "/" can't silently rewrite session routing. The short
 // aliases are a fallback for clients without local slash-command expansion
 // (pi, opencode, raw API); Claude Code/Codex expand to the canonical form
 // client-side.
 //
+// The whole rest of the command line is the model name: same-line text is
+// inseparable from a multi-word model name, so put the prompt on the next
+// line. Prevents silently pinning the "qwen" alias when the user typed
+// "qwen 3.8" and having the ack look like it took.
+//
 // Leading <tag>...</tag> blocks (e.g. <system-reminder>, <command-name>
 // injected by Claude Code) are skipped before the leading-line check, and
 // preserved in the stripped output.
-func parseForceModelCommand(text string) (res ForceModelResult, found bool, stripped string) {
+func parseForceModelCommandFromSource(text string, fromToolResult bool) (res ForceModelResult, found bool, stripped string) {
 	prefixEnd := leadingInjectedPrefixEnd(text)
 	prefix := text[:prefixEnd]
 	body := text[prefixEnd:]
 
 	lines := strings.Split(body, "\n")
 	cmdIdx := -1
-	cmdTail := ""
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" {
 			continue
 		}
-		if after, ok := cutAnyPrefix(trimmed, "/force-model ", "/fm "); ok {
-			parts := strings.Fields(strings.TrimSpace(after))
-			if len(parts) > 0 {
-				res = ForceModelResult{Model: parts[0]}
-				if len(parts) > 1 {
-					cmdTail = strings.Join(parts[1:], " ")
-				}
+		if after, ok := cutAnyPrefix(trimmed, "/force-model ", "/model ", "/fm ", "$force-model ", "$fm ", "/force-parent ", "$force-parent "); ok {
+			if fromToolResult && strings.HasPrefix(trimmed, "/model ") {
+				return ForceModelResult{}, false, text
+			}
+			// Fields+Join collapses runs of whitespace so "/fm  qwen   3.8"
+			// and "/fm qwen 3.8" are the same string to the resolver.
+			if name := strings.Join(strings.Fields(after), " "); name != "" {
+				res = ForceModelResult{Model: name, ParentOnly: strings.HasPrefix(trimmed, "/force-parent ") || strings.HasPrefix(trimmed, "$force-parent ")}
 				found = true
 				cmdIdx = i
 			}
-		} else if trimmed == "/unforce-model" || trimmed == "/ufm" {
+		} else if trimmed == "/unforce-model" || trimmed == "/ufm" || trimmed == "$unforce-model" || trimmed == "$ufm" {
 			res = ForceModelResult{Clear: true}
 			found = true
 			cmdIdx = i
@@ -156,13 +410,34 @@ func parseForceModelCommand(text string) (res ForceModelResult, found bool, stri
 		break
 	}
 	if !found {
+		// Codex's exec tool joins a "Script completed … Output:" preamble with
+		// the skill directive; check only the first non-empty output line so
+		// command examples in skill docs don't trigger parsing.
+		if strings.HasPrefix(strings.TrimSpace(text), "Script completed") {
+			lines := strings.Split(text, "\n")
+			for i, line := range lines {
+				if strings.TrimSpace(line) != "Output:" {
+					continue
+				}
+				for i++; i < len(lines); i++ {
+					if strings.TrimSpace(lines[i]) == "" {
+						continue
+					}
+					candidate, ok, _ := parseForceModelCommandFromSource(lines[i], fromToolResult)
+					if !ok {
+						break
+					}
+					remaining := append([]string{}, lines[:i]...)
+					remaining = append(remaining, lines[i+1:]...)
+					return candidate, true, strings.TrimSpace(strings.Join(remaining, "\n"))
+				}
+				break
+			}
+		}
 		return ForceModelResult{}, false, text
 	}
 	remaining := make([]string, 0, len(lines))
 	remaining = append(remaining, lines[:cmdIdx]...)
-	if cmdTail != "" {
-		remaining = append(remaining, cmdTail)
-	}
 	remaining = append(remaining, lines[cmdIdx+1:]...)
 	bodyStripped := strings.Join(remaining, "\n")
 	stripped = strings.TrimSpace(prefix + bodyStripped)
@@ -224,6 +499,32 @@ func leadingInjectedPrefixEnd(text string) int {
 		i = nameEnd + 1 + closeIdx + len(closeTag)
 	}
 	return i
+}
+
+// isOnlyKnownInjectedText reports whether text holds nothing but the wrapper
+// blocks a client injects around a user's message.
+//
+// Deliberately stricter than isOnlyInjectedCommandText, which delegates to
+// leadingInjectedPrefixEnd and therefore accepts ANY well-formed
+// <name>...</name>. That is fine where the text still reaches a model, but a
+// directive that short-circuits the turn must not decide that arbitrary
+// tagged text the user wrote is synthetic and drop it -- pasting
+// "<error>...</error>" under a directive would lose it silently.
+//
+// Claude Code appends its own wrappers to user messages, so those still have
+// to pass; only the names in claudeCodeInjectedBlockPrefixes do.
+func isOnlyKnownInjectedText(text string) bool {
+	rest := strings.TrimSpace(text)
+	for rest != "" {
+		// Consume exactly the known leading block; the generic prefix parser
+		// would also consume unknown tags after a known wrapper.
+		blockEnd := leadingClaudeCodeInjectedBlockEnd(rest)
+		if blockEnd == 0 {
+			return false
+		}
+		rest = strings.TrimSpace(rest[blockEnd:])
+	}
+	return true
 }
 
 func isTagNameByte(c byte, first bool) bool {

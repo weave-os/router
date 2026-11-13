@@ -1,23 +1,25 @@
 package proxy_test
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-const geminiPassthroughBody = `{
-	"contents":[{"role":"user","parts":[{"text":"hello"}]}]
-}`
 
 // Post-injection body shape: handler adds "model" and "stream" before calling.
 const geminiInjectedBody = `{
@@ -26,6 +28,18 @@ const geminiInjectedBody = `{
 	"contents":[{"role":"user","parts":[{"text":"hello"}]}]
 }`
 
+func geminiExperimentContext(installationID string, arm auth.BlindExperimentArm) context.Context {
+	ctx := authedCtx(installationID)
+	ctx = context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
+	ctx = context.WithValue(ctx, auth.UserIDContextKey{}, "router-user-1")
+	return context.WithValue(ctx, auth.BlindExperimentContextKey{}, auth.BlindExperimentState{
+		Active:              true,
+		Arm:                 arm,
+		AssignmentSource:    auth.BlindExperimentAssignmentAutomatic,
+		CanonicalSubjectKey: "account-1",
+	})
+}
+
 func TestProxyGeminiGenerateContent_RoutesToGoogleProvider(t *testing.T) {
 	store := newFakePinStore()
 	googleProv := &fakeProvider{}
@@ -33,18 +47,18 @@ func TestProxyGeminiGenerateContent_RoutesToGoogleProvider(t *testing.T) {
 	svc := proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderGoogle: googleProv},
-		nil, false, nil,
-		store,
+		nil, store,
 		false, providers.ProviderGoogle, "gemini-2.5-flash",
 		nil,
 	)
 
-	ctx := authedCtx("00000000-0000-0000-0000-000000000001")
+	ctx := context.WithValue(authedCtx("00000000-0000-0000-0000-000000000001"), proxy.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", strings.NewReader(""))
 	require.NoError(t, svc.ProxyGeminiGenerateContent(ctx, []byte(geminiInjectedBody), rec, httpReq))
 
 	assert.Equal(t, "gemini-2.5-pro", rec.Header().Get(proxy.HeaderRouterModel))
+	assertContextHeaders(t, rec.Header())
 	assert.Equal(t, providers.ProviderGoogle, rec.Header().Get(proxy.HeaderRouterProvider))
 	require.Len(t, googleProv.proxyBodies, 1, "the upstream Google client must be invoked once")
 	body := string(googleProv.proxyBodies[0])
@@ -64,8 +78,7 @@ func TestProxyGeminiGenerateContent_RestrictsRoutingToGeminiFamily(t *testing.T)
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderGoogle:    googleProv,
 		},
-		nil, false, nil,
-		store,
+		nil, store,
 		false, providers.ProviderGoogle, "gemini-2.5-flash",
 		nil,
 	)
@@ -88,8 +101,7 @@ func TestProxyGeminiGenerateContent_CrossFormatReturnsSentinel(t *testing.T) {
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderGoogle:    &fakeProvider{},
 		},
-		nil, false, nil,
-		store,
+		nil, store,
 		false, providers.ProviderGoogle, "gemini-2.5-flash",
 		nil,
 	)
@@ -113,8 +125,8 @@ func TestProxyGeminiGenerateContent_DelaysMarkerUntilFirstUpstreamEvent(t *testi
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
 		map[string]providers.Client{providers.ProviderGoogle: googleProv},
-		nil, false, nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil,
-	)
+		nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil,
+	).WithRetrySleep(noRetrySleep)
 	rec := httptest.NewRecorder()
 	body := strings.Replace(geminiInjectedBody, `"stream":false`, `"stream":true`, 1)
 	require.NoError(t, svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), rec,
@@ -136,8 +148,8 @@ func TestProxyGeminiGenerateContent_RetriesBuffered429WithoutMarkerLeak(t *testi
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
 		map[string]providers.Client{providers.ProviderGoogle: googleProv},
-		nil, false, nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil,
-	)
+		nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil,
+	).WithRetrySleep(noRetrySleep)
 	rec := httptest.NewRecorder()
 	body := strings.Replace(geminiInjectedBody, `"stream":false`, `"stream":true`, 1)
 	err := svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), rec,
@@ -146,4 +158,209 @@ func TestProxyGeminiGenerateContent_RetriesBuffered429WithoutMarkerLeak(t *testi
 	assert.Len(t, googleProv.proxyBodies, 3, "single-provider 429 retries are bounded")
 	assert.NotContains(t, rec.Body.String(), "Weave Router", "a retryable upstream failure must not commit the marker")
 	assert.Contains(t, rec.Body.String(), "retry later")
+}
+
+func TestProxyGeminiGenerateContent_DemotesUnrescuedResponseHeaderTimeout(t *testing.T) {
+	store := newFakePinStore()
+	googleProvider := &fakeProvider{proxyErr: &url.Error{
+		Op:  "Post",
+		URL: "https://upstream.example/v1beta/models/gemini-1.5-pro:generateContent",
+		Err: errors.Join(errors.New("net/http: timeout awaiting response headers"), context.DeadlineExceeded),
+	}}
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-1.5-pro", Reason: "cluster"}},
+		map[string]providers.Client{providers.ProviderGoogle: googleProvider},
+		nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil,
+	).WithRetrySleep(noRetrySleep).WithRescuedFailureArmDemotion(true)
+	recorder := httptest.NewRecorder()
+	body := strings.Replace(geminiInjectedBody, `"stream":false`, `"stream":true`, 1)
+	err := svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), recorder,
+		httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:streamGenerateContent", nil))
+
+	require.Error(t, err)
+	require.Len(t, store.demotions, 2)
+	for _, demotion := range store.demotions {
+		assert.Equal(t, "gemini-1.5-pro", demotion.Model)
+		assert.Equal(t, sessionpin.DemotionReasonResponseHeaderTimeout, demotion.Reason)
+	}
+}
+
+func TestProxyGeminiGenerateContent_DemotesUnrescuedWatchdogStall(t *testing.T) {
+	store := newFakePinStore()
+	googleProvider := &fakeProvider{proxyErr: providers.ErrUpstreamOutputStall}
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-1.5-pro", Reason: "cluster"}},
+		map[string]providers.Client{providers.ProviderGoogle: googleProvider},
+		nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil,
+	).WithRetrySleep(noRetrySleep).WithRescuedFailureArmDemotion(true)
+	recorder := httptest.NewRecorder()
+	body := strings.Replace(geminiInjectedBody, `"stream":false`, `"stream":true`, 1)
+	err := svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), recorder,
+		httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:streamGenerateContent", nil))
+
+	require.ErrorIs(t, err, providers.ErrUpstreamOutputStall)
+	require.Len(t, store.demotions, 2)
+	for _, demotion := range store.demotions {
+		assert.Equal(t, "gemini-1.5-pro", demotion.Model)
+		assert.Equal(t, sessionpin.DemotionReasonUnrescuedStall, demotion.Reason)
+	}
+}
+
+// Under transient_rate_limit the Gemini path paces same-binding retries like
+// Messages does: a Retry-After above the cap ends them after the first attempt.
+func TestProxyGeminiGenerateContent_TransientRateLimitHonoursRetryAfterCap(t *testing.T) {
+	store := newFakePinStore()
+	googleProv := &fakeProvider{proxyErr: &providers.UpstreamErrorResponse{
+		Status:  http.StatusTooManyRequests,
+		Headers: http.Header{"Retry-After": []string{"30"}},
+		Body:    []byte(`{"error":{"message":"retry later"}}`),
+	}}
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
+		map[string]providers.Client{providers.ProviderGoogle: googleProv},
+		nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil,
+	).WithRetrySleep(noRetrySleep).WithTransientRateLimit(true, 45)
+	rec := httptest.NewRecorder()
+	err := svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(geminiInjectedBody), rec,
+		httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", nil))
+	require.Error(t, err)
+	assert.Len(t, googleProv.proxyBodies, 1, "a Retry-After above the cap skips further same-binding attempts")
+}
+
+func TestProxyGeminiGenerateContent_PersistsPassthroughExperimentTelemetry(t *testing.T) {
+	const installationID = "22222222-2222-2222-2222-222222222222"
+	routerSpy := &fakeRouter{err: errors.New("scorer must not run for passthrough arm")}
+	googleProvider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1200,"candidatesTokenCount":4,"totalTokenCount":1204,"cachedContentTokenCount":1024}}`))
+	}}
+	telemetry := newCaptureTelemetry()
+	service := proxy.NewService(
+		routerSpy,
+		map[string]providers.Client{providers.ProviderGoogle: googleProvider},
+		nil, newFakePinStore(), false,
+		providers.ProviderGoogle, "gemini-2.5-flash", telemetry,
+	)
+	body := strings.Replace(geminiInjectedBody, "gemini-1.5-pro", "gemini-2.5-pro", 1)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-pro:generateContent", nil)
+
+	require.NoError(t, service.ProxyGeminiGenerateContent(
+		geminiExperimentContext(installationID, auth.BlindExperimentArmPassthrough),
+		[]byte(body), recorder, request,
+	))
+
+	row := telemetry.firstRow(t)
+	assert.Zero(t, routerSpy.routeCalls)
+	assert.Equal(t, installationID, row.InstallationID)
+	assert.Equal(t, "key-1", row.APIKeyID)
+	assert.Equal(t, "gemini-2.5-pro", row.RequestedModel)
+	assert.Equal(t, "gemini-2.5-pro", row.DecisionModel)
+	assert.Equal(t, providers.ProviderGoogle, row.DecisionProvider)
+	assert.Equal(t, "cluster_argmax", row.DecisionReason)
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, row.BlindExperimentArm)
+	assert.Equal(t, auth.BlindExperimentAssignmentAutomatic, row.BlindExperimentAssignmentSource)
+	assert.Equal(t, "account-1", row.BlindExperimentSubjectKey)
+	assert.False(t, row.TrainingAllowed)
+	assert.Equal(t, int32(1200), row.InputTokens)
+	assert.Equal(t, int32(4), row.OutputTokens)
+	require.NotNil(t, row.CacheReadTokens)
+	assert.Equal(t, int32(1024), *row.CacheReadTokens)
+	assert.Equal(t, int32(http.StatusOK), row.UpstreamStatusCode, "successful rows carry actual successful HTTP status")
+	assert.Positive(t, row.ActualInputCostUSD)
+	assert.Positive(t, row.ActualOutputCostUSD)
+}
+
+func TestProxyGeminiGenerateContent_PersistsSubscriberTelemetry(t *testing.T) {
+	tests := []struct {
+		name string
+		ctx  func(context.Context) context.Context
+		want entitlement.CapacitySource
+	}{
+		{
+			name: "included",
+			ctx: func(ctx context.Context) context.Context {
+				return entitlement.WithCoverage(ctx, entitlement.Coverage{
+					EntitlementVersion: 17,
+					Plan:               entitlement.PlanMax,
+				})
+			},
+			want: entitlement.CapacitySourceIncludedRouter,
+		},
+		{
+			name: "prepaid",
+			ctx: func(ctx context.Context) context.Context {
+				return billing.WithPrepaidAuthorization(ctx, billing.PrepaidAuthorization{
+					CapacitySource: entitlement.CapacitySourcePrepaid,
+				})
+			},
+			want: entitlement.CapacitySourcePrepaid,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			googleProvider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+				_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1200,"candidatesTokenCount":4,"totalTokenCount":1204}}`))
+			}}
+			telemetry := newCaptureTelemetry()
+			service := proxy.NewService(
+				&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
+				map[string]providers.Client{providers.ProviderGoogle: googleProvider},
+				nil, newFakePinStore(), false,
+				providers.ProviderGoogle, "gemini-2.5-flash", telemetry,
+			)
+			ctx := tt.ctx(authedCtx("44444444-4444-4444-4444-444444444444"))
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", nil)
+
+			require.NoError(t, service.ProxyGeminiGenerateContent(ctx, []byte(geminiInjectedBody), recorder, request))
+
+			row := telemetry.firstRow(t)
+			assert.Equal(t, string(tt.want), row.CapacitySource)
+			require.NotNil(t, row.RetailUsageMicros)
+			require.NotNil(t, row.SettlementFailed)
+			assert.False(t, *row.SettlementFailed)
+			if tt.want == entitlement.CapacitySourceIncludedRouter {
+				require.NotNil(t, row.IncludedUsageMicros)
+				assert.Equal(t, int64(17), *row.EntitlementVersion)
+			} else {
+				require.NotNil(t, row.PrepaidUsageMicros)
+			}
+		})
+	}
+}
+
+func TestProxyGeminiGenerateContent_PersistsExperimentUpstreamError(t *testing.T) {
+	const installationID = "33333333-3333-3333-3333-333333333333"
+	googleProvider := &fakeProvider{proxyErr: &providers.UpstreamErrorResponse{
+		Status: http.StatusBadRequest,
+		Body:   []byte(`{"error":{"message":"invalid request"}}`),
+	}}
+	telemetry := newCaptureTelemetry()
+	service := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
+		map[string]providers.Client{providers.ProviderGoogle: googleProvider},
+		nil, newFakePinStore(), false,
+		providers.ProviderGoogle, "gemini-2.5-flash", telemetry,
+	)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", nil)
+
+	err := service.ProxyGeminiGenerateContent(
+		geminiExperimentContext(installationID, auth.BlindExperimentArmRouterOn),
+		[]byte(geminiInjectedBody), recorder, request,
+	)
+
+	require.Error(t, err)
+	row := telemetry.firstRow(t)
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, row.BlindExperimentArm)
+	assert.Equal(t, auth.BlindExperimentAssignmentAutomatic, row.BlindExperimentAssignmentSource)
+	assert.Equal(t, "account-1", row.BlindExperimentSubjectKey)
+	assert.True(t, row.TrainingAllowed)
+	assert.Equal(t, "gemini-1.5-pro", row.RequestedModel)
+	assert.Equal(t, "gemini-2.5-pro", row.DecisionModel)
+	assert.Equal(t, providers.ProviderGoogle, row.DecisionProvider)
+	assert.Equal(t, int32(http.StatusBadRequest), row.UpstreamStatusCode)
+	assert.Zero(t, row.InputTokens)
+	assert.Zero(t, row.OutputTokens)
+	assert.Len(t, googleProvider.proxyBodies, 1, "a non-retryable upstream error must not be retried")
 }

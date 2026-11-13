@@ -1,0 +1,38 @@
+# weave-bench configuration. Copy to bench.toml (git-ignored) and edit.
+#
+# No secret values live here: each *_env key names the environment variable
+# that holds the secret. Every key can also be overridden without a file via
+# WEAVE_BENCH_<SECTION>_<KEY>, e.g. WEAVE_BENCH_ROUTER_BASE_URL=https://...
+
+[router]
+# Router the `router*` arms talk to. Codex reaches it from inside Harbor
+# sandboxes, so a `localhost` router only works with `--env docker` on a Linux
+# host that shares the network namespace; otherwise use a routable URL.
+base_url = "http://localhost:8080"
+# Router API key (`rk_...`). Must have the beta lane enabled — check with `weave-bench probe`.
+api_key_env = "WEAVE_ROUTER_API_KEY"
+# Read-only analytics key (`ra_...`, docs/ANALYTICS_EXPORT.md) for router-billed cost
+# and served-model mix. Leave analytics_base_url empty when it is the same host.
+analytics_base_url = ""
+analytics_key_env = "WEAVE_ANALYTICS_KEY"
+
+[providers]
+openai_api_key_env = "OPENAI_API_KEY"          # direct `sol` / `luna` / `astra` arms
+judge_api_key_env = "ANTHROPIC_API_KEY"        # SWE-Atlas rubric judge (Claude Opus 4.5)
+openrouter_api_key_env = "OPENROUTER_API_KEY"  # `openrouter*` arms via the tap
+
+[openrouter_tap]
+# The tap relays whatever OpenRouter key the caller presents and authenticates
+# nobody itself: bind it to an interface only the sandboxes can reach (Docker's
+# default bridge gateway), never to a public address.
+listen_host = "172.17.0.1"
+listen_port = 8787
+# How Codex inside the sandbox reaches the tap. Docker's default bridge gateway
+# for local runs; a Modal deployment substitutes its public web URL.
+public_url = "http://172.17.0.1:8787"
+records_path = "jobs/openrouter-tap.jsonl"
+
+[harbor]
+environment = "docker"                    # or "modal" once the docker path is verified
+jobs_dir = "jobs"
+atlas_checkout_dir = "vendor/SWE-Atlas"   # populated by `weave-bench fetch atlas`

@@ -16,7 +16,8 @@ import (
 
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 
-	"workweave/router/internal/observability/otel"
+	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/telemetry"
 )
 
 // pathCollector records request bodies keyed by the URL path so trace and log
@@ -106,20 +107,20 @@ func TestBuffer_RecordLogAndFlush(t *testing.T) {
 	require.NotNil(t, buf)
 
 	now := time.Now()
-	buf.RecordLog(otel.LogRecord{
+	buf.RecordLog(telemetry.LogRecord{
 		Name:     "router.call",
 		Time:     now,
-		Severity: otel.SeverityInfo,
-		Attrs: otel.NewAttrBuilder(2).
+		Severity: telemetry.SeverityInfo,
+		Attrs: telemetry.NewAttrBuilder(2).
 			String("decision.model", "claude-opus-4-8").
 			String("io.request_body", `{"messages":[]}`).
 			Build(),
 	})
-	buf.RecordLog(otel.LogRecord{
+	buf.RecordLog(telemetry.LogRecord{
 		Name:     "router.call",
 		Time:     now,
-		Severity: otel.SeverityError,
-		Attrs:    otel.NewAttrBuilder(1).Int64("upstream.status_code", 500).Build(),
+		Severity: telemetry.SeverityError,
+		Attrs:    telemetry.NewAttrBuilder(1).Int64("upstream.status_code", 500).Build(),
 	})
 	buf.Flush()
 
@@ -152,7 +153,7 @@ func TestBuffer_SpansAndLogsShareTraceID(t *testing.T) {
 
 	buf := otel.NewBuffer(em)
 	buf.Record(makeSpan("router.upstream"))
-	buf.RecordLog(otel.LogRecord{Name: "router.call", Time: time.Now(), Severity: otel.SeverityInfo})
+	buf.RecordLog(telemetry.LogRecord{Name: "router.call", Time: time.Now(), Severity: telemetry.SeverityInfo})
 	buf.Flush()
 
 	require.NoError(t, em.Shutdown(context.Background()))
@@ -166,6 +167,6 @@ func TestBuffer_SpansAndLogsShareTraceID(t *testing.T) {
 
 func TestRecordLog_NilBufferNoPanic(t *testing.T) {
 	var buf *otel.Buffer
-	assert.NotPanics(t, func() { buf.RecordLog(otel.LogRecord{Name: "x"}) })
-	assert.NotPanics(t, func() { otel.RecordLog(context.Background(), otel.LogRecord{Name: "x"}) })
+	assert.NotPanics(t, func() { buf.RecordLog(telemetry.LogRecord{Name: "x"}) })
+	assert.NotPanics(t, func() { telemetry.RecordLog(context.Background(), telemetry.LogRecord{Name: "x"}) })
 }

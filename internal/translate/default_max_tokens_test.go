@@ -2,18 +2,19 @@ package translate_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // Anthropic Messages requires max_tokens; we inject a per-model default when
-// absent. defaultMaxOutputTokenCap is 8192, floored by per-model caps.
+// absent. Always-on adaptive targets receive the reasoning floor.
 
 func TestAnthropicSameFormat_DefaultMaxTokensInjectedWhenAbsent(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}`)
@@ -22,7 +23,7 @@ func TestAnthropicSameFormat_DefaultMaxTokensInjectedWhenAbsent(t *testing.T) {
 		Capabilities: router.Lookup("claude-opus-4-7"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
-	assert.Equal(t, float64(8192), out["max_tokens"])
+	assert.Equal(t, float64(16000), out["max_tokens"])
 }
 
 func TestAnthropicSameFormat_ExistingMaxTokensUnchanged(t *testing.T) {
@@ -33,6 +34,98 @@ func TestAnthropicSameFormat_ExistingMaxTokensUnchanged(t *testing.T) {
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	assert.Equal(t, float64(1024), out["max_tokens"])
+}
+
+func TestMythos52AnthropicOutputLimit(t *testing.T) {
+	const model = "claude-mythos-5-2"
+	opts := translate.EmitOptions{TargetModel: model, Capabilities: router.Lookup(model)}
+	for _, tc := range []struct{ requested, want int }{{128000, 128000}, {200000, 128000}} {
+		body := []byte(fmt.Sprintf(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}],"max_tokens":%d}`, tc.requested))
+		out := parseAndEmit(t, body, "anthropic", opts)
+		assert.Equal(t, float64(tc.want), out["max_tokens"])
+	}
+}
+
+func TestPrepareAnthropic_ClampsTitleGenerationOutputToHaikuLimit(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-5-5","max_tokens":128000,"messages":[{"role":"user","content":"Give this conversation a title"}]}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-haiku-4-5",
+		Capabilities: router.Lookup("claude-haiku-4-5"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	assert.Equal(t, "claude-haiku-4-5", out["model"])
+	assert.Equal(t, float64(64000), out["max_tokens"])
+
+	validBody := []byte(`{"model":"claude-opus-5-5","max_tokens":32000,"messages":[{"role":"user","content":"Give this conversation a title"}]}`)
+	validOutput := parseAndEmit(t, validBody, "anthropic", opts)
+	assert.Equal(t, float64(32000), validOutput["max_tokens"])
+
+	opusOutput := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+		TargetModel:  "claude-opus-5-5",
+		Capabilities: router.Lookup("claude-opus-5-5"),
+	})
+	assert.Equal(t, float64(128000), opusOutput["max_tokens"])
+}
+
+func TestPrepareAnthropic_ClampsCrossFormatOutputToHaikuLimit(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-sol","max_tokens":128000,"messages":[{"role":"user","content":"Give this conversation a title"}]}`)
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	prepared, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+		TargetModel:  "claude-haiku-4-5",
+		Capabilities: router.Lookup("claude-haiku-4-5"),
+	})
+	require.NoError(t, err)
+	var output map[string]any
+	require.NoError(t, json.Unmarshal(prepared.Body, &output))
+	assert.Equal(t, float64(64000), output["max_tokens"])
+}
+
+func TestAnthropicSameFormat_AdaptiveDefaultsHaveReasoningHeadroom(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}`)
+	for _, model := range []string{
+		"claude-fable-5", "claude-fable-5-1", "claude-opus-5", "claude-opus-4-6",
+		"claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6",
+	} {
+		t.Run(model, func(t *testing.T) {
+			out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+				TargetModel: model, Capabilities: router.Lookup(model),
+			})
+			assert.Equal(t, float64(16000), out["max_tokens"])
+		})
+	}
+
+	control := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+		TargetModel: "claude-opus-4-5", Capabilities: router.Lookup("claude-opus-4-5"),
+	})
+	assert.Equal(t, float64(8192), control["max_tokens"])
+}
+
+func TestAnthropicCrossFormat_AdaptiveDefaultHasReasoningHeadroom(t *testing.T) {
+	body := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}]}`)
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+	assert.Equal(t, float64(16000), out["max_tokens"])
+
+	responsesBody := []byte(`{"model":"gpt-5","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
+	conversion, err := translate.ConvertResponsesToChatCompletions(responsesBody)
+	require.NoError(t, err)
+	env, err = translate.ParseOpenAI(conversion.Body)
+	require.NoError(t, err)
+	prep, err = env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	})
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+	assert.Equal(t, float64(16000), out["max_tokens"])
 }
 
 func TestOpenAISameFormat_DefaultMaxTokensInjectedForNonReasoningTarget(t *testing.T) {
@@ -114,7 +207,7 @@ func TestCrossFormat_OpenAIToAnthropic_DefaultMaxTokensInjectedWhenAbsent(t *tes
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, float64(8192), out["max_tokens"])
+	assert.Equal(t, float64(16000), out["max_tokens"])
 }
 
 // Source omits max_tokens, non-reasoning target: injection populates max_tokens.
@@ -132,7 +225,8 @@ func TestCrossFormat_AnthropicToOpenAI_DefaultMaxTokensInjectedWhenAbsent(t *tes
 	assert.Equal(t, float64(8192), out["max_tokens"])
 }
 
-// Reasoning target: injection then rename to max_completion_tokens.
+// Reasoning target: injection, rename to max_completion_tokens, and the
+// reasoning floor on top of the 8192 default.
 func TestCrossFormat_AnthropicToOpenAI_DefaultMaxCompletionTokensForReasoning(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}`)
 	env, err := translate.ParseAnthropic(body)
@@ -144,7 +238,7 @@ func TestCrossFormat_AnthropicToOpenAI_DefaultMaxCompletionTokensForReasoning(t 
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, float64(8192), out["max_completion_tokens"])
+	assert.Equal(t, float64(16000), out["max_completion_tokens"])
 	assert.NotContains(t, out, "max_tokens")
 }
 
@@ -165,6 +259,18 @@ func TestAnthropicSameFormat_DefaultInjectionPreservesSourceBytes(t *testing.T) 
 	assert.Equal(t, original, body)
 }
 
+// Haiku 5.5 documents a 128K output ceiling; larger explicit budgets are
+// clamped rather than forwarded for Anthropic to reject.
+func TestAnthropicSameFormat_ExplicitMaxTokensClampsToHaiku55Ceiling(t *testing.T) {
+	body := []byte(`{"model":"claude-haiku-5-5","messages":[{"role":"user","content":"hi"}],"max_tokens":200000}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-haiku-5-5",
+		Capabilities: router.Lookup("claude-haiku-5-5"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	assert.Equal(t, float64(128000), out["max_tokens"])
+}
+
 // Regression: an explicit max_tokens is clamped to modelMaxOutputTokens, whose
 // absent-key zero value falls back to the global 8192. Kimi K3 really accepts
 // 131072 output tokens, so without an entry a large request was silently
@@ -177,4 +283,109 @@ func TestOpenAISameFormat_ExplicitMaxTokensClampsToKimiK3Ceiling(t *testing.T) {
 	}
 	out := parseAndEmit(t, body, "openai", opts)
 	assert.Equal(t, float64(32000), out["max_tokens"])
+}
+
+// Regression: qwen/qwen3.8-max was absent from modelMaxOutputTokens, so
+// explicit max_tokens was clamped to the 8192 fallback instead of 64000.
+func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForQwen38Max(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":32000}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "qwen/qwen3.8-max",
+		Capabilities: router.Lookup("qwen/qwen3.8-max"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.Equal(t, float64(32000), out["max_tokens"])
+}
+
+// Regression: GPT-6 Astra supports 128K output, so its always-on reasoning
+// must not be squeezed into the unlisted-model 8192-token fallback.
+func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForGPT6Astra(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":64000}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "gpt-6-astra",
+		Capabilities: router.Lookup("gpt-6-astra"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.Equal(t, float64(64000), out["max_completion_tokens"])
+	assert.NotContains(t, out, "max_tokens")
+}
+
+func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForGPT61Sol(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":64000}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "gpt-6.1-sol",
+		Capabilities: router.Lookup("gpt-6.1-sol"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.Equal(t, float64(64000), out["max_completion_tokens"])
+	assert.NotContains(t, out, "max_tokens")
+}
+
+// Regression: both GLM-5.3 arms missing from modelMaxOutputTokens; max_tokens was
+// clamped to 8192 — always-on reasoning exhausts that budget before answering.
+func TestOpenAISameFormat_ExplicitMaxTokensNotClampedTo8192ForGLM53(t *testing.T) {
+	for _, model := range []string{"z-ai/glm-5.3", "z-ai/glm-5.3-flash"} {
+		body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":64000}`)
+		opts := translate.EmitOptions{
+			TargetModel:  model,
+			Capabilities: router.Lookup(model),
+		}
+		out := parseAndEmit(t, body, "openai", opts)
+		assert.Equal(t, float64(64000), out["max_tokens"], model)
+	}
+}
+
+// Regression: the Bedrock-primary Qwen arms must stay clamped at Bedrock's
+// 16K output ceiling; a pass-through of Claude Code's 64000 would hard-400.
+func TestOpenAISameFormat_BedrockQwenClampedAt16384Ceiling(t *testing.T) {
+	for _, model := range []string{"qwen/qwen3-coder-next", "qwen/qwen3-235b-a22b-2507", "qwen/qwen3-next-80b-a3b-instruct"} {
+		body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":64000}`)
+		opts := translate.EmitOptions{
+			TargetModel:  model,
+			Capabilities: router.Lookup(model),
+		}
+		out := parseAndEmit(t, body, "openai", opts)
+		assert.Equal(t, float64(16384), out["max_tokens"], model)
+	}
+}
+
+// The flag ceiling (64000) is preserved — the clamp must not ask Qwen for
+// more than its served output limit.
+func TestOpenAISameFormat_Qwen38MaxClampsAt64000Ceiling(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":65536}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "qwen/qwen3.8-max",
+		Capabilities: router.Lookup("qwen/qwen3.8-max"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.Equal(t, float64(64000), out["max_tokens"])
+}
+
+func TestOpenAISameFormat_GPT56ProClampsAt128000Ceiling(t *testing.T) {
+	for _, model := range []string{"gpt-5.6-luna-pro", "gpt-5.6-sol-pro"} {
+		body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"max_tokens":131072}`)
+		opts := translate.EmitOptions{
+			TargetModel:  model,
+			Capabilities: router.Lookup(model),
+		}
+		out := parseAndEmit(t, body, "openai", opts)
+		assert.Equal(t, float64(128000), out["max_completion_tokens"], model)
+		assert.NotContains(t, out, "max_tokens", model)
+	}
+}
+
+// Same shape on the Anthropic->OpenAI cross-format path (the actual Claude
+// Code route): the explicit 64000 must not be clamped to 8192.
+func TestCrossFormat_AnthropicToOpenAI_Qwen38MaxExplicitMaxTokensPassedThrough(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}],"max_tokens":64000}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareOpenAI(http.Header{}, translate.EmitOptions{
+		TargetModel:  "qwen/qwen3.8-max",
+		Capabilities: router.Lookup("qwen/qwen3.8-max"),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+	assert.Equal(t, float64(64000), out["max_tokens"])
 }

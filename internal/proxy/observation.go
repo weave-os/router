@@ -4,25 +4,39 @@ import (
 	"context"
 	"encoding/json"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/observability/otel"
-	"workweave/router/internal/router"
-	"workweave/router/internal/timing"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/telemetry"
+	"weave-os/router/internal/timing"
 )
+
+func applyServingSpanAttrs(ctx context.Context, attributes *telemetry.AttrBuilder) {
+	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
+	if !managed {
+		return
+	}
+	attributes.String("serving.target", identity.Target).
+		String("serving.activation_id", identity.ActivationID).
+		String("serving.release_id", identity.ReleaseID).
+		String("serving.binding_id", identity.BindingID).
+		String("serving.profile_key", identity.ProfileKey).
+		String("serving.profile_name", identity.ProfileName).
+		String("serving.profile_revision", identity.ProfileRevision).
+		String("routing.plan", identity.Plan).
+		Int64("routing.entitlement_version", identity.EntitlementVersion).
+		Int64("serving.binding_generation", identity.BindingGeneration)
+}
 
 // observationContext bundles per-request routing values shared by the OTel
 // span and telemetry row.
 type observationContext struct {
-	// ClusterIDs is the top-p cluster set, widened to int32 for SQLC's INT[].
-	ClusterIDs []int32
 	// CandidateModels mirrors the scorer's eligible argmax set.
 	CandidateModels []string
 	// ChosenScore is the argmax score. Pointer so 0.0 stays distinct from
 	// "not a cluster decision".
 	ChosenScore *float64
-	// ClusterRouterVersion is the artifact version that produced this decision.
-	ClusterRouterVersion string
-	// Strategy is the routing model that produced this decision ("cluster", "hmm", "rl", "bandit").
+	// Strategy is the routing model that produced this decision ("hmm", "rl").
 	// NULL on hard-pins that bypass routing so per-strategy decision counts aren't inflated.
 	Strategy string
 	// RouteID is the opaque sidecar correlation id (HMM/RL) that joins a route
@@ -30,19 +44,31 @@ type observationContext struct {
 	RouteID string
 	// Policy contract metadata is strategy-neutral and remains stable as new
 	// policy routers are registered.
-	PolicyRouteKey       string
-	PolicyArtifactID     string
-	PolicyArtifactSHA256 string
-	RosterVersion        string
-	SidecarSchemaVersion string
-	TrainingAllowed      bool
-	CaptureMode          string
-	RolloutID            string
+	PolicyRouteKey           string
+	PolicyArtifactID         string
+	PolicyArtifactSHA256     string
+	RosterVersion            string
+	ClassifierArtifactID     string
+	ClassifierArtifactSHA256 string
+	ClassifierPredictedLabel string
+	ClassifierClassOrder     []string
+	ClassifierProbabilities  []byte
+	SelectionPolicyReleaseID string
+	SelectionPolicySHA256    string
+	SelectionHeadGeneration  int64
+	SelectionTrace           []byte
+	SidecarSchemaVersion     string
+	TrainingAllowed          bool
+	CaptureMode              string
+	RolloutID                string
 	// DebugRef is retained only for requests with authorized debug mode.
 	DebugRef string
 	// TTFTMs is the upstream-request-to-first-byte delta in ms. Pointer because
 	// zero is a legitimate sub-millisecond measurement.
 	TTFTMs *int64
+	// FirstOutputMs is upstream-request to first OUTPUT-BEARING frame;
+	// unlike TTFTMs, not satisfied by a reasoning-only envelope.
+	FirstOutputMs *int64
 	// CandidateScores is the pre-argmax score vector, JSON-marshaled for the
 	// jsonb column (nil if none). Off-policy substrate only — never read on the request path.
 	CandidateScores []byte
@@ -52,7 +78,9 @@ type observationContext struct {
 	// FreshDecisionModel is the scorer's fresh pick this turn, captured even on
 	// STAY (decision_model then names the pinned model served instead). Empty if
 	// the scorer didn't run. Shadow instrumentation for the hysteresis downgrade lever.
-	FreshDecisionModel string
+	FreshDecisionModel    string
+	FreshClassifierMargin *float64
+	FreshPolicyGroup      string
 	// FreshCandidateScores is the fresh scorer's score vector, JSON-marshaled,
 	// captured even on STAY — unlike CandidateScores, which mirrors the final
 	// decision and is NULL on STAY. nil if the scorer didn't run or exposed none.
@@ -64,10 +92,9 @@ type observationContext struct {
 // this turn, which differs from decision on STAY (decision rehydrates from the
 // pin); fresh's scores are captured separately to measure the hysteresis downgrade lever.
 func buildObservationContext(ctx context.Context, decision, fresh router.Decision, captureMode ContentCaptureMode) observationContext {
-	trainingAllowed, _ := ctx.Value(PolicyTrainingAllowedContextKey{}).(bool)
 	debugEnabled, _ := ctx.Value(PolicyDebugEnabledContextKey{}).(bool)
 	obs := observationContext{
-		TrainingAllowed: trainingAllowed,
+		TrainingAllowed: policyTrainingAllowedForRequest(ctx),
 		CaptureMode:     captureMode.String(),
 		RolloutID:       ClientIdentityFrom(ctx).RolloutID,
 	}
@@ -84,20 +111,18 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 	if fresh.Model != "" {
 		obs.FreshDecisionModel = fresh.Model
 	}
+	if fresh.Metadata != nil {
+		obs.FreshClassifierMargin = fresh.Metadata.ClassifierMargin
+		obs.FreshPolicyGroup = fresh.Metadata.PolicyGroup
+	}
 	if md := fresh.Metadata; md != nil && len(md.CandidateScores) > 0 {
 		if b, err := json.Marshal(md.CandidateScores); err == nil {
 			obs.FreshCandidateScores = b
 		} else {
-			observability.Get().Debug("Failed to marshal fresh_candidate_scores for telemetry", "err", err)
+			observability.FromContext(ctx).Debug("Failed to marshal fresh_candidate_scores for telemetry", "err", err)
 		}
 	}
 	if md := decision.Metadata; md != nil {
-		if len(md.ClusterIDs) > 0 {
-			obs.ClusterIDs = make([]int32, len(md.ClusterIDs))
-			for i, k := range md.ClusterIDs {
-				obs.ClusterIDs[i] = int32(k)
-			}
-		}
 		if len(md.CandidateModels) > 0 {
 			obs.CandidateModels = append([]string(nil), md.CandidateModels...)
 		}
@@ -105,7 +130,6 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 		// would silently drop legitimate zero scores.
 		score := float64(md.ChosenScore)
 		obs.ChosenScore = &score
-		obs.ClusterRouterVersion = md.ClusterRouterVersion
 		if md.Strategy != "" {
 			obs.Strategy = md.Strategy
 		}
@@ -114,6 +138,27 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 		obs.PolicyArtifactID = md.PolicyArtifactID
 		obs.PolicyArtifactSHA256 = md.PolicyArtifactSHA256
 		obs.RosterVersion = md.RosterVersion
+		obs.ClassifierArtifactID = md.ClassifierArtifactID
+		obs.ClassifierArtifactSHA256 = md.ClassifierArtifactSHA256
+		obs.ClassifierPredictedLabel = md.ClassifierPredictedLabel
+		obs.ClassifierClassOrder = append([]string(nil), md.ClassifierClassOrder...)
+		if len(md.ClassifierProbabilities) > 0 {
+			if probabilities, err := json.Marshal(md.ClassifierProbabilities); err == nil {
+				obs.ClassifierProbabilities = probabilities
+			} else {
+				observability.FromContext(ctx).Debug("Failed to marshal classifier probabilities for telemetry", "err", err)
+			}
+		}
+		obs.SelectionPolicyReleaseID = md.SelectionPolicyReleaseID
+		obs.SelectionPolicySHA256 = md.SelectionPolicySHA256
+		obs.SelectionHeadGeneration = md.SelectionHeadGeneration
+		if md.SelectionTrace != nil {
+			if selectionTrace, err := json.Marshal(md.SelectionTrace); err == nil {
+				obs.SelectionTrace = selectionTrace
+			} else {
+				observability.FromContext(ctx).Debug("Failed to marshal selection trace for telemetry", "err", err)
+			}
+		}
 		obs.SidecarSchemaVersion = md.SidecarSchemaVersion
 		if debugEnabled {
 			obs.DebugRef = md.DebugRef
@@ -129,7 +174,7 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 			} else {
 				// Telemetry loss is acceptable; a marshal failure must never
 				// fail the request, so log and leave the column NULL.
-				observability.Get().Debug("Failed to marshal candidate_scores for telemetry", "err", err)
+				observability.FromContext(ctx).Debug("Failed to marshal candidate_scores for telemetry", "err", err)
 			}
 		}
 	}
@@ -151,6 +196,41 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 		if obs.RosterVersion == "" {
 			obs.RosterVersion = md.RosterVersion
 		}
+		if obs.ClassifierArtifactID == "" {
+			obs.ClassifierArtifactID = md.ClassifierArtifactID
+		}
+		if obs.ClassifierArtifactSHA256 == "" {
+			obs.ClassifierArtifactSHA256 = md.ClassifierArtifactSHA256
+		}
+		if obs.ClassifierPredictedLabel == "" {
+			obs.ClassifierPredictedLabel = md.ClassifierPredictedLabel
+		}
+		if len(obs.ClassifierClassOrder) == 0 {
+			obs.ClassifierClassOrder = append([]string(nil), md.ClassifierClassOrder...)
+		}
+		if len(obs.ClassifierProbabilities) == 0 && len(md.ClassifierProbabilities) > 0 {
+			if probabilities, err := json.Marshal(md.ClassifierProbabilities); err == nil {
+				obs.ClassifierProbabilities = probabilities
+			} else {
+				observability.FromContext(ctx).Debug("Failed to marshal fresh classifier probabilities for telemetry", "err", err)
+			}
+		}
+		if obs.SelectionPolicyReleaseID == "" {
+			obs.SelectionPolicyReleaseID = md.SelectionPolicyReleaseID
+		}
+		if obs.SelectionPolicySHA256 == "" {
+			obs.SelectionPolicySHA256 = md.SelectionPolicySHA256
+		}
+		if obs.SelectionHeadGeneration == 0 {
+			obs.SelectionHeadGeneration = md.SelectionHeadGeneration
+		}
+		if len(obs.SelectionTrace) == 0 && md.SelectionTrace != nil {
+			if selectionTrace, err := json.Marshal(md.SelectionTrace); err == nil {
+				obs.SelectionTrace = selectionTrace
+			} else {
+				observability.FromContext(ctx).Debug("Failed to marshal fresh selection trace for telemetry", "err", err)
+			}
+		}
 		if obs.SidecarSchemaVersion == "" {
 			obs.SidecarSchemaVersion = md.SidecarSchemaVersion
 		}
@@ -162,19 +242,20 @@ func buildObservationContext(ctx context.Context, decision, fresh router.Decisio
 		if ms := t.Ms(&t.UpstreamRequestNanos, &t.UpstreamFirstByteNanos); ms > 0 {
 			obs.TTFTMs = &ms
 		}
+		if ms := t.Ms(&t.UpstreamRequestNanos, &t.UpstreamFirstOutputNanos); ms > 0 {
+			obs.FirstOutputMs = &ms
+		}
 	}
 	return obs
 }
 
 // applySpanAttrs records routing fields on an OTel AttrBuilder.
-func (o observationContext) applySpanAttrs(b *otel.AttrBuilder) {
-	if len(o.ClusterIDs) > 0 {
-		// Widen int32 → int for AttrBuilder.IntSlice.
-		ids := make([]int, len(o.ClusterIDs))
-		for i, k := range o.ClusterIDs {
-			ids[i] = int(k)
-		}
-		b.IntSlice("routing.cluster_ids", ids)
+func (o observationContext) applySpanAttrs(b *telemetry.AttrBuilder) {
+	if o.FreshClassifierMargin != nil {
+		b.Float64("routing.fresh_classifier_margin", *o.FreshClassifierMargin)
+	}
+	if o.FreshPolicyGroup != "" {
+		b.String("routing.fresh_policy_group", o.FreshPolicyGroup)
 	}
 	if o.ChosenScore != nil {
 		b.Float64("routing.chosen_score", *o.ChosenScore)
@@ -184,9 +265,6 @@ func (o observationContext) applySpanAttrs(b *otel.AttrBuilder) {
 	}
 	if len(o.CandidateScores) > 0 {
 		b.String("routing.candidate_scores", string(o.CandidateScores))
-	}
-	if o.ClusterRouterVersion != "" {
-		b.String("routing.cluster_version", o.ClusterRouterVersion)
 	}
 	if o.Strategy != "" {
 		b.String("routing.strategy", o.Strategy)
@@ -206,6 +284,35 @@ func (o observationContext) applySpanAttrs(b *otel.AttrBuilder) {
 	if o.RosterVersion != "" {
 		b.String("routing.roster_version", o.RosterVersion)
 	}
+	if o.ClassifierArtifactID != "" {
+		b.String("routing.classifier_artifact_id", o.ClassifierArtifactID)
+	}
+	if o.ClassifierArtifactSHA256 != "" {
+		b.String("routing.classifier_artifact_sha256", o.ClassifierArtifactSHA256)
+	}
+	if o.ClassifierPredictedLabel != "" {
+		b.String("routing.classifier_predicted_label", o.ClassifierPredictedLabel)
+	}
+	if len(o.ClassifierProbabilities) > 0 {
+		b.String("routing.classifier_probabilities", string(o.ClassifierProbabilities))
+	}
+	if len(o.ClassifierClassOrder) > 0 {
+		if classOrder, err := json.Marshal(o.ClassifierClassOrder); err == nil {
+			b.String("routing.classifier_class_order", string(classOrder))
+		}
+	}
+	if o.SelectionPolicyReleaseID != "" {
+		b.String("routing.selection_policy_release_id", o.SelectionPolicyReleaseID)
+	}
+	if o.SelectionPolicySHA256 != "" {
+		b.String("routing.selection_policy_sha256", o.SelectionPolicySHA256)
+	}
+	if o.SelectionHeadGeneration > 0 {
+		b.Int64("routing.selection_head_generation", o.SelectionHeadGeneration)
+	}
+	if len(o.SelectionTrace) > 0 {
+		b.String("routing.selection_trace", string(o.SelectionTrace))
+	}
 	if o.SidecarSchemaVersion != "" {
 		b.String("routing.sidecar_schema_version", o.SidecarSchemaVersion)
 	}
@@ -219,5 +326,8 @@ func (o observationContext) applySpanAttrs(b *otel.AttrBuilder) {
 	}
 	if o.TTFTMs != nil {
 		b.Int64("latency.ttft_ms", *o.TTFTMs)
+	}
+	if o.FirstOutputMs != nil {
+		b.Int64("latency.first_output_ms", *o.FirstOutputMs)
 	}
 }

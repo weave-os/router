@@ -5,14 +5,26 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/tidwall/gjson"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
-	"workweave/router/internal/router"
+	"golang.org/x/net/http2"
+
+	"weave-os/router/internal/router"
 )
+
+// SubscriptionTransport identifies adapters that accept native subscription OAuth.
+// Account quota and overage observations govern whether a credential is usable;
+// this capability does not promise provider-enforced included-only billing.
+type SubscriptionTransport interface {
+	SupportsSubscriptions() bool
+}
 
 // UpstreamHeaderObserver records subscription rate-limit headroom (see
 // internal/proxy/usage) without coupling adapters to the observer. Ctx lets it
@@ -51,10 +63,20 @@ const (
 	ProviderGoogle     = "google"
 	ProviderOpenRouter = "openrouter"
 	ProviderFireworks  = "fireworks"
+	ProviderDeepInfra  = "deepinfra"
 	ProviderBedrock    = "bedrock"
 	ProviderMakora     = "makora"
+	ProviderMiniMax    = "minimax"
 	ProviderTogether   = "together"
 	ProviderXAI        = "xai"
+	// ProviderMeta is Meta's Model API (api.meta.ai), OpenAI-compatible Chat Completions surface.
+	ProviderMeta = "meta"
+	// ProviderWafer is Wafer Serverless' OpenAI-compatible surface; see
+	// ProviderWaferAnthropic for the Anthropic-spec surface (shared WAFER_API_KEY).
+	ProviderWafer = "wafer"
+	// ProviderWaferAnthropic is Wafer Serverless' Anthropic-spec Messages surface
+	// (pass.wafer.ai/v1/messages, bearer auth); shares WAFER_API_KEY with ProviderWafer.
+	ProviderWaferAnthropic = "wafer_anthropic"
 	// ProviderAnthropicGateway is an Anthropic-spec enterprise gateway using
 	// Bearer auth; its endpoint is per-tenant with no deployment default.
 	ProviderAnthropicGateway = "anthropic_gateway"
@@ -74,11 +96,13 @@ const (
 	// FamilyUnknown is the zero value (no ProviderFamilies entry).
 	// ValidateDispatchable panics at boot if a registered provider maps to it.
 	FamilyUnknown TranslationFamily = iota
-	// FamilyAnthropic speaks the Anthropic Messages wire format natively.
+	// FamilyAnthropic speaks the Anthropic Messages wire format natively
+	// (Anthropic itself plus Anthropic-compatible gateways such as Wafer's).
 	FamilyAnthropic
 	// FamilyOpenAICompat speaks the OpenAI Chat Completions wire format
 	// (OpenAI itself plus every OpenAI-compatible upstream: OpenRouter,
-	// Fireworks, Bedrock's OpenAI-compat surface, Makora, Together, XAI).
+	// Fireworks, DeepInfra, Bedrock's OpenAI-compat surface, Makora, MiniMax,
+	// Together, XAI, Wafer).
 	FamilyOpenAICompat
 	// FamilyGemini speaks the Google Generative Language (Gemini) wire format.
 	FamilyGemini
@@ -92,11 +116,16 @@ var ProviderFamilies = map[string]TranslationFamily{
 	ProviderGoogle:     FamilyGemini,
 	ProviderOpenRouter: FamilyOpenAICompat,
 	ProviderFireworks:  FamilyOpenAICompat,
+	ProviderDeepInfra:  FamilyOpenAICompat,
 	ProviderBedrock:    FamilyOpenAICompat,
 	ProviderMakora:     FamilyOpenAICompat,
+	ProviderMiniMax:    FamilyOpenAICompat,
 	ProviderTogether:   FamilyOpenAICompat,
 	ProviderXAI:        FamilyOpenAICompat,
+	ProviderMeta:       FamilyOpenAICompat,
+	ProviderWafer:      FamilyOpenAICompat,
 
+	ProviderWaferAnthropic:   FamilyAnthropic,
 	ProviderAnthropicGateway: FamilyAnthropic,
 	ProviderOpenAIGateway:    FamilyOpenAICompat,
 }
@@ -111,6 +140,26 @@ func FamilyFor(provider string) TranslationFamily {
 // Completions wire format.
 func IsOpenAICompat(provider string) bool {
 	return FamilyFor(provider) == FamilyOpenAICompat
+}
+
+// IsGateway reports whether the provider is a customer-hosted gateway rather
+// than a vendor API. A gateway serves only the models its key's aliases name,
+// so routing treats it as the installation's exclusive upstream.
+func IsGateway(provider string) bool {
+	switch provider {
+	case ProviderAnthropicGateway, ProviderOpenAIGateway:
+		return true
+	default:
+		return false
+	}
+}
+
+// SupportsAnthropicServerTools reports whether the provider natively executes
+// Anthropic's server-side tools (web_search_*, web_fetch_*). Speaking the
+// Anthropic wire format is not the same: gateways relay to function-tool-only
+// backends and reject a server tool with a 400.
+func SupportsAnthropicServerTools(provider string) bool {
+	return FamilyFor(provider) == FamilyAnthropic && !IsGateway(provider)
 }
 
 // AllProviders returns every known Provider* constant (every ProviderFamilies
@@ -149,10 +198,16 @@ var APIKeyEnvVars = map[string]string{
 	ProviderGoogle:     "GOOGLE_API_KEY",
 	ProviderOpenRouter: "OPENROUTER_API_KEY",
 	ProviderFireworks:  "FIREWORKS_API_KEY",
+	ProviderDeepInfra:  "DEEPINFRA_API_KEY",
 	ProviderBedrock:    "AWS_BEARER_TOKEN_BEDROCK",
 	ProviderMakora:     "MAKORA_API_KEY",
+	ProviderMiniMax:    "MINIMAX_API_KEY",
 	ProviderTogether:   "TOGETHER_API_KEY",
 	ProviderXAI:        "XAI_API_KEY",
+	ProviderMeta:       "META_API_KEY",
+	// Wafer's two surfaces share a single account key.
+	ProviderWafer:          "WAFER_API_KEY",
+	ProviderWaferAnthropic: "WAFER_API_KEY",
 	// Pairs with ANTHROPIC_GATEWAY_BASE_URL, the endpoint the token is scoped to.
 	ProviderAnthropicGateway: "ANTHROPIC_GATEWAY_TOKEN",
 	// Pairs with OPENAI_GATEWAY_BASE_URL, likewise.
@@ -179,19 +234,34 @@ func RequiresBaseURL(provider string) bool {
 	return ok
 }
 
+// OutputExcludesReasoning reports whether this provider's reported output token
+// count omits its reasoning tokens, so billed output is output + reasoning.
+// xAI reports completion_tokens_details.reasoning_tokens on top of
+// completion_tokens (prompt + completion + reasoning = total_tokens) while
+// billing reasoning at the output rate. Every other OpenAI-compatible
+// upstream, OpenRouter's xAI route included, folds reasoning into
+// completion_tokens as OpenAI does.
+func OutputExcludesReasoning(provider string) bool {
+	return provider == ProviderXAI
+}
+
 // CacheTTL is the best-effort upstream prompt-cache lifetime per provider.
 // Anthropic's 1h extended cache is what pinSessionTTL is sized to; OSS
 // OpenAI-compatible providers cache on an undocumented minutes-scale window,
 // so a pin can outlive the cache — the planner uses this to stop crediting a
 // stale pin a cache-read discount it no longer earns.
 var CacheTTL = map[string]time.Duration{
-	ProviderAnthropic:  time.Hour,
-	ProviderOpenAI:     5 * time.Minute,
-	ProviderGoogle:     5 * time.Minute,
-	ProviderOpenRouter: 5 * time.Minute,
-	ProviderFireworks:  5 * time.Minute,
-	ProviderBedrock:    5 * time.Minute,
-	ProviderXAI:        5 * time.Minute,
+	ProviderAnthropic:      time.Hour,
+	ProviderOpenAI:         5 * time.Minute,
+	ProviderGoogle:         5 * time.Minute,
+	ProviderOpenRouter:     5 * time.Minute,
+	ProviderFireworks:      5 * time.Minute,
+	ProviderDeepInfra:      5 * time.Minute,
+	ProviderBedrock:        5 * time.Minute,
+	ProviderXAI:            5 * time.Minute,
+	ProviderMeta:           5 * time.Minute,
+	ProviderWafer:          5 * time.Minute,
+	ProviderWaferAnthropic: 5 * time.Minute,
 	// A gateway publishes no prompt-cache lifetime of its own, so it keeps the
 	// conservative window rather than inheriting Anthropic's 1h extended cache.
 	ProviderAnthropicGateway: 5 * time.Minute,
@@ -255,24 +325,88 @@ var ErrNotImplemented = errors.New("provider: not implemented")
 // been written to the client. Handlers seeing c.Writer.Written() must NOT
 // write their own JSON envelope.
 type UpstreamStatusError struct {
-	Status int
+	Status    int
+	Headers   http.Header
+	Body      []byte
+	BodyBytes int64
+	// Cause is the dispatch error an in-stream error frame stands in for;
+	// nil when Status was read off a real upstream response.
+	Cause error
 }
 
 func (e *UpstreamStatusError) Error() string {
 	return fmt.Sprintf("upstream returned status %d", e.Status)
 }
 
+func (e *UpstreamStatusError) Unwrap() error { return e.Cause }
+
 // UpstreamErrorResponse is returned by adapters that buffer a non-2xx
 // response instead of streaming it, so the proxy can retry on a different
 // provider or flush it to the client. Body capped at MaxBufferedErrorBytes.
 type UpstreamErrorResponse struct {
-	Status  int
-	Headers http.Header
-	Body    []byte
+	Status     int
+	Headers    http.Header
+	Body       []byte
+	BodyBytes  int64
+	BodyCapped bool
+	// Cause carries a classified upstream failure that is not represented by
+	// the HTTP status alone, such as a successful HTTP response with no answer.
+	Cause error
+}
+
+type ProviderErrorType string
+
+const (
+	ProviderErrorTypeInvalidRequest     ProviderErrorType = "invalid_request_error"
+	ProviderErrorTypeAuthentication     ProviderErrorType = "authentication_error"
+	ProviderErrorTypePermission         ProviderErrorType = "permission_error"
+	ProviderErrorTypeNotFound           ProviderErrorType = "not_found_error"
+	ProviderErrorTypeRateLimit          ProviderErrorType = "rate_limit_error"
+	ProviderErrorTypeAPI                ProviderErrorType = "api_error"
+	ProviderErrorTypeOverloaded         ProviderErrorType = "overloaded_error"
+	ProviderErrorTypeServiceUnavailable ProviderErrorType = "service_unavailable"
+)
+
+func KnownProviderErrorType(value string) (ProviderErrorType, bool) {
+	errorType := ProviderErrorType(value)
+	switch errorType {
+	case ProviderErrorTypeInvalidRequest,
+		ProviderErrorTypeAuthentication,
+		ProviderErrorTypePermission,
+		ProviderErrorTypeNotFound,
+		ProviderErrorTypeRateLimit,
+		ProviderErrorTypeAPI,
+		ProviderErrorTypeOverloaded,
+		ProviderErrorTypeServiceUnavailable:
+		return errorType, true
+	default:
+		return "", false
+	}
 }
 
 func (e *UpstreamErrorResponse) Error() string {
 	return fmt.Sprintf("upstream returned status %d (buffered)", e.Status)
+}
+
+func (e *UpstreamErrorResponse) Unwrap() error { return e.Cause }
+
+type QuotaVerificationFailure string
+
+const (
+	QuotaVerificationFailureRequest         QuotaVerificationFailure = "request"
+	QuotaVerificationFailureTransport       QuotaVerificationFailure = "transport"
+	QuotaVerificationFailureTimeout         QuotaVerificationFailure = "timeout"
+	QuotaVerificationFailureEndpoint        QuotaVerificationFailure = "endpoint"
+	QuotaVerificationFailureInvalidResponse QuotaVerificationFailure = "invalid_response"
+)
+
+type QuotaVerificationUnavailableError struct {
+	Failure        QuotaVerificationFailure
+	UpstreamStatus int
+}
+
+func (e *QuotaVerificationUnavailableError) Error() string {
+	return fmt.Sprintf("subscription quota verification unavailable: %s (upstream status %d)", e.Failure, e.UpstreamStatus)
 }
 
 // MaxBufferedErrorBytes caps the buffered upstream error body; beyond this
@@ -286,12 +420,9 @@ const MaxBufferedErrorBytes = 64 * 1024
 // re-exports it as httputil.ErrUpstreamIdleTimeout.
 var ErrUpstreamIdleTimeout = errors.New("upstream sse idle timeout")
 
-// ErrUpstreamOutputStall: output-progress watchdog fired — stream stayed alive
-// on non-output frames (reasoning deltas, keepalives) but produced zero
-// output-bearing content for the full budget. Root cause of the 2026-06-16
-// gpt-5.x incident (a /v1/responses stream sat at zero output tokens until the
-// 600s cap). Upstream-owned and retryable, like ErrUpstreamIdleTimeout;
-// defined here for the same import-cycle reason and re-exported by httputil.
+// ErrUpstreamOutputStall: the stream made no output or qualifying reasoning
+// progress for the full budget. Retryable only before client commitment.
+// Defined here to avoid an import cycle and re-exported by httputil.
 var ErrUpstreamOutputStall = errors.New("upstream sse output stall")
 
 // ErrUpstreamSlowThroughput: minimum-throughput watchdog fired — upstream IS
@@ -300,6 +431,11 @@ var ErrUpstreamOutputStall = errors.New("upstream sse output stall")
 // tripping). Upstream-owned and retryable; defined here for the same
 // import-cycle reason as the other stall sentinels.
 var ErrUpstreamSlowThroughput = errors.New("upstream sse slow throughput")
+
+// ErrUpstreamEmptyCompletion marks a clean upstream terminal that carried no
+// usable assistant text or tool call. It is retryable because HTTP success is
+// not evidence that the model answered the request.
+var ErrUpstreamEmptyCompletion = errors.New("upstream returned an empty completion")
 
 // IsRetryableStatus reports whether an upstream status is worth retrying on
 // a different provider: 5xx, 408, and 429. Other 4xx are the client's fault
@@ -313,6 +449,48 @@ func IsRetryableStatus(status int) bool {
 	return status >= 500 && status <= 599
 }
 
+// IsUpstreamRateLimited reports whether err is a buffered upstream 429: the
+// provider is throttling this caller, which says nothing about the model's
+// health. Committed streams never qualify.
+func IsUpstreamRateLimited(err error) bool {
+	var buffered *UpstreamErrorResponse
+	return errors.As(err, &buffered) && buffered.Status == http.StatusTooManyRequests
+}
+
+// RetryAfter reads the Retry-After header of a buffered upstream error in
+// either RFC 9110 form: delay-seconds or an HTTP-date, resolved against now.
+// ok is false when the header is absent, negative, or unparseable; a zero
+// delay or an HTTP-date already in the past reports (0, true): retry now.
+// A delay-seconds value too large for time.Duration saturates rather than
+// wrapping negative.
+func RetryAfter(err error, now time.Time) (delay time.Duration, ok bool) {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Headers == nil {
+		return 0, false
+	}
+	raw := strings.TrimSpace(buffered.Headers.Get("Retry-After"))
+	if raw == "" {
+		return 0, false
+	}
+	if seconds, parseErr := strconv.Atoi(raw); parseErr == nil {
+		if seconds < 0 {
+			return 0, false
+		}
+		if seconds > int(math.MaxInt64/int64(time.Second)) {
+			return math.MaxInt64, true
+		}
+		return time.Duration(seconds) * time.Second, true
+	}
+	at, parseErr := http.ParseTime(raw)
+	if parseErr != nil {
+		return 0, false
+	}
+	if !at.After(now) {
+		return 0, true
+	}
+	return at.Sub(now), true
+}
+
 // IsRetryable reports whether err is safe to retry on a different provider,
 // i.e. no response bytes reached the client. False for *UpstreamStatusError
 // (bytes already flushed) and nil.
@@ -320,14 +498,14 @@ func IsRetryable(err error) bool {
 	if err == nil {
 		return false
 	}
-	if isResponseHeaderTimeout(err) {
+	if IsResponseHeaderTimeout(err) {
 		return true
 	}
 	// All three stall sentinels are upstream-owned even though the watchdog
 	// surfaces them by canceling the request context (which may also chain
 	// context.Canceled) — so they must be checked before the cancellation
 	// guard below.
-	if errors.Is(err, ErrUpstreamIdleTimeout) || errors.Is(err, ErrUpstreamOutputStall) || errors.Is(err, ErrUpstreamSlowThroughput) {
+	if errors.Is(err, ErrUpstreamIdleTimeout) || errors.Is(err, ErrUpstreamOutputStall) || errors.Is(err, ErrUpstreamSlowThroughput) || errors.Is(err, ErrUpstreamEmptyCompletion) {
 		return true
 	}
 	// Caller-side cancellation/deadlines aren't the upstream's fault; a retry
@@ -348,12 +526,42 @@ func IsRetryable(err error) bool {
 	return true
 }
 
-func isResponseHeaderTimeout(err error) bool {
+// IsResponseHeaderTimeout reports whether err is the upstream transport's
+// response-header timeout rather than a caller request deadline.
+func IsResponseHeaderTimeout(err error) bool {
 	var urlErr *url.Error
 	if !errors.As(err, &urlErr) || urlErr.Err == nil {
 		return false
 	}
 	return strings.Contains(urlErr.Err.Error(), "timeout awaiting response headers")
+}
+
+// IsHTTP2ConnectionLoss reports whether the provider's HTTP/2 connection
+// failed under the request: a stream reset, GOAWAY or connection error, or a
+// keepalive ping it never answered. net/http's bundled HTTP/2 client returns
+// unexported copies of the x/net error types; only its StreamError converts
+// via errors.As, so the rest are matched by the text both packages share.
+func IsHTTP2ConnectionLoss(err error) bool {
+	var streamErr http2.StreamError
+	var connErr http2.ConnectionError
+	if errors.As(err, &streamErr) || errors.As(err, &connErr) {
+		return true
+	}
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "http2: client connection lost") ||
+		strings.Contains(msg, "http2: server sent GOAWAY and closed the connection") {
+		return true
+	}
+	// net/http's unexported HTTP/2 ConnectionError has the bare message "connection error: <code>".
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		if strings.HasPrefix(e.Error(), "connection error: ") {
+			return true
+		}
+	}
+	return false
 }
 
 // IsUpstreamModelNotFound reports whether err is a buffered upstream 404,
@@ -409,6 +617,196 @@ func IsUpstreamCapabilityRejection(err error) bool {
 	return false
 }
 
+// schemaRejectionPhrases are prose 400 bodies from provider grammar/schema
+// compilation. Unlike capability rejections (a model property, same phrasing on
+// any binding), a schema rejection is compiler-specific — a sibling or baseline
+// binding CAN accept the same schemas. Keep phrases narrow: a loose match
+// rescues a genuinely malformed request onto another provider, masking the bug.
+var schemaRejectionPhrases = []string{
+	// Fireworks grammar-compiler conflict across tool schemas.
+	"conflict in schema definitions",
+	// Generic grammar/structured-output rejection phrasings.
+	"failed to compile grammar",
+	"could not compile grammar",
+	"invalid tool schema",
+	"invalid function schema",
+	"invalid schema for function",
+	"schema is not representable",
+	"invalid input schema",
+}
+
+// IsUpstreamSchemaRejection reports whether err is a buffered upstream 400 from
+// the provider's tool-schema/grammar compilation — the class behind the
+// Fireworks "Conflict in schema definitions" dead turns. Cross-binding
+// retryable (a different provider's compiler accepts the same schemas); not a
+// same-binding retry signal (identical re-POST 400s identically).
+func IsUpstreamSchemaRejection(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	for _, phrase := range schemaRejectionPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// thoughtSignatureRejectionPhrases are Gemini 3.x 400 bodies rejecting the
+// thoughtSignature replayed on a historical functionCall ("Corrupted thought
+// signature.", "Missing thought signature ..."). Any model that does not
+// validate Gemini signatures can serve the same history.
+var thoughtSignatureRejectionPhrases = []string{
+	"thought signature",
+	"thought_signature",
+	"thoughtsignature",
+}
+
+// IsUpstreamThoughtSignatureRejection reports whether err is a buffered
+// upstream 400 rejecting a Gemini thoughtSignature in the request history.
+// The signature is opaque and lives in the client-echoed tool id, so the
+// router cannot repair it; the same request 400s on every Gemini 3.x turn for
+// the rest of the session unless it is rescued onto a model that ignores the
+// signature. Cross-binding rescue signal only, like IsUpstreamSchemaRejection.
+func IsUpstreamThoughtSignatureRejection(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	for _, phrase := range thoughtSignatureRejectionPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// unknownFieldPhrases are the verdicts meaning the upstream's request schema
+// has no such field at all, as opposed to disliking its contents.
+var unknownFieldPhrases = []string{
+	"extra inputs are not permitted",
+	"extra inputs not permitted",
+	"extra fields not permitted",
+	"unknown field",
+	"unrecognized field",
+	"unexpected field",
+	"additional properties are not allowed",
+}
+
+// IsUpstreamOutputConfigFormatRejection reports whether err is a buffered 400
+// rejecting output_config.format as an unknown field — licensing a one-shot retry.
+// A schema-contents complaint names the same field but is caller-fixable and must
+// not match (e.g. additionalProperties must be explicitly set to false).
+func IsUpstreamOutputConfigFormatRejection(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	if !strings.Contains(body, "output_config") || !strings.Contains(body, "format") {
+		return false
+	}
+	for _, phrase := range unknownFieldPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsAnthropicFastModeQuotaRejection reports whether err is a buffered 429
+// refusing a fast-tier request for lack of fast-mode allocation (Anthropic
+// phrases it as a rate limit of N "fast mode input tokens"), as opposed to an
+// ordinary rate limit — licensing a one-shot retry at standard speed.
+func IsAnthropicFastModeQuotaRejection(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Status != http.StatusTooManyRequests {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(buffered.Body)), "fast mode")
+}
+
+// IsUpstreamPromptCacheKeyRejection reports whether err is a buffered 400
+// that rejects prompt_cache_key as an unknown field — some gateways trail the
+// spec and 400 bodies naming it — licensing a one-shot hint-stripped retry.
+func IsUpstreamPromptCacheKeyRejection(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Status != http.StatusBadRequest {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	if !strings.Contains(body, "prompt_cache_key") {
+		return false
+	}
+	for _, phrase := range unknownFieldPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// responsesUnsupportedPhrases are prose bodies meaning the gateway does not
+// serve /v1/responses at all (as opposed to rejecting this particular body).
+// Snowflake Cortex gates the surface per account and answers 400/403 rather
+// than 404, so status alone can't classify it.
+var responsesUnsupportedPhrases = []string{
+	"responses rest api not enabled",
+	"responses api not enabled",
+	"not allowed to access this endpoint",
+	"unknown path",
+}
+
+// IsUpstreamResponsesUnsupported reports whether err means the upstream has no
+// usable Responses API, so the caller should re-emit the turn onto
+// chat/completions. A 404 covers gateways that never mount the path; the prose
+// phrases cover gateways that mount it but leave it disabled per account.
+func IsUpstreamResponsesUnsupported(err error) bool {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) {
+		return false
+	}
+	if buffered.Status == http.StatusNotFound {
+		return true
+	}
+	if buffered.Status != http.StatusBadRequest && buffered.Status != http.StatusForbidden {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	for _, phrase := range responsesUnsupportedPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// UpstreamErrorBodyMessage extracts a provider's error message from a buffered
+// non-2xx body for diagnostics: prefers {"error":{"message":...}}, then
+// top-level "message", then truncated raw body. Returns "" for non-buffered or
+// empty bodies. Capped at 1 KiB.
+func UpstreamErrorBodyMessage(err error) string {
+	const maxBodyLogBytes = 1024
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || len(buffered.Body) == 0 {
+		return ""
+	}
+	body := buffered.Body
+	if len(body) > maxBodyLogBytes {
+		body = body[:maxBodyLogBytes]
+	}
+	if msg := gjson.GetBytes(body, "error.message"); msg.Exists() {
+		return msg.String()
+	}
+	if msg := gjson.GetBytes(body, "message"); msg.Exists() {
+		return msg.String()
+	}
+	return strings.TrimSpace(string(body))
+}
+
 // PreparedRequest holds the encoded target-format request body and format-specific header overrides.
 // Endpoint selects which upstream path a provider client POSTs to. Zero value
 // is chat/completions; EndpointResponses routes to `/v1/responses`, required
@@ -422,8 +820,10 @@ const (
 )
 
 type PreparedRequest struct {
-	Body    []byte
-	Headers http.Header
+	// ResponseToolNames reverses wire aliases so clients receive executable names.
+	ResponseToolNames map[string]string
+	Body              []byte
+	Headers           http.Header
 	// Endpoint selects the upstream surface (zero value = chat/completions).
 	Endpoint Endpoint
 	// Stats records translation-time mutations applied to the body (populated
@@ -436,12 +836,19 @@ type PreparedRequest struct {
 // applied to the upstream request body. Surfaced in the ProxyMessages-
 // complete log with keys:
 //   - cc_only_tools_stripped
+//   - cc_task_reminders_stripped
 //   - gemini_reminder_injected
 //   - gemini_validated_tool_mode
 type RequestMutationStats struct {
 	// CCOnlyToolsStripped counts Claude-Code-only tools removed before
 	// dispatching to a non-Anthropic upstream. See claudecode_tool_filter.go.
 	CCOnlyToolsStripped int
+	// CCTaskRemindersStripped counts Claude Code "task tools haven't been used"
+	// reminder blocks removed alongside the task-list tools.
+	CCTaskRemindersStripped int
+	// ServerToolsStripped counts native server tools (web_search_*, web_fetch_*)
+	// removed before emitting to a non-Anthropic upstream. See websearch.StripServerTools.
+	ServerToolsStripped int
 	// GeminiReminderInjected is true when the Gemini 3.x tool-use reminder was
 	// appended to systemInstruction. See translate/system_reminder.go.
 	GeminiReminderInjected bool
@@ -496,6 +903,14 @@ type RequestTransformation struct {
 // byte-idle-guarded only.
 type OutputProgressArmer interface {
 	ArmOutputProgress(mark func()) (armed bool)
+}
+
+// ReasoningProgressArmer reports advancing reasoning separately from output,
+// so it can reset the stall watchdog without stamping first-output latency or
+// counting toward output throughput. Arm after output progress is armed;
+// non-streaming writers return false.
+type ReasoningProgressArmer interface {
+	ArmReasoningProgress(mark func()) (armed bool)
 }
 
 type Client interface {

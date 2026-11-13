@@ -2,6 +2,7 @@ package proxy_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,13 +10,13 @@ import (
 	"sync"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/anthropic"
-	"workweave/router/internal/providers/openaicompat"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/policy"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/providers/openaicompat"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -67,7 +68,7 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 		mu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(anthropicMessageSSE))
+		_, _ = w.Write([]byte(strings.ReplaceAll(anthropicMessageSSE, `"output_tokens":1}`, `"output_tokens":32000}`)))
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
@@ -86,7 +87,7 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 			"openrouter": openaicompat.NewClient("test-or-key", openrouter.URL),
 			"anthropic":  anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 		},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel,
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		"fireworks":  {},
 		"openrouter": {},
@@ -113,16 +114,26 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 	assert.Contains(t, respBody, "event: message_start", "client sees the Anthropic stream start")
 	assert.Contains(t, respBody, "event: message_stop", "client sees the Anthropic stream end")
 	assert.Equal(t, "anthropic", rec.Header().Get(proxy.HeaderRouterProvider), "served provider header reflects the baseline failover")
-	// The routing marker text and x-router-model header must name the baseline
-	// model that served, not the cost-routed OSS slug that went dark.
+	// The buffered initial marker is replaced before it becomes visible, so the
+	// client sees only the model that produced provider output.
 	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel), "x-router-model reflects the baseline model that served")
-	assert.Contains(t, respBody, "claude-opus-4-8", "routing marker names the served baseline model")
-	assert.NotContains(t, respBody, "deepseek/deepseek-v4-pro", "marker must not name the OSS model that never completed")
+	assertContextHeaders(t, rec.Header())
+	assert.Equal(t, "1000000", rec.Header().Get(proxy.HeaderRouterContextWindow))
+	telemetryRow := tel.firstRow(t)
+	var contextSnapshot proxy.ContextSnapshot
+	require.NoError(t, json.Unmarshal(telemetryRow.ContextSnapshot, &contextSnapshot))
+	assert.Equal(t, "claude-opus-4-8", contextSnapshot.ServedModel)
+	initialMarker := strings.Index(respBody, "deepseek/deepseek-v4-pro")
+	fallbackMarker := strings.Index(respBody, "claude-opus-4-8")
+	require.Equal(t, -1, initialMarker, "failed initial decision marker stays hidden")
+	require.NotEqual(t, -1, fallbackMarker, "fallback correction names the serving model")
 
 	// The session pin must record the baseline model that actually served, not
 	// the cost-routed OSS id — otherwise next-turn switch detection is wrong.
 	require.NotEmpty(t, store.usages, "baseline failover must write pin usage")
 	assert.Equal(t, "claude-opus-4-8", store.usages[len(store.usages)-1].ServedModel, "pin usage records the served baseline model")
+	assert.Equal(t, 32000, store.usages[len(store.usages)-1].OutputTokens)
+	assert.False(t, store.usages[len(store.usages)-1].OutputLimitReached, "the healthy final attempt must not be excluded for its output size")
 }
 
 func TestProxyMessages_AuthoritativePolicyNeverChangesModelOnFailover(t *testing.T) {
@@ -172,8 +183,6 @@ func TestProxyMessages_AuthoritativePolicyNeverChangesModelOnFailover(t *testing
 			providers.ProviderOpenRouter: openaicompat.NewClient("test-or-key", openrouter.URL),
 			providers.ProviderAnthropic:  anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 		},
-		nil,
-		false,
 		nil,
 		newFakePinStore(),
 		false,
@@ -274,10 +283,10 @@ func TestProxyMessages_OSSOutageNoBaselineWhenRequestedModelIsOSS(t *testing.T) 
 			"openrouter": openaicompat.NewClient("k", openrouter.URL),
 			"anthropic":  anthropic.NewClient("k", anthropicUpstream.URL),
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		"fireworks": {}, "openrouter": {}, "anthropic": {},
-	})
+	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -316,7 +325,7 @@ func TestProxyMessages_OSSOutageNoBaselineWhenAnthropicExcluded(t *testing.T) {
 			"openrouter": openaicompat.NewClient("k", openrouter.URL),
 			"anthropic":  anthropic.NewClient("k", anthropicUpstream.URL),
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		"fireworks": {}, "openrouter": {}, "anthropic": {},
 	}).WithExcludedProvidersOverride([]string{providers.ProviderAnthropic})
@@ -355,10 +364,10 @@ func TestProxyMessages_FailedBaselineReportsAnthropicProvider(t *testing.T) {
 			"openrouter": openaicompat.NewClient("k", openrouter.URL),
 			"anthropic":  anthropic.NewClient("k", anthropicUpstream.URL),
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		"fireworks": {}, "openrouter": {}, "anthropic": {},
-	})
+	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -430,7 +439,7 @@ func TestProxyMessages_AuthoritativePolicyFailsOverOnCapabilityRejection(t *test
 			providers.ProviderOpenRouter: openaicompat.NewClient("test-or-key", openrouter.URL),
 			providers.ProviderAnthropic:  anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 		},
-		nil, false, nil, newFakePinStore(), false,
+		nil, newFakePinStore(), false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry(),
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderFireworks:  {},

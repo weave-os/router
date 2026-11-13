@@ -3,8 +3,9 @@ package postgres
 import (
 	"context"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres/dbbudget"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 )
@@ -23,7 +24,7 @@ func (r *userClusterModelListRepo) GetForUser(ctx context.Context, routerUserID 
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.GetUserClusterModelListsByUser(ctx, parsed)
 	if err != nil {
 		return nil, err

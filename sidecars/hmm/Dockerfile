@@ -1,11 +1,10 @@
 FROM python:3.12-slim AS build
 
-ENV POETRY_VERSION=1.8.4 \
-    POETRY_VIRTUALENVS_IN_PROJECT=true
 WORKDIR /app
-RUN pip install --no-cache-dir poetry==${POETRY_VERSION}
-COPY sidecars/hmm/pyproject.toml sidecars/hmm/poetry.lock ./
-RUN poetry install --only=main --no-root --no-interaction
+COPY --from=ghcr.io/astral-sh/uv:0.9.28 /uv /usr/local/bin/uv
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+COPY sidecars/hmm/pyproject.toml sidecars/hmm/uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev
 
 FROM python:3.12-slim
 
@@ -17,7 +16,7 @@ ENV VERSION=${VERSION} \
     OPENBLAS_NUM_THREADS=1 \
     MKL_NUM_THREADS=1 \
     NUMEXPR_NUM_THREADS=1 \
-    HMM_PACKAGE_URL=https://github.com/workweave/router/releases/download/hmm-model-v1/hmm-router-frozen-v1.tar.gz \
+    HMM_PACKAGE_URL=https://github.com/weave-os/router/releases/download/hmm-model-v1/hmm-router-frozen-v1.tar.gz \
     HMM_PACKAGE_SHA256=b326bda644aac86831bae47d0b69de008046f62324a4b93a1eba702581c174df \
     HMM_EMBEDDING_PROVIDER=google \
     PORT=8093

@@ -21,7 +21,10 @@ type Timing struct {
 	UpstreamRequestNanos   atomic.Int64
 	UpstreamHeadersNanos   atomic.Int64
 	UpstreamFirstByteNanos atomic.Int64
-	UpstreamEOFNanos       atomic.Int64
+	// UpstreamFirstOutputNanos is the first OUTPUT-BEARING frame: a reasoning
+	// model emits envelope/reasoning frames before any renderable content.
+	UpstreamFirstOutputNanos atomic.Int64
+	UpstreamEOFNanos         atomic.Int64
 }
 
 // stampOnce stores time.Now().UnixNano() into field if it has not been stamped
@@ -63,6 +66,15 @@ func (t *Timing) StampUpstreamFirstByte() {
 		return
 	}
 	stampOnce(&t.UpstreamFirstByteNanos)
+}
+
+// StampUpstreamFirstOutput records the instant the first output-bearing frame
+// is translated (reasoning deltas and keepalives do not count).
+func (t *Timing) StampUpstreamFirstOutput() {
+	if t == nil {
+		return
+	}
+	stampOnce(&t.UpstreamFirstOutputNanos)
 }
 
 // StampUpstreamEOF records the instant the upstream response body reaches EOF.
@@ -112,4 +124,16 @@ func WithTiming(ctx context.Context) (context.Context, *Timing) {
 func TimingFrom(ctx context.Context) *Timing {
 	t, _ := ctx.Value(timingKey{}).(*Timing)
 	return t
+}
+
+// FirstOutputMark wraps an output-progress watchdog mark so the first
+// output-bearing frame also stamps UpstreamFirstOutputNanos. Only the
+// translator can tell an output frame from a reasoning/keepalive frame, so this
+// piggybacks on the mark it already feeds rather than re-deriving it.
+func FirstOutputMark(ctx context.Context, mark func()) func() {
+	t := TimingFrom(ctx)
+	return func() {
+		t.StampUpstreamFirstOutput()
+		mark()
+	}
 }

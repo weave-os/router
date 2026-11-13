@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/postgres/dbbudget"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -35,7 +36,7 @@ func (r *FeedbackRepo) Upsert(ctx context.Context, p proxy.UpsertFeedbackParams)
 	if source == "" {
 		source = "link"
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.UpsertRequestFeedback(ctx, sqlc.UpsertRequestFeedbackParams{
 		InstallationID: installationID,
 		ExternalID:     p.ExternalID,
@@ -57,7 +58,7 @@ func (r *FeedbackRepo) GetContext(ctx context.Context, installationID, requestID
 	if err != nil {
 		return proxy.FeedbackContext{}, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 
 	out := proxy.FeedbackContext{RequestID: requestID}
 
@@ -89,12 +90,4 @@ func (r *FeedbackRepo) GetContext(ctx context.Context, installationID, requestID
 		out.Comment = fb.Comment
 	}
 	return out, nil
-}
-
-// derefString returns the pointed-to string or "" for a nil pointer.
-func derefString(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
 }

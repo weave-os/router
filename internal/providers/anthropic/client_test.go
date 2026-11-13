@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/anthropic"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/timing"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/timing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -197,8 +197,8 @@ func TestProxy_SubscriptionOAuthCredentialUsesBearerAndBetaHeader(t *testing.T) 
 	// Deployment key is configured, but a resolved subscription OAuth credential
 	// must win and authenticate via Bearer — never x-api-key.
 	c := anthropic.NewClient("deployment-key", upstream.URL)
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{},
-		&proxy.Credentials{APIKey: []byte("sk-ant-oat01-subscription-token"), Source: "subscription", OAuth: true})
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{},
+		&requestcontext.Credentials{APIKey: []byte("sk-ant-oat01-subscription-token"), Source: "subscription", OAuth: true})
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -234,8 +234,8 @@ func TestProxy_NonOAuthCredentialUsesAPIKey(t *testing.T) {
 	defer upstream.Close()
 
 	c := anthropic.NewClient("deployment-key", upstream.URL)
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{},
-		&proxy.Credentials{APIKey: []byte("sk-ant-api-byok"), Source: "byok"})
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{},
+		&requestcontext.Credentials{APIKey: []byte("sk-ant-api-byok"), Source: "byok"})
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
@@ -245,36 +245,34 @@ func TestProxy_NonOAuthCredentialUsesAPIKey(t *testing.T) {
 
 	assert.Equal(t, "sk-ant-api-byok", gotAPIKey)
 	assert.Empty(t, gotAuth, "a non-OAuth credential authenticates via x-api-key, not Authorization")
-	assert.NotContains(t, gotBeta, "oauth-2025-04-20", "the oauth beta flag must only be added for subscription tokens")
+	assert.NotContains(t, gotBeta, "oauth-2025-04-20", "ordinary API keys must not claim the OAuth beta")
 }
 
-func TestProxy_PassesThroughInboundSubscriptionWithBetaHeader(t *testing.T) {
-	var (
-		gotAuth string
-		gotBeta string
-	)
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		gotBeta = r.Header.Get("anthropic-beta")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"id":"msg_1"}`))
-	}))
-	defer upstream.Close()
-
-	// Self-hosted pure passthrough: no deployment key, no resolved credential —
-	// the caller's own subscription bearer rides the inbound Authorization and
-	// must still get the oauth beta flag.
-	c := anthropic.NewClient("", upstream.URL)
-	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	clientReq.Header.Set("Authorization", "Bearer sk-ant-oat01-subscription-token")
-	prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
-
-	err := c.Proxy(context.Background(), router.Decision{Model: "claude-opus-4-8"}, prep, rec, clientReq)
-	require.NoError(t, err)
-
-	assert.Equal(t, "Bearer sk-ant-oat01-subscription-token", gotAuth, "inbound subscription bearer must pass through verbatim")
-	assert.Contains(t, gotBeta, "oauth-2025-04-20", "a passed-through subscription bearer must still get the oauth beta flag")
+func TestRefusesUnresolvedInboundSubscriptionBearerOnEveryEntryPoint(t *testing.T) {
+	for _, entryPoint := range []string{"proxy", "passthrough"} {
+		for _, authorization := range []string{"Bearer sk-ant-oat01-subscription-token", "bearer sk-ant-oat01-subscription-token"} {
+			t.Run(entryPoint+"/"+authorization[:6], func(t *testing.T) {
+				upstreamCalls := 0
+				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					upstreamCalls++
+					w.WriteHeader(http.StatusOK)
+				}))
+				defer upstream.Close()
+				c := anthropic.NewClient("", upstream.URL)
+				clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(""))
+				clientReq.Header.Set("Authorization", authorization)
+				prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
+				var err error
+				if entryPoint == "proxy" {
+					err = c.Proxy(context.Background(), router.Decision{Model: "claude-opus-4-8"}, prep, httptest.NewRecorder(), clientReq)
+				} else {
+					err = c.Passthrough(context.Background(), prep, httptest.NewRecorder(), clientReq)
+				}
+				require.Error(t, err)
+				assert.Zero(t, upstreamCalls, "an unresolved inbound subscription bearer must never reach the upstream")
+			})
+		}
+	}
 }
 
 func TestProxy_DeploymentKeyOutranksInboundSubscriptionBearerAndDropsBeta(t *testing.T) {
@@ -297,7 +295,7 @@ func TestProxy_DeploymentKeyOutranksInboundSubscriptionBearerAndDropsBeta(t *tes
 	// Authorization. setAuth authenticates with the deployment key here, so the
 	// oauth beta must NOT ride along — Anthropic rejects it on x-api-key auth.
 	c := anthropic.NewClient("deployment-key", upstream.URL)
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, (*proxy.Credentials)(nil))
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, (*requestcontext.Credentials)(nil))
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	clientReq.Header.Set("Authorization", "Bearer sk-ant-oat01-subscription-token")
@@ -523,7 +521,7 @@ func TestProxy_RewritesModelForAliasedBYOKEndpoint(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:       []byte("gateway-token"),
 		ModelAliases: map[string]string{"claude-fable-5": "internal.claude-fable-5"},
 	})
@@ -554,12 +552,12 @@ func TestProxy_ForwardsConfiguredIdentityHeader(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, &proxy.Credentials{
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
 		APIKey:               []byte("gateway-token"),
 		IdentityHeader:       "X-Caller-Identity",
 		IdentityHeaderFormat: auth.IdentityFormatEmail,
 	})
-	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{Email: "engineer@example.com"})
+	ctx = context.WithValue(ctx, requestcontext.ClientIdentityContextKey{}, requestcontext.ClientIdentity{Email: "engineer@example.com"})
 
 	prep := providers.PreparedRequest{
 		Body:    []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":"hi"}]}`),
@@ -576,4 +574,95 @@ func TestProxy_ForwardsConfiguredIdentityHeader(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "engineer@example.com", gotIdentity,
 		"an endpoint authenticating the service, not the person, can only attribute spend from this header")
+}
+
+func TestProxy_ForwardsClientUserAgent(t *testing.T) {
+	var gotUA string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1"}`))
+	}))
+	defer upstream.Close()
+
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq.Header.Set("User-Agent", "claude-cli/2.1.283 (external, cli)")
+	prep := providers.PreparedRequest{
+		Body:    []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":"hi"}]}`),
+		Headers: make(http.Header),
+	}
+	err := anthropic.NewClient("test-key", upstream.URL).Proxy(
+		context.Background(), router.Decision{Model: "claude-fable-5"}, prep, httptest.NewRecorder(), clientReq)
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude-cli/2.1.283 (external, cli)", gotUA,
+		"gateways that special-case the calling client only see it through the User-Agent")
+}
+
+func TestPassthrough_ForwardsClientUserAgent(t *testing.T) {
+	var gotUA string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"input_tokens":1}`))
+	}))
+	defer upstream.Close()
+
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{}`))
+	clientReq.Header.Set("User-Agent", "claude-cli/2.1.283 (external, cli)")
+	prep := providers.PreparedRequest{Body: []byte(`{}`), Headers: make(http.Header)}
+
+	err := anthropic.NewClient("test-key", upstream.URL).Passthrough(context.Background(), prep, httptest.NewRecorder(), clientReq)
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude-cli/2.1.283 (external, cli)", gotUA)
+}
+
+func TestProxy_ConfiguredUserAgentWinsOverClient(t *testing.T) {
+	var gotUA string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1"}`))
+	}))
+	defer upstream.Close()
+
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq.Header.Set("User-Agent", "claude-cli/2.1.283 (external, cli)")
+	prep := providers.PreparedRequest{
+		Body:    []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":"hi"}]}`),
+		Headers: make(http.Header),
+	}
+	c := anthropic.NewClient("test-key", upstream.URL).WithDefaultHeaders(http.Header{"User-Agent": {"configured-agent/1"}})
+	err := c.Proxy(context.Background(), router.Decision{Model: "claude-fable-5"}, prep, httptest.NewRecorder(), clientReq)
+
+	require.NoError(t, err)
+	assert.Equal(t, "configured-agent/1", gotUA)
+}
+
+func TestPassthrough_RelaysNothingFromARefusedRedirect(t *testing.T) {
+	var redirectTargetCalls int
+	redirectTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		redirectTargetCalls++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"access_token":"internal"}`))
+	}))
+	defer redirectTarget.Close()
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, redirectTarget.URL, http.StatusFound)
+	}))
+	defer upstream.Close()
+
+	c := anthropic.NewClient("deployment-key", upstream.URL)
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	prep := providers.PreparedRequest{Headers: make(http.Header)}
+
+	err := c.Passthrough(context.Background(), prep, rec, clientReq)
+
+	require.Error(t, err, "a refused redirect is a dispatch failure, not a response to relay")
+	assert.Equal(t, 0, redirectTargetCalls, "the redirect target must never be contacted")
+	assert.Empty(t, rec.Header().Get("Location"), "the unconfigured host must not reach the caller")
+	assert.Empty(t, rec.Body.String(), "no redirect body reaches the caller")
 }

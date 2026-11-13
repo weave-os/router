@@ -1,18 +1,23 @@
 package translate_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
+	"slices"
+	"strings"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func parseAndEmit(t *testing.T, body []byte, format string, opts translate.EmitOptions) map[string]any {
@@ -84,6 +89,61 @@ func TestAnthropicSameFormat_RejectsExplicitTTLOrderViolation(t *testing.T) {
 	require.NoError(t, err)
 	_, err = env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-8", Capabilities: router.Lookup("claude-opus-4-8")})
 	require.ErrorIs(t, err, translate.ErrAnthropicCacheControlInvalid)
+}
+
+// Claude Code sends these first-party fields when it talks to api.anthropic.com
+// directly (prompt-caching-scope and prompt-caching-evict betas).
+func TestAnthropicSameFormat_FirstPartyCacheControlFields(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-8","max_tokens":1024,"system":[{"type":"text","text":"sys","cache_control":{"type":"ephemeral","ttl":"1h","scope":"global","evict_on_complete":true}}],"messages":[{"role":"user","content":"hi"}]}`)
+	bothBetas := "prompt-caching-scope-2026-01-05,prompt-caching-evict-2026-05-12"
+	cases := []struct {
+		name     string
+		provider string
+		beta     string
+		want     map[string]any
+	}{
+		{"anthropic with both betas keeps both", providers.ProviderAnthropic, bothBetas, map[string]any{"type": "ephemeral", "ttl": "1h", "scope": "global", "evict_on_complete": true}},
+		{"anthropic drops a field without its beta", providers.ProviderAnthropic, "prompt-caching-scope-2026-01-05", map[string]any{"type": "ephemeral", "ttl": "1h", "scope": "global"}},
+		{"gateway drops both", providers.ProviderAnthropicGateway, bothBetas, map[string]any{"type": "ephemeral", "ttl": "1h"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env, err := translate.ParseAnthropic(body)
+			require.NoError(t, err)
+			p, err := env.PrepareAnthropic(http.Header{"Anthropic-Beta": {tc.beta}}, translate.EmitOptions{TargetModel: "claude-opus-4-8", TargetProvider: tc.provider, Capabilities: router.Lookup("claude-opus-4-8")})
+			require.NoError(t, err)
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(p.Body, &out))
+			system := out["system"].([]any)
+			require.Len(t, system, 1)
+			assert.Equal(t, tc.want, system[0].(map[string]any)["cache_control"])
+		})
+	}
+}
+
+func TestAnthropicSameFormat_ValidatesFirstPartyCacheControlFields(t *testing.T) {
+	cases := []struct {
+		policy string
+		valid  bool
+	}{
+		{`{"type":"ephemeral","scope":"global"}`, true},
+		{`{"type":"ephemeral","evict_on_complete":false}`, true},
+		{`{"type":"ephemeral","scope":""}`, false},
+		{`{"type":"ephemeral","scope":1}`, false},
+		{`{"type":"ephemeral","evict_on_complete":"yes"}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.policy, func(t *testing.T) {
+			env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","max_tokens":1024,"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":` + tc.policy + `}]}]}`))
+			require.NoError(t, err)
+			_, err = env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-8", TargetProvider: providers.ProviderAnthropic, Capabilities: router.Lookup("claude-opus-4-8")})
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, translate.ErrAnthropicCacheControlInvalid)
+			}
+		})
+	}
 }
 
 func TestAnthropicSameFormat_ToolCacheControlCountsTowardCapacity(t *testing.T) {
@@ -226,6 +286,133 @@ func TestOpenAISameFormat_ReasoningEffortKeptForReasoning(t *testing.T) {
 	assert.Equal(t, "high", out["reasoning_effort"])
 }
 
+// An always-on target 400s on a disabled effort, so "none" becomes its floor
+// level; a router-forced effort still wins.
+func TestOpenAISameFormat_DisabledEffortMapsToAlwaysOnFloor(t *testing.T) {
+	const model = "minimax/minimax-m3.1-flash"
+	body := []byte(`{"model":"minimax","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"none"}`)
+	for _, tc := range []struct {
+		name   string
+		forced string
+		want   string
+	}{
+		{name: "disabled maps to floor", want: "low"},
+		{name: "forced effort wins", forced: "high", want: "high"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := translate.EmitOptions{
+				TargetModel:          model,
+				TargetProvider:       providers.ProviderMiniMax,
+				Capabilities:         router.Lookup(model),
+				ForceReasoningEffort: tc.forced,
+			}
+			out := parseAndEmit(t, body, "openai", opts)
+			assert.Equal(t, tc.want, out["reasoning_effort"])
+		})
+	}
+}
+
+func TestOpenAISameFormat_DisabledEffortKeptWhenReasoningCanBeOff(t *testing.T) {
+	body := []byte(`{"model":"o3-mini","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"none"}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "o3-mini",
+		Capabilities: router.Lookup("o3-mini"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.Equal(t, "none", out["reasoning_effort"])
+}
+
+func TestOpenAISameFormat_ReasoningEffortDeletedForGPT5OnChatCompletions(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-5.6-luna",
+		"messages":[{"role":"user","content":"hi"}],
+		"reasoning_effort":"medium",
+		"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]
+	}`)
+	opts := translate.EmitOptions{
+		TargetModel:    "gpt-5.6-luna",
+		TargetProvider: providers.ProviderOpenAIGateway,
+		Capabilities:   router.Lookup("gpt-5.6-luna"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.NotContains(t, out, "reasoning_effort")
+	assert.Contains(t, out, "tools")
+}
+
+// Cortex rejects reasoning_effort alongside tools for every model it serves,
+// not just gpt-5.x, and a gateway has no Responses surface to move it to.
+func TestOpenAISameFormat_ReasoningEffortDeletedForGatewayToolsOnAnyModel(t *testing.T) {
+	body := []byte(`{
+		"model":"grok-4.6",
+		"messages":[{"role":"user","content":"hi"}],
+		"reasoning_effort":"medium",
+		"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]
+	}`)
+	opts := translate.EmitOptions{
+		TargetModel:    "grok-4.6",
+		TargetProvider: providers.ProviderOpenAIGateway,
+		Capabilities:   router.Lookup("grok-4.6"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.NotContains(t, out, "reasoning_effort")
+	assert.Contains(t, out, "tools")
+
+	toolless := []byte(`{
+		"model":"grok-4.6",
+		"messages":[{"role":"user","content":"hi"}],
+		"reasoning_effort":"medium"
+	}`)
+	assert.Equal(t, "medium", parseAndEmit(t, toolless, "openai", opts)["reasoning_effort"],
+		"a toolless gateway turn keeps the caller's effort")
+}
+
+// Direct OpenAI applies its own effort on gpt-5.6 tool turns even when the
+// field is absent; dropping it is not enough — the turn must opt out explicitly.
+func TestOpenAISameFormat_ToolTurnOptsOutOfReasoningForDirectGPT56(t *testing.T) {
+	tools := `"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]`
+	for _, tc := range []struct {
+		name  string
+		model string
+		body  []byte
+		want  any
+	}{
+		{
+			name:  "tool turn",
+			model: "gpt-5.6-luna",
+			body:  []byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"medium",` + tools + `}`),
+			want:  "none",
+		},
+		{
+			// A gpt-5.x chat/completions turn never carries effort at all, so a
+			// toolless one needs no explicit opt-out.
+			name:  "toolless turn",
+			model: "gpt-5.6-luna",
+			body:  []byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"medium"}`),
+			want:  nil,
+		},
+		{
+			name:  "older reasoning model serves tool turns as-is",
+			model: "gpt-5.5",
+			body:  []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"hi"}],` + tools + `}`),
+			want:  nil,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := translate.EmitOptions{
+				TargetModel:    tc.model,
+				TargetProvider: providers.ProviderOpenAI,
+				Capabilities:   router.Lookup(tc.model),
+			}
+			out := parseAndEmit(t, tc.body, "openai", opts)
+			if tc.want == nil {
+				assert.NotContains(t, out, "reasoning_effort")
+				return
+			}
+			assert.Equal(t, tc.want, out["reasoning_effort"])
+		})
+	}
+}
+
 func TestOpenAISameFormat_ReasoningStripsUnsupportedSampling(t *testing.T) {
 	body := []byte(`{
 		"model":"gpt-5.5",
@@ -333,6 +520,91 @@ func TestAnthropicSameFormat_StripsUnsupportedToolSchemaPattern(t *testing.T) {
 	assert.Equal(t, "decimal", amount["description"])
 }
 
+func TestAnthropicSameFormat_OmitsEmptyWebSearchDomainLists(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"search"}],"max_tokens":1024,"tools":[{
+		"type":"web_search_20250305",
+		"name":"web_search",
+		"allowed_domains":["openrouter.ai","docs.anthropic.com"],
+		"blocked_domains":[],
+		"max_uses":8
+	}]}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	tools, _ := out["tools"].([]any)
+	require.Len(t, tools, 1)
+	tool, _ := tools[0].(map[string]any)
+	assert.Equal(t, "web_search_20250305", tool["type"])
+	assert.Equal(t, []any{"openrouter.ai", "docs.anthropic.com"}, tool["allowed_domains"])
+	assert.NotContains(t, tool, "blocked_domains", "Anthropic 400s empty domain lists; omit them")
+	assert.Equal(t, float64(8), tool["max_uses"])
+}
+
+func TestAnthropicSameFormat_OmitsEmptyAllowedDomains(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"search"}],"max_tokens":1024,"tools":[{
+		"type":"web_search_20250305",
+		"name":"web_search",
+		"allowed_domains":[],
+		"blocked_domains":["example.com"]
+	}]}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	tools, _ := out["tools"].([]any)
+	require.Len(t, tools, 1)
+	tool, _ := tools[0].(map[string]any)
+	assert.NotContains(t, tool, "allowed_domains")
+	assert.Equal(t, []any{"example.com"}, tool["blocked_domains"])
+}
+
+func TestAnthropicSameFormat_OmitsEmptyWebFetchDomainLists(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"fetch"}],"max_tokens":1024,"tools":[{
+		"type":"web_fetch_20250305",
+		"name":"web_fetch",
+		"allowed_domains":["example.com"],
+		"blocked_domains":[]
+	}]}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	tools, _ := out["tools"].([]any)
+	require.Len(t, tools, 1)
+	tool, _ := tools[0].(map[string]any)
+	assert.Equal(t, "web_fetch_20250305", tool["type"])
+	assert.Equal(t, []any{"example.com"}, tool["allowed_domains"])
+	assert.NotContains(t, tool, "blocked_domains")
+}
+
+func TestAnthropicSameFormat_KeepsEmptyDomainListsOnNonSearchTools(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,"tools":[{
+		"name":"custom_tool",
+		"description":"not native web search",
+		"input_schema":{"type":"object"},
+		"allowed_domains":[],
+		"blocked_domains":[]
+	}]}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	tools, _ := out["tools"].([]any)
+	require.Len(t, tools, 1)
+	tool, _ := tools[0].(map[string]any)
+	assert.Equal(t, []any{}, tool["allowed_domains"])
+	assert.Equal(t, []any{}, tool["blocked_domains"])
+}
+
 func TestOpenAIToAnthropic_StripsUnsupportedToolSchemaPattern(t *testing.T) {
 	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"tools":[{
 		"type":"function",
@@ -370,13 +642,95 @@ func TestOpenAIToAnthropic_StripsUnsupportedToolSchemaPattern(t *testing.T) {
 	assert.Equal(t, "decimal", amount["description"])
 }
 
-func TestAnthropicSameFormat_SystemMessageHoistedWhenNoSystemField(t *testing.T) {
-	// A role:"system" message inside the messages array is invalid for the
-	// Anthropic Messages API; it must be hoisted to the top-level system field.
-	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"system","content":"be terse"},{"role":"assistant","content":"ok"}],"max_tokens":1024}`)
+func TestOpenAIToAnthropic_LiftsTopLevelSchemaComposition(t *testing.T) {
+	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hello"}],"tools":[{
+		"type":"function",
+		"function":{
+			"name":"open_page",
+			"parameters":{
+				"type":"object",
+				"properties":{"workdir":{"type":"string"}},
+				"required":["workdir"],
+				"anyOf":[
+					{"type":"object","properties":{"page_id":{"type":"string"},"mode":{"type":"string"}},"required":["page_id","mode"]},
+					{"type":"object","properties":{"url":{"type":"string"},"mode":{"type":"string"}},"required":["url","mode"]}
+				],
+				"allOf":[{"properties":{"limit":{"type":"integer"}},"required":["limit"]}]
+			}
+		}
+	}]}`)
 	opts := translate.EmitOptions{
 		TargetModel:  "claude-opus-4-7",
 		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, opts)
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+
+	tools, _ := out["tools"].([]any)
+	require.Len(t, tools, 1)
+	tool, _ := tools[0].(map[string]any)
+	schema, _ := tool["input_schema"].(map[string]any)
+	for _, keyword := range []string{"anyOf", "oneOf", "allOf"} {
+		assert.NotContains(t, schema, keyword, "Anthropic rejects top-level %s on input_schema", keyword)
+	}
+	assert.Equal(t, "object", schema["type"])
+	props, _ := schema["properties"].(map[string]any)
+	assert.ElementsMatch(t, []string{"workdir", "page_id", "url", "mode", "limit"}, slices.Collect(maps.Keys(props)))
+	assert.ElementsMatch(t, []any{"workdir", "mode", "limit"}, schema["required"])
+}
+
+func TestPassthroughSameFormat_LiftsTopLevelSchemaComposition(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-7","max_tokens":16,"messages":[{"role":"user","content":"hi"}],"tools":[{
+		"name":"pick",
+		"input_schema":{"oneOf":[
+			{"type":"object","properties":{"a":{"type":"string"}},"required":["a"]},
+			{"type":"object","properties":{"b":{"type":"string"}},"required":["b"]}
+		]}
+	}]}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropicPassthrough(http.Header{})
+	require.NoError(t, err)
+
+	schema := gjson.GetBytes(prep.Body, "tools.0.input_schema")
+	assert.False(t, schema.Get("oneOf").Exists())
+	assert.Equal(t, "object", schema.Get("type").String())
+	assert.True(t, schema.Get("properties.a").Exists())
+	assert.True(t, schema.Get("properties.b").Exists())
+	assert.False(t, schema.Get("required").Exists(), "no property is required by every alternative")
+}
+
+func TestPassthroughSameFormat_LiftsRefAndBooleanCompositionBranches(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-7","max_tokens":16,"messages":[{"role":"user","content":"hi"}],"tools":[{
+		"name":"pick",
+		"input_schema":{
+			"$defs":{"ByID":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}},
+			"anyOf":[{"$ref":"#/$defs/ByID"},true]
+		}
+	}]}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropicPassthrough(http.Header{})
+	require.NoError(t, err)
+
+	schema := gjson.GetBytes(prep.Body, "tools.0.input_schema")
+	assert.False(t, schema.Get("anyOf").Exists())
+	assert.True(t, schema.Get("properties.id").Exists(), "a $ref alternative contributes its properties")
+	assert.False(t, schema.Get("required").Exists(), "the boolean alternative requires nothing")
+}
+
+func TestAnthropicSameFormat_LeadingSystemMessageHoistedWhenNoSystemField(t *testing.T) {
+	// A role:"system" message inside the messages array is invalid for the
+	// Anthropic Messages API; a leading one is hoisted to the top-level system
+	// field, where it costs nothing to put it in front of the history.
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"system","content":"be terse"},{"role":"user","content":"hi"},{"role":"assistant","content":"ok"}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-5",
+		Capabilities: router.Lookup("claude-opus-4-5"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 
@@ -391,6 +745,152 @@ func TestAnthropicSameFormat_SystemMessageHoistedWhenNoSystemField(t *testing.T)
 	block, _ := sys[0].(map[string]any)
 	assert.Equal(t, "text", block["type"])
 	assert.Equal(t, "be terse", block["text"])
+}
+
+func TestAnthropicSameFormat_MidConversationSystemMessageDemotedInPlace(t *testing.T) {
+	// Mid-conversation system messages are demoted in place; hoisting would shift the cached prefix.
+	body := []byte(`{"model":"claude-sonnet-4-20250514","system":"rules","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"ok"},{"role":"system","content":"be terse"}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	assert.Equal(t, "rules", out["system"], "system field untouched")
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 3, "message kept at its original index")
+	last, _ := msgs[2].(map[string]any)
+	assert.Equal(t, "user", last["role"])
+	blocks, _ := last["content"].([]any)
+	require.Len(t, blocks, 1)
+	block, _ := blocks[0].(map[string]any)
+	assert.Equal(t, "be terse", block["text"])
+	for _, m := range msgs {
+		mm, _ := m.(map[string]any)
+		assert.NotEqual(t, "system", mm["role"], "no system role left in messages")
+	}
+}
+
+func TestAnthropicSameFormat_MidConversationSystemOutputConfigHoistedBeforeDemotion(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"system","content":"set effort","output_config":{"effort":"high"}}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	outputConfig, _ := out["output_config"].(map[string]any)
+	require.NotNil(t, outputConfig)
+	assert.Equal(t, "high", outputConfig["effort"])
+
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2)
+	demoted, _ := msgs[1].(map[string]any)
+	assert.Equal(t, "user", demoted["role"])
+	assert.NotContains(t, demoted, "output_config", "role-scoped config must not remain on the demoted message")
+}
+
+func TestAnthropicSameFormat_DemotedSystemClearAtRemoved(t *testing.T) {
+	body := []byte(`{"model":"claude-fable-5-1","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":"hello"},{"role":"user","content":"go"},{"role":"system","content":"turn note","clear_at":"next_user_message"}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 4)
+	demoted, _ := msgs[3].(map[string]any)
+	assert.Equal(t, "user", demoted["role"])
+	assert.Contains(t, fmt.Sprint(demoted["content"]), "turn note")
+	assert.NotContains(t, demoted, "clear_at", "system-only clear_at must not remain on a user message")
+}
+
+func TestAnthropicSameFormat_DemotedSystemNullOutputConfigRemoved(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"system","content":"reminder","output_config":null}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	assert.NotContains(t, out, "output_config")
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2)
+	demoted, _ := msgs[1].(map[string]any)
+	assert.Equal(t, "user", demoted["role"])
+	assert.NotContains(t, demoted, "output_config", "even null role-scoped fields must not remain on a user message")
+}
+
+func TestAnthropicSameFormat_SystemOutputConfigDoesNotOverwriteTopLevelConfig(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","output_config":{"effort":"low"},"messages":[{"role":"user","content":"hi"},{"role":"system","content":"set effort","output_config":{"effort":"high"}}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	outputConfig, _ := out["output_config"].(map[string]any)
+	require.NotNil(t, outputConfig)
+	assert.Equal(t, "low", outputConfig["effort"], "an explicit request-level option remains authoritative")
+
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2)
+	demoted, _ := msgs[1].(map[string]any)
+	assert.NotContains(t, demoted, "output_config")
+}
+
+func TestAnthropicSameFormat_NullTopLevelOutputConfigDoesNotBlockHoist(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","output_config":null,"messages":[{"role":"user","content":"hi"},{"role":"system","content":"set effort","output_config":{"effort":"high"}}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	outputConfig, _ := out["output_config"].(map[string]any)
+	require.NotNil(t, outputConfig)
+	assert.Equal(t, "high", outputConfig["effort"])
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2)
+	demoted, _ := msgs[1].(map[string]any)
+	assert.NotContains(t, demoted, "output_config")
+}
+
+func TestAnthropicSameFormat_LeadingSystemOutputConfigHoisted(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"system","content":"set effort","output_config":{"effort":"high"}},{"role":"user","content":"hi"}],"max_tokens":1024}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+
+	outputConfig, _ := out["output_config"].(map[string]any)
+	require.NotNil(t, outputConfig)
+	assert.Equal(t, "high", outputConfig["effort"])
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 1, "leading system message is still hoisted out of the message array")
+}
+
+func TestAnthropicSameFormat_NewSystemMessageLeavesEarlierTurnsInPlace(t *testing.T) {
+	// The cache-affecting property: a system reminder arriving on a later turn
+	// must not shift any earlier message, or the whole cached prefix moves.
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-5",
+		Capabilities: router.Lookup("claude-opus-4-5"),
+	}
+	head := `{"model":"claude-sonnet-4-20250514","system":"rules","messages":[{"role":"user","content":"hi"},{"role":"system","content":"reminder one"},{"role":"assistant","content":"ok"}`
+	before := parseAndEmit(t, []byte(head+`],"max_tokens":1024}`), "anthropic", opts)
+	after := parseAndEmit(t, []byte(head+`,{"role":"system","content":"reminder two"}],"max_tokens":1024}`), "anthropic", opts)
+
+	beforeMsgs, _ := before["messages"].([]any)
+	afterMsgs, _ := after["messages"].([]any)
+	require.Len(t, beforeMsgs, 3)
+	require.Len(t, afterMsgs, 4)
+	// Index 2 carries the tail cache breakpoint in `before` only, so compare the
+	// turns ahead of it — those are the ones a growing prefix must not move.
+	assert.Equal(t, beforeMsgs[:2], afterMsgs[:2])
+	assert.Equal(t, before["system"], after["system"])
 }
 
 func TestAnthropicSameFormat_SystemMessageMergedWithExistingSystem(t *testing.T) {
@@ -472,14 +972,14 @@ func TestAnthropicSameFormat_ContextManagementDeletedForNonAdaptive(t *testing.T
 }
 
 func TestAnthropicSameFormat_ThinkingBlocksFiltered(t *testing.T) {
-	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"internal thought"},{"type":"text","text":"visible reply"}]}],"max_tokens":1024}`)
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"internal thought"},{"type":"text","text":"visible reply"}]},{"role":"user","content":"next"}],"max_tokens":1024}`)
 	opts := translate.EmitOptions{
 		TargetModel:  "claude-3-haiku-20240307",
 		Capabilities: router.Lookup("claude-3-haiku-20240307"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
+	require.Len(t, msgs, 3)
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 1, "thinking block should be filtered out")
@@ -489,14 +989,14 @@ func TestAnthropicSameFormat_ThinkingBlocksFiltered(t *testing.T) {
 }
 
 func TestAnthropicSameFormat_RedactedThinkingBlocksFiltered(t *testing.T) {
-	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"redacted_thinking","data":"abc"},{"type":"text","text":"reply"}]}],"max_tokens":1024}`)
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"redacted_thinking","data":"abc"},{"type":"text","text":"reply"}]},{"role":"user","content":"next"}],"max_tokens":1024}`)
 	opts := translate.EmitOptions{
 		TargetModel:  "claude-3-haiku-20240307",
 		Capabilities: router.Lookup("claude-3-haiku-20240307"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
+	require.Len(t, msgs, 3)
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 1)
@@ -507,14 +1007,14 @@ func TestAnthropicSameFormat_RedactedThinkingBlocksFiltered(t *testing.T) {
 func TestAnthropicSameFormat_ThinkingBlocksKeptForCapableModel(t *testing.T) {
 	// Signature present because every genuine Anthropic thinking block carries
 	// one; unsigned blocks are cross-format artifacts and get stripped (#860).
-	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"thought","signature":"sig"},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
+	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"thought","signature":"sig"},{"type":"text","text":"reply"}]},{"role":"user","content":"next"}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
 	opts := translate.EmitOptions{
 		TargetModel:  "claude-opus-4-7",
 		Capabilities: router.Lookup("claude-opus-4-7"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
+	require.Len(t, msgs, 3)
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 2, "thinking blocks should be preserved for capable models")
@@ -580,6 +1080,29 @@ func TestAnthropicSameFormat_DisabledThinkingUpconvertedForAdaptiveModel(t *test
 	assert.Equal(t, "low", outputConfig["effort"], "disabled maps to the lowest adaptive effort")
 }
 
+// Claude Code's auto-mode classifier (stage 1) asks for a 64-token verdict with
+// thinking disabled and temperature 1, and blocks the tool call when the
+// verdict is missing. Upconverting to adaptive thinking on an always-on model
+// must not leave the visible answer competing with hidden reasoning for those
+// 64 tokens, nor send a sampling override alongside thinking.
+func TestAnthropicSameFormat_DisabledThinkingUpconvertFloorsBudgetAndDropsTemperature(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-5","max_tokens":64,"temperature":1,"stop_sequences":["</block>"],"thinking":{"type":"disabled"},"system":"verdict","messages":[{"role":"user","content":"transcript"},{"role":"user","content":"action"}]}`)
+	for _, model := range []string{"claude-sonnet-5-5", "claude-opus-5-5"} {
+		t.Run(model, func(t *testing.T) {
+			out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+				TargetModel:  model,
+				Capabilities: router.Lookup(model),
+			})
+			thinking, _ := out["thinking"].(map[string]any)
+			require.NotNil(t, thinking)
+			require.Equal(t, "adaptive", thinking["type"])
+			assert.GreaterOrEqual(t, out["max_tokens"], float64(16000), "hidden reasoning must not exhaust a 64-token verdict budget")
+			assert.NotContains(t, out, "temperature", "temperature must not accompany router-enabled thinking")
+			assert.Equal(t, []any{"</block>"}, out["stop_sequences"])
+		})
+	}
+}
+
 // Legacy extended-thinking models (claude-haiku-4-5) accept thinking.type=disabled
 // natively, so it must pass through untouched.
 func TestAnthropicSameFormat_DisabledThinkingKeptForExtendedModel(t *testing.T) {
@@ -591,6 +1114,21 @@ func TestAnthropicSameFormat_DisabledThinkingKeptForExtendedModel(t *testing.T) 
 	out := parseAndEmit(t, body, "anthropic", opts)
 	thinking, _ := out["thinking"].(map[string]any)
 	require.NotNil(t, thinking, "disabled thinking must be preserved for extended-thinking models")
+	assert.Equal(t, "disabled", thinking["type"])
+	assert.NotContains(t, out, "output_config")
+}
+
+// Haiku 5.5 is adaptive but not always-on; Anthropic accepts
+// thinking.type=disabled for it, so the cheap no-thinking path passes through.
+func TestAnthropicSameFormat_DisabledThinkingKeptForHaiku55(t *testing.T) {
+	body := []byte(`{"model":"claude-haiku-5-5","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,"thinking":{"type":"disabled"}}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-haiku-5-5",
+		Capabilities: router.Lookup("claude-haiku-5-5"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	thinking, _ := out["thinking"].(map[string]any)
+	require.NotNil(t, thinking, "disabled thinking must be preserved for Haiku 5.5")
 	assert.Equal(t, "disabled", thinking["type"])
 	assert.NotContains(t, out, "output_config")
 }
@@ -623,7 +1161,7 @@ func TestAnthropicSameFormat_EnabledThinkingPreservesExplicitEffort(t *testing.T
 func TestAnthropicSameFormat_ThinkingBlocksStrippedOnModelSwitch(t *testing.T) {
 	// On a model switch, prior thinking blocks carry signatures from the old
 	// model; Anthropic 400s on those. ModelSwitched forces the strip.
-	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"thought","signature":"sig-from-other-model"},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
+	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"thought","signature":"sig-from-other-model"},{"type":"text","text":"reply"}]},{"role":"user","content":"next"}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
 	opts := translate.EmitOptions{
 		TargetModel:   "claude-opus-4-7",
 		Capabilities:  router.Lookup("claude-opus-4-7"),
@@ -631,7 +1169,7 @@ func TestAnthropicSameFormat_ThinkingBlocksStrippedOnModelSwitch(t *testing.T) {
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
+	require.Len(t, msgs, 3)
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 1, "thinking block with stale signature must be stripped on a model switch")
@@ -642,7 +1180,7 @@ func TestAnthropicSameFormat_ThinkingBlocksStrippedOnModelSwitch(t *testing.T) {
 func TestAnthropicSameFormat_ThinkingBlocksKeptWhenNoModelSwitch(t *testing.T) {
 	// Same-model turn (ModelSwitched=false): valid thinking blocks must survive
 	// to keep prompt-cache hits and reasoning continuity intact.
-	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"thought","signature":"valid-sig"},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
+	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"thought","signature":"valid-sig"},{"type":"text","text":"reply"}]},{"role":"user","content":"next"}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
 	opts := translate.EmitOptions{
 		TargetModel:   "claude-opus-4-7",
 		Capabilities:  router.Lookup("claude-opus-4-7"),
@@ -650,7 +1188,7 @@ func TestAnthropicSameFormat_ThinkingBlocksKeptWhenNoModelSwitch(t *testing.T) {
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
+	require.Len(t, msgs, 3)
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 2, "thinking blocks must be preserved when the model did not change")
@@ -660,7 +1198,7 @@ func TestAnthropicSameFormat_ThinkingBlocksKeptWhenNoModelSwitch(t *testing.T) {
 // #860: pin TTL can lapse before switch history does, so unsigned thinking
 // blocks must be stripped even when ModelSwitched is false.
 func TestAnthropicSameFormat_UnsignedThinkingStrippedWithoutModelSwitch(t *testing.T) {
-	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"from an OSS model"},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
+	body := []byte(`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"from an OSS model"},{"type":"text","text":"reply"}]},{"role":"user","content":"next"}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`)
 	opts := translate.EmitOptions{
 		TargetModel:   "claude-opus-4-7",
 		Capabilities:  router.Lookup("claude-opus-4-7"),
@@ -668,7 +1206,7 @@ func TestAnthropicSameFormat_UnsignedThinkingStrippedWithoutModelSwitch(t *testi
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
+	require.Len(t, msgs, 3)
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 1, "unsigned thinking block must be stripped even when the pin reports no switch")
@@ -857,7 +1395,8 @@ func TestAnthropicSameFormat_MultipleThinkingBlocksAcrossMessages(t *testing.T) 
 				{"type": "thinking", "thinking": "thought2"},
 				{"type": "redacted_thinking", "data": "xyz"},
 				{"type": "text", "text": "reply2"}
-			]}
+			]},
+			{"role": "user", "content": "next"}
 		],
 		"max_tokens": 1024
 	}`)
@@ -867,7 +1406,7 @@ func TestAnthropicSameFormat_MultipleThinkingBlocksAcrossMessages(t *testing.T) 
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 4)
+	require.Len(t, msgs, 5)
 
 	msg1, _ := msgs[1].(map[string]any)
 	content1, _ := msg1["content"].([]any)
@@ -887,7 +1426,7 @@ func TestAnthropicSameFormat_ManyThinkingBlocksInSingleMessage(t *testing.T) {
 	}
 	blocks = append(blocks, `{"type":"text","text":"final"}`)
 	contentArray := "[" + joinStrings(blocks, ",") + "]"
-	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":` + contentArray + `}],"max_tokens":1024}`)
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":` + contentArray + `},{"role":"user","content":"next"}],"max_tokens":1024}`)
 
 	opts := translate.EmitOptions{
 		TargetModel:  "claude-3-haiku-20240307",
@@ -895,7 +1434,7 @@ func TestAnthropicSameFormat_ManyThinkingBlocksInSingleMessage(t *testing.T) {
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 2)
+	require.Len(t, msgs, 3)
 	assistantMsg, _ := msgs[1].(map[string]any)
 	content, _ := assistantMsg["content"].([]any)
 	require.Len(t, content, 1, "all 200 thinking blocks should be stripped, leaving only the text block")
@@ -920,14 +1459,14 @@ func TestAnthropicSameFormat_AllThinkingBlocksRemoved(t *testing.T) {
 }
 
 func TestAnthropicSameFormat_StringContentPreserved(t *testing.T) {
-	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hello"},{"role":"assistant","content":"world"},{"role":"user","content":"again"},{"role":"assistant","content":[{"type":"thinking","thinking":"t"},{"type":"text","text":"reply"}]}],"max_tokens":1024}`)
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hello"},{"role":"assistant","content":"world"},{"role":"user","content":"again"},{"role":"assistant","content":[{"type":"thinking","thinking":"t"},{"type":"text","text":"reply"}]},{"role":"user","content":"next"}],"max_tokens":1024}`)
 	opts := translate.EmitOptions{
 		TargetModel:  "claude-3-haiku-20240307",
 		Capabilities: router.Lookup("claude-3-haiku-20240307"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	msgs, _ := out["messages"].([]any)
-	require.Len(t, msgs, 4)
+	require.Len(t, msgs, 5)
 
 	msg1, _ := msgs[1].(map[string]any)
 	assert.Equal(t, "world", msg1["content"], "string content should pass through unchanged")
@@ -1083,4 +1622,235 @@ func TestAnthropicSameFormat_NonXhighEffortUntouchedByClamp(t *testing.T) {
 	outputConfig, _ := out["output_config"].(map[string]any)
 	require.NotNil(t, outputConfig)
 	assert.Equal(t, "high", outputConfig["effort"], "supported effort levels must pass through unchanged")
+}
+
+// Prod repro: a gateway answered `output_config.format: Extra inputs are not
+// permitted`, so the retry emit drops the knob and prunes an emptied container.
+func TestAnthropicSameFormat_OutputConfigFormatStrippedOnRequest(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,` +
+		`"output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}}}}}}`)
+	out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+		TargetModel:             "claude-sonnet-5",
+		TargetProvider:          providers.ProviderAnthropicGateway,
+		Capabilities:            router.Lookup("claude-sonnet-5"),
+		StripOutputConfigFormat: true,
+	})
+	assert.NotContains(t, out, "output_config", "an emptied output_config must be pruned, not sent as {}")
+}
+
+// Only the rejected knob goes: the retry keeps its adaptive effort.
+func TestAnthropicSameFormat_OutputConfigEffortSurvivesFormatStrip(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,` +
+		`"thinking":{"type":"adaptive"},"output_config":{"effort":"high","format":{"type":"json_schema"}}}`)
+	out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+		TargetModel:             "claude-sonnet-5",
+		TargetProvider:          providers.ProviderAnthropicGateway,
+		Capabilities:            router.Lookup("claude-sonnet-5"),
+		StripOutputConfigFormat: true,
+	})
+	outputConfig, _ := out["output_config"].(map[string]any)
+	require.NotNil(t, outputConfig)
+	assert.Equal(t, "high", outputConfig["effort"])
+	assert.NotContains(t, outputConfig, "format")
+}
+
+// Gateways serve structured output (Cortex documents it), so the first attempt
+// carries the knob to a gateway exactly as it does to first-party Anthropic.
+func TestAnthropicSameFormat_OutputConfigFormatKeptByDefault(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-5","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,` +
+		`"output_config":{"format":{"type":"json_schema"}}}`)
+	for _, provider := range []string{providers.ProviderAnthropic, providers.ProviderAnthropicGateway} {
+		t.Run(provider, func(t *testing.T) {
+			out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+				TargetModel:    "claude-sonnet-5",
+				TargetProvider: provider,
+				Capabilities:   router.Lookup("claude-sonnet-5"),
+			})
+			outputConfig, _ := out["output_config"].(map[string]any)
+			require.NotNil(t, outputConfig)
+			assert.Contains(t, outputConfig, "format")
+		})
+	}
+}
+
+// openAIReasoningSignature builds the cross-format envelope that
+// encodeOpenAIReasoningSignature mints, for use in test fixtures.
+func openAIReasoningSignature(t *testing.T, id, enc string) string {
+	t.Helper()
+	raw, err := json.Marshal(map[string]any{"v": 1, "provider": "openai", "id": id, "enc": enc})
+	require.NoError(t, err)
+	return base64.StdEncoding.EncodeToString(raw)
+}
+
+// TestAnthropicSameFormat_ForeignSignedThinkingStrippedWithoutModelSwitch
+// covers the prod regression where client-side compaction re-keys the session,
+// losing the pin and leaving ModelSwitched false on re-route to Anthropic.
+func TestAnthropicSameFormat_ForeignSignedThinkingStrippedWithoutModelSwitch(t *testing.T) {
+	sig := openAIReasoningSignature(t, "rs_abc123", "gAAAAA")
+	body := []byte(fmt.Sprintf(
+		`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"openai reasoning","signature":%q},{"type":"text","text":"reply"}]},{"role":"user","content":"next"}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`,
+		sig))
+	opts := translate.EmitOptions{
+		TargetModel:   "claude-opus-4-7",
+		Capabilities:  router.Lookup("claude-opus-4-7"),
+		ModelSwitched: false,
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 3)
+	assistantMsg, _ := msgs[1].(map[string]any)
+	content, _ := assistantMsg["content"].([]any)
+	require.Len(t, content, 1, "a foreign-signed thinking block must be stripped even when the pin reports no switch")
+	block, _ := content[0].(map[string]any)
+	assert.Equal(t, "text", block["type"], "only the text block should survive the strip")
+}
+
+// TestAnthropicSameFormat_ForeignSignedThinkingStrippedAnthropicSignedKept
+// verifies that only cross-format-signed blocks are dropped; Anthropic-minted
+// signatures survive for cache and reasoning continuity.
+func TestAnthropicSameFormat_ForeignSignedThinkingStrippedAnthropicSignedKept(t *testing.T) {
+	sig := openAIReasoningSignature(t, "rs_abc123", "gAAAAA")
+	body := []byte(fmt.Sprintf(
+		`{"model":"claude-opus-4-7","messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"anthropic","signature":"ErUBCkYIBRgCKkA"},{"type":"thinking","thinking":"openai","signature":%q},{"type":"text","text":"reply"}]}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`,
+		sig))
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 1)
+	assistantMsg, _ := msgs[0].(map[string]any)
+	content, _ := assistantMsg["content"].([]any)
+	require.Len(t, content, 2, "only the foreign-signed thinking block should be dropped")
+	kept, _ := content[0].(map[string]any)
+	assert.Equal(t, "ErUBCkYIBRgCKkA", kept["signature"], "the Anthropic-signed block must survive intact")
+}
+
+// TestAnthropicSameFormat_ForeignSignedThinkingOnlyMessageDropped: a
+// foreign-signed-only assistant message must be dropped, not emitted as content:[].
+func TestAnthropicSameFormat_ForeignSignedThinkingOnlyMessageDropped(t *testing.T) {
+	sig := openAIReasoningSignature(t, "rs_abc123", "gAAAAA")
+	body := []byte(fmt.Sprintf(
+		`{"model":"claude-opus-4-7","messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"thinking","thinking":"openai","signature":%q}]},{"role":"user","content":"continue"}],"max_tokens":1024,"thinking":{"type":"adaptive"}}`,
+		sig))
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	msgs, _ := out["messages"].([]any)
+	require.Len(t, msgs, 2, "the foreign-signed-thinking-only assistant message must be dropped entirely")
+}
+
+// Fable 5.1 400s on tool_choice any/tool ("not supported for this model");
+// the forced choice downgrades to auto so the turn still reaches upstream.
+func TestAnthropicSameFormat_ForcedToolChoiceDowngradedForAutoOnlyModel(t *testing.T) {
+	for _, tc := range []string{
+		`{"type":"tool","name":"web_search","disable_parallel_tool_use":true}`,
+		`{"type":"any"}`,
+	} {
+		body := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"Perform a web search for the query: x"}],"max_tokens":1024,"tools":[{"type":"web_search_20260209","name":"web_search"}],"tool_choice":` + tc + `}`)
+		opts := translate.EmitOptions{
+			TargetModel:  "claude-fable-5-1",
+			Capabilities: router.Lookup("claude-fable-5-1"),
+		}
+		out := parseAndEmit(t, body, "anthropic", opts)
+		choice, _ := out["tool_choice"].(map[string]any)
+		require.NotNil(t, choice, tc)
+		assert.Equal(t, "auto", choice["type"], tc)
+		assert.Nil(t, choice["name"], tc)
+		if strings.Contains(tc, "disable_parallel_tool_use") {
+			assert.Equal(t, true, choice["disable_parallel_tool_use"], tc)
+		}
+	}
+}
+
+func TestMythos52UsesAdaptiveThinkingAndAutoToolChoice(t *testing.T) {
+	const model = "claude-mythos-5-2"
+	body := []byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}],"max_tokens":20000,"thinking":{"type":"disabled"},"temperature":0.5,"tools":[{"name":"lookup","input_schema":{"type":"object"}}],"tool_choice":{"type":"any"}}`)
+	out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{TargetModel: model, Capabilities: router.Lookup(model)})
+	assert.Equal(t, model, out["model"])
+	assert.Equal(t, "auto", out["tool_choice"].(map[string]any)["type"])
+	assert.NotContains(t, out, "temperature")
+	assert.Equal(t, "adaptive", out["thinking"].(map[string]any)["type"])
+}
+
+func TestAnthropicSameFormat_ForcedToolChoicePreservedForCapableModel(t *testing.T) {
+	body := []byte(`{"model":"claude-fable-5-1","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,"tools":[{"type":"web_search_20260209","name":"web_search"}],"tool_choice":{"type":"tool","name":"web_search"}}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-opus-5",
+		Capabilities: router.Lookup("claude-opus-5"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	choice, _ := out["tool_choice"].(map[string]any)
+	require.NotNil(t, choice)
+	assert.Equal(t, "tool", choice["type"])
+	assert.Equal(t, "web_search", choice["name"])
+}
+
+// OpenAI-sourced forced choices ("required" / named function) hit the same
+// Fable limitation on the cross-format path.
+func TestOpenAIToAnthropic_ForcedToolChoiceDowngradedForAutoOnlyModel(t *testing.T) {
+	for _, tc := range []string{`"required"`, `{"type":"function","function":{"name":"lookup"}}`} {
+		body := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"lookup","parameters":{"type":"object"}}}],"tool_choice":` + tc + `}`)
+		env, err := translate.ParseOpenAI(body)
+		require.NoError(t, err)
+		p, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+			TargetModel:  "claude-fable-5-1",
+			Capabilities: router.Lookup("claude-fable-5-1"),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "auto", gjson.GetBytes(p.Body, "tool_choice.type").String(), tc)
+		assert.False(t, gjson.GetBytes(p.Body, "tool_choice.name").Exists(), tc)
+	}
+}
+
+func TestOpenAIEmit_FillsMissingFunctionToolParameters(t *testing.T) {
+	empty := map[string]any{"type": "object", "properties": map[string]any{}}
+	opts := translate.EmitOptions{TargetModel: "grok-4.6", TargetProvider: providers.ProviderXAI, Capabilities: router.Lookup("grok-4.6")}
+
+	nested := []byte(`{"model":"grok-4.6","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}},{"type":"function","function":{"name":"noop"}},{"type":"function","function":{"name":"ping","parameters":null}}]}`)
+	out := parseAndEmit(t, nested, "openai", opts)
+	tools := out["tools"].([]any)
+	require.Len(t, tools, 3)
+	fn0 := tools[0].(map[string]any)["function"].(map[string]any)
+	assert.Equal(t, map[string]any{"type": "object"}, fn0["parameters"])
+	fn1 := tools[1].(map[string]any)["function"].(map[string]any)
+	assert.Equal(t, empty, fn1["parameters"])
+	fn2 := tools[2].(map[string]any)["function"].(map[string]any)
+	assert.Equal(t, empty, fn2["parameters"])
+
+	flat := []byte(`{"model":"grok-4.6","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","name":"bash","parameters":{"type":"object"}},{"type":"function","name":"ping"},{"type":"function","name":"noop","parameters":null}]}`)
+	out = parseAndEmit(t, flat, "openai", opts)
+	tools = out["tools"].([]any)
+	require.Len(t, tools, 3)
+	assert.Equal(t, map[string]any{"type": "object"}, tools[0].(map[string]any)["parameters"])
+	assert.Equal(t, empty, tools[1].(map[string]any)["parameters"])
+	assert.Equal(t, empty, tools[2].(map[string]any)["parameters"])
+
+	native := []byte(`{"model":"grok-4.6","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"web_search"}]}`)
+	out = parseAndEmit(t, native, "openai", opts)
+	tool := out["tools"].([]any)[0].(map[string]any)
+	assert.Equal(t, "web_search", tool["type"])
+	assert.NotContains(t, tool, "parameters")
+}
+
+func TestAnthropicToOpenAI_FillsMissingInputSchemaAsParameters(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-6","max_tokens":1024,"messages":[{"role":"user","content":"hi"}],"tools":[{"name":"Read","input_schema":{"type":"object"}},{"name":"Ping","description":"no args"}]}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	p, err := env.PrepareOpenAI(http.Header{}, translate.EmitOptions{TargetModel: "grok-4.6", TargetProvider: providers.ProviderXAI, Capabilities: router.Lookup("grok-4.6")})
+	require.NoError(t, err)
+	tools := gjson.GetBytes(p.Body, "tools")
+	require.Equal(t, int64(2), tools.Get("#").Int())
+	assert.Equal(t, "object", tools.Get("0.function.parameters.type").String())
+	assert.True(t, tools.Get("1.function.parameters").Exists(), "xAI serde-requires parameters")
+	assert.Equal(t, "object", tools.Get("1.function.parameters.type").String())
+	assert.JSONEq(t, `{"type":"object","properties":{}}`, tools.Get("1.function.parameters").Raw)
+
+	p, err = env.PrepareOpenAIResponses(http.Header{}, translate.EmitOptions{TargetModel: "gpt-5.5", TargetProvider: providers.ProviderOpenAI, Capabilities: router.Lookup("gpt-5.5")})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"type":"object","properties":{}}`, gjson.GetBytes(p.Body, "tools.1.parameters").Raw)
+	assert.Equal(t, "false", gjson.GetBytes(p.Body, "tools.1.strict").Raw)
 }

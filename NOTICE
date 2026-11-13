@@ -1,0 +1,16 @@
+Weave Router
+Copyright 2025-2026 Workweave, Inc.
+
+This product includes software developed at Workweave, Inc.
+(https://workweave.ai/).
+
+The router server includes software from Switchyard:
+Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+prompt.md and schema.json are unmodified from NVIDIA-NeMo/Switchyard revision
+9c774d2ee6fcac818410419dab3578c3e7abee57. transcript.go adapts its Unicode-aware
+transcript condenser to Weave's normalized conversation representation.
+
+Switchyard is licensed under the Apache License, Version 2.0.
+Its original notices are retained under internal/router/llmescalation/ in
+the source distribution. Switchyard is not bundled in the npm installer.

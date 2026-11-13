@@ -37,12 +37,40 @@ func GetOr(key, defaultValue string) string {
 	return defaultValue
 }
 
+// ParseModelIDMap parses ROUTER_MODEL_ID_MAP: comma-separated catalog=upstream
+// pairs. Empty/unset returns nil (today's no-rewrite behavior). Invalid pairs
+// fail closed so a typo cannot silently skip a mapping.
+func ParseModelIDMap(raw string) (map[string]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	out := make(map[string]string)
+	for _, pair := range strings.Split(raw, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			return nil, fmt.Errorf("invalid ROUTER_MODEL_ID_MAP pair %q (expected catalog=upstream)", pair)
+		}
+		from, to, ok := strings.Cut(pair, "=")
+		from = strings.TrimSpace(from)
+		to = strings.TrimSpace(to)
+		if !ok || from == "" || to == "" {
+			return nil, fmt.Errorf("invalid ROUTER_MODEL_ID_MAP pair %q (expected catalog=upstream)", pair)
+		}
+		if _, dup := out[from]; dup {
+			return nil, fmt.Errorf("duplicate ROUTER_MODEL_ID_MAP catalog id %q", from)
+		}
+		out[from] = to
+	}
+	return out, nil
+}
+
 // PostgresDSN returns DATABASE_URL when set, otherwise composes one from POSTGRES_* env vars.
 //
 // On Cloud Run with Cloud SQL, POSTGRES_CONNECTION_NAME routes through the Auth Proxy Unix
-// socket at /cloudsql/<connection-name>, which handles TLS+IAM upstream and bypasses
-// pg_hba.conf's client-cert requirement on the VPC-private-IP path. Self-hosters omit it
-// and fall through to TCP+sslmode for any managed Postgres without certs.
+// socket at /cloudsql/<connection-name>, which handles TLS+IAM upstream. Omitting it falls
+// through to TCP+sslmode; an instance that requires a trusted client certificate on that
+// path is served by the POSTGRES_CLIENT_CERT material in internal/postgres/pgtls.
 func PostgresDSN() string {
 	if v := os.Getenv("DATABASE_URL"); v != "" {
 		return v
@@ -74,4 +102,17 @@ func PostgresDSN() string {
 		url.PathEscape(db),
 		sslMode,
 	)
+}
+
+// CodexExtraCreditsAllowed parses the self-hosted operator's spending opt-in.
+func CodexExtraCreditsAllowed() (bool, error) {
+	raw := strings.TrimSpace(GetOr("ROUTER_CODEX_ALLOW_EXTRA_CREDITS", "false"))
+	switch strings.ToLower(raw) {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf("invalid ROUTER_CODEX_ALLOW_EXTRA_CREDITS %q (expected true or false)", raw)
+	}
 }

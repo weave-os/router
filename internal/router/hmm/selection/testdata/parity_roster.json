@@ -1,0 +1,46 @@
+{
+  "schema_version": "hmm_router_cluster_roster_v6",
+  "ranking": {
+    "alpha": {
+      "low": 0.5,
+      "balanced": 0.5,
+      "high": 0.5
+    }
+  },
+  "clusters": {
+    "low": {
+      "complexity_label": "low",
+      "arms": ["vendor-a/cheap", "vendor-b/cheap"],
+      "arms_by_harness": {
+        "claude-code": ["vendor-b/cheap", "vendor-a/cheap"]
+      },
+      "cost_ref_usd": 0.01,
+      "latency_ref_ms": 500,
+      "arm_scores": {
+        "vendor-a/cheap": 0.9,
+        "vendor-b/cheap": 0.8
+      }
+    },
+    "balanced": {
+      "complexity_label": "balanced",
+      "arms": ["vendor-a/mid", "vendor-b/mid", "vendor-a/cheap"],
+      "cost_ref_usd": 0.05,
+      "latency_ref_ms": 900,
+      "arm_scores": {
+        "vendor-a/mid": 0.9,
+        "vendor-b/mid": 0.85,
+        "vendor-a/cheap": 0.6
+      }
+    },
+    "high": {
+      "complexity_label": "high",
+      "arms": ["vendor-a/top", "vendor-b/top"],
+      "cost_ref_usd": 0.2,
+      "latency_ref_ms": 2000,
+      "arm_scores": {
+        "vendor-a/top": 0.95,
+        "vendor-b/top": 0.9
+      }
+    }
+  }
+}

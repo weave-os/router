@@ -1,0 +1,97 @@
+package middleware_test
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/server/middleware"
+	"weave-os/router/internal/subscriptions/entitlement"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+)
+
+func TestWithSubscriberAllowance_MaxIgnoresLinkedSubscriptionAndUsesAllowance(t *testing.T) {
+	for _, route := range []struct {
+		path     string
+		provider auth.SubscriptionProvider
+		bearer   string
+	}{
+		{"/v1/messages", auth.SubscriptionProviderClaude, "sk-ant-oat-test"},
+		{"/v1/chat/completions", auth.SubscriptionProviderCodex, "eyJhbGciOi.test.signature"},
+		{"/v1/responses", auth.SubscriptionProviderCodex, "eyJhbGciOi.test.signature"},
+	} {
+		for _, enrolled := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/enrolled=%t", route.path, enrolled), func(t *testing.T) {
+				gin.SetMode(gin.TestMode)
+				allowances := &stubAllowances{}
+				allowanceSvc := entitlement.NewService(
+					&stubEntitlements{current: maxSubscriberEntitlement(), found: true}, allowances,
+				).WithClock(func() time.Time { return allowanceNow })
+				organizationBilling := &stubBillingRepo{balance: 5_000_000}
+				var subscriptionOnly bool
+				var coverage entitlement.Coverage
+				dispatched := false
+				engine := gin.New()
+				engine.Use(func(c *gin.Context) {
+					c.Set("router_api_key", subscriberAPIKey())
+					withInstallation(c, "org_subscription_conflict")
+				})
+				engine.Use(middleware.WithSubscriberAllowance(allowanceSvc))
+				engine.Use(middleware.WithBalanceCheck(billing.NewService(organizationBilling), billing.MinBalanceMicros))
+				engine.POST(route.path, func(c *gin.Context) {
+					dispatched = true
+					subscriptionOnly = billing.SubscriptionOnlyFromContext(c.Request.Context())
+					coverage, _ = entitlement.CoverageFromContext(c.Request.Context())
+					c.Status(http.StatusOK)
+				})
+
+				request := httptest.NewRequest(http.MethodPost, route.path, nil)
+				if enrolled {
+					request = request.WithContext(context.WithValue(request.Context(), proxy.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{route.provider: {}}))
+				} else {
+					request.Header.Set("Authorization", "Bearer "+route.bearer)
+					if route.provider == auth.SubscriptionProviderCodex {
+						request.Header.Set("ChatGPT-Account-ID", "test-account")
+					}
+				}
+				response := httptest.NewRecorder()
+				engine.ServeHTTP(response, request)
+
+				assert.Equal(t, http.StatusOK, response.Code)
+				assert.True(t, dispatched)
+				assert.False(t, subscriptionOnly)
+				assert.Equal(t, entitlement.PlanMax, coverage.Plan)
+			})
+		}
+	}
+}
+
+func TestWithSubscriberAllowance_MaxExplicitSubscriptionOptOutUsesAllowance(t *testing.T) {
+	allowances := &stubAllowances{}
+	dispatched := false
+	engine := gateServing(t, &stubEntitlements{current: maxSubscriberEntitlement(), found: true}, allowances, func(c *gin.Context) {
+		coverage, covered := entitlement.CoverageFromContext(c.Request.Context())
+		assert.True(t, covered)
+		assert.Equal(t, entitlement.PlanMax, coverage.Plan)
+		assert.False(t, billing.SubscriptionOnlyFromContext(c.Request.Context()))
+		dispatched = true
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	request.Header.Set("Authorization", "Bearer sk-ant-oat-test")
+	ctx := context.WithValue(request.Context(), proxy.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	ctx = context.WithValue(ctx, proxy.InstallationSubscriptionRoutingDisabledContextKey{}, true)
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request.WithContext(ctx))
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.True(t, dispatched)
+}

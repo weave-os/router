@@ -4,7 +4,7 @@ import (
 	"context"
 	"net/http"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/observability"
 
 	"github.com/gin-gonic/gin"
 )
@@ -14,9 +14,26 @@ type HealthChecker interface {
 	CheckHealth(ctx context.Context) error
 }
 
-// HealthHandler reports process liveness without checking optional dependencies.
+// HealthHandler is the process responsive check; it does not contact dependencies.
 func HealthHandler(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// StartupHandler requires database connectivity before the instance receives traffic.
+func StartupHandler(ping func(context.Context) error) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if ping == nil {
+			observability.FromGin(c).Error("Startup database check is not configured")
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "unhealthy"})
+			return
+		}
+		if err := ping(c.Request.Context()); err != nil {
+			observability.FromGin(c).Warn("Startup database check failed", "err", err)
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "unhealthy"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	}
 }
 
 // ReadinessHandler reports whether optional dependencies are ready.

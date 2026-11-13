@@ -61,7 +61,7 @@ export function getRouterBaseUrl(): string {
 // ---------- router key resolution ----------
 
 /** Agent config dir, honoring PI_CODING_AGENT_DIR (set for project-scope installs). */
-function getAgentDir(): string {
+export function getAgentDir(): string {
 	const env = process.env.PI_CODING_AGENT_DIR?.trim();
 	if (env) return env.startsWith("~/") ? path.join(os.homedir(), env.slice(2)) : env;
 	return path.join(os.homedir(), ".pi", "agent");
@@ -69,6 +69,11 @@ function getAgentDir(): string {
 
 export function getKeyFilePath(): string {
 	return process.env.WEAVE_ROUTER_KEY_FILE?.trim() || path.join(getAgentDir(), ".weave_router_key");
+}
+
+/** Persisted LSP preferences (per-language "don't offer again" dismissals). */
+export function getLspPrefsPath(): string {
+	return path.join(getAgentDir(), ".weave_lsp.json");
 }
 
 interface WeaveProviderConfig {
@@ -215,46 +220,76 @@ export function providerHeaders(role: Role, key: string): Record<string, string>
 
 // ---------- model list ----------
 
-// Carried as a shared constant rather than relying on registerProvider preserving
-// an omitted `models` list, so the extension is self-sufficient: a freshly
-// dispatched child (and a `pi -e` smoke test with no models.json) can still
-// resolve `weave/<model>`. The list mirrors the installer's headline models;
-// the router re-routes every request regardless, so this is a UX/label surface.
-export const WEAVE_MODELS: ProviderModelConfig[] = [
-	model("claude-opus-4-8", "Claude Opus 4.8 (via Weave Router)", 64000),
-	model("claude-opus-4-7", "Claude Opus 4.7 (via Weave Router)", 64000),
-	model("claude-sonnet-4-6", "Claude Sonnet 4.6 (via Weave Router)", 64000),
-	model("claude-haiku-4-5", "Claude Haiku 4.5 (via Weave Router)", 32000),
-	model("grok-4.6", "Grok 4.6 (via Weave Router)", 131072, 500000),
-];
+/**
+ * The one model pi's picker shows. The router picks the served model for every
+ * request from the organization's enabled set, so concrete entries here only
+ * advertised choices that were never honored, and went stale. /fm pins a model.
+ * Deliberately not `weave-auto`: the router reads that as a routing-strategy
+ * selector, which turns /beta off.
+ */
+export const WEAVE_AUTO_MODEL_ID = "auto";
 
-function model(id: string, name: string, maxTokens: number, contextWindow: number = 200000): ProviderModelConfig {
-	return {
-		id,
-		name,
+/**
+ * Request model sent for an `auto` turn. Installs selected it as pi's default
+ * before `auto` existed, so the router sees the same requests as before: it
+ * routes them, and serves this model as-is only where routing is off for the
+ * caller. It is also the baseline `auto` savings are priced against.
+ */
+export const AUTO_WIRE_MODEL = "claude-sonnet-4-6";
+
+/** Maps `auto` to AUTO_WIRE_MODEL; every other pi model id passes through unchanged. */
+export function wireModelId(modelId: string): string {
+	return modelId === WEAVE_AUTO_MODEL_ID ? AUTO_WIRE_MODEL : modelId;
+}
+
+// Registered with explicit models (not left to models.json) so a dispatched
+// child or a `pi -e` run without models.json still resolves weave/auto.
+// The window is a starting value: each response's served-window header
+// replaces it with the routed model's window.
+export const WEAVE_MODELS: ProviderModelConfig[] = [
+	{
+		id: WEAVE_AUTO_MODEL_ID,
+		name: "Weave Router",
 		reasoning: true,
 		input: ["text", "image"],
 		// Real cost is decided by the router per request and is unknown client-side.
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow,
-		maxTokens,
-	};
-}
+		contextWindow: 1_000_000,
+		maxTokens: 64000,
+	},
+];
 
 // ---------- dispatch / misc tunables ----------
 
 export const ROUTED_MODEL_HEADER = (process.env.WEAVE_ROUTED_MODEL_HEADER || "x-router-model").toLowerCase();
 export const ROUTED_PROVIDER_HEADER = "x-router-provider";
 export const ROUTER_DECISION_HEADER = "x-router-decision";
+/** Context window (tokens) of the model that actually served the routed response. */
 export const ROUTED_CONTEXT_WINDOW_HEADER = "x-router-context-window";
 /** Marker a headless child prints to stderr so the parent dispatch can read its routed model. */
 export const ROUTED_MODEL_STDERR_PREFIX = "weave-routed-model:";
 
-export const SUBAGENT_MODEL = process.env.WEAVE_PI_SUBAGENT_MODEL?.trim() || "claude-sonnet-4-6";
 export const DISPATCH_CONCURRENCY = Math.max(1, numEnv("WEAVE_PI_DISPATCH_CONCURRENCY", 4));
 export const MAX_SUBAGENTS = 8;
 export const SUBAGENT_TIMEOUT_MS = Math.max(1000, numEnv("WEAVE_PI_SUBAGENT_TIMEOUT_MS", 600000));
 export const DEFAULT_READONLY_TOOLS = ["read", "grep", "find", "ls"];
+
+// ---------- LSP tunables ----------
+
+/** Idle window before an unused language server is shut down. */
+export const LSP_IDLE_MS = Math.max(10_000, numEnv("WEAVE_PI_LSP_IDLE_MS", 300_000));
+export const LSP_REQUEST_TIMEOUT_MS = Math.max(1000, numEnv("WEAVE_PI_LSP_REQUEST_TIMEOUT_MS", 15_000));
+/** Budget for `initialize` and the first query, which race the server's initial indexing pass. */
+export const LSP_WARMUP_TIMEOUT_MS = Math.max(5000, numEnv("WEAVE_PI_LSP_WARMUP_TIMEOUT_MS", 60_000));
+export const LSP_DIAGNOSTICS_WAIT_MS = Math.max(500, numEnv("WEAVE_PI_LSP_DIAGNOSTICS_WAIT_MS", 3000));
+export const LSP_MAX_SERVERS = Math.max(1, numEnv("WEAVE_PI_LSP_MAX_SERVERS", 4));
+export const LSP_MAX_REFERENCES = Math.max(1, numEnv("WEAVE_PI_LSP_MAX_REFERENCES", 100));
+
+// Set by dispatch on children so a subagent reaches the parent's warm server
+// pool over a local socket instead of cold-starting its own gopls. Internal:
+// never set these yourself.
+export const LSP_BROKER_ENV = "WEAVE_PI_LSP_BROKER";
+export const LSP_BROKER_TOKEN_ENV = "WEAVE_PI_LSP_BROKER_TOKEN";
 
 // Tools that let a subagent mutate the filesystem or run arbitrary commands.
 // dispatch strips these from model-requested per-task `tools` (and downgrades

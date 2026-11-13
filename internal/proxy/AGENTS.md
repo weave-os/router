@@ -1,8 +1,8 @@
 # internal/proxy — AGENTS
 
-> **Mirror notice.** Verbatim sync with [CLAUDE.md](CLAUDE.md). **Update both together** — divergence = bug.
+> **Mirror notice.** Generated from [CLAUDE.md](CLAUDE.md). Edit CLAUDE.md, then run `make generate-agent-guides`; CI rejects drift.
 
-Routing/dispatch service. Per-action orchestrator that composes scorer, planner, handover, cache, sessionpin, catalog, turntype, usage, billing, providers, and translate. Read [root CLAUDE.md](../../CLAUDE.md) first.
+Routing/dispatch service. Per-action orchestrator that composes the routing policy, planner, handover, sessionpin, catalog, turntype, usage, billing, providers, and translate. Read [root CLAUDE.md](../../CLAUDE.md) first.
 
 ## Surface
 
@@ -13,33 +13,50 @@ Routing/dispatch service. Per-action orchestrator that composes scorer, planner,
 - `ProxyOpenAIChatCompletion` — OpenAI Chat Completions
 - `ProxyGemini` — Gemini native generateContent
 
-Plus the action loop, handover adapter, cache writer, and session-key derivation in sibling files.
+Plus the action loop, handover adapter, and session-key derivation in sibling files.
 
-## Adding a method to `*proxy.Service`
+## Where new behavior goes
 
-1. **Define method on `*proxy.Service`.** No I/O directly here — push into a provider adapter or repo. Inner-ring imports (`router`, `providers`, `translate`, `observability`, `internal/router/*`, `internal/proxy/usage`) + small utility libs are fine.
-2. **If you need new repo methods**, surface them as an interface in the inner-ring package, implement in `internal/postgres/`. Example: `sessionpin.Store` in [`../router/sessionpin/store.go`](../router/sessionpin/store.go), implemented by `postgres.SessionPinRepository`.
-3. **Update `service_test.go` fakes** to satisfy the expanded interface. Real assertions on return values, not "mock called with X".
+`*proxy.Service` is being split into five bounded contexts. Pick the context by what the change does, then read the files it owns today (`rg -l '<concept>' internal/proxy --type go`):
+
+| If the change… | Context | Owns today |
+|---|---|---|
+| changes wire format or streaming | Protocol & Ingress (pure format conversion stays in [`translate`](../translate/CLAUDE.md)) | the four `Proxy*` entrypoints, `gemini.go`, `responses_*.go`, `stream_*.go` |
+| touches keys, BYOK, OAuth or subscriptions | Credential Brokerage | `credentials.go`, `credential_key_parts.go`, `managed_subscriptions.go`, `subscription_*.go` |
+| chooses or filters models | Routing Policy (inference purposes register in `internal/router/policy`) | `turnloop.go`, `escalation*.go`, `classifier_*.go`, `force_model*.go`, `*_model_selection.go` |
+| does retry, fallback or provider calls | Inference Execution (port: `inference.Executor`; start of the implementation: `dispatch.Executor`) | `dispatch_plan.go`, `fallback.go`, `*_failover.go`, `early_stop_redo.go`, `context_overflow.go`, `*overload*.go`, `rate_limit_cooldown.go`, `attempt_trace.go`, `arm_demotion.go` |
+| handles commands, compaction, handover or loops | Conversation Lifecycle | `beta.go`, `command_*.go`, `*compaction.go`, `handover.go`, `loop_detection.go`, `no_progress.go`, `spiral_detection.go`, `struggle_detection.go`, `text_repetition*.go` |
+| is a model quirk | catalog data in [`../router/catalog`](../router/catalog/CLAUDE.md) | typed `catalog.Model` / `catalog.ProviderBinding` fields |
+| is new I/O | a port (interface) in the owning context, an adapter package, wiring in `cmd/router` | e.g. `sessionpin.Store`, implemented by `postgres.SessionPinRepo` |
+
+Accounting and shadows/experiments stay in the orchestrator for now.
+
+**Until a context package exists, new logic goes in a new focused file in its context's group above, as a free function or a small collaborator struct whose dependencies are explicit constructor or function parameters.** Never add a `Service` method or field for it: `Service` methods have no visible dependencies and every one can reach all of `Service`'s state, which is how it reached its current size. Thread request-scoped values as parameters, not new context keys. No I/O in the logic itself; new repo methods are an interface in the inner ring, implemented in `internal/postgres/`. Tests drive the function or collaborator directly with in-memory fakes and real assertions.
+
+CI enforces this. The architecture ratchet (`make arch-ratchet`, a PR-only step) fails a PR when `proxy.Service` gains fields or methods, `internal/proxy` gains context-key types, a function over cognitive complexity 25 / 100 lines / 7 params / nesting depth 5 grows or a new one appears, a non-test file over 500 lines grows or a new one appears, model/provider-name string matching outside `internal/router/catalog` grows, or the `//nolint` count grows. Reviewed exceptions live in `internal/architecture/ratchet_exceptions.json`. golangci-lint's `dupl` gate rejects duplicated new code, and `make inference-boundary` rejects new provider calls outside the inference boundary. Fix a failure by splitting along a concept boundary, never by adding `//nolint` or an exception.
 
 ## Per-action flow (cache-aware action routing)
 
-The per-action flow is more than "scorer → dispatch". Pinned session, planner verdict, optional handover summary, and the semantic response cache all sit between the inbound request and the upstream provider. Packages are intentionally small + single-purpose so each is unit-testable without the others. ("Action" = one upstream API request; see [../../docs/SEMANTICS.md](../../docs/SEMANTICS.md). The `Stage` column below is a pipeline stage *within* one action, not a router step.)
+The per-action flow is more than "scorer → dispatch". Pinned session, planner verdict, and optional handover summary all sit between the inbound request and the upstream provider. Packages are intentionally small + single-purpose so each is unit-testable without the others. ("Action" = one upstream API request; see [../../docs/SEMANTICS.md](../../docs/SEMANTICS.md). The `Stage` column below is a pipeline stage *within* one action, not a router step.)
 
 | Stage | Package | Notes |
 |---|---|---|
 | Turn-type classification | [`../router/turntype`](../router/turntype) | MainLoop / ToolResult / SubAgentDispatch / Compaction / Probe |
 | Session-pin lookup | [`../router/sessionpin`](../router/sessionpin) | Sticky `(api_key_id, session_key, role)` pin |
-| Fresh routing decision | [`../router/cluster`](../router/cluster) | Cluster scorer argmax |
+| Fresh routing decision | [`../router/policy`](../router/policy) | Registered policy strategy (HMM classifier groups) |
 | STAY vs SWITCH | [`../router/planner`](../router/planner) | Cache-aware EV policy |
 | Handover summary on SWITCH | [`../router/handover`](../router/handover) | Bounds switch-action input cost |
-| Semantic response cache | [`../router/cache`](../router/cache) | Cross-request, non-streaming only |
 | Subscription strict pass-through gate | [`usage`](usage) | See [`usage/CLAUDE.md`](usage/CLAUDE.md) |
 
 The provider-backed `Summarizer` implementation for handover lives in [`handover.go`](handover.go); the inner-ring `handover` package only defines the contract. On summarizer timeout or error, proxy keeps the full prior history unchanged (it does **not** trim) — a pricier switch action beats silently dropping the conversation the switched-to model needs.
 
-## Proactive context-window compaction
+## Context-window overflow
 
-`ProxyMessages` / `ProxyOpenAIChatCompletion` call [`maybeCompact`](compaction.go) **before** routing so an over-long session is compacted rather than dead-ending in the scorer with no eligible provider. It engages when the estimate reaches `ROUTER_COMPACTION_PCT` (default 0.85) of the largest eligible model's window and runs Claude Code's tiered cascade: (1) `ClearOldToolResults` — local, clears stale tool results; (2) structured 9-section summary via a **window-aware** Anthropic-family summarizer (`SummarizeForCompaction`; haiku when the history fits, `claude-fable-5` for larger) rewritten with `RewriteForCompaction(summary, recentTurns)`; (3) progressive `TrimLastNMessages` rescue. If even the trimmed floor overflows, it returns `ErrContextWindowExceeded` → HTTP 413 (distinct from the "no provider keys" `ErrNoEligibleProvider`). The summary call is billed as a `_precompaction_summary` ledger row. Trigger below the window (not at overflow) is load-bearing: a summarizer can only ingest a history that still fits *some* model.
+The router never rewrites client history to make it fit. Every supported harness compacts itself, and it can only do so when the router forwards history untouched and reports the served request's real usage. The context pre-filter (`excludeContextOverflowModels`) drops models whose window the estimate exceeds, but when that would leave nothing routable, `admitWidestOnTotalOverflow` keeps the largest-window models so the upstream decides (the ÷4 estimate overcounts). They travel as `router.Request.OverflowAdmittedModels`, and the policy resolver and plan constraint check skip their own context-window test for them — otherwise the HMM path re-excludes them on its text estimate and 400s "no model is routable". A policy resolution returns `policy.ErrContextWindowExceeded` when size actually excludes an otherwise eligible model; later constraints such as unsigned Gemini history or gateway-only aliasing retain their own diagnostic and error. A genuine overflow, router-declared (`policy.ErrContextWindowExceeded`) or an upstream rejection (`isUpstreamContextOverflow`, any provider's shape), classifies as `DispatchErrorContextWindowExceeded` (OpenAI reports it inside an HTTP 200 stream, so the Responses translators return it as a 400 rejection) and reaches each client in its native shape: Anthropic 400 `invalid_request_error` with `prompt is too long…`; OpenAI 400 with `code: context_length_exceeded`; Responses streaming as an in-stream `response.failed` with that code (the only shape Codex compacts on), non-streaming as the 400; Gemini 400 `INVALID_ARGUMENT`. Flush helpers leave overflows to the ingress handler, and in-stream error frames carry the same class once a prelude is committed.
+
+Harness-issued Claude Code/Codex compaction turns are pinned to a model that can read the whole history. Claude Code selects an Anthropic session/default family, reached directly or through a held gateway key that aliases it; Codex may select its last served non-Anthropic family from the active pin or HMM history. These choices also upgrade within the family and honor deployment availability, provider availability, and request exclusions. The pinned decision carries the remaining summarizers and then the generic utility model as an ordered rescue list, so a pre-commit failure fails over instead of reaching a client that would retry the same compaction. Client identity must be populated before this branch. An explicit `ROUTER_HARD_PIN_MODEL` retains the generic exact override. Reusing a family or upgrading its version does not guarantee a warm prompt cache. The same cross-gateway list (`crossGatewayRescuers`) rescues an upstream overflow on any other turn of a gateway tenant (`overflowRescueDecisions`): models behind one gateway share its tokenizer and window, so only another gateway's model the estimate fits is tried before the client receives prompt-too-long.
+
+Client budget evidence and the initial resumed-turn recovery policy live in [`client_budget.go`](client_budget.go) / [`client_compaction.go`](client_compaction.go). Inbound 1M beta alone is ambiguous; private client thresholds are not observable.
 
 ## Model-restriction layers
 
@@ -50,14 +67,170 @@ collapse them.
 |---|---|---|---|
 | `allowed_models` | org (installation) | fail-closed | desugared into `ExcludedModels` by `excludedModelsForRequest` |
 | `excluded_models` | org (installation) | fail-closed | scorer + policy resolver |
+| `global_automatic_routing_exclusions` | deployment | fail-open (soft) | `AutomaticExcludedModels`: scorer, policy resolver, and every automatic-pin gate |
 | `cluster_model_lists` | API key (org default) | fail-open | `policy.ApplyClusterArmOverrides` |
 | `model_router_user_cluster_model_lists` | router user | fail-open | same, after `mergeClusterOverrides` |
+| subscription capacity | verified account owner + installation membership (personal keys); live installation-shared key | fail-closed | primary candidate admission; personal then sharing; native OAuth support and quota/overage checks |
+| overload circuit breaker | shared per model, confirmed per installation; gateway traffic per installation | fail-open (soft) | folded into `AutomaticExcludedModels` by `globalAutomaticExcludedModels` |
 
 **The allowlist is desugared, not separately filtered.** `excludedModelsForRequest`
 adds every routable model absent from a non-empty allowlist to the exclusion
 set, so all six existing enforcement sites honor it with no new filter loops.
 `router.Request.AllowedModels` exists only so errors and diagnostics can name
 the allowlist instead of dumping the desugared exclusion list.
+
+**Max owns a separate serving profile; Boost uses the target default.** Max
+ignores the installation allowlist, preferred models, excluded providers, fast
+mode, routing knobs and cluster overrides, but `excluded_models` stays hard:
+it is the customer's explicit opt-out, and it only narrows Max's roster. Boost
+uses the ordinary installation controls because its effective policy is the
+default roster. The organization flag `plan_user_cluster_lists` (default off)
+restores each member's own per-user cluster list for Max; the key-scoped list
+stays dropped. Under the same flag a model the member selected is not swapped
+for a subscription-covered one: when no linked subscription serves it,
+`subscriptionAlternativeDecisions` offers no alternatives and the
+subscription-state lane skips its included targets and admits the pick to the
+paid set, but only when that paid lane can serve it (`memberPickPaidContext`:
+overflow narrowing, exclusions and a funded binding); otherwise the included
+lane runs as before. A turn with no paid capacity behind it (credits depleted or
+spend cap) keeps the swap.
+
+**The deployment-wide automatic exclusion is soft, and is a separate request
+field for that reason.** `global_automatic_routing_exclusions` is the Weave
+control plane's list of models the router may not *choose*; the same models
+still serve an explicit `/force-model` pin, which is what makes it safe to
+disable a model without stranding a debugging or eval session. Folding it into
+`ExcludedModels` would have made it hard — that set also rejects a forced pin
+(`forcedModelBinding`) — so it travels as `router.Request.AutomaticExcludedModels`
+and every enforcement site treats an emptied pool as "ignore me this turn"
+rather than an error. It reaches the request path through a ~1min TTL cache
+(`globalAutomaticExclusionCache`) that serves its last good snapshot on a
+refresh failure and fails open on a cold one; there is no invalidation topic
+because the existing one is keyed per installation.
+
+**Automatic reuse of a model is not just fresh selection.** A disable has to
+reach sessions already pinned, so `automaticPinEligible` and the pin-drop guard
+in `runTurnLoop` cover tool-result stickies, planner STAY, HMM EV stays, expiry
+re-anchors, post-command continuations, band swap, sibling failover, the policy
+ deadline default, and loop escalation — every path where the router
+picked the model. `forcedPinEligible` deliberately does not.
+
+**A rescued model stays out for the rest of the agent turn.** With
+`rescued_failure_arm_demotion` off, `maybeStrikeArmAfterRescuedFailure` and the
+subscription-state included lane record the failed model in the request's
+`turnFailures`; once another model serves, `strikeRescuedModelsForTurn` writes
+it to `Pin.TurnStrikes` (skipped for hard pins and `/force-model`).
+`runTurnLoop` folds turn strikes into `AutomaticExcludedModels` for tool-result
+requests and clears them on the next real user prompt
+(`RequestEnvelope.EndsWithUserPrompt`), so the session doesn't swap back to the
+failing model mid-turn. When the included lane drops a model because its
+subscription pool failed on provider capacity (5xx), the session is also held
+off that whole pool (every model it serves) for `subscriptionSessionHold`
+(5 min, in memory per replica, own cache), which the next user prompt does not
+clear; a held pool is still tried when the request admits nothing else; otherwise every prompt re-walked the
+overloaded pool and flipped families. Each managed account+model that answered
+a 5xx is skipped for `managedOverloadCooldown` (30s, in memory) by later
+requests, which still authorizes the same paid rescue as a live 5xx.
+
+**A model that keeps answering 529 is circuit-broken, per organization.** Under
+`provider_overloaded` (default on), `dispatchPlanned` reports each executor
+operation to [`internal/router/breaker`](../router/breaker): an operation that
+exhausted on a buffered 529 (Anthropic's `overloaded_error`) is one strike,
+however many same-binding retries it took. A 529 straight from a provider
+(deployment keys, a tenant's own direct key, subscriptions) reports that
+provider's capacity, so it feeds one shared circuit per model with every
+organization's strikes. An open shared circuit withdraws the model only from
+organizations that have each seen two overloads themselves in the episode
+(thresholds are fixed in [`thresholds.go`](../router/breaker/thresholds.go)):
+one company tripping it does not move
+another until that company sees its own 529s. A 529 through an organization's
+own gateway (Snowflake Cortex and similar `*_gateway` providers) says nothing
+about anyone else, so it feeds a circuit for that organization alone, which
+no other organization feeds or sees. `globalAutomaticExcludedModels` adds the
+request organization's withdrawn models to the deployment-wide soft exclusion,
+so every automatic path routes around them with no new check and
+`/force-model` still reaches them. After the recovery timeout `runTurnLoop`
+lets one eligible request claim the half-open probe (any organization for a
+shared circuit, only the owner for a gateway circuit) and readmits the model
+for that request alone; only that request's own outcome resolves the circuit
+(a probe token travels from routing to dispatch, so an older in-flight success
+cannot close it). A served probe closes the circuit and clears every
+organization's confirmation, a 529 reopens it for twice as long (capped), and
+a request that routed to something else releases the slot as soon as routing
+finishes, so it yields to any other due circuit not yet offered. Only main and
+tool-result turns that pass `siblingRescueAllowed` (never Gemini ingress,
+caller-model passthrough or non-gateway caller credentials)
+take the probe, so a failed probe never reaches the client. An open circuit
+only stops the router *choosing* the model: when a sibling rescue finds no
+other eligible candidate (a two-model roster whose other arm just failed),
+`rescueWalkOrReadmitCooling` readmits withdrawn models before session strikes,
+so the turn tries the overloaded model instead of surfacing the other arm's
+error. Committed streams, client cancellations, other statuses and requests
+with no installation are not overload evidence. State is in-process per
+replica by design. The request path never takes the registry lock: withdrawn
+sets and the due list are an atomically published snapshot, and claiming or
+releasing a probe is a compare-and-swap on the circuit. Only overload strikes
+and probe outcomes lock and republish, and closed circuits whose strikes have
+aged out are swept.
+
+**Rescued transient failures get a bounded cooldown, not a session-lifetime
+strike.** Under `transient_rate_limit` (default off),
+`maybeStrikeArmAfterRescuedFailure` records a rescued primary's buffered 429 as
+`DemotionReasonRateLimited`, and 502/503/504 as
+`DemotionReasonTransientFailure`, with an expiry
+(`rate_limit_cooldown_seconds`, default 45) in `Pin.DemotionCooldowns`;
+committed-stream failures and other rescued failures stay permanent.
+`runTurnLoop` folds only *active* cooldowns into `AutomaticExcludedModels`.
+At expiry, a Postgres lease grants the recovery probe to one in-flight request
+per session/model across router workers; concurrent requests use their other
+candidates, and the request's remaining expired arms stay excluded for that
+turn. A lease token prevents a delayed release from clearing a newer probe;
+abandoned leases expire after 15 minutes, or one minute after a known request
+deadline, measured on the database clock. A probe that completes without an
+upstream error clears its cooldown from both stored rows unless a newer
+cooldown has replaced it, so a recovered arm needs no further leases. Cooldowns
+are soft in one more way than the deployment exclusion:
+`rescueWalkOrReadmitCooling` appends cooling arms (soonest expiry first)
+*after* every healthy rescue candidate, so a session whose whole rescue pool is
+throttled readmits a cooling arm instead of surfacing the 429 — the arm that
+just 429'd is never re-served that turn. Readmission lifts *only* the cooldown:
+`readmittableCooldowns` drops a model that also carries a session-lifetime
+strike or cannot take the turn's images, and the deployment-wide automatic
+exclusion still holds in the second walk. The same flag makes the same-binding
+retry Retry-After-aware (`dispatch.ThrottlePolicy`: honour ≤10s, else go
+straight to rescue; 500ms then 1.5s when the header is absent). Sessions under
+a gateway quota (prod 2026-09) died at 11 consecutive client-visible 429s
+because a burst-time rescue had permanently demoted the arm that recovered
+minutes later.
+
+**A session-lifetime strike is soft for rescue too, as the very last resort.**
+Primary selection already treats a demotion as soft (an emptied pool reroutes
+onto the excluded model), so a session that has struck out every arm keeps
+being served on one. The rescue walk used to treat the same strikes as hard,
+so once both arms of a two-model roster were demoted every pre-commit failure
+reached the client unrescued (Snowflake Cortex, prod 2026-10: hundreds of
+header-timeout 502s with the other arm never tried). `runTurnLoop` now carries
+the strikes as `SessionStrikeReadmitModels` (image-unsafe arms, and
+ToolUseLow/AgenticLow arms on tool turns, dropped), and
+`rescueWalkOrReadmitCooling` readmits them on sibling failover only (never the
+cyber-refusal retry) and only when neither the eligible walk nor cooldown
+readmission yields a candidate. `strikesInRescuePool` filters non-roster
+strikes to the turn's scored pool; roster readmissions are separately bounded
+by `rosterRescueAdmits`. Hard and deployment-wide exclusions still hold, and
+the arm that just failed is never re-served.
+
+**A wholly non-routable allowlist is rejected at the admin API.** Membership
+validation for `PUT /admin/v1/allowed-models` is catalog-wide on purpose —
+force-model and hard-pin reach rows the router never scores — but the
+desugaring only excludes over `routableUniverse()`. A list naming *only*
+non-routable rows (an unbound provider, or a tierless passthrough-only row)
+therefore excludes the entire pool and 400s every routed request with
+`ErrAllowlistEmptiesPool`. The handler calls `Service.RoutableModels()` and
+refuses to save such a list, deferring to the unknown-model error first so a
+typo is not reported as a routability problem. Keep that accessor and the
+desugaring reading the same universe. `availableModels` is the generic
+`RoutingTargetSet` plus `HMMRoutingTargetSet` when an HMM sidecar is wired,
+so an HMM-only allowlist is not rejected as emptying the pool.
 
 **The fail-open/fail-closed asymmetry is load-bearing.** An org allowlist is a
 compliance control (a breach is worse than an outage); a user's per-cluster
@@ -80,9 +253,146 @@ and `ROUTER_EXCLUDED_MODELS` (an operator escape hatch that short-circuits
 `excludedModelsForRequest` entirely; intentional, so an operator debugging a
 deployment is not constrained by one org's config).
 
+**A BYOK gateway overrides all of it.** When the installation has its own
+gateway key (`anthropic_gateway` / `openai_gateway`),
+`enabledProvidersForRequest` returns only those gateways and
+`router.Request.GatewayProviders` puts the resolver in gateway-exclusive mode:
+vendor bindings are dropped, `excluded_providers` becomes a no-op, and the only
+routable models are the ones a gateway key's `model_aliases` names. A tenant
+that wired its own endpoint mandated it — routing around it is a compliance
+break, and excluding every vendor by hand (the old lever) is what silently
+emptied one org's candidate set. A key with no aliases therefore serves
+nothing: resolution comes back empty with `ExclusionGatewayNotServed` and
+dispatch answers `policy.ErrGatewayServesNoDeployedModel` (HTTP 400, "add
+aliases") instead of reporting the router as unavailable. Deployment-keyed
+gateways are excluded from this: a self-hosted deployment keyed for a gateway
+still serves the catalog's own gateway bindings.
+Under gateway-exclusive routing `allowed_models` bounds automatic selection
+only: a `/force-model` may pin any model a gateway key aliases
+(`forcePolicyExcludedModels`, `readmitForcedModel`), since the tenant's
+endpoint enforces model access itself. `excluded_models` still refuses it.
+
+**A gateway's `model_not_found` is remembered per (endpoint, model).** An
+alias can name a model the endpoint does not actually publish — a Snowflake
+Cortex key aliasing `grok-4.6` made every title-gen turn resolve to it, eat an
+upstream 404, and recover only through a sibling-failover hop (3.7s-43.2s added
+latency per turn, prod 2026-08-28). `rememberGatewayLacksModel` records the pair
+on that 404 and `gatewayUnservedModelsForRequest` folds it into
+`excludedModelsForRequest`, so later turns resolve around the alias instead of
+re-buying it. Scoped tightly on purpose: gateway providers only (a vendor still
+has catalog bindings to walk), and a model stays routable unless **every**
+gateway key aliasing it has refused, since a second endpoint may serve it. The
+alias itself is still the customer-side fix — this only caps the bill at one 404.
+
+**The hard-pin tier resolves against the same bindings.** Explore sub-agent hard
+pins bypass the scorer, so `hardPinResolver` gets its own `HardPinRequest`
+carrying `CustomBindings` + `GatewayProviders` and selects via the catalog-backed
+`policy.UtilityTarget` (`CatalogUtilityHardPin`). Title-gen and probe hard-pin only
+under the `ROUTER_HARD_PIN_MODEL` override, which leaves the resolver unwired;
+compaction never hard-pins (`routeCompaction` keeps the session pin or scores). Without them a gateway-only installation
+resolved nothing and every such turn 503'd as routing unavailable while its scored turns routed fine — prod 2026-08-26. An empty
+result under a gateway now reports `ErrGatewayServesNoDeployedModel` for the
+same reason the resolver does: the alias list is the thing to fix.
+
+**Default titles are scored independently; probes preserve their target.** Title
+generation uses `routeWithoutPin`, without consulting or updating the conversation's
+automatic pin or emitting a routing marker. Default provider/quota probes use the
+requested model and do not cross-model fail over. An automatic probe with no
+concrete requested model (empty, `auto`, or a `weave-*` routing model) is scored
+independently without a session pin.
+Same-model credential fallback
+still applies, so a successful probe does not prove subscription-specific quota.
+An explicit `ROUTER_HARD_PIN_MODEL`
+retains the utility override, and deliberate `/force-model` choices still win.
+
+**Classifier turns are not hard-pinned.** Claude Code's security
+monitor is a fresh window (own system prompt, ~50k-token transcript as
+payload, `max_tokens=64`, `thinking: disabled`), so `isUnpinnedScoredTurn`
+sends it through `routeWithoutPin`: `/force-model` still wins, an API-billed
+classifier (no Claude subscription in context or headers, no subscription-state
+model sets) is served on `policy.ClassifierModel` (`classifier_model`; the
+verdict is one token over a long transcript, so input price is the cost), a
+classifier model the request cannot use falls to the scorer, and no session pin is read or written — an anchored pin here would
+leak into the conversation that follows, and the conversation's pin was not
+scored for this prompt. Routing markers skip it too:
+the transcript is the thing being graded, and the verdict is machine-parsed.
+Hard-pinning it to a Gemini 3.x model truncated 99.5% of verdicts on
+`maxOutputTokens=64` (always-on thinking eats the budget; the emitters now floor
+reasoning targets to 16k, see [translate/CLAUDE.md](../translate/CLAUDE.md)),
+and Claude Code retried each failure 5x before escalating — prod 2026-09.
+
+**A classifier on the caller's Claude subscription is not scored at all.**
+Anthropic bills the Auto-mode classifier to the plan (free on Pro/Max/Team),
+so for a subscription caller the requested Claude model costs $0 extra and any
+model the scorer substitutes is API spend the router adds.
+`classifierPassthroughEngaged` ([usage_bypass.go](usage_bypass.go)) runs in
+`routeWithoutPin` after the force check: Classifier turn + Anthropic-served
+requested model + a presented Claude subscription credential (the narrow
+`presentSubscriptionTokens` set, never a generic bearer) + not
+observed-exhausted → strict pass-through via `bypassToAnthropic` with
+`decision_reason=classifier_subscription_passthrough`. It needs neither the
+`usage_bypass_enabled` opt-in nor a utilization threshold — the classifier is a
+by-product of the conversation's own turns, so conserving quota by re-routing
+it buys nothing. Everything else is the usage-bypass lane's behaviour: an
+exhausted subscription falls to the scorer (deployment-key fallback /
+subscription-only refusal as usual). With depleted credits, a retryable bypass
+error suppresses the failed direct token and tries enrolled linked Claude accounts
+on the requested model through the normal subscription dispatch loop. It does not
+run the scorer or permit paid fallback; an exhausted pool refuses. Credit-funded
+retries still reroute, without loading a classifier conversation pin, and the row
+stays cost-neutral downstream
+(`subscription_served`), not a "saving".
+
 ## Translation
 
 `proxy.Service` is the **only caller of [`../translate`](../translate)**. Keep providers ignorant of cross-format concerns. See [translate/CLAUDE.md](../translate/CLAUDE.md) for the recipe.
+
+## OpenAI endpoint selection (chat/completions vs Responses)
+
+`translate.UseOpenAIResponsesAPI` decides which OpenAI surface an attempt
+POSTs to, and the two OpenAI providers get deliberately different rules.
+
+**Direct OpenAI takes every turn it can express.** OpenAI documents Responses
+as the API new integrations build on, it is the only endpoint that will serve a
+reasoning model a function tool (chat/completions 400s that combination from
+gpt-5.4 on — the prod incident that started this), and it is the only one that
+round-trips encrypted reasoning across turns, which is also where the
+prompt-cache win comes from. The exception is a turn whose parameters have no
+Responses equivalent (`env.RequiresChatCompletionsParams`): stop sequences are
+the whole set today, and such a turn stays on chat/completions rather than
+silently dropping them. Reasoning targets are exempt from that check because
+they reject `stop` on chat/completions too, so it is already dropped for them.
+
+**OpenAI-compatible gateways stay narrow** — reasoning tool turns only. Most
+mount no Responses surface at all, so the endpoint buys nothing there beyond
+the one turn the gateway would otherwise reject (Snowflake Cortex 400s a 5.6
+tool turn on chat/completions no matter what we send). A gateway that answers
+404/"API disabled" is retried once on chat/completions while pre-commit and
+memoized per effective base URL (`gatewayLacksResponses`), so the next turn
+skips the probe.
+
+Both rules sit behind `ROUTER_OPENAI_RESPONSES_BROAD` (default on, per-org
+overridable via `flags.KeyOpenAIResponsesBroad`). Turning it off restores the
+narrow rule for direct OpenAI too — the reasoning tool turn chat/completions
+rejects is still promoted, since that one is a correctness fix, not a rollout.
+
+Anthropic and chat/completions ingress re-emit the request through
+`PrepareOpenAIResponses` per attempt, so a compaction or handover rewrite is
+carried faithfully. A Responses-ingress caller dispatches its ORIGINAL bytes
+natively instead, which is why that promotion is skipped when compaction or a
+handover rewrote the envelope — those bytes are stale, and the chat projection
+is the only faithful representation until item-level emit from a rewritten
+envelope lands.
+
+**A chat caller is served chat, whatever the upstream surface.** The three
+combinations differ in both request emit and response handling, so the decision
+is the typed `openAISurface` (`surfaceChat` / `surfaceResponsesNative` /
+`surfaceResponsesTranslated`), not a URL swap: a translated attempt wraps the
+client writer in `translate.ResponsesToOpenAIChatWriter`, which renders the
+Responses stream as chat.completion.chunk frames (or one chat.completion body
+for a non-streaming client). It returns a pre-output upstream failure as
+`providers.UpstreamErrorResponse` so the unsupported-endpoint fallback still
+works, and switches to an in-stream error frame once output is committed.
 
 ## Runtime provider fallback
 
@@ -92,28 +402,92 @@ Multi-binding models (deepseek/qwen/moonshot with Fireworks/Makora/Bedrock prima
 
 **Billing-blocked 402 → cross-binding failover (only).** Same shape as the 404 (`providers.IsUpstreamProviderBillingBlocked`): the provider refuses this account — credits exhausted, or the endpoint moved behind a billing plan we're not on, which is how Makora EOL'd DeepSeek-V4-Pro (402 `insufficient_credits` on every turn while Together/Fireworks kept serving it). Same-binding retry would just re-bill the same rejection, so it walks to the next binding and flushes on the last one.
 
-**Same-cluster model failover ([`sibling_failover.go`](sibling_failover.go)).** Provider-level failover assumes the model has somewhere else to run; a single-binding model on an overloaded provider does not (prod's `claude-opus-5` 529 storm: three attempts, one dark Anthropic endpoint, client eats the 529). When every binding is exhausted pre-commit on a retryable/404/402 fault, `ProxyMessages` re-dispatches a *different* model drawn from `Decision.Metadata.CandidateModels` — the pool the policy already scored for this turn, so the rescue stays inside the accepted quality band — preferring a candidate on a provider other than the one that just failed. It runs last in the rescue chain (after baseline and subscription failover), rebuilds the request through `buildAttempt` for the candidate's translation family, re-resolves credentials and bindings, and attributes pricing/telemetry/pin usage to the model that actually served. Gated by `ROUTER_SIBLING_FAILOVER` (default on) and skipped for `/force-model`, shadow mode, BYOK (`shouldFailover`), and subscription-only balances.
+**Same-cluster model failover ([`sibling_failover.go`](sibling_failover.go)).** Provider-level failover assumes the model has somewhere else to run; a single-binding model on an overloaded provider does not (prod's `claude-opus-5` 529 storm: three attempts, one dark Anthropic endpoint, client eats the 529). When every binding is exhausted pre-commit on a retryable/404/402 fault, `ProxyMessages` re-dispatches a *different* model drawn from `Decision.Metadata.CandidateModels` — the pool the policy already scored for this turn, so the rescue stays inside the accepted quality band — preferring a candidate on a provider other than the one that just failed. It runs last in the rescue chain (after baseline and subscription failover), rebuilds the request through `buildAttempt` for the candidate's translation family, re-resolves credentials and bindings, and attributes pricing/telemetry/pin usage to the model that actually served. Gated by `ROUTER_SIBLING_FAILOVER` (default on) and skipped for `/force-model`, shadow mode, and subscription-only balances. BYOK (`shouldFailover`) normally disables it too, with two carve-outs: a BYOK-gateway turn may rescue onto a candidate that one of the request's own gateway keys aliases (`gatewaySiblingDecision`) — same credentials, so no cross-provider 401 risk — and a turn served on the caller's Codex/Claude plan (`subscriptionSiblingAllowed`: an OAuth credential, no BYOK keys) may rescue onto the next scored candidate once the plan's own 5xx mark is set (`subscriptionPoolUnavailable`; a plan 429 or timeout still surfaces), because a plan is a funding source rather than a vendor-bound key; `rescueCredentialContext` drops the plan bearer before a candidate on another vendor resolves its own credential (keyed on the bearer's vendor, since the walk rebinds `decision` after each failed candidate). Before this carve-out a Codex-plan turn on an overloaded GPT model had no exit at all (prod 2026-10-21: 500+ `server_is_overloaded` 502s on one lane, all `failover_attempted=false`, rendered by Codex as "Selected model is at capacity"). The ChatGPT backend also reports overload inside an HTTP 200 `/v1/responses` stream (`response.failed` with `server_is_overloaded`), so while a Codex retry or sibling may serve the turn the native attempt's refusal gate also withholds a stream that fails before output (`holdPreOutputFailure`); otherwise its lifecycle frames commit the turn and every rescue is skipped. A turn whose session is already pinned to that model carries no routing notice, so no prelude reaches the client before dispatch; the native writer still records the failed attempt's 200 header as sent, which made `ClearPassthrough` refuse the off-format sibling ("Responses passthrough already committed"). Rescues go through `clearWithheldPassthrough`, which forgets that header while the retry buffer has neither committed nor sent a prelude.
+
+**OpenAI cyber-refusal retry ([`openai_cyber_refusal.go`](openai_cyber_refusal.go)).** OpenAI's cybersecurity classifier declines whole turns on security-tooling repos: the `/v1/responses` stream opens normally and then carries `{"type":"error","message":"This content was flagged for possible cybersecurity risk. ..."}` followed by `turn.failed`, which Codex treats as a fatal turn abort (SWE-Atlas QnA: 13/248 trials lost, `output_tokens=0`, `failover_used=false`, a 200 as far as the router was concerned). Because the refusal comes from the vendor's classifier rather than a binding, another OpenAI binding meets the same verdict — the rescue has to leave OpenAI. `cyberRefusalGate` wraps the OpenAI attempt sink and withholds the Responses preamble (`response.created`/`queued`/`in_progress`) until it knows whether real output follows; a refusal arriving before any output is swallowed, converted into `providers.CyberPolicyRefusalError()`, and re-dispatched once on a non-OpenAI model, so the client sees a single clean turn on the fallback. Detection is one matcher, `providers.ContainsCyberPolicyRefusal` (the `flagged for possible cybersecurity risk` phrase or a `cyber_policy` code), shared by the streaming gate and buffered error bodies; ordinary OpenAI errors keep today's behavior. Once output has committed the refusal passes through unchanged. Fallback selection is the pin's `PairedModel` first, else `ROUTER_CYBER_REFUSAL_FALLBACK_MODEL` (default `claude-sonnet-5`), filtered through the same rescue machinery as sibling failover (exclusions, allowlist, provider availability, context fit, gateway-exclusive mode) and forced off OpenAI. The rescue attempt is never itself gated, so a refusal from the fallback is not retried again. Gated by `ROUTER_CYBER_REFUSAL_RETRY` (default on, per-org resolvable) and skipped for `/force-model`, hard-pinned turns (probe/compaction/title-gen), subscription-only balances, and eval bypasses; the post-turn session re-pin runs independently under `ROUTER_CYBER_REFUSAL_REPIN` (reason `cyber-refusal-repin`), whether or not the turn was rescued, so turn N+1 starts off-vendor. Telemetry marks the rescued turn with `dispatch.cyber_refusal_retry` and reason `cyber-refusal-retry`, and both attempts bill through the normal failover ledger.
+
+**Early-stop redo ([`early_stop_redo.go`](early_stop_redo.go)).** A lower-tier model on a Claude Code main-thread tool-result turn often ends the agent turn with text and `end_turn` mid-task, and the user has to type "continue". Under `early_stop_redo` (`ROUTER_EARLY_STOP_REDO`: `off` default, `shadow`, `on`; per-org), when the routed model sits below the top tier of the turn's scored candidates (`Decision.Metadata.CandidateModels`, via `rescueBasisForTurn` for held pins), `earlyStopGate` sits above `preludeBuffer` and withholds the client stream until the response proves it calls a tool (released at the first `tool_use` block) or stops for another reason. A response that ends `end_turn` with no tool call stays withheld, and `redoEarlyStop` re-serves the same request on the highest-tier candidate the shared rescue rules admit (`earlyStopRedoTarget` → `rescueDecisions`), so the client sees one clean message from that model and its history matches what the model saw. The trigger and target never read the requested model. The redo strikes the stopped model and every lower-tier candidate for the rest of the agent turn (`recordTurnFailure`), so a turn is redone at most once per user prompt. A redo that fails before output delivers the withheld response instead; one that cannot be built leaves the stopped response in place. The gate releases at `earlyStopHoldCap` bytes or `earlyStopHoldMax` (60s, inside Claude Code's 180s byte-silence timeout), and `preludeBuffer.onDiscard` drops withheld bytes between attempts so a retry never appends to a stale response. `shadow` logs `Tool-result turn ended without a tool call below the top candidate tier` and serves the turn unchanged. Off for streamless, non-Claude Code, hard-pinned, `/force-model`, caller-passthrough, usage-bypass and agent-shadow turns. Telemetry marks a re-served turn with reason `early-stop-redo`, `failover_used`, and `dispatch.early_stop_redo`; the discarded attempt is not billed to the client.
+
+**Subscription recovery and paid authorization ([`subscription_funding.go`](subscription_funding.go)).** Suppression of a failed direct Claude/Codex token opens recovery through remaining eligible linked seats, not permission to pay. The dispatch executor checks final credentials immediately before provider I/O against the request's original credential-free pool snapshot. Non-OAuth inference requires no compatible pool, or positive unexpired quota-exhaustion evidence for every compatible account and presented direct token. This covers deployment keys, BYOK, gateway bindings, API-only state-model walks, and buffered auxiliary calls. A `key_first` BYOK key (`byokFirst`; every Anthropic key predating funding priorities) is the exception: it takes precedence over caller OAuth and linked accounts of its provider without probing their quota, and a BYOK failure must never fall back to Enterprise overage. A `plan_first` key (the default for new keys) gets no exception: it serves only when no subscription credential resolves or this gate's ordinary evidence admits paid dispatch. Enrollment/read/refresh failures, lease contention, auth errors, model denials, generic 429s, timeouts, transport faults, and admission-budget expiry fail closed. Genuine Codex `usage_limit_reached`/`insufficient_quota`, observed exhausted quota, and observed paid overage (`OverageInUse` before its reported reset) may authorize rollover; request-local proof works even without a usage observer. A buffered upstream 5xx on a plan attempt is a different kind of evidence — "the plan cannot serve this turn", not "the quota is spent" — so `recordSubscriptionUnavailable` marks the pool in the request's `ManagedSubscriptionUsage` for a bounded `subscriptionUnavailableCooldown` and `authorizeSubscriptionAPI` admits paid rescue of that turn (same model or a scored sibling) while the mark is live; quota-shaped failed payloads and caller-model passthrough never set it, and nothing about the account's included quota is persisted. Model denials remain account/model scoped, never whole-account exhaustion. A failed rotation preserves its original upstream error alongside the pool sentinel. Depleted credits remain an independent prohibition on paid fallback. An installation with `WeaveCreditInferenceEnabled` off ([`weave_credits.go`](weave_credits.go)) narrows ingress providers to customer-funded ones and refuses any non-customer credential at this check with `ErrWeaveCreditsDisabled`.
+
+**Claude subscription third-party refusal ([`subscription_third_party.go`](subscription_third_party.go)).** `anthropicSubscriptionThirdPartyRefused` narrowly matches Anthropic's 400 `invalid_request_error` saying third-party apps draw from extra usage, not plan limits. It triggers included-seat recovery, never paid authorization. A refused managed account is denied for that `client_app` only, for `subscriptionThirdPartyDenialTTL`; it is not cooled down, exhausted, or marked reconnect-required. Successful subscription traffic from other clients is not contradicted by this scoped refusal. Its cause must be established from matched requests, not inferred from client names or speculative missing headers. The router does not forge provider attestation headers.
 
 **Single-binding same-binding retry.** Most catalog models carry one binding (Anthropic/OpenAI/Google), so cross-binding failover has nowhere to walk — a sole-provider 5xx/timeout would kill the request. For these, `dispatchWithFallback` retries the *same* binding in place up to `maxSameBindingRetries` (2) with exponential backoff (`sameBindingBackoff`: 250ms, 500ms), pre-commit only, abortable on ctx cancel (`sleepWithContext`). Multi-binding models skip in-place retry (`len(bindings) > 1` breaks the inner loop) and fail straight over to the next provider — a different upstream beats re-hitting the flaky one. Tests inject `Service.retrySleep` to keep the backoff instant.
 
-`preludeBuffer` wraps the client writer on every request so the eager SSE Prelude doesn't commit the response to the client before the upstream produces its first byte. The buffer absorbs pre-Seal writes (Prelude's status + `message_start`), commits on the first post-Seal write (= first upstream chunk), and `Discard()`s pre-commit state between attempts so a retry begins with a pristine writer. `Committed()` is the retry gate: once it flips, the response is on the wire and no further retry is allowed.
+**Same-binding retries are bounded by count and wall-clock.** `maxSameBindingRetries` caps repeated attempts against one binding; the executor's 10s wall-clock budget limits identical retries after slow failures. Subscription seat selection uses a separate leasing-only admission budget: slow inference on one seat must not prevent another seat from being tried. Tests express simulated durations as absolute values, never multiples of the budget constant.
+
+**The subscription admission budget charges leasing, never inference.** `subscriptionRotationBudget` (10s) is shared across one request's account rotation, executor re-entry, auxiliary operations, and model-alternative walks. `subscriptionAdmissionBudget.leaseContext` charges only leasing duration, then credentials are rebased onto the live caller context. An admitted attempt runs until it succeeds, a provider watchdog fires, or the caller cancels. Linked account/model pairs are tried once within the admission snapshot. Budget expiry returns unavailable with the original failure; it never spends API, cools down, exhausts, or denies an account. Explicit subscription targets do not escape into generic sibling recovery. Caller cancellation is terminal.
+
+**Client usage is reported in the requested model's tokens, using a ratio measured on the thread.** Claude Code budgets auto-compaction against the requested model's window from each response's input usage. Tokenizers disagree on the same history: GPT bills a Claude Code history at roughly 0.55-0.65x of Claude's count (tool-call JSON compresses most, prose least), so a thread served on Luna once reported ~600K while it was ~1M on Opus; Claude Code never compacted, Luna hit its input cap, and the eventual compaction was too long for Opus. After every served main-loop or tool-result turn, [recordTokenizerObservation](tokenizer_calibration.go) stores the full prompt the serving tokenizer billed in the pin row's [sessionpin.TokenizerCalibration](../router/sessionpin/tokenizer_calibration.go). When both tokenizers billed the thread within TokenizerCalibrationMaxGap (and above TokenizerCalibrationMinPrompt), their ratio is that thread's conversion, kept until the next switch remeasures it. A cross-tokenizer turn scales client-visible input categories by it (clientInputTokenScale). A thread with no measurement is reported unscaled: there is no fleet-wide constant, because a thread's own previous ratio predicts its next switch to within 0.5% (median, production Oct 2026) against 4.3% for the fleet average. Only the client projection is converted; UsageSink, Summary(), billing, telemetry and the pin's usage columns keep provider counts. Each observation also stores the request's body-size estimate, so the thread's own tokens-per-estimate rate projects later turns per tokenizer (`TokenizerCalibration.ProjectedPrompt`; an unmeasured pair converts at the low end of the spread). `excludeObservedOverflowModels` rules out models that projection puts past their window, because the ÷4 estimate fits a GPT-billed ~920k thread under Claude's 1M window when Claude actually bills ~1.4M. The rate follows the body, so a compacted thread fits again.
+
+**Native streams must end on a terminal event.** A provider adapter returns nil on a clean EOF after a 2xx, so a native passthrough the upstream closed mid-turn would otherwise be recorded as served. Native Anthropic (`message_stop`), OpenAI chat (`finish_reason` or `[DONE]`) and Responses (`response.completed`/`incomplete`/`failed`) streams are watched by [`streamTerminalObserver`](stream_terminal_observer.go) and `responsesTerminalObserver`; an upstream-declared failure also counts as an end (Anthropic/Responses `error` event, a chat chunk carrying an `error` object, `response.failed`). Chat with `n > 1` ends only when every choice that emitted has finished or on `[DONE]`; a keepalive-only stream never started; a truncated final frame is not a terminal; an unframed body is not judged. A missing terminal becomes `translate.ErrStreamEmpty` (never started) or `translate.ErrStreamIncomplete`: pre-commit both are retryable like any transport fault, post-commit they take the normal in-stream error path, and `error_class` records `stream_cut`. Telemetry's `failover_used` marks a turn a rescue served; `failover_attempted` marks one where a baseline, subscription or sibling rescue was dispatched, served or not.
+
+`preludeBuffer` wraps the client writer on every request and separates a synthetic prelude from provider-output commitment. OpenAI responses use `CommitPrelude()` to flush the routing marker immediately after the decision while leaving `Committed()` false. Anthropic responses keep the prelude buffered until provider output arrives, preserving an HTTP error status when every attempt fails before output. `Discard()` clears a failed attempt, and continuation-aware writers emit a corrected marker when fallback changes the serving model. Once provider output flips `Committed()`, no further retry is allowed.
 
 Per-attempt body rebuild: each closure constructs `EmitOptions` with `TargetProvider = d.Provider` so the OpenRouter-only gates in [`emit_openai.go`](../translate/emit_openai.go) (`provider` hint, `reasoning: {enabled:false}`, system reminder for tool turns, tool-temp override) fire on the OpenRouter attempt but not on Fireworks/etc. Otherwise OpenRouter would load-balance to non-DeepSeek-native hosts (no prefix caching) and reasoning would burn the max_tokens budget on hidden thinking.
 
 **Invariants:**
-- Unconditional wrap: `preludeBuffer` engages on every request (single- and multi-binding alike). The old single-binding bypass was removed after the v0.58 SWE-bench bake-off traced 46/84 empty-patch failures to it — bypassed requests shipped a marker-only turn to Claude Code on upstream api_errors. TTFB cost is ~200B of buffered SSE released the moment the upstream's first byte arrives. `Committed()` is the retry gate for both cross-binding failover and single-binding in-place retry.
+- Unconditional wrap: `preludeBuffer` engages on every request (single- and multi-binding alike). OpenAI routing markers are released at the completed decision boundary; Anthropic markers wait for the first provider output so a pre-output failure retains its HTTP status. `Committed()` is the retry gate for both cross-binding failover and single-binding in-place retry. A failure after provider output is represented as a protocol-valid in-stream error because HTTP status is already committed.
 - Retry gated on `preludeBuf.Committed() == false`. Once committed (first upstream byte flushed through the chain), switching providers mid-stream would interleave two model outputs.
 - Per-attempt `Prepare*` + translator construction. Translators are stateful; a retry must rebuild the chain from scratch.
-- BYOK and inbound-client-credential requests skip failover entirely (`shouldFailover()` returns false) — those keys bind to one provider and would 401 elsewhere.
+- BYOK and inbound-client-credential requests skip failover entirely (`shouldFailover()` returns false) — those keys bind to one provider and would 401 elsewhere. A subscription OAuth credential keeps the same single-binding dispatch but does not block sibling rescue (`subscriptionSiblingAllowed`).
 - Cancel/deadline classified as non-retryable: client disconnect or per-request budget elapse must not waste a second upstream call.
 - After dispatch, `actPricing` is re-resolved against the WINNING binding via `catalog.PriceFor(finalProvider, decision.Model)` so debits and OTel `cost.actual_*` reflect the actually-served provider's per-1M rate (the catalog's `PrimaryPriceFor` would otherwise always return the primary's).
 
-## `OnUpstreamMeta` callbacks
+## Fast-tier dispatch (`fast_mode_models`)
 
-Provider adapters call back into `proxy.OnUpstreamMeta` so streaming responses record usage/headers back to proxy without coupling provider packages to proxy internals. The catalog / planner stack depends on per-action token counts being recorded promptly — **don't add a provider that forgets to call the callback.**
+An installation opts catalog models into the provider's paid fast tier via `PUT /admin/v1/fast-mode-models` (`auth.Installation.FastModeModels`, carried in ctx under `InstallationFastModeModelsContextKey`). [`fastModeForAttempt`](fastmode.go) decides **per attempt** — against the attempt's own ctx, model, and binding — whether `EmitOptions.FastMode` is set: the model must be listed, the `(provider, model)` binding must publish a `FastPrice` (first-party OpenAI → `service_tier:"priority"`, first-party Anthropic → `speed:"fast"` + beta; gateways never), and the resolved credential must not be a subscription OAuth token (Weave does not bill those turns). Raw passthrough is untouched.
+
+**Routing never sees the fast rate.** Scorer, planner, and `Decision` pricing keep using `ProviderBinding.Price`. Only after dispatch does `servedPricing(finalProvider, model, fastServed)` swap in `catalog.FastPriceFor` for debits, cost headers, `cost.actual_*` / `cost.fast_mode` OTel attributes, and the policy-outcome `cost_usd`. Every attempt closure re-evaluates `fastServed` before it dispatches so a failover onto a gateway or subscription is billed at the tier it was actually sent on; an Anthropic-family binding hop that flips the tier goes through [`anthropicTierAttempt`](fastmode.go), which re-emits the body rather than reusing one carrying the other tier's `speed` field — the primary, baseline-failover, and subscription-failover dispatches all wrap their prepared body in it. A fast send that Anthropic refuses for lack of fast-mode allocation (429 naming "fast mode" tokens — `providers.IsAnthropicFastModeQuotaRejection`) is re-sent once at standard speed and billed at list, so an org that opts in without fast access keeps working; an ordinary 429 stays with the failover loop. The OpenAI-chat → Anthropic cross-format path does the same inline.
+
+## Claude Code message threads (`thread` field)
+
+Claude Code may send `anthropic-beta: message-threads-*` with a top-level `thread` field: `{"type":"create"}` carries the full transcript, while `{"type":"continue","previous_message_id":…}` carries only the turns after that anchor and may omit unchanged `system`/`tools`. Routing, turn typing, session keys, handover, and cross-format emit all assume the full transcript, and Anthropic rejects `thread` for some orgs (Inference Hooks enforcement). `ProxyMessages` therefore strips a create (body field and beta token) and serves it statelessly, and answers a continue with a local 400 carrying `error.details.error_code:"thread_unsupported_request"` — the code Claude Code matches to resend that turn with full history and stay stateless on that model for the session. Never forward a continue body as a stateless request.
+
+## Client-facing SSE keepalive
+
+Clients time a stream out on received BYTES, not on semantic events: Claude Code
+aborts a first-party stream (which includes any `ANTHROPIC_BASE_URL` override,
+so all routed traffic) after **180s** of byte silence. A long reasoning phase
+translates to zero client-facing frames, so a healthy turn reads as a dead
+connection — prod 2026-08-24, three `gpt-5.6-luna` turns that each spent their
+whole 64K output budget reasoning for 320-360s and were killed client-side at
+exactly 180s while the router went on to complete them successfully.
+
+None of the upstream watchdogs can cover this. They measure the *upstream* leg:
+byte-idle keeps getting reset by Responses bookkeeping frames, and the
+output-stall budget (240s) is longer than the client's 180s by design. The gap
+is the *client* leg, so `ProxyMessages` wraps the client writer in
+[`sse.KeepaliveWriter`](../sse/keepalive.go), which emits `anthropicPingFrame`
+after `ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS` (default 15s, 0 disables) of
+silence. This is what direct-to-Anthropic already gets for free — Anthropic's own
+API emits `ping` for exactly this reason (see `anthropic_footer.go`, which
+forwards them).
+
+**Invariants:**
+- **Innermost wrap.** The keepalive sits closest to the socket, below the
+  feedback footer, so it observes the bytes that actually reach the client
+  rather than what the proxy handed to the next translator.
+- **Arms on first byte, never before.** For a `preludeBuffer`-wrapped chain the
+  first byte through is the commit point, so a keepalive can never commit a
+  response the router still wants to retry on another binding.
+- **Record-boundary only.** A frame goes out only when the last write ended on a
+  blank line, so a keepalive can never land inside a partially written event.
+- **`Close()` before the handler returns** (deferred at the wrap site) and it
+  blocks on any in-flight frame, so no keepalive outlives the response.
+
+Only the Anthropic Messages surface is wrapped today — that is where the failure
+was observed. `KeepaliveWriter` takes the frame as a parameter, so adding the
+OpenAI/Gemini surfaces is a wiring change plus their own frame.
+
+## Upstream response-header observation
+
+Proxy attaches a `providers.UpstreamHeaderObserver` to the request context. Provider adapters call `providers.ObserveUpstreamHeaders` as soon as a response arrives, allowing subscription-limit tracking without coupling the adapters to proxy internals. **Don't add a provider that forgets to report the headers.**
 
 ## What NOT to do
 
 - **Don't move provider-call logic into planner.** Planner must remain pure so EV math is provable. Anything network-touching goes in `proxy.Service`.
 - **Don't add a handover path that doesn't time out.** `Summarizer` contract says implementations MUST respect the context deadline. On timeout/error the proxy keeps the full prior history unchanged — do NOT reintroduce a silent trim-to-last-N fallback (it lobotomized switched-to models; see the handover-fallback fix).
 - **Don't cache streaming responses.** Streaming bypasses cache on purpose — captured bytes would be post-translation SSE frames, and lookup latency budget is hostile to first-token-time. If you think this should change, write a doc first.
+
+Subscription ownership and quota-observation limitations are documented in [`docs/SUBSCRIPTION_ROUTING.md`](../../docs/SUBSCRIPTION_ROUTING.md). Source selection owns account availability; quota snapshots never change model quality, and known paid overage is excluded.

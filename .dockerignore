@@ -30,3 +30,4 @@ docker-compose.override.yml
 README.md
 CLAUDE.md
 AGENTS.md
+.context/
