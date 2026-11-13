@@ -1188,9 +1188,12 @@ func TestService_ProxyOpenAIChatCompletion_AnthropicProxyError_PropagatesError(t
 func TestService_ProxyOpenAIChatCompletion_NativeOpenAI(t *testing.T) {
 	provider := &fakeProvider{
 		proxyResponse: func(w http.ResponseWriter) {
-			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Content-Type", "text/event-stream")
 			w.WriteHeader(http.StatusOK)
-			_, _ = io.WriteString(w, `{"id":"chatcmpl-1","object":"chat.completion"}`)
+			_, _ = io.WriteString(w, "event: response.output_text.delta\n"+
+				"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":0,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"ok\"}\n\n"+
+				"event: response.completed\n"+
+				"data: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_1\",\"status\":\"completed\",\"output\":[{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n")
 		},
 	}
 	svc := makeProxyService(
@@ -1213,6 +1216,15 @@ func TestService_ProxyOpenAIChatCompletion_NativeOpenAI(t *testing.T) {
 	assert.Equal(t, "gpt-4o", got["model"], "envelope rewrites model to decision.Model")
 	assert.NotContains(t, got, "messages")
 	assert.Contains(t, got, "input")
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "chat.completion", resp["object"], "Responses output is translated back to Chat Completions")
+	choices, _ := resp["choices"].([]any)
+	require.Len(t, choices, 1)
+	message, _ := choices[0].(map[string]any)["message"].(map[string]any)
+	assert.Equal(t, "ok", message["content"])
 }
 
 // OpenRouter speaks OpenAI Chat Completions natively, so an OpenAI-format
