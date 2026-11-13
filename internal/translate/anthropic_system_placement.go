@@ -83,7 +83,9 @@ func newAnthropicSystemLayout(msgRaws []string) *anthropicSystemLayout {
 		layout.turnTTLs = append(layout.turnTTLs, summarizeAnthropicCacheTTLs(turn))
 	}
 	for boundary := 0; boundary <= len(layout.turns); boundary++ {
-		layout.valid = append(layout.valid, layout.computeValidBoundary(boundary))
+		layout.valid = append(layout.valid, boundary > 0 &&
+			canPrecedeAnthropicSystem(layout.turns[boundary-1]) &&
+			(boundary == len(layout.turns) || layout.turns[boundary].Get("role").String() == "assistant"))
 	}
 	for _, run := range layout.runs {
 		for i := range run {
@@ -95,13 +97,6 @@ func newAnthropicSystemLayout(msgRaws []string) *anthropicSystemLayout {
 
 func (l *anthropicSystemLayout) validBoundary(boundary int) bool {
 	return l.valid[boundary]
-}
-
-func (l *anthropicSystemLayout) computeValidBoundary(boundary int) bool {
-	if boundary == 0 || !canPrecedeAnthropicSystem(l.turns[boundary-1]) {
-		return false
-	}
-	return boundary == len(l.turns) || l.turns[boundary].Get("role").String() == "assistant"
 }
 
 // relocate moves the run at boundary to the nearest valid boundary that keeps
@@ -130,14 +125,21 @@ func (l *anthropicSystemLayout) relocate(boundary int) bool {
 }
 
 func (l *anthropicSystemLayout) cacheTTLsOrdered() bool {
-	var order anthropicCacheTTLOrder
+	seenFiveMinute := false
+	accept := func(msg anthropicCacheTTLSummary) bool {
+		if !msg.ordered || (seenFiveMinute && msg.oneHour) {
+			return false
+		}
+		seenFiveMinute = seenFiveMinute || msg.fiveMinute
+		return true
+	}
 	for boundary := 0; boundary <= len(l.turns); boundary++ {
 		for _, msg := range l.runs[boundary] {
-			if !order.accept(msg.ttl) {
+			if !accept(msg.ttl) {
 				return false
 			}
 		}
-		if boundary < len(l.turns) && !order.accept(l.turnTTLs[boundary]) {
+		if boundary < len(l.turns) && !accept(l.turnTTLs[boundary]) {
 			return false
 		}
 	}
@@ -212,14 +214,4 @@ func summarizeAnthropicCacheTTLs(msg gjson.Result) anthropicCacheTTLSummary {
 		}
 	}
 	return summary
-}
-
-type anthropicCacheTTLOrder struct{ seenFiveMinute bool }
-
-func (o *anthropicCacheTTLOrder) accept(msg anthropicCacheTTLSummary) bool {
-	if !msg.ordered || (o.seenFiveMinute && msg.oneHour) {
-		return false
-	}
-	o.seenFiveMinute = o.seenFiveMinute || msg.fiveMinute
-	return true
 }
