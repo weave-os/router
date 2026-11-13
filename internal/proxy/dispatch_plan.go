@@ -276,7 +276,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
 			}
 			if !managedAttempt && !committed(in.buf) && codexSubscriptionRotates(credentialCtx, attemptErr) {
-				s.recordCodexQuotaExhaustionForCredentials(bookkeepingCtx, CredentialsFromContext(credentialCtx), attemptErr)
+				s.recordCodexCredentialUnusable(bookkeepingCtx, CredentialsFromContext(credentialCtx), attemptErr)
 				s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
 				attemptCtx = resolveAndInjectCredentials(withSuppressedCodexSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{})
 				rotate = true

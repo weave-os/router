@@ -153,6 +153,9 @@ type Observer struct {
 	ttl  time.Duration
 	now  func() time.Time
 	data map[CredentialKey]Snapshot
+	// rejected holds credentials the upstream refused, until each expiry. It is
+	// not quota evidence, so Snapshot never reports it.
+	rejected map[CredentialKey]time.Time
 }
 
 // NewObserver builds an Observer. salt keys credentials; ttl is the MINIMUM
@@ -163,7 +166,7 @@ func NewObserver(salt []byte, ttl time.Duration, now func() time.Time) *Observer
 	if now == nil {
 		now = time.Now
 	}
-	return &Observer{salt: salt, ttl: ttl, now: now, data: make(map[CredentialKey]Snapshot)}
+	return &Observer{salt: salt, ttl: ttl, now: now, data: make(map[CredentialKey]Snapshot), rejected: make(map[CredentialKey]time.Time)}
 }
 
 // windowConstrainedFraction is the utilization at/above which a window is a real
@@ -270,6 +273,32 @@ func (o *Observer) Record(key CredentialKey, snap Snapshot) {
 
 // Snapshot returns the most recent non-stale observation for a credential, or
 // (zero, false) if none / expired. Expired entries are dropped lazily.
+// RecordRejected marks a credential the upstream refused as unusable until until.
+func (o *Observer) RecordRejected(key CredentialKey, until time.Time) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.rejected[key] = until
+}
+
+// Rejected reports whether key was refused and its hold has not yet expired.
+func (o *Observer) Rejected(key CredentialKey) bool {
+	o.mu.RLock()
+	until, ok := o.rejected[key]
+	o.mu.RUnlock()
+	if !ok {
+		return false
+	}
+	if o.now().Before(until) {
+		return true
+	}
+	o.mu.Lock()
+	if cur, still := o.rejected[key]; still && !o.now().Before(cur) {
+		delete(o.rejected, key)
+	}
+	o.mu.Unlock()
+	return false
+}
+
 func (o *Observer) Snapshot(key CredentialKey) (Snapshot, bool) {
 	o.mu.RLock()
 	snap, ok := o.data[key]
@@ -308,6 +337,11 @@ func (o *Observer) Sweep() {
 	for k, s := range o.data {
 		if cutoff.Sub(s.ObservedAt) > o.freshFor(s) {
 			delete(o.data, k)
+		}
+	}
+	for k, until := range o.rejected {
+		if !cutoff.Before(until) {
+			delete(o.rejected, k)
 		}
 	}
 	o.mu.Unlock()
