@@ -886,7 +886,7 @@ const (
 	markerReasonTierUpgrade         = "upgraded to a stronger tier"
 	markerReasonBestPick            = "best pick for this turn"
 	markerReasonBaseline            = "fell back to baseline after provider outage"
-	markerReasonSibling             = "switched after the picked model was overloaded"
+	markerReasonSibling             = "switched after the picked model was unavailable"
 	markerReasonSubscriptionCovered = "switched to a subscription-covered model"
 	markerReasonCyberRefusal        = "switched after the picked model declined the request"
 	markerReasonForcedPinDropped    = "your force-model pin could not be served this turn"
@@ -915,9 +915,9 @@ func siblingMarkerReason(ctx context.Context, failedModel string) string {
 	if failedModel == "" {
 		return markerReasonSibling
 	}
-	cause := "was overloaded"
-	if last, ok := attemptTraceFromContext(ctx).lastFailure(); ok && baseModelOf(last.Target.CatalogID) == baseModelOf(failedModel) {
-		cause = failureWordingFor(last).badge
+	cause := "was unavailable"
+	if failed, ok := attemptTraceFromContext(ctx).lastFailureOn(failedModel); ok {
+		cause = failureWordingFor(failed).badge
 	}
 	return "switched after " + failedModel + " " + cause
 }
@@ -7793,7 +7793,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// single-binding GPT model with no cross-format fallback to retry
 		// into. If a GPT model ever gains a fallback, gate this per-attempt.
 		if verbatimPassthrough {
-			// marker already carries the depleted-credits warning when terminal
+			// marker already carries any funding warning when terminal
 			// surfaces are enabled.
 			// Parse native SSE when this client needs a badge and/or footer.
 			if supportsResponsesTerminalSurfaces(clientID.ClientApp) && (marker != "" || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoed) != "") {
@@ -7823,8 +7823,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// Responses notices go out before dispatch; only a reconnect nudge
 			// raised by this attempt's funding still needs delivering.
 			if isResponses && responsesPreludeBuf != nil && notice.Kind == translate.NoticeSubscriptionReconnect && (!verbatimPassthrough || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
-				_, noticeErr := responsesNotices.prepare(r.Context(), responsesPreludeBuf, responsesPreludeBuf, translate.FormatOpenAIResponses, env.Stream(), notice)
-				return sink, noticeErr
+				return sink, responsesNotices.deliver(notice)
 			}
 			return sink, nil
 		}

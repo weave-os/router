@@ -71,15 +71,9 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
-	body, err = normalizeAnthropicFinalAssistant(body)
+	body, err = prepareAnthropicMessageTail(body, opts.Capabilities.Supports(router.CapAssistantPrefill))
 	if err != nil {
-		return providers.PreparedRequest{}, fmt.Errorf("normalize anthropic final assistant: %w", err)
-	}
-	if !opts.Capabilities.Supports(router.CapAssistantPrefill) {
-		body, err = dropAnthropicFinalAssistant(body)
-		if err != nil {
-			return providers.PreparedRequest{}, fmt.Errorf("drop anthropic final assistant: %w", err)
-		}
+		return providers.PreparedRequest{}, err
 	}
 	body, err = applyAnthropicCachePolicy(body, true)
 	if err != nil {

@@ -74,7 +74,11 @@ func TestFundingBypassPartialStreamRecoversOnLinkedSubscription(t *testing.T) {
 				require.NotContains(t, rec.Body.String(), "abandoned")
 				require.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_start\n"))
 				require.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_stop\n"))
-				require.Equal(t, 1, strings.Count(rec.Body.String(), "paid model fallback is disabled"))
+				wantWarnings := 1
+				if reason == billing.SubscriptionOnlyCreditsDepleted {
+					wantWarnings = 0
+				}
+				require.Equal(t, wantWarnings, strings.Count(rec.Body.String(), "paid model fallback is disabled"), "a linked seat funds the turn, so only a reached cap is worth announcing")
 				require.Equal(t, 1, strings.Count(rec.Body.String(), `"input_tokens":3`))
 				require.Equal(t, 1, strings.Count(rec.Body.String(), `"output_tokens":2`))
 			})

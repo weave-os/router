@@ -474,6 +474,47 @@ func TestSubscriptionCredentialRejectionStrikesRollAndResetOnReEnable(t *testing
 	assert.Equal(t, auth.SubscriptionCredentialRejection{Count: 1, FirstRejectedAt: start.Add(31 * time.Hour)}, afterReEnable)
 }
 
+func TestSubscriptionCandidatesCarryOnlyUnresolvedCredentialRejections(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderCodex, ExternalAccountID: "codex-strikes",
+		ProviderUserID: "synthetic-provider-user", RefreshToken: []byte("ciphertext"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := fixture.pool.Exec(context.Background(), "DELETE FROM router.subscription_credential_events WHERE account_id=$1", account.ID)
+		require.NoError(t, err)
+	})
+	candidateRejections := func() int {
+		candidates, err := repo.(interface {
+			ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
+		}).ListSubscriptionCandidates(ctx, owner)
+		require.NoError(t, err)
+		require.Len(t, candidates, 1)
+		return candidates[0].CredentialRejections
+	}
+	leaseID := uuid.NewString()
+	acquisition, err := repo.TryAcquireSubscriptionRefreshLease(ctx, account.ID, owner, leaseID, time.Minute)
+	require.NoError(t, err)
+	require.True(t, acquisition.Acquired)
+	record, err := repo.GetSubscriptionCredentialRecord(ctx, account.ID, owner)
+	require.NoError(t, err)
+	_, err = repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, auth.SubscriptionCredentialRejectionInput{
+		Reason: "refresh_token_invalidated", RejectedAt: time.Now().UTC(), Window: 24 * time.Hour, LeaseID: leaseID, ExpectedVersion: record.TokenRefreshVersion,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, candidateRejections(),
+		"admission must tell a credential-strike cooldown apart from a rate-limit cooldown")
+
+	require.NoError(t, repo.PersistSubscriptionTokens(ctx, account.ID, owner, leaseID, record.TokenRefreshVersion,
+		[]byte("refresh-new"), []byte("access-new"), time.Now().Add(time.Hour)))
+	assert.Equal(t, 0, candidateRejections(),
+		"a refreshed seat's retained strikes must not hide a later rate-limit cooldown")
+}
+
 func TestSubscriptionRefreshRejectionStrikeIsLeaseFencedAndClearedByRefresh(t *testing.T) {
 	fixture := newSubscriptionFixture(t)
 	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)

@@ -1082,7 +1082,6 @@ func main() {
 			hmmRosterSources[router.StrategyHMMBeta] = rosterSource
 			hmmRosterSources[router.StrategyHMMQwen] = rosterSource
 		}
-		hmmRosterModels = admittedHMMRosterSource{}
 		if topic := strings.TrimSpace(config.GetOr("PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION", "")); topic != "" {
 			subscriptionCtx, cancelSubscription := context.WithTimeout(context.Background(), 30*time.Second)
 			subscriptionName, cleanup, err := routerpubsub.CreateReplicaSubscription(subscriptionCtx, pubsubClient, pubsubProjectID, topic, config.GetOr("PUBSUB_SUBSCRIPTION_ROUTER_POLICY_INVALIDATION", topic))
@@ -1613,10 +1612,7 @@ func main() {
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}
-	if hmmRosterModels == nil && deploymentMode == server.DeploymentModeSelfHosted {
-		hmmRosterModels = catalogRosterSource{}
-	}
-	server.RegisterWithFeatures(engine, authSvc, proxySvc, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)
+	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModelsSource(hmmRosterModels), deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)
 
 	port := config.GetOr("PORT", "8080")
 	address := ":" + port
