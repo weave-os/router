@@ -68,11 +68,12 @@ func goldenUpstreamError(status int, body string) goldenStep {
 }
 
 type goldenAttempt struct {
-	Provider string `json:"provider"`
-	Model    string `json:"wire_model"`
-	Endpoint string `json:"endpoint,omitempty"`
-	Body     any    `json:"outbound_body,omitempty"`
-	Outcome  string `json:"outcome"`
+	Provider   string            `json:"provider"`
+	Model      string            `json:"wire_model"`
+	Endpoint   string            `json:"endpoint,omitempty"`
+	Body       any               `json:"outbound_body,omitempty"`
+	Credential *goldenCredential `json:"credential,omitempty"`
+	Outcome    string            `json:"outcome"`
 }
 
 type goldenProvider struct {
@@ -84,6 +85,12 @@ type goldenProvider struct {
 func (p *goldenProvider) SupportsSubscriptions() bool { return true }
 
 func (p *goldenProvider) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+	credential := p.rec.credential(ctx)
+	if creds := proxy.CredentialsFromContext(ctx); creds != nil && creds.CredentialError != nil {
+		p.rec.recordAttempt(goldenAttempt{Provider: p.name, Model: decision.Model, Endpoint: goldenEndpoint(prep.Endpoint),
+			Credential: credential, Outcome: goldenOutcome(creds.CredentialError)})
+		return creds.CredentialError
+	}
 	step := p.rec.nextStep(p)
 	if step.status != 0 || len(step.frames) > 0 {
 		for k, v := range step.headers {
@@ -103,11 +110,12 @@ func (p *goldenProvider) Proxy(ctx context.Context, decision router.Decision, pr
 		err = ctx.Err()
 	}
 	p.rec.recordAttempt(goldenAttempt{
-		Provider: p.name,
-		Model:    decision.Model,
-		Endpoint: goldenEndpoint(prep.Endpoint),
-		Body:     goldenJSON(prep.Body),
-		Outcome:  goldenOutcome(err),
+		Provider:   p.name,
+		Model:      decision.Model,
+		Endpoint:   goldenEndpoint(prep.Endpoint),
+		Body:       goldenJSON(prep.Body),
+		Credential: credential,
+		Outcome:    goldenOutcome(err),
 	})
 	return err
 }
