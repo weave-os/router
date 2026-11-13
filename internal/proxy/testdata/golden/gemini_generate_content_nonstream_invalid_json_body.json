@@ -128,6 +128,44 @@
           "OrganizationID": "golden-org",
           "RouterModel": "gemini-2.5-flash"
         }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.0000036,
+          "ActualOutputCostUSD": 0.0000084,
+          "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 1048576,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 4,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "served_model": "gemini-2.5-flash",
+            "version": 1
+          },
+          "DecisionModel": "gemini-2.5-flash",
+          "DecisionProvider": "google",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "concatenated_stream",
+          "FinalModelFamily": "gemini-flash",
+          "FreshDecisionModel": "gemini-2.5-flash",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "gemini-flash",
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "Role": "default",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamStatusCode": 200
+        }
       ]
     }
   ],

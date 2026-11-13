@@ -325,8 +325,11 @@ func goldenGeminiScenarios() []goldenScenario {
 	slow := stream("no_keepalive_ping_on_slow_stream", goldenSlow(geminiOK(true, "slow")))
 	slow.configure = withSlowKeepalive
 	out = append(out, slow)
+	// A truncated body is not rejected: it is dispatched upstream as an empty object.
+	out = append(out, goldenScenario{name: ingressGemini + "_nonstream_invalid_json_body", ingress: ingressGemini,
+		decisions: []router.Decision{goldenGeminiDecision}, upstreams: map[string][]goldenStep{providers.ProviderGoogle: {geminiOK(false, "never")}},
+		requests: []goldenRequest{{body: `{"contents":`, path: goldenGeminiPath(false)}}})
 	for _, bad := range []struct{ name, path, body string }{
-		{"invalid_json_body", goldenGeminiPath(false), `{"contents":`},
 		{"unknown_action", "/v1beta/models/" + goldenGeminiModel + ":countTokens", goldenGeminiBody()},
 		{"missing_model", "/v1beta/models/:generateContent", goldenGeminiBody()},
 	} {
