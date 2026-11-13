@@ -74,7 +74,7 @@ boundary to fix a failure; see [CLAUDE.md](CLAUDE.md#things-to-never-do).
 
 ## What we won't accept
 
-- **Silent fallbacks.** When the cluster scorer can't run, the router
+- **Silent fallbacks.** When the routing policy can't decide, the router
   returns HTTP 503 — it does *not* fall back to a default model. PRs
   re-introducing fail-open behavior will be rejected; silent degradation
   masked real regressions before, which is why the heuristic was retired.

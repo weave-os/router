@@ -85,12 +85,19 @@ const compactionSniffLen = 4096
 // the prompt body, so quoted or injected prompt text cannot trigger it.
 const subAgentSystemMarker = "cc_is_subagent=true"
 
-// Bounds for short-form classifier calls (e.g. Claude Code's security monitor:
-// max_tokens=64, message_count=2). Headroom for similar calls without catching main-loop turns.
+// Bounds for short-form classifier calls (max_tokens=64, message_count=2 for
+// models that accept disabled thinking). Headroom for similar calls without catching main-loop turns.
 const (
 	classifierMaxTokensThreshold = 256
 	classifierMaxMessageCount    = 3
 )
+
+// securityMonitorPromptPrefix opens Claude Code's auto-mode security monitor
+// system prompt. Its max_tokens ranges from 64 to 10240+ depending on the
+// model's thinking support, so the prompt identifies it, not the size cap.
+const securityMonitorPromptPrefix = "you are a security monitor for autonomous ai coding agents"
+
+const billingHeaderLinePrefix = "x-anthropic-billing-header:"
 
 // OpenCodeCaller is the caller's OpenCode identity; the zero value is any
 // other client.
@@ -147,7 +154,7 @@ func Detect(env *translate.RequestEnvelope, feats translate.RoutingFeatures, sub
 	}
 	// Claude Code's security monitor also opens its payload with <transcript>,
 	// so the body sniff yields to the tool-less classifier shape.
-	if isClassifier(feats) {
+	if isClassifier(feats) || isSecurityMonitor(env, feats) {
 		return Classifier
 	}
 	if isSubAgentDispatch("", "", env.FirstUserMessageText(), "") {
@@ -187,6 +194,30 @@ func isClassifier(feats translate.RoutingFeatures) bool {
 		return false
 	}
 	return true
+}
+
+// isSecurityMonitor reports whether a tool-less Anthropic request opens a
+// system block (after any billing-header line) with Claude Code's security
+// monitor prompt.
+func isSecurityMonitor(env *translate.RequestEnvelope, feats translate.RoutingFeatures) bool {
+	if feats.HasTools || env.SourceFormat() != translate.FormatAnthropic {
+		return false
+	}
+	for _, block := range env.SystemBlocks() {
+		text := strings.TrimSpace(block)
+		if hasFoldedPrefix(text, billingHeaderLinePrefix) {
+			_, rest, _ := strings.Cut(text, "\n")
+			text = strings.TrimSpace(rest)
+		}
+		if hasFoldedPrefix(text, securityMonitorPromptPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasFoldedPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
 // isTitleGen reports whether a request is Claude Code's sidebar-title call:

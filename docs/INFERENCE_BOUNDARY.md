@@ -29,7 +29,7 @@ Router PRs [#884](https://github.com/weave-os/router/pull/884) and [#792](https:
 | Upstream model listing | `upstream_model_listing` | metadata passthrough | provider adapter list methods | remains non-selection |
 | Policy decision/preview/outcome/feedback | `policy_sidecar_*` | control plane | `internal/policyclient` and legacy `internal/router/rl` HTTP clients | remains non-inference |
 | Initial-task domain classification | `task_domain_classification` | control plane | `internal/policyclient.TaskDomainClassifier` with bounded `proxy.TaskDomainResolver` orchestration | remains non-inference |
-| Cluster/cache embeddings | `cluster_embedding`, `semantic_cache_embedding` | local support | local embedder/cache packages | remains local-only |
+| Cluster/cache embeddings | `cluster_embedding`, `semantic_cache_embedding` | local support | none in workers: the semantic cache is deleted and the legacy cluster scorer is being removed | purposes stay registered until removed |
 | Native/Cortex web search | `native_web_search` | web-search tool | explicit `websearch.Executor` | remains separate from generic inference |
 | Codex subscription search bridge | `openai_responses` | main inference | isolated Claude Code helper projected into the existing Responses entry point | uses existing policy, subscription admission and dispatch |
 

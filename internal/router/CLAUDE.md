@@ -20,11 +20,10 @@ All subpackages above are inner-ring and I/O-free; see the [root layer diagram](
 ## Adding a new `router.Router` implementation
 
 1. **External policy:** construct `policy.SidecarRouter` with a roster mapper, managed provider policy, strategy ID, and unavailable sentinel. Register it with `proxy.WithPolicyStrategy`; candidate filtering, result validation, metadata, outcome, and feedback are shared.
-2. **In-process implementation:** create a sibling subpackage to `cluster/` and implement `Route(ctx, router.Request) (router.Decision, error)`.
+2. **In-process implementation:** create a sibling subpackage (e.g. next to `rl/`) and implement `Route(ctx, router.Request) (router.Decision, error)`.
 3. **Add compile-time check:** `var _ router.Router = (*X)(nil)`.
 4. **Wire in `../../cmd/router/main.go`** (replacing, wrapping, or registering it as needed).
-5. **If the impl needs CGO or external libs**, follow the build-tag pattern in `cluster/embedder_onnx.go` + `embedder_stub.go` so contributors without the library can still `go test` locally.
-6. **Failure modes return errors, not silent fallbacks.** The cluster scorer's `ErrClusterUnavailable` → HTTP 503 pattern is the model: silent fallback to a default model masks regressions + lets quality silently degrade in eval + prod.
+5. **Failure modes return errors, not silent fallbacks.** Return `router.ErrRoutingUnavailable` (or a sentinel wrapping it) → HTTP 503: silent fallback to a default model masks regressions + lets quality silently degrade in eval + prod.
 
 ## Invariants
 

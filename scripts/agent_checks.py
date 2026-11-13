@@ -195,7 +195,7 @@ SUITES = (
             ("go", "vet", "./..."),
         ),
         ("go",),
-        note="Native tokenizer libraries may be required; never change or clear GOCACHE to retry.",
+        note="Never change or clear GOCACHE to retry.",
     ),
     Suite(
         SuiteID.LINT,

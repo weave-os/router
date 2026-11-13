@@ -18,7 +18,7 @@ Stand up the router in docker compose, point a one-off `claude -p` session at it
 
 - **`~/.claude/settings.json` `env` overrides inherited env vars.** Setting `ANTHROPIC_BASE_URL` in the shell does NOT redirect `claude` — settings.json wins and the request silently goes to prod. Always redirect with `claude --settings <file>` (see `scripts/local-settings.json`). Never edit the user's global `~/.claude.json` or `~/.claude/settings.json` — that breaks their live session.
 - **`claude -p` is stateless across invocations.** A standalone `/force-model` call does not persist to the next `claude -p`. Put `/force-model <model>` as the first line of the SAME prompt that contains the task.
-- **The router ignores the request's `model` field** and routes via the cluster scorer. The ONLY way to pin a specific model is `/force-model` through a Claude Code session (raw curl cannot).
+- **The router ignores the request's `model` field** and routes via the routing policy. The ONLY way to pin a specific model is `/force-model` through a Claude Code session (raw curl cannot).
 - **Port 8085 conflict.** The monorepo's pubsub emulator may already own host port 8085. Drop the router's host binding with a `docker-compose.override.yml` (see workflow). The server still reaches the emulator over the compose network.
 - **No credits / no key = no reproduction.** If the real upstream returns an error (e.g. OpenRouter "Insufficient credits"), use the mock-upstream path instead.
 

@@ -290,12 +290,9 @@ When adding new endpoint, put inside `selfhosted` block in `server.Register` unl
 
 The eval harness is a sibling uv project, **not in this repo** — lives at `router-internal/eval/` in the Weave monorepo and runs as a Modal app. It exercises the router via staging headers; see that package's README.
 
-**Per-request router selection (server side):**
-
-
 **What to NOT do:**
 
-- **Do NOT re-introduce heuristic-vs-cluster A/B switch.** Heuristic retired because silent-fallback behavior masked cluster regressions. If need to compare strategies, ship alternate strategy as another `internal/router/X` package + promote on own merits, not as runtime fallback.
+- **Do NOT re-introduce a runtime fallback between strategies.** The retired heuristic fallback masked routing regressions. If need to compare strategies, ship alternate strategy as another `internal/router/X` package + promote on own merits, not as runtime fallback.
 - **Do NOT add runtime override that picks specific model directly.** Whole point is comparing *router strategies*, not per-request model overrides.
 
 ## Quick reference
