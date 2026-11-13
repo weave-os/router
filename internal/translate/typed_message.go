@@ -34,7 +34,7 @@ func clientWrappedMessage(text string) (before, query, after string, ok bool) {
 	if !strings.HasPrefix(strings.TrimSpace(text), codexPastedFilesHeader) {
 		return "", "", "", false
 	}
-	idx := strings.LastIndex(text, codexPastedFilesRequest)
+	idx := strings.Index(text, codexPastedFilesRequest)
 	if idx < 0 {
 		return "", "", "", false
 	}

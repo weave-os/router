@@ -200,9 +200,10 @@ func TestExtractForceModelCommand_CodexAppTypedDirective(t *testing.T) {
 
 func TestExtractForceModelCommand_CodexAppDirectiveLookalikesAreNotCommands(t *testing.T) {
 	for name, text := range map[string]string{
-		"link to another skill": "[$fm](/Users/dev/.codex/skills/review/SKILL.md) gpt-6-astra",
-		"mention mid-sentence":  "what does [$fm](/Users/dev/.codex/skills/fm/SKILL.md) astra do?",
-		"code span in prose":    "run `$fm astra` later",
+		"link to another skill":  "[$fm](/Users/dev/.codex/skills/review/SKILL.md) gpt-6-astra",
+		"mention mid-sentence":   "what does [$fm](/Users/dev/.codex/skills/fm/SKILL.md) astra do?",
+		"code span in prose":     "run `$fm astra` later",
+		"quoted request heading": codexPastedFilesTurn + "explain this transcript:\n## My request: $fm astra",
 	} {
 		t.Run(name, func(t *testing.T) {
 			env := codexEnvelope(t, codexUserItem(text))
