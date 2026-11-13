@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/router/turntype"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -50,7 +51,7 @@ func forceCommandEnv(t *testing.T) *translate.RequestEnvelope {
 // would have reported success, then served a different model every turn.
 func TestForceModelCommand_RejectsSoleProviderExcluded(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
@@ -59,7 +60,7 @@ func TestForceModelCommand_RejectsSoleProviderExcluded(t *testing.T) {
 	require.NoError(t, svc.handleForceModelCommand(
 		excludedProvidersCtx(providers.ProviderAnthropic), rec, env,
 		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), 10))
+		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
 	assert.Empty(t, store.upserts, "a refused force must not write a pin")
 	assert.Contains(t, rec.Body.String(), "force-model rejected")
@@ -71,17 +72,17 @@ func TestForceModelCommand_RejectsSoleProviderExcluded(t *testing.T) {
 // is enforced independently of the provider list.
 func TestForceModelCommand_RejectsExcludedModel(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
 	ctx := context.WithValue(context.Background(),
-		InstallationExcludedModelsContextKey{}, []string{"claude-opus-5"})
+		InstallationExcludedModelsContextKey{}, []string{"claude-opus-5-5"})
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.handleForceModelCommand(ctx, rec, env,
 		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), 10))
+		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
 	assert.Empty(t, store.upserts, "an excluded model must not be pinned")
 	assert.Contains(t, rec.Body.String(), "force-model rejected")
@@ -91,7 +92,7 @@ func TestForceModelCommand_RejectsExcludedModel(t *testing.T) {
 // rejecting: a multi-binding model is only refused when every binding is gone.
 func TestForceModelCommand_AllowsWhenOneBindingSurvives(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderBedrock, providers.ProviderOpenRouter))
 
@@ -100,7 +101,7 @@ func TestForceModelCommand_AllowsWhenOneBindingSurvives(t *testing.T) {
 	require.NoError(t, svc.handleForceModelCommand(
 		excludedProvidersCtx(providers.ProviderOpenRouter), rec, env,
 		translate.ForceModelResult{Model: multiBindingModel},
-		uuid.New(), DeriveSessionKey(env, "key-1"), 10))
+		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
 	require.Len(t, store.upserts, 1, "one excluded binding must not refuse the force")
 	assert.Equal(t, multiBindingModel, store.upserts[0].Model)
@@ -111,7 +112,7 @@ func TestForceModelCommand_AllowsWhenOneBindingSurvives(t *testing.T) {
 // was built for, expressed through exclusions alone.
 func TestForceModelCommand_RejectsWhenEveryBindingExcluded(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderBedrock, providers.ProviderOpenRouter))
 
@@ -120,7 +121,7 @@ func TestForceModelCommand_RejectsWhenEveryBindingExcluded(t *testing.T) {
 	require.NoError(t, svc.handleForceModelCommand(
 		excludedProvidersCtx(providers.ProviderBedrock, providers.ProviderOpenRouter),
 		rec, env, translate.ForceModelResult{Model: multiBindingModel},
-		uuid.New(), DeriveSessionKey(env, "key-1"), 10))
+		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
 	assert.Empty(t, store.upserts)
 	assert.Contains(t, rec.Body.String(), "force-model rejected")
@@ -130,7 +131,7 @@ func TestForceModelCommand_RejectsWhenEveryBindingExcluded(t *testing.T) {
 // evidence from masquerading as operator policy.
 func TestForceModelCommand_SessionStrikeOutDoesNotReject(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
@@ -140,7 +141,7 @@ func TestForceModelCommand_SessionStrikeOutDoesNotReject(t *testing.T) {
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.handleForceModelCommand(ctx, rec, env,
 		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), 10))
+		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
 	require.Len(t, store.upserts, 1,
 		"a provider struck out for overload is not an exclusion")
@@ -150,7 +151,7 @@ func TestForceModelCommand_SessionStrikeOutDoesNotReject(t *testing.T) {
 // response to warn through, so it fails the request instead.
 func TestForceModelHeader_RejectsExcludedModel(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
@@ -159,8 +160,8 @@ func TestForceModelHeader_RejectsExcludedModel(t *testing.T) {
 	require.NoError(t, err)
 	req.Header.Set(ForceModelHeader, "opus")
 
-	model, forceErr := svc.applyForceModelHeader(
-		excludedProvidersCtx(providers.ProviderAnthropic), req, env,
+	_, model, forceErr := svc.applyForceModelHeader(
+		excludedProvidersCtx(providers.ProviderAnthropic), req,
 		uuid.New(), DeriveSessionKey(env, "key-1"))
 
 	require.Error(t, forceErr)
@@ -173,7 +174,7 @@ func TestForceModelHeader_RejectsExcludedModel(t *testing.T) {
 // boundary: no exclusions means the header behaves exactly as before.
 func TestForceModelHeader_UnfencedInstallationUnaffected(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	env := forceCommandEnv(t)
@@ -181,12 +182,35 @@ func TestForceModelHeader_UnfencedInstallationUnaffected(t *testing.T) {
 	require.NoError(t, err)
 	req.Header.Set(ForceModelHeader, "opus")
 
-	model, forceErr := svc.applyForceModelHeader(
-		context.Background(), req, env, uuid.New(), DeriveSessionKey(env, "key-1"))
+	_, model, forceErr := svc.applyForceModelHeader(
+		context.Background(), req, uuid.New(), DeriveSessionKey(env, "key-1"))
 
 	require.NoError(t, forceErr)
-	assert.Equal(t, "claude-opus-5", model)
+	assert.Equal(t, "claude-opus-5-5", model)
 	require.Len(t, store.upserts, 1)
+}
+
+// The `:level` suffix must reach the caller's context and returned model spec:
+// plan-owned dispatch omits routing knobs, so the returned spec carries the
+// effort into req.ForceModel for the same turn.
+func TestForceModelHeader_EffortSuffixLandsOnReturnedContext(t *testing.T) {
+	store := &recordingPinStore{}
+	svc := NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+
+	env := forceCommandEnv(t)
+	req, err := http.NewRequest(http.MethodPost, "/v1/messages", nil)
+	require.NoError(t, err)
+	req.Header.Set(ForceModelHeader, "opus:xhigh")
+
+	ctx, model, forceErr := svc.applyForceModelHeader(
+		context.Background(), req, uuid.New(), DeriveSessionKey(env, "key-1"))
+
+	require.NoError(t, forceErr)
+	assert.Equal(t, "claude-opus-5-5:xhigh", model)
+	knobs := routingKnobsForRequest(ctx)
+	require.NotNil(t, knobs)
+	assert.Equal(t, "xhigh", knobs.ForceEffort)
 }
 
 // TestTurnLoop_ForcedPinToNewlyExcludedProviderRejects: policy can change
@@ -199,12 +223,12 @@ func TestTurnLoop_ForcedPinToNewlyExcludedProviderRejects(t *testing.T) {
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: pinNeverExpires,
 	}, found: true}
-	svc := NewService(fr, nil, nil, false, nil, store, false,
+	svc := NewService(fr, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
 	env := forceCommandEnv(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	_, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
 		env, feats, "key-1", uuid.New(), "", nil,
@@ -226,12 +250,12 @@ func TestTurnLoop_AutomaticPinToExcludedProviderStillFallsThrough(t *testing.T) 
 		Reason:      "cluster:v0.2",
 		PinnedUntil: time.Now().Add(time.Hour),
 	}, found: true}
-	svc := NewService(fr, nil, nil, false, nil, store, false,
+	svc := NewService(fr, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
 	env := forceCommandEnv(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	_, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
 		env, feats, "key-1", uuid.New(), "", nil,
@@ -244,7 +268,7 @@ func TestTurnLoop_AutomaticPinToExcludedProviderStillFallsThrough(t *testing.T) 
 // provider refuses a force only when no other keyed binding can serve it.
 func TestForceModelCommand_AllowsWhenAnotherKeyedBindingServes(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(
 			providers.ProviderAnthropic, providers.ProviderAnthropicGateway))
@@ -254,7 +278,7 @@ func TestForceModelCommand_AllowsWhenAnotherKeyedBindingServes(t *testing.T) {
 	require.NoError(t, svc.handleForceModelCommand(
 		excludedProvidersCtx(providers.ProviderAnthropic), rec, env,
 		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), 10))
+		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
 	require.Len(t, store.upserts, 1)
 	assert.Contains(t, rec.Body.String(), "force-model applied")
@@ -268,16 +292,16 @@ func TestForceModelCommand_AllowsWhenAnotherKeyedBindingServes(t *testing.T) {
 // is as authoritative as the per-installation list.
 func TestForceModelCommand_RejectsDeploymentExcludedModel(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic)).
-		WithExcludedModelsOverride([]string{"claude-opus-5"})
+		WithExcludedModelsOverride([]string{"claude-opus-5-5"})
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env,
 		translate.ForceModelResult{Model: "opus"},
-		uuid.New(), DeriveSessionKey(env, "key-1"), 10))
+		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
 	assert.Empty(t, store.upserts, "an env-excluded model must not be pinned")
 	assert.Contains(t, rec.Body.String(), "force-model rejected")
@@ -293,13 +317,13 @@ func TestTurnLoop_ForcedPinFollowsSurvivingBinding(t *testing.T) {
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: pinNeverExpires,
 	}, found: true}
-	svc := NewService(fr, nil, nil, false, nil, store, false,
+	svc := NewService(fr, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(
 			providers.ProviderAnthropic, providers.ProviderAnthropicGateway))
 
 	env := forceCommandEnv(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
 		env, feats, "key-1", uuid.New(), "", nil,
@@ -326,13 +350,13 @@ func TestTurnLoop_StrikeExemptionCoversRemappedBinding(t *testing.T) {
 		PinnedUntil:       pinNeverExpires,
 		DisabledProviders: []string{providers.ProviderAnthropicGateway},
 	}, found: true}
-	svc := NewService(fr, nil, nil, false, nil, store, false,
+	svc := NewService(fr, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(
 			providers.ProviderAnthropic, providers.ProviderAnthropicGateway))
 
 	env := forceCommandEnv(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
 		env, feats, "key-1", uuid.New(), "", nil,
@@ -356,7 +380,7 @@ func TestTurnLoop_HardPinnedTurnForcedPinFollowsSurvivingBinding(t *testing.T) {
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: pinNeverExpires,
 	}, found: true}
-	svc := NewService(fr, nil, nil, false, nil, store, false,
+	svc := NewService(fr, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(
 			providers.ProviderAnthropic, providers.ProviderAnthropicGateway))
@@ -364,7 +388,7 @@ func TestTurnLoop_HardPinnedTurnForcedPinFollowsSurvivingBinding(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(
 		`{"model":"claude-opus-4-8","max_tokens":1,"messages":[{"role":"user","content":"quota"}]}`))
 	require.NoError(t, err)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
 		env, feats, "key-1", uuid.New(), "", nil,
@@ -391,13 +415,16 @@ func TestClassifyDispatchError_ForcedModelExcluded(t *testing.T) {
 	assert.True(t, cls.Kind.IsClientError(),
 		"an excluded force is a client-input problem, not an upstream failure")
 	assert.Contains(t, cls.Message, "claude-opus-5")
-	assert.Contains(t, cls.Message, "/unforce-model")
+	// Sigil-free: this classifier has no request context to tell a Codex
+	// caller (which needs "$") from a Claude Code one (which needs "/").
+	assert.Contains(t, cls.Message, "unforce-model")
+	assert.NotContains(t, cls.Message, "/unforce-model")
 }
 
 // Desugaring only covers routableUniverse; claude-opus-4-8 is passthrough-only
 // and never in that set, so the allowlist check in forcedModelBinding must be direct.
 func TestForcedModelBinding_RejectsPassthroughModelOutsideAllowlist(t *testing.T) {
-	svc := NewService(nil, nil, nil, false, nil, nil, false,
+	svc := NewService(nil, nil, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic)).
 		// nil availableModels enumerates the full catalog and masks the passthrough-
@@ -416,7 +443,7 @@ func TestForcedModelBinding_RejectsPassthroughModelOutsideAllowlist(t *testing.T
 
 // The allowlist must only ever narrow: an allowlisted model still forces fine.
 func TestForcedModelBinding_AllowsPassthroughModelInsideAllowlist(t *testing.T) {
-	svc := NewService(nil, nil, nil, false, nil, nil, false,
+	svc := NewService(nil, nil, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
@@ -431,7 +458,7 @@ func TestForcedModelBinding_AllowsPassthroughModelInsideAllowlist(t *testing.T) 
 
 // No allowlist configured = no restriction, so passthrough forcing is unchanged.
 func TestForcedModelBinding_NoAllowlistLeavesPassthroughForcingUnchanged(t *testing.T) {
-	svc := NewService(nil, nil, nil, false, nil, nil, false,
+	svc := NewService(nil, nil, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
@@ -439,4 +466,72 @@ func TestForcedModelBinding_NoAllowlistLeavesPassthroughForcingUnchanged(t *test
 
 	assert.Empty(t, reason)
 	assert.Equal(t, providers.ProviderAnthropic, binding)
+}
+
+func TestForcedModelBinding_RefreshesRetiredProviderOnSavedPin(t *testing.T) {
+	svc := NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithDeploymentKeyedProviders(keyed(providers.ProviderOpenRouter))
+
+	binding, reason := svc.forcedModelBinding(
+		context.Background(), "deepseek/deepseek-v4-flash", providers.ProviderMakora)
+
+	assert.Empty(t, reason)
+	assert.Equal(t, providers.ProviderOpenRouter, binding,
+		"a saved force pin must move off Makora after its V4 binding is retired")
+}
+
+func gatewayKeyCtx(model string) context.Context {
+	return context.WithValue(context.Background(), ExternalAPIKeysContextKey{},
+		[]*auth.ExternalAPIKey{{
+			Provider:     providers.ProviderAnthropicGateway,
+			Plaintext:    []byte("pat"),
+			ModelAliases: map[string]string{model: "upstream-name"},
+		}})
+}
+
+// Gateway-exclusive routing drops the vendor primary, so a force resolved to
+// it would be rejected by the pin check and route automatically instead.
+func TestForcedModelBinding_GatewayExclusivePinsTheGateway(t *testing.T) {
+	svc := NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
+
+	binding, reason := svc.forcedModelBinding(
+		gatewayKeyCtx("claude-opus-5"), "claude-opus-5", providers.ProviderAnthropic)
+
+	assert.Empty(t, reason)
+	assert.Equal(t, providers.ProviderAnthropicGateway, binding)
+}
+
+// A gateway serves only what its aliases name, so forcing anything else must
+// be refused loudly rather than pinned to an unroutable vendor.
+func TestForcedModelBinding_GatewayExclusiveRefusesUnaliasedModel(t *testing.T) {
+	svc := NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
+
+	binding, reason := svc.forcedModelBinding(
+		gatewayKeyCtx("claude-opus-5"), "claude-haiku-4-5", providers.ProviderAnthropic)
+
+	assert.Empty(t, binding)
+	assert.Contains(t, reason, "gateway keys")
+}
+
+// Gateway-exclusive forcing skips only the positive allowlist; an explicit
+// exclusion still refuses the model.
+func TestForcedModelBinding_GatewayExclusiveKeepsExplicitExclusion(t *testing.T) {
+	svc := NewService(nil, nil, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	ctx := context.WithValue(gatewayKeyCtx("claude-opus-5"),
+		InstallationAllowedModelsContextKey{}, []string{"claude-opus-5-5"})
+
+	binding, reason := svc.forcedModelBinding(ctx, "claude-opus-5", providers.ProviderAnthropic)
+	assert.Empty(t, reason, "the gateway, not the allowlist, bounds a force")
+	assert.Equal(t, providers.ProviderAnthropicGateway, binding)
+
+	ctx = context.WithValue(ctx, InstallationExcludedModelsContextKey{}, []string{"claude-opus-5"})
+	binding, reason = svc.forcedModelBinding(ctx, "claude-opus-5", providers.ProviderAnthropic)
+	assert.Empty(t, binding)
+	assert.Contains(t, reason, "excluded on this installation")
 }

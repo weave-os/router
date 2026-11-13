@@ -6,7 +6,8 @@ import (
 	"context"
 	"time"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/router"
 )
 
 type Installation struct {
@@ -24,6 +25,15 @@ type Installation struct {
 	// routing is confined to these models minus ExcludedModels.
 	// Empty = no restriction; fail-closed when no eligible overlap remains.
 	AllowedModels []string
+	// SubscriptionStateModelsEnabled makes the two model sets authoritative, so an
+	// empty set refuses that state's serving instead of falling back to the catalog.
+	SubscriptionStateModelsEnabled bool
+	// ModelsWhenSubscriptionActive is the catalog minus the active-state
+	// exclusions: the preference for included Claude or Codex capacity.
+	ModelsWhenSubscriptionActive []string
+	// ModelsWhenSubscriptionInactive is the catalog minus the exhausted-state
+	// exclusions: the limit for paid fallback. Empty refuses paid fallback when enabled.
+	ModelsWhenSubscriptionInactive []string
 	// ExcludedProviders is the per-installation provider exclusion list.
 	// Empty means no exclusion.
 	ExcludedProviders []string
@@ -33,6 +43,10 @@ type Installation struct {
 	// preferred model wins close calls without overriding a clearly-better
 	// model. Empty means no preference.
 	PreferredModels []string
+	// FastModeModels lists catalog models every dispatch of which is sent on
+	// the provider's fast tier and billed at the fast rate. Routing still scores
+	// on list price. Empty means no model runs fast.
+	FastModeModels []string
 	// RoutingQualityWeight is the per-installation routing preference (the
 	// "quality vs price" dial), stored as the scorer's quality weight (Alpha)
 	// -- a normalized fraction in [0, 1] where 1.0 biases routing fully toward
@@ -59,6 +73,16 @@ type Installation struct {
 	// subscription token exactly as before, so the prepaid billing path is
 	// unchanged. Defaults false -- preserves today's behavior.
 	SubscriptionRoutingDisabled bool
+	// PickedModelCreditFallbackEnabled lets a client-selected model (served
+	// as-is) fall back to Weave credits once the caller's own Claude/ChatGPT
+	// login cannot serve it. Defaults false: like the native client, a pick runs
+	// on that login's plan and then the provider's own extra usage.
+	PickedModelCreditFallbackEnabled bool
+	// WeaveCreditInferenceEnabled lets a turn that no plan or provider key of
+	// the customer's can fund run on Weave's own provider keys, paid from the
+	// organization's Weave credits. Existing installations keep it on; new
+	// installations start with it off.
+	WeaveCreditInferenceEnabled bool
 	// RoutingStrategy is the canonical strategy selected for this installation.
 	// Existing installations default to the cluster scorer until allowlisted.
 	RoutingStrategy router.Strategy
@@ -84,6 +108,23 @@ type Installation struct {
 	// HideTerminalSurfaces suppresses the routing marker, feedback footer, and
 	// statusline; routing and feedback recording are unaffected. Defaults false.
 	HideTerminalSurfaces bool
+	// ShowModelSelectionReasoning enables a short explanation in newly emitted
+	// model-selection markers. It does not change the routing decision.
+	ShowModelSelectionReasoning bool
+	// TrialCaptureEnabled opts the installation into the consented trial-period
+	// benchmark's extra telemetry capture (client git context on a session's
+	// first turn). Written by WorkWeave; never influences routing. Defaults false.
+	TrialCaptureEnabled bool
+	// TrialEnrollmentID is the WorkWeave trial enrollment this installation is
+	// mirrored from. Empty when not enrolled.
+	TrialEnrollmentID string
+	// FirstRequestServedAt is when this installation first routed a request.
+	// Set once and never cleared so it survives key rotation.
+	FirstRequestServedAt *time.Time
+	// FlagOverrides is the sparse per-organization override set for behavioral
+	// flags; zero value inherits every deployment default. Ignored when
+	// ROUTER_FLAG_OVERRIDES_DISABLED is set.
+	FlagOverrides flags.Overrides
 }
 
 type CreateInstallationParams struct {
@@ -98,6 +139,11 @@ type InstallationRepository interface {
 	Get(ctx context.Context, externalID, id string) (*Installation, error)
 	ListForExternalID(ctx context.Context, externalID string) ([]*Installation, error)
 	SoftDelete(ctx context.Context, externalID, id string) error
+	// MarkFirstRequestServed stamps FirstRequestServedAt once; a no-op thereafter, so key rotation can't reset it.
+	MarkFirstRequestServed(ctx context.Context, id string) error
+	// UpdateFastModeModels replaces the per-installation fast-mode opt-in list.
+	// An empty (or nil) slice clears the list.
+	UpdateFastModeModels(ctx context.Context, externalID, id string, models []string) error
 	// UpdateExcludedModels replaces the per-installation exclusion list.
 	// An empty (or nil) slice clears the list.
 	UpdateExcludedModels(ctx context.Context, externalID, id string, models []string) error
@@ -125,4 +171,9 @@ type InstallationRepository interface {
 	// UpdateHideTerminalSurfaces toggles hiding the router's terminal surfaces
 	// (routing marker, feedback footer, statusline) for the installation.
 	UpdateHideTerminalSurfaces(ctx context.Context, externalID, id string, hide bool) error
+	UpdateShowModelSelectionReasoning(ctx context.Context, externalID, id string, show bool) error
+	// UpdateFlagOverrides replaces the per-installation behavioral flag override
+	// set. The whole sparse set is written, not a delta, so clearing one override
+	// means omitting its key. An empty Overrides clears every override.
+	UpdateFlagOverrides(ctx context.Context, externalID, id string, overrides flags.Overrides) error
 }

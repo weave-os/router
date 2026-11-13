@@ -126,3 +126,48 @@ SET hide_terminal_surfaces = @hide_terminal_surfaces::boolean,
 WHERE id = @id::uuid
   AND external_id = @external_id::varchar
   AND deleted_at IS NULL;
+
+-- Toggles the optional model-selection explanation shown alongside the routing
+-- marker. Scoped to the installation's external_id to prevent tenant crossover.
+-- name: UpdateModelRouterInstallationShowModelSelectionReasoning :execrows
+UPDATE router.model_router_installations
+SET show_model_selection_reasoning = @show_model_selection_reasoning::boolean,
+    updated_at = NOW()
+WHERE id = @id::uuid
+  AND external_id = @external_id::varchar
+  AND deleted_at IS NULL;
+
+-- Stamps first_request_served_at the first time this installation routes a
+-- request. WHERE IS NULL makes the update a no-op after the first write, so
+-- the timestamp records the *first* request and rotation never resets it.
+-- name: MarkModelRouterInstallationFirstRequestServed :exec
+UPDATE router.model_router_installations
+SET first_request_served_at = NOW()
+WHERE id = @id::uuid
+  AND deleted_at IS NULL
+  AND first_request_served_at IS NULL;
+
+-- Replaces the per-installation behavioral flag override set, scoped to an
+-- external_id to prevent cross-tenant updates. The payload is the whole sparse
+-- object, not a delta: callers read-modify-write so clearing an override is
+-- expressed by omitting its key. Keys are validated against internal/flags'
+-- registry before this runs. Bumps updated_at so dashboards see the change.
+-- name: UpdateModelRouterInstallationFlagOverrides :execrows
+UPDATE router.model_router_installations
+SET flag_overrides = @flag_overrides::jsonb,
+    updated_at = NOW()
+WHERE id = @id::uuid
+  AND external_id = @external_id::varchar
+  AND deleted_at IS NULL;
+
+-- Replaces the per-installation fast-mode opt-in list, scoped to an
+-- external_id to prevent cross-tenant updates. Listed models dispatch on the
+-- provider's fast tier; empty array means no model runs fast. Bumps updated_at
+-- so dashboards see the change.
+-- name: UpdateModelRouterInstallationFastModeModels :execrows
+UPDATE router.model_router_installations
+SET fast_mode_models = @fast_mode_models::text[],
+    updated_at = NOW()
+WHERE id = @id::uuid
+  AND external_id = @external_id::varchar
+  AND deleted_at IS NULL;

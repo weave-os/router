@@ -3,8 +3,8 @@ package proxy
 import (
 	"testing"
 
-	"workweave/router/internal/router/turntype"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"

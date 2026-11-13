@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"workweave/router/internal/observability/otel"
+	"weave-os/router/internal/observability/otel"
 )
 
 // TestFmtPriceRoundsAwayFloat64Artifacts pins fmtPrice to a clean decimal form
@@ -73,7 +73,7 @@ func TestBuildTypeScriptIsSortedAndVersioned(t *testing.T) {
 	if strings.Index(got, `"a-model"`) > strings.Index(got, `"z-model"`) {
 		t.Fatalf("generated TypeScript models are not sorted:\n%s", got)
 	}
-	if !strings.Contains(got, `"a-model": { inputUsdPerMillion: 0.071, outputUsdPerMillion: 0.463 }`) {
+	if !strings.Contains(got, `"a-model": { inputUsdPerMillion: 0.071, outputUsdPerMillion: 0.463, cacheReadMultiplier: 0.5 }`) {
 		t.Fatalf("generated TypeScript changed catalog units or decimal formatting:\n%s", got)
 	}
 
@@ -91,5 +91,19 @@ func TestCheckedInPiPricingIsCurrent(t *testing.T) {
 	want := buildTypeScript(otel.AllPricing())
 	if string(got) != want {
 		t.Fatal("install/pi-router/src/pricing.generated.ts is stale; run go run ./cmd/genprices")
+	}
+}
+
+func TestCheckedInBenchPricingIsCurrent(t *testing.T) {
+	got, err := os.ReadFile("../../bench/weave_bench/prices.generated.json")
+	if err != nil {
+		t.Fatalf("read checked-in bench pricing: %v", err)
+	}
+	want, err := buildBenchJSON(otel.AllPricing())
+	if err != nil {
+		t.Fatalf("build bench pricing: %v", err)
+	}
+	if string(got) != string(want) {
+		t.Fatal("bench/weave_bench/prices.generated.json is stale; run go run ./cmd/genprices")
 	}
 }

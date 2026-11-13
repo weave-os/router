@@ -6,10 +6,14 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/billing"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/handover"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/inference"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/llmescalation"
+	"weave-os/router/internal/router/policy"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -84,6 +88,10 @@ func (r *auxTelemetryRepo) GetTelemetryModelBreakdownAll(context.Context, time.T
 	return nil, nil
 }
 
+func (r *auxTelemetryRepo) GetSessionCost(context.Context, string, string) (SessionCost, error) {
+	return SessionCost{}, ErrSessionCostNotFound
+}
+
 func (r *auxTelemetryRepo) GetTelemetryBySessionSequence(context.Context, uuid.UUID, []byte, string, int) (TelemetryTurnResult, error) {
 	return TelemetryTurnResult{}, nil
 }
@@ -127,7 +135,7 @@ func (r *auxBillingRepo) GetOrgMonthlySpendAndLimit(context.Context, string) (in
 	return 0, nil, nil
 }
 
-func (r *auxBillingRepo) GetAutopayConfig(context.Context, string) (bool, int64, error) {
+func (r *auxBillingRepo) GetAutopayConfig(context.Context, billing.Owner) (bool, int64, error) {
 	return false, 0, nil
 }
 
@@ -140,7 +148,7 @@ const (
 	// auxTestModel must exist in the router catalog: the point of the
 	// telemetry row is real cost, and an unpriced model would make the
 	// assertions pass on zeros.
-	auxTestModel = DefaultHandoverModel
+	auxTestModel = policy.HandoverSummaryDefaultModel
 )
 
 // auxTestUsage is a summarizer usage with tokens in every bucket, so a
@@ -162,7 +170,7 @@ func auxTestService(t *testing.T) (*Service, *auxBillingRepo, *auxTelemetryRepo)
 	billingRepo := &auxBillingRepo{}
 	telemetryRepo := &auxTelemetryRepo{}
 	return &Service{
-		billing:   billing.NewService(billingRepo),
+		billing:   billing.NewService(billingRepo).WithByokFeeRate(0.05),
 		telemetry: telemetryRepo,
 	}, billingRepo, telemetryRepo
 }
@@ -207,9 +215,8 @@ func TestBillAuxiliaryInferenceTagsSessionAndCost(t *testing.T) {
 
 	pricing, ok := catalog.PrimaryPriceFor(auxTestModel)
 	require.True(t, ok, "the test model must be priced in the catalog")
-	wantInput := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheRead,
-		pricing.InputUSDPer1M, pricing, usage.Provider)
-	wantOutput := catalog.EffectiveOutputCost(usage.OutputTokens, pricing.OutputUSDPer1M)
+	wantInput := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheRead, pricing, usage.Provider, catalog.UsageModifiers{})
+	wantOutput := catalog.EffectiveOutputCost(usage.InputTokens, usage.OutputTokens, pricing, catalog.UsageModifiers{})
 	assert.Greater(t, wantInput+wantOutput, 0.0, "the fixture must produce a non-zero cost")
 	assert.InDelta(t, wantInput, row.ActualInputCostUSD, 1e-12)
 	assert.InDelta(t, wantOutput, row.ActualOutputCostUSD, 1e-12)
@@ -223,6 +230,38 @@ func TestBillAuxiliaryInferenceTagsSessionAndCost(t *testing.T) {
 	assert.Equal(t, int32(usage.CacheCreation), *row.CacheCreationTokens)
 	require.NotNil(t, row.CacheReadTokens)
 	assert.Equal(t, int32(usage.CacheRead), *row.CacheReadTokens)
+}
+
+func TestEscalationJudgeTelemetryIsPlatformFunded(t *testing.T) {
+	service, billingRepo, telemetryRepo := auxTestService(t)
+	job := llmescalation.Job{ID: "checkpoint-3", Lifetime: "classifier-session", Model: policy.EscalationJudgeModel, Provider: providers.ProviderFireworks, Version: llmescalation.Version}
+	judgment := llmescalation.Judgment{
+		Escalate: true,
+		Usage:    inference.Usage{Known: true, InputTokens: 1200, OutputTokens: 40},
+		CostUSD:  0.0042, CostKnown: true, CostSource: llmescalation.CostSourceProviderReported,
+	}
+	service.recordEscalationJudgeInference(uuid.NewString(), auxTestRequestID, llmescalation.ModeShadow, job, judgment, llmescalation.FailureNone)
+	rows := telemetryRepo.waitForRows(1)
+	require.Len(t, rows, 1)
+	assert.Equal(t, SpanTypePlatformAuxiliaryInference, rows[0].SpanType)
+	assert.Equal(t, job.Lifetime, rows[0].SessionID)
+	assert.Equal(t, job.Model, rows[0].DecisionModel)
+	assert.Equal(t, "shadow/"+llmescalation.Version, rows[0].ClassifierArtifactID)
+	assert.Equal(t, "escalate", rows[0].ClassifierPredictedLabel, "the verdict must outlive swept session state")
+	assert.InDelta(t, judgment.CostUSD, rows[0].ActualInputCostUSD+rows[0].ActualOutputCostUSD, 1e-12)
+	assert.Empty(t, billingRepo.snapshot(), "platform judge calls must never debit customer credit")
+}
+
+func TestEscalationJudgeTelemetryOmitsVerdictOnFailure(t *testing.T) {
+	service, _, telemetryRepo := auxTestService(t)
+	job := llmescalation.Job{ID: "checkpoint-4", Lifetime: "classifier-session", Model: policy.EscalationJudgeModel, Provider: providers.ProviderFireworks, Version: llmescalation.Version}
+	measured := llmescalation.Judgment{Usage: inference.Usage{Known: true, InputTokens: 1200, OutputTokens: 40}}
+	service.recordEscalationJudgeInference(uuid.NewString(), auxTestRequestID, llmescalation.ModeShadow, job, measured, llmescalation.FailureInvalid)
+	service.recordEscalationJudgeInference(uuid.NewString(), auxTestRequestID, llmescalation.ModeShadow, job, llmescalation.Judgment{}, llmescalation.FailureNone)
+	rows := telemetryRepo.waitForRows(2)
+	require.Len(t, rows, 2)
+	labels := []string{rows[0].ClassifierPredictedLabel, rows[1].ClassifierPredictedLabel}
+	assert.ElementsMatch(t, []string{"", "continue"}, labels, "a failed judgment keeps its cost row but records no verdict; a verdict without usage is still recorded")
 }
 
 // TestBillAuxiliaryInferenceMatchesLedgerAmount proves the telemetry row's
@@ -307,4 +346,39 @@ func TestBillAuxiliaryInferenceUsesSummarizerProviderForBYOK(t *testing.T) {
 	assert.Zero(t, debits[0].DeltaUsdMicros,
 		"a BYOK-served summary debits no inference cost — the customer paid their own upstream")
 	assert.NotZero(t, debits[0].FeeUsdMicros, "Weave still charges its platform fee")
+}
+
+func (*auxTelemetryRepo) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryDashboardFact, error) {
+	return nil, nil
+}
+
+func (*auxTelemetryRepo) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]TelemetryActiveUsers, error) {
+	return nil, nil
+}
+
+func (*auxTelemetryRepo) GetTelemetryDashboardPeople(context.Context, string) ([]TelemetryPerson, error) {
+	return nil, nil
+}
+
+func (*auxTelemetryRepo) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]TelemetrySubscriptionSeat, error) {
+	return nil, nil
+}
+
+func (*auxTelemetryRepo) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]TelemetryDrillDownRow, error) {
+	return nil, nil
+}
+
+func (*auxTelemetryRepo) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryIndividualFact, error) {
+	return nil, nil
+}
+
+func TestBillAuxiliaryInferenceNeverDebitsWhenWeaveCreditsDenied(t *testing.T) {
+	s, billingRepo, _ := auxTestService(t)
+
+	ctx := billing.WithWeaveCreditsDenied(auxTestContext(uuid.New(), auxTestSessionID))
+	s.billAuxiliaryInference(ctx, auxTestRequestID, auxSuffixHandoverSummary, auxTestOrgID, auxTestUsage())
+
+	debits := billingRepo.snapshot()
+	require.Len(t, debits, 1)
+	assert.Zero(t, debits[0].DeltaUsdMicros, "an installation without Weave-credit inference is never debited for a summary")
 }

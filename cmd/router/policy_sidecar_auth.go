@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/policyclient"
+	"weave-os/router/internal/policyclient"
 )
 
 const (

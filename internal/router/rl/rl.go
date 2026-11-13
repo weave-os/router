@@ -12,7 +12,7 @@
 //
 // It is opt-in via the x-weave-router-strategy: rl header and is never a silent
 // fallback — every failure path returns ErrPolicyUnavailable so the API layer
-// maps it to HTTP 503 (the same contract as cluster.ErrClusterUnavailable),
+// maps it to HTTP 503 (the same contract as router.ErrRoutingUnavailable),
 // rather than masking a regression by quietly serving a default model.
 package rl
 
@@ -21,9 +21,9 @@ import (
 	"errors"
 	"fmt"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
 )
 
 // ErrPolicyUnavailable signals the RL strategy could not produce a decision

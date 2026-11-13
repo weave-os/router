@@ -1,0 +1,45 @@
+package proxy
+
+import (
+	"context"
+	"testing"
+
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func TestPinMatchesEffectiveStrategy(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		request  router.Strategy
+		stored   router.Strategy
+		expected bool
+	}{
+		{name: "stable exact", request: router.StrategyHMMEmbedding, stored: router.StrategyHMMEmbedding, expected: true},
+		{name: "beta exact", request: router.StrategyHMMBeta, stored: router.StrategyHMMBeta, expected: true},
+		{name: "beta rejects stable", request: router.StrategyHMMBeta, stored: router.StrategyHMMEmbedding, expected: false},
+		{name: "stable rejects beta", request: router.StrategyHMMEmbedding, stored: router.StrategyHMMBeta, expected: false},
+		{name: "other HMM rejects beta", request: router.StrategyHMM, stored: router.StrategyHMMBeta, expected: false},
+		{name: "stable accepts legacy during rollout", request: router.StrategyHMMEmbedding, stored: "", expected: true},
+		{name: "non-beta opt-in accepts legacy during rollout", request: router.StrategyHMM, stored: "", expected: true},
+		{name: "beta rejects legacy", request: router.StrategyHMMBeta, stored: "", expected: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := router.WithStrategy(context.Background(), tt.request)
+			assert.Equal(t, tt.expected, pinMatchesEffectiveStrategy(ctx, sessionpin.Pin{Strategy: tt.stored}))
+		})
+	}
+
+	betaContext := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
+	assert.True(t, pinMatchesEffectiveStrategy(betaContext, sessionpin.Pin{
+		Reason:   translate.ReasonUserForceModel,
+		Strategy: router.StrategyHMMEmbedding,
+	}), "an explicit force must survive routing-strategy changes")
+}

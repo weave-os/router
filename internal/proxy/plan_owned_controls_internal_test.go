@@ -1,0 +1,226 @@
+package proxy
+
+import (
+	"context"
+	"net/http"
+	"testing"
+
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/subscriptions/entitlement"
+	"weave-os/router/internal/translate"
+
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func planOwnedContext() context.Context {
+	return planOwnedContextFor(entitlement.PlanMax)
+}
+
+func boostPlanOwnedContext() context.Context {
+	return planOwnedContextFor(entitlement.PlanBoost)
+}
+
+func boostDefaultRoutingContext() context.Context {
+	return context.WithValue(boostPlanOwnedContext(), InstallationAllowedModelsContextKey{}, []string(nil))
+}
+
+func planOwnedContextFor(plan entitlement.Plan) context.Context {
+	alpha := 0.9
+	ctx := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Plan: string(plan)})
+	ctx = entitlement.WithProductScope(ctx, plan)
+	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{"customer-allowed"})
+	ctx = context.WithValue(ctx, InstallationExcludedModelsContextKey{}, []string{"customer-excluded"})
+	ctx = context.WithValue(ctx, InstallationExcludedProvidersContextKey{}, []string{"customer-provider"})
+	ctx = context.WithValue(ctx, InstallationPreferredModelsContextKey{}, []string{"customer-preferred"})
+	ctx = context.WithValue(ctx, InstallationFastModeModelsContextKey{}, []string{"customer-fast"})
+	ctx = context.WithValue(ctx, ClusterModelListsContextKey{}, map[string][]string{"cluster": {"customer-arm"}})
+	return router.WithRoutingKnobs(ctx, &router.Overrides{Alpha: &alpha})
+}
+
+func TestPlanOwnedServingIgnoresCustomerRoutingControls(t *testing.T) {
+	t.Parallel()
+
+	ctx := planOwnedContext()
+	assert.Nil(t, allowedModelsForRequest(ctx))
+	assert.Nil(t, installationAllowedModelSet(ctx))
+	assert.Nil(t, installationExcludedProvidersFromContext(ctx))
+	assert.Nil(t, installationFastModeModelsFromContext(ctx))
+	assert.Nil(t, routingKnobsForRequest(ctx))
+	assert.Nil(t, (&Service{}).preferredModelsForRequest(ctx))
+	assert.Nil(t, clusterArmOverridesForRequest(ctx))
+}
+
+func TestPlanOwnedServingAppliesMemberClusterListsOnlyWhenFlagged(t *testing.T) {
+	t.Parallel()
+
+	// Distinct from the key-scoped {"cluster": {"customer-arm"}} that
+	// planOwnedContextFor sets, so a merge with the key list would show.
+	member := map[string][]string{"cluster": {"member-arm"}, "other": {"member-other"}}
+	enabled := map[flags.Key]bool{flags.KeyPlanUserClusterLists: true}
+	cases := []struct {
+		name   string
+		flags  map[flags.Key]bool
+		member map[string][]string
+		want   map[string][]string
+	}{
+		{name: "flag unset", member: member},
+		{name: "flag off", flags: map[flags.Key]bool{flags.KeyPlanUserClusterLists: false}, member: member},
+		{name: "flag on keeps only the member list", flags: enabled, member: member, want: member},
+		{name: "flag on without a member list", flags: enabled},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := flags.WithOverrides(planOwnedContextFor(entitlement.PlanMax), flags.Overrides{Bools: tc.flags})
+			if tc.member != nil {
+				ctx = context.WithValue(ctx, auth.UserClusterModelListsContextKey{}, tc.member)
+			}
+			got := clusterArmOverridesForRequest(ctx)
+			if tc.want == nil {
+				assert.Nil(t, got)
+				return
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestBoostServingUsesDefaultRoutingControls(t *testing.T) {
+	t.Parallel()
+
+	ctx := boostPlanOwnedContext()
+	assert.Contains(t, allowedModelsForRequest(ctx), "customer-allowed")
+	assert.Equal(t, []string{"customer-provider"}, installationExcludedProvidersFromContext(ctx))
+	assert.Equal(t, []string{"customer-fast"}, installationFastModeModelsFromContext(ctx))
+	assert.Equal(t, *router.RoutingKnobsFromContext(ctx), *routingKnobsForRequest(ctx))
+	assert.Equal(t, []string{"customer-preferred"}, (&Service{}).preferredModelsForRequest(ctx))
+	assert.Equal(t, map[string][]string{"cluster": {"customer-arm"}}, clusterArmOverridesForRequest(ctx))
+	assert.False(t, planHasDedicatedServingPolicy(ctx))
+}
+
+func TestPlanOwnedServingHonorsCustomerExcludedModels(t *testing.T) {
+	t.Parallel()
+
+	for name, ctx := range map[string]context.Context{"max": planOwnedContext(), "boost": boostPlanOwnedContext()} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			svc := &Service{}
+			assert.Contains(t, svc.excludedModelsForRequest(ctx), "customer-excluded")
+			assert.Contains(t, svc.forcePolicyExcludedModels(ctx), "customer-excluded")
+		})
+	}
+}
+
+func TestBoostServingAllowsForceModelHeader(t *testing.T) {
+	t.Parallel()
+
+	request, err := http.NewRequestWithContext(boostDefaultRoutingContext(), http.MethodPost, "http://router.test/v1/messages", nil)
+	require.NoError(t, err)
+	request.Header.Set(ForceModelHeader, "claude-opus-5")
+
+	ctx, forced, err := (&Service{}).applyForceModelHeader(request.Context(), request, uuid.Nil, [sessionpin.SessionKeyLen]byte{})
+	require.NoError(t, err)
+	assert.Equal(t, "claude-opus-5", forced)
+	assert.False(t, planHasDedicatedServingPolicy(ctx))
+}
+
+func TestBoostServingHeaderForceModelCarriesEffortSameTurn(t *testing.T) {
+	t.Parallel()
+
+	request, err := http.NewRequestWithContext(boostDefaultRoutingContext(), http.MethodPost, "http://router.test/v1/messages", nil)
+	require.NoError(t, err)
+	request.Header.Set(ForceModelHeader, "sol:medium")
+
+	svc := &Service{}
+	ctx, forced, err := svc.applyForceModelHeader(request.Context(), request, uuid.Nil, [sessionpin.SessionKeyLen]byte{})
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-6.1-sol:medium", forced)
+
+	env := forceCommandEnv(t)
+	features := env.RoutingFeatures()
+	result, err := svc.runTurnLoop(
+		ctx, env, features, "api-key", uuid.New(), "", request.Header,
+		router.Request{RequestedModel: features.Model, ForceModel: forced},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-6.1-sol", result.Decision.Model)
+	assert.Equal(t, "medium", result.Decision.Effort)
+}
+
+func TestBoostServingKeepsLegacyForceModelPinActive(t *testing.T) {
+	t.Parallel()
+
+	sessionKey := [sessionpin.SessionKeyLen]byte{1}
+	role := sessionpin.DefaultRole
+	store := newForceModelMapStore()
+	store.pins[forceModelMapKey(sessionKey, role)] = sessionpin.Pin{
+		SessionKey:  sessionKey,
+		Role:        role,
+		Model:       "claude-opus-5",
+		Provider:    providers.ProviderAnthropic,
+		Reason:      translate.ReasonUserForceModel,
+		PinnedUntil: pinNeverExpires,
+	}
+	svc := &Service{pinStore: store}
+
+	pin, active, noStoredState := svc.loadPinWithStoreState(boostDefaultRoutingContext(), sessionKey, role)
+
+	assert.Equal(t, "claude-opus-5", pin.Model)
+	assert.True(t, active)
+	assert.False(t, noStoredState)
+}
+
+func TestBoostServingAppliesForceModelCommand(t *testing.T) {
+	store := newForceModelMapStore()
+	svc := &Service{pinStore: store}
+	env := forceCommandEnv(t)
+	threadKey := [sessionpin.SessionKeyLen]byte{2}
+	forceKey := [sessionpin.SessionKeyLen]byte{3}
+
+	forcedModel, message, err := svc.applyForceModelCommand(
+		boostDefaultRoutingContext(), translate.ForceModelResult{Model: "sol"}, uuid.New(), threadKey, forceKey,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-6.1-sol", forcedModel)
+	assert.Contains(t, message.render(env.SourceFormat()), "force-model applied")
+	assert.NotContains(t, message.render(env.SourceFormat()), "automatic model selection")
+
+	stored, found, err := store.Get(context.Background(), forceKey, forceModelSessionRole)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, "gpt-6.1-sol", stored.Model)
+}
+
+func TestBoostServingRoutesExplicitForceModel(t *testing.T) {
+	env := forceCommandEnv(t)
+	features := env.RoutingFeatures()
+	svc := &Service{}
+
+	result, err := svc.runTurnLoop(
+		boostDefaultRoutingContext(), env, features, "api-key", uuid.New(), "", nil,
+		router.Request{RequestedModel: features.Model, ForceModel: "sol"},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-6.1-sol", result.Decision.Model)
+	assert.Equal(t, translate.ReasonUserForceModel, result.Decision.Reason)
+}
+
+func TestMaxServingStillRejectsClosedSourceForceModel(t *testing.T) {
+	store := newForceModelMapStore()
+	svc := &Service{pinStore: store}
+	env := forceCommandEnv(t)
+	_, message, err := svc.applyForceModelCommand(
+		planOwnedContext(), translate.ForceModelResult{Model: "opus"}, uuid.New(),
+		[sessionpin.SessionKeyLen]byte{4}, [sessionpin.SessionKeyLen]byte{5},
+	)
+	require.NoError(t, err)
+	assert.Contains(t, message.render(env.SourceFormat()), "force-model rejected")
+	assert.Empty(t, store.pins)
+}

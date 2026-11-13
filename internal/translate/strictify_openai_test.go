@@ -21,6 +21,27 @@ func strictifyFromJSON(t *testing.T, schema string) (map[string]any, bool) {
 	return m, true
 }
 
+func TestCloseOpenAISchemaObjects_LeavesAllOfBranchesOpen(t *testing.T) {
+	var schema any
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"type":"object",
+		"allOf":[
+			{"type":"object","properties":{"left":{"type":"string"}},"required":["left"]},
+			{"type":"object","properties":{"right":{"type":"string"}},"required":["right"]}
+		]
+	}`), &schema))
+
+	closed, ok := closeOpenAISchemaObjects(schema)
+	require.True(t, ok)
+	root := closed.(map[string]any)
+	branches := root["allOf"].([]any)
+	for _, branch := range branches {
+		branchSchema := branch.(map[string]any)
+		assert.NotContains(t, branchSchema, "additionalProperties",
+			"each branch must allow properties declared by its allOf siblings")
+	}
+}
+
 func TestStrictify_OptionalBecomesNullableAndRequired(t *testing.T) {
 	out, ok := strictifyFromJSON(t, `{
 		"type":"object",
@@ -166,6 +187,71 @@ func TestStrictify_BailsOnUnsupportedConstructs(t *testing.T) {
 	}
 }
 
+// Prod repro (2026-09, Claude Code Agent tool on gpt-5.x): the optional
+// isolation enum came back as ["string","null"] with an enum lacking null, so
+// strict decoding forced "worktree"/"remote" on every sub-agent call and each
+// one failed outside a git repo.
+func TestStrictify_TypedEnumOptionalAdmitsNull(t *testing.T) {
+	out, ok := strictifyFromJSON(t, `{
+		"type":"object",
+		"properties":{
+			"prompt":{"type":"string"},
+			"isolation":{"type":"string","enum":["worktree","remote"],"description":"Isolation mode."},
+			"level":{"type":"string","enum":["low","high"]}
+		},
+		"required":["prompt","level"]
+	}`)
+	require.True(t, ok)
+
+	props := out["properties"].(map[string]any)
+	isolation := props["isolation"].(map[string]any)
+	assert.Equal(t, []any{"string", "null"}, isolation["type"])
+	assert.Equal(t, []any{"worktree", "remote", nil}, isolation["enum"],
+		"enum constrains the value independently of type; null must be a member or the model is forced to pick one")
+	assert.Equal(t, "Isolation mode. "+optionalNote, isolation["description"])
+
+	level := props["level"].(map[string]any)
+	assert.Equal(t, "string", level["type"])
+	assert.Equal(t, []any{"low", "high"}, level["enum"], "a required enum is left alone")
+	_, hasDesc := level["description"]
+	assert.False(t, hasDesc, "required props get no optional note")
+}
+
+func TestStrictify_OptionalNoteAppendedOnce(t *testing.T) {
+	out, ok := strictifyFromJSON(t, `{
+		"type":"object",
+		"properties":{
+			"timeout":{"type":"number","description":"Optional timeout in ms"},
+			"limit":{"type":"number"}
+		},
+		"required":[]
+	}`)
+	require.True(t, ok)
+
+	props := out["properties"].(map[string]any)
+	assert.Equal(t, "Optional timeout in ms "+optionalNote, props["timeout"].(map[string]any)["description"])
+	assert.Equal(t, optionalNote, props["limit"].(map[string]any)["description"],
+		"a property without a description still gets the note")
+
+	// Re-strictifying the output is stable.
+	again, ok := strictifyOpenAISchema(out)
+	require.True(t, ok)
+	againProps := again.(map[string]any)["properties"].(map[string]any)
+	assert.Equal(t, "Optional timeout in ms "+optionalNote, againProps["timeout"].(map[string]any)["description"])
+}
+
+func TestStrictify_DoesNotMutateInputEnum(t *testing.T) {
+	const raw = `{"type":"object","properties":{"mode":{"type":"string","enum":["a","b"]}},"required":[]}`
+	var parsed any
+	require.NoError(t, json.Unmarshal([]byte(raw), &parsed))
+	_, ok := strictifyOpenAISchema(parsed)
+	require.True(t, ok)
+
+	reMarshaled, err := json.Marshal(parsed)
+	require.NoError(t, err)
+	assert.JSONEq(t, raw, string(reMarshaled))
+}
+
 func TestStrictify_DoesNotMutateInput(t *testing.T) {
 	const raw = `{"type":"object","properties":{"pages":{"type":"string"}},"required":[]}`
 	var parsed any
@@ -191,6 +277,7 @@ func TestStrictify_PropertyNamesDroppedToDescription(t *testing.T) {
 			"data":{
 				"type":"object",
 				"properties":{},
+				"additionalProperties":false,
 				"propertyNames":{"pattern":"^[a-z]+$"}
 			}
 		},
@@ -262,36 +349,7 @@ func TestStrictify_UnevaluatedPropertiesBails(t *testing.T) {
 	require.False(t, ok, "unevaluatedProperties is not expressible in strict mode; must bail")
 }
 
-// Workflow.args is bare {} — makeNullable's synthetic anyOf branch had no 'type' key
-// and OpenAI strict mode 400'd; verify the fix adds an explicit value-type union.
-func TestStrictify_TypelessOptionalGetsExplicitValueType(t *testing.T) {
-	out, ok := strictifyFromJSON(t, `{
-		"type":"object",
-		"properties":{"args":{}},
-		"required":[]
-	}`)
-	require.True(t, ok, "a typeless optional property must survive strictification, not bail")
-
-	args := out["properties"].(map[string]any)["args"].(map[string]any)
-	branches, has := args["anyOf"].([]any)
-	require.True(t, has, "a typeless optional is made nullable via anyOf")
-	require.Len(t, branches, 2)
-	valueBranch := branches[0].(map[string]any)
-	assert.Equal(t, []any{"string", "number", "boolean", "object", "array", "null"}, valueBranch["type"],
-		"a typeless branch must carry an explicit value-type union so OpenAI strict mode doesn't 400")
-	assert.Equal(t, map[string]any{"type": "null"}, branches[1])
-
-	// Object-capable union needs additionalProperties:false + empty properties/required (OpenAI strict-mode 400).
-	assert.Equal(t, false, valueBranch["additionalProperties"],
-		"a type union including \"object\" needs additionalProperties:false or OpenAI 400s")
-	assert.Equal(t, map[string]any{}, valueBranch["properties"],
-		"an object-capable branch needs a properties map, even if empty")
-	assert.Equal(t, []any{}, valueBranch["required"],
-		"an object-capable branch needs a required list, even if empty")
-
-	// Array-capable union needs an items sub-schema (OpenAI strict-mode 400); primitives only, no recursion.
-	items, hasItems := valueBranch["items"].(map[string]any)
-	require.True(t, hasItems, "a type union including \"array\" needs an items sub-schema or OpenAI 400s")
-	assert.Equal(t, []any{"string", "number", "boolean", "null"}, items["type"],
-		"items must bottom out at primitives, not recurse into object/array")
+func TestStrictify_TypelessOptionalBails(t *testing.T) {
+	_, ok := strictifyFromJSON(t, `{"type":"object","properties":{"args":{}},"required":[]}`)
+	require.False(t, ok, "arbitrary JSON must not be narrowed to empty objects and primitive arrays")
 }

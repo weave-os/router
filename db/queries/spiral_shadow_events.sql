@@ -18,7 +18,9 @@ INSERT INTO router.spiral_shadow_events (
     repeat_frac,
     monologue_len,
     tool_call_count,
-    message_count
+    message_count,
+    ping_pong_len,
+    steps_since_progress
 ) VALUES (
     @installation_id::uuid,
     @session_key::bytea,
@@ -34,7 +36,9 @@ INSERT INTO router.spiral_shadow_events (
     @repeat_frac::double precision,
     @monologue_len::int,
     @tool_call_count::int,
-    @message_count::int
+    @message_count::int,
+    @ping_pong_len::int,
+    @steps_since_progress::int
 );
 
 -- Once-per-(session, role, reason) budget check: any prior event means this

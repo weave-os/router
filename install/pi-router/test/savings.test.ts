@@ -31,12 +31,13 @@ test("calculates savings against identical usage", () => {
 
 test("applies cache write and cache read multipliers", () => {
 	const entry = createSavingsEntry(
-		{ requestedModel: "claude-sonnet-4-6", routedModel: "claude-haiku-4-5" },
+		{ requestedModel: "grok-4.5", routedModel: "claude-haiku-4-5" },
 		{ input: 100, output: 50, cacheRead: 100, cacheWrite: 100 },
 	);
-	const effectiveInput = 100 + 1.25 * 100 + 0.1 * 100;
-	const expectedRequested = (effectiveInput * 3 + 50 * 15) / 1_000_000;
-	const expectedRouted = (effectiveInput * 1 + 50 * 5) / 1_000_000;
+	const requestedInput = 100 + 1.25 * 100 + 0.25 * 100;
+	const routedInput = 100 + 1.25 * 100 + 0.1 * 100;
+	const expectedRequested = (requestedInput * 2 + 50 * 6) / 1_000_000;
+	const expectedRouted = (routedInput * 1 + 50 * 5) / 1_000_000;
 	assert.equal(entry.requestedCostUsd, expectedRequested);
 	assert.equal(entry.routedCostUsd, expectedRouted);
 });
@@ -83,6 +84,40 @@ test("aggregates restored entry data and rejects malformed entries", () => {
 	assert.equal(formatSavings(aggregate), "saved $2.05 · 1 unpriced");
 	assert.equal(isSavingsEntryData(first), true);
 	assert.equal(isSavingsEntryData({ ...first, usage: { input: -1 } }), false);
+});
+
+test("prices a weave/auto selection against its wire model, not as unpriced", async () => {
+	type CapturedHandler = (event: unknown, ctx: ExtensionContext) => unknown;
+	const handlers = new Map<string, CapturedHandler>();
+	const appended: Array<{ customType: string; data: unknown }> = [];
+	const pi = {
+		on(event: string, handler: CapturedHandler) {
+			handlers.set(event, handler);
+		},
+		appendEntry(customType: string, data: unknown) {
+			appended.push({ customType, data });
+		},
+	} as unknown as ExtensionAPI;
+	registerRoutedModel(pi);
+	const ctx = {
+		mode: "rpc",
+		hasUI: false,
+		model: { provider: "weave", id: "auto" },
+		sessionManager: { getBranch: () => [] },
+	} as unknown as ExtensionContext;
+
+	await handlers.get("session_start")?.({ type: "session_start" }, ctx);
+	await handlers.get("after_provider_response")?.(
+		{ type: "after_provider_response", status: 200, headers: { "x-router-model": "moonshotai/kimi-k2.7" } },
+		ctx,
+	);
+	await handlers.get("turn_end")?.({ type: "turn_end", message: { role: "assistant", model: "moonshotai/kimi-k2.7", usage } }, ctx);
+
+	const saved = appended[0]?.data;
+	assert.ok(isSavingsEntryData(saved));
+	assert.equal(saved.requestedModel, "claude-sonnet-4-6");
+	assert.equal(saved.priced, true);
+	assert.ok(Math.abs((saved.savingsUsd ?? 0) - 2.05) < 1e-12);
 });
 
 test("persists routed-response savings in RPC mode", async () => {

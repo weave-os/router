@@ -1,0 +1,684 @@
+package postgres_test
+
+import (
+	"context"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres"
+)
+
+// These exercise the ownership predicates that unit tests can't: a subscriber
+// reaching its linked accounts through any of its keys, isolation between two
+// subscribers of one installation, and the legacy api-key-owned rows the
+// ownership migration deliberately left behind. Gated on
+// ROUTER_TEST_DATABASE_URL like the other database-backed tests here.
+type subscriptionFixture struct {
+	pool           *pgxpool.Pool
+	installationID uuid.UUID
+	subscriberA    uuid.UUID
+	subscriberB    uuid.UUID
+	keyA1          uuid.UUID
+	keyA2          uuid.UUID
+	keyB1          uuid.UUID
+	legacyKey      uuid.UUID
+}
+
+func newSubscriptionFixture(t *testing.T) subscriptionFixture {
+	t.Helper()
+	pool := testPool(t)
+	ctx := context.Background()
+	fixture := subscriptionFixture{
+		pool:           pool,
+		installationID: uuid.New(),
+		subscriberA:    uuid.New(),
+		subscriberB:    uuid.New(),
+		keyA1:          uuid.New(),
+		keyA2:          uuid.New(),
+		keyB1:          uuid.New(),
+		legacyKey:      uuid.New(),
+	}
+	_, err := pool.Exec(ctx,
+		"INSERT INTO router.model_router_installations (id, external_id, name) VALUES ($1, $2, $2)",
+		fixture.installationID, "subscription-ownership-"+fixture.installationID.String()[:8])
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, cleanupErr := pool.Exec(context.Background(),
+			"DELETE FROM router.model_router_subscription_accounts WHERE api_key_id IN (SELECT id FROM router.model_router_api_keys WHERE installation_id = $1) OR subscriber_id IN ($2, $3)",
+			fixture.installationID, fixture.subscriberA, fixture.subscriberB)
+		require.NoError(t, cleanupErr)
+		_, cleanupErr = pool.Exec(context.Background(),
+			"DELETE FROM router.model_router_api_keys WHERE installation_id = $1", fixture.installationID)
+		require.NoError(t, cleanupErr)
+		_, cleanupErr = pool.Exec(context.Background(),
+			"DELETE FROM router.credential_subject_installations WHERE installation_id = $1", fixture.installationID)
+		require.NoError(t, cleanupErr)
+		_, cleanupErr = pool.Exec(context.Background(),
+			"DELETE FROM router.credential_subjects WHERE id IN ($1, $2)", fixture.subscriberA, fixture.subscriberB)
+		require.NoError(t, cleanupErr)
+		_, cleanupErr = pool.Exec(context.Background(),
+			"DELETE FROM router.model_router_installations WHERE id = $1", fixture.installationID)
+		require.NoError(t, cleanupErr)
+	})
+
+	for _, subjectID := range []uuid.UUID{fixture.subscriberA, fixture.subscriberB} {
+		_, err = pool.Exec(ctx, "INSERT INTO router.credential_subjects (id, projection_complete) VALUES ($1, TRUE)", subjectID)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx,
+			"INSERT INTO router.credential_subject_installations (subject_id, installation_id, access_enabled) VALUES ($1, $2, TRUE)",
+			subjectID, fixture.installationID)
+		require.NoError(t, err)
+	}
+	fixture.insertKey(t, fixture.keyA1, &fixture.subscriberA)
+	fixture.insertKey(t, fixture.keyA2, &fixture.subscriberA)
+	fixture.insertKey(t, fixture.keyB1, &fixture.subscriberB)
+	fixture.insertKey(t, fixture.legacyKey, nil)
+	return fixture
+}
+
+func (f subscriptionFixture) insertKey(t *testing.T, keyID uuid.UUID, subjectID *uuid.UUID) {
+	t.Helper()
+	_, err := f.pool.Exec(context.Background(), `
+		INSERT INTO router.model_router_api_keys
+			(id, installation_id, external_id, key_prefix, key_hash, key_suffix, credential_subject_id)
+		VALUES ($1, $2, $3, $4, $5, 'test', $6)`,
+		keyID, f.installationID, keyID.String()[:8], "wv_"+keyID.String()[:8],
+		"hash-"+keyID.String(), subjectID)
+	require.NoError(t, err)
+}
+
+func (f subscriptionFixture) legacyRow(t *testing.T, keyID uuid.UUID, provider, externalAccountID string) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	require.NoError(t, f.pool.QueryRow(context.Background(), `
+		INSERT INTO router.model_router_subscription_accounts
+			(api_key_id, provider, external_account_id, refresh_token_ciphertext)
+		VALUES ($1, $2, $3, $4) RETURNING id`,
+		keyID, provider, externalAccountID, []byte("legacy-ciphertext")).Scan(&id))
+	return id
+}
+
+func TestSubscriptionAccountsFollowSubscriberAcrossKeys(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+
+	enrollingOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	for _, enrollment := range []struct {
+		provider          auth.SubscriptionProvider
+		externalAccountID string
+	}{
+		{auth.SubscriptionProviderClaude, "claude-one"},
+		{auth.SubscriptionProviderClaude, "claude-two"},
+		{auth.SubscriptionProviderCodex, "codex-one"},
+	} {
+		account, kind, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+			Owner: enrollingOwner, Provider: enrollment.provider,
+			ExternalAccountID: enrollment.externalAccountID, ProviderUserID: "synthetic-provider-user", RefreshToken: []byte("ciphertext"),
+		})
+		require.NoError(t, err)
+		assert.Equal(t, auth.SubscriptionUpsertInserted, kind)
+		assert.Equal(t, fixture.subscriberA.String(), account.SubscriberID)
+		assert.Equal(t, fixture.keyA1.String(), account.EnrolledByAPIKeyID, "enrolling key is kept as attribution")
+	}
+
+	// A rotated or second harness key of the same subscriber serves the same pool.
+	rotatedOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA2.String()}
+	accounts, err := repo.ListSubscriptionAccounts(ctx, rotatedOwner)
+	require.NoError(t, err)
+	require.Len(t, accounts, 3)
+	byProvider := map[auth.SubscriptionProvider][]string{}
+	for _, account := range accounts {
+		byProvider[account.Provider] = append(byProvider[account.Provider], account.ExternalAccountID)
+	}
+	assert.ElementsMatch(t, []string{"claude-one", "claude-two"}, byProvider[auth.SubscriptionProviderClaude])
+	assert.Equal(t, []string{"codex-one"}, byProvider[auth.SubscriptionProviderCodex])
+
+	// A physical account cannot be claimed by another subscriber.
+	otherOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
+	_, _, err = repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{Owner: otherOwner, Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude-one", RefreshToken: []byte("forbidden")})
+	require.Error(t, err)
+	otherAccount, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: otherOwner, Provider: auth.SubscriptionProviderClaude,
+		ExternalAccountID: "claude-other", RefreshToken: []byte("other-ciphertext"),
+	})
+	require.NoError(t, err)
+	otherAccounts, err := repo.ListSubscriptionAccounts(ctx, otherOwner)
+	require.NoError(t, err)
+	require.Len(t, otherAccounts, 1)
+	assert.Equal(t, otherAccount.ID, otherAccounts[0].ID)
+	assert.ErrorIs(t, repo.DeleteSubscriptionAccount(ctx, otherAccount.ID, rotatedOwner), auth.ErrSubscriptionAccountNotFound)
+
+	// Re-enrolling an existing account through the rotated key updates the same
+	// row rather than creating a duplicate.
+	readopted, kind, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: rotatedOwner, Provider: auth.SubscriptionProviderClaude,
+		ExternalAccountID: "claude-one", RefreshToken: []byte("rotated-ciphertext"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionUpsertUpdated, kind, "refreshing an existing subscriber identity is not a first registration")
+	assert.Equal(t, accounts[0].SubscriberID, readopted.SubscriberID)
+	accounts, err = repo.ListSubscriptionAccounts(ctx, rotatedOwner)
+	require.NoError(t, err)
+	assert.Len(t, accounts, 3)
+}
+
+func TestSubscriptionAccountHealthIsOwnerScoped(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	healthRepo := repo.(interface {
+		UpdateSubscriptionAccountHealth(context.Context, string, auth.SubscriptionOwner, auth.SubscriptionAccountState, bool, *time.Time) (bool, error)
+	})
+	updateHealth := func(ctx context.Context, accountID string, owner auth.SubscriptionOwner, state auth.SubscriptionAccountState, enabled bool, until *time.Time) error {
+		_, err := healthRepo.UpdateSubscriptionAccountHealth(ctx, accountID, owner, state, enabled, until)
+		return err
+	}
+	ctx := context.Background()
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderClaude,
+		ExternalAccountID: "claude-health", RefreshToken: []byte("ciphertext"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionAccountStateUnknown, account.State)
+
+	resetAt := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
+	require.NoError(t, updateHealth(
+		ctx, account.ID, owner, auth.SubscriptionAccountStateExhausted, true, &resetAt,
+	))
+	accounts, err := repo.ListSubscriptionAccounts(ctx, owner)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	assert.Equal(t, auth.SubscriptionAccountStateExhausted, accounts[0].State)
+	require.NotNil(t, accounts[0].CooldownUntil)
+	assert.WithinDuration(t, resetAt, *accounts[0].CooldownUntil, time.Microsecond)
+
+	require.NoError(t, updateHealth(
+		ctx, account.ID, owner, auth.SubscriptionAccountStateActive, true, nil,
+	))
+	accounts, err = repo.ListSubscriptionAccounts(ctx, owner)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	assert.Equal(t, auth.SubscriptionAccountStateExhausted, accounts[0].State)
+	require.NotNil(t, accounts[0].CooldownUntil)
+	assert.WithinDuration(t, resetAt, *accounts[0].CooldownUntil, time.Microsecond)
+
+	otherOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
+	assert.ErrorIs(t, updateHealth(
+		ctx, account.ID, otherOwner, auth.SubscriptionAccountStateDisabled, false, nil,
+	), auth.ErrSubscriptionAccountNotFound)
+
+	require.NoError(t, repo.UpdateSubscriptionAccountState(ctx, account.ID, owner, false, nil))
+	require.NoError(t, updateHealth(
+		ctx, account.ID, owner, auth.SubscriptionAccountStateActive, true, nil,
+	))
+	accounts, err = repo.ListSubscriptionAccounts(ctx, owner)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	assert.False(t, accounts[0].Enabled, "health writes must not re-enable an operator-disabled account")
+}
+
+func TestSubscriptionAccountsKeepLegacyAPIKeyOwnership(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+
+	legacyID := fixture.legacyRow(t, fixture.legacyKey, "claude", "claude-legacy")
+	legacyOwner := auth.SubscriptionOwner{APIKeyID: fixture.legacyKey.String()}
+
+	accounts, err := repo.ListSubscriptionAccounts(ctx, legacyOwner)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	assert.Equal(t, legacyID.String(), accounts[0].ID)
+	assert.Empty(t, accounts[0].SubscriberID)
+
+	// A subscriber cannot reach another key's unattributed row.
+	subscriberOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	subscriberAccounts, err := repo.ListSubscriptionAccounts(ctx, subscriberOwner)
+	require.NoError(t, err)
+	assert.Empty(t, subscriberAccounts)
+	assert.ErrorIs(t, repo.UpdateSubscriptionAccountState(ctx, legacyID.String(), subscriberOwner, false, nil),
+		auth.ErrSubscriptionAccountNotFound)
+
+	// The legacy owner still manages its own row until it is reconnected.
+	require.NoError(t, repo.UpdateSubscriptionAccountState(ctx, legacyID.String(), legacyOwner, false, nil))
+	accounts, err = repo.ListSubscriptionAccounts(ctx, legacyOwner)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	assert.False(t, accounts[0].Enabled)
+}
+
+func TestSubscriptionAccountReconnectCannotAdoptLegacyRow(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+
+	// A row the migration could not attribute, enrolled by a key that has since
+	// gained a credential subject.
+	legacyID := fixture.legacyRow(t, fixture.keyA1, "codex", "codex-legacy")
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+
+	adopted, kind, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderCodex,
+		ExternalAccountID: "codex-legacy", RefreshToken: []byte("reconnected-ciphertext"),
+	})
+	require.Error(t, err, "reconnect must not silently claim an unassigned account")
+	assert.Nil(t, adopted)
+	assert.Equal(t, auth.SubscriptionUpsertUpdated, kind)
+	var persistedOwner *uuid.UUID
+	var persistedToken []byte
+	require.NoError(t, fixture.pool.QueryRow(ctx, "SELECT subscriber_id, refresh_token_ciphertext FROM router.model_router_subscription_accounts WHERE id = $1", legacyID).Scan(&persistedOwner, &persistedToken))
+	assert.Nil(t, persistedOwner)
+	assert.Equal(t, []byte("legacy-ciphertext"), persistedToken)
+}
+
+func TestSubscriptionAccountConcurrentFirstEnrollmentConverges(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+
+	// Two harness keys of one subscriber linking the same provider account at
+	// once: neither sees an existing row to lock, so both reach the insert.
+	owners := fixture.subscriberAKeys()
+	enrolled := concurrentEnrollments(t, repo, "claude-concurrent", owners)
+	assert.Equal(t, enrolled[0].ID, enrolled[1].ID, "concurrent enrollment converges on one account")
+
+	accounts, err := repo.ListSubscriptionAccounts(context.Background(), owners[0])
+	require.NoError(t, err)
+	assert.Len(t, accounts, 1)
+}
+
+func TestSubscriptionAccountDuplicatePhysicalEnrollmentRejected(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	fixture.legacyRow(t, fixture.keyA1, "claude", "claude-duplicated")
+	_, err := fixture.pool.Exec(context.Background(), `INSERT INTO router.model_router_subscription_accounts (api_key_id, provider, external_account_id, refresh_token_ciphertext) VALUES ($1, 'claude', 'claude-duplicated', $2)`, fixture.keyA2, []byte("duplicate"))
+	require.Error(t, err, "one physical account cannot have two active identities")
+}
+
+func (f subscriptionFixture) subscriberAKeys() []auth.SubscriptionOwner {
+	return []auth.SubscriptionOwner{
+		{InstallationID: f.installationID.String(), SubscriberID: f.subscriberA.String(), APIKeyID: f.keyA1.String()},
+		{InstallationID: f.installationID.String(), SubscriberID: f.subscriberA.String(), APIKeyID: f.keyA2.String()},
+	}
+}
+
+func concurrentEnrollments(
+	t *testing.T,
+	repo auth.SubscriptionAccountRepository,
+	externalAccountID string,
+	owners []auth.SubscriptionOwner,
+) []*auth.SubscriptionAccount {
+	t.Helper()
+	start := make(chan struct{})
+	accounts := make([]*auth.SubscriptionAccount, len(owners))
+	errs := make([]error, len(owners))
+	var wait sync.WaitGroup
+	for index, owner := range owners {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			accounts[index], _, errs[index] = repo.UpsertSubscriptionAccount(context.Background(), auth.CreateSubscriptionAccountParams{
+				Owner: owner, Provider: auth.SubscriptionProviderClaude,
+				ExternalAccountID: externalAccountID, RefreshToken: []byte("ciphertext"),
+			})
+		}()
+	}
+	close(start)
+	wait.Wait()
+
+	for index := range owners {
+		require.NoError(t, errs[index])
+		require.NotNil(t, accounts[index])
+	}
+	return accounts
+}
+
+func TestSubscriptionRefreshLeaseSurvivesKeyRotation(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+
+	enrollingOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: enrollingOwner, Provider: auth.SubscriptionProviderClaude,
+		ExternalAccountID: "claude-lease", RefreshToken: []byte("ciphertext"),
+	})
+	require.NoError(t, err)
+
+	rotatedOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA2.String()}
+	leaseID := uuid.NewString()
+	acquisition, err := repo.TryAcquireSubscriptionRefreshLease(ctx, account.ID, rotatedOwner, leaseID, time.Minute)
+	require.NoError(t, err)
+	require.True(t, acquisition.Acquired)
+	assert.False(t, acquisition.TookOver)
+
+	// Another subscriber's key cannot lease or read the account.
+	foreignOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
+	foreign, err := repo.TryAcquireSubscriptionRefreshLease(ctx, account.ID, foreignOwner, uuid.NewString(), time.Minute)
+	require.NoError(t, err)
+	assert.False(t, foreign.Acquired)
+	_, err = repo.GetSubscriptionCredentialRecord(ctx, account.ID, foreignOwner)
+	assert.ErrorIs(t, err, auth.ErrSubscriptionAccountNotFound)
+
+	record, err := repo.GetSubscriptionCredentialRecord(ctx, account.ID, rotatedOwner)
+	require.NoError(t, err)
+	require.Equal(t, leaseID, record.TokenRefreshLeaseID)
+
+	// A stale version is rejected, and the fenced write from the lease holder wins.
+	staleErr := repo.PersistSubscriptionTokens(ctx, account.ID, rotatedOwner, leaseID, record.TokenRefreshVersion+1,
+		[]byte("refresh-new"), []byte("access-new"), time.Now().Add(time.Hour))
+	assert.ErrorIs(t, staleErr, auth.ErrSubscriptionRefreshConflict)
+	require.NoError(t, repo.PersistSubscriptionTokens(ctx, account.ID, rotatedOwner, leaseID, record.TokenRefreshVersion,
+		[]byte("refresh-new"), []byte("access-new"), time.Now().Add(time.Hour)))
+
+	persisted, err := repo.GetSubscriptionCredentialRecord(ctx, account.ID, enrollingOwner)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("refresh-new"), persisted.RefreshTokenCiphertext)
+	assert.Equal(t, record.TokenRefreshVersion+1, persisted.TokenRefreshVersion)
+	assert.Empty(t, persisted.TokenRefreshLeaseID, "persisting releases the lease")
+}
+
+func TestSubscriptionCandidatesAdmitLiveSharedKeys(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	admission := repo.(interface {
+		ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
+	})
+	ctx := context.Background()
+	_, err := fixture.pool.Exec(ctx,
+		"UPDATE router.model_router_installations SET subscription_sharing_enabled = TRUE WHERE id = $1", fixture.installationID)
+	require.NoError(t, err)
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner:    auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()},
+		Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude-shared", RefreshToken: []byte("ciphertext"),
+	})
+	require.NoError(t, err)
+	sharedKeyOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), APIKeyID: fixture.legacyKey.String()}
+	candidates, err := admission.ListSubscriptionCandidates(ctx, sharedKeyOwner)
+	require.NoError(t, err)
+	require.Len(t, candidates, 1, "a shared key borrows whenever the installation shares capacity")
+	assert.Equal(t, account.ID, candidates[0].ID)
+	assert.Equal(t, auth.SubscriptionTierShared, candidates[0].Tier)
+
+	_, err = fixture.pool.Exec(ctx,
+		"UPDATE router.model_router_installations SET subscription_sharing_enabled = FALSE WHERE id = $1", fixture.installationID)
+	require.NoError(t, err)
+	candidates, err = admission.ListSubscriptionCandidates(ctx, sharedKeyOwner)
+	require.NoError(t, err)
+	assert.Empty(t, candidates, "a shared key borrows only while the installation shares capacity")
+
+	_, err = fixture.pool.Exec(ctx,
+		"UPDATE router.model_router_installations SET subscription_sharing_enabled = TRUE WHERE id = $1", fixture.installationID)
+	require.NoError(t, err)
+	_, err = fixture.pool.Exec(ctx, "UPDATE router.model_router_api_keys SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1", fixture.legacyKey)
+	require.NoError(t, err)
+	candidates, err = admission.ListSubscriptionCandidates(ctx, sharedKeyOwner)
+	require.NoError(t, err)
+	assert.Empty(t, candidates, "a deleted key cannot borrow")
+
+	_, err = fixture.pool.Exec(ctx,
+		"UPDATE router.credential_subject_installations SET access_enabled = FALSE WHERE subject_id = $1 AND installation_id = $2",
+		fixture.subscriberB, fixture.installationID)
+	require.NoError(t, err)
+	candidates, err = admission.ListSubscriptionCandidates(ctx, auth.SubscriptionOwner{
+		InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String(),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, candidates, "a personal key never bypasses its revoked membership")
+}
+
+func TestSubscriptionCredentialRejectionStrikesRollAndResetOnReEnable(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude-strikes",
+		ProviderUserID: "synthetic-provider-user", RefreshToken: []byte("ciphertext"),
+	})
+	require.NoError(t, err)
+	_, err = fixture.pool.Exec(ctx, "UPDATE router.model_router_subscription_accounts SET access_token_ciphertext = 'live', access_token_expires_at = $2 WHERE id = $1",
+		account.ID, time.Now().Add(time.Hour).UTC())
+	require.NoError(t, err)
+
+	start := time.Now().UTC().Truncate(time.Microsecond)
+	first, err := repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, auth.SubscriptionCredentialRejectionInput{Reason: "invalid_grant", RejectedAt: start, Window: 24 * time.Hour, InvalidateAccessToken: false})
+	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionCredentialRejection{Count: 1, FirstRejectedAt: start}, first)
+
+	second, err := repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, auth.SubscriptionCredentialRejectionInput{Reason: "upstream_http_401", RejectedAt: start.Add(time.Hour), Window: 24 * time.Hour, InvalidateAccessToken: true})
+	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionCredentialRejection{Count: 2, FirstRejectedAt: start, PreviousReason: "invalid_grant"}, second)
+	record, err := repo.GetSubscriptionCredentialRecord(ctx, account.ID, owner)
+	require.NoError(t, err)
+	assert.Empty(t, record.AccessTokenCiphertext, "an upstream rejection drops the shared access token")
+
+	rolled, err := repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, auth.SubscriptionCredentialRejectionInput{Reason: "upstream_http_401", RejectedAt: start.Add(30 * time.Hour), Window: 24 * time.Hour, InvalidateAccessToken: false})
+	require.NoError(t, err)
+	assert.Equal(t, 1, rolled.Count, "strikes older than the window restart the count")
+	assert.Equal(t, start.Add(30*time.Hour), rolled.FirstRejectedAt)
+
+	require.NoError(t, repo.UpdateSubscriptionAccountState(ctx, account.ID, owner, false, nil))
+	_, err = repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, auth.SubscriptionCredentialRejectionInput{Reason: "upstream_http_401", RejectedAt: start.Add(31 * time.Hour), Window: 24 * time.Hour, InvalidateAccessToken: false})
+	require.ErrorIs(t, err, auth.ErrSubscriptionAccountNotFound, "a disabled account accrues no strikes")
+	require.NoError(t, repo.UpdateSubscriptionAccountState(ctx, account.ID, owner, true, nil))
+	afterReEnable, err := repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, auth.SubscriptionCredentialRejectionInput{Reason: "upstream_http_401", RejectedAt: start.Add(31 * time.Hour), Window: 24 * time.Hour, InvalidateAccessToken: false})
+	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionCredentialRejection{Count: 1, FirstRejectedAt: start.Add(31 * time.Hour)}, afterReEnable)
+}
+
+func TestSubscriptionCandidatesCarryOnlyUnresolvedCredentialRejections(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderCodex, ExternalAccountID: "codex-strikes",
+		ProviderUserID: "synthetic-provider-user", RefreshToken: []byte("ciphertext"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := fixture.pool.Exec(context.Background(), "DELETE FROM router.subscription_credential_events WHERE account_id=$1", account.ID)
+		require.NoError(t, err)
+	})
+	candidateRejections := func() int {
+		candidates, err := repo.(interface {
+			ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
+		}).ListSubscriptionCandidates(ctx, owner)
+		require.NoError(t, err)
+		require.Len(t, candidates, 1)
+		return candidates[0].CredentialRejections
+	}
+	leaseID := uuid.NewString()
+	acquisition, err := repo.TryAcquireSubscriptionRefreshLease(ctx, account.ID, owner, leaseID, time.Minute)
+	require.NoError(t, err)
+	require.True(t, acquisition.Acquired)
+	record, err := repo.GetSubscriptionCredentialRecord(ctx, account.ID, owner)
+	require.NoError(t, err)
+	_, err = repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, auth.SubscriptionCredentialRejectionInput{
+		Reason: "refresh_token_invalidated", RejectedAt: time.Now().UTC(), Window: 24 * time.Hour, LeaseID: leaseID, ExpectedVersion: record.TokenRefreshVersion,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, candidateRejections(),
+		"admission must tell a credential-strike cooldown apart from a rate-limit cooldown")
+
+	require.NoError(t, repo.PersistSubscriptionTokens(ctx, account.ID, owner, leaseID, record.TokenRefreshVersion,
+		[]byte("refresh-new"), []byte("access-new"), time.Now().Add(time.Hour)))
+	assert.Equal(t, 0, candidateRejections(),
+		"a refreshed seat's retained strikes must not hide a later rate-limit cooldown")
+}
+
+func TestSubscriptionRefreshRejectionStrikeIsLeaseFencedAndClearedByRefresh(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude-fenced-strikes",
+		ProviderUserID: "synthetic-provider-user", RefreshToken: []byte("ciphertext"),
+	})
+	require.NoError(t, err)
+	leaseID := uuid.NewString()
+	acquisition, err := repo.TryAcquireSubscriptionRefreshLease(ctx, account.ID, owner, leaseID, time.Minute)
+	require.NoError(t, err)
+	require.True(t, acquisition.Acquired)
+	record, err := repo.GetSubscriptionCredentialRecord(ctx, account.ID, owner)
+	require.NoError(t, err)
+
+	start := time.Now().UTC().Truncate(time.Microsecond)
+	_, err = repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, auth.SubscriptionCredentialRejectionInput{
+		Reason: "invalid_grant", RejectedAt: start, Window: 24 * time.Hour, LeaseID: uuid.NewString(), ExpectedVersion: record.TokenRefreshVersion,
+	})
+	require.ErrorIs(t, err, auth.ErrSubscriptionRefreshConflict, "a refresher without the lease records no strike")
+	_, err = repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, auth.SubscriptionCredentialRejectionInput{
+		Reason: "invalid_grant", RejectedAt: start, Window: 24 * time.Hour, LeaseID: leaseID, ExpectedVersion: record.TokenRefreshVersion + 1,
+	})
+	require.ErrorIs(t, err, auth.ErrSubscriptionRefreshConflict, "a stale version records no strike")
+	first, err := repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, auth.SubscriptionCredentialRejectionInput{
+		Reason: "invalid_grant", RejectedAt: start, Window: 24 * time.Hour, LeaseID: leaseID, ExpectedVersion: record.TokenRefreshVersion,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionCredentialRejection{Count: 1, FirstRejectedAt: start}, first)
+
+	require.NoError(t, repo.PersistSubscriptionTokens(ctx, account.ID, owner, leaseID, record.TokenRefreshVersion,
+		[]byte("refresh-new"), []byte("access-new"), time.Now().Add(time.Hour)))
+	second, err := repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, auth.SubscriptionCredentialRejectionInput{
+		Reason: "invalid_grant", RejectedAt: start.Add(time.Hour), Window: 24 * time.Hour,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionCredentialRejection{Count: 2, FirstRejectedAt: start}, second,
+		"a successful refresh keeps the strike count but breaks the consecutive-reason chain")
+}
+
+func TestSubscriptionCandidatesReportMissingAccessToken(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude-token-missing",
+		ProviderUserID: "synthetic-provider-user", RefreshToken: []byte("ciphertext"),
+	})
+	require.NoError(t, err)
+	accessTokenMissing := func() bool {
+		candidates, err := repo.(interface {
+			ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
+		}).ListSubscriptionCandidates(ctx, owner)
+		require.NoError(t, err)
+		for _, candidate := range candidates {
+			if candidate.ID == account.ID {
+				return candidate.AccessTokenMissing
+			}
+		}
+		t.Fatalf("account %s not listed", account.ID)
+		return false
+	}
+	assert.True(t, accessTokenMissing())
+	_, err = fixture.pool.Exec(ctx, "UPDATE router.model_router_subscription_accounts SET access_token_ciphertext = 'live', access_token_expires_at = $2 WHERE id = $1",
+		account.ID, time.Now().Add(time.Hour).UTC())
+	require.NoError(t, err)
+	assert.False(t, accessTokenMissing())
+}
+
+func TestSubscriptionCredentialEventsSurviveReconnectAndFenceStaleRefresh(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderCodex, ExternalAccountID: "audit-workspace", ProviderUserID: "audit-user", RefreshToken: []byte("synthetic-ciphertext"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := fixture.pool.Exec(context.Background(), "DELETE FROM router.subscription_credential_events WHERE account_id=$1", account.ID)
+		require.NoError(t, err)
+	})
+	record, err := repo.GetSubscriptionCredentialRecord(ctx, account.ID, owner)
+	require.NoError(t, err)
+	leaseID := uuid.NewString()
+	acquired, err := repo.TryAcquireSubscriptionRefreshLease(ctx, account.ID, owner, leaseID, time.Minute)
+	require.NoError(t, err)
+	require.True(t, acquired.Acquired)
+	input := auth.SubscriptionCredentialRejectionInput{
+		Reason: "refresh_token_reused", ProviderErrorType: "invalid_request_error", ProviderRequestID: "synthetic-provider-request",
+		UpstreamStatus: 401, RequestID: "synthetic-router-request", RejectedAt: time.Now().UTC(), Window: 24 * time.Hour,
+		LeaseID: uuid.NewString(), ExpectedVersion: record.TokenRefreshVersion,
+	}
+	_, err = repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, input)
+	require.ErrorIs(t, err, auth.ErrSubscriptionRefreshConflict)
+	var count int
+	require.NoError(t, fixture.pool.QueryRow(ctx, "SELECT count(*) FROM router.subscription_credential_events WHERE account_id=$1", account.ID).Scan(&count))
+	require.Zero(t, count, "a stale holder must not write diagnostic history for replacement credentials")
+	input.LeaseID = leaseID
+	first, err := repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, input)
+	require.NoError(t, err)
+	require.False(t, first.RepeatedDisconnect)
+	require.NoError(t, repo.DisableSubscriptionAccountIfRefreshHolder(ctx, account.ID, owner, leaseID, record.TokenRefreshVersion))
+	require.ErrorIs(t, repo.DisableSubscriptionAccountIfRefreshHolder(ctx, account.ID, owner, leaseID, record.TokenRefreshVersion), auth.ErrSubscriptionRefreshConflict)
+	var providerCode, providerErrorType, providerRequestID, requestID string
+	var status int
+	require.NoError(t, fixture.pool.QueryRow(ctx, `SELECT reason,provider_error_type,provider_request_id,upstream_status,request_id FROM router.subscription_credential_events WHERE account_id=$1 AND event_kind=$2`, account.ID, string(auth.SubscriptionCredentialEventReconnectRequired)).Scan(&providerCode, &providerErrorType, &providerRequestID, &status, &requestID))
+	require.Equal(t, input.Reason, providerCode)
+	require.Equal(t, input.ProviderErrorType, providerErrorType)
+	require.Equal(t, input.ProviderRequestID, providerRequestID)
+	require.Equal(t, input.UpstreamStatus, status)
+	require.Equal(t, input.RequestID, requestID)
+	require.NoError(t, repo.UpdateSubscriptionRefreshToken(ctx, account.ID, owner, []byte("replacement-ciphertext")))
+	require.NoError(t, repo.UpdateSubscriptionAccountState(ctx, account.ID, owner, true, nil))
+	second, err := repo.RecordSubscriptionCredentialRejection(ctx, account.ID, owner, auth.SubscriptionCredentialRejectionInput{Reason: input.Reason, RejectedAt: time.Now().UTC(), Window: 24 * time.Hour})
+	require.NoError(t, err)
+	require.True(t, second.RepeatedDisconnect, "history survives a reconnect and identifies a new credential generation failing again")
+	require.NoError(t, fixture.pool.QueryRow(ctx, "SELECT count(*) FROM router.subscription_credential_events WHERE account_id=$1", account.ID).Scan(&count))
+	require.Equal(t, 3, count, "reconnect does not erase either the rejection or the committed disconnect")
+}
+
+func TestConcurrentSubscriptionHealthTransitionsCommitOneDisconnect(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	healthRepo := repo.(interface {
+		UpdateSubscriptionAccountHealth(context.Context, string, auth.SubscriptionOwner, auth.SubscriptionAccountState, bool, *time.Time) (bool, error)
+	})
+	ctx := context.Background()
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "concurrent-health", RefreshToken: []byte("synthetic-ciphertext"),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := fixture.pool.Exec(context.Background(), "DELETE FROM router.subscription_credential_events WHERE account_id=$1", account.ID)
+		require.NoError(t, err)
+	})
+	type transitionOutcome struct {
+		disconnected bool
+		err          error
+	}
+	outcomes := make(chan transitionOutcome, 8)
+	start := make(chan struct{})
+	for range 8 {
+		go func() {
+			<-start
+			disconnected, err := healthRepo.UpdateSubscriptionAccountHealth(ctx, account.ID, owner, auth.SubscriptionAccountStateReconnectRequired, false, nil)
+			outcomes <- transitionOutcome{disconnected, err}
+		}()
+	}
+	close(start)
+	var disconnectedCount int
+	for range 8 {
+		outcome := <-outcomes
+		require.NoError(t, outcome.err)
+		if outcome.disconnected {
+			disconnectedCount++
+		}
+	}
+	require.Equal(t, 1, disconnectedCount)
+	var eventCount int
+	require.NoError(t, fixture.pool.QueryRow(ctx, "SELECT count(*) FROM router.subscription_credential_events WHERE account_id=$1 AND event_kind=$2", account.ID, string(auth.SubscriptionCredentialEventReconnectRequired)).Scan(&eventCount))
+	require.Equal(t, 1, eventCount)
+}

@@ -11,6 +11,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
+	"weave-os/router/internal/telemetry"
+
 	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
@@ -18,7 +20,7 @@ import (
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
 	tracev1 "go.opentelemetry.io/proto/otlp/trace/v1"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/observability"
 )
 
 // EmitterConfig controls the emitter's async export pipeline.
@@ -52,8 +54,9 @@ type Emitter struct {
 	// calls so a late Enqueue cannot panic with "send on closed channel".
 	// Enqueue acquires RLock for the lifetime of the send; Shutdown takes
 	// Lock to flip closed and close(queue) atomically.
-	closeMu sync.RWMutex
-	closed  atomic.Bool
+	closeMu            sync.RWMutex
+	closed             atomic.Bool
+	translationMetrics translationMetrics
 }
 
 // NewEmitter starts the worker pool and returns a ready emitter. Returns
@@ -107,6 +110,20 @@ func NewEmitter(cfg EmitterConfig) (*Emitter, error) {
 // is nil (OTel disabled).
 func (e *Emitter) NewBuffer() *Buffer {
 	return NewBuffer(e)
+}
+
+func (e *Emitter) NewRecorder() telemetry.Recorder {
+	if e == nil {
+		return nil
+	}
+	return NewBuffer(e)
+}
+
+// NewUsageExtractor returns the vendor-neutral parser and its HTTP adapter.
+// The parser remains in the inner ring while the adapter owns response I/O.
+func (e *Emitter) NewUsageExtractor(inner http.ResponseWriter, provider string) (*telemetry.UsageExtractor, http.ResponseWriter) {
+	wrapper := NewUsageExtractor(inner, provider)
+	return wrapper.Extractor(), wrapper
 }
 
 // Enqueue submits a span to the export queue. Non-blocking: drops on queue-full

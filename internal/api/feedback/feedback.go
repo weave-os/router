@@ -5,6 +5,7 @@
 package feedback
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,12 +13,11 @@ import (
 	"strings"
 	"time"
 
-	token "workweave/router/internal/feedback"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/proxy"
+	token "weave-os/router/internal/feedback"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
 )
 
 // maxBodyBytes caps the feedback submission payload. A rating + short comment is
@@ -59,7 +59,7 @@ func GetContextHandler(svc *proxy.Service) gin.HandlerFunc {
 		}
 
 		fctx, err := svc.GetFeedbackContext(c.Request.Context(), claims.InstallationID, claims.RequestID)
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			// Token is valid but no telemetry row exists (telemetry disabled or
 			// pruned past retention). Render the page with just the request id
 			// so the user can still leave feedback.
@@ -67,7 +67,7 @@ func GetContextHandler(svc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 		if err != nil {
-			log.Error("Failed to load feedback context", "err", err, "request_id", claims.RequestID)
+			log.Error("Failed to load feedback context", "err", err, "rated_request_id", claims.RequestID)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to load context"})
 			return
 		}
@@ -111,7 +111,7 @@ func SubmitHandler(svc *proxy.Service) gin.HandlerFunc {
 			Comment:        normalizeComment(req.Comment),
 		})
 		if err != nil {
-			log.Error("Failed to submit feedback", "err", err, "request_id", claims.RequestID)
+			log.Error("Failed to submit feedback", "err", err, "rated_request_id", claims.RequestID)
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to submit feedback"})
 			return
 		}
@@ -157,7 +157,7 @@ func RateHandler(svc *proxy.Service) gin.HandlerFunc {
 			Rating:         rating,
 		})
 		if err != nil {
-			log.Error("Failed to record one-click feedback", "err", err, "request_id", claims.RequestID, "rating", rating)
+			log.Error("Failed to record one-click feedback", "err", err, "rated_request_id", claims.RequestID, "rating", rating)
 			c.Data(http.StatusInternalServerError, "text/html; charset=utf-8", ratePageError("Sorry — we couldn't record that. Please try again."))
 			return
 		}

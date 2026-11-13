@@ -5,13 +5,15 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/observability"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // panicTelemetryRepo is a TelemetryRepository whose InsertRequestTelemetry
@@ -54,8 +56,29 @@ func (panicTelemetryRepo) GetTelemetryModelBreakdownAll(ctx context.Context, fro
 	return nil, nil
 }
 
+func (panicTelemetryRepo) GetSessionCost(ctx context.Context, installationID, sessionID string) (SessionCost, error) {
+	return SessionCost{}, ErrSessionCostNotFound
+}
+
 func (panicTelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (TelemetryTurnResult, error) {
 	return TelemetryTurnResult{}, nil
+}
+
+type panicLogBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *panicLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *panicLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // TestFireTelemetryRecoversFromPanic proves a panic inside the async
@@ -65,7 +88,7 @@ func TestFireTelemetryRecoversFromPanic(t *testing.T) {
 	// first Get() call races SetDefault and resets the handler.
 	observability.Get()
 
-	var buf bytes.Buffer
+	var buf panicLogBuffer
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
 	defer slog.SetDefault(prev)
@@ -74,16 +97,36 @@ func TestFireTelemetryRecoversFromPanic(t *testing.T) {
 
 	assert.NotPanics(t, func() {
 		s.fireTelemetry(InsertTelemetryParams{RequestID: "req-1"})
-		// fireTelemetry launches a goroutine; give it a moment to run and recover.
-		deadline := time.Now().Add(2 * time.Second)
-		for time.Now().Before(deadline) {
-			if strings.Contains(buf.String(), "Background goroutine panicked") {
-				break
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
 	})
+
+	require.Eventually(t, func() bool {
+		return strings.Contains(buf.String(), "Background goroutine panicked")
+	}, 2*time.Second, 10*time.Millisecond)
 
 	assert.Contains(t, buf.String(), "Background goroutine panicked")
 	assert.Contains(t, buf.String(), "fireTelemetry")
+}
+
+func (panicTelemetryRepo) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryDashboardFact, error) {
+	return nil, nil
+}
+
+func (panicTelemetryRepo) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]TelemetryActiveUsers, error) {
+	return nil, nil
+}
+
+func (panicTelemetryRepo) GetTelemetryDashboardPeople(context.Context, string) ([]TelemetryPerson, error) {
+	return nil, nil
+}
+
+func (panicTelemetryRepo) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]TelemetrySubscriptionSeat, error) {
+	return nil, nil
+}
+
+func (panicTelemetryRepo) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]TelemetryDrillDownRow, error) {
+	return nil, nil
+}
+
+func (panicTelemetryRepo) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryIndividualFact, error) {
+	return nil, nil
 }

@@ -7,8 +7,9 @@ import (
 	"errors"
 	"fmt"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres/dbbudget"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 )
@@ -35,7 +36,19 @@ func (r *ExternalAPIKeyRepo) Create(ctx context.Context, params auth.CreateExter
 		return nil, err
 	}
 
-	q := sqlc.New(r.tx)
+	fundingPriority, err := auth.NormalizeFundingPriority(params.FundingPriority)
+	if err != nil {
+		return nil, err
+	}
+
+	federation, err := json.Marshal(params.FederationConfig)
+	if err != nil {
+		return nil, fmt.Errorf("encode federation configuration: %w", err)
+	}
+	if params.FederationConfig == nil {
+		federation = nil
+	}
+	q := dbbudget.Queries(r.tx)
 	row, err := q.CreateExternalAPIKey(ctx, sqlc.CreateExternalAPIKeyParams{
 		InstallationID: installationUUID,
 		ExternalID:     params.ExternalID,
@@ -48,12 +61,17 @@ func (r *ExternalAPIKeyRepo) Create(ctx context.Context, params auth.CreateExter
 		BaseURL:        params.BaseURL,
 		ModelAliases:   aliases,
 
-		IdentityHeaderName:   params.IdentityHeader,
-		IdentityHeaderFormat: params.IdentityHeaderFormat,
-		AuthType:             params.AuthType,
-		AuthAccount:          params.AuthAccount,
-		AuthUser:             params.AuthUser,
-		CreatedBy:            params.CreatedBy,
+		IdentityHeaderName:     params.IdentityHeader,
+		IdentityHeaderFormat:   params.IdentityHeaderFormat,
+		ForwardedClientHeaders: params.ForwardedClientHeaders,
+		BaggageHeader:          params.BaggageHeader,
+
+		AuthType:         string(params.AuthType),
+		FederationConfig: federation,
+		AuthAccount:      params.AuthAccount,
+		AuthUser:         params.AuthUser,
+		FundingPriority:  string(fundingPriority),
+		CreatedBy:        params.CreatedBy,
 	})
 	if err != nil {
 		return nil, err
@@ -68,7 +86,7 @@ func (r *ExternalAPIKeyRepo) GetForInstallation(ctx context.Context, installatio
 		return nil, err
 	}
 
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.GetActiveExternalAPIKeysForInstallation(ctx, installationUUID)
 	if err != nil {
 		return nil, err
@@ -80,11 +98,15 @@ func (r *ExternalAPIKeyRepo) GetForInstallation(ctx context.Context, installatio
 		if err != nil {
 			return nil, err
 		}
-		plaintext, err := r.encryptor.Decrypt(row.KeyCiphertext, row.ExternalID, row.Provider)
-		if err != nil {
-			return nil, err
+		// Workload-identity rows store no secret at all — the credential is
+		// minted per request — so there is nothing to decrypt.
+		if len(row.KeyCiphertext) > 0 {
+			plaintext, err := r.encryptor.Decrypt(row.KeyCiphertext, row.ExternalID, row.Provider)
+			if err != nil {
+				return nil, err
+			}
+			key.Plaintext = plaintext
 		}
-		key.Plaintext = plaintext
 		keys = append(keys, key)
 	}
 	return keys, nil
@@ -95,7 +117,7 @@ func (r *ExternalAPIKeyRepo) SoftDeleteByProvider(ctx context.Context, installat
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.SoftDeleteExternalAPIKeyByProvider(ctx, sqlc.SoftDeleteExternalAPIKeyByProviderParams{
 		InstallationID: installationUUID,
 		Provider:       provider,
@@ -115,7 +137,7 @@ func (r *ExternalAPIKeyRepo) UpdateModelAliases(ctx context.Context, installatio
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.UpdateExternalAPIKeyModelAliases(ctx, sqlc.UpdateExternalAPIKeyModelAliasesParams{
 		ID:             keyUUID,
 		InstallationID: installationUUID,
@@ -130,6 +152,44 @@ func (r *ExternalAPIKeyRepo) UpdateModelAliases(ctx context.Context, installatio
 	return toExternalAPIKey(row)
 }
 
+func (r *ExternalAPIKeyRepo) UpdateFundingPriority(ctx context.Context, installationID, id string, priority auth.FundingPriority) (*auth.ExternalAPIKey, error) {
+	installationUUID, err := uuid.Parse(installationID)
+	if err != nil {
+		return nil, err
+	}
+	keyUUID, err := uuid.Parse(id)
+	if err != nil {
+		return nil, err
+	}
+	row, err := dbbudget.Queries(r.tx).UpdateExternalAPIKeyFundingPriority(ctx, sqlc.UpdateExternalAPIKeyFundingPriorityParams{
+		ID:              keyUUID,
+		InstallationID:  installationUUID,
+		FundingPriority: string(priority),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, auth.ErrExternalAPIKeyNotFound
+		}
+		return nil, err
+	}
+	return toExternalAPIKey(row)
+}
+
+func (r *ExternalAPIKeyRepo) ActiveFundingPriority(ctx context.Context, installationID, provider string) (auth.FundingPriority, error) {
+	installationUUID, err := uuid.Parse(installationID)
+	if err != nil {
+		return "", err
+	}
+	priority, err := dbbudget.Queries(r.tx).GetActiveExternalAPIKeyFundingPriority(ctx, sqlc.GetActiveExternalAPIKeyFundingPriorityParams{
+		InstallationID: installationUUID,
+		Provider:       provider,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return auth.FundingPriority(priority), err
+}
+
 func (r *ExternalAPIKeyRepo) SoftDelete(ctx context.Context, installationID, id string) error {
 	installationUUID, err := uuid.Parse(installationID)
 	if err != nil {
@@ -139,7 +199,7 @@ func (r *ExternalAPIKeyRepo) SoftDelete(ctx context.Context, installationID, id 
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.SoftDeleteExternalAPIKey(ctx, sqlc.SoftDeleteExternalAPIKeyParams{
 		ID:             keyUUID,
 		InstallationID: installationUUID,
@@ -151,7 +211,7 @@ func (r *ExternalAPIKeyRepo) MarkUsed(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.MarkExternalAPIKeyUsed(ctx, keyUUID)
 }
 
@@ -178,18 +238,28 @@ func toExternalAPIKey(row sqlc.RouterModelRouterExternalAPIKey) (*auth.ExternalA
 		KeyFingerprint: row.KeyFingerprint,
 		BaseURL:        derefString(row.BaseURL),
 
-		IdentityHeader:       derefString(row.IdentityHeaderName),
-		IdentityHeaderFormat: derefString(row.IdentityHeaderFormat),
-		AuthType:             row.AuthType,
-		AuthAccount:          derefString(row.AuthAccount),
-		AuthUser:             derefString(row.AuthUser),
-		CreatedAt:            timestampOrZero(row.CreatedAt),
+		IdentityHeader:         derefString(row.IdentityHeaderName),
+		IdentityHeaderFormat:   derefString(row.IdentityHeaderFormat),
+		ForwardedClientHeaders: row.ForwardedClientHeaders,
+		BaggageHeader:          derefString(row.BaggageHeader),
+
+		AuthType:    auth.AuthType(row.AuthType),
+		AuthAccount: derefString(row.AuthAccount),
+		AuthUser:    derefString(row.AuthUser),
+		CreatedAt:   timestampOrZero(row.CreatedAt),
+
+		FundingPriority: auth.FundingPriority(row.FundingPriority),
 	}
 	key.Name = row.Name
 	key.LastUsedAt = timestampPtr(row.LastUsedAt)
 	if len(row.ModelAliases) > 0 {
 		if err := json.Unmarshal(row.ModelAliases, &key.ModelAliases); err != nil {
 			return nil, fmt.Errorf("decode model aliases for key %s: %w", key.ID, err)
+		}
+	}
+	if len(row.FederationConfig) > 0 {
+		if err := json.Unmarshal(row.FederationConfig, &key.FederationConfig); err != nil {
+			return nil, fmt.Errorf("decode federation configuration for key %s: %w", key.ID, err)
 		}
 	}
 	return key, nil

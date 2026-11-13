@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"strings"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 
 	"github.com/tidwall/gjson"
 )
@@ -26,19 +26,19 @@ func (e *RequestEnvelope) TranslationRequirements(endpoint router.TranslationEnd
 		req.PromptCacheControl = containsKey(e.body, "cache_control")
 		req.StructuredOutput = gjson.GetBytes(e.body, "output_config.format").Exists()
 		req.Audio, req.Files = anthropicMediaRequirements(e.body)
-		req.CitationsOrSearch = containsAnyKey(e.body, "web_search", "web_fetch", "citations")
+		req.CitationsOrSearch = len(e.NativeServerTools()) > 0
 	case FormatOpenAI:
 		req.SourceFormat = router.WireFormatOpenAI
 		req.ReasoningReplay = hasContentType(e.body, "reasoning") || gjson.GetBytes(e.body, "reasoning").Exists()
 		req.StructuredOutput = gjson.GetBytes(e.body, "response_format").Exists()
 		req.UsageDetail = gjson.GetBytes(e.body, "stream_options.include_usage").Bool()
 		req.Audio, req.Files = openAIMediaRequirements(e.body)
-		req.CitationsOrSearch = containsAnyKey(e.body, "web_search", "web_search_preview", "file_search", "computer_use")
+		req.CitationsOrSearch = len(e.NativeServerTools()) > 0
 	case FormatGemini:
 		req.SourceFormat = router.WireFormatGemini
 		req.ReasoningSignature = containsKey(e.body, "thoughtSignature") || containsKey(e.body, "thought_signature")
 		req.StructuredOutput = gjson.GetBytes(e.body, "generationConfig.responseSchema").Exists()
-		req.CitationsOrSearch = gjson.GetBytes(e.body, "tools.#(googleSearch!=null)").Exists() || gjson.GetBytes(e.body, "tools.#(google_search!=null)").Exists()
+		req.CitationsOrSearch = len(e.NativeServerTools()) > 0
 		req.Audio, req.Files = geminiMediaRequirements(e.body)
 	}
 	return req
@@ -70,7 +70,7 @@ func anthropicMediaRequirements(body []byte) (audio, files bool) {
 			switch block.Get("type").String() {
 			case "audio", "input_audio":
 				audio = true
-			case "document", "file", "input_file":
+			case "document", "file", "input_file", "container_upload":
 				files = true
 			}
 			return !audio || !files

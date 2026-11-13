@@ -3,7 +3,7 @@ package translate
 import (
 	"net/http"
 
-	"workweave/router/internal/sse"
+	"weave-os/router/internal/sse"
 )
 
 // GeminiRoutingMarkerWriter wraps an http.ResponseWriter and injects a
@@ -36,7 +36,7 @@ func (w *GeminiRoutingMarkerWriter) Write(data []byte) (int, error) {
 			}
 		}
 	}
-	return w.Inner.Write(data)
+	return sse.WriteJSONChunk(w.Inner, data)
 }
 
 // Prepare enables streaming marker injection without committing headers;

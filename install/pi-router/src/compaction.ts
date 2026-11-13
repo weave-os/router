@@ -21,11 +21,15 @@ import type {
 	TurnEndEvent,
 } from "@mariozechner/pi-coding-agent";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
+import { ROUTED_CONTEXT_WINDOW_HEADER } from "./config.js";
+import { parseRoutedContextWindow } from "./context-window.js";
 
 const PROBE_MAX_TOKENS = 4;
 const CONTINUATION_MAX_TOKENS = 16_384;
 const COMPACTION_RESERVE_TOKENS = 16_384;
 const STATUS_KEY = "weave-compaction";
+/** Pi does not retry threshold compaction automatically, so resume our tool loop explicitly. */
+export const ROUTED_COMPACTION_CONTINUATION = "Continue from the compacted context. Pick up exactly where you left off.";
 
 interface ProviderPayload {
 	max_tokens?: unknown;
@@ -81,16 +85,25 @@ function latestCompactionId(ctx: ExtensionContext): string | undefined {
 	return undefined;
 }
 
-export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callback) => setTimeout(callback, 0)): void {
+export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callback) => setTimeout(callback, 0), handoffPending = () => false): void {
 	let highWaterTokens = 0;
 	let lastTurnTokens = 0;
 	let repairedContinuation = false;
 	let compactionScheduled = false;
+	// Smallest served context window observed on a response this run. The router
+	// can reroute any request regardless of the requested model, so the served
+	// window is authoritative for the compaction budget. Tracking the minimum
+	// (not the latest or the max) is the conservative choice: if the router ever
+	// routed to a smaller window during the run, that window could clamp again,
+	// so the budget must respect it. Fall back to the registered model window
+	// until the first routed response.
+	let servedContextWindow: number | undefined;
 
 	const resetRun = () => {
 		highWaterTokens = 0;
 		lastTurnTokens = 0;
 		repairedContinuation = false;
+		servedContextWindow = undefined;
 	};
 
 	const finishCompaction = (ctx: ExtensionContext) => {
@@ -107,6 +120,15 @@ export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callb
 		if (repairClampedToolContinuation(event.payload)) repairedContinuation = true;
 	});
 
+	pi.on("after_provider_response", (event, _ctx: ExtensionContext) => {
+		if (event.status < 200 || event.status >= 300) return;
+		const contextWindow = parseRoutedContextWindow(event.headers?.[ROUTED_CONTEXT_WINDOW_HEADER]);
+		if (contextWindow === undefined) return;
+		if (servedContextWindow === undefined || contextWindow < servedContextWindow) {
+			servedContextWindow = contextWindow;
+		}
+	});
+
 	pi.on("turn_end", (event: TurnEndEvent) => {
 		if (event.message.role !== "assistant") return;
 		lastTurnTokens = contextTokens(event.message as AssistantMessage);
@@ -114,15 +136,20 @@ export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callb
 	});
 
 	pi.on("agent_end", (_event: AgentEndEvent, ctx: ExtensionContext) => {
-		if (process.env.WEAVE_PI_AUTO_COMPACTION === "0" || compactionScheduled) return;
-		const contextWindow = ctx.model?.contextWindow ?? ctx.getContextUsage()?.contextWindow ?? 0;
+		if (process.env.WEAVE_PI_AUTO_COMPACTION === "0" || compactionScheduled || handoffPending()) return;
+		const registeredWindow = ctx.model?.contextWindow ?? ctx.getContextUsage()?.contextWindow ?? 0;
+		const contextWindow = servedContextWindow ?? registeredWindow;
 		if (contextWindow <= COMPACTION_RESERVE_TOKENS) return;
-		const threshold = contextWindow - COMPACTION_RESERVE_TOKENS;
-		// Pi's built-in check runs immediately after this event and owns the
-		// ordinary final-turn threshold case. Starting another compaction while
-		// that async summary is in flight would race it.
-		if (lastTurnTokens > threshold) return;
-		if (!repairedContinuation && highWaterTokens <= threshold) return;
+		const servedThreshold = contextWindow - COMPACTION_RESERVE_TOKENS;
+		const registeredThreshold = registeredWindow - COMPACTION_RESERVE_TOKENS;
+		// Pi's built-in check runs immediately after this event and budgets against
+		// the REGISTERED model window. If the final turn clears Pi's registered
+		// threshold, Pi will compact asynchronously — deferring is correct, and
+		// scheduling our own would race that async compaction. Otherwise Pi will not
+		// act, so we compact ourselves when the run crossed the SERVED threshold
+		// (which can be smaller than the registered window after a reroute).
+		if (lastTurnTokens > registeredThreshold) return;
+		if (!repairedContinuation && highWaterTokens <= servedThreshold) return;
 
 		compactionScheduled = true;
 		const previousCompactionId = latestCompactionId(ctx);
@@ -139,7 +166,18 @@ export function registerCompaction(pi: ExtensionAPI, schedule: Schedule = (callb
 			}
 			if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, "compacting routed context...");
 			ctx.compact({
-				onComplete: () => finishCompaction(ctx),
+				onComplete: () => {
+					finishCompaction(ctx);
+					// Pi only auto-retries an overflow compaction. This compaction is
+					// extension-owned and follows a routed tool loop, so queue the next
+					// turn after its summary is committed rather than leaving the agent idle.
+					// A user may have started another turn while the compaction ran; in
+					// that case Pi requires an explicit follow-up delivery mode.
+					pi.sendUserMessage(
+						ROUTED_COMPACTION_CONTINUATION,
+						ctx.isIdle() ? undefined : { deliverAs: "followUp" },
+					);
+				},
 				onError: (error) => {
 					compactionScheduled = false;
 					if (ctx.hasUI) ctx.ui.setStatus(STATUS_KEY, `compaction failed: ${error.message}`);

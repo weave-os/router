@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/server/middleware"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -116,4 +116,71 @@ func TestWithAuthRejectsAnalyticsKey(t *testing.T) {
 	engine.ServeHTTP(rr, req)
 
 	require.Equal(t, http.StatusUnauthorized, rr.Code)
+}
+
+func readKeyService(t *testing.T, installation *auth.Installation, keys map[string]auth.APIKeyScope) *auth.Service {
+	t.Helper()
+	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}
+	for token, scope := range keys {
+		hash, prefix, suffix := auth.APITokenFingerprint(token)
+		repo.byHash[hash] = fakeKeyRow{
+			apiKey: &auth.APIKey{
+				ID: "key-" + token, InstallationID: installation.ID,
+				KeyHash: hash, KeyPrefix: prefix, KeySuffix: suffix, Scope: scope,
+			},
+			installation: installation,
+		}
+	}
+	return auth.NewService(fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time {
+		return time.Date(2026, 9, 28, 0, 0, 0, 0, time.UTC)
+	})
+}
+
+func TestWithReadKeyResolvesTheSameInstallationForRoutingAndAnalyticsKeys(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	installation := &auth.Installation{ID: "inst-read", ExternalID: "ext-read"}
+	svc := readKeyService(t, installation, map[string]auth.APIKeyScope{
+		"rk_routing":    auth.ScopeRouting,
+		"ra_analytics":  auth.ScopeAnalyticsRead,
+		"rk_mislabeled": auth.ScopeAnalyticsRead,
+		"ra_mislabeled": auth.ScopeRouting,
+	})
+	var sawInstallation, sawKey string
+	engine := gin.New()
+	engine.Use(middleware.WithReadKey(svc))
+	engine.GET("/probe", func(c *gin.Context) {
+		sawInstallation = middleware.InstallationFrom(c).ID
+		sawKey = middleware.APIKeyFrom(c).ID
+		c.Status(http.StatusOK)
+	})
+
+	for _, test := range []struct {
+		name, header, token string
+		want                int
+	}{
+		{"routing key as bearer", "Authorization", "Bearer rk_routing", http.StatusOK},
+		{"analytics key as bearer", "Authorization", "Bearer ra_analytics", http.StatusOK},
+		{"routing key as x-api-key", "X-API-Key", "rk_routing", http.StatusOK},
+		{"analytics key as x-api-key", "X-API-Key", "ra_analytics", http.StatusOK},
+		{"unknown or revoked key", "Authorization", "Bearer rk_revoked", http.StatusUnauthorized},
+		{"analytics scope behind routing prefix", "Authorization", "Bearer rk_mislabeled", http.StatusUnauthorized},
+		{"routing scope behind analytics prefix", "Authorization", "Bearer ra_mislabeled", http.StatusUnauthorized},
+		{"upstream provider key", "X-API-Key", "sk-ant-upstream", http.StatusUnauthorized},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			sawInstallation, sawKey = "", ""
+			req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+			req.Header.Set(test.header, test.token)
+			rr := httptest.NewRecorder()
+			engine.ServeHTTP(rr, req)
+
+			require.Equal(t, test.want, rr.Code)
+			if test.want == http.StatusOK {
+				assert.Equal(t, "inst-read", sawInstallation)
+				assert.NotEmpty(t, sawKey)
+			} else {
+				assert.Empty(t, sawInstallation, "a rejected key must never reach the handler")
+			}
+		})
+	}
 }

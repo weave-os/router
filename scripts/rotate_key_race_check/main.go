@@ -25,8 +25,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/postgres"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -227,7 +227,7 @@ func (r *holdingAPIKeyRepo) ListForInstallation(ctx context.Context, installatio
 	return keys, nil
 }
 
-func (r *holdingAPIKeyRepo) MarkUsed(ctx context.Context, id string) error {
+func (r *holdingAPIKeyRepo) MarkUsed(ctx context.Context, id string) (bool, error) {
 	return r.inner.MarkUsed(ctx, id)
 }
 

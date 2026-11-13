@@ -1,13 +1,20 @@
 package hmm
 
 import (
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/cluster"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 )
 
 // DeployedModelsForRosterIDs maps sidecar roster IDs to catalog {model, provider} entries.
 // Unknown IDs are dropped; first occurrence wins on duplicates.
-func DeployedModelsForRosterIDs(rosterIDs []string) []cluster.DeployedEntry {
+// Effort-suffixed arms (e.g. "anthropic/claude-opus-5:xhigh") are mapped to
+// their base catalog model.
+//
+// Deprecated: silent-drop let inert roster arms skew production routing; replaced
+// by fail-loud validation (rosterdata.Load / ValidateRosterIDs). Still used by the
+// admin roster view; removed once that reads the declarative roster.
+// See docs/HMM_GO_SELECTION.md.
+func DeployedModelsForRosterIDs(rosterIDs []string) []router.DeployedEntry {
 	inverse := make(map[string]catalog.Model, len(catalog.Models))
 	for _, m := range catalog.Models {
 		rosterID := rosterIDFor(m)
@@ -19,10 +26,11 @@ func DeployedModelsForRosterIDs(rosterIDs []string) []cluster.DeployedEntry {
 		}
 	}
 
-	out := make([]cluster.DeployedEntry, 0, len(rosterIDs))
+	out := make([]router.DeployedEntry, 0, len(rosterIDs))
 	seen := make(map[string]struct{}, len(rosterIDs))
 	for _, rosterID := range rosterIDs {
-		m, ok := inverse[rosterID]
+		baseID, _ := SplitEffort(rosterID)
+		m, ok := inverse[baseID]
 		if !ok {
 			continue
 		}
@@ -30,7 +38,7 @@ func DeployedModelsForRosterIDs(rosterIDs []string) []cluster.DeployedEntry {
 			continue
 		}
 		seen[m.ID] = struct{}{}
-		out = append(out, cluster.DeployedEntry{Model: m.ID, Provider: m.PrimaryProvider()})
+		out = append(out, router.DeployedEntry{Model: m.ID, Provider: m.PrimaryProvider()})
 	}
 	return out
 }

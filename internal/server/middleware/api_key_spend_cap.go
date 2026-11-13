@@ -3,9 +3,9 @@ package middleware
 import (
 	"net/http"
 
-	"workweave/router/internal/billing"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/proxy"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
 )
@@ -31,6 +31,13 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 			return
 		}
 
+		// A turn covered by an individual Max/Boost allowance debits 0, so it
+		// adds nothing to the key's paid spend and the cap does not bound it.
+		if subscriberAllowanceCovers(c) {
+			c.Next()
+			return
+		}
+
 		apiKey := APIKeyFrom(c)
 		if apiKey == nil || apiKey.ID == "" {
 			// Admin-cookie sessions and other non-keyed paths carry no api key.
@@ -38,14 +45,11 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 			return
 		}
 
-		// The cap bounds PAID spend, not free subscription usage: a usage-bypass
-		// org presenting a Claude/Codex credential that covers this route serves at
+		// The cap bounds PAID spend, not free subscription usage: a request
+		// presenting a Claude/Codex credential that covers this route serves at
 		// $0 on the caller's own plan, so exempt it from the cap-reached 402 below
-		// (mirrors WithBalanceCheck). This gate keys off the api key, so read the
-		// installation from context to check UsageBypassEnabled.
-		installation := InstallationFrom(c)
-		subscriptionExempt := installation != nil && installation.UsageBypassEnabled &&
-			proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath())
+		// (mirrors WithBalanceCheck).
+		subscriptionExempt := proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath())
 
 		result, err := svc.CheckAPIKeySpendCap(c.Request.Context(), apiKey.ID)
 		if err != nil {
@@ -72,7 +76,7 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 					"spent_usd_micros", result.SpentMicros,
 					"spend_cap_usd_micros", *result.CapMicros,
 				)
-				c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context()))
+				c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlySpendCapReached))
 				c.Next()
 				return
 			}

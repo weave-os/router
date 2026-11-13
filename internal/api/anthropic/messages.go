@@ -4,30 +4,40 @@ package anthropic
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/server/middleware"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
 
-const maxBodyBytes = 10 * 1024 * 1024
+// PrepareHandoffHandler applies Messages authentication and validation before route preparation.
+func PrepareHandoffHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc {
+	messages := MessagesHandler(svc, authSvc)
+	return func(c *gin.Context) {
+		c.Request = c.Request.WithContext(proxy.WithHandoffPreparation(c.Request.Context()))
+		messages(c)
+	}
+}
 
 func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 
-		body, err := io.ReadAll(io.LimitReader(c.Request.Body, maxBodyBytes+1))
+		body, err := io.ReadAll(io.LimitReader(c.Request.Body, proxy.MaxRequestBodyBytes+1))
 		if err != nil {
 			log.Debug("Failed to read request body", "err", err)
 			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body.")
 			return
 		}
-		if len(body) > maxBodyBytes {
+		if len(body) > proxy.MaxRequestBodyBytes {
+			logOversizeBody(log, c.Request)
 			writeAnthropicError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body too large.")
 			return
 		}
@@ -45,7 +55,14 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 		ctx := stashClientIdentity(c.Request.Context(), c.Request.Header, body)
 		// Skip identity upsert for agent-shadow eval requests to avoid mutating production router-user state.
 		if _, agentShadow := proxy.AgentShadowEvalFromContext(ctx); !agentShadow {
-			ctx = proxy.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c))
+			ctx = proxy.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c))
+			ctx, err = proxy.ResolveRoutingAssignment(ctx, authSvc, middleware.InstallationFrom(c))
+			if err != nil {
+				log.Error("Failed to resolve routing assignment", "installation_id", middleware.InstallationFrom(c).ID, "err", err)
+				c.Header("Retry-After", "1")
+				writeAnthropicError(c, http.StatusServiceUnavailable, "api_error", "Routing policy temporarily unavailable.")
+				return
+			}
 		}
 		c.Request = c.Request.WithContext(ctx)
 
@@ -67,11 +84,14 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 				if cls.RetryAfter {
 					c.Header("Retry-After", "1")
 				}
+				if cls.NoClientRetry {
+					c.Header("x-should-retry", "false")
+				}
 				writeAnthropicError(c, cls.Status, anthropicErrorType(cls.Kind), cls.Message)
 				return
 			}
 			log.Error("Proxy failed", "err", err)
-			writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream call failed.")
+			writeAnthropicError(c, http.StatusBadGateway, "api_error", proxy.TerminalErrorMessage(err))
 			return
 		}
 	}
@@ -89,15 +109,12 @@ func stashClientIdentity(ctx context.Context, h http.Header, body []byte) contex
 	id := proxy.ClientIdentityFromHeaders(h)
 	id.DeviceID = proxy.NormalizeClientIdentifier(meta.DeviceID)
 	id.AccountID = proxy.NormalizeClientIdentifier(meta.AccountID)
-	if meta.SessionID != "" {
-		id.SessionID = proxy.NormalizeClientIdentifier(meta.SessionID)
-	}
+	id.SessionID = requestcontext.AnthropicHeaderSessionID(h, meta)
 	if metaEmail := proxy.NormalizeEmail(meta.Email); metaEmail != "" {
 		id.Email = metaEmail
 	}
-	observability.Get().Debug("anthropic stashClientIdentity",
+	observability.FromContext(ctx).Debug("anthropic stashClientIdentity",
 		"meta_raw_len", len(metaRaw),
-		"meta_raw_preview", observability.Preview(metaRaw, 200),
 		"parsed_email_present", meta.Email != "",
 		"parsed_account_present", meta.AccountID != "",
 		"parsed_device_present", meta.DeviceID != "",
@@ -108,7 +125,7 @@ func stashClientIdentity(ctx context.Context, h http.Header, body []byte) contex
 		"header_email_present", h.Get("X-Weave-User-Email") != "",
 		"header_name_present", h.Get("X-Weave-User-Name") != "",
 	)
-	return context.WithValue(ctx, proxy.ClientIdentityContextKey{}, id)
+	return requestcontext.WithClientIdentity(ctx, id)
 }
 
 // anthropicErrorType maps a classified dispatch error to the Anthropic
@@ -120,6 +137,17 @@ func anthropicErrorType(kind proxy.DispatchErrorKind) string {
 		return "invalid_request_error"
 	}
 	return "api_error"
+}
+
+// logOversizeBody logs a body-cap rejection. Pre-dispatch rejections emit no
+// per-request telemetry, so without this they are invisible to alerting.
+func logOversizeBody(log *slog.Logger, r *http.Request) {
+	log.Warn("Request body too large",
+		"content_length", r.ContentLength,
+		"max_body_bytes", proxy.MaxRequestBodyBytes,
+		"client_session_id", r.Header.Get("X-Claude-Code-Session-Id"),
+		"user_agent", r.UserAgent(),
+	)
 }
 
 func writeAnthropicError(c *gin.Context, status int, errType, message string) {

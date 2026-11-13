@@ -7,10 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/planner"
-	"workweave/router/internal/router/sessionpin"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/planner"
+	"weave-os/router/internal/router/sessionpin"
 )
 
 const (
@@ -52,44 +52,13 @@ func pinWithUsage(model string) sessionpin.Pin {
 	}
 }
 
-// A session pinned to a cheap model must switch to a subscription-covered model
-// once the subsidy makes it near-free — otherwise the discount never takes
-// effect on sticky sessions.
-func TestDecide_SubscriptionDiscountFlipsSwitch(t *testing.T) {
-	t.Parallel()
-	base := planner.Inputs{
-		Pin:                  pinWithUsage(modelHaiku),
-		Fresh:                router.Decision{Model: modelOpus},
-		EstimatedInputTokens: 100_000,
-		AvailableModels:      availableAll,
-	}
-
-	stay := planner.Decide(base, defaultCfg)
-	assert.Equal(t, planner.OutcomeStay, stay.Outcome, "no subsidy: keep the cheap pin")
-
-	// Subsidize the fresh model to ~free -> switching now saves.
-	sub := base
-	sub.SubsidizedCostFactor = map[string]float64{modelOpus: 0.01}
-	switched := planner.Decide(sub, defaultCfg)
-	assert.Equal(t, planner.OutcomeSwitch, switched.Outcome,
-		"subsidized covered model must win the stay-vs-switch EV")
-	assert.Equal(t, planner.ReasonEVPositive, switched.Reason)
-
-	// A 0.0 factor is still "covered" (map membership decides, not sign).
-	zeroFactor := base
-	zeroFactor.SubsidizedCostFactor = map[string]float64{modelOpus: 0.0}
-	zero := planner.Decide(zeroFactor, defaultCfg)
-	assert.Equal(t, planner.OutcomeSwitch, zero.Outcome,
-		"a 0.0 covered-model factor must still be treated as free (switch), not uncovered")
-}
-
 func TestDecide_UsesNamedProviderBindings(t *testing.T) {
 	t.Parallel()
 
 	base := planner.Inputs{
 		Pin: sessionpin.Pin{
 			Provider:        providers.ProviderMakora,
-			Model:           "deepseek/deepseek-v4-flash",
+			Model:           "deepseek/deepseek-v4.1-flash",
 			LastTurnEndedAt: time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC),
 		},
 		Fresh: router.Decision{
@@ -98,20 +67,20 @@ func TestDecide_UsesNamedProviderBindings(t *testing.T) {
 		},
 		EstimatedInputTokens: 1_000_000,
 		AvailableModels: map[string]struct{}{
-			"deepseek/deepseek-v4-flash": {},
-			"qwen/qwen3-coder-next":      {},
+			"deepseek/deepseek-v4.1-flash": {},
+			"qwen/qwen3-coder-next":        {},
 		},
 	}
 
 	makoraPin := planner.Decide(base, planner.EVConfig{ExpectedRemainingTurns: 3})
-	assert.InDelta(t, -0.03696, makoraPin.ExpectedSavingsUSD, 1e-9)
+	assert.InDelta(t, -0.087, makoraPin.ExpectedSavingsUSD, 1e-9)
 	assert.False(t, makoraPin.PinPriceFallback)
 	assert.False(t, makoraPin.FreshPriceFallback)
 
 	openRouterPinInput := base
 	openRouterPinInput.Pin.Provider = providers.ProviderOpenRouter
 	openRouterPin := planner.Decide(openRouterPinInput, planner.EVConfig{ExpectedRemainingTurns: 3})
-	assert.InDelta(t, -0.063, openRouterPin.ExpectedSavingsUSD, 1e-9)
+	assert.InDelta(t, -0.075, openRouterPin.ExpectedSavingsUSD, 1e-9)
 	assert.NotEqual(t, makoraPin.ExpectedSavingsUSD, openRouterPin.ExpectedSavingsUSD,
 		"the pin's named provider must affect its cache economics")
 }

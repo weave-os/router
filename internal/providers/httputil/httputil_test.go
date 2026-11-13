@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/timing"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/timing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -214,6 +214,27 @@ func TestStartIdleWatchdog_DoesNotFireWhenMarked(t *testing.T) {
 	assert.NoError(t, context.Cause(ctx))
 }
 
+func TestStartIdleWatchdog_ExpiresAtLastProgressDeadline(t *testing.T) {
+	const idleTimeout = 600 * time.Millisecond
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	mark, stop := StartIdleWatchdog(ctx, cancel, idleTimeout)
+	defer stop()
+
+	time.Sleep(50 * time.Millisecond)
+	markAt := time.Now()
+	mark()
+
+	select {
+	case <-ctx.Done():
+		assert.ErrorIs(t, context.Cause(ctx), ErrUpstreamIdleTimeout)
+		assert.GreaterOrEqual(t, time.Since(markAt), idleTimeout-15*time.Millisecond,
+			"accepted progress must receive the full idle budget")
+	case <-time.After(idleTimeout + 110*time.Millisecond):
+		t.Fatal("watchdog missed the last-progress deadline by more than scheduler tolerance")
+	}
+}
+
 func TestSSEIdleTimeoutFromEnv_DefaultsTo45s(t *testing.T) {
 	t.Setenv("ROUTER_SSE_IDLE_TIMEOUT_SECONDS", "")
 	assert.Equal(t, 45*time.Second, idleTimeoutFromEnv("ROUTER_SSE_IDLE_TIMEOUT_SECONDS", 45*time.Second))
@@ -232,6 +253,63 @@ func TestSSEIdleTimeoutFromEnv_BadValueFallsBack(t *testing.T) {
 func TestResponsesSSEIdleTimeoutFromEnv_OverrideRespected(t *testing.T) {
 	t.Setenv("ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS", "120")
 	assert.Equal(t, 120*time.Second, idleTimeoutFromEnv("ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS", 90*time.Second))
+}
+
+func TestNewTransport_ConfiguresHTTP2Keepalives(t *testing.T) {
+	origIdle, origPing := DefaultH2ReadIdleTimeout, DefaultH2PingTimeout
+	t.Cleanup(func() { DefaultH2ReadIdleTimeout, DefaultH2PingTimeout = origIdle, origPing })
+	DefaultH2ReadIdleTimeout, DefaultH2PingTimeout = 12*time.Second, 6*time.Second
+	tr := NewTransport(10*time.Second, 10*time.Second)
+	require.NotNil(t, tr.HTTP2, "h2 keepalives are unset")
+	assert.Equal(t, 12*time.Second, tr.HTTP2.SendPingTimeout)
+	assert.Equal(t, 6*time.Second, tr.HTTP2.PingTimeout)
+	assert.True(t, tr.ForceAttemptHTTP2, "custom dialer disables h2 unless forced")
+}
+
+// Guards that ReadIdleTimeout + PingTimeout < ResponseHeaderTimeout so a dead
+// connection is evicted before the caller pays the full time-to-first-byte guard.
+func TestH2KeepaliveFor_BudgetFitsInsideCallerGuard(t *testing.T) {
+	cases := []struct {
+		name       string
+		guard      time.Duration
+		wantScaled bool
+	}{
+		{"stock guard leaves the configured budget untouched", DefaultResponseHeaderTimeout, false},
+		{"generous guard leaves the configured budget untouched", 4 * DefaultResponseHeaderTimeout, false},
+		{"guard too short for the budget scales both halves", DefaultResponseHeaderTimeout / 3, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			readIdle, ping := h2KeepaliveFor(tc.guard)
+
+			assert.Less(t, readIdle+ping, tc.guard, "detection must finish before the header guard fires")
+			assert.Positive(t, readIdle, "a zero read-idle disables keepalives entirely")
+			assert.Positive(t, ping)
+			if tc.wantScaled {
+				assert.Less(t, readIdle, DefaultH2ReadIdleTimeout)
+				assert.Less(t, ping, DefaultH2PingTimeout)
+				return
+			}
+			assert.Equal(t, DefaultH2ReadIdleTimeout, readIdle)
+			assert.Equal(t, DefaultH2PingTimeout, ping)
+		})
+	}
+}
+
+// Env knobs are validated independently, so an operator can set a pair that
+// sums to the header guard; h2KeepaliveFor must clamp before that happens.
+func TestH2KeepaliveFor_EnvOverridesCannotReachTheHeaderGuard(t *testing.T) {
+	origIdle, origPing := DefaultH2ReadIdleTimeout, DefaultH2PingTimeout
+	t.Cleanup(func() { DefaultH2ReadIdleTimeout, DefaultH2PingTimeout = origIdle, origPing })
+	DefaultH2ReadIdleTimeout, DefaultH2PingTimeout = 20*time.Second, 10*time.Second
+
+	readIdle, ping := h2KeepaliveFor(DefaultResponseHeaderTimeout)
+
+	assert.Less(t, readIdle+ping, DefaultResponseHeaderTimeout)
+	// Each half is scaled independently in float, so they land within a
+	// nanosecond of the ratio rather than exactly on it.
+	assert.InDelta(t, float64(2*ping), float64(readIdle), float64(time.Millisecond),
+		"scaling must preserve the configured idle:ping ratio")
 }
 
 // IsRetryable must see idle-timeout stalls as retryable through the alias —

@@ -1,0 +1,354 @@
+package subscriptions
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
+)
+
+const (
+	CodexClientID  = "app_EMoamEEZ73f0CkXaXp7hrann"
+	ClaudeClientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+
+	DefaultCodexTokenURL  = "https://auth.openai.com/oauth/token"
+	DefaultClaudeTokenURL = "https://console.anthropic.com/v1/oauth/token"
+	defaultTokenLifetime  = time.Hour
+	maxTokenResponseBytes = 1 << 20
+
+	// RefreshHTTPTimeout bounds one provider token exchange. It must stay below
+	// the cross-replica refresh lease TTL so a live holder always finishes or
+	// fails before its lease could be taken over.
+	RefreshHTTPTimeout = 15 * time.Second
+
+	// tokenUserAgent identifies the router on provider token endpoints. Both
+	// issuers rate-limit generic client user agents, so refresh must not rely on
+	// the transport default.
+	tokenUserAgent = "weave-router/1.0"
+)
+
+// RefreshedToken is the provider response needed to serve a subscription turn.
+type RefreshedToken struct {
+	AccessToken  string
+	RefreshToken string
+	AccountID    string
+	UserID       string
+	ExpiresAt    time.Time
+}
+
+// ClaudeExternalAccountID returns the stable identity used to deduplicate a
+// Claude account within one organization. Claude account UUIDs can belong to
+// multiple organizations, and each organization has its own subscription
+// entitlement and refresh credential.
+func ClaudeExternalAccountID(accountUUID, organizationUUID string) string {
+	account, accountErr := uuid.Parse(accountUUID)
+	organization, organizationErr := uuid.Parse(organizationUUID)
+	if accountErr != nil || organizationErr != nil {
+		return ""
+	}
+	return account.String() + ":" + organization.String()
+}
+
+// TokenRefresher exchanges provider refresh tokens for short-lived access tokens.
+type TokenRefresher interface {
+	Refresh(context.Context, Provider, string) (RefreshedToken, error)
+}
+
+// OAuthClient refreshes Claude and Codex subscription credentials.
+type OAuthClient struct {
+	httpClient         *http.Client
+	codexTokenURL      string
+	claudeTokenURL     string
+	claudeAuthorizeURL string
+	now                func() time.Time
+}
+
+// NewOAuthClient constructs the provider token client. Empty URLs select the
+// public provider endpoints; explicit URLs support self-hosted tests.
+func NewOAuthClient(httpClient *http.Client, codexTokenURL, claudeTokenURL string, now func() time.Time) *OAuthClient {
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	httpClient = observability.WrapHTTPClient(httpClient)
+	if codexTokenURL == "" {
+		codexTokenURL = DefaultCodexTokenURL
+	}
+	if claudeTokenURL == "" {
+		claudeTokenURL = DefaultClaudeTokenURL
+	}
+	if now == nil {
+		now = time.Now
+	}
+	return &OAuthClient{httpClient: httpClient, codexTokenURL: codexTokenURL, claudeTokenURL: claudeTokenURL, claudeAuthorizeURL: DefaultClaudeAuthorizeURL, now: now}
+}
+
+// OAuthRefreshError classifies provider token failures without retaining a
+// response body that could contain credential material.
+type OAuthRefreshError struct {
+	Provider  Provider
+	Status    int
+	Code      string
+	ErrorType string
+	RequestID string
+}
+
+func (e *OAuthRefreshError) Error() string {
+	message := fmt.Sprintf("%s subscription token refresh failed with status %d", e.Provider, e.Status)
+	if e.Code != "" {
+		message += " (" + e.Code + ")"
+	}
+	if e.RequestID != "" {
+		message += " [provider request " + e.RequestID + "]"
+	}
+	return message
+}
+
+// Provider descriptions may echo credentials. Retain only bounded machine identifiers.
+func oauthErrorDetails(body []byte) (code, errorType string) {
+	var envelope struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if json.Unmarshal(body, &envelope) != nil {
+		return "", ""
+	}
+	var plain string
+	if json.Unmarshal(envelope.Error, &plain) == nil {
+		return sanitizeOAuthErrorCode(plain), ""
+	}
+	var nested struct {
+		Code string `json:"code"`
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(envelope.Error, &nested) != nil {
+		return "", ""
+	}
+	errorType = sanitizeOAuthErrorCode(nested.Type)
+	code = sanitizeOAuthErrorCode(nested.Code)
+	if code == "" {
+		code = errorType
+	}
+	return code, errorType
+}
+
+func oauthProviderRequestID(headers http.Header) string {
+	for _, header := range []string{"x-request-id", "request-id"} {
+		value := headers.Get(header)
+		if value == "" || len(value) > 128 {
+			continue
+		}
+		valid := true
+		for _, char := range value {
+			if !(char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || char == '_' || char == '-' || char == '.') {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			return value
+		}
+	}
+	return ""
+}
+
+// Terminal reports whether retrying the same refresh token is unsafe or futile.
+func (e *OAuthRefreshError) Terminal() bool {
+	return e.Status == http.StatusBadRequest || e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden
+}
+
+func (c *OAuthClient) Refresh(ctx context.Context, provider Provider, refreshToken string) (RefreshedToken, error) {
+	if deadline, ok := ctx.Deadline(); !ok || deadline.After(c.now().Add(RefreshHTTPTimeout)) {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, RefreshHTTPTimeout)
+		defer cancel()
+	}
+	switch provider {
+	case ProviderClaude:
+		return c.refreshClaude(ctx, refreshToken)
+	case ProviderCodex:
+		return c.refreshCodex(ctx, refreshToken)
+	default:
+		return RefreshedToken{}, ErrProviderMismatch
+	}
+}
+
+func (c *OAuthClient) refreshCodex(ctx context.Context, refreshToken string) (RefreshedToken, error) {
+	form := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {refreshToken},
+		"client_id":     {CodexClientID},
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.codexTokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return RefreshedToken{}, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", tokenUserAgent)
+	var response struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		IDToken      string `json:"id_token"`
+		ExpiresIn    int64  `json:"expires_in"`
+	}
+	if err := c.doTokenRequest(req, ProviderCodex, &response, refreshToken); err != nil {
+		return RefreshedToken{}, err
+	}
+	if response.RefreshToken == "" {
+		response.RefreshToken = refreshToken
+	}
+	accountID := accountIDFromJWT(response.IDToken)
+	if accountID == "" {
+		accountID = accountIDFromJWT(response.AccessToken)
+	}
+	token, err := c.validatedToken(ProviderCodex, response.AccessToken, response.RefreshToken, accountID, response.ExpiresIn)
+	token.UserID = userIDFromJWT(response.IDToken)
+	if token.UserID == "" {
+		token.UserID = userIDFromJWT(response.AccessToken)
+	}
+	return token, err
+}
+
+func (c *OAuthClient) refreshClaude(ctx context.Context, refreshToken string) (RefreshedToken, error) {
+	body, err := json.Marshal(map[string]string{
+		"grant_type":    "refresh_token",
+		"refresh_token": refreshToken,
+		"client_id":     ClaudeClientID,
+	})
+	if err != nil {
+		return RefreshedToken{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.claudeTokenURL, strings.NewReader(string(body)))
+	if err != nil {
+		return RefreshedToken{}, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", tokenUserAgent)
+	var response struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int64  `json:"expires_in"`
+		Account      struct {
+			UUID string `json:"uuid"`
+		} `json:"account"`
+		Organization struct {
+			UUID string `json:"uuid"`
+		} `json:"organization"`
+	}
+	if err := c.doTokenRequest(req, ProviderClaude, &response, refreshToken); err != nil {
+		return RefreshedToken{}, err
+	}
+	if response.RefreshToken == "" {
+		response.RefreshToken = refreshToken
+	}
+	return c.validatedToken(ProviderClaude, response.AccessToken, response.RefreshToken,
+		ClaudeExternalAccountID(response.Account.UUID, response.Organization.UUID), response.ExpiresIn)
+}
+
+func (c *OAuthClient) doTokenRequest(req *http.Request, provider Provider, response any, credentials ...string) error {
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxTokenResponseBytes))
+		code, errorType := oauthErrorDetails(body)
+		rejection := &OAuthRefreshError{Provider: provider, Status: resp.StatusCode,
+			Code: omitOAuthCredentialEcho(code, credentials), ErrorType: omitOAuthCredentialEcho(errorType, credentials),
+			RequestID: omitOAuthCredentialEcho(oauthProviderRequestID(resp.Header), credentials)}
+		if rejection.Code == "" {
+			rejection.Code = rejection.ErrorType
+		}
+		return rejection
+	}
+	return json.NewDecoder(io.LimitReader(resp.Body, maxTokenResponseBytes)).Decode(response)
+}
+
+func omitOAuthCredentialEcho(identifier string, credentials []string) string {
+	for _, credential := range credentials {
+		if credential != "" && strings.Contains(strings.ToLower(identifier), strings.ToLower(credential)) {
+			return ""
+		}
+	}
+	return identifier
+}
+
+func (c *OAuthClient) validatedToken(provider Provider, accessToken, refreshToken, accountID string, expiresIn int64) (RefreshedToken, error) {
+	if accessToken == "" || refreshToken == "" {
+		return RefreshedToken{}, fmt.Errorf("%s subscription token response omitted required credentials", provider)
+	}
+	lifetime := defaultTokenLifetime
+	if expiresIn > 0 {
+		lifetime = time.Duration(expiresIn) * time.Second
+	}
+	return RefreshedToken{AccessToken: accessToken, RefreshToken: refreshToken, AccountID: accountID, ExpiresAt: c.now().Add(lifetime)}, nil
+}
+
+func accountIDFromJWT(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		ChatGPTAccountID string `json:"chatgpt_account_id"`
+		Organizations    []struct {
+			ID string `json:"id"`
+		} `json:"organizations"`
+		OpenAIAuth struct {
+			ChatGPTAccountID string `json:"chatgpt_account_id"`
+		} `json:"https://api.openai.com/auth"`
+	}
+	if json.Unmarshal(payload, &claims) != nil {
+		return ""
+	}
+	if claims.ChatGPTAccountID != "" {
+		return claims.ChatGPTAccountID
+	}
+	if claims.OpenAIAuth.ChatGPTAccountID != "" {
+		return claims.OpenAIAuth.ChatGPTAccountID
+	}
+	if len(claims.Organizations) > 0 {
+		return claims.Organizations[0].ID
+	}
+	return ""
+}
+
+// VerifyCodexEnrollment derives identity from the provider HTTPS token exchange,
+// never from enrollment labels or client-supplied JWT claims.
+func (c *OAuthClient) VerifyCodexEnrollment(ctx context.Context, workspaceID string, refreshToken []byte) (auth.VerifiedCodexEnrollment, error) {
+	token, err := c.Refresh(ctx, ProviderCodex, string(refreshToken))
+	if err != nil {
+		return auth.VerifiedCodexEnrollment{}, err
+	}
+	if token.AccountID != workspaceID || token.UserID == "" {
+		return auth.VerifiedCodexEnrollment{}, fmt.Errorf("Codex enrollment did not verify the workspace and provider user")
+	}
+	return auth.VerifiedCodexEnrollment{ProviderUserID: token.UserID, RefreshToken: []byte(token.RefreshToken)}, nil
+}
+
+func userIDFromJWT(token string) string {
+	claims := jwt.MapClaims{}
+	if _, _, err := new(jwt.Parser).ParseUnverified(token, claims); err != nil {
+		return ""
+	}
+	authClaims, _ := claims["https://api.openai.com/auth"].(map[string]any)
+	for _, userIDClaim := range []any{authClaims["chatgpt_user_id"], authClaims["user_id"], claims["chatgpt_user_id"], claims["user_id"]} {
+		if userID, ok := userIDClaim.(string); ok && userID != "" {
+			return userID
+		}
+	}
+	return ""
+}

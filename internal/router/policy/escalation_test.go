@@ -1,0 +1,132 @@
+package policy_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/policy"
+)
+
+const (
+	escalationSonnet    = "claude-sonnet-5"
+	escalationOpus      = "claude-opus-4-8"
+	escalationSonnetArm = "anthropic/" + escalationSonnet
+	escalationOpusArm   = "anthropic/" + escalationOpus
+)
+
+func TestEscalationUsesNormalSelectorWithoutLosingFloor(t *testing.T) {
+	tests := []struct {
+		name            string
+		baseline        escalation.Group
+		floor           escalation.Group
+		positive        bool
+		emptyReported   []escalation.Group
+		emptyRuntime    []escalation.Group
+		overrides       map[string][]string
+		lowerFirst      bool
+		wantGroup       escalation.Group
+		wantModel       string
+		wantOutcome     escalation.Outcome
+		wantConstrained bool
+	}{
+		{name: "low to maximum", baseline: escalation.Low, positive: true, wantGroup: escalation.Maximum, wantModel: escalationOpus, wantOutcome: escalation.OutcomePromoted, wantConstrained: true},
+		{name: "medium to maximum", baseline: escalation.Medium, positive: true, wantGroup: escalation.Maximum, wantModel: escalationOpus, wantOutcome: escalation.OutcomePromoted, wantConstrained: true},
+		{name: "high to maximum", baseline: escalation.High, positive: true, wantGroup: escalation.Maximum, wantModel: escalationOpus, wantOutcome: escalation.OutcomePromoted, wantConstrained: true},
+		{name: "negative preserves prior floor", baseline: escalation.Low, floor: escalation.Medium, wantGroup: escalation.Medium, wantModel: escalationOpus, wantOutcome: escalation.OutcomeFloor, wantConstrained: true},
+		{name: "equal baseline floor restricts fallback", baseline: escalation.Medium, floor: escalation.Medium, lowerFirst: true, wantGroup: escalation.Medium, wantModel: escalationOpus, wantOutcome: escalation.OutcomeFloor, wantConstrained: true},
+		{name: "maximum positive does nothing", baseline: escalation.Maximum, positive: true, wantGroup: escalation.Maximum, wantModel: escalationOpus, wantOutcome: escalation.OutcomeMaximum},
+		{name: "maximum positive keeps persisted floor", baseline: escalation.Maximum, floor: escalation.High, positive: true, wantGroup: escalation.Maximum, wantModel: escalationOpus, wantOutcome: escalation.OutcomeMaximum, wantConstrained: true},
+		{name: "empty maximum target retains baseline", baseline: escalation.Low, positive: true, emptyReported: []escalation.Group{escalation.Maximum}, wantGroup: escalation.Low, wantModel: escalationSonnet, wantOutcome: escalation.OutcomeNoTarget},
+		{name: "empty maximum target retains prior floor", baseline: escalation.Low, floor: escalation.Medium, positive: true, emptyReported: []escalation.Group{escalation.Maximum}, wantGroup: escalation.Medium, wantModel: escalationOpus, wantOutcome: escalation.OutcomeNoTarget, wantConstrained: true},
+		{name: "selector exhausted maximum retains prior floor", baseline: escalation.Low, floor: escalation.Medium, positive: true, emptyRuntime: []escalation.Group{escalation.Maximum}, wantGroup: escalation.Medium, wantModel: escalationOpus, wantOutcome: escalation.OutcomeNoTarget, wantConstrained: true},
+		{name: "equal baseline floor survives maximum exhaustion", baseline: escalation.Medium, floor: escalation.Medium, positive: true, lowerFirst: true, emptyRuntime: []escalation.Group{escalation.Maximum}, wantGroup: escalation.Medium, wantModel: escalationOpus, wantOutcome: escalation.OutcomeNoTarget, wantConstrained: true},
+		{name: "maximum and floor exhausted retain baseline", baseline: escalation.Low, floor: escalation.Medium, positive: true, emptyRuntime: []escalation.Group{escalation.Maximum, escalation.Medium}, wantGroup: escalation.Low, wantModel: escalationSonnet, wantOutcome: escalation.OutcomeNoTarget},
+		{name: "unrelated key override cannot lower floor", baseline: escalation.Low, floor: escalation.Medium, overrides: map[string][]string{string(escalation.Low): {escalationSonnet}}, wantGroup: escalation.Medium, wantModel: escalationOpus, wantOutcome: escalation.OutcomeFloor, wantConstrained: true},
+		{name: "maximum override uses catalog IDs", baseline: escalation.Low, positive: true, overrides: map[string][]string{string(escalation.Maximum): {escalationOpus}}, wantGroup: escalation.Maximum, wantModel: escalationOpus, wantOutcome: escalation.OutcomePromoted, wantConstrained: true},
+		{name: "maximum override may add an eligible arm", baseline: escalation.Low, positive: true, overrides: map[string][]string{string(escalation.Maximum): {escalationSonnet}}, wantGroup: escalation.Maximum, wantModel: escalationSonnet, wantOutcome: escalation.OutcomePromoted, wantConstrained: true},
+		{name: "empty maximum override prevents promotion", baseline: escalation.Low, positive: true, overrides: map[string][]string{string(escalation.Maximum): {}}, wantGroup: escalation.Low, wantModel: escalationSonnet, wantOutcome: escalation.OutcomeNoTarget},
+		{name: "escalation target replaces maximum override on promotion", baseline: escalation.Low, positive: true, overrides: map[string][]string{string(escalation.Maximum): {escalationSonnet}, string(escalation.TargetClusterLabel): {escalationOpus}}, wantGroup: escalation.Maximum, wantModel: escalationOpus, wantOutcome: escalation.OutcomePromoted, wantConstrained: true},
+		{name: "escalation target serves persisted floor", baseline: escalation.Low, floor: escalation.Maximum, overrides: map[string][]string{string(escalation.Maximum): {escalationSonnet}, string(escalation.TargetClusterLabel): {escalationOpus}}, wantGroup: escalation.Maximum, wantModel: escalationOpus, wantOutcome: escalation.OutcomeFloor, wantConstrained: true},
+		{name: "escalation target ignored for unescalated maximum", baseline: escalation.Maximum, overrides: map[string][]string{string(escalation.Maximum): {escalationSonnet}, string(escalation.TargetClusterLabel): {escalationOpus}}, wantGroup: escalation.Maximum, wantModel: escalationSonnet, wantOutcome: escalation.OutcomeBelowThreshold},
+		{name: "negative without floor leaves selection unchanged", baseline: escalation.Low, wantGroup: escalation.Low, wantModel: escalationSonnet, wantOutcome: escalation.OutcomeBelowThreshold},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			roster := &rosterdata.Roster{
+				SchemaVersion: rosterdata.SchemaVersionV6,
+				Clusters: map[string]rosterdata.Cluster{
+					string(escalation.Low):     {Arms: []string{escalationSonnetArm}},
+					string(escalation.Medium):  {Arms: []string{escalationOpusArm}},
+					string(escalation.High):    {Arms: []string{escalationSonnetArm}},
+					string(escalation.Maximum): {Arms: []string{escalationOpusArm}},
+				},
+			}
+			groups := []escalation.Group{test.baseline}
+			for _, group := range []escalation.Group{escalation.Low, escalation.Medium, escalation.High, escalation.Maximum} {
+				if group != test.baseline {
+					groups = append(groups, group)
+				}
+			}
+			if test.lowerFirst {
+				groups = []escalation.Group{escalation.Low, escalation.Medium, escalation.High, escalation.Maximum}
+			}
+			classification := policy.Result{
+				SchemaVersion: policy.SchemaVersionV4, PredictedLabel: string(test.baseline),
+				ClassProbabilities: make(map[string]float64, len(groups)),
+			}
+			weightTotal := float64(len(groups)*(len(groups)+1)) / 2
+			for index, group := range groups {
+				classification.ClassOrder = append(classification.ClassOrder, string(group))
+				classification.ClassProbabilities[string(group)] = float64(len(groups)-index) / weightTotal
+			}
+			for _, group := range append(test.emptyReported, test.emptyRuntime...) {
+				delete(roster.Clusters, string(group))
+			}
+			adapter := newSelectorAdapter(classification).WithArmSelector(selection.Selector(roster))
+			decision, err := adapter.Route(context.Background(), router.Request{
+				Escalation:          &escalation.Constraint{Floor: test.floor, Escalate: test.positive},
+				ClusterArmOverrides: test.overrides,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, decision.Metadata)
+			require.NotNil(t, decision.Metadata.Escalation)
+			assert.Equal(t, test.wantModel, decision.Model)
+			assert.Equal(t, string(test.wantGroup), decision.Metadata.PolicyGroup)
+			assert.Equal(t, test.baseline, decision.Metadata.Escalation.Baseline)
+			assert.Equal(t, test.wantGroup, decision.Metadata.Escalation.Effective)
+			assert.Equal(t, test.wantOutcome, decision.Metadata.Escalation.Outcome)
+			assert.Equal(t, test.wantConstrained, decision.Metadata.Escalation.Constrained)
+			if target, hasTarget := test.overrides[escalation.TargetClusterLabel]; hasTarget && test.wantConstrained {
+				require.NotEmpty(t, decision.Metadata.RescueModels)
+				assert.Subset(t, target, decision.Metadata.RescueModels, "escalated rescue must stay on the escalation target")
+			}
+		})
+	}
+}
+
+func TestEscalationYieldsToExplicitClusterForce(t *testing.T) {
+	classification := classifierOnlyResult()
+	roster := &rosterdata.Roster{
+		SchemaVersion: rosterdata.SchemaVersionV6,
+		Clusters: map[string]rosterdata.Cluster{
+			string(escalation.Low):     {Arms: []string{escalationSonnetArm}},
+			string(escalation.Maximum): {Arms: []string{escalationOpusArm}},
+		},
+	}
+	adapter := newSelectorAdapter(classification).WithArmSelector(selection.Selector(roster))
+	decision, err := adapter.Route(context.Background(), router.Request{
+		ForceCluster: string(escalation.Low),
+		Escalation:   &escalation.Constraint{Floor: escalation.High, Escalate: true},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, escalationSonnet, decision.Model)
+	assert.Equal(t, string(escalation.Low), decision.Metadata.PolicyGroup)
+	assert.Nil(t, decision.Metadata.Escalation)
+}

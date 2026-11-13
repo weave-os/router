@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Regression tests for `npx @workweave/router models` — the model-selection CLI
+# Regression tests for `npx @weave-os/router models` — the model-selection CLI
 # behind the /models slash command.
 #
 # Fully offline: an isolated $HOME keeps real config untouched, and a fake curl
@@ -21,28 +21,39 @@ fake_bin="$work/bin"
 mkdir -p "$fake_bin"
 
 # Fake curl. Understands the flags install.sh actually passes (-X, --data-binary,
-# -o, -w, --header @-) and routes on the request path. $ROUTER_MODE decides which
+# -o, -w, and file-backed headers) and routes on the request path. $ROUTER_MODE decides which
 # router it impersonates:
 #   full    — serves the model-selection API
-#   managed — 404s /admin/v1/* (the Weave-hosted router) but serves the catalog
+#   managed — 404s /admin/v1/* (the Weave-hosted router) but serves ?scope=catalog
 #   down    — connection failure
 # Requests are appended to $REQUEST_LOG as "METHOD PATH BODY".
 cat >"$fake_bin/curl" <<'FAKE_CURL'
 #!/usr/bin/env bash
-method="GET"; out=""; url=""; body=""
+method="GET"; out=""; url=""; body=""; header_source=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -X) method="$2"; shift 2 ;;
     -o) out="$2"; shift 2 ;;
-    --data-binary|-d) body="$2"; shift 2 ;;
+    --data-binary|-d)
+      body="$2"
+      case "$body" in @*) body="$(cat "${body#@}")" ;; esac
+      shift 2
+      ;;
     -w|-H|--max-time) shift 2 ;;
-    --header) shift 2 ;;
+    --header) header_source="$2"; shift 2 ;;
     -sS|-fsS|-s|-S|-f) shift ;;
     http*) url="$1"; shift ;;
     *) shift ;;
   esac
 done
-cat >/dev/null 2>&1 || true   # drain the key header on stdin
+# The key rides in a mode-600 header file. When KEY_LOG is set, record its
+# contents so a test can assert which install's key was sent.
+if [ -n "${KEY_LOG:-}" ]; then
+  case "$header_source" in
+    @-) cat >>"$KEY_LOG" 2>/dev/null || true ;;
+    @*) cat "${header_source#@}" >>"$KEY_LOG" 2>/dev/null || true ;;
+  esac
+fi
 path="${url#http://}"; path="${path#https://}"; path="/${path#*/}"
 [ -n "${REQUEST_LOG:-}" ] && printf '%s %s %s\n' "$method" "$path" "$body" >>"$REQUEST_LOG"
 
@@ -62,7 +73,7 @@ models='[{"model":"claude-opus-5","provider":"anthropic","enabled":true},{"model
 providers='[{"provider":"anthropic","enabled":true},{"provider":"openai","enabled":false}]'
 
 case "$path" in
-  /v1/router/models) emit 200 "$catalog" ;;
+  "/v1/router/models?scope=catalog") emit 200 "$catalog" ;;
 esac
 
 if [ "${ROUTER_MODE:-full}" = "managed" ]; then
@@ -114,6 +125,25 @@ seed_install() { # seed_install <home> <base-url> <key>
 EOF
 }
 
+# seed_codex_install writes the managed config.toml block a Codex install
+# leaves behind. Codex keeps the endpoint and the key in one file, which is why
+# `models --codex` needs no endpoint-trust split (see models_endpoint_is_trusted).
+seed_codex_install() { # seed_codex_install <home> <base-url> <key>
+  mkdir -p "$1/.codex"
+  cat >"$1/.codex/config.toml" <<EOF
+# >>> weave-router managed (do not edit between markers) >>>
+model_provider = "weave"
+
+[model_providers.weave]
+name = "Weave Router"
+base_url = "$2/v1"
+wire_api = "responses"
+requires_openai_auth = true
+http_headers = { "X-Weave-Router-Key" = "$3", "X-App" = "codex" }
+# <<< weave-router managed <<<
+EOF
+}
+
 # run_models <home> -- <installer args...>. Sets $out (stdout+stderr) and $rc.
 # Deliberately not a command substitution at the call site: that would run the
 # function in a subshell and throw the exit status away.
@@ -124,6 +154,7 @@ run_models() {
   [ "${1:-}" = "--" ] && shift
   HOME="$home" XDG_CACHE_HOME="$home/.cache" PATH="$test_path" NO_COLOR=1 \
     ROUTER_MODE="${ROUTER_MODE:-full}" REQUEST_LOG="${REQUEST_LOG:-}" \
+    KEY_LOG="${KEY_LOG:-}" \
     bash "$installer" models "$@" </dev/null >"$work/out" 2>&1
   rc=$?
   out="$(cat "$work/out")"
@@ -250,7 +281,9 @@ ROUTER_MODE="managed"
 run_models "$home" -- --claude
 check "list against a router without the API still exits 0" "$rc" "0"
 contains "list falls back to the public catalog" "$out" "claude-opus-5"
-contains "list says where model selection lives" "$out" "router.workweave.ai/dashboard/settings"
+check "the fallback asks for the catalog scope" \
+  "$(grep -c '^GET /v1/router/models?scope=catalog ' "$REQUEST_LOG")" "1"
+contains "list says where model selection lives" "$out" "app.weaveos.com/organization/settings/weave-router/models"
 # The catalog endpoint reports what is deployed, not what this installation
 # enabled, so the fallback must not render on/off state it cannot know.
 case "$out" in
@@ -260,14 +293,14 @@ esac
 
 run_models "$home" -- disable gpt-5.6 --claude
 check "editing against a router without the API fails" "$rc" "1"
-contains "the failure names the dashboard" "$out" "router.workweave.ai/dashboard/settings"
+contains "the failure names the dashboard" "$out" "app.weaveos.com/organization/settings/weave-router/models"
 
 # `models providers` is read-only, same as `models list` — it must degrade the
 # same way on a 404 rather than hard-failing while listing still succeeds.
 run_models "$home" -- providers --claude
 check "providers list against a router without the API still exits 0" "$rc" "0"
 contains "providers list falls back to the public catalog" "$out" "anthropic"
-contains "providers list says where selection lives" "$out" "router.workweave.ai/dashboard/settings"
+contains "providers list says where selection lives" "$out" "app.weaveos.com/organization/settings/weave-router/models"
 case "$out" in
   *"[x]"*|*"[ ]"*) no "the providers fallback claims no on/off state" "no checkbox markers" "$out" ;;
   *)               ok "the providers fallback claims no on/off state" ;;
@@ -279,7 +312,7 @@ check "providers list --json against a router without the API emits the provider
 
 run_models "$home" -- providers disable openai --claude
 check "editing providers against a router without the API still fails" "$rc" "1"
-contains "the providers failure names the dashboard" "$out" "router.workweave.ai/dashboard/settings"
+contains "the providers failure names the dashboard" "$out" "app.weaveos.com/organization/settings/weave-router/models"
 
 ROUTER_MODE="full"
 
@@ -321,7 +354,7 @@ check "models reads the parked endpoint, not api.anthropic.com" \
 empty="$work/empty"; mkdir -p "$empty"
 run_models "$empty" -- --claude
 check "no install found fails" "$rc" "1"
-contains "no install found explains how to fix it" "$out" "npx @workweave/router --claude"
+contains "no install found explains how to fix it" "$out" "npx @weave-os/router --claude"
 
 nokey="$work/nokey"; mkdir -p "$nokey/.claude"
 cat >"$nokey/.claude/settings.json" <<'EOF'
@@ -344,7 +377,19 @@ run_models_project() { # run_models_project <repo> [extra args...]
   ( cd "$repo" && HOME="$repo/../home" XDG_CACHE_HOME="$repo/../home/.cache" \
       PATH="$test_path" NO_COLOR=1 ROUTER_MODE="${ROUTER_MODE:-full}" \
       REQUEST_LOG="${REQUEST_LOG:-}" \
+      KEY_LOG="${KEY_LOG:-}" WEAVE_ROUTER_KEY="${WEAVE_ROUTER_KEY:-}" \
       bash "$installer" models --claude --scope project "$@" </dev/null >"$work/out" 2>&1 )
+  rc=$?
+  out="$(cat "$work/out")"
+}
+
+run_update_project() { # run_update_project <repo> [extra args...]
+  local repo="$1"; shift
+  ( cd "$repo" && HOME="$repo/../home" XDG_CACHE_HOME="$repo/../home/.cache" \
+      PATH="$test_path" NO_COLOR=1 ROUTER_MODE="${ROUTER_MODE:-full}" \
+      REQUEST_LOG="${REQUEST_LOG:-}" KEY_LOG="${KEY_LOG:-}" \
+      WEAVE_ROUTER_KEY="${WEAVE_ROUTER_KEY:-}" \
+      bash "$installer" update --claude --scope project "$@" </dev/null >"$work/out" 2>&1 )
   rc=$?
   out="$(cat "$work/out")"
 }
@@ -370,7 +415,7 @@ seed_project_split() { # seed_project_split <root> <committed-endpoint> [trusted
 }
 
 hostile="$work/hostile"
-seed_project_split "$hostile" "https://evil.example.com"
+seed_project_split "$hostile" "https://evil.example.com//"
 export REQUEST_LOG="$work/hostile.log"
 : >"$REQUEST_LOG"
 run_models_project "$hostile/repo"
@@ -378,15 +423,34 @@ check "a git-tracked endpoint paired with a local key is refused" "$rc" "1"
 contains "the refusal names the endpoint" "$out" "evil.example.com"
 check "the refusal sends no request at all" "$(wc -l <"$REQUEST_LOG" | tr -d ' ')" "0"
 
+export WEAVE_ROUTER_KEY="rk_env_secret"
+: >"$REQUEST_LOG"
+run_models_project "$hostile/repo"
+check "an env key does not bypass the endpoint trust check" "$rc" "1"
+check "an env key still sends no request to the hostile endpoint" \
+  "$(wc -l <"$REQUEST_LOG" | tr -d ' ')" "0"
+unset WEAVE_ROUTER_KEY
+
 # The same split against the hosted default is the layout the installer itself
 # writes, so it must keep working — the endpoint is one the user can vouch for.
 legit="$work/legit"
-seed_project_split "$legit" "https://router.workweave.ai"
+seed_project_split "$legit" "https://router.weaveos.com"
 export REQUEST_LOG="$work/legit.log"
 : >"$REQUEST_LOG"
 run_models_project "$legit/repo"
 check "the installer's own committed-hosted layout still works" "$rc" "0"
 check "the hosted-default endpoint is actually called" \
+  "$(grep -c '^GET /admin/v1/models ' "$REQUEST_LOG")" "1"
+
+# Projects committed before the weaveos.com move still name the old hosted
+# endpoint; it must stay trusted so teammates are not locked out of `models`.
+legacy="$work/legacy-hosted"
+seed_project_split "$legacy" "https://router.workweave.ai"
+export REQUEST_LOG="$work/legacy-hosted.log"
+: >"$REQUEST_LOG"
+run_models_project "$legacy/repo"
+check "a committed pre-move hosted endpoint is still trusted" "$rc" "0"
+check "the pre-move hosted endpoint is actually called" \
   "$(grep -c '^GET /admin/v1/models ' "$REQUEST_LOG")" "1"
 
 # A self-hosted project endpoint gets the same marker from a real installer
@@ -405,6 +469,44 @@ check "the installer's committed self-hosted layout still works" "$rc" "0"
 check "the trusted self-hosted endpoint is actually called" \
   "$(grep -c '^GET /admin/v1/models ' "$REQUEST_LOG")" "1"
 
+# `update` has the same endpoint/key split as `models`, but it also writes the
+# endpoint into the live project config and validates the key against it. The
+# guard must run before either side effect, including when CI supplies the key
+# through WEAVE_ROUTER_KEY instead of reading settings.local.json.
+update_hostile="$work/update-hostile"
+seed_project_split "$update_hostile" "http://evil.example.com//"
+export REQUEST_LOG="$work/update-hostile.log" KEY_LOG="$work/update-hostile.key"
+: >"$REQUEST_LOG"; : >"$KEY_LOG"
+run_update_project "$update_hostile/repo"
+check "update refuses a tracked hostile endpoint" "$rc" "1"
+check "update sends no request to a hostile endpoint" "$(wc -l <"$REQUEST_LOG" | tr -d ' ')" "0"
+check "update sends no key to a hostile endpoint" "$(wc -c <"$KEY_LOG" | tr -d ' ')" "0"
+
+export WEAVE_ROUTER_KEY="rk_env_secret"
+: >"$REQUEST_LOG"; : >"$KEY_LOG"
+run_update_project "$update_hostile/repo"
+check "update refuses a tracked hostile endpoint with an env key" "$rc" "1"
+check "env-key update sends no request to a hostile endpoint" "$(wc -l <"$REQUEST_LOG" | tr -d ' ')" "0"
+unset WEAVE_ROUTER_KEY
+
+update_explicit="$work/update-explicit"
+seed_project_split "$update_explicit" "http://evil.example.com"
+export REQUEST_LOG="$work/update-explicit.log" KEY_LOG="$work/update-explicit.key"
+: >"$REQUEST_LOG"; : >"$KEY_LOG"
+run_update_project "$update_explicit/repo" --base-url http://127.0.0.1:8080
+check "explicit update endpoint is allowed" "$rc" "0"
+check "explicit update endpoint is called" "$(grep -c '^GET /health ' "$REQUEST_LOG")" "1"
+check "explicit update sends the local key" "$(grep -c 'X-Weave-Router-Key: rk_teammate' "$KEY_LOG")" "1"
+
+update_marked="$work/update-marked"
+seed_project_split "$update_marked" "http://127.0.0.1:8080" trusted
+export REQUEST_LOG="$work/update-marked.log" KEY_LOG="$work/update-marked.key"
+: >"$REQUEST_LOG"; : >"$KEY_LOG"
+run_update_project "$update_marked/repo"
+check "marked self-hosted update is allowed" "$rc" "0"
+check "marked self-hosted update endpoint is called" "$(grep -c '^GET /health ' "$REQUEST_LOG")" "1"
+check "marked self-hosted update sends the local key" "$(grep -c 'X-Weave-Router-Key: rk_teammate' "$KEY_LOG")" "1"
+
 # An explicit --base-url is the user vouching out-of-band, so it overrides the
 # committed value rather than being refused.
 override="$work/override"
@@ -418,13 +520,33 @@ check "the explicit endpoint is the one called" \
 
 # ---------- argument handling ----------
 
-run_models "$home" -- --codex
-check "models rejects a non-Claude client" "$rc" "2"
-contains "models says which client it supports" "$out" "supports --claude only"
+# Codex is a supported client: it resolves the endpoint and key out of its own
+# managed config.toml, so the command reaches the router instead of refusing.
+codex_home="$work/codex-home"
+mkdir -p "$codex_home"
+seed_codex_install "$codex_home" "http://127.0.0.1:8080" "rk_codex"
+export REQUEST_LOG="$work/codex.log"
+export KEY_LOG="$work/codex.key"
+: >"$REQUEST_LOG"; : >"$KEY_LOG"
+run_models "$codex_home" -- --codex
+check "models accepts a Codex install" "$rc" "0"
+check "the Codex install's endpoint is the one called" \
+  "$(grep -c '^GET /admin/v1/models ' "$REQUEST_LOG")" "1"
+contains "the Codex install's key is the one sent" "$(cat "$KEY_LOG")" "rk_codex"
+unset REQUEST_LOG KEY_LOG
+
+# opencode and pi have no endpoint-trust story yet, so they stay refused.
+run_models "$home" -- --opencode
+check "models rejects an unsupported client" "$rc" "2"
+contains "models says which clients it supports" "$out" "supports --claude and --codex only"
 
 HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" models </dev/null >"$work/out" 2>&1
-check "models without a client flag is refused" "$?" "2"
-contains "models without a client flag names --claude" "$(cat "$work/out")" "requires an explicit client"
+check "models without a client flag uses the installed client" "$?" "0"
+contains "models without a client flag lists the installation's models" "$(cat "$work/out")" "Weave Router models"
+
+HOME="$work/empty-home" PATH="$test_path" NO_COLOR=1 bash "$installer" models </dev/null >"$work/out" 2>&1
+check "models without any install is refused" "$?" "1"
+contains "models without any install says how to install" "$(cat "$work/out")" "not installed for Claude Code or Codex"
 
 run_models "$home" -- enable --claude
 check "enable with no model id is refused" "$rc" "2"
@@ -446,7 +568,7 @@ for wrapper in router-models models; do
     no "$wrapper.md is shipped" "a file at $file" "missing"
     continue
   fi
-  bad="$(grep -o 'npx @workweave/router models[^`]*' "$file" | grep -cv -- '--claude' || true)"
+  bad="$(grep -o 'npx @weave-os/router models[^`]*' "$file" | grep -cv -- '--claude' || true)"
   check "every $wrapper.md command line names a client" "$bad" "0"
 done
 

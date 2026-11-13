@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 )
 
 // When a cross-format upstream (notably Gemini native) returns a non-2xx AFTER

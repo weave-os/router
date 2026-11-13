@@ -1,14 +1,18 @@
 "use client";
 
-import { EmptyHint, ErrorBanner, formatDate } from "./shared";
-import { Text } from "@/components/atoms/Text";
 import { Input } from "@/components/Input";
-import { Button } from "@/components/molecules/Button";
-import { Card } from "@/components/molecules/Card";
-import { Appearance, Intent } from "@/components/types";
-import { api, type APIKey, type APIKeyScope } from "@/lib/api";
+import { InstallCommandPicker } from "@/components/InstallCommandPicker";
+import { api, type APIKey, type APIKeyScope, type IssueAPIKeyResponse } from "@/lib/api";
+import { Text } from "@/shared/components/atoms/Text";
+import { Button } from "@/shared/components/molecules/Button";
+import { Card } from "@/shared/components/molecules/Card";
+import { Appearance, Intent } from "@/shared/components/types";
+
 import { Copy, RotateCw, Search, Trash2 } from "lucide-react";
+
 import { useEffect, useState } from "react";
+
+import { EmptyHint, ErrorBanner, formatDate } from "./shared";
 
 // Show the search box only once the list is long enough that scanning it by eye
 // gets tedious; for a couple of keys a search bar is just noise.
@@ -62,7 +66,10 @@ export function RouterKeysPanel() {
   const [creating, setCreating] = useState(false);
   const [rotating, setRotating] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
-  const [newToken, setNewToken] = useState<string | null>(null);
+  // Holds the issued token together with the scope it was minted for: only a
+  // routing key has an installer to offer, and rotate carries forward the
+  // rotated key's scope rather than whatever the create form currently shows.
+  const [issued, setIssued] = useState<IssueAPIKeyResponse | null>(null);
   const [copied, setCopied] = useState(false);
 
   const hasKey = keys.length > 0;
@@ -97,7 +104,7 @@ export function RouterKeysPanel() {
     setCreating(true);
     try {
       const res = await api.keys.issue(name.trim() || undefined, scope);
-      setNewToken(res.token);
+      setIssued(res);
       setName("");
       load();
     } catch (err: unknown) {
@@ -115,7 +122,7 @@ export function RouterKeysPanel() {
     setRotating(id);
     try {
       const res = await api.keys.rotate(id);
-      setNewToken(res.token);
+      setIssued(res);
       load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to rotate key.");
@@ -141,8 +148,8 @@ export function RouterKeysPanel() {
   }
 
   function handleCopy() {
-    if (newToken == null) return;
-    navigator.clipboard.writeText(newToken).then(() => {
+    if (issued == null) return;
+    navigator.clipboard.writeText(issued.token).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
@@ -152,23 +159,38 @@ export function RouterKeysPanel() {
     <>
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
-      {newToken != null && (
-        <div className="rounded-lg border border-success/30 bg-success/5 p-4">
-          <Text className="mb-2 text-xs font-medium text-success">
-            Key created. Copy it; it won&apos;t be shown again.
-          </Text>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 rounded bg-muted px-3 py-1.5 font-mono text-2xs text-foreground">
-              {newToken}
-            </code>
-            <Button appearance={Appearance.Outlined} size="sm" onClick={handleCopy}>
-              <Copy className="size-3.5" />
-              {copied ? "Copied" : "Copy"}
-            </Button>
+      {issued != null && (
+        <div className="flex flex-col gap-3 rounded-lg border border-success/30 bg-success/5 p-4">
+          <div className="flex flex-col gap-2">
+            <Text className="text-xs font-medium text-success">
+              Key created. Copy it; it won&apos;t be shown again.
+            </Text>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 rounded bg-muted px-3 py-1.5 font-mono text-2xs text-foreground">
+                {issued.token}
+              </code>
+              <Button appearance={Appearance.Hollow} size="sm" onClick={handleCopy}>
+                <Copy className="size-3.5" />
+                {copied ? "Copied" : "Copy"}
+              </Button>
+            </div>
           </div>
+
+          {/* A routing key is only useful once a harness points at it, so the
+              installer command ships with the token rather than leaving the
+              user to hunt for it. Analytics keys have nothing to install. */}
+          {issued.key.scope === "routing" && (
+            <div className="flex flex-col gap-2 border-t border-success/30 pt-3">
+              <Text className="text-xs font-medium text-foreground">
+                Point a harness at this router
+              </Text>
+              <InstallCommandPicker token={issued.token} />
+            </div>
+          )}
+
           <button
-            className="mt-2 text-2xs text-muted-foreground underline"
-            onClick={() => setNewToken(null)}
+            className="self-start text-2xs text-muted-foreground underline"
+            onClick={() => setIssued(null)}
           >
             Dismiss
           </button>
@@ -194,9 +216,11 @@ export function RouterKeysPanel() {
                       role="radio"
                       aria-checked={scope === o.value}
                       size="sm"
-                      appearance={scope === o.value ? Appearance.Filled : Appearance.Outlined}
+                      appearance={scope === o.value ? Appearance.Tinted : Appearance.Hollow}
                       className={
-                        scope === o.value ? "!border-brand !bg-brand !text-white hover:!bg-brand/90" : undefined
+                        scope === o.value
+                          ? "!border-brand !bg-brand !text-wv-on-action hover:!bg-brand/90"
+                          : undefined
                       }
                       title={o.hint}
                       onClick={() => setScope(o.value)}
@@ -225,9 +249,9 @@ export function RouterKeysPanel() {
                 </div>
                 <Button
                   type="submit"
-                  appearance={Appearance.Filled}
+                  appearance={Appearance.Tinted}
                   intent={Intent.Primary}
-                  className="!border-brand !bg-brand !text-white hover:!bg-brand/90"
+                  className="!border-brand !bg-brand !text-wv-on-action hover:!bg-brand/90"
                   disabled={creating}
                 >
                   {creating ? "Creating…" : "Create key"}
@@ -262,50 +286,50 @@ export function RouterKeysPanel() {
                 No keys match “{query.trim()}”.
               </div>
             ) : (
-            <ul className="divide-y divide-border">
-              {visibleKeys.map(k => (
-                <li key={k.id} className="flex items-center justify-between gap-3 px-5 py-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 text-xs font-medium text-foreground">
-                      {k.name ?? UNNAMED_KEY_LABEL}
-                      {k.scope === "analytics_read" && (
-                        <span className="rounded bg-muted px-1.5 py-0.5 text-2xs font-normal text-muted-foreground">
-                          {scopeLabel(k.scope)}
+              <ul className="divide-y divide-border">
+                {visibleKeys.map(k => (
+                  <li key={k.id} className="flex items-center justify-between gap-3 px-5 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 text-xs font-medium text-foreground">
+                        {k.name ?? UNNAMED_KEY_LABEL}
+                        {k.scope === "analytics_read" && (
+                          <span className="rounded bg-muted px-1.5 py-0.5 text-2xs font-normal text-muted-foreground">
+                            {scopeLabel(k.scope)}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 truncate font-mono text-2xs text-muted-foreground">
+                        {k.key_prefix}…{k.key_suffix}
+                        <span className="ml-2 font-sans">
+                          · created {formatDate(k.created_at)}
+                          {k.last_used_at != null && ` · last used ${formatDate(k.last_used_at)}`}
                         </span>
-                      )}
+                      </p>
                     </div>
-                    <p className="mt-0.5 truncate font-mono text-2xs text-muted-foreground">
-                      {k.key_prefix}…{k.key_suffix}
-                      <span className="ml-2 font-sans">
-                        · created {formatDate(k.created_at)}
-                        {k.last_used_at != null && ` · last used ${formatDate(k.last_used_at)}`}
-                      </span>
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      appearance={Appearance.Outlined}
-                      size="sm"
-                      onClick={() => handleRotate(k.id)}
-                      disabled={rotating != null || deleting != null}
-                    >
-                      <RotateCw className="size-3.5" />
-                      {rotating === k.id ? "Rotating…" : "Rotate"}
-                    </Button>
-                    <Button
-                      appearance={Appearance.Hollow}
-                      intent={Intent.Danger}
-                      size="icon"
-                      onClick={() => handleDelete(k.id)}
-                      disabled={deleting === k.id || rotating != null}
-                      title="Revoke key."
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        appearance={Appearance.Hollow}
+                        size="sm"
+                        onClick={() => handleRotate(k.id)}
+                        disabled={rotating != null || deleting != null}
+                      >
+                        <RotateCw className="size-3.5" />
+                        {rotating === k.id ? "Rotating…" : "Rotate"}
+                      </Button>
+                      <Button
+                        appearance={Appearance.Hollow}
+                        intent={Intent.Danger}
+                        size="icon"
+                        onClick={() => handleDelete(k.id)}
+                        disabled={deleting === k.id || rotating != null}
+                        title="Revoke key."
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             )}
           </Card.Content>
         </Card>

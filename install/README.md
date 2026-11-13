@@ -8,18 +8,21 @@ Weave Router permanently. No shell exports, no manual config edits.
 ### Hosted Weave Router
 
 ```bash
-# Interactive: the installer asks Claude Code / Codex / opencode, then user vs. project
-npx @workweave/router
+# Opens the hosted setup page, which gives you a key and the install command
+npx @weave-os/router
 
-# Skip the target picker:
-npx @workweave/router --claude                     # Claude Code, user scope
-npx @workweave/router --codex                      # Codex, user scope
-npx @workweave/router --opencode                   # opencode, user scope
+# Already have a key? Install for one client directly:
+npx @weave-os/router --claude                     # Claude Code, user scope
+npx @weave-os/router --codex                      # Codex, user scope
+npx @weave-os/router --opencode                   # opencode, user scope
+npx @weave-os/router --copilot                    # GitHub Copilot CLI: adds weave/auto to /model
+npx @weave-os/router --claude-desktop             # Claude Desktop (Code tab and Cowork), through a local proxy
+npx @weave-os/router --claude --return-url https://app.example.com/onboarding # continue after a verified install
 
 # Project scope — only when running inside this repo:
-npx @workweave/router --claude   --scope project   # Claude Code
-npx @workweave/router --codex    --scope project   # Codex
-npx @workweave/router --opencode --scope project   # opencode
+npx @weave-os/router --claude   --scope project   # Claude Code
+npx @weave-os/router --codex    --scope project   # Codex
+npx @weave-os/router --opencode --scope project   # opencode
 ```
 
 On npm ≤ 6 the bundled `npx` mis-parses a leading `-y` (it consumes the next
@@ -27,7 +30,7 @@ token, dropping the package name), so name the binary explicitly there — or
 just upgrade with `npm i -g npm@latest`:
 
 ```bash
-npx --package @workweave/router -y -- weave-router --claude
+npx --package @weave-os/router -y -- weave-router --claude
 ```
 
 Or from a clone of this repo:
@@ -50,6 +53,10 @@ The installer also prompts for your API key (or reads `$WEAVE_ROUTER_KEY`
 for non-interactive installs). Re-running it reuses the key already on disk,
 so you only ever paste it once — see [Staying up to date](#staying-up-to-date).
 
+After a working Claude Code or Codex install, the installer lists the everyday
+commands (`status`, `off`, `on`, feedback, uninstall) and exits. `--quiet`,
+`update`, and failed key checks skip the list.
+
 ### Self-hosted via `docker compose` (zero-config)
 
 If you're running the router locally with the bundled `docker-compose.yml`
@@ -71,12 +78,12 @@ the target flag:
 ./router/install/install.sh --codex --local --scope project    # team scope Codex
 ```
 
-Self-hosted routers, including the bundled local stack, may not run the optional
-HMM sidecar. For that reason, Codex `--local` and custom `--base-url` installs
-do not force a strategy header; they keep that router's configured default.
-Installs targeting the public `https://router.workweave.ai` endpoint select HMM
-automatically. A self-hosted HMM deployment can add
-`X-Weave-Router-Strategy: hmm` explicitly to its managed Codex config.
+No Codex install forces a strategy header; every install keeps the target
+router's configured default, so a deployment-default change reaches clients
+that were installed earlier. This also matters for self-hosted routers,
+including the bundled local stack, which may not run the optional HMM sidecar.
+A deployment that wants a specific policy can add `X-Weave-Router-Strategy`
+explicitly to its managed Codex config.
 
 ### Self-hosted on a custom URL
 
@@ -96,8 +103,8 @@ automatically. A self-hosted HMM deployment can add
 
 | Path                                  | Purpose                                                       |
 | ------------------------------------- | ------------------------------------------------------------- |
-| `~/.claude/settings.json`             | Sets `env.ANTHROPIC_BASE_URL`, `env.ANTHROPIC_CUSTOM_HEADERS` with `X-Weave-Router-Key`, `env.ENABLE_TOOL_SEARCH=auto` (a custom base URL otherwise disables Claude Code's MCP tool-search deferral), `statusLine`, and Claude Code `attribution` so commits/PRs credit Weave Router. Other keys preserved. |
-| `~/.weave/cc-statusline.sh`           | The status line script. Reads the router's decisions log + the CC transcript to show routed-model + savings. |
+| `~/.claude/settings.json`             | Sets `env.ANTHROPIC_BASE_URL`, `env.ANTHROPIC_CUSTOM_HEADERS` with `X-Weave-Router-Key`, `env.ENABLE_TOOL_SEARCH=true` (a custom base URL otherwise inlines tool schemas into every request), `env.CLAUDE_CODE_AUTO_MODE_SERVER=0` (auto mode's server-side classifier has no verdict on non-Anthropic turns; project scope writes it to `settings.local.json`), `statusLine`, and Claude Code `attribution` so commits/PRs credit Weave Router. Other keys preserved. |
+| `~/.weave/cc-statusline.sh`           | Shows the model you picked, the model served, and an estimated session cost comparison. Also answers `/router-status` locally through a prompt hook. It is not a routing health check. |
 
 **Project scope (`--scope project`):**
 
@@ -109,9 +116,62 @@ automatically. A self-hosted HMM deployment can add
 | `<repo>/.claude/settings.local.json`| ❌ ignored | Stores your local `ANTHROPIC_CUSTOM_HEADERS` router-key header and any other per-teammate overrides. |
 | `<repo>/.claude/.credentials.json`  | ❌ ignored | CC's per-user credentials cache.                               |
 
+The installer also adds a **Weave Auto** row to Claude Code's `/model` picker
+(`modelPicker`, Claude Code 2.1.242+) and selects it (in project scope this goes in
+`settings.local.json`). The first install that adds the passthrough header below
+selects Weave Auto even over a saved `model` (and drops `env.ANTHROPIC_MODEL` from
+that file), since before passthrough every model was routed anyway. Later updates
+keep whatever model the user picked, and select Weave Auto only when none is set. The row is `weave-auto[1m]`, so Claude Code budgets a 1M window: it sends `weave-auto` with the 1M-context beta, and the router routes it.
+`X-Weave-Model-Passthrough: 1` in `ANTHROPIC_CUSTOM_HEADERS` serves any other
+model Claude Code sends (a picker choice, `--model`, a subagent's model) as-is,
+without routing. A model the organization cannot serve as-is (outside its
+allowed models, excluded, or without a gateway alias) is routed instead. `off` removes the row and the default; `on` restores them.
+
 The router key lives in `ANTHROPIC_CUSTOM_HEADERS` so Claude Code can keep
 using its normal Anthropic auth (`Authorization` / `x-api-key`) for the
 logged-in user's Team/Pro/Max/individual plan.
+
+#### Claude Code Remote Control compatibility
+
+[Remote Control](https://code.claude.com/docs/en/remote-control) requires direct
+access to the Anthropic API and is unavailable while Weave Router's custom
+`ANTHROPIC_BASE_URL` is active. Your claude.ai subscription login can remain
+configured for ordinary routed requests, but it does not remove this restriction.
+
+To use Remote Control, turn routing off for your install scope:
+
+```bash
+# User-scope install
+npx @weave-os/router off --claude
+
+# Project-scope install; run from the repository
+npx @weave-os/router off --claude --scope project
+```
+
+Fully quit and reopen Claude Code: it reads the configuration at launch. Requests
+then go directly to Anthropic and bypass Weave Router; they are not routed,
+measured, or governed by Weave Router. The toggle preserves the Router endpoint
+and key for restoration. Weave Router does not proxy Remote Control or
+automatically switch routing for it.
+
+When finished, run the matching command and fully quit and reopen Claude Code
+again to resume routing:
+
+```bash
+# User-scope install
+npx @weave-os/router on --claude
+
+# Project-scope install; run from the repository
+npx @weave-os/router on --claude --scope project
+```
+
+Remote Control also requires an eligible claude.ai subscription and sign-in;
+API-key authentication is not supported. Team and Enterprise organizations need
+an Owner to enable Remote Control. If it still fails with routing off, follow
+[Anthropic's current troubleshooting](https://code.claude.com/docs/en/remote-control#troubleshooting)
+for subscription/auth eligibility, admin settings, organization policy,
+cloud-provider routing, and network access. See also
+[Weave's Remote Control troubleshooting](https://docs.weaveos.com/router/troubleshooting#claude-code-remote-control).
 
 ### Codex (`--codex`)
 
@@ -119,49 +179,76 @@ logged-in user's Team/Pro/Max/individual plan.
 
 | Path                       | Purpose                                                       |
 | -------------------------- | ------------------------------------------------------------- |
-| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block + sets top-level `model_provider = "weave"`, both between `# >>> weave-router managed` markers. The provider preserves the existing ChatGPT OAuth login; the public hosted endpoint selects HMM while self-hosted URLs keep their router default. Anything outside the markers is preserved. |
+| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block and sets top-level `model_provider = "weave"`. Fresh installs select `model = "weave-auto"`; the model and reasoning effort stay outside the managed markers so reinstalling preserves your selection. The provider preserves the existing ChatGPT OAuth login and keeps the target router's default routing strategy. |
+| `~/.weave/codex-status.sh` | Codex `SessionStart`/`Stop` hook helper. Keeps the latest routed model in the terminal title without adding status messages to the conversation. |
+
+The status helper is installed with mode `0700`, stores only the session's requested and routed model IDs under `${XDG_CACHE_HOME:-~/.cache}/weave-router/codex/`, and never stores prompts, credentials, or response bodies. Existing Codex hooks are preserved and the managed hooks are safe to reinstall or remove.
 
 **Project scope (`--scope project`):**
 
 | Path                             | Committed? | Purpose                                                       |
 | -------------------------------- | ---------- | ------------------------------------------------------------- |
 | `<repo>/.codex/config.toml`      | ❌ ignored | Per-teammate config (holds the router key). Each teammate runs the installer for their own key. |
-| `<repo>/.gitignore`              | ✅ commit  | Adds `.codex/config.toml` to the ignore list.                  |
+| `<repo>/.codex/weave-status.sh`  | ❌ ignored | Per-teammate Codex lifecycle helper used by the managed status hooks. |
+| `<repo>/.codex/.weave-router-disabled` | ❌ ignored | Local off-state marker used by the helper. |
+| `<repo>/.gitignore`              | ✅ commit  | Adds the Codex config, status helper, and off-state marker to the ignore list. |
 
 Run Codex from the repo with `CODEX_HOME=<repo>/.codex codex` so it picks
 up the project-local config instead of `~/.codex/`.
 
-Re-running the installer rewrites only the managed block (TOML between the
-markers + a top-level `model_provider =` outside it). Everything else —
-profiles, alternate providers, comments — stays untouched.
+Re-running the installer rewrites the managed block and top-level
+`model_provider`. It also moves model and effort selections out of older
+managed blocks so they survive future reinstalls. Profiles, alternate
+providers, and unrelated settings stay untouched.
 
-Routing is model-aware after HMM or force-model selection. The native Codex
-models `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna` use the caller's
-ChatGPT OAuth plan. Other OpenAI, Anthropic, Gemini, and OpenAI-compatible
-models use their matching WorkWeave deployment or BYOK credentials, just as
-they do when routed from Claude Code.
+Run `npx @weave-os/router --codex` again to enable native `/model` selection on
+an existing install, then restart Codex. `/model` shows the models available to
+your active ChatGPT login plus **Weave Router**. The provider's
+`model_catalog_url` points at the router's `/v1/codex/models`, which serves
+that same list, or Codex's bundled catalog plus **Weave Router** for API-key
+logins (Codex replaces its whole list with this response). Switching to a named model with
+`/model` during a session forces that model for each request from then on, and
+Codex's selected reasoning effort is sent with it. The model a session launches
+with (from `config.toml` or an SDK thread option) is only a baseline and still
+routes automatically. Selecting **Weave Router** returns to Weave's per-request
+routing. An existing `$fm` session pin still takes precedence in automatic
+mode; clear it with `$ufm` to resume automatic routing. The native selection
+itself does not write a persistent `$fm` pin.
 
-Codex does not load third-party Markdown slash commands. To send a router
-directive, start the message with one literal space so Codex submits it as a
-normal prompt rather than consuming it as an unknown local command:
+`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-6-sol` can use the
+active ChatGPT OAuth plan. Other OpenAI, Anthropic, Gemini, and
+OpenAI-compatible models use their matching WorkWeave deployment or BYOK
+credentials, just as they do when routed from Claude Code.
 
-```text
- /force-model gpt-5.6-terra
- /unforce-model
- /rf - the previous response was too slow --label=high
-```
+Codex does not load third-party Markdown slash commands, and reserves `/…` for
+its own built-ins. The installer therefore ships the router actions as native
+Codex skills, invoked with `$`:
 
-To return to regular Codex, invoke the installer-provided Codex skill as
-`$disable-routing`. It runs the safe local off toggle, preserves the router
-configuration and ChatGPT OAuth, and takes effect when you start the next
-`codex` session. A literal `/disable-routing` is not possible because Codex
-reserves slash commands for its built-ins. The shell equivalent is:
+| Skill | Purpose |
+| --- | --- |
+| `$force-model <model-id>` / `$fm <model-id>` | Pin the session to a model through the router |
+| `$force-parent <model-id>[:effort]` | Pin only this thread; subagents route automatically |
+| `$unforce-model` / `$ufm` | Clear the session model pin |
+| `$router-feedback <text>` / `$rf <text>` | Send feedback through the router |
+
+These skill invocations are handled by the router directly. To return to
+regular Codex, invoke the installer-provided Codex skill as `$disable-routing`.
+It runs the safe local off toggle, preserves the router configuration and
+ChatGPT OAuth, and takes effect when you start the next `codex` session. A
+literal `/disable-routing` is not possible because Codex reserves slash
+commands for its built-ins. The shell equivalent is:
 
 ```bash
-npx --package @workweave/router -y -- weave-router disable-routing
+npx --package @weave-os/router -y -- weave-router disable-routing
 ```
 
 ### opencode (`--opencode`)
+
+The installer targets OpenCode major version 2. If `opencode` is on `PATH`, the
+installer checks its version and exits before writing config unless the major
+version is `2`. When the CLI is not installed yet, the installer warns and can
+prepare the config for a later v2 install. OpenCode v2 uses the configured
+Responses provider directly; the installer does not install a plugin.
 
 **User scope:**
 
@@ -178,18 +265,21 @@ npx --package @workweave/router -y -- weave-router disable-routing
 
 OpenCode sends Responses requests through its bundled `@ai-sdk/openai`
 provider, while Weave Router selects and translates to the upstream model.
-Re-running the installer rewrites only the managed `provider.weave` block and
-migrates legacy `weave/*` choices to `weave/auto`; other providers, MCP
-servers, agents, and unrelated top-level model choices stay untouched.
-`--uninstall --opencode` strips the block (and `model` only when it points at
-`weave/...`).
+Installation activates `weave/auto` and parks an existing direct model so
+`off` and uninstall restore it exactly. Re-running the installer rewrites only
+the managed `provider.weave` block and migrates legacy `weave/*` choices to
+`weave/auto`; other providers, MCP servers, and agents stay untouched.
+`--uninstall --opencode` strips the block and restores the parked model.
+Re-install also removes stale v1 plugin registrations/files while preserving
+other plugins. OpenCode v2 supplies its own session headers; the router uses
+those for session continuity.
 
 **Onboarding flow for a new teammate (any target):**
 
 ```bash
 git clone <repo>
 cd <repo>
-npx @workweave/router --claude --scope project   # or --codex / --opencode
+npx @weave-os/router --claude --scope project   # or --codex / --opencode
 export WEAVE_ROUTER_KEY=rk_...                    # in shell rc / dotenv / 1Password
 claude                                             # or `CODEX_HOME=.codex codex` / `opencode`
 ```
@@ -198,6 +288,190 @@ The `--scope project` step only needs to run once per checkout (re-run if
 `cc-statusline.sh` is updated upstream; the re-run reuses your installed key,
 so no key paste is needed).
 
+### GitHub Copilot CLI (`--copilot`)
+
+Weave Router shows up as a selectable model in Copilot CLI, the same way GitHub's
+own routed models do. Nothing replaces Copilot's endpoint:
+`COPILOT_PROVIDER_BASE_URL` would switch the whole CLI into single-provider BYOK
+mode and hide the GitHub models, so the installer uses Copilot's persistent
+provider registry instead. GitHub models stay in `/model`, and you can switch
+between them and `weave/auto` at any time.
+
+User scope only. Copilot reads `providers.json` from `$COPILOT_HOME` (default
+`~/.copilot`), and the file holds the router key in plain text.
+
+| Path                          | Purpose |
+| ----------------------------- | ------- |
+| `~/.copilot/providers.json`   | Merges a `weave` provider and a `weave/auto` model named "Weave Router". Headers carry `X-Weave-Router-Key` plus the identity headers (`X-Weave-User-Email`, `X-Weave-User-Name`, `X-App: copilot`). No `apiKey` is set, so Copilot never forwards the router key as an upstream credential. Other providers and models are kept. Mode `0600`, and a symlink is refused. |
+| `~/.copilot/settings.json`    | Sets `model` to `weave/auto`. The previous default is parked in `~/.copilot/.weave-parked.json` so `off` and uninstall can restore it. |
+| `~/.copilot/skills/<name>/`   | Router directives as Copilot skills: `/force-model` (`/fm`), `/force-parent`, `/unforce-model` (`/ufm`), `/router-feedback` (`/rf`), `/router-off`, `/router-on`, `/router-status`. Only skills that carry the managed marker are written or removed. |
+
+`--wire anthropic` (the default) talks to the router over `/v1/messages`, the
+router's native format, so routing markers render in the transcript.
+`--wire openai` uses the OpenAI Responses API at `<base-url>/v1` instead. A
+re-install or `update` keeps the installed wire unless `--wire` is passed.
+
+```bash
+npx @weave-os/router --copilot                    # install
+copilot --model weave/auto                        # or pick "Weave Router" in /model
+npx @weave-os/router off --copilot                # restore the previous default; weave/auto stays in /model
+npx @weave-os/router --uninstall --copilot        # remove provider, model, skills
+```
+
+### GitHub Copilot SDK (custom provider)
+
+Apps built on the Copilot SDK (`@github/copilot-sdk` for Node, `github-copilot-sdk`
+for Python) can use the router as a custom (BYOK) provider. There is no installer
+step: the app passes the router as `provider` when it creates a session, with the
+signed-in user's own router key and identity headers. Every request then carries
+that user's key and email, so attribution, caps and stats are per user. Provider
+`headers` go on every model request; `requestHeaders` (`request_headers` in
+Python) on `send`/`sendAndWait` adds headers for one turn.
+
+Node, Anthropic wire (`POST <baseUrl>/v1/messages`):
+
+```js
+import { CopilotClient, approveAll } from "@github/copilot-sdk";
+
+const client = new CopilotClient({ useLoggedInUser: false });
+const session = await client.createSession({
+  model: "auto", // required with a custom provider; the router picks the model
+  provider: {
+    type: "anthropic",
+    baseUrl: "https://router.workweave.ai",
+    headers: {
+      "X-Weave-Router-Key": user.routerKey, // this user's rk_... key
+      "X-Weave-User-Email": user.email,
+      "X-Weave-User-Name": user.name,
+      "X-App": "copilot",
+    },
+  },
+  onPermissionRequest: approveAll,
+});
+const reply = await session.sendAndWait({ prompt: "Summarize this repo" });
+```
+
+Python, OpenAI Responses wire (`POST <base_url>/responses`), with the key sent as
+`Authorization: Bearer rk_...`, which the router accepts as well:
+
+```python
+from copilot import CopilotClient
+from copilot.session import PermissionHandler
+
+async with CopilotClient() as client:
+    async with await client.create_session(
+        model="auto",
+        provider={
+            "type": "openai",
+            "wire_api": "responses",
+            "base_url": "https://router.workweave.ai/v1",
+            "bearer_token": user.router_key,
+            "headers": {
+                "X-Weave-User-Email": user.email,
+                "X-Weave-User-Name": user.name,
+                "X-App": "copilot",
+            },
+        },
+        on_permission_request=PermissionHandler.approve_all,
+    ) as session:
+        reply = await session.send_and_wait("Summarize this repo")
+```
+
+Either wire works in either language (`wireApi`/`bearerToken`/`bearerTokenProvider`
+in Node, `wire_api`/`bearer_token`/`bearer_token_provider` in Python), streaming
+or not, and tool calls round-trip normally.
+
+Limitations:
+
+- Routing markers ride in the assistant text on the Anthropic wire. On the
+  Responses wire, turns served by an OpenAI model stream through verbatim
+  without one.
+- Prompt directives (`/force-model`, `/fm`, `/force-parent`, `/unforce-model`,
+  `/ufm`, `/router-feedback`, `/rf`, `/router-session`, and bare `/list-models` and
+  `/router-models`) work as plain prompt text because the router answers them.
+  `/router-off`, `/router-on`, `/router-status` and the `/router-models` forms
+  that change settings are handled by the installed clients and do nothing in an
+  SDK app; to bypass the router, create the session without it.
+
+||||||| 5249e152
+
+### Claude Desktop (`--claude-desktop`)
+
+Covers Claude Desktop's **Code** tab and **Cowork**. Desktop sets
+`ANTHROPIC_BASE_URL` to Anthropic for both, and ignores the `settings.json` route
+`--claude` uses. Both do follow the OS proxy and the OS certificate store, so
+this install sets up three things:
+
+1. **A local proxy** (`desktop-shim.js`, no dependencies) on `127.0.0.1:47821`,
+   run at login by launchd (macOS) or systemd `--user` (Linux). It terminates TLS
+   for `api.anthropic.com` only. Messages API calls (`/v1/messages*`) whose user
+   agent names Desktop's Code tab (`claude-desktop`) or Cowork (`local-agent`) go
+   to the router with `X-Weave-Router-Key`. The proxy drops
+   `X-Weave-Model-Passthrough` from those calls: Desktop's model picker can't
+   list Weave Auto, so the router routes whichever model Desktop sends (pin one
+   with `/force-model`). Everything else, including other
+   apps' `api.anthropic.com` traffic and Desktop's sign-in, passes through to
+   Anthropic unchanged. Every other host is tunneled untouched.
+2. **A certificate for `api.anthropic.com`**, trusted by the OS (login keychain
+   on macOS, `/usr/local/share/ca-certificates` on Linux). The installer makes
+   a CA that name constraints limit to `api.anthropic.com`, signs one leaf with
+   it, and deletes the CA key.
+3. **The OS auto-proxy** pointed at the proxy's PAC file
+   (`http://127.0.0.1:47821/proxy.pac`), which sends only `api.anthropic.com` to
+   the proxy. An auto-proxy that's already set is left alone; the installer
+   prints the one rule to add to it instead.
+
+Cowork is covered only when its agent runs on the computer. When Desktop can't
+start Cowork's local VM (for example on a Mac without virtualization), it runs
+the task in Anthropic's cloud, which no local proxy can see.
+
+You stay signed in to Claude, so subscription routing, cloud sessions and
+Remote Control keep working. Expect one password prompt (keychain trust on
+macOS, sudo for the network setting or trust store), then quit and reopen
+Claude Desktop.
+
+```bash
+npx @weave-os/router --claude-desktop             # install or refresh
+npx @weave-os/router --uninstall --claude-desktop # remove the proxy, trust and auto-proxy
+```
+
+Without `--base-url`, the proxy uses the router endpoint and key from your
+Claude Code install (`~/.claude/settings.json`, or the copy `--claude off`
+parked) when there is one, so it lands on the same fleet as the CLI. Re-runs
+keep the endpoint the proxy already uses.
+
+| Path | Contents |
+| ---- | -------- |
+| `~/.weave-router/desktop-shim/desktop-shim.js` | Copy of the proxy. |
+| `~/.weave-router/desktop-shim/config.json` | Router URL, router key and listen port (`$WEAVE_DESKTOP_SHIM_PORT` overrides 47821). Mode `0600`. |
+| `~/.weave-router/desktop-shim/ca.pem`, `leaf.pem`, `leaf-key.pem` | The certificate pair. Re-installs keep a still-valid pair. |
+| `~/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist` or `~/.config/systemd/user/weave-router-desktop-shim.service` | Runs the proxy at login. |
+
+Loopback is shared by every account on the machine, so the proxy only serves
+processes of the OS user who installed it (checked per connection through
+`/proc/net/tcp` on Linux and `lsof` on macOS) and refuses the rest with 403.
+
+#### Rolling out to an organization
+
+The same three pieces map onto standard device-management payloads:
+
+1. **Certificate:** generate one name-constrained pair for the fleet (run the
+   installer once and copy `ca.pem`, `leaf.pem`, `leaf-key.pem` from
+   `~/.weave-router/desktop-shim/`), then push `ca.pem` as a trusted root
+   (macOS: a Certificate payload).
+2. **Auto-proxy:** push `http://127.0.0.1:47821/proxy.pac` as the proxy
+   auto-config URL (macOS: the Proxies payload's `ProxyAutoConfigURLString`), or
+   add the printed rule to your existing PAC file.
+3. **Proxy:** run the installer as each user with the shared pair and their key:
+
+   ```bash
+   WEAVE_ROUTER_KEY=rk_... WEAVE_DESKTOP_CERT_DIR=/path/to/pair \
+     npx @weave-os/router --claude-desktop --non-interactive
+   ```
+
+   With the certificate already trusted and the PAC already set, the installer
+   only writes the config and starts the service, with no prompts.
+
 ## Flags
 
 | Flag                       | Default                       | Meaning                                                                |
@@ -205,10 +479,16 @@ so no key paste is needed).
 | `--claude`                 | (target picker if interactive) | Skip the target picker; install for Claude Code.                       |
 | `--codex`                  | (target picker if interactive) | Skip the target picker; install for the OpenAI Codex CLI.              |
 | `--opencode`               | (target picker if interactive) | Skip the target picker; install for opencode.                          |
+| `--copilot`                | (target picker if interactive) | Skip the target picker; add `weave/auto` to GitHub Copilot CLI (user scope only). |
+| `--claude-desktop`         | (target picker if interactive) | Skip the target picker; route Claude Desktop's Code tab and Cowork through a local proxy (user scope only). |
+| `--wire anthropic\|openai` | `anthropic`                   | Copilot only: the API format Copilot uses to reach the router.          |
 | `--scope user\|project`    | interactive prompt (default `user`) | User-level install (everywhere) vs project-level (this repo only).      |
 | `--local`                  | off                           | Shortcut for the bundled docker-compose router (`localhost:8080`).      |
-| `--base-url <url>`         | `https://router.workweave.ai` | Override the router endpoint. Use for self-hosted / custom port.        |
+| `--base-url <url>`         | `https://router.weaveos.com` | Override the router endpoint. Use for self-hosted / custom port.        |
+| `--email <email>`          | auto-detected                 | Set the router identity email and skip the email prompt.                |
+| `--return-url <url>`       | off                           | Open the URL in the default browser after `/health` and `/validate` both succeed. |
 | `--non-interactive`        | off                           | Fail if `$WEAVE_ROUTER_KEY` isn't set instead of prompting. Defaults target to Claude Code so existing CI pipelines don't shift semantics. |
+| `--no-attribution`         | off                           | Don't add the `Co-Authored-By: Weave Router` commit trailer or PR line to Claude Code's settings. Reinstalls keep the choice; an `attribution` you set yourself is never replaced. |
 | `--rotate-key`             | off                           | Ignore the key already installed and prompt for a new one (or take `$WEAVE_ROUTER_KEY`). Use when rotating a key. |
 
 Override the default base URL globally by setting `$WEAVE_ROUTER_URL` before
@@ -225,8 +505,8 @@ the key already installed for this target and scope → interactive prompt. So a
 plain re-run needs no key at all:
 
 ```bash
-npx @workweave/router --claude                  # reuses the installed key
-npx @workweave/router --claude --rotate-key     # ignore it, prompt for a new one
+npx @weave-os/router --claude                  # reuses the installed key
+npx @weave-os/router --claude --rotate-key     # ignore it, prompt for a new one
 ```
 
 If the installed key turns out to be revoked, an interactive run says so and
@@ -237,14 +517,19 @@ env or disk only, refreshes the managed config and assets in place, and errors
 (rather than asking) if no key can be found — safe for cron:
 
 ```bash
-npx @workweave/router update --claude                    # user scope
-npx @workweave/router update --claude --scope project    # in the repo
+npx @weave-os/router update --claude                    # user scope
+npx @weave-os/router update --claude --scope project    # in the repo
+npx @weave-os/router update --codex                     # Codex / opencode / pi too
 ```
 
 A rejected key is an error for `update` (exit 1), not a warning, so a scheduled
-run surfaces a revoked key instead of logging past it. `update` currently
-supports `--claude`; for the other targets re-run the installer normally — it
-reuses your installed key the same way.
+run surfaces a revoked key instead of logging past it. `update` works for every
+target; a plain re-run of the installer reuses your installed key the same way.
+
+For a project-scoped Claude Code install, `update` also verifies that the
+endpoint in the tracked project settings is one you approved. If the endpoint
+was changed in the checkout, repeat it with `--base-url <url>` (or reinstall
+against that endpoint) before the update can send a local router key there.
 
 **Claude Code also refreshes itself.** `cc-statusline.sh` checks
 `raw.githubusercontent.com` for a newer copy of itself at most once every
@@ -263,30 +548,203 @@ nothing lands in a repo working tree.
 | `WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS`     | `7`     | How often either check may run.                                |
 | `WEAVE_STATUSLINE_URL`                      | GitHub raw | Source for the statusline (self-hosters who fork).          |
 | `WEAVE_COMMANDS_URL_BASE`                   | GitHub raw | Source directory for the slash-command wrappers.            |
+| `WEAVE_CODEX_STATUS_UPDATE=0`               | on      | Disable the Codex status helper's self-refresh.                |
+| `WEAVE_CODEX_STATUS_UPDATE_INTERVAL_DAYS`   | `7`     | How often the Codex helper may check for a new copy.           |
+| `WEAVE_CODEX_STATUS_URL`                    | GitHub raw | Source for the Codex status helper (self-hosters who fork). |
 
-Codex, opencode, and pi have no equivalent per-turn hook, so they don't
-auto-refresh. Re-run the installer for those (`npx @workweave/router --codex`
-and friends) — thanks to key reuse, that no longer means re-pasting a key.
+**Codex refreshes itself too.** The status helper checks for a newer copy of
+itself on the same schedule and swaps it in atomically, so an install picks up
+router fixes without waiting for someone to remember to re-run the installer.
+The check runs only on a real lifecycle hook — never on the `off`/`on`/`status`
+toggles — in a detached fork, so no Codex turn blocks on it, and it skips the
+replacement when the bytes are unchanged. The `WEAVE_STATUSLINE_*` variables
+above are accepted as fallbacks for users who configure both clients together.
+
+**Codex skill invocations are answered by the router.** `$fm`/`$force-model`, `$force-parent`,
+`$ufm`/`$unforce-model`, `$rf`/`$router-feedback`, `$router-session` and
+`$list-models` reach the router; the local toggles do not, and are covered below. Codex sends a
+`$name` invocation as two user messages: the text the user typed, then a second
+message carrying the invoked skill's `SKILL.md`. The router reads the invocation
+from the first one, applies it, and answers with a synthetic response — the same
+short-circuit Claude Code's slash commands take — so it costs no upstream
+inference and the arguments arrive exactly as typed.
+
+0.2.17 shipped a `UserPromptSubmit` hook to do this client-side, before the
+router could see the invocation behind the skill block. It is retired; the hook
+that remains handles only the local toggles below.
+
+The four local toggles (`$router-on`/`$router-off`/`$router-status`/
+`$disable-routing`) mutate config on disk, which a remote service cannot do, so
+they are answered by a `UserPromptSubmit` hook instead. The hook runs the same
+installer subcommand the skill used to ask the model to run, and blocks the
+turn with its output — zero inference, same as the router-answered directives.
+
+`$router-off` is the reason this is a hook and not a skill. As a skill it needed
+a model turn, and that turn was served *through the router* — so the off switch
+depended on the thing it turns off. The hook runs locally before any network
+call, so it still works when the router is down. Their skills stay installed as
+the fallback for a Codex older than 0.150, which has no hooks.
+
+0.2.17 shipped a hook for `$fm`/`$rf`/`$router-session` and #1257 retired it once
+the router answered those itself. This one is deliberately narrower: it claims
+only what the router cannot answer, so there is no second path to the same
+directive.
+
+`$router-models` is split. A **bare** invocation is a read, and the router
+answers it directly — with more than the skill could: `weave-router models`
+gets a 404 from the admin API on a managed router and degrades to the plain
+catalog, which is why it has to print "this router does not report which of
+them your installation has enabled". The installation's exclusions are on the
+request, so the router marks each row `[x]`/`[ ]` instead. Anything with
+arguments (`enable`, `disable`, `prefer`, `providers`) still goes to the skill:
+those hit `/admin/v1/*`, which requires an admin session and rejects the `rk_`
+data-plane key a chat request carries — deliberately, so a leaked key cannot
+rewrite routing config. The registry still lists it as `local-toggle` because
+that column names the adapter its mutating path needs.
+
+`$list-models` lists every model `$force-model` accepts, with the shorthands that
+resolve to each one. The router answers it from the request, judging each model
+with the same installation allowlist, exclusion and provider policy a force is
+checked against, so a model marked `[x]` is one a force will pin. This differs
+from `$router-models`, which shows what automatic routing may choose: a model the
+deployment withholds from automatic routing still lists as forceable.
+
+`$router-session` used to be in that group and no longer is. It reported
+`$CODEX_SESSION_ID` from a script, which cost a model turn plus a tool exec and
+failed outright wherever that variable was unset. The router already receives
+the id as `Session-Id` on every request and stores it for analytics joins, so
+it now answers the directive itself — no inference, and the id is by
+construction the one telemetry recorded rather than a client-side guess at it.
+The skill and its script remain installed as a fallback for older routers.
+
+**Codex status integration.** Codex 0.150+ supports lifecycle hooks. The installer enables hooks and adds managed `SessionStart`, `Stop`, and `PreCompact` handlers. They maintain a small local state file and set the terminal title to `Weave Router · <requested-model> → <routed-model>` when the router provides a routed-model marker. On ordinary turns where the model is unchanged, the title remains the last known routed model; before the first routed response it shows `Weave Router · active`. The hooks intentionally emit no status messages: Codex renders hook output in the conversation, which makes a persistent router indicator noisy and easy to confuse with model output. It is not a replacement for Codex's requested-model line: that line continues to show the model selected in Codex configuration, while the Weave status identifies the model that actually served. Existing user and project hooks remain outside the managed block and are preserved on reinstall/uninstall.
+
+**Session savings.** The title also carries `· saved $X.XX` when the router has beaten the model Codex asked for. The number comes from the router — the hook reads `GET <base-url>/v1/sessions/<session-id>/cost` with the router key already in `config.toml` — and is never computed locally: Codex records only its *requested* model on every turn, never the one that served, so client-side pricing would compare a model against itself and always report zero. The fetch is detached and its result is cached for the following turn, so no turn ever blocks on the network; a slow, unreachable, or older router simply leaves the title model-only. A session where the router spent more than the requested model would have shows no clause at all rather than a negative number, and a total under a cent reads `saved <$0.01`. Set `WEAVE_CODEX_STATUS_SAVINGS=0` to turn the lookup off entirely.
+
+The helper requires `jq` for per-turn updates. If `jq` is unavailable, the install still succeeds and the initial active terminal title remains available; no model metadata is updated by the hook. Disable or remove the integration with the normal Codex off/uninstall commands.
+
+## Adding or changing a directive
+
+`install/directives.tsv` is the single registry. Every install path, the
+uninstaller, the statusline refresh, and the npm packaging step read it, so a
+directive is declared once and reaches every client that supports it.
+
+```
+canonical|aliases|capability|claude|codex|opencode|pi|cursor|adapter
+```
+
+- `capability` is `prompt` (the directive is text the router parses) or
+  `local-toggle` (it shells out to this installer to change local config).
+  Only declare a `local-toggle` for a client whose config this installer owns —
+  do not invent one where the client has no equivalent.
+- The client columns are `yes`/`no`; `cursor` is always `manual`, because no
+  Cursor command file is ours to write.
+- `adapter` names the native asset: `command` (a `commands/<name>.md` wrapper),
+  `skill` (a `codex-skills/<name>/SKILL.md`), or both.
+
+To add one: add the row, add the matching adapter file(s), run
+`make embed-registry` (install.sh is served standalone for `curl | sh`, so it
+carries an embedded copy of the registry), then run
+`install/tests/registry_test.sh`. A registry entry with no adapter — or an
+adapter with no entry, or an embedded copy that drifted — fails both that suite
+and `npm pack`, so they cannot drift. pi's `/fm` and `/ufm` live in the
+extension rather than in files; the registry test asserts its registered names
+match the registry.
 
 ## Switching on and off
+
+### Claude Code context window
+
+A custom API base URL can make Claude Code use a 200k local context budget
+even when the router serves a 1M-capable model. Changing the upstream model or
+adding its beta header does not by itself change that local compaction budget.
+To opt into Claude Code's explicit 1M model variant:
+
+```bash
+npx @weave-os/router update --claude --context-window 1m
+```
+
+This adds `[1m]` to a supported configured Sonnet, Opus, or Fable model (uses
+`sonnet[1m]` when no model is configured). It leaves automatic compaction on.
+Use it with a router/provider pool that can serve long-context requests;
+enabling the client window does not expand any upstream model's capacity.
+Longer retained histories can increase token usage and cost.
+
+The setting is opt-in: ordinary install/update keeps your model unchanged.
+An existing `ANTHROPIC_MODEL` override, a 1M opt-out, or an unrecognized model
+is not overwritten. Project installs write the selection only to
+`settings.local.json`. The previous value is recorded in
+`.claude/.weave-context-window.json`; `off`/uninstall restore it, `on` restores
+the opted-in variant, and a later user model edit is preserved. Restart Claude
+Code after changing this setting; an explicit `--model` argument still wins.
 
 Once installed, flip a client between the Weave Router and talking to its
 provider directly — without losing the router config, so switching back is
 instant. These never prompt for a key and require an explicit client:
 
 ```bash
-npx @workweave/router off --claude       # route Claude Code directly to Anthropic
-npx @workweave/router on --claude        # route Claude Code through the router again
-npx @workweave/router status --codex     # report whether Codex is on the router or direct
-npx @workweave/router disable-routing    # switch Codex back to its default provider
-npx @workweave/router off --opencode --scope project   # project-scoped opencode
+npx @weave-os/router off --claude       # route Claude Code directly to Anthropic
+npx @weave-os/router on --claude        # route Claude Code through the router again
+npx @weave-os/router status             # every tool: on/off, key check, signed in, last routed turn, fixes
+npx @weave-os/router status --codex     # report whether Codex is on the router or direct
+npx @weave-os/router disable-routing    # switch Codex back to its default provider
+npx @weave-os/router off --opencode --scope project   # project-scoped opencode
 ```
+
+A real `off`/`on` transition (and an uninstall) tells the install's router
+about it with one authenticated `POST /v1/client-events`, so the router can log
+and export a lifecycle span. It is fail-open on purpose: the local change has
+already been applied, the ping runs detached with a two-second timeout, and an
+unreachable router — often the reason for turning routing off — never changes
+the result. Nothing is sent for a no-op (`already off`, not installed) or for
+`status`, and the endpoint/key trust gate is the same one `models` uses.
 
 Inside Claude Code you can also run the slash commands `/router-off`,
 `/router-on`, `/router-status`, and `/router-session` (which prints the
 session id used for telemetry correlation and transcript lookup) — installed
 alongside `/force-model` (alias `/fm`), `/unforce-model` (alias `/ufm`),
-`/router-feedback` (alias `/rf`), and `/router-models` (alias `/models`).
+`/router-feedback` (alias `/rf`), `/router-models` (alias `/models`), and
+`/list-models`.
+
+### Which directives each client gets
+
+The installer derives this table from `install/directives.tsv`, the single
+registry every client's install reads. Prompt directives reach the router
+itself; local-config toggles flip config on disk, so they exist only where this
+installer owns the config file.
+
+| Directive | Claude Code | Codex | opencode | pi | Cursor |
+| --- | --- | --- | --- | --- | --- |
+| force-model (`fm`) | `/force-model` | `$force-model` | `/force-model` | `/fm` (native) | manual |
+| force-parent | `/force-parent` | `$force-parent` | `/force-parent` | `/force-parent` (native) | manual |
+| unforce-model (`ufm`) | `/unforce-model` | `$unforce-model` | `/unforce-model` | `/ufm` (native) | manual |
+| router-feedback (`rf`) | `/router-feedback` | `$router-feedback` | `/router-feedback` | — | manual |
+| router-session | `/router-session` | `$router-session` | — | — | — |
+| list-models | `/list-models` | `$list-models` | — | — | — |
+| router-off / on / status | `/router-off` … | `$router-off` … (plus `$disable-routing`) | — | — | — |
+| router-models (`models`) | `/router-models` | `$router-models` | — | — | — |
+
+- **opencode** uses native command files for `/force-model`, `/unforce-model`,
+  and `/router-feedback`; the router also recognizes leading `$` directive
+  spellings if submitted directly. Local toggles stay CLI-only
+  (`npx @weave-os/router off|on|status --opencode`).
+- **Codex** uses `$name` skills because Codex reserves `/…` for built-ins; each
+  skill sends the leading-space prompt form.
+- **Copilot CLI** gets the Codex skill set as Copilot skills, invoked with `/`
+  (Copilot exposes `~/.copilot/skills/<name>` as `/<name>`). The Codex-only
+  `disable-routing`, `router-session`, `list-models`, and `router-models` are not
+  installed.
+- **pi** implements `/fm` and `/ufm` in the `@weave-os/router` extension rather
+  than through installed files; the registry asserts its names match.
+- **Cursor** exposes no command or skill file this installer owns, so its
+  directives are manual: type the leading-space form ( `/force-model …`)
+  yourself. The base-URL toggle lives in Cursor's own settings UI.
+- The local toggles reach Claude Code and Codex, the two clients with a config
+  file this installer writes. Codex's skills shell out to the same
+  `weave-router off|on|status|models --codex` verbs the CLI exposes;
+  `$disable-routing` predates `$router-off` and remains as an alias for it.
+- `models` resolves one install's endpoint and key, so it needs a client that
+  stores both: `--claude` or `--codex` (opencode and pi are not wired yet).
 
 What each `off` does (and `on` reverses byte-for-byte):
 
@@ -295,14 +753,19 @@ What each `off` does (and `on` reverses byte-for-byte):
   project scope only the gitignored `settings.local.json` is touched, so the
   committed `settings.json` never shows up in `git diff`. **Claude Code reads
   env at launch, so quit and reopen it for an on/off to take effect.**
-- **Codex** — comments the `model_provider = "weave"` line; the
-  `[model_providers.weave]` block stays. Takes effect on the next `codex` run.
-- **opencode** — parks and removes the top-level `weave/...` model so opencode
-  reverts to its own default; `provider.weave` stays. Next `opencode` run.
+- **Codex** — comments the `model_provider = "weave"` line and the Weave-only
+  `model = "weave-auto"` selection, if active. The `[model_providers.weave]`
+  block stays. Takes effect on the next `codex` run.
+- **opencode** — swaps the top-level `weave/...` model for the direct model
+  parked during install; `provider.weave` stays. Next `opencode` run.
+- **Copilot CLI** — puts back the default model parked during install;
+  `weave/auto` stays selectable in `/model`. Next `copilot` run.
 
-**Cursor** has no config file we own — its base URL lives in Cursor's own
-settings UI. To toggle it, open **Settings → Models → Override OpenAI Base
-URL** and turn the override (`<base-url>/v1`) on or off there.
+**Cursor** has no config file we own — its key, base URL, and `weave-auto`
+custom model live in Cursor's own settings UI. To toggle it, open **Settings →
+Models → Override OpenAI Base URL** and turn the override (`<base-url>/v1`) on
+or off there. Cursor calls that URL from its own servers, so it must be
+publicly reachable.
 
 ## Choosing which models the router may pick
 
@@ -314,13 +777,15 @@ install talks to its own router with its own key, and the key is never passed
 as a command-line argument.
 
 ```bash
-npx @workweave/router models --claude                          # every model, with its on/off state
-npx @workweave/router models disable gpt-5.6 --claude          # take a model out of rotation
-npx @workweave/router models enable gpt-5.6 --claude           # put it back
-npx @workweave/router models providers --claude                # same, one row per provider
-npx @workweave/router models providers disable openai --claude # drop a whole provider
-npx @workweave/router models prefer claude-opus-5 --claude     # priority ranking ('clear' to drop it)
-npx @workweave/router models list --json --claude              # machine-readable, for scripts
+npx @weave-os/router models                                   # every model, for whichever client is installed
+npx @weave-os/router models --claude                          # same, for the Claude Code install
+npx @weave-os/router models --codex                           # same, for a Codex install
+npx @weave-os/router models disable gpt-5.6 --claude          # take a model out of rotation
+npx @weave-os/router models enable gpt-5.6 --claude           # put it back
+npx @weave-os/router models providers --claude                # same, one row per provider
+npx @weave-os/router models providers disable openai --claude # drop a whole provider
+npx @weave-os/router models prefer claude-opus-5 --claude     # priority ranking ('clear' to drop it)
+npx @weave-os/router models list --json --claude              # machine-readable, for scripts
 ```
 
 The list groups by provider and marks each model `[x]` (the router may pick it)
@@ -348,7 +813,7 @@ leaves the router nothing to pick — re-enable rather than empty it out.
 Editing requires a router that serves the model-selection API (self-hosted and
 local routers do). The Weave-hosted router keeps model selection with the
 organization instead, so there `models` lists what the router can pick from and
-points you at <https://router.workweave.ai/dashboard/settings>. If your
+points you at <https://app.weaveos.com/organization/settings/weave-router/models>. If your
 deployment pins the lists via `ROUTER_EXCLUDED_MODELS` /
 `ROUTER_EXCLUDED_PROVIDERS`, the router refuses the edit and says so — clear the
 env var to make the setting editable.
@@ -357,10 +822,27 @@ env var to make the setting editable.
 
 **Claude Code:**
 
-1. Run `claude`. The status line at the bottom should show
-   `WEAVE ROUTER — <routed-model> ← <selected-model>` after one turn.
-2. After several turns it should add `· saved $X turn / $Y session`.
-3. Check `~/.weave-router/decisions.jsonl` — one row per request.
+1. Run `npx @weave-os/router status --claude` to inspect the saved settings
+   in the selected scope. Connectivity verifies the key, not inference.
+2. Run `claude` and send a prompt. The terminal shows
+   `WEAVE ROUTER · you picked <model> → served <model>`.
+   Model names and pin acknowledgements come from the local
+   transcript, which can also contain direct-provider responses or old sessions.
+3. Confirm a matching new inference request in the router's server-side
+   telemetry. A saved endpoint, a successful key check, and commit/PR attribution
+   do not establish that a running client used the router.
+
+The status line reads `you picked <model> → served <model>`: the model selected
+in Claude Code, then the latest response model in the transcript. `saved ~$X this
+session` prices the whole session's transcript at the served models versus your
+pick; it is an estimate, not verified router savings. When the router upgraded
+hard turns past your pick, it reads `cost ~$X more than <pick> this session`
+instead. Missing prices omit the estimate.
+
+`/router-status` answers without a model turn: a `UserPromptSubmit` hook
+(`cc-statusline.sh --prompt-hook`) reports whether routing is on, the session's
+latest status line, and the full-check command. Uninstall removes the hook.
+`last pin` describes a recorded control acknowledgement, not a verified live pin.
 
 If the status line never appears, run `claude --debug` and check stderr for
 errors invoking `cc-statusline.sh`. The script needs `jq` on PATH.
@@ -369,9 +851,12 @@ errors invoking `cc-statusline.sh`. The script needs `jq` on PATH.
 
 1. Open `~/.codex/config.toml` (or `<repo>/.codex/config.toml` for project
    scope) and confirm the `# >>> weave-router managed >>>` block exists with
-   your `X-Weave-Router-Key`. Hosted installs also contain
-   `X-Weave-Router-Strategy = "hmm"`; self-hosted installs intentionally do not.
-2. Run `codex` and issue a turn. Provider should be `Weave Router`.
+   your `X-Weave-Router-Key`. No install writes an `X-Weave-Router-Strategy`
+   header; the router's own default applies.
+2. Run `codex` and issue a turn. The terminal title should begin with
+   `Weave Router · active`; after a routed-model marker it shows the latest
+   actual model. The hooks do not add status messages to the conversation.
+   Provider should be `Weave Router`.
 3. Check the router's dashboard at `<base-url>/ui/dashboard` to see the HMM
    routed decision; Codex's `/status` shows its request model, not the
    upstream model selected by the router.
@@ -381,21 +866,38 @@ errors invoking `cc-statusline.sh`. The script needs `jq` on PATH.
 1. Open `~/.config/opencode/opencode.json` (or `<repo>/opencode.json` for
    project scope) and confirm `provider.weave` exists with your
    `X-Weave-Router-Key` in `options.headers`.
-2. Run `opencode` and select `weave/auto`. Issue a turn; Weave Router picks
-   the upstream model for that turn.
+2. Run `opencode`; `weave/auto` is selected by the installer. Issue a turn and
+   Weave Router picks the upstream model.
 3. Check the router's dashboard at `<base-url>/ui/dashboard` — traffic
    should be tagged `X-App: opencode`.
 
 ## Uninstall
 
 ```bash
-npx @workweave/router --uninstall                       # Claude Code, user scope
-npx @workweave/router --uninstall --codex               # Codex, user scope
-npx @workweave/router --uninstall --opencode            # opencode, user scope
-npx @workweave/router --uninstall --scope project       # Claude Code, in the repo
-npx @workweave/router --uninstall --codex --scope project
-npx @workweave/router --uninstall --opencode --scope project
+npx @weave-os/router --uninstall                       # every client it configured, user scope
+npx @weave-os/router --uninstall --claude              # Claude Code only
+npx @weave-os/router --uninstall --codex               # Codex, user scope
+npx @weave-os/router --uninstall --opencode            # opencode, user scope
+npx @weave-os/router --uninstall --claude-desktop      # Claude Desktop proxy
+npx @weave-os/router --uninstall --scope project       # every client, in the repo
+npx @weave-os/router --uninstall --codex --scope project
+npx @weave-os/router --uninstall --opencode --scope project
 ```
 
 Removes only the keys / block this installer added; everything else in
 `settings.json` / `config.toml` is left alone.
+
+
+## Context indicators
+
+Claude Code's managed status line uses the documented `context_window.used_percentage` only alongside a valid `context_window_size`: `Context 58%`. The `!` cue at 90% is a display convention, not a prediction of Claude's compaction threshold. Missing, malformed, or unsupported fields are omitted. Session token totals and transcript usage never supply a percentage. Native usage takes priority; when unavailable, a matching session/selection/response-model snapshot may supply `last Router ctx est. ~72k/128k`.
+
+Codex 0.150+ lifecycle integrations use the terminal title, for example `Weave Router · gpt-5.6-sol → gpt-5.6-luna · last Router ctx est. ~72k/128k`. Current hook schemas expose no stable client-native context percentage. They do not provide an inline status bar; no hook message is printed to simulate one. Existing routed-model markers still work with older Routers. The snapshot's served model is authoritative only within a validated, recent session snapshot.
+
+The Router estimate and served-model window are separate from the client budget. `~` marks an approximate whole-request estimate, including image estimates. The full window also has to hold the output reserve, so the denominator is not remaining input capacity. Only native percentages get warning cues. A model switch does not compact history; clients own their transcripts and compaction, including Claude Code's `/compact` command. This Router revision preserves client history and forwards overflow errors in the client's native form so the harness can compact.
+
+Snapshots refresh asynchronously from the existing authenticated session-cost read, never from synchronous status-line network calls. They expire after five minutes, are keyed by session and helper installation scope, and use private atomic cache files without credentials. The `last` label acknowledges telemetry/fetch lag and cache hits that produce no new upstream record. Displays refresh on client status-line/lifecycle events, not continuously during streaming. Codex clears its snapshot cache on SessionStart/PreCompact and rejects older in-flight refreshes after a new lifecycle event. Project helpers read their adjacent configuration and never fall back to a user-scope key. Custom Claude status lines and unrelated hooks remain preserved by the installer.
+
+Set `WEAVE_STATUSLINE_CONTEXT=0` (Claude) or `WEAVE_CODEX_STATUS_CONTEXT=0` (Codex) to hide context. Codex's savings opt-out remains independent. Older Router versions omit the optional snapshot and keep existing indicators. The scripts and installer heredocs are tested for parity.
+
+Payload contracts checked against [Claude's official status-line fields](https://code.claude.com/docs/en/statusline) and [Codex's hook types](https://github.com/openai/codex/blob/main/codex-rs/hooks/src/types.rs). These are schema/source checks with synthetic fixtures, not an interactive pilot of every client release. Run `make test-statusline` and `make test-install` for offline checks. Live Claude status-line and Codex terminal refresh/compaction checks remain part of release verification.

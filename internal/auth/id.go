@@ -13,6 +13,10 @@ const APIKeyPrefix = "rk"
 // without requiring a DB lookup on the token alone.
 const AnalyticsAPIKeyPrefix = "ra"
 
+// SessionTokenPrefix fronts a delegated session JWT: "rs_<compact JWS>". The
+// prefix tells it apart from provider JWTs and keeps it out of upstream headers.
+const SessionTokenPrefix = "rs"
+
 const (
 	idLength               = 24
 	alphaNumericCharacters = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -47,9 +51,10 @@ func GenerateID(prefix string) string {
 	return b.String()
 }
 
-// HasAPIKeyPrefix reports whether the token carries any router-issued prefix (rk_ or ra_).
+// HasAPIKeyPrefix reports whether the token carries any router-issued prefix (rk_, ra_ or rs_).
 // Scope enforcement happens in VerifyAPIKey / VerifyAnalyticsAPIKey, not here.
 func HasAPIKeyPrefix(token string) bool {
 	return strings.HasPrefix(token, APIKeyPrefix+"_") ||
-		strings.HasPrefix(token, AnalyticsAPIKeyPrefix+"_")
+		strings.HasPrefix(token, AnalyticsAPIKeyPrefix+"_") ||
+		strings.HasPrefix(token, SessionTokenPrefix+"_")
 }

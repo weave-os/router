@@ -1,0 +1,13 @@
+{
+  "method": "HEAD",
+  "path": "/",
+  "status_code": 404,
+  "headers": {
+    "Cf-Cache-Status": "DYNAMIC",
+    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    "Date": "Thu, 12 Nov 2026 07:28:36 GMT",
+    "Server": "cloudflare",
+    "X-Robots-Tag": "none"
+  },
+  "body": ""
+}

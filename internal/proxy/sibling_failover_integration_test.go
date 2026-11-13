@@ -8,13 +8,16 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/anthropic"
-	"workweave/router/internal/providers/openaicompat"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/providers/openaicompat"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -94,11 +97,11 @@ func TestProxyMessages_OverloadedModelDegradesToSameClusterCandidate(t *testing.
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 			providers.ProviderFireworks: openaicompat.NewClient("test-fw-key", fireworks.URL),
 		},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry(),
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry(),
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderAnthropic: {},
 		providers.ProviderFireworks: {},
-	})
+	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -123,6 +126,116 @@ func TestProxyMessages_OverloadedModelDegradesToSameClusterCandidate(t *testing.
 
 	require.NotEmpty(t, store.usages, "the served candidate must be recorded on the pin")
 	assert.Equal(t, "deepseek/deepseek-v4-pro", store.usages[len(store.usages)-1].ServedModel)
+}
+
+// rankedRescueFixture routes to an Anthropic model that always overloads and
+// names two Fireworks-served candidates, ranked kimi then deepseek; kimi rejects
+// every request so the rescue must hand off to deepseek.
+type rankedRescueFixture struct {
+	svc             *proxy.Service
+	mu              sync.Mutex
+	fireworksModels []string
+}
+
+func newRankedRescueFixture(t *testing.T) *rankedRescueFixture {
+	t.Helper()
+	f := &rankedRescueFixture{}
+
+	anthropicUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(statusOverloaded)
+		_, _ = w.Write([]byte(overloadedSSE))
+	}))
+	t.Cleanup(anthropicUpstream.Close)
+
+	fireworks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		model := gjson.GetBytes(body, "model").String()
+		f.mu.Lock()
+		f.fireworksModels = append(f.fireworksModels, model)
+		f.mu.Unlock()
+		if model == "moonshotai/kimi-k2.6" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"unsupported parameter","type":"invalid_request_error"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `data: {"id":"fw-1","object":"chat.completion.chunk","created":1,"model":"deepseek/deepseek-v4-pro","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"id":"fw-1","object":"chat.completion.chunk","created":1,"model":"deepseek/deepseek-v4-pro","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":1}}`+"\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	t.Cleanup(fireworks.Close)
+
+	decision := router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-opus-4-8",
+		Metadata: &router.RoutingMetadata{
+			PolicyGroup:    "medium",
+			RosterFailover: true,
+			// The scored pool lists deepseek first; the ranked fallback puts kimi ahead of it.
+			CandidateModels: []string{"deepseek/deepseek-v4-pro", "moonshotai/kimi-k2.6", "claude-opus-4-8"},
+			RescueModels:    []string{"claude-opus-4-8", "moonshotai/kimi-k2.6", "deepseek/deepseek-v4-pro"},
+			CandidateProviders: map[string]string{
+				"claude-opus-4-8":          providers.ProviderAnthropic,
+				"moonshotai/kimi-k2.6":     providers.ProviderFireworks,
+				"deepseek/deepseek-v4-pro": providers.ProviderFireworks,
+			},
+		},
+	}
+	f.svc = proxy.NewService(
+		&fakeRouter{decision: decision},
+		map[string]providers.Client{
+			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
+			providers.ProviderFireworks: openaicompat.NewClient("test-fw-key", fireworks.URL),
+		},
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{
+		providers.ProviderAnthropic: {},
+		providers.ProviderFireworks: {},
+	}).WithRetrySleep(noRetrySleep)
+	return f
+}
+
+func (f *rankedRescueFixture) assertHandedOffToDeepseek(t *testing.T, rec *httptest.ResponseRecorder, terminalFrame string) {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	assert.Equal(t, []string{"moonshotai/kimi-k2.6", "deepseek/deepseek-v4-pro"}, f.fireworksModels,
+		"ranked-fallback order, then hand-off after the first rescuer is rejected")
+	respBody := rec.Body.String()
+	assert.Contains(t, respBody, terminalFrame)
+	assert.NotContains(t, respBody, "overloaded_error")
+	assert.NotContains(t, respBody, "unsupported parameter", "the rejected rescuer's error never reaches the client")
+	assert.Equal(t, "deepseek/deepseek-v4-pro", rec.Header().Get(proxy.HeaderRouterModel))
+}
+
+// TestProxyMessages_FailedRescuerHandsOffToNextRankedCandidate: the ranked
+// fallback names the rescue order, and a rescuer that is itself rejected
+// pre-commit must not end the turn while another candidate remains.
+func TestProxyMessages_FailedRescuerHandsOffToNextRankedCandidate(t *testing.T) {
+	f := newRankedRescueFixture(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+
+	err := f.svc.ProxyMessages(authedCtx("11111111-1111-1111-1111-111111111111"), body, rec, req)
+	require.NoError(t, err, "the second ranked candidate serves the turn")
+	f.assertHandedOffToDeepseek(t, rec, "event: message_stop")
+}
+
+// TestProxyOpenAIChatCompletion_FailedRescuerHandsOffToNextRankedCandidate: the
+// chat/completions surface walks the same ranked rescue order.
+func TestProxyOpenAIChatCompletion_FailedRescuerHandsOffToNextRankedCandidate(t *testing.T) {
+	f := newRankedRescueFixture(t)
+	rec := httptest.NewRecorder()
+	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body)))
+
+	err := f.svc.ProxyOpenAIChatCompletion(authedCtx("11111111-1111-1111-1111-111111111111"), body, rec, req)
+	require.NoError(t, err, "the second ranked candidate serves the turn")
+	f.assertHandedOffToDeepseek(t, rec, "data: [DONE]")
 }
 
 // TestProxyMessages_OverloadAfterCommitKeepsServingModel: once the first
@@ -158,11 +271,11 @@ func TestProxyMessages_OverloadAfterCommitKeepsServingModel(t *testing.T) {
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 			providers.ProviderFireworks: openaicompat.NewClient("test-fw-key", fireworks.URL),
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderAnthropic: {},
 		providers.ProviderFireworks: {},
-	})
+	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -206,11 +319,11 @@ func TestProxyMessages_ForceModelOverloadDoesNotDegrade(t *testing.T) {
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 			providers.ProviderFireworks: openaicompat.NewClient("test-fw-key", fireworks.URL),
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderAnthropic: {},
 		providers.ProviderFireworks: {},
-	})
+	}).WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -250,8 +363,9 @@ func TestProxyMessages_OverloadWithoutCandidatesSurfacesUpstreamError(t *testing
 		map[string]providers.Client{
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
+		WithRetrySleep(noRetrySleep)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -266,20 +380,34 @@ func TestProxyMessages_OverloadWithoutCandidatesSurfacesUpstreamError(t *testing
 	assert.Contains(t, rec.Body.String(), "Overloaded", "the deferred upstream error must reach the client")
 }
 
-// TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry: a customer
-// credential binds the turn to its provider, so sibling rescue is ineligible;
-// the Weave-key retry runs and the overload surfaces exactly once.
+// TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry: confirmed
+// subscription exhaustion authorizes API rollover; when the paid binding is
+// overloaded too, the plan credential no longer pins the turn to its vendor,
+// so the scored sibling is tried and the final failure surfaces exactly once.
 func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) {
 	var (
-		mu             sync.Mutex
-		anthropicCount int
-		fireworksCount int
+		mu                sync.Mutex
+		anthropicCount    int
+		subscriptionCount int
+		fireworksCount    int
 	)
 
-	anthropicUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	anthropicUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		anthropicCount++
+		onSubscription := strings.Contains(r.Header.Get("Authorization"), "sk-ant-oat01-")
+		if onSubscription {
+			subscriptionCount++
+		}
 		mu.Unlock()
+		if onSubscription {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("anthropic-ratelimit-unified-5h-utilization", "1")
+			w.Header().Set("anthropic-ratelimit-unified-5h-reset", "4102444800")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"quota exhausted"}}`))
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(statusOverloaded)
 		_, _ = w.Write([]byte(overloadedSSE))
@@ -290,7 +418,9 @@ func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) 
 		mu.Lock()
 		fireworksCount++
 		mu.Unlock()
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(statusOverloaded)
+		_, _ = w.Write([]byte(`{"error":{"type":"overloaded_error","message":"Overloaded"}}`))
 	}))
 	defer fireworks.Close()
 
@@ -300,11 +430,12 @@ func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) 
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 			providers.ProviderFireworks: openaicompat.NewClient("test-fw-key", fireworks.URL),
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderAnthropic: {},
 		providers.ProviderFireworks: {},
-	})
+	}).WithRetrySleep(noRetrySleep).
+		WithUsageObserver(usage.NewObserver([]byte("rollover-overload-quota-salt"), time.Hour, time.Now))
 
 	ctx := context.WithValue(
 		authedCtx("11111111-1111-1111-1111-111111111111"),
@@ -315,13 +446,14 @@ func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) 
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
-	err := svc.ProxyMessages(ctx, body, rec, req)
+	err := svc.ProxyMessages(claudeCreditFallbackContext(ctx), body, rec, req)
 	require.Error(t, err, "a customer-credentialed turn has nowhere to degrade to")
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Greater(t, anthropicCount, 1, "the subscription retry reruns the same model on the Weave key")
-	assert.Zero(t, fireworksCount, "a subscription credential binds the turn to its own provider")
+	assert.Equal(t, dispatch.MaxSameBindingRetries+1, subscriptionCount, "direct Claude retains its bounded same-binding retries")
+	assert.Greater(t, anthropicCount-subscriptionCount, 1, "the authorized API binding retries its overload")
+	assert.Positive(t, fireworksCount, "a plan credential is a funding source, not a vendor binding: the scored sibling is tried")
 	assert.Equal(t, 1, strings.Count(rec.Body.String(), "overloaded_error"),
-		"the deferred overload is flushed exactly once across the rescue chain")
+		"the deferred failure is flushed exactly once across the rescue chain")
 }

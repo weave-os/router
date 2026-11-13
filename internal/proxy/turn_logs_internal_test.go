@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -9,21 +10,31 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	"google.golang.org/protobuf/proto"
 
-	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
-
-	"workweave/router/internal/observability/otel"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/planner"
-	"workweave/router/internal/router/sessionpin"
-
-	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
+	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/llmescalation"
+	"weave-os/router/internal/router/planner"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry"
 )
+
+func attrsByTelemetryKey(attrs []telemetry.Attr) map[string]telemetry.AttrValue {
+	out := make(map[string]telemetry.AttrValue, len(attrs))
+	for _, attr := range attrs {
+		out[attr.Key] = attr.Value
+	}
+	return out
+}
 
 func attrsByKey(attrs []*commonv1.KeyValue) map[string]*commonv1.AnyValue {
 	out := make(map[string]*commonv1.AnyValue, len(attrs))
@@ -42,6 +53,22 @@ func TestParseCaptureMode(t *testing.T) {
 	assert.Equal(t, "off", CaptureOff.String())
 	assert.Equal(t, "hashed", CaptureHashed.String())
 	assert.Equal(t, "full", CaptureFull.String())
+}
+
+func TestZdrLogField_BlanksOnlyWhenEffectiveOff(t *testing.T) {
+	deploymentModes := []ContentCaptureMode{CaptureOff, CaptureHashed, CaptureFull}
+	for _, deployment := range deploymentModes {
+		s := &Service{captureMode: deployment}
+		if deployment == CaptureOff {
+			assert.Empty(t, s.zdrLogField(context.Background(), "secret"))
+		} else {
+			assert.Equal(t, "secret", s.zdrLogField(context.Background(), "secret"))
+		}
+		// Installation off must blank the field even under a Full deployment.
+		ctx := context.WithValue(context.Background(), InstallationCaptureModeContextKey{}, CaptureOff)
+		assert.Empty(t, s.zdrLogField(ctx, "secret"),
+			"deployment %v with installation off must blank content-bearing log fields", deployment)
+	}
 }
 
 func TestMaybeCaptureResponse_OffReturnsNil(t *testing.T) {
@@ -150,6 +177,28 @@ func (c *logCollector) attrs(t *testing.T) map[string]string {
 	return out
 }
 
+func (c *logCollector) intAttr(t *testing.T, key string) int64 {
+	t.Helper()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, b := range c.bodies {
+		var req collogspb.ExportLogsServiceRequest
+		require.NoError(t, proto.Unmarshal(b, &req))
+		for _, rl := range req.ResourceLogs {
+			for _, sl := range rl.ScopeLogs {
+				for _, lr := range sl.LogRecords {
+					for _, kv := range lr.Attributes {
+						if kv.Key == key {
+							return kv.GetValue().GetIntValue()
+						}
+					}
+				}
+			}
+		}
+	}
+	return 0
+}
+
 func (c *logCollector) count(t *testing.T) int {
 	t.Helper()
 	c.mu.Lock()
@@ -186,13 +235,189 @@ func TestRecordCallLog_OffEmitsNothing(t *testing.T) {
 	s, em := newServiceWithEmitter(t, CaptureOff, nil, coll.server.URL)
 
 	buf := otel.NewBuffer(em)
-	ctx := buf.WithContext(context.Background())
-	base := otel.NewAttrBuilder(1).String("decision.model", "claude-opus-4-8").Build()
-	s.recordCallLog(ctx, base, false, []byte("req"), []byte("resp"), false)
-	otel.Flush(ctx)
+	ctx := telemetry.WithRecorder(context.Background(), buf)
+	base := telemetry.NewAttrBuilder(1).String("decision.model", "claude-opus-4-8").Build()
+	s.recordCallLog(ctx, base, 42, nil, []byte("req"), []byte("resp"), false)
+	telemetry.Flush(ctx)
 
 	require.NoError(t, em.Shutdown(context.Background()))
 	assert.Equal(t, 0, coll.count(t))
+}
+
+func TestRecordCallLog_InstallationOffEmitsPermanentErrorResponse(t *testing.T) {
+	coll := newLogCollector(t)
+	s, em := newServiceWithEmitter(t, CaptureFull, nil, coll.server.URL)
+	buf := otel.NewBuffer(em)
+	ctx := context.WithValue(telemetry.WithRecorder(context.Background(), buf), InstallationCaptureModeContextKey{}, CaptureOff)
+	base := telemetry.NewAttrBuilder(15).
+		String("request_id", "req-1").
+		String("external_id", "org-1").
+		String("client.session_id", "sess-1").
+		String("router_user_id", "11111111-1111-1111-1111-111111111111").
+		String("requested.model", "claude-opus-5").
+		String("decision.model", "claude-opus-5-5").
+		String("decision.provider", "snowflake").
+		String("dispatch.primary_model", "claude-opus-5-5").
+		String("dispatch.primary_provider", "anthropic_gateway").
+		String("dispatch.final_provider", "anthropic_gateway").
+		Int64("request.message_count", 37).
+		Bool("request.has_tools", true).
+		Bool("routing.cross_format", false).
+		String("routing.turn_type", "tool").
+		Int64("upstream.status_code", 400).
+		String("routing.candidate_scores", "sensitive-score").
+		String("io.request_body", "secret-prompt").Build()
+	upstreamErrorBody := []byte(`{"error":{"type":"invalid_request_error","message":"private-content-echo"}}`)
+	proxyErr := &providers.UpstreamErrorResponse{
+		Status: http.StatusBadRequest,
+		Headers: http.Header{
+			"X-Snowflake-Query-Id": {"query-123"},
+		},
+		Body: upstreamErrorBody,
+	}
+	s.recordCallLog(ctx, base, 42, proxyErr, []byte("secret-request"), []byte("secret-response"), false)
+	telemetry.Flush(ctx)
+	require.NoError(t, em.Shutdown(context.Background()))
+
+	require.Equal(t, 1, coll.count(t))
+	coll.mu.Lock()
+	defer coll.mu.Unlock()
+	var export collogspb.ExportLogsServiceRequest
+	require.NoError(t, proto.Unmarshal(coll.bodies[0], &export))
+	record := export.ResourceLogs[0].ScopeLogs[0].LogRecords[0]
+	assert.Equal(t, "router.permanent_error", record.GetBody().GetStringValue())
+	assert.Equal(t, "ERROR", record.SeverityText)
+	assert.Equal(t, map[string]*commonv1.AnyValue{
+		"request_id":                        {Value: &commonv1.AnyValue_StringValue{StringValue: "req-1"}},
+		"external_id":                       {Value: &commonv1.AnyValue_StringValue{StringValue: "org-1"}},
+		"client.session_id":                 {Value: &commonv1.AnyValue_StringValue{StringValue: "sess-1"}},
+		"router_user_id":                    {Value: &commonv1.AnyValue_StringValue{StringValue: "11111111-1111-1111-1111-111111111111"}},
+		"decision.model":                    {Value: &commonv1.AnyValue_StringValue{StringValue: "claude-opus-5-5"}},
+		"decision.provider":                 {Value: &commonv1.AnyValue_StringValue{StringValue: "snowflake"}},
+		"dispatch.primary_model":            {Value: &commonv1.AnyValue_StringValue{StringValue: "claude-opus-5-5"}},
+		"dispatch.primary_provider":         {Value: &commonv1.AnyValue_StringValue{StringValue: "anthropic_gateway"}},
+		"dispatch.final_provider":           {Value: &commonv1.AnyValue_StringValue{StringValue: "anthropic_gateway"}},
+		"request.message_count":             {Value: &commonv1.AnyValue_IntValue{IntValue: 37}},
+		"request.has_tools":                 {Value: &commonv1.AnyValue_BoolValue{BoolValue: true}},
+		"routing.cross_format":              {Value: &commonv1.AnyValue_BoolValue{BoolValue: false}},
+		"routing.turn_type":                 {Value: &commonv1.AnyValue_StringValue{StringValue: "tool"}},
+		"upstream.status_code":              {Value: &commonv1.AnyValue_IntValue{IntValue: 400}},
+		"upstream.error_class":              {Value: &commonv1.AnyValue_StringValue{StringValue: string(permanentErrorClassInvalidRequest)}},
+		"upstream.error_body_format":        {Value: &commonv1.AnyValue_StringValue{StringValue: string(errorBodyFormatJSON)}},
+		"upstream.error_body_bytes":         {Value: &commonv1.AnyValue_IntValue{IntValue: int64(len(upstreamErrorBody))}},
+		"upstream.error_body_capped":        {Value: &commonv1.AnyValue_BoolValue{BoolValue: false}},
+		"upstream.error_response":           {Value: &commonv1.AnyValue_StringValue{StringValue: string(upstreamErrorBody)}},
+		"upstream.error_response_truncated": {Value: &commonv1.AnyValue_BoolValue{BoolValue: false}},
+		"upstream.request_id":               {Value: &commonv1.AnyValue_StringValue{StringValue: "query-123"}},
+		"request.size_bucket":               {Value: &commonv1.AnyValue_StringValue{StringValue: string(requestSizeBucketUnder16KiB)}},
+	}, attrsByKey(record.Attributes))
+	assert.NotContains(t, attrsByKey(record.Attributes), "upstream.error_message")
+	actualAttrs := attrsByKey(record.Attributes)
+	assert.NotContains(t, actualAttrs, "io.request_body")
+	assert.NotContains(t, actualAttrs, "io.response_body")
+	assert.NotContains(t, actualAttrs, "requested.model")
+	assert.Contains(t, actualAttrs["upstream.error_response"].GetStringValue(), "private-content-echo")
+}
+
+func TestRecordCallLog_OffDoesNotAlertRetryableFailures(t *testing.T) {
+	coll := newLogCollector(t)
+	s, em := newServiceWithEmitter(t, CaptureOff, nil, coll.server.URL)
+	buf := otel.NewBuffer(em)
+	ctx := telemetry.WithRecorder(context.Background(), buf)
+	for _, status := range []int64{408, 429, 503} {
+		base := telemetry.NewAttrBuilder(1).Int64("upstream.status_code", status).Build()
+		s.recordCallLog(ctx, base, 42, &providers.UpstreamErrorResponse{Status: int(status)}, []byte("secret-request"), []byte("secret-response"), false)
+	}
+	telemetry.Flush(ctx)
+	require.NoError(t, em.Shutdown(context.Background()))
+	assert.Zero(t, coll.count(t))
+}
+
+func TestPermanentErrorDiagnostics_LogsResponseWithoutTrustingUnknownProviderType(t *testing.T) {
+	proxyErr := &providers.UpstreamErrorResponse{
+		Status: http.StatusBadRequest,
+		Headers: http.Header{
+			"X-Snowflake-Query-Id": {"invalid query id"},
+			"X-Request-Id":         {"request-123"},
+		},
+		Body: []byte(`{"error":{"type":"private-type-value","message":"private-message-value"}}`),
+	}
+	attrs := attrsByTelemetryKey(permanentErrorDiagnosticAttrs(proxyErr, 23, nil))
+
+	assert.Equal(t, string(permanentErrorClassUnclassified), attrs["upstream.error_class"].GetStringValue())
+	assert.Equal(t, string(errorBodyFormatJSON), attrs["upstream.error_body_format"].GetStringValue())
+	assert.Equal(t, string(proxyErr.Body), attrs["upstream.error_response"].GetStringValue())
+	assert.Equal(t, "request-123", attrs["upstream.request_id"].GetStringValue())
+	assert.NotContains(t, attrs, "upstream.error_type")
+	assert.NotContains(t, attrs["upstream.request_id"].GetStringValue(), "invalid query id")
+}
+
+func TestPermanentErrorDiagnostics_BoundsAndRedactsErrorResponse(t *testing.T) {
+	responseBody := []byte(strings.Repeat("x", maxLoggedErrorResponseBytes+10))
+	proxyErr := &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: responseBody}
+	redact := func(content string, kind ContentKind) string {
+		assert.Equal(t, string(responseBody), content)
+		assert.Equal(t, ContentKindResponse, kind)
+		return strings.Repeat("r", maxLoggedErrorResponseBytes+10)
+	}
+
+	attrs := attrsByTelemetryKey(permanentErrorDiagnosticAttrs(proxyErr, 1, redact))
+
+	assert.Equal(t, strings.Repeat("r", maxLoggedErrorResponseBytes), attrs["upstream.error_response"].GetStringValue())
+	assert.Equal(t, true, attrs["upstream.error_response_truncated"].GetBoolValue())
+}
+
+func TestPermanentErrorDiagnostics_TruncatesOnUTF8Boundary(t *testing.T) {
+	responseBody := append([]byte(strings.Repeat("a", maxLoggedErrorResponseBytes-1)), []byte("é")...)
+	proxyErr := &providers.UpstreamErrorResponse{
+		Status: http.StatusBadRequest,
+		Body:   responseBody,
+	}
+	attrs := attrsByTelemetryKey(permanentErrorDiagnosticAttrs(proxyErr, 1, nil))
+	response := attrs["upstream.error_response"].GetStringValue()
+	assert.LessOrEqual(t, len(response), maxLoggedErrorResponseBytes)
+	assert.True(t, utf8.ValidString(response))
+	assert.Equal(t, strings.Repeat("a", maxLoggedErrorResponseBytes-1), response)
+	assert.True(t, attrs["upstream.error_response_truncated"].GetBoolValue())
+}
+
+func TestPermanentErrorDiagnostics_ClassifiesCappedJSONAndGeminiStatus(t *testing.T) {
+	cappedJSON := append([]byte(`{"error":{"type":"invalid_request_error","message":"`), bytes.Repeat([]byte("x"), providers.MaxBufferedErrorBytes)...)
+	attrs := attrsByTelemetryKey(permanentErrorDiagnosticAttrs(&providers.UpstreamErrorResponse{
+		Status: http.StatusBadRequest, Body: cappedJSON, BodyBytes: int64(len(cappedJSON)), BodyCapped: true,
+	}, 1, nil))
+	assert.Equal(t, string(permanentErrorClassInvalidRequest), attrs["upstream.error_class"].GetStringValue())
+	assert.Equal(t, string(errorBodyFormatJSON), attrs["upstream.error_body_format"].GetStringValue())
+	assert.True(t, attrs["upstream.error_body_capped"].GetBoolValue())
+
+	geminiAttrs := attrsByTelemetryKey(permanentErrorDiagnosticAttrs(&providers.UpstreamErrorResponse{
+		Status: http.StatusBadRequest, Body: []byte(`{"error":{"status":"INVALID_ARGUMENT"}}`),
+	}, 1, nil))
+	assert.Equal(t, string(permanentErrorClassInvalidRequest), geminiAttrs["upstream.error_class"].GetStringValue())
+}
+
+func TestClassifyPermanentError_ResponsesUnsupportedRequiresResponsesSurface(t *testing.T) {
+	proxyErr := &providers.UpstreamErrorResponse{Status: http.StatusNotFound}
+	assert.Equal(t, permanentErrorClassNotFound, classifyPermanentError(proxyErr, false))
+	assert.Equal(t, permanentErrorClassResponsesUnsupported, classifyPermanentError(proxyErr, true))
+}
+
+func TestRequestSizeBucketFor(t *testing.T) {
+	testCases := []struct {
+		requestBytes int
+		want         requestSizeBucket
+	}{
+		{requestBytes: 0, want: requestSizeBucketEmpty},
+		{requestBytes: 1, want: requestSizeBucketUnder16KiB},
+		{requestBytes: 16<<10 - 1, want: requestSizeBucketUnder16KiB},
+		{requestBytes: 16 << 10, want: requestSizeBucket16To64KiB},
+		{requestBytes: 64 << 10, want: requestSizeBucket64To256KiB},
+		{requestBytes: 256 << 10, want: requestSizeBucket256KiBTo1MiB},
+		{requestBytes: 1 << 20, want: requestSizeBucketAtLeast1MiB},
+	}
+	for _, testCase := range testCases {
+		assert.Equal(t, testCase.want, requestSizeBucketFor(testCase.requestBytes))
+	}
 }
 
 func TestRecordCallLog_FullCapturesBodies(t *testing.T) {
@@ -200,15 +425,16 @@ func TestRecordCallLog_FullCapturesBodies(t *testing.T) {
 	s, em := newServiceWithEmitter(t, CaptureFull, nil, coll.server.URL)
 
 	buf := otel.NewBuffer(em)
-	ctx := buf.WithContext(context.Background())
-	base := otel.NewAttrBuilder(1).String("decision.model", "claude-opus-4-8").Build()
-	s.recordCallLog(ctx, base, false, []byte(`{"req":1}`), []byte(`{"resp":2}`), false)
-	otel.Flush(ctx)
+	ctx := telemetry.WithRecorder(context.Background(), buf)
+	base := telemetry.NewAttrBuilder(1).String("decision.model", "claude-opus-4-8").Build()
+	s.recordCallLog(ctx, base, 42, nil, []byte(`{"req":1}`), []byte(`{"resp":2}`), false)
+	telemetry.Flush(ctx)
 
 	require.NoError(t, em.Shutdown(context.Background()))
 	require.Equal(t, 1, coll.count(t))
 	a := coll.attrs(t)
 	assert.Equal(t, "claude-opus-4-8", a["decision.model"]) // base metadata carried over
+	assert.Equal(t, int64(42), coll.intAttr(t, "latency.route_ms"))
 	assert.Equal(t, `{"req":1}`, a["io.request_body"])
 	assert.Equal(t, `{"resp":2}`, a["io.response_body"])
 	assert.Empty(t, a["io.request_sha256"])
@@ -219,9 +445,9 @@ func TestRecordCallLog_HashedOmitsRawText(t *testing.T) {
 	s, em := newServiceWithEmitter(t, CaptureHashed, nil, coll.server.URL)
 
 	buf := otel.NewBuffer(em)
-	ctx := buf.WithContext(context.Background())
-	s.recordCallLog(ctx, nil, false, []byte("secret-prompt"), []byte("secret-response"), false)
-	otel.Flush(ctx)
+	ctx := telemetry.WithRecorder(context.Background(), buf)
+	s.recordCallLog(ctx, nil, 42, nil, []byte("secret-prompt"), []byte("secret-response"), false)
+	telemetry.Flush(ctx)
 
 	require.NoError(t, em.Shutdown(context.Background()))
 	a := coll.attrs(t)
@@ -239,18 +465,18 @@ func TestDeferredCallLog_ReadsBodyAtRunTime(t *testing.T) {
 	require.NotNil(t, deferredCallLogFrom(ctx), "holder must be retrievable from ctx")
 
 	buf := otel.NewBuffer(em)
-	ctx = buf.WithContext(ctx)
+	ctx = telemetry.WithRecorder(ctx, buf)
 
 	// Simulate the ProxyOpenAIChatCompletion tail: capture writer is wired, but
 	// the (buffered) ResponsesWriter hasn't written the body yet — the emit is
 	// deferred rather than run inline.
 	rec := httptest.NewRecorder()
 	_, cw := s.maybeCaptureResponse(context.Background(), rec)
-	base := otel.NewAttrBuilder(1).String("decision.model", "m").Build()
+	base := telemetry.NewAttrBuilder(1).String("decision.model", "m").Build()
 	h.fn = func() {
 		body, trunc := capturedResponse(cw)
-		s.recordCallLog(ctx, base, false, []byte("req"), body, trunc)
-		otel.Flush(ctx)
+		s.recordCallLog(ctx, base, 42, nil, []byte("req"), body, trunc)
+		telemetry.Flush(ctx)
 	}
 
 	// Body arrives during "Finalize", after the deferral was registered.
@@ -280,9 +506,9 @@ func TestRecordCallLog_RedactorApplied(t *testing.T) {
 	s, em := newServiceWithEmitter(t, CaptureFull, redactor, coll.server.URL)
 
 	buf := otel.NewBuffer(em)
-	ctx := buf.WithContext(context.Background())
-	s.recordCallLog(ctx, nil, false, []byte("raw-req"), []byte("raw-resp"), false)
-	otel.Flush(ctx)
+	ctx := telemetry.WithRecorder(context.Background(), buf)
+	s.recordCallLog(ctx, nil, 42, nil, []byte("raw-req"), []byte("raw-resp"), false)
+	telemetry.Flush(ctx)
 
 	require.NoError(t, em.Shutdown(context.Background()))
 	a := coll.attrs(t)
@@ -300,9 +526,9 @@ func TestApplyRoutingStateAttrs_EmitsExactThreadAndTransition(t *testing.T) {
 		PinRole:          "default_high",
 		PriorServedModel: "claude-haiku-4-5",
 	}
-	b := otel.NewAttrBuilder(4)
+	b := telemetry.NewAttrBuilder(4)
 	applyRoutingStateAttrs(b, res, "claude-opus-4-7", key)
-	attrs := attrsByKey(b.Build())
+	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Equal(t, "0102030405060708090a0b0c0d0e0f10", attrs["routing.session_key"].GetStringValue())
 	assert.Equal(t, "default_high", attrs["routing.pin_role"].GetStringValue())
@@ -311,28 +537,49 @@ func TestApplyRoutingStateAttrs_EmitsExactThreadAndTransition(t *testing.T) {
 }
 
 func TestApplyRoutingStateAttrs_FirstSelectionIsNotAChange(t *testing.T) {
-	b := otel.NewAttrBuilder(4)
+	b := telemetry.NewAttrBuilder(4)
 	applyRoutingStateAttrs(b, turnLoopResult{PinRole: sessionpin.DefaultRole}, "claude-haiku-4-5", [sessionpin.SessionKeyLen]byte{})
-	attrs := attrsByKey(b.Build())
+	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Empty(t, attrs["routing.session_key"].GetStringValue())
 	assert.Empty(t, attrs["routing.prior_served_model"].GetStringValue())
 	assert.False(t, attrs["routing.model_changed"].GetBoolValue())
 }
 
+func TestApplyRoutingStateAttrs_MarksOnlyTheLLMEscalationApplyingTurn(t *testing.T) {
+	tests := []struct {
+		name string
+		turn *llmEscalationTurn
+		want bool
+	}{
+		{name: "verdict applied this turn", turn: &llmEscalationTurn{active: true, applied: true}, want: true},
+		{name: "floor already in force", turn: &llmEscalationTurn{active: true, session: llmescalation.Session{Floor: escalation.Maximum}}, want: false},
+		{name: "no classifier", turn: nil, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			b := telemetry.NewAttrBuilder(5)
+			applyRoutingStateAttrs(b, turnLoopResult{llmEscalation: tt.turn}, "gpt-5.5", [sessionpin.SessionKeyLen]byte{})
+			attrs := attrsByTelemetryKey(b.Build())
+
+			assert.Equal(t, tt.want, attrs["routing.llm_escalation_applied"].GetBoolValue())
+		})
+	}
+}
+
 func TestApplyRoutingStateAttrs_UsesRequestKeyWhenRoutingKeyIsEmpty(t *testing.T) {
 	key := [sessionpin.SessionKeyLen]byte{1, 2, 3}
-	b := otel.NewAttrBuilder(4)
+	b := telemetry.NewAttrBuilder(4)
 	applyRoutingStateAttrs(b, turnLoopResult{}, "claude-haiku-4-5", key)
-	attrs := attrsByKey(b.Build())
+	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Equal(t, "01020300000000000000000000000000", attrs["routing.session_key"].GetStringValue())
 }
 
 func TestApplyPlannerAttrs_OmitsDetailsWhenSkipped(t *testing.T) {
-	b := otel.NewAttrBuilder(8)
+	b := telemetry.NewAttrBuilder(8)
 	applyPlannerAttrs(b, turnLoopResult{PlannerDecision: planner.Decision{Reason: planner.ReasonNoPin}})
-	attrs := attrsByKey(b.Build())
+	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Contains(t, attrs, "planner.outcome")
 	assert.NotContains(t, attrs, "planner.shadow_outcome")
@@ -362,9 +609,9 @@ func TestApplyPlannerAttrs_EmitsDetailsWhenEvaluated(t *testing.T) {
 			PinCacheCold:        false,
 		},
 	}
-	b := otel.NewAttrBuilder(16)
+	b := telemetry.NewAttrBuilder(16)
 	applyPlannerAttrs(b, res)
-	attrs := attrsByKey(b.Build())
+	attrs := attrsByTelemetryKey(b.Build())
 
 	assert.Equal(t, "stay", attrs["planner.outcome"].GetStringValue())
 	assert.Equal(t, planner.ReasonEVNegative, attrs["planner.reason"].GetStringValue())

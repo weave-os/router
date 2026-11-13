@@ -1,15 +1,32 @@
 package postgres
 
 import (
+	"crypto/ed25519"
+	"slices"
 	"time"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/router"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 )
+
+func parseUUID(value string) (uuid.UUID, error) {
+	return uuid.Parse(value)
+}
+
+// derefString returns the pointed-to string or "" for a nil pointer.
+func derefString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
 
 func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installation {
 	excluded := row.ExcludedModels
@@ -28,50 +45,102 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 	if allowed == nil {
 		allowed = []string{}
 	}
+	modelsWhenSubscriptionActive := []string{}
+	modelsWhenSubscriptionInactive := []string{}
+	if row.SubscriptionStateModelsEnabled {
+		modelsWhenSubscriptionActive = catalogModelsExcept(row.ModelsExcludedWhenSubscriptionActive)
+		modelsWhenSubscriptionInactive = catalogModelsExcept(row.ModelsExcludedWhenSubscriptionInactive)
+	}
+	fastModeModels := row.FastModeModels
+	if fastModeModels == nil {
+		fastModeModels = []string{}
+	}
+	// Parsed once per API-key cache fill, not per request. A malformed or
+	// retired-key payload degrades to "no overrides" rather than failing the
+	// request — a stored row must not be able to take an org's traffic down.
+	overrides, err := flags.ParseOverrides(row.FlagOverrides)
+	if err != nil {
+		observability.Get().Error(
+			"Failed to parse installation flag overrides; falling back to deployment defaults",
+			"err", err,
+			"installation_id", row.ID.String(),
+			"external_id", row.ExternalID,
+		)
+		overrides = flags.Overrides{}
+	}
 	return &auth.Installation{
-		ID:                           row.ID.String(),
-		ExternalID:                   row.ExternalID,
-		Name:                         row.Name,
-		CreatedAt:                    timestampOrZero(row.CreatedAt),
-		UpdatedAt:                    timestampOrZero(row.UpdatedAt),
-		DeletedAt:                    timestampPtr(row.DeletedAt),
-		CreatedBy:                    row.CreatedBy,
-		ExcludedModels:               excluded,
-		AllowedModels:                allowed,
-		ExcludedProviders:            excludedProviders,
-		PreferredModels:              preferred,
-		RoutingQualityWeight:         row.RoutingQualityWeight,
-		UsageBypassEnabled:           row.UsageBypassEnabled,
-		UsageBypassThreshold:         row.UsageBypassThreshold,
-		SubscriptionRoutingDisabled:  row.SubscriptionRoutingDisabled,
-		RoutingStrategy:              router.Strategy(derefString(row.RoutingStrategy)),
-		RoutingRolloutID:             derefString(row.RoutingRolloutID),
-		PolicyShadowStrategy:         router.Strategy(derefString(row.PolicyShadowStrategy)),
-		PolicyDebugEnabled:           row.PolicyDebugEnabled,
-		PolicyHeaderOverridesEnabled: row.PolicyHeaderOverridesEnabled,
-		PolicyRoutingIntent:          derefString(row.PolicyRoutingIntent),
-		AITrainingAllowed:            row.AiTrainingAllowed,
-		ByokEnabled:                  row.ByokEnabled,
-		ContentCaptureMode:           row.ContentCaptureMode,
-		HideTerminalSurfaces:         row.HideTerminalSurfaces,
+		ID:                               row.ID.String(),
+		ExternalID:                       row.ExternalID,
+		Name:                             row.Name,
+		CreatedAt:                        timestampOrZero(row.CreatedAt),
+		UpdatedAt:                        timestampOrZero(row.UpdatedAt),
+		DeletedAt:                        timestampPtr(row.DeletedAt),
+		CreatedBy:                        row.CreatedBy,
+		ExcludedModels:                   excluded,
+		AllowedModels:                    allowed,
+		ModelsWhenSubscriptionActive:     modelsWhenSubscriptionActive,
+		ModelsWhenSubscriptionInactive:   modelsWhenSubscriptionInactive,
+		SubscriptionStateModelsEnabled:   row.SubscriptionStateModelsEnabled,
+		ExcludedProviders:                excludedProviders,
+		PreferredModels:                  preferred,
+		FastModeModels:                   fastModeModels,
+		RoutingQualityWeight:             row.RoutingQualityWeight,
+		UsageBypassEnabled:               row.UsageBypassEnabled,
+		UsageBypassThreshold:             row.UsageBypassThreshold,
+		SubscriptionRoutingDisabled:      row.SubscriptionRoutingDisabled,
+		PickedModelCreditFallbackEnabled: row.PickedModelCreditFallbackEnabled,
+		WeaveCreditInferenceEnabled:      row.WeaveCreditInferenceEnabled,
+		RoutingStrategy:                  router.Strategy(derefString(row.RoutingStrategy)),
+		RoutingRolloutID:                 derefString(row.RoutingRolloutID),
+		PolicyShadowStrategy:             router.Strategy(derefString(row.PolicyShadowStrategy)),
+		PolicyDebugEnabled:               row.PolicyDebugEnabled,
+		PolicyHeaderOverridesEnabled:     row.PolicyHeaderOverridesEnabled,
+		PolicyRoutingIntent:              derefString(row.PolicyRoutingIntent),
+		AITrainingAllowed:                row.AiTrainingAllowed,
+		ByokEnabled:                      row.ByokEnabled,
+		ContentCaptureMode:               row.ContentCaptureMode,
+		HideTerminalSurfaces:             row.HideTerminalSurfaces,
+		ShowModelSelectionReasoning:      row.ShowModelSelectionReasoning,
+		TrialCaptureEnabled:              row.TrialCaptureEnabled,
+		TrialEnrollmentID:                derefString(uuidStringPtr(row.TrialEnrollmentID)),
+		FirstRequestServedAt:             timestamptzPtr(row.FirstRequestServedAt),
+		FlagOverrides:                    overrides,
 	}
 }
 
 func toAuthAPIKey(row sqlc.RouterModelRouterAPIKey) *auth.APIKey {
 	return &auth.APIKey{
-		ID:             row.ID.String(),
-		InstallationID: row.InstallationID.String(),
-		ExternalID:     row.ExternalID,
-		Name:           row.Name,
-		KeyPrefix:      row.KeyPrefix,
-		KeyHash:        row.KeyHash,
-		KeySuffix:      row.KeySuffix,
-		Scope:          auth.APIKeyScope(row.Scope),
-		LastUsedAt:     timestampPtr(row.LastUsedAt),
-		CreatedAt:      timestampOrZero(row.CreatedAt),
-		DeletedAt:      timestampPtr(row.DeletedAt),
-		CreatedBy:      row.CreatedBy,
+		ID:                                row.ID.String(),
+		InstallationID:                    row.InstallationID.String(),
+		ExternalID:                        row.ExternalID,
+		Name:                              row.Name,
+		KeyPrefix:                         row.KeyPrefix,
+		KeyHash:                           row.KeyHash,
+		KeySuffix:                         row.KeySuffix,
+		Scope:                             auth.APIKeyScope(row.Scope),
+		CredentialSubjectID:               uuidString(row.CredentialSubjectID),
+		Harness:                           derefString(row.Harness),
+		LastUsedAt:                        timestampPtr(row.LastUsedAt),
+		CreatedAt:                         timestampOrZero(row.CreatedAt),
+		DeletedAt:                         timestampPtr(row.DeletedAt),
+		CreatedBy:                         row.CreatedBy,
+		PaidFallbackOnSubscriptionRefusal: row.PaidFallbackOnSubscriptionRefusal,
+		IssuerPublicKey:                   issuerPublicKey(row),
 	}
+}
+
+// issuerPublicKey decodes a session issuer's stored JWK. The column is written
+// only from a validated key; a row that fails to decode yields nil, which the
+// verifier rejects as an unknown issuer.
+func issuerPublicKey(row sqlc.RouterModelRouterAPIKey) ed25519.PublicKey {
+	if auth.APIKeyScope(row.Scope) != auth.ScopeSessionIssuer || len(row.PublicJwk) == 0 {
+		return nil
+	}
+	key, _, _, err := auth.ParseSessionIssuerJWK(row.PublicJwk)
+	if err != nil {
+		return nil
+	}
+	return key
 }
 
 func timestampOrZero(t pgtype.Timestamp) time.Time {
@@ -82,6 +151,14 @@ func timestampOrZero(t pgtype.Timestamp) time.Time {
 }
 
 func timestampPtr(t pgtype.Timestamp) *time.Time {
+	if !t.Valid {
+		return nil
+	}
+	out := t.Time
+	return &out
+}
+
+func timestamptzPtr(t pgtype.Timestamptz) *time.Time {
 	if !t.Valid {
 		return nil
 	}
@@ -116,4 +193,16 @@ func uuidString(u pgtype.UUID) string {
 		return ""
 	}
 	return uuid.UUID(u.Bytes).String()
+}
+
+// catalogModelsExcept resolves a subscription-state exclusion list against the
+// deployed catalog, so models added after the settings were saved are included.
+func catalogModelsExcept(excluded []string) []string {
+	models := make([]string, 0, len(catalog.Models))
+	for _, model := range catalog.Models {
+		if !slices.Contains(excluded, model.ID) {
+			models = append(models, model.ID)
+		}
+	}
+	return models
 }

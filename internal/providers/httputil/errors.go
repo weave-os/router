@@ -1,11 +1,15 @@
 package httputil
 
 import (
+	"context"
 	"io"
 	"net/http"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
+
+	"github.com/tidwall/gjson"
 )
 
 // ReadCapped buffers up to limit bytes from r, then drains (without retaining)
@@ -49,20 +53,56 @@ func (c HeaderCapture) WriteHeader(int) {}
 // LogUpstreamStatus logs non-2xx upstream responses with a body preview, at
 // ERROR except 429 (routine rate-limit signal handled via failover), which
 // logs at WARN.
-func LogUpstreamStatus(msg string, status int, attrs ...any) {
+//
+// When content logging is disallowed the raw body_preview is dropped, while a
+// known provider error type may be kept as upstream_error_type. Error messages
+// and unknown type values are omitted because providers can echo request content.
+//
+// ctx is load-bearing: on the global logger the body was written but not
+// joinable to the request, so filtering by session never surfaced it.
+func LogUpstreamStatus(ctx context.Context, msg string, status int, attrs ...any) {
+	log := observability.FromContext(ctx)
+	if !requestcontext.ContentLoggingAllowed(ctx) {
+		filtered := make([]any, 0, len(attrs)+2)
+		for i := 0; i+1 < len(attrs); i += 2 {
+			if key, _ := attrs[i].(string); key == "body_preview" {
+				filtered = append(filtered, upstreamErrorTypeAttrs(attrs[i+1].(string))...)
+				continue
+			}
+			filtered = append(filtered, attrs[i], attrs[i+1])
+		}
+		attrs = filtered
+	}
 	merged := append([]any{"status", status}, attrs...)
 	if status >= 500 || (status >= 400 && status != http.StatusTooManyRequests) {
-		observability.Get().Error(msg, merged...)
+		log.Error(msg, merged...)
 		return
 	}
-	observability.Get().Warn(msg, merged...)
+	log.Warn(msg, merged...)
+}
+
+// upstreamErrorTypeAttrs extracts the error category from a JSON provider
+// error envelope ({"error":{"type"}} or top-level "type"). Non-JSON bodies
+// yield nothing.
+func upstreamErrorTypeAttrs(body string) []any {
+	if !gjson.Valid(body) {
+		return nil
+	}
+	for _, path := range []string{"error.type", "type"} {
+		if r := gjson.Get(body, path); r.Type == gjson.String {
+			if knownType, ok := providers.KnownProviderErrorType(r.Str); ok {
+				return []any{"upstream_error_type", string(knownType)}
+			}
+		}
+	}
+	return nil
 }
 
 // WritePassthroughError streams up to 1KB of resp.Body to w, logs via
 // LogUpstreamStatus (body_preview/body_total_bytes appended automatically),
 // and returns UpstreamStatusError. onFirstByte/onEOF are nil-safe OTel
 // timing hooks; pass nil, nil on paths that don't stamp upstream timing.
-func WritePassthroughError(w http.ResponseWriter, resp *http.Response, onFirstByte, onEOF func(), msg string, attrs ...any) error {
+func WritePassthroughError(ctx context.Context, w http.ResponseWriter, resp *http.Response, onFirstByte, onEOF func(), msg string, attrs ...any) error {
 	var snip [1024]byte
 	n, _ := io.ReadFull(resp.Body, snip[:])
 	if n > 0 && onFirstByte != nil {
@@ -74,12 +114,17 @@ func WritePassthroughError(w http.ResponseWriter, resp *http.Response, onFirstBy
 		onEOF()
 	}
 	merged := append(append([]any{}, attrs...), "body_preview", string(snip[:n]), "body_total_bytes", int64(n)+rest)
-	LogUpstreamStatus(msg, resp.StatusCode, merged...)
+	LogUpstreamStatus(ctx, msg, resp.StatusCode, merged...)
 	if snipWriteErr != nil {
 		return snipWriteErr
 	}
 	if copyErr != nil {
 		return copyErr
 	}
-	return &providers.UpstreamStatusError{Status: resp.StatusCode}
+	return &providers.UpstreamStatusError{
+		Status:    resp.StatusCode,
+		Headers:   resp.Header.Clone(),
+		Body:      append([]byte(nil), snip[:n]...),
+		BodyBytes: int64(n) + rest,
+	}
 }

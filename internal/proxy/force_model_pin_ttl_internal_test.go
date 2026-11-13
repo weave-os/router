@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -31,22 +32,26 @@ func (s *recordingPinStore) Upsert(_ context.Context, p sessionpin.Pin) error {
 func (s *recordingPinStore) UpdateUsage(context.Context, [sessionpin.SessionKeyLen]byte, string, sessionpin.Usage) error {
 	return nil
 }
-func (s *recordingPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (s *recordingPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	return 0, nil
 }
-func (s *recordingPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (s *recordingPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
-func (s *recordingPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (s *recordingPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	return 0, nil
 }
-func (s *recordingPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (s *recordingPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	return nil
 }
-func (s *recordingPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string) error {
+func (*recordingPinStore) ExpireAndDemoteModel(context.Context, sessionpin.Pin, string, sessionpin.DemotionReason) error {
 	return nil
 }
-func (s *recordingPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
+
+func (s *recordingPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string, router.Strategy) error {
+	return nil
+}
+func (s *recordingPinStore) Consume(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (sessionpin.Pin, bool, error) {
 	return sessionpin.Pin{}, false, nil
 }
 func (s *recordingPinStore) SweepExpired(context.Context) error { return nil }
@@ -73,18 +78,33 @@ func TestPinExpiry_UserForcedNeverExpires(t *testing.T) {
 // TestSetForceModelPin_WritesNeverExpiresSentinel guards the write path: the
 // /force-model upsert must persist the never-expires PinnedUntil so an idle gap
 // can never silently drop the user's directive.
-func TestSetForceModelPin_WritesNeverExpiresSentinel(t *testing.T) {
+func TestSetForceModelSessionPin_WritesNeverExpiresSentinel(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	var key [sessionpin.SessionKeyLen]byte
-	require.NoError(t, svc.setForceModelPin(
-		context.Background(), key, roleForTier(0), uuid.New(),
-		"claude-opus-4-8", providers.ProviderAnthropic))
+	require.NoError(t, svc.setForceModelSessionPin(
+		context.Background(), key, uuid.New(),
+		"claude-opus-4-8", providers.ProviderAnthropic, "", ""))
 
 	require.Len(t, store.upserts, 1)
+	assert.Equal(t, forceModelSessionRole, store.upserts[0].Role)
 	assert.Equal(t, translate.ReasonUserForceModel, store.upserts[0].Reason)
 	assert.Equal(t, pinNeverExpires, store.upserts[0].PinnedUntil,
 		"a /force-model pin must be written with the never-expires sentinel")
+}
+
+func TestSetForceModelSessionPin_IsStrategyIndependent(t *testing.T) {
+	store := &recordingPinStore{}
+	svc := NewService(nil, nil, nil, store, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+
+	ctx := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
+	require.NoError(t, svc.setForceModelSessionPin(
+		ctx, [sessionpin.SessionKeyLen]byte{}, uuid.New(),
+		"claude-opus-4-8", providers.ProviderAnthropic, "", ""))
+
+	require.Len(t, store.upserts, 1)
+	assert.Empty(t, store.upserts[0].Strategy)
 }

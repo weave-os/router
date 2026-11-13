@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/sse"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/sse"
 
 	"github.com/tidwall/gjson"
 )
@@ -33,7 +33,8 @@ type OpenAIRoutingMarkerWriter struct {
 	// outputLeftover holds the unconsumed tail of the most recent Write so output
 	// detection splits on SSE event boundaries that span Write calls. Complete
 	// events are scanned and discarded immediately.
-	outputLeftover []byte
+	outputLeftover  []byte
+	leftoverScanner sse.Scanner
 }
 
 // NewOpenAIRoutingMarkerWriter creates a writer that emits marker as the first
@@ -59,7 +60,7 @@ func (w *OpenAIRoutingMarkerWriter) Write(data []byte) (int, error) {
 	if w.Streaming && w.onOutputProgress != nil {
 		w.scanOutputProgress(data)
 	}
-	return w.Inner.Write(data)
+	return sse.WriteJSONChunk(w.Inner, data)
 }
 
 // ArmOutputProgress installs the output-progress watchdog mark. The writer
@@ -85,7 +86,7 @@ func (w *OpenAIRoutingMarkerWriter) scanOutputProgress(data []byte) {
 	w.outputLeftover = append(w.outputLeftover, data...)
 	buf := w.outputLeftover
 	for {
-		event, n := sse.SplitNext(buf)
+		event, n := w.leftoverScanner.Next(buf)
 		if n == 0 {
 			break
 		}
@@ -155,6 +156,17 @@ func (w *OpenAIRoutingMarkerWriter) Prelude(streaming bool) error {
 		return w.FlushEvent()
 	}
 	return w.emitMarkerChunk()
+}
+
+// ContinueAfterPrelude resumes rewriting after an earlier attempt already made
+// the routing marker visible.
+func (w *OpenAIRoutingMarkerWriter) ContinueAfterPrelude(streaming bool) {
+	if !streaming {
+		return
+	}
+	w.Streaming = true
+	w.HeadersEmitted = true
+	w.markerEmitted = true
 }
 
 func (w *OpenAIRoutingMarkerWriter) emitMarkerChunk() error {

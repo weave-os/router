@@ -8,3 +8,9 @@
 SELECT enabled, threshold_usd_micros
 FROM router.organization_autopay_config
 WHERE organization_id = @organization_id::varchar;
+
+-- Returns the subscriber's autopay configuration read by the prepaid settlement hook.
+-- name: GetSubscriberAutopayConfig :one
+SELECT enabled, threshold_usd_micros
+FROM router.subscriber_autopay_config
+WHERE subscriber_id = @subscriber_id::uuid;

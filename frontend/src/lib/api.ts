@@ -1,3 +1,31 @@
+import type {
+  RouterMetricSeries,
+  RouterMetricSeriesRequest,
+  RouterRoutingState,
+  RouterSubscriptionProvider,
+  RouterSubscriptionSeatState,
+} from "@/shared/data";
+import type {
+  AnthropicFederationConfig,
+  APIKey,
+  APIKeyScope,
+  ExcludedModelsResponse,
+  ExcludedProvidersResponse,
+  ExternalKey,
+  IssueAPIKeyResponse,
+  MeResponse,
+  MetricsDetails,
+  MetricsModelBreakdown,
+  MetricsSummary,
+  MetricsTimeseries,
+  OnboardingStatus,
+  ProviderAuthType,
+  RouterConfig,
+  RoutingPreferencesResponse,
+} from "@/shared/data/types";
+
+export type * from "@/shared/data/types";
+
 const BASE = "/admin/v1";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -34,145 +62,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export interface MetricsSummary {
-  request_count: number;
-  total_tokens: number;
-  total_requested_cost_usd: number;
-  total_actual_cost_usd: number;
-  total_savings_usd: number;
-}
-
-export interface TimeseriesBucket {
-  bucket: string;
-  requested_cost_usd: number;
-  actual_cost_usd: number;
-}
-
-export interface MetricsTimeseries {
-  buckets: TimeseriesBucket[];
-}
-
-export interface ModelBreakdownBucket {
-  bucket: string;
-  decision_model: string;
-  request_count: number;
-  total_tokens: number;
-  actual_cost_usd: number;
-}
-
-export interface MetricsModelBreakdown {
-  buckets: ModelBreakdownBucket[];
-}
-
-export interface MetricsDetailRow {
-  timestamp: string;
-  request_id: string;
-  requested_model: string;
-  decision_model: string;
-  decision_provider: string;
-  decision_reason: string;
-  sticky_hit: boolean;
-  input_tokens: number;
-  output_tokens: number;
-  cache_creation_tokens: number | null;
-  cache_read_tokens: number | null;
-  requested_cost_usd: number;
-  actual_cost_usd: number;
-  total_latency_ms: number;
-  upstream_status_code: number;
-  router_user_id: string;
-  client_app: string;
-  turn_type: string;
-  user_email: string;
-}
-
-export interface MetricsDetails {
-  rows: MetricsDetailRow[];
-}
-
-// "routing" keys (rk_) proxy inference; "analytics_read" keys (ra_) are
-// read-only export credentials that cannot route or spend.
-export type APIKeyScope = "routing" | "analytics_read";
-
-export interface APIKey {
-  id: string;
-  name: string | null;
-  key_prefix: string;
-  key_suffix: string;
-  scope: APIKeyScope;
-  last_used_at: string | null;
-  created_at: string;
-}
-
-export interface IssueAPIKeyResponse {
-  key: APIKey;
-  token: string;
-}
-
-// ProviderAuthType is how a BYOK key authenticates upstream. "wif" keys hold no
-// secret at all: the router presents its own workload attestation per request.
-export type ProviderAuthType = "bearer" | "keypair_jwt" | "wif";
-
-export interface ExternalKey {
-  id: string;
-  provider: string;
-  name: string | null;
-  key_prefix: string;
-  key_suffix: string;
-  // Endpoint this key is scoped to; absent when the provider's default is used.
-  base_url?: string;
-  // Catalog model ID -> the ID this endpoint publishes it under; absent when it
-  // uses catalog names directly.
-  model_aliases?: Record<string, string>;
-  // "bearer" (send the stored secret), "keypair_jwt" (the secret is an RSA
-  // private key the router signs short-lived tokens with), or "wif" (no stored
-  // secret; the router attests its own workload identity); absent means bearer.
-  auth_type?: ProviderAuthType;
-  // Principal a minted token is issued for; present only with keypair_jwt.
-  auth_account?: string;
-  auth_user?: string;
-  last_used_at: string | null;
-  created_at: string;
-}
-
-export interface RouterConfig {
-  cluster_version: string;
-  embed_only_user_message: boolean;
-  sticky_decision_ttl_ms: string;
-  otel_enabled: boolean;
-  dev_mode: boolean;
-  semantic_cache_enabled: boolean;
-  env_provider_keys: string[];
-}
-
-export interface MeResponse {
-  authenticated: boolean;
-  subject?: string;
-}
-
-export interface DeployedModel {
-  model: string;
-  provider: string;
-}
-
-export interface ExcludedModelsResponse {
-  available: DeployedModel[];
-  excluded: string[];
-  env_override_active: boolean;
-}
-
-export interface ExcludedProvidersResponse {
-  available: string[];
-  excluded: string[];
-  env_override_active: boolean;
-}
-
-export interface RoutingPreferencesResponse {
-  quality: number;
-  price: number;
-  is_default: boolean;
-}
-
 export const api = {
   auth: {
     me: () => request<MeResponse>("/auth/me"),
@@ -207,7 +96,28 @@ export const api = {
       if (to) params.set("to", to);
       return request<MetricsModelBreakdown>(`/metrics/model-breakdown?${params.toString()}`);
     },
+    series: ({ billing, granularity, group, range, type }: RouterMetricSeriesRequest) => {
+      const params = new URLSearchParams({ granularity: granularity ?? "total", type });
+      if (billing) params.set("billing", billing);
+      if (group) params.set("group", group);
+      params.set("from", range.from);
+      params.set("to", range.to);
+      return request<RouterMetricSeries>(`/metrics/series?${params.toString()}`);
+    },
+    people: () => request<PeopleResponse>("/metrics/people"),
+    individuals: (granularity: "hour" | "day" | "week", from: string, to: string) =>
+      request<IndividualsResponse>(
+        `/metrics/individuals?${new URLSearchParams({ from, granularity, to }).toString()}`,
+      ),
+    drillDown: (params: URLSearchParams) =>
+      request<DrillDownResponse>(`/metrics/drill-down?${params.toString()}`),
+    reportSummary: (from: string, to: string, routingState?: RouterRoutingState) => {
+      const params = new URLSearchParams({ from, to });
+      if (routingState) params.set("routing_state", routingState);
+      return request<ReportSummaryResponse>(`/metrics/report-summary?${params.toString()}`);
+    },
   },
+  subscriptionPool: () => request<SubscriptionPoolResponse>("/subscription-pool"),
   keys: {
     list: () => request<{ keys: APIKey[] }>("/keys"),
     issue: (name?: string, scope: APIKeyScope = "routing") =>
@@ -218,8 +128,7 @@ export const api = {
     // Soft-deletes the named key and issues a replacement in one round-trip.
     // The previous token stops working immediately. Carries forward the
     // previous key's name server-side.
-    rotate: (id: string) =>
-      request<IssueAPIKeyResponse>(`/keys/${id}/rotate`, { method: "POST" }),
+    rotate: (id: string) => request<IssueAPIKeyResponse>(`/keys/${id}/rotate`, { method: "POST" }),
     delete: (id: string) => request<void>(`/keys/${id}`, { method: "DELETE" }),
   },
   providerKeys: {
@@ -230,7 +139,12 @@ export const api = {
       name?: string,
       baseURL?: string,
       modelAliases?: Record<string, string>,
-      auth?: { type: ProviderAuthType; account?: string; user?: string },
+      auth?: {
+        type: ProviderAuthType;
+        account?: string;
+        user?: string;
+        federationConfig?: AnthropicFederationConfig;
+      },
     ) =>
       request<ExternalKey>("/provider-keys", {
         method: "POST",
@@ -241,6 +155,7 @@ export const api = {
           base_url: baseURL,
           model_aliases: modelAliases,
           auth_type: auth?.type ?? "bearer",
+          federation_config: auth?.federationConfig,
           auth_account: auth?.account,
           auth_user: auth?.user,
         }),
@@ -253,9 +168,22 @@ export const api = {
         body: JSON.stringify({ model_aliases: modelAliases }),
       }),
     delete: (id: string) => request<void>(`/provider-keys/${id}`, { method: "DELETE" }),
+    // Lists the model IDs a saved key's endpoint publishes.
+    listUpstreamModels: (id: string) =>
+      request<{ models: string[] }>(`/provider-keys/${id}/models`),
+    // Lists an endpoint's models before the key is saved; the credential is
+    // used for the one upstream call and never persisted.
+    discoverModels: (provider: string, key: string, baseURL?: string) =>
+      request<{ models: string[] }>("/provider-keys/discover-models", {
+        method: "POST",
+        body: JSON.stringify({ provider, key, base_url: baseURL }),
+      }),
   },
   config: {
     get: () => request<RouterConfig>("/config"),
+  },
+  onboarding: {
+    get: () => request<OnboardingStatus>("/onboarding"),
   },
   excludedModels: {
     get: () => request<ExcludedModelsResponse>("/excluded-models"),
@@ -287,3 +215,92 @@ export const api = {
       }),
   },
 };
+
+export interface PeopleResponse {
+  people: {
+    display_name: string;
+    email: string;
+    id: string;
+    last_request_at: string | null;
+    linked: boolean;
+  }[];
+}
+
+interface ActivityPoint {
+  time: number;
+  value: number;
+}
+
+export interface IndividualsResponse {
+  individuals: {
+    id: string;
+    linked: boolean;
+    display_name: string;
+    email: string;
+    last_request_at: string | null;
+    requests: number;
+    cost_usd: number;
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_creation_tokens: number;
+    passthrough_requests: number;
+    request_activity: ActivityPoint[];
+    cost_activity: ActivityPoint[];
+    passthrough_activity: ActivityPoint[];
+    models: { model: string; requests: number }[];
+    other_requests: number;
+  }[];
+}
+
+export interface DrillDownResponse {
+  comparison_model: string;
+  people: {
+    display_name: string;
+    email: string;
+    id: string;
+    linked: boolean;
+    session_count: number;
+    sessions: {
+      client_app: string;
+      finished_at: string;
+      models: {
+        catalog_cost_usd: number;
+        comparison_cost_usd: number;
+        decision_model: string;
+        providers: string[] | null;
+        requested_model: string;
+        requests: number;
+        subscription_requests: number;
+      }[];
+      session_id: string;
+      started_at: string;
+    }[];
+  }[];
+}
+
+export interface SubscriptionPoolResponse {
+  enabled: boolean;
+  seats: {
+    cooldown_until: string | null;
+    display_name: string | null;
+    enabled: boolean;
+    id: string;
+    limit_windows: { resets_at: string | null; used_fraction: number; window_minutes: number }[];
+    limits_observed_at: string | null;
+    owner_name: string | null;
+    provider: RouterSubscriptionProvider;
+    served_requests: number;
+    state: RouterSubscriptionSeatState;
+  }[];
+}
+
+export interface ReportSummaryResponse {
+  comparison_cost_usd: number;
+  comparison_model: string;
+  last_request_at: string | null;
+  request_count: number;
+  savings_usd: number;
+  total_cost_usd: number;
+  total_tokens: number;
+}

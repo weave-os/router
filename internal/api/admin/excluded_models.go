@@ -5,19 +5,14 @@ import (
 	"net/http"
 	"sort"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router/cluster"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 
 	"github.com/gin-gonic/gin"
 )
-
-// DeployedModelsSource exposes the routable models the cluster scorer knows
-// about. Implemented by *cluster.Multiversion; tests can pass a fake.
-type DeployedModelsSource interface {
-	DefaultDeployedModels() []cluster.DeployedEntry
-}
 
 // ExclusionOverrideSource reports the deployment-wide ROUTER_EXCLUDED_MODELS
 // override, if active. Implemented by *proxy.Service.
@@ -26,10 +21,7 @@ type ExclusionOverrideSource interface {
 	ExcludedModelsOverride() []string
 }
 
-type deployedModelDTO struct {
-	Model    string `json:"model"`
-	Provider string `json:"provider"`
-}
+type deployedModelDTO = catalog.ModelListing
 
 type excludedModelsResponse struct {
 	Available         []deployedModelDTO `json:"available"`
@@ -41,38 +33,27 @@ type updateExcludedModelsRequest struct {
 	Excluded []string `json:"excluded"`
 }
 
-// deployedModelsDTO converts the deployed-models list to sorted DTO form,
-// centralized so the GET and PUT responses cannot drift apart.
-func deployedModelsDTO(models DeployedModelsSource) []deployedModelDTO {
-	return entriesToDTO(models.DefaultDeployedModels())
-}
-
-// entriesToDTO converts deployed entries to sorted DTO form, shared by the
-// cluster source and the HMM roster source so both wire shapes stay identical.
-func entriesToDTO(entries []cluster.DeployedEntry) []deployedModelDTO {
+// entriesToDTO converts deployed entries to sorted DTO form, matching the
+// catalog listings' wire shape.
+func entriesToDTO(entries []router.DeployedEntry) []deployedModelDTO {
 	out := make([]deployedModelDTO, 0, len(entries))
 	for _, e := range entries {
-		out = append(out, deployedModelDTO{Model: e.Model, Provider: e.Provider})
+		out = append(out, catalog.NewModelListing(e.Model, e.Provider))
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Provider != out[j].Provider {
-			return out[i].Provider < out[j].Provider
-		}
-		return out[i].Model < out[j].Model
-	})
+	catalog.SortListing(out)
 	return out
 }
 
-// GetExcludedModelsHandler returns deployed models and the installation's
+// GetExcludedModelsHandler returns the model catalog and the installation's
 // exclusion list. `env_override_active` tells the UI to render read-only.
-func GetExcludedModelsHandler(authSvc *auth.Service, models DeployedModelsSource, override ExclusionOverrideSource) gin.HandlerFunc {
+func GetExcludedModelsHandler(authSvc *auth.Service, override ExclusionOverrideSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
 		if !ok {
 			return
 		}
 
-		out := deployedModelsDTO(models)
+		out := fullCatalogDTO()
 
 		envActive := override != nil && override.HasExcludedModelsOverride()
 		var excluded []string
@@ -96,7 +77,7 @@ func GetExcludedModelsHandler(authSvc *auth.Service, models DeployedModelsSource
 
 // UpdateExcludedModelsHandler replaces the installation's exclusion list.
 // 400 on unknown model IDs; 403 if the env override is active.
-func UpdateExcludedModelsHandler(authSvc *auth.Service, models DeployedModelsSource, override ExclusionOverrideSource) gin.HandlerFunc {
+func UpdateExcludedModelsHandler(authSvc *auth.Service, override ExclusionOverrideSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		installation, ok := resolveInstallation(c, authSvc)
@@ -116,8 +97,8 @@ func UpdateExcludedModelsHandler(authSvc *auth.Service, models DeployedModelsSou
 			return
 		}
 
-		allowed := make(map[string]struct{}, len(models.DefaultDeployedModels()))
-		for _, e := range models.DefaultDeployedModels() {
+		allowed := make(map[string]struct{})
+		for _, e := range fullCatalogDTO() {
 			allowed[e.Model] = struct{}{}
 		}
 
@@ -134,13 +115,10 @@ func UpdateExcludedModelsHandler(authSvc *auth.Service, models DeployedModelsSou
 
 		sort.Strings(stored)
 		c.JSON(http.StatusOK, excludedModelsResponse{
-			Available: deployedModelsDTO(models),
+			Available: fullCatalogDTO(),
 			Excluded:  stored,
 		})
 	}
 }
 
-var (
-	_ DeployedModelsSource    = (*cluster.Multiversion)(nil)
-	_ ExclusionOverrideSource = (*proxy.Service)(nil)
-)
+var _ ExclusionOverrideSource = (*proxy.Service)(nil)

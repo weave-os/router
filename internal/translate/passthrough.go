@@ -1,10 +1,11 @@
 package translate
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/providers"
 )
 
 // PrepareAnthropicPassthrough builds a PreparedRequest for non-routing
@@ -17,19 +18,37 @@ func (e *RequestEnvelope) PrepareAnthropicPassthrough(in http.Header) (providers
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
-	return providers.PreparedRequest{Body: body, Headers: AnthropicPassthroughHeaders(in)}, nil
+	body, err = normalizeAnthropicSystemOnlyContentBlocks(body)
+	if err != nil {
+		return providers.PreparedRequest{}, fmt.Errorf("normalize system-only content blocks: %w", err)
+	}
+	body, err = placeAnthropicSystemMessagesBytes(body)
+	if err != nil {
+		return providers.PreparedRequest{}, fmt.Errorf("place system messages: %w", err)
+	}
+	return providers.PreparedRequest{Body: body, Headers: AnthropicPassthroughHeadersForBody(in, body)}, nil
 }
 
 // AnthropicPassthroughHeaders returns header overrides for the passthrough path.
 func AnthropicPassthroughHeaders(in http.Header) http.Header {
+	return AnthropicPassthroughHeadersForBody(in, nil)
+}
+
+// AnthropicPassthroughHeadersForBody returns passthrough headers and enables
+// Anthropic's mid-conversation tool-change beta when the body uses its blocks.
+func AnthropicPassthroughHeadersForBody(in http.Header, body []byte) http.Header {
 	h := make(http.Header)
 	if v := in.Get("anthropic-version"); v != "" {
 		h.Set("anthropic-version", v)
 	} else {
 		h.Set("anthropic-version", "2023-06-01")
 	}
-	if v := stripThinkingBetas(in.Get("anthropic-beta")); v != "" {
-		h.Set("anthropic-beta", v)
+	beta := stripThinkingBetas(in.Get("anthropic-beta"))
+	if containsAnthropicSystemOnlyContentBlocks(body) {
+		beta = ensureBetaToken(beta, anthropicMidConversationToolChangesBeta)
+	}
+	if beta != "" {
+		h.Set("anthropic-beta", beta)
 	}
 	return h
 }

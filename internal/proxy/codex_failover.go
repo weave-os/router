@@ -1,0 +1,233 @@
+package proxy
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"time"
+
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/router"
+)
+
+// codexQuotaErrorTypes are the OpenAI error types that mean the caller's own
+// plan can no longer serve the turn: the ChatGPT plan window has bound
+// ("usage_limit_reached") or the workspace has no credits left
+// ("insufficient_quota"). A turn rejected for either reason serves on Weave
+// credits instead, and the plan is marked spent so later turns skip it.
+var codexQuotaErrorTypes = map[string]struct{}{
+	"usage_limit_reached": {},
+	"insufficient_quota":  {},
+}
+
+// codexQuotaWindowMinutes is the Codex rolling-window length assumed for an
+// exhaustion recorded from an error body, which carries no
+// x-codex-primary-window-minutes header. Matches ParseCodexHeaders' default.
+const codexQuotaWindowMinutes = 5 * 60
+
+const codexRejectedTokenHold = 30 * time.Minute
+
+// codexExhaustionWindow is the window recorded for a plan the upstream reported
+// spent. freshFor only ever shortens retention to ResetAt, never extends past
+// WindowMinutes, so a weekly limit resetting days out must widen the window or
+// the reading expires after five hours and later turns re-buy the rejection.
+func codexExhaustionWindow(resetAt time.Time, now time.Time) usage.Window {
+	minutes := codexQuotaWindowMinutes
+	if !resetAt.IsZero() {
+		if untilReset := int(resetAt.Sub(now).Minutes()) + 1; untilReset > minutes {
+			minutes = untilReset
+		}
+	}
+	return usage.Window{UsedPercent: 1, WindowMinutes: minutes, ResetAt: resetAt}
+}
+
+// openaiFallbackKeyAvailable reports whether a non-subscription OpenAI
+// credential is configured to serve the turn when the caller's ChatGPT plan is
+// spent: a per-request BYOK OpenAI key, or the deployment's own OPENAI_API_KEY.
+// Without one, dropping the subscription token leaves the turn with no OpenAI
+// credential — strictly worse than surfacing the upstream error.
+func (s *Service) openaiFallbackKeyAvailable(ctx context.Context) bool {
+	if byok := BuildCredentialsMap(externalKeysFromContext(ctx)); byok != nil {
+		if _, ok := byok[providers.ProviderOpenAI]; ok {
+			return true
+		}
+	}
+	if s.deploymentKeyedProviders != nil {
+		if _, ok := s.deploymentKeyedProviders[providers.ProviderOpenAI]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// codexSubscriptionExhausted reports whether the caller's present Codex
+// subscription cannot serve: the upstream recently rejected the token, or, with
+// extra credits disabled, the usage observer shows its plan window bound or
+// drawing billable overage, regardless of whether an OpenAI fallback key exists.
+// With extra credits enabled, cached included usage does not suppress the token;
+// the provider freshly checks quota and credits. When true the caller suppresses
+// the token pre-dispatch (withSuppressedCodexSubscription) so the turn tries an
+// eligible shared subscription or API fallback, and is refused when neither is
+// available.
+func (s *Service) codexSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
+	if s.usageObserver == nil || pickedModelOnOwnPlan(ctx) {
+		return false
+	}
+	codexTok, _ := presentSubscriptionTokens(ctx, headers)
+	if codexTok == "" {
+		return false
+	}
+	key := s.usageObserver.Key([]byte(codexTok))
+	if s.usageObserver.Rejected(key) {
+		return true
+	}
+	if s.codexExtraCreditsAllowed() {
+		// Included usage observations cannot rule out fresh purchased credits.
+		// The provider still verifies quota and credit availability per attempt.
+		return false
+	}
+	snap, ok := s.usageObserver.Snapshot(key)
+	return ok && snap.BillableOrExhausted()
+}
+
+// codexSubscriptionModelRejected reports an explicit model-availability
+// rejection from the Codex backend. Generic 400/403 responses can reflect
+// request or account policy and must not trigger paid fallback.
+func codexSubscriptionModelRejected(err error) bool {
+	var buffered *providers.UpstreamErrorResponse
+	if !errors.As(err, &buffered) || (buffered.Status != http.StatusBadRequest && buffered.Status != http.StatusNotFound) {
+		return false
+	}
+	var errorEnvelope struct {
+		Error struct {
+			Code  string `json:"code"`
+			Type  string `json:"type"`
+			Param string `json:"param"`
+		} `json:"error"`
+	}
+	if jsonErr := json.Unmarshal(buffered.Body, &errorEnvelope); jsonErr != nil {
+		return false
+	}
+	switch errorEnvelope.Error.Code {
+	case "model_not_found", "unsupported_model", "model_not_available":
+		return true
+	}
+	return errorEnvelope.Error.Param == "model" && errorEnvelope.Error.Type == "invalid_request_error"
+}
+
+// codexSubscriptionModelUnavailable makes a cached pool denial look like the
+// structured Codex model error so the same bounded API-credential fallback runs.
+func codexSubscriptionModelUnavailable(model string) error {
+	body, _ := json.Marshal(map[string]any{
+		"error": map[string]string{
+			"type":    "invalid_request_error",
+			"code":    "model_not_found",
+			"param":   "model",
+			"message": "The model " + router.StripDateSuffix(model) + " is unavailable to this subscription.",
+		},
+	})
+	return &providers.UpstreamErrorResponse{Status: http.StatusNotFound, Body: body}
+}
+
+// codexOAuthCredentialRejected reports whether err is a buffered OpenAI 401/403
+// — a rejected or expired ChatGPT OAuth token, which the Weave-key retry can
+// still serve. Narrower than treating every 403 as credential-related would be
+// on Anthropic: the OpenAI backend answers a content-policy refusal with 400,
+// not 403.
+func codexOAuthCredentialRejected(err error) bool {
+	var buffered *providers.UpstreamErrorResponse
+	if !errors.As(err, &buffered) {
+		return false
+	}
+	return buffered.Status == http.StatusUnauthorized || buffered.Status == http.StatusForbidden
+}
+
+// codexQuotaExhaustion reports whether err is the upstream's "your plan is
+// spent" rejection, plus the instant the plan refills when the body names one.
+func codexQuotaExhaustion(err error) (time.Time, bool) {
+	var buffered *providers.UpstreamErrorResponse
+	if !errors.As(err, &buffered) {
+		return time.Time{}, false
+	}
+	var env struct {
+		Error struct {
+			Type     string `json:"type"`
+			ResetsAt int64  `json:"resets_at"`
+		} `json:"error"`
+	}
+	if jsonErr := json.Unmarshal(buffered.Body, &env); jsonErr != nil {
+		return time.Time{}, false
+	}
+	if _, ok := codexQuotaErrorTypes[env.Error.Type]; !ok {
+		return time.Time{}, false
+	}
+	if env.Error.ResetsAt <= 0 {
+		return time.Time{}, true
+	}
+	return time.Unix(env.Error.ResetsAt, 0).UTC(), true
+}
+
+// recordCodexQuotaExhaustion marks the caller's Codex plan spent in the usage
+// observer when err is a quota rejection. The rejection body carries no
+// x-codex-* headers, so without this the observer keeps reading the plan as
+// slack and every later turn re-buys the same rejected round-trip until the
+// window resets. The reading expires at the upstream-reported reset.
+func (s *Service) recordCodexQuotaExhaustion(ctx context.Context, headers http.Header, err error) {
+	if s.usageObserver == nil {
+		return
+	}
+	resetAt, exhausted := codexQuotaExhaustion(err)
+	if !exhausted {
+		return
+	}
+	codexTok, _ := presentSubscriptionTokens(ctx, headers)
+	s.recordCodexPlanSpent(ctx, codexTok, resetAt)
+}
+
+// recordCodexCredentialUnusable records the token the failed attempt carried as
+// unable to serve: a spent plan until its reset, or a rejected (401/403) token
+// for codexRejectedTokenHold. A rejection only skips the token; it is not quota
+// evidence and never authorizes paid recovery. Dispatch has no inbound headers,
+// and the caller's ChatGPT login usually arrives only on them. A refreshed token
+// hashes to a new key and is tried again.
+func (s *Service) recordCodexCredentialUnusable(ctx context.Context, creds *Credentials, err error) {
+	if s.usageObserver == nil || creds == nil || !creds.OAuth {
+		return
+	}
+	if codexOAuthCredentialRejected(err) {
+		s.usageObserver.RecordRejected(s.usageObserver.Key(creds.APIKey), time.Now().Add(codexRejectedTokenHold))
+		observability.FromContext(ctx).Info("Codex subscription token rejected; skipping it on later turns", "hold", codexRejectedTokenHold)
+		return
+	}
+	resetAt, exhausted := codexQuotaExhaustion(err)
+	if !exhausted {
+		return
+	}
+	s.recordCodexPlanSpent(ctx, string(creds.APIKey), resetAt)
+}
+
+func (s *Service) recordCodexPlanSpent(ctx context.Context, codexTok string, resetAt time.Time) {
+	if codexTok == "" {
+		return
+	}
+	s.usageObserver.Record(s.usageObserver.Key([]byte(codexTok)), usage.Snapshot{
+		Primary: codexExhaustionWindow(resetAt, time.Now()),
+	})
+	observability.FromContext(ctx).Info("Codex subscription reported its plan spent; suppressing it until reset",
+		"resets_at", resetAt)
+}
+
+func (s *Service) codexExtraCreditsAllowed() bool { return s.codexExtraCredits }
+
+// codexSubscriptionRotates reports whether a failed attempt on the caller's
+// Codex login moves the turn to the next credential.
+func codexSubscriptionRotates(credentialCtx context.Context, err error) bool {
+	if !servedOnCodexSubscription(credentialCtx) {
+		return false
+	}
+	_, quotaSpent := codexQuotaExhaustion(err)
+	return quotaSpent || codexOAuthCredentialRejected(err) || codexSubscriptionModelRejected(err) || providers.IsRetryable(err)
+}

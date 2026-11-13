@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/google"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/google"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,8 +107,8 @@ func TestNativeClient_BYOKCredentialsOverrideDeploymentKey(t *testing.T) {
 
 	c := google.NewNativeClient("deployment-key", upstream.URL)
 	ctx := context.WithValue(context.Background(),
-		proxy.CredentialsContextKey{},
-		&proxy.Credentials{APIKey: []byte("byok-key")})
+		requestcontext.CredentialsContextKey{},
+		&requestcontext.Credentials{APIKey: []byte("byok-key")})
 
 	rec := httptest.NewRecorder()
 	prep := providers.PreparedRequest{Body: []byte(`{}`), Headers: make(http.Header)}

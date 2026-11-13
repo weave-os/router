@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -74,6 +74,7 @@ func TestBuildConfiguredPolicySidecarsRejectsReservedAndInvalidConfiguration(t *
 	for _, raw := range []string{
 		`{"hmm":"https://sidecar.internal"}`,
 		`{"hmm_embedding":"https://sidecar.internal"}`,
+		`{"hmm_beta":"https://sidecar.internal"}`,
 		`{"future":"not-a-url"}`,
 		`{"future policy":"https://sidecar.internal"}`,
 		`{"Future":"https://one.internal","future":"https://two.internal"}`,

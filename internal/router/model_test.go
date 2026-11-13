@@ -3,7 +3,7 @@ package router_test
 import (
 	"testing"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -26,6 +26,9 @@ func TestLookup_DateSuffixNormalization(t *testing.T) {
 		{"anthropic haiku dated", "claude-haiku-4-5-20251001", false, true, false},
 		{"anthropic opus dated", "claude-opus-4-7-20260301", true, false, false},
 		{"openai dated", "gpt-4o-2024-08-06", false, false, false},
+		{"openai luna pro registered", "gpt-5.6-luna-pro", false, false, true},
+		{"openai sol pro registered", "gpt-5.6-sol-pro", false, false, true},
+		{"openai gpt-6 astra registered", "gpt-6-astra", false, false, true},
 		{"google flash registered", "gemini-2.5-flash", false, false, false},
 		{"google pro registered", "gemini-2.5-pro", false, false, false},
 		{"openrouter qwen registered", "qwen/qwen3-coder-next", false, false, false},
@@ -39,4 +42,35 @@ func TestLookup_DateSuffixNormalization(t *testing.T) {
 			assert.Equal(t, tc.wantReasoning, spec.Supports(router.CapReasoning))
 		})
 	}
+}
+
+func TestLookup_GPT6AstraReasoning(t *testing.T) {
+	spec := router.Lookup("gpt-6-astra")
+	assert.True(t, spec.Supports(router.CapReasoning))
+	assert.True(t, spec.Supports(router.CapXhighEffort))
+	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, spec.Reasoning().Levels)
+	assert.True(t, spec.Reasoning().SupportsBudget)
+	assert.True(t, spec.Reasoning().AlwaysOn)
+}
+
+func TestLookup_Gemini4ArgonReasoning(t *testing.T) {
+	spec := router.Lookup(router.ModelGemini4Argon)
+	assert.Equal(t, []string{"low", "medium", "high"}, spec.Reasoning().Levels)
+	assert.True(t, spec.Reasoning().AlwaysOn)
+}
+
+func TestLookup_Haiku55AcceptsDisabledThinkingAndForcedTools(t *testing.T) {
+	spec := router.Lookup("claude-haiku-5-5")
+	assert.True(t, spec.Supports(router.CapAdaptiveThinking))
+	assert.True(t, spec.Supports(router.CapXhighEffort))
+	assert.False(t, spec.Supports(router.CapAutoToolChoiceOnly))
+	assert.False(t, spec.Reasoning().AlwaysOn)
+	assert.Equal(t, []string{"low", "medium", "high", "max", "xhigh"}, spec.Reasoning().Levels)
+}
+
+func TestLookup_GPT61SolRequiresReasoning(t *testing.T) {
+	spec := router.Lookup("gpt-6.1-sol")
+	assert.True(t, spec.Supports(router.CapReasoning))
+	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, spec.Reasoning().Levels)
+	assert.True(t, spec.Reasoning().AlwaysOn)
 }

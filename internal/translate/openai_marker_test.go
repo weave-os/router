@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -127,6 +127,22 @@ func TestOpenAIRoutingMarkerWriter_PreludeFiresBeforeUpstream(t *testing.T) {
 	require.NoError(t, err)
 	events = splitSSEEvents(rec.Body.String())
 	require.Len(t, events, 2, "marker should be emitted exactly once across prelude + upstream")
+}
+
+func TestOpenAIRoutingMarkerWriter_ContinueAfterPreludeDoesNotDuplicateMarker(t *testing.T) {
+	rec := httptest.NewRecorder()
+	initial := translate.NewOpenAIRoutingMarkerWriter(rec, "gpt-4o", "✦ marker\n\n")
+	require.NoError(t, initial.Prelude(true))
+
+	retry := translate.NewOpenAIRoutingMarkerWriter(rec, "gpt-4o", "✦ marker\n\n")
+	retry.ContinueAfterPrelude(true)
+	_, err := retry.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"answer\"}}]}\n\n"))
+	require.NoError(t, err)
+
+	events := splitSSEEvents(rec.Body.String())
+	require.Len(t, events, 2)
+	assert.Contains(t, events[0], "marker")
+	assert.NotContains(t, events[1], "marker")
 }
 
 func TestOpenAIRoutingMarkerWriter_PreludeNoOpWhenNonStreaming(t *testing.T) {

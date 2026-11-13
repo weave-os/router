@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/proxy/usage"
+	"weave-os/router/internal/proxy/usage"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,7 +36,6 @@ func TestParseCodexHeaders_LowUsageNotMisread(t *testing.T) {
 	require.True(t, ok)
 	assert.InDelta(t, 0.01, snap.Primary.UsedPercent, 1e-9)
 	// And that low usage yields a near-epsilon cost factor (covered model ~free).
-	assert.Less(t, snap.CostFactor(0.05, 2.0), 0.06)
 	// A value above 100 clamps to fully used.
 	h.Set("x-codex-primary-used-percent", "150")
 	snap, _ = usage.ParseCodexHeaders(h)
@@ -60,6 +59,15 @@ func TestParseCodexHeaders_DefaultsWindowWhenOmitted(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, 300, snap.Primary.WindowMinutes, "primary defaults to ~5h")
 	assert.Equal(t, 10080, snap.Secondary.WindowMinutes, "secondary defaults to weekly")
+}
+
+func TestParseCodexHeaders_OverflowingWindowUsesDefault(t *testing.T) {
+	h := http.Header{}
+	h.Set("x-codex-primary-used-percent", "100")
+	h.Set("x-codex-primary-window-minutes", "9223372036854775807")
+	snapshot, ok := usage.ParseCodexHeaders(h)
+	require.True(t, ok)
+	require.Equal(t, 300, snapshot.Primary.WindowMinutes)
 }
 
 func TestParseAnthropicUnified_FromRemainingLimit(t *testing.T) {
@@ -97,6 +105,48 @@ func TestParseAnthropicUnified_OverageUtilizationClamped(t *testing.T) {
 	assert.True(t, snap.Exhausted())
 }
 
+func TestParseAnthropicUnified_OverageWithoutQuotaWindows(t *testing.T) {
+	h := http.Header{}
+	h.Set("anthropic-ratelimit-unified-representative-claim", "overage")
+	h.Set("anthropic-ratelimit-unified-overage-in-use", "true")
+	h.Set("anthropic-ratelimit-unified-reset", "1790812800")
+	snap, ok := usage.ParseAnthropicUnifiedHeaders(h)
+	require.True(t, ok)
+	assert.True(t, snap.OverageInUse)
+	assert.Equal(t, int64(1790812800), snap.UnifiedResetAt.Unix())
+	assert.True(t, snap.BillableOrExhausted())
+	assert.False(t, snap.Exhausted(), "overage is billable, but the token can still serve")
+}
+
+func TestParseAnthropicUnified_OverageIncludedIsNotPaid(t *testing.T) {
+	h := http.Header{}
+	h.Set("anthropic-ratelimit-unified-representative-claim", "seven_day_overage_included")
+	h.Set("anthropic-ratelimit-unified-overage-in-use", "true")
+	h.Set("anthropic-ratelimit-unified-7d_oi-utilization", "1.03")
+	snapshot, ok := usage.ParseAnthropicUnifiedHeaders(h)
+	require.True(t, ok)
+	assert.False(t, snapshot.OverageInUse, "the special included claim has no verified paid-usage semantics")
+
+	now := time.Unix(1790000000, 0)
+	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return now })
+	key := observer.Key([]byte("sk-ant-oat01-token"))
+	previouslyExhaustedPrimary := usage.Window{
+		UsedPercent:   1.0,
+		WindowMinutes: 5 * 60,
+		ResetAt:       now.Add(time.Hour),
+		ObservedAt:    now,
+	}
+	observer.Record(key, usage.Snapshot{
+		Primary: previouslyExhaustedPrimary, RepresentativeClaim: usage.AnthropicClaimOverage, OverageInUse: true,
+	})
+	observer.Record(key, snapshot)
+	latest, observed := observer.Snapshot(key)
+	require.True(t, observed)
+	assert.False(t, latest.OverageInUse, "a later included claim must clear the paid-lane observation")
+	assert.Equal(t, previouslyExhaustedPrimary, latest.Primary, "an omitted 5h window must retain its last observation")
+	assert.True(t, latest.ExhaustedAsOf(now), "the subscription remains exhausted until that 5h window is refreshed or resets")
+}
+
 // Prod traffic spells the long window "7d" (53k-row Phase 0 capture: zero
 // "weekly" keys); "weekly" is kept as a legacy fallback only.
 func TestParseAnthropicUnified_WeeklySpellingFallback(t *testing.T) {
@@ -111,41 +161,6 @@ func TestParseAnthropicUnified_WeeklySpellingFallback(t *testing.T) {
 	snap, ok = usage.ParseAnthropicUnifiedHeaders(h)
 	require.True(t, ok)
 	assert.InDelta(t, 0.90, snap.Secondary.UsedPercent, 1e-9)
-}
-
-func TestCostFactor_SlackIsCheap_BindingIsFullPrice(t *testing.T) {
-	const eps, gamma = 0.05, 2.0
-
-	// No data → no subsidy (full price), so we never subsidize blind.
-	assert.Equal(t, 1.0, usage.Snapshot{}.CostFactor(eps, gamma))
-
-	// Lots of slack → near epsilon (covered model ~free).
-	slack := usage.Snapshot{Primary: usage.Window{UsedPercent: 0.05, WindowMinutes: 300}}
-	assert.Less(t, slack.CostFactor(eps, gamma), 0.10)
-
-	// Fully consumed → full catalog price (no subsidy as the cap binds).
-	binding := usage.Snapshot{Primary: usage.Window{UsedPercent: 1.0, WindowMinutes: 300}}
-	assert.InDelta(t, 1.0, binding.CostFactor(eps, gamma), 1e-9)
-
-	// Monotonic non-decreasing in utilization.
-	prev := 0.0
-	for _, u := range []float64{0, 0.2, 0.4, 0.6, 0.8, 1.0} {
-		f := usage.Snapshot{Primary: usage.Window{UsedPercent: u, WindowMinutes: 300}}.CostFactor(eps, gamma)
-		assert.GreaterOrEqual(t, f, prev)
-		assert.GreaterOrEqual(t, f, eps)
-		assert.LessOrEqual(t, f, 1.0)
-		prev = f
-	}
-}
-
-func TestCostFactor_TighterWindowGoverns(t *testing.T) {
-	const eps, gamma = 0.05, 2.0
-	// Weekly nearly exhausted even though the 5h window is fresh → high factor.
-	s := usage.Snapshot{
-		Primary:   usage.Window{UsedPercent: 0.10, WindowMinutes: 300},
-		Secondary: usage.Window{UsedPercent: 0.95, WindowMinutes: 10080},
-	}
-	assert.Greater(t, s.CostFactor(eps, gamma), 0.8)
 }
 
 func TestObserver_RecordGetTTL(t *testing.T) {
@@ -185,7 +200,6 @@ func TestObserver_RecordGetTTL(t *testing.T) {
 // the binding window, and only after that window resets should the entry drop so
 // the cold-start path can legitimately treat it as never-observed again.
 func TestObserver_NearCapDoesNotResetToOptimistic(t *testing.T) {
-	const eps, gamma = 0.05, 2.0
 	now := time.Unix(2_000_000, 0)
 	clock := func() time.Time { return now }
 	o := usage.NewObserver([]byte("salt"), 10*time.Minute, clock)
@@ -198,7 +212,7 @@ func TestObserver_NearCapDoesNotResetToOptimistic(t *testing.T) {
 	now = now.Add(11 * time.Minute)
 	snap, ok := o.Snapshot(key)
 	require.True(t, ok, "a near-cap reading must survive past the 10-min floor")
-	assert.Greater(t, snap.CostFactor(eps, gamma), 0.9, "still near full price, not optimistic epsilon")
+	assert.InDelta(t, 0.98, snap.Secondary.UsedPercent, 1e-9)
 
 	// After the weekly window elapses, the quota has reset → drop → cold start.
 	now = now.Add(10080 * time.Minute)
@@ -267,6 +281,80 @@ func TestObserver_RecordMergesWindows(t *testing.T) {
 		"omitted secondary window must NOT be erased to slack")
 }
 
+func TestObserver_OverageRemainsUntilResetOrInPlanResponse(t *testing.T) {
+	base := time.Unix(1_790_000_000, 0).UTC()
+	clock := base
+	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return clock })
+	key := observer.Key([]byte("sk-ant-oat01-overage"))
+	observer.Record(key, usage.Snapshot{OverageInUse: true, UnifiedResetAt: base.Add(2 * time.Hour)})
+
+	clock = base.Add(time.Hour)
+	snap, ok := observer.Snapshot(key)
+	require.True(t, ok)
+	assert.True(t, snap.BillableOrExhausted())
+
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: 0.10, WindowMinutes: 300}})
+	snap, ok = observer.Snapshot(key)
+	require.True(t, ok)
+	assert.False(t, snap.BillableOrExhausted(), "a later in-plan observation clears overage")
+
+	observer.Record(key, usage.Snapshot{OverageInUse: true, UnifiedResetAt: base.Add(2 * time.Hour)})
+	clock = base.Add(3 * time.Hour)
+	_, ok = observer.Snapshot(key)
+	assert.False(t, ok, "the overage observation expires after the reported reset")
+}
+
+func TestObserver_OverageClearsAtResetWhileWeeklyWindowRemains(t *testing.T) {
+	base := time.Unix(1_790_000_000, 0).UTC()
+	clock := base
+	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return clock })
+	key := observer.Key([]byte("sk-ant-oat01-overage"))
+	observer.Record(key, usage.Snapshot{
+		Secondary:      usage.Window{UsedPercent: 0.6, WindowMinutes: 7 * 24 * 60},
+		OverageInUse:   true,
+		UnifiedResetAt: base.Add(2 * time.Hour),
+	})
+	clock = base.Add(3 * time.Hour)
+	snapshot, observed := observer.Snapshot(key)
+	require.True(t, observed, "the weekly window remains authoritative")
+	assert.False(t, snapshot.OverageInUse, "a prior overage response cannot persist beyond plan reset")
+}
+
+func TestObserver_OverageOnlyWithoutResetRequiresFreshHeadroom(t *testing.T) {
+	base := time.Unix(1_790_000_000, 0).UTC()
+	clock := base
+	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return clock })
+	key := observer.Key([]byte("sk-ant-oat01-overage"))
+	observer.Record(key, usage.Snapshot{OverageInUse: true})
+	clock = base.Add(2 * time.Hour)
+	snapshot, observed := observer.Snapshot(key)
+	require.True(t, observed)
+	assert.True(t, snapshot.OverageInUse)
+	clock = base.Add(6 * time.Hour)
+	observer.Sweep()
+	snapshot, observed = observer.Snapshot(key)
+	require.True(t, observed)
+	assert.True(t, snapshot.OverageInUse)
+	clock = base.Add(8 * 24 * time.Hour)
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: 0.2, WindowMinutes: 300}})
+	snapshot, observed = observer.Snapshot(key)
+	require.True(t, observed)
+	assert.False(t, snapshot.OverageInUse)
+}
+
+func TestObserver_SweepDropsExpiredRejections(t *testing.T) {
+	base := time.Unix(1_790_000_000, 0).UTC()
+	clock := base
+	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return clock })
+	key := observer.Key([]byte("retired-codex-token"))
+	observer.RecordRejected(key, base.Add(time.Minute))
+	require.True(t, observer.Rejected(key))
+	clock = base.Add(2 * time.Minute)
+	observer.Sweep()
+	clock = base
+	assert.False(t, observer.Rejected(key), "Sweep must drop an expired rejection the token never revisits")
+}
+
 func TestObserver_DistinctTokensDistinctKeys(t *testing.T) {
 	o := usage.NewObserver([]byte("salt"), time.Minute, func() time.Time { return time.Unix(1, 0) })
 	assert.NotEqual(t, o.Key([]byte("token-a")), o.Key([]byte("token-b")))
@@ -303,6 +391,17 @@ func TestSnapshot_Exhausted(t *testing.T) {
 	})
 }
 
+func TestSnapshot_ExhaustedAsOfHonorsResetWindows(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	s := usage.Snapshot{
+		Primary:    usage.Window{UsedPercent: 1.0, WindowMinutes: 300, ResetAt: now.Add(-time.Minute)},
+		Secondary:  usage.Window{UsedPercent: 0.10, WindowMinutes: 10080},
+		ObservedAt: now.Add(-time.Hour),
+	}
+	assert.False(t, s.ExhaustedAsOf(now),
+		"an expired primary cap must not keep the account exhausted while the weekly window has slack")
+	assert.True(t, s.Exhausted(), "Exhausted() is evaluated at ObservedAt, when the primary window was still spent")
+}
 func TestParseAnthropicUnifiedHeaders_ResetAt(t *testing.T) {
 	t.Run("RFC3339 reset", func(t *testing.T) {
 		h := http.Header{}
@@ -369,4 +468,49 @@ func TestObserver_NoResetFallsBackToWindowLength(t *testing.T) {
 	clock = base.Add(6 * 24 * time.Hour) // 6 days: still inside the 7-day window
 	_, ok := o.Snapshot(key)
 	assert.True(t, ok, "with no reset header the window-length horizon still applies")
+}
+
+func TestParseCodexHeadersUsesReportedReset(t *testing.T) {
+	h := http.Header{}
+	h.Set("X-Codex-Primary-Used-Percent", "40")
+	h.Set("X-Codex-Primary-Reset-At", "1794398700")
+	snap, ok := usage.ParseCodexHeaders(h)
+	assert.True(t, ok)
+	assert.Equal(t, int64(1794398700), snap.Primary.ResetAt.Unix())
+}
+
+func TestObserverKeepsFutureResetWhenInferenceOmitsPreflightMetadata(t *testing.T) {
+	now := time.Date(2026, time.November, 11, 12, 0, 0, 0, time.UTC)
+	observer := usage.NewObserver([]byte("synthetic-salt"), 10*time.Minute, func() time.Time { return now })
+	key := observer.Key([]byte("synthetic-account"))
+	firstReset := now.Add(5 * time.Minute)
+	weeklyReset := now.Add(24 * time.Hour)
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: .4, WindowMinutes: 300, ResetAt: firstReset}, Secondary: usage.Window{UsedPercent: .8, WindowMinutes: 10080, ResetAt: weeklyReset}})
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: .5, WindowMinutes: 300}, Secondary: usage.Window{UsedPercent: .9, WindowMinutes: 10080}})
+	snapshot, ok := observer.Snapshot(key)
+	require.True(t, ok)
+	require.Equal(t, firstReset, snapshot.Primary.ResetAt)
+	require.Equal(t, weeklyReset, snapshot.Secondary.ResetAt)
+	require.Equal(t, .5, snapshot.Primary.UsedPercent)
+	now = firstReset.Add(time.Minute)
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: .1, WindowMinutes: 300}})
+	snapshot, ok = observer.Snapshot(key)
+	require.True(t, ok)
+	require.True(t, snapshot.Primary.ResetAt.IsZero(), "an elapsed reset must not override the new window")
+	newReset := now.Add(time.Hour)
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: .2, WindowMinutes: 300, ResetAt: newReset}})
+	snapshot, _ = observer.Snapshot(key)
+	require.Equal(t, newReset, snapshot.Primary.ResetAt)
+}
+
+func TestAnthropicOverageCapRejectedRequiresBothRejections(t *testing.T) {
+	h := http.Header{}
+	h.Set("anthropic-ratelimit-unified-status", "rejected")
+	require.False(t, usage.AnthropicOverageCapRejected(h), "included usage spent but overage still allowed")
+	h.Set("anthropic-ratelimit-unified-overage-status", "allowed")
+	require.False(t, usage.AnthropicOverageCapRejected(h))
+	h.Set("anthropic-ratelimit-unified-overage-status", "rejected")
+	require.True(t, usage.AnthropicOverageCapRejected(h))
+	h.Set("anthropic-ratelimit-unified-status", "allowed")
+	require.False(t, usage.AnthropicOverageCapRejected(h))
 }

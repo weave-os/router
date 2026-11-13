@@ -105,6 +105,79 @@ func toolResultIsErrored(block gjson.Result) bool {
 	return false
 }
 
+// ToolCallOutcome is one assistant tool invocation paired with how its
+// tool_result came back. Resolved is false while the call is still in flight
+// (the last call of a tool-use turn) or when the client dropped the result.
+type ToolCallOutcome struct {
+	Name     string
+	Resolved bool
+	Errored  bool
+}
+
+// AssistantToolCallOutcomes returns every assistant tool_use in history order
+// paired with its tool_result outcome (matched by tool_use_id). Anthropic format only.
+func (e *RequestEnvelope) AssistantToolCallOutcomes() []ToolCallOutcome {
+	if e.format != FormatAnthropic {
+		return nil
+	}
+	msgs := gjson.GetBytes(e.body, "messages")
+	if !msgs.IsArray() {
+		return nil
+	}
+	errored := toolResultOutcomesByID(msgs)
+	var out []ToolCallOutcome
+	msgs.ForEach(func(_, msg gjson.Result) bool {
+		if msg.Get("role").String() != "assistant" {
+			return true
+		}
+		content := msg.Get("content")
+		if !content.IsArray() {
+			return true
+		}
+		content.ForEach(func(_, block gjson.Result) bool {
+			if block.Get("type").String() != "tool_use" {
+				return true
+			}
+			name := block.Get("name").String()
+			if name == "" {
+				return true
+			}
+			isErr, resolved := errored[block.Get("id").String()]
+			out = append(out, ToolCallOutcome{Name: name, Resolved: resolved, Errored: isErr})
+			return true
+		})
+		return true
+	})
+	return out
+}
+
+// toolResultOutcomesByID maps tool_use_id to whether that result errored.
+func toolResultOutcomesByID(msgs gjson.Result) map[string]bool {
+	out := make(map[string]bool)
+	msgs.ForEach(func(_, msg gjson.Result) bool {
+		if msg.Get("role").String() != "user" {
+			return true
+		}
+		content := msg.Get("content")
+		if !content.IsArray() {
+			return true
+		}
+		content.ForEach(func(_, block gjson.Result) bool {
+			if block.Get("type").String() != "tool_result" {
+				return true
+			}
+			id := block.Get("tool_use_id").String()
+			if id == "" {
+				return true
+			}
+			out[id] = toolResultIsErrored(block)
+			return true
+		})
+		return true
+	})
+	return out
+}
+
 // ToolCallFilePath is one assistant tool invocation that targets a file:
 // the tool name plus the file path argument it carried.
 type ToolCallFilePath struct {

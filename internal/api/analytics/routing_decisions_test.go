@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/analytics"
-	analyticsapi "workweave/router/internal/api/analytics"
-	"workweave/router/internal/auth"
+	"weave-os/router/internal/analytics"
+	analyticsapi "weave-os/router/internal/api/analytics"
+	"weave-os/router/internal/auth"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -104,6 +104,63 @@ func TestRoutingDecisionsStreamsNDJSON(t *testing.T) {
 	rows := decodeNDJSON(t, rec.Body)
 	require.Len(t, rows, 3)
 	require.Equal(t, "req-a", rows[0]["request_id"])
+	require.Nil(t, rows[0]["blind_experiment_arm"])
+	require.Nil(t, rows[0]["blind_experiment_assignment_source"])
+	require.Nil(t, rows[0]["blind_experiment_subject_key"])
+}
+
+func TestRoutingDecisionsStreamsBlindExperimentFields(t *testing.T) {
+	arm := auth.BlindExperimentArmPassthrough
+	assignmentSource := auth.BlindExperimentAssignmentManual
+	subjectKey := "account-1"
+	decisions := rowsAt(1)
+	decisions[0].BlindExperimentArm = &arm
+	decisions[0].BlindExperimentAssignmentSource = &assignmentSource
+	decisions[0].BlindExperimentSubjectKey = &subjectKey
+	engine := newRouter(&fakeRepo{rows: decisions}, &auth.Installation{ID: "inst"})
+
+	recorder := get(engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	rows := decodeNDJSON(t, recorder.Body)
+	require.Len(t, rows, 1)
+	require.Equal(t, string(auth.BlindExperimentArmPassthrough), rows[0]["blind_experiment_arm"])
+	require.Equal(t, string(auth.BlindExperimentAssignmentManual), rows[0]["blind_experiment_assignment_source"])
+	require.Equal(t, subjectKey, rows[0]["blind_experiment_subject_key"])
+}
+
+func TestRoutingDecisionsStreamsCohortAttribution(t *testing.T) {
+	cohortID := "cohort-1"
+	groupID := int64(2)
+	phaseIndex := int64(3)
+	revision := int64(4)
+	scheduledArm := auth.BlindExperimentArmPassthrough
+	intendedArm := auth.BlindExperimentArmRouterOn
+	applied := false
+	reason := auth.CohortBypassForceModel
+	decisions := rowsAt(1)
+	decisions[0].CohortExperimentID = &cohortID
+	decisions[0].CohortGroupID = &groupID
+	decisions[0].CohortPhaseIndex = &phaseIndex
+	decisions[0].CohortRevision = &revision
+	decisions[0].CohortScheduledArm = &scheduledArm
+	decisions[0].BlindExperimentArm = &intendedArm
+	decisions[0].CohortTreatmentApplied = &applied
+	decisions[0].CohortBypassReason = &reason
+	engine := newRouter(&fakeRepo{rows: decisions}, &auth.Installation{ID: "inst"})
+
+	recorder := get(engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	rows := decodeNDJSON(t, recorder.Body)
+	require.Len(t, rows, 1)
+	require.Equal(t, cohortID, rows[0]["cohort_experiment_id"])
+	require.Equal(t, float64(groupID), rows[0]["cohort_group_id"])
+	require.Equal(t, float64(phaseIndex), rows[0]["cohort_phase_index"])
+	require.Equal(t, float64(revision), rows[0]["cohort_revision"])
+	require.Equal(t, string(scheduledArm), rows[0]["cohort_scheduled_arm"])
+	require.Equal(t, string(intendedArm), rows[0]["blind_experiment_arm"])
+	require.Equal(t, applied, rows[0]["cohort_treatment_applied"])
+	require.Equal(t, string(reason), rows[0]["cohort_bypass_reason"])
 }
 
 // Cursor and has-more travel as headers so the body stays pure rows.
@@ -184,4 +241,26 @@ func TestRoutingDecisionsRepositoryFailureIs500(t *testing.T) {
 
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 	require.NotContains(t, rec.Body.String(), "db down")
+}
+
+func TestRoutingDecisionsStreamsBlindExperimentModelSource(t *testing.T) {
+	source := auth.BlindExperimentModelSourceClientModelPassthrough
+	applied := false
+	baseline := "claude-sonnet-4-6"
+	changed := false
+	decisions := rowsAt(1)
+	decisions[0].BlindExperimentModelSource = &source
+	decisions[0].BlindExperimentTreatmentApplied = &applied
+	decisions[0].BlindExperimentBaselineModel = &baseline
+	decisions[0].BlindExperimentModelChanged = &changed
+	engine := newRouter(&fakeRepo{rows: decisions}, &auth.Installation{ID: "inst"})
+
+	recorder := get(engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	rows := decodeNDJSON(t, recorder.Body)
+	require.Len(t, rows, 1)
+	require.Equal(t, string(source), rows[0]["blind_experiment_model_source"])
+	require.Equal(t, applied, rows[0]["blind_experiment_treatment_applied"])
+	require.Equal(t, baseline, rows[0]["blind_experiment_baseline_model"])
+	require.Equal(t, changed, rows[0]["blind_experiment_model_changed"])
 }

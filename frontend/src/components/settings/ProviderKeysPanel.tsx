@@ -1,30 +1,51 @@
 "use client";
 
-import { EmptyHint, ErrorBanner } from "./shared";
-import { Text } from "@/components/atoms/Text";
 import { Input } from "@/components/Input";
-import { Button } from "@/components/molecules/Button";
-import { Card } from "@/components/molecules/Card";
-import { Command } from "@/components/molecules/Command";
-import { Popover } from "@/components/molecules/Popover";
-import { Appearance, Intent } from "@/components/types";
 import {
   api,
   type DeployedModel,
   type ExternalKey,
   type ProviderAuthType,
+  type AnthropicFederationConfig,
 } from "@/lib/api";
-import { ChevronDown, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Text } from "@/shared/components/atoms/Text";
+import { Button } from "@/shared/components/molecules/Button";
+import { Card } from "@/shared/components/molecules/Card";
+import { Command } from "@/shared/components/molecules/Command";
+import { Popover } from "@/shared/components/molecules/Popover";
+import { Appearance, Intent } from "@/shared/components/types";
 
-const PROVIDERS = ["anthropic", "openai", "google", "openrouter", "anthropic_gateway", "openai_gateway"] as const;
+import { ChevronDown, Trash2 } from "lucide-react";
+
+import { useEffect, useRef, useState } from "react";
+
+import { EmptyHint, ErrorBanner } from "./shared";
+
+const PROVIDERS = [
+  "anthropic",
+  "openai",
+  "google",
+  "openrouter",
+  "fireworks",
+  "together",
+  "bedrock",
+  "xai",
+  "anthropic_gateway",
+  "openai_gateway",
+] as const;
 type Provider = (typeof PROVIDERS)[number];
+const ANTHROPIC_PROVIDER = "anthropic" satisfies Provider;
+const ANTHROPIC_FEDERATION = "anthropic_wif" satisfies ProviderAuthType;
 
 const PROVIDER_LABEL: Record<Provider, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",
   google: "Google",
   openrouter: "OpenRouter",
+  fireworks: "Fireworks",
+  together: "Together",
+  bedrock: "AWS Bedrock",
+  xai: "xAI",
   anthropic_gateway: "Anthropic-compatible gateway",
   openai_gateway: "OpenAI-compatible gateway",
 };
@@ -34,6 +55,10 @@ const PROVIDER_ENV_VAR: Record<Provider, string> = {
   openai: "OPENAI_API_KEY",
   google: "GOOGLE_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
+  fireworks: "FIREWORKS_API_KEY",
+  together: "TOGETHER_API_KEY",
+  bedrock: "AWS_BEARER_TOKEN_BEDROCK",
+  xai: "XAI_API_KEY",
   anthropic_gateway: "ANTHROPIC_GATEWAY_TOKEN",
   openai_gateway: "OPENAI_GATEWAY_TOKEN",
 };
@@ -41,6 +66,21 @@ const PROVIDER_ENV_VAR: Record<Provider, string> = {
 // Providers with no vendor endpoint to fall back to: a key without a URL here
 // is stored but can never be dispatched, so the form blocks it up front.
 const PROVIDERS_REQUIRING_BASE_URL: readonly Provider[] = ["anthropic_gateway", "openai_gateway"];
+
+const EMPTY_FEDERATION = {
+  federation_rule_id: "",
+  organization_id: "",
+  service_account_id: "",
+  workspace_id: "",
+  audience: "",
+} satisfies AnthropicFederationConfig;
+const FEDERATION_FIELDS = [
+  ["federation_rule_id", "Federation rule ID", "fdrl_..."],
+  ["organization_id", "Anthropic organization ID", "Organization UUID"],
+  ["service_account_id", "Anthropic service account ID", "svac_..."],
+  ["workspace_id", "Workspace ID (optional for a single-workspace rule)", "wrkspc_..."],
+  ["audience", "Audience (optional)", "https://api.anthropic.com"],
+] as const;
 
 function providerLabel(p: Provider): string {
   return PROVIDER_LABEL[p];
@@ -67,6 +107,33 @@ function aliasMapFrom(rows: AliasRow[]): Record<string, string> {
   return out;
 }
 
+// matchesCatalogID reports whether an endpoint-published ID is unambiguously
+// the given catalog model under a vendor prefix (e.g. "openai-gpt-5" or
+// "openai/gpt-5" for catalog "gpt-5").
+function matchesCatalogID(endpointID: string, model: string): boolean {
+  const id = endpointID.toLowerCase();
+  const m = model.toLowerCase();
+  return id === m || id.endsWith(`-${m}`) || id.endsWith(`/${m}`) || id.endsWith(`.${m}`);
+}
+
+// autoMatchRows pre-fills alias rows for catalog models the endpoint publishes
+// under exactly one recognizable name. Ambiguous (multiple candidates) or
+// already-mapped models are left alone rather than guessed.
+function autoMatchRows(
+  models: DeployedModel[],
+  endpointModels: string[],
+  existing: AliasRow[],
+): AliasRow[] {
+  const taken = new Set(existing.map(r => r.model.trim()).filter(m => m !== ""));
+  const added: AliasRow[] = [];
+  for (const m of models) {
+    if (taken.has(m.model)) continue;
+    const matches = endpointModels.filter(id => matchesCatalogID(id, m.model));
+    if (matches.length === 1) added.push({ model: m.model, alias: matches[0] });
+  }
+  return added;
+}
+
 // ModelAliasEditor maps catalog model IDs to the names a custom endpoint
 // publishes them under. Routing, pricing, and analytics stay keyed by the
 // catalog ID; only the outbound request carries the alias.
@@ -75,58 +142,118 @@ function ModelAliasEditor({
   onChange,
   models,
   idPrefix,
+  endpointModels,
+  onFetchModels,
+  fetching,
+  fetchHint,
 }: {
   rows: AliasRow[];
   onChange: (rows: AliasRow[]) => void;
   models: DeployedModel[];
   idPrefix: string;
+  // Endpoint-published model IDs, once fetched; null until then.
+  endpointModels: string[] | null;
+  onFetchModels?: () => void;
+  fetching?: boolean;
+  // Why fetching is unavailable right now (e.g. missing key/URL); shown next
+  // to a disabled button.
+  fetchHint?: string | null;
 }) {
   const listID = `${idPrefix}-catalog-models`;
+  const endpointListID = `${idPrefix}-endpoint-models`;
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-xs font-medium text-foreground">Model aliases (optional)</span>
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-foreground">Model aliases (optional)</span>
+        {onFetchModels != null && (
+          <div className="flex items-center gap-2">
+            {fetchHint != null && (
+              <Text className="text-2xs text-muted-foreground">{fetchHint}</Text>
+            )}
+            <Button
+              type="button"
+              appearance={Appearance.Hollow}
+              size="sm"
+              onClick={onFetchModels}
+              disabled={fetching || fetchHint != null}
+            >
+              {fetching ? "Fetching…" : "Fetch models from endpoint"}
+            </Button>
+          </div>
+        )}
+      </div>
       <datalist id={listID}>
         {models.map(m => (
           <option key={m.model} value={m.model} />
         ))}
       </datalist>
-      {rows.map((row, i) => (
-        <div key={i} className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
-          <Input
-            id={`${idPrefix}-model-${i}`}
-            list={listID}
-            autoComplete="off"
-            placeholder="gpt-5"
-            value={row.model}
-            onChange={e =>
-              onChange(rows.map((r, j) => (i === j ? { ...r, model: e.target.value } : r)))
-            }
-          />
-          <Input
-            id={`${idPrefix}-alias-${i}`}
-            autoComplete="off"
-            placeholder="openai-gpt-5"
-            value={row.alias}
-            onChange={e =>
-              onChange(rows.map((r, j) => (i === j ? { ...r, alias: e.target.value } : r)))
-            }
-          />
-          <Button
-            type="button"
-            appearance={Appearance.Hollow}
-            intent={Intent.Danger}
-            size="icon"
-            onClick={() => onChange(rows.filter((_, j) => j !== i))}
-            title="Remove alias."
-          >
-            <Trash2 className="size-3.5" />
-          </Button>
-        </div>
-      ))}
+      {endpointModels != null && (
+        <datalist id={endpointListID}>
+          {endpointModels.map(id => (
+            <option key={id} value={id} />
+          ))}
+        </datalist>
+      )}
+      {endpointModels != null && endpointModels.length === 0 && (
+        <Text className="text-2xs text-muted-foreground">
+          The endpoint returned no models; enter aliases manually.
+        </Text>
+      )}
+      {rows.map((row, i) => {
+        const alias = row.alias.trim();
+        const unlisted =
+          endpointModels != null &&
+          endpointModels.length > 0 &&
+          alias !== "" &&
+          !endpointModels.includes(alias);
+        return (
+          <div key={i} className="flex flex-col gap-1">
+            <div className="grid grid-cols-[1fr_1fr_auto] items-center gap-2">
+              <Input
+                id={`${idPrefix}-model-${i}`}
+                list={listID}
+                autoComplete="off"
+                placeholder="gpt-5"
+                value={row.model}
+                onChange={e =>
+                  onChange(rows.map((r, j) => (i === j ? { ...r, model: e.target.value } : r)))
+                }
+              />
+              <Input
+                id={`${idPrefix}-alias-${i}`}
+                list={
+                  endpointModels != null && endpointModels.length > 0 ? endpointListID : undefined
+                }
+                autoComplete="off"
+                placeholder="openai-gpt-5"
+                value={row.alias}
+                onChange={e =>
+                  onChange(rows.map((r, j) => (i === j ? { ...r, alias: e.target.value } : r)))
+                }
+              />
+              <Button
+                type="button"
+                appearance={Appearance.Hollow}
+                intent={Intent.Danger}
+                size="icon"
+                onClick={() => onChange(rows.filter((_, j) => j !== i))}
+                title="Remove alias."
+              >
+                <Trash2 className="size-3.5" />
+              </Button>
+            </div>
+            {unlisted && (
+              <Text className="text-2xs text-wv-status-warning">
+                “{alias}” is not in the endpoint&apos;s published model list.
+              </Text>
+            )}
+          </div>
+        );
+      })}
       <div>
         <Button
           type="button"
-          appearance={Appearance.Outlined}
+          appearance={Appearance.Hollow}
           onClick={() => onChange([...rows, { model: "", alias: "" }])}
         >
           Add alias
@@ -147,6 +274,7 @@ export function ProviderKeysPanel() {
   const [pickedProvider, setPickedProvider] = useState<Provider | null>(null);
   const [keyValue, setKeyValue] = useState("");
   const [name, setName] = useState("");
+  const [federation, setFederation] = useState(EMPTY_FEDERATION);
   const [baseURL, setBaseURL] = useState("");
   const [authType, setAuthType] = useState<ProviderAuthType>("bearer");
   const [authAccount, setAuthAccount] = useState("");
@@ -158,6 +286,19 @@ export function ProviderKeysPanel() {
   const [savingAliases, setSavingAliases] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [newEndpointModels, setNewEndpointModels] = useState<string[] | null>(null);
+  const [fetchingNewModels, setFetchingNewModels] = useState(false);
+  const [editEndpointModels, setEditEndpointModels] = useState<string[] | null>(null);
+  const [fetchingEditModels, setFetchingEditModels] = useState(false);
+  // Signature of the last auto-fetched (provider, key, URL) tuple, so typing
+  // pauses trigger one discovery call rather than one per keystroke burst.
+  const autoFetchedRef = useRef<string | null>(null);
+  // Bumped whenever the form inputs change so a slower in-flight response
+  // for a previous endpoint can't land as the current one's inventory.
+  const newFetchSeqRef = useRef(0);
+  // The key ID an edit-side listing is for; a response for any other key
+  // (switched or closed editor) is discarded.
+  const editFetchIDRef = useRef<string | null>(null);
 
   function load() {
     api.providerKeys
@@ -194,8 +335,11 @@ export function ProviderKeysPanel() {
       .catch(() => setCatalogModels([]));
   }, []);
 
-  const taken = new Set<string>([...keys.map(k => k.provider), ...envKeyed]);
-  const available: Provider[] = PROVIDERS.filter(p => !taken.has(p));
+  const taken = new Set<string>([
+    ...keys.map(k => k.provider),
+    ...envKeyed.filter(provider => provider !== ANTHROPIC_PROVIDER),
+  ]);
+  const available = PROVIDERS.filter(p => !taken.has(p));
   const provider: Provider | null =
     pickedProvider != null && available.includes(pickedProvider)
       ? pickedProvider
@@ -204,15 +348,109 @@ export function ProviderKeysPanel() {
   const baseURLRequired = provider != null && PROVIDERS_REQUIRING_BASE_URL.includes(provider);
   // Mirrors the server's normalization: a slash-only value normalizes away to nothing.
   const baseURLMissing = baseURLRequired && baseURL.trim().replace(/\/+$/, "") === "";
-  // Key-pair and workload-identity auth are gateway-only credential shapes; the
-  // vendor providers authenticate with their own API keys.
-  const authTypeOffered = baseURLRequired;
-  const usingKeypair = authTypeOffered && authType === "keypair_jwt";
-  const usingWIF = authTypeOffered && authType === "wif";
+  const nativeAnthropic = provider === ANTHROPIC_PROVIDER;
+  const deploymentAnthropicKey = nativeAnthropic && envKeyed.includes(ANTHROPIC_PROVIDER);
+  const effectiveAuthType = deploymentAnthropicKey ? ANTHROPIC_FEDERATION : authType;
+  const usingFederation = nativeAnthropic && effectiveAuthType === ANTHROPIC_FEDERATION;
+  const federationIncomplete =
+    usingFederation &&
+    (!federation.federation_rule_id.trim() ||
+      !federation.organization_id.trim() ||
+      !federation.service_account_id.trim());
+  const authTypeOffered = baseURLRequired || nativeAnthropic;
+  const usingKeypair = baseURLRequired && effectiveAuthType === "keypair_jwt";
+  const usingWIF = baseURLRequired && effectiveAuthType === "wif";
+  const usingEntra = baseURLRequired && effectiveAuthType === "azure_entra";
   const keypairIncomplete = usingKeypair && (authAccount.trim() === "" || authUser.trim() === "");
+  const entraIncomplete = usingEntra && (authAccount.trim() === "" || authUser.trim() === "");
   // A WIF key carries no secret, so an empty key field is the expected state.
-  const keyMissing = !usingWIF && keyValue.trim() === "";
-  const saveDisabled = saving || keyMissing || baseURLMissing || keypairIncomplete;
+  const keyMissing = !usingWIF && !usingFederation && keyValue.trim() === "";
+  const saveDisabled =
+    saving ||
+    keyMissing ||
+    baseURLMissing ||
+    keypairIncomplete ||
+    entraIncomplete ||
+    !!federationIncomplete;
+  // Pre-save discovery can only authenticate with a token sent as-is; derived
+  // auth (key pair, WIF) needs the stored key, so those save first and fetch
+  // from the saved entry.
+  const fetchHint =
+    authTypeOffered && effectiveAuthType !== "bearer"
+      ? "Save the key first, then fetch from the saved entry."
+      : keyMissing
+        ? "Enter the API key first."
+        : baseURLMissing
+          ? "Enter the endpoint URL first."
+          : null;
+
+  const canFetchNew =
+    provider != null &&
+    baseURLRequired &&
+    effectiveAuthType === "bearer" &&
+    !keyMissing &&
+    !baseURLMissing;
+
+  // Discover models as soon as a usable key + URL are entered, so endpoint IDs
+  // and auto-matched aliases appear without an extra click.
+  useEffect(() => {
+    const signature = `${provider}\n${keyValue.trim()}\n${baseURL.trim()}`;
+    if (autoFetchedRef.current === signature) return;
+    // Inputs changed: any in-flight or previously fetched inventory belongs
+    // to a different endpoint.
+    autoFetchedRef.current = null;
+    newFetchSeqRef.current++;
+    setNewEndpointModels(null);
+    setFetchingNewModels(false);
+    if (!canFetchNew) return;
+    const timer = setTimeout(() => {
+      autoFetchedRef.current = signature;
+      void handleFetchNewModels();
+    }, 800);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canFetchNew, provider, keyValue, baseURL]);
+
+  async function handleFetchNewModels() {
+    if (provider == null) return;
+    const seq = ++newFetchSeqRef.current;
+    setFetchingNewModels(true);
+    setError(null);
+    try {
+      const r = await api.providerKeys.discoverModels(
+        provider,
+        keyValue.trim(),
+        baseURL.trim() || undefined,
+      );
+      if (seq !== newFetchSeqRef.current) return;
+      const models = r.models ?? [];
+      setNewEndpointModels(models);
+      setAliasRows(rows => [...rows, ...autoMatchRows(catalogModels, models, rows)]);
+    } catch (err: unknown) {
+      if (seq !== newFetchSeqRef.current) return;
+      setError(err instanceof Error ? err.message : "Failed to fetch models from the endpoint.");
+    } finally {
+      if (seq === newFetchSeqRef.current) setFetchingNewModels(false);
+    }
+  }
+
+  async function handleFetchEditModels(id: string) {
+    editFetchIDRef.current = id;
+    setFetchingEditModels(true);
+    setError(null);
+    try {
+      const r = await api.providerKeys.listUpstreamModels(id);
+      if (editFetchIDRef.current !== id) return;
+      const models = r.models ?? [];
+      setEditEndpointModels(models);
+      setEditAliasRows(rows => [...rows, ...autoMatchRows(catalogModels, models, rows)]);
+    } catch (err: unknown) {
+      if (editFetchIDRef.current !== id) return;
+      setError(err instanceof Error ? err.message : "Failed to fetch models from the endpoint.");
+    } finally {
+      if (editFetchIDRef.current === id) setFetchingEditModels(false);
+    }
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -221,14 +459,30 @@ export function ProviderKeysPanel() {
     try {
       await api.providerKeys.upsert(
         provider,
-        usingWIF ? "" : keyValue.trim(),
+        usingWIF || usingFederation ? "" : keyValue.trim(),
         name.trim() || undefined,
-        baseURL.trim() || undefined,
+        usingFederation ? undefined : baseURL.trim() || undefined,
         aliasMapFrom(aliasRows),
-        usingKeypair
-          ? { type: authType, account: authAccount.trim(), user: authUser.trim() }
-          : { type: authTypeOffered ? authType : "bearer" },
+        usingKeypair || usingEntra
+          ? { type: effectiveAuthType, account: authAccount.trim(), user: authUser.trim() }
+          : {
+              type: usingFederation
+                ? ANTHROPIC_FEDERATION
+                : baseURLRequired
+                  ? effectiveAuthType
+                  : "bearer",
+              federationConfig: usingFederation
+                ? {
+                    federation_rule_id: federation.federation_rule_id.trim(),
+                    organization_id: federation.organization_id.trim(),
+                    service_account_id: federation.service_account_id.trim(),
+                    workspace_id: federation.workspace_id.trim() || undefined,
+                    audience: federation.audience.trim() || undefined,
+                  }
+                : undefined,
+            },
       );
+      setFederation(EMPTY_FEDERATION);
       setKeyValue("");
       setName("");
       setBaseURL("");
@@ -236,6 +490,7 @@ export function ProviderKeysPanel() {
       setAuthAccount("");
       setAuthUser("");
       setAliasRows([]);
+      setNewEndpointModels(null);
       load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Failed to save key");
@@ -283,10 +538,24 @@ export function ProviderKeysPanel() {
           <Card.Content>
             <form onSubmit={handleSave} className="space-y-3" autoComplete="off">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-[200px_1fr]">
-                <ProviderPicker value={provider} onChange={setPickedProvider} options={available} />
-                {usingWIF ? null : usingKeypair ? (
+                <ProviderPicker
+                  value={provider}
+                  onChange={value => {
+                    setPickedProvider(value);
+                    setAuthType("bearer");
+                    setBaseURL("");
+                    setKeyValue("");
+                    setFederation(EMPTY_FEDERATION);
+                    setAliasRows([]);
+                  }}
+                  options={available}
+                />
+                {usingWIF || usingFederation ? null : usingKeypair ? (
                   <div className="flex flex-col gap-1.5">
-                    <label htmlFor="provider-private-key" className="text-xs font-medium text-foreground">
+                    <label
+                      htmlFor="provider-private-key"
+                      className="text-xs font-medium text-foreground"
+                    >
                       Private key (PEM)
                     </label>
                     <textarea
@@ -307,14 +576,14 @@ export function ProviderKeysPanel() {
                   </div>
                 ) : (
                   <Input
-                    label="API key"
+                    label={usingEntra ? "Client secret" : "API key"}
                     type="password"
                     name="provider-api-key"
                     autoComplete="new-password"
                     data-1p-ignore
                     data-lpignore="true"
                     data-form-type="other"
-                    placeholder="sk-..."
+                    placeholder={usingEntra ? "Azure Entra client secret" : "sk-..."}
                     value={keyValue}
                     onChange={e => setKeyValue(e.target.value)}
                     required
@@ -323,65 +592,117 @@ export function ProviderKeysPanel() {
               </div>
               {authTypeOffered ? (
                 <div className="flex flex-col gap-1.5">
-                  <label htmlFor="provider-auth-type" className="text-xs font-medium text-foreground">
+                  <label
+                    htmlFor="provider-auth-type"
+                    className="text-xs font-medium text-foreground"
+                  >
                     Authentication
                   </label>
                   <select
                     id="provider-auth-type"
                     name="provider-auth-type"
                     className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                    value={authType}
+                    value={effectiveAuthType}
                     onChange={e => {
                       setAuthType(e.target.value as ProviderAuthType);
                       setKeyValue("");
                     }}
                   >
-                    <option value="bearer">Token (sent as-is)</option>
-                    <option value="keypair_jwt">Key pair (router signs a short-lived token)</option>
-                    <option value="wif">Workload identity (router attests its own identity)</option>
+                    <option value="bearer" disabled={deploymentAnthropicKey}>
+                      Token (sent as-is)
+                    </option>
+                    {nativeAnthropic ? (
+                      <option value={ANTHROPIC_FEDERATION}>Anthropic workload identity</option>
+                    ) : (
+                      <>
+                        <option value="keypair_jwt">
+                          Key pair (router signs a short-lived token)
+                        </option>
+                        <option value="wif">
+                          Workload identity (router attests its own identity)
+                        </option>
+                        <option value="azure_entra">
+                          Microsoft Entra (router mints a short-lived token)
+                        </option>
+                      </>
+                    )}
                   </select>
                   {usingWIF ? (
                     <Text className="text-2xs text-muted-foreground">
-                      No credential to enter. Grant this router&apos;s workload identity access to the
-                      endpoint&apos;s service user.
+                      No credential to enter. Grant this router&apos;s workload identity access to
+                      the endpoint&apos;s service user.
                     </Text>
                   ) : null}
                 </div>
               ) : null}
-              {usingKeypair ? (
+              {usingFederation ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Text className="text-2xs text-muted-foreground sm:col-span-2">
+                    Connect this router&apos;s workload identity in the Claude Console. These
+                    settings select the Anthropic service account and workspace; no API key is
+                    stored.
+                  </Text>
+                  {FEDERATION_FIELDS.map(([field, label, placeholder]) => (
+                    <Input
+                      key={field}
+                      label={label}
+                      name={`federation-${field}`}
+                      placeholder={placeholder}
+                      autoComplete="off"
+                      value={federation[field]}
+                      onChange={e =>
+                        setFederation(current => ({ ...current, [field]: e.target.value }))
+                      }
+                    />
+                  ))}
+                </div>
+              ) : null}
+              {usingKeypair || usingEntra ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <Input
-                    label="Account identifier"
+                    label={usingEntra ? "Tenant ID" : "Account identifier"}
                     name="provider-auth-account"
                     autoComplete="off"
-                    placeholder="MYORG-MYACCOUNT"
+                    placeholder={
+                      usingEntra ? "00000000-0000-0000-0000-000000000000" : "MYORG-MYACCOUNT"
+                    }
                     value={authAccount}
                     onChange={e => setAuthAccount(e.target.value)}
                     required
                   />
                   <Input
-                    label="User"
+                    label={usingEntra ? "Client ID" : "User"}
                     name="provider-auth-user"
                     autoComplete="off"
-                    placeholder="SERVICE_USER"
+                    placeholder={
+                      usingEntra ? "00000000-0000-0000-0000-000000000000" : "SERVICE_USER"
+                    }
                     value={authUser}
                     onChange={e => setAuthUser(e.target.value)}
                     required
                   />
                 </div>
               ) : null}
-              <Input
-                label={baseURLRequired ? "Endpoint URL" : "Endpoint URL (optional)"}
-                name="provider-base-url"
-                autoComplete="off"
-                data-1p-ignore
-                data-lpignore="true"
-                data-form-type="other"
-                placeholder="https://gateway.example.com/api"
-                value={baseURL}
-                onChange={e => setBaseURL(e.target.value)}
-                required={baseURLRequired}
-              />
+              {usingEntra ? (
+                <Text className="text-2xs text-muted-foreground">
+                  The router exchanges the client secret for a short-lived Entra token and sends
+                  only that token to Azure.
+                </Text>
+              ) : null}
+              {!usingFederation && (
+                <Input
+                  label={baseURLRequired ? "Endpoint URL" : "Endpoint URL (optional)"}
+                  name="provider-base-url"
+                  autoComplete="off"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-form-type="other"
+                  placeholder="https://gateway.example.com/api"
+                  value={baseURL}
+                  onChange={e => setBaseURL(e.target.value)}
+                  required={baseURLRequired}
+                />
+              )}
               <Text className="text-2xs text-muted-foreground">
                 {baseURLRequired
                   ? "This provider has no default endpoint. Give the full base URL; the router appends the API path (e.g. /v1/messages)."
@@ -403,13 +724,17 @@ export function ProviderKeysPanel() {
                 onChange={setAliasRows}
                 models={catalogModels}
                 idPrefix="new-key"
+                endpointModels={newEndpointModels}
+                onFetchModels={authTypeOffered ? handleFetchNewModels : undefined}
+                fetching={fetchingNewModels}
+                fetchHint={fetchHint}
               />
               <div>
                 <Button
                   type="submit"
-                  appearance={Appearance.Filled}
+                  appearance={Appearance.Tinted}
                   intent={Intent.Primary}
-                  className="!border-brand !bg-brand !text-white hover:!bg-brand/90"
+                  className="!border-brand !bg-brand !text-wv-on-action hover:!bg-brand/90"
                   disabled={saveDisabled}
                 >
                   {saving ? "Saving…" : "Save key"}
@@ -428,10 +753,7 @@ export function ProviderKeysPanel() {
           <Card.Content>
             <ul className="divide-y divide-border">
               {envKeyed.map(p => (
-                <li
-                  key={`env-${p}`}
-                  className="flex items-center justify-between px-5 py-3"
-                >
+                <li key={`env-${p}`} className="flex items-center justify-between px-5 py-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-medium text-foreground">
@@ -469,11 +791,22 @@ export function ProviderKeysPanel() {
                         )}
                       </div>
                       <p className="mt-0.5 font-mono text-2xs text-muted-foreground">
-                        {k.key_prefix}…{k.key_suffix}
+                        {k.auth_type === "anthropic_wif"
+                          ? "Anthropic workload identity"
+                          : k.auth_type === "wif"
+                            ? "Workload identity"
+                            : `${k.key_prefix}…${k.key_suffix}`}
                         {k.base_url != null && k.base_url !== "" && (
                           <span className="ml-2 font-sans">· {k.base_url}</span>
                         )}
                       </p>
+                      {k.federation_config != null && (
+                        <p className="mt-0.5 break-all text-2xs text-muted-foreground">
+                          Rule: {k.federation_config.federation_rule_id} · Service account:{" "}
+                          {k.federation_config.service_account_id} · Workspace:{" "}
+                          {k.federation_config.workspace_id || "Rule default"}
+                        </p>
+                      )}
                       <p className="mt-0.5 text-2xs text-muted-foreground">
                         {Object.keys(k.model_aliases ?? {}).length === 0
                           ? "No model aliases"
@@ -484,15 +817,27 @@ export function ProviderKeysPanel() {
                     </div>
                     <div className="flex items-center gap-2">
                       <Button
-                        appearance={Appearance.Outlined}
+                        appearance={Appearance.Hollow}
                         size="sm"
                         onClick={() => {
                           if (editingAliases === k.id) {
                             setEditingAliases(null);
+                            editFetchIDRef.current = null;
+                            setFetchingEditModels(false);
                             return;
                           }
                           setEditingAliases(k.id);
                           setEditAliasRows(aliasRowsFrom(k.model_aliases));
+                          setEditEndpointModels(null);
+                          editFetchIDRef.current = null;
+                          setFetchingEditModels(false);
+                          // Gateways publish their inventory; pull it right
+                          // away so aliases are linkable without a click.
+                          if (
+                            (PROVIDERS_REQUIRING_BASE_URL as readonly string[]).includes(k.provider)
+                          ) {
+                            void handleFetchEditModels(k.id);
+                          }
                         }}
                       >
                         {editingAliases === k.id ? "Cancel" : "Edit aliases"}
@@ -516,12 +861,15 @@ export function ProviderKeysPanel() {
                         onChange={setEditAliasRows}
                         models={catalogModels}
                         idPrefix={`key-${k.id}`}
+                        endpointModels={editEndpointModels}
+                        onFetchModels={() => handleFetchEditModels(k.id)}
+                        fetching={fetchingEditModels}
                       />
                       <div>
                         <Button
-                          appearance={Appearance.Filled}
+                          appearance={Appearance.Tinted}
                           intent={Intent.Primary}
-                          className="!border-brand !bg-brand !text-white hover:!bg-brand/90"
+                          className="!border-brand !bg-brand !text-wv-on-action hover:!bg-brand/90"
                           onClick={() => handleSaveAliases(k.id)}
                           disabled={savingAliases}
                         >
@@ -562,7 +910,7 @@ function ProviderPicker({
           <Button
             id="provider-picker"
             type="button"
-            appearance={Appearance.Outlined}
+            appearance={Appearance.Hollow}
             className="h-9 w-full justify-between border-input px-3 text-sm font-normal"
           >
             <span>{providerLabel(value)}</span>

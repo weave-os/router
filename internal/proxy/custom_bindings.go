@@ -2,10 +2,13 @@ package proxy
 
 import (
 	"context"
+	"net/url"
 	"sort"
+	"strings"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/router/catalog"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/catalog"
 )
 
 // customBindingsForRequest derives configuration-declared provider bindings
@@ -15,7 +18,71 @@ func (s *Service) customBindingsForRequest(ctx context.Context) map[string][]str
 	return customBindingsFromKeys(externalKeysFromContext(ctx))
 }
 
+// gatewayProvidersForRequest returns BYOK gateway providers for this request.
+// Deployment-level gateway keys are excluded: they keep serving catalog bindings.
+func (s *Service) gatewayProvidersForRequest(ctx context.Context) map[string]struct{} {
+	return gatewayProvidersFromKeys(externalKeysFromContext(ctx))
+}
+
+// gatewayUnservedModelsForRequest returns aliased catalog models every
+// gateway key for this request has answered model-not-found for. Only
+// non-nil when at least one gateway provider is active.
+func (s *Service) gatewayUnservedModelsForRequest(ctx context.Context) map[string]struct{} {
+	keys := externalKeysFromContext(ctx)
+	if len(gatewayProvidersFromKeys(keys)) == 0 {
+		return nil
+	}
+	declared := make(map[string]int)
+	unserved := make(map[string]int)
+	for _, key := range keys {
+		if len(key.Plaintext) == 0 || !providers.IsGateway(key.Provider) {
+			continue
+		}
+		for model := range key.ModelAliases {
+			m, known := catalog.ByID(model)
+			if !known {
+				continue
+			}
+			declared[m.ID]++
+			if s.gatewayLacksModel(gatewayModelKey(key.BaseURL, key.Provider, m.ID)) {
+				unserved[m.ID]++
+			}
+		}
+	}
+	var out map[string]struct{}
+	for model, count := range unserved {
+		// A second gateway may still serve it; only drop the model when every
+		// endpoint aliasing it has refused.
+		if count < declared[model] {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]struct{}, len(unserved))
+		}
+		out[model] = struct{}{}
+	}
+	return out
+}
+
+func gatewayProvidersFromKeys(keys []*auth.ExternalAPIKey) map[string]struct{} {
+	var out map[string]struct{}
+	for _, key := range keys {
+		if len(key.Plaintext) == 0 || !providers.IsGateway(key.Provider) {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]struct{}, len(keys))
+		}
+		out[key.Provider] = struct{}{}
+	}
+	return out
+}
+
 func customBindingsFromKeys(keys []*auth.ExternalAPIKey) map[string][]string {
+	return aliasedBindingsFromKeys(keys, false)
+}
+
+func aliasedBindingsFromKeys(keys []*auth.ExternalAPIKey, includeRetired bool) map[string][]string {
 	var out map[string][]string
 	for _, key := range keys {
 		// Mirrors enabledProvidersForRequest: a key with no usable plaintext
@@ -25,7 +92,7 @@ func customBindingsFromKeys(keys []*auth.ExternalAPIKey) map[string][]string {
 		}
 		for model := range key.ModelAliases {
 			m, known := catalog.ByID(model)
-			if !known || m.Tier == catalog.TierUnknown {
+			if !known || (m.Tier == catalog.TierUnknown && !includeRetired) {
 				continue
 			}
 			if out == nil {
@@ -40,4 +107,36 @@ func customBindingsFromKeys(keys []*auth.ExternalAPIKey) map[string][]string {
 		sort.Strings(provs)
 	}
 	return out
+}
+
+// cortexGatewayProvidersForRequest returns the gateway providers whose BYOK
+// key points at Cortex, the only gateways with measured windows.
+func cortexGatewayProvidersForRequest(ctx context.Context) map[string]struct{} {
+	var out map[string]struct{}
+	for _, key := range externalKeysFromContext(ctx) {
+		if len(key.Plaintext) == 0 || !providers.IsGateway(key.Provider) || !isCortexHost(key.BaseURL) {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]struct{}, 1)
+		}
+		out[key.Provider] = struct{}{}
+	}
+	return out
+}
+
+func isCortexHost(baseURL string) bool {
+	u, err := url.Parse(baseURL)
+	return err == nil && strings.HasSuffix(strings.ToLower(u.Hostname()), ".snowflakecomputing.com")
+}
+
+// gatewayContextWindow is contextWindowForRequest with the measured window of
+// a Cortex gateway, which can cap a model below the vendor's window.
+func gatewayContextWindow(cortexGateways map[string]struct{}, modelID, provider string) int {
+	if _, measured := cortexGateways[provider]; measured {
+		if w, ok := catalog.CortexGatewayContextWindow(modelID, provider); ok {
+			return w
+		}
+	}
+	return contextWindowForRequest(modelID, provider)
 }

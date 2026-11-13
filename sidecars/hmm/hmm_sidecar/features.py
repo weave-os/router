@@ -278,47 +278,33 @@ def current_text_has_tool_intent(text: str) -> bool:
     return _intent_flags(text)[0] == 0.0
 
 
-def tool_context_features(payload: dict[str, Any]) -> np.ndarray:
-    available = [
-        str(value).strip()
-        for value in payload.get("available_tools") or []
-        if str(value).strip()
+def _wire_names(payload: dict[str, Any], field: str) -> list[str]:
+    return [
+        str(value).strip() for value in payload.get(field) or [] if str(value).strip()
     ]
+
+
+def tool_context_features(payload: dict[str, Any]) -> np.ndarray:
+    # available_tools, invoked_tools, and latest_user_text are router-owned
+    # facts; only aggregate call/result counts are derived here.
+    available = _wire_names(payload, "available_tools")
+    prior_names = _wire_names(payload, "invoked_tools")
     messages = payload.get("conversation_messages") or []
-    prior_names: list[str] = []
     calls = turns = results = errors = 0
     if isinstance(messages, list):
         for message in messages:
             if not isinstance(message, dict):
                 continue
-            message_calls = 0
-            for call in message.get("tool_calls") or []:
-                if isinstance(call, dict):
-                    name = str(call.get("name") or "").strip()
-                    if name:
-                        prior_names.append(name)
-                    calls += 1
-                    message_calls += 1
+            message_calls = sum(
+                1 for call in message.get("tool_calls") or [] if isinstance(call, dict)
+            )
+            calls += message_calls
             turns += 1 if message_calls else 0
             for result in message.get("tool_results") or []:
                 if isinstance(result, dict):
                     results += 1
                     errors += 1 if bool(result.get("is_error")) else 0
-    available = list(dict.fromkeys([*available, *prior_names]))
-    latest = ""
-    if isinstance(messages, list):
-        for message in reversed(messages):
-            if not isinstance(message, dict):
-                continue
-            role = str(message.get("role") or "").strip().lower()
-            if role != "user":
-                continue
-            latest = str(message.get("text") or "").strip()
-            if latest:
-                break
-    latest = latest or str(
-        payload.get("latest_user_text") or payload.get("prompt_text") or ""
-    )
+    latest = str(payload.get("latest_user_text") or "")
     has_tools = bool(payload.get("has_tools"))
     return np.asarray(
         [

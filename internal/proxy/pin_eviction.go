@@ -5,18 +5,33 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 )
 
 // pinEvictionStrikeThreshold is the consecutive-non-retryable-4xx count that
-// expires a sticky pin. Two (not one) tolerates a single transient 400
-// without flushing a working pin's prompt cache.
+// expires a sticky pin. One strike: a non-retryable 400 (provider grammar/
+// schema rejection, capability rejection) is deterministic per-arm, so a
+// second attempt on the same pinned model 400s identically — waiting for two
+// locks the session onto a dead arm for its lifetime (the 2026-08-21 Fireworks
+// "Conflict in schema definitions" lockout). The prompt-cache cost of a single
+// spurious eviction is far cheaper than a dead session.
+// Generic counter: a single request-specific 400 (validation, malformed body)
+// must not throw away a working pin's prompt cache — the deterministic
+// dead-arm classes (schema/capability/intrinsically-incompatible) evict
+// immediately via maybeExpireDeadArmPin, so this threshold only guards the
+// residual non-deterministic 4xx noise.
 const pinEvictionStrikeThreshold = 2
+
+const (
+	pinEvictionReasonSubscriptionPool  = "subscription_pool_exhausted"
+	pinEvictionReasonSubscriptionModel = "subscription_model_unavailable"
+)
 
 // expireSessionPin writes an already-expired sessionpin.Pin so the next
 // turn's loadPin discards it and the session re-routes via the cluster
@@ -49,16 +64,7 @@ func (s *Service) expireSessionPinRow(
 	reason string,
 	invalidateContinuation bool,
 ) error {
-	expired := sessionpin.Pin{
-		SessionKey:     sessionKey,
-		Role:           role,
-		InstallationID: installationID,
-		Provider:       "",
-		Model:          "",
-		Reason:         reason,
-		TurnCount:      1,
-		PinnedUntil:    time.Now().Add(-time.Second),
-	}
+	expired := expiredSessionPin(installationID, sessionKey, role, reason, router.StrategyFromContext(ctx))
 	if err := s.pinStore.Upsert(context.Background(), expired); err != nil {
 		return err
 	}
@@ -66,6 +72,28 @@ func (s *Service) expireSessionPinRow(
 		return nil
 	}
 	return s.invalidatePostCommandContinuation(ctx, sessionKey, role)
+}
+
+// expiredSessionPin is the already-expired marker for one (session_key, role)
+// row: no model, so loadPin discards it and the next turn re-routes.
+func expiredSessionPin(
+	installationID uuid.UUID,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+	role string,
+	reason string,
+	strategy router.Strategy,
+) sessionpin.Pin {
+	return sessionpin.Pin{
+		SessionKey:     sessionKey,
+		Role:           role,
+		InstallationID: installationID,
+		Provider:       "",
+		Model:          "",
+		Reason:         reason,
+		Strategy:       strategy,
+		TurnCount:      1,
+		PinnedUntil:    time.Now().Add(-time.Second),
+	}
 }
 
 func (s *Service) expireSessionPinAndHMMHistory(
@@ -123,6 +151,68 @@ func (s *Service) evictPinAfterDegenerateResponse(
 	)
 }
 
+// maybeExpireDeadArmPin expires the sticky pin when the pinned arm provably
+// cannot serve the request shape (schema/capability rejection) even after a
+// sibling/baseline rescue. A successful rescue nils proxyErr, so
+// maybeEvictPinAfterUpstreamErr resets the strike counter and the dead arm
+// stays pinned — every subsequent turn burns another deterministic 400. Never
+// expires a user force-model pin (HasPrefix covers the +tier_clamp suffix).
+func (s *Service) maybeExpireDeadArmPin(
+	ctx context.Context,
+	deadArmRejected bool,
+	decisionReason string,
+	installationID uuid.UUID,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+	role string,
+) {
+	if !deadArmRejected || s.pinStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) || strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
+		return
+	}
+	log := observability.FromContext(ctx)
+	if err := s.expireSessionPin(ctx, installationID, sessionKey, role, "dead_arm_rejected"); err != nil {
+		log.Error("pin eviction after dead-arm rejection failed", "err", err, "role", role)
+	}
+}
+
+// maybeExpireSubscriptionArmPin expires a sticky pin when its subscription
+// pool is empty or every available account has denied the selected model.
+// The client-visible errors stay distinct, while both outcomes invalidate an
+// automatic pin. Also expires a pin written on this first unpinned turn so the
+// next request re-scores. Never expires a user force-model pin.
+func (s *Service) maybeExpireSubscriptionArmPin(
+	ctx context.Context,
+	failure error,
+	decisionReason string,
+	installationID uuid.UUID,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+	role string,
+) {
+	reason := subscriptionArmPinEvictionReason(failure)
+	if reason == "" || s.pinStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) || strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
+		return
+	}
+	log := observability.FromContext(ctx)
+	if err := s.expireSessionPin(ctx, installationID, sessionKey, role, reason); err != nil {
+		log.Error("pin eviction after subscription arm became unavailable failed", "err", err, "role", role, "reason", reason)
+		return
+	}
+	log.Info("session pin evicted after subscription arm became unavailable",
+		"role", role,
+		"reason", reason,
+	)
+}
+
+func subscriptionArmPinEvictionReason(err error) string {
+	switch {
+	case isSubscriptionPoolError(err):
+		return pinEvictionReasonSubscriptionPool
+	case anthropicSubscriptionModelRejected(err):
+		return pinEvictionReasonSubscriptionModel
+	default:
+		return ""
+	}
+}
+
 // maybeEvictPinAfterUpstreamErr applies the two-strike eviction policy for a
 // turn run against a sticky pin: a successful turn resets the strike counter,
 // a non-retryable upstream 4xx increments it, and hitting
@@ -160,7 +250,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 	if proxyErr == nil {
 		// context.Background(): the request ctx is already canceled by the
 		// time streaming finishes, but this reset must still go through.
-		if err := s.pinStore.ResetUpstreamErrors(context.Background(), sessionKey, role); err != nil {
+		if err := s.pinStore.ResetUpstreamErrors(context.Background(), sessionKey, role, router.StrategyFromContext(ctx)); err != nil {
 			log.Error("pin error-counter reset failed", "err", err, "role", role)
 		}
 		return
@@ -176,7 +266,7 @@ func (s *Service) maybeEvictPinAfterUpstreamErr(
 		return
 	}
 
-	count, err := s.pinStore.IncrementUpstreamErrors(context.Background(), sessionKey, role)
+	count, err := s.pinStore.IncrementUpstreamErrors(context.Background(), sessionKey, role, router.StrategyFromContext(ctx))
 	if err != nil {
 		log.Error("pin error-counter increment failed", "err", err, "role", role, "upstream_status", status)
 		return

@@ -15,7 +15,7 @@ import (
 	"sync"
 	"testing"
 
-	"workweave/router/internal/sse"
+	"weave-os/router/internal/sse"
 
 	"github.com/stretchr/testify/require"
 )
