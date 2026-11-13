@@ -94,11 +94,16 @@ func TestResolveRouted_FailsClosed(t *testing.T) {
 		mutate func(*policy.RoutedResolutionRequest)
 		code   policy.ResolutionErrorCode
 	}{
-		"unknown purpose":     {func(r *policy.RoutedResolutionRequest) { r.Purpose = "nope" }, policy.ResolutionErrorUnknownPurpose},
-		"auxiliary purpose":   {func(r *policy.RoutedResolutionRequest) { r.Purpose = policy.PurposeHandoverSummary }, policy.ResolutionErrorUnsupportedPurpose},
-		"no model":            {func(r *policy.RoutedResolutionRequest) { r.Decision.Model = "" }, policy.ResolutionErrorMissingSelection},
-		"no bindings":         {func(r *policy.RoutedResolutionRequest) { r.Bindings = nil }, policy.ResolutionErrorNoEligibleBinding},
-		"unnamed provider":    {func(r *policy.RoutedResolutionRequest) { r.Bindings = []catalog.ProviderBinding{{}} }, policy.ResolutionErrorNoEligibleBinding},
+		"unknown purpose":   {func(r *policy.RoutedResolutionRequest) { r.Purpose = "nope" }, policy.ResolutionErrorUnknownPurpose},
+		"auxiliary purpose": {func(r *policy.RoutedResolutionRequest) { r.Purpose = policy.PurposeHandoverSummary }, policy.ResolutionErrorUnsupportedPurpose},
+		"no model":          {func(r *policy.RoutedResolutionRequest) { r.Decision.Model = "" }, policy.ResolutionErrorMissingSelection},
+		"no bindings":       {func(r *policy.RoutedResolutionRequest) { r.Bindings = nil }, policy.ResolutionErrorNoEligibleBinding},
+		"unnamed provider":  {func(r *policy.RoutedResolutionRequest) { r.Bindings = []catalog.ProviderBinding{{}} }, policy.ResolutionErrorNoEligibleBinding},
+		"deployment-funded binding the catalog does not list": {func(r *policy.RoutedResolutionRequest) {
+			r.CatalogBindingsOnly = true
+			r.Decision.Provider = providers.ProviderFireworks
+			r.Bindings = []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}, {Provider: providers.ProviderAnthropic}}
+		}, policy.ResolutionErrorNoEligibleBinding},
 		"policy default":      {func(r *policy.RoutedResolutionRequest) { r.Origin = policy.OverrideSourcePolicyDefault }, policy.ResolutionErrorInvalidOverride},
 		"unknown origin":      {func(r *policy.RoutedResolutionRequest) { r.Origin = "vibes" }, policy.ResolutionErrorInvalidOverride},
 		"undeclared override": {func(r *policy.RoutedResolutionRequest) { r.Origin = policy.OverrideSourceClientAuthoritative }, policy.ResolutionErrorOverrideNotAllowed},
@@ -116,6 +121,45 @@ func TestResolveRouted_FailsClosed(t *testing.T) {
 			assert.Equal(t, tc.code, resolution.Code)
 		})
 	}
+}
+
+func TestResolveRouted_CatalogBindingsOnlyKeepsValidWalks(t *testing.T) {
+	resolver := routedResolver(t)
+	cases := map[string]policy.RoutedResolutionRequest{
+		"catalog binding": {
+			Decision: router.Decision{Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic},
+			Bindings: []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		},
+		"gateway keeps aliased model": {
+			Decision: router.Decision{Model: "gpt-5.5", Provider: providers.ProviderOpenAIGateway},
+			Bindings: []catalog.ProviderBinding{{Provider: providers.ProviderOpenAIGateway, ServesAliases: true}},
+		},
+		"unknown model keeps caller binding": {
+			Decision: router.Decision{Model: "not-in-catalog", Provider: providers.ProviderFireworks},
+			Bindings: []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}},
+		},
+	}
+	for name, request := range cases {
+		t.Run(name, func(t *testing.T) {
+			request.Purpose = policy.PurposeAnthropicMessages
+			request.CatalogBindingsOnly = true
+			plan, err := resolver.ResolveRouted(request)
+			require.NoError(t, err)
+			assert.Equal(t, request.Decision.Provider, plan.SelectedBinding().Provider)
+		})
+	}
+}
+
+// Unbound providers stay allowed when the caller funds the walk (BYOK custom
+// endpoints, gateways and client keys are not catalog bindings).
+func TestResolveRouted_CallerFundedWalkKeepsNonCatalogBinding(t *testing.T) {
+	plan, err := routedResolver(t).ResolveRouted(policy.RoutedResolutionRequest{
+		Purpose:  policy.PurposeAnthropicMessages,
+		Decision: router.Decision{Model: "claude-haiku-4-5", Provider: providers.ProviderFireworks},
+		Bindings: []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, -1, plan.SelectedBinding().BindingIndex)
 }
 
 // Hard-pinned turns are authorized under their own policies: the turn loop
