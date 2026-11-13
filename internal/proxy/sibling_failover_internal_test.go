@@ -524,7 +524,7 @@ func TestRescueDecisions_StruckOutPoolWithoutReadmitListStaysEmpty(t *testing.T)
 }
 
 // Struck-out arms are a last resort behind everything else: an eligible
-// candidate keeps them out of the walk entirely, and so does a cooling arm.
+// candidate or cooling arm must fail before a displaced arm is attempted.
 func TestRescueDecisions_StruckOutArmsOnlyWhenNothingElseIsLeft(t *testing.T) {
 	s := siblingService(providers.ProviderAnthropic)
 	md := &router.RoutingMetadata{
@@ -537,13 +537,13 @@ func TestRescueDecisions_StruckOutArmsOnlyWhenNothingElseIsLeft(t *testing.T) {
 	ctx := context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, []string{"claude-sonnet-5"})
 	ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, []string{"claude-sonnet-5"})
 
-	assert.Equal(t, []string{"claude-haiku-4-5"}, siblingModels(s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0)))
+	assert.Equal(t, []string{"claude-haiku-4-5", "claude-sonnet-5"}, siblingModels(s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0)))
 
 	ctx = context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, []string{"claude-sonnet-5", "claude-haiku-4-5"})
 	ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, []string{"claude-sonnet-5"})
 	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{"claude-haiku-4-5": time.Now().Add(time.Minute)})
 
-	assert.Equal(t, []string{"claude-haiku-4-5"}, siblingModels(s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0)))
+	assert.Equal(t, []string{"claude-haiku-4-5", "claude-sonnet-5"}, siblingModels(s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0)))
 }
 
 // Lifting a session strike never lifts the deployment-wide exclusion or a

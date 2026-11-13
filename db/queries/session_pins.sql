@@ -193,6 +193,11 @@ ON CONFLICT (session_key, role) DO UPDATE SET
       THEN router.session_pins.demoted_models
     ELSE '{}'
   END,
+  model_failure_at = CASE
+    WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
+      THEN router.session_pins.model_failure_at
+    ELSE '{}'::jsonb
+  END,
   demotion_cooldowns = CASE
     WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
       THEN router.session_pins.demotion_cooldowns
@@ -395,13 +400,14 @@ INSERT INTO router.session_pins (
   session_key, role, installation_id, pinned_provider,
   pinned_model, pinned_effort, paired_provider, paired_model,
   decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
-  demoted_models
+  demoted_models, model_failure_at
 ) VALUES (
   @session_key::bytea, @role::varchar, @installation_id::uuid,
   '', '', '', '', '',
   @decision_reason::text, @expected_routing_strategy::varchar, '',
   1, @pinned_until::timestamp,
-  ARRAY[@model::varchar]::text[]
+  ARRAY[@model::varchar]::text[],
+  jsonb_build_object(@model::varchar, to_jsonb(clock_timestamp()))
 )
 ON CONFLICT (session_key, role) DO UPDATE SET
   pinned_provider  = '',
@@ -413,6 +419,7 @@ ON CONFLICT (session_key, role) DO UPDATE SET
   routing_strategy = EXCLUDED.routing_strategy,
   pinned_until     = EXCLUDED.pinned_until,
   last_seen_at     = CURRENT_TIMESTAMP,
+  model_failure_at = router.session_pins.model_failure_at || EXCLUDED.model_failure_at,
   demoted_models   = CASE
     WHEN @model::varchar = ANY(router.session_pins.demoted_models)
       THEN router.session_pins.demoted_models
@@ -432,13 +439,14 @@ INSERT INTO router.session_pins (
   session_key, role, installation_id, pinned_provider,
   pinned_model, pinned_effort, paired_provider, paired_model,
   decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
-  demotion_cooldowns
+  demotion_cooldowns, model_failure_at
 ) VALUES (
   @session_key::bytea, @role::varchar, @installation_id::uuid,
   '', '', '', '', '',
   @decision_reason::text, @expected_routing_strategy::varchar, '',
   1, @pinned_until::timestamp,
-  jsonb_build_object(@model::varchar, to_jsonb(@cooldown_until::timestamptz))
+  jsonb_build_object(@model::varchar, to_jsonb(@cooldown_until::timestamptz)),
+  jsonb_build_object(@model::varchar, to_jsonb(clock_timestamp()))
 )
 ON CONFLICT (session_key, role) DO UPDATE SET
   pinned_provider  = '',
@@ -450,6 +458,7 @@ ON CONFLICT (session_key, role) DO UPDATE SET
   routing_strategy = EXCLUDED.routing_strategy,
   pinned_until     = EXCLUDED.pinned_until,
   last_seen_at     = CURRENT_TIMESTAMP,
+  model_failure_at = router.session_pins.model_failure_at || EXCLUDED.model_failure_at,
   demotion_cooldowns = router.session_pins.demotion_cooldowns || EXCLUDED.demotion_cooldowns
 WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
   OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy NOT IN ('hmm_beta', 'hmm_qwen'));
@@ -471,10 +480,13 @@ WHERE session_key = @session_key::bytea
 -- strike survives the pin rewrite to the rescuing model.
 -- name: UpdateSessionPinTurnStrike :exec
 UPDATE router.session_pins
-SET turn_strikes = array_append(turn_strikes, @model::varchar)
+SET turn_strikes = CASE
+      WHEN @model::varchar = ANY(turn_strikes) THEN turn_strikes
+      ELSE array_append(turn_strikes, @model::varchar)
+    END,
+    model_failure_at = model_failure_at || jsonb_build_object(@model::varchar, to_jsonb(clock_timestamp()))
 WHERE session_key = @session_key::bytea
-  AND role = @role::varchar
-  AND NOT (@model::varchar = ANY(turn_strikes));
+  AND role = @role::varchar;
 
 -- Clears the agent-turn strikes once a real user prompt starts the next turn.
 -- name: DeleteSessionPinTurnStrikes :exec
@@ -491,3 +503,17 @@ WHERE session_key = @session_key::bytea
 -- name: SweepExpiredSessionPins :exec
 DELETE FROM router.session_pins
 WHERE pinned_until < now() - interval '24 hours';
+
+-- A successful last-resort winner must not remain session-demoted in the
+-- active pin rows after its conversation-level preference is committed. Never
+-- clear a failure written after the successful request began.
+-- name: ClearSiblingWinnerExclusions :exec
+UPDATE router.session_pins
+SET demoted_models = array_remove(demoted_models, @preferred_model::varchar),
+    demotion_cooldowns = demotion_cooldowns - @preferred_model::text,
+    turn_strikes = array_remove(turn_strikes, @preferred_model::varchar)
+WHERE session_key = @session_key::bytea
+  AND role = ANY(@roles::text[])
+  AND (routing_strategy = @expected_routing_strategy::varchar
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen')))
+  AND COALESCE((model_failure_at ->> @preferred_model::text)::timestamptz, '-infinity'::timestamptz) <= @request_started_at::timestamptz;

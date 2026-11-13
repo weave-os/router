@@ -88,7 +88,8 @@ type Overrides struct {
 }
 
 type Request struct {
-	TaskDomain *taskdomain.Input
+	SiblingPreferences map[escalation.Group]SiblingPreference
+	TaskDomain         *taskdomain.Input
 	// ClassifierPrediction is set only after release-bound durable classification.
 	ClassifierPrediction *ClassifierPrediction `json:"-"`
 	// Escalation constrains automatic class selection for an opted-in session.
@@ -331,6 +332,9 @@ func (d Decision) ServedIdentity() string {
 // RoutingMetadata lets downstream components reuse the embedding and
 // cluster context without recomputing.
 type RoutingMetadata struct {
+	// SiblingModels bounds session preference updates to this group's eligible
+	// models; a cross-group rescue must not become a preference in this group.
+	SiblingModels []string
 	// Escalation preserves the raw classifier group and accepted automatic intervention.
 	Escalation *escalation.Decision
 
@@ -445,6 +449,7 @@ const (
 	SelectionOverrideSlidingThreshold SelectionOverrideReason = "sliding_threshold"
 	SelectionOverrideForceCluster     SelectionOverrideReason = "force_cluster"
 	SelectionOverrideCluster          SelectionOverrideReason = "cluster_override"
+	SelectionOverrideSibling          SelectionOverrideReason = "session_sibling_preference"
 )
 
 // SelectionTrace is the content-free replay record for one Go-owned policy

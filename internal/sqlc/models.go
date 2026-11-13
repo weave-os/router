@@ -1067,6 +1067,7 @@ type RouterSessionPin struct {
 	TurnStrikes               []string
 	ForcedThreadKey           string
 	TokenizerCalibration      []byte
+	ModelFailureAt            []byte
 }
 
 type RouterSessionPinRecoveryProbeLease struct {
@@ -1093,6 +1094,13 @@ type RouterSessionReleaseBinding struct {
 	Binding               []byte
 	CreatedAt             pgtype.Timestamptz
 	LastAdmittedAt        pgtype.Timestamptz
+}
+
+type RouterSessionSiblingPreference struct {
+	InstallationID  uuid.UUID
+	SessionKey      []byte
+	RoutingStrategy string
+	Preferences     []byte
 }
 
 // Explicit per-session router strategy preferences

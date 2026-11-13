@@ -11,6 +11,8 @@ type ConversationKeyDomain string
 const (
 	// ForceModelConversationKey is independent of thread-first-message model pins.
 	ForceModelConversationKey ConversationKeyDomain = "force_model_session:"
+	// SiblingPreferenceConversationKey survives thread compaction and pin expiry.
+	SiblingPreferenceConversationKey ConversationKeyDomain = "sibling_preference_session:"
 	// LegacyBetaConversationKey remains the migration identity even after managed beta retirement.
 	LegacyBetaConversationKey ConversationKeyDomain = "beta_session:"
 )

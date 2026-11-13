@@ -428,6 +428,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	}
 	requestRouteID := uuid.NewString()
 	pin, pinned := router.HonouredPolicyPin(ctx)
+	dropSiblingPreferencesOnPolicyPin(&req, pinned)
 	if pinned && r.armSelector == nil {
 		return router.Decision{}, fmt.Errorf("%s: roster pin requires router-owned arm selection: %w", strategy, router.ErrPolicyPinUnavailable)
 	}
@@ -599,17 +600,20 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		}
 	}
 
+	res.RankedFallback = applySiblingPreferences(req, resolved, res.RankedFallback)
+	// Overrides have already constrained the group. Its remembered order may
+	// replace the selected arm, but may not move the request to another group.
+	selection := reselectRememberedSibling(ctx, siblingArmSelection{RosterID: overrideRosterID, ArmID: overrideArmID, Reason: overrideReason, Reselected: reselected}, req, resolved, res.RankedFallback, res.PolicyGroup)
+	overrideRosterID, overrideArmID, overrideReason, reselected = selection.RosterID, selection.ArmID, selection.Reason, selection.Reselected
 	if escalationDecision != nil {
 		escalationDecision.Effective = escalation.Group(res.PolicyGroup)
 	}
-	selectedRosterArmID := overrideArmID
-	if selectedRosterArmID == "" {
-		selectedRosterArmID = overrideRosterID
-	}
+	selectedRosterArmID := armOrRosterID(overrideArmID, overrideRosterID)
 	if routerArmScoresByGroup != nil {
 		res.ArmScores = routerArmScoresByGroup[res.PolicyGroup]
 	}
 	if selectionTrace.SelectedArm != "" {
+		recordRememberedOrders(&selectionTrace, req, res.RankedFallback)
 		selectionTrace.SelectedGroup = res.PolicyGroup
 		selectionTrace.SelectedArm = overrideRosterID
 		selectionTrace.OverrideReason = overrideReason
@@ -698,24 +702,18 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		"score", res.Score,
 	)
 	rescueGroups := EscalatingRescueGroups(res.PolicyGroup, req.ForceCluster, res.RankedFallback)
-	rescueOverrides := req.ClusterArmOverrides
-	if escalationDecision != nil && escalationDecision.Constrained {
-		groupNames := make([]string, 0, len(rescueGroups))
-		for _, group := range rescueGroups {
-			groupNames = append(groupNames, group.Group)
-		}
-		rescueOverrides = escalationArmOverrides(rescueOverrides, groupNames...)
-	}
+	effectiveOverrides, rescueOverrides, poolOverrides := siblingRoutingOverrides(req, rescueGroups, escalationDecision != nil && escalationDecision.Constrained)
 	return router.Decision{
 		Provider: binding.Provider,
 		Model:    binding.CatalogID,
 		Effort:   binding.Effort,
 		Reason:   reason,
 		Metadata: &router.RoutingMetadata{
+			SiblingModels:                 siblingModelsForGroup(res.PolicyGroup, res.RankedFallback, effectiveOverrides, req.ClusterArmOverrides, resolved),
 			Escalation:                    escalationDecision,
 			CandidateModels:               resolved.CandidateModels(),
 			RescueModels:                  RescueModelOrder(rescueOverrides, rescueGroups, resolved),
-			SidecarRescuePool:             RescueCoolingPool(rescueOverrides, rescueGroups, resolved),
+			SidecarRescuePool:             RescueCoolingPool(poolOverrides, rescueGroups, resolved),
 			RosterFailover:                len(res.RankedFallback) > 0 && (req.ForceCluster != "" || escalation.Rank(escalation.Group(res.PolicyGroup)) >= 0),
 			CandidateProviders:            resolved.CandidateProviders(),
 			CandidateScores:               resolved.CatalogCandidateScores(res.CandidateScores),
@@ -830,6 +828,7 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 			selectedArm, selectedGroup = override.RosterID, override.Group
 		}
 	}
+	selectedArm, effectiveOverrides := siblingOrderedSelection(req, resolved, &pick.RankedFallback, selectedGroup, selectedArm)
 	binding, found := resolved.BindingForSelection("", selectedArm)
 	if !found {
 		return router.Decision{}, fmt.Errorf("%s: unscorable roster selected an ineligible arm: %w: %w", r.config.Strategy, ErrNoEligibleArm, r.config.Unavailable)
@@ -843,10 +842,11 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 		Effort:   binding.Effort,
 		Reason:   UnscorableHMMDecisionReason,
 		Metadata: &router.RoutingMetadata{
+			SiblingModels:       siblingModelsForGroup(selectedGroup, pick.RankedFallback, effectiveOverrides, req.ClusterArmOverrides, resolved),
 			Strategy:            string(r.config.Strategy),
 			PolicyGroup:         selectedGroup,
 			CandidateModels:     resolved.CandidateModels(),
-			RescueModels:        RescueModelOrder(req.ClusterArmOverrides, rescueGroups, resolved),
+			RescueModels:        RescueModelOrder(effectiveOverrides, rescueGroups, resolved),
 			SidecarRescuePool:   RescueCoolingPool(req.ClusterArmOverrides, rescueGroups, resolved),
 			RosterFailover:      len(pick.RankedFallback) > 0 && (req.ForceCluster != "" || escalation.Rank(escalation.Group(selectedGroup)) >= 0),
 			CandidateProviders:  resolved.CandidateProviders(),

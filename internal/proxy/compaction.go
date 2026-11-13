@@ -8,14 +8,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
-
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 )
 
 const compactionSessionPinTier = "compaction_session_pin"
@@ -33,23 +33,36 @@ type compactionSummarizer struct {
 // other turn. A utility hard pin is never a fallback: its fixed roster may be
 // excluded or too small for the transcript, which left the client retrying a
 // compaction that could not route.
-func (s *Service) routeCompaction(
-	ctx context.Context,
-	req router.Request,
-	res turnLoopResult,
-	reqHeaders http.Header,
-	sessionKey [sessionpin.SessionKeyLen]byte,
-	installationID uuid.UUID,
-	forceModelFound bool,
-	forceModelPin sessionpin.Pin,
-) (turnLoopResult, error) {
+// compactionTurn is the routed turn a compaction request reuses: the inbound
+// request and loop state, its session key and any /force-model pin.
+type compactionTurn struct {
+	env             *translate.RequestEnvelope
+	req             router.Request
+	res             turnLoopResult
+	reqHeaders      http.Header
+	sessionKey      [sessionpin.SessionKeyLen]byte
+	apiKeyID        string
+	forceModelFound bool
+	forceModelPin   sessionpin.Pin
+}
+
+func (s *Service) routeCompaction(ctx context.Context, t compactionTurn) (turnLoopResult, error) {
+	req, res := t.req, t.res
 	if s.pinStore == nil {
-		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+		return s.routeWithoutPin(ctx, req, res, t.reqHeaders, t.forceModelFound, t.forceModelPin)
 	}
-	res.SessionKey = sessionKey
-	if forceModelFound && forcedPinEligible(forceModelPin, req) {
-		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+	res.SessionKey = t.sessionKey
+	if t.forceModelFound && forcedPinEligible(t.forceModelPin, req) {
+		return s.routeWithoutPin(ctx, req, res, t.reqHeaders, t.forceModelFound, t.forceModelPin)
 	}
+	// Compaction routes like any other automatic turn: a group winner the
+	// session already rescued to leads, and its displaced model is dead for
+	// the rest of the turn.
+	preferences, preferencesErr := loadSiblingPreferences(ctx, s, t.env, t.apiKeyID, res.InstallationID, t.sessionKey, &res)
+	if preferencesErr != nil {
+		return res, siblingPreferenceReadError(preferencesErr)
+	}
+	req.SiblingPreferences = preferences
 	session := compactionSession{
 		pins:           s.pinStore,
 		providers:      s.clients.NameSet(),
@@ -57,7 +70,7 @@ func (s *Service) routeCompaction(
 		cortexGateways: cortexGatewayProvidersForRequest(ctx),
 		now:            time.Now(),
 	}
-	decision, strikes, ok := session.decision(ctx, sessionKey, res.PinRole, req)
+	decision, strikes, ok := session.decision(ctx, t.sessionKey, res.PinRole, req)
 	req = strikes.apply(req)
 	if ok {
 		// The scorer's roster gives the session model sibling rescue candidates.
@@ -73,11 +86,11 @@ func (s *Service) routeCompaction(
 		res.Origin = policy.OverrideSourceSession
 		return res, nil
 	}
-	res, err := s.routeWithoutPin(ctx, req, res, reqHeaders, false, sessionpin.Pin{})
+	res, err := s.routeWithoutPin(ctx, req, res, t.reqHeaders, false, sessionpin.Pin{})
 	if err != nil || res.UsageBypass || res.CallerModelPassthrough {
 		return res, err
 	}
-	s.writeNewPin(ctx, installationID, sessionKey, res.PinRole, res.Decision)
+	s.writeNewPin(ctx, res.InstallationID, t.sessionKey, res.PinRole, res.Decision)
 	return res, nil
 }
 
@@ -137,6 +150,9 @@ func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.
 		}
 		strikes.disabledProviders = mergeSessionStrikes(strikes.disabledProviders, pin.DisabledProviders)
 		strikes.demotedModels = mergeSessionStrikes(strikes.demotedModels, pin.DemotedModels)
+		// A model rescued earlier in this agent turn is struck until the next
+		// real user prompt; compaction must not re-walk it either.
+		strikes.demotedModels = mergeSessionStrikes(strikes.demotedModels, pin.TurnStrikes)
 		if pinRole == role && !pin.PinnedUntil.After(c.now) {
 			continue
 		}
@@ -169,7 +185,7 @@ func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.
 	pin := sessionpin.Pin{Provider: binding.Provider, Model: model, Effort: effort, Reason: compactionSessionPinTier}
 	fits := req.EstimatedInputTokens <= 0 ||
 		req.EstimatedInputTokens+contextWindowOutputReserve <= gatewayContextWindow(c.cortexGateways, model, binding.Provider)
-	struck := slices.Contains(strikes.disabledProviders, binding.Provider) || slices.Contains(strikes.demotedModels, model)
+	struck := slices.Contains(strikes.disabledProviders, binding.Provider) || slices.Contains(strikes.demotedModels, model) || slices.Contains(req.SiblingPreferences[escalation.Group(served.PolicyGroup)].DisplacedModels, model)
 	if !fits || struck || !automaticPinEligible(pin, req) {
 		return router.Decision{}, strikes, false
 	}
@@ -242,3 +258,7 @@ func servedBinding(model, servedProvider string, providerSet map[string]struct{}
 	}
 	return catalog.ResolveBindingWithCustom(model, providerSet, custom)
 }
+
+// siblingDisplacedPreference reports whether the served pin's group remembers
+// a winner that displaced this model: it stays a last-resort candidate but is
+// not the pick.

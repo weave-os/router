@@ -147,10 +147,9 @@ func (s *Service) rescueDecisions(ctx context.Context, failed router.Decision, c
 // router from choosing them, so a turn with no other candidate tries one
 // before surfacing its failure.
 //
-// Only after that does a sibling failover readmit
-// session-lifetime demotions: a session whose every arm has been struck out
-// still gets one rescue attempt on an arm that failed on an earlier turn
-// instead of surfacing this turn's failure. Other rescues (the cyber-refusal
+// Session-lifetime demotions are appended after eligible and cooling arms,
+// so the dispatch loop tries them only after every healthier option fails.
+// This preserves a last resort even for a two-model roster. Other rescues (the cyber-refusal
 // retry) walk their own ordered fallbacks and never readmit a strike.
 func (s *Service) rescueWalkOrReadmitCooling(
 	ctx context.Context,
@@ -174,19 +173,25 @@ func (s *Service) rescueWalkOrReadmitCooling(
 		)
 	}
 	decisions = append(decisions, s.readmitCoolingRescueCandidates(ctx, failed, candidates, reason, excludedModels, est, sigSavings, outputReserve, providerFor)...)
-	if len(decisions) > 0 || reason != ReasonSiblingFailover {
+	if reason != ReasonSiblingFailover {
 		return decisions
 	}
-	if overloaded := slices.Sorted(maps.Keys(s.overloadOpenModels(ctx))); len(overloaded) > 0 {
-		if decisions = s.readmissionWalk(ctx, failed, candidates, overloaded, reason, excludedModels, est, sigSavings, outputReserve, providerFor); len(decisions) > 0 {
-			return decisions
-		}
+	if overloaded := slices.Sorted(maps.Keys(s.overloadOpenModels(ctx))); len(decisions) == 0 && len(overloaded) > 0 {
+		// Overload-open arms are tried before the bounded strike readmission
+		// below, not instead of it: a readmitted arm that fails pre-commit must
+		// still leave the struck last resort available.
+		decisions = append(decisions, s.readmissionWalk(ctx, failed, candidates, overloaded, reason, excludedModels, est, sigSavings, outputReserve, providerFor)...)
 	}
 	struck := strikesInRescuePool(failed, candidates, sessionStrikeReadmitModelsFromContext(ctx))
 	if len(struck) == 0 {
-		return nil
+		return decisions
 	}
-	return s.readmissionWalk(ctx, failed, candidates, struck, reason, excludedModels, est, sigSavings, outputReserve, providerFor)
+	for _, readmitted := range s.readmissionWalk(ctx, failed, candidates, struck, reason, excludedModels, est, sigSavings, outputReserve, providerFor) {
+		if !slices.ContainsFunc(decisions, func(candidate router.Decision) bool { return candidate.Model == readmitted.Model }) {
+			decisions = append(decisions, readmitted)
+		}
+	}
+	return decisions
 }
 
 func (s *Service) readmitCoolingRescueCandidates(
