@@ -159,3 +159,55 @@ func TestStripThenExtract_SkillBlobAfterAnAckDoesNotRevivePriorFeedback(t *testi
 	_, found := env.ExtractRouterFeedbackCommand()
 	assert.False(t, found, "a completed feedback turn must not be recorded twice")
 }
+
+const codexPastedFilesTurn = " # Files pasted by the user:\n\n## \"Notes from yesterday\": /x/.codex/attachments/1/Pasted text.txt\n\n## My request: "
+
+func TestExtractForceModelCommand_CodexPastedFilesRequest(t *testing.T) {
+	env := codexEnvelope(t,
+		codexUserItem("<environment_context><cwd>/x</cwd></environment_context>"),
+		codexUserItem(codexPastedFilesTurn+"$force-model gpt-6-astra xhigh "),
+		codexUserItem(codexSkillBlob),
+	)
+	res, found := env.ExtractForceModelCommand()
+	require.True(t, found, "a pasted file must not hide the directive the user typed")
+	assert.Equal(t, "gpt-6-astra xhigh", res.Model)
+	assert.False(t, res.FromToolResult)
+}
+
+func TestExtractForceModelCommand_CodexPastedFilesMentionIsNotCommand(t *testing.T) {
+	env := codexEnvelope(t,
+		codexUserItem(codexPastedFilesTurn+"explain what $fm astra does"),
+	)
+	_, found := env.ExtractForceModelCommand()
+	assert.False(t, found)
+}
+
+func TestExtractForceModelCommand_CodexAppTypedDirective(t *testing.T) {
+	for name, text := range map[string]string{
+		"pasted file, quoted":  codexPastedFilesTurn + "`$force-model gpt-6-astra xhigh`   \n",
+		"picked skill":         " [$fm](/Users/dev/.codex/skills/fm/SKILL.md) gpt-6-astra xhigh ",
+		"picked skill, pasted": codexPastedFilesTurn + "[$force-model](/Users/dev/.codex/skills/force-model/SKILL.md) gpt-6-astra xhigh",
+		"quoted, no paste":     "`$fm gpt-6-astra xhigh`",
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := codexEnvelope(t, codexUserItem(text), codexUserItem(codexSkillBlob))
+			res, found := env.ExtractForceModelCommand()
+			require.True(t, found)
+			assert.Equal(t, "gpt-6-astra xhigh", res.Model)
+		})
+	}
+}
+
+func TestExtractForceModelCommand_CodexAppDirectiveLookalikesAreNotCommands(t *testing.T) {
+	for name, text := range map[string]string{
+		"link to another skill": "[$fm](/Users/dev/.codex/skills/review/SKILL.md) gpt-6-astra",
+		"mention mid-sentence":  "what does [$fm](/Users/dev/.codex/skills/fm/SKILL.md) astra do?",
+		"code span in prose":    "run `$fm astra` later",
+	} {
+		t.Run(name, func(t *testing.T) {
+			env := codexEnvelope(t, codexUserItem(text))
+			_, found := env.ExtractForceModelCommand()
+			assert.False(t, found)
+		})
+	}
+}

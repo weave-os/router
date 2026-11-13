@@ -208,7 +208,7 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 	for _, candidate := range candidates {
 		found, stripped := parse(candidate.text, candidate.fromToolResult)
 		if !found && !candidate.fromToolResult {
-			if before, query, after, ok := cursorUserQuery(candidate.text); ok {
+			if before, query, after, ok := typedMessageInWrapper(candidate.text); ok {
 				if found, stripped = parse(query, candidate.fromToolResult); found {
 					stripped = before + stripped + after
 				}
@@ -262,7 +262,7 @@ func parseInCursorQuery[T any](text string, parse func(string) (T, bool, string)
 	if found {
 		return res, found, stripped
 	}
-	if before, query, after, ok := cursorUserQuery(text); ok {
+	if before, query, after, ok := typedMessageInWrapper(text); ok {
 		if inner, innerFound, innerStripped := parse(query); innerFound {
 			if strings.TrimSpace(innerStripped) == "" {
 				return inner, true, strings.TrimSuffix(before, cursorUserQueryOpen)
