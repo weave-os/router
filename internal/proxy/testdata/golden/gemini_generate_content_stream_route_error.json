@@ -1,0 +1,29 @@
+{
+  "requests": [
+    {
+      "ingress": "gemini_generate_content",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "gemini-2.5-flash",
+          "error": "no eligible model"
+        }
+      ],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 502,
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "error": {
+            "code": 502,
+            "message": "Upstream call failed.",
+            "status": "UPSTREAM_ERROR"
+          }
+        }
+      }
+    }
+  ],
+  "scenario": "gemini_generate_content_stream_route_error"
+}

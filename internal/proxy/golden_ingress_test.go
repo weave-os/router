@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	geminiapi "weave-os/router/internal/api/gemini"
 	openaiapi "weave-os/router/internal/api/openai"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
@@ -21,7 +25,9 @@ import (
 // include the error envelope each surface renders from a returned error.
 const (
 	ingressResponses = "openai_responses"
+	ingressGemini    = "gemini_generate_content"
 
+	goldenGeminiModel = "gemini-2.5-flash"
 	goldenOpenAIModel = "gpt-5.5"
 	goldenCodexUA     = "codex_cli_rs/0.50.0"
 )
@@ -35,6 +41,7 @@ var goldenIngressSurfaces = map[string]goldenIngressSurface{
 	ingressAnthropic: {path: "/v1/messages", serve: (*proxy.Service).ProxyMessages},
 	ingressOpenAI:    {path: "/v1/chat/completions", serve: (*proxy.Service).ProxyOpenAIChatCompletion},
 	ingressResponses: {path: "/v1/responses", serve: goldenHandler("/v1/responses", openaiapi.ResponsesHandler)},
+	ingressGemini:    {path: goldenGeminiPath(false), serve: goldenHandler("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler)},
 }
 
 func init() { gin.SetMode(gin.TestMode) }
@@ -50,8 +57,19 @@ func goldenHandler(route string, handler func(*proxy.Service, *auth.Service) gin
 	}
 }
 
+func goldenGeminiPath(stream bool) string {
+	if stream {
+		return "/v1beta/models/" + goldenGeminiModel + ":streamGenerateContent"
+	}
+	return "/v1beta/models/" + goldenGeminiModel + ":generateContent"
+}
+
 func goldenResponsesBody(stream bool) string {
 	return `{"model":"gpt-5","stream":` + boolJSON(stream) + `,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Say hi"}]}]}`
+}
+
+func goldenGeminiBody() string {
+	return `{"contents":[{"role":"user","parts":[{"text":"Say hi"}]}]}`
 }
 
 func boolJSON(b bool) string {
@@ -59,6 +77,30 @@ func boolJSON(b bool) string {
 		return "true"
 	}
 	return "false"
+}
+
+func goldenGeminiCandidate(text, finish string) string {
+	finishField := ""
+	if finish != "" {
+		finishField = `,"finishReason":"` + finish + `"`
+	}
+	return `{"candidates":[{"content":{"role":"model","parts":[{"text":"` + text + `"}]},"index":0` + finishField + `}],"modelVersion":"` + goldenGeminiModel + `"`
+}
+
+const goldenGeminiUsage = `"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":7,"totalTokenCount":19}`
+
+func goldenGeminiStream(text string) []string {
+	return []string{
+		goldenSSE("", goldenGeminiCandidate(text, "")+"}"),
+		goldenSSE("", goldenGeminiCandidate("", "STOP")+","+goldenGeminiUsage+"}"),
+	}
+}
+
+func geminiOK(stream bool, text string) goldenStep {
+	if stream {
+		return goldenOK("text/event-stream", goldenGeminiStream(text))
+	}
+	return goldenOK("application/json", []string{goldenGeminiCandidate(text, "STOP") + "," + goldenGeminiUsage + "}"})
 }
 
 func goldenResponsesStream(model, text string) []string {
@@ -84,6 +126,7 @@ func responsesOK(stream bool, text string) goldenStep {
 }
 
 var (
+	goldenGeminiDecision = decision(providers.ProviderGoogle, goldenGeminiModel)
 	goldenOpenAIDecision = decision(providers.ProviderOpenAI, goldenOpenAIModel)
 	goldenEventStream    = map[string]string{"Content-Type": "text/event-stream"}
 	goldenCodexHeaders   = map[string]string{"User-Agent": goldenCodexUA}
@@ -224,6 +267,89 @@ func goldenResponsesScenarios() []goldenScenario {
 	return out
 }
 
+const goldenGeminiHistoryBody = `{"systemInstruction":{"parts":[{"text":"Be brief."}]},` +
+	`"generationConfig":{"maxOutputTokens":256,"temperature":0.2},` +
+	`"tools":[{"functionDeclarations":[{"name":"get_weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}]}],` +
+	`"contents":[{"role":"user","parts":[{"text":"Say hi"}]},` +
+	`{"role":"model","parts":[{"text":"✦ **Weave Router** → gemini-2.5-flash · best pick for this turn\n\nhello"}]},` +
+	`{"role":"user","parts":[{"text":"Weather in Paris?"}]}]}`
+
+func geminiFinish(stream bool, finish string, part string) goldenStep {
+	frame := `{"candidates":[{"content":{"role":"model","parts":[` + part + `]},"index":0,"finishReason":"` + finish + `"}],"modelVersion":"` + goldenGeminiModel + `",` + goldenGeminiUsage + `}`
+	if stream {
+		return goldenOK("text/event-stream", []string{goldenSSE("", frame)})
+	}
+	return goldenOK("application/json", []string{frame})
+}
+
+func goldenGeminiScenarios() []goldenScenario {
+	var out []goldenScenario
+	unavailable := goldenUpstreamError(http.StatusServiceUnavailable, `{"error":{"code":503,"message":"unavailable","status":"UNAVAILABLE"}}`)
+	limited := goldenUpstreamError(http.StatusTooManyRequests, `{"error":{"code":429,"message":"quota","status":"RESOURCE_EXHAUSTED"}}`)
+	for _, stream := range []bool{true, false} {
+		prefix := ingressGemini + "_" + streamName(stream) + "_"
+		path := goldenGeminiPath(stream)
+		add := func(name, body string, d router.Decision, upstreams map[string][]goldenStep) {
+			out = append(out, goldenScenario{name: prefix + name, ingress: ingressGemini, decisions: []router.Decision{d},
+				upstreams: upstreams, requests: []goldenRequest{{body: body, path: path}}})
+		}
+		google := func(steps ...goldenStep) map[string][]goldenStep {
+			return map[string][]goldenStep{providers.ProviderGoogle: steps}
+		}
+		add("google_success", goldenGeminiBody(), goldenGeminiDecision, google(geminiOK(stream, "hi")))
+		add("server_error_retries_exhausted", goldenGeminiBody(), goldenGeminiDecision, google(unavailable, unavailable, unavailable))
+		add("server_error_retry_success", goldenGeminiBody(), goldenGeminiDecision, google(unavailable, geminiOK(stream, "rescued")))
+		add("rate_limited", goldenGeminiBody(), goldenGeminiDecision, google(limited, limited, limited))
+		add("rate_limited_retry_success", goldenGeminiBody(), goldenGeminiDecision, google(limited, geminiOK(stream, "rescued")))
+		add("timeout", goldenGeminiBody(), goldenGeminiDecision, google(goldenStep{err: &net.OpError{Op: "read", Net: "tcp", Err: os.ErrDeadlineExceeded}}, geminiOK(stream, "rescued")))
+		add("upstream_bad_request", goldenGeminiBody(), goldenGeminiDecision, google(goldenUpstreamError(http.StatusBadRequest,
+			`{"error":{"code":400,"message":"Invalid value at 'contents'","status":"INVALID_ARGUMENT"}}`)))
+		add("upstream_context_overflow", goldenGeminiBody(), goldenGeminiDecision, google(goldenUpstreamError(http.StatusBadRequest,
+			`{"error":{"code":400,"message":"The input token count (2000000) exceeds the maximum number of tokens allowed (1048576).","status":"INVALID_ARGUMENT"}}`)))
+		add("function_call", goldenGeminiHistoryBody, goldenGeminiDecision, google(geminiFinish(stream, "STOP", `{"functionCall":{"name":"get_weather","args":{"city":"Paris"}}}`)))
+		add("max_tokens_finish", goldenGeminiBody(), goldenGeminiDecision, google(geminiFinish(stream, "MAX_TOKENS", `{"text":"trunc"}`)))
+		add("history_and_config", goldenGeminiHistoryBody, goldenGeminiDecision, google(geminiOK(stream, "sunny")))
+		out = append(out,
+			goldenScenario{name: prefix + "cross_format_decision", ingress: ingressGemini, decisions: []router.Decision{goldenAnthropicDecision},
+				upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(stream, "never")}},
+				requests:  []goldenRequest{{body: goldenGeminiBody(), path: path, noTelemetry: true}}},
+			goldenScenario{name: prefix + "no_eligible_provider", ingress: ingressGemini, routeErr: router.ErrNoEligibleProvider,
+				upstreams: google(geminiOK(stream, "never")),
+				requests:  []goldenRequest{{body: goldenGeminiBody(), path: path, noTelemetry: true}}},
+			goldenScenario{name: prefix + "route_error", ingress: ingressGemini, routeErr: errors.New("no eligible model"),
+				upstreams: google(geminiOK(stream, "never")),
+				requests:  []goldenRequest{{body: goldenGeminiBody(), path: path, noTelemetry: true}}},
+		)
+	}
+	p := ingressGemini + "_stream_"
+	frames := goldenGeminiStream("partial")
+	stream := func(name string, step goldenStep, rest ...goldenStep) goldenScenario {
+		return goldenScenario{name: p + name, ingress: ingressGemini, decisions: []router.Decision{goldenGeminiDecision},
+			upstreams: map[string][]goldenStep{providers.ProviderGoogle: append([]goldenStep{step}, rest...)},
+			requests:  []goldenRequest{{body: goldenGeminiBody(), path: goldenGeminiPath(true)}}}
+	}
+	out = append(out,
+		stream("cut_after_first_chunk", goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: frames[:1], err: io.ErrUnexpectedEOF}, geminiOK(true, "never")),
+		stream("cut_before_first_chunk", goldenStep{status: http.StatusOK, headers: goldenEventStream, err: io.ErrUnexpectedEOF}, geminiOK(true, "rescued")),
+		stream("empty_stream", goldenStep{status: http.StatusOK, headers: goldenEventStream}, geminiOK(true, "rescued")),
+		stream("missing_finish_reason", goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: frames[:1]}),
+		stream("client_cancel_mid_stream", goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: frames[:1], cancel: true}),
+	)
+	slow := stream("no_keepalive_ping_on_slow_stream", goldenSlow(geminiOK(true, "slow")))
+	slow.configure = withSlowKeepalive
+	out = append(out, slow)
+	for _, bad := range []struct{ name, path, body string }{
+		{"invalid_json_body", goldenGeminiPath(false), `{"contents":`},
+		{"unknown_action", "/v1beta/models/" + goldenGeminiModel + ":countTokens", goldenGeminiBody()},
+		{"missing_model", "/v1beta/models/:generateContent", goldenGeminiBody()},
+	} {
+		out = append(out, goldenScenario{name: ingressGemini + "_nonstream_" + bad.name, ingress: ingressGemini,
+			upstreams: map[string][]goldenStep{providers.ProviderGoogle: {geminiOK(false, "never")}},
+			requests:  []goldenRequest{{body: bad.body, path: bad.path, noTelemetry: true}}})
+	}
+	return out
+}
+
 func goldenIngressScenarios() []goldenScenario {
-	return goldenResponsesScenarios()
+	return append(goldenResponsesScenarios(), goldenGeminiScenarios()...)
 }
