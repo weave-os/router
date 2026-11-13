@@ -268,6 +268,8 @@ function installClaude(paths, baseUrl, key, email, attribution) {
   }
   settings.env.ENABLE_TOOL_SEARCH = "true";
   settings.env.CLAUDE_CODE_AUTO_MODE_SERVER = "0";
+  state.configVersion ||= { exists: Object.hasOwn((localSettings || settings).env || {}, "WEAVE_ROUTER_CONFIG_VERSION"), value: (localSettings || settings).env?.WEAVE_ROUTER_CONFIG_VERSION };
+  (localSettings || settings).env.WEAVE_ROUTER_CONFIG_VERSION = "1";
   const modelSettings = localSettings || settings;
   const modelUnset = !process.env.ANTHROPIC_MODEL && [settings, localSettings, readJson(path.join(process.env.USERPROFILE || process.env.HOME, ".claude", "settings.json"))].every((layer) => !layer || (!Object.hasOwn(layer, "model") && !layer.env?.ANTHROPIC_MODEL));
   modelSettings.modelPicker = { ...(modelSettings.modelPicker || {}) };
@@ -310,6 +312,7 @@ function installCodex(paths, baseUrl, key, email) {
       "X-App": "codex",
       "X-Weave-Codex-Native-Model-Pin": "1",
       "X-Weave-Codex-Model-Catalog": "1",
+      "X-Weave-Router-Config-Version": "1",
     },
   };
   writeToml(paths.config, settings);
@@ -395,6 +398,7 @@ function uninstall(paths, target) {
     restoreField(settings.env, "ANTHROPIC_BASE_URL", state.env?.ANTHROPIC_BASE_URL, state.installedBaseUrl || settings.env?.ANTHROPIC_BASE_URL);
     restoreField(settings.env, "ENABLE_TOOL_SEARCH", state.env?.ENABLE_TOOL_SEARCH, "true");
     restoreField(settings.env, "CLAUDE_CODE_AUTO_MODE_SERVER", state.env?.CLAUDE_CODE_AUTO_MODE_SERVER, "0");
+    restoreField((localSettings || settings).env || {}, "WEAVE_ROUTER_CONFIG_VERSION", state.configVersion, "1");
     for (const layer of [settings, localSettings]) if (layer) stripClaudeWeaveAuto(layer);
     const customHeaders = (headerBlock, originalAppHeaders) => {
       const preservedHeaders = (headerBlock || "").split("\n").filter((header) => !/^X-Weave-(?:Router-Key|User-Email|User-Name|Model-Passthrough):/i.test(header) && !/^X-App:\s*claude-code\s*$/i.test(header));

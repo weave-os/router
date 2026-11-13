@@ -20,6 +20,9 @@
 set -euo pipefail
 export PATH="$PATH:$HOME/.weave/bin"
 
+# Bump only when existing installs need config repairs, not on every release.
+WEAVE_REQUIRED_CONFIG_VERSION=1
+
 # ---------- background self-refresh ----------
 #
 # Codex runs this helper on SessionStart and after every turn. Once per
@@ -186,7 +189,9 @@ codex_surfaces_hidden() {
 emit_title() {
   local title="$1"
   case "$title" in
-    "Weave Router"*) if codex_surfaces_hidden; then title="Codex"; fi ;;
+    "Weave Router"*)
+      if codex_surfaces_hidden; then title="Codex"
+      else title="$title$(config_update_clause)"; fi ;;
   esac
   if [ -n "${WEAVE_CODEX_STATUS_TITLE_FILE:-}" ]; then
     printf '%s\n' "$title" >"$WEAVE_CODEX_STATUS_TITLE_FILE"
@@ -194,6 +199,24 @@ emit_title() {
     printf '\033]0;%s\007' "$title" >/dev/tty
   fi
   return 0
+}
+
+config_update_clause() {
+  local config="$HOME/.codex/config.toml" version command="npx @weave-os/router update --codex"
+  if [ -f "$helper_dir/config.toml" ]; then
+    config="$helper_dir/config.toml"
+    command="$command --dir $(printf '%q' "${helper_dir%/.codex}")"
+  elif [ "$(basename "$0")" = "weave-status.sh" ]; then
+    return 0
+  fi
+  [ -f "$config" ] || return 0
+  grep -Eq '^model_provider[[:space:]]*=[[:space:]]*"weave"' "$config" || return 0
+  [ -n "$(read_codex_endpoint)" ] || return 0
+  version="$(read_codex_endpoint version)"
+  case "$version" in ''|*[!0-9]*) version=0 ;; esac
+  if [ "$version" -lt "$WEAVE_REQUIRED_CONFIG_VERSION" ]; then
+    printf ' · router config is out of date: %s' "$command"
+  fi
 }
 
 safe_session_id() {
@@ -365,7 +388,7 @@ read_codex_endpoint() {
     config="$HOME/.codex/config.toml"
   fi
   [ -n "$config" ] || return 0
-  awk '
+  awk -v field="${1:-endpoint}" '
     # Cut a TOML comment, honouring quoted strings so a # inside a value stays.
     # A full-line comment reduces to empty and matches nothing below, so this
     # replaces a separate skip rule -- and unlike one, it also catches a comment
@@ -410,7 +433,15 @@ read_codex_endpoint() {
       sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
       if (email == "") email = v
     }
-    END { if (url != "" && key != "") printf "%s\n%s\n%s\n", url, key, email }
+    match($0, /"?X-Weave-Router-Config-Version"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      v = substr($0, RSTART, RLENGTH)
+      sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
+      version = v
+    }
+    END {
+      if (field == "version") print version
+      else if (url != "" && key != "") printf "%s\n%s\n%s\n", url, key, email
+    }
   ' "$config" 2>/dev/null || true
 }
 

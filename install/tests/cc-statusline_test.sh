@@ -972,5 +972,36 @@ check_not_contains "display-settings refresh drops unsafe identity values" "$hea
 check_not_contains "display-settings refresh drops unrelated headers" "$headers" "X-Other"
 
 echo
+nudge="$work/config-nudge"
+mkdir -p "$nudge/home/.weave" "$nudge/project root/.claude" "$nudge/custom dir/.claude"
+printf '{"hide_terminal_surfaces":false}' >"$nudge/display.json"
+for location in "$nudge/home/.weave" "$nudge/project root/.claude" "$nudge/custom dir/.claude"; do
+  cp "$statusline" "$location/cc-statusline.sh"
+done
+printf '{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: rk_test"}}' >"$nudge/project root/.claude/settings.local.json"
+render_nudge() {
+  printf '{}' | HOME="$nudge/home" XDG_CACHE_HOME="$nudge/cache" \
+    WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 WEAVE_STATUSLINE_CONTEXT=0 \
+    ANTHROPIC_BASE_URL="${3:-file://$nudge/display.json}" ANTHROPIC_CUSTOM_HEADERS="${4-X-Weave-Router-Key: rk_test}" \
+    WEAVE_ROUTER_CONFIG_VERSION="$2" bash "$1/cc-statusline.sh"
+}
+for version in '' 0 bad; do
+  out="$(render_nudge "$nudge/home/.weave" "$version")"
+  check_contains "config version '$version' needs update" "$out" 'router config is out of date: npx @weave-os/router update --claude'
+done
+for version in 1 2; do
+  out="$(render_nudge "$nudge/home/.weave" "$version")"
+  check_not_contains "config version $version needs no update" "$out" 'config is out of date'
+done
+out="$(render_nudge "$nudge/home/.weave" 0 https://api.anthropic.com)"
+check_not_contains "direct routing has no config hint" "$out" 'config is out of date'
+out="$(render_nudge "$nudge/home/.weave" 0 http://router.invalid '')"
+check_not_contains "no router key has no config hint" "$out" 'config is out of date'
+out="$(render_nudge "$nudge/project root/.claude" 0)"
+check_contains "project config repair uses explicit cwd" "$out" "cd $(printf '%q' "$nudge/project root") && npx @weave-os/router update --claude --scope project"
+check_not_contains "project config repair never uses dir" "$out" '--dir'
+out="$(render_nudge "$nudge/custom dir/.claude" 0)"
+check_contains "custom directory config repair" "$out" "update --claude --dir $(printf '%q' "$nudge/custom dir")"
+
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

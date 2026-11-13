@@ -19,6 +19,9 @@
 set -euo pipefail
 export PATH="$PATH:$HOME/.weave/bin"
 
+# Bump only when existing installs need config repairs, not on every release.
+WEAVE_REQUIRED_CONFIG_VERSION=1
+
 # ---------- /router-status prompt hook ----------
 #
 # Registered as a UserPromptSubmit hook with --prompt-hook. Every other prompt
@@ -1174,16 +1177,23 @@ fi
 # Point the reconnect command at this install: a bare login reads the
 # user-scope config, which a project or --dir install doesn't use.
 weave_login_scope=""
-if [ -n "${weave_disconnected_plans:-}" ]; then
-  weave_sl_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
-  case "$weave_sl_dir" in
+weave_update_command="npx @weave-os/router update --claude"
+weave_sl_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
+case "$weave_sl_dir" in
     */.claude)
       weave_login_scope=" --dir $(printf '%q' "${weave_sl_dir%/.claude}")"
+      weave_update_command="$weave_update_command$weave_login_scope"
       if grep -q 'X-Weave-Router-Key' "$weave_sl_dir/settings.local.json" 2>/dev/null; then
         weave_login_scope=" --scope project$weave_login_scope"
+        weave_update_command="cd $(printf '%q' "${weave_sl_dir%/.claude}") && npx @weave-os/router update --claude --scope project"
       fi
       ;;
-  esac
+esac
+weave_config_version="${WEAVE_ROUTER_CONFIG_VERSION:-0}"
+case "$weave_config_version" in ''|*[!0-9]*) weave_config_version=0 ;; esac
+if [[ -n "${ANTHROPIC_BASE_URL:-}" && "${ANTHROPIC_BASE_URL:-}" != https://api.anthropic.com* && "${ANTHROPIC_CUSTOM_HEADERS:-}" == *"X-Weave-Router-Key:"* ]] \
+  && [ "$weave_config_version" -lt "$WEAVE_REQUIRED_CONFIG_VERSION" ]; then
+  status_text="$status_text · router config is out of date: $weave_update_command"
 fi
 for weave_plan in ${weave_disconnected_plans:-}; do
   case "$weave_plan" in

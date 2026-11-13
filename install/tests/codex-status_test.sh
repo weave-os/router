@@ -177,7 +177,7 @@ model_provider = "weave"
 
 [model_providers.weave]
 base_url = "file://$cost_body"
-http_headers = { "X-Weave-Router-Key" = "rk_test", "X-App" = "codex" }
+http_headers = { "X-Weave-Router-Config-Version" = "1", "X-Weave-Router-Key" = "rk_test", "X-App" = "codex" }
 # <<< weave-router managed <<<
 TOML
 
@@ -250,6 +250,7 @@ wire_api = "responses"
 [model_providers.weave.http_headers]
 X-App = "codex"
 X-Weave-Router-Key = "rk_test"
+X-Weave-Router-Config-Version = "1"
 
 [projects."/some/repo"]
 trust_level = "trusted"
@@ -341,6 +342,7 @@ base_url = "http://127.0.0.1:$commented_port/v1"
 [model_providers.weave.http_headers]
 # X-Weave-Router-Key = "rk_stale"
 X-Weave-Router-Key = "rk_test"
+X-Weave-Router-Config-Version = "1"
 TOML
 commented_cache="$work/cache-commented"
 printf '%s\n' '{"session_id":"session-5","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
@@ -372,7 +374,7 @@ base_url = "http://127.0.0.1:$commented_port/v1"
 wire_api = "responses" # X-Weave-Router-Key = "rk_inline_stale"
 # A literal string is a string: a # inside one must not end the line, or the
 # key after it in this inline table is lost and the fetch never runs.
-http_headers = { "X-App" = 'codex#1', "X-Weave-Router-Key" = "rk_test" }
+http_headers = { "X-Weave-Router-Config-Version" = "1", "X-App" = 'codex#1', "X-Weave-Router-Key" = "rk_test" }
 TOML
 inline_seen="$work/inline-key.txt"
 rm -f "$inline_seen"
@@ -493,7 +495,7 @@ model_provider = "weave"
 
 [model_providers.weave]
 base_url = "file://$cost_body"
-http_headers = { "X-Weave-Router-Key" = "rk_user_scope", "X-App" = "codex" }
+http_headers = { "X-Weave-Router-Config-Version" = "1", "X-Weave-Router-Key" = "rk_user_scope", "X-App" = "codex" }
 # <<< weave-router managed <<<
 TOML
 project_cache="$work/cache-project-scope"
@@ -597,7 +599,7 @@ model_provider = "weave"
 
 [model_providers.weave]
 base_url = "file://$cost_body"
-http_headers = { "X-Weave-Router-Key" = "rk_test", "X-App" = "codex" }
+http_headers = { "X-Weave-Router-Config-Version" = "1", "X-Weave-Router-Key" = "rk_test", "X-App" = "codex" }
 TOML
 run_hidden_turn() {
   printf '%s\n' '{"session_id":"session-2","model":"gpt-5.6-terra","last_assistant_message":"done"}' \
@@ -668,5 +670,51 @@ if [ -f "$installer" ]; then
     exit 1
   fi
 fi
+
+nudge="$work/config-nudge"
+mkdir -p "$nudge/home/.weave" "$nudge/home/.codex" "$nudge/project root/.codex" "$nudge/custom dir/.codex"
+printf '{"hide_terminal_surfaces":false}' >"$nudge/display.json"
+for location in "$nudge/home/.weave" "$nudge/project root/.codex" "$nudge/custom dir/.codex"; do
+  cp "$helper" "$location/weave-status.sh"
+done
+mv "$nudge/home/.weave/weave-status.sh" "$nudge/home/.weave/codex-status.sh"
+write_nudge_config() {
+  local file="$1" version="$2" provider="${3:-weave}"
+  printf 'model_provider = "%s"\n[model_providers.weave]\nbase_url = "http://router.invalid/v1"\nhttp_headers = { "X-Weave-Router-Key" = "rk_test"' "$provider" >"$file"
+  [ -z "$version" ] || printf ', "X-Weave-Router-Config-Version" = "%s"' "$version" >>"$file"
+  printf ' }\n' >>"$file"
+}
+render_codex_nudge() {
+  HOME="$nudge/home" XDG_CACHE_HOME="$nudge/cache" WEAVE_CODEX_STATUS_TITLE_FILE="$nudge/title" \
+    WEAVE_CODEX_DISPLAY_SETTINGS_URL="file://$nudge/display.json" bash "$1" --on
+  cat "$nudge/title"
+}
+for version in '' 0 bad 1 2; do
+  write_nudge_config "$nudge/home/.codex/config.toml" "$version"
+  result="$(render_codex_nudge "$nudge/home/.weave/codex-status.sh")"
+  case "$version:$result" in
+    1:*'config is out of date'*|2:*'config is out of date'*) echo "current/newer Codex stamp nudged"; exit 1 ;;
+    1:*|2:*) ;;
+    *'config is out of date: npx @weave-os/router update --codex') ;;
+    *) echo "missing Codex nudge for $version: $result"; exit 1 ;;
+  esac
+done
+for directory in "project root" "custom dir"; do
+  write_nudge_config "$nudge/$directory/.codex/config.toml" 0
+  result="$(render_codex_nudge "$nudge/$directory/.codex/weave-status.sh")"
+  [[ "$result" == *"update --codex --dir $(printf '%q' "$nudge/$directory")" ]] || { echo "wrong scoped Codex repair: $result"; exit 1; }
+done
+write_nudge_config "$nudge/home/.codex/config.toml" 0 openai
+result="$(render_codex_nudge "$nudge/home/.weave/codex-status.sh")"
+[[ "$result" != *'config is out of date'* ]] || { echo "direct Codex routing nudged"; exit 1; }
+write_nudge_config "$nudge/home/.codex/config.toml" 0
+sed -i 's/X-Weave-Router-Key/Other-Key/' "$nudge/home/.codex/config.toml"
+result="$(render_codex_nudge "$nudge/home/.weave/codex-status.sh")"
+[[ "$result" != *'config is out of date'* ]] || { echo "Codex without router key nudged"; exit 1; }
+write_nudge_config "$nudge/home/.codex/config.toml" 0
+printf '{"hide_terminal_surfaces":true}' >"$nudge/display.json"
+rm -rf "$nudge/cache"
+result="$(render_codex_nudge "$nudge/home/.weave/codex-status.sh")"
+[[ "$result" = Codex ]] || { echo "hidden Codex config hint leaked: $result"; exit 1; }
 
 echo "Codex status helper regression tests passed"
