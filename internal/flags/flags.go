@@ -148,9 +148,9 @@ const (
 	retiredKeyCyberRefusalRetry              Key = "cyber_refusal_retry"
 	retiredKeyCyberRefusalFallbackModel      Key = "cyber_refusal_fallback_model"
 	retiredKeyAnthropicServerSideFallback    Key = "anthropic_server_side_fallback"
-	retiredKeyOpenaiResponsesBroad           Key = "openai_responses_broad"
+	retiredKeyOpenAIResponsesBroad           Key = "openai_responses_broad"
 	retiredKeyNativeAnthropicResponseSignals Key = "native_anthropic_response_signals"
-	retiredKeyNativeOpenaiResponseSignals    Key = "native_openai_response_signals"
+	retiredKeyNativeOpenAIResponseSignals    Key = "native_openai_response_signals"
 )
 
 var retiredOverrideKeys = map[Key]struct{}{
@@ -171,9 +171,9 @@ var retiredOverrideKeys = map[Key]struct{}{
 	retiredKeyCyberRefusalRetry:              {},
 	retiredKeyCyberRefusalFallbackModel:      {},
 	retiredKeyAnthropicServerSideFallback:    {},
-	retiredKeyOpenaiResponsesBroad:           {},
+	retiredKeyOpenAIResponsesBroad:           {},
 	retiredKeyNativeAnthropicResponseSignals: {},
-	retiredKeyNativeOpenaiResponseSignals:    {},
+	retiredKeyNativeOpenAIResponseSignals:    {},
 }
 
 // Definition describes one overridable flag. DeploymentDefault is not stored
