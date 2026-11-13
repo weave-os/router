@@ -191,6 +191,17 @@ func (s *Service) recordCodexQuotaExhaustionForCredentials(ctx context.Context, 
 	s.recordCodexPlanSpent(ctx, string(creds.APIKey), resetAt)
 }
 
+// recordCodexCredentialRejected marks a rejected caller ChatGPT token as unable
+// to serve, so later turns skip it and paid recovery is not blocked waiting for
+// quota evidence a dead token can never produce. A refreshed token hashes to a
+// new key and is tried again.
+func (s *Service) recordCodexCredentialRejected(ctx context.Context, creds *Credentials, err error) {
+	if s.usageObserver == nil || creds == nil || !creds.OAuth || !codexOAuthCredentialRejected(err) {
+		return
+	}
+	s.recordCodexPlanSpent(ctx, string(creds.APIKey), time.Time{})
+}
+
 func (s *Service) recordCodexPlanSpent(ctx context.Context, codexTok string, resetAt time.Time) {
 	if codexTok == "" {
 		return
