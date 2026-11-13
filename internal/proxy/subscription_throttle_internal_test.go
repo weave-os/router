@@ -71,9 +71,7 @@ func TestAuthorizeSubscriptionAPI_PersistedCooldownCountsAsThrottle(t *testing.T
 	requireThrottledRefusal(t, svc.authorizeSubscriptionAPI(throttleTestContext(cooling), subscriptions.ProviderCodex, "", "", clientAppRefusalFunding{}))
 
 	cooling.CredentialRejections = 1
-	err := svc.authorizeSubscriptionAPI(throttleTestContext(cooling), subscriptions.ProviderCodex, "", "", clientAppRefusalFunding{})
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
-	require.NotErrorIs(t, err, ErrSubscriptionPoolThrottled, "a 401/403 cooldown is a credential fault, not a rate limit")
+	require.NoError(t, svc.authorizeSubscriptionAPI(throttleTestContext(cooling), subscriptions.ProviderCodex, "", "", clientAppRefusalFunding{}), "a 401/403 cooldown is a credential fault, not a rate limit, and the seat cannot serve")
 }
 
 func TestAuthorizeSubscriptionAPI_UnknownCallerQuotaKeeps503(t *testing.T) {
@@ -100,4 +98,35 @@ func TestAuthorizeSubscriptionAPI_ExhaustionStillAuthorizesPaidFallback(t *testi
 
 	recordManagedQuotaProof(ctx, "seat-throttled", now.Add(time.Hour))
 	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, "", "", clientAppRefusalFunding{}))
+}
+
+// Incident 2026-11-13: every Codex seat was exhausted, reconnect-required, or
+// cooling down on a dead refresh token. The dead-credential seats cannot be
+// leased, so they must not hold paid fallback hostage as "quota unknown".
+func TestAuthorizeSubscriptionAPI_CredentialRejectedCooldownDoesNotBlockPaidFallback(t *testing.T) {
+	now := time.Now()
+	svc := &Service{now: func() time.Time { return now }}
+	cooldownUntil := now.Add(2 * time.Hour)
+	exhaustedUntil := now.Add(5 * 24 * time.Hour)
+
+	deadToken := activeCodexAccount("seat-dead-refresh-token")
+	deadToken.State = auth.SubscriptionAccountStateCooldown
+	deadToken.CooldownUntil = &cooldownUntil
+	deadToken.CredentialRejections = 4
+
+	spent := activeCodexAccount("seat-exhausted")
+	spent.State = auth.SubscriptionAccountStateExhausted
+	spent.CooldownUntil = &exhaustedUntil
+
+	reconnect := activeCodexAccount("seat-reconnect")
+	reconnect.Enabled = false
+	reconnect.State = auth.SubscriptionAccountStateReconnectRequired
+
+	ctx := throttleTestContext(deadToken, spent, reconnect)
+	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, "", "", clientAppRefusalFunding{}))
+
+	expired := now.Add(-time.Minute)
+	deadToken.CooldownUntil = &expired
+	err := svc.authorizeSubscriptionAPI(throttleTestContext(deadToken, spent, reconnect), subscriptions.ProviderCodex, "", "", clientAppRefusalFunding{})
+	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable, "once the credential cooldown lapses the seat may refresh and serve again")
 }
