@@ -93,7 +93,7 @@ const LAUNCH_MODEL_FLAGS = new Set(["--model", "--provider", "--models"]);
  * conversation or saved default named one. Launch flags and a model scope
  * without weave/auto are explicit choices and stay.
  */
-function shouldSelectAuto(ctx: ExtensionContext, saved: SavedDefault, argv: readonly string[]): boolean {
+function shouldSelectAuto(ctx: ExtensionContext, saved: SavedDefault, argv: readonly string[]) {
 	if (ctx.model?.provider === PROVIDER_NAME) return isRetiredWeaveModel(ctx.model.provider, ctx.model.id);
 	if (argv.some((arg) => LAUNCH_MODEL_FLAGS.has(arg))) return false;
 	const scoped = ctx.scopedModels ?? [];
