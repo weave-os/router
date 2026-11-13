@@ -289,9 +289,11 @@ func TestManagedCatalogMetadataRemainsPublic(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	server.RegisterWithFeatures(engine, nil, nil, fakeHMMRosterSource{}, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}})
-	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/router/models?scope=catalog", nil))
-	assert.Equal(t, http.StatusOK, response.Code)
+	for _, path := range []string{"/v1/router/models?scope=catalog", "/v1/router/models", "/v1/router/models?strategy=hmm"} {
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
+		assert.Equal(t, http.StatusOK, response.Code, path)
+	}
 }
 
 func TestParseDefaultStrategy(t *testing.T) {
