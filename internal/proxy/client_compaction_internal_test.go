@@ -38,7 +38,7 @@ func TestClientRecoveryIsLimitedToInitialAssistantTurns(t *testing.T) {
 			prepared, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: budgetTestFable, Capabilities: router.Lookup(budgetTestFable)})
 			require.NoError(t, err)
 			assert.Equal(t, tt.want, gjson.GetBytes(prepared.Body, "tool_choice.disable_parallel_tool_use").Bool())
-			assert.Equal(t, len(messages), env.RoutingFeatures(false).MessageCount)
+			assert.Equal(t, len(messages), env.RoutingFeatures().MessageCount)
 		})
 	}
 }

@@ -37,13 +37,13 @@ func routingEnvelopeForRequest(ctx context.Context, env *translate.RequestEnvelo
 func routingInputForRequest(ctx context.Context, env *translate.RequestEnvelope, promptText string) (string, []router.ConversationMessage) {
 	routingEnv := routingEnvelopeForRequest(ctx, env)
 	if routingEnv != env {
-		features := routingEnv.RoutingFeatures(true)
+		features := routingEnv.RoutingFeatures()
 		promptText = features.PromptText
 		if features.OnlyUserMessageText != "" {
 			promptText = features.OnlyUserMessageText
 		}
 	}
-	promptText, messages := routingEnv.RoutingInput(routingHistoryProfile(ctx), promptText, true)
+	promptText, messages := routingEnv.RoutingInput(routingHistoryProfile(ctx), promptText)
 	return promptText, routingConversationMessages(messages)
 }
 

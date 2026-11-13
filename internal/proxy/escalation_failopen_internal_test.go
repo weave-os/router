@@ -36,7 +36,7 @@ func TestEscalationCommitFailurePreservesEligibilityAndTurnEvidence(t *testing.T
 	installation := uuid.New()
 	for n := 1; n <= 5; n++ {
 		env := escalationTestEnvelope(t, n)
-		feats := env.RoutingFeatures(false)
+		feats := env.RoutingFeatures()
 		sessionKey := deriveSessionKeyForRequest(ctx, env, "test-key")
 		if n == 5 {
 			store.failCommit = true

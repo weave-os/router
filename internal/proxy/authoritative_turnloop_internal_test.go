@@ -142,7 +142,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				})
 			env, err := translate.ParseAnthropic(test.body)
 			require.NoError(t, err)
-			features := env.RoutingFeatures(false)
+			features := env.RoutingFeatures()
 			ctx := router.WithStrategy(context.Background(), strategy)
 			req := router.Request{
 				RequestedModel:       features.Model,
@@ -235,7 +235,7 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		[]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
 	)
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 
 	result, err := svc.runTurnLoop(
 		router.WithStrategy(context.Background(), strategy),
@@ -417,7 +417,7 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 			}
 			env, err := translate.ParseAnthropic(body)
 			require.NoError(t, err)
-			features := env.RoutingFeatures(false)
+			features := env.RoutingFeatures()
 
 			result, err := svc.runTurnLoop(
 				router.WithStrategy(context.Background(), strategy),

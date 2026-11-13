@@ -49,7 +49,7 @@ func TestHMMCommandOnlyTurnUsesEligibleRosterFallback(t *testing.T) {
 	const request = `{"model":"claude-opus-4-8","messages":[{"role":"user","content":[{"type":"text","text":"<system-reminder>injected context</system-reminder>"},{"type":"text","text":"<command-name>local command</command-name>"},{"type":"text","text":"<local-command-stdout>local output</local-command-stdout>"}]}]}`
 	env, err := translate.ParseAnthropic([]byte(request))
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	require.False(t, hasTextUserBoundary(conversationMessagesForRouting(env)))
 
 	sidecarFailure := errors.New("policy sidecar must not receive a command-only request")
@@ -78,7 +78,7 @@ func TestHMMCommandOnlyTurnUsesAdmittedRuntimeFallback(t *testing.T) {
 	const requestBody = `{"model":"claude-opus-4-8","messages":[{"role":"user","content":[{"type":"text","text":"<command-name>local command</command-name>"}]}]}`
 	env, err := translate.ParseAnthropic([]byte(requestBody))
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	require.False(t, hasTextUserBoundary(conversationMessagesForRouting(env)))
 
 	innerService := unscorableHMMService(nil, errors.New("policy sidecar must not receive a command-only request"))
@@ -213,7 +213,7 @@ func TestHMMCommandOnlyTurnHonorsForcedClusterAndKeyList(t *testing.T) {
 func TestHMMCommandOnlyTurnKeepsEligibleSessionPin(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":[{"type":"text","text":"<command-name>local command</command-name>"}]}]}`))
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	store := newStubPinStore()
 	store.getFound = true
 	store.getPin = sessionpin.Pin{

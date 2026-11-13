@@ -105,7 +105,7 @@ func TestAgreementShadowForceUnforceBeforeToolResultBreaksVotes(t *testing.T) {
 			t.Fatalf("successful command left simulated histories connected: %+v %v", boundary, err)
 		}
 	}
-	routed, err := svc.runTurnLoop(ctx, env, env.RoutingFeatures(false), "synthetic-api-key", installationID, "", http.Header{}, router.Request{RequestedModel: string(router.ModelAutomatic)})
+	routed, err := svc.runTurnLoop(ctx, env, env.RoutingFeatures(), "synthetic-api-key", installationID, "", http.Header{}, router.Request{RequestedModel: string(router.ModelAutomatic)})
 	if err != nil {
 		t.Fatal(err)
 	}

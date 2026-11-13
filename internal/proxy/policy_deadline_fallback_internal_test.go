@@ -141,7 +141,7 @@ func runPolicyDeadlineFallbackTurnLoop(
 		[]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
 	)
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	ctx := router.WithStrategy(context.Background(), strategy)
 	var excluded map[string]struct{}
 	if len(excludedModels) > 0 {

@@ -190,7 +190,7 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 				WithPolicyStrategy(policy.StrategySpec{Strategy: tc.strategy, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: router.IsHMMStrategy(tc.strategy)}})
 			for ordinal := 1; ordinal <= 11; ordinal++ {
 				env := escalationTestEnvelope(t, ordinal)
-				features := env.RoutingFeatures(false)
+				features := env.RoutingFeatures()
 				turn, err := svc.runTurnLoop(ctx, env, features, "shadow-key", installation, "", http.Header{}, router.Request{RequestedModel: features.Model})
 				require.NoError(t, err)
 				require.Equal(t, tc.strategy, turn.Strategy)
@@ -214,7 +214,7 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 			}
 			for _, disabledInstallation := range []uuid.UUID{installation, uuid.New()} {
 				env := escalationTestEnvelope(t, 12)
-				features := env.RoutingFeatures(false)
+				features := env.RoutingFeatures()
 				disabled, err := svc.runTurnLoop(router.WithStrategy(escalationTestContext(false, false), tc.strategy), env, features, "shadow-key", disabledInstallation, "", http.Header{}, router.Request{RequestedModel: features.Model})
 				require.NoError(t, err)
 				require.Zero(t, disabled.EscalationOrdinal)
@@ -350,7 +350,7 @@ func TestEscalationLiveModelThroughTurnLoop(t *testing.T) {
 		svc := NewService(nil, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithEscalation(store, client).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
 		env, parseErr := translate.ParseAnthropic(body)
 		require.NoError(t, parseErr)
-		features := env.RoutingFeatures(false)
+		features := env.RoutingFeatures()
 		last, err = svc.runTurnLoop(ctx, env, features, "test-key", installation, "", http.Header{}, router.Request{RequestedModel: features.Model, EstimatedInputTokens: features.Tokens, HasTools: features.HasTools, ConversationMessages: conversationMessagesForRouting(env)})
 		require.NoError(t, err)
 		require.Equal(t, int64(n+1), last.EscalationOrdinal)
@@ -381,7 +381,7 @@ func TestEscalationCommitFailureDoesNotDispatchUncommittedPromotion(t *testing.T
 	for n := 1; n <= 5; n++ {
 		store.failCommit = n == 5
 		env := escalationTestEnvelope(t, n)
-		feats := env.RoutingFeatures(false)
+		feats := env.RoutingFeatures()
 		res, err := svc.runTurnLoop(ctx, env, feats, "test-key", installation, "", http.Header{}, router.Request{RequestedModel: feats.Model})
 		require.NoError(t, err)
 		require.Equal(t, "claude-haiku-4-5", res.Decision.Model)
@@ -416,7 +416,7 @@ func TestEscalationCommitFailurePreservesOrdinaryStickySelection(t *testing.T) {
 	for n := 1; n <= 5; n++ {
 		store.failCommit = n == 5
 		env := escalationTestEnvelope(t, n)
-		feats := env.RoutingFeatures(false)
+		feats := env.RoutingFeatures()
 		res, err := svc.runTurnLoop(ctx, env, feats, "test-key", installation, "", http.Header{}, router.Request{RequestedModel: feats.Model})
 		require.NoError(t, err)
 		require.Equal(t, "claude-opus-4-7", res.Decision.Model)
@@ -438,7 +438,7 @@ func TestEscalationCommitFailureDoesNotRepeatUnconstrainedSelection(t *testing.T
 			classifier := &authoritativeTestRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMMEmbedding), Escalation: &escalation.Decision{Baseline: escalation.Maximum, Effective: escalation.Maximum, Outcome: outcome}}}}
 			svc := NewService(nil, nil, nil, pins, false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithEscalation(store, &escalationTestObserver{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: classifier, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
 			env := escalationTestEnvelope(t, 1)
-			feats := env.RoutingFeatures(false)
+			feats := env.RoutingFeatures()
 			res, err := svc.runTurnLoop(escalationTestContext(true, false), env, feats, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
 			require.NoError(t, err)
 			require.Equal(t, "claude-opus-4-8", res.Decision.Model)

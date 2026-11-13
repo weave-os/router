@@ -104,7 +104,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			}
 		}()
 	}
-	feats := env.RoutingFeatures(true)
+	feats := env.RoutingFeatures()
 	ctx = withRequestImageCount(ctx, feats.ImageCount)
 	promptText := feats.PromptText
 	embedInput := "concatenated_stream"

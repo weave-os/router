@@ -70,7 +70,7 @@ func (s *Service) anthropicRoutingRequest(
 	if err != nil {
 		return ctx, router.Request{}, err
 	}
-	features := env.RoutingFeatures(true)
+	features := env.RoutingFeatures()
 	ctx = withRequestImageCount(ctx, features.ImageCount)
 	promptText := features.PromptText
 	if features.OnlyUserMessageText != "" {

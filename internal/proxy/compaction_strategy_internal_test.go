@@ -32,7 +32,7 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 	ctx = router.WithStrategy(ctx, router.StrategyHMM)
 	env, err := translate.ParseOpenAI([]byte(`{"model":"weave-hmm-20261019-0001v1","messages":[{"role":"user","content":"You are performing a CONTEXT CHECKPOINT COMPACTION. Summarize the work."}]}`))
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	sessionKey := deriveSessionKeyForRequest(ctx, env, "test-key")
 	installationID := uuid.New()
 

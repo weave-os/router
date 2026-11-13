@@ -118,7 +118,7 @@ func TestTurnLoop_DropsAutomaticPinOnDisabledModel(t *testing.T) {
 		})
 
 	env := forceCommandEnv(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil,
 		router.Request{
 			RequestedModel:          feats.Model,
@@ -148,7 +148,7 @@ func TestTurnLoop_KeepsForcedPinOnDisabledModel(t *testing.T) {
 		})
 
 	env := forceCommandEnv(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil,
 		router.Request{
 			RequestedModel:          feats.Model,
@@ -179,7 +179,7 @@ func TestTurnLoop_DropsEscalationPinOnDisabledModel(t *testing.T) {
 		})
 
 	env := forceCommandEnv(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil,
 		router.Request{
 			RequestedModel:          feats.Model,

@@ -28,7 +28,7 @@ func demotionTurnLoopEnv(t *testing.T) (*translate.RequestEnvelope, translate.Ro
 		[]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
 	)
 	require.NoError(t, err)
-	return env, env.RoutingFeatures(false)
+	return env, env.RoutingFeatures()
 }
 
 func runDemotionTurnLoop(t *testing.T, svc *Service, ctx context.Context) turnLoopResult {

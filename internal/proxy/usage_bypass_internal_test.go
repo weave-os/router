@@ -245,7 +245,7 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 		Threshold: &threshold,
 	})
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 
 	res, err := svc.runTurnLoop(ctx, env, feats, "api-key", uuid.New(), "", http.Header{}, router.Request{
 		RequestedModel: feats.Model,
@@ -298,7 +298,7 @@ func TestUsageBypass_EngagesUnderAuthoritativePolicy(t *testing.T) {
 	})
 	ctx = router.WithStrategy(ctx, strategy)
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 
 	res, err := svc.runTurnLoop(ctx, env, feats, "api-key", uuid.New(), "", http.Header{}, router.Request{
 		RequestedModel: feats.Model,
@@ -330,7 +330,7 @@ func TestBypass_429_ReturnsErrBypassRetryable_NoBytesWritten(t *testing.T) {
 	svc := newBypassService(upstream)
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -355,7 +355,7 @@ func TestBypass_NonRetryableError_StillFlushes(t *testing.T) {
 	svc := newBypassService(upstream)
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -372,7 +372,7 @@ func TestBypass_NilError_ReturnsNil(t *testing.T) {
 	svc := newBypassService(upstream)
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -394,7 +394,7 @@ func TestBypass_NonStreamResponseIncludesCostHeaders(t *testing.T) {
 	svc.telemetry = newBypassCaptureTelemetry() // enables usage extraction
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -423,7 +423,7 @@ func TestBypass_TransportError_ReroutesViaScorer(t *testing.T) {
 	svc := newBypassService(upstream)
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -446,7 +446,7 @@ func TestBypass_LocalPrepError_PropagatesToClient(t *testing.T) {
 	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{})}
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -613,7 +613,7 @@ func TestBypass_EmitsUsageAndCost(t *testing.T) {
 	svc.emitter = emitter // makes usageRequired() true so the extractor runs
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -689,7 +689,7 @@ func TestBypass_PersistsTelemetryRowWithUnifiedHeaders(t *testing.T) {
 	svc.telemetry = sink
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	// Subscription bearer on the inbound request: resolveAndInjectCredentials
@@ -760,7 +760,7 @@ func TestBypass_NoTelemetryRowWithoutInstallation(t *testing.T) {
 	svc.telemetry = sink
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -782,7 +782,7 @@ func TestBypass_TelemetryRowClassifiesOutputCap(t *testing.T) {
 	svc.telemetry = sink
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())

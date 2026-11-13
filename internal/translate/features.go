@@ -154,22 +154,21 @@ func base64SignatureBytes(body []byte) int {
 	return total
 }
 
-// RoutingFeatures extracts routing inputs from the envelope. When
-// extractOnlyUser is true, OnlyUserMessageText is populated.
-func (e *RequestEnvelope) RoutingFeatures(extractOnlyUser bool) RoutingFeatures {
+// RoutingFeatures extracts routing inputs from the envelope.
+func (e *RequestEnvelope) RoutingFeatures() RoutingFeatures {
 	switch e.format {
 	case FormatAnthropic:
-		return e.anthropicRoutingFeatures(extractOnlyUser)
+		return e.anthropicRoutingFeatures()
 	case FormatOpenAI:
-		return e.openAIRoutingFeatures(extractOnlyUser)
+		return e.openAIRoutingFeatures()
 	case FormatGemini:
-		return e.geminiRoutingFeatures(extractOnlyUser)
+		return e.geminiRoutingFeatures()
 	default:
 		return RoutingFeatures{}
 	}
 }
 
-func (e *RequestEnvelope) anthropicRoutingFeatures(extractOnlyUser bool) RoutingFeatures {
+func (e *RequestEnvelope) anthropicRoutingFeatures() RoutingFeatures {
 	var b strings.Builder
 	appendText(&b, systemTextGJSON(gjson.GetBytes(e.body, "system")))
 
@@ -183,7 +182,7 @@ func (e *RequestEnvelope) anthropicRoutingFeatures(extractOnlyUser bool) Routing
 		msgCount++
 		appendText(&b, contentTextGJSON(msg.Get("content")))
 		lastMsg = msg
-		if extractOnlyUser && msg.Get("role").String() == "user" {
+		if msg.Get("role").String() == "user" {
 			if text := userPromptTextGJSON(msg.Get("content")); text != "" {
 				appendText(&onlyUserB, text)
 			}
@@ -216,7 +215,7 @@ func (e *RequestEnvelope) anthropicRoutingFeatures(extractOnlyUser bool) Routing
 	return feats
 }
 
-func (e *RequestEnvelope) openAIRoutingFeatures(extractOnlyUser bool) RoutingFeatures {
+func (e *RequestEnvelope) openAIRoutingFeatures() RoutingFeatures {
 	msgs := gjson.GetBytes(e.body, "messages")
 
 	var b strings.Builder
@@ -229,7 +228,7 @@ func (e *RequestEnvelope) openAIRoutingFeatures(extractOnlyUser bool) RoutingFea
 		msgCount++
 		appendText(&b, openAIContentTextGJSON(msg.Get("content")))
 		lastMsg = msg
-		if extractOnlyUser && msg.Get("role").String() == "user" {
+		if msg.Get("role").String() == "user" {
 			if text := openAIContentTextGJSON(msg.Get("content")); text != "" {
 				appendText(&onlyUserB, text)
 			}

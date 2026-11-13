@@ -180,7 +180,7 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
 	svc := NewService(freshRouter, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
-	features := child.RoutingFeatures(false)
+	features := child.RoutingFeatures()
 
 	ctx = router.WithStrategy(ctx, router.StrategyHMMBeta)
 	result, err := svc.runTurnLoop(ctx, child, features, apiKeyID, installationID, "", nil, router.Request{
@@ -214,7 +214,7 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 		"messages":[{"role":"user","content":"task"}]
 	}`))
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	threadKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadKey)
 	role := roleForTier(catalog.TierFor(features.Model))
@@ -276,7 +276,7 @@ func TestRunTurnLoop_ClearTombstoneBlocksLegacyForce(t *testing.T) {
 		"messages":[{"role":"user","content":"task after unforce"}]
 	}`))
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	threadKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadKey)
 	role := roleForTier(catalog.TierFor(features.Model))
@@ -336,7 +336,7 @@ func TestRunTurnLoop_SessionForceOverridesAuxiliaryHardPin(t *testing.T) {
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
 	svc := NewService(freshRouter, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 
 	result, err := svc.runTurnLoop(ctx, env, features, apiKeyID, installationID, "", nil, router.Request{
 		RequestedModel: features.Model,

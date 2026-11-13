@@ -228,7 +228,7 @@ func TestTurnLoop_ForcedPinToNewlyExcludedProviderRejects(t *testing.T) {
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
 	env := forceCommandEnv(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	_, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
 		env, feats, "key-1", uuid.New(), "", nil,
@@ -255,7 +255,7 @@ func TestTurnLoop_AutomaticPinToExcludedProviderStillFallsThrough(t *testing.T) 
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
 	env := forceCommandEnv(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	_, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
 		env, feats, "key-1", uuid.New(), "", nil,
@@ -323,7 +323,7 @@ func TestTurnLoop_ForcedPinFollowsSurvivingBinding(t *testing.T) {
 			providers.ProviderAnthropic, providers.ProviderAnthropicGateway))
 
 	env := forceCommandEnv(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
 		env, feats, "key-1", uuid.New(), "", nil,
@@ -356,7 +356,7 @@ func TestTurnLoop_StrikeExemptionCoversRemappedBinding(t *testing.T) {
 			providers.ProviderAnthropic, providers.ProviderAnthropicGateway))
 
 	env := forceCommandEnv(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
 		env, feats, "key-1", uuid.New(), "", nil,
@@ -388,7 +388,7 @@ func TestTurnLoop_HardPinnedTurnForcedPinFollowsSurvivingBinding(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(
 		`{"model":"claude-opus-4-8","max_tokens":1,"messages":[{"role":"user","content":"quota"}]}`))
 	require.NoError(t, err)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(
 		excludedProvidersCtx(providers.ProviderAnthropic),
 		env, feats, "key-1", uuid.New(), "", nil,

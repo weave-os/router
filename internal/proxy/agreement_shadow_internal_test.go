@@ -247,7 +247,7 @@ func TestAgreementShadowRoutingRefusalBreaksHistoryWithoutDispatch(t *testing.T)
 	}
 	ctx := router.WithStrategy(agreementContext(policyregistry.TargetInternal, true), router.StrategyHMM)
 	ctx = observability.WithRequestID(ctx, "synthetic-refusal")
-	_, err = svc.runTurnLoop(ctx, env, env.RoutingFeatures(false), "synthetic-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: string(router.ModelAutomatic)})
+	_, err = svc.runTurnLoop(ctx, env, env.RoutingFeatures(), "synthetic-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: string(router.ModelAutomatic)})
 	if err == nil {
 		t.Fatal("synthetic refusal unexpectedly succeeded")
 	}

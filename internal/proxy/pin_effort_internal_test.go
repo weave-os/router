@@ -94,7 +94,7 @@ func TestRunTurnLoop_ForcedPinRehydratesEffort(t *testing.T) {
 		"messages":[{"role":"user","content":"summarize"}]
 	}`))
 	require.NoError(t, err)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
 		RequestedModel: feats.Model,
@@ -122,7 +122,7 @@ func TestRunTurnLoop_RequestForceModelCarriesEffort(t *testing.T) {
 		"messages":[{"role":"user","content":"summarize"}]
 	}`))
 	require.NoError(t, err)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
 		RequestedModel: feats.Model,

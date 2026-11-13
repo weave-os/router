@@ -189,7 +189,7 @@ func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
 			WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic, providers.ProviderOpenAI))
 	}
 	env := forceCommandEnv(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 
 	fr := &tierProbeRouter{available: map[string]struct{}{testOpus: {}, "gpt-5.4-mini": {}}}
 	svc := newSvc(fr)

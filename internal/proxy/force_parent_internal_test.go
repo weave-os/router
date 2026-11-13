@@ -42,7 +42,7 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 	}
 	route := func(env *translate.RequestEnvelope) turnLoopResult {
 		t.Helper()
-		features := env.RoutingFeatures(false)
+		features := env.RoutingFeatures()
 		routed, err := svc.runTurnLoop(ctx, env, features, apiKeyID, installationID, "", nil, router.Request{RequestedModel: features.Model})
 		require.NoError(t, err)
 		return routed
@@ -58,7 +58,7 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 	ack := apply(translate.ForceModelResult{Model: "opus-4-8:high", ParentOnly: true})
 	assert.Contains(t, ack, "force-parent applied:")
 	assert.Contains(t, ack, "Subagents use automatic routing")
-	features := parent.RoutingFeatures(false)
+	features := parent.RoutingFeatures()
 	inheritedChild, err := svc.runTurnLoop(ctx, parent, features, apiKeyID, installationID, "explore", nil, router.Request{RequestedModel: features.Model})
 	require.NoError(t, err)
 	assert.Equal(t, catalog.ModelIDClaudeHaiku45.String(), inheritedChild.Decision.Model, "identified subagents must route even when they inherit the parent transcript")
@@ -96,7 +96,7 @@ func TestForceParentDoesNotOverrideChildCompaction(t *testing.T) {
 	svc := NewService(fixedRouter{decision: scored}, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeSonnet46.String(), nil)
 	parentKey := deriveSessionKeyForRequest(ctx, parent, apiKeyID)
 	require.Equal(t, parentKey, deriveSessionKeyForRequest(ctx, compaction, apiKeyID))
-	features := compaction.RoutingFeatures(false)
+	features := compaction.RoutingFeatures()
 	route := func() turnLoopResult {
 		t.Helper()
 		turn, err := svc.runTurnLoop(ctx, compaction, features, apiKeyID, installationID, "explore", nil, router.Request{RequestedModel: features.Model})

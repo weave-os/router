@@ -100,7 +100,7 @@ func runAuthorityShadowTurnWithPin(
 		[]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
 	)
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	ctx := router.WithStrategy(context.Background(), strategy)
 	result, err := svc.runTurnLoop(
 		ctx, env, features, "api-key", uuid.New(), "", http.Header{},

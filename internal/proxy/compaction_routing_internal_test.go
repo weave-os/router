@@ -60,14 +60,14 @@ func newCompactionRoutingFixture(t *testing.T, scored router.Decision) compactio
 
 func (f compactionRoutingFixture) run(t *testing.T, ctx context.Context, env *translate.RequestEnvelope, req router.Request) (turnLoopResult, error) {
 	t.Helper()
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	req.RequestedModel = features.Model
 	return f.svc.runTurnLoop(ctx, env, features, "test-key", f.installationID, "", nil, req)
 }
 
 func (f compactionRoutingFixture) pinSession(t *testing.T, ctx context.Context, env *translate.RequestEnvelope, decision router.Decision) {
 	t.Helper()
-	role := roleForTier(catalog.TierFor(env.RoutingFeatures(false).Model))
+	role := roleForTier(catalog.TierFor(env.RoutingFeatures().Model))
 	f.svc.writeNewPin(ctx, f.installationID, deriveSessionKeyForRequest(ctx, env, "test-key"), role, decision)
 }
 

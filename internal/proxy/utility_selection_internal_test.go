@@ -41,7 +41,7 @@ func TestAutomaticUtilitySelectionDoesNotUseDeploymentShortcut(t *testing.T) {
 						providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 					envelope, err := translate.ParseAnthropic([]byte(fixture.body))
 					require.NoError(t, err)
-					features := envelope.RoutingFeatures(false)
+					features := envelope.RoutingFeatures()
 					turn, err := service.runTurnLoop(ctx, envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
 						RequestedModel:   features.Model,
 						EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
@@ -114,7 +114,7 @@ func TestAutomaticProbeWithoutConcreteTargetScoresWithoutPinning(t *testing.T) {
 			body := strings.Replace(blindExperimentUtilityTurnBodies()[0].body, catalog.ModelIDClaudeOpus48.String(), requestedModel, 1)
 			envelope, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)
-			features := envelope.RoutingFeatures(false)
+			features := envelope.RoutingFeatures()
 			turn, err := service.runTurnLoop(context.Background(), envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
 				RequestedModel: features.Model, EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 			})
@@ -145,7 +145,7 @@ func TestDefaultProbeDroppedForceDoesNotAttachConversationState(t *testing.T) {
 			body := strings.Replace(blindExperimentUtilityTurnBodies()[0].body, catalog.ModelIDClaudeOpus48.String(), requestedModel, 1)
 			envelope, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)
-			features := envelope.RoutingFeatures(false)
+			features := envelope.RoutingFeatures()
 			turn, err := service.runTurnLoop(context.Background(), envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
 				RequestedModel:   features.Model,
 				ForceModel:       catalog.ModelIDGPT55.String(),

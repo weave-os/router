@@ -116,7 +116,7 @@ func TestTurnLoop_CompactionReadsClientIdentityBeforeSessionPin(t *testing.T) {
 	env, err := translate.ParseOpenAI([]byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"You are performing a CONTEXT CHECKPOINT COMPACTION. Create a summary."}],"max_tokens":4096}`))
 	require.NoError(t, err)
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	turn, err := s.runTurnLoop(ctx, env, features, "test-key", uuid.Nil, "", nil, router.Request{RequestedModel: features.Model})
 	require.NoError(t, err)
 	assert.Equal(t, turntype.Compaction, turn.TurnType)

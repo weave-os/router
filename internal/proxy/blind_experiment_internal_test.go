@@ -51,7 +51,7 @@ func TestCallerModelPassthroughSkipsAutomaticPinsAndScorer(t *testing.T) {
 	loopResult, err := service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmPassthrough),
 		envelope,
-		envelope.RoutingFeatures(false),
+		envelope.RoutingFeatures(),
 		"api-key",
 		uuid.New(),
 		"",
@@ -89,7 +89,7 @@ func TestCallerModelPassthroughLeavesAutomaticSessionHistoryUntouched(t *testing
 	loopResult, err := service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmPassthrough),
 		envelope,
-		envelope.RoutingFeatures(false),
+		envelope.RoutingFeatures(),
 		"api-key",
 		uuid.New(),
 		"",
@@ -202,7 +202,7 @@ func TestCallerModelPassthroughHonorsExcludedModels(t *testing.T) {
 	_, err = service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmPassthrough),
 		envelope,
-		envelope.RoutingFeatures(false),
+		envelope.RoutingFeatures(),
 		"api-key",
 		uuid.New(),
 		"",
@@ -243,7 +243,7 @@ func runBlindExperimentUtilityTurn(t *testing.T, ctx context.Context, body strin
 		WithSubAgentOverride(providers.ProviderGoogle, experimentSubAgentOverrideModel)
 	envelope, err := translate.ParseAnthropic([]byte(body))
 	require.NoError(t, err)
-	features := envelope.RoutingFeatures(false)
+	features := envelope.RoutingFeatures()
 	loopResult, err := service.runTurnLoop(
 		ctx,
 		envelope,
@@ -343,7 +343,7 @@ func TestBlindExperimentPassthroughYieldsUtilityTurnToForceModel(t *testing.T) {
 	loopResult, err := service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmPassthrough),
 		envelope,
-		envelope.RoutingFeatures(false),
+		envelope.RoutingFeatures(),
 		"api-key",
 		uuid.New(),
 		"",
@@ -376,7 +376,7 @@ func TestBlindExperimentRouterOnUsesScorer(t *testing.T) {
 	loopResult, err := service.runTurnLoop(
 		blindExperimentContext(auth.BlindExperimentArmRouterOn),
 		envelope,
-		envelope.RoutingFeatures(false),
+		envelope.RoutingFeatures(),
 		"api-key",
 		uuid.New(),
 		"",

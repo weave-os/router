@@ -3856,7 +3856,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		log.Info("Stripped beta artifacts from Anthropic history", "removed_messages", removed)
 	}
 
-	feats := env.RoutingFeatures(true)
+	feats := env.RoutingFeatures()
 	ctx = withRequestImageCount(ctx, feats.ImageCount)
 	if err := validateHandoffEnvelope(ctx, env, r.Header, body); err != nil {
 		return err
@@ -3973,7 +3973,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		requestBodyChanged = true
 	}
 	if requestBodyChanged {
-		feats = env.RoutingFeatures(true)
+		feats = env.RoutingFeatures()
 		ctx = withRequestImageCount(ctx, feats.ImageCount)
 		promptText = feats.PromptText
 		embedInput = "concatenated_stream"
@@ -7210,7 +7210,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		log.Info("Stripped beta artifacts from OpenAI history", "removed_messages", removed)
 	}
 	codexTitleGen, _ := ctx.Value(codexTitleGenerationContextKey{}).(bool)
-	feats := env.RoutingFeatures(true)
+	feats := env.RoutingFeatures()
 	ctx = withRequestImageCount(ctx, feats.ImageCount)
 	if codexTitleGen {
 		feats.TitleGenHint = true
@@ -7329,7 +7329,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		routingEnv.SanitizeOrphanedToolCalls()
 	}
 	if requestBodyChanged {
-		feats = env.RoutingFeatures(true)
+		feats = env.RoutingFeatures()
 		ctx = withRequestImageCount(ctx, feats.ImageCount)
 		if codexTitleGen {
 			feats.TitleGenHint = true
