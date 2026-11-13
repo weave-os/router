@@ -28,9 +28,9 @@ const (
 	ingressResponses = "openai_responses"
 	ingressGemini    = "gemini_generate_content"
 
-	goldenGeminiModel = "gemini-2.5-flash"
-	goldenOpenAIModel = "gpt-5.5"
-	goldenCodexUA     = "codex_cli_rs/0.50.0"
+	goldenGeminiModel    = "gemini-2.5-flash"
+	goldenOpenAIModel    = "gpt-5.5"
+	goldenCodexUserAgent = "codex_cli_rs/0.50.0"
 )
 
 type goldenIngressSurface struct {
@@ -98,18 +98,18 @@ func geminiOK(stream bool, text string) goldenStep {
 }
 
 func goldenResponsesStream(model, text string) []string {
-	item := `{"type":"message","id":"msg_up","status":"completed","role":"assistant","content":[{"type":"output_text","text":"` + text + `","annotations":[]}]}`
+	item := `{"type":"message","id":"msg-upstream","status":"completed","role":"assistant","content":[{"type":"output_text","text":"` + text + `","annotations":[]}]}`
 	return []string{
-		goldenSSE("response.created", `{"type":"response.created","response":{"id":"resp_up","object":"response","status":"in_progress","model":"`+model+`","output":[]}}`),
-		goldenSSE("response.output_item.added", `{"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_up","status":"in_progress","role":"assistant","content":[]}}`),
-		goldenSSE("response.output_text.delta", `{"type":"response.output_text.delta","item_id":"msg_up","output_index":0,"content_index":0,"delta":"`+text+`"}`),
-		goldenSSE("response.output_item.done", `{"type":"response.output_item.done","output_index":0,"item":`+item+`}`),
-		goldenSSE("response.completed", `{"type":"response.completed","response":{"id":"resp_up","object":"response","status":"completed","model":"`+model+`","output":[`+item+`],"usage":{"input_tokens":12,"output_tokens":7,"total_tokens":19}}}`),
+		goldenSSE("response.created", `{"type":"response.created","sequence_number":0,"response":{"id":"resp-upstream","object":"response","status":"in_progress","model":"`+model+`","output":[]}}`),
+		goldenSSE("response.output_item.added", `{"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"type":"message","id":"msg-upstream","status":"in_progress","role":"assistant","content":[]}}`),
+		goldenSSE("response.output_text.delta", `{"type":"response.output_text.delta","sequence_number":2,"item_id":"msg-upstream","output_index":0,"content_index":0,"delta":"`+text+`"}`),
+		goldenSSE("response.output_item.done", `{"type":"response.output_item.done","sequence_number":3,"output_index":0,"item":`+item+`}`),
+		goldenSSE("response.completed", `{"type":"response.completed","sequence_number":4,"response":{"id":"resp-upstream","object":"response","status":"completed","model":"`+model+`","output":[`+item+`],"usage":{"input_tokens":12,"output_tokens":7,"total_tokens":19}}}`),
 	}
 }
 
 func goldenResponsesJSON(model, text string) []string {
-	return []string{`{"id":"resp_up","object":"response","status":"completed","model":"` + model + `","output":[{"type":"message","id":"msg_up","status":"completed","role":"assistant","content":[{"type":"output_text","text":"` + text + `","annotations":[]}]}],"usage":{"input_tokens":12,"output_tokens":7,"total_tokens":19}}`}
+	return []string{`{"id":"resp-upstream","object":"response","status":"completed","model":"` + model + `","output":[{"type":"message","id":"msg-upstream","status":"completed","role":"assistant","content":[{"type":"output_text","text":"` + text + `","annotations":[]}]}],"usage":{"input_tokens":12,"output_tokens":7,"total_tokens":19}}`}
 }
 
 func responsesOK(stream bool, text string) goldenStep {
@@ -123,7 +123,7 @@ var (
 	goldenGeminiDecision = decision(providers.ProviderGoogle, goldenGeminiModel)
 	goldenOpenAIDecision = decision(providers.ProviderOpenAI, goldenOpenAIModel)
 	goldenEventStream    = map[string]string{"Content-Type": "text/event-stream"}
-	goldenCodexHeaders   = map[string]string{"User-Agent": goldenCodexUA}
+	goldenCodexHeaders   = map[string]string{"User-Agent": goldenCodexUserAgent}
 )
 
 // goldenChatToResponses rewrites an OpenAI Chat request into the equivalent
@@ -177,14 +177,14 @@ const goldenResponsesHistoryBody = `{"model":"gpt-5","stream":false,"instruction
 	`"tools":[{"type":"function","name":"get_weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}]}`
 
 func goldenAnthropicToolStream() []string {
-	text := goldenAnthropicStream(goldenAnthropicModel, "")
+	frames := goldenAnthropicStream(goldenAnthropicModel, "")
 	return []string{
-		text[0],
+		frames[0],
 		goldenSSE("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{}}}`),
 		goldenSSE("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"city\":\"Paris\"}"}}`),
-		text[3],
-		strings.Replace(text[4], "end_turn", "tool_use", 1),
-		text[5],
+		frames[3],
+		strings.Replace(frames[4], "end_turn", "tool_use", 1),
+		frames[5],
 	}
 }
 
@@ -222,27 +222,27 @@ func goldenResponsesScenarios() []goldenScenario {
 		upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(false, "never")}},
 		requests:  []goldenRequest{{body: goldenOpenAIBody(false), noTelemetry: true}},
 	}})...)
-	native := goldenResponsesStream(goldenOpenAIModel, "partial")
-	failed := goldenSSE("response.failed", `{"type":"response.failed","response":{"id":"resp_up","object":"response","status":"failed","model":"`+goldenOpenAIModel+`","output":[],"error":{"code":"server_error","message":"upstream failed"}}}`)
-	p := ingressResponses + "_stream_"
+	nativeFrames := goldenResponsesStream(goldenOpenAIModel, "partial")
+	failed := goldenSSE("response.failed", `{"type":"response.failed","sequence_number":3,"response":{"id":"resp-upstream","object":"response","status":"failed","model":"`+goldenOpenAIModel+`","output":[],"error":{"code":"server_error","message":"upstream failed"}}}`)
+	streamPrefix := ingressResponses + "_stream_"
 	add := func(name, body string, headers map[string]string, d router.Decision, provider string, steps ...goldenStep) {
-		out = append(out, goldenScenario{name: p + name, ingress: ingressResponses, decisions: []router.Decision{d},
+		out = append(out, goldenScenario{name: streamPrefix + name, ingress: ingressResponses, decisions: []router.Decision{d},
 			upstreams: map[string][]goldenStep{provider: steps}, requests: []goldenRequest{{body: body, headers: headers}}})
 	}
 	add("anthropic_tool_call", goldenResponsesToolBody, nil, goldenAnthropicDecision, providers.ProviderAnthropic,
 		goldenOK("text/event-stream", goldenAnthropicToolStream()))
 	add("openai_native_missing_terminal", goldenResponsesBody(true), nil, goldenOpenAIDecision, providers.ProviderOpenAI,
-		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: native[:3]})
+		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: nativeFrames[:3]})
 	add("openai_native_failed_event", goldenResponsesBody(true), nil, goldenOpenAIDecision, providers.ProviderOpenAI,
-		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: append(native[:3:3], failed)})
+		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: append(nativeFrames[:3:3], failed)})
 	add("codex_openai_native_missing_terminal", goldenResponsesBody(true), goldenCodexHeaders, goldenOpenAIDecision, providers.ProviderOpenAI,
-		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: native[:3]})
+		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: nativeFrames[:3]})
 	add("codex_openai_native_success", goldenResponsesBody(true), goldenCodexHeaders, goldenOpenAIDecision, providers.ProviderOpenAI,
 		responsesOK(true, "hi"))
 	add("compat_empty_stream", goldenResponsesBody(true), nil, goldenCompatDecision, providers.ProviderFireworks,
 		goldenStep{status: http.StatusOK, headers: goldenEventStream})
 	out = append(out,
-		goldenScenario{name: p + "no_keepalive_ping_on_slow_stream", ingress: ingressResponses, configure: withSlowKeepalive,
+		goldenScenario{name: streamPrefix + "no_keepalive_ping_on_slow_stream", ingress: ingressResponses, configure: withSlowKeepalive,
 			decisions: []router.Decision{goldenAnthropicDecision},
 			upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {goldenSlow(anthropicOK(true, "slow"))}},
 			requests:  []goldenRequest{{body: goldenResponsesBody(true)}}},

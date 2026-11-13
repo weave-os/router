@@ -65,7 +65,7 @@
           "X-Router-Provider": "openai"
         },
         "body": {
-          "id": "resp_up",
+          "id": "resp-upstream",
           "model": "gpt-5.5",
           "object": "response",
           "output": [
