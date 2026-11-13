@@ -70,7 +70,7 @@ func TestFundingBypassCancellationDoesNotDispatch(t *testing.T) {
 	svc := newBypassService(upstream)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hello"}]}`))
 	require.NoError(t, err)
-	ctx, cancel := context.WithCancel(billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted))
+	ctx, cancel := context.WithCancel(billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlySpendCapReached))
 	cancel()
 	rec := httptest.NewRecorder()
 	err = svc.bypassToAnthropic(ctx, env, env.RoutingFeatures(false), false, time.Now(), "synthetic", "synthetic", turntype.MainLoop, reasonUsageBypass, httptest.NewRequest(http.MethodPost, "/v1/messages", nil), rec)
@@ -94,13 +94,8 @@ func TestFundingNoticePolicyAndReplay(t *testing.T) {
 			} else {
 				assert.Contains(t, notice.Text, "ChatGPT (Codex) subscription")
 			}
-			if warning.reason == billing.SubscriptionOnlyCreditsDepleted {
-				assert.Contains(t, notice.Text, "credits are depleted")
-				assert.Contains(t, notice.Text, topUpURL)
-			} else {
-				assert.Contains(t, notice.Text, "spend cap has been reached")
-				assert.NotContains(t, notice.Text, topUpURL)
-			}
+			assert.Contains(t, notice.Text, "spend cap has been reached")
+			assert.NotContains(t, notice.Text, topUpURL)
 			rec := httptest.NewRecorder()
 			caps := translate.NoticeCapabilities{Format: translate.FormatOpenAIResponses, Streaming: true, Presentation: translate.NoticeText}
 			delivery := translate.NewNoticeDelivery(ctx, translate.NewProtocolNoticeSink(rec, caps), caps)
@@ -145,13 +140,13 @@ func TestFundingNoticeDoesNotEstablishProviderFacts(t *testing.T) {
 	terminal := newStreamTerminalObserver(extractor, nativeStreamAnthropic)
 	terminal.Header().Set("Content-Type", "text/event-stream")
 	terminal.WriteHeader(http.StatusOK)
-	_, err := delivery.Deliver(translate.NewRouterNotice(translate.NoticeFundingWarning, subscriptionOnlyWarningMarker, "synthetic-model", ""))
+	_, err := delivery.Deliver(translate.NewRouterNotice(translate.NoticeFundingWarning, subscriptionSpendCapWarningMarkerCodex, "synthetic-model", ""))
 	require.NoError(t, err)
 	progress := 0
 	require.True(t, terminal.ArmOutputProgress(func() { progress++ }))
 	_, err = delivery.Deliver(translate.NewRouterNotice(translate.NoticeFundingWarning, subscriptionSpendCapWarningMarker, "synthetic-model", ""))
 	require.NoError(t, err)
-	assert.Contains(t, rec.Body.String(), "credits are depleted")
+	assert.Contains(t, rec.Body.String(), "spend cap has been reached")
 	assert.Zero(t, progress)
 	input, output := extractor.Tokens()
 	assert.Zero(t, input)

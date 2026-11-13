@@ -4491,7 +4491,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// handover rewrote env (embedding predates the rewrite).
 	// Subscription-only turns are excluded (like the OpenAI path): the mode is an
 	// unfoldable routing signal absent from the cache key, so a stored body would
-	// bypass the exhausted-sub 402 guard and the depleted-credits warning below.
+	// bypass the exhausted-sub 402 guard and the spend-cap warning below.
 	cacheCredentialCtx := resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 	var cacheProvenance cache.Provenance
 	cacheEligible := routeRes.EscalationOrdinal == 0 && routeRes.llmEscalation == nil && !clientRecoveryApplied && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !compactionHandoverRan && !billing.SubscriptionOnlyFromContext(ctx) && !requestAllowedModelsPresent(ctx) && !subscriptionStateModelsEnabled(ctx) && s.semanticCacheRequestAllowed(cacheCredentialCtx, req) && len(decision.Metadata.ClusterIDs) > 0
@@ -8016,7 +8016,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// single-binding GPT model with no cross-format fallback to retry
 		// into. If a GPT model ever gains a fallback, gate this per-attempt.
 		if verbatimPassthrough {
-			// marker already carries the depleted-credits warning when terminal
+			// marker already carries any funding warning when terminal
 			// surfaces are enabled.
 			// Parse native SSE when this client needs a badge and/or footer.
 			if supportsResponsesTerminalSurfaces(clientID.ClientApp) && (marker != "" || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoed) != "") {

@@ -322,24 +322,9 @@ func anthropicOAuthCredentialRejected(err error) bool {
 
 // topUpURL is the customer-facing page where org admins buy router credits.
 // Duplicated from middleware.TopUpURL (proxy can't import the middleware
-// adapter without an import cycle) so subscription-only warnings and the
-// credits-exhausted 402 can surface the CTA.
+// adapter without an import cycle) so the credits-exhausted 402 can surface
+// the CTA.
 const topUpURL = "https://app.weaveos.com/organization/settings/weave-router/credits"
-
-// subscriptionOnlyWarningMarker is prepended to a subscription-only bypass
-// response so the customer sees why they're being served on their own plan and
-// how to restore full routing. The marker is emitted only when terminal
-// surfaces are enabled for the installation and request.
-const subscriptionOnlyWarningMarker = routingMarkerPrefix +
-	"your Weave router credits are depleted, so this turn is running on your own Anthropic subscription and paid model fallback is disabled. Add credits to restore full routing: " +
-	topUpURL + "\n\n"
-
-// subscriptionOnlyWarningMarkerCodex is the Codex/OpenAI-surface counterpart to
-// subscriptionOnlyWarningMarker, prepended to a subscription-only turn served on
-// the caller's own ChatGPT (Codex) subscription.
-const subscriptionOnlyWarningMarkerCodex = routingMarkerPrefix +
-	"your Weave router credits are depleted, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled. Add credits to restore full routing: " +
-	topUpURL + "\n\n"
 
 // subscriptionSpendCapWarningMarker is prepended to a subscription-only turn
 // a spend cap barred from paid capacity. The organization may still hold
@@ -358,11 +343,6 @@ type subscriptionFundingWarning struct {
 
 func (w subscriptionFundingWarning) text() string {
 	switch w.reason {
-	case billing.SubscriptionOnlyCreditsDepleted:
-		if w.source == subscriptions.ProviderCodex {
-			return subscriptionOnlyWarningMarkerCodex
-		}
-		return subscriptionOnlyWarningMarker
 	case billing.SubscriptionOnlySpendCapReached:
 		if w.source == subscriptions.ProviderCodex {
 			return subscriptionSpendCapWarningMarkerCodex
@@ -445,8 +425,6 @@ func reconnectNudgeEchoed(ctx context.Context, text string) bool {
 }
 
 var subscriptionFundingWarnings = []subscriptionFundingWarning{
-	{reason: billing.SubscriptionOnlyCreditsDepleted, source: subscriptions.ProviderClaude},
-	{reason: billing.SubscriptionOnlyCreditsDepleted, source: subscriptions.ProviderCodex},
 	{reason: billing.SubscriptionOnlySpendCapReached, source: subscriptions.ProviderClaude},
 	{reason: billing.SubscriptionOnlySpendCapReached, source: subscriptions.ProviderCodex},
 }
