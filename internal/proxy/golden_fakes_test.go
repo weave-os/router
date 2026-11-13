@@ -189,13 +189,23 @@ func (g *goldenRouter) Route(_ context.Context, req router.Request) (router.Deci
 		return router.Decision{}, g.err
 	}
 	var d router.Decision
+	providerIneligible := false
 	for _, candidate := range g.decisions {
+		if _, enabled := req.EnabledProviders[candidate.Provider]; req.EnabledProviders != nil && !enabled {
+			providerIneligible = true
+			continue
+		}
 		_, excludedByCaller := req.ExcludedModels[candidate.Model]
 		_, excludedAutomatically := req.AutomaticExcludedModels[candidate.Model]
 		if !excludedByCaller && !excludedAutomatically {
 			d = candidate
 			break
 		}
+	}
+	if d.Model == "" && providerIneligible {
+		call.Error = router.ErrNoEligibleProvider.Error()
+		g.rec.routes = append(g.rec.routes, call)
+		return router.Decision{}, router.ErrNoEligibleProvider
 	}
 	if d.Model == "" {
 		call.Error = errGoldenAllExcluded.Error()
@@ -426,6 +436,7 @@ type goldenTelemetry struct {
 func (g *goldenTelemetry) InsertRequestTelemetry(_ context.Context, p proxy.InsertTelemetryParams) error {
 	g.rec.mu.Lock()
 	g.rec.telemetry = append(g.rec.telemetry, goldenValue(p))
+	g.rec.recordRaw(p)
 	g.rec.mu.Unlock()
 	g.rows <- struct{}{}
 	return nil
@@ -435,6 +446,7 @@ func (g *goldenTelemetry) InsertInferenceAttempt(_ context.Context, p proxy.Inse
 	g.rec.mu.Lock()
 	defer g.rec.mu.Unlock()
 	g.rec.inferenceAttempts = append(g.rec.inferenceAttempts, goldenValue(p.Event))
+	g.rec.recordRaw(p)
 	return nil
 }
 
@@ -449,6 +461,7 @@ func (b *goldenBilling) DebitInference(_ context.Context, p billing.DebitParams)
 	b.rec.mu.Lock()
 	defer b.rec.mu.Unlock()
 	b.rec.debits = append(b.rec.debits, goldenValue(p))
+	b.rec.recordRaw(p)
 	return 1_000_000_000 - p.DeltaUsdMicros, nil
 }
 

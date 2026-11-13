@@ -47,9 +47,9 @@ type goldenScenario struct {
 	upstreams map[string][]goldenStep
 	requests  []goldenRequest
 	configure func(*proxy.Service, *goldenHarness) *proxy.Service
-	// credentials labels each scenario secret; non-empty records the resolved
-	// credential per attempt and fails if a secret reaches client bytes, logs,
-	// billing or telemetry.
+	// credentials labels the secrets a scenario supplies; non-nil records the
+	// resolved credential per attempt and fails if an attempt carries any other
+	// credential or a known secret reaches client bytes, logs, billing or telemetry.
 	credentials map[string]string
 }
 
@@ -496,7 +496,7 @@ func runGoldenScenario(t *testing.T, sc goldenScenario) {
 	require.NoError(t, err)
 	got = append(got, '\n')
 	if sc.credentials != nil {
-		h.rec.exposed.requireNoSecrets(t, sc.credentials, got)
+		h.rec.exposed.requireNoSecrets(t, got)
 	}
 
 	path := filepath.Join("testdata", "golden", sc.name+".json")

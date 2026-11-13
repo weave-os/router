@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -29,7 +30,7 @@ const (
 	goldenCodexAccount    = "golden-chatgpt-account"
 	goldenCodexModel      = "gpt-5.5"
 	goldenOpenAIOnlyModel = "gpt-4.1"
-	// goldenCodexAttemptModel is a model the Codex subscription lane may attempt.
+	// goldenCodexAttemptModel is the Codex-subscription model the OAuth-only scenarios route to after goldenOpenAIOnlyModel is excluded.
 	goldenCodexAttemptModel = "gpt-5.6-sol"
 )
 
@@ -42,18 +43,17 @@ var goldenCredentialLabels = map[string]string{
 	goldenClientOAuth:     "client_anthropic_oauth",
 	goldenClientOpenAI:    "client_openai_api_key",
 	goldenCodexToken:      "codex_subscription",
-	"sk-short-01":         "probe",
 }
 
 // goldenCredential is the non-secret projection of the credential an upstream
 // attempt carried; secrets are replaced by their scenario label.
 type goldenCredential struct {
-	Label           string `json:"label"`
-	Source          string `json:"source,omitempty"`
-	OAuth           bool   `json:"oauth,omitempty"`
-	Account         string `json:"account,omitempty"`
-	BaseURL         string `json:"base_url,omitempty"`
-	CredentialError bool   `json:"credential_error,omitempty"`
+	Label            string `json:"label"`
+	Source           string `json:"source,omitempty"`
+	OAuth            bool   `json:"oauth,omitempty"`
+	Account          string `json:"account,omitempty"`
+	BaseURL          string `json:"base_url,omitempty"`
+	CredentialFailed bool   `json:"credential_error,omitempty"`
 }
 
 func (r *goldenRecorder) credential(ctx context.Context) *goldenCredential {
@@ -63,7 +63,7 @@ func (r *goldenRecorder) credential(ctx context.Context) *goldenCredential {
 	creds := proxy.CredentialsFromContext(ctx)
 	if creds == nil || len(creds.APIKey) == 0 {
 		if creds != nil && creds.CredentialError != nil {
-			return &goldenCredential{Label: "unresolved", Source: creds.Source, CredentialError: true}
+			return &goldenCredential{Label: "unresolved", Source: creds.Source, CredentialFailed: true}
 		}
 		return &goldenCredential{Label: "deployment"}
 	}
@@ -74,7 +74,7 @@ func (r *goldenRecorder) credential(ctx context.Context) *goldenCredential {
 	}
 	return &goldenCredential{
 		Label: label, Source: creds.Source, OAuth: creds.OAuth, Account: string(creds.AccountID),
-		BaseURL: creds.BaseURL, CredentialError: creds.CredentialError != nil,
+		BaseURL: creds.BaseURL, CredentialFailed: creds.CredentialError != nil,
 	}
 }
 
@@ -84,6 +84,7 @@ type goldenExposure struct {
 	mu        sync.Mutex
 	logs      bytes.Buffer
 	client    bytes.Buffer
+	records   bytes.Buffer
 	unlabeled bool
 }
 
@@ -118,12 +119,14 @@ func (e *goldenExposure) record(rec *httptest.ResponseRecorder, err error) {
 	}
 }
 
-func (e *goldenExposure) requireNoSecrets(t *testing.T, labels map[string]string, trace []byte) {
+func (e *goldenExposure) requireNoSecrets(t *testing.T, trace []byte) {
 	t.Helper()
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	surfaces := map[string][]byte{"trace": trace, "client": e.client.Bytes(), "logs": e.logs.Bytes()}
-	for secret, label := range labels {
+	surfaces := map[string][]byte{
+		"trace": trace, "client": e.client.Bytes(), "logs": e.logs.Bytes(), "records": e.records.Bytes(),
+	}
+	for secret, label := range goldenCredentialLabels {
 		for surface, raw := range surfaces {
 			if bytes.Contains(raw, []byte(secret)) {
 				t.Errorf("credential %s leaked into %s", label, surface)
@@ -132,6 +135,54 @@ func (e *goldenExposure) requireNoSecrets(t *testing.T, labels map[string]string
 	}
 	if e.unlabeled {
 		t.Errorf("an attempt carried a credential the scenario never supplied")
+	}
+}
+
+// recordRaw keeps every string and byte slice of a telemetry or billing row
+// before goldenValue drops volatile fields and elides raw bytes.
+func (r *goldenRecorder) recordRaw(v any) {
+	if r.credentialLabels != nil {
+		r.exposed.recordRaw(v)
+	}
+}
+
+func (e *goldenExposure) recordRaw(v any) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	writeRawText(&e.records, reflect.ValueOf(v), 0)
+}
+
+func writeRawText(buf *bytes.Buffer, v reflect.Value, depth int) {
+	if !v.IsValid() || depth > 16 {
+		return
+	}
+	switch v.Kind() {
+	case reflect.String:
+		buf.WriteString(v.String())
+		buf.WriteByte(0)
+	case reflect.Slice, reflect.Array:
+		if v.Type().Elem().Kind() == reflect.Uint8 {
+			buf.Write(v.Bytes())
+			buf.WriteByte(0)
+			return
+		}
+		for i := 0; i < v.Len(); i++ {
+			writeRawText(buf, v.Index(i), depth+1)
+		}
+	case reflect.Pointer, reflect.Interface:
+		if !v.IsNil() {
+			writeRawText(buf, v.Elem(), depth+1)
+		}
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			writeRawText(buf, v.Field(i), depth+1)
+		}
+	case reflect.Map:
+		iter := v.MapRange()
+		for iter.Next() {
+			writeRawText(buf, iter.Key(), depth+1)
+			writeRawText(buf, iter.Value(), depth+1)
+		}
 	}
 }
 
@@ -200,6 +251,9 @@ type credentialCase struct {
 	turns     int
 	// refused marks cases rejected before a request row is emitted.
 	refused bool
+	// supplies lists the secrets the case hands the service; an attempt carrying
+	// any other credential is recorded as unlabeled and fails the case.
+	supplies []string
 }
 
 func (c credentialCase) scenario() goldenScenario {
@@ -215,10 +269,14 @@ func (c credentialCase) scenario() goldenScenario {
 	for i := range requests {
 		requests[i] = goldenRequest{body: ingressBody(ingress, c.stream), decorateContext: c.ctx, headers: c.headers, noTelemetry: c.refused}
 	}
+	allowed := map[string]string{}
+	for _, secret := range c.supplies {
+		allowed[secret] = goldenCredentialLabels[secret]
+	}
 	return goldenScenario{
 		name: ingress + "_" + streamName(c.stream) + "_credentials_" + c.name, ingress: ingress,
 		decisions: c.decisions, upstreams: c.upstreams, requests: requests,
-		configure: c.configure, credentials: goldenCredentialLabels,
+		configure: c.configure, credentials: allowed,
 	}
 }
 
@@ -236,103 +294,103 @@ func responsesOK() goldenStep {
 func goldenCredentialScenarios() []goldenScenario {
 	ok := anthropicOK(false, "ok")
 	openaiOK := responsesOK()
-	anthropicD := []router.Decision{goldenAnthropicDecision}
-	openaiD := []router.Decision{goldenOpenAIDecision}
+	anthropicDecisions := []router.Decision{goldenAnthropicDecision}
+	openaiDecisions := []router.Decision{goldenOpenAIDecision}
 	cases := []credentialCase{
 		// Source precedence.
-		{name: "deployment_key", decisions: anthropicD, upstreams: anthropicUp(ok)},
-		{name: "byok_plan_first", decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "deployment_key", decisions: anthropicDecisions, upstreams: anthropicUp(ok)},
+		{name: "byok_plan_first", supplies: []string{goldenBYOKAnthropic}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityPlanFirst))},
-		{name: "byok_key_first_over_subscription", decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "byok_key_first_over_subscription", supplies: []string{goldenSubscription, goldenBYOKAnthropic}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: chainCtx(goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityKeyFirst)))},
-		{name: "subscription_over_plan_first_byok", decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "subscription_over_plan_first_byok", supplies: []string{goldenSubscription, goldenBYOKAnthropic}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: chainCtx(goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityPlanFirst)))},
-		{name: "subscription_context", stream: true, decisions: anthropicD, upstreams: anthropicUp(anthropicOK(true, "ok")),
+		{name: "subscription_context", supplies: []string{goldenSubscription}, stream: true, decisions: anthropicDecisions, upstreams: anthropicUp(anthropicOK(true, "ok")),
 			ctx: goldenSubscriptionCtx},
-		{name: "byok_other_provider_unused", decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "byok_other_provider_unused", supplies: []string{goldenBYOKOpenAI}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: withBYOK(byokKey(providers.ProviderOpenAI, goldenBYOKOpenAI, auth.FundingPriorityKeyFirst))},
-		{name: "byok_base_url", decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "byok_base_url", supplies: []string{goldenBYOKAnthropic}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: withBYOK(&auth.ExternalAPIKey{ID: "golden-ext-gateway", Provider: providers.ProviderAnthropic,
 				Plaintext: []byte(goldenBYOKAnthropic), BaseURL: "https://gateway.example.test"})},
-		{name: "byok_credential_error", decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "byok_credential_error", decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: withBYOK(&auth.ExternalAPIKey{ID: "golden-ext-broken", Provider: providers.ProviderAnthropic, CredentialError: errGoldenCredential})},
-		{name: "byok_compat_provider", decisions: []router.Decision{goldenCompatDecision},
+		{name: "byok_compat_provider", supplies: []string{goldenBYOKFireworks}, decisions: []router.Decision{goldenCompatDecision},
 			upstreams: map[string][]goldenStep{providers.ProviderFireworks: {compatOK(false, "ok")}},
 			ctx:       withBYOK(byokKey(providers.ProviderFireworks, goldenBYOKFireworks, auth.FundingPriorityPlanFirst))},
 
 		// Inbound client credentials.
-		{name: "router_keyed_oauth_bearer", decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "router_keyed_oauth_bearer", supplies: []string{goldenClientOAuth}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			headers: map[string]string{"Authorization": "Bearer " + goldenClientOAuth}},
-		{name: "router_keyed_api_key_not_forwarded", decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "router_keyed_api_key_not_forwarded", supplies: []string{goldenClientAnthropic}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			headers: map[string]string{"X-Api-Key": goldenClientAnthropic}},
-		{name: "unkeyed_api_key_forwarded", refused: true, decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "unkeyed_api_key_forwarded", supplies: []string{goldenClientAnthropic}, refused: true, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: goldenUnkeyedCtx, headers: map[string]string{"X-Api-Key": goldenClientAnthropic}},
 
 		// Subscription suppression and paid fallback.
-		{name: "subscription_exhausted_paid_fallback", stream: true, decisions: anthropicD,
+		{name: "subscription_exhausted_paid_fallback", supplies: []string{goldenSubscription}, stream: true, decisions: anthropicDecisions,
 			upstreams: anthropicUp(anthropicOK(true, "ok")), ctx: goldenSubscriptionCtx, configure: exhaustSubscription},
-		{name: "subscription_exhausted_byok_fallback", decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "subscription_exhausted_byok_fallback", supplies: []string{goldenSubscription, goldenBYOKAnthropic}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx:       chainCtx(goldenSubscriptionCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityPlanFirst))),
 			configure: exhaustSubscription},
-		{name: "subscription_not_sent_to_compat", decisions: []router.Decision{goldenCompatDecision},
+		{name: "subscription_not_sent_to_compat", supplies: []string{goldenSubscription}, decisions: []router.Decision{goldenCompatDecision},
 			upstreams: map[string][]goldenStep{providers.ProviderFireworks: {compatOK(false, "ok")}}, ctx: goldenSubscriptionCtx},
-		{name: "subscription_overload_rescue_uses_deployment", decisions: []router.Decision{goldenRescueDecision, goldenCompatDecision},
+		{name: "subscription_overload_rescue_uses_deployment", supplies: []string{goldenSubscription}, decisions: []router.Decision{goldenRescueDecision, goldenCompatDecision},
 			upstreams: map[string][]goldenStep{
 				providers.ProviderAnthropic: {goldenUpstreamError(529, goldenOverloadBody)},
 				providers.ProviderFireworks: {compatOK(false, "rescued")}},
 			ctx: goldenSubscriptionCtx},
-		{name: "subscription_model_denied", decisions: anthropicD, turns: 2,
+		{name: "subscription_model_denied", supplies: []string{goldenSubscription}, decisions: anthropicDecisions, turns: 2,
 			upstreams: anthropicUp(goldenUpstreamError(404, goldenModelDeniedBody), ok, ok), ctx: goldenSubscriptionCtx},
-		{name: "subscription_unauthorized", decisions: anthropicD, turns: 2,
+		{name: "subscription_unauthorized", supplies: []string{goldenSubscription}, decisions: anthropicDecisions, turns: 2,
 			upstreams: anthropicUp(goldenUpstreamError(401, goldenUnauthorizedBody), ok, ok), ctx: goldenSubscriptionCtx},
 
 		// Funding authorization.
-		{name: "credits_denied_deployment_refused", refused: true, decisions: anthropicD, upstreams: anthropicUp(ok), ctx: goldenCreditsDeniedCtx},
-		{name: "credits_denied_byok_funded", decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "credits_denied_deployment_refused", refused: true, decisions: anthropicDecisions, upstreams: anthropicUp(ok), ctx: goldenCreditsDeniedCtx},
+		{name: "credits_denied_byok_funded", supplies: []string{goldenBYOKAnthropic}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: chainCtx(goldenCreditsDeniedCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityPlanFirst)))},
-		{name: "credits_denied_subscription_funded", decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "credits_denied_subscription_funded", supplies: []string{goldenSubscription}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: chainCtx(goldenCreditsDeniedCtx, goldenSubscriptionCtx)},
-		{name: "subscription_only_served_by_subscription", decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "subscription_only_served_by_subscription", supplies: []string{goldenSubscription}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: chainCtx(goldenSubscriptionOnlyCtx, goldenSubscriptionCtx)},
-		{name: "subscription_only_exhausted_paid_refused", refused: true, decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "subscription_only_exhausted_paid_refused", supplies: []string{goldenSubscription}, refused: true, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: chainCtx(goldenSubscriptionOnlyCtx, goldenSubscriptionCtx), configure: exhaustSubscription},
-		{name: "subscription_only_key_first_byok", refused: true, decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "subscription_only_key_first_byok", supplies: []string{goldenBYOKAnthropic}, refused: true, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: chainCtx(goldenSubscriptionOnlyCtx, withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityKeyFirst)))},
-		{name: "unkeyed_oauth_bearer", refused: true, decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "unkeyed_oauth_bearer", supplies: []string{goldenClientOAuth}, refused: true, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx: goldenUnkeyedCtx, headers: map[string]string{"Authorization": "Bearer " + goldenClientOAuth}},
-		{name: "byok_only_without_key", decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "byok_only_without_key_refused", refused: true, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			configure: func(svc *proxy.Service, _ *goldenHarness) *proxy.Service { return svc.WithByokOnly(true) }},
-		{name: "byok_only_with_key", decisions: anthropicD, upstreams: anthropicUp(ok),
+		{name: "byok_only_with_key", supplies: []string{goldenBYOKAnthropic}, decisions: anthropicDecisions, upstreams: anthropicUp(ok),
 			ctx:       withBYOK(byokKey(providers.ProviderAnthropic, goldenBYOKAnthropic, auth.FundingPriorityPlanFirst)),
 			configure: func(svc *proxy.Service, _ *goldenHarness) *proxy.Service { return svc.WithByokOnly(true) }},
 
 		// OpenAI and Codex lanes.
-		{name: "deployment_key", ingress: ingressOpenAI, decisions: openaiD,
+		{name: "deployment_key", ingress: ingressOpenAI, decisions: openaiDecisions,
 			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {openaiOK}}},
-		{name: "byok_key_first", ingress: ingressOpenAI, decisions: openaiD,
+		{name: "byok_key_first", supplies: []string{goldenBYOKOpenAI}, ingress: ingressOpenAI, decisions: openaiDecisions,
 			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {openaiOK}},
 			ctx:       withBYOK(byokKey(providers.ProviderOpenAI, goldenBYOKOpenAI, auth.FundingPriorityKeyFirst))},
-		{name: "router_keyed_bearer_not_forwarded", ingress: ingressOpenAI, decisions: openaiD,
+		{name: "router_keyed_bearer_not_forwarded", supplies: []string{goldenClientOpenAI}, ingress: ingressOpenAI, decisions: openaiDecisions,
 			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {openaiOK}},
 			headers:   map[string]string{"Authorization": "Bearer " + goldenClientOpenAI}},
-		{name: "codex_subscription_not_used_on_chat", ingress: ingressOpenAI, decisions: openaiD,
+		{name: "codex_subscription_not_used_on_chat", supplies: []string{goldenCodexToken}, ingress: ingressOpenAI, decisions: openaiDecisions,
 			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {openaiOK}}, ctx: goldenCodexCtx},
-		{name: "codex_oauth_only_excludes_api_models",
+		{name: "codex_oauth_only_excludes_api_models", supplies: []string{goldenCodexToken},
 			decisions: []router.Decision{goldenOpenAIOnlyDecision, decision(providers.ProviderOpenAI, goldenCodexAttemptModel)},
 			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {openaiOK}}, ctx: goldenCodexCtx,
 			configure: func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 				return withoutDeploymentKey(providers.ProviderOpenAI)(svc, h).WithByokOnly(true)
 			}},
-		{name: "codex_oauth_only_on_chat_serves_codex_model", ingress: ingressOpenAI,
+		{name: "codex_oauth_only_on_chat_serves_codex_model", supplies: []string{goldenCodexToken}, ingress: ingressOpenAI,
 			decisions: []router.Decision{goldenOpenAIOnlyDecision, decision(providers.ProviderOpenAI, goldenCodexAttemptModel)},
 			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {openaiOK}},
 			ctx:       goldenCodexCtx, configure: withoutDeploymentKey(providers.ProviderOpenAI)},
-		{name: "codex_oauth_with_byok_keeps_api_models", ingress: ingressOpenAI,
+		{name: "codex_oauth_with_byok_keeps_api_models", supplies: []string{goldenCodexToken, goldenBYOKOpenAI}, ingress: ingressOpenAI,
 			decisions: []router.Decision{goldenOpenAIOnlyDecision, goldenOpenAIDecision},
 			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {openaiOK}},
 			ctx:       chainCtx(goldenCodexCtx, withBYOK(byokKey(providers.ProviderOpenAI, goldenBYOKOpenAI, auth.FundingPriorityPlanFirst))),
 			configure: withoutDeploymentKey(providers.ProviderOpenAI)},
-		{name: "anthropic_subscription_cross_format", ingress: ingressOpenAI, decisions: anthropicD,
+		{name: "anthropic_subscription_cross_format", supplies: []string{goldenSubscription}, ingress: ingressOpenAI, decisions: anthropicDecisions,
 			upstreams: anthropicUp(ok), ctx: goldenSubscriptionCtx},
 	}
 	out := make([]goldenScenario, 0, len(cases))
