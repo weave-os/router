@@ -61,7 +61,7 @@ func TestCodexOwnPlanSpentIsRememberedAcrossTurns(t *testing.T) {
 
 func TestCodexOwnTokenRejectionIsRememberedAcrossTurns(t *testing.T) {
 	var mu sync.Mutex
-	callerPreflights := 0
+	callerPreflights, paidCalls := 0, 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "Bearer "+codexTestToken {
 			if r.URL.Path == "/wham/usage" {
@@ -77,6 +77,9 @@ func TestCodexOwnTokenRejectionIsRememberedAcrossTurns(t *testing.T) {
 			_, _ = io.WriteString(w, `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":10}}}`)
 			return
 		}
+		mu.Lock()
+		paidCalls++
+		mu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"answer\"}\n\n")
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"synthetic\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n")
@@ -92,10 +95,10 @@ func TestCodexOwnTokenRejectionIsRememberedAcrossTurns(t *testing.T) {
 		ctx := WithManagedSubscriptionUsage(context.WithValue(context.Background(), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111"))
 		body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 		rec := httptest.NewRecorder()
-		require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body)))
-		require.Contains(t, rec.Body.String(), "answer")
+		require.Error(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body)))
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	require.Equal(t, 1, callerPreflights, "a rejected caller token must be suppressed on the second turn")
+	require.Zero(t, paidCalls, "a rejected token is not quota evidence, so paid recovery stays closed")
 }
