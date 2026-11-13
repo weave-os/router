@@ -396,7 +396,10 @@ SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
        account.external_account_id, account.provider_user_id, account.display_name, account.refresh_token_ciphertext,
        account.enabled, account.health_state, account.cooldown_until, account.created_at,
        CASE WHEN account.subscriber_id = sqlc.narg(subscriber_id)::uuid THEN 'personal' ELSE 'shared' END AS tier,
-       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing
+       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing,
+       -- A successful refresh clears the reason but keeps the rolling strikes.
+       (CASE WHEN account.credential_last_rejection_reason IS NULL THEN 0
+             ELSE account.credential_rejection_count END)::integer AS credential_rejection_count
 FROM router.model_router_subscription_accounts AS account
 JOIN members ON members.subject_id = account.subscriber_id
 JOIN installation ON TRUE
