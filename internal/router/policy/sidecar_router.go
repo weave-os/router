@@ -257,13 +257,14 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 		}
 		selectionInput := selectionInputFor(strategy, ExecutionModePreview, req, classification, resolved)
 		selectionInput.RosterSHA256 = pin.RosterSHA256
-		pick, selectErr := r.armSelector(ctx, selectionInput)
+		pick, selectionCandidates, selectErr := r.selectArmWithAutomaticReadmission(ctx, req, selectionInput, resolved, false)
 		if selectErr != nil {
 			return PreviewResult{}, fmt.Errorf("%s: preview arm selection: %w: %w", strategy, selectErr, r.config.Unavailable)
 		}
 		if pinned && pick.RosterSHA256 != pin.RosterSHA256 {
 			return PreviewResult{}, fmt.Errorf("%s: selection used roster %q, pin requires %q: %w", strategy, pick.RosterSHA256, pin.RosterSHA256, router.ErrPolicyPinUnavailable)
 		}
+		resolved = selectionCandidates
 		result.RankedFallback = pick.RankedFallback
 		result.SelectedGroup = pick.Group
 		for _, group := range pick.RankedFallback {
@@ -507,10 +508,10 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		slidingInput := slidingThresholdGroupInput(req, originalSelectionInput)
 		selectionInput, decision, constrained := constrainEscalation(req, slidingInput, resolved)
 		escalationDecision = decision
-		pick, selectErr := r.selectEscalationArm(ctx, req, selectionInput, resolved, constrained)
+		pick, selectionCandidates, selectErr := r.selectArmWithAutomaticReadmission(ctx, req, selectionInput, resolved, constrained)
 		for selectErr != nil && constrained && errors.Is(selectErr, ErrNoEligibleArm) {
 			selectionInput, escalationDecision, constrained = fallbackEscalation(req, slidingInput, resolved, escalationDecision)
-			pick, selectErr = r.selectEscalationArm(ctx, req, selectionInput, resolved, constrained)
+			pick, selectionCandidates, selectErr = r.selectArmWithAutomaticReadmission(ctx, req, selectionInput, resolved, constrained)
 		}
 		if slidingInput.LeadGroup != "" && !constrained && pick.Group == slidingInput.LeadGroup {
 			overrideReason = router.SelectionOverrideSlidingThreshold
@@ -530,6 +531,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		if escalationDecision != nil {
 			escalationDecision.Constrained = constrained
 		}
+		resolved = selectionCandidates
 		overrideArmID = indexCandidates(resolved).rosterToArm[pick.Arm]
 		overrideRosterID = pick.Arm
 		reselected = true
@@ -798,7 +800,7 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 			}
 		}
 	}
-	pick, err := r.armSelector(ctx, input)
+	pick, selectionCandidates, err := r.selectArmWithAutomaticReadmission(ctx, req, input, resolved, false)
 	if err != nil {
 		if errors.Is(err, ErrNoEligibleArm) && req.ForceCluster != "" && input.ForcedGroup == req.ForceCluster {
 			return router.Decision{}, &ForcedClusterUnservableError{
@@ -811,6 +813,7 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 		}
 		return router.Decision{}, fmt.Errorf("%s: unscorable roster selection: %w: %w", r.config.Strategy, err, r.config.Unavailable)
 	}
+	resolved = selectionCandidates
 	selectedArm := pick.Arm
 	selectedGroup := pick.Group
 	if req.ForceCluster != "" {
