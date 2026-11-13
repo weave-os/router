@@ -113,7 +113,7 @@ type slowStartAttempt struct {
 // slowStartNotice runs when the serving attempt's first provider content
 // arrives: it records the attempt's TTFT and returns a notice when the
 // request's wait was well above the provider's usual.
-func slowStartNotice(ctx context.Context, trace *attemptTrace, tracker *slowStartTracker, now time.Time) (translate.RouterNotice, bool) {
+func slowStartNotice(ctx context.Context, trace *dispatch.AttemptTrace, tracker *slowStartTracker, now time.Time) (translate.RouterNotice, bool) {
 	snapshot, ok := trace.SlowStartSnapshot()
 	if !ok {
 		return translate.RouterNotice{}, false
@@ -195,7 +195,7 @@ func roundSeconds(d time.Duration) string {
 	return strconv.Itoa(max(int(d.Round(time.Second)/time.Second), 1)) + "s"
 }
 
-func slowStartKey(a tracedAttempt) string {
+func slowStartKey(a dispatch.TracedAttempt) string {
 	endpoint := ""
 	if u, err := url.Parse(a.BaseURL); err == nil {
 		endpoint = u.Host + strings.TrimRight(u.Path, "/")

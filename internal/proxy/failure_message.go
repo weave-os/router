@@ -11,6 +11,7 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -59,7 +60,7 @@ func providerDisplayNameFor(provider, baseURL string) string {
 	return "your gateway (" + host + ")"
 }
 
-func attemptProviderName(a tracedAttempt) string {
+func attemptProviderName(a dispatch.TracedAttempt) string {
 	return providerDisplayNameFor(a.Target.Provider, a.BaseURL)
 }
 
@@ -80,7 +81,7 @@ type failureWording struct {
 	terminal string
 }
 
-func failureWordingFor(a tracedAttempt) failureWording {
+func failureWordingFor(a dispatch.TracedAttempt) failureWording {
 	status := upstreamStatus(a.Err)
 	withStatus := func(text string) string {
 		if status == 0 {
@@ -136,7 +137,7 @@ func failureWordingFor(a tracedAttempt) failureWording {
 
 // rescueDetailLine is the badge's second line naming the failed attempt the
 // rescue replaced and who owned the failure.
-func rescueDetailLine(a tracedAttempt) string {
+func rescueDetailLine(a dispatch.TracedAttempt) string {
 	owner := attemptOwner(a)
 	if owner == "" || owner == FailureOwnerUnknown {
 		return ""
@@ -159,7 +160,7 @@ func withRescueDetail(marker, detail string) string {
 
 // lastFailureDetail renders the detail line for the request's latest failed
 // attempt, or "" when none was traced.
-func lastFailureDetail(trace *attemptTrace) string {
+func lastFailureDetail(trace *dispatch.AttemptTrace) string {
 	last, ok := trace.LastFailure()
 	if !ok {
 		return ""
@@ -181,7 +182,7 @@ func (e attributedError) Unwrap() error { return e.err }
 
 // attributeTerminalError names the owner of err's attempt for the terminal
 // message, unless the request hides router surfaces.
-func attributeTerminalError(trace *attemptTrace, err error) error {
+func attributeTerminalError(trace *dispatch.AttemptTrace, err error) error {
 	if err == nil || trace == nil || trace.HideDetails() {
 		return err
 	}
@@ -203,7 +204,7 @@ func attributeStreamError(ctx context.Context, provider string, err error) error
 	if errors.As(err, &attributed) {
 		return err
 	}
-	a := tracedAttempt{
+	a := dispatch.TracedAttempt{
 		Target:    inference.Target{Provider: provider},
 		BaseURL:   requestcontext.EffectiveBaseURL(ctx, trace.ServingBaseURL()),
 		Err:       err,
@@ -213,7 +214,7 @@ func attributeStreamError(ctx context.Context, provider string, err error) error
 	return attributeAttempt(a, 0, err)
 }
 
-func attributeAttempt(a tracedAttempt, retries int, err error) error {
+func attributeAttempt(a dispatch.TracedAttempt, retries int, err error) error {
 	prefix := attributionPrefix(a, retries)
 	message := attributedTerminalMessage(a, prefix)
 	if message == "" && prefix == "" {
@@ -224,7 +225,7 @@ func attributeAttempt(a tracedAttempt, retries int, err error) error {
 
 // attributionPrefix states what the provider did, e.g. "Cortex
 // returned 429 (rate limited) after 2 router retries".
-func attributionPrefix(a tracedAttempt, retries int) string {
+func attributionPrefix(a dispatch.TracedAttempt, retries int) string {
 	if attemptOwner(a) == FailureOwnerRouter {
 		return ""
 	}
@@ -260,11 +261,11 @@ func attributionPrefix(a tracedAttempt, retries int) string {
 	return prefix
 }
 
-func terminalMessageFor(a tracedAttempt) string {
+func terminalMessageFor(a dispatch.TracedAttempt) string {
 	return attributedTerminalMessage(a, attributionPrefix(a, 0))
 }
 
-func attributedTerminalMessage(a tracedAttempt, prefix string) string {
+func attributedTerminalMessage(a dispatch.TracedAttempt, prefix string) string {
 	wording := failureWordingFor(a).terminal
 	provider := attemptProviderName(a)
 	switch attemptOwner(a) {

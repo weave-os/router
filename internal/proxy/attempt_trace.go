@@ -16,12 +16,9 @@ import (
 
 type attemptTraceContextKey struct{}
 
-type (
-	attemptTrace  = dispatch.AttemptTrace
-	tracedAttempt = dispatch.TracedAttempt
-)
-
-func attemptOwner(a tracedAttempt) FailureOwner { return FailureOwner(a.Diagnosis.FailureOwner) }
+func attemptOwner(a dispatch.TracedAttempt) FailureOwner {
+	return FailureOwner(a.Diagnosis.FailureOwner)
+}
 
 // withAttemptTrace starts tracing the attempts that dispatch inbound. A
 // surface that delegates to another keeps the outer surface's inbound body.
@@ -32,14 +29,14 @@ func withAttemptTrace(ctx context.Context, inbound []byte, h http.Header) contex
 	return context.WithValue(ctx, attemptTraceContextKey{}, dispatch.NewAttemptTrace(inbound, suppressMarkerIfRequested(ctx, h, "x") == ""))
 }
 
-func attemptTraceFromContext(ctx context.Context) *attemptTrace {
-	trace, _ := ctx.Value(attemptTraceContextKey{}).(*attemptTrace)
+func attemptTraceFromContext(ctx context.Context) *dispatch.AttemptTrace {
+	trace, _ := ctx.Value(attemptTraceContextKey{}).(*dispatch.AttemptTrace)
 	return trace
 }
 
 // observeAttemptSent records each prepared body with whether the attempt
 // authenticated with a customer-owned credential.
-func observeAttemptSent(trace *attemptTrace) func(context.Context, []byte) {
+func observeAttemptSent(trace *dispatch.AttemptTrace) func(context.Context, []byte) {
 	return func(ctx context.Context, body []byte) {
 		trace.ObserveSent(ctx, body, customerOwnedCredential(ctx))
 	}
@@ -66,7 +63,7 @@ func customerOwnedCredential(ctx context.Context) bool {
 // describeAttempt diagnoses the attempt dispatch just recorded and logs a
 // failure with its owner; an unowned failure is logged loudly so a rule can be
 // added.
-func describeAttempt(ctx context.Context, trace *attemptTrace, attempt dispatch.Attempt, err error) inference.AttemptDiagnosis {
+func describeAttempt(ctx context.Context, trace *dispatch.AttemptTrace, attempt dispatch.Attempt, err error) inference.AttemptDiagnosis {
 	return trace.Record(attempt, err, func(inbound, sent []byte, customerCredential bool) inference.AttemptDiagnosis {
 		diagnosis := inference.AttemptDiagnosis{BodyTranslated: bodyRewritten(inbound, sent)}
 		if err != nil {
@@ -85,14 +82,14 @@ func describeAttempt(ctx context.Context, trace *attemptTrace, attempt dispatch.
 // lastFailureOn is the newest failed attempt on model's base model, so a marker
 // cites that model's own failure rather than a later candidate's. Models match
 // by base model (baseModelOf), so catalog variants of one model count.
-func lastFailureOn(trace *attemptTrace, model string) (tracedAttempt, bool) {
+func lastFailureOn(trace *dispatch.AttemptTrace, model string) (dispatch.TracedAttempt, bool) {
 	return trace.LastFailureWhere(func(target inference.Target) bool {
 		return baseModelOf(target.CatalogID) == baseModelOf(model)
 	})
 }
 
 // failedOn reports whether any attempt on model failed in this request.
-func failedOn(trace *attemptTrace, model string) bool {
+func failedOn(trace *dispatch.AttemptTrace, model string) bool {
 	_, ok := lastFailureOn(trace, model)
 	return ok
 }

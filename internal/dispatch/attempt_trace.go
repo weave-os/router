@@ -30,6 +30,7 @@ type AttemptTrace struct {
 	slowStartMuted bool
 }
 
+// TracedAttempt is one finished upstream attempt and its diagnosis.
 type TracedAttempt struct {
 	Target inference.Target
 	// BaseURL is the customer gateway the attempt reached, empty for a
@@ -39,6 +40,7 @@ type TracedAttempt struct {
 	Diagnosis inference.AttemptDiagnosis
 }
 
+// NewAttemptTrace starts a trace for the attempts that dispatch inbound.
 func NewAttemptTrace(inbound []byte, hideRouterDetails bool) *AttemptTrace {
 	return &AttemptTrace{
 		inbound:           inbound,
@@ -46,14 +48,17 @@ func NewAttemptTrace(inbound []byte, hideRouterDetails bool) *AttemptTrace {
 	}
 }
 
+// Inbound is the client body the request arrived with.
 func (t *AttemptTrace) Inbound() []byte {
 	return t.inbound
 }
 
+// HideDetails reports whether router-authored text must stay off the response.
 func (t *AttemptTrace) HideDetails() bool {
 	return t != nil && t.hideRouterDetails
 }
 
+// MuteSlowStart suppresses the slow-start notice for the rest of the request.
 func (t *AttemptTrace) MuteSlowStart() {
 	if t == nil {
 		return
@@ -73,6 +78,8 @@ func (t *AttemptTrace) ServingBaseURL() string {
 	return t.baseURL
 }
 
+// BeginAttempt marks target as the attempt in flight and clears what the
+// previous attempt sent.
 func (t *AttemptTrace) BeginAttempt(target inference.Target, deploymentBaseURL string, now time.Time) {
 	t.mu.Lock()
 	t.current, t.attemptAt = target, now
@@ -84,6 +91,7 @@ func (t *AttemptTrace) BeginAttempt(target inference.Target, deploymentBaseURL s
 	t.mu.Unlock()
 }
 
+// ObserveSent records the prepared body and the endpoint it is sent to.
 func (t *AttemptTrace) ObserveSent(ctx context.Context, body []byte, customerCredential bool) {
 	t.mu.Lock()
 	baseURL := requestcontext.EffectiveBaseURL(ctx, t.deploymentBaseURL)
@@ -148,6 +156,7 @@ func (t *AttemptTrace) RetriesOf(a TracedAttempt) int {
 	return max(n-1, 0)
 }
 
+// AttemptSnapshot is the in-flight attempt plus the newest failure before it.
 type AttemptSnapshot struct {
 	Current        TracedAttempt
 	AttemptAt      time.Time
@@ -156,6 +165,8 @@ type AttemptSnapshot struct {
 	Failed         bool
 }
 
+// SlowStartSnapshot reports false before the first attempt or once slow-start
+// notices are muted.
 func (t *AttemptTrace) SlowStartSnapshot() (AttemptSnapshot, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
