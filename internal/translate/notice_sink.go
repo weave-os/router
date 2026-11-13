@@ -135,9 +135,15 @@ func noticeTerminal(format Format, event []byte) bool {
 			return true
 		}
 	case FormatOpenAI:
-		return string(payload) == "[DONE]" || gjson.GetBytes(payload, "error").Exists()
+		if errVal := gjson.GetBytes(payload, "error"); errVal.Exists() && errVal.Type != gjson.Null {
+			return true
+		}
+		return string(payload) == "[DONE]"
 	case FormatGemini:
-		return gjson.GetBytes(payload, "candidates.0.finishReason").String() != "" || gjson.GetBytes(payload, "error").Exists()
+		if errVal := gjson.GetBytes(payload, "error"); errVal.Exists() && errVal.Type != gjson.Null {
+			return true
+		}
+		return gjson.GetBytes(payload, "candidates.0.finishReason").String() != ""
 	}
 	return false
 }
@@ -208,4 +214,15 @@ func noticeProviderContent(format Format, event []byte) bool {
 		return gjson.GetBytes(payload, "candidates.0.content.parts.#").Int() > 0
 	}
 	return false
+}
+
+// StreamEventCommitsOutput reports whether an SSE event commits client output.
+func StreamEventCommitsOutput(format Format, event []byte) bool {
+	if format == FormatAnthropic {
+		// content_block_start only opens a block; its content arrives in
+		// content_block_delta, so a held start stays retryable.
+		eventType, _ := sse.ParseEvent(event)
+		return string(eventType) == "content_block_delta" || noticeTerminal(format, event)
+	}
+	return noticeProviderContent(format, event) || noticeTerminal(format, event)
 }

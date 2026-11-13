@@ -40,12 +40,19 @@ type preludeBuffer struct {
 	sealed         bool
 	preludeSent    bool
 	committed      atomic.Bool
+	commitOnOutput bool
+	commitFormat   translate.Format
+	held           bytes.Buffer
+	pending        []byte
 	// onDiscard lets a writer holding output above this buffer drop it with
 	// the failed attempt, so a retry never appends to a stale response.
 	onDiscard func()
 }
 
-func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer {
+// commitFormat arms commit-on-output: pass the wire format when the client
+// streams so non-output events (role-only chunks) stay retryable until real
+// output arrives.
+func newPreludeBuffer(w http.ResponseWriter, commitFormat ...translate.Format) *preludeBuffer {
 	// Snapshot headers so Discard() can restore them; Prelude only
 	// Set/Del's, never appends, so sharing the inner []string is safe.
 	snap := make(http.Header, len(w.Header()))
@@ -54,7 +61,12 @@ func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer {
 		copy(cp, vs)
 		snap[k] = cp
 	}
-	return &preludeBuffer{inner: w, initialHeaders: snap}
+	buf := &preludeBuffer{inner: w, initialHeaders: snap}
+	if len(commitFormat) > 0 {
+		buf.commitOnOutput = true
+		buf.commitFormat = commitFormat[0]
+	}
+	return buf
 }
 
 func (b *preludeBuffer) Header() http.Header { return b.inner.Header() }
@@ -64,6 +76,9 @@ func (b *preludeBuffer) Write(p []byte) (int, error) {
 		return sse.WriteJSONChunk(b.inner, p)
 	}
 	if b.sealed {
+		if b.commitOnOutput {
+			return b.writeCommitOnOutput(p)
+		}
 		// Post-Seal first write: commit buffered prelude, then pass through.
 		if err := b.commit(); err != nil {
 			return 0, err
@@ -144,6 +159,8 @@ func (b *preludeBuffer) Discard() {
 	b.bufStatus = 0
 	b.bufBody.Reset()
 	b.sealed = false
+	b.held.Reset()
+	b.pending = nil
 	if b.preludeSent {
 		return
 	}
@@ -156,30 +173,6 @@ func (b *preludeBuffer) Discard() {
 		copy(cp, vs)
 		h[k] = cp
 	}
-}
-
-func (b *preludeBuffer) commit() error {
-	if b.committed.Swap(true) {
-		return nil
-	}
-	if !b.preludeSent {
-		if b.bufStatus != 0 {
-			sse.PrepareJSONResponse(b.inner)
-			b.inner.WriteHeader(b.bufStatus)
-		}
-		if b.bufBody.Len() > 0 {
-			if _, err := sse.WriteJSONChunk(b.inner, b.bufBody.Bytes()); err != nil {
-				return err
-			}
-		}
-		b.preludeSent = true
-	}
-	b.bufStatus = 0
-	b.bufBody.Reset()
-	if f, ok := b.inner.(http.Flusher); ok {
-		f.Flush()
-	}
-	return nil
 }
 
 // dispatchAttempt does one per-binding dispatch. Returns the upstream error
@@ -295,7 +288,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 	if err != nil {
 		return -1, err
 	}
-	return s.dispatchPlanned(ctx, in, plan)
+	return in.buf.releaseHeldResult(s.dispatchPlanned(ctx, in, plan))
 }
 
 // committed is a nil-safe shorthand for in.buf.Committed(); the

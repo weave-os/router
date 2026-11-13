@@ -23,7 +23,8 @@ type OpenAIRoutingMarkerWriter struct {
 
 	// onOutputProgress, when set via ArmOutputProgress, is invoked whenever a
 	// written upstream chunk carries an output-bearing delta (content,
-	// reasoning/reasoning_content, tool_calls, or a terminal finish_reason) and
+	// reasoning/reasoning_content, refusal, tool_calls, legacy function_call,
+	// audio, or a terminal finish_reason) and
 	// never on keepalive comments or empty/role-only frames. This is the
 	// OpenAI→OpenAI passthrough path's only place to tell output from keepalive,
 	// since no translator parses the stream here. It feeds the openaicompat
@@ -104,11 +105,10 @@ func (w *OpenAIRoutingMarkerWriter) scanOutputProgress(data []byte) {
 }
 
 // chunkCarriesOutput reports whether a raw OpenAI Chat Completions SSE chunk
-// payload carries model output: a non-empty content / reasoning delta, a
-// tool_calls array, or a terminal finish_reason. Role-only opening deltas,
-// null-valued deltas (the GLM-5.1 keepalive shape), usage-only chunks, and the
-// [DONE] sentinel return false — matching the AnthropicSSETranslator's
-// classification so the two openaicompat paths trip the watchdog identically.
+// payload carries model output: a non-empty content / reasoning / refusal
+// delta, tool_calls, legacy function_call or audio fields, or a terminal
+// finish_reason. Role-only opening deltas, null-valued deltas (the GLM-5.1
+// keepalive shape), usage-only chunks, and the [DONE] sentinel return false.
 func chunkCarriesOutput(payload []byte) bool {
 	choice := gjson.GetBytes(payload, "choices.0")
 	if !choice.Exists() {
@@ -127,7 +127,13 @@ func chunkCarriesOutput(payload []byte) bool {
 	if delta.Get("reasoning_content").Str != "" || delta.Get("reasoning").Str != "" {
 		return true
 	}
+	if refusal := delta.Get("refusal"); refusal.Type == gjson.String && refusal.Str != "" {
+		return true
+	}
 	if delta.Get("tool_calls.#").Int() > 0 {
+		return true
+	}
+	if delta.Get("function_call").IsObject() || delta.Get("audio").IsObject() {
 		return true
 	}
 	return false

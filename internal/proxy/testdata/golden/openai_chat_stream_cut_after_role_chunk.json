@@ -30,6 +30,34 @@
             }
           },
           "outcome": "error: unexpected EOF"
+        },
+        {
+          "provider": "openrouter",
+          "wire_model": "deepseek/deepseek-v4-pro",
+          "outbound_body": {
+            "max_tokens": 8192,
+            "messages": [
+              {
+                "content": "Say hi",
+                "role": "user"
+              }
+            ],
+            "model": "deepseek/deepseek-v4-pro",
+            "provider": {
+              "allow_fallbacks": true,
+              "order": [
+                "deepseek"
+              ]
+            },
+            "reasoning": {
+              "enabled": false
+            },
+            "stream": true,
+            "stream_options": {
+              "include_usage": true
+            }
+          },
+          "outcome": "ok"
         }
       ],
       "attempt_events": [
@@ -51,6 +79,25 @@
             "CatalogID": "deepseek/deepseek-v4-pro",
             "Provider": "fireworks",
             "UpstreamID": "accounts/fireworks/models/deepseek-v4-pro"
+          }
+        },
+        {
+          "AttemptIndex": 1,
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-chat-completions",
+            "PolicyRevision": "3",
+            "Purpose": "openai_chat_completions",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "BindingIndex": 1,
+            "CatalogID": "deepseek/deepseek-v4-pro",
+            "Provider": "openrouter",
+            "UpstreamID": "deepseek/deepseek-v4-pro"
           }
         }
       ],
@@ -104,17 +151,51 @@
           },
           {
             "data": {
-              "error": {
-                "code": "upstream_error",
-                "message": "Fireworks cut the stream.",
-                "type": "server_error"
+              "choices": [
+                {
+                  "delta": {
+                    "content": "rescued"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-up",
+              "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {},
+                  "finish_reason": "stop",
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-up",
+              "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [],
+              "id": "chatcmpl-up",
+              "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "object": "chat.completion.chunk",
+              "usage": {
+                "completion_tokens": 7,
+                "prompt_tokens": 12,
+                "total_tokens": 19
               }
             }
+          },
+          {
+            "data": "[DONE]"
           }
         ]
-      },
-      "dispatch_error": {
-        "outcome": "error: unexpected EOF"
       },
       "pin_events": [
         {
@@ -146,34 +227,75 @@
             "Strategy": "hmm_embedding",
             "TurnCount": 1
           }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_high",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "deepseek/deepseek-v4-pro",
+            "ServedProvider": "openrouter",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -11,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 11,
+          "OrganizationID": "golden-org",
+          "RouterModel": "deepseek/deepseek-v4-pro"
         }
       ],
       "telemetry": [
         {
           "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.00000522,
+          "ActualOutputCostUSD": 0.00000609,
           "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 1048576,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 19,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "gpt-5",
+            "served_model": "deepseek/deepseek-v4-pro",
+            "version": 1
+          },
           "DecisionModel": "deepseek/deepseek-v4-pro",
-          "DecisionProvider": "fireworks",
+          "DecisionProvider": "openrouter",
           "DecisionReason": "golden_route",
           "EmbedInput": "concatenated_stream",
-          "ErrorClass": "stream_cut",
           "EstimatedInputTokens": 1,
-          "FailureOwner": "provider",
+          "FailoverAttempted": true,
+          "FailoverUsed": true,
           "FinalModelFamily": "deepseek/deepseek-v-pro",
           "FreshDecisionModel": "deepseek/deepseek-v4-pro",
+          "InputTokens": 12,
           "InstallationID": "00000000-0000-4000-8000-000000000001",
           "IntendedModelFamily": "deepseek/deepseek-v-pro",
+          "OutputTokens": 7,
           "PinTier": "miss",
           "PlannerOutcome": "switch",
           "PlannerReason": "no_pin",
+          "RequestedInputCostUSD": 0.00003,
           "RequestedModel": "gpt-5",
+          "RequestedOutputCostUSD": 0.00007,
           "Role": "default_high",
           "SelectionTrace": {
             "served_group": ""
           },
           "SpanType": "router.upstream",
+          "StopReason": "stop",
           "Strategy": "hmm_embedding",
           "TurnType": "main_loop",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200,
           "UserPrompt": true
         }
       ]
