@@ -122,43 +122,43 @@ const (
 // older revision cannot invalidate unrelated active overrides during a rolling
 // deploy. They are never registered, published, or read by routing code.
 const (
-	retiredKeyStruggleEscalationEnabled   Key = "struggle_escalation_enabled"
-	retiredKeyStruggleEscalationHoldout   Key = "struggle_escalation_holdout_pct"
-	retiredKeyStruggleEvidenceArming      Key = "struggle_evidence_arming"
-	retiredKeySubscriberPaidFallback      Key = "subscriber_paid_fallback_enabled"
-	retiredKeySubscriptionPoolQuota       Key = "subscription_pool_quota_aware_selection_enabled"
-	retiredKeyEmbedOnlyUserMessage        Key = "embed_only_user_message"
-	retiredKeyEscalationXGBShadowMarker   Key = "escalation_xgb_shadow_marker_enabled"
-	retiredKeyAuthoritativeDowngradeGate  Key = "authoritative_downgrade_gate"
-	retiredKeyAllowedModelsHeader         Key = "allowed_models_header"
-	retiredKeyEffortEscalation            Key = "effort_escalation"
-	retiredKeyCCAutonomySystemAppend      Key = "cc_autonomy_system_append"
-	retiredKeyCCWorkspaceSystemAppend     Key = "cc_workspace_system_append"
-	retiredKeyAuthoritativeUpgradePolicy  Key = "authoritative_upgrade_policy"
-	retiredKeyAuthoritativeUpgradeHoldout Key = "authoritative_upgrade_holdout_pct"
-	retiredKeyAuthoritativeUpgradeVotes   Key = "authoritative_upgrade_votes"
-	retiredKeyRateLimitCooldown           Key = "rate_limit_cooldown_seconds"
-	retiredKeyTransientRateLimit          Key = "transient_rate_limit"
+	retiredKeyStruggleEscalationEnabled     Key = "struggle_escalation_enabled"
+	retiredKeyStruggleEscalationHoldout     Key = "struggle_escalation_holdout_pct"
+	retiredKeyStruggleEvidenceArming        Key = "struggle_evidence_arming"
+	retiredKeySubscriberPaidFallback        Key = "subscriber_paid_fallback_enabled"
+	retiredKeySubscriptionPoolQuota         Key = "subscription_pool_quota_aware_selection_enabled"
+	retiredKeyEmbedOnlyUserMessage          Key = "embed_only_user_message"
+	retiredKeyEscalationXGBoostShadowMarker Key = "escalation_xgb_shadow_marker_enabled"
+	retiredKeyAuthoritativeDowngradeGate    Key = "authoritative_downgrade_gate"
+	retiredKeyAllowedModelsHeader           Key = "allowed_models_header"
+	retiredKeyEffortEscalation              Key = "effort_escalation"
+	retiredKeyCCAutonomySystemAppend        Key = "cc_autonomy_system_append"
+	retiredKeyCCWorkspaceSystemAppend       Key = "cc_workspace_system_append"
+	retiredKeyAuthoritativeUpgradePolicy    Key = "authoritative_upgrade_policy"
+	retiredKeyAuthoritativeUpgradeHoldout   Key = "authoritative_upgrade_holdout_pct"
+	retiredKeyAuthoritativeUpgradeVotes     Key = "authoritative_upgrade_votes"
+	retiredKeyRateLimitCooldown             Key = "rate_limit_cooldown_seconds"
+	retiredKeyTransientRateLimit            Key = "transient_rate_limit"
 )
 
 var retiredOverrideKeys = map[Key]struct{}{
-	retiredKeyStruggleEscalationEnabled:   {},
-	retiredKeyStruggleEscalationHoldout:   {},
-	retiredKeyStruggleEvidenceArming:      {},
-	retiredKeySubscriberPaidFallback:      {},
-	retiredKeySubscriptionPoolQuota:       {},
-	retiredKeyEmbedOnlyUserMessage:        {},
-	retiredKeyEscalationXGBShadowMarker:   {},
-	retiredKeyAuthoritativeDowngradeGate:  {},
-	retiredKeyAllowedModelsHeader:         {},
-	retiredKeyEffortEscalation:            {},
-	retiredKeyCCWorkspaceSystemAppend:     {},
-	retiredKeyCCAutonomySystemAppend:      {},
-	retiredKeyAuthoritativeUpgradePolicy:  {},
-	retiredKeyAuthoritativeUpgradeHoldout: {},
-	retiredKeyAuthoritativeUpgradeVotes:   {},
-	retiredKeyRateLimitCooldown:           {},
-	retiredKeyTransientRateLimit:          {},
+	retiredKeyStruggleEscalationEnabled:     {},
+	retiredKeyStruggleEscalationHoldout:     {},
+	retiredKeyStruggleEvidenceArming:        {},
+	retiredKeySubscriberPaidFallback:        {},
+	retiredKeySubscriptionPoolQuota:         {},
+	retiredKeyEmbedOnlyUserMessage:          {},
+	retiredKeyEscalationXGBoostShadowMarker: {},
+	retiredKeyAuthoritativeDowngradeGate:    {},
+	retiredKeyAllowedModelsHeader:           {},
+	retiredKeyEffortEscalation:              {},
+	retiredKeyCCWorkspaceSystemAppend:       {},
+	retiredKeyCCAutonomySystemAppend:        {},
+	retiredKeyAuthoritativeUpgradePolicy:    {},
+	retiredKeyAuthoritativeUpgradeHoldout:   {},
+	retiredKeyAuthoritativeUpgradeVotes:     {},
+	retiredKeyRateLimitCooldown:             {},
+	retiredKeyTransientRateLimit:            {},
 }
 
 // Definition describes one overridable flag. DeploymentDefault is not stored
