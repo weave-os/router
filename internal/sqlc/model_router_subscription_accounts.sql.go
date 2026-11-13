@@ -471,7 +471,8 @@ SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
        account.external_account_id, account.provider_user_id, account.display_name, account.refresh_token_ciphertext,
        account.enabled, account.health_state, account.cooldown_until, account.created_at,
        CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier,
-       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing
+       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing,
+       account.credential_rejection_count
 FROM router.model_router_subscription_accounts AS account
 JOIN members ON members.subject_id = account.subscriber_id
 JOIN installation ON TRUE
@@ -501,20 +502,21 @@ type ListModelRouterSubscriptionCandidatesParams struct {
 }
 
 type ListModelRouterSubscriptionCandidatesRow struct {
-	ID                     uuid.UUID
-	SubscriberID           pgtype.UUID
-	APIKeyID               pgtype.UUID
-	Provider               string
-	ExternalAccountID      string
-	ProviderUserID         *string
-	DisplayName            *string
-	RefreshTokenCiphertext []byte
-	Enabled                bool
-	HealthState            string
-	CooldownUntil          pgtype.Timestamp
-	CreatedAt              pgtype.Timestamp
-	Tier                   string
-	AccessTokenMissing     bool
+	ID                       uuid.UUID
+	SubscriberID             pgtype.UUID
+	APIKeyID                 pgtype.UUID
+	Provider                 string
+	ExternalAccountID        string
+	ProviderUserID           *string
+	DisplayName              *string
+	RefreshTokenCiphertext   []byte
+	Enabled                  bool
+	HealthState              string
+	CooldownUntil            pgtype.Timestamp
+	CreatedAt                pgtype.Timestamp
+	Tier                     string
+	AccessTokenMissing       bool
+	CredentialRejectionCount int32
 }
 
 // Read from the primary so admission observes current membership, key lifecycle and sharing settings.
@@ -537,7 +539,8 @@ type ListModelRouterSubscriptionCandidatesRow struct {
 //	       account.external_account_id, account.provider_user_id, account.display_name, account.refresh_token_ciphertext,
 //	       account.enabled, account.health_state, account.cooldown_until, account.created_at,
 //	       CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier,
-//	       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing
+//	       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing,
+//	       account.credential_rejection_count
 //	FROM router.model_router_subscription_accounts AS account
 //	JOIN members ON members.subject_id = account.subscriber_id
 //	JOIN installation ON TRUE
@@ -582,6 +585,7 @@ func (q *Queries) ListModelRouterSubscriptionCandidates(ctx context.Context, arg
 			&i.CreatedAt,
 			&i.Tier,
 			&i.AccessTokenMissing,
+			&i.CredentialRejectionCount,
 		); err != nil {
 			return nil, err
 		}

@@ -509,6 +509,7 @@ func (r *subscriptionAccountRepo) ListSubscriptionCandidates(ctx context.Context
 			row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
 		account.Tier = auth.SubscriptionTier(row.Tier)
 		account.AccessTokenMissing = row.AccessTokenMissing
+		account.CredentialRejections = int(row.CredentialRejectionCount)
 		accounts = append(accounts, account)
 	}
 	return accounts, nil
