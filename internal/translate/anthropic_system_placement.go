@@ -46,16 +46,23 @@ func placeAnthropicSystemMessages(msgRaws []string) ([]string, bool) {
 	return layout.messages(), true
 }
 
+type anthropicLayoutMessage struct {
+	raw string
+	ttl anthropicCacheTTLSummary
+}
+
 // anthropicSystemLayout indexes system-message runs by the boundary before
 // turns[boundary]; boundary len(turns) is the end of the array.
 type anthropicSystemLayout struct {
 	turns      []gjson.Result
-	runs       map[int][]string
+	turnTTLs   []anthropicCacheTTLSummary
+	valid      []bool
+	runs       map[int][]anthropicLayoutMessage
 	directives map[int][]string
 }
 
 func newAnthropicSystemLayout(msgRaws []string) *anthropicSystemLayout {
-	layout := &anthropicSystemLayout{runs: map[int][]string{}, directives: map[int][]string{}}
+	layout := &anthropicSystemLayout{runs: map[int][]anthropicLayoutMessage{}, directives: map[int][]string{}}
 	for _, raw := range msgRaws {
 		msg := gjson.Parse(raw)
 		if msg.Get("role").String() != "system" {
@@ -66,13 +73,31 @@ func newAnthropicSystemLayout(msgRaws []string) *anthropicSystemLayout {
 		if content := msg.Get("content"); content.IsArray() && len(content.Array()) == 0 {
 			layout.directives[boundary] = append(layout.directives[boundary], raw)
 		} else {
-			layout.runs[boundary] = append(layout.runs[boundary], raw)
+			layout.runs[boundary] = append(layout.runs[boundary], anthropicLayoutMessage{raw: raw})
+		}
+	}
+	if len(layout.runs) == 0 {
+		return layout
+	}
+	for _, turn := range layout.turns {
+		layout.turnTTLs = append(layout.turnTTLs, summarizeAnthropicCacheTTLs(turn))
+	}
+	for boundary := 0; boundary <= len(layout.turns); boundary++ {
+		layout.valid = append(layout.valid, layout.computeValidBoundary(boundary))
+	}
+	for _, run := range layout.runs {
+		for i := range run {
+			run[i].ttl = summarizeAnthropicCacheTTLs(gjson.Parse(run[i].raw))
 		}
 	}
 	return layout
 }
 
 func (l *anthropicSystemLayout) validBoundary(boundary int) bool {
+	return l.valid[boundary]
+}
+
+func (l *anthropicSystemLayout) computeValidBoundary(boundary int) bool {
 	if boundary == 0 || !canPrecedeAnthropicSystem(l.turns[boundary-1]) {
 		return false
 	}
@@ -91,7 +116,7 @@ func (l *anthropicSystemLayout) relocate(boundary int) bool {
 		} else {
 			l.runs[candidate] = append(slices.Clone(existing), run...)
 		}
-		if anthropicMessageCacheTTLsOrdered(l.messages()) {
+		if l.cacheTTLsOrdered() {
 			return true
 		}
 		if hadExisting {
@@ -104,11 +129,28 @@ func (l *anthropicSystemLayout) relocate(boundary int) bool {
 	return false
 }
 
+func (l *anthropicSystemLayout) cacheTTLsOrdered() bool {
+	var order anthropicCacheTTLOrder
+	for boundary := 0; boundary <= len(l.turns); boundary++ {
+		for _, msg := range l.runs[boundary] {
+			if !order.accept(msg.ttl) {
+				return false
+			}
+		}
+		if boundary < len(l.turns) && !order.accept(l.turnTTLs[boundary]) {
+			return false
+		}
+	}
+	return true
+}
+
 func (l *anthropicSystemLayout) messages() []string {
 	out := make([]string, 0, len(l.turns))
 	for boundary := 0; boundary <= len(l.turns); boundary++ {
 		out = append(out, l.directives[boundary]...)
-		out = append(out, l.runs[boundary]...)
+		for _, msg := range l.runs[boundary] {
+			out = append(out, msg.raw)
+		}
 		if boundary < len(l.turns) {
 			out = append(out, l.turns[boundary].Raw)
 		}
@@ -147,20 +189,37 @@ func canPrecedeAnthropicSystem(msg gjson.Result) bool {
 	}
 }
 
-func anthropicMessageCacheTTLsOrdered(msgRaws []string) bool {
-	seenFiveMinute := false
-	for _, raw := range msgRaws {
-		for _, block := range gjson.Get(raw, "content").Array() {
-			control := block.Get("cache_control")
-			if !control.Exists() {
-				continue
-			}
-			if control.Get("ttl").String() != anthropicCacheTTLWire1h {
-				seenFiveMinute = true
-			} else if seenFiveMinute {
-				return false
-			}
+// anthropicCacheTTLSummary records a message's cache breakpoints; ordered is
+// false when a 1h breakpoint follows a 5m one inside the message.
+type anthropicCacheTTLSummary struct {
+	fiveMinute, oneHour, ordered bool
+}
+
+func summarizeAnthropicCacheTTLs(msg gjson.Result) anthropicCacheTTLSummary {
+	summary := anthropicCacheTTLSummary{ordered: true}
+	for _, block := range msg.Get("content").Array() {
+		control := block.Get("cache_control")
+		if !control.Exists() {
+			continue
+		}
+		if control.Get("ttl").String() != anthropicCacheTTLWire1h {
+			summary.fiveMinute = true
+			continue
+		}
+		summary.oneHour = true
+		if summary.fiveMinute {
+			summary.ordered = false
 		}
 	}
+	return summary
+}
+
+type anthropicCacheTTLOrder struct{ seenFiveMinute bool }
+
+func (o *anthropicCacheTTLOrder) accept(msg anthropicCacheTTLSummary) bool {
+	if !msg.ordered || (o.seenFiveMinute && msg.oneHour) {
+		return false
+	}
+	o.seenFiveMinute = o.seenFiveMinute || msg.fiveMinute
 	return true
 }
