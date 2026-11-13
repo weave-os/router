@@ -85,7 +85,7 @@ func TestService_ProxyOpenAIResponses_NativeTurnRecordsTerminalFinishReason(t *t
 					Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test",
 				}},
 				map[string]providers.Client{providers.ProviderOpenAI: provider},
-				nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry,
+				nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry,
 			)
 
 			body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
@@ -117,7 +117,7 @@ func TestService_ProxyOpenAIResponses_NativeFailedTerminalRecordsNoFinishReason(
 			Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test",
 		}},
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
-		nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry,
+		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry,
 	)
 
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
@@ -140,7 +140,7 @@ func TestService_ProxyOpenAIResponses_NativeClientCancelAfterCompletedIsSuccess(
 			Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test",
 		}},
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
-		nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry,
+		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", telemetry,
 	)
 
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)

@@ -263,7 +263,7 @@ func abandonedBillingService(provider, model string, upstream *fakeProvider, rep
 	return proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: provider, Model: model}},
 		map[string]providers.Client{provider: upstream},
-		nil, false, nil, nil, false, provider, model, nil,
+		nil, nil, false, provider, model, nil,
 	).WithBillingService(billing.NewService(repo))
 }
 

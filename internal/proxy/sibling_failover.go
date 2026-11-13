@@ -56,44 +56,14 @@ func retainRescueModelsAtOrAboveTier(modelIDs []string, minimumTier catalog.Tier
 
 // siblingFailoverDecisions lists the stand-ins for a routed model whose bindings
 // all failed. Roster-backed routes use only their ordered eligible groups;
-// legacy routes append the scored pool and paired model, then prefer other
+// other routes append the candidate pool and paired model, then prefer other
 // providers. Context fit rejects under-sized peers.
 func (s *Service) siblingFailoverDecisions(ctx context.Context, failed router.Decision, est, sigSavings, outputReserve int) []router.Decision {
 	md := failed.Metadata
 	if md == nil {
 		return nil
 	}
-	if md.ClusterRouterVersion != "" && !md.RosterFailover {
-		if order := tierRescueModels(failed.Model, md.CandidateModels, md.CandidateScores); len(order) > 0 {
-			ordered := *md
-			ordered.RescueModels = order
-			ordered.RosterFailover = true
-			failed.Metadata = &ordered
-			md = &ordered
-		}
-	}
 	return s.rescueDecisions(ctx, failed, siblingCandidateOrder(md), ReasonSiblingFailover, est, sigSavings, outputReserve)
-}
-
-func tierRescueModels(selected string, candidates []string, scores map[string]float32) []string {
-	tier := catalog.TierFor(selected)
-	if tier == catalog.TierUnknown {
-		return nil
-	}
-	var ordered []string
-	for level := tier; level <= catalog.TierHigh; level++ {
-		var group []string
-		for _, model := range candidates {
-			if catalog.TierFor(model) == level {
-				group = append(group, model)
-			}
-		}
-		sort.SliceStable(group, func(i, j int) bool {
-			return scores[group[i]] > scores[group[j]]
-		})
-		ordered = append(ordered, group...)
-	}
-	return ordered
 }
 
 // rescueDecision resolves the first candidate the request is allowed to reach.
@@ -250,11 +220,6 @@ func rosterRescueAdmits(failed router.Decision, model string) bool {
 	if md == nil || !md.RosterFailover {
 		return true
 	}
-	if md.ClusterRouterVersion != "" {
-		return slices.Contains(md.ScorerRescuePool, model) &&
-			catalog.TierFor(model) >= catalog.TierFor(failed.Model) &&
-			catalog.TierFor(model) <= catalog.TierHigh
-	}
 	return slices.Contains(md.RescueModels, model) || slices.Contains(md.SidecarRescuePool, model)
 }
 
@@ -268,7 +233,7 @@ func strikesInRescuePool(failed router.Decision, candidates, struck []string) []
 	}
 	var out []string
 	for _, model := range struck {
-		if slices.Contains(candidates, model) || slices.Contains(md.ScorerRescuePool, model) || slices.Contains(md.SidecarRescuePool, model) {
+		if slices.Contains(candidates, model) || slices.Contains(md.SidecarRescuePool, model) {
 			out = append(out, model)
 		}
 	}

@@ -29,7 +29,7 @@ func TestRoutingPolicyPassthroughServesGatewayAliasedRetiredModel(t *testing.T) 
 	}}}
 	spy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
 	svc := NewService(spy, map[string]providers.Client{providers.ProviderAnthropicGateway: gateway},
-		nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+		nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 
 	installationID := uuid.New().String()
 	authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyPassthrough}, nil)

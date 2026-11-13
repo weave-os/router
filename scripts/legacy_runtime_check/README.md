@@ -10,10 +10,12 @@ inherited, and no inference provider is called.
 ```bash
 ROUTER_TEST_DATABASE_URL='postgres://fixture-user:fixture-password@localhost:5432/router?sslmode=disable&search_path=router' \
 ROUTER_TEST_WORKER_BINARY=/absolute/path/to/router \
-ROUTER_ONNX_ASSETS_DIR=/absolute/path/to/assets \
-ROUTER_ONNX_LIBRARY_DIR=/absolute/path/to/native/lib \
 go run ./scripts/legacy_runtime_check
 ```
+
+The current worker boots without ONNX assets. Set `ROUTER_ONNX_ASSETS_DIR` and
+`ROUTER_ONNX_LIBRARY_DIR` only when checking an older worker that still builds
+the cluster scorer; they are forwarded only when set.
 
 Use only a newly created local database, never a shared developer database.
 The command creates random installations/keys and retains its worker logs in
@@ -33,6 +35,7 @@ and runs this command against both the proposed binary and the retained base
 binary on the upgraded schema. Migrations run up/down/up only on that CI
 database; a deployed database must never be downgraded for worker rollback.
 
-This fixture exercises legacy cluster configuration. Private GCS/IAM,
+The proposed worker runs with no native assets; the retained base binary still
+receives them. Private GCS/IAM,
 production HMM/classifier identity, gateway cutover, and real streaming
 provider behavior still require their separate validation gates.

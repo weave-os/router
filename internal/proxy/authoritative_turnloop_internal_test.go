@@ -120,8 +120,6 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				nil,
 				nil,
 				nil,
-				false,
-				nil,
 				store,
 				false,
 				providers.ProviderAnthropic,
@@ -144,7 +142,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				})
 			env, err := translate.ParseAnthropic(test.body)
 			require.NoError(t, err)
-			features := env.RoutingFeatures(false)
+			features := env.RoutingFeatures()
 			ctx := router.WithStrategy(context.Background(), strategy)
 			req := router.Request{
 				RequestedModel:       features.Model,
@@ -203,20 +201,6 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 	}
 }
 
-func TestAuthoritativePolicyDisablesSemanticCache(t *testing.T) {
-	strategy := router.Strategy("authoritative-test")
-	svc := (&Service{}).WithPolicyStrategy(policy.StrategySpec{
-		Strategy: strategy,
-		Router:   &authoritativeTestRouter{},
-		Capabilities: policy.Capabilities{
-			AuthoritativePerTurnSelection: true,
-		},
-	})
-
-	assert.False(t, svc.semanticCacheAllowed(router.WithStrategy(context.Background(), strategy)))
-	assert.True(t, svc.semanticCacheAllowed(context.Background()))
-}
-
 func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 	strategy := router.Strategy("authoritative-force-test")
 	store := newStubPinStore()
@@ -235,8 +219,6 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,
@@ -253,7 +235,7 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		[]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
 	)
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 
 	result, err := svc.runTurnLoop(
 		router.WithStrategy(context.Background(), strategy),
@@ -417,8 +399,6 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 				nil,
 				nil,
 				nil,
-				false,
-				nil,
 				store,
 				false,
 				providers.ProviderAnthropic,
@@ -437,7 +417,7 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 			}
 			env, err := translate.ParseAnthropic(body)
 			require.NoError(t, err)
-			features := env.RoutingFeatures(false)
+			features := env.RoutingFeatures()
 
 			result, err := svc.runTurnLoop(
 				router.WithStrategy(context.Background(), strategy),

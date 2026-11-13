@@ -26,7 +26,7 @@ func TestCodexNativeModelSelection_ForcesModelAndEffort(t *testing.T) {
 		_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`)
 	}}
 	routerStub := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "fresh"}}
-	svc := proxy.NewService(routerStub, map[string]providers.Client{providers.ProviderOpenAI: provider}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	svc := proxy.NewService(routerStub, map[string]providers.Client{providers.ProviderOpenAI: provider}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	body := []byte(`{"model":"gpt-6-sol","input":[` + codexModelSwitchInput + `,{"type":"message","role":"user","content":"review this change"}],"reasoning":{"effort":"max"}}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
@@ -69,7 +69,7 @@ func TestCodexNativeModelSelection_AutomaticAndLegacyStillScore(t *testing.T) {
 				_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`)
 			}}
 			routerStub := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "fresh"}}
-			svc := proxy.NewService(routerStub, map[string]providers.Client{providers.ProviderOpenAI: provider}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+			svc := proxy.NewService(routerStub, map[string]providers.Client{providers.ProviderOpenAI: provider}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 			input := `[{"type":"message","role":"user","content":"review this change"}]`
 			if tc.switched {
@@ -111,7 +111,7 @@ func TestCodexNativeModelSelection_ModelInstructionsPinOnlyForCatalogClients(t *
 				_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`)
 			}}
 			routerStub := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "fresh"}}
-			svc := proxy.NewService(routerStub, map[string]providers.Client{providers.ProviderOpenAI: provider}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+			svc := proxy.NewService(routerStub, map[string]providers.Client{providers.ProviderOpenAI: provider}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 			body := []byte(`{"model":"gpt-6-sol","input":[` + codexModelInstructionsInput + `,{"type":"message","role":"user","content":"review this change"}]}`)
 			req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)

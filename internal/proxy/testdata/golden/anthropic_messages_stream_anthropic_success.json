@@ -248,7 +248,7 @@
           "DecisionModel": "claude-haiku-4-5",
           "DecisionProvider": "anthropic",
           "DecisionReason": "golden_route",
-          "EmbedInput": "concatenated_stream",
+          "EmbedInput": "only_user_message",
           "EstimatedInputTokens": 1,
           "FinalModelFamily": "claude-haiku",
           "FreshDecisionModel": "claude-haiku-4-5",

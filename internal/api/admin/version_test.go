@@ -22,7 +22,6 @@ func TestVersionHandler(t *testing.T) {
 	t.Cleanup(func() { version.Commit, version.PR = origCommit, origPR })
 	version.Commit = "0fb46ee9707c8db7d0ef69b7308a79a95d559e25"
 	version.PR = "572"
-	t.Setenv("ROUTER_CLUSTER_VERSION", "v0.71")
 
 	engine := gin.New()
 	engine.GET("/v1/version", admin.VersionHandler(nil))

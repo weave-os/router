@@ -34,16 +34,16 @@ func routingEnvelopeForRequest(ctx context.Context, env *translate.RequestEnvelo
 	return env
 }
 
-func routingInputForRequest(ctx context.Context, env *translate.RequestEnvelope, promptText string, onlyUser bool) (string, []router.ConversationMessage) {
+func routingInputForRequest(ctx context.Context, env *translate.RequestEnvelope, promptText string) (string, []router.ConversationMessage) {
 	routingEnv := routingEnvelopeForRequest(ctx, env)
 	if routingEnv != env {
-		features := routingEnv.RoutingFeatures(onlyUser)
+		features := routingEnv.RoutingFeatures()
 		promptText = features.PromptText
-		if onlyUser && features.OnlyUserMessageText != "" {
+		if features.OnlyUserMessageText != "" {
 			promptText = features.OnlyUserMessageText
 		}
 	}
-	promptText, messages := routingEnv.RoutingInput(routingHistoryProfile(ctx), promptText, onlyUser)
+	promptText, messages := routingEnv.RoutingInput(routingHistoryProfile(ctx), promptText)
 	return promptText, routingConversationMessages(messages)
 }
 

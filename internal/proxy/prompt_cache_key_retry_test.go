@@ -49,7 +49,7 @@ func TestService_ProxyOpenAIChatCompletion_GatewayPromptCacheKeyRejectionRetries
 	}}
 	svc := proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderOpenAIGateway: gw,
-	}, nil, false, nil, nil, false, providers.ProviderOpenAIGateway, "grok-4.6", nil)
+	}, nil, nil, false, providers.ProviderOpenAIGateway, "grok-4.6", nil)
 
 	ctx := context.WithValue(context.Background(), proxy.ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderOpenAIGateway, Plaintext: []byte("gw-key"), BaseURL: "https://gw.example.com/v1"},

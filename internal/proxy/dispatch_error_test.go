@@ -12,8 +12,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/bandit"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
@@ -154,8 +152,7 @@ func TestClassifyDispatchError_RoutingUnavailableRetriesAndLogsError(t *testing.
 	assert.Equal(t, "error", cls.LogLevel)
 }
 
-// The cluster package keeps aliases of the routing sentinels while callers
-// migrate; both spellings and wrapped forms must classify identically.
+// Wrapped routing sentinels must classify identically to the bare ones.
 func TestClassifyDispatchError_RoutingSentinelsKeepStatusAndKind(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -165,12 +162,8 @@ func TestClassifyDispatchError_RoutingSentinelsKeepStatusAndKind(t *testing.T) {
 		retryAfter bool
 	}{
 		{"no eligible provider", router.ErrNoEligibleProvider, proxy.DispatchErrorNoEligibleProvider, http.StatusBadRequest, false},
-		{"cluster alias no eligible provider", cluster.ErrNoEligibleProvider, proxy.DispatchErrorNoEligibleProvider, http.StatusBadRequest, false},
 		{"allowlist empties pool", router.ErrAllowlistEmptiesPool, proxy.DispatchErrorAllowlistEmptiesPool, http.StatusBadRequest, false},
-		{"cluster alias allowlist empties pool", cluster.ErrAllowlistEmptiesPool, proxy.DispatchErrorAllowlistEmptiesPool, http.StatusBadRequest, false},
 		{"invalid routing knobs", router.ErrInvalidRoutingKnobs, proxy.DispatchErrorInvalidRoutingKnobs, http.StatusBadRequest, false},
-		{"cluster alias invalid routing knobs", cluster.ErrInvalidRoutingKnobs, proxy.DispatchErrorInvalidRoutingKnobs, http.StatusBadRequest, false},
-		{"cluster unavailable", cluster.ErrClusterUnavailable, proxy.DispatchErrorClusterUnavailable, http.StatusServiceUnavailable, true},
 		{"routing unavailable", router.ErrRoutingUnavailable, proxy.DispatchErrorClusterUnavailable, http.StatusServiceUnavailable, true},
 	}
 	for _, tc := range cases {
@@ -213,8 +206,8 @@ func TestClassifyDispatchError_AllowlistEmptiesPoolPrecedesNoEligibleProvider(t 
 	assert.Contains(t, cls.Message, "allowlist")
 }
 
-func TestClassifyDispatchError_BanditRLandHMMUnavailableRetry(t *testing.T) {
-	for _, err := range []error{bandit.ErrBanditUnavailable, rl.ErrPolicyUnavailable, hmm.ErrHMMUnavailable, decisionmodel.ErrUnavailable} {
+func TestClassifyDispatchError_RLAndHMMUnavailableRetry(t *testing.T) {
+	for _, err := range []error{rl.ErrPolicyUnavailable, hmm.ErrHMMUnavailable, decisionmodel.ErrUnavailable} {
 		cls, ok := proxy.ClassifyDispatchError(err)
 		require.True(t, ok, "expected %v to be classified", err)
 		assert.Equal(t, http.StatusServiceUnavailable, cls.Status)

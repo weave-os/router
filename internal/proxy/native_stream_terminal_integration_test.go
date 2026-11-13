@@ -65,7 +65,7 @@ func nativeSurfaceService(provider *fakeProvider, providerName, model string) *p
 	return proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providerName, Model: model, Reason: "test"}},
 		map[string]providers.Client{providerName: provider},
-		nil, false, nil, nil, false, providerName, model, nil,
+		nil, nil, false, providerName, model, nil,
 	).WithOpenAIResponsesBroad(providerName == providers.ProviderOpenAI).
 		WithRetrySleep(noRetrySleep)
 }

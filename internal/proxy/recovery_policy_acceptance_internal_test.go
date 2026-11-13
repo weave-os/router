@@ -151,7 +151,7 @@ func TestRecoveryAcceptanceCooldownExpiryAdmitsOneConcurrentProbe(t *testing.T) 
 	}}, reads: make(chan recoveryBucketRead, 128)}
 	sibling := &recoveryAlternativeClient{}
 	svc := NewService(scorer, map[string]providers.Client{providers.ProviderOpenAIGateway: provider, providers.ProviderAnthropicGateway: sibling},
-		nil, false, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).WithTransientRateLimit(true, 45)
+		nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).WithTransientRateLimit(true, 45)
 	now := rateLimitTestNow.Add(-time.Nanosecond)
 	svc.now = func() time.Time { return now }
 	ctx, cancel := context.WithTimeout(twoModelGatewayContext(), 5*time.Second)

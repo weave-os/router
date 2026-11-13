@@ -181,7 +181,7 @@ func (b *nativeSearchBuffer) Write(p []byte) (int, error) {
 }
 
 func copyNativeSearchHeaders(w http.ResponseWriter, headers http.Header) {
-	for _, name := range []string{HeaderRouterDecision, HeaderRouterProvider, HeaderRouterModel, HeaderRouterContextWindow, HeaderRouterContextEstimate, HeaderRouterContextReserve, HeaderRouterContextEstimateKind, HeaderRouterContextVersion, HeaderRouterCache, HeaderRouterFallbackFrom, HeaderRouterFallbackAttempt, HeaderRouterCostUSD, HeaderRouterCostInputUSD, HeaderRouterCostOutputUSD, HeaderRouterCacheReadTokens, HeaderRouterCacheCreationTokens, "X-Request-Id", "Retry-After"} {
+	for _, name := range []string{HeaderRouterDecision, HeaderRouterProvider, HeaderRouterModel, HeaderRouterContextWindow, HeaderRouterContextEstimate, HeaderRouterContextReserve, HeaderRouterContextEstimateKind, HeaderRouterContextVersion, HeaderRouterFallbackFrom, HeaderRouterFallbackAttempt, HeaderRouterCostUSD, HeaderRouterCostInputUSD, HeaderRouterCostOutputUSD, HeaderRouterCacheReadTokens, HeaderRouterCacheCreationTokens, "X-Request-Id", "Retry-After"} {
 		if values := headers.Values(name); len(values) > 0 {
 			w.Header()[http.CanonicalHeaderKey(name)] = append([]string(nil), values...)
 		}

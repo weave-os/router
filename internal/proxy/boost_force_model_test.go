@@ -52,7 +52,7 @@ func TestBoostLinkedFirstHonorsForcedModel(t *testing.T) {
 			}
 			service := proxy.NewService(selection, map[string]providers.Client{
 				tc.provider: upstream,
-			}, nil, false, nil, store, false, providers.ProviderOpenAI, "gpt-6.1-sol", nil).
+			}, nil, store, false, providers.ProviderOpenAI, "gpt-6.1-sol", nil).
 				WithDeploymentKeyedProviders(map[string]struct{}{tc.provider: {}})
 			body := `{"model":"gpt-6.1-sol","messages":[{"role":"user","content":"Review this change."}],"max_tokens":4096,"stream":true}`
 			if tc.responses {

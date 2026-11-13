@@ -30,7 +30,6 @@ var reservedPolicyStrategies = map[router.Strategy]struct{}{
 	router.StrategyHMMBeta:       {},
 	router.StrategyHMMQwen:       {},
 	router.StrategyDecisionModel: {},
-	router.StrategyBandit:        {},
 }
 
 // buildConfiguredPolicySidecars turns a JSON strategy-to-URL map into policy.StrategySpec registrations; sidecars own model logic, the router owns candidate resolution and lifecycle.

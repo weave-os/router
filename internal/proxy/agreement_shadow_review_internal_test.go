@@ -84,7 +84,7 @@ func TestAgreementShadowForceUnforceBeforeToolResultBreaksVotes(t *testing.T) {
 		Reason: "hmm_policy", PinnedUntil: time.Now().Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
-	svc := NewService(nil, nil, nil, false, nil, pins, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, store).
+	svc := NewService(nil, nil, nil, pins, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, store).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderOpenAI)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: &authorityShadowTestRouter{decision: initial.Fresh}, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 	applyAgreementShadowTelemetry(ctx, &p, initial)
@@ -105,7 +105,7 @@ func TestAgreementShadowForceUnforceBeforeToolResultBreaksVotes(t *testing.T) {
 			t.Fatalf("successful command left simulated histories connected: %+v %v", boundary, err)
 		}
 	}
-	routed, err := svc.runTurnLoop(ctx, env, env.RoutingFeatures(false), "synthetic-api-key", installationID, "", http.Header{}, router.Request{RequestedModel: string(router.ModelAutomatic)})
+	routed, err := svc.runTurnLoop(ctx, env, env.RoutingFeatures(), "synthetic-api-key", installationID, "", http.Header{}, router.Request{RequestedModel: string(router.ModelAutomatic)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestAgreementShadowRejectedAndFailedCommandsKeepHistory(t *testing.T) {
 			if failed {
 				pins = &failedCommandStore{newForceModelMapStore()}
 			}
-			svc := NewService(nil, nil, nil, false, nil, pins, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, store).WithDeploymentKeyedProviders(keyed(providers.ProviderOpenAI))
+			svc := NewService(nil, nil, nil, pins, false, providers.ProviderOpenAI, catalog.ModelGPT6Luna, store).WithDeploymentKeyedProviders(keyed(providers.ProviderOpenAI))
 			p, res := agreementFixture()
 			threadKey := [sessionpin.SessionKeyLen]byte{1}
 			p.SessionKey = threadKey[:]

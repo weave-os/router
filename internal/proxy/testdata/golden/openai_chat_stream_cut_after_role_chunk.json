@@ -155,7 +155,7 @@
           "DecisionModel": "deepseek/deepseek-v4-pro",
           "DecisionProvider": "fireworks",
           "DecisionReason": "golden_route",
-          "EmbedInput": "concatenated_stream",
+          "EmbedInput": "only_user_message",
           "ErrorClass": "stream_cut",
           "EstimatedInputTokens": 1,
           "FailureOwner": "provider",

@@ -27,7 +27,7 @@ func proxyRequestedWindowOverflow(t *testing.T, prompt string, stream bool, upst
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "cluster"}},
 		map[string]providers.Client{providers.ProviderOpenAI: upstream},
-		nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, requestedWindowModel, nil,
+		nil, newFakePinStore(), false, providers.ProviderAnthropic, requestedWindowModel, nil,
 	).WithAvailableModels(map[string]struct{}{catalog.ModelGPT6Luna: {}, requestedWindowModel: {}})
 	streamField := "false"
 	if stream {
@@ -89,7 +89,7 @@ func TestProxyMessages_CompactionTurnPastRequestedWindowIsNotOverflow(t *testing
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "cluster"}},
 		map[string]providers.Client{providers.ProviderOpenAI: upstream},
-		nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, requestedWindowModel, nil,
+		nil, newFakePinStore(), false, providers.ProviderAnthropic, requestedWindowModel, nil,
 	).WithAvailableModels(map[string]struct{}{catalog.ModelGPT6Luna: {}, requestedWindowModel: {}}).
 		WithHardPinResolver(utilityPin)
 	body := []byte(`{"model":"` + requestedWindowModel + `","max_tokens":1024,"system":"Your task is to create a detailed summary of the conversation so far.","messages":[{"role":"user","content":"` + pastRequestedWindowPrompt + `"}]}`)

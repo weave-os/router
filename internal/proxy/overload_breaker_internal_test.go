@@ -90,7 +90,7 @@ func newOverloadHarness(enabled bool) *overloadHarness {
 	h.svc = NewService(h.router, map[string]providers.Client{
 		providers.ProviderAnthropic: h.primary,
 		providers.ProviderOpenAI:    h.sibling,
-	}, nil, false, nil, &demotionStubPinStore{}, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	}, nil, &demotionStubPinStore{}, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}}).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
 		WithProviderOverloaded(enabled, registry)
@@ -470,7 +470,7 @@ func TestOverloadBreaker_GatewayTwoModelRosterStillServes(t *testing.T) {
 	svc := NewService(staticRouter{decision: decision}, map[string]providers.Client{
 		providers.ProviderOpenAIGateway:    primary,
 		providers.ProviderAnthropicGateway: sibling,
-	}, nil, false, nil, &cooldownStubPinStore{}, false, providers.ProviderAnthropic, recoveryOpusModel, nil).
+	}, nil, &cooldownStubPinStore{}, false, providers.ProviderAnthropic, recoveryOpusModel, nil).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
 		WithProviderOverloaded(true, registry)
 	ctx := twoModelGatewayContext()
@@ -490,7 +490,7 @@ func TestOverloadBreaker_GatewayTwoModelRosterStillServes(t *testing.T) {
 func TestOverloadBreaker_GatewayOrganizationProbesItsOwnCircuit(t *testing.T) {
 	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	registry := breaker.New(breaker.Config{Strikes: 1, Window: time.Minute, OrgConfirmations: 1, RecoveryBase: 30 * time.Second}, func() time.Time { return now })
-	svc := NewService(nil, nil, nil, false, nil, nil, false, providers.ProviderAnthropic, recoveryOpusModel, nil).
+	svc := NewService(nil, nil, nil, nil, false, providers.ProviderAnthropic, recoveryOpusModel, nil).
 		WithProviderOverloaded(true, registry)
 	ctx := twoModelGatewayContext()
 	registry.RecordOverload(installationIDFromContext(ctx).String(), recoveryOpusModel, true)

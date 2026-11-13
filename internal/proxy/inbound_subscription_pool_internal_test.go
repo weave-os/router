@@ -39,7 +39,7 @@ func TestInboundClaudeOAuthStillRotatesManagedPool(t *testing.T) {
 				{AccountID: "synthetic-healthy-seat", AccessToken: "synthetic-healthy-seat"},
 			}}
 			client := anthropic.NewClient("synthetic-paid-key", upstream.URL)
-			service := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, false, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String(), nil).
+			service := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeOpus48.String()}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeOpus48.String(), nil).
 				WithManagedSubscriptions(leaser).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 			service.retrySleep = noopSleep

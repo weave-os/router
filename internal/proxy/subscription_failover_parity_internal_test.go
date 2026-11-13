@@ -616,7 +616,7 @@ func (in parityIngress) parityService(upstream providers.Client) *Service {
 	svc := NewService(
 		staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
 		map[string]providers.Client{in.provider: upstream},
-		nil, false, nil, nil, false, in.provider, in.model, nil,
+		nil, nil, false, in.provider, in.model, nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{in.provider: {}})
 	svc.retrySleep = noopSleep
 	return svc
@@ -706,7 +706,7 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 			svc := NewService(
 				staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
 				map[string]providers.Client{in.provider: upstream},
-				nil, false, nil, nil, false, in.provider, in.model, nil,
+				nil, nil, false, in.provider, in.model, nil,
 			)
 			svc.retrySleep = noopSleep
 			rec, req, body := in.request(t, false)

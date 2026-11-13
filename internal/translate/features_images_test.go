@@ -45,7 +45,7 @@ func TestHasImages_OpenAI(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env, err := translate.ParseOpenAI([]byte(tc.body))
 			require.NoError(t, err)
-			features := env.RoutingFeatures(false)
+			features := env.RoutingFeatures()
 			assert.Equal(t, tc.wantCount > 0, env.HasImages())
 			assert.Equal(t, tc.wantCount > 0, features.HasImages)
 			assert.Equal(t, tc.wantCount, env.ImageCount())
@@ -104,7 +104,7 @@ func TestHasImages_Anthropic(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env, err := translate.ParseAnthropic([]byte(tc.body))
 			require.NoError(t, err)
-			features := env.RoutingFeatures(false)
+			features := env.RoutingFeatures()
 			assert.Equal(t, tc.wantCount > 0, env.HasImages())
 			assert.Equal(t, tc.wantCount > 0, features.HasImages)
 			assert.Equal(t, tc.wantCount, env.ImageCount())
@@ -154,7 +154,7 @@ func TestHasImages_Gemini(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env, err := translate.ParseGemini([]byte(tc.body))
 			require.NoError(t, err)
-			features := env.RoutingFeatures(false)
+			features := env.RoutingFeatures()
 			assert.Equal(t, tc.wantCount > 0, env.HasImages())
 			assert.Equal(t, tc.wantCount > 0, features.HasImages)
 			assert.Equal(t, tc.wantCount, env.ImageCount())

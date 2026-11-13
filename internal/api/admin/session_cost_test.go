@@ -37,7 +37,7 @@ func (r *sessionCostRepo) GetSessionCost(_ context.Context, installationID, sess
 
 func sessionCostEngine(t *testing.T, repo proxy.TelemetryRepository, installation *auth.Installation) *gin.Engine {
 	t.Helper()
-	svc := proxy.NewService(nil, nil, nil, false, nil, nil, false, "", "", repo)
+	svc := proxy.NewService(nil, nil, nil, nil, false, "", "", repo)
 	engine := gin.New()
 	engine.GET("/v1/sessions/:session_id/cost", func(c *gin.Context) {
 		if installation != nil {

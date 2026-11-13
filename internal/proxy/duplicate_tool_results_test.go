@@ -43,7 +43,7 @@ func TestProxyOpenAIResponses_CodexDuplicateToolOutputsReachAnthropicOnce(t *tes
 	svc := proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderAnthropic: anthropic,
 		providers.ProviderOpenAI:    &fakeProvider{},
-	}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5", nil)
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5", nil)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
@@ -72,7 +72,7 @@ func TestProxyOpenAIResponses_CodexDuplicateToolOutputsStayVerbatimOnNativeOpenA
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test"}}
 	svc := proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderOpenAI: openai,
-	}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
@@ -99,7 +99,7 @@ func TestProxyMessages_DuplicateToolResultsReachAnthropicOnce(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5", Reason: "test"}}
 	svc := proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderAnthropic: anthropic,
-	}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5", nil)
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-5", nil)
 
 	body := []byte(`{"model":"claude-opus-5","max_tokens":512,"messages":[` +
 		`{"role":"user","content":"poll the build"},` +

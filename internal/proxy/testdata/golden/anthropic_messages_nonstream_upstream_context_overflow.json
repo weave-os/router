@@ -122,7 +122,7 @@
           "DecisionModel": "claude-opus-4-7",
           "DecisionProvider": "anthropic",
           "DecisionReason": "golden_route",
-          "EmbedInput": "concatenated_stream",
+          "EmbedInput": "only_user_message",
           "ErrorClass": "invalid_request",
           "EstimatedInputTokens": 1,
           "FailureOwner": "client",

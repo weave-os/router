@@ -27,10 +27,8 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/bandit"
 	"weave-os/router/internal/router/bandswap"
 	"weave-os/router/internal/router/breaker"
-	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalationdashboard"
@@ -96,11 +94,9 @@ type Service struct {
 	searchRequirementDecayTurns int
 	// searchUse tracks per-session recent search-tool use for
 	// scopedSearchRequirement.
-	searchUse            *searchUseTracker
-	emitter              TelemetryEmitter
-	translationMetrics   telemetry.TranslationMetrics
-	embedOnlyUserMessage bool
-	semanticCache        *cache.Cache
+	searchUse          *searchUseTracker
+	emitter            TelemetryEmitter
+	translationMetrics telemetry.TranslationMetrics
 	// pinStore persists session-sticky routing decisions. Nil when the feature
 	// flag is off; the orchestrator then runs the scorer every turn.
 	pinStore                   sessionpin.Store
@@ -1950,13 +1946,11 @@ const DefaultPlannerCorrectedEconomics = false
 
 // NewService registers r, when non-nil, as the router.StrategyHMMEmbedding
 // strategy; a later WithPolicyStrategy for that strategy replaces it.
-func NewService(r router.Router, providerMap map[string]providers.Client, emitter TelemetryEmitter, embedOnlyUserMessage bool, semanticCache *cache.Cache, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
+func NewService(r router.Router, providerMap map[string]providers.Client, emitter TelemetryEmitter, pinStore sessionpin.Store, hardPinExplore bool, hardPinProvider, hardPinModel string, telemetry TelemetryRepository) *Service {
 	s := &Service{
 		clients:                      dispatch.NewClients(providerMap),
 		translationCompatibilityMode: TranslationCompatibilityShadow,
 		emitter:                      emitter,
-		embedOnlyUserMessage:         embedOnlyUserMessage,
-		semanticCache:                semanticCache,
 		pinStore:                     pinStore,
 		noProgress:                   newNoProgressTracker(),
 		searchUse:                    newSearchUseTracker(),
@@ -3134,97 +3128,6 @@ var ErrRequestNotJSONObject = translate.ErrNotJSONObject
 // prod code never overrides it.
 var stripRoutingMarkerFromMessages = translate.StripRoutingMarkerFromMessages
 
-// semanticCacheMaxBodyBytes caps how large a response the cache will store;
-// larger bodies stream through but skip the Store call to bound peak memory.
-const semanticCacheMaxBodyBytes = 1 << 20
-
-// headersToSkipOnHit lists response headers the cache must NOT replay.
-// request-id ties to a specific upstream call; x-router-* are set fresh from
-// the live decision so the client sees current routing, not stale. The
-// feedback link encodes the original request's signed token; cache hits write
-// no telemetry row to back a feedback page, so the link is omitted on hits
-// entirely — the skip here guards against ever replaying the cached one.
-var headersToSkipOnHit = map[string]struct{}{
-	http.CanonicalHeaderKey(HeaderRouterContextVersion):      {},
-	http.CanonicalHeaderKey(HeaderRouterContextEstimateKind): {},
-	http.CanonicalHeaderKey(HeaderRouterContextReserve):      {},
-	http.CanonicalHeaderKey(HeaderRouterContextEstimate):     {},
-	"Request-Id":              {},
-	"X-Request-Id":            {},
-	"X-Router-Decision":       {},
-	"X-Router-Provider":       {},
-	"X-Router-Model":          {},
-	"X-Router-Context-Window": {},
-	"X-Router-Cache":          {},
-	"X-Router-Feedback-Url":   {},
-	http.CanonicalHeaderKey(HeaderRouterCostUSD):             {},
-	http.CanonicalHeaderKey(HeaderRouterCostInputUSD):        {},
-	http.CanonicalHeaderKey(HeaderRouterCostOutputUSD):       {},
-	http.CanonicalHeaderKey(HeaderRouterCacheReadTokens):     {},
-	http.CanonicalHeaderKey(HeaderRouterCacheCreationTokens): {},
-}
-
-// cloneCacheHeaders snapshots a header set for storage, dropping transient
-// identifiers that must not survive replay.
-func cloneCacheHeaders(h http.Header) http.Header {
-	out := make(http.Header, len(h))
-	for k, vs := range h {
-		if _, skip := headersToSkipOnHit[http.CanonicalHeaderKey(k)]; skip {
-			continue
-		}
-		copied := make([]string, len(vs))
-		copy(copied, vs)
-		out[k] = copied
-	}
-	return out
-}
-
-// writeCachedResponse emits a stored CachedResponse. x-router-* headers come
-// from the live decision so the client sees an accurate routing trace. No
-// feedback link is set: a cache hit writes no telemetry row, so its feedback
-// page would have no routing context to show.
-func (s *Service) writeCachedResponse(w http.ResponseWriter, resp cache.CachedResponse, decision router.Decision) {
-	for k, vs := range cloneCacheHeaders(resp.Headers) {
-		for _, v := range vs {
-			w.Header().Add(k, v)
-		}
-	}
-	w.Header().Set(HeaderRouterDecision, decision.Reason)
-	w.Header().Set(HeaderRouterProvider, resp.Provenance.Provider())
-	w.Header().Set(HeaderRouterModel, resp.Provenance.Model())
-	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(resp.Provenance.Model(), resp.Provenance.Provider())))
-	w.Header().Set(HeaderRouterCache, RouterCacheHit)
-	if resp.StatusCode != 0 && resp.StatusCode != http.StatusOK {
-		w.WriteHeader(resp.StatusCode)
-	}
-	_, _ = w.Write(resp.Body)
-	if f, ok := w.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-// EmbedOnlyUserMessageContextKey is the context key for the per-request embed flag override.
-type EmbedOnlyUserMessageContextKey struct{}
-
-// embedOnlyUserMessageOverride reads the per-request embed flag from ctx.
-func embedOnlyUserMessageOverride(ctx context.Context) (bool, bool) {
-	v, ok := ctx.Value(EmbedOnlyUserMessageContextKey{}).(bool)
-	return v, ok
-}
-
-// ResolveEmbedOnlyUserMessage reports the effective embed-only-user flag for
-// ctx. Precedence is header override > per-organization override > service
-// default. Exposed so handlers outside this package (e.g. /v1/route) can use
-// the same resolution as ProxyMessages and stay in sync with customer-visible
-// routing behavior.
-func (s *Service) ResolveEmbedOnlyUserMessage(ctx context.Context) bool {
-	flag := flags.BoolOr(ctx, flags.KeyEmbedOnlyUserMessage, s.embedOnlyUserMessage)
-	if v, ok := embedOnlyUserMessageOverride(ctx); ok {
-		flag = v
-	}
-	return flag
-}
-
 func (s *Service) provider(name string) (providers.Client, error) {
 	return s.clients.Client(name)
 }
@@ -3283,10 +3186,6 @@ func (s *Service) authoritativePerTurnSelection(ctx context.Context) bool {
 	return ok && capabilities.AuthoritativePerTurnSelection
 }
 
-func (s *Service) semanticCacheAllowed(ctx context.Context) bool {
-	return !s.authoritativePerTurnSelection(ctx)
-}
-
 // PolicyStrategyAvailable reports whether a strategy has a live router;
 // registration stays visible when a sidecar is absent so callers see the gap.
 func (s *Service) PolicyStrategyAvailable(strategy router.Strategy) bool {
@@ -3341,17 +3240,6 @@ func (s *Service) WithHMMRouter(r router.Router) *Service {
 			SupportsDebugRouteDetail: true,
 			SupportsShadow:           true,
 		},
-	})
-}
-
-// WithBanditRouter is retained for source compatibility. New wiring should
-// call WithPolicyStrategy directly.
-func (s *Service) WithBanditRouter(r router.Router) *Service {
-	return s.WithPolicyStrategy(policy.StrategySpec{
-		Strategy:     router.StrategyBandit,
-		Router:       r,
-		Unavailable:  bandit.ErrBanditUnavailable,
-		Capabilities: policy.Capabilities{},
 	})
 }
 
@@ -3462,8 +3350,6 @@ func defaultStrategyUnavailable(strategy router.Strategy) error {
 		return rl.ErrPolicyUnavailable
 	case router.StrategyHMM, router.StrategyHMMEmbedding, router.StrategyHMMBeta, router.StrategyHMMQwen:
 		return hmm.ErrHMMUnavailable
-	case router.StrategyBandit:
-		return bandit.ErrBanditUnavailable
 	default:
 		return router.ErrStrategyUnavailable
 	}
@@ -3947,7 +3833,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	clientBudget := resolveClientBudget(clientID, r.Header, env.Model(), modelVariant1M)
 	ctx = requestcontext.WithClientBudget(ctx, clientBudget)
 	agentShadowEval, agentShadowMode := AgentShadowEvalFromContext(ctx)
-	bypassEval := hasEvalOverrideHeader(r) || agentShadowMode
 
 	// Bind session_key/request_id/api_key_id/ingress onto a ctx-scoped logger
 	// before stripping router-only history. The derived key is reused below to
@@ -3971,8 +3856,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		log.Info("Stripped beta artifacts from Anthropic history", "removed_messages", removed)
 	}
 
-	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
-	feats := env.RoutingFeatures(embedFlag)
+	feats := env.RoutingFeatures()
 	ctx = withRequestImageCount(ctx, feats.ImageCount)
 	if err := validateHandoffEnvelope(ctx, env, r.Header, body); err != nil {
 		return err
@@ -3982,7 +3866,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	promptText := feats.PromptText
 	embedInput := "concatenated_stream"
-	if embedFlag && feats.OnlyUserMessageText != "" {
+	if feats.OnlyUserMessageText != "" {
 		promptText = feats.OnlyUserMessageText
 		embedInput = "only_user_message"
 	}
@@ -4089,11 +3973,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		requestBodyChanged = true
 	}
 	if requestBodyChanged {
-		feats = env.RoutingFeatures(embedFlag)
+		feats = env.RoutingFeatures()
 		ctx = withRequestImageCount(ctx, feats.ImageCount)
 		promptText = feats.PromptText
 		embedInput = "concatenated_stream"
-		if embedFlag && feats.OnlyUserMessageText != "" {
+		if feats.OnlyUserMessageText != "" {
 			promptText = feats.OnlyUserMessageText
 			embedInput = "only_user_message"
 		}
@@ -4232,7 +4116,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	hardExcluded := append(append(append([]string(nil), geminiUnsigned...), advisorOutranking...), imageLimitExcluded...)
 
 	routeStart := time.Now()
-	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText, embedFlag)
+	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
 	req := router.Request{
 		RequestedModel:               feats.Model,
 		ClientBudget:                 clientBudget,
@@ -4451,11 +4335,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
-	clientRecoveryApplied := false
 	if !agentShadowMode && !callerModelPassthroughActive(ctx) {
-		var recoveryErr error
-		clientRecoveryApplied, recoveryErr = applyClientCompactionRecovery(ctx, env, clientBudget, tt, req.ConversationMessages)
-		if recoveryErr != nil {
+		if _, recoveryErr := applyClientCompactionRecovery(ctx, env, clientBudget, tt, req.ConversationMessages); recoveryErr != nil {
 			return recoveryErr
 		}
 	}
@@ -4465,7 +4346,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// (flat message count, tool-call count shrinks). Either leaves the
 	// non-Anthropic model unaware of elided edits/decisions, so rewrite the
 	// envelope with a handover summary before dispatch.
-	compactionHandoverRan := false
 	subscriptionStatePaidTargetAttempted := false
 	var compactionHandoverOutcome handoverOutcome
 	// Detection runs pre-routing in runTurnLoop; routeRes.PrefixTrimmed carries
@@ -4483,46 +4363,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			"decision_provider", decision.Provider,
 		)
 		compactionHandoverOutcome = s.runCompactionHandover(ctx, env, r.Header, decision.Model, req)
-		compactionHandoverRan = true
 	}
 
-	// Semantic-cache eligibility: configured, non-streaming, decision has
-	// metadata, externalID present, not eval traffic. Skip when a compaction
-	// handover rewrote env (embedding predates the rewrite).
-	// Subscription-only turns are excluded (like the OpenAI path): the mode is an
-	// unfoldable routing signal absent from the cache key, so a stored body would
-	// bypass the exhausted-sub 402 guard and the spend-cap warning below.
-	cacheCredentialCtx := resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
-	var cacheProvenance cache.Provenance
-	cacheEligible := routeRes.EscalationOrdinal == 0 && routeRes.llmEscalation == nil && !clientRecoveryApplied && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !compactionHandoverRan && !billing.SubscriptionOnlyFromContext(ctx) && !requestAllowedModelsPresent(ctx) && !subscriptionStateModelsEnabled(ctx) && s.semanticCacheRequestAllowed(cacheCredentialCtx, req) && len(decision.Metadata.ClusterIDs) > 0
-	if cacheEligible {
-		cacheProvenance = s.semanticCacheProvenance(cacheCredentialCtx, decision)
-		cacheEligible = cacheProvenance.Valid()
-	}
-	if cacheEligible {
-		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatAnthropic, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash, cacheProvenance); hit {
-			setContextEstimateHeaders(w.Header(), overflowEstimate, max(contextWindowOutputReserve, feats.MaxTokens))
-			s.writeCachedResponse(w, resp, decision)
-			telemetry.Record(ctx, telemetry.Span{
-				Name:  "router.cache_hit",
-				Start: requestStart,
-				End:   time.Now(),
-				Attrs: telemetry.NewAttrBuilder(7).
-					String("request_id", requestID).
-					String("external_id", externalID).
-					String("decision.model", decision.Model).
-					String("decision.provider", decision.Provider).
-					Bool("cache.hit", true).
-					String("cache.format", string(cache.FormatAnthropic)).
-					Int64("latency.total_ms", time.Since(requestStart).Milliseconds()).
-					Build(),
-			})
-			telemetry.Flush(ctx)
-			log.Info("ProxyMessages cache hit", "requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "external_id", externalID, "total_ms", time.Since(requestStart).Milliseconds())
-			return nil
-		}
-		s.recordSemanticCacheMiss(ctx)
-	}
+	credentialCtx := resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
 	w.Header().Set(HeaderRouterDecision, decision.Reason)
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
@@ -4563,7 +4406,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		String("routing.turn_type", string(tt)).
 		String("routing.embed_input", embedInput).
 		Int64("routing.estimated_input_tokens", int64(feats.Tokens)).
-		IntSlice("routing.cluster_ids", clusterIDsFromDecision(decision)).
 		Float64("catalog.requested_input_per_1m", reqDecisionPricing.InputUSDPer1M).
 		Float64("catalog.requested_output_per_1m", reqDecisionPricing.OutputUSDPer1M).
 		Float64("catalog.actual_input_per_1m", actDecisionPricing.InputUSDPer1M).
@@ -4686,12 +4528,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	preludeBuf := newPreludeBuffer(contentSink)
 	var rootSink http.ResponseWriter = preludeBuf
-	var captureW *captureWriter
 	var sink http.ResponseWriter = rootSink
-	if cacheEligible {
-		captureW = newCaptureWriter(rootSink, semanticCacheMaxBodyBytes)
-		sink = captureW
-	}
 	// Wrap sink to observe refusals on the native path (no translator Summary
 	// here). Detection is unconditional: refusals must be measurable independently
 	// of the re-pin kill switch.
@@ -4733,7 +4570,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	muteSlowStartFor(ctx, routeRes)
 	fundingCtx := ctx
 	if CredentialsFromContext(fundingCtx) == nil {
-		fundingCtx = cacheCredentialCtx
+		fundingCtx = credentialCtx
 	}
 	notice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, decision.Model, marker)
 	notice = addRoutingFundingSource(fundingCtx, decision.Provider, decision.Model, notice)
@@ -5238,7 +5075,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				if !agentShadowMode && !routeRes.AuthoritativePerTurn && target.Provider != providers.ProviderAnthropic && !routeRes.HardPinned && !routeRes.Handover.Invoked && routeRes.PrefixTrimmed {
 					log.Info("Context trimming detected on selected exhausted-state route; rewriting context with handover summary", "decision_model", target.Model)
 					compactionHandoverOutcome = s.runCompactionHandover(ctx, env, r.Header, target.Model, req)
-					compactionHandoverRan = true
 				}
 			},
 			bindings:               bindings,
@@ -5703,19 +5539,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		actPricing = actBindingPricing
 	}
 
-	// Cache store: only on success when body fits. Any top-p cluster id
-	// works for storage since LRU.Lookup scans all of them.
-	if cacheEligible && proxyErr == nil && captureW != nil && s.semanticCacheStoreAllowed(ctx, cacheProvenance, decision, finalProvider) {
-		if body, status, ok := captureW.captured(); ok && status == http.StatusOK {
-			storeResp := cache.CachedResponse{
-				StatusCode: status,
-				Headers:    cloneCacheHeaders(w.Header()),
-				Body:       body,
-			}
-			s.semanticCache.Store(externalID, cache.FormatAnthropic, decision.Metadata.Embedding, decision.Metadata.ClusterIDs[0], storeResp, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash, cacheProvenance)
-		}
-	}
-
 	proxyMs := time.Since(proxyStart).Milliseconds()
 	finishInferenceSpan(inferenceSpan, decision, finalProvider, winnerIdx, proxyErr)
 	ctx = restoreParentSpan(ctx, inferenceParentCtx)
@@ -5888,12 +5711,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			TotalLatencyMs:           time.Since(requestStart).Milliseconds(),
 			CrossFormat:              crossFormat,
 			UpstreamStatusCode:       int32(upstreamStatus(proxyErr)),
-			ClusterIDs:               obs.ClusterIDs,
 			CandidateModels:          obs.CandidateModels,
 			ChosenScore:              obs.ChosenScore,
 			CandidateScores:          obs.CandidateScores,
 			Propensity:               obs.Propensity,
-			ClusterRouterVersion:     obs.ClusterRouterVersion,
 			Strategy:                 obs.Strategy,
 			RouteID:                  obs.RouteID,
 			PolicyRouteKey:           obs.PolicyRouteKey,
@@ -6622,11 +6443,6 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 	if s.bandSwap == nil || pin.PairedModel == "" || turnType != turntype.MainLoop {
 		return anchor
 	}
-	// Parity guard: the head trains on the user-message-only embedding. If this
-	// deploy embeds the full prompt instead, skip rather than feed a skewed input.
-	if !s.ResolveEmbedOnlyUserMessage(ctx) {
-		return anchor
-	}
 	if fresh.Metadata == nil || len(fresh.Metadata.Embedding) != bandswap.EmbedDim {
 		return anchor
 	}
@@ -6708,14 +6524,6 @@ func primaryInputPrice(model string) float64 {
 	return pricing.InputUSDPer1M
 }
 
-// clusterIDsFromDecision returns cluster ids from a decision's metadata.
-func clusterIDsFromDecision(d router.Decision) []int {
-	if d.Metadata == nil {
-		return nil
-	}
-	return d.Metadata.ClusterIDs
-}
-
 // pinAge returns seconds since first_pinned_at.
 func pinAge(p sessionpin.Pin) int64 {
 	if p.FirstPinnedAt.IsZero() {
@@ -6726,15 +6534,6 @@ func pinAge(p sessionpin.Pin) int64 {
 		return 0
 	}
 	return int64(d.Seconds())
-}
-
-// hasEvalOverrideHeader reports whether the request carries any eval-harness override headers.
-func hasEvalOverrideHeader(r *http.Request) bool {
-	if r == nil {
-		return false
-	}
-	return r.Header.Get("x-weave-cluster-version") != "" ||
-		r.Header.Get("x-weave-embed-only-user-message") != ""
 }
 
 // externalKeysFromContext reads external API keys stashed by auth middleware.
@@ -7410,21 +7209,18 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		ctx = withBetaArtifactHistory(ctx)
 		log.Info("Stripped beta artifacts from OpenAI history", "removed_messages", removed)
 	}
-	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	codexTitleGen, _ := ctx.Value(codexTitleGenerationContextKey{}).(bool)
-	feats := env.RoutingFeatures(embedFlag)
+	feats := env.RoutingFeatures()
 	ctx = withRequestImageCount(ctx, feats.ImageCount)
 	if codexTitleGen {
 		feats.TitleGenHint = true
 	}
 	promptText := feats.PromptText
 	embedInput := "concatenated_stream"
-	if embedFlag && feats.OnlyUserMessageText != "" {
+	if feats.OnlyUserMessageText != "" {
 		promptText = feats.OnlyUserMessageText
 		embedInput = "only_user_message"
 	}
-
-	bypassEval := hasEvalOverrideHeader(r)
 
 	log.Info("ProxyOpenAIChatCompletion start",
 		"requested_model", feats.Model,
@@ -7533,14 +7329,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		routingEnv.SanitizeOrphanedToolCalls()
 	}
 	if requestBodyChanged {
-		feats = env.RoutingFeatures(embedFlag)
+		feats = env.RoutingFeatures()
 		ctx = withRequestImageCount(ctx, feats.ImageCount)
 		if codexTitleGen {
 			feats.TitleGenHint = true
 		}
 		promptText = feats.PromptText
 		embedInput = "concatenated_stream"
-		if embedFlag && feats.OnlyUserMessageText != "" {
+		if feats.OnlyUserMessageText != "" {
 			promptText = feats.OnlyUserMessageText
 			embedInput = "only_user_message"
 		}
@@ -7655,7 +7451,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		)
 	}
 
-	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText, embedFlag)
+	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
 	routeRequest := router.Request{
 		RequestedModel:               feats.Model,
 		ForceModel:                   forceModel,
@@ -7745,39 +7541,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 
-	// See the ProxyMessages cache-eligibility note: subscription-only requests
-	// bypass the semantic cache because the key does not capture that mode.
-	cacheCredentialCtx := resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
-	var cacheProvenance cache.Provenance
-	cacheEligible := routeRes.EscalationOrdinal == 0 && routeRes.llmEscalation == nil && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !responsesPassthrough && !billing.SubscriptionOnlyFromContext(ctx) && !requestAllowedModelsPresent(ctx) && !subscriptionStateModelsEnabled(ctx) && s.semanticCacheRequestAllowed(cacheCredentialCtx, routeRequest) && len(decision.Metadata.ClusterIDs) > 0
-	if cacheEligible {
-		cacheProvenance = s.semanticCacheProvenance(cacheCredentialCtx, decision)
-		cacheEligible = cacheProvenance.Valid()
-	}
-	if cacheEligible {
-		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatOpenAI, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash, cacheProvenance); hit {
-			setContextEstimateHeaders(w.Header(), env.ContextOverflowTokenEstimate(), max(contextWindowOutputReserve, feats.MaxTokens))
-			s.writeCachedResponse(w, resp, decision)
-			telemetry.Record(ctx, telemetry.Span{
-				Name:  "router.cache_hit",
-				Start: requestStart,
-				End:   time.Now(),
-				Attrs: telemetry.NewAttrBuilder(7).
-					String("request_id", requestID).
-					String("external_id", externalID).
-					String("decision.model", decision.Model).
-					String("decision.provider", decision.Provider).
-					Bool("cache.hit", true).
-					String("cache.format", string(cache.FormatOpenAI)).
-					Int64("latency.total_ms", time.Since(requestStart).Milliseconds()).
-					Build(),
-			})
-			telemetry.Flush(ctx)
-			log.Info("ProxyOpenAIChatCompletion cache hit", "requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "external_id", externalID, "total_ms", time.Since(requestStart).Milliseconds())
-			return nil
-		}
-		s.recordSemanticCacheMiss(ctx)
-	}
+	credentialCtx := resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
 	if _, err := s.provider(decision.Provider); err != nil {
 		return err
@@ -7816,7 +7580,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		String("routing.turn_type", string(tt)).
 		String("routing.embed_input", embedInput).
 		Int64("routing.estimated_input_tokens", int64(feats.Tokens)).
-		IntSlice("routing.cluster_ids", clusterIDsFromDecision(decision)).
 		Float64("catalog.requested_input_per_1m", reqDecisionPricing.InputUSDPer1M).
 		Float64("catalog.requested_output_per_1m", reqDecisionPricing.OutputUSDPer1M).
 		Float64("catalog.actual_input_per_1m", actDecisionPricing.InputUSDPer1M).
@@ -7938,7 +7701,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	muteSlowStartFor(ctx, routeRes)
 	fundingCtx := ctx
 	if CredentialsFromContext(fundingCtx) == nil {
-		fundingCtx = cacheCredentialCtx
+		fundingCtx = credentialCtx
 	}
 	notice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, decision.Model, marker)
 	notice = addRoutingFundingSource(fundingCtx, decision.Provider, decision.Model, notice)
@@ -8037,13 +7800,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 
-	var captureW *captureWriter
 	var sink http.ResponseWriter = rootSink
 	openAIPrelude := &requestNoticeStream{}
-	if cacheEligible {
-		captureW = newCaptureWriter(rootSink, semanticCacheMaxBodyBytes)
-		sink = captureW
-	}
 
 	responsesWriter, isResponses := w.(*translate.ResponsesWriter)
 	makeMarkerSink := func(notice translate.RouterNotice) (http.ResponseWriter, error) {
@@ -8540,8 +8298,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		decision.Provider == providers.ProviderOpenAI &&
 		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
 		!s.isHardPinnedTurn(ctx, routeRes.TurnType) &&
-		!billing.SubscriptionOnlyFromContext(ctx) &&
-		!bypassEval
+		!billing.SubscriptionOnlyFromContext(ctx)
 	var cyberRetryTarget router.Decision
 	cyberRetryViable := false
 	if cyberRetryEligible {
@@ -9034,17 +8791,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		actPricing = actBindingPricing
 	}
 
-	if cacheEligible && proxyErr == nil && captureW != nil && s.semanticCacheStoreAllowed(ctx, cacheProvenance, decision, finalProvider) {
-		if body, status, ok := captureW.captured(); ok && status == http.StatusOK {
-			storeResp := cache.CachedResponse{
-				StatusCode: status,
-				Headers:    cloneCacheHeaders(w.Header()),
-				Body:       body,
-			}
-			s.semanticCache.Store(externalID, cache.FormatOpenAI, decision.Metadata.Embedding, decision.Metadata.ClusterIDs[0], storeResp, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash, cacheProvenance)
-		}
-	}
-
 	proxyMs := time.Since(proxyStart).Milliseconds()
 	finishInferenceSpan(inferenceSpan, decision, finalProvider, winnerIdx, proxyErr)
 	ctx = restoreParentSpan(ctx, inferenceParentCtx)
@@ -9230,12 +8976,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			TotalLatencyMs:           time.Since(requestStart).Milliseconds(),
 			CrossFormat:              crossFormat,
 			UpstreamStatusCode:       int32(upstreamStatus(proxyErr)),
-			ClusterIDs:               openaiObs.ClusterIDs,
 			CandidateModels:          openaiObs.CandidateModels,
 			ChosenScore:              openaiObs.ChosenScore,
 			CandidateScores:          openaiObs.CandidateScores,
 			Propensity:               openaiObs.Propensity,
-			ClusterRouterVersion:     openaiObs.ClusterRouterVersion,
 			Strategy:                 openaiObs.Strategy,
 			RouteID:                  openaiObs.RouteID,
 			PolicyRouteKey:           openaiObs.PolicyRouteKey,

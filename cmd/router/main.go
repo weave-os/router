@@ -53,11 +53,8 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	routerpubsub "weave-os/router/internal/pubsub"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/bandit"
 	"weave-os/router/internal/router/breaker"
-	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/handover"
@@ -528,14 +525,6 @@ func main() {
 		panic(err)
 	}
 
-	rtr, defaultEmbedderID, err := buildClusterScorer(availableProviders)
-	if err != nil {
-		// Ops alerts on Cloud Run boot failures; silent degradation would mask quality regressions.
-		logger.Error("Cluster scorer failed to build; refusing to boot", "err", err)
-		panic(err)
-	}
-	logger.Info("Routing via cluster scorer", "embedder", defaultEmbedderID)
-
 	var admissionDecisions *policyregistry.AdmissionDecisionCache
 	if managedServingEnabled(deploymentMode) {
 		target := policyregistry.ServingTarget(config.MustGet("ROUTER_SERVING_TARGET"))
@@ -665,12 +654,6 @@ func main() {
 		}
 		authSvc.WithAdminPassword(adminPassword)
 	}
-	embedOnlyUser := config.GetOr("ROUTER_EMBED_ONLY_USER_MESSAGE", "true") == "true"
-	if embedOnlyUser {
-		logger.Info("Cluster scorer embedding user-role text only (ROUTER_EMBED_ONLY_USER_MESSAGE=true)")
-	} else {
-		logger.Info("Cluster scorer embedding concatenated stream (ROUTER_EMBED_ONLY_USER_MESSAGE=false)")
-	}
 	escapeNormalize := config.GetOr("ROUTER_DEEPSEEK_ESCAPE_NORMALIZE", "false") == "true"
 	if escapeNormalize {
 		logger.Info("Edit-tool escape-sequence repair enabled (ROUTER_DEEPSEEK_ESCAPE_NORMALIZE=true)")
@@ -688,8 +671,6 @@ func main() {
 		telemetryEmitter = emitter
 		authSvc.WithOnboardingObserver(otel.NewOnboardingObserver(emitter))
 	}
-
-	semanticCache := buildSemanticCache(rtr)
 
 	// Default-on: the scorer's α-blend ignores prompt-cache continuity, so
 	// without pinning, mid-conversation provider switches pay a cache-write
@@ -1239,26 +1220,6 @@ func main() {
 		logger.Info("HMM policy routers disabled (ROUTER_POLICY_ENVIRONMENT and ROUTER_POLICY_RELEASE_DIR unset); HMM strategies will return 503")
 	}
 
-	// Wired only when ROUTER_BANDIT_POSTERIOR_FILE points at a ts_posterior.json;
-	// x-weave-router-strategy: bandit then routes through it. Wraps the raw
-	// cluster scorer, not the explore wrapper. Unset -> nil -> 503.
-	var banditRouter router.Router
-	if posteriorPath := strings.TrimSpace(config.GetOr("ROUTER_BANDIT_POSTERIOR_FILE", "")); posteriorPath != "" {
-		post, loadErr := bandit.LoadPosterior(posteriorPath)
-		if loadErr != nil {
-			logger.Error(
-				"Bandit posterior load failed; x-weave-router-strategy: bandit will return 503",
-				"path", posteriorPath,
-				"err", loadErr,
-			)
-		} else {
-			banditRouter = bandit.New(rtr, post)
-			logger.Info("Bandit strategy router wired", "posterior_file", posteriorPath)
-		}
-	} else {
-		logger.Info("Bandit strategy router disabled (ROUTER_BANDIT_POSTERIOR_FILE unset); x-weave-router-strategy: bandit will return 503")
-	}
-
 	configuredPolicySpecs, err := buildConfiguredPolicySidecars(
 		context.Background(),
 		config.GetOr("ROUTER_POLICY_SIDECARS", ""),
@@ -1331,7 +1292,6 @@ func main() {
 		flags.KeyCyberRefusalRetry:                    boolDefault(cyberRefusalRetry),
 		flags.KeyCyberRefusalFallback:                 cyberRefusalFallbackModel,
 		flags.KeyAnthropicServerFallback:              boolDefault(anthropicServerSideFallback),
-		flags.KeyEmbedOnlyUserMessage:                 boolDefault(embedOnlyUser),
 	})
 
 	// Always wire even when beta is unavailable: existing beta sessions fail
@@ -1367,7 +1327,7 @@ func main() {
 	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
-	proxySvc := proxy.NewService(nil, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+	proxySvc := proxy.NewService(nil, providerMap, telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
 		WithTranslationMetrics(otel.NewTranslationMetrics()).
 		WithClaudeSubscriptionPlanReader(anthropicClient).
 		WithExternalKeyUsageRecorder(authSvc).
@@ -1403,7 +1363,6 @@ func main() {
 			Strategy: router.StrategyDecisionModel, Router: buildDecisionModelRouter(logger), Unavailable: decisionmodel.ErrUnavailable,
 			Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true},
 		}).
-		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyBandit, Router: banditRouter, Unavailable: bandit.ErrBanditUnavailable}).
 		WithContentCapture(captureMode, captureMaxBytes, nil).
 		WithFeedback(repo.Feedback, feedbackSigner, feedbackBaseURL).
 		WithPiHandoffSecret(config.GetOr("ROUTER_PI_HANDOFF_SECRET", "")).
@@ -1770,131 +1729,6 @@ func parseOtelHeaders(raw string) map[string]string {
 	return out
 }
 
-// buildClusterScorer constructs the cluster.Multiversion router, sharing one
-// ONNX embedder across versions. Errors force the caller to panic rather
-// than silently degrade to a default model. Also returns the default
-// version's embedder ID so the caller can log the resolved value rather than
-// a hardcoded literal.
-func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, string, error) {
-	logger := observability.Get()
-
-	requestedVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
-	defaultVersion, err := cluster.ResolveVersion(requestedVersion)
-	if err != nil {
-		return nil, "", fmt.Errorf("Resolve cluster version %q: %w", requestedVersion, err)
-	}
-
-	// Builds only the served version by default. ROUTER_CLUSTER_BUILD_ALL_VERSIONS=true
-	// powers the eval harness's per-request x-weave-cluster-version A/B; prod
-	// skips it to avoid the extra memory and the header-override foot-gun.
-	buildAll := strings.EqualFold(config.GetOr("ROUTER_CLUSTER_BUILD_ALL_VERSIONS", "false"), "true")
-	var versions []string
-	if buildAll {
-		versions, err = cluster.ListVersions()
-		if err != nil {
-			return nil, "", fmt.Errorf("List cluster versions: %w", err)
-		}
-	} else {
-		versions = []string{defaultVersion}
-	}
-
-	embedders, err := cluster.NewEmbedderSet()
-	if err != nil {
-		return nil, "", err
-	}
-
-	cfg := cluster.DefaultConfig()
-	if v := config.GetOr("ROUTER_CLUSTER_EMBED_TIMEOUT_MS", ""); v != "" {
-		ms, parseErr := time.ParseDuration(v + "ms")
-		if parseErr != nil || ms <= 0 {
-			logger.Warn("Invalid ROUTER_CLUSTER_EMBED_TIMEOUT_MS; using default", "value", v, "default_ms", cfg.EmbedTimeout.Milliseconds())
-		} else {
-			cfg.EmbedTimeout = ms
-			logger.Info("Cluster embed timeout overridden", "embed_timeout_ms", ms.Milliseconds())
-		}
-	}
-	if v := config.GetOr("ROUTER_CLUSTER_TOP_P", ""); v != "" {
-		n, parseErr := strconv.Atoi(v)
-		if parseErr != nil || n <= 0 {
-			logger.Warn("Invalid ROUTER_CLUSTER_TOP_P; using default", "value", v, "default", cfg.TopP)
-		} else {
-			cfg.TopP = n
-			logger.Info("Cluster top_p overridden", "top_p", n)
-		}
-	}
-	scorers := make(map[string]*cluster.Scorer, len(versions))
-	var defaultEmbedderID string
-	for _, v := range versions {
-		bundle, err := cluster.LoadBundle(v)
-		if err != nil {
-			_ = embedders.Close()
-			return nil, "", fmt.Errorf("Load bundle %s: %w", v, err)
-		}
-		if v == defaultVersion {
-			defaultEmbedderID = bundle.EmbedderID()
-		}
-
-		missingProviders := map[string][]string{}
-		for _, e := range bundle.Registry.DeployedModels {
-			if _, ok := availableProviders[e.Provider]; !ok {
-				missingProviders[e.Provider] = append(missingProviders[e.Provider], e.Model)
-			}
-		}
-		for prov, models := range missingProviders {
-			logger.Warn(
-				"Cluster artifact references unregistered provider; affected models will be excluded from argmax",
-				"cluster_version", v,
-				"missing_provider", prov,
-				"affected_models", models,
-				"hint", "set "+envVarHint(prov)+" to keep these in the routing pool",
-			)
-		}
-
-		// Lazily construct only the embedders the built versions need:
-		// prod (single default version) loads exactly one model.
-		embedder, err := embedders.Get(bundle.EmbedderID())
-		if err != nil {
-			// The default version's embedder must construct; sibling
-			// versions degrade like any other per-version build failure.
-			if v == defaultVersion {
-				_ = embedders.Close()
-				return nil, "", fmt.Errorf("Construct embedder %q for default cluster version %s: %w", bundle.EmbedderID(), v, err)
-			}
-			logger.Warn("Cluster scorer version skipped; embedder unavailable", "cluster_version", v, "embedder", bundle.EmbedderID(), "err", err)
-			continue
-		}
-
-		scorer, err := cluster.NewScorer(bundle, cfg, embedder, availableProviders)
-		if err != nil {
-			logger.Warn("Cluster scorer version skipped", "cluster_version", v, "err", err)
-			continue
-		}
-		scorers[v] = scorer
-		logger.Info("Cluster scorer version built", "cluster_version", v, "embedder", bundle.EmbedderID(), "models", bundle.Registry.Models())
-	}
-
-	if _, ok := scorers[defaultVersion]; !ok {
-		_ = embedders.Close()
-		return nil, "", fmt.Errorf("Default cluster version %q failed to build (likely no registered provider covers its deployed_models); set ROUTER_CLUSTER_VERSION to a version that does, or register the missing provider key", defaultVersion)
-	}
-
-	multi, err := cluster.NewMultiversion(defaultVersion, scorers)
-	if err != nil {
-		_ = embedders.Close()
-		return nil, "", fmt.Errorf("Build multiversion router: %w", err)
-	}
-	logger.Info(
-		"Cluster multiversion router ready",
-		"default_version", defaultVersion,
-		"built_versions", multi.Built(),
-		"built_embedders", embedders.Built(),
-		"requested_version", requestedVersion,
-		"build_all_versions", buildAll,
-	)
-
-	return multi, defaultEmbedderID, nil
-}
-
 // buildEntraTokenSource returns the lazy Microsoft Entra client-credentials token source;
 // a deployment without Azure keys never contacts Microsoft Entra.
 func buildEntraTokenSource(logger *slog.Logger) auth.EntraTokenSource {
@@ -2145,63 +1979,6 @@ func parseEnvAttemptTimeoutMs(key string, fallback time.Duration) time.Duration 
 		return 0
 	}
 	return parseEnvDurationMs(key, fallback)
-}
-
-// buildSemanticCache constructs the cross-request semantic cache, or nil when
-// disabled (ROUTER_SEMANTIC_CACHE_ENABLED=false). Per-cluster cosine thresholds
-// come from the default version's metadata.yaml, so promoting `artifacts/latest`
-// flips cache thresholds atomically along with the cluster version.
-func buildSemanticCache(rtr router.Router) *cache.Cache {
-	logger := observability.Get()
-	if config.GetOr("ROUTER_SEMANTIC_CACHE_ENABLED", "true") != "true" {
-		logger.Info("Semantic cache disabled (ROUTER_SEMANTIC_CACHE_ENABLED=false)")
-		return nil
-	}
-	multi, ok := rtr.(*cluster.Multiversion)
-	if !ok {
-		// Defensive: guards against a future router shape silently disabling the cache.
-		logger.Warn("Semantic cache disabled: router is not a cluster.Multiversion")
-		return nil
-	}
-	defaultScorer, ok := multi.Versions[multi.Default]
-	if !ok {
-		// Defensive: NewMultiversion guarantees the default is built.
-		logger.Warn("Semantic cache disabled: default cluster scorer not found", "default_version", multi.Default)
-		return nil
-	}
-	perCluster, defaultThreshold := defaultScorer.CacheThresholds()
-
-	cfg := cache.DefaultConfig()
-	cfg.PerClusterThreshold = perCluster
-	if defaultThreshold > 0 {
-		cfg.DefaultThreshold = defaultThreshold
-	}
-	if v := config.GetOr("ROUTER_SEMANTIC_CACHE_TTL_SEC", ""); v != "" {
-		secs, err := strconv.Atoi(v)
-		if err != nil || secs <= 0 {
-			logger.Warn("Invalid ROUTER_SEMANTIC_CACHE_TTL_SEC; using default", "value", v, "default_sec", int(cfg.TTL.Seconds()))
-		} else {
-			cfg.TTL = time.Duration(secs) * time.Second
-		}
-	}
-	if v := config.GetOr("ROUTER_SEMANTIC_CACHE_BUCKET", ""); v != "" {
-		size, err := strconv.Atoi(v)
-		if err != nil || size <= 0 {
-			logger.Warn("Invalid ROUTER_SEMANTIC_CACHE_BUCKET; using default", "value", v, "default", cfg.BucketSize)
-		} else {
-			cfg.BucketSize = size
-		}
-	}
-	logger.Info(
-		"Semantic cache enabled",
-		"default_threshold", cfg.DefaultThreshold,
-		"per_cluster_overrides", len(cfg.PerClusterThreshold),
-		"bucket_size", cfg.BucketSize,
-		"ttl_sec", int(cfg.TTL.Seconds()),
-		"max_body_kib", cfg.MaxBodyBytes/1024,
-		"version", multi.Default,
-	)
-	return cache.New(cfg)
 }
 
 // safeGo launches fn in a goroutine with panic recovery so a bug in a

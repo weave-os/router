@@ -33,7 +33,7 @@ func TestRoutingAnnouncementSharedCompletionHistory(t *testing.T) {
 			provider := &fakeProvider{proxyResponse: responsesTextUpstream}
 			decision := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-6-luna", Reason: "test"}
 			svc := proxy.NewService(&fakeRouter{decision: decision}, map[string]providers.Client{providers.ProviderOpenAI: provider},
-				nil, false, nil, pins, false, providers.ProviderOpenAI, "gpt-6-luna", nil)
+				nil, pins, false, providers.ProviderOpenAI, "gpt-6-luna", nil)
 			ctx := context.WithValue(authedCtx("00000000-0000-0000-0000-000000000001"), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{
 				ClientApp: proxy.ClientAppCodex, SessionID: "synthetic-shared-conversation",
 			})

@@ -51,7 +51,7 @@ func TestCodexResponsesTitleGenerationScoresWithoutMarker(t *testing.T) {
 	svc := NewService(
 		routerSpy,
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
-		nil, false, nil, nil, false,
+		nil, nil, false,
 		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
 	)
 	body := []byte(`{
@@ -83,7 +83,7 @@ func TestCodexResponsesTitlePromptScoresWithoutMarker(t *testing.T) {
 	svc := NewService(
 		routerSpy,
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
-		nil, false, nil, nil, false,
+		nil, nil, false,
 		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
 	)
 	body := []byte(`{
@@ -115,7 +115,7 @@ func TestCodexResponsesTitlePromptAfterHarnessContextScores(t *testing.T) {
 	svc := NewService(
 		routerSpy,
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
-		nil, false, nil, nil, false,
+		nil, nil, false,
 		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
 	)
 	body := []byte(`{
@@ -147,7 +147,7 @@ func TestCodexDesktopThreadTitleScoresWithoutMarker(t *testing.T) {
 	svc := NewService(
 		routerSpy,
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
-		nil, false, nil, nil, false,
+		nil, nil, false,
 		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
 	)
 	body := []byte(`{
@@ -187,7 +187,7 @@ func TestCodexResponsesTitlePromptWithAssistantHistoryUsesScorer(t *testing.T) {
 	svc := NewService(
 		routerSpy,
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
-		nil, false, nil, nil, false,
+		nil, nil, false,
 		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
 	)
 	body := []byte(`{
@@ -215,7 +215,7 @@ func TestResponsesTitlePromptWithoutCodexIdentityUsesScorer(t *testing.T) {
 	svc := NewService(
 		routerSpy,
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
-		nil, false, nil, nil, false,
+		nil, nil, false,
 		providers.ProviderOpenAI, "gpt-5.6-luna", nil,
 	)
 	body := []byte(`{

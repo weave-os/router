@@ -26,7 +26,7 @@ func (policyCatalogRouter) Route(context.Context, router.Request) (router.Decisi
 func TestPolicyCatalogHandlerReportsDefaultAndCapabilities(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	service := proxy.NewService(
-		nil, nil, nil, false, nil, nil, false, "", "", nil,
+		nil, nil, nil, nil, false, "", "", nil,
 	).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: router.StrategyHMM,
 		Router:   policyCatalogRouter{},

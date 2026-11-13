@@ -100,7 +100,7 @@ func newEarlyStopFixture(t *testing.T, mode flags.EarlyStopRedoMode) *earlyStopF
 	f.svc = proxy.NewService(
 		&fakeRouter{decision: decision},
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", f.upstream.URL)},
-		nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry(),
+		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry(),
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 		WithRetrySleep(noRetrySleep).
 		WithEarlyStopRedo(mode)

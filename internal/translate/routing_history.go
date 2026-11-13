@@ -21,9 +21,9 @@ func (e *RequestEnvelope) routingMessages(profile RoutingHistoryProfile) ([]Conv
 }
 
 // RoutingInput projects client lifecycle messages without changing provider input.
-func (e *RequestEnvelope) RoutingInput(profile RoutingHistoryProfile, promptText string, onlyUser bool) (string, []ConversationMessage) {
+func (e *RequestEnvelope) RoutingInput(profile RoutingHistoryProfile, promptText string) (string, []ConversationMessage) {
 	messages, projected := e.routingMessages(profile)
-	if projected && onlyUser {
+	if projected {
 		var userText []string
 		for _, message := range messages {
 			if message.Role == string(EscalationRoleUser) && message.Text != "" {

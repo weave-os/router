@@ -156,11 +156,11 @@ func TestUsageBypassDecision_ClassifierLaneOutranksUsageBypass(t *testing.T) {
 func TestRunTurnLoop_ClassifierPassthrough_NoSessionState(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-haiku-4-5","max_tokens":5,"messages":[{"role":"user","content":"hello"}]}`))
 	require.NoError(t, err)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	store := newStubPinStore()
 	store.getFound = true
 	store.getPin = sessionpin.Pin{Provider: providers.ProviderOpenAI, Model: "gpt-5.5", Reason: "cluster", PinnedUntil: time.Now().Add(time.Hour)}
-	svc := NewService(&betaTestRouter{}, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := NewService(&betaTestRouter{}, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: &betaTestRouter{}})
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, classifierTestSubToken)
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{"claude-sonnet-4-6"})
@@ -180,8 +180,8 @@ func TestRunTurnLoop_ClassifierPassthrough_NoSessionState(t *testing.T) {
 func TestRunTurnLoop_ClassifierForceModel_OutranksPassthrough(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-haiku-4-5","max_tokens":5,"messages":[{"role":"user","content":"hello"}]}`))
 	require.NoError(t, err)
-	feats := env.RoutingFeatures(false)
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	feats := env.RoutingFeatures()
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, classifierTestSubToken)
 
 	res, err := svc.runTurnLoop(ctx, env, feats, "api-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model, ForceModel: "claude-sonnet-5"})
@@ -204,7 +204,7 @@ func TestBypass_ClassifierPassthrough_TelemetryReason(t *testing.T) {
 
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-haiku-4-5","max_tokens":5,"messages":[{"role":"user","content":"hello"}]}`))
 	require.NoError(t, err)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	req.Header.Set("Authorization", "Bearer "+classifierTestSubToken)

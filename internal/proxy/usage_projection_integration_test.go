@@ -48,7 +48,7 @@ func TestGeminiUsageAcrossClientSurfaces(t *testing.T) {
 					_, err := w.Write([]byte(body))
 					require.NoError(t, err)
 				}}
-				svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: router.ModelGemini4Argon}}, map[string]providers.Client{providers.ProviderGoogle: provider}, usageProjectionEmitter{}, false, nil, nil, false, providers.ProviderGoogle, router.ModelGemini4Argon, telemetry)
+				svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: router.ModelGemini4Argon}}, map[string]providers.Client{providers.ProviderGoogle: provider}, usageProjectionEmitter{}, nil, false, providers.ProviderGoogle, router.ModelGemini4Argon, telemetry)
 				ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "55555555-5555-5555-5555-555555555555")
 				rec := httptest.NewRecorder()
 				req := httptest.NewRequest(http.MethodPost, "/", nil)
@@ -126,7 +126,7 @@ func TestUsageProjection_XAIStreamCostIncludesReasoningOnce(t *testing.T) {
 		require.NoError(t, err)
 	}}
 	telemetry := newCaptureTelemetry()
-	svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderXAI, Model: model}}, map[string]providers.Client{providers.ProviderXAI: provider}, nil, false, nil, nil, false, providers.ProviderXAI, model, telemetry)
+	svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderXAI, Model: model}}, map[string]providers.Client{providers.ProviderXAI: provider}, nil, nil, false, providers.ProviderXAI, model, telemetry)
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "55555555-5555-5555-5555-555555555555")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
@@ -153,7 +153,7 @@ func TestUsageProjection_NoticesAndFeedbackContributeNoProviderUsage(t *testing.
 		_, err := w.Write([]byte("data: " + response + "\n\n"))
 		require.NoError(t, err)
 	}}
-	svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: router.ModelGemini4Argon}}, map[string]providers.Client{providers.ProviderGoogle: provider}, nil, false, nil, nil, false, providers.ProviderGoogle, router.ModelGemini4Argon, telemetry).WithRouterFeedbackStore(&fakeFeedbackStore{})
+	svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: router.ModelGemini4Argon}}, map[string]providers.Client{providers.ProviderGoogle: provider}, nil, nil, false, providers.ProviderGoogle, router.ModelGemini4Argon, telemetry).WithRouterFeedbackStore(&fakeFeedbackStore{})
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "55555555-5555-5555-5555-555555555555")
 	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode})
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)

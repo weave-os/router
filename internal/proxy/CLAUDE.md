@@ -13,7 +13,7 @@ Routing/dispatch service. Per-action orchestrator that composes scorer, planner,
 - `ProxyOpenAIChatCompletion` — OpenAI Chat Completions
 - `ProxyGemini` — Gemini native generateContent
 
-Plus the action loop, handover adapter, cache writer, and session-key derivation in sibling files.
+Plus the action loop, handover adapter, and session-key derivation in sibling files.
 
 ## Where new behavior goes
 
@@ -29,7 +29,7 @@ Plus the action loop, handover adapter, cache writer, and session-key derivation
 | is a model quirk | catalog data in [`../router/catalog`](../router/catalog/CLAUDE.md) | typed `catalog.Model` / `catalog.ProviderBinding` fields |
 | is new I/O | a port (interface) in the owning context, an adapter package, wiring in `cmd/router` | e.g. `sessionpin.Store`, implemented by `postgres.SessionPinRepo` |
 
-Accounting, shadows/experiments and the semantic cache stay in the orchestrator for now.
+Accounting and shadows/experiments stay in the orchestrator for now.
 
 **Until a context package exists, new logic goes in a new focused file in its context's group above, as a free function or a small collaborator struct whose dependencies are explicit constructor or function parameters.** Never add a `Service` method or field for it: `Service` methods have no visible dependencies and every one can reach all of `Service`'s state, which is how it reached its current size. Thread request-scoped values as parameters, not new context keys. No I/O in the logic itself; new repo methods are an interface in the inner ring, implemented in `internal/postgres/`. Tests drive the function or collaborator directly with in-memory fakes and real assertions.
 
@@ -37,16 +37,15 @@ CI enforces this. The architecture ratchet (`make arch-ratchet`, a PR-only step)
 
 ## Per-action flow (cache-aware action routing)
 
-The per-action flow is more than "scorer → dispatch". Pinned session, planner verdict, optional handover summary, and the semantic response cache all sit between the inbound request and the upstream provider. Packages are intentionally small + single-purpose so each is unit-testable without the others. ("Action" = one upstream API request; see [../../docs/SEMANTICS.md](../../docs/SEMANTICS.md). The `Stage` column below is a pipeline stage *within* one action, not a router step.)
+The per-action flow is more than "scorer → dispatch". Pinned session, planner verdict, and optional handover summary all sit between the inbound request and the upstream provider. Packages are intentionally small + single-purpose so each is unit-testable without the others. ("Action" = one upstream API request; see [../../docs/SEMANTICS.md](../../docs/SEMANTICS.md). The `Stage` column below is a pipeline stage *within* one action, not a router step.)
 
 | Stage | Package | Notes |
 |---|---|---|
 | Turn-type classification | [`../router/turntype`](../router/turntype) | MainLoop / ToolResult / SubAgentDispatch / Compaction / Probe |
 | Session-pin lookup | [`../router/sessionpin`](../router/sessionpin) | Sticky `(api_key_id, session_key, role)` pin |
-| Fresh routing decision | [`../router/cluster`](../router/cluster) | Cluster scorer argmax |
+| Fresh routing decision | [`../router/policy`](../router/policy) | Registered policy strategy (HMM classifier groups) |
 | STAY vs SWITCH | [`../router/planner`](../router/planner) | Cache-aware EV policy |
 | Handover summary on SWITCH | [`../router/handover`](../router/handover) | Bounds switch-action input cost |
-| Semantic response cache | [`../router/cache`](../router/cache) | Cross-request, non-streaming only |
 | Subscription strict pass-through gate | [`usage`](usage) | See [`usage/CLAUDE.md`](usage/CLAUDE.md) |
 
 The provider-backed `Summarizer` implementation for handover lives in [`handover.go`](handover.go); the inner-ring `handover` package only defines the contract. On summarizer timeout or error, proxy keeps the full prior history unchanged (it does **not** trim) — a pricier switch action beats silently dropping the conversation the switched-to model needs.
@@ -172,9 +171,7 @@ replica by design. The request path never takes the registry lock: withdrawn
 sets and the due list are an atomically published snapshot, and claiming or
 releasing a probe is a compare-and-swap on the circuit. Only overload strikes
 and probe outcomes lock and republish, and closed circuits whose strikes have
-aged out are swept. The semantic cache is
-skipped while any model is withdrawn for the request, as for any automatic
-exclusion.
+aged out are swept.
 
 **Rescued transient failures get a bounded cooldown, not a session-lifetime
 strike.** Under `transient_rate_limit` (default off),

@@ -247,7 +247,7 @@
           "DecisionProvider": "fireworks",
           "DecisionReason": "golden_route",
           "DegenerateShadow": true,
-          "EmbedInput": "concatenated_stream",
+          "EmbedInput": "only_user_message",
           "EstimatedInputTokens": 1,
           "FinalModelFamily": "claude-haiku",
           "FreshDecisionModel": "claude-haiku-4-5",

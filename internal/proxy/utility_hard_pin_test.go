@@ -58,7 +58,7 @@ func newUtilityHardPinSvc(setup utilityHardPinSetup, fr *fakeRouter) *proxy.Serv
 		}}
 	}
 	return proxy.NewService(
-		fr, clients, nil, false, nil, newFakePinStore(), true,
+		fr, clients, nil, newFakePinStore(), true,
 		policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel,
 		nil,
 	).WithByokOnly(setup.byokOnly).WithHardPinResolver(proxy.CatalogUtilityHardPin)

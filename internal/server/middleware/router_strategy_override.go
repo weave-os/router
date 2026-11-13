@@ -38,7 +38,6 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 			router.StrategyRL,
 			router.StrategyHMM,
 			router.StrategyHMMEmbedding,
-			router.StrategyBandit,
 		}
 	}
 	allowed := make(map[router.Strategy]struct{}, len(available))

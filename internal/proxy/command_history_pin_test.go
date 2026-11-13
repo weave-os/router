@@ -45,7 +45,7 @@ func TestService_HistoricalDirective_KeepsSessionPin(t *testing.T) {
 			svc := proxy.NewService(fr, map[string]providers.Client{
 				providers.ProviderAnthropic: &fakeProvider{},
 				providers.ProviderOpenAI:    openAI,
-			}, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+			}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 			identity := proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex, SessionID: tc.sessionID}
 			ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.ClientIdentityContextKey{}, identity)

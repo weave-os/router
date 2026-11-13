@@ -74,7 +74,7 @@ func serveLunaTurnBody(t *testing.T, store sessionpin.Store, billedPrompt int, b
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-6-luna", Reason: "test"}},
 		map[string]providers.Client{providers.ProviderOpenAI: lunaProvider(billedPrompt)},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))

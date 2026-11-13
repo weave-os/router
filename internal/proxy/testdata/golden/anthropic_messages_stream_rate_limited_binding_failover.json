@@ -299,7 +299,7 @@
           "DecisionProvider": "openrouter",
           "DecisionReason": "golden_route",
           "DegenerateShadow": true,
-          "EmbedInput": "concatenated_stream",
+          "EmbedInput": "only_user_message",
           "EstimatedInputTokens": 1,
           "FailoverAttempted": true,
           "FailoverUsed": true,

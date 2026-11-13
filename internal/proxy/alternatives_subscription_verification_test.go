@@ -87,7 +87,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 			if scenario.sessionPinned {
 				pins = &overwritingPinStore{pin: sessionpin.Pin{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: translate.ReasonUserForceModel, PinnedUntil: pinNeverExpires}, found: true}
 			}
-			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Metadata: metadata, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, pins, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(&verificationAlternativeLeaser{}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Metadata: metadata, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, pins, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(&verificationAlternativeLeaser{}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 			ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 			if scenario.max {
 				ctx = entitlement.WithProductScope(ctx, entitlement.PlanMax)
@@ -133,7 +133,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 
 func TestVerificationAlternativesHonorHardRequestExclusions(t *testing.T) {
 	client := openai.NewClient("synthetic-api-key", "http://127.0.0.1:1")
-	svc := NewService(staticRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)
+	svc := NewService(staticRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)
 	ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
 	selected := router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Metadata: &router.RoutingMetadata{CandidateModels: []string{codexCoveredModel, "gpt-6-sol", "gpt-6.1-sol"}}}
 	request := router.Request{
