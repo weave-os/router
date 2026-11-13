@@ -84,6 +84,7 @@ var forceModelAliases = map[string]string{
 	"fable51":      "claude-fable-5-1",
 	"fable-5":      "claude-fable-5",
 	"fable5":       "claude-fable-5",
+	"mythos":       "claude-mythos-5-2",
 	// Sonnet family aliases follow 5.5; Sonnet 5's own-name aliases keep
 	// resolving so existing direct pins still serve.
 	"sonnet":        "claude-sonnet-5-5",
