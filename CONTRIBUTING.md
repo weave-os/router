@@ -124,17 +124,6 @@ make dev                               # run the server with hot reload
 Prerequisites: Go 1.26+, [golang-migrate](https://github.com/golang-migrate/migrate),
 [CompileDaemon](https://github.com/githubnemo/CompileDaemon).
 
-The worker loads no ONNX assets. Until the legacy cluster scorer package is
-deleted, `make dev` still builds with `-tags ORT`, which links `libtokenizers`
-(from [daulet/tokenizers releases](https://github.com/daulet/tokenizers/releases));
-on Apple Silicon point the linker at it:
-
-```bash
-echo "CGO_LDFLAGS=-L/path/to/libtokenizers" >> .env.local
-```
-
-The Docker path bundles this.
-
 ### Tests
 
 - Use in-memory fakes for repos / routers / provider clients. See

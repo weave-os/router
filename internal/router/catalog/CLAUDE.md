@@ -18,7 +18,7 @@ Single source of truth for per-model data: capability tier, subscription coverag
 ## Adding a model
 
 1. Append one `Model{}` struct literal to `Models` in `catalog.go`. Mark `CodexSubscription` there when native ChatGPT/Codex OAuth serves the model; credential routing reads that catalog field directly.
-2. If the model is a routing target, add it as an arm in the HMM roster (`ROUTER_HMM_ROSTER_PATH`; this catalog says how to price/dispatch a model, the roster says which groups route to it). Boot validates every roster arm against this catalog.
+2. If the model is a routing target, add it as an arm in the HMM roster published through the serving registry (see [SERVING_CONTROL.md](../../../docs/SERVING_CONTROL.md#shared-code-cohorts-and-roster-configuration-selection-v3)). This catalog says how to price/dispatch a model; the roster says which groups route to it. Go validates every roster arm against this catalog (`hmm.ValidateRosterIDs`).
 3. Run `go run ./cmd/genprices` to regenerate `install/install.sh` + `install/cc-statusline.sh`.
 
 That's it. Nothing else needs editing — the planner, policy resolver, OTel emitter, install scripts, and provider modelIDMaps all flow from this file.

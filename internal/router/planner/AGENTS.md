@@ -61,5 +61,5 @@ Python reference to 1e-9.
 
 ## What NOT to do
 
-- **Don't add a runtime override that mutates α-blend.** Cost weighting is baked into the routing policy at training time. Per-request cost knobs are a separate (P1) feature, not a planner responsibility.
+- **Don't add a runtime override that mutates α-blend.** Cost weighting belongs to the routing policy: roster knobs plus the per-request `QualityBias` dial (`selection.EffectiveAlpha`). Per-request cost knobs are a separate (P1) feature, not a planner responsibility.
 - **Don't read pricing from anywhere but [`../catalog`](../catalog).** Single source of truth — the OTel emitter and planner must agree.
