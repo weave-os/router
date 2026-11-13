@@ -167,6 +167,22 @@ func (t *attemptTrace) lastFailure() (tracedAttempt, bool) {
 
 // failedOn reports whether any attempt on model failed in this request. Models
 // match by base model (baseModelOf), so catalog variants of one model count.
+// lastFailureOn is the newest failed attempt on model's base model, so a marker
+// cites that model's own failure rather than a later candidate's.
+func (t *attemptTrace) lastFailureOn(model string) (tracedAttempt, bool) {
+	if t == nil {
+		return tracedAttempt{}, false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for i := len(t.attempts) - 1; i >= 0; i-- {
+		if t.attempts[i].Err != nil && baseModelOf(t.attempts[i].Target.CatalogID) == baseModelOf(model) {
+			return t.attempts[i], true
+		}
+	}
+	return tracedAttempt{}, false
+}
+
 func (t *attemptTrace) failedOn(model string) bool {
 	if t == nil {
 		return false

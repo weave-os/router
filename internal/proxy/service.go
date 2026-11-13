@@ -890,7 +890,7 @@ const (
 	markerReasonTierUpgrade         = "upgraded to a stronger tier"
 	markerReasonBestPick            = "best pick for this turn"
 	markerReasonBaseline            = "fell back to baseline after provider outage"
-	markerReasonSibling             = "switched after the picked model was overloaded"
+	markerReasonSibling             = "switched after the picked model was unavailable"
 	markerReasonSubscriptionCovered = "switched to a subscription-covered model"
 	markerReasonCyberRefusal        = "switched after the picked model declined the request"
 	markerReasonForcedPinDropped    = "your force-model pin could not be served this turn"
@@ -919,9 +919,9 @@ func siblingMarkerReason(ctx context.Context, failedModel string) string {
 	if failedModel == "" {
 		return markerReasonSibling
 	}
-	cause := "was overloaded"
-	if last, ok := attemptTraceFromContext(ctx).lastFailure(); ok && baseModelOf(last.Target.CatalogID) == baseModelOf(failedModel) {
-		cause = failureWordingFor(last).badge
+	cause := "was unavailable"
+	if failed, ok := attemptTraceFromContext(ctx).lastFailureOn(failedModel); ok {
+		cause = failureWordingFor(failed).badge
 	}
 	return "switched after " + failedModel + " " + cause
 }

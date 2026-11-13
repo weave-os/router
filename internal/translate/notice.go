@@ -106,6 +106,17 @@ type NoticeDelivery struct {
 	providerContentStarted bool
 	failure                error
 	beforeContent          func() (RouterNotice, bool)
+	deferred               RouterNotice
+}
+
+func (d *NoticeDelivery) Eager() bool { return d.capabilities.Eager }
+
+// Defer holds notice until this attempt's first provider content, so an attempt
+// that fails before producing output never shows it. A later Defer replaces it.
+func (d *NoticeDelivery) Defer(notice RouterNotice) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.deferred = notice
 }
 
 // SetBeforeProviderContent registers a notice decided when the attempt's first
@@ -227,6 +238,7 @@ func (d *NoticeDelivery) ResetAttempt(retainNotices bool) {
 		d.providerContentStarted = false
 	}
 	d.pending = nil
+	d.deferred = RouterNotice{}
 	d.scanner.Reset()
 	for _, notice := range d.queued {
 		delete(d.seen, notice.ID)
@@ -247,13 +259,25 @@ func (d *NoticeDelivery) Seal() {
 }
 
 func (d *NoticeDelivery) emitBeforeContent() error {
+	deferred := d.deferred
+	d.deferred = RouterNotice{}
 	fn := d.beforeContent
 	d.beforeContent = nil
-	if fn == nil || !d.capabilities.SupportsNotices() {
+	if !d.capabilities.SupportsNotices() {
 		return nil
 	}
+	if err := d.emitOnce(deferred); err != nil || fn == nil {
+		return err
+	}
 	notice, ok := fn()
-	if !ok || notice.ID == "" || notice.Text == "" {
+	if !ok {
+		return nil
+	}
+	return d.emitOnce(notice)
+}
+
+func (d *NoticeDelivery) emitOnce(notice RouterNotice) error {
+	if notice.ID == "" || notice.Text == "" {
 		return nil
 	}
 	if _, exists := d.seen[notice.ID]; exists {

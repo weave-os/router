@@ -34,14 +34,22 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 	if !retainNotices {
 		s.lastNotice = translate.RouterNotice{}
 	}
-	if notice.Text != "" && (notice.Kind != s.lastNotice.Kind || notice.Text != s.lastNotice.Text) {
-		outcome, err := s.delivery.Deliver(notice)
-		if err != nil {
-			return nil, err
-		}
-		if outcome == translate.NoticeDelivered {
-			s.lastNotice = notice
-		}
+	if notice.Text == "" || (notice.Kind == s.lastNotice.Kind && notice.Text == s.lastNotice.Text) {
+		return s.delivery, nil
+	}
+	// Eager streams show the first marker immediately. Once one is visible, a
+	// fallback candidate's marker waits for its output, so failed candidates
+	// never add markers and only the model that served can correct the first.
+	if s.lastNotice.Kind == translate.NoticeModelSelection && notice.Kind == translate.NoticeModelSelection && s.delivery.Eager() {
+		s.delivery.Defer(notice)
+		return s.delivery, nil
+	}
+	outcome, err := s.delivery.Deliver(notice)
+	if err != nil {
+		return nil, err
+	}
+	if outcome == translate.NoticeDelivered {
+		s.lastNotice = notice
 	}
 	return s.delivery, nil
 }
