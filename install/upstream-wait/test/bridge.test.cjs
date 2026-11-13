@@ -128,6 +128,31 @@ test("disconnect cancels upstream and clears the wait before any native output",
   assert.equal(notifications.at(-1).method, Method.HOOK_COMPLETED);
 });
 
+test("a provider wait arriving before turn registration is shown when the turn starts", async (t) => {
+  const release = deferred();
+  t.after(() => release.resolve());
+  const { bridge, url, notifications } = await fixture(t, async (request, response) => {
+    startFrames(response);
+    sendFrame(response, Frame.WAITING, { waiting: true });
+    await release.promise;
+    sendFrame(response, Frame.WAITING, { waiting: false });
+    sendFrame(response, Frame.RESPONSE, { status: 200, headers: { "Content-Type": ["text/plain"] } });
+    bodyFrame(response, "ok");
+    sendFrame(response, Frame.DONE);
+    response.end();
+  });
+  bridge.observeNotification({ method: Method.TURN_COMPLETED, params: { threadId: "foreground", turn: { id: "turn-1" } } });
+  const received = fetch(url + "/responses", { method: "POST", headers, body });
+  await waitFor(t, () => [...bridge.requests.values()].some((entry) => entry.waiting));
+  assert.deepEqual(notifications, []);
+  bridge.observeNotification({ method: Method.TURN_STARTED, params: { threadId: "foreground", turn: { id: "turn-2" } } });
+  assert.equal(notifications[0]?.method, Method.HOOK_STARTED);
+  assert.equal(notifications[0]?.params.turnId, "turn-2");
+  release.resolve();
+  assert.equal(await (await received).text(), "ok");
+  assert.equal(notifications.at(-1).method, Method.HOOK_COMPLETED);
+});
+
 test("background completion and late old-turn signals cannot clear or restart another turn's wait", async (t) => {
   const { bridge, notifications } = await fixture(t, () => {});
   bridge.observeNotification({ method: Method.TURN_STARTED, params: { threadId: "background", turn: { id: "turn-2" } } });

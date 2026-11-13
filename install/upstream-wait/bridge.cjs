@@ -126,7 +126,14 @@ class UpstreamWaitBridge {
     if (method === Method.TURN_STARTED) {
       const previous = this.turns.get(params.threadId);
       if (previous) this.endWait(previous);
-      this.turns.set(params.threadId, { threadId: params.threadId, turnId: params.turn.id, waits: new Set(), run: null });
+      const turn = { threadId: params.threadId, turnId: params.turn.id, waits: new Set(), run: null };
+      this.turns.set(params.threadId, turn);
+      for (const [id, entry] of this.requests) {
+        if (entry.threadId === params.threadId && !entry.turn) {
+          entry.turn = turn;
+          if (entry.waiting) this.setWaiting(id, entry, true);
+        }
+      }
     } else if (method === Method.TURN_COMPLETED) {
       const turn = this.turns.get(params.threadId);
       if (turn?.turnId === params.turn.id) {
@@ -164,7 +171,8 @@ class UpstreamWaitBridge {
   async proxy(request, response, target) {
     const id = randomUUID();
     const abort = new AbortController();
-    const entry = { waiting: false, turn: this.turns.get(request.headers["thread-id"]), abort };
+    const threadId = request.headers["thread-id"];
+    const entry = { waiting: false, threadId, turn: this.turns.get(threadId), abort };
     this.requests.set(id, entry);
     const headers = endToEndHeaders(request.headers);
     delete headers.host;
