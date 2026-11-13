@@ -39,6 +39,7 @@ func ThrottleLedgerFromContext(ctx context.Context) *ThrottleLedger {
 	return turn
 }
 
+// RecordCooldown notes the cooldown expiry a rescue wrote for this turn.
 func (t *ThrottleLedger) RecordCooldown(until time.Time, cooldown time.Duration) {
 	if t == nil {
 		return
@@ -59,6 +60,8 @@ func (t *ThrottleLedger) recordThrottle(decision ThrottleDecision) {
 	t.retryAfterMs += decision.Delay.Milliseconds()
 }
 
+// RecordRescuePoolExhausted notes a cooling-down arm readmitted after every
+// eligible rescue candidate failed.
 func (t *ThrottleLedger) RecordRescuePoolExhausted(readmitted string) {
 	if t == nil {
 		return
