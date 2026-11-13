@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -162,27 +161,21 @@ func TestEscalationCadenceReplayFloorAndGates(t *testing.T) {
 }
 func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		strategy   router.Strategy
-		showMarker bool
+		name     string
+		strategy router.Strategy
 	}{
 		{name: "hidden embedding HMM", strategy: router.StrategyHMMEmbedding},
-		{name: "visible embedding HMM", strategy: router.StrategyHMMEmbedding, showMarker: true},
 		{name: "hidden HMM", strategy: router.StrategyHMM},
 		{name: "hidden RL", strategy: router.StrategyRL},
 		{name: "hidden beta HMM", strategy: router.StrategyHMMBeta},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			showMarker := tc.showMarker
 			store := newEscalationTestStore()
 			observer := &escalationTestObserver{}
 			overrides := flags.Overrides{Bools: map[flags.Key]bool{
 				flags.KeyEscalationXGBoostShadowEnabled: true,
 				flags.KeyPlannerEnabled:                 false,
 			}}
-			if showMarker {
-				overrides.Bools[flags.KeyEscalationXGBoostShadowMarkerEnabled] = true
-			}
 			ctx := flags.WithOverrides(router.WithStrategy(context.Background(), tc.strategy), overrides)
 			installation := uuid.New()
 			svc := NewService(escalationDispatchRouter{}, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil).
@@ -198,15 +191,11 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 				require.Equal(t, "claude-haiku-4-5", turn.Decision.Model)
 				require.False(t, escalationRoutingApplied(turn.Decision))
 				require.Empty(t, store.sessions[turn.EscalationScope].Floor)
-				require.Equal(t, showMarker && ordinal%5 == 0, turn.EscalationShadowMarked)
 				if ordinal%5 == 0 {
-					require.Equal(t, showMarker, strings.Contains(routingMarkerFor(turn), markerReasonShadowEscalation))
 					replayed, replayErr := svc.runTurnLoop(ctx, env, features, "shadow-key", installation, "", http.Header{}, router.Request{RequestedModel: features.Model})
 					require.NoError(t, replayErr)
 					require.Equal(t, int64(ordinal), replayed.EscalationOrdinal)
 					require.Equal(t, turn.Decision.Model, replayed.Decision.Model)
-					require.Equal(t, showMarker, replayed.EscalationShadowMarked)
-					require.Equal(t, showMarker, strings.Contains(routingMarkerFor(replayed), markerReasonShadowEscalation))
 					require.False(t, escalationRoutingApplied(replayed.Decision))
 					require.Empty(t, store.sessions[replayed.EscalationScope].Floor)
 					require.Len(t, observer.requests, ordinal, "replay must load the committed checkpoint without scoring again")
@@ -218,7 +207,6 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 				disabled, err := svc.runTurnLoop(router.WithStrategy(escalationTestContext(false, false), tc.strategy), env, features, "shadow-key", disabledInstallation, "", http.Header{}, router.Request{RequestedModel: features.Model})
 				require.NoError(t, err)
 				require.Zero(t, disabled.EscalationOrdinal)
-				require.False(t, disabled.EscalationShadowMarked)
 				require.False(t, escalationRoutingApplied(disabled.Decision))
 			}
 			require.Len(t, observer.requests, 11)
@@ -444,40 +432,6 @@ func TestEscalationCommitFailureDoesNotRepeatUnconstrainedSelection(t *testing.T
 			require.Equal(t, "claude-opus-4-8", res.Decision.Model)
 			require.Zero(t, res.EscalationOrdinal)
 			require.Len(t, classifier.requests, 1, "failed observational commits cannot repeat ordinary routing and its side effects")
-		})
-	}
-}
-
-func TestEscalationShadowMarkerRequiresCommittedPositiveShadowCheckpoint(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		showMarker bool
-		active     bool
-		prediction *escalation.Prediction
-		failCommit bool
-		wantMarked bool
-	}{
-		{name: "hidden positive shadow", prediction: &escalation.Prediction{Escalate: true}},
-		{name: "positive shadow", showMarker: true, prediction: &escalation.Prediction{Escalate: true}, wantMarked: true},
-		{name: "active promotion", showMarker: true, active: true, prediction: &escalation.Prediction{Escalate: true}},
-		{name: "negative shadow", showMarker: true, prediction: &escalation.Prediction{}},
-		{name: "between checkpoints", showMarker: true},
-		{name: "uncommitted shadow", showMarker: true, prediction: &escalation.Prediction{Escalate: true}, failCommit: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			store := newEscalationTestStore()
-			store.failCommit = tc.failCommit
-			svc := (&Service{}).WithEscalation(store, nil)
-			turn := &escalationTurn{active: tc.active, checkpoint: escalation.Checkpoint{Ordinal: 5, Prediction: tc.prediction}}
-			var routed turnLoopResult
-			ctx := flags.WithOverrides(context.Background(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostShadowMarkerEnabled: tc.showMarker}})
-			err := svc.finishEscalation(ctx, turn, &routed, nil)
-			if tc.failCommit {
-				require.ErrorIs(t, err, escalation.ErrLeaseLost)
-			} else {
-				require.NoError(t, err)
-			}
-			require.Equal(t, tc.wantMarked, routed.EscalationShadowMarked)
 		})
 	}
 }

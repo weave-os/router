@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -513,31 +512,6 @@ func TestRoutingMarkerFor_SuppressesEffortOnlyChange(t *testing.T) {
 		PriorServedModel: "gpt-5.6-luna:xhigh",
 	}
 	assert.Empty(t, routingMarkerFor(res), "changing effort must not repeat the model-choice marker")
-}
-
-func TestRoutingMarkerFor_ShadowEscalationShowsWithoutModelSwitchAndStripsOnEcho(t *testing.T) {
-	decision := router.Decision{Model: "claude-haiku-4-5"}
-	turn := turnLoopResult{Decision: decision, PriorServedModel: decision.Model, EscalationShadowMarked: true}
-	marker := routingMarkerFor(turn)
-	require.Equal(t, routingMarkerPrefix+decision.Model+" · "+markerReasonShadowEscalation+"\n\n", marker)
-
-	for _, content := range []any{
-		marker + "The answer.",
-		[]map[string]string{{"type": "text", "text": marker + "The answer."}},
-	} {
-		body, err := json.Marshal(map[string]any{"messages": []any{map[string]any{"role": "assistant", "content": content}}})
-		require.NoError(t, err)
-		cleaned, err := translate.StripRoutingMarkerFromMessages(body)
-		require.NoError(t, err)
-		require.NotContains(t, string(cleaned), markerReasonShadowEscalation)
-		require.Contains(t, string(cleaned), "The answer.")
-	}
-
-	turn.EscalationShadowMarked = false
-	require.Empty(t, routingMarkerFor(turn))
-	turn.EscalationShadowMarked = true
-	turn.SuggestionMode = true
-	require.Empty(t, routingMarkerFor(turn))
 }
 
 func TestSubscriptionTargetMarker_UnchangedModelKeepsRoutedMarker(t *testing.T) {

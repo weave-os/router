@@ -47,22 +47,9 @@ const (
 type AuthoritativeUpgradePolicy string
 
 const (
-	AuthoritativeUpgradePolicyScore    AuthoritativeUpgradePolicy = "score"
-	AuthoritativeUpgradePolicyEvidence AuthoritativeUpgradePolicy = "evidence"
-	AuthoritativeUpgradePolicyOff      AuthoritativeUpgradePolicy = "off"
+	AuthoritativeUpgradePolicyScore AuthoritativeUpgradePolicy = "score"
+	AuthoritativeUpgradePolicyOff   AuthoritativeUpgradePolicy = "off"
 )
-
-// ParseAuthoritativeUpgradePolicy validates the deployment/override value at
-// the configuration boundary.
-func ParseAuthoritativeUpgradePolicy(raw string) (AuthoritativeUpgradePolicy, error) {
-	policy := AuthoritativeUpgradePolicy(raw)
-	switch policy {
-	case AuthoritativeUpgradePolicyScore, AuthoritativeUpgradePolicyEvidence, AuthoritativeUpgradePolicyOff:
-		return policy, nil
-	default:
-		return "", fmt.Errorf("authoritative upgrade policy must be score, evidence, or off, got %q", raw)
-	}
-}
 
 // EarlyStopRedoMode selects what happens when a downgraded model ends a Claude
 // Code tool-result turn without calling a tool.
@@ -94,7 +81,6 @@ const (
 	KeyEscalationEpoch                      Key = "escalation_epoch"
 	KeyEscalationXGBoostEnabled             Key = "escalation_xgb_enabled"
 	KeyEscalationXGBoostShadowEnabled       Key = "escalation_xgb_shadow_enabled"
-	KeyEscalationXGBoostShadowMarkerEnabled Key = "escalation_xgb_shadow_marker_enabled"
 	KeyEscalationXGBoostEpoch               Key = "escalation_xgb_epoch"
 	KeyStruggleShadowEnabled                Key = "struggle_shadow_enabled"
 	KeySpiralShadowEnabled                  Key = "spiral_shadow_enabled"
@@ -107,34 +93,24 @@ const (
 	KeyHMMToolResultHold                    Key = "hmm_tool_result_hold"
 	KeyPrefixTrimFreeSwitch                 Key = "prefix_trim_free_switch"
 	KeyAuthoritativeUpgradeGate             Key = "authoritative_upgrade_gate"
-	KeyAuthoritativeUpgradePolicy           Key = "authoritative_upgrade_policy"
-	KeyAuthoritativeUpgradeHoldoutPct       Key = "authoritative_upgrade_holdout_pct"
-	KeyAuthoritativeUpgradeVotes            Key = "authoritative_upgrade_votes"
-	KeyAuthoritativeDowngradeGate           Key = "authoritative_downgrade_gate"
 	KeyAuthoritativeUpgradeSlidingThreshold Key = "authoritative_upgrade_sliding_threshold"
 	KeyHMMDowngradeHysteresisTurns          Key = "hmm_downgrade_hysteresis_turns"
 	KeyHMMDowngradeHysteresisShadowTurns    Key = "hmm_downgrade_hysteresis_shadow_turns"
 	KeyAuthorityCacheShadow                 Key = "authority_cache_shadow"
 	KeyAgreementShadowEpoch                 Key = "agreement_shadow_epoch"
 	KeySiblingFailover                      Key = "sibling_failover"
-	KeyEffortEscalation                     Key = "effort_escalation"
 	KeyCyberRefusalRepin                    Key = "cyber_refusal_repin"
 	KeyCyberRefusalRetry                    Key = "cyber_refusal_retry"
 	KeyCyberRefusalFallback                 Key = "cyber_refusal_fallback_model"
 	KeyAnthropicServerFallback              Key = "anthropic_server_side_fallback"
 	KeyOpenAIResponsesBroad                 Key = "openai_responses_broad"
-	KeyAllowedModelsHeader                  Key = "allowed_models_header"
 	KeyCCTaskToolsCrossVendor               Key = "cc_task_tools_crossvendor"
-	KeyCCAutonomySystemAppend               Key = "cc_autonomy_system_append"
 	KeyEarlyStopRedo                        Key = "early_stop_redo"
-	KeyCCWorkspaceSystemAppend              Key = "cc_workspace_system_append"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
 	KeyClaudeEnterpriseOnly                 Key = "claude_enterprise_only"
 	KeySubscriptionExhaustedOpenRouterOnly  Key = "subscription_exhausted_openrouter_only"
 	KeyCommittedStreamArmDemotion           Key = "committed_stream_arm_demotion"
 	KeyRescuedFailureArmDemotion            Key = "rescued_failure_arm_demotion"
-	KeyTransientRateLimit                   Key = "transient_rate_limit"
-	KeyRateLimitCooldownSeconds             Key = "rate_limit_cooldown_seconds"
 	KeyProviderOverloaded                   Key = "provider_overloaded"
 	KeyNativeAnthropicResponseSignals       Key = "native_anthropic_response_signals"
 	KeyNativeOpenAIResponseSignals          Key = "native_openai_response_signals"
@@ -146,21 +122,43 @@ const (
 // older revision cannot invalidate unrelated active overrides during a rolling
 // deploy. They are never registered, published, or read by routing code.
 const (
-	retiredKeyStruggleEscalationEnabled Key = "struggle_escalation_enabled"
-	retiredKeyStruggleEscalationHoldout Key = "struggle_escalation_holdout_pct"
-	retiredKeyStruggleEvidenceArming    Key = "struggle_evidence_arming"
-	retiredKeySubscriberPaidFallback    Key = "subscriber_paid_fallback_enabled"
-	retiredKeySubscriptionPoolQuota     Key = "subscription_pool_quota_aware_selection_enabled"
-	retiredKeyEmbedOnlyUserMessage      Key = "embed_only_user_message"
+	retiredKeyStruggleEscalationEnabled   Key = "struggle_escalation_enabled"
+	retiredKeyStruggleEscalationHoldout   Key = "struggle_escalation_holdout_pct"
+	retiredKeyStruggleEvidenceArming      Key = "struggle_evidence_arming"
+	retiredKeySubscriberPaidFallback      Key = "subscriber_paid_fallback_enabled"
+	retiredKeySubscriptionPoolQuota       Key = "subscription_pool_quota_aware_selection_enabled"
+	retiredKeyEmbedOnlyUserMessage        Key = "embed_only_user_message"
+	retiredKeyEscalationXGBShadowMarker   Key = "escalation_xgb_shadow_marker_enabled"
+	retiredKeyAuthoritativeDowngradeGate  Key = "authoritative_downgrade_gate"
+	retiredKeyAllowedModelsHeader         Key = "allowed_models_header"
+	retiredKeyEffortEscalation            Key = "effort_escalation"
+	retiredKeyCCAutonomySystemAppend      Key = "cc_autonomy_system_append"
+	retiredKeyCCWorkspaceSystemAppend     Key = "cc_workspace_system_append"
+	retiredKeyAuthoritativeUpgradePolicy  Key = "authoritative_upgrade_policy"
+	retiredKeyAuthoritativeUpgradeHoldout Key = "authoritative_upgrade_holdout_pct"
+	retiredKeyAuthoritativeUpgradeVotes   Key = "authoritative_upgrade_votes"
+	retiredKeyRateLimitCooldown           Key = "rate_limit_cooldown_seconds"
+	retiredKeyTransientRateLimit          Key = "transient_rate_limit"
 )
 
 var retiredOverrideKeys = map[Key]struct{}{
-	retiredKeyStruggleEscalationEnabled: {},
-	retiredKeyStruggleEscalationHoldout: {},
-	retiredKeyStruggleEvidenceArming:    {},
-	retiredKeySubscriberPaidFallback:    {},
-	retiredKeySubscriptionPoolQuota:     {},
-	retiredKeyEmbedOnlyUserMessage:      {},
+	retiredKeyStruggleEscalationEnabled:   {},
+	retiredKeyStruggleEscalationHoldout:   {},
+	retiredKeyStruggleEvidenceArming:      {},
+	retiredKeySubscriberPaidFallback:      {},
+	retiredKeySubscriptionPoolQuota:       {},
+	retiredKeyEmbedOnlyUserMessage:        {},
+	retiredKeyEscalationXGBShadowMarker:   {},
+	retiredKeyAuthoritativeDowngradeGate:  {},
+	retiredKeyAllowedModelsHeader:         {},
+	retiredKeyEffortEscalation:            {},
+	retiredKeyCCWorkspaceSystemAppend:     {},
+	retiredKeyCCAutonomySystemAppend:      {},
+	retiredKeyAuthoritativeUpgradePolicy:  {},
+	retiredKeyAuthoritativeUpgradeHoldout: {},
+	retiredKeyAuthoritativeUpgradeVotes:   {},
+	retiredKeyRateLimitCooldown:           {},
+	retiredKeyTransientRateLimit:          {},
 }
 
 // Definition describes one overridable flag. DeploymentDefault is not stored
@@ -181,7 +179,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 30
+const RegistryVersion = 31
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -195,7 +193,6 @@ var Registry = []Definition{
 	{Key: KeyEscalationEpoch, Kind: KindInt, Description: "Escalation configuration generation; changes invalidate pending judgments.", OrgOverridable: true},
 	{Key: KeyEscalationXGBoostEnabled, Kind: KindBool, Description: "Route to the maximum complexity class on an XGBoost escalation checkpoint. Off by default.", OrgOverridable: true},
 	{Key: KeyEscalationXGBoostShadowEnabled, Kind: KindBool, Description: "Observe XGBoost escalation without changing routing. Off by default.", OrgOverridable: true},
-	{Key: KeyEscalationXGBoostShadowMarkerEnabled, Kind: KindBool, Description: "Show positive shadow escalation notices in assistant responses. Off by default.", OrgOverridable: true},
 	{Key: KeyEscalationXGBoostEpoch, Kind: KindInt, Description: "Observation generation; increment before enabling or resetting escalation.", OrgOverridable: true},
 	{
 		Key:            KeyClaudeEnterpriseOnly,
@@ -300,34 +297,6 @@ var Registry = []Definition{
 		OrgOverridable: true,
 	},
 	{
-		Key:            KeyAuthoritativeUpgradePolicy,
-		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_POLICY",
-		Kind:           KindString,
-		Description:    "Authoritative upgrade policy: score (default 0.85 floor), evidence (composite interim policy), or off (verbatim fresh policy).",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAuthoritativeUpgradeHoldoutPct,
-		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT",
-		Kind:           KindInt,
-		Description:    "Percent of sessions that stay on the score gate while evidence mode is on. Session-sticky. 0-100.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAuthoritativeUpgradeVotes,
-		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_VOTES",
-		Kind:           KindInt,
-		Description:    "Consecutive same-group expensive upgrade votes required before evidence mode switches. 0 disables vote hysteresis.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAuthoritativeDowngradeGate,
-		EnvVar:         "ROUTER_AUTHORITATIVE_DOWNGRADE_GATE",
-		Kind:           KindBool,
-		Description:    "Apply the upgrade gate's confidence floor to authoritative-per-turn downgrades too: a cheaper-than-pin pick below the threshold keeps the pin. Off by default.",
-		OrgOverridable: true,
-	},
-	{
 		Key:            KeyAuthoritativeUpgradeSlidingThreshold,
 		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD",
 		Kind:           KindBool,
@@ -366,13 +335,6 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_SIBLING_FAILOVER",
 		Kind:           KindBool,
 		Description:    "Degrade to a same-cluster candidate when every binding for the routed model is exhausted.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyEffortEscalation,
-		EnvVar:         "ROUTER_EFFORT_ESCALATION",
-		Kind:           KindBool,
-		Description:    "Apply policy-requested reasoning-effort escalation.",
 		OrgOverridable: true,
 	},
 	{
@@ -418,24 +380,10 @@ var Registry = []Definition{
 		OrgOverridable: true,
 	},
 	{
-		Key:            KeyCCAutonomySystemAppend,
-		EnvVar:         "ROUTER_CC_AUTONOMY_SYSTEM_APPEND",
-		Kind:           KindBool,
-		Description:    "Append a non-interactive operating instruction to the system prompt of Claude Code / Agent SDK main-loop and tool-result turns, whatever model serves them. Off by default.",
-		OrgOverridable: true,
-	},
-	{
 		Key:            KeyEarlyStopRedo,
 		EnvVar:         "ROUTER_EARLY_STOP_REDO",
 		Kind:           KindString,
 		Description:    "When a Claude Code tool-result turn served below the top tier of its candidates ends without a tool call: off, shadow (log only), or on (re-serve it on the highest-tier candidate before the client sees it).",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyCCWorkspaceSystemAppend,
-		EnvVar:         "ROUTER_CC_WORKSPACE_SYSTEM_APPEND",
-		Kind:           KindBool,
-		Description:    "Append a workspace-inspection instruction to the system prompt of Claude Code / Agent SDK main-loop and tool-result turns served by a non-Anthropic model. Off by default.",
 		OrgOverridable: true,
 	},
 	{
@@ -450,20 +398,6 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_RESCUED_FAILURE_ARM_DEMOTION",
 		Kind:           KindBool,
 		Description:    "Withdraw the primary model from a session's automatic selection after an upstream response-header timeout, whether or not a model rescue ran, or after another pre-commit failure followed by a same-cluster sibling rescue. Off by default.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyTransientRateLimit,
-		EnvVar:         "ROUTER_TRANSIENT_RATE_LIMIT",
-		Kind:           KindBool,
-		Description:    "Treat an upstream 429 as transient throttling: a rescued 429 demotes the primary model for a cooldown instead of the session, an in-turn rescue ignores cooling-down arms only when honouring them would leave no candidate, and same-binding retries honour Retry-After. Off by default.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyRateLimitCooldownSeconds,
-		EnvVar:         "ROUTER_RATE_LIMIT_COOLDOWN_SECONDS",
-		Kind:           KindInt,
-		Description:    "Seconds a model stays out of a session's automatic selection after a rescued 429 while transient_rate_limit is on. Default 45.",
 		OrgOverridable: true,
 	},
 	{
@@ -485,13 +419,6 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS",
 		Kind:           KindBool,
 		Description:    "Record finish_reason and tool-call count on telemetry for OpenAI-native turns, both chat/completions and /v1/responses passthrough. On by default; kill switch for the added extraction. Observability only, never read by routing.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAllowedModelsHeader,
-		EnvVar:         "ROUTER_ALLOWED_MODELS_HEADER",
-		Kind:           KindBool,
-		Description:    "Honor the x-weave-allowed-models request header (per-request routing subset) for this organization even when the installation is not authorized for policy headers.",
 		OrgOverridable: true,
 	},
 }
@@ -591,16 +518,13 @@ func ValidateOverrides(o Overrides) error {
 		if err := check(key, KindInt); err != nil {
 			return err
 		}
-		if key == KeyLoopEscalationHoldoutPct || key == KeyAuthoritativeUpgradeHoldoutPct {
+		if key == KeyLoopEscalationHoldoutPct {
 			if value < 0 || value > 100 {
 				return fmt.Errorf("%w: %q must be between 0 and 100, got %d", ErrInvalidValue, key, value)
 			}
 		}
-		if (key == KeyAuthoritativeUpgradeVotes || key == KeyAgreementShadowEpoch) && value < 0 {
+		if key == KeyAgreementShadowEpoch && value < 0 {
 			return fmt.Errorf("%w: %q must be nonnegative, got %d", ErrInvalidValue, key, value)
-		}
-		if key == KeyRateLimitCooldownSeconds && value < 1 {
-			return fmt.Errorf("%w: %q must be positive, got %d", ErrInvalidValue, key, value)
 		}
 	}
 	for key := range o.Floats {
@@ -614,13 +538,6 @@ func ValidateOverrides(o Overrides) error {
 		}
 		if key == KeyCyberRefusalFallback && strings.TrimSpace(value) == "" {
 			return fmt.Errorf("%w: %q cannot be empty", ErrInvalidValue, key)
-		}
-		if key == KeyAuthoritativeUpgradePolicy {
-			switch AuthoritativeUpgradePolicy(value) {
-			case AuthoritativeUpgradePolicyScore, AuthoritativeUpgradePolicyEvidence, AuthoritativeUpgradePolicyOff:
-			default:
-				return fmt.Errorf("%w: %q must be score, evidence, or off, got %q", ErrInvalidValue, key, value)
-			}
 		}
 	}
 	return validateEscalationOverrides(o)

@@ -200,12 +200,6 @@ type InsertTelemetryParams struct {
 	// ToolErrorCounts is pre-marshaled JSON {tool name: {calls, errors}} over
 	// the request's resolved tool calls. nil when the history has none.
 	ToolErrorCounts []byte
-	// AutonomyAppendFired is set when the router appended AutonomySystemText
-	// to the outgoing system prompt; nil otherwise.
-	AutonomyAppendFired *bool
-	// WorkspaceAppendFired is set when the served attempt carried
-	// WorkspaceSystemText (cross-vendor emitters only); nil otherwise.
-	WorkspaceAppendFired *bool
 	// FailoverUsed marks a turn a failover served; FailoverAttempted marks any
 	// turn on which one was dispatched, including a failover that also failed.
 	FailoverUsed       *bool

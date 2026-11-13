@@ -104,7 +104,6 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 		pinModel        string
 		priorVotes      int
 		hysteresisTurns int
-		downgradeGate   bool
 		fresh           router.Decision
 		wantModel       string
 		wantSticky      bool
@@ -153,43 +152,18 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 			wantVotes:       0,
 		},
 		{
-			name:          "low-confidence downgrade keeps the pin without voting",
-			pinModel:      "claude-opus-4-8",
-			priorVotes:    1,
-			downgradeGate: true,
-			fresh:         cheapFresh,
-			wantModel:     "claude-opus-4-8",
-			wantSticky:    true,
-			wantTier:      "authoritative_hmm_downgrade_confidence_low",
-			wantVotes:     1,
-		},
-		{
-			name:            "low-confidence downgrade is dropped before hysteresis counts it",
-			pinModel:        "claude-opus-4-8",
-			priorVotes:      2,
-			hysteresisTurns: 3,
-			downgradeGate:   true,
-			fresh:           cheapFresh,
-			wantModel:       "claude-opus-4-8",
-			wantSticky:      true,
-			wantTier:        "authoritative_hmm_downgrade_confidence_low",
-			wantVotes:       2,
-		},
-		{
-			name:          "confident downgrade clears the gate",
-			pinModel:      "claude-opus-4-8",
-			downgradeGate: true,
-			fresh:         confidentCheapFresh,
-			wantModel:     "claude-haiku-4-5",
-			wantTier:      "authoritative_per_turn",
-			wantVotes:     0,
-			wantShadow:    downgradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true},
+			name:       "confident downgrade clears the gate",
+			pinModel:   "claude-opus-4-8",
+			fresh:      confidentCheapFresh,
+			wantModel:  "claude-haiku-4-5",
+			wantTier:   "authoritative_per_turn",
+			wantVotes:  0,
+			wantShadow: downgradeGuardShadow{Served: true, Votes: 1, HysteresisWouldHold: true},
 		},
 		{
 			name:            "confident downgrade still serves its hysteresis sentence",
 			pinModel:        "claude-opus-4-8",
 			hysteresisTurns: 3,
-			downgradeGate:   true,
 			fresh:           confidentCheapFresh,
 			wantModel:       "claude-opus-4-8",
 			wantSticky:      true,
@@ -204,7 +178,6 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 			store.getFound = true
 			store.getPin = authoritativeDowngradePin(test.pinModel, test.priorVotes)
 			svc := authoritativeDowngradeService(store, test.fresh).
-				WithAuthoritativeDowngradeGate(test.downgradeGate).
 				WithHMMDowngradeHysteresisTurns(test.hysteresisTurns).
 				WithHMMDowngradeHysteresisShadowTurns(2)
 

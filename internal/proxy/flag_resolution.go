@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"time"
 
 	"weave-os/router/internal/flags"
 )
@@ -76,28 +75,6 @@ func (s *Service) ResolveAuthoritativeUpgradeGate(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAuthoritativeUpgradeGate, s.authoritativeUpgradeGate)
 }
 
-func (s *Service) ResolveAuthoritativeUpgradePolicy(ctx context.Context) flags.AuthoritativeUpgradePolicy {
-	defaultPolicy := s.authoritativeUpgradePolicy
-	if defaultPolicy == "" {
-		defaultPolicy = flags.AuthoritativeUpgradePolicyScore
-	}
-	return flags.AuthoritativeUpgradePolicy(flags.StringOr(ctx, flags.KeyAuthoritativeUpgradePolicy, string(defaultPolicy)))
-}
-
-func (s *Service) ResolveAuthoritativeUpgradeHoldoutPct(ctx context.Context) int {
-	return flags.IntOr(ctx, flags.KeyAuthoritativeUpgradeHoldoutPct, s.authoritativeUpgradeHoldoutPct)
-}
-
-func (s *Service) ResolveAuthoritativeUpgradeVotes(ctx context.Context) int {
-	return flags.IntOr(ctx, flags.KeyAuthoritativeUpgradeVotes, s.authoritativeUpgradeVotes)
-}
-
-// ResolveAuthoritativeDowngradeGate reports whether the confidence floor also
-// applies to authoritative-per-turn downgrades.
-func (s *Service) ResolveAuthoritativeDowngradeGate(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyAuthoritativeDowngradeGate, s.authoritativeDowngradeGate)
-}
-
 // ResolveAuthoritativeUpgradeSlidingThreshold reports whether an authoritative
 // upgrade inside a sliding-threshold band bypasses the confidence floor.
 func (s *Service) ResolveAuthoritativeUpgradeSlidingThreshold(ctx context.Context) bool {
@@ -130,13 +107,6 @@ func (s *Service) ResolveSiblingFailover(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeySiblingFailover, s.siblingFailover)
 }
 
-// ResolveAllowedModelsHeader reports the ROUTER_ALLOWED_MODELS_HEADER flag:
-// whether x-weave-allowed-models is honored for an installation that is not
-// authorized for policy headers.
-func (s *Service) ResolveAllowedModelsHeader(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyAllowedModelsHeader, s.allowedModelsHeader)
-}
-
 // ResolveOpenAIResponsesBroad reports the ROUTER_OPENAI_RESPONSES_BROAD flag:
 // off, only the reasoning+tools turn chat/completions rejects is promoted.
 func (s *Service) ResolveOpenAIResponsesBroad(ctx context.Context) bool {
@@ -150,13 +120,6 @@ func (s *Service) ResolveCCTaskToolsCrossVendor(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyCCTaskToolsCrossVendor, s.ccTaskToolsCrossVendor)
 }
 
-// ResolveCCAutonomySystemAppend reports the ROUTER_CC_AUTONOMY_SYSTEM_APPEND
-// flag: whether Claude Code main-loop and tool-result turns get
-// translate.AutonomySystemText appended to their system prompt.
-func (s *Service) ResolveCCAutonomySystemAppend(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyCCAutonomySystemAppend, s.ccAutonomySystemAppend)
-}
-
 // ResolveEarlyStopRedo reports the early_stop_redo mode (org-overridable). An
 // unset or unrecognized value resolves to off.
 func (s *Service) ResolveEarlyStopRedo(ctx context.Context) flags.EarlyStopRedoMode {
@@ -165,13 +128,6 @@ func (s *Service) ResolveEarlyStopRedo(ctx context.Context) flags.EarlyStopRedoM
 		return flags.EarlyStopRedoOff
 	}
 	return mode
-}
-
-// ResolveCCWorkspaceSystemAppend reports whether Claude Code main-loop and
-// tool-result turns served cross-vendor get translate.WorkspaceSystemText
-// appended (cc_workspace_system_append; org-overridable).
-func (s *Service) ResolveCCWorkspaceSystemAppend(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyCCWorkspaceSystemAppend, s.ccWorkspaceSystemAppend)
 }
 
 // ResolveCommittedStreamArmDemotion reports the
@@ -187,26 +143,6 @@ func (s *Service) ResolveCommittedStreamArmDemotion(ctx context.Context) bool {
 // leaves the session's automatic selection.
 func (s *Service) ResolveRescuedFailureArmDemotion(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyRescuedFailureArmDemotion, s.rescuedFailureArmDemotion)
-}
-
-// ResolveTransientRateLimit reports the ROUTER_TRANSIENT_RATE_LIMIT flag: on,
-// a rescued upstream 429 or gateway 5xx cools the primary arm down for
-// ResolveRateLimitCooldown instead of demoting it for the session, the
-// in-turn rescue readmits cooling-down arms when honouring them would leave
-// no candidate, and same-binding retries of a 429 honour Retry-After.
-func (s *Service) ResolveTransientRateLimit(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyTransientRateLimit, s.transientRateLimit)
-}
-
-// ResolveRateLimitCooldown is how long a rescued transient upstream failure
-// keeps the primary arm out of automatic session selection
-// (ROUTER_RATE_LIMIT_COOLDOWN_SECONDS).
-func (s *Service) ResolveRateLimitCooldown(ctx context.Context) time.Duration {
-	seconds := flags.IntOr(ctx, flags.KeyRateLimitCooldownSeconds, s.rateLimitCooldownSeconds)
-	if seconds < 1 {
-		seconds = DefaultRateLimitCooldownSeconds
-	}
-	return time.Duration(seconds) * time.Second
 }
 
 // ResolveProviderOverloaded reports the ROUTER_PROVIDER_OVERLOADED flag: on,
@@ -230,12 +166,6 @@ func (s *Service) ResolveNativeAnthropicResponseSignals(ctx context.Context) boo
 // Observability only.
 func (s *Service) ResolveNativeOpenAIResponseSignals(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyNativeOpenAIResponseSignals, s.nativeOpenAIResponseSignals)
-}
-
-// ResolveEffortEscalation reports whether policy-requested reasoning-effort
-// escalation is applied.
-func (s *Service) ResolveEffortEscalation(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyEffortEscalation, s.effortEscalation)
 }
 
 // ResolveCyberRefusalRepin reports whether a safety refusal re-pins the

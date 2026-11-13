@@ -77,7 +77,7 @@ func TestTurnLoopKeepsTurnStrikeOutUntilUserPrompt(t *testing.T) {
 	store := &turnStrikePinStore{rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
 		sessionpin.DefaultRole: turnStrikePin(),
 	}}}
-	svc, scorer := cooldownTurnLoopService(store, false)
+	svc, scorer := strikeTurnLoopService(store)
 
 	res := runTurnLoopWithBody(t, svc, toolResultTurnBody)
 
@@ -95,7 +95,7 @@ func TestTurnLoopUserPromptClearsTurnStrikes(t *testing.T) {
 	store := &turnStrikePinStore{rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
 		sessionpin.DefaultRole: turnStrikePin(),
 	}}}
-	svc, scorer := cooldownTurnLoopService(store, false)
+	svc, scorer := strikeTurnLoopService(store)
 
 	res := runDemotionTurnLoop(t, svc, context.Background())
 

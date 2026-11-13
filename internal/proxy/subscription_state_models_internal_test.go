@@ -73,12 +73,12 @@ func (l *stateModelLeaser) Lease(_ context.Context, owner auth.SubscriptionOwner
 
 func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 	for _, scenario := range []struct {
-		name                                                                                                                                                                                    string
-		claude, codex, emptyPaid, depleted, liveReject, committedFailure, forced, forcedPin, forceWithRequestSubset, demoteClaude, cooldownClaude, claudeOnlyActive, readmitClaude, rejectCodex bool
-		paidSetIncludesClaude                                                                                                                                                                   bool
-		utilityTarget, passthroughTarget                                                                                                                                                        bool
-		want                                                                                                                                                                                    string
-		wantErr                                                                                                                                                                                 bool
+		name                                                                                                                                                                    string
+		claude, codex, emptyPaid, depleted, liveReject, committedFailure, forced, forcedPin, forceWithRequestSubset, demoteClaude, claudeOnlyActive, readmitClaude, rejectCodex bool
+		paidSetIncludesClaude                                                                                                                                                   bool
+		utilityTarget, passthroughTarget                                                                                                                                        bool
+		want                                                                                                                                                                    string
+		wantErr                                                                                                                                                                 bool
 	}{
 		{name: "Claude included before paid", claude: true, codex: true, want: stateClaudeModel},
 		{name: "Claude exhausted uses active Codex", codex: true, want: stateCodexModel},
@@ -95,7 +95,6 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 		{name: "passthrough target follows exhausted funding set", passthroughTarget: true, claude: true, codex: true, want: statePaidModel},
 		{name: "session-demoted Claude selects healthy Codex", claude: true, codex: true, demoteClaude: true, want: stateCodexModel},
 		{name: "turn-struck Claude rescues failed Codex", claude: true, codex: true, demoteClaude: true, readmitClaude: true, rejectCodex: true, depleted: true, want: stateClaudeModel},
-		{name: "session-cooling Claude selects healthy Codex", claude: true, codex: true, cooldownClaude: true, want: stateCodexModel},
 		{name: "depleted credits still serve Codex", codex: true, depleted: true, want: stateCodexModel},
 		{name: "depleted credits prohibit cheap paid fallback", depleted: true, wantErr: true},
 		{name: "included model outside active set rescues failed active model", claude: true, codex: true, liveReject: true, claudeOnlyActive: true, want: stateCodexModel},
@@ -136,9 +135,6 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			}
 			if scenario.readmitClaude {
 				ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, []string{stateClaudeModel})
-			}
-			if scenario.cooldownClaude {
-				ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{stateClaudeModel: time.Now().Add(time.Minute)})
 			}
 			if scenario.passthroughTarget {
 				authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyPassthrough}, nil)

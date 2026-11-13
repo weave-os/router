@@ -4,9 +4,7 @@ import (
 	"context"
 	"maps"
 	"slices"
-	"sort"
 	"strings"
-	"time"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -99,20 +97,13 @@ func (s *Service) rescueDecisions(ctx context.Context, failed router.Decision, c
 	providerFor := func(id string) (string, bool) {
 		return siblingProvider(id, candidateProviders, available, imageCount)
 	}
-	return s.rescueWalkOrReadmitCooling(ctx, failed, candidates, reason, excludedModels, automaticExcluded, est, sigSavings, outputReserve, providerFor)
+	return s.rescueWalkOrReadmit(ctx, failed, candidates, reason, excludedModels, automaticExcluded, est, sigSavings, outputReserve, providerFor)
 }
 
-// rescueWalkOrReadmitCooling walks the candidates honouring every exclusion,
-// then, when the session has rate-limit cooldowns in force, appends the
-// cooling arms soonest-to-recover first as the walk's last resort: the rescue
-// loop only reaches them once every eligible candidate has failed pre-commit.
-// The scorer drops automatically excluded models from CandidateModels, so a
-// cooling arm is looked up by name (catalog binding or gateway alias) when the
-// scored list lacks it. Hard exclusions (excludedModels) still hold, and the
-// walk never returns failed.Model, so the exhausted case prefers a cooled arm
-// to the arm that just failed.
+// rescueWalkOrReadmit walks the candidates honouring every exclusion. Hard
+// exclusions (excludedModels) always hold, and no walk returns failed.Model.
 //
-// When neither walk finds anything, a sibling failover next readmits models
+// When the walk finds nothing, a sibling failover next readmits models
 // whose overload circuit is open on this replica: the circuit only keeps the
 // router from choosing them, so a turn with no other candidate tries one
 // before surfacing its failure.
@@ -122,7 +113,7 @@ func (s *Service) rescueDecisions(ctx context.Context, failed router.Decision, c
 // still gets one rescue attempt on an arm that failed on an earlier turn
 // instead of surfacing this turn's failure. Other rescues (the cyber-refusal
 // retry) walk their own ordered fallbacks and never readmit a strike.
-func (s *Service) rescueWalkOrReadmitCooling(
+func (s *Service) rescueWalkOrReadmit(
 	ctx context.Context,
 	failed router.Decision,
 	candidates []string,
@@ -143,7 +134,6 @@ func (s *Service) rescueWalkOrReadmitCooling(
 			"skipped", strings.Join(skipped, ","),
 		)
 	}
-	decisions = append(decisions, s.readmitCoolingRescueCandidates(ctx, failed, candidates, reason, excludedModels, est, sigSavings, outputReserve, providerFor)...)
 	if len(decisions) > 0 || reason != ReasonSiblingFailover {
 		return decisions
 	}
@@ -157,26 +147,6 @@ func (s *Service) rescueWalkOrReadmitCooling(
 		return nil
 	}
 	return s.readmissionWalk(ctx, failed, candidates, struck, reason, excludedModels, est, sigSavings, outputReserve, providerFor)
-}
-
-func (s *Service) readmitCoolingRescueCandidates(
-	ctx context.Context,
-	failed router.Decision,
-	candidates []string,
-	reason string,
-	excludedModels map[string]struct{},
-	est, sigSavings, outputReserve int,
-	providerFor func(id string) (string, bool),
-) []router.Decision {
-	cooling := sessionCooldownModelsFromContext(ctx)
-	if len(cooling) == 0 {
-		return nil
-	}
-	readmitted := s.readmissionWalk(ctx, failed, candidates, cooldownsByExpiry(cooling), reason, excludedModels, est, sigSavings, outputReserve, providerFor)
-	sort.SliceStable(readmitted, func(i, j int) bool {
-		return cooling[readmitted[i].Model].Before(cooling[readmitted[j].Model])
-	})
-	return readmitted
 }
 
 // readmissionWalk walks candidates plus the readmitted models, lifting only
@@ -244,19 +214,9 @@ func strikesInRescuePool(failed router.Decision, candidates, struck []string) []
 // that the candidate is a soft-excluded arm readmitted because no eligible
 // candidate was left: the session's rescue pool was exhausted.
 func (s *Service) noteRescueReadmission(ctx context.Context, failed, rescuer router.Decision) {
-	if until, cooling := sessionCooldownModelsFromContext(ctx)[rescuer.Model]; cooling {
-		rateLimitTurnFromContext(ctx).recordRescuePoolExhausted(rescuer.Model)
-		observability.FromContext(ctx).Info("rescue pool exhausted, readmitting cooling-down model",
-			"failed_model", failed.Model,
-			"rescue_pool_readmitted", rescuer.Model,
-			"demotion_expires_at", until.UTC().Format(time.RFC3339),
-		)
-		return
-	}
 	if !slices.Contains(sessionStrikeReadmitModelsFromContext(ctx), rescuer.Model) {
 		return
 	}
-	rateLimitTurnFromContext(ctx).recordRescuePoolExhausted(rescuer.Model)
 	observability.FromContext(ctx).Warn("rescue pool exhausted, readmitting session-demoted model",
 		"failed_model", failed.Model,
 		"rescue_pool_readmitted", rescuer.Model,
@@ -323,19 +283,15 @@ func walkRescueCandidates(
 }
 
 // rescueExcludedModels is the exclusion set an in-turn rescue must honor:
-// deployment and session demotions, models leased by another probe, and models
+// deployment and session demotions, and models
 // the thread's billed usage says this request overflows.
 func (s *Service) rescueExcludedModels(ctx context.Context) map[string]struct{} {
 	excluded := slices.Concat(sessionDemotedModelsFromContext(ctx), observedOverflowModelsFromContext(ctx))
-	probeDenied, _ := ctx.Value(SessionCooldownProbeDeniedModelsContextKey{}).([]string)
-	if len(excluded) == 0 && len(probeDenied) == 0 {
+	if len(excluded) == 0 {
 		return s.globalAutomaticExcludedModels(ctx)
 	}
-	session := make(map[string]struct{}, len(excluded)+len(probeDenied))
+	session := make(map[string]struct{}, len(excluded))
 	for _, model := range excluded {
-		session[model] = struct{}{}
-	}
-	for _, model := range probeDenied {
 		session[model] = struct{}{}
 	}
 	return mergeExcludedModels(session, s.globalAutomaticExcludedModels(ctx))
@@ -353,7 +309,7 @@ func (s *Service) gatewayRescueDecisions(ctx context.Context, failed router.Deci
 	providerFor := func(id string) (string, bool) {
 		return gatewayProviderFor(id, custom, gw)
 	}
-	return s.rescueWalkOrReadmitCooling(ctx, failed, candidates, reason, excludedModels, automaticExcluded, est, sigSavings, outputReserve, providerFor)
+	return s.rescueWalkOrReadmit(ctx, failed, candidates, reason, excludedModels, automaticExcluded, est, sigSavings, outputReserve, providerFor)
 }
 
 // subscriptionSiblingAllowed reports whether sibling rescue is permitted

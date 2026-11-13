@@ -58,7 +58,6 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		ctx = context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
 		ctx = context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
 	}
-	ctx, rateLimit := s.withRateLimitTurn(ctx)
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
 	requestID := requestIDFor(ctx)
@@ -228,15 +227,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	if len(routeRes.SessionDemotedModels) > 0 {
 		ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, routeRes.SessionDemotedModels)
-		if len(routeRes.SessionCooldownModels) > 0 {
-			ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, routeRes.SessionCooldownModels)
-		}
 		if len(routeRes.SessionStrikeReadmitModels) > 0 {
 			ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, routeRes.SessionStrikeReadmitModels)
 		}
-	}
-	if len(routeRes.CooldownProbeDeniedModels) > 0 {
-		ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, routeRes.CooldownProbeDeniedModels)
 	}
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
 	decision := routeRes.Decision
@@ -455,7 +448,6 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	// Persist last-turn usage to the pin row so the next turn's planner
 	// has cache-hit and output-limit evidence.
 	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
-	s.clearRecoveredCooldown(ctx, routeRes, decision.Model, proxyErr)
 
 	var subscriberTelemetry *InsertTelemetryParams
 	if installationID != uuid.Nil {
@@ -583,7 +575,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	demotionLogFields := armStrikeLogFieldsWithPrimaryReason(armDemoted, armDemotionReason, primaryFailureDemoted, primaryFailureDemotionReason)
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	log.Info("ProxyGeminiGenerateContent complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "decision_reason", decision.Reason, "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, "", 0), "failure_owner", turnFailureOwnerFor(ctx, proxyErr, classifyTurnError(proxyErr, "", 0)), "upstream_status", upstreamStatus(proxyErr), "credential_source", servedCredentialSource, "client_app", completionLogClientApp(clientID), "subscription_tier", servedSubscriptionTier}, demotionLogFields...), append(plannerLogFields(routeRes), rateLimit.completionLogFields()...)...)...)
+	log.Info("ProxyGeminiGenerateContent complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "decision_reason", decision.Reason, "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, "", 0), "failure_owner", turnFailureOwnerFor(ctx, proxyErr, classifyTurnError(proxyErr, "", 0)), "upstream_status", upstreamStatus(proxyErr), "credential_source", servedCredentialSource, "client_app", completionLogClientApp(clientID), "subscription_tier", servedSubscriptionTier}, demotionLogFields...), plannerLogFields(routeRes)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, decision.Provider, false, feats.Tokens, in, out, cacheCreation, cacheRead, usageMods, routeMs, proxyMs, proxyErr, nil)
 	return proxyErr
 }

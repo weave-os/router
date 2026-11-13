@@ -159,37 +159,30 @@ type authoritativeUpgradeDecision struct {
 	MarginThreshold  *float64
 	StalePinAfterSec *int64
 	FreshScore       *float64
-	HoldoutControl   bool
-	Applied          bool
 }
+
+// authoritativeUpgradeShadowVotes is the consecutive same-group vote count
+// the shadow evidence verdict requires before it would allow an upgrade.
+const authoritativeUpgradeShadowVotes = 3
 
 func (s *Service) resolveUpgradePolicyMode(ctx context.Context) flags.AuthoritativeUpgradePolicy {
-	return s.ResolveAuthoritativeUpgradePolicy(ctx)
-}
-
-func (s *Service) evidenceUpgradeApplies(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte) bool {
-	if s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyEvidence {
-		return false
+	if !s.ResolveAuthoritativeUpgradeGate(ctx) {
+		return flags.AuthoritativeUpgradePolicyOff
 	}
-	return !DeterministicHoldout(sessionKey, s.ResolveAuthoritativeUpgradeHoldoutPct(ctx))
+	return flags.AuthoritativeUpgradePolicyScore
 }
 
 func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Request, pin sessionpin.Pin, fresh router.Decision, res turnLoopResult, inputTokens int) *authoritativeUpgradeDecision {
 	if !isHMMDecision(fresh) {
 		return nil
 	}
-	mode := s.resolveUpgradePolicyMode(ctx)
-	if mode == flags.AuthoritativeUpgradePolicyScore && !s.ResolveAuthoritativeUpgradeGate(ctx) {
-		mode = flags.AuthoritativeUpgradePolicyOff
-	}
 	decision := &authoritativeUpgradeDecision{
-		Mode:            mode,
+		Mode:            s.resolveUpgradePolicyMode(ctx),
 		PinModel:        pin.Model,
 		PinProvider:     pin.Provider,
 		PinTier:         catalog.TierFor(pin.Model),
 		RequestedTier:   res.RequestedTier,
 		MarginThreshold: s.authoritativeUpgradeConfig.MarginThreshold,
-		HoldoutControl:  mode == flags.AuthoritativeUpgradePolicyEvidence && DeterministicHoldout(res.SessionKey, s.ResolveAuthoritativeUpgradeHoldoutPct(ctx)),
 	}
 	decision.Evidence = upgradeEvidence{
 		HasPin:         pin.Model != "",
@@ -200,7 +193,7 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 		PinGroup:       escalation.Group(pin.PolicyGroup),
 		RequestedGroup: escalation.Group(req.ForceCluster),
 		PrefixBroken:   res.PrefixTrimmed || req.HistoryTruncated,
-		RequiredVotes:  s.ResolveAuthoritativeUpgradeVotes(ctx),
+		RequiredVotes:  authoritativeUpgradeShadowVotes,
 	}
 	if s.availableModels != nil {
 		_, available := s.availableModels[fresh.Model]
@@ -260,5 +253,5 @@ func logAuthoritativeUpgrade(ctx context.Context, res turnLoopResult) {
 		diverges := !res.StickyHit
 		wouldDiverge = &diverges
 	}
-	observability.FromContext(ctx).Info("authoritative upgrade evidence", "installation_id", res.InstallationID.String(), "role", res.PinRole, "mode", decision.Mode, "applied", decision.Applied, "holdout_control", decision.HoldoutControl, "turn_type", res.TurnType, "fresh_model", res.Fresh.Model, "fresh_provider", res.Fresh.Provider, "fresh_score", decision.FreshScore, "pin_model", decision.PinModel, "pin_provider", decision.PinProvider, "fresh_group", decision.Evidence.FreshGroup, "pin_group", decision.Evidence.PinGroup, "margin", decision.Evidence.Margin, "margin_threshold", decision.MarginThreshold, "requested_tier", decision.RequestedTier.String(), "pin_tier", decision.PinTier.String(), "explicit_requested_group", decision.Evidence.RequestedGroup, "cache_cold", decision.Evidence.CacheCold, "prefix_broken", decision.Evidence.PrefixBroken, "pin_age_sec", decision.PinAgeSec, "stale_pin_after_sec", decision.StalePinAfterSec, "vote_count", decision.Evidence.VoteCount, "required_votes", decision.Evidence.RequiredVotes, "demoted", decision.Evidence.Demoted, "fresh_eligible", decision.Evidence.FreshEligible, "outcome", decision.Verdict.Outcome, "reason", decision.Verdict.Reason, "served_model", res.Decision.Model, "pin_tier_path", res.PinTier, "would_diverge", wouldDiverge)
+	observability.FromContext(ctx).Info("authoritative upgrade evidence", "installation_id", res.InstallationID.String(), "role", res.PinRole, "mode", decision.Mode, "turn_type", res.TurnType, "fresh_model", res.Fresh.Model, "fresh_provider", res.Fresh.Provider, "fresh_score", decision.FreshScore, "pin_model", decision.PinModel, "pin_provider", decision.PinProvider, "fresh_group", decision.Evidence.FreshGroup, "pin_group", decision.Evidence.PinGroup, "margin", decision.Evidence.Margin, "margin_threshold", decision.MarginThreshold, "requested_tier", decision.RequestedTier.String(), "pin_tier", decision.PinTier.String(), "explicit_requested_group", decision.Evidence.RequestedGroup, "cache_cold", decision.Evidence.CacheCold, "prefix_broken", decision.Evidence.PrefixBroken, "pin_age_sec", decision.PinAgeSec, "stale_pin_after_sec", decision.StalePinAfterSec, "vote_count", decision.Evidence.VoteCount, "required_votes", decision.Evidence.RequiredVotes, "demoted", decision.Evidence.Demoted, "fresh_eligible", decision.Evidence.FreshEligible, "outcome", decision.Verdict.Outcome, "reason", decision.Verdict.Reason, "served_model", res.Decision.Model, "pin_tier_path", res.PinTier, "would_diverge", wouldDiverge)
 }

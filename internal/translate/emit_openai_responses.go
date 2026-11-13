@@ -24,11 +24,7 @@ import (
 // exceeds the header timeout ("http2: timeout awaiting response headers").
 
 func (e *RequestEnvelope) PrepareOpenAIResponses(in http.Header, opts EmitOptions) (providers.PreparedRequest, error) {
-	e, err := e.withRouterSystemAppends(opts)
-	if err != nil {
-		return providers.PreparedRequest{}, err
-	}
-	e, err = e.withUnambiguousReadPrefixes()
+	e, err := e.withUnambiguousReadPrefixes()
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}

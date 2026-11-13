@@ -24,7 +24,7 @@ Plus the action loop, handover adapter, and session-key derivation in sibling fi
 | changes wire format or streaming | Protocol & Ingress (pure format conversion stays in [`translate`](../translate/CLAUDE.md)) | the four `Proxy*` entrypoints, `gemini.go`, `responses_*.go`, `stream_*.go` |
 | touches keys, BYOK, OAuth or subscriptions | Credential Brokerage | `credentials.go`, `credential_key_parts.go`, `managed_subscriptions.go`, `subscription_*.go` |
 | chooses or filters models | Routing Policy (inference purposes register in `internal/router/policy`) | `turnloop.go`, `escalation*.go`, `classifier_*.go`, `force_model*.go`, `*_model_selection.go` |
-| does retry, fallback or provider calls | Inference Execution (port: `inference.Executor`; start of the implementation: `dispatch.Executor`) | `dispatch_plan.go`, `fallback.go`, `*_failover.go`, `early_stop_redo.go`, `context_overflow.go`, `*overload*.go`, `rate_limit_cooldown.go`, `attempt_trace.go`, `arm_demotion.go` |
+| does retry, fallback or provider calls | Inference Execution (port: `inference.Executor`; start of the implementation: `dispatch.Executor`) | `dispatch_plan.go`, `fallback.go`, `*_failover.go`, `early_stop_redo.go`, `context_overflow.go`, `*overload*.go`, `attempt_trace.go`, `arm_demotion.go` |
 | handles commands, compaction, handover or loops | Conversation Lifecycle | `beta.go`, `command_*.go`, `*compaction.go`, `handover.go`, `loop_detection.go`, `no_progress.go`, `spiral_detection.go`, `struggle_detection.go`, `text_repetition*.go` |
 | is a model quirk | catalog data in [`../router/catalog`](../router/catalog/CLAUDE.md) | typed `catalog.Model` / `catalog.ProviderBinding` fields |
 | is new I/O | a port (interface) in the owning context, an adapter package, wiring in `cmd/router` | e.g. `sessionpin.Store`, implemented by `postgres.SessionPinRepo` |
@@ -163,7 +163,7 @@ caller-model passthrough or non-gateway caller credentials)
 take the probe, so a failed probe never reaches the client. An open circuit
 only stops the router *choosing* the model: when a sibling rescue finds no
 other eligible candidate (a two-model roster whose other arm just failed),
-`rescueWalkOrReadmitCooling` readmits withdrawn models before session strikes,
+`rescueWalkOrReadmit` readmits withdrawn models before session strikes,
 so the turn tries the overloaded model instead of surfacing the other arm's
 error. Committed streams, client cancellations, other statuses and requests
 with no installation are not overload evidence. State is in-process per
@@ -172,36 +172,6 @@ sets and the due list are an atomically published snapshot, and claiming or
 releasing a probe is a compare-and-swap on the circuit. Only overload strikes
 and probe outcomes lock and republish, and closed circuits whose strikes have
 aged out are swept.
-
-**Rescued transient failures get a bounded cooldown, not a session-lifetime
-strike.** Under `transient_rate_limit` (default off),
-`maybeStrikeArmAfterRescuedFailure` records a rescued primary's buffered 429 as
-`DemotionReasonRateLimited`, and 502/503/504 as
-`DemotionReasonTransientFailure`, with an expiry
-(`rate_limit_cooldown_seconds`, default 45) in `Pin.DemotionCooldowns`;
-committed-stream failures and other rescued failures stay permanent.
-`runTurnLoop` folds only *active* cooldowns into `AutomaticExcludedModels`.
-At expiry, a Postgres lease grants the recovery probe to one in-flight request
-per session/model across router workers; concurrent requests use their other
-candidates, and the request's remaining expired arms stay excluded for that
-turn. A lease token prevents a delayed release from clearing a newer probe;
-abandoned leases expire after 15 minutes, or one minute after a known request
-deadline, measured on the database clock. A probe that completes without an
-upstream error clears its cooldown from both stored rows unless a newer
-cooldown has replaced it, so a recovered arm needs no further leases. Cooldowns
-are soft in one more way than the deployment exclusion:
-`rescueWalkOrReadmitCooling` appends cooling arms (soonest expiry first)
-*after* every healthy rescue candidate, so a session whose whole rescue pool is
-throttled readmits a cooling arm instead of surfacing the 429 — the arm that
-just 429'd is never re-served that turn. Readmission lifts *only* the cooldown:
-`readmittableCooldowns` drops a model that also carries a session-lifetime
-strike or cannot take the turn's images, and the deployment-wide automatic
-exclusion still holds in the second walk. The same flag makes the same-binding
-retry Retry-After-aware (`dispatch.ThrottlePolicy`: honour ≤10s, else go
-straight to rescue; 500ms then 1.5s when the header is absent). Sessions under
-a gateway quota (prod 2026-09) died at 11 consecutive client-visible 429s
-because a burst-time rescue had permanently demoted the arm that recovered
-minutes later.
 
 **A session-lifetime strike is soft for rescue too, as the very last resort.**
 Primary selection already treats a demotion as soft (an emptied pool reroutes
@@ -212,8 +182,8 @@ reached the client unrescued (Snowflake Cortex, prod 2026-10: hundreds of
 header-timeout 502s with the other arm never tried). `runTurnLoop` now carries
 the strikes as `SessionStrikeReadmitModels` (image-unsafe arms, and
 ToolUseLow/AgenticLow arms on tool turns, dropped), and
-`rescueWalkOrReadmitCooling` readmits them on sibling failover only (never the
-cyber-refusal retry) and only when neither the eligible walk nor cooldown
+`rescueWalkOrReadmit` readmits them on sibling failover only (never the
+cyber-refusal retry) and only when neither the eligible walk nor overload
 readmission yields a candidate. `strikesInRescuePool` filters non-roster
 strikes to the turn's scored pool; roster readmissions are separately bounded
 by `rosterRescueAdmits`. Hard and deployment-wide exclusions still hold, and

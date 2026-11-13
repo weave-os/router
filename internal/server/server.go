@@ -394,7 +394,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	messagesMiddleware = append(messagesMiddleware,
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
-		middleware.WithAllowedModelsOverride(proxySvc),
+		middleware.WithAllowedModelsOverride(),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
 	)
@@ -424,7 +424,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	chatCompletionMiddleware = append(chatCompletionMiddleware,
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
-		middleware.WithAllowedModelsOverride(proxySvc),
+		middleware.WithAllowedModelsOverride(),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
 	)
@@ -487,7 +487,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	routeMiddleware = append(routeMiddleware,
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
-		middleware.WithAllowedModelsOverride(proxySvc),
+		middleware.WithAllowedModelsOverride(),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
 	)
@@ -506,7 +506,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	previewMiddleware = append(previewMiddleware,
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
-		middleware.WithAllowedModelsOverride(proxySvc),
+		middleware.WithAllowedModelsOverride(),
 		middleware.WithRoutingKnobsOverride(),
 	)
 	previewMiddleware = append(previewMiddleware, policyPinMiddleware...)

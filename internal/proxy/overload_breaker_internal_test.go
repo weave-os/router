@@ -470,7 +470,7 @@ func TestOverloadBreaker_GatewayTwoModelRosterStillServes(t *testing.T) {
 	svc := NewService(staticRouter{decision: decision}, map[string]providers.Client{
 		providers.ProviderOpenAIGateway:    primary,
 		providers.ProviderAnthropicGateway: sibling,
-	}, nil, &cooldownStubPinStore{}, false, providers.ProviderAnthropic, recoveryOpusModel, nil).
+	}, nil, &demotionStubPinStore{}, false, providers.ProviderAnthropic, recoveryOpusModel, nil).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
 		WithProviderOverloaded(true, registry)
 	ctx := twoModelGatewayContext()
