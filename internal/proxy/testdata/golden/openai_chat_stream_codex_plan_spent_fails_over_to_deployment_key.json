@@ -16,6 +16,7 @@
           "provider": "openai",
           "wire_model": "gpt-5.6-sol",
           "endpoint": "responses",
+          "credential_source": "codex_subscription",
           "outbound_body": {
             "input": [
               {

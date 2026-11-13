@@ -56,10 +56,6 @@ func withArmDemotion(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 	return proxy.WithGoldenClock(svc, h.clock.Now).WithRescuedFailureArmDemotion(true)
 }
 
-func withRateLimitCooldown(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-	return withArmDemotion(svc, h).WithTransientRateLimit(true, 60)
-}
-
 func withGoldenClock(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 	return proxy.WithGoldenClock(svc, h.clock.Now)
 }
@@ -70,9 +66,9 @@ func goldenArmScenarios(ingress string) []goldenScenario {
 	prefix := ingress + "_stream_"
 	body := ingressBody(ingress, true)
 	rescue := []router.Decision{goldenRescueDecision, goldenCompatDecision}
-	rescuedFrom := func(status int, body string) map[string][]goldenStep {
+	rescuedFrom := func(status int, errBody string) map[string][]goldenStep {
 		return map[string][]goldenStep{
-			providers.ProviderAnthropic: {goldenUpstreamError(status, body)},
+			providers.ProviderAnthropic: {goldenUpstreamError(status, errBody)},
 			providers.ProviderFireworks: {compatOK(true, "rescued")}}
 	}
 	serverError := rescuedFrom(http.StatusServiceUnavailable, goldenServerErrorBody)
@@ -86,8 +82,10 @@ func goldenArmScenarios(ingress string) []goldenScenario {
 			requests:  []goldenRequest{{body: body}, {body: body}},
 			configure: withArmDemotion},
 		{name: prefix + "rescued_rate_limit_cooldown_expires", ingress: ingress, decisions: rescue, upstreams: rateLimited,
-			requests:  []goldenRequest{{body: body}, {body: body, advance: 30 * time.Second}, {body: body, advance: 31 * time.Second}},
-			configure: withRateLimitCooldown},
+			requests: []goldenRequest{{body: body}, {body: body, advance: 30 * time.Second}, {body: body, advance: 31 * time.Second}},
+			configure: func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
+				return withArmDemotion(svc, h).WithTransientRateLimit(true, 60)
+			}},
 		{name: prefix + "rescued_rate_limit_demotes_without_cooldown", ingress: ingress, decisions: rescue, upstreams: rateLimited,
 			requests:  []goldenRequest{{body: body}, {body: body, advance: 2 * time.Minute}},
 			configure: withArmDemotion},
@@ -131,10 +129,6 @@ const goldenGatewayToolTurn = `{"model":"` + goldenGatewayModel + `","stream":tr
 
 const goldenCodexModel = "gpt-5.6-sol"
 
-func withCodexQuotaMemory(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-	return withGoldenClock(svc, h).WithUsageObserver(usage.NewObserver([]byte("golden-salt"), 10*time.Minute, h.clock.Now))
-}
-
 func goldenResponsesOK(text string) goldenStep {
 	return goldenOK("text/event-stream", []string{
 		goldenSSE("", `{"type":"response.created","response":{"id":"resp_golden","status":"in_progress"}}`),
@@ -169,6 +163,8 @@ func goldenCapabilityScenarios() []goldenScenario {
 			requests: []goldenRequest{
 				{body: ingressBody(ingressOpenAI, true), decorateContext: goldenCodexCtx},
 				{body: ingressBody(ingressOpenAI, true), decorateContext: goldenCodexCtx, advance: time.Minute}},
-			configure: withCodexQuotaMemory},
+			configure: func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
+				return withGoldenClock(svc, h).WithUsageObserver(usage.NewObserver([]byte("golden-salt"), 10*time.Minute, h.clock.Now))
+			}},
 	}
 }
