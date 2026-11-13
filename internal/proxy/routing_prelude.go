@@ -17,6 +17,7 @@ import (
 type requestNoticeStream struct {
 	delivery   *translate.NoticeDelivery
 	lastNotice translate.RouterNotice
+	modelShown bool
 }
 
 func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWriter, prelude *preludeBuffer, format translate.Format, streaming bool, notice translate.RouterNotice) (http.ResponseWriter, error) {
@@ -33,6 +34,7 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 	s.delivery.ResetAttempt(retainNotices)
 	if !retainNotices {
 		s.lastNotice = translate.RouterNotice{}
+		s.modelShown = false
 	}
 	if notice.Text == "" || (notice.Kind == s.lastNotice.Kind && notice.Text == s.lastNotice.Text) {
 		return s.delivery, nil
@@ -40,18 +42,34 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 	// Eager streams show the first marker immediately. Once one is visible, a
 	// fallback candidate's marker waits for its output, so failed candidates
 	// never add markers and only the model that served can correct the first.
-	if s.lastNotice.Kind == translate.NoticeModelSelection && notice.Kind == translate.NoticeModelSelection && s.delivery.Eager() {
-		s.delivery.Defer(notice)
+	if s.modelShown && notice.Kind == translate.NoticeModelSelection && s.delivery.DeferIfEager(notice) {
 		return s.delivery, nil
 	}
+	if err := s.deliver(notice); err != nil {
+		return nil, err
+	}
+	return s.delivery, nil
+}
+
+// deliverWithinAttempt adds notice to the attempt prepare already started,
+// keeping that attempt's deferred marker.
+func (s *requestNoticeStream) deliverWithinAttempt(notice translate.RouterNotice) error {
+	if notice.Text == "" || (notice.Kind == s.lastNotice.Kind && notice.Text == s.lastNotice.Text) {
+		return nil
+	}
+	return s.deliver(notice)
+}
+
+func (s *requestNoticeStream) deliver(notice translate.RouterNotice) error {
 	outcome, err := s.delivery.Deliver(notice)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if outcome == translate.NoticeDelivered {
 		s.lastNotice = notice
+		s.modelShown = s.modelShown || notice.Kind == translate.NoticeModelSelection
 	}
-	return s.delivery, nil
+	return nil
 }
 
 func addRoutingFundingSource(ctx context.Context, provider, model string, notice translate.RouterNotice) translate.RouterNotice {

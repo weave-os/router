@@ -86,6 +86,7 @@ type NoticeSink interface {
 	CommitNotice() error
 	ArmOutputProgress(func()) bool
 	Seal()
+	Committed() bool
 }
 
 var ErrInvalidNotice = errors.New("router notice requires identity, provenance, kind and text")
@@ -109,14 +110,17 @@ type NoticeDelivery struct {
 	deferred               RouterNotice
 }
 
-func (d *NoticeDelivery) Eager() bool { return d.capabilities.Eager }
-
-// Defer holds notice until this attempt's first provider content, so an attempt
-// that fails before producing output never shows it. A later Defer replaces it.
-func (d *NoticeDelivery) Defer(notice RouterNotice) {
+// DeferIfEager holds notice until this attempt commits or starts provider
+// content, so an attempt that fails first never shows it. A later call replaces
+// it. Non-eager streams buffer notices already, so it reports false there.
+func (d *NoticeDelivery) DeferIfEager(notice RouterNotice) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if !d.capabilities.Eager {
+		return false
+	}
 	d.deferred = notice
+	return true
 }
 
 // SetBeforeProviderContent registers a notice decided when the attempt's first
@@ -195,35 +199,56 @@ func (d *NoticeDelivery) Write(payload []byte) (int, error) {
 		if consumed == 0 {
 			break
 		}
-		providerContent := noticeProviderContent(d.capabilities.Format, event)
-		if providerContent && !d.providerContentStarted && !d.terminal {
-			if d.failure = d.emitBeforeContent(); d.failure != nil {
-				return 0, d.failure
-			}
+		if err := d.writeEvent(event, consumed); err != nil {
+			return 0, err
 		}
-		_, d.failure = d.sink.Write(d.pending[:consumed])
-		if d.failure != nil {
-			return 0, d.failure
-		}
-		if providerContent {
-			d.providerContentStarted = true
-		}
-		if noticeTerminal(d.capabilities.Format, event) {
-			d.terminal = true
-		}
-		d.pending = d.pending[consumed:]
-		for _, notice := range d.queued {
-			if d.terminal || d.providerContentStarted {
-				break
-			}
-			d.failure = d.emit(notice)
-			if d.failure != nil {
-				return 0, d.failure
-			}
-		}
-		d.queued = nil
 	}
 	return consumedBytes, nil
+}
+
+// writeEvent forwards one complete pending SSE record, emitting any notice due
+// before or after it. Callers hold d.mu.
+func (d *NoticeDelivery) writeEvent(event []byte, consumed int) error {
+	providerContent := noticeProviderContent(d.capabilities.Format, event)
+	if providerContent && !d.providerContentStarted && !d.terminal {
+		if d.failure = d.emitBeforeContent(); d.failure != nil {
+			return d.failure
+		}
+	}
+	if _, d.failure = d.sink.Write(d.pending[:consumed]); d.failure != nil {
+		return d.failure
+	}
+	if providerContent {
+		d.providerContentStarted = true
+	}
+	if noticeTerminal(d.capabilities.Format, event) {
+		d.terminal = true
+	}
+	if d.failure = d.emitDeferredOnCommit(); d.failure != nil {
+		return d.failure
+	}
+	d.pending = d.pending[consumed:]
+	for _, notice := range d.queued {
+		if d.terminal || d.providerContentStarted {
+			break
+		}
+		if d.failure = d.emit(notice); d.failure != nil {
+			return d.failure
+		}
+	}
+	d.queued = nil
+	return nil
+}
+
+// emitDeferredOnCommit shows a deferred marker once its attempt has committed,
+// even when that attempt then fails before any provider content.
+func (d *NoticeDelivery) emitDeferredOnCommit() error {
+	if d.deferred.Text == "" || d.terminal || !d.sink.Committed() {
+		return nil
+	}
+	deferred := d.deferred
+	d.deferred = RouterNotice{}
+	return d.emitOnce(deferred)
 }
 
 // ResetAttempt drops an abandoned partial record, retaining client-visible
