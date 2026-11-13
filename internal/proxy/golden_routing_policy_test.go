@@ -245,7 +245,7 @@ func routingPolicyStrategy(strategy router.Strategy) func(context.Context) conte
 	return func(ctx context.Context) context.Context { return router.WithStrategy(ctx, strategy) }
 }
 
-func routingPolicyPolicyPin(ctx context.Context) context.Context {
+func routingPolicyAuthorizedPin(ctx context.Context) context.Context {
 	return router.WithPolicyPinRequest(ctx, router.PolicyPinRequest{Authorized: true, Pin: router.PolicyPin{
 		ArtifactSHA256: strings.Repeat("a", 64), RosterSHA256: strings.Repeat("b", 64)}})
 }
@@ -345,10 +345,10 @@ func routingPolicyEscalationAndClassifierScenarios() []goldenScenario {
 		routingPolicyScenario("strategy_without_router_fails_closed", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow))},
 			routingPolicyRefused(routingPolicyFirstTurn, nil, routingPolicyStrategy(router.StrategyRL))),
 		routingPolicyScenario("policy_pin_not_honoured_fails_closed", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow))},
-			routingPolicyRefused(routingPolicyFirstTurn, nil, routingPolicyPolicyPin)),
+			routingPolicyRefused(routingPolicyFirstTurn, nil, routingPolicyAuthorizedPin)),
 		routingPolicyScenario("policy_pin_honoured_skips_session_pin", routingPolicySetup{turns: routingPolicyTurns(routingPolicyAnthropic(routingPolicyLow), router.Decision{
 			Provider: providers.ProviderAnthropic, Model: routingPolicyHigh, Reason: "golden_route", Metadata: &router.RoutingMetadata{PolicyPinHonoured: true}})},
-			first, routingPolicyRequest(next.body, routingPolicyPolicyPin)),
+			first, routingPolicyRequest(next.body, routingPolicyAuthorizedPin)),
 	}
 }
 
