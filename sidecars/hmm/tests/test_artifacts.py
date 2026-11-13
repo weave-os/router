@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import io
+import json
 import tarfile
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import hmm_sidecar.artifacts as artifact_module
@@ -128,3 +130,117 @@ def test_materialize_archive_replaces_an_incomplete_cache_directory(
     assert (root / ".complete").is_file()
     assert (root / "payload").read_text() == "verified"
     assert not (root / "broken").exists()
+
+
+def test_package_registry_parses_bounded_https_entries() -> None:
+    raw = (
+        '[{"sha256": "' + "a" * 64 + '", "url": "https://example.test/a.tar.gz"},'
+        ' {"sha256": "' + "B" * 64 + '", "path": "/srv/b.tar.gz"}]'
+    )
+
+    sources = artifact_module.parse_package_registry(raw)
+
+    assert [source.sha256 for source in sources] == ["a" * 64, "b" * 64]
+    assert sources[0].url == "https://example.test/a.tar.gz"
+    assert sources[1].path == "/srv/b.tar.gz"
+    assert artifact_module.parse_package_registry("") == []
+
+
+@pytest.mark.parametrize(
+    ("raw", "match"),
+    [
+        ("not json", "must be a JSON list"),
+        ('{"sha256": "x"}', "must be a JSON list"),
+        ('[{"sha256": "abc", "url": "https://x.test/a"}]', "64 lowercase hex"),
+        (
+            '[{"sha256": "' + "a" * 64 + '", "url": "http://x.test/a"}]',
+            "must use https",
+        ),
+        ('[{"sha256": "' + "a" * 64 + '"}]', "exactly one of url or path"),
+        (
+            '[{"sha256": "' + "a" * 64 + '", "url": "https://x.test/a"},'
+            ' {"sha256": "' + "a" * 64 + '", "url": "https://x.test/b"}]',
+            "repeats sha256",
+        ),
+    ],
+)
+def test_package_registry_rejects_malformed_entries(raw: str, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        artifact_module.parse_package_registry(raw)
+
+
+def test_package_registry_is_bounded() -> None:
+    entries = [
+        {"sha256": format(index, "064x"), "url": f"https://x.test/{index}.tar.gz"}
+        for index in range(artifact_module.MAX_PACKAGE_REGISTRY_ENTRIES + 1)
+    ]
+
+    with pytest.raises(ValueError, match="at most"):
+        artifact_module.parse_package_registry(json.dumps(entries))
+
+
+def test_registry_verifies_and_loads_every_package_at_boot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    default_sha = "d" * 64
+    pinned_sha = "e" * 64
+    monkeypatch.setenv("HMM_PACKAGE_PATH", str(tmp_path / "default.tar.gz"))
+    monkeypatch.delenv("HMM_PACKAGE_URL", raising=False)
+    monkeypatch.setenv("HMM_PACKAGE_SHA256", default_sha)
+    monkeypatch.setenv("HMM_ARTIFACT_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv(
+        "HMM_PACKAGE_REGISTRY",
+        json.dumps(
+            [
+                {"sha256": default_sha, "url": "https://x.test/default.tar.gz"},
+                {"sha256": pinned_sha, "url": "https://x.test/pinned.tar.gz"},
+            ]
+        ),
+    )
+    resolved: list[artifact_module.PackageSource] = []
+
+    def fake_resolve(source: artifact_module.PackageSource, cache: Path):
+        resolved.append(source)
+        return artifact_module.FrozenArtifacts(
+            root=cache / source.sha256,
+            manifest=None,  # type: ignore[arg-type]
+            package_sha256=source.sha256,
+            probe_vector=np.zeros(1),
+        )
+
+    monkeypatch.setattr(artifact_module, "_resolve_package", fake_resolve)
+
+    registry = artifact_module.resolve_artifact_registry()
+
+    # The default entry is resolved once (from HMM_PACKAGE_PATH) and the
+    # registry duplicate of it is skipped; the pinned sha is resolved at boot.
+    assert [source.sha256 for source in resolved] == [default_sha, pinned_sha]
+    assert resolved[0].path.endswith("default.tar.gz")
+    assert resolved[1].url == "https://x.test/pinned.tar.gz"
+    assert registry.default.package_sha256 == default_sha
+    assert set(registry.by_sha256) == {default_sha, pinned_sha}
+    assert registry.get(None) is registry.default
+    assert registry.get(pinned_sha.upper()).package_sha256 == pinned_sha
+    assert registry.get("f" * 64) is None
+
+
+def test_registry_entry_digest_mismatch_fails_boot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pinned_archive = tmp_path / "pinned.tar.gz"
+    pinned_archive.write_bytes(b"not-the-pinned-package")
+    monkeypatch.setenv("HMM_ARTIFACT_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv(
+        "HMM_PACKAGE_REGISTRY",
+        json.dumps([{"sha256": "0" * 64, "path": str(pinned_archive)}]),
+    )
+    default = artifact_module.FrozenArtifacts(
+        root=tmp_path,
+        manifest=None,  # type: ignore[arg-type]
+        package_sha256="d" * 64,
+        probe_vector=np.zeros(1),
+    )
+    monkeypatch.setattr(artifact_module, "resolve_artifacts", lambda: default)
+
+    with pytest.raises(ValueError, match="package sha256 mismatch"):
+        artifact_module.resolve_artifact_registry()

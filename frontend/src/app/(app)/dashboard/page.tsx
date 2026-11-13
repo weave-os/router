@@ -1,313 +1,79 @@
 "use client";
 
-import { Text } from "@/components/atoms/Text";
-import { ChartCard } from "@/components/ChartCard";
-import { CostBreakdownChart } from "@/components/charts/CostBreakdownChart";
-import { CumulativeSavingsChart } from "@/components/charts/CumulativeSavingsChart";
-import { ModelBreakdownChart } from "@/components/charts/ModelBreakdownChart";
-import { RouterCostSavingsChart } from "@/components/charts/RouterCostSavingsChart";
-import { SavingsRateChart } from "@/components/charts/SavingsRateChart";
-import {
-  DashboardPageFilters,
-  useDashboardFilters,
-} from "@/components/DashboardPageFilters";
-import { Card } from "@/components/molecules/Card";
-import { Page } from "@/components/Page";
-import { PageHeader } from "@/components/PageHeader";
-import { ResponsiveGrid } from "@/components/ResponsiveGrid";
-import { Statistic } from "@/components/Statistic";
-import {
-  api,
-  type MetricsSummary,
-  type ModelBreakdownBucket,
-  type TimeseriesBucket,
-} from "@/lib/api";
-import { cn } from "@/lib/cn";
-import { LoadState } from "@/tools/LoadState";
+import { RouterOnboarding } from "@/components/RouterOnboarding";
+import { api } from "@/lib/api";
+import { SAVINGS_METHODOLOGY_URL } from "@/lib/links";
+import { RouterDashboardPage } from "@/shared/components/RouterDashboardPage";
+
 import { useEffect, useState } from "react";
 
-function formatUSD(v: number): string {
-  if (v === 0) return "$0.00";
-  if (Math.abs(v) < 0.001) return `$${v.toFixed(4)}`;
-  return `$${v.toFixed(2)}`;
+// "checking" suppresses a flash of either surface until the onboarding probe
+// lands.
+type OnboardingState = "checking" | "needed" | "done";
+
+// Set when the user chooses "Skip to dashboard". Persisted rather than held in
+// memory so a refresh doesn't drop them back into a flow they opted out of;
+// the server-side flag still takes over for good once a request is served.
+const SKIP_ONBOARDING_KEY = "weave-router.onboarding-skipped";
+
+function onboardingSkipped(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(SKIP_ONBOARDING_KEY) === "true";
+  } catch {
+    // Private-mode/blocked storage: treat as not skipped rather than throwing
+    // on the render path.
+    return false;
+  }
 }
 
-function formatNumber(v: number): string {
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `${(v / 1_000).toFixed(1)}K`;
-  return String(v);
+function rememberOnboardingSkipped() {
+  try {
+    window.localStorage.setItem(SKIP_ONBOARDING_KEY, "true");
+  } catch {
+    // Non-fatal: the skip just won't survive this reload.
+  }
 }
 
 export default function DashboardPage() {
-  const dashboardFilters = useDashboardFilters("30d");
-  const { fromISO, toISO, granularity, range } = dashboardFilters.filters;
+  const [onboarding, setOnboarding] = useState<OnboardingState>("checking");
 
-  const [summary, setSummary] = useState<MetricsSummary | null>(null);
-  const [buckets, setBuckets] = useState<TimeseriesBucket[]>([]);
-  const [modelBuckets, setModelBuckets] = useState<ModelBreakdownBucket[]>([]);
-  const [error, setError] = useState<string | null>(null);
-
+  // A router that has never served a request has nothing to chart, so a fresh
+  // install lands in onboarding instead of on empty charts. The gate is the
+  // installation-level first_request_served_at, not a key's last_used_at:
+  // that flag survives rotation, so rotating the key that served the first
+  // request can't send an established install back through onboarding.
   useEffect(() => {
     let cancelled = false;
-    setError(null);
-    Promise.all([
-      api.metrics.summary(fromISO, toISO),
-      api.metrics.timeseries(granularity, fromISO, toISO),
-      api.metrics.modelBreakdown(granularity, fromISO, toISO),
-    ])
-      .then(([s, ts, mb]) => {
+    api.onboarding
+      .get()
+      .then(res => {
         if (cancelled) return;
-        setSummary(s);
-        setBuckets(ts.buckets ?? []);
-        setModelBuckets(mb.buckets ?? []);
+        const served = res.first_request_served_at != null;
+        setOnboarding(served || onboardingSkipped() ? "done" : "needed");
       })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load metrics.");
+      // Non-fatal: on a failed probe show the dashboard rather than trapping
+      // an established install in onboarding.
+      .catch(() => {
+        if (!cancelled) setOnboarding("done");
       });
     return () => {
       cancelled = true;
     };
-  }, [fromISO, toISO, granularity]);
+  }, []);
 
-  if (error) {
+  if (onboarding === "checking") return null;
+  if (onboarding === "needed") {
     return (
-      <Page
-        header={
-          <PageHeader
-            left={
-              <Text
-                variant="h4"
-                as="h2"
-                className="flex flex-row items-center gap-1 whitespace-nowrap"
-              >
-                Dashboard
-              </Text>
-            }
-          />
-        }
-      >
-        <Page.Section>
-          <div className="rounded-lg border border-danger/30 bg-danger/5 p-4 text-sm text-danger">
-            {error}
-          </div>
-        </Page.Section>
-      </Page>
+      <RouterOnboarding
+        onComplete={() => setOnboarding("done")}
+        onSkip={() => {
+          rememberOnboardingSkipped();
+          setOnboarding("done");
+        }}
+      />
     );
   }
 
-  const savingsRate =
-    summary == null || summary.total_requested_cost_usd === 0
-      ? 0
-      : (summary.total_savings_usd / summary.total_requested_cost_usd) * 100;
-  const avgTokensPerReq =
-    summary == null || summary.request_count === 0
-      ? 0
-      : summary.total_tokens / summary.request_count;
-  const empty = buckets.length === 0;
-  const modelEmpty = modelBuckets.length === 0;
-
-  return (
-    <Page
-      header={
-        <PageHeader
-          left={
-            <Text
-              variant="h4"
-              as="h2"
-              className="flex flex-row items-center gap-1 whitespace-nowrap"
-            >
-              Router cost &amp; savings
-            </Text>
-          }
-        />
-      }
-    >
-      <Page.Section>
-        <DashboardPageFilters result={dashboardFilters} />
-        <ResponsiveGrid>
-          <MetricCard
-            className={ResponsiveGrid.Small}
-            label="Cost saved"
-            value={summary == null ? "—" : formatUSD(Math.abs(summary.total_savings_usd))}
-            sub={
-              summary == null
-                ? undefined
-                : summary.total_savings_usd >= 0
-                  ? `${savingsRate.toFixed(1)}% of requested`
-                  : "Over requested cost"
-            }
-            accent={
-              summary == null
-                ? "default"
-                : summary.total_savings_usd >= 0
-                  ? "success"
-                  : "danger"
-            }
-          />
-          <MetricCard
-            className={ResponsiveGrid.Small}
-            label="Requests"
-            value={summary == null ? "—" : formatNumber(summary.request_count)}
-            sub={
-              summary == null ? undefined : `actual ${formatUSD(summary.total_actual_cost_usd)}`
-            }
-          />
-          <MetricCard
-            className={ResponsiveGrid.Small}
-            label="Tokens"
-            value={summary == null ? "—" : formatNumber(summary.total_tokens)}
-            sub={summary == null ? undefined : `${formatNumber(avgTokensPerReq)} avg / req`}
-          />
-
-          <ChartCard
-            className={ResponsiveGrid.Full}
-            title="Router cost savings"
-            subtitle="Actual cost vs. what would have been charged for the requested model."
-            topRight={
-              <Statistic
-                statistic={
-                  summary == null
-                    ? LoadState.loading()
-                    : LoadState.loaded({
-                        total:
-                          summary.total_savings_usd >= 0
-                            ? `${formatUSD(summary.total_savings_usd)} saved`
-                            : `${formatUSD(Math.abs(summary.total_savings_usd))} extra`,
-                      })
-                }
-              />
-            }
-          >
-            {empty ? (
-              <EmptyChart />
-            ) : (
-              <RouterCostSavingsChart buckets={buckets} granularity={granularity} />
-            )}
-          </ChartCard>
-
-          <ChartCard
-            className={ResponsiveGrid.Medium}
-            title="Cumulative savings"
-            subtitle={`Running total of dollars saved across the ${range.label.toLowerCase()}.`}
-          >
-            {empty ? (
-              <EmptyChart height={220} />
-            ) : (
-              <CumulativeSavingsChart buckets={buckets} granularity={granularity} />
-            )}
-          </ChartCard>
-
-          <ChartCard
-            className={ResponsiveGrid.Medium}
-            title="Savings rate"
-            subtitle="Percent of requested cost avoided per bucket."
-          >
-            {empty ? (
-              <EmptyChart height={200} />
-            ) : (
-              <SavingsRateChart buckets={buckets} granularity={granularity} />
-            )}
-          </ChartCard>
-
-          <ChartCard
-            className={ResponsiveGrid.Full}
-            title="Cost breakdown per bucket"
-            subtitle="Actual cost stacked with realized savings."
-          >
-            {empty ? (
-              <EmptyChart height={220} />
-            ) : (
-              <CostBreakdownChart buckets={buckets} granularity={granularity} />
-            )}
-          </ChartCard>
-
-          <ChartCard
-            className={ResponsiveGrid.Medium}
-            title="Model usage"
-            subtitle="Requests per bucket broken down by the model the router selected."
-          >
-            {modelEmpty ? (
-              <EmptyChart height={220} />
-            ) : (
-              <ModelBreakdownChart
-                buckets={modelBuckets}
-                granularity={granularity}
-                metric="requests"
-              />
-            )}
-          </ChartCard>
-
-          <ChartCard
-            className={ResponsiveGrid.Medium}
-            title="Model spend"
-            subtitle="Actual cost per bucket broken down by the model the router selected."
-          >
-            {modelEmpty ? (
-              <EmptyChart height={220} />
-            ) : (
-              <ModelBreakdownChart
-                buckets={modelBuckets}
-                granularity={granularity}
-                metric="spend"
-              />
-            )}
-          </ChartCard>
-        </ResponsiveGrid>
-      </Page.Section>
-    </Page>
-  );
-}
-
-interface MetricCardProps {
-  className?: string;
-  label: string;
-  value: string;
-  sub?: string;
-  accent?: "default" | "success" | "danger" | "info";
-}
-
-function MetricCard({ className, label, value, sub, accent = "default" }: MetricCardProps) {
-  const accentClass =
-    accent === "success"
-      ? "text-success"
-      : accent === "danger"
-        ? "text-danger"
-        : accent === "info"
-          ? "text-primary"
-          : "text-foreground";
-
-  return (
-    <Card size="sm" className={className}>
-      <Card.Header>
-        <Text className="text-2xs font-medium uppercase tracking-wider text-muted-foreground">
-          {label}
-        </Text>
-      </Card.Header>
-      <Card.Content>
-        <Text
-          className={cn(
-            "font-display text-2xl font-semibold tabular-nums tracking-tight",
-            accentClass,
-          )}
-        >
-          {value}
-        </Text>
-        {sub != null && (
-          <Text className="mt-1 text-2xs text-muted-foreground">{sub}</Text>
-        )}
-      </Card.Content>
-    </Card>
-  );
-}
-
-function EmptyChart({ height = 240 }: { height?: number }) {
-  return (
-    <div
-      className="flex items-center justify-center text-2xs text-muted-foreground"
-      style={{ height }}
-    >
-      No data for this period
-    </div>
-  );
+  return <RouterDashboardPage connectHref="/settings" methodologyHref={SAVINGS_METHODOLOGY_URL} />;
 }

@@ -1,6 +1,6 @@
 # internal/translate — AGENTS
 
-> **Mirror notice.** Verbatim sync with [CLAUDE.md](CLAUDE.md). **Update both together** — divergence = bug.
+> **Mirror notice.** Generated from [CLAUDE.md](CLAUDE.md). Edit CLAUDE.md, then run `make generate-agent-guides`; CI rejects drift.
 
 Cross-format wire-format conversion. Pure functions, no I/O, no provider knowledge, no domain types. Read [root CLAUDE.md](../../CLAUDE.md) first.
 
@@ -8,7 +8,7 @@ Cross-format wire-format conversion. Pure functions, no I/O, no provider knowled
 
 Covers all three directions: Anthropic ⇄ OpenAI and Gemini ⇄ {Anthropic, OpenAI} via a `RequestEnvelope` intermediate + per-target `emit_*.go` files.
 
-**Only [`../proxy`](../proxy) calls this package.** Providers stay ignorant of cross-format concerns.
+**[`../proxy`](../proxy) owns inference translation.** Direct worker admission preserves the original body. Providers stay ignorant of cross-format concerns.
 
 ## Adding a wire-format pair
 
@@ -18,13 +18,44 @@ When a new inbound format needs to talk to an existing upstream provider with a 
 2. **If response streaming, adapt [`stream.go`](stream.go) / [`gemini_stream.go`](gemini_stream.go)** or add a sibling decorator. Decorators wrap `http.ResponseWriter` and translate on the fly so we never buffer entire responses. Use [`../sse`](../sse) for zero-alloc SSE framing. A decorator that only prepends synthetic content to a stream (like the `*RoutingMarkerWriter` types) should embed `sse.ChunkedWriter` for the shared `Header`/`WriteHeader`/`Flush`/`FlushEvent` + streaming-detection bookkeeping, and add only its format-specific `Write`/`emit*` methods. A full response translator (buffers to translate one wire format into another, e.g. `AnthropicSSETranslator`) has enough divergent `WriteHeader`/streaming logic that it should NOT embed `ChunkedWriter` — reuse only `sse.FlushWriter(bw, flusher)` for its `flushEvent` helper.
 3. **Compose the new translation in `proxy.Service.Proxy*`.** Proxy is the only caller of `translate`.
 
+## OpenAI chat/completions ⇄ Responses (same vendor, two wire formats)
+
+Direct OpenAI is served on `/v1/responses` even for a chat/completions caller,
+so the pair exists in both directions: `buildResponsesFromOpenAI`
+([`emit_openai_responses_from_openai.go`](emit_openai_responses_from_openai.go))
+projects `messages` onto Responses `input` items — assistant `tool_calls`
+become `function_call`, `role:"tool"` turns become `function_call_output` keyed
+by the same `call_id`, `response_format` becomes `text.format` — and
+[`responses_to_openai_chat_writer.go`](responses_to_openai_chat_writer.go)
+renders the Responses stream back as chat.completion.chunk frames
+(`output_text.delta`→`delta.content`, reasoning summary deltas→
+`delta.reasoning_content`, `function_call_arguments`→`delta.tool_calls`), with
+[`responses_to_openai_chat_response.go`](responses_to_openai_chat_response.go)
+serving a non-streaming client one chat.completion body.
+
+Only the **leading** system/developer run is hoisted into `instructions`, for
+the prefix-stability reason below; a mid-conversation system message stays in
+place as a `developer` input item. A parameter Responses cannot express keeps
+the turn on chat/completions instead (`RequiresChatCompletionsParams`) — `n>1`,
+penalties, `logprobs`, `logit_bias`, `seed`, stop sequences. Reasoning is
+degraded, not smuggled: a chat client cannot round-trip an encrypted reasoning
+item, so it sees summary text and loses cross-turn reasoning replay.
+
 ## Anthropic-specific stripping (load-bearing)
 
 Anthropic-only fields (`thinking`, `cache_control`, `metadata`, Anthropic beta headers) are stripped at translation time **and again defensively in the OpenAI / openaicompat adapters**. Keep both checks — belt-and-suspenders is intentional because the field set drifts as Anthropic adds beta features.
 
+## Prefix-stable system handling (load-bearing)
+
+Anthropic 400s on `role:"system"` inside `messages`, so `hoistAnthropicSystemMessages` clears them — but only the **leading** run is hoisted into `system`. Any system-scoped `output_config` is hoisted to the request-level field (without overwriting an explicit request-level value), while a mid-conversation system message is demoted to `user` **in place** after its message-scoped `output_config` is removed. Hoisting it instead would move its text in front of the whole history, so a client that emits a system reminder per turn (Claude Code) shifts the cached prefix on every turn and re-writes the entire prompt; prod traffic showed ~890k cache-creation tokens per turn against a flat 17.5k read.
+
 ## `<think>` content-channel extraction (gated)
 
 Some OpenAI-compat upstreams (today `xiaomi/mimo-v2.5-pro`) stream chain-of-thought as inline `<think>…</think>` in the **`content`** channel rather than `reasoning_content`/`reasoning`. Left alone, Claude Code renders the raw tags as prose. When the catalog model carries `ThinkTagReasoning: true` (plumbed to the translator via `WithThinkTagReasoning`), [`think_tag.go`](think_tag.go)'s `thinkTagSplitter` reroutes a **leading** `<think>` block into an Anthropic thinking block; everything else passes through as text. Anchored to the start (after leading whitespace) — a mid-prose `<think>` mention stays text, mirroring `leadsWithToolishMarkup`. The splitter is streaming-safe: it buffers at most `len("</think>")-1` bytes (no whole-response buffering), so a tag split across SSE deltas is still caught. Off by default; only `xiaomi/mimo-v2.5-pro` enables it, and only on the OpenAI-compat chat-completions chain (the Gemini chain stays off).
+
+## Seed-style tool-call markup recovery
+
+The same upstreams sometimes stream a tool call as text in `content` — `<seed:tool_call><function_name>NAME</function_name><argument>{json}</argument></seed:tool_call>`, closer sometimes malformed as `</seed>tool_call>` — with `finish_reason:"stop"`. [`seed_tool_call.go`](seed_tool_call.go) parses it, and two writers recover it: `SeedToolCallChatWriter` on the OpenAI-compat chat/completions passthrough (structured `tool_calls` + `finish_reason:"tool_calls"`, streaming and non-streaming; also feeds the Responses ingress) and `AnthropicSSETranslator.WithSeedToolCallMarkup` on the Anthropic chain (`tool_use` blocks, after `<think>` extraction). Content is held only while it still matches the leading open tag, so prose streams unchanged. Callable names come from `RequestEnvelope.SeedToolCallNames`: declared client tools narrowed by `tool_choice` (none → off, named → that tool), off for `n > 1`, plus the prepared request's wire aliases mapped back to client names. A turn converts only when it is nothing but well-formed calls naming those tools with JSON-object arguments (decoded, so a closer inside a JSON string is not a boundary) and no non-empty structured calls; anything else is released verbatim (on the Anthropic chain the leaked markup then still gets the text-only-turn nudge).
 
 ## Gemini 3.x `thoughtSignature` (load-bearing)
 
@@ -32,11 +63,65 @@ The router translator must **round-trip `thoughtSignature` on text / thinking bl
 
 **Carrier: the tool id, not an off-spec field.** For `tool_use` / `functionCall` blocks the signature is the **single** carrier smuggled into the block's id ([`thought_signature_id.go`](thought_signature_id.go), `__thought__<base64>`) — a typed string every client SDK round-trips. Do **not** also emit a raw `thought_signature` block field for tool calls: typed SDKs drop it, and any client that *does* echo it back (Claude Code) makes the next turn 400 if it re-routes to Anthropic (`tool_use.thought_signature: Extra inputs are not permitted`). Text blocks have no id, so they keep the raw field as their only carrier. Targeting Anthropic, `resolveAnthropicOverrides` strips the raw field from **all** blocks (`StripThoughtSignature`) — lossless for tool calls (id still carries it), and the only safe option for text (Anthropic can't use a Gemini signature). The OpenAI emit paths clamp the now-oversized id back under OpenAI's 64-char `call_id`/`tool_calls[].id` limit (`clampOpenAIToolCallID`).
 
+## Cross-format reasoning signatures on Anthropic `thinking` blocks (load-bearing)
+
+The Responses→Anthropic writers smuggle an OpenAI reasoning item (`id` + `encrypted_content`) into the Anthropic `signature` field ([`openai_reasoning_signature.go`](openai_reasoning_signature.go)) so the reasoning can be replayed to OpenAI next turn.
+
+**The envelope carries the minting upstream's scope, and a replay requires an exact match** (`EmitOptions.ReasoningReplayScope`, fingerprinted by `proxy.reasoningReplayScope` over provider + effective wire model + normalized endpoint + the credential's *stable* principal — the external-key identity, the ChatGPT or subscription account behind a lease, or the adapter's own deployment principal when the request carries no credential of its own; a credential known only by its key material is named by a password-grade KDF over that key, never a bare digest, since the scope travels back to the client). Never the bearer: a Cortex workload-identity credential mints a fresh token per request, and Cortex decrypted a Grok item under a freshly minted one (verified against prod's Snowflake account, 2026-09-21), so keying on token bytes would discard reasoning the upstream would have accepted. Encrypted reasoning is decryptable only by the account and model that produced it: replayed elsewhere, Cortex answers `encrypted reasoning was created for a different account or model` and xAI `Encrypted content could not be decrypted or parsed` — a 400 that kills the turn rather than degrading it, and with it the client session (prod 2026-09, a Cortex Grok turn re-routed mid-session to GPT). An envelope minted for another scope, or a turn whose scope is unknown, drops the reasoning item and sends the rest of the history — the tool calls and results still go out, and Cortex answers 200. This is why the scope must be a *dispatch-target* fingerprint, not a model name: the same model served through a second Cortex account cannot decrypt the first account's reasoning either. The guard covers only this Anthropic-carrier path; a native Responses/Codex client round-trips its own reasoning items and is unprotected by it.
+
+Anthropic validates that opaque field and answers `Invalid signature in thinking block`, so `resolveAnthropicOverrides` drops those blocks unconditionally (`StripForeignSignedThinkingBlocks`) alongside unsigned ones — not only when `ModelSwitched` is set. The switch guard is not sufficient: a client-side compaction rewrites the first user message, which re-keys the session, so the pin (and with it the prior served model) is gone on exactly the turn that re-routes an OpenAI-served history to Anthropic.
+
+## Output-token floor for reasoning targets (load-bearing)
+
+Hidden reasoning counts against the output budget on every vendor (Gemini `maxOutputTokens` includes thoughts; OpenAI `max_completion_tokens` / `max_output_tokens` include reasoning), so a caller's small `max_tokens` is forwarded verbatim only when the target will not think. `reasoningOutputFloor` ([`reasoning.go`](reasoning.go)) raises the budget to 16k whenever the resolved intent leaves reasoning on — Gemini 3.x always-on even under `thinking: disabled`, Gemini 2.5 with a positive budget or forced effort, OpenAI reasoning models unless effort resolves to `none` — and the result is still clamped to the model's output cap. Non-reasoning targets and explicitly-off reasoning keep the caller's number, and stop sequences are untouched. Without this, Claude Code's `max_tokens=64` security-monitor verdict on Gemini 3.x stopped at `max_tokens` with the budget spent on thoughts (99.5% of calls, prod 2026-09), and the client retried each one 5x. The same floor applies when `resolveAnthropicOverrides` upconverts `thinking: disabled` to adaptive for an always-on Anthropic target (Sonnet/Opus 5.5): the 64-token stage-1 verdict otherwise hits `max_tokens` behind hidden reasoning, and Claude Code blocks the action on a missing verdict. That upconvert also drops the caller's `temperature`, which was chosen for a non-thinking request.
+
+## Duplicate tool results (load-bearing)
+
+Codex code-mode records each `notify()` from an `exec` script as another `custom_tool_call_output` under the running call's `call_id`, so one tool call can arrive with N results. OpenAI accepts that; Anthropic 400s (`each tool_use must have a single result`) and Gemini needs one `functionResponse` per `functionCall`. Codex resends the full history every turn, so one such call bricks the session. `CoalesceDuplicateToolResults` ([`tool_result_coalesce.go`](tool_result_coalesce.go)) merges results answering the same call into the first one, in order (a later call reusing the id is its own group, and a moved `cache_control` never jumps another breakpoint), and the proxy runs it before `SanitizeOrphanedToolCalls` on every translated turn. A history without duplicates stays byte-identical, and native Responses dispatch keeps the caller's original body.
+
 ## Tool-call validation + strict decoding (load-bearing)
 
 Model-emitted tool_use arguments are validated against the inbound request's `tools[].input_schema` by [`toolcheck`](toolcheck/) at every response-translation point (OpenAI-compat and Gemini chains, streaming + non-streaming, and both Responses paths). The pipeline: normalize (drop empty-string/null OPTIONAL params) -> minimal JSON repair -> Draft-7 validation -> safe deterministic repair (drop unknown keys, lossless coercions), re-validated. Unrepairable schema mismatches forward as-emitted (the client's own tool error is the feedback loop); only unparseable JSON degrades to `{}`. Every finding surfaces via `ResponseSummary.ToolCallIssues`, which the proxy logs as `router.tool_call_invalid`. **Everything is fail-open** — a schema that won't compile must never fail a request.
 
 On the emit side the failure class is prevented at decode time where the upstream exposes a knob: OpenAI Responses tools go out with `strict:true` + a strictified schema ([`strictify_openai.go`](strictify_openai.go) — additionalProperties:false, all-required, optionals as null unions; non-strictifiable schemas fall back to non-strict). Gemini 3.x gets `functionCallingConfig.mode=VALIDATED` when the client didn't force a tool_choice. Proxy-side validation always checks against the ORIGINAL schema — the explicit nulls strict mode induces are dropped by toolcheck's normalize pass.
+
+## Router notices
+
+`RouterNotice` and `NoticeDelivery` provide the shared client-wire notice boundary.
+Policy and opt-outs stay in proxy; sinks reuse the existing protocol encoders after
+conversion. Read [the notice contract](../../docs/ROUTER_NOTICES.md) before adding
+notice kinds or changing prelude/retry behavior.
+
+## Router directives in replayed history (load-bearing)
+
+Clients resend the whole conversation each turn, so a directive the user typed on an
+earlier turn (`/fm`, `$router-session`, …) returns as an ordinary user message after
+its ack was already stripped. Left in place the model reads it, reasons about it, and
+sometimes re-runs the skill (Codex, prod 2026-10). [`command_history.go`](command_history.go)
+removes it: `StripHistoricalCommands` for `messages` bodies and
+`StripHistoricalCommandsFromResponsesInput` for the native Codex body. Which
+directives count comes from `routerDirectives` in
+[`directive_registry.go`](directive_registry.go); its test fails when
+`install/directives.tsv` declares a directive that is neither listed there nor named
+in `notRouterHandled` (the client-side toggles, plus `beta`, which
+`StripBetaArtifacts` owns), so a new directive must be registered or explicitly
+exempted. Four
+rules: the trailing user turn is never touched (that is where `Extract*Command` must
+still find a live directive); the first user message is stripped too, but
+`StripHistoricalCommands` first captures its original text and `deriveSessionKey`
+hashes that (`ThreadDiscriminatorText`), so the pin an opening directive created
+survives — which is why the portable Codex projection keeps its directives until the
+chat path has bound the session key; the Codex `<skill>` attachment and its `exec`
+call of that skill's `scripts/emit.sh` go with the directive, including all results
+matching the removed call ID; unrelated calls and content are kept. On `messages`
+bodies an unmarked ack (no tool call) left at the head
+of the history once the opening directive is gone goes too — the native Responses
+body leaves acks to `StripCommandOutcomesFromResponsesInput`; and
+any text the user wrote alongside the directive is kept, so only the command line
+goes. Each directive family's own parser decides what counts, so the bare-only
+directives (`router-session`, `router-models`) with trailing arguments never fired
+and are not stripped. Tool-output directives stay the job of
+`StripRouterCommandsFromResponsesInput`.
 
 ## Invariants
 

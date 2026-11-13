@@ -18,7 +18,20 @@ import {
 	WEAVE_MODELS,
 } from "./config.js";
 
-export function registerWeave(pi: ExtensionAPI): void {
+export interface ContextWindowOverride {
+	modelId: string;
+	contextWindow: number;
+}
+
+function modelsForContextWindow(override?: ContextWindowOverride): typeof WEAVE_MODELS {
+	if (!override) return WEAVE_MODELS;
+	return WEAVE_MODELS.map((model) =>
+		model.id === override.modelId ? { ...model, contextWindow: override.contextWindow } : model,
+	);
+}
+
+/** Register the Weave provider, optionally using the router-confirmed active context window. */
+export function registerWeave(pi: ExtensionAPI, contextWindowOverride?: ContextWindowOverride): void {
 	const key = resolveRouterKey();
 	const role = getRole();
 
@@ -46,6 +59,6 @@ export function registerWeave(pi: ExtensionAPI): void {
 		api: "anthropic-messages",
 		authHeader: false,
 		headers: providerHeaders(role, key),
-		models: WEAVE_MODELS,
+		models: modelsForContextWindow(contextWindowOverride),
 	});
 }

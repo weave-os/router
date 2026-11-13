@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/providers"
 )
 
 func TestCacheTTLFor(t *testing.T) {

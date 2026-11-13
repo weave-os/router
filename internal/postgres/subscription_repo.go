@@ -1,0 +1,500 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"time"
+
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres/dbbudget"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/sqlc"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+const (
+	uniqueViolationCode             = "23505"
+	subscriberAccountUniqueIndex    = "model_router_subscription_accounts_subscriber_account_idx"
+	subscriberEnrollmentMaxAttempts = 3
+)
+
+type subscriptionAccountRepo struct{ tx sqlc.DBTX }
+
+// NewSubscriptionAccountRepo constructs the encrypted subscription-account repository.
+func NewSubscriptionAccountRepo(tx sqlc.DBTX) auth.SubscriptionAccountRepository {
+	return &subscriptionAccountRepo{tx: tx}
+}
+
+// subscriptionOwnerPredicate maps an owner onto the two nullable columns every
+// ownership predicate reads. An owner that resolves to neither addresses no
+// row, so it fails closed instead of matching legacy rows with a NULL owner.
+func subscriptionOwnerPredicate(owner auth.SubscriptionOwner) (subscriberID, apiKeyID pgtype.UUID, err error) {
+	subscriberID, apiKeyID = uuidOrNil(owner.SubscriberID), uuidOrNil(owner.APIKeyID)
+	if !subscriberID.Valid && !apiKeyID.Valid {
+		return subscriberID, apiKeyID, auth.ErrSubscriptionAccountNotFound
+	}
+	return subscriberID, apiKeyID, nil
+}
+
+func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context, params auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, auth.SubscriptionUpsertKind, error) {
+	apiKeyID, err := uuid.Parse(params.Owner.APIKeyID)
+	if err != nil {
+		return nil, auth.SubscriptionUpsertUpdated, err
+	}
+	if params.Owner.SubscriberID == "" {
+		return nil, auth.SubscriptionUpsertUpdated, auth.ErrSubscriptionAccountNotFound
+	}
+	installationID, err := uuid.Parse(params.Owner.InstallationID)
+	if err != nil {
+		return nil, auth.SubscriptionUpsertUpdated, err
+	}
+
+	subscriberID, err := uuid.Parse(params.Owner.SubscriberID)
+	if err != nil {
+		return nil, auth.SubscriptionUpsertUpdated, err
+	}
+	// Concurrent enrollments of one physical account retry against the winning
+	// owner row; Codex reconnects may repair only that owner's legacy row.
+	for attempt := 0; ; attempt++ {
+		row, err := dbbudget.Queries(r.tx).UpsertModelRouterSubscriptionAccountForSubscriber(ctx, sqlc.UpsertModelRouterSubscriptionAccountForSubscriberParams{
+			InstallationID: installationID, SubscriberID: subscriberID, APIKeyID: apiKeyID, Provider: string(params.Provider),
+			ExternalAccountID: params.ExternalAccountID, ProviderUserID: params.ProviderUserID, DisplayName: optionalSubscriptionAccountDisplayName(params.DisplayName), RefreshTokenCiphertext: params.RefreshToken,
+		})
+		if err == nil {
+			return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID,
+				row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt), subscriptionUpsertKind(row.Inserted, row.Adopted), nil
+		}
+		if attempt == subscriberEnrollmentMaxAttempts-1 || !isSubscriberAccountConflict(err) {
+			return nil, auth.SubscriptionUpsertUpdated, err
+		}
+	}
+}
+
+func isSubscriberAccountConflict(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		pgErr.Code == uniqueViolationCode &&
+		(pgErr.ConstraintName == "model_router_subscription_accounts_codex_identity_idx" || pgErr.ConstraintName == "model_router_subscription_accounts_codex_subscriber_idx" || pgErr.ConstraintName == subscriberAccountUniqueIndex || pgErr.ConstraintName == "model_router_subscription_accounts_active_physical_identity_idx")
+}
+
+func (r *subscriptionAccountRepo) UpdateSubscriptionAccountCooldown(ctx context.Context, accountID string, owner auth.SubscriptionOwner, cooldownUntil time.Time) error {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return err
+	}
+	rows, err := dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionAccountCooldown(ctx, sqlc.UpdateModelRouterSubscriptionAccountCooldownParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID,
+		CooldownUntil: pgtype.Timestamp{Time: cooldownUntil.UTC(), Valid: true},
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrSubscriptionAccountNotFound
+	}
+	return nil
+}
+
+func (r *subscriptionAccountRepo) ListSubscriptionAccounts(ctx context.Context, owner auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error) {
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).ListModelRouterSubscriptionAccounts(ctx, sqlc.ListModelRouterSubscriptionAccountsParams{
+		SubscriberID: subscriberID, APIKeyID: keyID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	accounts := make([]*auth.SubscriptionAccount, 0, len(rows))
+	for _, row := range rows {
+		accounts = append(accounts, toAuthSubscriptionAccountListRow(row))
+	}
+	return accounts, nil
+}
+
+func (r *subscriptionAccountRepo) UpdateSubscriptionAccountState(ctx context.Context, accountID string, owner auth.SubscriptionOwner, enabled bool, cooldownUntil *time.Time) error {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return err
+	}
+	var cooldown pgtype.Timestamp
+	if cooldownUntil != nil {
+		cooldown = pgtype.Timestamp{Time: cooldownUntil.UTC(), Valid: true}
+	}
+	rows, err := dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionAccountState(ctx, sqlc.UpdateModelRouterSubscriptionAccountStateParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, Enabled: enabled, CooldownUntil: cooldown,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrSubscriptionAccountNotFound
+	}
+	return nil
+}
+
+func (r *subscriptionAccountRepo) UpdateSubscriptionAccountHealth(ctx context.Context, accountID string, owner auth.SubscriptionOwner, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) (bool, error) {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return false, err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return false, err
+	}
+	var cooldown pgtype.Timestamp
+	if cooldownUntil != nil {
+		cooldown = pgtype.Timestamp{Time: cooldownUntil.UTC(), Valid: true}
+	}
+	transition, err := dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionAccountHealth(ctx, sqlc.UpdateModelRouterSubscriptionAccountHealthParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID,
+		HealthState: string(state), Enabled: enabled, CooldownUntil: cooldown,
+	})
+	if err != nil {
+		return false, err
+	}
+	if transition.MatchedCount == 0 {
+		return false, auth.ErrSubscriptionAccountNotFound
+	}
+	return transition.Disconnected, nil
+}
+
+func (r *subscriptionAccountRepo) UpdateSubscriptionRefreshToken(ctx context.Context, accountID string, owner auth.SubscriptionOwner, ciphertext []byte) error {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return err
+	}
+	rows, err := dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionRefreshToken(ctx, sqlc.UpdateModelRouterSubscriptionRefreshTokenParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, RefreshTokenCiphertext: ciphertext,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrSubscriptionAccountNotFound
+	}
+	return nil
+}
+
+func (r *subscriptionAccountRepo) DeleteSubscriptionAccount(ctx context.Context, accountID string, owner auth.SubscriptionOwner) error {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return err
+	}
+	rows, err := dbbudget.Queries(r.tx).DeleteModelRouterSubscriptionAccount(ctx, sqlc.DeleteModelRouterSubscriptionAccountParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrSubscriptionAccountNotFound
+	}
+	return nil
+}
+
+func (r *subscriptionAccountRepo) TryAcquireSubscriptionRefreshLease(ctx context.Context, accountID string, owner auth.SubscriptionOwner, leaseID string, leaseTTL time.Duration) (auth.RefreshLeaseAcquisition, error) {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return auth.RefreshLeaseAcquisition{}, err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return auth.RefreshLeaseAcquisition{}, err
+	}
+	leaseUUID, err := uuid.Parse(leaseID)
+	if err != nil {
+		return auth.RefreshLeaseAcquisition{}, err
+	}
+	tookOver, err := dbbudget.Queries(r.tx).TryAcquireModelRouterSubscriptionRefreshLease(ctx, sqlc.TryAcquireModelRouterSubscriptionRefreshLeaseParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID,
+		LeaseSeconds:       int64(leaseTTL / time.Second),
+		AllowClaudeOverage: requestcontext.SubscriptionExtraUsageFrom(ctx),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return auth.RefreshLeaseAcquisition{}, nil
+		}
+		return auth.RefreshLeaseAcquisition{}, err
+	}
+	return auth.RefreshLeaseAcquisition{Acquired: true, TookOver: tookOver}, nil
+}
+
+func (r *subscriptionAccountRepo) ExtendSubscriptionRefreshLease(ctx context.Context, accountID string, owner auth.SubscriptionOwner, leaseID string, leaseTTL time.Duration) (int64, error) {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return 0, err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return 0, err
+	}
+	leaseUUID, err := uuid.Parse(leaseID)
+	if err != nil {
+		return 0, err
+	}
+	return dbbudget.Queries(r.tx).ExtendModelRouterSubscriptionRefreshLease(ctx, sqlc.ExtendModelRouterSubscriptionRefreshLeaseParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID,
+		LeaseSeconds: int64(leaseTTL / time.Second),
+	})
+}
+
+func (r *subscriptionAccountRepo) ReleaseSubscriptionRefreshLease(ctx context.Context, accountID string, owner auth.SubscriptionOwner, leaseID string) error {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return err
+	}
+	leaseUUID, err := uuid.Parse(leaseID)
+	if err != nil {
+		return err
+	}
+	_, err = dbbudget.Queries(r.tx).ReleaseModelRouterSubscriptionRefreshLease(ctx, sqlc.ReleaseModelRouterSubscriptionRefreshLeaseParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID,
+	})
+	return err
+}
+
+func (r *subscriptionAccountRepo) GetSubscriptionCredentialRecord(ctx context.Context, accountID string, owner auth.SubscriptionOwner) (*auth.SubscriptionCredentialRecord, error) {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return nil, err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return nil, err
+	}
+	row, err := dbbudget.Queries(r.tx).GetModelRouterSubscriptionCredentialRecord(ctx, sqlc.GetModelRouterSubscriptionCredentialRecordParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID,
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, auth.ErrSubscriptionAccountNotFound
+		}
+		return nil, err
+	}
+	var leaseID string
+	if row.TokenRefreshLeaseID.Valid {
+		leaseID = uuid.UUID(row.TokenRefreshLeaseID.Bytes).String()
+	}
+	return &auth.SubscriptionCredentialRecord{
+		ExternalAccountID:      row.ExternalAccountID,
+		ProviderUserID:         subscriptionProviderUserID(row.ProviderUserID),
+		Provider:               auth.SubscriptionProvider(row.Provider),
+		RefreshTokenCiphertext: row.RefreshTokenCiphertext,
+		AccessTokenCiphertext:  row.AccessTokenCiphertext,
+		AccessTokenExpiresAt:   timestampPtr(row.AccessTokenExpiresAt),
+		TokenRefreshVersion:    row.TokenRefreshVersion,
+		TokenRefreshLeaseID:    leaseID,
+		Enabled:                row.Enabled,
+		State:                  auth.SubscriptionAccountState(row.HealthState),
+		CooldownUntil:          timestampPtr(row.CooldownUntil),
+	}, nil
+}
+
+func (r *subscriptionAccountRepo) PersistSubscriptionTokens(ctx context.Context, accountID string, owner auth.SubscriptionOwner, leaseID string, expectedVersion int64, refreshCiphertext, accessCiphertext []byte, accessExpiresAt time.Time) error {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return err
+	}
+	leaseUUID, err := uuid.Parse(leaseID)
+	if err != nil {
+		return err
+	}
+	rows, err := dbbudget.Queries(r.tx).PersistModelRouterSubscriptionTokens(ctx, sqlc.PersistModelRouterSubscriptionTokensParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID, ExpectedVersion: expectedVersion,
+		RefreshTokenCiphertext: refreshCiphertext, AccessTokenCiphertext: accessCiphertext,
+		AccessTokenExpiresAt: pgtype.Timestamp{Time: accessExpiresAt.UTC(), Valid: true},
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrSubscriptionRefreshConflict
+	}
+	return nil
+}
+
+func toAuthSubscriptionAccountListRow(row sqlc.ListModelRouterSubscriptionAccountsRow) *auth.SubscriptionAccount {
+	account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+	account.CredentialRejections = int(row.CredentialRejectionCount)
+	return account
+}
+
+func toAuthSubscriptionAccountFields(id uuid.UUID, subscriberID, apiKeyID pgtype.UUID, provider, externalAccountID string, providerUserID, displayName *string, refreshTokenCiphertext []byte, enabled bool, healthState string, cooldownUntil, createdAt pgtype.Timestamp) *auth.SubscriptionAccount {
+	var label string
+	if displayName != nil {
+		label = *displayName
+	}
+	return &auth.SubscriptionAccount{
+		ID: id.String(), SubscriberID: uuidString(subscriberID), EnrolledByAPIKeyID: uuidString(apiKeyID),
+		Provider:          auth.SubscriptionProvider(provider),
+		ExternalAccountID: externalAccountID, ProviderUserID: subscriptionProviderUserID(providerUserID), DisplayName: label, RefreshTokenCiphertext: refreshTokenCiphertext,
+		Enabled: enabled, State: auth.SubscriptionAccountState(healthState),
+		CooldownUntil: timestampPtr(cooldownUntil), CreatedAt: timestampOrZero(createdAt),
+	}
+}
+
+func optionalSubscriptionAccountDisplayName(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func (r *subscriptionAccountRepo) DisableSubscriptionAccountIfRefreshHolder(ctx context.Context, accountID string, owner auth.SubscriptionOwner, leaseID string, expectedVersion int64) error {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return err
+	}
+	leaseUUID, err := uuid.Parse(leaseID)
+	if err != nil {
+		return err
+	}
+	rows, err := dbbudget.Queries(r.tx).DisableModelRouterSubscriptionAccountIfRefreshHolder(ctx, sqlc.DisableModelRouterSubscriptionAccountIfRefreshHolderParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID, ExpectedVersion: expectedVersion,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrSubscriptionRefreshConflict
+	}
+	return nil
+}
+
+func (r *subscriptionAccountRepo) CooldownSubscriptionAccountIfRefreshHolder(ctx context.Context, accountID string, owner auth.SubscriptionOwner, leaseID string, expectedVersion int64, cooldownUntil time.Time) error {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return err
+	}
+	leaseUUID, err := uuid.Parse(leaseID)
+	if err != nil {
+		return err
+	}
+	rows, err := dbbudget.Queries(r.tx).CooldownModelRouterSubscriptionAccountIfRefreshHolder(ctx, sqlc.CooldownModelRouterSubscriptionAccountIfRefreshHolderParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID, ExpectedVersion: expectedVersion,
+		CooldownUntil: pgtype.Timestamp{Time: cooldownUntil.UTC(), Valid: true},
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrSubscriptionRefreshConflict
+	}
+	return nil
+}
+
+func (r *subscriptionAccountRepo) RecordSubscriptionCredentialRejection(ctx context.Context, accountID string, owner auth.SubscriptionOwner, input auth.SubscriptionCredentialRejectionInput) (auth.SubscriptionCredentialRejection, error) {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return auth.SubscriptionCredentialRejection{}, err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return auth.SubscriptionCredentialRejection{}, err
+	}
+	params := sqlc.RecordModelRouterSubscriptionCredentialRejectionParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, Reason: input.Reason,
+		WindowStart:           pgtype.Timestamp{Time: input.RejectedAt.Add(-input.Window).UTC(), Valid: true},
+		RejectedAt:            pgtype.Timestamp{Time: input.RejectedAt.UTC(), Valid: true},
+		InvalidateAccessToken: input.InvalidateAccessToken,
+		ProviderErrorType:     input.ProviderErrorType,
+		ProviderRequestID:     input.ProviderRequestID,
+		UpstreamStatus:        int32(input.UpstreamStatus),
+		RequestID:             input.RequestID,
+	}
+	if input.LeaseID != "" {
+		leaseID, err := uuid.Parse(input.LeaseID)
+		if err != nil {
+			return auth.SubscriptionCredentialRejection{}, auth.ErrSubscriptionRefreshConflict
+		}
+		params.LeaseID = pgtype.UUID{Bytes: leaseID, Valid: true}
+		params.ExpectedVersion = &input.ExpectedVersion
+	}
+	row, err := dbbudget.Queries(r.tx).RecordModelRouterSubscriptionCredentialRejection(ctx, params)
+	if errors.Is(err, pgx.ErrNoRows) {
+		if input.LeaseID != "" {
+			return auth.SubscriptionCredentialRejection{}, auth.ErrSubscriptionRefreshConflict
+		}
+		return auth.SubscriptionCredentialRejection{}, auth.ErrSubscriptionAccountNotFound
+	}
+	if err != nil {
+		return auth.SubscriptionCredentialRejection{}, err
+	}
+	rejection := auth.SubscriptionCredentialRejection{Count: int(row.CredentialRejectionCount), FirstRejectedAt: row.CredentialFirstRejectedAt.Time, RepeatedDisconnect: row.RepeatedDisconnect}
+	if row.PreviousReason != nil {
+		rejection.PreviousReason = *row.PreviousReason
+	}
+	return rejection, nil
+}
+
+func subscriptionUpsertKind(inserted, adopted bool) auth.SubscriptionUpsertKind {
+	switch {
+	case inserted:
+		return auth.SubscriptionUpsertInserted
+	case adopted:
+		return auth.SubscriptionUpsertAdopted
+	default:
+		return auth.SubscriptionUpsertUpdated
+	}
+}
+
+func subscriptionProviderUserID(providerUserID *string) string {
+	if providerUserID == nil {
+		return ""
+	}
+	return *providerUserID
+}
+
+func (r *subscriptionAccountRepo) SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (auth.SubscriptionOwner, error) {
+	subscriber, err := uuid.Parse(subscriberID)
+	if err != nil {
+		return auth.SubscriptionOwner{}, err
+	}
+	row, err := dbbudget.Queries(r.tx).GetSubscriberEnrollmentKey(ctx, subscriber)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return auth.SubscriptionOwner{}, auth.ErrSubscriptionEnrollmentKeyNotFound
+	}
+	if err != nil {
+		return auth.SubscriptionOwner{}, err
+	}
+	return auth.SubscriptionOwner{SubscriberID: subscriberID, APIKeyID: row.APIKeyID.String(), InstallationID: row.InstallationID.String()}, nil
+}

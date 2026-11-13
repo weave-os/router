@@ -6,8 +6,9 @@ import (
 	"net/http"
 	"testing"
 
-	"workweave/router/internal/auth"
-	"workweave/router/internal/billing"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -37,7 +38,7 @@ func (r *spendLimitRepo) GetUserMonthlySpendAndLimit(context.Context, string, st
 func (r *spendLimitRepo) GetOrgMonthlySpendAndLimit(context.Context, string) (int64, *int64, error) {
 	return 0, nil, nil
 }
-func (r *spendLimitRepo) GetAutopayConfig(context.Context, string) (bool, int64, error) {
+func (r *spendLimitRepo) GetAutopayConfig(context.Context, billing.Owner) (bool, int64, error) {
 	return false, 0, nil
 }
 func (r *spendLimitRepo) BillingTablesExist(context.Context) (bool, error) { return true, nil }
@@ -121,6 +122,8 @@ func TestCheckUserMonthlySpendLimit_CapReachedCoveringSubscriptionServesSubscrip
 	outCtx, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.NoError(t, err, "a covered turn must not 402 when the cap is reached")
 	assert.True(t, billing.SubscriptionOnlyFromContext(outCtx), "the returned ctx must carry the subscription-only flag")
+	reason, _ := billing.SubscriptionOnlyReasonFromContext(outCtx)
+	assert.Equal(t, billing.SubscriptionOnlySpendCapReached, reason)
 }
 
 func TestCheckUserMonthlySpendLimit_CapReachedNoSubscriptionStillRejects(t *testing.T) {
@@ -161,4 +164,36 @@ func TestCheckUserMonthlySpendLimit_UnderLimitDoesNotFlagSubscriptionOnly(t *tes
 	outCtx, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.NoError(t, err)
 	assert.False(t, billing.SubscriptionOnlyFromContext(outCtx), "an under-cap turn must not be forced subscription-only")
+}
+
+func TestCheckUserMonthlySpendLimit_ExemptsSubscriberAllowanceCoveredTurn(t *testing.T) {
+	// A turn admitted against an individual Max/Boost allowance debits 0 and
+	// settles against that allowance, so it never adds to the engineer's paid
+	// spend and a reached cap must not 402 it.
+	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
+	ctx := entitlement.WithCoverage(spendLimitCtx("u1", "org-1"), entitlement.Coverage{
+		SubscriberID:       "cs_max",
+		EntitlementVersion: 1,
+		Plan:               entitlement.PlanMax,
+	})
+	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
+	assert.NoError(t, err, "an allowance-covered turn is not gated on the engineer's paid spend limit")
+}
+
+func TestCheckUserMonthlySpendLimit_AppliesToSubscriberPaidFallback(t *testing.T) {
+	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
+	ctx := entitlement.WithProductScope(spendLimitCtx("u1", "org-1"), entitlement.PlanMax)
+
+	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
+}
+
+func TestCheckUserMonthlySpendLimit_MaxCoveringSubscriptionDoesNotExempt(t *testing.T) {
+	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
+	ctx := entitlement.WithProductScope(withUsageBypassSubscription(spendLimitCtx("u1", "org-1"), "sk-ant-oat01-valid-token"), entitlement.PlanMax)
+	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
 }

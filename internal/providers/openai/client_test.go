@@ -8,18 +8,59 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/openai"
-	"workweave/router/internal/router"
-	"workweave/router/internal/timing"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/openai"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/timing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestProxy_ErrorLogIdentifiesEffectiveEndpoint(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		endpoint providers.Endpoint
+		path     string
+	}{
+		{name: "responses", endpoint: providers.EndpointResponses, path: "/v1/responses"},
+		{name: "chat fallback", endpoint: providers.EndpointChatCompletions, path: "/v1/chat/completions"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, tc.path, r.URL.Path)
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer upstream.Close()
+			destination, err := url.Parse(upstream.URL)
+			require.NoError(t, err)
+			var logs bytes.Buffer
+			ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)).With("path", "/v1/messages", "request_id", "test-request"))
+			ctx = requestcontext.WithCredentials(ctx, &requestcontext.Credentials{
+				Source: requestcontext.SourceBYOK, APIKey: []byte("test-secret"), BaseURL: upstream.URL,
+			})
+			c := openai.NewClient("", "https://deployment.invalid")
+			prep := providers.PreparedRequest{Body: []byte(`{"model":"test-model"}`), Endpoint: tc.endpoint}
+			err = c.Proxy(ctx, router.Decision{Model: "test-model"}, prep, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			var upstreamErr *providers.UpstreamErrorResponse
+			require.ErrorAs(t, err, &upstreamErr)
+			assert.Equal(t, http.StatusNotFound, upstreamErr.Status)
+			var entry map[string]any
+			require.NoError(t, json.Unmarshal(logs.Bytes(), &entry))
+			assert.Equal(t, destination.Host, entry["upstream_host"])
+			assert.Equal(t, tc.path, entry["upstream_path"])
+			assert.Equal(t, "/v1/messages", entry["path"])
+			assert.Equal(t, "test-request", entry["request_id"])
+			assert.NotContains(t, logs.String(), "test-secret")
+		})
+	}
+}
 
 func TestProxy_RewritesModelAndForwardsAuth(t *testing.T) {
 	var (
@@ -54,6 +95,108 @@ func TestProxy_RewritesModelAndForwardsAuth(t *testing.T) {
 		"Proxy must send body verbatim — model rewriting is the envelope's job")
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), `"id":"chatcmpl-1"`)
+}
+
+func TestProxy_RewritesMappedModelForChatAndResponses(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		endpoint providers.Endpoint
+		path     string
+	}{
+		{name: "chat_completions", endpoint: providers.EndpointChatCompletions, path: "/v1/chat/completions"},
+		{name: "responses", endpoint: providers.EndpointResponses, path: "/v1/responses"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotBody map[string]any
+			var gotPath string
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				body, _ := io.ReadAll(r.Body)
+				require.NoError(t, json.Unmarshal(body, &gotBody))
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"id":"mapped-model","object":"response"}`))
+			}))
+			defer upstream.Close()
+
+			c := openai.NewClientWithModelIDMap("test-key", upstream.URL, map[string]string{
+				"gpt-5.6-luna-pro": "gpt-5.6-luna",
+			})
+			rec := httptest.NewRecorder()
+			clientReq := httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(""))
+			prep := providers.PreparedRequest{
+				Body:     []byte(`{"model":"gpt-5.6-luna-pro","messages":[]}`),
+				Headers:  make(http.Header),
+				Endpoint: tc.endpoint,
+			}
+
+			err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5.6-luna-pro"}, prep, rec, clientReq)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.path, gotPath)
+			assert.Equal(t, "gpt-5.6-luna", gotBody["model"])
+		})
+	}
+}
+
+func TestProxy_BYOKModelAliasOverridesCatalogModelIDMap(t *testing.T) {
+	var gotBody map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(body, &gotBody))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"byok-alias","object":"chat.completion"}`))
+	}))
+	defer upstream.Close()
+
+	c := openai.NewClientWithModelIDMap("deployment-key", upstream.URL, map[string]string{
+		"gpt-5.6-luna-pro": "gpt-5.6-luna",
+	})
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+		APIKey:       []byte("byok-key"),
+		Source:       "byok",
+		ModelAliases: map[string]string{"gpt-5.6-luna-pro": "customer-luna"},
+	})
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prep := providers.PreparedRequest{
+		Body:    []byte(`{"model":"gpt-5.6-luna-pro","messages":[]}`),
+		Headers: make(http.Header),
+	}
+
+	err := c.Proxy(ctx, router.Decision{Model: "gpt-5.6-luna-pro"}, prep, rec, clientReq)
+
+	require.NoError(t, err)
+	assert.Equal(t, "customer-luna", gotBody["model"],
+		"the BYOK endpoint alias must override the deployment catalog mapping")
+}
+
+func TestProxy_ForwardsUnmappedModelUnchanged(t *testing.T) {
+	var gotBody map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(body, &gotBody))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"unmapped-model","object":"chat.completion"}`))
+	}))
+	defer upstream.Close()
+
+	c := openai.NewClientWithModelIDMap("test-key", upstream.URL, map[string]string{
+		"gpt-5.6-luna-pro": "gpt-5.6-luna",
+	})
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prep := providers.PreparedRequest{
+		Body:    []byte(`{"model":"gpt-5.6-sol-pro","messages":[]}`),
+		Headers: make(http.Header),
+	}
+
+	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5.6-sol-pro"}, prep, rec, clientReq)
+
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-5.6-sol-pro", gotBody["model"])
 }
 
 func TestProxy_StripsDynamicHopByHopHeaders(t *testing.T) {
@@ -202,8 +345,9 @@ func TestProxy_5xxIsBufferedToo(t *testing.T) {
 
 // TestProxy_DebugLogsFirstChunkPreview pins finding [50]'s consolidation: the
 // debug-mode per-chunk logging path shares StreamBody's read loop via the
-// onChunk hook rather than a hand-rolled duplicate, and still emits the
-// first-chunk preview + completion log slog.Debug used to log directly.
+// onChunk hook rather than a hand-rolled duplicate. The first-chunk log emits
+// only the byte count — upstream bytes are response content and must never
+// reach logs on zero-retention installs.
 func TestProxy_DebugLogsFirstChunkPreview(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -233,7 +377,8 @@ func TestProxy_DebugLogsFirstChunkPreview(t *testing.T) {
 
 	logged := buf.String()
 	assert.Contains(t, logged, "OpenAI upstream first chunk")
-	assert.Contains(t, logged, "chatcmpl-1", "first-chunk preview must carry the upstream bytes")
+	assert.NotContains(t, logged, "chatcmpl-1", "first-chunk log must not carry upstream bytes")
+	assert.Contains(t, logged, "bytes=27")
 	assert.Contains(t, logged, "OpenAI upstream stream complete")
 }
 

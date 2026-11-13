@@ -9,14 +9,29 @@ import (
 	"strings"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/openaicompat"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/openaicompat"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMiniMaxBaseURL(t *testing.T) {
+	tests := map[string]string{
+		"":       openaicompat.MiniMaxGlobalBaseURL,
+		"global": openaicompat.MiniMaxGlobalBaseURL,
+		"cn":     openaicompat.MiniMaxCNBaseURL,
+		"China":  openaicompat.MiniMaxCNBaseURL,
+	}
+
+	for region, want := range tests {
+		t.Run(region, func(t *testing.T) {
+			assert.Equal(t, want, openaicompat.MiniMaxBaseURL(region))
+		})
+	}
+}
 
 func TestProxy_ForwardsToChatCompletionsUnderVersionedBaseURL(t *testing.T) {
 	var (
@@ -51,6 +66,69 @@ func TestProxy_ForwardsToChatCompletionsUnderVersionedBaseURL(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rec.Code)
 }
 
+func TestProxy_RewritesMappedCatalogModelIDs(t *testing.T) {
+	cases := []struct {
+		catalog  string
+		upstream string
+	}{
+		{"deepseek/deepseek-v4-flash", "deepseek-v4-flash"},
+		{"deepseek/deepseek-v4-pro", "deepseek-v4-pro"},
+		{"moonshotai/kimi-k2.6", "kimi-k2.6"},
+		{"xiaomi/mimo-v2.5-pro", "mimo-v2.5-pro"},
+		{"z-ai/glm-5.2", "glm-5.2"},
+	}
+	idMap := make(map[string]string, len(cases))
+	for _, tc := range cases {
+		idMap[tc.catalog] = tc.upstream
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.catalog, func(t *testing.T) {
+			var gotModel string
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ := io.ReadAll(r.Body)
+				var parsed map[string]any
+				require.NoError(t, json.Unmarshal(body, &parsed))
+				gotModel, _ = parsed["model"].(string)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"id":"chatcmpl-1","object":"chat.completion"}`))
+			}))
+			defer upstream.Close()
+
+			c := openaicompat.NewClientWithModelIDMap("test-key", upstream.URL, idMap)
+			rec := httptest.NewRecorder()
+			clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+			body := []byte(`{"model":"` + tc.catalog + `","messages":[{"role":"user","content":"hi"}]}`)
+			err := c.Proxy(context.Background(), router.Decision{Model: tc.catalog}, providers.PreparedRequest{Body: body, Headers: make(http.Header)}, rec, clientReq)
+			require.NoError(t, err)
+			assert.Equal(t, tc.upstream, gotModel)
+		})
+	}
+
+	t.Run("unmapped catalog id is unchanged", func(t *testing.T) {
+		var gotModel string
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			var parsed map[string]any
+			require.NoError(t, json.Unmarshal(body, &parsed))
+			gotModel, _ = parsed["model"].(string)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":"chatcmpl-1","object":"chat.completion"}`))
+		}))
+		defer upstream.Close()
+
+		c := openaicompat.NewClientWithModelIDMap("test-key", upstream.URL, idMap)
+		rec := httptest.NewRecorder()
+		clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+		body := []byte(`{"model":"qwen/qwen3-coder","messages":[{"role":"user","content":"hi"}]}`)
+		err := c.Proxy(context.Background(), router.Decision{Model: "qwen/qwen3-coder"}, providers.PreparedRequest{Body: body, Headers: make(http.Header)}, rec, clientReq)
+		require.NoError(t, err)
+		assert.Equal(t, "qwen/qwen3-coder", gotModel)
+	})
+}
+
 // TestProxy_BYOKCredentialsOverrideEnvKey: a BYOK key on context (e.g. a
 // managed installation's own OpenRouter key) must win over the deployment env key.
 func TestProxy_BYOKCredentialsOverrideEnvKey(t *testing.T) {
@@ -65,8 +143,8 @@ func TestProxy_BYOKCredentialsOverrideEnvKey(t *testing.T) {
 	defer upstream.Close()
 
 	c := openaicompat.NewClient("deployment-key", upstream.URL+"/api/v1")
-	byok := &proxy.Credentials{APIKey: []byte("sk-or-v1-byok-key"), Source: "byok"}
-	ctx := context.WithValue(context.Background(), proxy.CredentialsContextKey{}, byok)
+	byok := &requestcontext.Credentials{APIKey: []byte("sk-or-v1-byok-key"), Source: "byok"}
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, byok)
 
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
@@ -76,6 +154,74 @@ func TestProxy_BYOKCredentialsOverrideEnvKey(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Bearer sk-or-v1-byok-key", gotAuth,
 		"BYOK credentials on context must override the deployment-level env key")
+}
+
+// TestProxy_BYOKBaseURLOverridesDeploymentBaseURL: a BYOK key carrying its own
+// base URL must be dispatched to the customer's endpoint, not the deployment's.
+func TestProxy_BYOKBaseURLOverridesDeploymentBaseURL(t *testing.T) {
+	deploymentHit := false
+	deployment := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		deploymentHit = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"from-deployment"}`))
+	}))
+	defer deployment.Close()
+
+	var customerPath, customerAuth string
+	customer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		customerPath = r.URL.Path
+		customerAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"from-customer","object":"chat.completion"}`))
+	}))
+	defer customer.Close()
+
+	c := openaicompat.NewClient("deployment-key", deployment.URL+"/api/v1")
+	// Trailing slash is deliberate: EffectiveBaseURL must normalize it so the
+	// joined path doesn't end up with a doubled separator.
+	byok := &requestcontext.Credentials{
+		APIKey:  []byte("mk-customer-key"),
+		Source:  "byok",
+		BaseURL: customer.URL + "/v1/",
+	}
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, byok)
+
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"m","messages":[]}`), Headers: make(http.Header)}
+	err := c.Proxy(ctx, router.Decision{Model: "m"}, prep, rec, clientReq)
+
+	require.NoError(t, err)
+	assert.False(t, deploymentHit, "a BYOK base URL must divert the call away from the deployment endpoint")
+	assert.Equal(t, "/v1/chat/completions", customerPath)
+	assert.Equal(t, "Bearer mk-customer-key", customerAuth)
+}
+
+// TestProxy_DeploymentBaseURLUsedWhenBYOKOmitsIt: a BYOK key with no base URL
+// keeps the deployment's endpoint — only the credential changes.
+func TestProxy_DeploymentBaseURLUsedWhenBYOKOmitsIt(t *testing.T) {
+	var gotPath string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-1","object":"chat.completion"}`))
+	}))
+	defer upstream.Close()
+
+	c := openaicompat.NewClient("deployment-key", upstream.URL+"/api/v1")
+	byok := &requestcontext.Credentials{APIKey: []byte("mk-customer-key"), Source: "byok"}
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, byok)
+
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"m","messages":[]}`), Headers: make(http.Header)}
+	err := c.Proxy(ctx, router.Decision{Model: "m"}, prep, rec, clientReq)
+
+	require.NoError(t, err)
+	assert.Equal(t, "/api/v1/chat/completions", gotPath,
+		"a BYOK key without a base URL must keep using the deployment endpoint")
 }
 
 // TestProxy_DevModeEnvKeyUsedWhenNoCredentialsOnContext: with no context
@@ -211,4 +357,157 @@ func TestProxy_4xxStillBuffered(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, buffered.Status)
 	assert.False(t, providers.IsRetryableStatus(buffered.Status),
 		"sanity: 400 must classify as non-retryable")
+}
+
+// TestGatewayClient_UnconfiguredBaseURLDoesNotFallBackToOpenRouter: an
+// unconfigured gateway must fail, not silently spend the tenant's token.
+func TestGatewayClient_UnconfiguredBaseURLDoesNotFallBackToOpenRouter(t *testing.T) {
+	c := openaicompat.NewGatewayClient("gateway-token", "")
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"gpt-5","messages":[]}`), Headers: make(http.Header)}
+
+	err := c.Proxy(context.Background(), router.Decision{Model: "gpt-5"}, prep, rec, clientReq)
+
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "openrouter.ai")
+}
+
+// TestGatewayClient_DispatchesToConfiguredEndpoint: the gateway path is
+// otherwise the plain Chat Completions one, bearer-authenticated.
+func TestGatewayClient_DispatchesToConfiguredEndpoint(t *testing.T) {
+	var gotPath, gotAuth string
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotAuth = r.URL.Path, r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-gw","object":"chat.completion"}`))
+	}))
+	defer upstream.Close()
+
+	c := openaicompat.NewGatewayClient("gateway-token", upstream.URL+"/api/v2/cortex/v1")
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"gpt-5","messages":[]}`), Headers: make(http.Header)}
+
+	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "gpt-5"}, prep, rec, clientReq))
+	assert.Equal(t, "/api/v2/cortex/v1/chat/completions", gotPath)
+	assert.Equal(t, "Bearer gateway-token", gotAuth)
+}
+
+// TestProxy_DefaultHeadersSentOnEveryRequest: provider-mandated headers
+// configured via WithDefaultHeaders ride on every Proxy dispatch.
+func TestProxy_DefaultHeadersSentOnEveryRequest(t *testing.T) {
+	var gotZDR string
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotZDR = r.Header.Get("Wafer-ZDR")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-zdr","object":"chat.completion"}`))
+	}))
+	defer upstream.Close()
+
+	c := openaicompat.NewClient("test-key", upstream.URL+"/v1").
+		WithDefaultHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"GLM-5.2","messages":[]}`), Headers: make(http.Header)}
+
+	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "z-ai/glm-5.2"}, prep, rec, clientReq))
+	assert.Equal(t, "required", gotZDR)
+}
+
+// TestPassthrough_DefaultHeadersSentOnEveryRequest: default headers must also
+// ride passthrough calls, not just routed ones.
+func TestPassthrough_DefaultHeadersSentOnEveryRequest(t *testing.T) {
+	var gotZDR string
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotZDR = r.Header.Get("Wafer-ZDR")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"object":"list","data":[]}`))
+	}))
+	defer upstream.Close()
+
+	c := openaicompat.NewClient("test-key", upstream.URL+"/v1").
+		WithDefaultHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+
+	require.NoError(t, c.Passthrough(context.Background(), providers.PreparedRequest{Headers: make(http.Header)}, rec, clientReq))
+	assert.Equal(t, "required", gotZDR)
+}
+
+// TestProxy_PreparedHeadersOverrideDefaults: per-request prepared headers
+// win over WithDefaultHeaders values for the same key.
+func TestProxy_PreparedHeadersOverrideDefaults(t *testing.T) {
+	var gotHeader string
+
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotHeader = r.Header.Get("X-Custom")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"chatcmpl-o","object":"chat.completion"}`))
+	}))
+	defer upstream.Close()
+
+	c := openaicompat.NewClient("test-key", upstream.URL+"/v1").
+		WithDefaultHeaders(http.Header{"X-Custom": []string{"default"}})
+	rec := httptest.NewRecorder()
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
+	prepHeaders := http.Header{}
+	prepHeaders.Set("X-Custom", "per-request")
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"m","messages":[]}`), Headers: prepHeaders}
+
+	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "m"}, prep, rec, clientReq))
+	assert.Equal(t, "per-request", gotHeader)
+}
+
+// TestProxyAndPassthrough_ProtectedHeadersOverridePreparedHeaders ensures a
+// provider-mandated header cannot be downgraded by translated request headers
+// on either dispatch path.
+func TestProxyAndPassthrough_ProtectedHeadersOverridePreparedHeaders(t *testing.T) {
+	for _, routed := range []bool{true, false} {
+		name := "passthrough"
+		if routed {
+			name = "proxy"
+		}
+		t.Run(name, func(t *testing.T) {
+			var gotZDR string
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotZDR = r.Header.Get("Wafer-ZDR")
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"chatcmpl-zdr","object":"chat.completion"}`))
+			}))
+			defer upstream.Close()
+
+			c := openaicompat.NewClient("test-key", upstream.URL+"/v1").
+				WithProtectedHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
+			rec := httptest.NewRecorder()
+			path := "/v1/models"
+			prep := providers.PreparedRequest{Headers: make(http.Header)}
+			if routed {
+				path = "/v1/chat/completions"
+				prep.Body = []byte(`{"model":"m","messages":[]}`)
+			} else {
+				prep.Body = []byte(`{"object":"list","data":[]}`)
+			}
+			prep.Headers.Set("Wafer-ZDR", "disabled")
+			clientReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(""))
+			if !routed {
+				clientReq = httptest.NewRequest(http.MethodGet, path, nil)
+			}
+
+			var err error
+			if routed {
+				err = c.Proxy(context.Background(), router.Decision{Model: "m"}, prep, rec, clientReq)
+			} else {
+				err = c.Passthrough(context.Background(), prep, rec, clientReq)
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, "required", gotZDR)
+		})
+	}
 }

@@ -1,17 +1,20 @@
 /**
- * @workweave/router — route the pi coding agent through the Weave Router.
+ * @weave-os/router — route the pi coding agent through the Weave Router.
  *
- * Wiring (all on the existing router surface — no router source change beyond
- * the installer):
+ * Wiring:
  *   - provider:     register `weave` with per-process knob headers (quality on
- *                   the main loop, speed/cheap in subagents).
+ *                   the main loop, speed/cheap in subagents) and its single
+ *                   `auto` model.
  *   - metadata:     stamp body.metadata.user_id for sticky sessions + subagent
  *                   detection.
- *   - routed-model: show which model the router actually picked.
+ *   - Loom UI:      branded header, Wooly animation, actual route, and saved $.
  *   - safety:       block catastrophic bash (unless WEAVE_NO_SAFETY=1).
- *   - compaction:   experimental cheap path (only when WEAVE_CHEAP_COMPACTION=1).
+ *   - compaction:   protect long tool loops and compact before model escalation.
  *   - dispatch:     parallel, context-isolated subagents — top-level process
  *                   only (no grandchildren).
+ *   - lsp:          code intelligence (definition/references/hover/symbols/
+ *                   diagnostics) over lazily spawned language servers, shared
+ *                   with subagents through a parent-side broker socket.
  *
  * The same module loads in dispatched children via `-e <self>`; WEAVE_PI_SUBAGENT
  * flips the provider knobs and suppresses the dispatch tool so fan-out doesn't recurse.
@@ -19,13 +22,20 @@
 
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerAutoModel } from "./auto-model.js";
+import { registerBetaCommand } from "./beta.js";
+import { registerClassifierThread } from "./classifier-thread.js";
 import { isSubagent } from "./config.js";
-import { registerCheapCompaction } from "./compaction.js";
+import { registerCompaction } from "./compaction.js";
+import { registerEscalationCompaction } from "./escalation.js";
 import { registerDispatch } from "./dispatch.js";
+import { registerForceModelCommands } from "./force-model.js";
+import { registerLsp } from "./lsp.js";
 import { registerMetadata } from "./metadata.js";
 import { registerRoutedModel } from "./routed-model.js";
 import { registerSafety } from "./safety.js";
 import { registerWeave } from "./provider.js";
+import { registerWooly } from "./ui.js";
 
 const SELF_PATH = fileURLToPath(import.meta.url);
 
@@ -36,14 +46,27 @@ export default function (pi: ExtensionAPI): void {
 	registerWeave(pi);
 	pi.on("session_start", () => registerWeave(pi));
 
+	// First, so every later request hook sees the wire model.
+	registerAutoModel(pi);
 	registerMetadata(pi);
+	const classifierThreadActive = registerClassifierThread(pi);
+	registerBetaCommand(pi);
+	registerForceModelCommands(pi);
 	registerRoutedModel(pi);
+	if (!isSubagent()) registerWooly(pi);
+	let handoffPending = () => false;
+	registerCompaction(pi, undefined, () => handoffPending() || classifierThreadActive());
+	handoffPending = registerEscalationCompaction(pi, undefined, undefined, classifierThreadActive);
 
 	if (process.env.WEAVE_NO_SAFETY !== "1") registerSafety(pi);
-	if (process.env.WEAVE_CHEAP_COMPACTION === "1") registerCheapCompaction(pi);
+
+	// registerLsp picks its own role: the main process gets the pool-backed tool
+	// and returns the broker provider below; a child gets the broker-backed tool
+	// only when dispatch actually handed it a socket.
+	const lspBroker = process.env.WEAVE_PI_NO_LSP === "1" ? undefined : registerLsp(pi);
 
 	// Only the top-level process fans out. Children (WEAVE_PI_SUBAGENT=1) load
 	// this same extension but get no dispatch tool, so subagents can't spawn
 	// grandchildren.
-	if (!isSubagent()) registerDispatch(pi, SELF_PATH);
+	if (!isSubagent()) registerDispatch(pi, SELF_PATH, lspBroker);
 }

@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/feedback"
-	"workweave/router/internal/observability/otel"
-	"workweave/router/internal/router/turntype"
+	"weave-os/router/internal/feedback"
+	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry"
 
 	"github.com/google/uuid"
 )
@@ -133,7 +133,7 @@ func (s *Service) emitFeedbackSpan(p SubmitFeedbackParams) {
 		return
 	}
 	now := time.Now()
-	b := otel.NewAttrBuilder(6).
+	b := telemetry.NewAttrBuilder(6).
 		String("external_id", p.ExternalID).
 		String("request_id", p.RequestID).
 		String("feedback.rating", p.Rating).
@@ -144,9 +144,9 @@ func (s *Service) emitFeedbackSpan(p SubmitFeedbackParams) {
 	if p.RouterUserID != "" {
 		b = b.String("router_user_id", p.RouterUserID)
 	}
-	buf := s.newTelemetryBuffer()
-	buf.Record(otel.Span{Name: routerFeedbackSpanName, Start: now, End: now, Attrs: b.Build()})
-	buf.Flush()
+	ctx := telemetry.WithRecorder(context.Background(), s.newTelemetryRecorder())
+	telemetry.Record(ctx, telemetry.Span{Name: routerFeedbackSpanName, Start: now, End: now, Attrs: b.Build()})
+	telemetry.Flush(ctx)
 }
 
 // mintFeedbackToken signs a feedback-link token, or returns "" when the
@@ -163,8 +163,12 @@ func (s *Service) mintFeedbackToken(installationID uuid.UUID, externalID, reques
 }
 
 // setFeedbackLinkHeader mints a signed feedback link and sets it on the
-// response. No-op when the feature is unwired or any required id is missing.
-func (s *Service) setFeedbackLinkHeader(w http.ResponseWriter, installationID uuid.UUID, externalID, requestID, routerUserID string) {
+// response. No-op when the feature is unwired, any required id is missing,
+// or the installation has hidden its terminal surfaces.
+func (s *Service) setFeedbackLinkHeader(ctx context.Context, w http.ResponseWriter, installationID uuid.UUID, externalID, requestID, routerUserID string) {
+	if hideTerminalSurfacesForRequest(ctx) {
+		return
+	}
 	token := s.mintFeedbackToken(installationID, externalID, requestID, routerUserID)
 	if token == "" {
 		return
@@ -191,6 +195,9 @@ var terminalFeedbackClients = map[string]struct{}{
 // out of upstream context on ingress.
 const feedbackFooterText = "\n\n_Weave Router feedback:_ `/rf +` good experience · `/rf -` poor experience · note optional, e.g. `/rf - too slow`"
 
+// Codex reserves `/…` for built-ins, so `$rf` is used instead; the sentinel prefix is kept identical so ingress stripping matches both.
+const feedbackFooterTextCodex = "\n\n_Weave Router feedback:_ `$rf +` good experience · `$rf -` poor experience · note optional, e.g. `$rf - too slow`"
+
 // feedbackFooter returns the in-terminal rating hint for a streamed response,
 // or "" to stay transparent. Gated to terminalFeedbackClients (avoid
 // contaminating non-chat surfaces), to deployments with durable feedback
@@ -199,7 +206,13 @@ const feedbackFooterText = "\n\n_Weave Router feedback:_ `/rf +` good experience
 // dispatches and machine turns (compaction, probe, title-gen, classifier)
 // render final text the user didn't directly initiate, where a trailing /rf
 // hint would strand beneath it (e.g. under an Explore subagent's result).
-func (s *Service) feedbackFooter(clientApp string, tt turntype.TurnType) string {
+// echoedInConversation suppresses the hint once the history already shows it,
+// so a conversation gets it at most once. Headless runs (`claude -p`, Agent
+// SDK, `codex exec`) never get it: their output is consumed by scripts.
+func (s *Service) feedbackFooter(ctx context.Context, clientApp string, tt turntype.TurnType, echoedInConversation bool) string {
+	if hideTerminalSurfacesForRequest(ctx) {
+		return ""
+	}
 	if s.feedbackStore == nil {
 		return ""
 	}
@@ -209,5 +222,21 @@ func (s *Service) feedbackFooter(clientApp string, tt turntype.TurnType) string 
 	if tt != turntype.MainLoop && tt != turntype.ToolResult {
 		return ""
 	}
+	if echoedInConversation || isHeadlessClientUserAgent(ClientIdentityFrom(ctx).UserAgent) {
+		return ""
+	}
+	if clientApp == ClientAppCodex {
+		return feedbackFooterTextCodex
+	}
 	return feedbackFooterText
+}
+
+// isHeadlessClientUserAgent recognizes non-interactive harness runs from the
+// User-Agent: Claude Code reports its entrypoint as "(external, sdk-cli)" for
+// `claude -p` and "sdk-ts"/"sdk-py" for the Agent SDK, while interactive use
+// reports "cli"; Codex prefixes the User-Agent with its originator
+// ("codex_exec", "codex_sdk_ts").
+func isHeadlessClientUserAgent(userAgent string) bool {
+	ua := strings.ToLower(userAgent)
+	return strings.Contains(ua, ", sdk-") || strings.HasPrefix(ua, "codex_exec") || strings.HasPrefix(ua, "codex_sdk")
 }

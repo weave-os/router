@@ -1,21 +1,22 @@
 # internal/api — AGENTS
 
-> **Mirror notice.** Verbatim sync with [CLAUDE.md](CLAUDE.md). **Update both together** — divergence = bug.
+> **Mirror notice.** Generated from [CLAUDE.md](CLAUDE.md). Edit CLAUDE.md, then run `make generate-agent-guides`; CI rejects drift.
 
 Presentation layer. Handlers adapt HTTP ↔ Service. Read [root CLAUDE.md](../../CLAUDE.md) first.
 
 ## Subpackages
 
-- `admin/` — operational endpoints: `/health`, `/validate`, `/admin/v1/*`
+- `admin/` — operational endpoints: `/health`, `/validate`, `/v1/client-events` (harness CLI off/on/uninstall report → log + `router.harness_lifecycle` span; Claude Desktop proxy's `connected` report → `router.harness_connected`; nothing stored), `/admin/v1/*`, and `/v1/sessions/:session_id/cost` (authed by `middleware.WithReadKey`: an `rk_` or `ra_` key resolves its installation; per-installation `WithInstallationRateLimit`; no admission, billing or spend gates)
 - `anthropic/` — Anthropic Messages surface (`/v1/messages`, passthrough, `/v1/route`)
 - `openai/` — OpenAI Chat Completions (`/v1/chat/completions`)
 - `gemini/` — Gemini native (`/v1beta/models/:modelAction`)
+- `analytics/` — read-only routing-decision export (`/v1/analytics/routing-decisions`, `/models`, `/schema`). Authed by `ra_` analytics keys via `middleware.WithAnalyticsKey` **only** — no `WithAuth`, no balance check, no spend cap, since nothing here can route or spend.
 - `feedback/` — no-login feedback-link surface (`/f/<token>`, rating submit). The token itself (signed via [`internal/feedback`](../feedback)) is the sole credential, so this is the one subpackage that **deliberately carries no auth middleware** — do not add `WithAuth`/`WithAdminOnly` here; that would break the whole point of a shareable no-login link.
 
 ## Import rules
 
 - May import `internal/auth` (Service handle + middleware-context types) and `internal/proxy` (routing/dispatch service handle).
-- May import `internal/observability` for logging, `internal/providers` for shared sentinel errors, `internal/router/cluster` for `ErrClusterUnavailable` sentinel + `DeployedModelsSource` interface.
+- May import `internal/observability` for logging, `internal/providers` for shared sentinel errors, `internal/analytics` for the export Service handle + row/schema types.
 - **Must not import** `internal/postgres`, any concrete `internal/providers/*` adapter, or `internal/translate` directly.
 - Concrete instances reach presentation only via constructor params from composition root.
 
@@ -31,4 +32,4 @@ Presentation layer. Handlers adapt HTTP ↔ Service. Read [root CLAUDE.md](../..
 
 ## History
 
-`internal/router/heuristic` and `internal/router/evalswitch` previously lived in the API ring; both removed when heuristic fallback retired in favor of `cluster.ErrClusterUnavailable` → HTTP 503.
+`internal/router/heuristic` and `internal/router/evalswitch` previously lived in the API ring; both removed when heuristic fallback retired in favor of a fail-closed HTTP 503 (`router.ErrRoutingUnavailable`).

@@ -3,9 +3,10 @@ package middleware
 import (
 	"strings"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,16 +18,20 @@ const ForceEffortOverrideHeader = "x-weave-effort"
 // level on the request context. Invalid values abort with 400.
 func WithForceEffortOverride() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context()); managed && entitlement.PlanHasServingProfile(entitlement.Plan(identity.Plan)) {
+			c.Next()
+			return
+		}
 		raw := strings.TrimSpace(c.GetHeader(ForceEffortOverrideHeader))
 		if raw == "" {
 			c.Next()
 			return
 		}
-		if !translate.IsValidEffort(raw) {
+		if !router.IsValidEffort(raw) {
 			abortInvalidKnob(c, ForceEffortOverrideHeader+" must be one of: low, medium, high, max, xhigh (or aliases fast/minimal/ultra).")
 			return
 		}
-		canonical := translate.CanonicalizeEffort(raw)
+		canonical := router.CanonicalizeEffort(raw)
 		// Merge with any existing routing knobs (e.g. from WithRoutingKnobsOverride)
 		// so ForceEffort doesn't silently drop a separately-configured Alpha/QualityBias.
 		merged := router.Overrides{ForceEffort: canonical}

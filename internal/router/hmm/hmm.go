@@ -8,8 +8,9 @@ import (
 	"errors"
 	"strings"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/policy"
 )
 
 var ErrHMMUnavailable = errors.New("hmm: policy router unavailable")
@@ -27,14 +28,27 @@ type Router struct {
 	resolver *policy.Resolver
 }
 
-func New(decider Decider, deployed, available map[string]struct{}) *Router {
-	return NewForStrategy(router.StrategyHMM, decider, deployed, available)
+func New(decider Decider, availableProviders map[string]struct{}) *Router {
+	return NewForStrategy(router.StrategyHMM, decider, availableProviders)
 }
 
 // NewForStrategy constructs an HMM adapter with a separately selectable
 // strategy ID while preserving the HMM roster mapping and lifecycle behavior.
-func NewForStrategy(strategy router.Strategy, decider Decider, deployed, available map[string]struct{}) *Router {
-	resolver := policy.NewResolver(deployed, available, rosterIDFor, policy.ManagedProviderPolicy())
+// Its candidate universe comes from the catalog and registered providers; the
+// HMM sidecar owns roster membership and intersects these candidates with the
+// selected cluster's arms.
+func NewForStrategy(strategy router.Strategy, decider Decider, availableProviders map[string]struct{}) *Router {
+	return newWithRoutingTargets(
+		strategy,
+		decider,
+		catalog.HMMRoutingTargetSet(availableProviders),
+		availableProviders,
+	)
+}
+
+// newWithRoutingTargets allows focused tests to inject a fixed target set.
+func newWithRoutingTargets(strategy router.Strategy, decider Decider, routingTargets, availableProviders map[string]struct{}) *Router {
+	resolver := policy.NewResolver(routingTargets, availableProviders, rosterIDFor, policy.ManagedProviderPolicy())
 	return &Router{
 		SidecarRouter: policy.NewSidecarRouter(policy.SidecarRouterConfig{
 			Strategy:    strategy,
@@ -61,7 +75,12 @@ func reasonFor(res Result) string {
 
 func isToolExecutionResult(res Result) bool {
 	group := strings.TrimSpace(strings.ToLower(res.PolicyGroup))
-	if group == "explore" {
+	// "explore" is the retired five-class label (roster_v2, still the pinned
+	// prod package); "low" is its four-class successor (roster_v4) that the
+	// retired explore cluster was merged into. Both carry the same
+	// tool-execution semantics, so both must be recognized during the
+	// migration window where either package can be deployed.
+	if group == "explore" || group == "low" {
 		return true
 	}
 	label := strings.TrimSpace(strings.ToLower(res.PolicyLabel))

@@ -57,7 +57,9 @@ INSERT INTO router.spiral_shadow_events (
     repeat_frac,
     monologue_len,
     tool_call_count,
-    message_count
+    message_count,
+    ping_pong_len,
+    steps_since_progress
 ) VALUES (
     $1::uuid,
     $2::bytea,
@@ -73,26 +75,30 @@ INSERT INTO router.spiral_shadow_events (
     $12::double precision,
     $13::int,
     $14::int,
-    $15::int
+    $15::int,
+    $16::int,
+    $17::int
 )
 `
 
 type InsertSpiralShadowEventParams struct {
-	InstallationID   uuid.UUID
-	SessionKey       []byte
-	Role             string
-	RoutedModel      string
-	TurnType         string
-	Reason           string
-	ErrStreak        int32
-	ErroredResults   int32
-	ToolResults      int32
-	MaxSameFileEdits int32
-	SameFilePathHash string
-	RepeatFrac       float64
-	MonologueLen     int32
-	ToolCallCount    int32
-	MessageCount     int32
+	InstallationID     uuid.UUID
+	SessionKey         []byte
+	Role               string
+	RoutedModel        string
+	TurnType           string
+	Reason             string
+	ErrStreak          int32
+	ErroredResults     int32
+	ToolResults        int32
+	MaxSameFileEdits   int32
+	SameFilePathHash   string
+	RepeatFrac         float64
+	MonologueLen       int32
+	ToolCallCount      int32
+	MessageCount       int32
+	PingPongLen        int32
+	StepsSinceProgress int32
 }
 
 // Records one shadow-mode spiral detection. Written at detection time with
@@ -115,7 +121,9 @@ type InsertSpiralShadowEventParams struct {
 //	    repeat_frac,
 //	    monologue_len,
 //	    tool_call_count,
-//	    message_count
+//	    message_count,
+//	    ping_pong_len,
+//	    steps_since_progress
 //	) VALUES (
 //	    $1::uuid,
 //	    $2::bytea,
@@ -131,7 +139,9 @@ type InsertSpiralShadowEventParams struct {
 //	    $12::double precision,
 //	    $13::int,
 //	    $14::int,
-//	    $15::int
+//	    $15::int,
+//	    $16::int,
+//	    $17::int
 //	)
 func (q *Queries) InsertSpiralShadowEvent(ctx context.Context, arg InsertSpiralShadowEventParams) error {
 	_, err := q.db.Exec(ctx, insertSpiralShadowEvent,
@@ -150,6 +160,8 @@ func (q *Queries) InsertSpiralShadowEvent(ctx context.Context, arg InsertSpiralS
 		arg.MonologueLen,
 		arg.ToolCallCount,
 		arg.MessageCount,
+		arg.PingPongLen,
+		arg.StepsSinceProgress,
 	)
 	return err
 }

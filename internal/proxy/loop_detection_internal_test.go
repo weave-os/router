@@ -8,103 +8,13 @@ import (
 	"sync"
 	"testing"
 
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestDetectToolCallLoop_TripsAtMaxRepeats(t *testing.T) {
-	// 5 identical (ls, /tmp) tool calls in a row → trip on the 5th.
-	body := buildBodyWithToolCalls(t, []toolCall{
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-	})
-	env, err := translate.ParseAnthropic(body)
-	require.NoError(t, err)
-
-	loop, sig, count := detectToolCallLoop(env)
-	assert.True(t, loop)
-	assert.Equal(t, "ls", sig.Name)
-	assert.GreaterOrEqual(t, count, loopDetectionMaxRepeats)
-}
-
-func TestDetectToolCallLoop_NoLoopBelowThreshold(t *testing.T) {
-	body := buildBodyWithToolCalls(t, []toolCall{
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-	})
-	env, err := translate.ParseAnthropic(body)
-	require.NoError(t, err)
-
-	loop, _, _ := detectToolCallLoop(env)
-	assert.False(t, loop, "4 identical calls must not trip the detector (threshold is 5)")
-}
-
-func TestDetectToolCallLoop_DifferentArgsDoNotTrip(t *testing.T) {
-	body := buildBodyWithToolCalls(t, []toolCall{
-		{name: "ls", input: map[string]any{"path": "/a"}},
-		{name: "ls", input: map[string]any{"path": "/b"}},
-		{name: "ls", input: map[string]any{"path": "/c"}},
-		{name: "ls", input: map[string]any{"path": "/d"}},
-		{name: "ls", input: map[string]any{"path": "/e"}},
-	})
-	env, err := translate.ParseAnthropic(body)
-	require.NoError(t, err)
-
-	loop, _, _ := detectToolCallLoop(env)
-	assert.False(t, loop, "same tool name but distinct args must not trip the detector")
-}
-
-func TestDetectToolCallLoop_WindowedOldEntriesDropOut(t *testing.T) {
-	// Window is 10. Put 4 (ls,/tmp) entries spaced far apart (separated by
-	// many distinct calls). The window should be small enough that the
-	// (ls,/tmp) count drops below threshold by the time we sample it.
-	calls := []toolCall{
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-	}
-	for i := range 15 {
-		calls = append(calls, toolCall{name: "read", input: map[string]any{"path": "/etc", "n": i}})
-	}
-	body := buildBodyWithToolCalls(t, calls)
-	env, err := translate.ParseAnthropic(body)
-	require.NoError(t, err)
-
-	loop, _, _ := detectToolCallLoop(env)
-	assert.False(t, loop, "stale repeats outside the window must not trip the detector")
-}
-
-func TestDetectToolCallLoop_AlternatingPairStillTripsOnRepeats(t *testing.T) {
-	// An A/B alternating loop (Hermes-style qwen3 failure mode) still trips
-	// because each leg accrues count independently.
-	calls := []toolCall{
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-		{name: "read", input: map[string]any{"path": "/etc/hosts"}},
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-		{name: "read", input: map[string]any{"path": "/etc/hosts"}},
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-		{name: "read", input: map[string]any{"path": "/etc/hosts"}},
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-		{name: "read", input: map[string]any{"path": "/etc/hosts"}},
-		{name: "ls", input: map[string]any{"path": "/tmp"}},
-	}
-	body := buildBodyWithToolCalls(t, calls)
-	env, err := translate.ParseAnthropic(body)
-	require.NoError(t, err)
-
-	loop, sig, count := detectToolCallLoop(env)
-	assert.True(t, loop)
-	assert.Equal(t, "ls", sig.Name)
-	assert.GreaterOrEqual(t, count, loopDetectionMaxRepeats)
-}
 
 // --- helpers ---
 
@@ -199,6 +109,22 @@ func TestDetectCyclicToolCallLoop_BelowMinCallsDoesNotTrip(t *testing.T) {
 	assert.False(t, looped, "below the min-calls floor must not trip")
 }
 
+func TestDetectCyclicToolCallLoop_LaunchPlusPollingDoesNotTrip(t *testing.T) {
+	// Codex launches a long-running command once, then repeats empty
+	// write_stdin polls. The launch makes the window mixed, but the polls are
+	// still legitimate and must not count as a re-read cycle.
+	calls := []toolCall{{name: "exec", input: map[string]any{"input": "sleep 60"}}}
+	poll := `const r = await tools.write_stdin({"session_id":72385,"chars":"","yield_time_ms":1000,"max_output_tokens":12000});`
+	for len(calls) < cyclicLoopWindowSize {
+		calls = append(calls, toolCall{name: "exec", input: map[string]any{"input": poll}})
+	}
+	env, err := translate.ParseAnthropic(buildBodyWithToolCalls(t, calls))
+	require.NoError(t, err)
+	looped, _, _, _, total := detectCyclicToolCallLoop(env)
+	assert.False(t, looped, "a command followed by empty write_stdin polls must not trip")
+	assert.Equal(t, cyclicLoopWindowSize, total)
+}
+
 // --- handleLoopEscalation observability: kill switch, holdout, budget, events ---
 
 // recordingLoopStore is an in-memory LoopEscalationStore that captures inserts
@@ -226,7 +152,7 @@ func (r *recordingLoopStore) CountLoopEscalationEvents(context.Context, []byte, 
 // newLoopEscalationSvc wires a Service with just the pieces
 // handleLoopEscalation touches.
 func newLoopEscalationSvc(pins *stubPinStore, events *recordingLoopStore) *Service {
-	svc := NewService(nil, nil, nil, false, nil, pins, false, "anthropic", "claude-haiku-4-5", nil)
+	svc := NewService(nil, nil, nil, pins, false, "anthropic", "claude-haiku-4-5", nil)
 	if events != nil {
 		svc = svc.WithLoopEscalationStore(events)
 	}
@@ -247,7 +173,7 @@ func TestHandleLoopEscalation_RecordsEventAndPins(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(1), "default", "claude-haiku-4-5")
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(1), "default", "claude-haiku-4-5", false)
 
 	require.Len(t, events.events, 1, "detection must leave a durable event row")
 	ev := events.events[0]
@@ -267,7 +193,7 @@ func TestHandleLoopEscalation_KillSwitchRecordsButDoesNotPin(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events).WithLoopEscalationConfig(false, 0)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(2), "default", "claude-haiku-4-5")
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(2), "default", "claude-haiku-4-5", false)
 
 	require.Len(t, events.events, 1, "kill switch must not silence detection telemetry")
 	assert.Equal(t, loopActionDisabled, events.events[0].Action)
@@ -279,7 +205,7 @@ func TestHandleLoopEscalation_HoldoutRecordsButDoesNotPin(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events).WithLoopEscalationConfig(true, 100)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(3), "default", "claude-haiku-4-5")
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(3), "default", "claude-haiku-4-5", false)
 
 	require.Len(t, events.events, 1)
 	assert.Equal(t, loopActionHoldout, events.events[0].Action)
@@ -292,7 +218,7 @@ func TestHandleLoopEscalation_HoldoutWithoutStoreStillEscalates(t *testing.T) {
 	pins := newStubPinStore()
 	svc := newLoopEscalationSvc(pins, nil).WithLoopEscalationConfig(true, 100)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(4), "default", "claude-haiku-4-5")
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(4), "default", "claude-haiku-4-5", false)
 
 	require.Len(t, pins.upserts, 1, "no store wired -> holdout disabled -> escalate")
 	assert.Equal(t, translate.ReasonLoopEscalation, pins.upserts[0].Reason)
@@ -303,7 +229,7 @@ func TestHandleLoopEscalation_BudgetSuppressesRepeatFire(t *testing.T) {
 	events := &recordingLoopStore{count: 1}
 	svc := newLoopEscalationSvc(pins, events)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(5), "default", "claude-haiku-4-5")
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(5), "default", "claude-haiku-4-5", false)
 
 	assert.Empty(t, events.events, "a session that already fired must not emit a second event")
 	assert.Empty(t, pins.upserts, "a session that already fired must not re-pin")
@@ -314,7 +240,7 @@ func TestHandleLoopEscalation_AlreadyStrongRecordsOnly(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(6), "default", escalateModel)
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(6), "default", escalateModel, false)
 
 	require.Len(t, events.events, 1, "an opus loop is a training signal, record it")
 	assert.Equal(t, loopActionAlreadyStrong, events.events[0].Action)
@@ -328,7 +254,7 @@ func TestHandleLoopEscalation_UserForcedRecordsOnly(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(7), "default", "claude-haiku-4-5")
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(7), "default", "claude-haiku-4-5", false)
 
 	require.Len(t, events.events, 1)
 	assert.Equal(t, loopActionUserForced, events.events[0].Action)
@@ -342,7 +268,7 @@ func TestHandleLoopEscalation_ExistingEscalationPinIsSilent(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(8), "default", "claude-haiku-4-5")
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(8), "default", "claude-haiku-4-5", false)
 
 	assert.Empty(t, events.events, "an already-rescued session must not double-log")
 	assert.Empty(t, pins.upserts)
@@ -350,11 +276,11 @@ func TestHandleLoopEscalation_ExistingEscalationPinIsSilent(t *testing.T) {
 
 func TestInLoopEscalationHoldout_DeterministicAndProportional(t *testing.T) {
 	key := loopTestKey(9)
-	assert.False(t, inLoopEscalationHoldout(key, 0), "pct 0 disables the holdout")
-	assert.True(t, inLoopEscalationHoldout(key, 100), "pct 100 holds out everything")
+	assert.False(t, DeterministicHoldout(key, 0), "pct 0 disables the holdout")
+	assert.True(t, DeterministicHoldout(key, 100), "pct 100 holds out everything")
 	assert.Equal(t,
-		inLoopEscalationHoldout(key, 10),
-		inLoopEscalationHoldout(key, 10),
+		DeterministicHoldout(key, 10),
+		DeterministicHoldout(key, 10),
 		"same key must always land in the same bucket")
 
 	// sha256-derived keys are uniform; at pct=10 over 2000 keys the holdout
@@ -365,7 +291,7 @@ func TestInLoopEscalationHoldout_DeterministicAndProportional(t *testing.T) {
 		sum := sha256.Sum256([]byte{byte(i), byte(i >> 8)})
 		var k [sessionpin.SessionKeyLen]byte
 		copy(k[:], sum[:])
-		if inLoopEscalationHoldout(k, 10) {
+		if DeterministicHoldout(k, 10) {
 			held++
 		}
 	}
@@ -382,7 +308,7 @@ func TestHandleLoopEscalation_PinFailureLeavesNoEventRow(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(10), "default", "claude-haiku-4-5")
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.New(), loopTestKey(10), "default", "claude-haiku-4-5", false)
 
 	assert.Empty(t, events.events, "a failed rescue must not consume the session's escalation budget")
 	assert.Empty(t, pins.upserts)
@@ -396,7 +322,7 @@ func TestHandleLoopEscalation_NilInstallationSkipsHoldout(t *testing.T) {
 	events := &recordingLoopStore{}
 	svc := newLoopEscalationSvc(pins, events).WithLoopEscalationConfig(true, 100)
 
-	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.Nil, loopTestKey(11), "default", "claude-haiku-4-5")
+	svc.handleLoopEscalation(context.Background(), loopTestSig, 12, 0.2, 30, uuid.Nil, loopTestKey(11), "default", "claude-haiku-4-5", false)
 
 	assert.Empty(t, events.events, "nil installation cannot record an event row")
 	assert.Empty(t, pins.upserts, "nil installation cannot pin either — but it must not be counted as holdout")

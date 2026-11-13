@@ -1,7 +1,13 @@
 // Package router defines the Router interface and its Decision/Request types.
 package router
 
-import "context"
+import (
+	"context"
+
+	"weave-os/router/internal/router/eligibility"
+	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/taskdomain"
+)
 
 // WireFormat identifies the client-facing request representation. It is kept
 // independent from provider names so the router package remains an inner-ring
@@ -82,11 +88,35 @@ type Overrides struct {
 }
 
 type Request struct {
+	TaskDomain *taskdomain.Input
+	// ClassifierPrediction is set only after release-bound durable classification.
+	ClassifierPrediction *ClassifierPrediction `json:"-"`
+	// Escalation constrains automatic class selection for an opted-in session.
+	Escalation *escalation.Constraint
+	// PreviousPolicyGroup is the last scored HMM group, used only when a
+	// continuation has no user text to classify and escalation is active.
+	PreviousPolicyGroup escalation.Group
+	// SlidingThresholdPinGroup is the session pin's group on an authoritative
+	// turn with the sliding threshold on; selection steps toward a higher
+	// classified group.
+	SlidingThresholdPinGroup escalation.Group
+
 	RequestedModel string
+	ClientBudget   ClientBudget
 	// ForceModel is the canonical model named by a valid explicit force-model
 	// request. Router decorators must preserve the underlying selection rather
 	// than applying alternative-policy behavior such as exploration.
-	ForceModel           string
+	ForceModel string
+	// ForceCluster is the sidecar classifier-group label forced by
+	// x-weave-force-cluster on this turn. Empty means no cluster constraint.
+	// Unlike ForceModel (which pins one canonical model), it constrains the pool
+	// the policy's own selection may draw from; the sidecar is never told a
+	// cluster is forced, so enforcement is a router-side re-check of the live
+	// Result.RankedFallback after the sidecar responds (see
+	// policy.ApplyClusterArmOverridesRequireMatch). Meaningless outside the
+	// hmm/hmm_embedding strategies, which the proxy construction sites reject
+	// with a typed error rather than silently ignoring.
+	ForceCluster         string
 	EstimatedInputTokens int
 	// OrganizationID and InstallationID are opaque external identifiers used
 	// to correlate policy decisions with rollout and privacy state.
@@ -101,6 +131,8 @@ type Request struct {
 	// HasImages: scorer drops text-only models from the eligible pool; turn
 	// loop evicts a text-only session pin.
 	HasImages bool
+	// ImageCount is the number of image parts across the request history.
+	ImageCount int
 	// TranslationRequirements are hard semantic requirements inferred at
 	// ingress. Routing implementations must not turn their empty result into
 	// an incompatible fallback pool.
@@ -112,8 +144,16 @@ type Request struct {
 	// ConversationMessages is provider-neutral visible history for sidecar
 	// routers that need multi-turn context.
 	ConversationMessages []ConversationMessage
+	// Unscorable marks a continuation with no user-authored text boundary.
+	// Policy routers must select from the eligible roster without classifying
+	// client-injected command wrappers as user input.
+	Unscorable bool
 	// AvailableTools is a bounded list of tool names declared on this request.
+	// Deprecated: use Tools for structural capability decisions.
 	AvailableTools []string
+	// Tools preserves the provider-facing declaration shape needed to
+	// distinguish provider-executed tools from client-executed functions.
+	Tools []ToolDescriptor
 	// PolicyTurnContext carries persisted, content-free state from the turn
 	// orchestrator. Nil keeps older policy clients wire-compatible.
 	PolicyTurnContext *PolicyTurnContext
@@ -129,16 +169,63 @@ type Request struct {
 	ClientSessionID string
 	// Per-request provider gating — nil means unrestricted.
 	EnabledProviders map[string]struct{}
+	// CustomBindings maps catalog model ID to configuration-declared providers
+	// (from a key's model_aliases). They rank after catalog bindings, so a
+	// wired direct vendor still wins — except under GatewayProviders, where the
+	// aliases are the only thing that can be routed.
+	CustomBindings map[string][]string
+	// GatewayProviders is the installation's BYOK gateway providers. Non-empty
+	// means gateway-exclusive routing: only aliased models are routable.
+	GatewayProviders map[string]struct{}
+	// SubscriptionProviders holds the providers whose subscription credential can serve this request.
+	SubscriptionProviders map[string]struct{}
 	// Per-request model exclusion — nil or empty means no exclusion.
 	// If filtering empties eligible set, scorer returns ErrNoEligibleProvider.
 	// Full union: installation excluded_models plus request-time safety filters.
 	ExcludedModels map[string]struct{}
+	// AllowedModels is the org's positive model allowlist as a set; nil means no
+	// restriction. Enforcement is via ExcludedModels (proxy desugars the allowlist
+	// into it); this field lets scorer/resolver NAME the constraint in errors
+	// rather than reporting a large exclusion list.
+	AllowedModels map[string]struct{}
 	// SafetyExcludedModels holds only the hard request-time constraints a model
 	// physically cannot satisfy: context-window overflow and gemini-unsigned
 	// history — not the installation's excluded_models policy. The bypass gate
 	// consults this so policy exclusions don't block pass-through, but physical
 	// constraints still do.
 	SafetyExcludedModels map[string]struct{}
+	// ContextWindowExcludedModels is the subset of ExcludedModels that only the
+	// context-window pre-filter's byte-based estimate ruled out: never
+	// policy-excluded, admitted-on-total-overflow, or gemini-unsigned models.
+	// A /force-model pin on one of these is still dispatched, so the provider's
+	// exact token count decides instead of the estimate.
+	ContextWindowExcludedModels map[string]struct{}
+	// ImageLimitExcludedModels is the subset of ExcludedModels removed only
+	// because every binding caps images below ImageCount.
+	ImageLimitExcludedModels map[string]struct{}
+	// UnsignedHistoryExcludedModels holds models excluded because they cannot
+	// accept this request's unsigned tool-call history.
+	UnsignedHistoryExcludedModels map[string]struct{}
+	// OverflowAdmittedModels is the set the context-window pre-filter kept
+	// when its byte estimate ruled out every model: the widest-window ones,
+	// sent anyway so the provider's exact count decides and a real overflow
+	// reaches the client as its native prompt-too-long error. Downstream
+	// context-window checks must not re-exclude these.
+	OverflowAdmittedModels map[string]struct{}
+	// AutomaticExcludedModels is the deployment-wide set Weave has withdrawn
+	// from AUTOMATIC selection. Deliberately not folded into ExcludedModels:
+	// that set is hard (it also rejects an explicit /force-model pin), whereas
+	// this one must leave a user's explicit pin serving. Routers apply it as a
+	// soft filter — if honoring it would empty the pool, it is ignored for that
+	// turn rather than failing the request.
+	AutomaticExcludedModels map[string]struct{}
+	// ProductEligibility is the hard boundary of the plan the caller bought:
+	// which model source classifications it may dispatch at all. Distinct from
+	// the sets above — those are installation policy and request-time safety,
+	// which an org can edit, whereas this one is the product. The zero value is
+	// unrestricted; a restricted boundary is also desugared into ExcludedModels
+	// so routers that filter candidates themselves never score past it.
+	ProductEligibility eligibility.Boundary
 	// PreferredModels is the per-installation priority ranking (index 0 =
 	// first). The scorer adds a small rank-decaying bonus to each preferred
 	// model's score — enough to win close calls, not to override a clearly
@@ -159,14 +246,17 @@ type Request struct {
 	// ShadowMode marks a decision-only comparison that must never be treated as
 	// served traffic or admitted into online-learning inputs.
 	ShadowMode bool
-	// SubsidizedModelCostFactor is the per-model rate-limit headroom factor in
-	// [epsilon, 1] for models the caller's subscription covers (see
-	// internal/proxy/usage): ~epsilon when the window has slack, rising to 1 as
-	// it binds. Absent = no subsidy. The cluster scorer treats it as a
-	// preference signal (score bonus proportional to 1−factor, cost axis left
-	// at full catalog so Haiku↔Opus spread is preserved); the planner instead
-	// treats it as a literal cost multiplier for dollar-EV cache-switch math.
-	SubsidizedModelCostFactor map[string]float64
+	// ClusterArmOverrides is the per-API-key HMM cluster allowlist: cluster label
+	// → ordered catalog model IDs (index 0 = highest priority). Absent clusters
+	// keep the artifact default. Nil means no override.
+	ClusterArmOverrides map[string][]string
+}
+
+// ToolDescriptor records the source declaration facts relevant to routing.
+type ToolDescriptor struct {
+	Name           string
+	Type           string
+	ServerExecuted bool
 }
 
 type ConversationMessage struct {
@@ -215,17 +305,51 @@ const (
 type Decision struct {
 	Provider string
 	Model    string
-	Reason   string
+	// Effort is the canonical reasoning-effort level selected for this turn
+	// ("low".."xhigh"), empty when the policy expressed no preference. Model
+	// stays a bare catalog ID so catalog.ByID lookups keep working; effort is
+	// applied by the emit path via EmitOptions.ForceEffort. An effort-only
+	// change registers as a model switch via ServedIdentity() because it
+	// invalidates thinking-block signatures and the prompt-cache prefix.
+	Effort string
+	Reason string
 	// Nil for non-content-aware routers; nil-check before dereferencing.
 	Metadata *RoutingMetadata
+}
+
+// ServedIdentity returns the model identity to persist and compare across
+// turns: the bare model when no effort was selected, else "model:effort".
+// Pins written before effort existed hold a bare ID, so the first post-rollout
+// turn compares "m" against "m:high" and reports a switch — conservative, not unsafe.
+func (d Decision) ServedIdentity() string {
+	if d.Effort == "" {
+		return d.Model
+	}
+	return d.Model + ":" + d.Effort
 }
 
 // RoutingMetadata lets downstream components reuse the embedding and
 // cluster context without recomputing.
 type RoutingMetadata struct {
-	Embedding            []float32
-	ClusterIDs           []int // Sorted ascending; [0] is NOT necessarily closest.
-	CandidateModels      []string
+	// Escalation preserves the raw classifier group and accepted automatic intervention.
+	Escalation *escalation.Decision
+
+	Embedding       []float32
+	ClusterIDs      []int // Sorted ascending; [0] is NOT necessarily closest.
+	CandidateModels []string
+	// ScorerRescuePool contains the request-eligible bundle models before
+	// soft automatic exclusions, for bounded cooldown readmission.
+	ScorerRescuePool []string
+	// SidecarRescuePool contains roster arms removed by soft automatic exclusions
+	// after request compatibility and provider eligibility checks.
+	SidecarRescuePool []string
+	// RescueModels orders the catalog models an in-turn rescue may fall back
+	// to when the served model's bindings all fail: the policy's ranked group
+	// fallback with per-key allowlists applied. RosterFailover restricts rescue
+	// to this ordered roster; CandidateModels is the resolver's eligible pool
+	// in catalog order and carries no preference.
+	RescueModels         []string
+	RosterFailover       bool
 	ChosenScore          float32
 	ClusterRouterVersion string
 	// Strategy identifies opt-in sidecar routers ("rl", "hmm") when metadata
@@ -237,11 +361,42 @@ type RoutingMetadata struct {
 	// PolicyRouteKey is the generic policy-internal bucket/arm key used for
 	// online learning. HMM routing_bucket values map here.
 	PolicyRouteKey string
+	// PolicyGroup is the policy-internal cluster/group the decision was drawn
+	// from (HMM complexity cluster). Session pins persist it so a later turn can
+	// tell a within-cluster reroute from a genuine cluster change.
+	PolicyGroup string
 	// Policy artifact metadata identifies the immutable production package.
 	PolicyArtifactID     string
 	PolicyArtifactSHA256 string
 	RosterVersion        string
-	SelectedArmID        string
+	// PolicyPinHonoured records whether an authorized policy pin selected the
+	// served artifact and roster.
+	PolicyPinHonoured bool
+	// Classifier identity and selection-policy identity are recorded separately
+	// so one telemetry row can resolve the complete atomic release.
+	ClassifierArtifactID     string
+	ClassifierArtifactSHA256 string
+	ClassifierPredictedLabel string
+	ClassifierClassOrder     []string
+	ClassifierProbabilities  map[string]float64
+	// ClassifierMargin is the fresh top-1 minus top-2 class probability gap.
+	// Nil means unreported; never persist it into a replayed session pin.
+	ClassifierMargin         *float64
+	SelectionPolicyReleaseID string
+	SelectionPolicySHA256    string
+	SelectionHeadGeneration  int64
+	SelectionTrace           *SelectionTrace
+	// SidecarTimings is set only on fresh sidecar decisions; never persist
+	// into pins or a replayed pin re-emits a stale measurement.
+	SidecarTimings *SidecarTimings
+	// SidecarStats is set only on fresh sidecar decisions; never persist
+	// into pins or a replayed pin re-emits a stale measurement.
+	SidecarStats  *SidecarServingStats
+	SelectedArmID string
+	// SelectedRosterArmID is the served arm as the sidecar names it, effort
+	// suffix intact — SelectedArmID has been split for binding resolution, so
+	// only this form keys into ArmScores.
+	SelectedRosterArmID  string
 	SelectedUpstreamID   string
 	BindingIndex         int
 	CandidateArmIDs      []string
@@ -278,6 +433,77 @@ type RoutingMetadata struct {
 	PairedModel    string
 	PairedProvider string
 	PairedScore    float32
+	// ArmScores is the router-selected preference-adjusted score map for the
+	// cluster this decision was drawn from. Absent on fixed/legacy rosters.
+	ArmScores map[string]float32
+}
+
+type SelectionOverrideReason string
+
+const (
+	SelectionOverrideNone             SelectionOverrideReason = ""
+	SelectionOverrideSlidingThreshold SelectionOverrideReason = "sliding_threshold"
+	SelectionOverrideForceCluster     SelectionOverrideReason = "force_cluster"
+	SelectionOverrideCluster          SelectionOverrideReason = "cluster_override"
+)
+
+// SelectionTrace is the content-free replay record for one Go-owned policy
+// decision. It captures the classifier ordering, exact eligible roster IDs,
+// bounded preference inputs, effective orders and typed hard exclusions.
+type SelectionTrace struct {
+	TaskDomain              *taskdomain.Outcome                            `json:"task_domain,omitempty"`
+	ClassifierRanking       []string                                       `json:"classifier_ranking"`
+	Harness                 string                                         `json:"harness"`
+	ForcedGroup             string                                         `json:"forced_group,omitempty"`
+	CandidateRosterIDs      []string                                       `json:"candidate_roster_ids"`
+	QualityBias             *float64                                       `json:"quality_bias,omitempty"`
+	PreferredModels         []string                                       `json:"preferred_models,omitempty"`
+	SubscriptionProviders   []string                                       `json:"subscription_providers,omitempty"`
+	EffectiveOrders         map[string][]string                            `json:"effective_orders"`
+	ScoresByGroup           map[string]map[string]float32                  `json:"scores_by_group,omitempty"`
+	ScoreComponentsByGroup  map[string]map[string]SelectionScoreComponents `json:"score_components_by_group,omitempty"`
+	ResolverExclusions      []SelectionExclusion                           `json:"resolver_exclusions,omitempty"`
+	SelectedGroup           string                                         `json:"selected_group"`
+	SelectedArm             string                                         `json:"selected_arm"`
+	FallbackDepth           int                                            `json:"fallback_depth"`
+	OverrideReason          SelectionOverrideReason                        `json:"override_reason,omitempty"`
+	ClusterOverridesPresent bool                                           `json:"cluster_overrides_present,omitempty"`
+}
+
+// SelectionScoreComponents records the bounded terms behind an arm's final score.
+type SelectionScoreComponents struct {
+	BaseScore            float32 `json:"base_score"`
+	TaskDomainCorrection float32 `json:"task_domain_correction,omitempty"`
+	PreferredModelBonus  float32 `json:"preferred_model_bonus,omitempty"`
+	TotalScore           float32 `json:"total_score"`
+}
+
+// SelectionExclusion is one typed hard-eligibility rejection recorded without
+// request content.
+type SelectionExclusion struct {
+	CatalogID string `json:"catalog_id"`
+	RosterID  string `json:"roster_id,omitempty"`
+	Reason    string `json:"reason"`
+}
+
+// SidecarTimings holds the sidecar's per-stage decision cost in milliseconds.
+// A nil field was not measured; present 0 is a real sub-millisecond measurement.
+type SidecarTimings struct {
+	EmbedMs  *float64 // embedding round trip
+	SelectMs *float64 // arm selection
+	OtherMs  *float64 // remainder of the sidecar's route handler
+}
+
+// SidecarServingStats holds per-decision serving stats sampled by the
+// sidecar: per-request embed-cache deltas (present only when the embed
+// stage ran) and instance gauges. A nil field was not reported by the
+// sidecar; present 0 is a measured zero and must be preserved as such.
+type SidecarServingStats struct {
+	EmbedCacheHits      *int64
+	EmbedCacheMisses    *int64
+	EmbedCacheEvictions *int64
+	RoutesInflight      *int64
+	OverrunsLive        *int64
 }
 
 type Router interface {

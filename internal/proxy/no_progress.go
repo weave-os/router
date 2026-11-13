@@ -9,11 +9,12 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"weave-os/router/internal/auth"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2/expirable"
@@ -113,7 +114,14 @@ func (r *fingerprintRing) recordAndDetect(fp noProgressFingerprint, now time.Tim
 
 // noProgressTracker is the package-level tracker. Construct via
 // newNoProgressTracker; nil receivers are valid (no-op).
+//
+// mu serializes the check-then-create of a bucket's ring in recordAndDetect:
+// the LRU synchronizes individual Get/Add calls, but two goroutines racing on
+// the first insert can each allocate a ring and silently orphan one (with its
+// recorded fingerprint). ring.recordAndDetect runs outside mu — fingerprintRing
+// guards its own state — so contention on one bucket never blocks others.
 type noProgressTracker struct {
+	mu    sync.Mutex
 	cache *lru.LRU[string, *fingerprintRing]
 }
 
@@ -153,7 +161,12 @@ const compactionMinHistoryMessages = 8
 // to avoid false-firing on sub-agent startup and Explore's flat window.
 //
 // nil receivers are valid (no-op), matching noProgressTracker.
+//
+// mu makes checkAndRecord's Get+Add a single step: the LRU synchronizes each
+// call individually, but a concurrent Get between the read and the write can
+// observe stale prior state and false-trip the drop check.
 type compactionTracker struct {
+	mu    sync.Mutex
 	cache *lru.LRU[string, compactionState]
 }
 
@@ -174,8 +187,11 @@ func (t *compactionTracker) checkAndRecord(sessionKey [sessionpin.SessionKeyLen]
 	if !ok {
 		return false
 	}
+	t.mu.Lock()
 	last, found := t.cache.Get(key)
 	t.cache.Add(key, compactionState{msgCount: messageCount, toolCallCount: toolCallCount})
+	t.mu.Unlock()
+
 	if !found {
 		return false
 	}
@@ -211,11 +227,14 @@ func (t *noProgressTracker) recordAndDetect(sessionKey [sessionpin.SessionKeyLen
 	if !ok {
 		return false, 0
 	}
+	t.mu.Lock()
 	ring, ringOk := t.cache.Get(key)
 	if !ringOk || ring == nil {
 		ring = &fingerprintRing{}
 		t.cache.Add(key, ring)
 	}
+	t.mu.Unlock()
+
 	return ring.recordAndDetect(fp, now)
 }
 
@@ -245,8 +264,7 @@ func shortSessionKey(sessionKey [sessionpin.SessionKeyLen]byte) string {
 // handleNoProgressBreak writes a synthetic end_turn response, expires an
 // automatic session pin, and returns a non-nil error so callers treat it as a
 // failed dispatch (skips billing/telemetry). Explicit force-model pins remain
-// intact. Mirrors handleToolCallLoopBreak's mechanics but with a message that
-// names the cross-envelope loop mode.
+// intact. Its message names the cross-envelope loop mode.
 func (s *Service) handleNoProgressBreak(
 	ctx context.Context,
 	w http.ResponseWriter,
@@ -258,10 +276,11 @@ func (s *Service) handleNoProgressBreak(
 	decisionModel string,
 	decisionProvider string,
 	inputTokens int,
+	decisionReason ...string,
 ) error {
 	log := observability.FromContext(ctx)
-	preserveForcedPin := false
-	if s.pinStore != nil && installationID != uuid.Nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
+	preserveForcedPin := len(decisionReason) > 0 && isUserForcedReason(decisionReason[0])
+	if !preserveForcedPin && s.pinStore != nil && installationID != uuid.Nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
 		pin, found := s.loadPin(ctx, sessionKey, role)
 		preserveForcedPin = found && isUserForcedReason(pin.Reason)
 	}
@@ -279,6 +298,10 @@ func (s *Service) handleNoProgressBreak(
 			"Weave Router: no-progress loop detected (%d consecutive routes to %s/%s with no progress in %s). Stopping and %s.",
 			count, decisionModel, decisionProvider, noProgressTimeWindow, pinAction,
 		)
+	}
+
+	if _, active := auth.BlindExperimentFrom(ctx); active {
+		msg = blindExperimentLoopStopMessage
 	}
 
 	log.Info("No-progress loop detected; breaking turn",
@@ -299,10 +322,6 @@ func (s *Service) handleNoProgressBreak(
 		}
 	}
 
-	switch env.SourceFormat() {
-	case translate.FormatOpenAI:
-		return writeSyntheticOpenAIResponse(w, env, msg, inputTokens)
-	default:
-		return writeSyntheticAnthropicResponse(w, env, msg, inputTokens)
-	}
+	ack := newCommandAcknowledgment(translate.CommandLoopStop)
+	return writeCommandOutcome(ctx, w, env, msg, ack.outcome, inputTokens)
 }

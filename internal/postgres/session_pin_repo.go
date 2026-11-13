@@ -3,11 +3,16 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/sqlc"
+	"github.com/google/uuid"
+	"weave-os/router/internal/postgres/dbbudget"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/jackc/pgx/v5/pgtype"
 )
@@ -23,9 +28,13 @@ func NewSessionPinRepo(tx sqlc.DBTX) *SessionPinRepo {
 }
 
 var _ sessionpin.Store = (*SessionPinRepo)(nil)
+var _ sessionpin.CooldownStore = (*SessionPinRepo)(nil)
+var _ sessionpin.RecoveryProbeStore = (*SessionPinRepo)(nil)
+var _ sessionpin.TurnStrikeStore = (*SessionPinRepo)(nil)
+var _ sessionpin.TokenizerCalibrationStore = (*SessionPinRepo)(nil)
 
 func (r *SessionPinRepo) Get(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.GetSessionPin(ctx, sqlc.GetSessionPinParams{
 		SessionKey: sessionKey[:],
 		Role:       role,
@@ -39,54 +48,81 @@ func (r *SessionPinRepo) Get(ctx context.Context, sessionKey [sessionpin.Session
 	return toSessionPin(row), true, nil
 }
 
+// Consume atomically removes and returns an unexpired one-shot pin.
+func (r *SessionPinRepo) Consume(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (sessionpin.Pin, bool, error) {
+	q := dbbudget.Queries(r.tx)
+	row, err := q.DeleteSessionPin(ctx, sqlc.DeleteSessionPinParams{
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		ExpectedRoutingStrategy: string(expectedStrategy),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return sessionpin.Pin{}, false, nil
+		}
+		return sessionpin.Pin{}, false, err
+	}
+	return toSessionPin(row), true, nil
+}
+
 func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.UpsertSessionPin(ctx, sqlc.UpsertSessionPinParams{
-		SessionKey:     p.SessionKey[:],
-		Role:           p.Role,
-		InstallationID: p.InstallationID,
-		PinnedProvider: p.Provider,
-		PinnedModel:    p.Model,
-		PairedProvider: p.PairedProvider,
-		PairedModel:    p.PairedModel,
-		DecisionReason: p.Reason,
-		TurnCount:      int32(p.TurnCount),
-		PinnedUntil:    pgtype.Timestamp{Time: p.PinnedUntil.UTC(), Valid: true},
+		SessionKey:                p.SessionKey[:],
+		Role:                      p.Role,
+		InstallationID:            p.InstallationID,
+		PinnedProvider:            p.Provider,
+		PinnedModel:               p.Model,
+		PinnedEffort:              p.Effort,
+		ForcedThreadKey:           p.ForcedThreadKey,
+		PairedProvider:            p.PairedProvider,
+		PairedModel:               p.PairedModel,
+		DecisionReason:            p.Reason,
+		RoutingStrategy:           string(p.Strategy),
+		PolicyGroup:               p.PolicyGroup,
+		TurnCount:                 int32(p.TurnCount),
+		PinnedUntil:               pgtype.Timestamp{Time: p.PinnedUntil.UTC(), Valid: true},
+		ConsecutiveDowngradeVotes: int32(p.ConsecutiveDowngradeVotes),
+		ConsecutiveUpgradeVotes:   int32(p.ConsecutiveUpgradeVotes),
 	})
 }
 
 // UpdateUsage records the previous turn's usage on the pin row. A missing
 // pin (evicted/swept/never created) is a no-op, not an error. A zero
-// EndedAt is stamped with time.Now so the column is always populated.
+// EndedAt is stamped with time.Now when the caller omits it; the output-limit
+// marker is written from that same instant in the same statement.
 func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, usage sessionpin.Usage) error {
 	endedAt := usage.EndedAt
 	if endedAt.IsZero() {
 		endedAt = time.Now()
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.UpdateSessionPinUsage(ctx, sqlc.UpdateSessionPinUsageParams{
-		SessionKey:            sessionKey[:],
-		Role:                  role,
-		LastInputTokens:       int32(usage.InputTokens),
-		LastCachedReadTokens:  int32(usage.CachedReadTokens),
-		LastCachedWriteTokens: int32(usage.CachedWriteTokens),
-		LastOutputTokens:      int32(usage.OutputTokens),
-		LastTurnEndedAt:       pgtype.Timestamptz{Time: endedAt.UTC(), Valid: true},
-		LastServedModel:       usage.ServedModel,
-		LastServedProvider:    usage.ServedProvider,
-		PriorServedModel:      usage.PriorServedModel,
-		SessionEverSwitched:   usage.SessionEverSwitched,
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		LastInputTokens:         int32(usage.InputTokens),
+		LastCachedReadTokens:    int32(usage.CachedReadTokens),
+		LastCachedWriteTokens:   int32(usage.CachedWriteTokens),
+		LastOutputTokens:        int32(usage.OutputTokens),
+		LastTurnEndedAt:         pgtype.Timestamptz{Time: endedAt.UTC(), Valid: !endedAt.IsZero()},
+		OutputLimitReached:      usage.OutputLimitReached,
+		LastServedModel:         usage.ServedModel,
+		LastServedProvider:      usage.ServedProvider,
+		PriorServedModel:        usage.PriorServedModel,
+		SessionEverSwitched:     usage.SessionEverSwitched,
+		ExpectedRoutingStrategy: string(usage.Strategy),
 	})
 }
 
 // IncrementUpstreamErrors atomically bumps the consecutive-error counter.
 // A missing pin (already evicted or never created) returns (0, nil): the
 // two-strike check treats it as a no-op since there's no row left to evict.
-func (r *SessionPinRepo) IncrementUpstreamErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (int, error) {
-	q := sqlc.New(r.tx)
+func (r *SessionPinRepo) IncrementUpstreamErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (int, error) {
+	q := dbbudget.Queries(r.tx)
 	count, err := q.IncrementSessionPinUpstreamErrors(ctx, sqlc.IncrementSessionPinUpstreamErrorsParams{
-		SessionKey: sessionKey[:],
-		Role:       role,
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		ExpectedRoutingStrategy: string(expectedStrategy),
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -99,17 +135,159 @@ func (r *SessionPinRepo) IncrementUpstreamErrors(ctx context.Context, sessionKey
 
 // ResetUpstreamErrors clears the consecutive-error counter after a
 // successful turn. Missing pin is a no-op, same as UpdateUsage.
-func (r *SessionPinRepo) ResetUpstreamErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) error {
-	q := sqlc.New(r.tx)
+func (r *SessionPinRepo) ResetUpstreamErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) error {
+	q := dbbudget.Queries(r.tx)
 	return q.ResetSessionPinUpstreamErrors(ctx, sqlc.ResetSessionPinUpstreamErrorsParams{
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		ExpectedRoutingStrategy: string(expectedStrategy),
+	})
+}
+
+// IncrementOverloadErrors atomically bumps the consecutive-529-exhaustion
+// counter. A missing pin returns (0, nil), mirroring IncrementUpstreamErrors.
+func (r *SessionPinRepo) IncrementOverloadErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (int, error) {
+	q := dbbudget.Queries(r.tx)
+	count, err := q.IncrementSessionPinOverloadErrors(ctx, sqlc.IncrementSessionPinOverloadErrorsParams{
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		ExpectedRoutingStrategy: string(expectedStrategy),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return int(count), nil
+}
+
+// ResetOverloadErrors clears the consecutive-529-exhaustion counter after a
+// successful turn. Missing pin is a no-op, same as ResetUpstreamErrors.
+func (r *SessionPinRepo) ResetOverloadErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) error {
+	q := dbbudget.Queries(r.tx)
+	return q.ResetSessionPinOverloadErrors(ctx, sqlc.ResetSessionPinOverloadErrorsParams{
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		ExpectedRoutingStrategy: string(expectedStrategy),
+	})
+}
+
+// DisableProvider appends provider to disabled_providers (deduped) and
+// resets the overload strike counter in the same write. Missing pin is a
+// no-op: the eviction that accompanies this call has nothing left to guard.
+func (r *SessionPinRepo) DisableProvider(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role, provider string, expectedStrategy router.Strategy) error {
+	q := dbbudget.Queries(r.tx)
+	return q.DisableSessionPinProvider(ctx, sqlc.DisableSessionPinProviderParams{
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		Provider:                provider,
+		ExpectedRoutingStrategy: string(expectedStrategy),
+	})
+}
+
+// ExpireAndDemoteModel seeds or expires the (session_key, role) row and
+// appends model to demoted_models in one statement. The ON CONFLICT update is
+// guarded by expired.Strategy, so a row another strategy owns is not touched.
+func (r *SessionPinRepo) ExpireAndDemoteModel(ctx context.Context, expired sessionpin.Pin, model string, _ sessionpin.DemotionReason) error {
+	q := dbbudget.Queries(r.tx)
+	return q.ExpireAndDemoteSessionPinModel(ctx, sqlc.ExpireAndDemoteSessionPinModelParams{
+		SessionKey:              expired.SessionKey[:],
+		Role:                    expired.Role,
+		InstallationID:          expired.InstallationID,
+		DecisionReason:          expired.Reason,
+		ExpectedRoutingStrategy: string(expired.Strategy),
+		PinnedUntil:             pgtype.Timestamp{Time: expired.PinnedUntil.UTC(), Valid: true},
+		Model:                   model,
+	})
+}
+
+func (r *SessionPinRepo) ExpireAndCoolDownModel(ctx context.Context, expired sessionpin.Pin, model string, until time.Time, _ sessionpin.DemotionReason) error {
+	q := dbbudget.Queries(r.tx)
+	return q.ExpireAndCoolDownSessionPinModel(ctx, sqlc.ExpireAndCoolDownSessionPinModelParams{
+		SessionKey:              expired.SessionKey[:],
+		Role:                    expired.Role,
+		InstallationID:          expired.InstallationID,
+		DecisionReason:          expired.Reason,
+		ExpectedRoutingStrategy: string(expired.Strategy),
+		PinnedUntil:             pgtype.Timestamp{Time: expired.PinnedUntil.UTC(), Valid: true},
+		Model:                   model,
+		CooldownUntil:           pgtype.Timestamptz{Time: until.UTC(), Valid: true},
+	})
+}
+
+func (r *SessionPinRepo) StrikeTurnModel(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role, model string) error {
+	q := dbbudget.Queries(r.tx)
+	return q.UpdateSessionPinTurnStrike(ctx, sqlc.UpdateSessionPinTurnStrikeParams{
+		Model:      model,
 		SessionKey: sessionKey[:],
 		Role:       role,
 	})
 }
 
+func (r *SessionPinRepo) ClearTurnStrikes(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) error {
+	q := dbbudget.Queries(r.tx)
+	return q.DeleteSessionPinTurnStrikes(ctx, sqlc.DeleteSessionPinTurnStrikesParams{
+		SessionKey: sessionKey[:],
+		Role:       role,
+	})
+}
+
+func (r *SessionPinRepo) AcquireRecoveryProbe(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, model string, token uuid.UUID, leaseFor time.Duration) (bool, error) {
+	q := dbbudget.Queries(r.tx)
+	rows, err := q.AcquireSessionPinRecoveryProbeLease(ctx, sqlc.AcquireSessionPinRecoveryProbeLeaseParams{
+		SessionKey:   sessionKey[:],
+		Model:        model,
+		LeaseToken:   token,
+		LeaseSeconds: leaseFor.Seconds(),
+	})
+	return rows == 1, err
+}
+
+func (r *SessionPinRepo) ClearDemotionCooldown(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role, model string, observedUntil time.Time) error {
+	q := dbbudget.Queries(r.tx)
+	return q.DeleteSessionPinDemotionCooldown(ctx, sqlc.DeleteSessionPinDemotionCooldownParams{
+		Model:         model,
+		SessionKey:    sessionKey[:],
+		Role:          role,
+		ObservedUntil: pgtype.Timestamptz{Time: observedUntil.UTC(), Valid: true},
+	})
+}
+
+func (r *SessionPinRepo) ReleaseRecoveryProbe(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, model string, token uuid.UUID) error {
+	q := dbbudget.Queries(r.tx)
+	return q.ReleaseSessionPinRecoveryProbeLease(ctx, sqlc.ReleaseSessionPinRecoveryProbeLeaseParams{
+		SessionKey: sessionKey[:],
+		Model:      model,
+		LeaseToken: token,
+	})
+}
+
+// UpdateTokenizerCalibration replaces the row's tokenizer calibration. A
+// missing pin or a strategy mismatch is a no-op, matching UpdateUsage.
+func (r *SessionPinRepo) UpdateTokenizerCalibration(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy, cal sessionpin.TokenizerCalibration) error {
+	raw, err := json.Marshal(cal)
+	if err != nil {
+		return fmt.Errorf("encode tokenizer calibration: %w", err)
+	}
+	q := dbbudget.Queries(r.tx)
+	return q.UpdateSessionPinTokenizerCalibration(ctx, sqlc.UpdateSessionPinTokenizerCalibrationParams{
+		TokenizerCalibration:    raw,
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		ExpectedRoutingStrategy: string(expectedStrategy),
+	})
+}
+
 func (r *SessionPinRepo) SweepExpired(ctx context.Context) error {
-	q := sqlc.New(r.tx)
-	return q.SweepExpiredSessionPins(ctx)
+	q := dbbudget.Queries(r.tx)
+	if err := q.SweepExpiredSessionPins(ctx); err != nil {
+		return err
+	}
+	if err := q.SweepExpiredSessionPinRecoveryProbeLeases(ctx); err != nil {
+		return err
+	}
+	return q.SweepAgreementShadowStates(ctx)
 }
 
 func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
@@ -118,9 +296,13 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		InstallationID:            row.InstallationID,
 		Provider:                  row.PinnedProvider,
 		Model:                     row.PinnedModel,
+		Effort:                    row.PinnedEffort,
+		ForcedThreadKey:           row.ForcedThreadKey,
 		PairedProvider:            row.PairedProvider,
 		PairedModel:               row.PairedModel,
 		Reason:                    row.DecisionReason,
+		Strategy:                  router.Strategy(row.RoutingStrategy),
+		PolicyGroup:               row.PolicyGroup,
 		TurnCount:                 int(row.TurnCount),
 		PinnedUntil:               timestampOrZero(row.PinnedUntil),
 		FirstPinnedAt:             timestampOrZero(row.FirstPinnedAt),
@@ -130,13 +312,47 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		LastCachedWriteTokens:     int(row.LastCachedWriteTokens),
 		LastOutputTokens:          int(row.LastOutputTokens),
 		LastTurnEndedAt:           timestamptzOrZero(row.LastTurnEndedAt),
+		LastOutputLimitAt:         timestamptzOrZero(row.LastOutputLimitAt),
 		LastServedModel:           row.LastServedModel,
 		HasEverSwitched:           row.HasEverSwitched,
 		ConsecutiveUpstreamErrors: int(row.ConsecutiveUpstreamErrors),
+		ConsecutiveOverloadErrors: int(row.ConsecutiveOverloadErrors),
+		ConsecutiveDowngradeVotes: int(row.ConsecutiveDowngradeVotes),
+		ConsecutiveUpgradeVotes:   int(row.ConsecutiveUpgradeVotes),
+		DisabledProviders:         row.DisabledProviders,
+		DemotedModels:             row.DemotedModels,
+		DemotionCooldowns:         demotionCooldowns(row.DemotionCooldowns),
+		TurnStrikes:               row.TurnStrikes,
+		TokenizerCalibration:      tokenizerCalibration(row.TokenizerCalibration),
 	}
 	// Bounded copy guards against a corrupt row panicking the request handler.
 	copy(pin.SessionKey[:], row.SessionKey)
 	return pin
+}
+
+// tokenizerCalibration decodes the tokenizer_calibration JSONB column. An
+// unreadable value yields an empty calibration rather than failing the pin
+// read: the only effect is one turn's usage reported uncalibrated.
+func tokenizerCalibration(raw []byte) sessionpin.TokenizerCalibration {
+	var cal sessionpin.TokenizerCalibration
+	if len(raw) == 0 || json.Unmarshal(raw, &cal) != nil {
+		return sessionpin.TokenizerCalibration{}
+	}
+	return cal
+}
+
+// demotionCooldowns decodes the {model: RFC 3339 instant} JSONB column. An
+// unreadable value yields no cooldowns rather than failing the pin read: the
+// worst outcome is one turn that does not skip a throttled arm.
+func demotionCooldowns(raw []byte) map[string]time.Time {
+	if len(raw) == 0 {
+		return nil
+	}
+	var cooldowns map[string]time.Time
+	if err := json.Unmarshal(raw, &cooldowns); err != nil || len(cooldowns) == 0 {
+		return nil
+	}
+	return cooldowns
 }
 
 // timestamptzOrZero mirrors timestampOrZero for TIMESTAMPTZ columns:

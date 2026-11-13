@@ -5,8 +5,17 @@ import (
 	"strings"
 )
 
-// APIKeyPrefix fronts every router-issued bearer token: "<prefix>_<24 random chars>".
+// APIKeyPrefix fronts a routing (data-plane) bearer token: "rk_<24 random chars>".
 const APIKeyPrefix = "rk"
+
+// AnalyticsAPIKeyPrefix fronts a read-only analytics export token: "ra_<24 random chars>".
+// A distinct prefix makes the credential's authority visible in logs and configs
+// without requiring a DB lookup on the token alone.
+const AnalyticsAPIKeyPrefix = "ra"
+
+// SessionTokenPrefix fronts a delegated session JWT: "rs_<compact JWS>". The
+// prefix tells it apart from provider JWTs and keeps it out of upstream headers.
+const SessionTokenPrefix = "rs"
 
 const (
 	idLength               = 24
@@ -17,19 +26,35 @@ func GenerateID(prefix string) string {
 	if len(prefix) > 10 {
 		panic("prefix must be 10 characters or less")
 	}
-	bytes := make([]byte, idLength)
-	if _, err := rand.Read(bytes); err != nil {
-		panic(err)
-	}
 	var b strings.Builder
 	b.WriteString(prefix)
 	b.WriteString("_")
-	for _, x := range bytes {
-		b.WriteByte(alphaNumericCharacters[int(x)%len(alphaNumericCharacters)])
+	// Rejection-sample to avoid modulo bias: 256 % 62 != 0, so a plain
+	// mod would skew toward the first characters of the alphabet.
+	limit := byte(256 - (256 % len(alphaNumericCharacters)))
+	buf := make([]byte, idLength)
+	for written := 0; written < idLength; {
+		if _, err := rand.Read(buf); err != nil {
+			panic(err)
+		}
+		for _, x := range buf {
+			if x >= limit {
+				continue
+			}
+			b.WriteByte(alphaNumericCharacters[int(x)%len(alphaNumericCharacters)])
+			written++
+			if written == idLength {
+				break
+			}
+		}
 	}
 	return b.String()
 }
 
+// HasAPIKeyPrefix reports whether the token carries any router-issued prefix (rk_, ra_ or rs_).
+// Scope enforcement happens in VerifyAPIKey / VerifyAnalyticsAPIKey, not here.
 func HasAPIKeyPrefix(token string) bool {
-	return strings.HasPrefix(token, APIKeyPrefix+"_")
+	return strings.HasPrefix(token, APIKeyPrefix+"_") ||
+		strings.HasPrefix(token, AnalyticsAPIKeyPrefix+"_") ||
+		strings.HasPrefix(token, SessionTokenPrefix+"_")
 }

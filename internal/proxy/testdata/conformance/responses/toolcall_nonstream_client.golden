@@ -2,7 +2,7 @@
   "data": {
     "content": [
       {
-        "signature": "eyJ2IjoxLCJwcm92aWRlciI6Im9wZW5haSIsImlkIjoicnNfMSIsImVuYyI6ImVuY18xIn0=",
+        "signature": "eyJ2IjoxLCJwcm92aWRlciI6Im9wZW5haSIsImlkIjoicnNfMSIsImVuYyI6ImVuY18xIiwic2NvcGUiOiI8c2NvcGU+In0=",
         "thinking": "Checking the weather tool.",
         "type": "thinking"
       },
@@ -11,7 +11,7 @@
         "type": "text"
       },
       {
-        "id": "call_xyz__openai_reasoning__ZXlKMklqb3hMQ0p3Y205MmFXUmxjaUk2SW05d1pXNWhhU0lzSW1sa0lqb2ljbk5mTVNJc0ltVnVZeUk2SW1WdVkxOHhJbjA9",
+        "id": "call_xyz__openai_reasoning__ZXlKMklqb3hMQ0p3Y205MmFXUmxjaUk2SW05d1pXNWhhU0lzSW1sa0lqb2ljbk5mTVNJc0ltVnVZeUk2SW1WdVkxOHhJaXdpYzJOdmNHVWlPaUk4YzJOdmNHVStJbjA9",
         "input": {
           "city": "NYC"
         },

@@ -5,9 +5,9 @@ package policy
 import (
 	"sort"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 )
 
 // RosterMapper maps a catalog model to the identifier understood by a policy
@@ -36,8 +36,17 @@ type ExclusionReason string
 const (
 	// ExclusionRequested means the installation or request excluded the model.
 	ExclusionRequested ExclusionReason = "requested_exclusion"
+	// ExclusionNotAllowlisted means the org's positive model allowlist omits the
+	// model. The resolver enforces it directly as well as honoring the usual
+	// upstream exclusion desugaring, so strategy-specific candidates cannot
+	// bypass the allowlist.
+	ExclusionNotAllowlisted ExclusionReason = "not_allowlisted"
 	// ExclusionUnknownCatalogModel means the deployed set named no catalog row.
 	ExclusionUnknownCatalogModel ExclusionReason = "unknown_catalog_model"
+	// ExclusionProductIneligible means the plan the caller bought cannot serve
+	// the model's source classification. Hard and unconditional: it precedes
+	// provider resolution and no funding path or allowlist widens it.
+	ExclusionProductIneligible ExclusionReason = "product_ineligible"
 	// ExclusionUnmappedRoster means the strategy intentionally has no roster ID.
 	ExclusionUnmappedRoster ExclusionReason = "unmapped_roster"
 	// ExclusionNoProvider means no request-enabled provider can dispatch the model.
@@ -52,6 +61,17 @@ const (
 	ExclusionAmbiguousRoster ExclusionReason = "ambiguous_roster_id"
 	// ExclusionContextWindow means the estimated input cannot fit the model.
 	ExclusionContextWindow ExclusionReason = "context_window"
+	// ExclusionImageLimit means every available binding caps below the request image count.
+	ExclusionImageLimit ExclusionReason = "image_limit"
+	// ExclusionUnsignedHistory means the model cannot accept this request's unsigned tool-call history.
+	ExclusionUnsignedHistory ExclusionReason = "unsigned_history"
+	// ExclusionGatewayNotServed means the installation routes exclusively through
+	// its own gateway and no gateway key aliases this model.
+	ExclusionGatewayNotServed ExclusionReason = "gateway_not_served"
+	// ExclusionAutomaticDisabled means Weave withdrew the model from automatic
+	// routing deployment-wide. Soft: an explicit user pin still reaches it, and
+	// the filter is skipped entirely rather than emptying the candidate set.
+	ExclusionAutomaticDisabled ExclusionReason = "automatic_disabled"
 )
 
 // Diagnostic describes one candidate exclusion for conformance checks and
@@ -107,14 +127,34 @@ type Binding struct {
 	ModelRevision                string
 	ReasoningConfigurationSHA256 string
 	ToolConfigurationSHA256      string
+	// Effort is the canonical reasoning-effort level, split from the arm ID
+	// when the roster carries effort-qualified arms (e.g. "model:xhigh").
+	Effort string
 }
 
 // ResolvedCandidates is the complete result of candidate resolution.
 type ResolvedCandidates struct {
-	Candidates  []Candidate
-	ByArmID     map[string]Binding
-	ByRosterID  map[string]Binding
-	Diagnostics []Diagnostic
+	Candidates          []Candidate
+	ByArmID             map[string]Binding
+	ByRosterID          map[string]Binding
+	Diagnostics         []Diagnostic
+	bindingsByCatalogID map[string][]resolvedBinding
+}
+
+// BindingsForCatalog returns every eligible provider binding for a catalog
+// model in catalog order. The returned slice is detached from resolver state.
+func (r ResolvedCandidates) BindingsForCatalog(catalogID string) []Binding {
+	resolvedBindings := r.bindingsByCatalogID[catalogID]
+	bindings := make([]Binding, len(resolvedBindings))
+	for index, resolvedBinding := range resolvedBindings {
+		bindings[index] = resolvedBinding.Binding
+	}
+	return bindings
+}
+
+type resolvedBinding struct {
+	Binding
+	estimatedCostUSD float64
 }
 
 // CandidateModels returns unique catalog IDs in first-candidate order.
@@ -203,6 +243,7 @@ type Resolver struct {
 	mapper            RosterMapper
 	providerPolicy    ProviderPolicy
 	enumerateBindings bool
+	routerSelectsArm  bool
 	toolLow           map[string]struct{}
 	imageLow          map[string]struct{}
 }
@@ -226,8 +267,17 @@ func NewArmResolver(deployed, available map[string]struct{}, mapper RosterMapper
 	return resolver
 }
 
+// RouterSelectsArm negotiates the classifier-only contract: the sidecar
+// classifies, this router selects. Set when an ArmSelector is installed.
+func (r *Resolver) RouterSelectsArm() {
+	r.routerSelectsArm = true
+}
+
 // SchemaVersion returns the sidecar contract required by this resolver.
 func (r *Resolver) SchemaVersion() string {
+	if r.routerSelectsArm {
+		return SchemaVersionV4
+	}
 	if r.enumerateBindings {
 		return SchemaVersionV2
 	}
@@ -236,6 +286,7 @@ func (r *Resolver) SchemaVersion() string {
 
 type eligibleCandidate struct {
 	Candidate
+	bindings []resolvedBinding
 }
 
 // Resolve applies request filters, provider policy, capability soft filters,
@@ -246,6 +297,12 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 	preferenceRanks := preferenceRanks(req.PreferredModels)
 	armContext := DeriveArmContext(req)
 
+	providerSet := req.EnabledProviders
+	if providerSet == nil {
+		providerSet = r.available
+	}
+	gateways := req.GatewayProviders
+
 	deployedIDs := make([]string, 0, len(r.deployed))
 	for id := range r.deployed {
 		deployedIDs = append(deployedIDs, id)
@@ -253,13 +310,29 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 	sort.Strings(deployedIDs)
 
 	for _, id := range deployedIDs {
-		if _, excluded := req.ExcludedModels[id]; excluded {
-			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionRequested})
-			continue
+		if len(req.AllowedModels) > 0 {
+			if _, allowed := req.AllowedModels[id]; !allowed {
+				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionNotAllowlisted})
+				continue
+			}
 		}
 		model, ok := catalog.ByID(id)
 		if !ok {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionUnknownCatalogModel})
+			continue
+		}
+		// Ahead of the generic exclusion set, which the plan's boundary is also
+		// desugared into: reported as a request exclusion, a product refusal
+		// would be indistinguishable from an org's own excluded_models entry.
+		if !req.ProductEligibility.PermitsSource(model.Source) {
+			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionProductIneligible})
+			continue
+		}
+		_, unsignedHistoryExcluded := req.UnsignedHistoryExcludedModels[id]
+		_, contextWindowExcluded := req.ContextWindowExcludedModels[id]
+		_, imageLimitExcluded := req.ImageLimitExcludedModels[id]
+		if _, excluded := req.ExcludedModels[id]; excluded && !unsignedHistoryExcluded && !contextWindowExcluded && !imageLimitExcluded {
+			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionRequested})
 			continue
 		}
 		rosterID := r.mapper(model)
@@ -267,83 +340,83 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionUnmappedRoster})
 			continue
 		}
+		if unsignedHistoryExcluded {
+			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionUnsignedHistory})
+			continue
+		}
+		if contextWindowExcluded {
+			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionContextWindow})
+			continue
+		}
+		if imageLimitExcluded {
+			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionImageLimit})
+			continue
+		}
 		contextWindow := catalog.ContextWindowFor(id)
-		if requiredContextTokens(req) > contextWindow {
+		if exceedsContextWindow(req, id, contextWindow) {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionContextWindow})
 			continue
 		}
 
-		providerSet := req.EnabledProviders
-		if providerSet == nil {
-			providerSet = r.available
+		if len(gateways) > 0 {
+			allowedBindings := gatewayBindings(id, gateways, req.CustomBindings)
+			if len(allowedBindings) == 0 {
+				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionGatewayNotServed})
+				continue
+			}
+			allowedBindings = imageEligibleBindings(allowedBindings, req.ImageCount)
+			if len(allowedBindings) == 0 {
+				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionImageLimit})
+				continue
+			}
+			base = r.appendCandidates(base, candidateContext{
+				req:             req,
+				catalogID:       id,
+				rosterID:        rosterID,
+				model:           model,
+				contextWindow:   contextWindow,
+				armContext:      armContext,
+				preferenceRanks: preferenceRanks,
+			}, allowedBindings)
+			continue
 		}
-		allowedBindings := catalog.EnumerateBindings(
+
+		allowedBindings := catalog.EnumerateBindingsWithCustom(
 			id,
 			r.allowedProviders(providerSet),
+			req.CustomBindings,
 		)
 		if len(allowedBindings) == 0 {
 			reason := ExclusionNoProvider
-			if unrestrictedBindings := catalog.EnumerateBindings(id, providerSet); len(unrestrictedBindings) > 0 {
+			if unrestrictedBindings := catalog.EnumerateBindingsWithCustom(id, providerSet, req.CustomBindings); len(unrestrictedBindings) > 0 {
 				reason = ExclusionProviderPolicy
 			}
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: reason})
 			continue
 		}
+		allowedBindings = imageEligibleBindings(allowedBindings, req.ImageCount)
+		if len(allowedBindings) == 0 {
+			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionImageLimit})
+			continue
+		}
 
-		if !r.enumerateBindings {
-			allowedBindings = allowedBindings[:1]
-		}
-		for _, binding := range allowedBindings {
-			upstreamID := catalog.UpstreamIDFor(id, binding.UpstreamID)
-			modelRevision := upstreamID
-			armID := rosterID
-			if r.enumerateBindings {
-				armID = MakeArmID(ArmIdentity{
-					CanonicalModel:               id,
-					Provider:                     binding.Provider,
-					UpstreamID:                   upstreamID,
-					Endpoint:                     armContext.Endpoint,
-					ModelRevision:                modelRevision,
-					ReasoningConfigurationSHA256: armContext.ReasoningConfigurationSHA256,
-					ToolConfigurationSHA256:      armContext.ToolConfigurationSHA256,
-				})
-			}
-			marginalCostFactor := 1.0
-			if factor, found := req.SubsidizedModelCostFactor[id]; found && factor > 0 {
-				marginalCostFactor = factor
-			}
-			base = append(base, eligibleCandidate{Candidate: Candidate{
-				ArmID:                        armID,
-				RosterID:                     rosterID,
-				CatalogID:                    id,
-				Provider:                     binding.Provider,
-				UpstreamID:                   upstreamID,
-				BindingIndex:                 binding.Index,
-				Endpoint:                     armContext.Endpoint,
-				ModelRevision:                modelRevision,
-				ReasoningConfigurationSHA256: armContext.ReasoningConfigurationSHA256,
-				ToolConfigurationSHA256:      armContext.ToolConfigurationSHA256,
-				PreferenceRank:               preferenceRanks[id],
-				InputUSDPer1M:                binding.Price.InputUSDPer1M,
-				OutputUSDPer1M:               binding.Price.OutputUSDPer1M,
-				EstimatedCostUSD:             estimatedCostUSD(req, binding.Price),
-				CacheReadMultiplier:          binding.Price.EffectiveCacheReadMultiplier(),
-				MarginalCostFactor:           marginalCostFactor,
-				EffectiveInputUSDPer1M:       binding.Price.InputUSDPer1M * marginalCostFactor,
-				EffectiveOutputUSDPer1M:      binding.Price.OutputUSDPer1M * marginalCostFactor,
-				EffectiveEstimatedCostUSD:    estimatedCostUSD(req, binding.Price) * marginalCostFactor,
-				Capabilities: CandidateCapabilities{
-					ContextWindow:  contextWindow,
-					Tier:           model.Tier.String(),
-					SupportsTools:  model.ToolUseQuality != catalog.ToolUseLow && model.AgenticUse != catalog.AgenticLow,
-					SupportsImages: model.ImageInput != catalog.ImageInputUnsupported,
-				},
-			}})
-		}
+		base = r.appendCandidates(base, candidateContext{
+			req:             req,
+			catalogID:       id,
+			rosterID:        rosterID,
+			model:           model,
+			contextWindow:   contextWindow,
+			armContext:      armContext,
+			preferenceRanks: preferenceRanks,
+		}, allowedBindings)
 	}
 
 	base, diagnostics = softFilter(base, req.HasImages, r.imageLow, ExclusionImageCapability, diagnostics)
 	base, diagnostics = softFilter(base, req.HasTools, r.toolLow, ExclusionToolCapability, diagnostics)
+	// Soft on purpose: a deployment-wide disable withdraws a model from the
+	// policy's choices without being able to fail the turn, since the same model
+	// stays reachable through an explicit user pin.
+	base, diagnostics = softFilter(base, true, req.AutomaticExcludedModels, ExclusionAutomaticDisabled, diagnostics)
 
 	selectionCounts := make(map[string]int, len(base))
 	for _, candidate := range base {
@@ -351,10 +424,11 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 	}
 
 	resolved := ResolvedCandidates{
-		Candidates:  make([]Candidate, 0, len(base)),
-		ByArmID:     make(map[string]Binding, len(base)),
-		ByRosterID:  make(map[string]Binding, len(base)),
-		Diagnostics: diagnostics,
+		Candidates:          make([]Candidate, 0, len(base)),
+		ByArmID:             make(map[string]Binding, len(base)),
+		ByRosterID:          make(map[string]Binding, len(base)),
+		Diagnostics:         diagnostics,
+		bindingsByCatalogID: make(map[string][]resolvedBinding, len(base)),
 	}
 	ambiguousRosterIDs := make(map[string]struct{})
 	for _, candidate := range base {
@@ -367,18 +441,11 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			continue
 		}
 		resolved.Candidates = append(resolved.Candidates, candidate.Candidate)
-		binding := Binding{
-			ArmID:                        candidate.ArmID,
-			CatalogID:                    candidate.CatalogID,
-			Provider:                     candidate.Provider,
-			UpstreamID:                   candidate.UpstreamID,
-			BindingIndex:                 candidate.BindingIndex,
-			Endpoint:                     candidate.Endpoint,
-			ModelRevision:                candidate.ModelRevision,
-			ReasoningConfigurationSHA256: candidate.ReasoningConfigurationSHA256,
-			ToolConfigurationSHA256:      candidate.ToolConfigurationSHA256,
-		}
+		binding := bindingFromCandidate(candidate.Candidate)
 		resolved.ByArmID[candidate.ArmID] = binding
+		if _, recorded := resolved.bindingsByCatalogID[candidate.CatalogID]; !recorded {
+			resolved.bindingsByCatalogID[candidate.CatalogID] = append([]resolvedBinding(nil), candidate.bindings...)
+		}
 		if _, ambiguous := ambiguousRosterIDs[candidate.RosterID]; ambiguous {
 			continue
 		}
@@ -392,18 +459,54 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 	return resolved
 }
 
+func imageEligibleBindings(bindings []catalog.IndexedBinding, imageCount int) []catalog.IndexedBinding {
+	if imageCount <= 0 {
+		return bindings
+	}
+	filtered := make([]catalog.IndexedBinding, 0, len(bindings))
+	for _, binding := range bindings {
+		if binding.AcceptsImageCount(imageCount) {
+			filtered = append(filtered, binding)
+		}
+	}
+	return filtered
+}
+
 // BindingForSelection resolves a sidecar selection by arm ID first, then
 // preserves legacy roster-ID selection for existing policy artifacts.
+// Effort-qualified arm/roster IDs are split before map lookup; base ID drives resolution and the suffix sets Binding.Effort.
 func (r ResolvedCandidates) BindingForSelection(armID, rosterID string) (Binding, bool) {
 	if armID != "" {
-		binding, ok := r.ByArmID[armID]
-		return binding, ok
+		lookup, effort := splitEffort(armID)
+		if binding, ok := r.ByArmID[lookup]; ok {
+			binding.Effort = effort
+			return binding, ok
+		}
 	}
-	binding, ok := r.ByRosterID[rosterID]
+	lookup, effort := splitEffort(rosterID)
+	binding, ok := r.ByRosterID[lookup]
+	if ok {
+		binding.Effort = effort
+	}
 	return binding, ok
 }
 
+// splitEffort mirrors hmm.SplitEffort: only recognized effort levels are stripped; model IDs with ":" (e.g. "anthropic/opus-5:custom") stay intact.
+func splitEffort(armID string) (string, string) {
+	for i := len(armID) - 1; i > 0; i-- {
+		if armID[i] == ':' {
+			suffix := armID[i+1:]
+			if router.CanonicalizeEffort(suffix) == suffix && router.IsValidEffort(suffix) {
+				return armID[:i], suffix
+			}
+			return armID, ""
+		}
+	}
+	return armID, ""
+}
+
 func estimatedCostUSD(req router.Request, pricing catalog.Pricing) float64 {
+	pricing = pricing.ForInputTokens(req.EstimatedInputTokens)
 	outputTokens := expectedOutputTokens(req)
 	return (float64(req.EstimatedInputTokens)*pricing.InputUSDPer1M +
 		float64(outputTokens)*pricing.OutputUSDPer1M) / 1_000_000
@@ -413,11 +516,127 @@ func requiredContextTokens(req router.Request) int {
 	return max(req.EstimatedInputTokens, 0) + expectedOutputTokens(req)
 }
 
+// exceedsContextWindow reports whether the request's estimate rules the model
+// out. A model the proxy admitted on total overflow is never ruled out here:
+// its provider's exact count decides, so a real overflow reaches the client as
+// the native prompt-too-long error it compacts on.
+func exceedsContextWindow(req router.Request, catalogID string, contextWindow int) bool {
+	if _, admitted := req.OverflowAdmittedModels[catalogID]; admitted {
+		return false
+	}
+	return requiredContextTokens(req) > contextWindow
+}
+
 func expectedOutputTokens(req router.Request) int {
 	if req.RoutingKnobs == nil || req.RoutingKnobs.ExpectedOutputTokens == nil {
 		return 0
 	}
 	return max(*req.RoutingKnobs.ExpectedOutputTokens, 0)
+}
+
+// candidateContext carries the per-model facts shared by every binding of that
+// model, so binding expansion stays a single call regardless of routing mode.
+type candidateContext struct {
+	req             router.Request
+	catalogID       string
+	rosterID        string
+	model           catalog.Model
+	contextWindow   int
+	armContext      ArmContext
+	preferenceRanks map[string]*int
+}
+
+func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateContext, bindings []catalog.IndexedBinding) []eligibleCandidate {
+	expanded := make([]Candidate, 0, len(bindings))
+	for _, binding := range bindings {
+		upstreamID := catalog.UpstreamIDFor(ctx.catalogID, binding.UpstreamID)
+		modelRevision := upstreamID
+		armID := ctx.rosterID
+		if r.enumerateBindings {
+			armID = MakeArmID(ArmIdentity{
+				CanonicalModel:               ctx.catalogID,
+				Provider:                     binding.Provider,
+				UpstreamID:                   upstreamID,
+				Endpoint:                     ctx.armContext.Endpoint,
+				ModelRevision:                modelRevision,
+				ReasoningConfigurationSHA256: ctx.armContext.ReasoningConfigurationSHA256,
+				ToolConfigurationSHA256:      ctx.armContext.ToolConfigurationSHA256,
+			})
+		}
+		marginalCostFactor := 1.0
+		pricing := binding.Price.ForInputTokens(ctx.req.EstimatedInputTokens)
+		expanded = append(expanded, Candidate{
+			ArmID:                        armID,
+			RosterID:                     ctx.rosterID,
+			CatalogID:                    ctx.catalogID,
+			Provider:                     binding.Provider,
+			UpstreamID:                   upstreamID,
+			BindingIndex:                 binding.Index,
+			Endpoint:                     ctx.armContext.Endpoint,
+			ModelRevision:                modelRevision,
+			ReasoningConfigurationSHA256: ctx.armContext.ReasoningConfigurationSHA256,
+			ToolConfigurationSHA256:      ctx.armContext.ToolConfigurationSHA256,
+			PreferenceRank:               ctx.preferenceRanks[ctx.catalogID],
+			InputUSDPer1M:                pricing.InputUSDPer1M,
+			OutputUSDPer1M:               pricing.OutputUSDPer1M,
+			EstimatedCostUSD:             estimatedCostUSD(ctx.req, pricing),
+			CacheReadMultiplier:          pricing.EffectiveCacheReadMultiplier(),
+			MarginalCostFactor:           marginalCostFactor,
+			EffectiveInputUSDPer1M:       pricing.InputUSDPer1M * marginalCostFactor,
+			EffectiveOutputUSDPer1M:      pricing.OutputUSDPer1M * marginalCostFactor,
+			EffectiveEstimatedCostUSD:    estimatedCostUSD(ctx.req, pricing) * marginalCostFactor,
+			Capabilities: CandidateCapabilities{
+				ContextWindow:  ctx.contextWindow,
+				Tier:           ctx.model.Tier.String(),
+				SupportsTools:  ctx.model.ToolUseQuality != catalog.ToolUseLow && ctx.model.AgenticUse != catalog.AgenticLow,
+				SupportsImages: ctx.model.ImageInput != catalog.ImageInputUnsupported,
+			},
+		})
+	}
+	resolvedBindings := make([]resolvedBinding, len(expanded))
+	for index, candidate := range expanded {
+		resolvedBindings[index] = resolvedBinding{
+			Binding:          bindingFromCandidate(candidate),
+			estimatedCostUSD: candidate.EstimatedCostUSD,
+		}
+	}
+	if !r.enumerateBindings {
+		return append(base, eligibleCandidate{Candidate: expanded[0], bindings: resolvedBindings})
+	}
+	for _, candidate := range expanded {
+		base = append(base, eligibleCandidate{Candidate: candidate, bindings: resolvedBindings})
+	}
+	return base
+}
+
+func bindingFromCandidate(candidate Candidate) Binding {
+	return Binding{
+		ArmID:                        candidate.ArmID,
+		CatalogID:                    candidate.CatalogID,
+		Provider:                     candidate.Provider,
+		UpstreamID:                   candidate.UpstreamID,
+		BindingIndex:                 candidate.BindingIndex,
+		Endpoint:                     candidate.Endpoint,
+		ModelRevision:                candidate.ModelRevision,
+		ReasoningConfigurationSHA256: candidate.ReasoningConfigurationSHA256,
+		ToolConfigurationSHA256:      candidate.ToolConfigurationSHA256,
+	}
+}
+
+// gatewayBindings limits a model to the gateways whose key aliases it. A
+// catalog-declared gateway binding is not enough: only the key's aliases say
+// which models that tenant's endpoint actually serves.
+func gatewayBindings(id string, gateways map[string]struct{}, custom map[string][]string) []catalog.IndexedBinding {
+	aliased := make(map[string]struct{}, len(custom[id]))
+	for _, provider := range custom[id] {
+		if _, ok := gateways[provider]; ok {
+			aliased[provider] = struct{}{}
+		}
+	}
+	if len(aliased) == 0 {
+		return nil
+	}
+	return catalog.EnumerateBindingsWithCustom(id, aliased, custom)
 }
 
 func (r *Resolver) allowedProviders(in map[string]struct{}) map[string]struct{} {

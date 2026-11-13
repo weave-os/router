@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -25,6 +26,8 @@ type evictionStubPinStore struct {
 	incrementNext  []int // values returned by IncrementUpstreamErrors, in order
 	resetCalls     int
 	upserts        []sessionpin.Pin
+	continuations  map[string]sessionpin.Pin
+	consumeRoles   []string
 }
 
 func (s *evictionStubPinStore) Get(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
@@ -42,7 +45,7 @@ func (s *evictionStubPinStore) UpdateUsage(context.Context, [sessionpin.SessionK
 	return nil
 }
 
-func (s *evictionStubPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) (int, error) {
+func (s *evictionStubPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.incrementCalls++
@@ -54,11 +57,41 @@ func (s *evictionStubPinStore) IncrementUpstreamErrors(context.Context, [session
 	return v, nil
 }
 
-func (s *evictionStubPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string) error {
+func (s *evictionStubPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.resetCalls++
 	return nil
+}
+
+func (s *evictionStubPinStore) IncrementOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
+	return 0, nil
+}
+
+func (s *evictionStubPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
+	return nil
+}
+
+func (*evictionStubPinStore) ExpireAndDemoteModel(context.Context, sessionpin.Pin, string, sessionpin.DemotionReason) error {
+	return nil
+}
+
+func (s *evictionStubPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string, router.Strategy) error {
+	return nil
+}
+
+func (s *evictionStubPinStore) Consume(_ context.Context, key [sessionpin.SessionKeyLen]byte, role string, _ router.Strategy) (sessionpin.Pin, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.consumeRoles = append(s.consumeRoles, role)
+	pin, found := s.continuations[role]
+	if !found || !pin.PinnedUntil.After(time.Now()) {
+		return sessionpin.Pin{}, false, nil
+	}
+	delete(s.continuations, role)
+	pin.SessionKey = key
+	pin.Role = role
+	return pin, true, nil
 }
 
 func (s *evictionStubPinStore) SweepExpired(context.Context) error { return nil }
@@ -67,8 +100,6 @@ func newEvictionTestService(store *evictionStubPinStore) *Service {
 	return NewService(
 		nil,
 		nil,
-		nil,
-		false,
 		nil,
 		store,
 		false,
@@ -85,8 +116,10 @@ func nonZeroSessionKey() [sessionpin.SessionKeyLen]byte {
 	return k
 }
 
-// A single 400 must increment the counter but not evict — eviction waits for
-// a second consecutive strike so one-off bad requests don't flush a warm pin.
+// A single 400 must increment the counter but not evict — eviction waits for a
+// second consecutive strike so a one-off request-specific 400 doesn't flush a
+// warm pin. The deterministic dead-arm classes (schema/capability rejection)
+// evict immediately via maybeExpireDeadArmPin instead of this generic counter.
 func TestMaybeEvictPin_FirstStrikeOnlyIncrements(t *testing.T) {
 	store := &evictionStubPinStore{incrementNext: []int{1}}
 	svc := newEvictionTestService(store)
@@ -138,6 +171,31 @@ func TestMaybeEvictPin_SecondStrikeExpires(t *testing.T) {
 		"eviction reason is the audit trail that distinguishes this path from force-model / loop-break")
 }
 
+func TestExpireSessionPinInvalidatesPostCommandContinuation(t *testing.T) {
+	continuationRole := commandContinuationRole(sessionpin.DefaultRole)
+	store := &evictionStubPinStore{continuations: map[string]sessionpin.Pin{
+		continuationRole: {
+			Provider:    providers.ProviderAnthropic,
+			Model:       "claude-haiku-4-5",
+			PinnedUntil: time.Now().Add(time.Minute),
+		},
+	}}
+	svc := newEvictionTestService(store)
+
+	err := svc.expireSessionPin(
+		context.Background(),
+		uuid.New(),
+		nonZeroSessionKey(),
+		sessionpin.DefaultRole,
+		"degenerate_response",
+	)
+
+	require.NoError(t, err)
+	require.Len(t, store.upserts, 1)
+	assert.Equal(t, []string{continuationRole}, store.consumeRoles)
+	assert.Empty(t, store.continuations, "clearing a source pin must also remove its pending continuation")
+}
+
 func TestExpireSessionPinAndHMMHistoryExpiresBothRoles(t *testing.T) {
 	store := &evictionStubPinStore{}
 	svc := newEvictionTestService(store)
@@ -156,6 +214,8 @@ func TestExpireSessionPinAndHMMHistoryExpiresBothRoles(t *testing.T) {
 	require.Len(t, store.upserts, 2)
 	assert.Equal(t, sessionpin.DefaultRole, store.upserts[0].Role)
 	assert.Equal(t, hmmHistoryRole(sessionpin.DefaultRole), store.upserts[1].Role)
+	assert.Equal(t, []string{commandContinuationRole(sessionpin.DefaultRole)}, store.consumeRoles,
+		"only the primary pin may invalidate a post-command continuation")
 	for _, expired := range store.upserts {
 		assert.Equal(t, installationID, expired.InstallationID)
 		assert.Empty(t, expired.Provider)
@@ -310,4 +370,90 @@ func TestMaybeEvictPin_NonUpstreamErrorIgnored(t *testing.T) {
 
 	assert.Zero(t, store.incrementCalls)
 	assert.Empty(t, store.upserts)
+}
+
+// TestMaybeExpireDeadArmPin guards the successful-rescue path: when a
+// schema/capability rejection is rescued by a sibling/baseline arm, the rescue
+// nils proxyErr so the strike counter resets — the pin must be expired
+// regardless, and a force-model pin never evicted.
+func TestMaybeExpireDeadArmPin(t *testing.T) {
+	installationID := uuid.New()
+	sessionKey := nonZeroSessionKey()
+
+	cases := []struct {
+		name           string
+		rejected       bool
+		decisionReason string
+		wantFired      bool
+	}{
+		{"dead-arm rejection evicts the pin", true, "hmm_policy(...)", true},
+		{"no rejection leaves the pin", false, "hmm_policy(...)", false},
+		{"force-model pin is never evicted", true, translate.ReasonUserForceModel + "+tier_clamp", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &evictionStubPinStore{}
+			svc := newEvictionTestService(store)
+			svc.maybeExpireDeadArmPin(context.Background(), tc.rejected, tc.decisionReason, installationID, sessionKey, sessionpin.DefaultRole)
+			if tc.wantFired {
+				require.Len(t, store.upserts, 1, "dead-arm rejection must expire the pin")
+				expired := store.upserts[0]
+				assert.Equal(t, sessionpin.DefaultRole, expired.Role)
+				assert.Equal(t, installationID, expired.InstallationID)
+				assert.True(t, expired.PinnedUntil.Before(time.Now()), "eviction expires the pin")
+			} else {
+				assert.Empty(t, store.upserts, "pin must survive")
+			}
+		})
+	}
+}
+
+func TestMaybeEvictPin_SubscriptionPoolExhaustedLeavesStrikeCounter(t *testing.T) {
+	store := &evictionStubPinStore{incrementNext: []int{1}}
+	svc := newEvictionTestService(store)
+	installationID := uuid.New()
+	sessionKey := nonZeroSessionKey()
+
+	svc.maybeEvictPinAfterUpstreamErr(
+		context.Background(),
+		true,
+		ErrSubscriptionPoolExhausted,
+		"loop_escalation",
+		installationID,
+		sessionKey,
+		sessionpin.DefaultRole,
+	)
+
+	assert.Zero(t, store.incrementCalls, "pool exhaustion has no upstream status and must not use the 4xx strike counter")
+	assert.Empty(t, store.upserts, "subscription-arm expiry is keyed off the primary attempt, not the final rescue error")
+}
+
+func TestMaybeExpireSubscriptionArmPin(t *testing.T) {
+	installationID := uuid.New()
+	sessionKey := nonZeroSessionKey()
+
+	cases := []struct {
+		name           string
+		failure        error
+		decisionReason string
+		wantReason     string
+	}{
+		{"pool exhaustion evicts the pin", ErrSubscriptionPoolExhausted, "loop_escalation", pinEvictionReasonSubscriptionPool},
+		{"model denial evicts the pin", modelAccessError(), "loop_escalation", pinEvictionReasonSubscriptionModel},
+		{"healthy arm leaves the pin", nil, "loop_escalation", ""},
+		{"force-model pin is never evicted", modelAccessError(), translate.ReasonUserForceModel, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &evictionStubPinStore{}
+			svc := newEvictionTestService(store)
+			svc.maybeExpireSubscriptionArmPin(context.Background(), tc.failure, tc.decisionReason, installationID, sessionKey, sessionpin.DefaultRole)
+			if tc.wantReason != "" {
+				require.Len(t, store.upserts, 1)
+				assert.Equal(t, tc.wantReason, store.upserts[0].Reason)
+			} else {
+				assert.Empty(t, store.upserts)
+			}
+		})
+	}
 }

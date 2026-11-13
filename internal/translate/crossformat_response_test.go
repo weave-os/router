@@ -3,10 +3,12 @@ package translate_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -289,7 +291,7 @@ func TestAnthropicToOpenAIResponse_StopReasonMapping(t *testing.T) {
 	cases := []struct{ anthropic, openai string }{
 		{"end_turn", "stop"},
 		{"max_tokens", "length"},
-		{"tool_use", "tool_calls"},
+		{"tool_use", "stop"},
 		{"stop_sequence", "stop"},
 	}
 	for _, c := range cases {
@@ -468,6 +470,48 @@ func TestOpenAIToAnthropicResponse_FallbackModelFromRequest(t *testing.T) {
 	doc := unmarshal(t, out)
 	assert.Equal(t, "fallback-model", doc["model"])
 }
+
+// Alias must not leak to the client; requestModel wins over upstream's self-reported id.
+func TestOpenAIToAnthropicResponse_ReportsRoutedModelNotUpstreamAlias(t *testing.T) {
+	body := []byte(`{"id":"chatcmpl-x","model":"openai-gpt-5","choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":2,"total_tokens":7}}`)
+	out, err := translate.OpenAIToAnthropicResponse(body, "gpt-5")
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-5", unmarshal(t, out)["model"])
+}
+
+// Same guarantee on the streaming side: chunks carry the routed id, not the
+// alias the upstream names itself in message_start.
+func TestSSETranslator_ReportsRoutedModelNotUpstreamAlias(t *testing.T) {
+	rec := httptest.NewRecorder()
+	translator := translate.NewSSETranslator(rec, "claude-sonnet-4-5", nil)
+	translator.Header().Set("Content-Type", "text/event-stream")
+	translator.WriteHeader(http.StatusOK)
+
+	events := []string{
+		"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"model\":\"internal.claude-sonnet-4-5\",\"role\":\"assistant\",\"content\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n",
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n",
+		"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n",
+		"event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n",
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2}}\n\n",
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+	}
+	for _, event := range events {
+		_, err := translator.Write([]byte(event))
+		require.NoError(t, err)
+	}
+	require.NoError(t, translator.Finalize())
+
+	body := rec.Body.String()
+	assert.Contains(t, body, `"model":"claude-sonnet-4-5"`)
+	assert.NotContains(t, body, "internal.claude-sonnet-4-5")
+}
+
+func TestAnthropicToOpenAIResponse_ReportsRoutedModelNotUpstreamAlias(t *testing.T) {
+	out, err := translate.AnthropicToOpenAIResponse(anthropicTextResponse, "claude-sonnet-4-5")
+	require.NoError(t, err)
+	assert.Equal(t, "claude-sonnet-4-5", unmarshal(t, out)["model"])
+}
+
 func TestGeminiToOpenAIResponse_SimpleText(t *testing.T) {
 	out, err := translate.GeminiToOpenAIResponse(geminiTextResponse, "gemini-2.5-flash")
 	require.NoError(t, err)

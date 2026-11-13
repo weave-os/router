@@ -10,7 +10,8 @@ package handover
 import (
 	"context"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/translate"
 )
 
 // Usage captures the upstream token counts of a Summarize call so callers can
@@ -21,6 +22,10 @@ type Usage struct {
 	OutputTokens  int
 	CacheCreation int
 	CacheRead     int
+	// CacheCreation1h is the 1-hour-TTL share of CacheCreation and
+	// InferenceGeo the reported inference geography; both change the rate.
+	CacheCreation1h int
+	InferenceGeo    string
 	// Model and Provider identify the upstream the summarizer dispatched
 	// to so the ledger row can record them. Empty means "not reported".
 	Model    string
@@ -33,11 +38,15 @@ type Usage struct {
 // Implementations SHOULD respect the context deadline; on timeout or error,
 // callers keep the full prior history unchanged instead of dropping it.
 //
+// scope carries the request's eligibility (enabled providers, excluded
+// models, gateways, custom bindings): the summary is a router-initiated call
+// on the tenant's behalf, so it may only use what the tenant's own turn could.
+//
 // Provider identifies the upstream this summarizer dispatches to (e.g.
 // "anthropic"), so the orchestrator can plumb matching BYOK creds through
 // and keep tenant data from crossing the deployment key boundary.
 type Summarizer interface {
-	Summarize(ctx context.Context, env *translate.RequestEnvelope) (summary string, usage Usage, err error)
+	Summarize(ctx context.Context, env *translate.RequestEnvelope, scope router.Request) (summary string, usage Usage, err error)
 	Provider() string
 }
 

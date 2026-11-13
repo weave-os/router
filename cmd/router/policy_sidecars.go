@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/policy"
 )
 
 const maxConfiguredPolicySidecars = 16
@@ -22,11 +22,18 @@ const maxConfiguredPolicySidecars = 16
 var configuredPolicyStrategyPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,63}$`)
 
 var reservedPolicyStrategies = map[router.Strategy]struct{}{
-	router.StrategyCluster:      {},
-	router.StrategyRL:           {},
-	router.StrategyHMM:          {},
-	router.StrategyHMMEmbedding: {},
-	router.StrategyBandit:       {},
+	router.StrategyLLMClassifier: {},
+	router.StrategyRL:            {},
+	router.StrategyHMM:           {},
+	router.StrategyHMMEmbedding:  {},
+	router.StrategyHMMBeta:       {},
+	router.StrategyHMMQwen:       {},
+	router.StrategyDecisionModel: {},
+}
+
+func isReservedPolicyStrategy(strategy router.Strategy) bool {
+	_, reserved := reservedPolicyStrategies[strategy]
+	return reserved || router.IsRetiredStrategy(strategy)
 }
 
 // buildConfiguredPolicySidecars turns a JSON strategy-to-URL map into policy.StrategySpec registrations; sidecars own model logic, the router owns candidate resolution and lifecycle.
@@ -67,7 +74,7 @@ func buildConfiguredPolicySidecars(
 		if !configuredPolicyStrategyPattern.MatchString(string(strategy)) {
 			return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS strategy %q must match %s", strategy, configuredPolicyStrategyPattern)
 		}
-		if _, reserved := reservedPolicyStrategies[strategy]; reserved {
+		if isReservedPolicyStrategy(strategy) {
 			return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS strategy %q is reserved", strategy)
 		}
 		if _, duplicate := seen[strategy]; duplicate {

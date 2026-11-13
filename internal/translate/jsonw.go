@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"strconv"
 
-	"workweave/router/internal/sse"
+	"weave-os/router/internal/sse"
 )
 
 type jsonWriter struct {

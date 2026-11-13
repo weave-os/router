@@ -8,10 +8,22 @@ import (
 // UserIDContextKey is the request-context key for the resolved router user ID.
 type UserIDContextKey struct{}
 
+// UserClusterModelListsContextKey is the request-context key for the resolved user's
+// per-cluster model selections (cluster label → ordered catalog model IDs).
+// Lives in auth (not proxy) because proxy imports auth and the value is set during user resolution.
+type UserClusterModelListsContextKey struct{}
+
 // UserIDFrom returns the router user ID stashed on ctx, or "" if absent.
 func UserIDFrom(ctx context.Context) string {
 	s, _ := ctx.Value(UserIDContextKey{}).(string)
 	return s
+}
+
+// UserClusterModelListsFrom returns the resolved user's per-cluster model
+// selections stashed on ctx, or nil when the user configured none.
+func UserClusterModelListsFrom(ctx context.Context) map[string][]string {
+	m, _ := ctx.Value(UserClusterModelListsContextKey{}).(map[string][]string)
+	return m
 }
 
 // User is an end-user identity scoped to an installation.
@@ -42,12 +54,21 @@ type UpsertUserByAccountUUIDParams struct {
 	DisplayName       *string
 }
 
+// UpsertUserByCredentialSubjectParams is the input to UserRepository.UpsertByCredentialSubject.
+type UpsertUserByCredentialSubjectParams struct {
+	InstallationID      string
+	CredentialSubjectID string
+	DisplayName         *string
+}
+
 // UserRepository is the data-access port for end-user identities.
 type UserRepository interface {
 	// UpsertByEmail finds-or-creates a row keyed on (installation_id, email).
 	UpsertByEmail(ctx context.Context, params UpsertUserParams) (*User, error)
 	// UpsertByAccountUUID finds-or-creates an email-NULL row keyed on (installation_id, claude_account_uuid).
 	UpsertByAccountUUID(ctx context.Context, params UpsertUserByAccountUUIDParams) (*User, error)
+	// UpsertByCredentialSubject finds-or-creates an email-NULL, account-NULL row keyed on (installation_id, credential_subject_id).
+	UpsertByCredentialSubject(ctx context.Context, params UpsertUserByCredentialSubjectParams) (*User, error)
 	// Get and ListForInstallation have no caller today; natural extension point
 	// for a future per-installation users admin view (cf. APIKeyRepository.ListForInstallation).
 	Get(ctx context.Context, id string) (*User, error)

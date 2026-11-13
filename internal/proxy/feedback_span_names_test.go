@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	feedbacktoken "workweave/router/internal/feedback"
-	"workweave/router/internal/observability/otel"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/sessionpin"
+	feedbacktoken "weave-os/router/internal/feedback"
+	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -96,7 +96,7 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 	// --- Pipeline A: signed feedback-link submission ---
 	repo := &fakeFeedbackRepoForSpanTest{}
 	signer := feedbacktoken.NewSigner("secret", time.Hour)
-	linkSvc := proxy.NewService(nil, nil, emitter, false, nil, nil, false, "", "", nil).
+	linkSvc := proxy.NewService(nil, nil, emitter, nil, false, "", "", nil).
 		WithFeedback(repo, signer, "https://router.example.com")
 
 	err := linkSvc.SubmitFeedback(context.Background(), proxy.SubmitFeedbackParams{
@@ -118,8 +118,6 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		emitter,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,

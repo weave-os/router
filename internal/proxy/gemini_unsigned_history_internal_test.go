@@ -2,11 +2,12 @@ package proxy
 
 import (
 	"testing"
+	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 )
 
 func TestExcludeGemini3xOnUnsignedHistory_ExcludesGeminiKeepsOthers(t *testing.T) {
@@ -40,6 +41,7 @@ func TestExcludeGemini3xOnUnsignedHistory_SignedHistoryIsNoop(t *testing.T) {
 func TestGemini3xRequiresSignedHistory(t *testing.T) {
 	assert.True(t, gemini3xRequiresSignedHistory("gemini-3.1-pro-preview"))
 	assert.True(t, gemini3xRequiresSignedHistory("gemini-3.5-flash"))
+	assert.True(t, gemini3xRequiresSignedHistory(router.ModelGemini4Argon))
 	assert.False(t, gemini3xRequiresSignedHistory("gemini-2.5-flash"))
 	assert.False(t, gemini3xRequiresSignedHistory("claude-opus-4-8"))
 }

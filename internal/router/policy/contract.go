@@ -3,7 +3,8 @@ package policy
 import (
 	"context"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/taskdomain"
 )
 
 // SchemaVersionV1 is the first stable policy-sidecar wire contract.
@@ -12,6 +13,49 @@ const SchemaVersionV1 = "policy_router_v1"
 // SchemaVersionV2 identifies sidecar requests that carry configuration-level
 // arm identities and require arm-aware selection when a roster is ambiguous.
 const SchemaVersionV2 = "policy_router_v2"
+
+// SchemaVersionV3 identifies the classifier-only contract: the sidecar classifies
+// and returns a ranked fallback; the router selects the arm.
+const SchemaVersionV3 = "policy_router_v3"
+
+// SchemaVersionV4 identifies the strict classification-facts-only contract.
+// Candidate identities, roster data, group clamps, and selection fields are
+// forbidden on this boundary.
+const SchemaVersionV4 = "policy_router_v4"
+
+// SchemaVersionV5 identifies the release-addressed classifier service contract.
+const SchemaVersionV5 = "policy_router_v5"
+
+// ClassifierAPIMajor identifies a classifier request/response taxonomy contract.
+type ClassifierAPIMajor int
+
+const (
+	ClassifierAPIMajorV4 ClassifierAPIMajor = 4
+	ClassifierAPIMajorV5 ClassifierAPIMajor = 5
+)
+
+// SupportedClassifierAPIMajors returns the classifier API majors this binary speaks, in ascending order.
+func SupportedClassifierAPIMajors() []ClassifierAPIMajor {
+	return []ClassifierAPIMajor{ClassifierAPIMajorV4, ClassifierAPIMajorV5}
+}
+
+// ClassifierVariantID is the fixed classifier implementation role within a release.
+type ClassifierVariantID string
+
+const (
+	ClassifierVariantPrimary ClassifierVariantID = "primary"
+	ClassifierVariantHMMBeta ClassifierVariantID = "hmm_beta"
+	ClassifierVariantQwen    ClassifierVariantID = "qwen"
+)
+
+// ClassifierArtifact identifies an alternate classifier with the sidecar's taxonomy.
+type ClassifierArtifact struct {
+	ArtifactID      string `json:"artifact_id"`
+	PackageSHA256   string `json:"package_sha256"`
+	Endpoint        string `json:"endpoint,omitempty"`
+	Audience        string `json:"audience,omitempty"`
+	ServingRevision string `json:"serving_revision,omitempty"`
+}
 
 const (
 	ExecutionModeServing = "serving"
@@ -28,16 +72,43 @@ type Capabilities struct {
 	HonorsQualityPriceBias   bool   `json:"honors_quality_price_bias"`
 	SupportsDebugRouteDetail bool   `json:"supports_debug_route_detail"`
 	SupportsPreview          bool   `json:"supports_preview"`
-	SupportsShadow           bool   `json:"supports_shadow"`
+	// SupportsRoutingDistribution means the Go router can project the same
+	// quality/price scorer used by live serving across the dashboard dial.
+	SupportsRoutingDistribution bool `json:"supports_routing_distribution"`
+	SupportsShadow              bool `json:"supports_shadow"`
+	// ReportsRankedFallback declares that the sidecar returns ranked_fallback on
+	// the serving /route response. When false, cluster arm overrides fail open.
+	ReportsRankedFallback bool `json:"reports_ranked_fallback"`
+	// HonorsClusterModelLists declares that per-cluster model selections actually
+	// affect serving. Derived from ReportsRankedFallback (its precondition): without
+	// a ranked fallback the override layer has nothing to re-select against and fails
+	// open. The control plane hides the per-cluster UI when this is false.
+	HonorsClusterModelLists bool `json:"honors_cluster_model_lists"`
 	// AuthoritativePerTurnSelection makes eligible main/tool-result decisions
 	// model-authoritative through dispatch.
 	AuthoritativePerTurnSelection bool `json:"authoritative_per_turn_selection"`
+	// InteractionStatePackageSHA256s lists the loaded classifier packages that
+	// read interaction-state inputs: the wider per-message clip and
+	// omitted_user_turn_count. Every other package keeps the default request.
+	InteractionStatePackageSHA256s []string `json:"interaction_state_package_sha256s,omitempty"`
 }
 
 // CapabilitySource returns the live capability set of a sidecar router.
 // Implementations must be safe for concurrent reads and background writes.
 type CapabilitySource interface {
 	CurrentCapabilities() Capabilities
+}
+
+// RequestCapabilitySource keeps capability-dependent behavior on the admitted runtime.
+type RequestCapabilitySource interface {
+	CapabilitiesForRequest(context.Context) Capabilities
+}
+
+// AvailabilitySource reports whether a policy-backed router has an active
+// serving snapshot. Registration alone is not readiness: a dynamic router can
+// be wired before its first valid policy refresh completes.
+type AvailabilitySource interface {
+	Available() bool
 }
 
 // StrategySpec is the complete proxy registration for one policy strategy.
@@ -51,6 +122,8 @@ type StrategySpec struct {
 
 // Query contains the strategy-neutral request context supplied to a policy.
 type Query struct {
+	TaskDomain           *taskdomain.Input
+	ClassifierPrediction *router.ClassifierPrediction
 	SchemaVersion        string
 	Strategy             router.Strategy
 	ExecutionMode        string
@@ -63,6 +136,7 @@ type Query struct {
 	PromptText           string
 	ConversationMessages []router.ConversationMessage
 	AvailableTools       []string
+	Tools                []router.ToolDescriptor
 	FeedbackKey          string
 	FeedbackRole         string
 	ClientSessionID      string
@@ -77,10 +151,25 @@ type Query struct {
 	CaptureMode          string
 	DebugEnabled         bool
 	Candidates           []Candidate
+	// ArtifactSHA256 selects a boot-loaded sidecar package; empty serves the
+	// sidecar's default package.
+	ArtifactSHA256 string
+	// ClassifierReleaseID binds a v5 request to one immutable logical release.
+	ClassifierReleaseID string
+	// ClassifierSelectionID binds v5 resolution to one immutable target allowlist.
+	ClassifierSelectionID string
+	// ClassifierVariantID selects a classifier within that release, never a provider/model.
+	ClassifierVariantID ClassifierVariantID
+	// ClassifierArtifactSHA256 is the variant artifact the pinned v5 release must serve.
+	ClassifierArtifactSHA256 string
+	// InteractionStateInputs is set when the strategy's classifier package is
+	// one the sidecar listed in InteractionStatePackageSHA256s.
+	InteractionStateInputs bool
 }
 
 // Result is a policy sidecar's selected candidate and decision metadata.
 type Result struct {
+	TaskDomain           *taskdomain.Outcome
 	SchemaVersion        string
 	RouteID              string
 	ArmID                string
@@ -100,9 +189,41 @@ type Result struct {
 	DisplayMarker        string
 	PolicyArtifactID     string
 	PolicyArtifactSHA256 string
-	RosterVersion        string
-	DebugRef             string
-	Debug                map[string]interface{}
+	// ClassifierReleaseID is the immutable logical release served by a v5 classifier service.
+	ClassifierReleaseID string
+	// ClassifierSelectionID is the target selection whose allowlist authorized the variant.
+	ClassifierSelectionID string
+	// ClassifierVariantID is the variant served from that exact release.
+	ClassifierVariantID ClassifierVariantID
+	// ClassifierTaxonomySHA256 is the exact ordered class taxonomy served by v5.
+	ClassifierTaxonomySHA256 string
+	// Timings is the sidecar's per-stage decision cost decomposed into
+	// non-overlapping stages; nil when the sidecar reported no timings.
+	Timings *router.SidecarTimings
+	// ServingStats is the sidecar's serving stats passed through verbatim;
+	// nil when the sidecar reported none.
+	ServingStats  *router.SidecarServingStats
+	RosterVersion string
+	DebugRef      string
+	Debug         map[string]interface{}
+	// ArmScores holds per-arm WMI scores for hysteresis; absent on pre-B1 sidecars.
+	ArmScores map[string]float32
+	// RankedFallback is every classifier group in serving fallback order, each
+	// with its full and eligible roster arms. Populated when ReportsRankedFallback;
+	// empty on older sidecars (arm override fails open).
+	RankedFallback []PreviewGroup
+	// PredictedLabel is the classifier's typed predicted complexity label;
+	// empty on sidecars that do not report it.
+	PredictedLabel string
+	// ClassProbabilities is the classifier's typed per-class probability map;
+	// nil on sidecars that do not report it.
+	ClassProbabilities map[string]float64
+	// ClassOrder is the classifier taxonomy order used for deterministic ties.
+	ClassOrder []string
+	// HMMStateID and the state vectors are classifier evidence, not selection.
+	HMMStateID            int
+	HMMStatePath          []int
+	HMMStateProbabilities []float64
 }
 
 // PreviewGroup records one classifier group in serving fallback order.
@@ -116,22 +237,51 @@ type PreviewGroup struct {
 // PreviewResult is a side-effect-free policy evaluation with every arm in the
 // first nonempty ranked group, plus authoritative router resolution details.
 type PreviewResult struct {
-	SchemaVersion         string             `json:"schema_version"`
-	RouteID               string             `json:"route_id"`
-	Strategy              router.Strategy    `json:"strategy"`
-	PolicyArtifactID      string             `json:"policy_artifact_id"`
-	PolicyArtifactSHA256  string             `json:"policy_artifact_sha256"`
-	RosterSHA256          string             `json:"roster_sha256"`
-	HMMStateID            int                `json:"hmm_state_id"`
-	HMMStatePath          []int              `json:"hmm_state_path"`
-	HMMStateProbabilities []float64          `json:"hmm_state_probabilities"`
-	ClassOrder            []string           `json:"class_order"`
-	ClassProbabilities    map[string]float64 `json:"class_probabilities"`
-	RankedFallback        []PreviewGroup     `json:"ranked_fallback"`
-	SelectedGroup         string             `json:"selected_group,omitempty"`
-	EligibleRosterIDs     []string           `json:"eligible_roster_ids"`
-	ResolverCandidates    []Candidate        `json:"resolver_candidates"`
-	ResolverExclusions    []Diagnostic       `json:"resolver_exclusions"`
+	SchemaVersion            string              `json:"schema_version"`
+	RouteID                  string              `json:"route_id"`
+	Strategy                 router.Strategy     `json:"strategy"`
+	PolicyArtifactID         string              `json:"policy_artifact_id"`
+	PolicyArtifactSHA256     string              `json:"policy_artifact_sha256"`
+	ClassifierReleaseID      string              `json:"classifier_release_id,omitempty"`
+	ClassifierSelectionID    string              `json:"classifier_selection_id,omitempty"`
+	ClassifierVariantID      ClassifierVariantID `json:"classifier_variant_id,omitempty"`
+	ClassifierTaxonomySHA256 string              `json:"classifier_taxonomy_sha256,omitempty"`
+	RosterSHA256             string              `json:"roster_sha256"`
+	HMMStateID               int                 `json:"hmm_state_id"`
+	HMMStatePath             []int               `json:"hmm_state_path"`
+	HMMStateProbabilities    []float64           `json:"hmm_state_probabilities"`
+	ClassOrder               []string            `json:"class_order"`
+	ClassProbabilities       map[string]float64  `json:"class_probabilities"`
+	PredictedLabel           string              `json:"predicted_label"`
+	RankedFallback           []PreviewGroup      `json:"ranked_fallback"`
+	SelectedGroup            string              `json:"selected_group,omitempty"`
+	EligibleRosterIDs        []string            `json:"eligible_roster_ids"`
+	ResolverCandidates       []Candidate         `json:"resolver_candidates"`
+	ResolverExclusions       []Diagnostic        `json:"resolver_exclusions"`
+}
+
+// RosterSnapshot is the live Go selection-policy projection used by routing,
+// preview, deployed-model discovery, and the admin control plane.
+type RosterSnapshot struct {
+	SchemaVersion            string                         `json:"schema_version"`
+	ReleaseID                string                         `json:"release_id"`
+	PolicySHA256             string                         `json:"policy_sha256"`
+	Environment              string                         `json:"environment"`
+	Lane                     string                         `json:"lane"`
+	HeadGeneration           int64                          `json:"head_generation"`
+	LatestObservedGeneration int64                          `json:"latest_observed_generation"`
+	RejectedGeneration       int64                          `json:"rejected_generation,omitempty"`
+	LastRejectionReason      string                         `json:"last_rejection_reason,omitempty"`
+	Clusters                 map[string][]string            `json:"clusters"`
+	Harnesses                map[string]map[string][]string `json:"harnesses,omitempty"`
+	// RosterSHA256 is dual-written for compatibility while callers migrate to
+	// PolicySHA256. Both identify the exact Go policy bytes.
+	RosterSHA256 string `json:"roster_sha256"`
+}
+
+// RosterSource returns the active Go-owned serving-policy projection.
+type RosterSource interface {
+	ClusterRoster(ctx context.Context) (RosterSnapshot, error)
 }
 
 // Decider asks a policy sidecar to choose one supplied candidate.
@@ -159,3 +309,9 @@ type OutcomeReporter interface {
 type FeedbackReporter interface {
 	ReportFeedback(ctx context.Context, payload map[string]interface{}) error
 }
+
+// ClassifierTimeoutHeader carries the Router's remaining classify budget, in whole milliseconds, so the classifier stops inference the Router will no longer wait for.
+const ClassifierTimeoutHeader = "X-Weave-Classifier-Timeout-Ms"
+
+// MaxClassifierTimeoutMilliseconds is the largest budget the classifier accepts in ClassifierTimeoutHeader.
+const MaxClassifierTimeoutMilliseconds = 600_000

@@ -5,10 +5,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/planner"
-	"workweave/router/internal/router/sessionpin"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/planner"
+	"weave-os/router/internal/router/sessionpin"
 )
 
 const (
@@ -50,35 +52,91 @@ func pinWithUsage(model string) sessionpin.Pin {
 	}
 }
 
-// A session pinned to a cheap model must switch to a subscription-covered model
-// once the subsidy makes it near-free — otherwise the discount never takes
-// effect on sticky sessions.
-func TestDecide_SubscriptionDiscountFlipsSwitch(t *testing.T) {
+func TestDecide_UsesNamedProviderBindings(t *testing.T) {
 	t.Parallel()
+
 	base := planner.Inputs{
-		Pin:                  pinWithUsage(modelHaiku),
-		Fresh:                router.Decision{Model: modelOpus},
-		EstimatedInputTokens: 100_000,
+		Pin: sessionpin.Pin{
+			Provider:        providers.ProviderMakora,
+			Model:           "deepseek/deepseek-v4.1-flash",
+			LastTurnEndedAt: time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC),
+		},
+		Fresh: router.Decision{
+			Provider: providers.ProviderOpenRouter,
+			Model:    "qwen/qwen3-coder-next",
+		},
+		EstimatedInputTokens: 1_000_000,
+		AvailableModels: map[string]struct{}{
+			"deepseek/deepseek-v4.1-flash": {},
+			"qwen/qwen3-coder-next":        {},
+		},
+	}
+
+	makoraPin := planner.Decide(base, planner.EVConfig{ExpectedRemainingTurns: 3})
+	assert.InDelta(t, -0.087, makoraPin.ExpectedSavingsUSD, 1e-9)
+	assert.False(t, makoraPin.PinPriceFallback)
+	assert.False(t, makoraPin.FreshPriceFallback)
+
+	openRouterPinInput := base
+	openRouterPinInput.Pin.Provider = providers.ProviderOpenRouter
+	openRouterPin := planner.Decide(openRouterPinInput, planner.EVConfig{ExpectedRemainingTurns: 3})
+	assert.InDelta(t, -0.075, openRouterPin.ExpectedSavingsUSD, 1e-9)
+	assert.NotEqual(t, makoraPin.ExpectedSavingsUSD, openRouterPin.ExpectedSavingsUSD,
+		"the pin's named provider must affect its cache economics")
+}
+
+func TestDecide_PrimaryPriceFallbackIsExplicit(t *testing.T) {
+	t.Parallel()
+
+	in := planner.Inputs{
+		Pin: sessionpin.Pin{
+			Provider:        "custom-provider",
+			Model:           modelHaiku,
+			LastTurnEndedAt: time.Date(2026, 5, 12, 12, 0, 0, 0, time.UTC),
+		},
+		Fresh:                router.Decision{Provider: providers.ProviderAnthropic, Model: modelOpus},
+		EstimatedInputTokens: 50_000,
 		AvailableModels:      availableAll,
 	}
 
-	stay := planner.Decide(base, defaultCfg)
-	assert.Equal(t, planner.OutcomeStay, stay.Outcome, "no subsidy: keep the cheap pin")
+	got := planner.Decide(in, defaultCfg)
+	assert.True(t, got.PinPriceFallback, "custom bindings use the documented primary-price fallback")
+	assert.False(t, got.FreshPriceFallback)
 
-	// Subsidize the fresh model to ~free -> switching now saves.
-	sub := base
-	sub.SubsidizedCostFactor = map[string]float64{modelOpus: 0.01}
-	switched := planner.Decide(sub, defaultCfg)
-	assert.Equal(t, planner.OutcomeSwitch, switched.Outcome,
-		"subsidized covered model must win the stay-vs-switch EV")
-	assert.Equal(t, planner.ReasonEVPositive, switched.Reason)
+	missing := in
+	missing.Fresh.Model = modelUnknown
+	missing.AvailableModels = map[string]struct{}{modelHaiku: {}, modelUnknown: {}}
+	got = planner.Decide(missing, defaultCfg)
+	require.Equal(t, planner.ReasonPricingMissing, got.Reason)
+	assert.True(t, got.PinPriceFallback, "successful fallback pricing must be retained on a missing-price decision")
+	assert.False(t, got.FreshPriceFallback)
+}
 
-	// A 0.0 factor is still "covered" (map membership decides, not sign).
-	zeroFactor := base
-	zeroFactor.SubsidizedCostFactor = map[string]float64{modelOpus: 0.0}
-	zero := planner.Decide(zeroFactor, defaultCfg)
-	assert.Equal(t, planner.OutcomeSwitch, zero.Outcome,
-		"a 0.0 covered-model factor must still be treated as free (switch), not uncovered")
+func TestDecide_ShadowInclusiveCostModel(t *testing.T) {
+	t.Parallel()
+
+	in := planner.Inputs{
+		Pin:                   pinWithUsage(modelOpus),
+		Fresh:                 router.Decision{Model: modelHaiku},
+		EstimatedInputTokens:  100,
+		CacheablePrefixTokens: 60,
+		AvailableModels:       availableAll,
+	}
+	got := planner.Decide(in, planner.EVConfig{ExpectedRemainingTurns: 1})
+	assert.True(t, got.ShadowComputed)
+	assert.InDelta(t, got.ShadowStayCostUSD, got.ShadowExpectedSavingsUSD+got.ShadowSwitchCostUSD, 1e-12)
+	assert.Greater(t, got.ShadowSwitchCostUSD, 0.0, "N=1 prices the current switch action exactly once")
+
+	in.CacheablePrefixTokens = 0
+	noPrefix := planner.Decide(in, planner.EVConfig{ExpectedRemainingTurns: 1})
+	in.PinCacheCold = true
+	noPrefixCold := planner.Decide(in, planner.EVConfig{ExpectedRemainingTurns: 1})
+	assert.InDelta(t, noPrefix.ShadowStayCostUSD, noPrefixCold.ShadowStayCostUSD, 1e-12,
+		"K=0 removes cache-write advantage")
+
+	in.CacheablePrefixTokens = 100
+	cold := planner.Decide(in, planner.EVConfig{ExpectedRemainingTurns: 1})
+	assert.Greater(t, cold.ShadowStayCostUSD, got.ShadowStayCostUSD, "a cold pin pays its current cache write")
 }
 
 // With ColdPinFollowFresh enabled, a cold pin follows the scorer's fresh pick

@@ -24,9 +24,9 @@
 package planner
 
 import (
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/sessionpin"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/sessionpin"
 )
 
 // Outcome is the planner's verdict for this turn.
@@ -44,6 +44,16 @@ type Decision struct {
 	ExpectedSavingsUSD float64
 	EvictionCostUSD    float64
 	ThresholdUSD       float64
+	// PinPriceFallback and FreshPriceFallback are true when the named provider
+	// binding has no catalog entry and pricing fell back to the model's primary binding.
+	PinPriceFallback   bool
+	FreshPriceFallback bool
+	// Shadow* is calibration-only; Outcome continues to use the production policy.
+	ShadowComputed           bool
+	ShadowOutcome            Outcome
+	ShadowExpectedSavingsUSD float64
+	ShadowStayCostUSD        float64
+	ShadowSwitchCostUSD      float64
 	// PinCacheCold echoes the warmth assumption the EV math ran under, for
 	// observability. Only meaningful on the EV path; false on early returns.
 	PinCacheCold bool
@@ -65,6 +75,10 @@ type EVConfig struct {
 	// and tier-upgrade take precedence (more specific reasons). Off by
 	// default; measure against shadow telemetry before arming.
 	ColdPinFollowFresh bool
+	// CorrectedEconomics prices the uncached tail at full rate, charges the
+	// cache-write premium on a switch, and counts output price. Off by default:
+	// it changes routing, so it is armed per environment. See CLAUDE.md.
+	CorrectedEconomics bool
 }
 
 // Inputs is the full per-turn input to Decide.
@@ -72,7 +86,19 @@ type Inputs struct {
 	Pin                  sessionpin.Pin
 	Fresh                router.Decision
 	EstimatedInputTokens int
-	AvailableModels      map[string]struct{}
+	// CacheablePrefixTokens estimates the stable portion of the input.
+	// Shadow-only until CorrectedEconomics is armed, which reads it as the
+	// numerator of the cacheable share. Meaningful only when CachePrefixKnown.
+	CacheablePrefixTokens int
+	// CachePrefixKnown distinguishes a measured zero prefix from no telemetry.
+	// Without it a genuinely uncached pin falls back to k=1 and is priced as
+	// fully cached — the inversion CorrectedEconomics exists to remove.
+	CachePrefixKnown bool
+	// PriorOutputTokens estimates this turn's completion from the last one, so
+	// CorrectedEconomics can price output — which the legacy path ignores
+	// entirely. Zero disables the term rather than asserting a free completion.
+	PriorOutputTokens int
+	AvailableModels   map[string]struct{}
 	// PinCacheCold reports that the pin's upstream prompt cache has lapsed —
 	// no turn completed within the pinned provider's cache TTL. The proxy
 	// computes this (it owns the clock); the planner stays a pure function.
@@ -80,13 +106,6 @@ type Inputs struct {
 	// "assume warm", preserving the original cache-discounted behavior for any
 	// caller that does not supply warmth information.
 	PinCacheCold bool
-	// SubsidizedCostFactor scales a model's effective price in the EV math, in
-	// [epsilon, 1], for models a caller's subscription covers (see
-	// internal/proxy/usage). Without it, the planner prices the fresh
-	// (switch-to) model at full catalog rate, so a session pinned to a cheap
-	// model would never switch to a now-near-free subscription model and the
-	// discount would never take effect on sticky sessions. nil = no subsidy.
-	SubsidizedCostFactor map[string]float64
 }
 
 const (
@@ -99,6 +118,9 @@ const (
 	ReasonEVNegative      = "ev_negative"
 	ReasonTierUpgrade     = "tier_upgrade"
 	ReasonColdPinFresh    = "cold_pin_follow_fresh"
+	// ReasonSameTierPinned is set by the caller (not Decide) when a same-tier
+	// lateral switch is suppressed by hmmSameTierPin.
+	ReasonSameTierPinned = "same_tier_pinned"
 )
 
 // Decide returns the planner verdict for this turn.
@@ -124,43 +146,39 @@ func Decide(in Inputs, cfg EVConfig) Decision {
 		return Decision{Outcome: OutcomeStay, Reason: ReasonNoPriorUsage}
 	}
 
-	pinPrice, ok1 := catalog.PrimaryPriceFor(in.Pin.Model)
-	freshPrice, ok2 := catalog.PrimaryPriceFor(in.Fresh.Model)
+	pinPrice, pinPriceFallback, ok1 := priceForDecision(in.Pin.Provider, in.Pin.Model)
+	freshPrice, freshPriceFallback, ok2 := priceForDecision(in.Fresh.Provider, in.Fresh.Model)
 	if !ok1 || !ok2 {
-		return Decision{Outcome: OutcomeStay, Reason: ReasonPricingMissing}
+		return Decision{
+			Outcome:            OutcomeStay,
+			Reason:             ReasonPricingMissing,
+			PinPriceFallback:   pinPriceFallback && ok1,
+			FreshPriceFallback: freshPriceFallback && ok2,
+		}
 	}
-	// Subscription discount: price a covered model at its subsidized marginal
-	// cost in the EV math too, so a pin on a cheap model correctly switches to a
-	// now-near-free subscription model (and a covered pin is priced cheap to
-	// stay). Scale Input/Output uniformly; CacheReadMultiplier is a ratio and
-	// stays correct. Keyed on map MEMBERSHIP (not factor sign) to mirror the
-	// scorer exactly — so a legitimate 0.0 factor (epsilon=0) discounts here too,
-	// rather than being mistaken for an absent/uncovered model.
-	pinPrice = applySubsidy(pinPrice, in.SubsidizedCostFactor, in.Pin.Model)
-	freshPrice = applySubsidy(freshPrice, in.SubsidizedCostFactor, in.Fresh.Model)
+	pinPrice = pinPrice.ForInputTokens(in.EstimatedInputTokens)
+	freshPrice = freshPrice.ForInputTokens(in.EstimatedInputTokens)
 
 	tokens := float64(in.EstimatedInputTokens)
-	// Per-model cache-read multipliers scale savings: only the cache-read
-	// portion of per-turn delta accrues over the horizon — but only while the
-	// pin's cache is warm. A cold pin earns no discount and switching evicts
-	// nothing (both sides pay one cold prefill), so price both uncached and
-	// let raw economics and the tier guard decide.
-	pinMult, freshMult := 1.0, 1.0
-	var evictionCost float64
-	if !in.PinCacheCold {
-		pinMult = pinPrice.EffectiveCacheReadMultiplier()
-		freshMult = freshPrice.EffectiveCacheReadMultiplier()
-		evictionCost = freshPrice.InputUSDPer1M * tokens * (1 - freshMult) / 1e6
+	var expectedSavings, evictionCost float64
+	if cfg.CorrectedEconomics {
+		expectedSavings, evictionCost = correctedEV(pinPrice, freshPrice, in, cfg)
+	} else {
+		expectedSavings, evictionCost = legacyEV(pinPrice, freshPrice, tokens, in.PinCacheCold, cfg)
 	}
-	savingsPerTurn := (pinPrice.InputUSDPer1M*pinMult - freshPrice.InputUSDPer1M*freshMult) * tokens / 1e6
-	expectedSavings := savingsPerTurn * float64(cfg.ExpectedRemainingTurns)
 
 	d := Decision{
 		ExpectedSavingsUSD: expectedSavings,
 		EvictionCostUSD:    evictionCost,
 		ThresholdUSD:       cfg.ThresholdUSD,
 		PinCacheCold:       in.PinCacheCold,
+		PinPriceFallback:   pinPriceFallback,
+		FreshPriceFallback: freshPriceFallback,
 	}
+	d.ShadowOutcome, d.ShadowExpectedSavingsUSD, d.ShadowStayCostUSD, d.ShadowSwitchCostUSD = shadowCosts(
+		pinPrice, freshPrice, tokens, float64(in.CacheablePrefixTokens), cfg.ExpectedRemainingTurns, in.PinCacheCold, cfg.ThresholdUSD,
+	)
+	d.ShadowComputed = true
 	switch {
 	case expectedSavings-evictionCost > cfg.ThresholdUSD:
 		d.Outcome = OutcomeSwitch
@@ -178,18 +196,97 @@ func Decide(in Inputs, cfg EVConfig) Decision {
 	return d
 }
 
-// applySubsidy scales a model's price by its subscription cost factor when the
-// model is present in factors (the covered set), leaving it unchanged otherwise.
-// Keyed on membership rather than the factor's sign so a legitimate 0.0 factor
-// (epsilon=0) still discounts — matching the scorer, which also keys on the map.
-func applySubsidy(p catalog.Pricing, factors map[string]float64, model string) catalog.Pricing {
-	f, ok := factors[model]
-	if !ok {
-		return p
+// legacyEV is the original math, retained verbatim so CorrectedEconomics=false
+// is bit-for-bit unchanged.
+func legacyEV(pin, fresh catalog.Pricing, tokens float64, pinCold bool, cfg EVConfig) (savings, eviction float64) {
+	// Cache multipliers apply only while the pin is warm; a cold pin pays full
+	// rate on both sides, so eviction is zero and raw economics decide.
+	pinMult, freshMult := 1.0, 1.0
+	if !pinCold {
+		pinMult = pin.EffectiveCacheReadMultiplier()
+		freshMult = fresh.EffectiveCacheReadMultiplier()
+		eviction = fresh.InputUSDPer1M * tokens * (1 - freshMult) / 1e6
 	}
-	p.InputUSDPer1M *= f
-	p.OutputUSDPer1M *= f
-	return p
+	perTurn := (pin.InputUSDPer1M*pinMult - fresh.InputUSDPer1M*freshMult) * tokens / 1e6
+	return perTurn * float64(cfg.ExpectedRemainingTurns), eviction
+}
+
+// effectiveRate is a model's $/token on a warm turn at cacheable share k:
+// price * (1 - k*(1-m)). k=1 collapses to price*m, the legacy assumption.
+func effectiveRate(p catalog.Pricing, k float64) float64 {
+	return p.InputUSDPer1M * (1 - k*(1-p.EffectiveCacheReadMultiplier())) / 1e6
+}
+
+// correctedEV prices both sides at their effective warm rate, counts output,
+// and charges eviction as the cache write paid in place of the forgone read.
+func correctedEV(pin, fresh catalog.Pricing, in Inputs, cfg EVConfig) (savings, eviction float64) {
+	tokens := float64(in.EstimatedInputTokens)
+	k := cacheableShare(in)
+	if in.PinCacheCold {
+		// Nothing live to read or destroy; the prefill is paid either way.
+		k = 0
+	}
+	perTurn := tokens*(effectiveRate(pin, k)-effectiveRate(fresh, k)) +
+		float64(in.PriorOutputTokens)*(pin.OutputUSDPer1M-fresh.OutputUSDPer1M)/1e6
+	if !in.PinCacheCold {
+		eviction = tokens * k * fresh.InputUSDPer1M *
+			(fresh.EffectiveCacheWriteMultiplier() - fresh.EffectiveCacheReadMultiplier()) / 1e6
+	}
+	return perTurn * float64(cfg.ExpectedRemainingTurns), eviction
+}
+
+// cacheableShare is the pin's own previous-turn cache-hit share; persistence
+// beat a trained model on 154k production turns. A measured zero is a real
+// cold prefix and must stay 0 — only the absence of telemetry falls back to 1,
+// the legacy assumption, so an uninstrumented caller degrades safely.
+func cacheableShare(in Inputs) float64 {
+	if !in.CachePrefixKnown {
+		return 1
+	}
+	if in.EstimatedInputTokens <= 0 || in.CacheablePrefixTokens <= 0 {
+		return 0
+	}
+	return min(1, float64(in.CacheablePrefixTokens)/float64(in.EstimatedInputTokens))
+}
+
+// shadowCosts evaluates the inclusive-action model in shadow only.
+// N counts the current action once; K cacheable-prefix tokens get cache pricing.
+func shadowCosts(pin, fresh catalog.Pricing, total, prefix float64, remaining int, pinCold bool, threshold float64) (Outcome, float64, float64, float64) {
+	if remaining < 1 {
+		remaining = 1
+	}
+	prefix = min(max(prefix, 0), total)
+	tail := total - prefix
+	warm := func(p catalog.Pricing) float64 {
+		return (prefix*p.InputUSDPer1M*p.EffectiveCacheReadMultiplier() + tail*p.InputUSDPer1M) / 1e6
+	}
+	cold := func(p catalog.Pricing) float64 {
+		return (prefix*p.InputUSDPer1M*p.EffectiveCacheWriteMultiplier() + tail*p.InputUSDPer1M) / 1e6
+	}
+	pinWarm, freshWarm := warm(pin), warm(fresh)
+	stayCurrent := pinWarm
+	if pinCold {
+		stayCurrent = cold(pin)
+	}
+	stay := stayCurrent + float64(remaining-1)*pinWarm
+	switchCost := cold(fresh) + float64(remaining-1)*freshWarm
+	savings := stay - switchCost
+	if savings > threshold {
+		return OutcomeSwitch, savings, stay, switchCost
+	}
+	return OutcomeStay, savings, stay, switchCost
+}
+
+// priceForDecision returns the price for the named provider/model binding,
+// falling back to the model's primary binding when the provider is absent from the catalog.
+func priceForDecision(provider, model string) (catalog.Pricing, bool, bool) {
+	if provider != "" {
+		if price, ok := catalog.PriceFor(provider, model); ok {
+			return price, false, true
+		}
+	}
+	price, ok := catalog.PrimaryPriceFor(model)
+	return price, true, ok
 }
 
 // tierUpgrade reports whether fresh is strictly higher tier than pin.

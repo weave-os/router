@@ -63,66 +63,51 @@ class FrozenPackageManifest(FrozenModel):
         return self
 
 
-class Candidate(FrozenModel):
-    roster_id: str = Field(min_length=1)
-    catalog_id: str = Field(min_length=1)
-    provider: str = Field(min_length=1)
-    upstream_id: str = ""
-    preference_rank: int | None = None
-    input_usd_per_1m: float = 0.0
-    output_usd_per_1m: float = 0.0
-    estimated_cost_usd: float = 0.0
-    cache_read_multiplier: float = 0.0
-    marginal_cost_factor: float = 1.0
-    effective_input_usd_per_1m: float = 0.0
-    effective_output_usd_per_1m: float = 0.0
-    effective_estimated_cost_usd: float = 0.0
-    capabilities: dict[str, Any] = Field(default_factory=dict)
+# Selection authority belongs to the Go router; a v4 classifier rejects any
+# request that tries to hand it candidates, roster data or selection knobs.
+SELECTION_AUTHORITY_FIELDS = frozenset(
+    {
+        "candidate_models",
+        "candidate_providers",
+        "candidates",
+        "eligible_arms",
+        "eligible_roster_ids",
+        "fallback_model",
+        "group_clamps",
+        "model",
+        "preferred_models",
+        "provider",
+        "quality_bias",
+        "ranked_fallback",
+        "routing_intent",
+        "routing_knobs",
+        "router_mode",
+        "selected_arm_id",
+        "selected_provider",
+        "selected_roster_id",
+    }
+)
 
 
-class RouteResult(FrozenModel):
+class ClassificationResult(FrozenModel):
+    """``policy_router_v4`` /route and /preview body: classification facts only."""
+
+    schema_version: str
     route_id: str
-    selected_roster_id: str
-    selected_provider: str
-    score: float
-    candidate_scores: dict[str, float]
-    reason: str
-    state_label: str
-    policy_group: str
-    policy_label: str
-    policy_route_key: str
-    confidence: float
-    margin: float
-    propensity: float
-    policy_artifact_id: str
-    policy_artifact_sha256: str
-    roster_version: str
-    debug: dict[str, Any]
-
-
-class RankedFallback(FrozenModel):
-    group: str = Field(min_length=1)
-    probability: float = Field(ge=0.0, le=1.0)
-    roster_arms: tuple[str, ...]
-    eligible_arms: tuple[str, ...]
-
-
-class RoutePreviewResult(FrozenModel):
-    route_id: str
-    policy_artifact_id: str
-    policy_artifact_sha256: str
-    roster_sha256: str
+    classifier_artifact_id: str = Field(min_length=1)
+    classifier_artifact_sha256: str = Field(min_length=64, max_length=64)
+    predicted_label: str = Field(min_length=1)
+    class_order: tuple[str, ...] = Field(min_length=1)
+    class_probabilities: dict[str, float]
+    classifier_confidence: float
+    classifier_margin: float
     hmm_state_id: int = Field(ge=0)
     hmm_state_path: tuple[int, ...] = Field(min_length=1)
     hmm_state_probabilities: tuple[float, ...] = Field(min_length=1)
-    class_order: tuple[str, ...] = Field(min_length=1)
-    class_probabilities: dict[str, float]
-    ranked_fallback: tuple[RankedFallback, ...] = Field(min_length=1)
-    selected_group: str | None
-    eligible_roster_ids: tuple[str, ...]
+    debug: dict[str, Any] | None = None
 
     @model_validator(mode="after")
-    def validate_probabilities(self) -> "RoutePreviewResult":
+    def validate_probabilities(self) -> "ClassificationResult":
         if self.hmm_state_id >= len(self.hmm_state_probabilities):
             raise ValueError("hmm_state_id is outside hmm_state_probabilities")
         if any(
@@ -139,6 +124,8 @@ class RoutePreviewResult(FrozenModel):
             raise ValueError("HMM state path is outside the posterior vector")
         if set(self.class_probabilities) != set(self.class_order):
             raise ValueError("classifier probabilities must match class_order")
+        if self.predicted_label not in self.class_probabilities:
+            raise ValueError("predicted_label must be one of class_order")
         if any(
             not math.isfinite(value) or value < 0.0 or value > 1.0
             for value in self.class_probabilities.values()

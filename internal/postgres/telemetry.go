@@ -2,13 +2,19 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"time"
 
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/sqlc"
+	"weave-os/router/internal/inference"
+	"weave-os/router/internal/postgres/dbbudget"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
@@ -23,6 +29,16 @@ func microsToUSD(micros int64) float64 {
 	return float64(micros) * usdPerMicro
 }
 
+// int64PtrFromUSD converts *float64 USD to *int64 micros. nil stays nil.
+// Uses SignedUSDToMicros so stay-turn EV (often negative) is not clamped to 0.
+func int64PtrFromUSD(usd *float64) *int64 {
+	if usd == nil {
+		return nil
+	}
+	v := catalog.SignedUSDToMicros(*usd)
+	return &v
+}
+
 // TelemetryRepo implements proxy.TelemetryRepository via SQLC.
 type TelemetryRepo struct {
 	tx sqlc.DBTX
@@ -35,13 +51,14 @@ func NewTelemetryRepo(tx sqlc.DBTX) *TelemetryRepo {
 
 var _ proxy.TelemetryRepository = (*TelemetryRepo)(nil)
 var _ proxy.PolicyShadowStore = (*TelemetryRepo)(nil)
+var _ proxy.InferenceAttemptStore = (*TelemetryRepo)(nil)
 
 func (r *TelemetryRepo) InsertPolicyShadowDecision(ctx context.Context, p proxy.PolicyShadowDecision) error {
 	id, err := uuid.Parse(p.InstallationID)
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.InsertPolicyShadowDecision(ctx, sqlc.InsertPolicyShadowDecisionParams{
 		InstallationID:              id,
 		OrganizationID:              stringPtrOrNil(p.OrganizationID),
@@ -73,75 +90,260 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.InsertRequestTelemetry(ctx, sqlc.InsertRequestTelemetryParams{
-		InstallationID:         id,
-		APIKeyID:               uuidOrNil(p.APIKeyID),
-		RequestID:              p.RequestID,
-		SpanType:               p.SpanType,
-		TraceID:                p.TraceID,
-		Timestamp:              pgtype.Timestamptz{Time: p.Timestamp, Valid: true},
-		RequestedModel:         p.RequestedModel,
-		DecisionModel:          p.DecisionModel,
-		DecisionProvider:       p.DecisionProvider,
-		DecisionReason:         p.DecisionReason,
-		EstimatedInputTokens:   p.EstimatedInputTokens,
-		StickyHit:              p.StickyHit,
-		EmbedInput:             p.EmbedInput,
-		InputTokens:            p.InputTokens,
-		OutputTokens:           p.OutputTokens,
-		RequestedInputCostUsd:  catalog.USDToMicros(p.RequestedInputCostUSD),
-		RequestedOutputCostUsd: catalog.USDToMicros(p.RequestedOutputCostUSD),
-		ActualInputCostUsd:     catalog.USDToMicros(p.ActualInputCostUSD),
-		ActualOutputCostUsd:    catalog.USDToMicros(p.ActualOutputCostUSD),
-		RouteLatencyMs:         p.RouteLatencyMs,
-		UpstreamLatencyMs:      p.UpstreamLatencyMs,
-		TotalLatencyMs:         p.TotalLatencyMs,
-		CrossFormat:            p.CrossFormat,
-		UpstreamStatusCode:     p.UpstreamStatusCode,
-		ClusterIds:             p.ClusterIDs,
-		CandidateModels:        p.CandidateModels,
-		ChosenScore:            p.ChosenScore,
-		CandidateScores:        p.CandidateScores,
-		Propensity:             p.Propensity,
-		AlphaBreakdown:         p.AlphaBreakdown,
-		ClusterRouterVersion:   stringPtrOrNil(p.ClusterRouterVersion),
-		Strategy:               stringPtrOrNil(p.Strategy),
-		RouteID:                stringPtrOrNil(p.RouteID),
-		PolicyRouteKey:         stringPtrOrNil(p.PolicyRouteKey),
-		PolicyArtifactID:       stringPtrOrNil(p.PolicyArtifactID),
-		PolicyArtifactSha256:   stringPtrOrNil(p.PolicyArtifactSHA256),
-		RosterVersion:          stringPtrOrNil(p.RosterVersion),
-		SidecarSchemaVersion:   stringPtrOrNil(p.SidecarSchemaVersion),
-		TrainingAllowed:        p.TrainingAllowed,
-		CaptureMode:            p.CaptureMode,
-		DebugRef:               stringPtrOrNil(p.DebugRef),
-		TtftMs:                 p.TTFTMs,
-		CacheCreationTokens:    p.CacheCreationTokens,
-		CacheReadTokens:        p.CacheReadTokens,
-		DeviceID:               stringPtrOrNil(p.DeviceID),
-		SessionID:              stringPtrOrNil(p.SessionID),
-		RouterUserID:           uuidOrNil(p.RouterUserID),
-		ClientApp:              stringPtrOrNil(p.ClientApp),
-		RolloutID:              stringPtrOrNil(p.RolloutID),
-		TurnType:               p.TurnType,
-		UpstreamFinishReason:   p.UpstreamFinishReason,
-		StopReason:             p.StopReason,
-		ToolUseBlocks:          p.ToolUseBlocks,
-		InvalidToolArgsBlocks:  p.InvalidToolArgsBlocks,
-		FailoverUsed:           p.FailoverUsed,
-		DegenerateShadow:       p.DegenerateShadow,
-		SessionKey:             p.SessionKey,
-		Role:                   stringPtrOrNil(p.Role),
-		FreshDecisionModel:     stringPtrOrNil(p.FreshDecisionModel),
-		FreshCandidateScores:   p.FreshCandidateScores,
-		PinAgeSec:              p.PinAgeSec,
-		ToolResultBytes:        p.ToolResultBytes,
-		CredentialKeyPrefix:    stringPtrOrNil(p.CredentialKeyPrefix),
-		CredentialKeySuffix:    stringPtrOrNil(p.CredentialKeySuffix),
-		CredentialSource:       stringPtrOrNil(p.CredentialSource),
-		UnifiedLimitHeaders:    p.UnifiedLimitHeaders,
+		InstallationID:                           id,
+		APIKeyID:                                 uuidOrNil(p.APIKeyID),
+		RequestID:                                p.RequestID,
+		SpanType:                                 p.SpanType,
+		TraceID:                                  p.TraceID,
+		Timestamp:                                pgtype.Timestamptz{Time: p.Timestamp, Valid: true},
+		RequestedModel:                           p.RequestedModel,
+		DecisionModel:                            p.DecisionModel,
+		DecisionProvider:                         p.DecisionProvider,
+		DecisionReason:                           p.DecisionReason,
+		BlindExperimentArm:                       stringPtrOrNil(string(p.BlindExperimentArm)),
+		BlindExperimentAssignmentSource:          stringPtrOrNil(string(p.BlindExperimentAssignmentSource)),
+		BlindExperimentSubjectKey:                stringPtrOrNil(p.BlindExperimentSubjectKey),
+		BlindExperimentMode:                      stringPtrOrNil(string(p.BlindExperimentMode)),
+		BlindExperimentSessionKey:                stringPtrOrNil(p.BlindExperimentSessionKey),
+		CohortExperimentID:                       uuidOrNil(p.CohortExperimentID),
+		CohortGroupID:                            p.CohortGroupID,
+		CohortPhaseIndex:                         p.CohortPhaseIndex,
+		CohortRevision:                           p.CohortRevision,
+		CohortScheduledArm:                       stringPtrOrNil(string(p.CohortScheduledArm)),
+		CohortTreatmentApplied:                   p.CohortTreatmentApplied,
+		CohortBypassReason:                       stringPtrOrNil(string(p.CohortBypassReason)),
+		BlindExperimentModelSource:               stringPtrOrNil(string(p.BlindExperimentModelSource)),
+		BlindExperimentTreatmentApplied:          p.BlindExperimentTreatmentApplied,
+		BlindExperimentBaselineModel:             stringPtrOrNil(p.BlindExperimentBaselineModel),
+		BlindExperimentModelChanged:              p.BlindExperimentModelChanged,
+		EstimatedInputTokens:                     p.EstimatedInputTokens,
+		ContextSnapshot:                          p.ContextSnapshot,
+		StickyHit:                                p.StickyHit,
+		PinTier:                                  stringPtrOrNil(p.PinTier),
+		EmbedInput:                               p.EmbedInput,
+		InputTokens:                              p.InputTokens,
+		OutputTokens:                             p.OutputTokens,
+		RequestedInputCostUsd:                    catalog.USDToMicros(p.RequestedInputCostUSD),
+		RequestedOutputCostUsd:                   catalog.USDToMicros(p.RequestedOutputCostUSD),
+		ActualInputCostUsd:                       catalog.USDToMicros(p.ActualInputCostUSD),
+		ActualOutputCostUsd:                      catalog.USDToMicros(p.ActualOutputCostUSD),
+		RouteLatencyMs:                           p.RouteLatencyMs,
+		UpstreamLatencyMs:                        p.UpstreamLatencyMs,
+		TotalLatencyMs:                           p.TotalLatencyMs,
+		CrossFormat:                              p.CrossFormat,
+		UpstreamStatusCode:                       p.UpstreamStatusCode,
+		ClusterIds:                               p.ClusterIDs,
+		CandidateModels:                          p.CandidateModels,
+		ChosenScore:                              p.ChosenScore,
+		CandidateScores:                          p.CandidateScores,
+		Propensity:                               p.Propensity,
+		AlphaBreakdown:                           p.AlphaBreakdown,
+		ClusterRouterVersion:                     stringPtrOrNil(p.ClusterRouterVersion),
+		Strategy:                                 stringPtrOrNil(p.Strategy),
+		RouteID:                                  stringPtrOrNil(p.RouteID),
+		PolicyRouteKey:                           stringPtrOrNil(p.PolicyRouteKey),
+		PolicyArtifactID:                         stringPtrOrNil(p.PolicyArtifactID),
+		PolicyArtifactSha256:                     stringPtrOrNil(p.PolicyArtifactSHA256),
+		RosterVersion:                            stringPtrOrNil(p.RosterVersion),
+		ClassifierArtifactID:                     stringPtrOrNil(p.ClassifierArtifactID),
+		ClassifierArtifactSha256:                 stringPtrOrNil(p.ClassifierArtifactSHA256),
+		ClassifierPredictedLabel:                 stringPtrOrNil(p.ClassifierPredictedLabel),
+		ClassifierClassOrder:                     p.ClassifierClassOrder,
+		ClassifierProbabilities:                  p.ClassifierProbabilities,
+		SelectionPolicyReleaseID:                 stringPtrOrNil(p.SelectionPolicyReleaseID),
+		SelectionPolicySha256:                    stringPtrOrNil(p.SelectionPolicySHA256),
+		SelectionHeadGeneration:                  p.SelectionHeadGeneration,
+		SelectionTrace:                           p.SelectionTrace,
+		SidecarSchemaVersion:                     stringPtrOrNil(p.SidecarSchemaVersion),
+		TrainingAllowed:                          p.TrainingAllowed,
+		CaptureMode:                              p.CaptureMode,
+		DebugRef:                                 stringPtrOrNil(p.DebugRef),
+		TtftMs:                                   p.TTFTMs,
+		CacheCreationTokens:                      p.CacheCreationTokens,
+		CacheCreation1hTokens:                    p.CacheCreation1hTokens,
+		CacheReadTokens:                          p.CacheReadTokens,
+		ReasoningTokens:                          p.ReasoningTokens,
+		Speed:                                    stringPtrOrNil(p.Speed),
+		InferenceGeo:                             stringPtrOrNil(p.InferenceGeo),
+		DeviceID:                                 stringPtrOrNil(p.DeviceID),
+		SessionID:                                stringPtrOrNil(p.SessionID),
+		RouterUserID:                             uuidOrNil(p.RouterUserID),
+		ClientApp:                                stringPtrOrNil(p.ClientApp),
+		RolloutID:                                stringPtrOrNil(p.RolloutID),
+		TurnType:                                 p.TurnType,
+		UpstreamFinishReason:                     p.UpstreamFinishReason,
+		StopReason:                               p.StopReason,
+		ToolUseBlocks:                            p.ToolUseBlocks,
+		InvalidToolArgsBlocks:                    p.InvalidToolArgsBlocks,
+		LastToolUseName:                          stringPtrOrNil(p.LastToolUseName),
+		LastToolUseInputBytes:                    p.LastToolUseInputBytes,
+		ToolErrorCounts:                          p.ToolErrorCounts,
+		AutonomyAppendFired:                      p.AutonomyAppendFired,
+		WorkspaceAppendFired:                     p.WorkspaceAppendFired,
+		FailoverUsed:                             p.FailoverUsed,
+		FailoverAttempted:                        p.FailoverAttempted,
+		DegenerateShadow:                         p.DegenerateShadow,
+		PolicyPinRequested:                       p.PolicyPinRequested,
+		PolicyPinHonoured:                        p.PolicyPinHonoured,
+		SessionKey:                               p.SessionKey,
+		Role:                                     stringPtrOrNil(p.Role),
+		FreshDecisionModel:                       stringPtrOrNil(p.FreshDecisionModel),
+		FreshCandidateScores:                     p.FreshCandidateScores,
+		PinAgeSec:                                p.PinAgeSec,
+		ToolResultBytes:                          p.ToolResultBytes,
+		CredentialKeyPrefix:                      stringPtrOrNil(p.CredentialKeyPrefix),
+		CredentialKeySuffix:                      stringPtrOrNil(p.CredentialKeySuffix),
+		CredentialSource:                         stringPtrOrNil(p.CredentialSource),
+		SubscriptionAccountID:                    uuidOrNil(p.SubscriptionAccountID),
+		SubscriptionOwnerID:                      uuidOrNil(p.SubscriptionOwnerID),
+		SubscriptionTier:                         stringPtrOrNil(string(p.SubscriptionTier)),
+		IntendedModelFamily:                      stringPtrOrNil(p.IntendedModelFamily),
+		FinalModelFamily:                         stringPtrOrNil(p.FinalModelFamily),
+		UnifiedLimitHeaders:                      p.UnifiedLimitHeaders,
+		CodexLimitHeaders:                        p.CodexLimitHeaders,
+		PlannerOutcome:                           stringPtrOrNil(p.PlannerOutcome),
+		PlannerReason:                            stringPtrOrNil(p.PlannerReason),
+		PlannerPinModel:                          stringPtrOrNil(p.PlannerPinModel),
+		PlannerPinProvider:                       stringPtrOrNil(p.PlannerPinProvider),
+		PlannerExpectedSavingsUsdMicros:          int64PtrFromUSD(p.PlannerExpectedSavingsUSD),
+		PlannerEvictionCostUsdMicros:             int64PtrFromUSD(p.PlannerEvictionCostUSD),
+		PlannerPinCacheCold:                      p.PlannerPinCacheCold,
+		PlannerShadowOutcome:                     stringPtrOrNil(p.PlannerShadowOutcome),
+		PlannerShadowSavingsUsdMicros:            int64PtrFromUSD(p.PlannerShadowExpectedSavingsUSD),
+		AuthorityShadowOutcome:                   stringPtrOrNil(p.AuthorityShadowOutcome),
+		AuthorityShadowWouldDiverge:              p.AuthorityShadowWouldDiverge,
+		AuthorityShadowReason:                    stringPtrOrNil(p.AuthorityShadowReason),
+		AuthorityShadowStayModel:                 stringPtrOrNil(p.AuthorityShadowStayModel),
+		AuthorityShadowStayProvider:              stringPtrOrNil(p.AuthorityShadowStayProvider),
+		AuthorityShadowSavingsUsdMicros:          int64PtrFromUSD(p.AuthorityShadowExpectedSavingsUSD),
+		AuthorityShadowEvictionCostUsdMicros:     int64PtrFromUSD(p.AuthorityShadowEvictionCostUSD),
+		AuthorityShadowPinCacheCold:              p.AuthorityShadowPinCacheCold,
+		AuthorityShadowCorrectedOutcome:          stringPtrOrNil(p.AuthorityShadowCorrectedOutcome),
+		AuthorityShadowCorrectedSavingsUsdMicros: int64PtrFromUSD(p.AuthorityShadowCorrectedSavingsUSD),
+		AuthorityShadowStayScore:                 p.AuthorityShadowStayScore,
+		AuthorityShadowFreshScore:                p.AuthorityShadowFreshScore,
+		SpiralErrStreak:                          p.SpiralErrStreak,
+		SpiralErroredResults:                     p.SpiralErroredResults,
+		SpiralToolResults:                        p.SpiralToolResults,
+		SpiralMaxSameFileEdits:                   p.SpiralMaxSameFileEdits,
+		SpiralSameFilePathHash:                   stringPtrOrNil(p.SpiralSameFilePathHash),
+		SpiralRepeatFrac:                         p.SpiralRepeatFrac,
+		SpiralMonologueLen:                       p.SpiralMonologueLen,
+		SpiralToolCallCount:                      p.SpiralToolCallCount,
+		SpiralMessageCount:                       p.SpiralMessageCount,
+		SpiralPingPongLen:                        p.SpiralPingPongLen,
+		SpiralStepsSinceProgress:                 p.SpiralStepsSinceProgress,
+		SpiralEditAttempted:                      p.SpiralEditAttempted,
+		SpiralReasons:                            p.SpiralReasons,
+		RequestedAllowedModels:                   p.RequestedAllowedModels,
+		ClientGitHeadSha:                         stringPtrOrNil(p.ClientGitHeadSHA),
+		ClientGitBranch:                          stringPtrOrNil(p.ClientGitBranch),
+		ClientGitDirty:                           p.ClientGitDirty,
+		InferencePurpose:                         inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return string(s.Purpose) }),
+		InferencePolicyID:                        inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return string(s.PolicyID) }),
+		InferenceRegistryRevision:                inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return string(s.RegistryRevision) }),
+		InferencePolicyRevision:                  inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return string(s.PolicyRevision) }),
+		PlanModel:                                inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return s.PlanTarget.CatalogID }),
+		PlanProvider:                             inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return s.PlanTarget.Provider }),
+		FallbackReason:                           inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return s.FallbackReason }),
+		AccountingOutcome:                        inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return string(s.AccountingOutcome) }),
+		UsageKnown:                               inferenceUsageKnown(p.Inference),
+		EffortArm:                                stringPtrOrNil(p.EffortArm),
+		EffortSelected:                           stringPtrOrNil(p.EffortSelected),
+		EffortSent:                               stringPtrOrNil(p.EffortSent),
+		EffortSource:                             stringPtrOrNil(p.EffortSource),
+		SubscriberPlan:                           stringPtrOrNil(p.SubscriberPlan),
+		EntitlementVersion:                       p.EntitlementVersion,
+		CapacitySource:                           stringPtrOrNil(p.CapacitySource),
+		RetailUsageUsdMicros:                     p.RetailUsageMicros,
+		IncludedUsageUsdMicros:                   p.IncludedUsageMicros,
+		LinkedUsageUsdMicros:                     p.LinkedUsageMicros,
+		PrepaidUsageUsdMicros:                    p.PrepaidUsageMicros,
+		SettlementFailed:                         p.SettlementFailed,
+		ServingProfileID:                         stringPtrOrNil(p.ServingProfileID),
+		ServingProfileVersion:                    stringPtrOrNil(p.ServingProfileVersion),
+		ServingReleaseID:                         stringPtrOrNil(p.ServingReleaseID),
+		ServingBindingID:                         stringPtrOrNil(p.ServingBindingID),
+		ServingTarget:                            stringPtrOrNil(p.ServingTarget),
+		BoostOptimizerVersion:                    stringPtrOrNil(p.BoostOptimizerVersion),
+		UserPrompt:                               p.UserPrompt,
+		UserPromptGapMs:                          p.UserPromptGapMs,
+		UserPromptGapPriorModel:                  stringPtrOrNil(p.UserPromptGapPriorModel),
+		ErrorClass:                               stringPtrOrNil(string(p.ErrorClass)),
+		FailureOwner:                             stringPtrOrNil(string(p.FailureOwner)),
+		LatestToolCallCounts:                     p.LatestToolCallCounts,
 	})
+}
+
+// inferenceSummaryString projects one provenance field; nil summary or empty
+// value leaves the column NULL.
+func inferenceSummaryString(summary *inference.OperationSummary, field func(inference.OperationSummary) string) *string {
+	if summary == nil {
+		return nil
+	}
+	return stringPtrOrNil(field(*summary))
+}
+
+func inferenceUsageKnown(summary *inference.OperationSummary) *bool {
+	if summary == nil {
+		return nil
+	}
+	known := summary.Usage.Known
+	return &known
+}
+
+// InsertInferenceAttempt persists one ordered attempt event. Usage and cost
+// columns stay NULL when the attempt's usage is unknown, so an unmeasured
+// attempt is never stored as a zero-cost one.
+func (r *TelemetryRepo) InsertInferenceAttempt(ctx context.Context, p proxy.InsertInferenceAttemptParams) error {
+	id, err := uuid.Parse(p.InstallationID)
+	if err != nil {
+		return err
+	}
+	return dbbudget.Queries(r.tx).InsertInferenceAttempt(ctx, inferenceAttemptParams(id, p.Event))
+}
+
+func inferenceAttemptParams(installationID uuid.UUID, event inference.AttemptEvent) sqlc.InsertInferenceAttemptParams {
+	params := sqlc.InsertInferenceAttemptParams{
+		InstallationID:   installationID,
+		RequestID:        event.RequestID,
+		OperationID:      event.OperationID,
+		AttemptIndex:     int32(event.AttemptIndex),
+		Purpose:          string(event.Purpose),
+		PolicyID:         string(event.PolicyID),
+		RegistryRevision: string(event.RegistryRevision),
+		PolicyRevision:   string(event.PolicyRevision),
+		Model:            event.Target.CatalogID,
+		Provider:         event.Target.Provider,
+		BindingIndex:     int32(event.Target.BindingIndex),
+		Outcome:          string(event.Outcome),
+		FailureReason:    stringPtrOrNil(event.FailureReason),
+		UsageKnown:       event.Usage.Known,
+		ErrorClass:       stringPtrOrNil(event.Diagnosis.ErrorClass),
+		FailureOwner:     stringPtrOrNil(event.Diagnosis.FailureOwner),
+		BodyTranslated:   event.Diagnosis.BodyTranslated,
+	}
+	if event.UpstreamStatusCode != 0 {
+		status := int32(event.UpstreamStatusCode)
+		params.UpstreamStatusCode = &status
+	}
+	if event.Latency > 0 {
+		latency := event.Latency.Milliseconds()
+		params.LatencyMs = &latency
+	}
+	if event.Usage.Known {
+		input, output := int32(event.Usage.InputTokens), int32(event.Usage.OutputTokens)
+		cacheCreation, cacheRead := int32(event.Usage.CacheCreationTokens), int32(event.Usage.CacheReadTokens)
+		cost := catalog.USDToMicros(event.CostUSD)
+		params.InputTokens = &input
+		params.OutputTokens = &output
+		params.CacheCreationTokens = &cacheCreation
+		params.CacheReadTokens = &cacheRead
+		params.CostUsdMicros = &cost
+	}
+	return params
 }
 
 var _ proxy.LoopEscalationStore = (*TelemetryRepo)(nil)
@@ -151,7 +353,7 @@ func (r *TelemetryRepo) InsertLoopEscalationEvent(ctx context.Context, p proxy.L
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.InsertLoopEscalationEvent(ctx, sqlc.InsertLoopEscalationEventParams{
 		InstallationID:   id,
 		SessionKey:       p.SessionKey,
@@ -168,7 +370,7 @@ func (r *TelemetryRepo) InsertLoopEscalationEvent(ctx context.Context, p proxy.L
 }
 
 func (r *TelemetryRepo) CountLoopEscalationEvents(ctx context.Context, sessionKey []byte, role string) (count int64, err error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.CountLoopEscalationEvents(ctx, sqlc.CountLoopEscalationEventsParams{
 		SessionKey: sessionKey,
 		Role:       role,
@@ -182,7 +384,7 @@ func (r *TelemetryRepo) InsertRouterFeedback(ctx context.Context, p proxy.Router
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.InsertRouterFeedback(ctx, sqlc.InsertRouterFeedbackParams{
 		InstallationID: id,
 		SessionKey:     p.SessionKey,
@@ -208,29 +410,62 @@ func (r *TelemetryRepo) InsertSpiralShadowEvent(ctx context.Context, p proxy.Spi
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.InsertSpiralShadowEvent(ctx, sqlc.InsertSpiralShadowEventParams{
-		InstallationID:   id,
-		SessionKey:       p.SessionKey,
-		Role:             p.Role,
-		RoutedModel:      p.RoutedModel,
-		TurnType:         p.TurnType,
-		Reason:           p.Reason,
-		ErrStreak:        p.ErrStreak,
-		ErroredResults:   p.ErroredResults,
-		ToolResults:      p.ToolResults,
-		MaxSameFileEdits: p.MaxSameFileEdits,
-		SameFilePathHash: p.SameFilePathHash,
-		RepeatFrac:       p.RepeatFrac,
-		MonologueLen:     p.MonologueLen,
-		ToolCallCount:    p.ToolCallCount,
-		MessageCount:     p.MessageCount,
+		InstallationID:     id,
+		SessionKey:         p.SessionKey,
+		Role:               p.Role,
+		RoutedModel:        p.RoutedModel,
+		TurnType:           p.TurnType,
+		Reason:             p.Reason,
+		ErrStreak:          p.ErrStreak,
+		ErroredResults:     p.ErroredResults,
+		ToolResults:        p.ToolResults,
+		MaxSameFileEdits:   p.MaxSameFileEdits,
+		SameFilePathHash:   p.SameFilePathHash,
+		RepeatFrac:         p.RepeatFrac,
+		MonologueLen:       p.MonologueLen,
+		ToolCallCount:      p.ToolCallCount,
+		MessageCount:       p.MessageCount,
+		PingPongLen:        p.PingPongLen,
+		StepsSinceProgress: p.StepsSinceProgress,
 	})
 }
 
 func (r *TelemetryRepo) CountSpiralShadowEvents(ctx context.Context, sessionKey []byte, role, reason string) (count int64, err error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.CountSpiralShadowEvents(ctx, sqlc.CountSpiralShadowEventsParams{
+		SessionKey: sessionKey,
+		Role:       role,
+		Reason:     reason,
+	})
+}
+
+var _ proxy.StruggleShadowStore = (*TelemetryRepo)(nil)
+
+func (r *TelemetryRepo) InsertStruggleShadowEvent(ctx context.Context, p proxy.StruggleShadowEvent) error {
+	id, err := uuid.Parse(p.InstallationID)
+	if err != nil {
+		return err
+	}
+	q := dbbudget.Queries(r.tx)
+	return q.InsertStruggleShadowEvent(ctx, sqlc.InsertStruggleShadowEventParams{
+		InstallationID:      id,
+		SessionKey:          p.SessionKey,
+		Role:                p.Role,
+		RoutedModel:         p.RoutedModel,
+		TurnType:            p.TurnType,
+		Reason:              p.Reason,
+		TurnCount:           p.TurnCount,
+		WallSeconds:         p.WallSeconds,
+		SessionEverSwitched: p.SessionEverSwitched,
+		EstInputTokens:      p.EstInputTokens,
+	})
+}
+
+func (r *TelemetryRepo) CountStruggleShadowEvents(ctx context.Context, sessionKey []byte, role, reason string) (count int64, err error) {
+	q := dbbudget.Queries(r.tx)
+	return q.CountStruggleShadowEvents(ctx, sqlc.CountStruggleShadowEventsParams{
 		SessionKey: sessionKey,
 		Role:       role,
 		Reason:     reason,
@@ -242,7 +477,7 @@ func (r *TelemetryRepo) GetTelemetrySummary(ctx context.Context, installationID 
 	if err != nil {
 		return proxy.TelemetrySummary{}, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.GetTelemetrySummary(ctx, sqlc.GetTelemetrySummaryParams{
 		InstallationID: id,
 		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
@@ -265,7 +500,7 @@ func (r *TelemetryRepo) GetTelemetryTimeseries(ctx context.Context, installation
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	fromTs := pgtype.Timestamptz{Time: from, Valid: true}
 	toTs := pgtype.Timestamptz{Time: to, Valid: true}
 
@@ -308,7 +543,7 @@ func (r *TelemetryRepo) GetTelemetryTimeseries(ctx context.Context, installation
 
 // GetTelemetrySummaryAll aggregates across every installation for the admin dashboard.
 func (r *TelemetryRepo) GetTelemetrySummaryAll(ctx context.Context, from, to time.Time) (proxy.TelemetrySummary, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.GetTelemetrySummaryAll(ctx, sqlc.GetTelemetrySummaryAllParams{
 		FromTime: pgtype.Timestamptz{Time: from, Valid: true},
 		ToTime:   pgtype.Timestamptz{Time: to, Valid: true},
@@ -325,9 +560,152 @@ func (r *TelemetryRepo) GetTelemetrySummaryAll(ctx context.Context, from, to tim
 	}, nil
 }
 
+func dashboardInstallationFilter(installationID string) (pgtype.UUID, error) {
+	if installationID == "" {
+		return pgtype.UUID{}, nil
+	}
+	id, err := uuid.Parse(installationID)
+	if err != nil {
+		return pgtype.UUID{}, err
+	}
+	return pgtype.UUID{Bytes: id, Valid: true}, nil
+}
+
+// Empty installationID reads every installation.
+func (r *TelemetryRepo) GetTelemetryDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryDashboardFact, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetryDashboardFacts(ctx, sqlc.GetTelemetryDashboardFactsParams{
+		Granularity:    granularity,
+		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
+		ToTime:         pgtype.Timestamptz{Time: to, Valid: true},
+		InstallationID: installation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardFactsRow) proxy.TelemetryDashboardFact {
+		return proxy.TelemetryDashboardFact{
+			Bucket:              row.Bucket.Time,
+			DecisionModel:       row.DecisionModel,
+			SubscriptionServed:  row.SubscriptionServed,
+			DecisionType:        row.DecisionType,
+			AutomaticAlias:      row.AutomaticAlias,
+			RequestCount:        row.RequestCount,
+			InputTokens:         row.InputTokens,
+			OutputTokens:        row.OutputTokens,
+			CacheCreationTokens: row.CacheCreationTokens,
+			CacheReadTokens:     row.CacheReadTokens,
+			ActualCostUSD:       microsToUSD(row.ActualCostUsd),
+		}
+	}), nil
+}
+
+// Granularity "total" returns one bucket for the whole window.
+func (r *TelemetryRepo) GetTelemetryDashboardActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryActiveUsers, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetryDashboardActiveUsers(ctx, sqlc.GetTelemetryDashboardActiveUsersParams{
+		Granularity:    granularity,
+		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
+		ToTime:         pgtype.Timestamptz{Time: to, Valid: true},
+		InstallationID: installation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardActiveUsersRow) proxy.TelemetryActiveUsers {
+		return proxy.TelemetryActiveUsers{Bucket: row.Bucket.Time, Linked: row.Linked, UserCount: row.UserCount}
+	}), nil
+}
+
+// Deleted roster users are excluded; the date window does not apply.
+func (r *TelemetryRepo) GetTelemetryDashboardPeople(ctx context.Context, installationID string) ([]proxy.TelemetryPerson, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetryDashboardPeople(ctx, installation)
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardPeopleRow) proxy.TelemetryPerson {
+		person := proxy.TelemetryPerson{ID: row.PersonID, Linked: row.Linked, DisplayName: row.DisplayName, Email: row.Email}
+		if row.LastRequestAt.Valid {
+			last := row.LastRequestAt.Time
+			person.LastRequestAt = &last
+		}
+		return person
+	}), nil
+}
+
+// Readings come only from turns after readingsSince, so an idle seat has none.
+func (r *TelemetryRepo) GetTelemetrySubscriptionPoolSeats(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]proxy.TelemetrySubscriptionSeat, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetrySubscriptionPoolSeats(ctx, sqlc.GetTelemetrySubscriptionPoolSeatsParams{
+		ServedSince:    pgtype.Timestamptz{Time: servedSince, Valid: true},
+		ReadingsSince:  pgtype.Timestamptz{Time: readingsSince, Valid: true},
+		InstallationID: installation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	seats := make([]proxy.TelemetrySubscriptionSeat, 0, len(rows))
+	for _, row := range rows {
+		seat := proxy.TelemetrySubscriptionSeat{
+			ID:               row.ID.String(),
+			Provider:         row.Provider,
+			DisplayName:      row.DisplayName,
+			Enabled:          row.Enabled,
+			State:            row.HealthState,
+			ServedRequests:   row.ServedRequests,
+			CooldownUntil:    optionalTime(row.CooldownUntil),
+			LimitsObservedAt: optionalTime(row.LimitsObservedAt),
+		}
+		if row.OwnerName != "" {
+			owner := row.OwnerName
+			seat.OwnerName = &owner
+		}
+		if seat.ClaudeLimitHeaders, err = limitHeaders(row.UnifiedLimitHeaders); err != nil {
+			return nil, err
+		}
+		if seat.CodexLimitHeaders, err = limitHeaders(row.CodexLimitHeaders); err != nil {
+			return nil, err
+		}
+		seats = append(seats, seat)
+	}
+	return seats, nil
+}
+
+func optionalTime(value pgtype.Timestamptz) *time.Time {
+	if !value.Valid {
+		return nil
+	}
+	t := value.Time
+	return &t
+}
+
+func limitHeaders(raw []byte) (map[string]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var headers map[string]string
+	if err := json.Unmarshal(raw, &headers); err != nil {
+		return nil, fmt.Errorf("decode limit headers: %w", err)
+	}
+	return headers, nil
+}
+
 // GetTelemetryTimeseriesAll is the admin-only counterpart to GetTelemetryTimeseries.
 func (r *TelemetryRepo) GetTelemetryTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryBucket, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	fromTs := pgtype.Timestamptz{Time: from, Valid: true}
 	toTs := pgtype.Timestamptz{Time: to, Valid: true}
 
@@ -372,7 +750,7 @@ func (r *TelemetryRepo) GetTelemetryModelBreakdown(ctx context.Context, installa
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	fromTs := pgtype.Timestamptz{Time: from, Valid: true}
 	toTs := pgtype.Timestamptz{Time: to, Valid: true}
 
@@ -416,7 +794,7 @@ func (r *TelemetryRepo) GetTelemetryModelBreakdown(ctx context.Context, installa
 // GetTelemetryModelBreakdownAll is the admin-only counterpart to
 // GetTelemetryModelBreakdown, spanning every installation.
 func (r *TelemetryRepo) GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryModelBucket, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	fromTs := pgtype.Timestamptz{Time: from, Valid: true}
 	toTs := pgtype.Timestamptz{Time: to, Valid: true}
 
@@ -551,7 +929,7 @@ func (r *TelemetryRepo) GetTelemetryRows(ctx context.Context, installationID str
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.GetTelemetryRows(ctx, sqlc.GetTelemetryRowsParams{
 		InstallationID: id,
 		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
@@ -567,7 +945,7 @@ func (r *TelemetryRepo) GetTelemetryRows(ctx context.Context, installationID str
 
 // GetTelemetryRowsAll is the admin-only counterpart to GetTelemetryRows.
 func (r *TelemetryRepo) GetTelemetryRowsAll(ctx context.Context, from, to time.Time, limit int32) ([]proxy.TelemetryRow, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.GetTelemetryRowsAll(ctx, sqlc.GetTelemetryRowsAllParams{
 		FromTime: pgtype.Timestamptz{Time: from, Valid: true},
 		ToTime:   pgtype.Timestamptz{Time: to, Valid: true},
@@ -578,6 +956,43 @@ func (r *TelemetryRepo) GetTelemetryRowsAll(ctx context.Context, from, to time.T
 	}
 	out := mapRows(rows, telemetryRowFromRowsAllRow)
 	return out, nil
+}
+
+// GetSessionCost aggregates committed cost for one session. installation_id is the authorization
+// boundary — a foreign session id matches nothing and returns not-found, not another tenant's cost.
+func (r *TelemetryRepo) GetSessionCost(ctx context.Context, installationID, sessionID string) (proxy.SessionCost, error) {
+	id, err := uuid.Parse(installationID)
+	if err != nil {
+		return proxy.SessionCost{}, err
+	}
+	q := dbbudget.Queries(r.tx)
+	row, err := q.GetSessionCost(ctx, sqlc.GetSessionCostParams{
+		InstallationID: id,
+		SessionID:      sessionID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
+	}
+	if err != nil {
+		return proxy.SessionCost{}, err
+	}
+	// Non-null WHERE predicate means session_id is never NULL here; SQLC types it as *string because the column is nullable.
+	if row.SessionID == nil {
+		return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
+	}
+	return proxy.SessionCost{
+		SessionID:              *row.SessionID,
+		RequestCount:           row.RequestCount,
+		ActualCostUSDMicros:    row.ActualInputCostUsd + row.ActualOutputCostUsd,
+		RequestedCostUSDMicros: row.RequestedInputCostUsd + row.RequestedOutputCostUsd,
+		InputTokens:            row.InputTokens,
+		OutputTokens:           row.OutputTokens,
+		CacheCreationTokens:    row.CacheCreationTokens,
+		CacheReadTokens:        row.CacheReadTokens,
+		LastRecordedAt:         row.LastRecordedAt.Time,
+		ContextSnapshot:        proxy.ParseContextSnapshot(row.ContextSnapshot),
+		BlindExperiment:        row.BlindExperiment,
+	}, nil
 }
 
 // telemetryRowFromRow centralizes SQLC -> domain conversion. The {all, per-installation}
@@ -757,7 +1172,7 @@ func modelBucketFromHourlyAllRow(row sqlc.GetTelemetryModelBreakdownHourlyAllRow
 // (installationID, sessionKey, role): seq > 0 = ASC 1-based, seq < 0 = DESC 1-based.
 // Returns pgx.ErrNoRows when fewer than |seq| rows exist.
 func (r *TelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (proxy.TelemetryTurnResult, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	if seq > 0 {
 		row, err := q.GetTelemetryBySessionAsc(ctx, sqlc.GetTelemetryBySessionAscParams{
 			InstallationID: installationID,
@@ -794,4 +1209,84 @@ func (r *TelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, insta
 		Strategy:         derefString(row.Strategy),
 		Timestamp:        row.Timestamp.Time,
 	}, nil
+}
+
+func (r *TelemetryRepo) GetTelemetryDashboardDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]proxy.TelemetryDrillDownRow, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetryDashboardDrillDown(ctx, sqlc.GetTelemetryDashboardDrillDownParams{
+		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
+		ToTime:         pgtype.Timestamptz{Time: to, Valid: true},
+		InstallationID: installation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardDrillDownRow) proxy.TelemetryDrillDownRow {
+		return proxy.TelemetryDrillDownRow{
+			TelemetryDashboardFact: proxy.TelemetryDashboardFact{
+				Bucket:              row.StartedAt.Time,
+				DecisionModel:       row.DecisionModel,
+				SubscriptionServed:  row.SubscriptionServed,
+				DecisionType:        row.DecisionType,
+				AutomaticAlias:      row.AutomaticAlias,
+				RequestCount:        row.RequestCount,
+				InputTokens:         row.InputTokens,
+				OutputTokens:        row.OutputTokens,
+				CacheCreationTokens: row.CacheCreationTokens,
+				CacheReadTokens:     row.CacheReadTokens,
+				ActualCostUSD:       microsToUSD(row.ActualCostUsd),
+			},
+			PersonID:       row.PersonID,
+			Linked:         row.Linked,
+			DisplayName:    row.DisplayName,
+			Email:          row.Email,
+			SessionID:      row.SessionID,
+			ClientApp:      row.ClientApp,
+			RequestedModel: row.RequestedModel,
+			Providers:      row.Providers,
+			StartedAt:      row.StartedAt.Time,
+			FinishedAt:     row.FinishedAt.Time,
+		}
+	}), nil
+}
+
+// Unlinked traffic is keyed by its API key, matching the drill-down.
+func (r *TelemetryRepo) GetTelemetryDashboardIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]proxy.TelemetryIndividualFact, error) {
+	installation, err := dashboardInstallationFilter(installationID)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := dbbudget.Queries(r.tx).GetTelemetryDashboardIndividualFacts(ctx, sqlc.GetTelemetryDashboardIndividualFactsParams{
+		Granularity:    granularity,
+		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
+		ToTime:         pgtype.Timestamptz{Time: to, Valid: true},
+		InstallationID: installation,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapRows(rows, func(row sqlc.GetTelemetryDashboardIndividualFactsRow) proxy.TelemetryIndividualFact {
+		return proxy.TelemetryIndividualFact{
+			TelemetryDashboardFact: proxy.TelemetryDashboardFact{
+				Bucket:              row.Bucket.Time,
+				DecisionModel:       row.DecisionModel,
+				SubscriptionServed:  row.SubscriptionServed,
+				DecisionType:        row.DecisionType,
+				AutomaticAlias:      row.AutomaticAlias,
+				RequestCount:        row.RequestCount,
+				InputTokens:         row.InputTokens,
+				OutputTokens:        row.OutputTokens,
+				CacheCreationTokens: row.CacheCreationTokens,
+				CacheReadTokens:     row.CacheReadTokens,
+				ActualCostUSD:       microsToUSD(row.ActualCostUsd),
+			},
+			PersonID:    row.PersonID,
+			Linked:      row.Linked,
+			DisplayName: row.DisplayName,
+			Email:       row.Email,
+		}
+	}), nil
 }

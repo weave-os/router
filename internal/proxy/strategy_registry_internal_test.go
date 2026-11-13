@@ -7,9 +7,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/policy"
 )
 
 type registryRouter struct {
@@ -23,6 +24,15 @@ type dynamicCapabilityRouter struct {
 	capabilities policy.Capabilities
 }
 
+type availabilityRouter struct {
+	registryRouter
+	available bool
+}
+
+func (r *availabilityRouter) Available() bool {
+	return r.available
+}
+
 func (r *dynamicCapabilityRouter) CurrentCapabilities() policy.Capabilities {
 	return r.capabilities
 }
@@ -33,11 +43,47 @@ func (r *registryRouter) Route(_ context.Context, request router.Request) (route
 	return r.decision, nil
 }
 
+func serviceWithDefaultRouter(r router.Router) *Service {
+	return (&Service{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: r})
+}
+
+func TestRouteWithoutStrategyContextUsesHMMEmbeddingDefault(t *testing.T) {
+	defaultRouter := &registryRouter{decision: router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: providers.ProviderFireworks}}
+	svc := NewService(defaultRouter, nil, nil, nil, false, "", "", nil)
+
+	decision, err := svc.Route(context.Background(), router.Request{})
+
+	require.NoError(t, err)
+	assert.Equal(t, "deepseek/deepseek-v4-pro", decision.Model)
+	assert.Equal(t, 1, defaultRouter.calls)
+	assert.True(t, svc.PolicyStrategyAvailable(router.StrategyHMMEmbedding))
+}
+
+func TestRetiredClusterStrategyIsNotRoutable(t *testing.T) {
+	defaultRouter := &registryRouter{}
+	svc := NewService(defaultRouter, nil, nil, nil, false, "", "", nil)
+
+	_, err := svc.Route(router.WithStrategy(context.Background(), router.Strategy("cluster")), router.Request{})
+
+	require.ErrorIs(t, err, router.ErrStrategyUnavailable)
+	assert.Zero(t, defaultRouter.calls)
+	assert.False(t, svc.PolicyStrategyAvailable(router.Strategy("cluster")))
+}
+
+func TestRouteWithoutDefaultRouterFailsClosed(t *testing.T) {
+	svc := NewService(nil, nil, nil, nil, false, "", "", nil)
+
+	_, err := svc.Route(context.Background(), router.Request{})
+
+	require.ErrorIs(t, err, hmm.ErrHMMUnavailable)
+	assert.False(t, svc.PolicyStrategyAvailable(router.StrategyHMMEmbedding))
+}
+
 func TestPolicyStrategyRegistryRoutesFutureStrategyWithoutServiceChanges(t *testing.T) {
 	defaultRouter := &registryRouter{}
 	futureRouter := &registryRouter{decision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic}}
 	strategy := router.Strategy("future-policy")
-	svc := (&Service{router: defaultRouter}).WithPolicyStrategy(policy.StrategySpec{
+	svc := serviceWithDefaultRouter(defaultRouter).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   futureRouter,
 		Capabilities: policy.Capabilities{
@@ -76,7 +122,7 @@ func TestPolicyStrategyRegistryRoutesFutureStrategyWithoutServiceChanges(t *test
 
 func TestPolicyStrategyRegistryFailsClosedForUnknownStrategy(t *testing.T) {
 	defaultRouter := &registryRouter{}
-	svc := &Service{router: defaultRouter}
+	svc := serviceWithDefaultRouter(defaultRouter)
 
 	_, err := svc.Route(router.WithStrategy(context.Background(), router.Strategy("missing-policy")), router.Request{})
 
@@ -102,4 +148,17 @@ func TestPolicyCapabilitiesReadsRefreshedRouterCapabilities(t *testing.T) {
 
 	require.True(t, ok)
 	assert.True(t, capabilities.SupportsShadow)
+}
+
+func TestPolicyStrategyAvailableReadsDynamicReadiness(t *testing.T) {
+	strategy := router.Strategy("future-policy")
+	policyRouter := &availabilityRouter{}
+	svc := (&Service{}).WithPolicyStrategy(policy.StrategySpec{
+		Strategy: strategy,
+		Router:   policyRouter,
+	})
+
+	assert.False(t, svc.PolicyStrategyAvailable(strategy))
+	policyRouter.available = true
+	assert.True(t, svc.PolicyStrategyAvailable(strategy))
 }

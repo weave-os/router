@@ -3,8 +3,8 @@ package rl
 import (
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router/catalog"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -17,23 +17,36 @@ import (
 // dispatch drift guard) instead of silently falling through to the bare
 // model-ID default.
 var expectedRosterPrefix = map[string]string{
-	providers.ProviderAnthropic: "anthropic/",
-	providers.ProviderOpenAI:    "openai/",
-	providers.ProviderGoogle:    "google/",
-	providers.ProviderXAI:       "x-ai/",
+	providers.ProviderAnthropic:        "anthropic/",
+	providers.ProviderOpenAI:           "openai/",
+	providers.ProviderGoogle:           "google/",
+	providers.ProviderXAI:              "x-ai/",
+	providers.ProviderAnthropicGateway: "anthropic/",
 }
 
 // defaultRosterPrefixProviders are providers intentionally left off
 // expectedRosterPrefix because rosterIDFor's bare-model-ID fallback (no
 // prefix) is correct for them — either the model ID is already slash-form
-// (OpenAI-compat upstreams dispatched via catalog models with slash IDs) or
-// the RL policy roster doesn't need to distinguish them.
+// (OpenAI-compat upstreams dispatched via catalog models with slash IDs),
+// like wafer_anthropic's sibling wafer, or the RL policy roster doesn't need
+// to distinguish them.
 var defaultRosterPrefixProviders = map[string]struct{}{
 	providers.ProviderOpenRouter: {},
 	providers.ProviderFireworks:  {},
+	providers.ProviderDeepInfra:  {},
 	providers.ProviderBedrock:    {},
 	providers.ProviderMakora:     {},
+	providers.ProviderMiniMax:    {},
 	providers.ProviderTogether:   {},
+	// Muse Spark is not in the trained roster yet; bare ID is best-effort.
+	providers.ProviderMeta: {},
+	// Anthropic-spec surfaces serving non-Claude models (Wafer's Messages API)
+	// stay bare — the roster keys vendor-prefixed Anthropic slots by Claude ID.
+	providers.ProviderWaferAnthropic: {},
+	providers.ProviderWafer:          {},
+	// An OpenAI-spec gateway serves several vendors' models, so no single
+	// vendor prefix is right; the bare ID lets the sidecar match what it can.
+	providers.ProviderOpenAIGateway: {},
 }
 
 // TestRosterIDForCoversEveryProvider guards against a new Provider* constant

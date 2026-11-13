@@ -3,12 +3,13 @@ package translate_test
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/translate"
 )
 
 // On the v0.57 SWE-bench Verified router eval, 224 phantom CC-only tool_use
@@ -71,9 +72,25 @@ func emittedGeminiToolNames(t *testing.T, body []byte) []string {
 	return out
 }
 
+// emittedResponsesToolNames extracts flat function-tool names from an OpenAI
+// Responses request body.
+func emittedResponsesToolNames(t *testing.T, body []byte) []string {
+	t.Helper()
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(body, &doc))
+	raw, _ := doc["tools"].([]any)
+	out := make([]string, 0, len(raw))
+	for _, r := range raw {
+		tool, _ := r.(map[string]any)
+		if name, _ := tool["name"].(string); name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 // claudeCodeMixedToolBody is a representative Anthropic request body carrying
-// the real coding tools Claude Code uses (Read/Edit/Write/Bash) interleaved
-// with the Claude-Code-only tools that have no upstream behavior.
+// coding + scheduling tools interleaved with CC-only control-plane tools.
 const claudeCodeMixedToolBody = `{
 	"model":"claude-opus-4-7",
 	"system":"You are a helpful coding assistant.",
@@ -83,19 +100,50 @@ const claudeCodeMixedToolBody = `{
 		{"name":"Edit","description":"e","input_schema":{"type":"object"}},
 		{"name":"Write","description":"w","input_schema":{"type":"object"}},
 		{"name":"Bash","description":"b","input_schema":{"type":"object"}},
+		{"name":"NotebookEdit","description":"nb","input_schema":{"type":"object"}},
+		{"name":"ScheduleWakeup","description":"loop wake","input_schema":{"type":"object"}},
+		{"name":"CronCreate","description":"cron","input_schema":{"type":"object"}},
+		{"name":"CronDelete","description":"cron","input_schema":{"type":"object"}},
+		{"name":"CronList","description":"cron","input_schema":{"type":"object"}},
+		{"name":"Monitor","description":"watch","input_schema":{"type":"object"}},
+		{"name":"BashOutput","description":"bg out","input_schema":{"type":"object"}},
+		{"name":"KillShell","description":"bg kill","input_schema":{"type":"object"}},
 		{"name":"Task","description":"sub-agent dispatch","input_schema":{"type":"object"}},
+		{"name":"Agent","description":"sub-agent dispatch","input_schema":{"type":"object"}},
+		{"name":"SendMessage","description":"","input_schema":{"type":"object"}},
 		{"name":"TaskCreate","description":"","input_schema":{"type":"object"}},
 		{"name":"TaskUpdate","description":"","input_schema":{"type":"object"}},
 		{"name":"TaskList","description":"","input_schema":{"type":"object"}},
 		{"name":"EnterPlanMode","description":"","input_schema":{"type":"object"}},
 		{"name":"ExitPlanMode","description":"","input_schema":{"type":"object"}},
+		{"name":"UpdatePlan","description":"","input_schema":{"type":"object"}},
 		{"name":"Skill","description":"","input_schema":{"type":"object"}},
 		{"name":"Workflow","description":"","input_schema":{"type":"object"}},
 		{"name":"AskUserQuestion","description":"","input_schema":{"type":"object"}},
-		{"name":"NotebookEdit","description":"","input_schema":{"type":"object"}}
+		{"name":"ToolSearch","description":"","input_schema":{"type":"object"}},
+		{"name":"TodoWrite","description":"","input_schema":{"type":"object"}},
+		{"name":"PushNotification","description":"","input_schema":{"type":"object"}},
+		{"name":"RemoteTrigger","description":"","input_schema":{"type":"object"}},
+		{"name":"EnterWorktree","description":"","input_schema":{"type":"object"}},
+		{"name":"ExitWorktree","description":"","input_schema":{"type":"object"}},
+		{"name":"LSP","description":"","input_schema":{"type":"object"}},
+		{"name":"ListMcpResourcesTool","description":"","input_schema":{"type":"object"}},
+		{"name":"ReadMcpResourceTool","description":"","input_schema":{"type":"object"}},
+		{"name":"ListMcpResources","description":"","input_schema":{"type":"object"}},
+		{"name":"ListMcpResourceTemplates","description":"","input_schema":{"type":"object"}},
+		{"name":"ReadMcpResource","description":"","input_schema":{"type":"object"}}
 	],
 	"max_tokens":256
 }`
+
+// keptOnNonAnthropicDefault are tools that survive Anthropic→non-Anthropic emit
+// when KeepCrossVendorOrchestrationTools is off: coding, scheduling, shell
+// session, and the client-side deferred-tool loader.
+var keptOnNonAnthropicDefault = []string{
+	"Read", "Edit", "Write", "Bash", "NotebookEdit",
+	"ScheduleWakeup", "CronCreate", "CronDelete", "CronList", "Monitor", "BashOutput", "KillShell",
+	"ToolSearch",
+}
 
 func TestStripCCTools_AnthropicSourceOpenAITarget_DropsCCOnlyKeepsReal(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(claudeCodeMixedToolBody))
@@ -105,8 +153,19 @@ func TestStripCCTools_AnthropicSourceOpenAITarget_DropsCCOnlyKeepsReal(t *testin
 	require.NoError(t, err)
 
 	names := emittedToolNames(t, out.Body)
-	assert.ElementsMatch(t, []string{"Read", "Edit", "Write", "Bash"}, names,
-		"only real coding tools survive; every CC-only schema must be stripped on the Anthropic→OpenAI emit path")
+	assert.ElementsMatch(t, keptOnNonAnthropicDefault, names,
+		"coding + scheduling tools survive; CC-only control-plane schemas stripped on Anthropic→OpenAI")
+	assert.NotContains(t, names, "Task")
+	assert.NotContains(t, names, "Agent")
+	assert.NotContains(t, names, "SendMessage")
+	assert.Contains(t, names, "ToolSearch")
+	for _, name := range []string{
+		"AskUserQuestion", "PushNotification", "RemoteTrigger", "EnterWorktree",
+		"ExitWorktree", "LSP", "ListMcpResourcesTool", "ReadMcpResourceTool",
+		"ListMcpResources", "ListMcpResourceTemplates", "ReadMcpResource", "TodoWrite",
+	} {
+		assert.NotContains(t, names, name)
+	}
 }
 
 func TestStripCCTools_AnthropicSourceGeminiTarget_DropsCCOnlyKeepsReal(t *testing.T) {
@@ -117,8 +176,8 @@ func TestStripCCTools_AnthropicSourceGeminiTarget_DropsCCOnlyKeepsReal(t *testin
 	require.NoError(t, err)
 
 	names := emittedGeminiToolNames(t, out.Body)
-	assert.ElementsMatch(t, []string{"Read", "Edit", "Write", "Bash"}, names,
-		"Anthropic→Gemini emit path must drop CC-only schemas before functionDeclarations")
+	assert.ElementsMatch(t, keptOnNonAnthropicDefault, names,
+		"Anthropic→Gemini keeps scheduling tools and drops CC-only control-plane schemas")
 }
 
 func TestStripCCTools_AnthropicSourceAnthropicTarget_KeepsCCOnly(t *testing.T) {
@@ -144,13 +203,20 @@ func TestStripCCTools_AnthropicSourceAnthropicTarget_KeepsCCOnly(t *testing.T) {
 		}
 	}
 	assert.Contains(t, got, "Task", "Anthropic passthrough must keep Task — only the cross-provider emit strips it")
+	assert.Contains(t, got, "Agent")
 	assert.Contains(t, got, "TaskUpdate")
 	assert.Contains(t, got, "Skill")
+	assert.Contains(t, got, "ScheduleWakeup")
+	assert.Contains(t, got, "CronCreate")
+	assert.Contains(t, got, "NotebookEdit")
+	assert.Contains(t, got, "ToolSearch", "Anthropic passthrough must preserve the deferred-tool loader")
 	assert.Contains(t, got, "Read", "real coding tools must also survive on passthrough")
 }
 
 func TestKeepOrchestrationTools_OpenAITarget_KeepsOrchestrationDropsRest(t *testing.T) {
-	// Flag on: orchestration tools survive; other CC-only tools (AskUserQuestion, NotebookEdit) are still stripped.
+	// Flag on: orchestration tools survive; ToolSearch survives independently;
+	// other CC-only tools are still stripped. Scheduling/NotebookEdit are not
+	// CC-only.
 	env, err := translate.ParseAnthropic([]byte(claudeCodeMixedToolBody))
 	require.NoError(t, err)
 
@@ -162,12 +228,19 @@ func TestKeepOrchestrationTools_OpenAITarget_KeepsOrchestrationDropsRest(t *test
 
 	names := emittedToolNames(t, out.Body)
 	assert.ElementsMatch(t, []string{
-		"Read", "Edit", "Write", "Bash",
-		"Task", "TaskCreate", "TaskUpdate", "TaskList",
-		"EnterPlanMode", "ExitPlanMode", "Skill", "Workflow",
-	}, names, "orchestration tools survive when the flag is on; other CC-only tools still stripped")
+		"Read", "Edit", "Write", "Bash", "NotebookEdit",
+		"ScheduleWakeup", "CronCreate", "CronDelete", "CronList", "Monitor", "BashOutput", "KillShell",
+		"Task", "Agent", "SendMessage",
+		"EnterPlanMode", "ExitPlanMode", "UpdatePlan", "Skill", "Workflow",
+		"ToolSearch",
+	}, names, "orchestration + scheduling tools survive when the flag is on")
+	assert.Contains(t, names, "SendMessage", "peer messaging survives with orchestration enabled")
 	assert.NotContains(t, names, "AskUserQuestion", "non-orchestration CC-only tools stay stripped")
-	assert.NotContains(t, names, "NotebookEdit")
+	assert.Contains(t, names, "ToolSearch")
+	assert.NotContains(t, names, "TodoWrite")
+	for _, name := range []string{"TaskCreate", "TaskUpdate", "TaskList"} {
+		assert.NotContains(t, names, name, "task-list bookkeeping is stripped even with orchestration kept")
+	}
 }
 
 func TestKeepOrchestrationTools_OpenAITarget_NormalizesTypelessAnyOf(t *testing.T) {
@@ -211,17 +284,65 @@ func TestKeepOrchestrationTools_GeminiTarget_KeepsOrchestrationDropsRest(t *test
 
 	names := emittedGeminiToolNames(t, out.Body)
 	assert.ElementsMatch(t, []string{
-		"Read", "Edit", "Write", "Bash",
-		"Task", "TaskCreate", "TaskUpdate", "TaskList",
-		"EnterPlanMode", "ExitPlanMode", "Skill", "Workflow",
-	}, names, "Anthropic→Gemini keeps orchestration tools when the flag is on")
+		"Read", "Edit", "Write", "Bash", "NotebookEdit",
+		"ScheduleWakeup", "CronCreate", "CronDelete", "CronList", "Monitor", "BashOutput", "KillShell",
+		"Task", "Agent", "SendMessage",
+		"EnterPlanMode", "ExitPlanMode", "UpdatePlan", "Skill", "Workflow",
+		"ToolSearch",
+	}, names, "Anthropic→Gemini keeps orchestration + scheduling tools when the flag is on")
+	assert.Contains(t, names, "SendMessage")
 	assert.NotContains(t, names, "AskUserQuestion")
-	assert.NotContains(t, names, "NotebookEdit")
+	assert.Contains(t, names, "ToolSearch")
+}
+
+func TestDeferredMCPToolSearchSurvivesCrossVendorEmit(t *testing.T) {
+	src, err := os.ReadFile("testdata/anthropic_deferred_mcp_tool_search.json")
+	require.NoError(t, err)
+	env, err := translate.ParseAnthropic(src)
+	require.NoError(t, err)
+
+	t.Run("OpenAI chat", func(t *testing.T) {
+		out, err := env.PrepareOpenAI(nil, translate.EmitOptions{TargetModel: "gpt-5.6-luna"})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"Read", "Bash", "ToolSearch"}, emittedToolNames(t, out.Body))
+		assert.Equal(t, 1, out.Stats.CCOnlyToolsStripped, "Skill is stripped but ToolSearch is not counted")
+
+		var doc map[string]any
+		require.NoError(t, json.Unmarshal(out.Body, &doc))
+		var toolSearch map[string]any
+		for _, raw := range doc["tools"].([]any) {
+			fn := raw.(map[string]any)["function"].(map[string]any)
+			if fn["name"] == "ToolSearch" {
+				toolSearch = fn
+				break
+			}
+		}
+		require.NotNil(t, toolSearch)
+		assert.Equal(t, "Load a deferred tool schema by name", toolSearch["description"])
+		params := toolSearch["parameters"].(map[string]any)
+		query := params["properties"].(map[string]any)["query"].(map[string]any)
+		assert.Equal(t, "string", query["type"], "ToolSearch input_schema must survive as OpenAI parameters")
+	})
+
+	t.Run("OpenAI Responses", func(t *testing.T) {
+		out, err := env.PrepareOpenAIResponses(nil, translate.EmitOptions{TargetModel: "gpt-5.6-luna"})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"Read", "Bash", "ToolSearch"}, emittedResponsesToolNames(t, out.Body))
+		assert.Equal(t, 1, out.Stats.CCOnlyToolsStripped, "Skill is stripped but ToolSearch is not counted")
+	})
+
+	t.Run("Gemini", func(t *testing.T) {
+		out, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-3.1-pro-preview"})
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"Read", "Bash", "ToolSearch"}, emittedGeminiToolNames(t, out.Body))
+		assert.Equal(t, 1, out.Stats.CCOnlyToolsStripped, "Skill is stripped but ToolSearch is not counted")
+	})
 }
 
 func TestKeepOrchestrationTools_EmitOptionsZeroValue_StripsAll(t *testing.T) {
-	// Zero-value EmitOptions strips all CC-only tools; production default
-	// (on) is set by the proxy composition root, not the translate layer.
+	// Zero-value EmitOptions strips CC-only control-plane tools (incl.
+	// orchestration); production default (on) is set by the proxy composition
+	// root. Scheduling + coding tools are not CC-only and always survive.
 	env, err := translate.ParseAnthropic([]byte(claudeCodeMixedToolBody))
 	require.NoError(t, err)
 
@@ -229,8 +350,11 @@ func TestKeepOrchestrationTools_EmitOptionsZeroValue_StripsAll(t *testing.T) {
 	require.NoError(t, err)
 
 	names := emittedToolNames(t, out.Body)
-	assert.ElementsMatch(t, []string{"Read", "Edit", "Write", "Bash"}, names,
-		"unset flag must strip every CC-only tool including orchestration ones")
+	assert.ElementsMatch(t, keptOnNonAnthropicDefault, names,
+		"unset flag must strip orchestration CC-only tools; scheduling tools stay")
+	assert.NotContains(t, names, "Task")
+	assert.NotContains(t, names, "Agent")
+	assert.NotContains(t, names, "Skill")
 }
 
 func TestStripCCTools_NoCCToolsNoRewrite(t *testing.T) {

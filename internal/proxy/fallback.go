@@ -5,15 +5,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/translate"
+	"github.com/tidwall/sjson"
+
+	"weave-os/router/internal/inference"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/sse"
+	"weave-os/router/internal/subscriptions/entitlement"
+	"weave-os/router/internal/translate"
 )
 
 // preludeBuffer absorbs pre-upstream writes (the eager SSE Prelude) so
@@ -31,7 +38,11 @@ type preludeBuffer struct {
 	bufStatus      int
 	bufBody        bytes.Buffer
 	sealed         bool
-	committed      bool
+	preludeSent    bool
+	committed      atomic.Bool
+	// onDiscard lets a writer holding output above this buffer drop it with
+	// the failed attempt, so a retry never appends to a stale response.
+	onDiscard func()
 }
 
 func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer {
@@ -49,22 +60,23 @@ func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer {
 func (b *preludeBuffer) Header() http.Header { return b.inner.Header() }
 
 func (b *preludeBuffer) Write(p []byte) (int, error) {
-	if b.committed {
-		return b.inner.Write(p)
+	if b.committed.Load() {
+		return sse.WriteJSONChunk(b.inner, p)
 	}
 	if b.sealed {
 		// Post-Seal first write: commit buffered prelude, then pass through.
 		if err := b.commit(); err != nil {
 			return 0, err
 		}
-		return b.inner.Write(p)
+		return sse.WriteJSONChunk(b.inner, p)
 	}
 	// Pre-Seal: buffer.
 	return b.bufBody.Write(p)
 }
 
 func (b *preludeBuffer) WriteHeader(status int) {
-	if b.committed {
+	if b.committed.Load() {
+		sse.PrepareJSONResponse(b.inner)
 		b.inner.WriteHeader(status)
 		return
 	}
@@ -78,7 +90,7 @@ func (b *preludeBuffer) WriteHeader(status int) {
 }
 
 func (b *preludeBuffer) Flush() {
-	if !b.committed {
+	if !b.preludeSent && !b.committed.Load() {
 		// Pre-commit Flush is a no-op — we don't want partial Prelude bytes
 		// reaching the client before commit decides.
 		return
@@ -92,19 +104,49 @@ func (b *preludeBuffer) Flush() {
 // will trigger commit().
 func (b *preludeBuffer) Seal() { b.sealed = true }
 
-// Committed reports whether any bytes have reached the inner writer.
-func (b *preludeBuffer) Committed() bool { return b.committed }
+// PreludeSent reports whether the buffered prelude is already client-visible.
+func (b *preludeBuffer) PreludeSent() bool { return b.preludeSent }
+
+// CommitPrelude makes the buffered prelude client-visible without marking the
+// attempt committed. A later provider error can still be retried or fail over.
+func (b *preludeBuffer) CommitPrelude() error {
+	if !b.preludeSent && b.bufStatus != 0 {
+		sse.PrepareJSONResponse(b.inner)
+		b.inner.WriteHeader(b.bufStatus)
+	}
+	if b.bufBody.Len() > 0 {
+		if _, err := sse.WriteJSONChunk(b.inner, b.bufBody.Bytes()); err != nil {
+			return err
+		}
+	}
+	b.bufStatus = 0
+	b.bufBody.Reset()
+	b.preludeSent = true
+	if f, ok := b.inner.(http.Flusher); ok {
+		f.Flush()
+	}
+	return nil
+}
+
+// Committed reports whether provider output has reached the inner writer.
+func (b *preludeBuffer) Committed() bool { return b.committed.Load() }
 
 // Discard resets buffered Prelude bytes and headers to the construction-time
 // snapshot. No-op once committed. Called between failed attempts and before
 // the exhaustion error renderer writes via the unwrapped inner writer.
 func (b *preludeBuffer) Discard() {
-	if b.committed {
+	if b.committed.Load() {
 		return
+	}
+	if b.onDiscard != nil {
+		b.onDiscard()
 	}
 	b.bufStatus = 0
 	b.bufBody.Reset()
 	b.sealed = false
+	if b.preludeSent {
+		return
+	}
 	h := b.inner.Header()
 	for k := range h {
 		delete(h, k)
@@ -117,18 +159,22 @@ func (b *preludeBuffer) Discard() {
 }
 
 func (b *preludeBuffer) commit() error {
-	if b.committed {
+	if b.committed.Swap(true) {
 		return nil
 	}
-	b.committed = true
-	if b.bufStatus != 0 {
-		b.inner.WriteHeader(b.bufStatus)
-	}
-	if b.bufBody.Len() > 0 {
-		if _, err := b.inner.Write(b.bufBody.Bytes()); err != nil {
-			return err
+	if !b.preludeSent {
+		if b.bufStatus != 0 {
+			sse.PrepareJSONResponse(b.inner)
+			b.inner.WriteHeader(b.bufStatus)
 		}
+		if b.bufBody.Len() > 0 {
+			if _, err := sse.WriteJSONChunk(b.inner, b.bufBody.Bytes()); err != nil {
+				return err
+			}
+		}
+		b.preludeSent = true
 	}
+	b.bufStatus = 0
 	b.bufBody.Reset()
 	if f, ok := b.inner.(http.Flusher); ok {
 		f.Flush()
@@ -167,15 +213,61 @@ type failoverInputs struct {
 	// higher-level fallback instead (e.g. ProxyMessages' baseline failover
 	// re-dispatching the Anthropic model when a routed OSS model exhausts).
 	deferFlushOnExhaustion bool
+	// purpose names the registered operation the walk is authorized under;
+	// origin names the override source that fixed the decision's model.
+	purpose                         inference.Purpose
+	origin                          policy.OverrideSource
+	subscriptionStateRequest        *router.Request
+	subscriptionStateHeaders        http.Header
+	alternatives                    []router.Decision
+	buildAlternative                func(router.Decision) (dispatchAttempt, error)
+	onAlternative                   func(router.Decision)
+	onSubscriptionStateTarget       func(router.Decision, []catalog.ProviderBinding)
+	onSubscriptionStatePaidTarget   func(router.Decision, []catalog.ProviderBinding)
+	subscriptionStateWinnerProvider *string
 }
 
-// dispatchWithFallback runs the attempt closure against each binding in
-// order, retrying on providers.IsRetryable errors while no bytes have
-// reached the client. Returns the winning (or last-tried) index and error.
-// On final-attempt error it flushes the upstream's own envelope to w
+// errDispatchWithoutPurpose rejects a walk no registered purpose authorizes:
+// every dispatch must resolve a plan before bytes reach a provider.
+var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference purpose")
+
+// dispatchWithFallback authorizes the routed decision under in.purpose and
+// runs the attempt closure against each binding in order through the
+// dispatch executor, retrying on providers.IsRetryable errors while no bytes
+// have reached the client. Returns the winning (or last-tried) index and
+// error. On final-attempt error it flushes the upstream's own envelope to w
 // instead of a generic 502.
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
-	log := observability.FromContext(ctx)
+	ctx = withClaudeEnterpriseTurn(ctx, in.initialDecision)
+	ctx = s.withSubscriptionFundingAuthorization(ctx, in.subscriptionStateHeaders)
+	if in.subscriptionStateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.buildAlternative != nil {
+		return s.dispatchSubscriptionStateModels(ctx, in)
+	}
+	if subscriptionStateModelsEnabled(ctx) && !subscriptionAttemptOnly(ctx) {
+		if _, allowed := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[in.initialDecision.Model]; !allowed {
+			return -1, router.ErrAllowlistEmptiesPool
+		}
+		if openRouterOverflowEnabled(ctx) && subscriptionAPIOnly(ctx) {
+			var err error
+			if ctx, in, err = s.withOpenRouterOverflowTarget(ctx, in); err != nil {
+				return -1, err
+			}
+		}
+	}
+	if len(in.alternatives) > 0 && in.buildAlternative != nil {
+		return s.dispatchSubscriptionAlternatives(ctx, in)
+	}
+	if len(in.purpose) == 0 {
+		return -1, errDispatchWithoutPurpose
+	}
+	// Terminal gate on the product boundary. Candidate filtering already
+	// dropped ineligible models, so this only catches a decision minted
+	// outside the routed pool — a session pin, a hard-pinned auxiliary turn,
+	// a /force-model, a fallback table. Refusing beats serving what the plan
+	// does not sell.
+	if err := catalog.CheckEligibility(entitlement.ModelBoundaryFromContext(ctx), in.initialDecision.Model); err != nil {
+		return -1, err
+	}
 	if len(in.bindings) == 0 {
 		if in.initialDecision.Reason == translate.ReasonUserForceModel {
 			err := &providers.UpstreamErrorResponse{
@@ -190,122 +282,20 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 		}
 		return -1, &providers.UpstreamStatusError{Status: http.StatusBadGateway}
 	}
-
-	for i, b := range in.bindings {
-		// Fallback attempts re-resolve credentials against an empty header set:
-		// shouldFailover() already ruled out BYOK/client-credential paths, so
-		// the only source left is the deployment env key on the next client.
-		attemptCtx := ctx
-		if i > 0 {
-			attemptCtx = resolveAndInjectCredentials(ctx, b.Provider, http.Header{})
-			// Drop the previous attempt's buffered Prelude bytes + any
-			// header mutations it made. Safe pre-commit only.
-			if in.buf != nil {
-				in.buf.Discard()
-			}
-		}
-		decision := in.initialDecision
-		decision.Provider = b.Provider
-
-		p, provErr := s.provider(b.Provider)
-		if provErr != nil {
-			// Provider was eligible at boot but missing now — treat as
-			// retryable transport-class error and try the next binding.
-			log.Warn("dispatchWithFallback: provider not configured at runtime",
-				"provider", b.Provider,
-				"model", decision.Model,
-				"attempt_index", i)
-			if i < len(in.bindings)-1 {
-				continue
-			}
-			return i, provErr
-		}
-
-		// Same-binding retry: a transient blip often clears on quick retry.
-		// Only used for single-binding models; multi-binding models fail
-		// straight over to the next binding after one attempt (len>1 guard).
-		var attemptErr error
-		for sb := 0; ; sb++ {
-			// Safe to rewrite until the buffer commits; on retry the previous
-			// value is overwritten via Discard's header restore + this Set.
-			if !committed(in.buf) {
-				in.w.Header().Set(HeaderRouterProvider, b.Provider)
-				// Refresh: decision.Model can change on baseline failover, so
-				// x-router-model must never name a model that didn't serve.
-				in.w.Header().Set(HeaderRouterModel, decision.Model)
-				if i > 0 {
-					in.w.Header().Set(HeaderRouterFallbackFrom, in.bindings[0].Provider)
-					in.w.Header().Set(HeaderRouterFallbackAttempt, attemptIdxLabel(i))
-				}
-			}
-
-			attemptErr = in.attempt(attemptCtx, decision, p)
-			if attemptErr == nil {
-				if i > 0 {
-					log.Info("dispatchWithFallback: succeeded on fallback",
-						"model", decision.Model,
-						"primary_provider", in.bindings[0].Provider,
-						"final_provider", b.Provider,
-						"attempt_index", i)
-				}
-				return i, nil
-			}
-
-			// Bytes already reached the client — committed to this attempt's
-			// error even if it would otherwise be retryable.
-			if committed(in.buf) {
-				return i, attemptErr
-			}
-
-			// Stop same-binding retry: error non-retryable, budget spent, or
-			// a different binding exists (cross-binding failover beats
-			// re-hitting the same flaky provider).
-			if !providers.IsRetryable(attemptErr) || sb >= maxSameBindingRetries || len(in.bindings) > 1 {
-				break
-			}
-			// Reset before retrying so it begins with a pristine writer.
-			if in.buf != nil {
-				in.buf.Discard()
-			}
-			log.Warn("dispatchWithFallback: retrying same binding after transient error",
-				"model", decision.Model,
-				"provider", b.Provider,
-				"attempt_index", i,
-				"same_binding_retry", sb+1,
-				"err", attemptErr)
-			sleep := s.retrySleep
-			if sleep == nil {
-				sleep = sleepWithContext
-			}
-			if err := sleep(attemptCtx, sameBindingBackoff(sb)); err != nil {
-				return i, attemptErr
-			}
-		}
-
-		// 404 model-not-found isn't in IsRetryable (retrying the same provider
-		// is futile) but a different binding may carry the model, rescuing a
-		// stale/renamed upstream id that would otherwise hard-fail the turn.
-		canFailover := providers.IsRetryable(attemptErr) || providers.IsUpstreamModelNotFound(attemptErr)
-		if !canFailover || i == len(in.bindings)-1 {
-			// Final attempt or non-failable: discard so the client sees the
-			// error envelope next, not a half-emitted message_start.
-			if in.buf != nil {
-				in.buf.Discard()
-			}
-			if in.flushErr != nil && !in.deferFlushOnExhaustion {
-				in.flushErr(in.w, attemptErr)
-			}
-			return i, attemptErr
-		}
-
-		log.Warn("dispatchWithFallback: retrying on next binding",
-			"model", decision.Model,
-			"failed_provider", b.Provider,
-			"attempt_index", i,
-			"err", attemptErr)
+	plans, err := s.inferencePlans()
+	if err != nil {
+		return -1, err
 	}
-	// Unreachable — the loop always returns inside.
-	return len(in.bindings) - 1, errors.New("dispatchWithFallback: exhausted without return")
+	plan, err := plans.ResolveRouted(policy.RoutedResolutionRequest{
+		Purpose:  policy.Purpose(in.purpose),
+		Decision: in.initialDecision,
+		Bindings: in.bindings,
+		Origin:   in.origin,
+	})
+	if err != nil {
+		return -1, err
+	}
+	return s.dispatchPlanned(ctx, in, plan)
 }
 
 // committed is a nil-safe shorthand for in.buf.Committed(); the
@@ -317,43 +307,60 @@ func committed(b *preludeBuffer) bool {
 	return b.Committed()
 }
 
-const (
-	// maxSameBindingRetries bounds same-binding retries after a transient
-	// error (5xx/408/429, reset). This is the only failover single-binding
-	// models get, since they have no other provider to walk to.
-	maxSameBindingRetries = 2
-	// sameBindingBackoffBase is the first retry delay, doubling per attempt.
-	sameBindingBackoffBase = 250 * time.Millisecond
-)
-
-// sameBindingBackoff is the delay before same-binding retry attempt+1
-// (0-indexed): exponential off sameBindingBackoffBase.
-func sameBindingBackoff(attempt int) time.Duration {
-	return sameBindingBackoffBase << attempt
+// clearWithheldPassthrough returns a native Responses writer to translation
+// mode for an off-format rescue. A pinned turn emits no routing notice, so the
+// failed attempt's 200 header is all the writer saw, and buf held it back from
+// the client; that header must not count as a commitment.
+func clearWithheldPassthrough(rw *translate.ResponsesWriter, buf *preludeBuffer) bool {
+	if buf != nil && !buf.Committed() && !buf.PreludeSent() {
+		rw.ForgetWithheldHeaders()
+	}
+	return rw.ClearPassthrough()
 }
 
-// sleepWithContext waits d, returning early with ctx.Err() if ctx is
-// canceled or its deadline elapses first — a client disconnect or budget
-// expiry must abort the backoff rather than burn the remaining budget.
-func sleepWithContext(ctx context.Context, d time.Duration) error {
-	t := time.NewTimer(d)
-	defer t.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-t.C:
+// errResponsesPassthroughStuck reports a non-OpenAI attempt that cannot run
+// because the Responses writer already forwarded native bytes for an earlier
+// OpenAI attempt and can no longer translate.
+var errResponsesPassthroughStuck = errors.New("responses passthrough already carries native output; another wire format cannot continue it")
+
+// leaveResponsesPassthrough returns a passthrough writer to translation before
+// an attempt that speaks another wire format. It returns errResponsesPassthroughStuck
+// when the writer is still in passthrough and cannot be cleared.
+func leaveResponsesPassthrough(rw *translate.ResponsesWriter, buf *preludeBuffer) error {
+	if !rw.Passthrough() || clearWithheldPassthrough(rw, buf) {
 		return nil
 	}
+	return errResponsesPassthroughStuck
+}
+
+// subscriptionRotationBudget bounds how long included-capacity accounts and
+// model alternatives may be leased and admitted, shared across one request's
+// rotation walk. It never cancels an attempt already in flight: provider
+// header/stream watchdogs and the caller own inference lifetime.
+const subscriptionRotationBudget = 10 * time.Second
+
+// clockNow reads the current time through the injectable clock, falling back
+// to time.Now when no fake is wired.
+func (s *Service) clockNow() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 // shouldFailover reports failover eligibility. Customer-supplied
 // credentials (BYOK or client key) bind to a single provider — retrying
-// elsewhere would 401 unexpectedly, so we skip failover.
+// elsewhere would 401 unexpectedly, so we skip failover. A BYOK row for ANY
+// provider disables it too: a failover binding re-resolves credentials and
+// would prefer that key even if the primary binding used the deployment key.
 func (s *Service) shouldFailover(ctx context.Context) bool {
 	if s.byokOnly {
 		return false
 	}
 	if CredentialsFromContext(ctx) != nil {
+		return false
+	}
+	if len(externalKeysFromContext(ctx)) > 0 {
 		return false
 	}
 	return true
@@ -364,14 +371,30 @@ func (s *Service) shouldFailover(ctx context.Context) bool {
 // slice carrying the already-resolved decision provider.
 func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision router.Decision) []catalog.ProviderBinding {
 	primary := catalog.ProviderBinding{Provider: decision.Provider}
+	imageCount := requestImageCountFromContext(ctx)
 	if !s.shouldFailover(ctx) {
+		if binding, ok := catalog.BindingFor(decision.Model, decision.Provider); ok &&
+			!binding.AcceptsImageCount(imageCount) && !isUserForcedReason(decision.Reason) {
+			return nil
+		}
 		return []catalog.ProviderBinding{primary}
 	}
 	available := s.deploymentKeyedProviders
 	if available == nil {
 		// Legacy "all registered" mode — fall back to single-attempt to
 		// avoid retrying on providers whose keys aren't actually wired.
+		if binding, ok := catalog.BindingFor(decision.Model, decision.Provider); ok &&
+			!binding.AcceptsImageCount(imageCount) && !isUserForcedReason(decision.Reason) {
+			return nil
+		}
 		return []catalog.ProviderBinding{primary}
+	}
+	// A linked subscription makes the selected native binding available
+	// without a deployment API key. Extend only this request's binding set;
+	// lease/funding guards still control subscription exhaustion and fallback.
+	if managedSubscriptionCanServe(ctx, decision.Provider, decision.Model) && s.supportsSubscriptionTransport(decision.Provider) {
+		available = maps.Clone(available)
+		available[decision.Provider] = struct{}{}
 	}
 	// Exclusions must hold during failover too, or a fallback binding could
 	// resurrect a provider the scorer already filtered out.
@@ -387,6 +410,32 @@ func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision route
 	}
 	_, primaryExcluded := excluded[decision.Provider]
 	indexedBindings := catalog.EnumerateBindings(decision.Model, available)
+	unfilteredBindings := indexedBindings
+	imagePrimaryExcluded := false
+	imageFiltered := false
+	if imageCount > 0 {
+		filtered := make([]catalog.IndexedBinding, 0, len(indexedBindings))
+		for _, binding := range indexedBindings {
+			if binding.AcceptsImageCount(imageCount) {
+				filtered = append(filtered, binding)
+				continue
+			}
+			imageFiltered = true
+			if binding.Provider == decision.Provider {
+				imagePrimaryExcluded = true
+			}
+		}
+		indexedBindings = filtered
+	}
+	if imageFiltered && len(indexedBindings) == 0 {
+		if isUserForcedReason(decision.Reason) {
+			indexedBindings = unfilteredBindings
+		} else {
+			return nil
+		}
+	} else {
+		primaryExcluded = primaryExcluded || imagePrimaryExcluded
+	}
 	bindings := make([]catalog.ProviderBinding, 0, len(indexedBindings))
 	for _, binding := range indexedBindings {
 		bindings = append(bindings, binding.ProviderBinding)
@@ -475,7 +524,9 @@ func prioritizeSelectedArmBinding(
 // write, breaking HTTP framing. net/http recomputes Content-Length itself.
 func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 	var resp *providers.UpstreamErrorResponse
-	if !errors.As(err, &resp) {
+	// An overflow is left to the ingress handler, which answers in the
+	// client's native prompt-too-long shape.
+	if !errors.As(err, &resp) || isContextOverflow(err) {
 		return
 	}
 	for k, vs := range resp.Headers {
@@ -490,29 +541,41 @@ func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 			w.Header().Add(k, v)
 		}
 	}
+	body := attributedErrorBody(resp.Body, err)
+	if !bytes.Equal(body, resp.Body) {
+		w.Header().Set("Content-Type", "application/json")
+	}
 	w.WriteHeader(resp.Status)
-	_, _ = w.Write(resp.Body)
+	_, _ = w.Write(body)
 }
 
 // emitAnthropicSSEErrorEvent writes an Anthropic-shape `event: error` SSE
 // frame and returns *UpstreamStatusError so flushErr becomes a no-op.
 // Used when the upstream errors after Prelude already committed HTTP 200 +
 // message_start — a JSON error envelope would corrupt the SSE stream, but
-// an `event: error` frame terminates cleanly. Returns err unchanged if it
-// is not an *UpstreamErrorResponse.
+// an `event: error` frame terminates cleanly.
 func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 	var resp *providers.UpstreamErrorResponse
-	if !errors.As(err, &resp) {
-		return err
+	status := http.StatusBadGateway
+	body, _ := sjson.SetBytes([]byte(`{"type":"error","error":{"type":"api_error","message":""}}`), "error.message", attributedStreamFailure(err))
+	switch cls, classified := ClassifyDispatchError(err); {
+	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
+		status = cls.Status
+		body = anthropicErrorFrameBody(cls)
+	case errors.As(err, &resp):
+		status = resp.Status
+		body = attributedErrorBody(translate.OpenAIToAnthropicError(resp.Body), err)
+	case classified:
+		status = cls.Status
+		body = anthropicErrorFrameBody(cls)
 	}
-	anthErrJSON := translate.OpenAIToAnthropicError(resp.Body)
 	_, _ = sink.Write([]byte("event: error\ndata: "))
-	_, _ = sink.Write(anthErrJSON)
+	_, _ = sse.WriteJSONChunk(sink, body)
 	_, _ = sink.Write([]byte("\n\n"))
 	if f, ok := sink.(http.Flusher); ok {
 		f.Flush()
 	}
-	return &providers.UpstreamStatusError{Status: resp.Status}
+	return &providers.UpstreamStatusError{Status: status, Cause: err}
 }
 
 // emitOpenAISSEErrorEvent is emitAnthropicSSEErrorEvent's OpenAI-shape
@@ -520,16 +583,52 @@ func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 // OpenAIRoutingMarkerWriter has already committed HTTP 200.
 func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
 	var resp *providers.UpstreamErrorResponse
-	if !errors.As(err, &resp) {
-		return err
+	status := http.StatusBadGateway
+	body, _ := sjson.SetBytes([]byte(`{"error":{"message":"","type":"server_error","code":"upstream_error"}}`), "error.message", attributedStreamFailure(err))
+	switch cls, classified := ClassifyDispatchError(err); {
+	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
+		status = cls.Status
+		body = openAIErrorFrameBody(cls)
+	case errors.As(err, &resp):
+		status = resp.Status
+		body = attributedErrorBody(resp.Body, err)
+	case classified:
+		status = cls.Status
+		body = openAIErrorFrameBody(cls)
 	}
 	_, _ = sink.Write([]byte("data: "))
-	_, _ = sink.Write(resp.Body)
+	_, _ = sse.WriteJSONChunk(sink, body)
 	_, _ = sink.Write([]byte("\n\n"))
 	if f, ok := sink.(http.Flusher); ok {
 		f.Flush()
 	}
-	return &providers.UpstreamStatusError{Status: resp.Status}
+	return &providers.UpstreamStatusError{Status: status, Cause: err}
+}
+
+// anthropicErrorFrameBody renders a classified dispatch error as an
+// Anthropic error body. The ingress handler cannot write its own envelope
+// once the stream is committed, so the frame carries the class's own message
+// rather than the generic upstream-failure text.
+func anthropicErrorFrameBody(cls DispatchErrorClass) []byte {
+	return []byte(fmt.Sprintf(`{"type":"error","error":{"type":%q,"message":%q}}`,
+		errorFrameType(cls), cls.Message))
+}
+
+// openAIErrorFrameBody is anthropicErrorFrameBody's OpenAI-shape counterpart.
+func openAIErrorFrameBody(cls DispatchErrorClass) []byte {
+	code := OpenAIErrorCode(cls.Kind)
+	if code == "" {
+		code = "upstream_error"
+	}
+	return []byte(fmt.Sprintf(`{"error":{"message":%q,"type":%q,"code":%q}}`,
+		cls.Message, errorFrameType(cls), code))
+}
+
+func errorFrameType(cls DispatchErrorClass) string {
+	if cls.Kind.IsClientError() {
+		return "invalid_request_error"
+	}
+	return "api_error"
 }
 
 // emitGeminiSSEErrorEvent writes a terminal error frame to a committed
@@ -546,7 +645,7 @@ func emitGeminiSSEErrorEvent(sink http.ResponseWriter) {
 // err is not an *UpstreamErrorResponse.
 func flushUpstreamErrorAsAnthropic(w http.ResponseWriter, err error) {
 	var resp *providers.UpstreamErrorResponse
-	if !errors.As(err, &resp) {
+	if !errors.As(err, &resp) || isContextOverflow(err) {
 		return
 	}
 	for k, vs := range resp.Headers {
@@ -563,11 +662,80 @@ func flushUpstreamErrorAsAnthropic(w http.ResponseWriter, err error) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.Status)
-	_, _ = w.Write(translate.OpenAIToAnthropicError(resp.Body))
+	_, _ = w.Write(attributedErrorBody(translate.OpenAIToAnthropicError(resp.Body), err))
 }
 
 // attemptIdxLabel formats i for the x-router-fallback-attempt header.
 // Caller gates on i > 0.
 func attemptIdxLabel(i int) string {
 	return strconv.Itoa(i)
+}
+
+type subscriptionOnlyAttemptKey struct{}
+type subscriptionAPIOnlyKey struct{}
+type subscriptionRotationBudgetKey struct{}
+
+func subscriptionAttemptOnly(ctx context.Context) bool {
+	value, _ := ctx.Value(subscriptionOnlyAttemptKey{}).(bool)
+	return value
+}
+func subscriptionAPIOnly(ctx context.Context) bool {
+	value, _ := ctx.Value(subscriptionAPIOnlyKey{}).(bool)
+	return value
+}
+func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in failoverInputs) (int, error) {
+	ctx, budget := withSubscriptionAdmissionBudget(ctx)
+	selected := in.initialDecision
+	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
+		usage.IntendedModel = selected.Model
+	}
+	targets := append([]router.Decision{selected}, in.alternatives...)
+	for index, target := range targets {
+		if ctx.Err() != nil || budget.remaining <= 0 {
+			break
+		}
+		attemptIn := in
+		attemptIn.alternatives = nil
+		attemptIn.deferFlushOnExhaustion = true
+		if index > 0 {
+			attempt, buildErr := in.buildAlternative(target)
+			if buildErr != nil {
+				continue
+			}
+			attemptIn.initialDecision = target
+			attemptIn.attempt = attempt
+			attemptIn.bindings = s.resolveBindingsForDispatch(ctx, target)
+		}
+		if in.buf != nil {
+			in.buf.Discard()
+		}
+		attemptCtx := context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true)
+		if target.Provider != selected.Provider {
+			// A selected provider's OAuth credential never carries to another provider.
+			attemptCtx = clearCredentials(attemptCtx)
+		}
+		attemptCtx = s.resolveCredentials(attemptCtx, target.Provider, target.Model, http.Header{})
+		winner, attemptErr := s.dispatchWithFallback(attemptCtx, attemptIn)
+		if attemptErr == nil {
+			if index > 0 && in.onAlternative != nil {
+				in.onAlternative(target)
+			}
+			return winner, nil
+		}
+		if committed(in.buf) || ctx.Err() != nil {
+			return winner, attemptErr
+		}
+	}
+	if ctx.Err() != nil {
+		return 0, ctx.Err()
+	}
+	if paidFallbackForbidden(ctx) {
+		return 0, subscriptionPoolExhausted(ctx)
+	}
+	if in.buf != nil {
+		in.buf.Discard()
+	}
+	in.alternatives = nil
+	apiCtx := s.resolveCredentials(withSuppressedClaudeSubscription(withSuppressedCodexSubscription(context.WithValue(ctx, subscriptionAPIOnlyKey{}, true))), selected.Provider, selected.Model, http.Header{})
+	return s.dispatchWithFallback(apiCtx, in)
 }

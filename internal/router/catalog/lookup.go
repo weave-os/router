@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"workweave/router/internal/router"
+	"weave-os/router/internal/router"
 )
 
 // byID is built once at init from Models so accessors are O(1).
@@ -32,6 +32,25 @@ func ByID(id string) (Model, bool) {
 	return Model{}, false
 }
 
+// CodexSubscriptionModels returns the canonical models served by native
+// ChatGPT/Codex OAuth rather than OpenAI API credentials.
+func CodexSubscriptionModels() []string {
+	models := make([]string, 0, 8)
+	for _, model := range Models {
+		if model.CodexSubscription {
+			models = append(models, model.ID)
+		}
+	}
+	return models
+}
+
+// CodexSubscriptionCoversModel reports whether the catalog marks model for
+// native ChatGPT/Codex OAuth. Unknown models fail closed.
+func CodexSubscriptionCoversModel(id string) bool {
+	model, ok := byID[id]
+	return ok && model.CodexSubscription
+}
+
 // ResolveBinding returns the first ProviderBinding whose Provider is in
 // `available`. Used at boot to pick each routable model's upstream.
 func ResolveBinding(id string, available map[string]struct{}) (ProviderBinding, bool) {
@@ -39,12 +58,155 @@ func ResolveBinding(id string, available map[string]struct{}) (ProviderBinding, 
 	if !ok {
 		return ProviderBinding{}, false
 	}
-	for _, b := range m.Providers {
+	for _, b := range RoutableBindings(m) {
 		if _, ok := available[b.Provider]; ok {
 			return b, true
 		}
 	}
 	return ProviderBinding{}, false
+}
+
+// RoutableBindings returns the model's bindings that routing and failover may
+// use, in catalog order. Subscription-overflow bindings are omitted.
+func RoutableBindings(m Model) []ProviderBinding {
+	out := make([]ProviderBinding, 0, len(m.Providers))
+	for _, b := range m.Providers {
+		if !b.SubscriptionOverflowOnly {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// AcceptsImageCount reports whether this binding accepts n image parts in one
+// request. A zero cap means the limit is unknown.
+func (b ProviderBinding) AcceptsImageCount(n int) bool {
+	return b.MaxImagesPerRequest == 0 || n <= b.MaxImagesPerRequest
+}
+
+// AcceptsImageCount reports whether a model can accept n image parts through
+// any enabled routable binding. Unknown models and models without an enabled
+// catalog binding have no known limit.
+func AcceptsImageCount(id string, n int, enabledProviders map[string]struct{}) bool {
+	if n == 0 {
+		return true
+	}
+	m, ok := ByID(id)
+	if !ok {
+		return true
+	}
+	if m.ImageInput == ImageInputUnsupported {
+		return false
+	}
+	foundEnabledBinding := false
+	for _, binding := range RoutableBindings(m) {
+		if len(enabledProviders) > 0 {
+			if _, enabled := enabledProviders[binding.Provider]; !enabled {
+				continue
+			}
+		}
+		foundEnabledBinding = true
+		if binding.AcceptsImageCount(n) {
+			return true
+		}
+	}
+	return !foundEnabledBinding
+}
+
+// BindingFor returns the model's binding for provider, including a
+// subscription-overflow binding.
+func BindingFor(id, provider string) (ProviderBinding, bool) {
+	m, ok := ByID(id)
+	if !ok {
+		return ProviderBinding{}, false
+	}
+	for _, b := range m.Providers {
+		if b.Provider == provider {
+			return b, true
+		}
+	}
+	return ProviderBinding{}, false
+}
+
+// ResolveBindingWithCustom resolves like ResolveBinding, then falls back to
+// configuration-declared bindings. Synthesized bindings inherit primary pricing
+// (custom endpoint bills on its own contract; list price is the only rate we have).
+func ResolveBindingWithCustom(id string, available map[string]struct{}, custom map[string][]string) (ProviderBinding, bool) {
+	if b, ok := ResolveBinding(id, available); ok {
+		return b, true
+	}
+	m, ok := ByID(id)
+	if !ok {
+		return ProviderBinding{}, false
+	}
+	provider := CustomProviderFor(id, available, custom)
+	if provider == "" {
+		return ProviderBinding{}, false
+	}
+	binding := ProviderBinding{Provider: provider}
+	if len(m.Providers) > 0 {
+		binding.Price = m.Providers[0].Price.WithoutInferenceGeoPremium()
+	}
+	return binding, true
+}
+
+// CustomProviderFor returns the first available configuration-declared
+// provider for the model, or "" when none is.
+func CustomProviderFor(id string, available map[string]struct{}, custom map[string][]string) string {
+	if ps := customProvidersFor(id, available, custom); len(ps) > 0 {
+		return ps[0]
+	}
+	return ""
+}
+
+// customProvidersFor returns the model's available configuration-declared
+// providers, skipping any the catalog already binds so a model never resolves
+// to the same provider twice.
+func customProvidersFor(id string, available map[string]struct{}, custom map[string][]string) []string {
+	if len(custom) == 0 {
+		return nil
+	}
+	m, known := ByID(id)
+	if !known {
+		return nil
+	}
+	bound := make(map[string]struct{}, len(m.Providers))
+	for _, b := range RoutableBindings(m) {
+		bound[b.Provider] = struct{}{}
+	}
+	var out []string
+	for _, provider := range custom[m.ID] {
+		if _, ok := available[provider]; !ok {
+			continue
+		}
+		if _, dup := bound[provider]; dup {
+			continue
+		}
+		out = append(out, provider)
+	}
+	return out
+}
+
+// EnumerateBindingsWithCustom is EnumerateBindings plus configuration-declared
+// bindings appended after catalog entries; catalog provider wins on overlap.
+// Synthesized bindings inherit primary pricing.
+func EnumerateBindingsWithCustom(id string, available map[string]struct{}, custom map[string][]string) []IndexedBinding {
+	out := EnumerateBindings(id, available)
+	customProviders := customProvidersFor(id, available, custom)
+	if len(customProviders) == 0 {
+		return out
+	}
+	m, _ := ByID(id)
+	next := len(m.Providers)
+	for _, provider := range customProviders {
+		binding := ProviderBinding{Provider: provider}
+		if len(m.Providers) > 0 {
+			binding.Price = m.Providers[0].Price.WithoutInferenceGeoPremium()
+		}
+		out = append(out, IndexedBinding{Index: next, ProviderBinding: binding})
+		next++
+	}
+	return out
 }
 
 // AvailableBindings returns every ProviderBinding for the model whose Provider
@@ -73,9 +235,40 @@ func EnumerateBindings(id string, available map[string]struct{}) []IndexedBindin
 	}
 	out := make([]IndexedBinding, 0, len(m.Providers))
 	for index, b := range m.Providers {
-		if _, ok := available[b.Provider]; ok {
+		if _, ok := available[b.Provider]; ok && !b.SubscriptionOverflowOnly {
 			out = append(out, IndexedBinding{Index: index, ProviderBinding: b})
 		}
+	}
+	return out
+}
+
+// RoutingTargetSet returns the automatic routing targets that have at least
+// one binding backed by a provider registered in this deployment. Untiered
+// catalog rows are passthrough-only and must never become policy candidates.
+func RoutingTargetSet(availableProviders map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{}, len(Models))
+	for _, model := range Models {
+		if model.Tier == TierUnknown {
+			continue
+		}
+		if len(EnumerateBindings(model.ID, availableProviders)) == 0 {
+			continue
+		}
+		out[model.ID] = struct{}{}
+	}
+	return out
+}
+
+// HMMRoutingTargetSet returns the HMM policy candidate universe. It includes
+// generic routing targets plus catalog rows explicitly reserved for HMM policy
+// sidecars, without making those rows eligible for generic cluster routing.
+func HMMRoutingTargetSet(availableProviders map[string]struct{}) map[string]struct{} {
+	out := RoutingTargetSet(availableProviders)
+	for _, model := range Models {
+		if !model.HMMTarget || len(EnumerateBindings(model.ID, availableProviders)) == 0 {
+			continue
+		}
+		out[model.ID] = struct{}{}
 	}
 	return out
 }
@@ -124,6 +317,13 @@ func TierFor(id string) Tier {
 	return m.Tier
 }
 
+// AdvisorRankFor returns the model's advisor-tool rank; ok is false for
+// models that take no advisor.
+func AdvisorRankFor(id string) (rank int, ok bool) {
+	m, found := ByID(id)
+	return m.AdvisorRank, found && m.AdvisorRank > 0
+}
+
 // ThinkTagReasoningFor reports whether the model streams chain-of-thought as
 // inline <think>…</think> in content (the Anthropic translator reroutes it
 // into thinking). Unknown models return false.
@@ -169,6 +369,26 @@ func ContextWindowFor(id string) int {
 		return DefaultContextWindow
 	}
 	return m.ContextWindow
+}
+
+// ContextWindowForBinding returns the context window for modelID on provider,
+// preferring a non-zero ProviderBinding.ContextWindow over the model-level value.
+// Returns DefaultContextWindow for an unknown model.
+func ContextWindowForBinding(modelID, provider string) int {
+	m, ok := ByID(modelID)
+	if !ok {
+		return DefaultContextWindow
+	}
+	cw := m.ContextWindow
+	if cw <= 0 {
+		cw = DefaultContextWindow
+	}
+	for _, b := range m.Providers {
+		if b.Provider == provider && b.ContextWindow > 0 {
+			return b.ContextWindow
+		}
+	}
+	return cw
 }
 
 // ToolUseLowSet returns model IDs with ToolUseLow quality. The cluster scorer

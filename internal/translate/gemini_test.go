@@ -3,13 +3,15 @@ package translate_test
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -226,6 +228,26 @@ func TestPrepareGemini_ReasoningEffortMapsToThinkingLevel_Gemini3x(t *testing.T)
 		_, hasBudget := tc["thinkingBudget"]
 		assert.False(t, hasBudget, "gemini-3.x must not send thinkingBudget (%s)", effort)
 	}
+}
+
+func TestPrepareGemini_AnthropicAdaptiveThinkingMapsToGemini35Flash(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-sonnet-5",
+		"max_tokens":4096,
+		"thinking":{"type":"adaptive"},
+		"output_config":{"effort":"high"},
+		"messages":[{"role":"user","content":"solve this"}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-3.5-flash"})
+	require.NoError(t, err)
+	out := mustUnmarshal(t, prep.Body)
+	generationConfig := out["generationConfig"].(map[string]any)
+	thinkingConfig := generationConfig["thinkingConfig"].(map[string]any)
+	assert.Equal(t, "high", thinkingConfig["thinkingLevel"])
+	assert.NotContains(t, thinkingConfig, "thinkingBudget")
 }
 
 func TestPrepareGemini_StreamHintHeaderSet(t *testing.T) {
@@ -687,9 +709,10 @@ func TestPrepareGemini_WidensExclusiveBoundsToInclusive(t *testing.T) {
 	assert.Equal(t, float64(5), strict["minimum"], "widened exclusiveMinimum (5) is tighter than explicit minimum (0)")
 }
 
-func TestPrepareGemini_PrunesDanglingRequired(t *testing.T) {
-	// Regression: Gemini 400s when "required" names a property not in
-	// "properties" — valid JSON Schema, so MCP tool schemas can carry it; prune it.
+func TestPrepareGemini_DanglingRequiredDegradesToNoParameters(t *testing.T) {
+	// Gemini 400s when "required" names a property not in "properties" —
+	// valid JSON Schema, so MCP tool schemas can carry it; the backstop
+	// degrades that tool instead of failing the whole request.
 	body := []byte(`{
 		"messages": [{"role":"user","content":"hi"}],
 		"tools": [{
@@ -701,19 +724,30 @@ func TestPrepareGemini_PrunesDanglingRequired(t *testing.T) {
 				"required":["x","ghost"]
 			}
 		},{
-			"name":"AllDangling",
+			"name":"Healthy",
 			"description":"d",
 			"input_schema":{
 				"type":"object",
 				"properties":{"a":{"type":"string"}},
-				"required":["missing"]
+				"required":["a"]
 			}
 		}]
 	}`)
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
-	_, err = env.PrepareGemini(http.Header{}, translate.EmitOptions{})
-	require.ErrorIs(t, err, translate.ErrGeminiSchemaIncompatible)
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{})
+	require.NoError(t, err)
+
+	out := mustUnmarshal(t, prep.Body)
+	decls := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)
+	require.Len(t, decls, 2)
+	byName := make(map[string]map[string]any, len(decls))
+	for _, d := range decls {
+		decl := d.(map[string]any)
+		byName[decl["name"].(string)] = decl
+	}
+	assert.NotContains(t, byName["DoThing"], "parameters", "dangling required degrades that tool only")
+	assert.Contains(t, byName["Healthy"], "parameters")
 }
 
 func TestPrepareGemini_PreservesPropertyNamedRequired(t *testing.T) {
@@ -756,10 +790,10 @@ func TestPrepareGemini_PreservesPropertyNamedRequired(t *testing.T) {
 	assert.Equal(t, []any{"inner"}, prop["required"])
 }
 
-func TestPrepareGemini_StripsVendorExtensionAndDollarPrefixedKeys(t *testing.T) {
-	// Regression: MCP schemas derived from Google APIs embed vendor extensions
-	// (`x-google-*`) at every level; Gemini 400s on unknown fields. Strip any
-	// "x-" or "$" prefixed key instead of maintaining an allowlist.
+func TestPrepareGemini_VendorExtensionKeysDegradeToNoParameters(t *testing.T) {
+	// MCP schemas derived from Google APIs embed vendor extensions
+	// (`x-google-*`) at every level; Gemini 400s on unknown fields,
+	// so the per-tool backstop degrades rather than 502ing.
 	body := []byte(`{
 		"messages": [{"role":"user","content":"hi"}],
 		"tools": [{
@@ -788,8 +822,13 @@ func TestPrepareGemini_StripsVendorExtensionAndDollarPrefixedKeys(t *testing.T) 
 	}`)
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
-	_, err = env.PrepareGemini(http.Header{}, translate.EmitOptions{})
-	require.ErrorIs(t, err, translate.ErrGeminiSchemaIncompatible)
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{})
+	require.NoError(t, err)
+
+	out := mustUnmarshal(t, prep.Body)
+	decl := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)
+	assert.Equal(t, "sheets_get", decl["name"])
+	assert.NotContains(t, decl, "parameters")
 }
 
 func TestSanitizeSchemaForGemini_PreservesSupportedFields(t *testing.T) {
@@ -873,9 +912,10 @@ func TestPrepareGemini_DropsUnsupportedFormatValues(t *testing.T) {
 	assert.Equal(t, "double", score["format"])
 }
 
-func TestPrepareGemini_CollapsesItemsBool(t *testing.T) {
-	// Regression: MCP schemas (e.g. SigNoz) use `"items": true` (JSON Schema:
-	// any items allowed); Gemini's proto Schema.items rejects boolean values.
+func TestPrepareGemini_ItemsFalseDegradesToNoParameters(t *testing.T) {
+	// MCP schemas use boolean `items`; Gemini's proto Schema.items rejects
+	// booleans. `items: true` collapses to the permissive empty schema;
+	// `items: false` (unsatisfiable) stays unrepresentable — backstop degrades.
 	body := []byte(`{
 		"messages": [{"role":"user","content":"hi"}],
 		"tools": [{
@@ -887,13 +927,20 @@ func TestPrepareGemini_CollapsesItemsBool(t *testing.T) {
 						"type":"array",
 						"items":true
 					},
-					"disabled":{
-						"type":"array",
-						"items":false
-					},
 					"links":{
 						"type":"array",
 						"items":{"type":"string"}
+					}
+				}
+			}
+		},{
+			"name":"toggle_widgets",
+			"input_schema":{
+				"type":"object",
+				"properties":{
+					"disabled":{
+						"type":"array",
+						"items":false
 					}
 				}
 			}
@@ -901,8 +948,25 @@ func TestPrepareGemini_CollapsesItemsBool(t *testing.T) {
 	}`)
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
-	_, err = env.PrepareGemini(http.Header{}, translate.EmitOptions{})
-	require.ErrorIs(t, err, translate.ErrGeminiSchemaIncompatible)
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{})
+	require.NoError(t, err)
+
+	out := mustUnmarshal(t, prep.Body)
+	decls := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)
+	require.Len(t, decls, 2)
+	byName := make(map[string]map[string]any, len(decls))
+	for _, d := range decls {
+		decl := d.(map[string]any)
+		byName[decl["name"].(string)] = decl
+	}
+
+	// items:true collapses to the permissive empty schema.
+	params := byName["create_dashboard"]["parameters"].(map[string]any)
+	args := params["properties"].(map[string]any)["args"].(map[string]any)
+	assert.Equal(t, map[string]any{}, args["items"])
+
+	// items:false degrades only the tool that carries it.
+	assert.NotContains(t, byName["toggle_widgets"], "parameters")
 }
 
 func TestPrepareGemini_CollapsesArrayTypeField(t *testing.T) {
@@ -986,9 +1050,9 @@ func TestPrepareGemini_PreservesArrayMissingItems(t *testing.T) {
 	assert.NotContains(t, nestedItems, "items")
 }
 
-func TestPrepareGemini_PreservesEnumValueTypes(t *testing.T) {
-	// Empty-string enum members are meaningful accepted values. Sanitization
-	// must preserve them rather than silently broadening the schema.
+func TestPrepareGemini_DropsEmptyStringEnumEntries(t *testing.T) {
+	// Google 400s on empty-string enum members ("enum[i]: cannot be empty").
+	// Drop them; drop the enum entirely when nothing remains.
 	body := []byte(`{
 		"messages": [{"role":"user","content":"hi"}],
 		"tools": [{
@@ -1013,13 +1077,162 @@ func TestPrepareGemini_PreservesEnumValueTypes(t *testing.T) {
 	props := params["properties"].(map[string]any)
 
 	operator := props["operator"].(map[string]any)
-	assert.Equal(t, []any{"", "eq", "neq", "gt"}, operator["enum"])
+	assert.Equal(t, []any{"eq", "neq", "gt"}, operator["enum"], "empty string must be filtered out")
 
 	allEmpty := props["all_empty"].(map[string]any)
-	assert.Equal(t, []any{"", ""}, allEmpty["enum"])
+	assert.NotContains(t, allEmpty, "enum", "enum with only empty strings must be dropped entirely")
 
 	normal := props["normal"].(map[string]any)
 	assert.Equal(t, []any{"a", "b"}, normal["enum"], "well-formed enums must pass through unchanged")
+}
+
+func TestPrepareGemini_CollapsesNullableAnyOfDates(t *testing.T) {
+	// MCP date fields commonly encode optionality as anyOf[string, null]. Gemini
+	// then 400s on the null branch as any_of[1].enum[0]: cannot be empty.
+	body := []byte(`{
+		"messages": [{"role":"user","content":"hi"}],
+		"tools": [{
+			"name":"update_issue",
+			"input_schema":{
+				"type":"object",
+				"properties":{
+					"due_date":{"anyOf":[{"type":"string","format":"date-time"},{"type":"null"}]},
+					"start_date":{"anyOf":[{"type":"string"},{"enum":[""]}]},
+					"priority":{"anyOf":[{"enum":["low","high"]},{"type":"null"}]},
+					"title":{"minLength":5,"anyOf":[{"type":"string","minLength":10}]}
+				}
+			}
+		}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{})
+	require.NoError(t, err)
+
+	out := mustUnmarshal(t, prep.Body)
+	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
+	props := params["properties"].(map[string]any)
+
+	due := props["due_date"].(map[string]any)
+	assert.Equal(t, "string", due["type"])
+	assert.Equal(t, "date-time", due["format"])
+	assert.Equal(t, true, due["nullable"])
+	assert.NotContains(t, due, "anyOf")
+	assert.NotContains(t, due, "enum")
+
+	start := props["start_date"].(map[string]any)
+	assert.Equal(t, "string", start["type"])
+	assert.Equal(t, true, start["nullable"])
+	assert.NotContains(t, start, "anyOf")
+	assert.NotContains(t, start, "enum")
+
+	priority := props["priority"].(map[string]any)
+	assert.Equal(t, "string", priority["type"])
+	assert.Equal(t, true, priority["nullable"])
+	assert.Equal(t, []any{"low", "high"}, priority["enum"])
+	assert.NotContains(t, priority, "anyOf")
+
+	title := props["title"].(map[string]any)
+	assert.Equal(t, "string", title["type"])
+	assert.Equal(t, float64(10), title["minLength"])
+	assert.NotContains(t, title, "anyOf")
+}
+
+func TestPrepareGemini_PreservesNumericAnyOfEnum(t *testing.T) {
+	body := []byte(`{
+		"messages": [{"role":"user","content":"hi"}],
+		"tools": [{
+			"name":"set_priority",
+			"input_schema":{
+				"type":"object",
+				"properties":{
+					"priority":{"anyOf":[{"enum":[0,1,2]},{"type":"null"}]}
+				}
+			}
+		}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{})
+	require.NoError(t, err)
+
+	out := mustUnmarshal(t, prep.Body)
+	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
+	priority := params["properties"].(map[string]any)["priority"].(map[string]any)
+	assert.Equal(t, true, priority["nullable"])
+	assert.NotContains(t, priority, "enum", "non-string enums still drop, but the branch itself must survive")
+	assert.NotContains(t, priority, "type", "dropping a numeric enum must not invent type:string")
+}
+
+func TestPrepareGemini_KeepsTypeArrayAnyOfBranch(t *testing.T) {
+	body := []byte(`{
+		"messages": [{"role":"user","content":"hi"}],
+		"tools": [{
+			"name":"update_issue",
+			"input_schema":{
+				"type":"object",
+				"properties":{
+					"due_date":{"anyOf":[{"type":["string","null"],"format":"date-time"}]}
+				}
+			}
+		}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{})
+	require.NoError(t, err)
+
+	out := mustUnmarshal(t, prep.Body)
+	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
+	due := params["properties"].(map[string]any)["due_date"].(map[string]any)
+	assert.Equal(t, "string", due["type"])
+	assert.Equal(t, "date-time", due["format"])
+	assert.Equal(t, true, due["nullable"])
+}
+
+func TestPrepareGemini_DropsNonStringEnums(t *testing.T) {
+	// Gemini types every enum member as TYPE_STRING and 400s on anything else.
+	// Dropping is lossless: toolcheck enforces against the original schema.
+	body := []byte(`{
+		"messages": [{"role":"user","content":"hi"}],
+		"tools": [{
+			"name":"lookback",
+			"input_schema":{
+				"type":"object",
+				"properties":{
+					"untyped_numeric":{"enum":[7,14,30]},
+					"typed_numeric":{"type":"integer","enum":[7,14,30]},
+					"mixed":{"enum":["all",30]},
+					"boolean":{"type":"boolean","enum":[true,false]},
+					"nullable":{"type":"string","nullable":true,"enum":["a",null]},
+					"format_enum":{"type":"string","format":"enum","enum":[1,2]},
+					"strings":{"type":"string","enum":["day","week"]}
+				}
+			}
+		}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{})
+	require.NoError(t, err, "an unrepresentable enum must not fail the whole tool")
+
+	out := mustUnmarshal(t, prep.Body)
+	params := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)[0].(map[string]any)["parameters"].(map[string]any)
+	props := params["properties"].(map[string]any)
+
+	for _, name := range []string{"untyped_numeric", "typed_numeric", "mixed", "boolean", "nullable", "format_enum"} {
+		assert.NotContains(t, props[name], "enum", "%s: non-string enum must be dropped", name)
+	}
+
+	// Only the enum is dropped — the rest of each property survives.
+	assert.Equal(t, "integer", props["typed_numeric"].(map[string]any)["type"])
+	assert.Equal(t, "boolean", props["boolean"].(map[string]any)["type"])
+
+	// format:"enum" is meaningless once the enum is gone, so it goes too.
+	assert.NotContains(t, props["format_enum"], "format")
+
+	assert.Equal(t, []any{"day", "week"}, props["strings"].(map[string]any)["enum"],
+		"all-string enums must pass through unchanged")
 }
 
 func TestPrepareGemini_UserDefinedPropertyNamedProperties(t *testing.T) {
@@ -1165,4 +1378,131 @@ func TestPrepareGemini_ConvertsBoolPropertySchemas(t *testing.T) {
 	rp, ok := props["realProp"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "string", rp["type"])
+}
+
+func TestPrepareGemini_ToolAllOfAnnotationRegression(t *testing.T) {
+	// Regression (prod shape: SendMessage.to): allOf branches with differing
+	// descriptions must widen (annotation merge), not fail the whole request.
+	// Uses a non-CC-internal tool name so the claudecode filter keeps it.
+	body := []byte(`{
+		"messages": [{"role":"user","content":"hi"}],
+		"tools": [{
+			"name":"NotifyTeammate",
+			"input_schema":{
+				"type":"object",
+				"properties":{
+					"to":{
+						"allOf":[
+							{"type":"string","description":"Teammate recipient"},
+							{"type":"string","description":"Recipient: teammate name"}
+						]
+					},
+					"message":{"type":"string"}
+				},
+				"required":["to","message"]
+			}
+		}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-3.1-pro-preview"})
+	require.NoError(t, err)
+
+	out := mustUnmarshal(t, prep.Body)
+	decls := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)
+	params := decls[0].(map[string]any)["parameters"].(map[string]any)
+	props := params["properties"].(map[string]any)
+
+	to := props["to"].(map[string]any)
+	assert.Equal(t, "string", to["type"])
+	assert.Equal(t, "Teammate recipient", to["description"], "earlier branch's annotation wins")
+	assert.ElementsMatch(t, []any{"message", "to"}, params["required"])
+}
+
+func TestPrepareGemini_UnrepresentableToolSchemaDegradesToNoParameters(t *testing.T) {
+	// oneOf has no widening path — per-tool backstop keeps healthy tools alive.
+	body := []byte(`{
+		"messages": [{"role":"user","content":"hi"}],
+		"tools": [
+			{"name":"healthy","input_schema":{"type":"object","properties":{"x":{"type":"string"}}}},
+			{"name":"degraded","input_schema":{"oneOf":[{"type":"string"},{"type":"number"}]}}
+		]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-3.1-pro-preview"})
+	require.NoError(t, err)
+
+	out := mustUnmarshal(t, prep.Body)
+	decls := out["tools"].([]any)[0].(map[string]any)["functionDeclarations"].([]any)
+	require.Len(t, decls, 2)
+
+	byName := make(map[string]map[string]any, len(decls))
+	for _, d := range decls {
+		decl := d.(map[string]any)
+		byName[decl["name"].(string)] = decl
+	}
+
+	healthy, ok := byName["healthy"]
+	require.True(t, ok)
+	assert.Contains(t, healthy, "parameters")
+
+	degraded, ok := byName["degraded"]
+	require.True(t, ok)
+	assert.NotContains(t, degraded, "parameters", "unrepresentable schema must degrade to no parameters, not fail the request")
+}
+
+func TestPrepareGemini_DegradedDuplicateDeclarationsStillConflict(t *testing.T) {
+	// Two tools with the same name are a client bug regardless of whether one
+	// happened to degrade to no parameters; dedupe must keep rejecting them.
+	body := []byte(`{
+		"messages": [{"role":"user","content":"hi"}],
+		"tools": [
+			{"name":"dup","input_schema":{"type":"object"}},
+			{"name":"dup","input_schema":{"oneOf":[{"type":"string"},{"type":"number"}]}}
+		]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	_, err = env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: "gemini-3.1-pro-preview"})
+	require.ErrorIs(t, err, translate.ErrGeminiToolDeclarationConflict)
+}
+
+func TestIsIntrinsicallyIncompatible(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "wrapped gemini schema incompatible",
+			err:  fmt.Errorf("prepare gemini: %w", translate.ErrGeminiSchemaIncompatible),
+			want: true,
+		},
+		{
+			name: "wrapped reasoning incompatible",
+			err:  fmt.Errorf("prepare gemini: %w", translate.ErrReasoningIncompatible),
+			want: true,
+		},
+		{
+			name: "wrapped gemini unsigned tool history",
+			err:  fmt.Errorf("prepare gemini: %w", translate.ErrGeminiUnsignedToolHistory),
+			want: true,
+		},
+		{
+			name: "unrelated error",
+			err:  errors.New("other"),
+			want: false,
+		},
+		{
+			name: "tool declaration conflict is a client bug, not intrinsic incompatibility",
+			err:  translate.ErrGeminiToolDeclarationConflict,
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, translate.IsIntrinsicallyIncompatible(tt.err))
+		})
+	}
 }

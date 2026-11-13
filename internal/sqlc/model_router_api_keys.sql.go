@@ -19,7 +19,10 @@ INSERT INTO router.model_router_api_keys (
     key_prefix,
     key_hash,
     key_suffix,
-    created_by
+    created_by,
+    scope,
+    harness,
+    public_jwk
 )
 VALUES (
     $1::uuid,
@@ -28,9 +31,12 @@ VALUES (
     $4::varchar,
     $5::varchar,
     $6::varchar,
-    $7
+    $7,
+    $8::varchar,
+    $9,
+    $10::jsonb
 )
-RETURNING id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros
+RETURNING id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros, scope, credential_subject_id, harness, shared_subscription_access, paid_fallback_on_subscription_refusal, public_jwk
 `
 
 type CreateModelRouterAPIKeyParams struct {
@@ -41,9 +47,14 @@ type CreateModelRouterAPIKeyParams struct {
 	KeyHash        string
 	KeySuffix      string
 	CreatedBy      *string
+	Scope          string
+	Harness        *string
+	PublicJwk      []byte
 }
 
-// CreateModelRouterAPIKey
+// Creates a router API key. scope decides what the credential can do:
+// 'routing' proxies inference (and can spend), 'analytics_read' is read-only,
+// 'session_issuer' stores the public_jwk that verifies rs_ session tokens.
 //
 //	INSERT INTO router.model_router_api_keys (
 //	    installation_id,
@@ -52,7 +63,10 @@ type CreateModelRouterAPIKeyParams struct {
 //	    key_prefix,
 //	    key_hash,
 //	    key_suffix,
-//	    created_by
+//	    created_by,
+//	    scope,
+//	    harness,
+//	    public_jwk
 //	)
 //	VALUES (
 //	    $1::uuid,
@@ -61,9 +75,12 @@ type CreateModelRouterAPIKeyParams struct {
 //	    $4::varchar,
 //	    $5::varchar,
 //	    $6::varchar,
-//	    $7
+//	    $7,
+//	    $8::varchar,
+//	    $9,
+//	    $10::jsonb
 //	)
-//	RETURNING id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros
+//	RETURNING id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros, scope, credential_subject_id, harness, shared_subscription_access, paid_fallback_on_subscription_refusal, public_jwk
 func (q *Queries) CreateModelRouterAPIKey(ctx context.Context, arg CreateModelRouterAPIKeyParams) (RouterModelRouterAPIKey, error) {
 	row := q.db.QueryRow(ctx, createModelRouterAPIKey,
 		arg.InstallationID,
@@ -73,6 +90,9 @@ func (q *Queries) CreateModelRouterAPIKey(ctx context.Context, arg CreateModelRo
 		arg.KeyHash,
 		arg.KeySuffix,
 		arg.CreatedBy,
+		arg.Scope,
+		arg.Harness,
+		arg.PublicJwk,
 	)
 	var i RouterModelRouterAPIKey
 	err := row.Scan(
@@ -89,12 +109,18 @@ func (q *Queries) CreateModelRouterAPIKey(ctx context.Context, arg CreateModelRo
 		&i.CreatedBy,
 		&i.SpendCapUsdMicros,
 		&i.SpentUsdMicros,
+		&i.Scope,
+		&i.CredentialSubjectID,
+		&i.Harness,
+		&i.SharedSubscriptionAccess,
+		&i.PaidFallbackOnSubscriptionRefusal,
+		&i.PublicJwk,
 	)
 	return i, err
 }
 
 const getActiveModelRouterAPIKeyWithInstallationByHash = `-- name: GetActiveModelRouterAPIKeyWithInstallationByHash :one
-SELECT k.id, k.installation_id, k.external_id, k.name, k.key_prefix, k.key_hash, k.key_suffix, k.last_used_at, k.created_at, k.deleted_at, k.created_by, k.spend_cap_usd_micros, k.spent_usd_micros, i.id, i.external_id, i.name, i.created_at, i.updated_at, i.deleted_at, i.created_by, i.excluded_models, i.excluded_providers, i.routing_quality_weight, i.usage_bypass_enabled, i.usage_bypass_threshold, i.preferred_models, i.subscription_routing_disabled, i.routing_strategy, i.routing_rollout_id, i.policy_shadow_strategy, i.policy_debug_enabled, i.policy_header_overrides_enabled, i.policy_routing_intent, i.ai_training_allowed
+SELECT k.id, k.installation_id, k.external_id, k.name, k.key_prefix, k.key_hash, k.key_suffix, k.last_used_at, k.created_at, k.deleted_at, k.created_by, k.spend_cap_usd_micros, k.spent_usd_micros, k.scope, k.credential_subject_id, k.harness, k.shared_subscription_access, k.paid_fallback_on_subscription_refusal, k.public_jwk, i.id, i.external_id, i.name, i.created_at, i.updated_at, i.deleted_at, i.created_by, i.excluded_models, i.excluded_providers, i.routing_quality_weight, i.usage_bypass_enabled, i.usage_bypass_threshold, i.preferred_models, i.subscription_routing_disabled, i.routing_strategy, i.routing_rollout_id, i.policy_shadow_strategy, i.policy_debug_enabled, i.policy_header_overrides_enabled, i.policy_routing_intent, i.ai_training_allowed, i.byok_enabled, i.content_capture_mode, i.hide_terminal_surfaces, i.allowed_models, i.first_request_served_at, i.flag_overrides, i.models_when_subscription_active, i.models_when_subscription_inactive, i.fast_mode_models, i.trial_capture_enabled, i.trial_enrollment_id, i.trial_shadow_sample_rate, i.trial_shadow_daily_ceiling_usd_micros, i.show_model_selection_reasoning, i.subscription_sharing_enabled, i.subscription_state_models_enabled, i.models_excluded_when_subscription_active, i.models_excluded_when_subscription_inactive, i.picked_model_credit_fallback_enabled, i.weave_credit_inference_enabled
 FROM router.model_router_api_keys k
 INNER JOIN router.model_router_installations i ON i.id = k.installation_id
 WHERE k.key_hash = $1::varchar
@@ -113,7 +139,7 @@ type GetActiveModelRouterAPIKeyWithInstallationByHashRow struct {
 // both sides so a soft-deleted installation invalidates all its keys without per-key
 // updates.
 //
-//	SELECT k.id, k.installation_id, k.external_id, k.name, k.key_prefix, k.key_hash, k.key_suffix, k.last_used_at, k.created_at, k.deleted_at, k.created_by, k.spend_cap_usd_micros, k.spent_usd_micros, i.id, i.external_id, i.name, i.created_at, i.updated_at, i.deleted_at, i.created_by, i.excluded_models, i.excluded_providers, i.routing_quality_weight, i.usage_bypass_enabled, i.usage_bypass_threshold, i.preferred_models, i.subscription_routing_disabled, i.routing_strategy, i.routing_rollout_id, i.policy_shadow_strategy, i.policy_debug_enabled, i.policy_header_overrides_enabled, i.policy_routing_intent, i.ai_training_allowed
+//	SELECT k.id, k.installation_id, k.external_id, k.name, k.key_prefix, k.key_hash, k.key_suffix, k.last_used_at, k.created_at, k.deleted_at, k.created_by, k.spend_cap_usd_micros, k.spent_usd_micros, k.scope, k.credential_subject_id, k.harness, k.shared_subscription_access, k.paid_fallback_on_subscription_refusal, k.public_jwk, i.id, i.external_id, i.name, i.created_at, i.updated_at, i.deleted_at, i.created_by, i.excluded_models, i.excluded_providers, i.routing_quality_weight, i.usage_bypass_enabled, i.usage_bypass_threshold, i.preferred_models, i.subscription_routing_disabled, i.routing_strategy, i.routing_rollout_id, i.policy_shadow_strategy, i.policy_debug_enabled, i.policy_header_overrides_enabled, i.policy_routing_intent, i.ai_training_allowed, i.byok_enabled, i.content_capture_mode, i.hide_terminal_surfaces, i.allowed_models, i.first_request_served_at, i.flag_overrides, i.models_when_subscription_active, i.models_when_subscription_inactive, i.fast_mode_models, i.trial_capture_enabled, i.trial_enrollment_id, i.trial_shadow_sample_rate, i.trial_shadow_daily_ceiling_usd_micros, i.show_model_selection_reasoning, i.subscription_sharing_enabled, i.subscription_state_models_enabled, i.models_excluded_when_subscription_active, i.models_excluded_when_subscription_inactive, i.picked_model_credit_fallback_enabled, i.weave_credit_inference_enabled
 //	FROM router.model_router_api_keys k
 //	INNER JOIN router.model_router_installations i ON i.id = k.installation_id
 //	WHERE k.key_hash = $1::varchar
@@ -136,6 +162,12 @@ func (q *Queries) GetActiveModelRouterAPIKeyWithInstallationByHash(ctx context.C
 		&i.RouterModelRouterAPIKey.CreatedBy,
 		&i.RouterModelRouterAPIKey.SpendCapUsdMicros,
 		&i.RouterModelRouterAPIKey.SpentUsdMicros,
+		&i.RouterModelRouterAPIKey.Scope,
+		&i.RouterModelRouterAPIKey.CredentialSubjectID,
+		&i.RouterModelRouterAPIKey.Harness,
+		&i.RouterModelRouterAPIKey.SharedSubscriptionAccess,
+		&i.RouterModelRouterAPIKey.PaidFallbackOnSubscriptionRefusal,
+		&i.RouterModelRouterAPIKey.PublicJwk,
 		&i.RouterModelRouterInstallation.ID,
 		&i.RouterModelRouterInstallation.ExternalID,
 		&i.RouterModelRouterInstallation.Name,
@@ -157,6 +189,26 @@ func (q *Queries) GetActiveModelRouterAPIKeyWithInstallationByHash(ctx context.C
 		&i.RouterModelRouterInstallation.PolicyHeaderOverridesEnabled,
 		&i.RouterModelRouterInstallation.PolicyRoutingIntent,
 		&i.RouterModelRouterInstallation.AiTrainingAllowed,
+		&i.RouterModelRouterInstallation.ByokEnabled,
+		&i.RouterModelRouterInstallation.ContentCaptureMode,
+		&i.RouterModelRouterInstallation.HideTerminalSurfaces,
+		&i.RouterModelRouterInstallation.AllowedModels,
+		&i.RouterModelRouterInstallation.FirstRequestServedAt,
+		&i.RouterModelRouterInstallation.FlagOverrides,
+		&i.RouterModelRouterInstallation.ModelsWhenSubscriptionActive,
+		&i.RouterModelRouterInstallation.ModelsWhenSubscriptionInactive,
+		&i.RouterModelRouterInstallation.FastModeModels,
+		&i.RouterModelRouterInstallation.TrialCaptureEnabled,
+		&i.RouterModelRouterInstallation.TrialEnrollmentID,
+		&i.RouterModelRouterInstallation.TrialShadowSampleRate,
+		&i.RouterModelRouterInstallation.TrialShadowDailyCeilingUsdMicros,
+		&i.RouterModelRouterInstallation.ShowModelSelectionReasoning,
+		&i.RouterModelRouterInstallation.SubscriptionSharingEnabled,
+		&i.RouterModelRouterInstallation.SubscriptionStateModelsEnabled,
+		&i.RouterModelRouterInstallation.ModelsExcludedWhenSubscriptionActive,
+		&i.RouterModelRouterInstallation.ModelsExcludedWhenSubscriptionInactive,
+		&i.RouterModelRouterInstallation.PickedModelCreditFallbackEnabled,
+		&i.RouterModelRouterInstallation.WeaveCreditInferenceEnabled,
 	)
 	return i, err
 }
@@ -191,7 +243,7 @@ func (q *Queries) GetModelRouterAPIKeySpend(ctx context.Context, id uuid.UUID) (
 }
 
 const listModelRouterAPIKeysForInstallation = `-- name: ListModelRouterAPIKeysForInstallation :many
-SELECT id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros
+SELECT id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros, scope, credential_subject_id, harness, shared_subscription_access, paid_fallback_on_subscription_refusal, public_jwk
 FROM router.model_router_api_keys
 WHERE installation_id = $1::uuid
   AND deleted_at IS NULL
@@ -200,7 +252,7 @@ ORDER BY created_at DESC
 
 // Lists active keys for an installation (dashboard / CRUD; not on the request path).
 //
-//	SELECT id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros
+//	SELECT id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros, scope, credential_subject_id, harness, shared_subscription_access, paid_fallback_on_subscription_refusal, public_jwk
 //	FROM router.model_router_api_keys
 //	WHERE installation_id = $1::uuid
 //	  AND deleted_at IS NULL
@@ -228,6 +280,12 @@ func (q *Queries) ListModelRouterAPIKeysForInstallation(ctx context.Context, ins
 			&i.CreatedBy,
 			&i.SpendCapUsdMicros,
 			&i.SpentUsdMicros,
+			&i.Scope,
+			&i.CredentialSubjectID,
+			&i.Harness,
+			&i.SharedSubscriptionAccess,
+			&i.PaidFallbackOnSubscriptionRefusal,
+			&i.PublicJwk,
 		); err != nil {
 			return nil, err
 		}
@@ -239,26 +297,50 @@ func (q *Queries) ListModelRouterAPIKeysForInstallation(ctx context.Context, ins
 	return items, nil
 }
 
-const markModelRouterAPIKeyUsed = `-- name: MarkModelRouterAPIKeyUsed :exec
+const markModelRouterAPIKeyFirstUsed = `-- name: MarkModelRouterAPIKeyFirstUsed :execrows
 UPDATE router.model_router_api_keys
 SET last_used_at = NOW()
 WHERE id = $1::uuid
   AND deleted_at IS NULL
+  AND last_used_at IS NULL
 `
 
-// Records that a key was used. Called fire-and-forget by the Service after successful
-// auth. Idempotent on retry.
+// Only one concurrent caller can make the first-use transition.
 //
 //	UPDATE router.model_router_api_keys
 //	SET last_used_at = NOW()
 //	WHERE id = $1::uuid
 //	  AND deleted_at IS NULL
-func (q *Queries) MarkModelRouterAPIKeyUsed(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.Exec(ctx, markModelRouterAPIKeyUsed, id)
+//	  AND last_used_at IS NULL
+func (q *Queries) MarkModelRouterAPIKeyFirstUsed(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, markModelRouterAPIKeyFirstUsed, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const refreshModelRouterAPIKeyLastUsed = `-- name: RefreshModelRouterAPIKeyLastUsed :exec
+UPDATE router.model_router_api_keys
+SET last_used_at = NOW()
+WHERE id = $1::uuid
+  AND deleted_at IS NULL
+  AND last_used_at < NOW() - INTERVAL '1 minute'
+`
+
+// Coalesce subsequent usage writes to at most one per minute per key.
+//
+//	UPDATE router.model_router_api_keys
+//	SET last_used_at = NOW()
+//	WHERE id = $1::uuid
+//	  AND deleted_at IS NULL
+//	  AND last_used_at < NOW() - INTERVAL '1 minute'
+func (q *Queries) RefreshModelRouterAPIKeyLastUsed(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, refreshModelRouterAPIKeyLastUsed, id)
 	return err
 }
 
-const softDeleteModelRouterAPIKey = `-- name: SoftDeleteModelRouterAPIKey :exec
+const softDeleteModelRouterAPIKey = `-- name: SoftDeleteModelRouterAPIKey :execrows
 UPDATE router.model_router_api_keys
 SET deleted_at = NOW()
 WHERE id = $1::uuid
@@ -271,14 +353,18 @@ type SoftDeleteModelRouterAPIKeyParams struct {
 	InstallationID uuid.UUID
 }
 
-// Soft-deletes a router API key. Cross-tenant safe via installation_id predicate.
+// Soft-deletes a router API key. Cross-tenant safe via installation_id
+// predicate. :execrows lets callers tell a 0-row no-op from a real transition.
 //
 //	UPDATE router.model_router_api_keys
 //	SET deleted_at = NOW()
 //	WHERE id = $1::uuid
 //	  AND installation_id = $2::uuid
 //	  AND deleted_at IS NULL
-func (q *Queries) SoftDeleteModelRouterAPIKey(ctx context.Context, arg SoftDeleteModelRouterAPIKeyParams) error {
-	_, err := q.db.Exec(ctx, softDeleteModelRouterAPIKey, arg.ID, arg.InstallationID)
-	return err
+func (q *Queries) SoftDeleteModelRouterAPIKey(ctx context.Context, arg SoftDeleteModelRouterAPIKeyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, softDeleteModelRouterAPIKey, arg.ID, arg.InstallationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }

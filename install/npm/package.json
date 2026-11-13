@@ -1,25 +1,37 @@
 {
-  "name": "@workweave/router",
-  "version": "0.2.5",
+  "name": "@weave-os/router",
+  "version": "0.2.37",
   "description": "One-command installer that points Claude Code, Codex, opencode, or pi at the Weave Router. For pi it also ships the routing extension, loaded via pi.extensions.",
   "bin": {
-    "weave-router": "bin.js"
+    "weave-router": "bin.js",
+    "router": "bin.js"
   },
   "pi": {
     "extensions": [
       "./pi-router/src/index.ts"
+    ],
+    "skills": [
+      "./pi-router/skills"
     ]
   },
   "files": [
     "bin.js",
+    "windows.js",
     "install.sh",
     "uninstall.sh",
+    "desktop-shim.js",
     "cc-statusline.sh",
+    "codex-status.sh",
+    "codex-toggle.sh",
+    "registry.sh",
+    "directives.tsv",
     "commands/",
+    "codex-skills/",
+    "skills/",
     "pi-router/",
-    "opencode-weave/",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "scripts": {
     "prepack": "node ./scripts/copy-installer.js"
@@ -53,19 +65,30 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/workweave/router.git",
+    "url": "git+https://github.com/weave-os/router.git",
     "directory": "install/npm"
   },
-  "homepage": "https://workweave.ai",
-  "license": "SEE LICENSE IN LICENSE",
+  "homepage": "https://weaveos.com/products/router",
+  "license": "Apache-2.0",
   "keywords": [
     "weave",
     "router",
     "claude",
     "claude-code",
     "anthropic",
+    "codex",
+    "opencode",
+    "openai",
     "llm-router",
+    "model-router",
+    "ai-gateway",
+    "llm-proxy",
     "pi",
     "pi-package"
-  ]
+  ],
+  "dependencies": {
+    "@decimalturn/toml-patch": "3.3.0",
+    "isomorphic-git": "1.43.1",
+    "smol-toml": "1.9.0"
+  }
 }

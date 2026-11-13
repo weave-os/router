@@ -40,7 +40,7 @@ only**. The full rules live in [AGENTS.md](AGENTS.md). The summary:
   `internal/providers`, `internal/translate`) — pure domain logic, no
   I/O outside Service methods. `internal/router` and
   `internal/providers` are interface-only and never import each other.
-- **Adapters** (`internal/postgres`, `internal/router/cluster`,
+- **Adapters** (`internal/postgres`,
   `internal/providers/{anthropic,openai,google,openaicompat}`) — depend
   only on the inner ring. Adapters never import each other.
 - **Presentation** (`internal/api/*`, `internal/server*`) — adapts HTTP
@@ -54,9 +54,27 @@ recipes for adding endpoints, providers, migrations, queries, and
 routing strategies — please read the relevant section before starting
 non-trivial work.
 
+## Where does my change go?
+
+`internal/proxy` is being split into five bounded contexts: Protocol &
+Ingress, Credential Brokerage, Routing Policy, Inference Execution and
+Conversation Lifecycle. Before writing code, find your change's row in
+the [decision table](internal/proxy/CLAUDE.md#where-new-behavior-goes).
+New behavior goes in a new focused file for that context, as a free
+function or small struct with explicit dependencies, never as a new
+method or field on `proxy.Service`. Model quirks are catalog data; new
+I/O is an interface in the owning context plus an adapter wired in
+`cmd/router`.
+
+CI enforces the limits: PRs fail when they grow `proxy.Service`, add
+context keys in `internal/proxy`, add or grow a function or file past
+the complexity limits, add model-name string matching outside the
+catalog, add `//nolint`, or add duplicated code. Split along a concept
+boundary to fix a failure; see [CLAUDE.md](CLAUDE.md#things-to-never-do).
+
 ## What we won't accept
 
-- **Silent fallbacks.** When the cluster scorer can't run, the router
+- **Silent fallbacks.** When the routing policy can't decide, the router
   returns HTTP 503 — it does *not* fall back to a default model. PRs
   re-introducing fail-open behavior will be rejected; silent degradation
   masked real regressions before, which is why the heuristic was retired.
@@ -78,11 +96,19 @@ non-trivial work.
 make generate     # regenerate SQLC + statusline (no DB required)
 make build        # typecheck the whole module
 make test         # run all tests
-make check        # generate + build + test (CI-equivalent)
+make check        # local docs + generation + Go + installer checks
+make doctor       # read-only prerequisites; no env files or services loaded
+make check-plan   # applicable suites including uncommitted changes
+make check-changed # local suites; required integrations remain visibly blocked
 ```
 
-The CI required-checks gate is `make check`, plus `git diff --quiet`
-after `make generate` (to catch uncommitted regenerated code).
+`make check` is not all of CI: lint, database migration roundtrips, disposable-DB
+serving checks, sidecar/artifact contracts, frontend checks and smoke have their own
+prerequisites and gates. The planner lists relevant suites and their limitations.
+Use `git diff --quiet` after generation to detect drift; preserve unrelated changes.
+`python3 scripts/agent_checks.py run --integration` additionally permits local
+integration fixtures/downloads, never provider recording. The runner reports blocked
+checks instead of treating missing infrastructure as successful validation.
 
 ### Hot-reload dev loop
 
@@ -95,23 +121,8 @@ make setup                             # init schema + migrate + seed an rk_ key
 make dev                               # run the server with hot reload
 ```
 
-Prerequisites: Go 1.25+, [golang-migrate](https://github.com/golang-migrate/migrate),
+Prerequisites: Go 1.26+, [golang-migrate](https://github.com/golang-migrate/migrate),
 [CompileDaemon](https://github.com/githubnemo/CompileDaemon).
-
-The cluster scorer uses an ONNX embedder; on Apple Silicon you also need:
-
-```bash
-# Populate ./assets/ first — see docs/CONFIGURATION.md → Cluster-routing artifacts.
-echo "ROUTER_ONNX_ASSETS_DIR=$(pwd)/assets" >> .env.local
-echo "CGO_LDFLAGS=-L/path/to/libtokenizers" >> .env.local
-echo "ROUTER_ONNX_LIBRARY_DIR=/opt/homebrew/lib" >> .env.local
-```
-
-(`brew install onnxruntime`; `libtokenizers` from
-[daulet/tokenizers releases](https://github.com/daulet/tokenizers/releases).)
-Without these the cluster scorer fails at boot and the router refuses to
-start. The Docker path bundles all of this — Apple Silicon CGO setup only
-matters for the `make dev` flow.
 
 ### Tests
 
@@ -123,6 +134,30 @@ matters for the `make dev` flow.
   instance", "mock was called") are rejected.
 - No DB-backed integration tests in `internal/`. The Docker Compose
   stack is the runtime fixture for end-to-end work.
+
+#### Pre-merge smoke suite
+
+The smoke suite (`smoke/`, `make smoke`) boots the real router in Docker
+Compose and drives it with Claude-Code-shaped fixtures through a
+record/replay MITM proxy. It catches what unit and conformance tests
+cannot see — real provider acceptance of translated wire formats,
+prompt-cache accounting, and streaming lifecycle.
+
+The suite uses **committed cassettes** (`smoke/mitmproxy/cassettes/`) so
+CI runs in replay-only mode with zero upstream calls and no API keys.
+Cassettes are keyed by `sha256(method + path + body)` and are safe to
+commit (auth headers are scrubbed before persistence).
+
+**When to add a scenario:** your change touches one of the path-gated
+surfaces (`internal/proxy/**`, `internal/translate/**`,
+`internal/providers/**`, `internal/router/catalog/**`,
+`cmd/router/**`) AND the bug class it guards against needs a real
+upstream call to catch. Pure unit-testable logic doesn't need one.
+
+**When to refresh cassettes:** add a scenario (record new cassette),
+change a fixture or request body, or a provider changes its response
+shape (caught by the nightly `Refresh cassettes` workflow). See
+[docs/SMOKE.md](docs/SMOKE.md) for the full runbook.
 
 ## Database changes
 
@@ -150,7 +185,7 @@ Rules:
 
 ## Logging
 
-- Use `slog` via `observability.Get` / `observability.FromGin`. Never
+- Use `slog` via `observability.FromContext` / `observability.FromGin` on request paths; reserve `observability.Get` for startup/background work. Never
   `fmt.Println` or `log.Print*`.
 - Snake_case attribute keys (`api_key_id`, not `apiKeyID`).
 - `Debug` for routine ops (auth checks, repo calls), `Info` for major
@@ -178,6 +213,11 @@ Common types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `ci`.
 1. Open the PR against `main`. Include the DCO sign-off on every commit.
 2. Fill in the PR template — what changed, why, and how it was tested.
 3. Make sure CI is green (`make check` + the migration-timestamp check).
+   If your PR touches a path-gated surface (see the smoke suite section
+   in Tests above), the `Smoke (replay-only)` check also runs — it
+   replays committed cassettes with no key needed. If CI shows
+   `Smoke (replay-only)` failing, run `make smoke` locally first to see
+   whether the failure is a cassette that needs refreshing.
 4. A maintainer will review. Plan to iterate; reviews are usually 1-2
    rounds.
 
@@ -201,5 +241,10 @@ section, sorted by `Created` ascending.
 
 ## License
 
+This project is licensed under the [Apache License 2.0](LICENSE).
 By contributing, you agree that your contributions will be licensed
-under the project's [LICENSE](LICENSE).
+under Apache-2.0. Keep the DCO sign-off on every commit (`git commit -s`).
+
+The DCO certifies you have the right to submit the change under Apache-2.0.
+It is not a copyright assignment. If your employer owns your work, you still
+need authority to contribute it.

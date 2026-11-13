@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router"
 )
 
 // PolicyShadowStore persists comparison-only policy decisions; if nil,

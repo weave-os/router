@@ -1,8 +1,12 @@
 package proxy
 
 import (
+	"context"
 	"net/http"
 	"testing"
+
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/subscriptions"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -34,7 +38,34 @@ func TestSuppressMarkerIfRequested(t *testing.T) {
 			if tc.setHeader {
 				h.Set(routingMarkerHeader, tc.value)
 			}
-			assert.Equal(t, tc.want, suppressMarkerIfRequested(h, marker))
+			assert.Equal(t, tc.want, suppressMarkerIfRequested(context.Background(), h, marker))
 		})
 	}
+}
+
+// TestSuppressMarkerIfRequestedHiddenByInstallation pins that an installation
+// with terminal surfaces hidden drops the marker regardless of the header.
+func TestSuppressMarkerIfRequestedHiddenByInstallation(t *testing.T) {
+	const marker = "✦ **Weave Router** → deepseek/deepseek-v4-flash · best pick for this turn\n\n"
+	h := http.Header{}
+
+	// Hidden: even an absent header (which would keep the marker) yields "".
+	hiddenCtx := context.WithValue(context.Background(), InstallationHideTerminalSurfacesContextKey{}, true)
+	assert.Equal(t, "", suppressMarkerIfRequested(hiddenCtx, h, marker))
+
+	// Visible: same header state keeps the marker.
+	assert.Equal(t, marker, suppressMarkerIfRequested(context.Background(), h, marker))
+}
+
+func TestSubscriptionOnlyWarningHonorsTerminalSurfaceOptOut(t *testing.T) {
+	ctx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlySpendCapReached)
+
+	assert.Equal(t, subscriptionSpendCapWarningMarker, routerNoticeForRequest(ctx, http.Header{}, subscriptions.ProviderClaude, "model", "").Text)
+
+	off := http.Header{}
+	off.Set(routingMarkerHeader, "off")
+	assert.Empty(t, routerNoticeForRequest(ctx, off, subscriptions.ProviderClaude, "model", "").Text)
+
+	hidden := context.WithValue(ctx, InstallationHideTerminalSurfacesContextKey{}, true)
+	assert.Empty(t, routerNoticeForRequest(hidden, http.Header{}, subscriptions.ProviderClaude, "model", "").Text)
 }

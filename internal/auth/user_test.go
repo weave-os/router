@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"workweave/router/internal/auth"
+	"weave-os/router/internal/auth"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,6 +17,7 @@ type fakeUserRepo struct {
 	mu             sync.Mutex
 	upserts        []auth.UpsertUserParams
 	accountUpserts []auth.UpsertUserByAccountUUIDParams
+	subjectUpserts []auth.UpsertUserByCredentialSubjectParams
 	user           *auth.User
 	err            error
 }
@@ -35,6 +36,16 @@ func (f *fakeUserRepo) UpsertByAccountUUID(ctx context.Context, params auth.Upse
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.accountUpserts = append(f.accountUpserts, params)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.user, nil
+}
+
+func (f *fakeUserRepo) UpsertByCredentialSubject(ctx context.Context, params auth.UpsertUserByCredentialSubjectParams) (*auth.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.subjectUpserts = append(f.subjectUpserts, params)
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -231,4 +242,169 @@ func TestLRUUserCache_KeysIncludeInstallation(t *testing.T) {
 
 	_, ok = cache.Get("inst-C", "alice@example.com")
 	assert.False(t, ok, "unrelated installation must miss")
+}
+
+type fakeUserClusterListRepo struct {
+	mu    sync.Mutex
+	calls int
+	lists []auth.UserClusterModelList
+	err   error
+}
+
+func (f *fakeUserClusterListRepo) GetForUser(ctx context.Context, routerUserID string) ([]auth.UserClusterModelList, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.lists, nil
+}
+
+func (f *fakeUserClusterListRepo) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
+func TestResolveAndStashUser_StashesUserClusterLists(t *testing.T) {
+	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
+	clusters := &fakeUserClusterListRepo{lists: []auth.UserClusterModelList{
+		{RouterUserID: "user-42", ClusterLabel: "balanced", Models: []string{"a", "b"}},
+	}}
+	svc := makeServiceWithUsers(t, users).
+		WithUserClusterModelLists(clusters, auth.NewLRUUserClusterListCache(10, time.Minute))
+
+	ctx := svc.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
+
+	assert.Equal(t, "user-42", auth.UserIDFrom(ctx))
+	assert.Equal(t, map[string][]string{"balanced": {"a", "b"}}, auth.UserClusterModelListsFrom(ctx))
+}
+
+// The user-identity cache short-circuits before the upsert, so the selection
+// load must happen on that path too — otherwise a warm cache silently drops
+// every user's per-cluster selection.
+func TestResolveAndStashUser_StashesClusterListsOnIdentityCacheHit(t *testing.T) {
+	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
+	clusters := &fakeUserClusterListRepo{lists: []auth.UserClusterModelList{
+		{RouterUserID: "user-42", ClusterLabel: "fast", Models: []string{"haiku"}},
+	}}
+	svc := auth.NewService(
+		&fakeInstallationRepository{},
+		&fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}},
+		nil,
+		users,
+		auth.NoOpAPIKeyCache{},
+		auth.NewLRUUserCache(10, time.Minute),
+		frozenClock(),
+	).WithUserClusterModelLists(clusters, auth.NewLRUUserClusterListCache(10, time.Minute))
+
+	// First call populates the identity cache.
+	_ = svc.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
+	require.Len(t, users.upserts, 1)
+
+	ctx := svc.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
+
+	assert.Len(t, users.upserts, 1, "second call must hit the identity cache")
+	assert.Equal(t, "user-42", auth.UserIDFrom(ctx))
+	assert.Equal(t, map[string][]string{"fast": {"haiku"}}, auth.UserClusterModelListsFrom(ctx),
+		"the cache-hit path must still carry the user's cluster selections")
+}
+
+// Fail-open: a transient DB error serves the request on default routing rather
+// than failing an authenticated request, and must not be cached.
+func TestResolveAndStashUser_ClusterListFetchErrorFailsOpenAndIsNotCached(t *testing.T) {
+	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
+	clusters := &fakeUserClusterListRepo{err: errors.New("db down")}
+	svc := makeServiceWithUsers(t, users).
+		WithUserClusterModelLists(clusters, auth.NewLRUUserClusterListCache(10, time.Minute))
+
+	ctx := svc.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
+
+	assert.Equal(t, "user-42", auth.UserIDFrom(ctx), "the request must still be served")
+	assert.Nil(t, auth.UserClusterModelListsFrom(ctx))
+
+	_ = svc.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
+	assert.Equal(t, 2, clusters.callCount(), "an errored fetch must not be cached")
+}
+
+// A successful empty result IS cached — the common case must not re-query.
+func TestResolveAndStashUser_EmptyClusterListsAreCached(t *testing.T) {
+	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
+	clusters := &fakeUserClusterListRepo{}
+	svc := makeServiceWithUsers(t, users).
+		WithUserClusterModelLists(clusters, auth.NewLRUUserClusterListCache(10, time.Minute))
+
+	_ = svc.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
+	ctx := svc.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
+
+	assert.Nil(t, auth.UserClusterModelListsFrom(ctx))
+	assert.Equal(t, 1, clusters.callCount(), "an empty result must be cached, not re-fetched")
+}
+
+// Unwired repo (the default) must behave exactly as before.
+func TestResolveAndStashUser_NoClusterRepoStashesNothing(t *testing.T) {
+	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
+	svc := makeServiceWithUsers(t, users)
+
+	ctx := svc.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
+
+	assert.Equal(t, "user-42", auth.UserIDFrom(ctx))
+	assert.Nil(t, auth.UserClusterModelListsFrom(ctx))
+}
+
+func TestResolveAndStashKeyOwner_UpsertsBySubjectAndCaches(t *testing.T) {
+	repo := &fakeUserRepo{user: &auth.User{ID: "user-owner"}}
+	svc := auth.NewService(
+		&fakeInstallationRepository{},
+		&fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}},
+		nil,
+		repo,
+		auth.NoOpAPIKeyCache{},
+		auth.NewLRUUserCache(8, 5*time.Minute),
+		frozenClock(),
+	)
+
+	ctx := svc.ResolveAndStashKeyOwner(context.Background(), "inst-1", "61f77e74-0000-4000-8000-000000000001", "Alice Liddell")
+	require.Equal(t, "user-owner", auth.UserIDFrom(ctx))
+	require.Len(t, repo.subjectUpserts, 1)
+	assert.Equal(t, "inst-1", repo.subjectUpserts[0].InstallationID)
+	assert.Equal(t, "61f77e74-0000-4000-8000-000000000001", repo.subjectUpserts[0].CredentialSubjectID)
+	require.NotNil(t, repo.subjectUpserts[0].DisplayName)
+	assert.Equal(t, "Alice Liddell", *repo.subjectUpserts[0].DisplayName)
+	assert.Empty(t, repo.upserts)
+	assert.Empty(t, repo.accountUpserts)
+
+	ctx = svc.ResolveAndStashKeyOwner(context.Background(), "inst-1", "61f77e74-0000-4000-8000-000000000001", "")
+	assert.Equal(t, "user-owner", auth.UserIDFrom(ctx))
+	assert.Len(t, repo.subjectUpserts, 1, "cache hit must not upsert again")
+}
+
+func TestResolveAndStashKeyOwner_SubjectCacheIsSeparateFromAccountCache(t *testing.T) {
+	repo := &fakeUserRepo{user: &auth.User{ID: "user-1"}}
+	svc := auth.NewService(
+		&fakeInstallationRepository{},
+		&fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}},
+		nil,
+		repo,
+		auth.NoOpAPIKeyCache{},
+		auth.NewLRUUserCache(8, 5*time.Minute),
+		frozenClock(),
+	)
+	const sharedUUID = "2c2aace8-82e9-4cb1-8d1f-2f822da43177"
+
+	svc.ResolveAndStashUser(context.Background(), "inst-1", "", sharedUUID, "")
+	svc.ResolveAndStashKeyOwner(context.Background(), "inst-1", sharedUUID, "")
+
+	assert.Len(t, repo.accountUpserts, 1)
+	assert.Len(t, repo.subjectUpserts, 1, "an account-UUID cache entry must not answer a credential-subject lookup")
+}
+
+func TestResolveAndStashKeyOwner_RepoErrorLeavesRequestUnattributed(t *testing.T) {
+	repo := &fakeUserRepo{err: errors.New("db down")}
+	svc := makeServiceWithUsers(t, repo)
+
+	ctx := svc.ResolveAndStashKeyOwner(context.Background(), "inst-1", "61f77e74-0000-4000-8000-000000000001", "")
+
+	assert.Equal(t, "", auth.UserIDFrom(ctx))
 }

@@ -2,20 +2,22 @@ package translate
 
 import "strings"
 
-// openRouterProviderHint pins model slugs to caching-capable backends.
+// openRouterProviderHint prefers caching-capable first-party backends.
 // Without it, OpenRouter load-balances by price onto hosts without prefix
 // caching, which breaks agentic workloads re-sending large transcripts.
+// Fallbacks stay on: the first-party host does not serve every slug in the
+// family, and a disallowed fallback turns that into a 404.
 func openRouterProviderHint(model string) map[string]any {
 	switch {
 	case strings.HasPrefix(model, "deepseek/"):
 		return map[string]any{
 			"order":           []string{"deepseek"},
-			"allow_fallbacks": false,
+			"allow_fallbacks": true,
 		}
 	case strings.HasPrefix(model, "moonshotai/"):
 		return map[string]any{
 			"order":           []string{"moonshotai"},
-			"allow_fallbacks": false,
+			"allow_fallbacks": true,
 		}
 	case strings.HasPrefix(model, "qwen/"), strings.HasPrefix(model, "google/"):
 		return map[string]any{"sort": "throughput"}
@@ -58,6 +60,14 @@ func isGLM51(model string) bool {
 	return model == "z-ai/glm-5.1"
 }
 
+// isGLM53Flash reports whether the model id is z-ai/glm-5.3-flash. Like
+// GLM-5.1 it needs tool_stream=true opted in (docs.z.ai/guides/vlm/glm-5.3-flash).
+// Unlike GLM-5.1, thinking can't be disabled, so it's absent from
+// openRouterReasoningHint and gets no chat_template_kwargs handling.
+func isGLM53Flash(model string) bool {
+	return model == "z-ai/glm-5.3-flash"
+}
+
 // isQwen3Family reports whether the model id belongs to the qwen3.x family.
 // These variants drift into tool-call/thinking loops without the model
 // card's recommended sampling defaults, which we layer in when unset.
@@ -69,6 +79,8 @@ func isQwen3Family(model string) bool {
 // (huggingface.co/Qwen/Qwen3-235B-A22B-Instruct-2507), applied only when the
 // client hasn't set the field. presence_penalty=1.5 suppresses the
 // "same tool, same args, N times" loop the Instruct variant is prone to.
+// qwen3RepetitionPenalty is skipped on Fireworks targets — see
+// applyQwen3SamplersIfNeeded.
 const (
 	qwen3Temperature       = 0.7
 	qwen3TopP              = 0.8

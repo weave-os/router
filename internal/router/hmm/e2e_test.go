@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/policyclient"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
+	"weave-os/router/internal/policyclient"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
 )
 
 func TestHTTPRouterEndToEndWithSidecar(t *testing.T) {
@@ -50,7 +50,6 @@ func TestHTTPRouterEndToEndWithSidecar(t *testing.T) {
 
 	r := New(
 		policyclient.New(server.URL, server.Client(), 0),
-		map[string]struct{}{"moonshotai/kimi-k2.7": {}},
 		map[string]struct{}{providers.ProviderFireworks: {}},
 	)
 	decision, err := r.Route(context.Background(), router.Request{

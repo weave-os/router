@@ -1,0 +1,99 @@
+package proxy
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/subscriptions"
+)
+
+// TestProxyMessages_ManagedPoolStreamingFailureLeavesRenderingToHandler: the
+// Anthropic prelude stays buffered until provider output, so even a streaming
+// request retains the classified HTTP error path when the pool is unavailable.
+func TestProxyMessages_ManagedPoolStreamingFailureLeavesRenderingToHandler(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "token-a"}}}
+	anthropic := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{
+		{err: &providers.UpstreamErrorResponse{
+			Status: http.StatusTooManyRequests,
+			Body:   []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"quota exhausted"}}`),
+		}},
+	}}
+	svc := NewService(
+		fixedRouter{decision: router.Decision{
+			Provider: providers.ProviderAnthropic,
+			Model:    "claude-opus-4-8",
+			Metadata: &router.RoutingMetadata{CandidateModels: []string{"claude-opus-4-8"}},
+		}},
+		map[string]providers.Client{providers.ProviderAnthropic: anthropic},
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithManagedSubscriptions(leaser).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+
+	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude),
+		InstallationIDContextKey{}, "44444444-4444-4444-4444-444444444444")
+	ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+
+	err := svc.ProxyMessages(ctx, body, rec, req)
+
+	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted,
+		"the pool sentinel must survive for the handler to classify and log")
+	var upstreamErr *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &upstreamErr)
+	require.Equal(t, http.StatusTooManyRequests, upstreamErr.Status)
+	require.Equal(t, 1, anthropic.calls, "generic throttling must not authorize a paid retry")
+	assert.Empty(t, rec.Body.String(),
+		"the handler still owns the classified HTTP error response")
+}
+
+// TestProxyMessages_ManagedPoolFailureBeforeAnyBytesLeavesRenderingToHandler:
+// pre-commit the classified envelope is the handler's to write, so the proxy
+// must leave the response body untouched.
+func TestProxyMessages_ManagedPoolFailureBeforeAnyBytesLeavesRenderingToHandler(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "token-a"}}}
+	anthropic := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{
+		{err: &providers.UpstreamErrorResponse{
+			Status: http.StatusTooManyRequests,
+			Body:   []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"quota exhausted"}}`),
+		}},
+	}}
+	svc := NewService(
+		fixedRouter{decision: router.Decision{
+			Provider: providers.ProviderAnthropic,
+			Model:    "claude-opus-4-8",
+			Metadata: &router.RoutingMetadata{CandidateModels: []string{"claude-opus-4-8"}},
+		}},
+		map[string]providers.Client{providers.ProviderAnthropic: anthropic},
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithManagedSubscriptions(leaser).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+
+	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude),
+		InstallationIDContextKey{}, "66666666-6666-6666-6666-666666666666")
+	ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hi"}]}`)
+
+	err := svc.ProxyMessages(ctx, body, rec, req)
+
+	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	var upstreamErr *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &upstreamErr)
+	require.Equal(t, http.StatusTooManyRequests, upstreamErr.Status)
+	require.Equal(t, 1, anthropic.calls, "generic throttling must not authorize a paid retry")
+	assert.Empty(t, rec.Body.String(),
+		"a pre-commit pool failure is the handler's envelope to render")
+}

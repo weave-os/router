@@ -1,0 +1,106 @@
+package proxy_test
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/openai"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/subscriptions/entitlement"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
+)
+
+func TestCodexModelCatalog_UsesCallerOAuth(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/models", r.URL.Path)
+		assert.Equal(t, "0.155.1", r.URL.Query().Get("client_version"))
+		assert.Equal(t, "Bearer subscription-token", r.Header.Get("Authorization"))
+		assert.Equal(t, "account-123", r.Header.Get("ChatGPT-Account-ID"))
+		_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-6-sol","visibility":"list","supported_reasoning_levels":[{"effort":"max"}]}]}`))
+	}))
+	defer upstream.Close()
+	client := openai.NewClient("deployment-key", "https://api.openai.com")
+	client.SetCodexBaseURL(upstream.URL)
+	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	headers := make(http.Header)
+	headers.Set("Authorization", "Bearer subscription-token")
+	headers.Set("ChatGPT-Account-ID", "account-123")
+	catalog, err := svc.CodexModelCatalog(context.Background(), headers, "0.155.1")
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-6-sol", gjson.GetBytes(catalog, "models.0.slug").String())
+	assert.Equal(t, proxy.CodexAutomaticModel, gjson.GetBytes(catalog, "models.1.slug").String())
+	assert.Equal(t, "max", gjson.GetBytes(catalog, "models.1.supported_reasoning_levels.0.effort").String())
+	identity := requestcontext.ServingIdentity{Target: string(policyregistry.TargetInternal), ReleaseID: "synthetic-release", BindingID: "synthetic-binding", CredentialIdentity: "synthetic-principal"}
+	internalCatalog, err := svc.CodexModelCatalog(requestcontext.WithServingIdentity(context.Background(), identity), headers, "0.155.1")
+	require.NoError(t, err)
+	require.Len(t, gjson.GetBytes(internalCatalog, "models").Array(), 6)
+	assert.Equal(t, string(router.ModelHMM), gjson.GetBytes(internalCatalog, "models.2.slug").String())
+	assert.Equal(t, string(router.ModelHMMBeta), gjson.GetBytes(internalCatalog, "models.3.slug").String())
+	assert.Equal(t, string(router.ModelQwen), gjson.GetBytes(internalCatalog, "models.4.slug").String())
+	assert.Equal(t, string(router.ModelDecision), gjson.GetBytes(internalCatalog, "models.5.slug").String())
+	identity.Plan = string(entitlement.PlanMax)
+	subscriberCatalog, err := svc.CodexModelCatalog(requestcontext.WithServingIdentity(context.Background(), identity), headers, "0.155.1")
+	require.NoError(t, err)
+	require.Len(t, gjson.GetBytes(subscriberCatalog, "models").Array(), 2)
+	identity.Plan = string(entitlement.PlanBoost)
+	boostCatalog, err := svc.CodexModelCatalog(requestcontext.WithServingIdentity(context.Background(), identity), headers, "0.155.1")
+	require.NoError(t, err)
+	assert.Equal(t, string(router.ModelQwen), gjson.GetBytes(boostCatalog, "models.4.slug").String())
+}
+
+func TestCodexModelCatalog_RequiresPairedOAuth(t *testing.T) {
+	client := openai.NewClient("deployment-key", "https://api.openai.com")
+	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	headers := make(http.Header)
+	headers.Set("Authorization", "Bearer subscription-token")
+	_, err := svc.CodexModelCatalog(context.Background(), headers, "0.155.1")
+	require.ErrorContains(t, err, "requires ChatGPT OAuth and account ID")
+}
+
+func TestCodexSelectionCatalog_APIKeyLoginGetsBundledCatalog(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("an API-key login has no ChatGPT account catalog to fetch")
+	}))
+	defer upstream.Close()
+	client := openai.NewClient("deployment-key", "https://api.openai.com")
+	client.SetCodexBaseURL(upstream.URL)
+	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	headers := make(http.Header)
+	headers.Set("Authorization", "Bearer sk-test")
+
+	catalog, err := svc.CodexSelectionCatalog(context.Background(), headers, "0.164.0")
+
+	require.NoError(t, err)
+	models := gjson.GetBytes(catalog, "models").Array()
+	require.Greater(t, len(models), 1, "model_catalog_url replaces Codex's list, so native models must stay")
+	assert.Equal(t, proxy.CodexAutomaticModel, models[len(models)-1].Get("slug").String())
+	assert.NotEmpty(t, models[0].Get("base_instructions").String(), "bundled entries keep the metadata Codex needs")
+}
+
+func TestCodexSelectionCatalog_ChatGPTLoginGetsAccountCatalog(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"models":[{"slug":"gpt-account-only","visibility":"list"}]}`))
+	}))
+	defer upstream.Close()
+	client := openai.NewClient("deployment-key", "https://api.openai.com")
+	client.SetCodexBaseURL(upstream.URL)
+	svc := proxy.NewService(&fakeRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	headers := make(http.Header)
+	headers.Set("Authorization", "Bearer subscription-token")
+	headers.Set("ChatGPT-Account-ID", "account-123")
+
+	catalog, err := svc.CodexSelectionCatalog(context.Background(), headers, "0.164.0")
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"gpt-account-only", proxy.CodexAutomaticModel}, []string{gjson.GetBytes(catalog, "models.0.slug").String(), gjson.GetBytes(catalog, "models.1.slug").String()})
+	assert.Len(t, gjson.GetBytes(catalog, "models").Array(), 2)
+}

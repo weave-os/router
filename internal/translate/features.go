@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"strings"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/observability"
 
 	"github.com/tidwall/gjson"
 )
@@ -37,11 +37,16 @@ type RoutingFeatures struct {
 	Model        string
 	HasTools     bool
 	HasImages    bool
+	ImageCount   int
 	PromptText   string
 	MessageCount int
 	// MaxTokens is the caller's requested output cap. 0 means unset.
 	// Probe detection keys off this — Anthropic SDK quota probes set max_tokens=1.
 	MaxTokens int
+	// TitleGenHint marks a Codex Responses title-generation request. The
+	// Responses ingress sets this only for the Codex client after matching the
+	// native request's schema or hidden-session prompt fingerprint.
+	TitleGenHint bool
 	// LastKind: "user_prompt", "tool_result", or "assistant".
 	LastKind string
 	// LastPreview: first previewMaxChars of the last message's text.
@@ -58,7 +63,8 @@ func (e *RequestEnvelope) FullTokenEstimate() int {
 	// falsely evict Opus for exceeding its context window. Base64 image payloads
 	// are repriced separately (÷6 still over-counts them).
 	imgBytes, imgCount := e.base64ImageStats()
-	return (len(e.body)-imgBytes)/fullBytesPerToken + imgCount*imageTokenEstimate
+	signatureBytes, idBytes := e.routerReasoningTransportBytes()
+	return (len(e.body)-imgBytes-signatureBytes-idBytes)/fullBytesPerToken + imgCount*imageTokenEstimate
 }
 
 // ContextOverflowTokenEstimate estimates tokens for context-window overflow
@@ -72,7 +78,8 @@ func (e *RequestEnvelope) ContextOverflowTokenEstimate() int {
 	// Base64 image bytes are transport, not tokens; subtract them and reprice
 	// per image to avoid phantom token inflation on multi-page PDF reads.
 	imgBytes, imgCount := e.base64ImageStats()
-	return (len(e.body)-imgBytes)/contentBytesPerToken + imgCount*imageTokenEstimate
+	signatureBytes, idBytes := e.routerReasoningTransportBytes()
+	return (len(e.body)-imgBytes-signatureBytes-idBytes)/contentBytesPerToken + imgCount*imageTokenEstimate
 }
 
 // SignatureTokenSavings returns the tokens a signature-STRIPPING target saves
@@ -83,7 +90,47 @@ func (e *RequestEnvelope) SignatureTokenSavings() int {
 	if e.format != FormatAnthropic {
 		return 0
 	}
-	return base64SignatureBytes(e.body) / contentBytesPerToken
+	// Router-minted signatures are already excluded from the base estimate. The
+	// byte scan only matches compact JSON, so it can undercount what the block
+	// walk found; savings never go negative.
+	routerSignatureBytes, _ := e.routerReasoningTransportBytes()
+	return max(0, base64SignatureBytes(e.body)-routerSignatureBytes) / contentBytesPerToken
+}
+
+// routerReasoningTransportBytes sums the router-minted OpenAI reasoning an
+// Anthropic-format client echoes back, in thinking signatures and in tool-id
+// carriers. Only payloads that decode as router envelopes count: Anthropic
+// targets strip exactly those and OpenAI targets consume them as reasoning, so
+// neither reaches an upstream as prompt text. Forged markers, marker text in
+// message content, and undecodable suffixes stay in the estimate.
+func (e *RequestEnvelope) routerReasoningTransportBytes() (signatureBytes, idBytes int) {
+	if e.format != FormatAnthropic {
+		return 0, 0
+	}
+	carrierBytes := func(id string) int {
+		if clean, stripped := stripOpenAIReasoningCarrier(id); stripped {
+			return len(id) - len(clean)
+		}
+		return 0
+	}
+	gjson.GetBytes(e.body, "messages").ForEach(func(_, message gjson.Result) bool {
+		message.Get("content").ForEach(func(_, block gjson.Result) bool {
+			switch block.Get("type").String() {
+			case "thinking":
+				signature := block.Get("signature").String()
+				if _, ok := decodeOpenAIReasoningSignature(signature); ok {
+					signatureBytes += len(signature)
+				}
+			case "tool_use":
+				idBytes += carrierBytes(block.Get("id").String())
+			case "tool_result":
+				idBytes += carrierBytes(block.Get("tool_use_id").String())
+			}
+			return true
+		})
+		return true
+	})
+	return signatureBytes, idBytes
 }
 
 // base64SignatureBytes sums the byte length of every base64 thought-signature
@@ -107,22 +154,21 @@ func base64SignatureBytes(body []byte) int {
 	return total
 }
 
-// RoutingFeatures extracts routing inputs from the envelope. When
-// extractOnlyUser is true, OnlyUserMessageText is populated.
-func (e *RequestEnvelope) RoutingFeatures(extractOnlyUser bool) RoutingFeatures {
+// RoutingFeatures extracts routing inputs from the envelope.
+func (e *RequestEnvelope) RoutingFeatures() RoutingFeatures {
 	switch e.format {
 	case FormatAnthropic:
-		return e.anthropicRoutingFeatures(extractOnlyUser)
+		return e.anthropicRoutingFeatures()
 	case FormatOpenAI:
-		return e.openAIRoutingFeatures(extractOnlyUser)
+		return e.openAIRoutingFeatures()
 	case FormatGemini:
-		return e.geminiRoutingFeatures(extractOnlyUser)
+		return e.geminiRoutingFeatures()
 	default:
 		return RoutingFeatures{}
 	}
 }
 
-func (e *RequestEnvelope) anthropicRoutingFeatures(extractOnlyUser bool) RoutingFeatures {
+func (e *RequestEnvelope) anthropicRoutingFeatures() RoutingFeatures {
 	var b strings.Builder
 	appendText(&b, systemTextGJSON(gjson.GetBytes(e.body, "system")))
 
@@ -136,7 +182,7 @@ func (e *RequestEnvelope) anthropicRoutingFeatures(extractOnlyUser bool) Routing
 		msgCount++
 		appendText(&b, contentTextGJSON(msg.Get("content")))
 		lastMsg = msg
-		if extractOnlyUser && msg.Get("role").String() == "user" {
+		if msg.Get("role").String() == "user" {
 			if text := userPromptTextGJSON(msg.Get("content")); text != "" {
 				appendText(&onlyUserB, text)
 			}
@@ -145,11 +191,13 @@ func (e *RequestEnvelope) anthropicRoutingFeatures(extractOnlyUser bool) Routing
 	})
 	text := b.String()
 
+	imageCount := e.ImageCount()
 	feats := RoutingFeatures{
 		Tokens:       len(text) / 4,
 		Model:        e.Model(),
 		HasTools:     e.HasTools(),
-		HasImages:    e.HasImages(),
+		HasImages:    imageCount > 0,
+		ImageCount:   imageCount,
 		PromptText:   text,
 		MessageCount: msgCount,
 		MaxTokens:    intGJSON(gjson.GetBytes(e.body, "max_tokens")),
@@ -167,7 +215,7 @@ func (e *RequestEnvelope) anthropicRoutingFeatures(extractOnlyUser bool) Routing
 	return feats
 }
 
-func (e *RequestEnvelope) openAIRoutingFeatures(extractOnlyUser bool) RoutingFeatures {
+func (e *RequestEnvelope) openAIRoutingFeatures() RoutingFeatures {
 	msgs := gjson.GetBytes(e.body, "messages")
 
 	var b strings.Builder
@@ -180,7 +228,7 @@ func (e *RequestEnvelope) openAIRoutingFeatures(extractOnlyUser bool) RoutingFea
 		msgCount++
 		appendText(&b, openAIContentTextGJSON(msg.Get("content")))
 		lastMsg = msg
-		if extractOnlyUser && msg.Get("role").String() == "user" {
+		if msg.Get("role").String() == "user" {
 			if text := openAIContentTextGJSON(msg.Get("content")); text != "" {
 				appendText(&onlyUserB, text)
 			}
@@ -189,11 +237,13 @@ func (e *RequestEnvelope) openAIRoutingFeatures(extractOnlyUser bool) RoutingFea
 	})
 	text := b.String()
 
+	imageCount := e.ImageCount()
 	feats := RoutingFeatures{
 		Tokens:       len(text) / 4,
 		Model:        e.Model(),
 		HasTools:     e.HasTools(),
-		HasImages:    e.HasImages(),
+		HasImages:    imageCount > 0,
+		ImageCount:   imageCount,
 		PromptText:   text,
 		MessageCount: msgCount,
 		MaxTokens:    openAIMaxTokens(e.body),
@@ -426,10 +476,17 @@ func previewGJSON(content gjson.Result) string {
 }
 
 func userPromptTextGJSON(content gjson.Result) string {
+	return userPromptTextWithClientWrappers(content, false)
+}
+
+func userPromptTextWithClientWrappers(content gjson.Result, normalizeKnownWrappers bool) string {
 	if !content.Exists() {
 		return ""
 	}
 	if content.Type == gjson.String {
+		if normalizeKnownWrappers {
+			return WithoutLeadingClientInjectedText(content.String())
+		}
 		return content.String()
 	}
 	if !content.IsArray() {
@@ -445,7 +502,13 @@ func userPromptTextGJSON(content gjson.Result) string {
 			return true
 		}
 		if isClaudeCodeInjectedBlock(text) {
-			return true
+			if !normalizeKnownWrappers {
+				return true
+			}
+			text = WithoutLeadingClientInjectedText(text)
+			if text == "" {
+				return true
+			}
 		}
 		if b.Len() > 0 {
 			b.WriteByte('\n')
@@ -466,6 +529,8 @@ var claudeCodeInjectedBlockPrefixes = []string{
 	"<local-command-stdout>",
 	"<local-command-stderr>",
 	"<local-command-caveat>",
+	"<task-notification>",
+	"</summary>\n<result>",
 }
 
 func isClaudeCodeInjectedBlock(text string) bool {
@@ -476,6 +541,42 @@ func isClaudeCodeInjectedBlock(text string) bool {
 		}
 	}
 	return false
+}
+
+// leadingClaudeCodeInjectedBlockEnd returns the end of a complete known
+// injected block at the start of trimmed text. The quoted-result envelope is
+// a continuation fragment rather than an opening tag, so it needs its own
+// closing-tag handling instead of the ordinary tag-name rule.
+func leadingClaudeCodeInjectedBlockEnd(trimmed string) int {
+	if strings.HasPrefix(trimmed, "</summary>\n<result>") {
+		resultEnd := strings.Index(trimmed, "</result>")
+		if resultEnd < 0 {
+			return 0
+		}
+		blockEnd := resultEnd + len("</result>")
+		remainder := strings.TrimLeft(trimmed[blockEnd:], " \t\r\n")
+		if strings.HasPrefix(remainder, "<usage>") {
+			usageEnd := strings.Index(remainder, "</usage>")
+			if usageEnd < 0 {
+				return 0
+			}
+			blockEnd = len(trimmed) - len(remainder) + usageEnd + len("</usage>")
+		}
+		return blockEnd
+	}
+	if !isClaudeCodeInjectedBlock(trimmed) {
+		return 0
+	}
+	openingTagEnd := strings.IndexByte(trimmed, '>')
+	if openingTagEnd < 0 {
+		return 0
+	}
+	closingTag := "</" + trimmed[1:openingTagEnd] + ">"
+	closingTagStart := strings.Index(trimmed[openingTagEnd+1:], closingTag)
+	if closingTagStart < 0 {
+		return 0
+	}
+	return openingTagEnd + 1 + closingTagStart + len(closingTag)
 }
 
 func openAIContentTextGJSON(v gjson.Result) string {
@@ -516,31 +617,38 @@ func appendText(b *strings.Builder, s string) {
 	b.WriteString(s)
 }
 
-// anthropicHasImages reports whether any content block is
-// {"type":"image",...}. String content never has an image.
-func anthropicHasImages(body []byte) bool {
-	found := false
+// anthropicImageCount counts image blocks, including images nested in a
+// tool_result. String content never has an image.
+func anthropicImageCount(body []byte) int {
+	count := 0
 	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
 		content := msg.Get("content")
 		if !content.IsArray() {
 			return true
 		}
 		content.ForEach(func(_, block gjson.Result) bool {
-			if block.Get("type").String() == "image" {
-				found = true
-				return false
+			switch block.Get("type").String() {
+			case "image":
+				count++
+			case "tool_result":
+				block.Get("content").ForEach(func(_, inner gjson.Result) bool {
+					if inner.Get("type").String() == "image" {
+						count++
+					}
+					return true
+				})
 			}
 			return true
 		})
-		return !found
+		return true
 	})
-	return found
+	return count
 }
 
-// openAIHasImages reports whether any content part is
-// {"type":"image_url",...}. String content never has an image.
-func openAIHasImages(body []byte) bool {
-	found := false
+// openAIImageCount counts image_url content parts. String content never has
+// an image.
+func openAIImageCount(body []byte) int {
+	count := 0
 	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
 		content := msg.Get("content")
 		if !content.IsArray() {
@@ -548,12 +656,11 @@ func openAIHasImages(body []byte) bool {
 		}
 		content.ForEach(func(_, part gjson.Result) bool {
 			if part.Get("type").String() == "image_url" {
-				found = true
-				return false
+				count++
 			}
 			return true
 		})
-		return !found
+		return true
 	})
-	return found
+	return count
 }

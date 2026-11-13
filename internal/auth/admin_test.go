@@ -142,6 +142,8 @@ func TestVerifyAdminPassword_NotConfigured(t *testing.T) {
 	err := svc.VerifyAdminPassword(adminTestPassword)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrAdminPasswordNotConfigured)
+	assert.ErrorIs(t, svc.VerifyAdminPassword("admin"), ErrAdminPasswordNotConfigured,
+		"an unset password must never revive the former shared default")
 
 	_, _, issueErr := svc.IssueAdminSession()
 	require.Error(t, issueErr)

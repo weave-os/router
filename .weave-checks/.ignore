@@ -1,0 +1,24 @@
+# Generated code and projections; review their sources instead.
+internal/sqlc
+docs/POLICY_INFERENCE.md
+docs/POLICY_INFERENCE.json
+install/pi-router/src/pricing.generated.ts
+bench/weave_bench/prices.generated.json
+
+# AGENTS.md mirrors generated from CLAUDE.md
+AGENTS.md
+cmd/AGENTS.md
+db/AGENTS.md
+internal/**/AGENTS.md
+
+# Lockfiles
+go.sum
+frontend/package-lock.json
+install/pi-router/package-lock.json
+bench/uv.lock
+sidecars/hmm/uv.lock
+
+# Trained routing artifacts and recorded provider traffic
+internal/router/percallband/artifacts
+internal/router/bandswap/artifacts
+smoke/mitmproxy/cassettes

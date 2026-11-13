@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"testing"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,6 +82,33 @@ func TestQwen3Samplers_AppliedOnBedrockTarget(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assertQwen3Defaults(t, prep.Body)
+}
+
+func TestQwen3Samplers_RepetitionPenaltySkippedOnFireworks(t *testing.T) {
+	// Fireworks 400s ("repetition_penalty can't be combined with
+	// frequency_penalty or presence_penalty") when both are set on qwen3.8-max.
+	// presence_penalty is the one that suppresses the tool-call loop, so it's
+	// the one kept; repetition_penalty is dropped for this provider only.
+	body := []byte(`{
+		"model": "claude-opus-4-7",
+		"max_tokens": 256,
+		"messages": [{"role":"user","content":"hi"}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareOpenAI(http.Header{}, translate.EmitOptions{
+		TargetModel:    "qwen/qwen3.8-max",
+		TargetProvider: providers.ProviderFireworks,
+		Capabilities:   router.Lookup("qwen/qwen3.8-max"),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+	assert.Equal(t, qwen3TemperatureExpected, out["temperature"])
+	assert.Equal(t, qwen3TopPExpected, out["top_p"])
+	assert.Equal(t, qwen3PresencePenaltyExpected, out["presence_penalty"])
+	_, hasRepetitionPenalty := out["repetition_penalty"]
+	assert.False(t, hasRepetitionPenalty, "fireworks must not receive repetition_penalty alongside presence_penalty")
 }
 
 func TestQwen3Samplers_NotInjectedForNonQwen(t *testing.T) {

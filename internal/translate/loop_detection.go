@@ -10,20 +10,18 @@ import (
 
 // ToolCallSig identifies a single tool invocation by callee + canonical-JSON
 // hash of its arguments. Two invocations with the same Name and InputHash are
-// treated as identical for loop-detection purposes.
+// treated as identical for loop-signal purposes.
 type ToolCallSig struct {
 	Name      string
 	InputHash string
 }
 
-// AssistantToolCallArgsPreview returns short previews of the raw argument
-// JSON for each assistant tool call, in order, starting at offset. Used to
-// log the window when a loop trips, so real loops (identical args) can be
-// told apart from false positives (distinct args, colliding hash). offset is
-// an index into the same filtered sequence AssistantToolCallSignatures
-// produces (see assistantToolCallEntry) — the two must never filter
-// differently, or an offset computed against one is meaningless against the
-// other.
+// AssistantToolCallArgsPreview returns short previews of the raw argument JSON
+// for each assistant tool call, in order, starting at offset. It is used by
+// bounded diagnostic logging. offset is an index into the same filtered
+// sequence AssistantToolCallSignatures produces (see assistantToolCallEntry)
+// — the two must never filter differently, or an offset computed against one
+// is meaningless against the other.
 func (e *RequestEnvelope) AssistantToolCallArgsPreview(offset, maxLen int) []string {
 	switch e.format {
 	case FormatAnthropic:
@@ -52,9 +50,9 @@ func assistantToolCallArgsPreview(entries []assistantToolCallEntry, offset, maxL
 
 // AssistantToolCallSignatures returns the ordered list of tool invocations in
 // the request body (message order, then content-block order). Used by the
-// loop detector: some OSS models (notably qwen3) fail to recognize task
+// loop signals: some OSS models (notably qwen3) fail to recognize task
 // completion and alternate/repeat calls indefinitely, which counting
-// signature occurrences in a recent window catches. Returns nil for
+// signature occurrences in a recent window can characterize. Returns nil for
 // Gemini-format requests (unsupported) or no assistant tool calls.
 func (e *RequestEnvelope) AssistantToolCallSignatures() []ToolCallSig {
 	switch e.format {
@@ -111,8 +109,8 @@ func anthropicAssistantToolCallEntries(body []byte) []assistantToolCallEntry {
 			}
 			// Skip empty input: cross-format translation of a stream-incomplete
 			// tool call can emit `input:{}`, and Claude Code echoes those back,
-			// so several would collide to the same hash and false-positive trip
-			// the loop detector. Real tool calls always carry an argument.
+			// so several would collide to the same hash and create false-positive
+			// loop signals. Real tool calls always carry an argument.
 			input := block.Get("input")
 			if !isMeaningfulInput(input) {
 				return true

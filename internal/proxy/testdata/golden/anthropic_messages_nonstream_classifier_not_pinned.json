@@ -1,0 +1,135 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-haiku-5-5",
+          "outbound_body": {
+            "fallbacks": "default",
+            "max_tokens": 64,
+            "messages": [
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "text": "Rate this",
+                    "type": "text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-haiku-5-5"
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-haiku-5-5",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-haiku-5-5"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "23",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1000000",
+          "X-Router-Cost-Input-Usd": "0.0000012",
+          "X-Router-Cost-Output-Usd": "0.0000035",
+          "X-Router-Cost-Usd": "0.0000047",
+          "X-Router-Decision": "classifier_model",
+          "X-Router-Model": "claude-haiku-5-5",
+          "X-Router-Provider": "anthropic"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "0",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "claude-haiku-4-5",
+          "role": "assistant",
+          "stop_reason": "end_turn",
+          "type": "message",
+          "usage": {
+            "input_tokens": 12,
+            "output_tokens": 7
+          }
+        }
+      },
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -5,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 5,
+          "OrganizationID": "golden-org",
+          "RouterModel": "claude-haiku-5-5"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.0000012000000000000002,
+          "ActualOutputCostUSD": 0.0000035,
+          "CaptureMode": "off",
+          "DecisionModel": "claude-haiku-5-5",
+          "DecisionProvider": "anthropic",
+          "DecisionReason": "classifier_model",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 2,
+          "FinalModelFamily": "claude-haiku",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "claude-haiku",
+          "LatestToolCallCounts": {},
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "RequestedInputCostUSD": 0.000012,
+          "RequestedModel": "claude-haiku-4-5",
+          "RequestedOutputCostUSD": 0.000035,
+          "Role": "default_low",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StopReason": "end_turn",
+          "TurnType": "classifier",
+          "UpstreamFinishReason": "end_turn",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "anthropic_messages_nonstream_classifier_not_pinned"
+}

@@ -8,25 +8,19 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"workweave/router/internal/api/admin"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router/cluster"
+	"weave-os/router/internal/api/admin"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-type fakeDeployedModels struct {
-	entries []cluster.DeployedEntry
-}
-
-func (f fakeDeployedModels) DefaultDeployedModels() []cluster.DeployedEntry { return f.entries }
-
 func TestCatalogModelsHandler_SortsByProviderThenModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	src := fakeDeployedModels{entries: []cluster.DeployedEntry{
+	src := &fakeHMMRoster{entries: []router.DeployedEntry{
 		{Model: "gpt-5.5", Provider: providers.ProviderOpenAI},
 		{Model: "claude-opus-4-7", Provider: providers.ProviderAnthropic},
 		{Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic},
@@ -34,7 +28,7 @@ func TestCatalogModelsHandler_SortsByProviderThenModel(t *testing.T) {
 	}}
 
 	engine := gin.New()
-	engine.GET("/v1/router/models", admin.CatalogModelsHandler(src, nil))
+	engine.GET("/v1/router/models", admin.CatalogModelsHandler(src))
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/router/models", nil)
 	rec := httptest.NewRecorder()
@@ -56,11 +50,27 @@ func TestCatalogModelsHandler_SortsByProviderThenModel(t *testing.T) {
 	assert.Equal(t, "gpt-5.5", got.Models[3].Model)
 }
 
+func TestCatalogModelsHandler_ServesCatalogPricesPerRow(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.GET("/v1/router/models", admin.CatalogModelsHandler(&fakeHMMRoster{entries: []router.DeployedEntry{
+		{Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic},
+	}}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/router/models", nil)
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"models":[{"model":"claude-haiku-4-5","provider":"anthropic","fast_mode":false,"input_usd_per_1m":1,"output_usd_per_1m":5}]}`, rec.Body.String())
+}
+
 func TestCatalogModelsHandler_EmptyListReturnsEmptyArray(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	engine := gin.New()
-	engine.GET("/v1/router/models", admin.CatalogModelsHandler(fakeDeployedModels{}, nil))
+	engine.GET("/v1/router/models", admin.CatalogModelsHandler(&fakeHMMRoster{}))
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/router/models", nil)
 	rec := httptest.NewRecorder()
@@ -73,12 +83,12 @@ func TestCatalogModelsHandler_EmptyListReturnsEmptyArray(t *testing.T) {
 }
 
 type fakeHMMRoster struct {
-	entries []cluster.DeployedEntry
+	entries []router.DeployedEntry
 	err     error
 	calls   int
 }
 
-func (f *fakeHMMRoster) HMMDeployedModels(context.Context) ([]cluster.DeployedEntry, error) {
+func (f *fakeHMMRoster) HMMDeployedModels(context.Context) ([]router.DeployedEntry, error) {
 	f.calls++
 	if f.err != nil {
 		return nil, f.err
@@ -86,55 +96,66 @@ func (f *fakeHMMRoster) HMMDeployedModels(context.Context) ([]cluster.DeployedEn
 	return f.entries, nil
 }
 
-func TestCatalogModelsHandler_HMMStrategyReturnsRosterNotCluster(t *testing.T) {
+func TestCatalogModelsHandler_ServesHMMRosterForEveryStrategy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	clusterSrc := fakeDeployedModels{entries: []cluster.DeployedEntry{
-		{Model: "gpt-5.5", Provider: providers.ProviderOpenAI},
-	}}
-	hmmSrc := &fakeHMMRoster{entries: []cluster.DeployedEntry{
+	hmmSrc := &fakeHMMRoster{entries: []router.DeployedEntry{
 		{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
 		{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
 	}}
 
 	engine := gin.New()
-	engine.GET("/v1/router/models", admin.CatalogModelsHandler(clusterSrc, hmmSrc))
+	engine.GET("/v1/router/models", admin.CatalogModelsHandler(hmmSrc))
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/router/models?strategy=hmm", nil)
-	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, req)
+	for _, query := range []string{"", "?strategy=hmm", "?strategy=hmm_embedding", "?strategy=cluster"} {
+		req := httptest.NewRequest(http.MethodGet, "/v1/router/models"+query, nil)
+		rec := httptest.NewRecorder()
+		engine.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, 1, hmmSrc.calls)
-
-	var got admin.CatalogModelsResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Len(t, got.Models, 2)
-	// Sorted provider-then-model: anthropic first, then openai's 5.6 — and
-	// crucially the cluster's gpt-5.5 does NOT appear.
-	assert.Equal(t, "claude-opus-4-8", got.Models[0].Model)
-	assert.Equal(t, "gpt-5.6-sol", got.Models[1].Model)
+		require.Equal(t, http.StatusOK, rec.Code, query)
+		var got admin.CatalogModelsResponse
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		require.Len(t, got.Models, 2, query)
+		assert.Equal(t, "claude-opus-4-8", got.Models[0].Model, query)
+		assert.Equal(t, "gpt-5.6-sol", got.Models[1].Model, query)
+	}
+	assert.Equal(t, 4, hmmSrc.calls, "the default universe must come from the HMM roster, not a legacy scorer")
 }
 
-func TestCatalogModelsHandler_HMMStrategyFallsBackToClusterWhenNoSource(t *testing.T) {
+// The weave control plane decodes these rows to validate exclusions and price
+// its model pickers; renaming a field breaks that client.
+func TestCatalogModelsHandler_WireShapeContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	clusterSrc := fakeDeployedModels{entries: []cluster.DeployedEntry{
-		{Model: "gpt-5.5", Provider: providers.ProviderOpenAI},
+	hmmSrc := &fakeHMMRoster{entries: []router.DeployedEntry{
+		{Model: "gpt-5.4-mini", Provider: providers.ProviderOpenAI},
+		{Model: "claude-opus-4-6", Provider: providers.ProviderAnthropic},
 	}}
-
 	engine := gin.New()
-	engine.GET("/v1/router/models", admin.CatalogModelsHandler(clusterSrc, nil))
+	engine.GET("/v1/router/models", admin.CatalogModelsHandler(hmmSrc))
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/router/models?strategy=hmm", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/router/models", nil)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	var got admin.CatalogModelsResponse
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Len(t, got.Models, 1)
-	assert.Equal(t, "gpt-5.5", got.Models[0].Model)
+	var body map[string][]map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Len(t, body, 1, "top level carries only models")
+	rows := body["models"]
+	require.Len(t, rows, 2)
+	for _, row := range rows {
+		require.Len(t, row, 5, "each row is exactly {model, provider, fast_mode, input_usd_per_1m, output_usd_per_1m}: %v", row)
+		assert.IsType(t, "", row["model"])
+		assert.IsType(t, "", row["provider"])
+		assert.IsType(t, false, row["fast_mode"])
+		assert.IsType(t, float64(0), row["input_usd_per_1m"])
+		assert.IsType(t, float64(0), row["output_usd_per_1m"])
+	}
+	assert.Equal(t, "claude-opus-4-6", rows[0]["model"])
+	assert.Equal(t, "anthropic", rows[0]["provider"])
+	assert.Equal(t, "gpt-5.4-mini", rows[1]["model"])
+	assert.Equal(t, "openai", rows[1]["provider"])
 }
 
 func TestCatalogModelsHandler_HMMRosterErrorReturns503(t *testing.T) {
@@ -143,11 +164,44 @@ func TestCatalogModelsHandler_HMMRosterErrorReturns503(t *testing.T) {
 	hmmSrc := &fakeHMMRoster{err: errors.New("sidecar unavailable")}
 
 	engine := gin.New()
-	engine.GET("/v1/router/models", admin.CatalogModelsHandler(fakeDeployedModels{}, hmmSrc))
+	engine.GET("/v1/router/models", admin.CatalogModelsHandler(hmmSrc))
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/router/models?strategy=hmm_embedding", nil)
 	rec := httptest.NewRecorder()
 	engine.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+}
+
+func TestCatalogModelsHandler_ScopeCatalogReturnsFullCatalog(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	hmmSrc := &fakeHMMRoster{entries: []router.DeployedEntry{
+		{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
+	}}
+
+	engine := gin.New()
+	engine.GET("/v1/router/models", admin.CatalogModelsHandler(hmmSrc))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/router/models?scope=catalog&strategy=hmm", nil)
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, 0, hmmSrc.calls, "scope=catalog must not consult the HMM roster")
+
+	var got admin.CatalogModelsResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Greater(t, len(got.Models), 1, "full catalog is larger than the 1-entry roster fixture")
+
+	seen := map[string]struct{}{}
+	for _, m := range got.Models {
+		require.NotEmpty(t, m.Model)
+		require.NotEmpty(t, m.Provider)
+		_, dup := seen[m.Model]
+		require.False(t, dup, "duplicate catalog id %s", m.Model)
+		seen[m.Model] = struct{}{}
+	}
+	_, hasOpus := seen["claude-opus-5"]
+	require.True(t, hasOpus, "catalog must include a known Models row")
 }

@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/handover"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/translate"
 )
 
 // anthropicConversation: system + 2 user + 2 assistant turns + trailing
@@ -142,7 +142,7 @@ func TestTrimLastN_KeepsLastNMessagesAndSystem(t *testing.T) {
 
 	// 10 messages; TrimLastN(3) keeps the last 3, eliding 7.
 	const tenMessageBody = `{
-  "model": "claude-opus-4-7",
+  "model": "claude-opus-4-5",
   "system": "sys",
   "messages": [
     {"role": "user", "content": "m1"},
@@ -164,7 +164,10 @@ func TestTrimLastN_KeepsLastNMessagesAndSystem(t *testing.T) {
 	elided := handover.TrimLastN(env, 3)
 	assert.Equal(t, 7, elided)
 
-	prep, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	prep, err := env.PrepareAnthropic(nil, translate.EmitOptions{
+		TargetModel:  "claude-opus-4-5",
+		Capabilities: router.Lookup("claude-opus-4-5"),
+	})
 	require.NoError(t, err)
 	assert.Equal(t, "sys", gjson.GetBytes(prep.Body, "system").String())
 	msgs := gjson.GetBytes(prep.Body, "messages").Array()

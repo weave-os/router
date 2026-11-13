@@ -1,58 +1,102 @@
-# @workweave/router
+# @weave-os/router
 
-One command, anywhere, to point Claude Code, Codex, or opencode at the Weave Router.
+One command, anywhere, to point Claude Code, Codex, opencode, or pi at the Weave Router.
+
+The package was renamed from `@workweave/router`. The old package remains
+published as a compatibility alias and continues to receive the same releases;
+it prints a migration warning directing users to `@weave-os/router`.
 
 ```bash
-npx @workweave/router                       # interactive: pick Claude Code / Codex / opencode, then scope
-npx @workweave/router --claude              # skip the picker, target Claude Code
-npx @workweave/router --codex               # skip the picker, target the OpenAI Codex CLI
-npx @workweave/router --opencode            # skip the picker, target opencode
-npx @workweave/router --scope project       # per-repo install, commit settings.json (or .codex/ / opencode.json)
-npx @workweave/router --local               # self-hosted via docker-compose (localhost:8080)
-npx @workweave/router --base-url https://router.acme.internal
-npx @workweave/router --non-interactive     # reads $WEAVE_ROUTER_KEY, no prompts (defaults to claude)
+npx @weave-os/router                       # open the hosted setup page
+npx @weave-os/router --claude              # install for Claude Code
+npx @weave-os/router --codex               # install for the OpenAI Codex CLI
+npx @weave-os/router setup --claude --codex # configure both native clients
+npx @weave-os/router accounts list --claude # list enrolled subscription accounts
+npx @weave-os/router login claude           # enroll Claude Pro/Max with PKCE
+npx @weave-os/router login codex            # enroll ChatGPT Pro/Plus device flow
+npx @weave-os/router status                 # connectivity, native configs, account health
+npx @weave-os/router --opencode            # install for opencode
+npx @weave-os/router --pi                  # install for pi + Loom UI
+npx @weave-os/router --scope project       # per-repo install; key-bearing config stays out of git
+npx @weave-os/router --local               # self-hosted via docker-compose (localhost:8080)
+npx @weave-os/router --base-url https://router.acme.internal
+npx @weave-os/router --email you@example.com # set identity without prompting
+npx @weave-os/router --claude --return-url https://app.example.com/onboarding # continue after a verified install
+npx @weave-os/router --non-interactive     # reads $WEAVE_ROUTER_KEY, no prompts (defaults to claude)
 ```
+
+For Claude Code the installed statusline and `/force-model`, `/router-*` slash
+commands also refresh themselves in the background about once a week (never
+overwriting a wrapper you edited). Opt out with `WEAVE_STATUSLINE_UPDATE=0`, or
+just the commands with `WEAVE_COMMANDS_UPDATE=0`. Codex installs native `$` skills
+plus managed `SessionStart`/`Stop` hooks: the latest routed model is reflected in
+the terminal title and a compact `Weave Router · …` status message is shown when
+the router reports a new route. Existing Codex hooks are preserved. OpenCode and pi
+have their own target-specific integrations.
 
 Version-pin for reproducible setups:
 
 ```bash
-npx @workweave/router@0.1.0 --claude --scope project
+npx @weave-os/router@0.1.0 --claude --scope project
 ```
 
 Switch on/off without uninstalling (keeps your config so switching back is
 instant; requires an explicit client):
 
 ```bash
-npx @workweave/router off --claude      # route Claude Code directly to Anthropic
-npx @workweave/router on --claude       # route Claude Code through the router again
-npx @workweave/router status --codex    # is Codex on the router or direct?
+npx @weave-os/router off --claude      # route Claude Code directly to Anthropic
+npx @weave-os/router on --claude       # route Claude Code through the router again
+npx @weave-os/router status --codex    # is Codex on the router or direct?
 ```
 
 Claude Code reads its router setting at launch, so quit and reopen it after an
 on/off. Codex and opencode pick it up on their next run. Inside Claude Code the
 slash commands `/router-off`, `/router-on`, and `/router-status` do the same.
+Codex installs `$router-status`, `$router-off`, `$router-on`, and
+`$router-models` skills that call the same CLI verbs, plus a
+`$disable-routing` skill that switches its next session back
+to the normal provider; Codex does not support third-party `/disable-routing`
+slash commands. The shell equivalent is `npx @weave-os/router disable-routing`.
 Cursor has no config file we own — toggle its base URL override in **Settings →
-Models** instead.
+Models** instead, with a custom model named `weave-auto`.
+
+Pick which models the router is allowed to route to:
+
+```bash
+npx @weave-os/router models --claude                  # list every model, with its on/off state
+npx @weave-os/router models --codex                   # same, for a Codex install
+npx @weave-os/router models disable gpt-5.6 --claude  # take one out of rotation
+npx @weave-os/router models enable gpt-5.6 --claude   # put it back
+```
+
+Inside Claude Code that's `/router-models` (alias `/models`). Editing needs a
+router that serves the model-selection API; against the Weave-hosted router the
+list still prints and points you at the dashboard, where model selection is an
+organization-wide setting.
 
 Uninstall:
 
 ```bash
-npx @workweave/router --uninstall                       # Claude Code, user scope
-npx @workweave/router --uninstall --codex               # Codex, user scope
-npx @workweave/router --uninstall --opencode            # opencode, user scope
-npx @workweave/router --uninstall --scope project       # Claude Code, inside the repo
-npx @workweave/router --uninstall --codex --scope project
+npx @weave-os/router --uninstall                       # Claude Code, user scope
+npx @weave-os/router --uninstall --codex               # Codex, user scope
+npx @weave-os/router --uninstall --opencode            # opencode, user scope
+npx @weave-os/router --uninstall --pi                  # pi, user scope
+npx @weave-os/router --uninstall --scope project       # Claude Code, inside the repo
+npx @weave-os/router --uninstall --codex --scope project
 ```
 
 ## What it does
 
-This package is a thin Node wrapper around [`install.sh`](./install.sh) from
-the Weave Router repo. It exists so you can install from any machine with
-Node ≥ 18 — no `curl | sh`, no Git clone, no PATH fiddling. Everything the
-shell installer documents (targets, scopes, flags, environment variables)
-works identically here.
+On macOS and Linux, this package runs [`install.sh`](../install.sh). On
+Windows, it uses the full Bash installer when Git Bash is available and
+otherwise falls back to a native Node.js installer, so a fresh Windows machine
+does not need Git Bash, WSL, or jq for basic setup. The no-Bash path configures
+the client's router connection and supports uninstall for Claude Code, Codex,
+OpenCode, and pi. It does not yet install shell-based status displays, hooks, or
+slash-command assets; commands such as `status`, `update`, `models`,
+subscription login, and account management still require Git Bash or WSL.
 
-Three install targets:
+Four install targets:
 
 - **Claude Code** (default) — patches `~/.claude/settings.json` (or
   `<repo>/.claude/settings.json` with `--scope project`) so `claude` routes
@@ -60,30 +104,79 @@ Three install targets:
   api.anthropic.com.
 - **Codex** (`--codex`) — patches `~/.codex/config.toml` (or
   `<repo>/.codex/config.toml`) with a managed `[model_providers.weave]`
-  block plus `model_provider = "weave"`. OpenAI plan credentials flow
-  through to api.openai.com. The block lives between begin/end markers so
-  re-running the installer rewrites it cleanly and `--uninstall --codex`
-  removes it without touching the rest of your config.
-- **opencode** (`--opencode`) — merges a `provider.weave` entry (backed by
-  opencode's built-in `@ai-sdk/anthropic` provider) into
+  block plus `model_provider = "weave"`. Fresh installs select `weave-auto`,
+  while reinstalling preserves an existing model choice. The provider preserves
+  the active ChatGPT OAuth login. No install pins `X-Weave-Router-Strategy`;
+  every endpoint keeps its router's configured default. Switching models with
+  Codex's native `/model` picker mid-session forces the named model and its
+  selected reasoning effort; the model a session launches with stays a
+  baseline that routes automatically, and selecting **Weave Router** resumes
+  per-request routing. An existing `$fm`
+  session pin still applies in automatic mode until `$ufm` clears it. Re-run
+  `npx @weave-os/router --codex` and restart Codex to enable this on an older
+  install. `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-6-sol`
+  can use the active ChatGPT plan; other selected models use their WorkWeave
+  deployment or BYOK credential.
+  Re-running the installer refreshes the Weave provider, and `--uninstall --codex`
+   removes it while preserving the other settings in your config. Codex does not load
+   third-party slash-command files; the installer provides native skills
+   `$force-model` (`$fm`), `$unforce-model` (`$ufm`), and `$router-feedback`
+   (`$rf`), whose invocations are handled by the router directly. It also
+   installs `$router-status`, `$router-off`, `$router-on`, and `$router-models`,
+   which call this installer's own verbs, plus a `$disable-routing` skill that
+   returns the next Codex session to the default provider without logging out
+   or deleting the router configuration. The managed lifecycle hooks also keep
+   the latest routed model in the terminal title and emit a compact status
+   message when the router reports a new route.
+- **opencode** (`--opencode`) — merges a Responses-format `provider.weave`
+  entry backed by `@ai-sdk/openai` into
   `~/.config/opencode/opencode.json` (or `<repo>/opencode.json` with
-  `--scope project`). The router speaks the Anthropic Messages API
-  natively, so opencode talks to it unmodified. Re-install rewrites only
-  the managed `provider.weave` block; `--uninstall --opencode` strips it
-  and leaves your other providers and settings alone.
+  `--scope project`). OpenCode major version 2 is required when the CLI is
+  installed and available on `PATH`. Installation activates `weave/auto` and
+  parks any prior default model so `off` and uninstall can restore it exactly.
+  The installer uses OpenCode's native Responses provider and session headers;
+  no plugin is installed. Re-install rewrites only the managed provider and
+  removes any stale v1 plugin registration/files while preserving unrelated
+  providers, MCP servers, agents, and plugins.
+- **pi** (`--pi`) — registers the `weave` provider and installs this package as
+  a pi extension. Stock pi then gets the Loom startup header, Wooly's animated
+  mascot, the persistent actual-route display, cumulative session savings,
+  `/fm` + `/ufm` model-pin commands with a `[forced]` status, and the
+  context-isolated `dispatch` tool. There is no forked pi binary and no separate
+  Loom runtime.
 
-See the [main installer docs](https://github.com/workweave/router/tree/main/install)
+See the [main installer docs](https://github.com/weave-os/router/tree/main/install)
 for the full reference.
+
+## License
+
+Apache-2.0 starting with version `0.2.24` of both `@weave-os/router` and
+`@workweave/router`. See the bundled `LICENSE` and `NOTICE` files.
+Earlier published versions retain their original licenses. Third-party peer
+dependencies are separately licensed and are not bundled in this package.
 
 ## Requirements
 
 - Node ≥ 18 (ships with `npx`)
-- `bash` on PATH (macOS / Linux native; Windows needs Git Bash or WSL)
-- `jq` on PATH — used by the Claude Code status line script and the
-  opencode JSON merge. Not required for the Codex path.
+- Windows users can run the command from PowerShell with Node.js/npm installed;
+  Git Bash/WSL is optional for basic setup
+- macOS/Linux users need Bash on PATH
+- `jq` is reused when available; otherwise, on macOS (arm64/x86_64), Linux (arm64/x86_64), and Windows Git Bash (x86_64), the installer downloads checksum-verified jq 1.8.1 to `~/.weave/bin`. Other architectures need jq installed manually. No Homebrew or administrator access is needed. Downloads require access to GitHub.
 
 ## Why npx
 
-`curl -fsSL https://weave.ai/cc/install.sh | sh` still works and is fine.
-`npx @workweave/router` adds: Windows support via Git Bash, painless version
-pinning, no `curl | sh` aversion, and discoverability via the npm registry.
+`npx @weave-os/router` provides one-command setup and painless version
+pinning.
+
+## Older npm
+
+On npm ≤ 6 the bundled `npx` treats an undeclared `-y` as consuming the next
+token, so `npx -y @weave-os/router --claude` silently drops the package name
+and resolves the following argument as the command instead. Either upgrade
+(`npm i -g npm@latest`) or name the binary explicitly:
+
+```bash
+npx --package @weave-os/router -y -- weave-router --claude
+```
+
+That form is correct on every npm version.

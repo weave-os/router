@@ -4,11 +4,14 @@ import asyncio
 import math
 import os
 from collections import OrderedDict
+from dataclasses import dataclass
 from typing import Protocol
 
 import httpx
 import numpy as np
 
+from .classifier_package import gemini_embeddings
+from .classifier_package.openai_compatible_embeddings import request_embeddings
 from .schemas import EmbeddingContract
 
 MAX_CACHE_ITEMS = 8192
@@ -84,29 +87,17 @@ class OpenAICompatibleEmbedder:
         self.model = os.environ.get("HMM_EMBEDDING_MODEL", contract.model).strip()
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        headers = {"content-type": "application/json"}
-        if self.api_key:
-            headers["authorization"] = f"Bearer {self.api_key}"
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{self.base_url}/embeddings",
-                headers=headers,
-                json={"model": self.model, "input": texts},
-            )
-            if response.is_error:
-                raise EmbeddingError(
-                    "OpenAI-compatible embedding request failed with status "
-                    f"{response.status_code}"
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                return await request_embeddings(
+                    client,
+                    base_url=self.base_url,
+                    api_key=self.api_key,
+                    model=self.model,
+                    texts=texts,
                 )
-            payload = response.json()
-        data = payload.get("data") if isinstance(payload, dict) else None
-        if not isinstance(data, list):
-            raise EmbeddingError("OpenAI-compatible response lacks data")
-        ordered = sorted(
-            (item for item in data if isinstance(item, dict)),
-            key=lambda item: int(item.get("index") or 0),
-        )
-        return [list(item.get("embedding") or []) for item in ordered]
+        except gemini_embeddings.EmbeddingError as error:
+            raise EmbeddingError(str(error)) from error
 
 
 def build_embedder(contract: EmbeddingContract) -> Embedder:
@@ -170,6 +161,24 @@ async def verify_embedding_contract(
     return similarity
 
 
+@dataclass(frozen=True, slots=True)
+class EmbedStats:
+    """Per-call cache accounting for one ``CachedEmbedder.embed`` invocation.
+
+    ``fetched`` is the number of texts that actually crossed the network. It is
+    the interesting one: the policy embeds the whole conversation on every turn,
+    so a warm cache should leave only the newest turn(s) to fetch, and a
+    persistently high ``fetched`` means the cache is not doing its job (each
+    process holds its own LRU, so a session spread across instances re-fetches
+    turns another instance already has).
+    """
+
+    requested: int
+    unique: int
+    cached: int
+    fetched: int
+
+
 class CachedEmbedder:
     def __init__(self, inner: Embedder, dimensions: int) -> None:
         self.inner = inner
@@ -178,6 +187,18 @@ class CachedEmbedder:
         self.lock = asyncio.Lock()
 
     async def embed(self, texts: list[str]) -> list[np.ndarray]:
+        vectors, _ = await self.embed_with_stats(texts)
+        return vectors
+
+    async def embed_with_stats(
+        self, texts: list[str]
+    ) -> tuple[list[np.ndarray], EmbedStats]:
+        """Same as :meth:`embed`, plus what the cache did.
+
+        Stats are returned rather than recorded on the instance because the
+        sidecar serves several requests concurrently, so an instance attribute
+        would be read by the wrong request.
+        """
         unique = list(dict.fromkeys(texts))
         async with self.lock:
             cached = {text: self.cache[text] for text in unique if text in self.cache}
@@ -199,4 +220,10 @@ class CachedEmbedder:
             while len(self.cache) > MAX_CACHE_ITEMS:
                 self.cache.popitem(last=False)
         resolved = {**cached, **fetched}
-        return [resolved[text] for text in texts]
+        stats = EmbedStats(
+            requested=len(texts),
+            unique=len(unique),
+            cached=len(cached),
+            fetched=len(missing),
+        )
+        return [resolved[text] for text in texts], stats

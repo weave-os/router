@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"workweave/router/internal/api/admin"
-	"workweave/router/internal/auth"
-	"workweave/router/internal/providers"
+	"weave-os/router/internal/api/admin"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -43,4 +43,5 @@ func TestConfigHandler_EnvProviderKeys_IncludesEveryDeployedProvider(t *testing.
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Contains(t, body.EnvProviderKeys, providers.ProviderMakora)
 	require.Contains(t, body.EnvProviderKeys, providers.ProviderBedrock)
+	require.NotContains(t, rec.Body.String(), "cluster_version")
 }

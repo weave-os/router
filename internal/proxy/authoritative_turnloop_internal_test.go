@@ -10,13 +10,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"workweave/router/internal/providers"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/handover"
-	"workweave/router/internal/router/planner"
-	"workweave/router/internal/router/policy"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/planner"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 )
 
 type authoritativeTestRouter struct {
@@ -36,6 +36,7 @@ type authoritativeHandoverSummarizer struct {
 func (s *authoritativeHandoverSummarizer) Summarize(
 	_ context.Context,
 	_ *translate.RequestEnvelope,
+	_ router.Request,
 ) (string, handover.Usage, error) {
 	s.calls++
 	return "must not run", handover.Usage{}, nil
@@ -119,8 +120,6 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				nil,
 				nil,
 				nil,
-				false,
-				nil,
 				store,
 				false,
 				providers.ProviderAnthropic,
@@ -132,6 +131,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 					ExpectedRemainingTurns: 3,
 				}).
 				WithSummarizer(summarizer).
+				WithHMMDowngradeHysteresisTurns(0).
 				WithPolicyStrategy(policy.StrategySpec{
 					Strategy: strategy,
 					Router:   policyRouter,
@@ -142,7 +142,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				})
 			env, err := translate.ParseAnthropic(test.body)
 			require.NoError(t, err)
-			features := env.RoutingFeatures(false)
+			features := env.RoutingFeatures()
 			ctx := router.WithStrategy(context.Background(), strategy)
 			req := router.Request{
 				RequestedModel:       features.Model,
@@ -201,20 +201,6 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 	}
 }
 
-func TestAuthoritativePolicyDisablesSemanticCache(t *testing.T) {
-	strategy := router.Strategy("authoritative-test")
-	svc := (&Service{}).WithPolicyStrategy(policy.StrategySpec{
-		Strategy: strategy,
-		Router:   &authoritativeTestRouter{},
-		Capabilities: policy.Capabilities{
-			AuthoritativePerTurnSelection: true,
-		},
-	})
-
-	assert.False(t, svc.semanticCacheAllowed(router.WithStrategy(context.Background(), strategy)))
-	assert.True(t, svc.semanticCacheAllowed(context.Background()))
-}
-
 func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 	strategy := router.Strategy("authoritative-force-test")
 	store := newStubPinStore()
@@ -233,14 +219,12 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
 		nil,
-	).WithPolicyStrategy(policy.StrategySpec{
+	).WithHMMDowngradeHysteresisTurns(0).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   policyRouter,
 		Capabilities: policy.Capabilities{
@@ -251,7 +235,7 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		[]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
 	)
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 
 	result, err := svc.runTurnLoop(
 		router.WithStrategy(context.Background(), strategy),
@@ -271,4 +255,189 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 	assert.Equal(t, "claude-opus-4-7", result.Decision.Model)
 	assert.True(t, result.StickyHit)
 	assert.Empty(t, policyRouter.requests)
+}
+
+func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
+	strategy := router.Strategy("authoritative-test")
+	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"fix the failing test"}]}`)
+
+	tests := []struct {
+		name       string
+		gateOff    bool
+		pinFound   bool
+		pinModel   string
+		fresh      router.Decision
+		wantModel  string
+		wantSticky bool
+		wantTier   string
+	}{
+		{
+			name:     "low-confidence upgrade keeps cheaper pin",
+			pinFound: true,
+			pinModel: "claude-haiku-4-5",
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-opus-4-8",
+				Reason:   "hmm_policy(tool-result communication reroute: classifier 'maximum' (p=0.180))",
+				Metadata: &router.RoutingMetadata{ChosenScore: 0.18},
+			},
+			wantModel:  "claude-haiku-4-5",
+			wantSticky: true,
+			wantTier:   "authoritative_hmm_upgrade_confidence_low",
+		},
+		{
+			name:     "confident upgrade serves fresh",
+			pinFound: true,
+			pinModel: "claude-haiku-4-5",
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-opus-4-8",
+				Reason:   "hmm_policy(classifier 'maximum' (p=0.91))",
+				Metadata: &router.RoutingMetadata{ChosenScore: 0.91},
+			},
+			wantModel:  "claude-opus-4-8",
+			wantSticky: false,
+			wantTier:   "authoritative_per_turn",
+		},
+		{
+			name:     "majority-confidence upgrade serves fresh",
+			pinFound: true,
+			pinModel: "claude-haiku-4-5",
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-opus-4-8",
+				Reason:   "hmm_policy(classifier 'maximum' (p=0.55))",
+				Metadata: &router.RoutingMetadata{ChosenScore: 0.55},
+			},
+			wantModel:  "claude-opus-4-8",
+			wantSticky: false,
+			wantTier:   "authoritative_per_turn",
+		},
+		{
+			name:     "sub-majority upgrade keeps cheaper pin",
+			pinFound: true,
+			pinModel: "claude-haiku-4-5",
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-opus-4-8",
+				Reason:   "hmm_policy(classifier 'maximum' (p=0.45))",
+				Metadata: &router.RoutingMetadata{ChosenScore: 0.45},
+			},
+			wantModel:  "claude-haiku-4-5",
+			wantSticky: true,
+			wantTier:   "authoritative_hmm_upgrade_confidence_low",
+		},
+		{
+			name:     "downgrade serves fresh despite low confidence",
+			pinFound: true,
+			pinModel: "claude-opus-4-8",
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-haiku-4-5",
+				Reason:   "hmm_policy(classifier 'fast' (p=0.20))",
+				Metadata: &router.RoutingMetadata{ChosenScore: 0.20},
+			},
+			wantModel:  "claude-haiku-4-5",
+			wantSticky: false,
+			wantTier:   "authoritative_per_turn",
+		},
+		{
+			name:     "unscored upgrade fails open",
+			pinFound: true,
+			pinModel: "claude-haiku-4-5",
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-opus-4-8",
+				Reason:   "authoritative-test_policy",
+			},
+			wantModel:  "claude-opus-4-8",
+			wantSticky: false,
+			wantTier:   "authoritative_per_turn",
+		},
+		{
+			name:     "first turn without pin serves fresh",
+			pinFound: false,
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-opus-4-8",
+				Reason:   "hmm_policy(classifier 'maximum' (p=0.18))",
+				Metadata: &router.RoutingMetadata{ChosenScore: 0.18},
+			},
+			wantModel:  "claude-opus-4-8",
+			wantSticky: false,
+			wantTier:   "authoritative_per_turn",
+		},
+		{
+			name:     "gate disabled serves fresh",
+			gateOff:  true,
+			pinFound: true,
+			pinModel: "claude-haiku-4-5",
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-opus-4-8",
+				Reason:   "hmm_policy(classifier 'maximum' (p=0.18))",
+				Metadata: &router.RoutingMetadata{ChosenScore: 0.18},
+			},
+			wantModel:  "claude-opus-4-8",
+			wantSticky: false,
+			wantTier:   "authoritative_per_turn",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := newStubPinStore()
+			store.getFound = test.pinFound
+			store.getPin = sessionpin.Pin{
+				Provider:    providers.ProviderAnthropic,
+				Model:       test.pinModel,
+				Reason:      "hmm_policy(classifier 'fast' (p=0.60))",
+				PinnedUntil: time.Now().Add(time.Hour),
+			}
+			policyRouter := &authoritativeTestRouter{decision: test.fresh}
+			svc := NewService(
+				nil,
+				nil,
+				nil,
+				store,
+				false,
+				providers.ProviderAnthropic,
+				"claude-haiku-4-5",
+				nil,
+			).WithHMMDowngradeHysteresisTurns(0).WithPolicyStrategy(policy.StrategySpec{
+				Strategy: strategy,
+				Router:   policyRouter,
+				Capabilities: policy.Capabilities{
+					SchemaVersion:                 policy.SchemaVersionV1,
+					AuthoritativePerTurnSelection: true,
+				},
+			})
+			if test.gateOff {
+				svc = svc.WithAuthoritativeUpgradeGate(false)
+			}
+			env, err := translate.ParseAnthropic(body)
+			require.NoError(t, err)
+			features := env.RoutingFeatures()
+
+			result, err := svc.runTurnLoop(
+				router.WithStrategy(context.Background(), strategy),
+				env,
+				features,
+				"api-key",
+				uuid.New(),
+				"",
+				http.Header{},
+				router.Request{
+					RequestedModel:       features.Model,
+					ConversationMessages: conversationMessagesForRouting(env),
+				},
+			)
+
+			require.NoError(t, err)
+			assert.True(t, result.AuthoritativePerTurn)
+			assert.Equal(t, test.wantModel, result.Decision.Model)
+			assert.Equal(t, test.wantSticky, result.StickyHit)
+			assert.Equal(t, test.wantTier, result.PinTier)
+		})
+	}
 }

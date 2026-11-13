@@ -16,6 +16,8 @@ type ConversationMessage struct {
 }
 
 type ConversationToolCall struct {
+	// ToolUseID links native tool calls and results before policy projection.
+	ToolUseID string
 	Name      string
 	InputKeys []string
 	InputJSON string
@@ -34,7 +36,8 @@ func (e *RequestEnvelope) ConversationMessages() []ConversationMessage {
 	}
 	switch e.format {
 	case FormatAnthropic:
-		return e.anthropicConversationMessages()
+		messages, _ := e.anthropicConversationMessages(false, false)
+		return messages
 	case FormatOpenAI:
 		return e.openAIConversationMessages()
 	case FormatGemini:
@@ -44,8 +47,29 @@ func (e *RequestEnvelope) ConversationMessages() []ConversationMessage {
 	}
 }
 
-func (e *RequestEnvelope) anthropicConversationMessages() []ConversationMessage {
+// ConversationMessagesWithClientText retains injected-only messages so callers
+// can distinguish command acknowledgements from truncated conversation history.
+// Messages with visible user text keep the normal injected-block filtering.
+func (e *RequestEnvelope) ConversationMessagesWithClientText() []ConversationMessage {
+	if e != nil && e.format == FormatAnthropic {
+		messages, _ := e.anthropicConversationMessages(true, false)
+		return messages
+	}
+	return e.ConversationMessages()
+}
+
+// ClaudeCodeRoutingMessages excludes complete client wrappers only for an
+// identified Claude Code request, without changing its provider envelope.
+func (e *RequestEnvelope) ClaudeCodeRoutingMessages() ([]ConversationMessage, bool) {
+	if e.format != FormatAnthropic {
+		return e.ConversationMessages(), false
+	}
+	return e.anthropicConversationMessages(false, true)
+}
+
+func (e *RequestEnvelope) anthropicConversationMessages(includeClientText, claudeRouting bool) ([]ConversationMessage, bool) {
 	out := make([]ConversationMessage, 0)
+	changed := false
 	if text := strings.TrimSpace(systemTextGJSON(gjson.GetBytes(e.body, "system"))); text != "" {
 		out = append(out, ConversationMessage{Role: "system", Text: text})
 	}
@@ -55,15 +79,24 @@ func (e *RequestEnvelope) anthropicConversationMessages() []ConversationMessage 
 			return true
 		}
 		content := msg.Get("content")
+		text := textForRole(role, content)
+		if claudeRouting && role == string(EscalationRoleUser) {
+			routingText := strings.TrimSpace(userPromptTextWithClientWrappers(content, true))
+			changed = changed || routingText != text
+			text = routingText
+		}
+		if includeClientText && text == "" {
+			text = contentTextGJSON(content)
+		}
 		out = append(out, ConversationMessage{
 			Role:        role,
-			Text:        textForRole(role, content),
+			Text:        text,
 			ToolCalls:   anthropicToolCalls(content),
 			ToolResults: anthropicToolResults(content),
 		})
 		return true
 	})
-	return compactConversationMessages(out)
+	return compactConversationMessages(out), changed
 }
 
 func (e *RequestEnvelope) openAIConversationMessages() []ConversationMessage {
@@ -136,6 +169,7 @@ func anthropicToolCalls(content gjson.Result) []ConversationToolCall {
 			return true
 		}
 		calls = append(calls, ConversationToolCall{
+			ToolUseID: strings.TrimSpace(block.Get("id").String()),
 			Name:      name,
 			InputKeys: objectKeys(block.Get("input")),
 			InputJSON: strings.TrimSpace(block.Get("input").Raw),
@@ -179,6 +213,7 @@ func openAIToolCalls(value gjson.Result) []ConversationToolCall {
 			return true
 		}
 		calls = append(calls, ConversationToolCall{
+			ToolUseID: strings.TrimSpace(toolCall.Get("id").String()),
 			Name:      name,
 			InputKeys: jsonObjectKeys(function.Get("arguments").String()),
 			InputJSON: strings.TrimSpace(function.Get("arguments").String()),
@@ -219,6 +254,7 @@ func geminiToolCalls(parts gjson.Result) []ConversationToolCall {
 			return true
 		}
 		calls = append(calls, ConversationToolCall{
+			ToolUseID: name,
 			Name:      name,
 			InputKeys: objectKeys(args),
 			InputJSON: strings.TrimSpace(args.Raw),

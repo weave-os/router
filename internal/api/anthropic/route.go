@@ -5,11 +5,10 @@ import (
 	"io"
 	"net/http"
 
-	"workweave/router/internal/observability"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/cluster"
-	"workweave/router/internal/server/middleware"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 )
@@ -25,6 +24,7 @@ func RouteHandler(svc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 		if len(body) > proxy.MaxRequestBodyBytes {
+			logOversizeBody(log, c.Request)
 			writeAnthropicError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body too large.")
 			return
 		}
@@ -36,9 +36,14 @@ func RouteHandler(svc *proxy.Service) gin.HandlerFunc {
 				writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Request body must be a JSON object.")
 				return
 			}
-			if errors.Is(routeErr, cluster.ErrInvalidRoutingKnobs) {
+			if errors.Is(routeErr, router.ErrInvalidRoutingKnobs) {
 				log.Warn("Invalid routing knobs supplied on route", "err", routeErr)
 				writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Invalid routing knobs supplied.")
+				return
+			}
+			if errors.Is(routeErr, router.ErrPolicyPinUnavailable) {
+				log.Warn("Policy pin unavailable on route", "err", routeErr)
+				writeAnthropicError(c, http.StatusServiceUnavailable, "api_error", router.PolicyPinUnavailableReason)
 				return
 			}
 			log.Error("Routing failed", "err", routeErr)
@@ -77,6 +82,7 @@ func PreviewRouteHandler(svc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 		if len(body) > proxy.MaxRequestBodyBytes {
+			logOversizeBody(log, c.Request)
 			writeAnthropicError(c, http.StatusRequestEntityTooLarge, "invalid_request_error", "Request body too large.")
 			return
 		}
@@ -87,8 +93,13 @@ func PreviewRouteHandler(svc *proxy.Service) gin.HandlerFunc {
 				writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Request body must be a JSON object.")
 				return
 			}
-			if errors.Is(previewErr, cluster.ErrInvalidRoutingKnobs) {
+			if errors.Is(previewErr, router.ErrInvalidRoutingKnobs) {
 				writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", "Invalid routing knobs supplied.")
+				return
+			}
+			if errors.Is(previewErr, router.ErrPolicyPinUnavailable) {
+				log.Warn("Policy pin unavailable on route preview", "err", previewErr)
+				writeAnthropicError(c, http.StatusServiceUnavailable, "api_error", router.PolicyPinUnavailableReason)
 				return
 			}
 			log.Error("Route preview failed", "err", previewErr)

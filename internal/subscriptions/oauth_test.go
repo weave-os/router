@@ -1,0 +1,248 @@
+package subscriptions_test
+
+import (
+	"context"
+	"encoding/base64"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"weave-os/router/internal/subscriptions"
+)
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
+
+func TestOAuthClientRefreshesCodexAndExtractsStableAccountID(t *testing.T) {
+	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_account_id":"acct-1"}}`))
+	client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		require.Equal(t, "application/x-www-form-urlencoded", request.Header.Get("Content-Type"))
+		require.NotEmpty(t, request.Header.Get("User-Agent"), "issuers rate-limit generic client user agents")
+		require.NoError(t, request.ParseForm())
+		require.Equal(t, subscriptions.CodexClientID, request.Form.Get("client_id"))
+		require.Equal(t, "refresh-secret", request.Form.Get("refresh_token"))
+		body := `{"access_token":"eyJhbGciOiJSUzI1NiJ9.` + payload + `.sig","refresh_token":"rotated-secret","expires_in":900}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}, "https://token.test/codex", "", func() time.Time { return now })
+
+	token, err := client.Refresh(context.Background(), subscriptions.ProviderCodex, "refresh-secret")
+	require.NoError(t, err)
+	require.Equal(t, "acct-1", token.AccountID)
+	require.Equal(t, "rotated-secret", token.RefreshToken)
+	require.Equal(t, now.Add(15*time.Minute), token.ExpiresAt)
+}
+
+func TestOAuthClientClassifiesRejectedRefreshWithoutLeakingToken(t *testing.T) {
+	client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusUnauthorized, Body: io.NopCloser(strings.NewReader(`{"refresh_token":"should-not-leak"}`)), Header: make(http.Header)}, nil
+	})}, "", "https://token.test/claude", nil)
+
+	_, err := client.Refresh(context.Background(), subscriptions.ProviderClaude, "refresh-secret")
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "refresh-secret")
+	require.NotContains(t, err.Error(), "should-not-leak")
+	var refreshErr *subscriptions.OAuthRefreshError
+	require.ErrorAs(t, err, &refreshErr)
+	require.True(t, refreshErr.Terminal())
+}
+
+func TestOAuthClientBoundsRefreshWithoutParentDeadline(t *testing.T) {
+	client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		deadline, ok := request.Context().Deadline()
+		require.True(t, ok, "refresh must always carry a deadline below the lease TTL")
+		require.WithinDuration(t, time.Now().Add(subscriptions.RefreshHTTPTimeout), deadline, time.Second)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"a","refresh_token":"r","expires_in":60}`)),
+			Header:     make(http.Header),
+		}, nil
+	})}, "", "https://token.test/claude", nil)
+
+	_, err := client.Refresh(context.Background(), subscriptions.ProviderClaude, "refresh-secret")
+	require.NoError(t, err)
+}
+
+func TestOAuthClientHonorsShorterParentDeadline(t *testing.T) {
+	parent, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	parentDeadline, _ := parent.Deadline()
+	client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		deadline, ok := request.Context().Deadline()
+		require.True(t, ok)
+		require.Equal(t, parentDeadline, deadline)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"a","refresh_token":"r","expires_in":60}`)),
+			Header:     make(http.Header),
+		}, nil
+	})}, "", "https://token.test/claude", nil)
+
+	_, err := client.Refresh(parent, subscriptions.ProviderClaude, "refresh-secret")
+	require.NoError(t, err)
+}
+
+func TestOAuthClientRefreshesClaudeWithJSONRequest(t *testing.T) {
+	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		require.Equal(t, "application/json", request.Header.Get("Content-Type"))
+		require.NotEmpty(t, request.Header.Get("User-Agent"), "Anthropic rate-limits generic client user agents")
+		requestBody, err := io.ReadAll(request.Body)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"client_id":"`+subscriptions.ClaudeClientID+`","grant_type":"refresh_token","refresh_token":"refresh-secret"}`, string(requestBody))
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"access-new","refresh_token":"refresh-new","expires_in":1800,"account":{"uuid":"11111111-1111-4111-8111-111111111111"},"organization":{"uuid":"22222222-2222-4222-8222-222222222222"}}`)),
+			Header:     make(http.Header),
+		}, nil
+	})}, "", "https://token.test/claude", func() time.Time { return now })
+
+	token, err := client.Refresh(context.Background(), subscriptions.ProviderClaude, "refresh-secret")
+	require.NoError(t, err)
+	require.Equal(t, "access-new", token.AccessToken)
+	require.Equal(t, "refresh-new", token.RefreshToken)
+	require.Equal(t, "11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222", token.AccountID)
+	require.Equal(t, now.Add(30*time.Minute), token.ExpiresAt)
+}
+
+func TestOAuthClientClaudeRefreshMayOmitAccountAndRotatedToken(t *testing.T) {
+	client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"access-new","expires_in":1800,"organization":{"uuid":"22222222-2222-4222-8222-222222222222"}}`)),
+			Header:     make(http.Header),
+		}, nil
+	})}, "", "https://token.test/claude", nil)
+
+	token, err := client.Refresh(context.Background(), subscriptions.ProviderClaude, "refresh-secret")
+	require.NoError(t, err)
+	require.Empty(t, token.AccountID, "both Claude account and organization identities are required")
+	require.Equal(t, "refresh-secret", token.RefreshToken)
+}
+
+func TestClaudeExternalAccountIDCanonicalizesAccountAndOrganization(t *testing.T) {
+	require.Equal(t,
+		"11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222",
+		subscriptions.ClaudeExternalAccountID("11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"))
+	require.Empty(t, subscriptions.ClaudeExternalAccountID("account", "22222222-2222-4222-8222-222222222222"))
+	require.Empty(t, subscriptions.ClaudeExternalAccountID("11111111-1111-4111-8111-111111111111", "organization"))
+}
+
+func TestCodexEnrollmentVerifiesUserWithinSharedWorkspace(t *testing.T) {
+	for _, user := range []string{"provider-user-a", "provider-user-b", ""} {
+		t.Run(user, func(t *testing.T) {
+			payload := base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_account_id":"shared-workspace","chatgpt_user_id":"` + user + `"}}`))
+			client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				require.Equal(t, "https", request.URL.Scheme)
+				body := `{"access_token":"eyJhbGciOiJSUzI1NiJ9.` + payload + `.sig","refresh_token":"rotated"}`
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+			})}, "https://token.test/codex", "", nil)
+			verified, err := client.VerifyCodexEnrollment(context.Background(), "shared-workspace", []byte("refresh"))
+			if user == "" {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, user, verified.ProviderUserID)
+			require.Equal(t, []byte("rotated"), verified.RefreshToken)
+			_, err = client.VerifyCodexEnrollment(context.Background(), "different-workspace", []byte("refresh"))
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestCodexEnrollmentUsesProviderIDTokenUserClaim(t *testing.T) {
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_account_id":"shared-workspace","user_id":"provider-user-id-token"}}`))
+	client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		body := `{"id_token":"eyJhbGciOiJSUzI1NiJ9.` + payload + `.sig","access_token":"access-without-claims","refresh_token":"rotated"}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}, "https://token.test/codex", "", nil)
+	verified, err := client.VerifyCodexEnrollment(context.Background(), "shared-workspace", []byte("refresh"))
+	require.NoError(t, err)
+	require.Equal(t, "provider-user-id-token", verified.ProviderUserID)
+}
+
+func TestOAuthRefreshErrorCarriesProviderErrorCode(t *testing.T) {
+	for name, body := range map[string]string{
+		"oauth": `{"error":"invalid_grant","error_description":"Refresh token not found or invalid"}`,
+		"typed": `{"type":"error","error":{"type":"invalid_grant","message":"nope"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+			client := subscriptions.NewOAuthClient(server.Client(), server.URL, server.URL, nil)
+
+			_, err := client.Refresh(context.Background(), subscriptions.ProviderClaude, "refresh")
+			var refreshErr *subscriptions.OAuthRefreshError
+			require.ErrorAs(t, err, &refreshErr)
+			require.Equal(t, "invalid_grant", refreshErr.Code)
+			require.NotContains(t, err.Error(), "Refresh token not found")
+		})
+	}
+}
+
+func TestOAuthRefreshPreservesSpecificCodeAndProviderRequestID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("x-request-id", "synthetic-provider-request")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"refresh_token_reused","message":"private-token-fragment"}}`))
+	}))
+	defer server.Close()
+	client := subscriptions.NewOAuthClient(server.Client(), server.URL, server.URL, nil)
+	_, err := client.Refresh(context.Background(), subscriptions.ProviderCodex, "synthetic-refresh")
+	var rejected *subscriptions.OAuthRefreshError
+	require.ErrorAs(t, err, &rejected)
+	require.Equal(t, "refresh_token_reused", rejected.Code)
+	require.Contains(t, err.Error(), "synthetic-provider-request")
+	require.NotContains(t, err.Error(), "private-token-fragment")
+	require.NotContains(t, err.Error(), "synthetic-refresh")
+}
+
+func TestOAuthRefreshRejectsUnsafeDiagnosticFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("x-request-id", "Bearer synthetic-secret")
+		w.Header().Set("request-id", "safe-provider-request")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"Bearer synthetic-secret","message":"private-token-description"}}`))
+	}))
+	defer server.Close()
+	client := subscriptions.NewOAuthClient(server.Client(), server.URL, server.URL, nil)
+	_, err := client.Refresh(context.Background(), subscriptions.ProviderCodex, "refresh-secret")
+	var rejected *subscriptions.OAuthRefreshError
+	require.ErrorAs(t, err, &rejected)
+	require.Equal(t, "invalid_request_error", rejected.ErrorType)
+	require.Equal(t, "invalid_request_error", rejected.Code)
+	require.Equal(t, "safe-provider-request", rejected.RequestID)
+	require.NotContains(t, err.Error(), "synthetic-secret")
+	require.NotContains(t, err.Error(), "private-token-description")
+}
+
+func TestOAuthRefreshOmitsCredentialEchoFromMachineIdentifiers(t *testing.T) {
+	const submittedCredential = "Synthetic-URLSafe-Refresh-Credential"
+	for _, provider := range []subscriptions.Provider{subscriptions.ProviderClaude, subscriptions.ProviderCodex} {
+		t.Run(string(provider), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("x-request-id", "request-"+submittedCredential)
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":{"code":"` + submittedCredential + `","type":"` + submittedCredential + `","message":"description"}}`))
+			}))
+			defer server.Close()
+			client := subscriptions.NewOAuthClient(server.Client(), server.URL, server.URL, nil)
+			_, err := client.Refresh(context.Background(), provider, submittedCredential)
+			var rejected *subscriptions.OAuthRefreshError
+			require.ErrorAs(t, err, &rejected)
+			require.Empty(t, rejected.Code)
+			require.Empty(t, rejected.ErrorType)
+			require.Empty(t, rejected.RequestID)
+			require.NotContains(t, strings.ToLower(err.Error()), strings.ToLower(submittedCredential))
+		})
+	}
+}

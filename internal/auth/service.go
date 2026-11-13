@@ -5,21 +5,59 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
-	"workweave/router/internal/observability"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/hashicorp/golang-lru/v2/expirable"
+	"golang.org/x/sync/singleflight"
 )
 
 // ErrUnknownModel is returned when a requested model ID is not in the caller-supplied allowed set.
 var ErrUnknownModel = errors.New("auth: unknown model id")
 
+// ErrModelNotFastCapable is returned when a fast-mode opt-in names a model without a fast tier.
+var ErrModelNotFastCapable = errors.New("auth: model has no fast tier")
+
 // ErrUnknownProvider is returned when a requested provider name is not in the caller-supplied allowed set.
 var ErrUnknownProvider = errors.New("auth: unknown provider")
 
+// ErrInvalidBaseURL is returned for a BYOK endpoint override that is not an absolute http(s) URL.
+var ErrInvalidBaseURL = errors.New("auth: invalid base url")
+
+// ErrBaseURLRequired is returned when a provider with no deployment endpoint is given no base URL.
+var ErrBaseURLRequired = errors.New("auth: base url required for provider")
+
+// ErrInvalidModelAlias is returned for a model alias map that is oversized or malformed.
+var ErrInvalidModelAlias = errors.New("auth: invalid model alias")
+
+// ErrInvalidIdentityHeader is returned for an identity-forwarding header that is
+// unnamed, reserved, or in an unknown format.
+var ErrInvalidIdentityHeader = errors.New("auth: invalid identity header")
+
+// ErrInvalidForwardedHeader is returned for a client-header passthrough entry
+// that is malformed or names a reserved header.
+var ErrInvalidForwardedHeader = errors.New("auth: invalid forwarded header")
+
+// ErrInvalidKeypairAuth is returned for a key-pair credential whose auth type,
+// principal, or private key is unusable.
+var ErrInvalidKeypairAuth = errors.New("auth: invalid keypair auth")
+
+// ErrInvalidEntraAuth is returned for an Azure Entra credential whose
+// principal or client secret is unusable.
+var ErrInvalidEntraAuth = errors.New("auth: invalid Microsoft Entra auth")
+
 type Clock func() time.Time
+
+const (
+	blindExperimentFetchTimeout  = 5 * time.Second
+	blindExperimentFetchAttempts = 3
+)
 
 // InstallationChangeNotifier fans out installation-change events to peer replicas.
 // Fire-and-forget: implementations must not block the caller.
@@ -35,15 +73,47 @@ func (NoOpInstallationChangeNotifier) NotifyInstallationChanged(string) {}
 
 // Service authenticates incoming bearer tokens. Identity only; routing/dispatch lives in proxy.Service.
 type Service struct {
-	installations InstallationRepository
-	apiKeys       APIKeyRepository
-	externalKeys  ExternalAPIKeyRepository
-	users         UserRepository
-	cache         APIKeyCache
-	userCache     UserCache
-	notifier      InstallationChangeNotifier
-	now           Clock
-	encryptor     Encryptor
+	installations              InstallationRepository
+	apiKeys                    APIKeyRepository
+	credentialSubjects         CredentialSubjectLookup
+	externalKeys               ExternalAPIKeyRepository
+	users                      UserRepository
+	clusterModelLists          ClusterModelListRepository
+	userClusterModelLists      UserClusterModelListRepository
+	blindExperiments           BlindExperimentRepository
+	routingPolicies            RoutingPolicyRepository
+	routingPolicyCache         *RoutingPolicyCache
+	cache                      APIKeyCache
+	userCache                  UserCache
+	userClusterCache           UserClusterListCache
+	blindExperimentCache       BlindExperimentCache
+	blindExperimentSessions    BlindExperimentSessionRepository
+	blindExperimentSessionArms *lru.Cache[string, BlindExperimentArm]
+	blindExperimentFetches     singleflight.Group
+	subscriptionAccounts       SubscriptionAccountRepository
+	codexEnrollmentVerifier    CodexEnrollmentVerifier
+	notifier                   InstallationChangeNotifier
+	now                        Clock
+	externalKeyMarks           externalKeyMarks
+	encryptor                  Encryptor
+	keypairTokens              *KeypairTokenCache
+	anthropicFederationTokens  AnthropicFederationTokenSource
+	// wifTokens is nil unless the deployment runs with a workload identity;
+	// WIF keys are then dropped rather than sent without a credential.
+	wifTokens WIFTokenSource
+
+	// entraTokens is nil unless the deployment has an Entra token source;
+	// Azure Entra keys are then dropped rather than sent as client secrets.
+	entraTokens EntraTokenSource
+
+	// flagOverridesDisabled is the deployment-wide escape hatch
+	// (ROUTER_FLAG_OVERRIDES_DISABLED). When set, per-organization flag
+	// overrides are not applied to any request, so an incident rollback via env
+	// var cannot be defeated by a stored per-org row.
+	flagOverridesDisabled bool
+
+	// delegatedSpendCapsEnabled is false when this worker cannot meter delegated caps.
+	delegatedSpendCapsEnabled bool
 
 	// adminPassword and adminSessionKey are empty when admin login is disabled.
 	adminPassword   string
@@ -52,6 +122,37 @@ type Service struct {
 	// adminLoginFailures throttles per-IP brute-force login attempts.
 	adminLoginFailures *expirable.LRU[string, int]
 	adminLoginMu       sync.Mutex
+
+	onboarding OnboardingObserver
+}
+
+// WithSubscriptionAccounts wires encrypted server-side subscription storage.
+func (s *Service) WithSubscriptionAccounts(repo SubscriptionAccountRepository) *Service {
+	s.subscriptionAccounts = repo
+	return s
+}
+
+// WithCodexEnrollmentVerifier verifies provider identity before account storage.
+func (s *Service) WithCodexEnrollmentVerifier(verifier CodexEnrollmentVerifier) *Service {
+	s.codexEnrollmentVerifier = verifier
+	return s
+}
+
+// WithCredentialSubjectLookup wires the current eligibility projection used by read-only key checks.
+func (s *Service) WithCredentialSubjectLookup(lookup CredentialSubjectLookup) *Service {
+	s.credentialSubjects = lookup
+	return s
+}
+
+// WithOnboardingObserver attaches an optional observer before serving requests.
+func (s *Service) WithOnboardingObserver(observer OnboardingObserver) *Service {
+	s.onboarding = observer
+	return s
+}
+
+// CurrentTime returns the service clock's current time.
+func (s *Service) CurrentTime() time.Time {
+	return s.now()
 }
 
 func NewService(
@@ -67,21 +168,143 @@ func NewService(
 		userCache = NoOpUserCache{}
 	}
 	return &Service{
-		installations: installations,
-		apiKeys:       apiKeys,
-		externalKeys:  externalKeys,
-		users:         users,
-		cache:         cache,
-		userCache:     userCache,
-		notifier:      NoOpInstallationChangeNotifier{},
-		now:           now,
-		encryptor:     NoOpEncryptor{},
+		installations:        installations,
+		apiKeys:              apiKeys,
+		externalKeys:         externalKeys,
+		users:                users,
+		cache:                cache,
+		userCache:            userCache,
+		userClusterCache:     NoOpUserClusterListCache{},
+		blindExperimentCache: NoOpBlindExperimentCache{},
+		routingPolicyCache:   NewRoutingPolicyCache(5 * time.Minute),
+		notifier:             NoOpInstallationChangeNotifier{},
+		now:                  now,
+		encryptor:            NoOpEncryptor{},
+		keypairTokens:        NewKeypairTokenCache(now),
 	}
 }
 
 func (s *Service) WithEncryptor(e Encryptor) *Service {
 	s.encryptor = e
 	return s
+}
+
+// WithWIFTokenSource wires the attestation source backing AuthTypeWIF keys.
+func (s *Service) WithWIFTokenSource(src WIFTokenSource) *Service {
+	s.wifTokens = src
+	return s
+}
+
+// WithEntraTokenSource wires the source backing AuthTypeAzureEntra keys.
+func (s *Service) WithEntraTokenSource(src EntraTokenSource) *Service {
+	s.entraTokens = src
+	return s
+}
+
+// WithClusterModelLists wires the per-key per-cluster allowlist repo. When
+// unset, VerifyAPIKey returns no cluster lists and routing keeps artifact
+// defaults. Kept off NewService so existing callers/tests stay source-stable.
+func (s *Service) WithClusterModelLists(repo ClusterModelListRepository) *Service {
+	s.clusterModelLists = repo
+	return s
+}
+
+// WithUserClusterModelLists wires the per-user per-cluster selection repo and
+// its cache. When unset, ResolveAndStashUser stashes no selections and routing
+// keeps the key-scoped list (or artifact defaults). Pass a nil cache for the
+// no-op. Kept off NewService so existing callers/tests stay source-stable.
+func (s *Service) WithUserClusterModelLists(repo UserClusterModelListRepository, cache UserClusterListCache) *Service {
+	s.userClusterModelLists = repo
+	if cache == nil {
+		cache = NoOpUserClusterListCache{}
+	}
+	s.userClusterCache = cache
+	return s
+}
+
+// WithBlindExperiments wires the control-plane-owned experiment assignment
+// repository and its installation-invalidated cache.
+func (s *Service) WithBlindExperiments(repo BlindExperimentRepository, cache BlindExperimentCache) *Service {
+	s.blindExperiments = repo
+	if cache == nil {
+		cache = NoOpBlindExperimentCache{}
+	}
+	s.blindExperimentCache = cache
+	return s
+}
+
+// WithRoutingPolicies wires generic installation policy and user-assignment reads.
+func (s *Service) WithRoutingPolicies(repo RoutingPolicyRepository, cache *RoutingPolicyCache) *Service {
+	s.routingPolicies = repo
+	if cache != nil {
+		s.routingPolicyCache = cache
+	}
+	return s
+}
+
+// WithRoutingPolicy loads the policy even when the request has no user identity.
+func (s *Service) WithRoutingPolicy(ctx context.Context, installationID string) (context.Context, error) {
+	if s.routingPolicies == nil {
+		return ctx, nil
+	}
+	for attempt := 0; attempt < 2; attempt++ {
+		generation := s.routingPolicyCache.generation(installationID)
+		policy, found := s.routingPolicyCache.policy(installationID, generation)
+		if !found {
+			var err error
+			policy, err = s.routingPolicies.GetPolicy(ctx, installationID)
+			if err != nil {
+				return ctx, fmt.Errorf("load installation routing policy: %w: %w", err, ErrRoutingPolicyUnavailable)
+			}
+			if !s.routingPolicyCache.setPolicy(installationID, generation, policy) {
+				continue
+			}
+		}
+		if policy.Mode != RoutingPolicyInherit && policy.Mode != RoutingPolicyPassthrough && policy.Mode != RoutingPolicyAssigned {
+			return ctx, fmt.Errorf("unrecognized installation routing mode %q: %w", policy.Mode, ErrRoutingPolicyUnavailable)
+		}
+		if s.routingPolicyCache.generation(installationID) == generation {
+			ctx = context.WithValue(ctx, routingPolicyGenerationContextKey{}, generation)
+			return WithRoutingPolicy(ctx, policy), nil
+		}
+	}
+	return ctx, ErrRoutingPolicyUnavailable
+}
+
+// WithRoutingAssignment treats a successfully read missing assignment as passthrough.
+func (s *Service) WithRoutingAssignment(ctx context.Context, installationID, routerUserID string) (context.Context, error) {
+	policy := RoutingPolicyFrom(ctx)
+	for attempt := 0; attempt < 3; attempt++ {
+		generation := s.routingPolicyCache.generation(installationID)
+		admittedGeneration, _ := ctx.Value(routingPolicyGenerationContextKey{}).(uint64)
+		if admittedGeneration != generation {
+			var err error
+			ctx, err = s.WithRoutingPolicy(ctx, installationID)
+			if err != nil {
+				return ctx, err
+			}
+			policy = RoutingPolicyFrom(ctx)
+			continue
+		}
+		if policy.Mode != RoutingPolicyAssigned || routerUserID == "" {
+			return ctx, nil
+		}
+		routerOn, found := s.routingPolicyCache.assignment(installationID, routerUserID, policy.Revision, generation)
+		if !found {
+			var err error
+			routerOn, err = s.routingPolicies.HasAssignment(ctx, installationID, routerUserID, policy.Revision)
+			if err != nil {
+				return ctx, fmt.Errorf("load installation routing assignment: %w: %w", err, ErrRoutingPolicyUnavailable)
+			}
+			if !s.routingPolicyCache.setAssignment(installationID, routerUserID, policy.Revision, generation, routerOn) {
+				continue
+			}
+		}
+		if s.routingPolicyCache.generation(installationID) == generation {
+			return context.WithValue(ctx, routingDecisionContextKey{}, routerOn), nil
+		}
+	}
+	return ctx, ErrRoutingPolicyUnavailable
 }
 
 // WithInstallationChangeNotifier wires a cross-replica fanout. Pass nil to disable.
@@ -94,6 +317,20 @@ func (s *Service) WithInstallationChangeNotifier(n InstallationChangeNotifier) *
 	return s
 }
 
+// WithFlagOverridesDisabled sets the deployment-wide escape hatch that suppresses
+// every per-organization flag override, so an env-var rollback always wins.
+func (s *Service) WithFlagOverridesDisabled(disabled bool) *Service {
+	s.flagOverridesDisabled = disabled
+	return s
+}
+
+// FlagOverridesDisabled reports whether per-organization flag overrides are
+// suppressed deployment-wide. Not applied to the cached Installation pointer
+// (shared across concurrent requests) — only stamped onto each request context.
+func (s *Service) FlagOverridesDisabled() bool {
+	return s.flagOverridesDisabled
+}
+
 // invalidateInstallation evicts the local cache and fans out to peer replicas.
 // Always called after a successful DB commit so listeners observe the new state.
 func (s *Service) invalidateInstallation(installationID string) {
@@ -101,12 +338,30 @@ func (s *Service) invalidateInstallation(installationID string) {
 		return
 	}
 	s.cache.InvalidateInstallation(installationID)
+	s.routingPolicyCache.InvalidateInstallation(installationID)
 	s.notifier.NotifyInstallationChanged(installationID)
 }
 
-// IssueAPIKey creates a new router API key and returns the raw token.
+// InvalidateInstallation makes a committed control-plane configuration change
+// visible to subsequent requests on this replica and its peers.
+func (s *Service) InvalidateInstallation(installationID string) {
+	s.invalidateInstallation(installationID)
+}
+
+// IssueAPIKey creates a new routing (data-plane) API key and returns the raw token.
 func (s *Service) IssueAPIKey(ctx context.Context, installationID string, name *string, createdBy *string) (*APIKey, string, error) {
-	rawToken := GenerateID(APIKeyPrefix)
+	return s.IssueScopedAPIKey(ctx, installationID, ScopeRouting, name, createdBy)
+}
+
+// IssueScopedAPIKey creates a new router API key under the given scope and
+// returns the raw token. The token prefix follows the scope, so the credential
+// advertises its own authority.
+func (s *Service) IssueScopedAPIKey(ctx context.Context, installationID string, scope APIKeyScope, name *string, createdBy *string) (*APIKey, string, error) {
+	if !scope.UserIssuable() {
+		return nil, "", fmt.Errorf("%w: %q", ErrInvalidKeyScope, scope)
+	}
+	scope = scope.Normalized()
+	rawToken := GenerateID(scope.TokenPrefix())
 	keyHash, keyPrefix, keySuffix := APITokenFingerprint(rawToken)
 	externalID := GenerateID("kid")
 	key, err := s.apiKeys.Create(ctx, CreateAPIKeyParams{
@@ -116,6 +371,7 @@ func (s *Service) IssueAPIKey(ctx context.Context, installationID string, name *
 		KeyPrefix:      keyPrefix,
 		KeyHash:        keyHash,
 		KeySuffix:      keySuffix,
+		Scope:          scope,
 		CreatedBy:      createdBy,
 	})
 	if err != nil {
@@ -124,16 +380,27 @@ func (s *Service) IssueAPIKey(ctx context.Context, installationID string, name *
 	return key, rawToken, nil
 }
 
-// ListAPIKeys returns all active API keys for an installation.
+// ListAPIKeys returns the installation's active user-facing API keys. Session
+// issuers are internal and never listed.
 func (s *Service) ListAPIKeys(ctx context.Context, installationID string) ([]*APIKey, error) {
-	return s.apiKeys.ListForInstallation(ctx, installationID)
+	keys, err := s.apiKeys.ListForInstallation(ctx, installationID)
+	if err != nil {
+		return nil, err
+	}
+	visible := keys[:0]
+	for _, key := range keys {
+		if key.Scope.UserIssuable() {
+			visible = append(visible, key)
+		}
+	}
+	return visible, nil
 }
 
 // RotateAPIKey soft-deletes the named key and issues a replacement under the
 // same installation, carrying forward its name. Returns ErrAPIKeyNotFound if
-// keyID isn't an active key owned by installationID, so a foreign key UUID
-// can't be rotated. Not transactional: the brief "no active key" gap is fine
-// since rotation's whole point is invalidating the old token anyway.
+// keyID isn't an active key owned by installationID, or if SoftDelete matches
+// 0 rows: a concurrent rotate or delete already transitioned the key, so
+// minting a successor would leave an untracked credential.
 func (s *Service) RotateAPIKey(ctx context.Context, installationID, keyID string, createdBy *string) (*APIKey, string, error) {
 	existing, err := s.apiKeys.ListForInstallation(ctx, installationID)
 	if err != nil {
@@ -146,13 +413,20 @@ func (s *Service) RotateAPIKey(ctx context.Context, installationID, keyID string
 			break
 		}
 	}
-	if target == nil {
+	if target == nil || !target.Scope.UserIssuable() {
 		return nil, "", ErrAPIKeyNotFound
 	}
-	if err := s.apiKeys.SoftDelete(ctx, installationID, target.ID); err != nil {
+	if target.CredentialSubjectID != "" {
+		return nil, "", ErrPersonalCredentialRequired
+	}
+	n, err := s.apiKeys.SoftDelete(ctx, installationID, target.ID)
+	if err != nil {
 		return nil, "", err
 	}
-	key, raw, err := s.IssueAPIKey(ctx, installationID, target.Name, createdBy)
+	if n == 0 {
+		return nil, "", ErrAPIKeyNotFound
+	}
+	key, raw, err := s.IssueScopedAPIKey(ctx, installationID, target.Scope, target.Name, createdBy)
 	if err != nil {
 		return nil, "", err
 	}
@@ -162,9 +436,10 @@ func (s *Service) RotateAPIKey(ctx context.Context, installationID, keyID string
 
 // DeleteAPIKey soft-deletes an API key and invalidates the installation's
 // cache entry on this replica and all peers, so the key doesn't stay usable
-// for the remainder of the positive cache TTL (5 min).
+// for the remainder of the positive cache TTL (5 min). The rows-affected
+// count is intentionally ignored: a 0-row no-op stays idempotent success.
 func (s *Service) DeleteAPIKey(ctx context.Context, installationID, id string) error {
-	if err := s.apiKeys.SoftDelete(ctx, installationID, id); err != nil {
+	if _, err := s.apiKeys.SoftDelete(ctx, installationID, id); err != nil {
 		return err
 	}
 	s.invalidateInstallation(installationID)
@@ -176,18 +451,132 @@ func (s *Service) ListExternalAPIKeys(ctx context.Context, installationID string
 	return s.externalKeys.GetForInstallation(ctx, installationID)
 }
 
-// UpsertExternalAPIKey replaces any existing key for the provider and inserts a new one.
-func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID, provider, rawKey string, name *string, createdBy *string) (*ExternalAPIKey, error) {
-	// Generate external ID first so it binds into the ciphertext as AAD.
-	externalID := GenerateID("ekid")
-	ciphertext, err := s.encryptor.Encrypt([]byte(rawKey), externalID, provider)
+// UpsertExternalAPIKeyParams carries one BYOK key's stored configuration plus
+// AllowedModels, the caller-supplied set the aliases are validated against.
+type UpsertExternalAPIKeyParams struct {
+	Provider string
+	RawKey   string
+	Name     *string
+	// BaseURL overrides the provider's deployment endpoint; nil keeps the default.
+	BaseURL *string
+	// ModelAliases rewrites outbound model IDs for this key's endpoint.
+	ModelAliases map[string]string
+	// AllowedModels is the valid catalog model ID set for alias validation; nil skips it.
+	AllowedModels map[string]struct{}
+	// IdentityHeader names the header the endpoint wants the caller's identity
+	// in, rendered per IdentityHeaderFormat; both nil forwards nothing.
+	IdentityHeader       *string
+	IdentityHeaderFormat *string
+	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough; nil forwards nothing.
+	ForwardedClientHeaders []string
+	BaggageHeader          *string
+	// AuthType selects how RawKey authenticates upstream; empty means AuthTypeBearer.
+	// AuthTypeKeypairJWT makes RawKey an RSA private key issued for AuthAccount/AuthUser.
+	// AuthTypeAzureEntra makes RawKey an Entra client secret for AuthAccount/AuthUser.
+	FederationConfig *AnthropicFederationConfig
+	AuthType         AuthType
+	AuthAccount      *string
+	AuthUser         *string
+	// FundingPriority orders the key against subscriptions; empty means plan-first.
+	FundingPriority FundingPriority
+	CreatedBy       *string
+}
+
+// UpsertExternalAPIKey replaces the provider's key for the installation.
+func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID string, params UpsertExternalAPIKeyParams) (*ExternalAPIKey, error) {
+	provider, rawKey := params.Provider, params.RawKey
+	normalizedBaseURL, err := NormalizeBaseURL(params.BaseURL)
 	if err != nil {
 		return nil, err
+	}
+	normalizedAliases, err := NormalizeModelAliases(params.ModelAliases, params.AllowedModels)
+	if err != nil {
+		return nil, err
+	}
+	identityHeader, identityFormat, err := NormalizeIdentityHeader(params.IdentityHeader, params.IdentityHeaderFormat)
+	if err != nil {
+		return nil, err
+	}
+	forwardedHeaders, err := NormalizeForwardedClientHeaders(params.ForwardedClientHeaders)
+	if err != nil {
+		return nil, err
+	}
+	baggageHeader, err := NormalizeBaggageHeader(params.BaggageHeader)
+	if err != nil {
+		return nil, err
+	}
+	baggageName := ""
+	if baggageHeader != nil {
+		baggageName = *baggageHeader
+	}
+	identityName := ""
+	if identityHeader != nil {
+		identityName = *identityHeader
+	}
+	if err := ValidateForwardingHeaderConfiguration(forwardedHeaders, baggageName, identityName); err != nil {
+		return nil, err
+	}
+	authType, authAccount, authUser, err := NormalizeAuthType(params.AuthType, params.AuthAccount, params.AuthUser)
+	if err != nil {
+		return nil, err
+	}
+	federation, err := NormalizeAnthropicFederation(authType, provider, trimmedValue(normalizedBaseURL), params.FederationConfig)
+	if err != nil {
+		return nil, err
+	}
+	fundingPriority, err := s.upsertFundingPriority(ctx, installationID, provider, params.FundingPriority)
+	if err != nil {
+		return nil, err
+	}
+	if authType == AuthTypeAnthropicWIF && rawKey != "" {
+		return nil, fmt.Errorf("%w: workload federation takes no key material", ErrInvalidAnthropicFederation)
+	}
+	if authType == AuthTypeWIF {
+		if !providers.RequiresBaseURL(provider) {
+			return nil, fmt.Errorf("%w: %s does not accept workload identity credentials", ErrInvalidKeypairAuth, provider)
+		}
+		// The attestation is minted per request from the router's own identity, so a
+		// pasted secret here would be stored and never used.
+		if rawKey != "" {
+			return nil, fmt.Errorf("%w: %s takes no key material", ErrInvalidKeypairAuth, AuthTypeWIF)
+		}
+	}
+	if authType == AuthTypeAzureEntra {
+		if !providers.RequiresBaseURL(provider) {
+			return nil, fmt.Errorf("%w: %s does not accept Microsoft Entra credentials", ErrInvalidEntraAuth, provider)
+		}
+		if rawKey == "" {
+			return nil, fmt.Errorf("%w: %s needs a client secret", ErrInvalidEntraAuth, AuthTypeAzureEntra)
+		}
+	}
+	if authType == AuthTypeKeypairJWT {
+		if !providers.RequiresBaseURL(provider) {
+			return nil, fmt.Errorf("%w: %s does not accept key-pair credentials", ErrInvalidKeypairAuth, provider)
+		}
+		// Reject an unusable private key here rather than at the first upstream
+		// call, where the only symptom is a 401 nobody can trace to the paste.
+		if _, err := ParseKeypairPrivateKey([]byte(rawKey)); err != nil {
+			return nil, err
+		}
+	}
+	// Checked after normalization: a slash-only value normalizes away to nil.
+	if normalizedBaseURL == nil && providers.RequiresBaseURL(provider) {
+		return nil, fmt.Errorf("%w: %s", ErrBaseURLRequired, provider)
+	}
+	// Generate external ID first so it binds into the ciphertext as AAD.
+	externalID := GenerateID("ekid")
+	ciphertext := []byte{}
+	var hash, prefix, suffix string
+	if authType != AuthTypeWIF && authType != AuthTypeAnthropicWIF {
+		ciphertext, err = s.encryptor.Encrypt([]byte(rawKey), externalID, provider)
+		if err != nil {
+			return nil, err
+		}
+		hash, prefix, suffix = APITokenFingerprint(rawKey)
 	}
 	if err := s.externalKeys.SoftDeleteByProvider(ctx, installationID, provider); err != nil {
 		return nil, err
 	}
-	hash, prefix, suffix := APITokenFingerprint(rawKey)
 	key, err := s.externalKeys.Create(ctx, CreateExternalAPIKeyParams{
 		InstallationID: installationID,
 		ExternalID:     externalID,
@@ -196,9 +585,66 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID, prov
 		KeyPrefix:      prefix,
 		KeySuffix:      suffix,
 		KeyFingerprint: hash,
-		Name:           name,
-		CreatedBy:      createdBy,
+		Name:           params.Name,
+		BaseURL:        normalizedBaseURL,
+		ModelAliases:   normalizedAliases,
+
+		IdentityHeader:         identityHeader,
+		IdentityHeaderFormat:   identityFormat,
+		ForwardedClientHeaders: forwardedHeaders,
+		BaggageHeader:          baggageHeader,
+
+		FederationConfig: federation,
+		AuthType:         authType,
+		AuthAccount:      authAccount,
+		AuthUser:         authUser,
+		FundingPriority:  fundingPriority,
+		CreatedBy:        params.CreatedBy,
 	})
+	if err != nil {
+		return nil, err
+	}
+	s.invalidateInstallation(installationID)
+	return key, nil
+}
+
+// SetExternalAPIKeyModelAliases replaces a BYOK key's alias map; nil allowed skips catalog validation.
+func (s *Service) SetExternalAPIKeyModelAliases(ctx context.Context, installationID, id string, aliases map[string]string, allowed map[string]struct{}) (*ExternalAPIKey, error) {
+	normalized, err := NormalizeModelAliases(aliases, allowed)
+	if err != nil {
+		return nil, err
+	}
+	key, err := s.externalKeys.UpdateModelAliases(ctx, installationID, id, normalized)
+	if err != nil {
+		return nil, err
+	}
+	s.invalidateInstallation(installationID)
+	return key, nil
+}
+
+// upsertFundingPriority keeps the replaced key's priority when the caller omits
+// one, so rotating a migrated key_first key does not move its traffic onto plans.
+func (s *Service) upsertFundingPriority(ctx context.Context, installationID, provider string, requested FundingPriority) (FundingPriority, error) {
+	if requested != "" {
+		return NormalizeFundingPriority(requested)
+	}
+	activePriority, err := s.externalKeys.ActiveFundingPriority(ctx, installationID, provider)
+	if err != nil {
+		return "", err
+	}
+	return NormalizeFundingPriority(activePriority)
+}
+
+// SetExternalAPIKeyFundingPriority rejects an empty priority (no plan-first default, unlike upsert) and invalidates the installation's cached auth on success.
+func (s *Service) SetExternalAPIKeyFundingPriority(ctx context.Context, installationID, id string, priority FundingPriority) (*ExternalAPIKey, error) {
+	if priority == "" {
+		return nil, ErrInvalidFundingPriority
+	}
+	normalized, err := NormalizeFundingPriority(priority)
+	if err != nil {
+		return nil, err
+	}
+	key, err := s.externalKeys.UpdateFundingPriority(ctx, installationID, id, normalized)
 	if err != nil {
 		return nil, err
 	}
@@ -239,6 +685,68 @@ func (s *Service) SetInstallationExcludedModels(ctx context.Context, externalID,
 		out = append(out, m)
 	}
 	if err := s.installations.UpdateExcludedModels(ctx, externalID, installationID, out); err != nil {
+		return nil, err
+	}
+	s.invalidateInstallation(installationID)
+	return out, nil
+}
+
+// SetInstallationFastModeModels replaces the per-installation fast-mode opt-in
+// list. fastCapable is the set of model IDs with a fast tier; passing nil skips
+// validation. Empty list means no model runs fast.
+func (s *Service) SetInstallationFastModeModels(ctx context.Context, externalID, installationID string, models []string, fastCapable map[string]struct{}) ([]string, error) {
+	if models == nil {
+		models = []string{}
+	}
+	if fastCapable != nil {
+		for _, m := range models {
+			if _, ok := fastCapable[m]; !ok {
+				return nil, fmt.Errorf("%w: %q", ErrModelNotFastCapable, m)
+			}
+		}
+	}
+	seen := make(map[string]struct{}, len(models))
+	out := make([]string, 0, len(models))
+	for _, m := range models {
+		if _, dup := seen[m]; dup {
+			continue
+		}
+		seen[m] = struct{}{}
+		out = append(out, m)
+	}
+	if err := s.installations.UpdateFastModeModels(ctx, externalID, installationID, out); err != nil {
+		return nil, err
+	}
+	s.invalidateInstallation(installationID)
+	return out, nil
+}
+
+// SetInstallationAllowedModels replaces the per-installation positive model
+// allowlist. Empty list clears the restriction (all models routable — NOT "no
+// models"). Validation skipped when models is empty so a catalog outage can't
+// block clearing a restriction; pass nil allowed to skip validation entirely.
+func (s *Service) SetInstallationAllowedModels(ctx context.Context, externalID, installationID string, models []string, allowed map[string]struct{}) ([]string, error) {
+	if models == nil {
+		models = []string{}
+	}
+	if allowed != nil && len(models) > 0 {
+		for _, m := range models {
+			if _, ok := allowed[m]; !ok {
+				return nil, fmt.Errorf("%w: %q", ErrUnknownModel, m)
+			}
+		}
+	}
+	// De-dupe while preserving order so the persisted list is stable.
+	seen := make(map[string]struct{}, len(models))
+	out := make([]string, 0, len(models))
+	for _, m := range models {
+		if _, dup := seen[m]; dup {
+			continue
+		}
+		seen[m] = struct{}{}
+		out = append(out, m)
+	}
+	if err := s.installations.UpdateAllowedModels(ctx, externalID, installationID, out); err != nil {
 		return nil, err
 	}
 	s.invalidateInstallation(installationID)
@@ -299,23 +807,113 @@ func (s *Service) SetInstallationSubscriptionRoutingDisabled(ctx context.Context
 	return nil
 }
 
-// VerifyAPIKey authenticates a raw bearer token against the cache then Postgres,
-// returning ErrInvalidPrefix/ErrInvalidToken on failure. The returned
-// ExternalAPIKey slice has Plaintext populated, or nil if none exist.
-func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installation, *APIKey, []*ExternalAPIKey, error) {
+// SetInstallationHideTerminalSurfaces persists the toggle and invalidates the
+// auth cache so the change takes effect on the next request.
+func (s *Service) SetInstallationHideTerminalSurfaces(ctx context.Context, externalID, installationID string, hide bool) error {
+	if err := s.installations.UpdateHideTerminalSurfaces(ctx, externalID, installationID, hide); err != nil {
+		return err
+	}
+	s.invalidateInstallation(installationID)
+	return nil
+}
+
+func (s *Service) SetInstallationShowModelSelectionReasoning(ctx context.Context, externalID, installationID string, show bool) error {
+	if err := s.installations.UpdateShowModelSelectionReasoning(ctx, externalID, installationID, show); err != nil {
+		return err
+	}
+	s.invalidateInstallation(installationID)
+	return nil
+}
+
+// ErrInvalidCaptureMode is returned for a content-capture mode outside the
+// off/hashed/full set.
+var ErrInvalidCaptureMode = errors.New("auth: invalid content capture mode")
+
+// SetInstallationContentCaptureMode persists the per-installation capture
+// ceiling ("off"/"hashed"/"full"); nil clears the override. Validated in-process
+// so a bad value returns ErrInvalidCaptureMode rather than a DB 500.
+func (s *Service) SetInstallationContentCaptureMode(ctx context.Context, externalID, installationID string, mode *string) error {
+	if mode != nil {
+		switch *mode {
+		case "off", "hashed", "full":
+		default:
+			return fmt.Errorf("%w: %q", ErrInvalidCaptureMode, *mode)
+		}
+	}
+	if err := s.installations.UpdateContentCaptureMode(ctx, externalID, installationID, mode); err != nil {
+		return err
+	}
+	s.invalidateInstallation(installationID)
+	return nil
+}
+
+// ErrFlagNotOverridable is returned for a flag key that is unknown to the
+// registry or registered as not per-organization overridable.
+var ErrFlagNotOverridable = errors.New("auth: flag is not overridable per organization")
+
+// SetInstallationFlagOverrides persists the per-installation behavioral flag
+// override set and invalidates the auth cache so the change takes effect on the
+// next request. The whole sparse set is written (clear an override by omitting
+// its key). Every key is re-validated against the registry so a stale caller
+// cannot persist a key the read path will later reject.
+func (s *Service) SetInstallationFlagOverrides(ctx context.Context, externalID, installationID string, overrides flags.Overrides) error {
+	for _, key := range overrides.Keys() {
+		def, ok := flags.Lookup(key)
+		if !ok || !def.OrgOverridable {
+			return fmt.Errorf("%w: %q", ErrFlagNotOverridable, key)
+		}
+	}
+	if err := flags.ValidateOverrides(overrides); err != nil {
+		return err
+	}
+	if err := s.installations.UpdateFlagOverrides(ctx, externalID, installationID, overrides); err != nil {
+		return err
+	}
+	s.invalidateInstallation(installationID)
+	return nil
+}
+
+// VerifyAPIKey authenticates a raw bearer token for the data plane against the
+// cache then Postgres, returning ErrInvalidPrefix/ErrInvalidToken on failure and
+// ErrWrongKeyScope for a key that isn't routing-scoped. The returned
+// ExternalAPIKey slice has Plaintext populated, or nil if none exist. The
+// ClusterModelList slice carries the key's per-cluster ordered allowlists, or
+// nil when none are configured.
+func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installation, *APIKey, []*ExternalAPIKey, []ClusterModelList, error) {
+	return s.verifyAPIKey(ctx, rawToken, true)
+}
+
+// VerifyPlatformAPIKey preserves key restrictions without reading or decrypting provider credentials.
+func (s *Service) VerifyPlatformAPIKey(ctx context.Context, rawToken string) (*Installation, *APIKey, []ClusterModelList, error) {
+	installation, key, _, lists, err := s.verifyAPIKey(ctx, rawToken, false)
+	return installation, key, lists, err
+}
+
+func (s *Service) verifyAPIKey(ctx context.Context, rawToken string, includeUpstreamKeys bool) (*Installation, *APIKey, []*ExternalAPIKey, []ClusterModelList, error) {
 	if !HasAPIKeyPrefix(rawToken) {
-		return nil, nil, nil, ErrInvalidPrefix
+		return nil, nil, nil, nil, ErrInvalidPrefix
+	}
+	if IsSessionToken(rawToken) {
+		// Session tokens verify through VerifySessionToken; never as a hashed bearer.
+		return nil, nil, nil, nil, ErrInvalidToken
 	}
 
 	keyHash := HashAPIKeySHA256(rawToken)
 
 	if cached, ok := s.cache.Get(keyHash); ok {
 		if cached.Negative {
-			return nil, nil, nil, ErrInvalidToken
+			return nil, nil, nil, nil, ErrInvalidToken
 		}
 		if cached.APIKey != nil {
-			s.fireMarkUsed(cached.APIKey.ID)
-			return cached.Installation, cached.APIKey, cached.ExternalKeys, nil
+			if cached.APIKey.Scope.Normalized() != ScopeRouting {
+				return nil, nil, nil, nil, ErrWrongKeyScope
+			}
+			s.fireMarkUsed(cached.APIKey, cached.Installation)
+			s.fireMarkFirstRequestServed(cached.APIKey.InstallationID)
+			if !includeUpstreamKeys {
+				return cached.Installation, cached.APIKey, nil, cached.ClusterModelLists, nil
+			}
+			return cached.Installation, cached.APIKey, s.resolveUpstreamSecrets(ctx, cached.ExternalKeys), cached.ClusterModelLists, nil
 		}
 		// Malformed positive entry (nil APIKey): fall through to DB lookup.
 	}
@@ -324,23 +922,46 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			s.cache.Set(keyHash, CachedKey{Negative: true})
-			return nil, nil, nil, ErrInvalidToken
+			return nil, nil, nil, nil, ErrInvalidToken
 		}
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
+	}
+
+	// Checked before the BYOK fetch: an analytics key must never cause provider
+	// secrets to be decrypted, let alone reach a caller.
+	if apiKey.Scope.Normalized() != ScopeRouting {
+		return nil, nil, nil, nil, ErrWrongKeyScope
 	}
 
 	var externalKeys []*ExternalAPIKey
-	if s.externalKeys != nil {
+	if includeUpstreamKeys && s.externalKeys != nil {
 		externalKeys, err = s.externalKeys.GetForInstallation(ctx, apiKey.InstallationID)
 		if err != nil {
 			// Non-fatal: proceed without external keys.
-			observability.Get().Warn("Failed to fetch external API keys", "installation_id", apiKey.InstallationID, "err", err)
+			observability.FromContext(ctx).Warn("Failed to fetch external API keys", "installation_id", apiKey.InstallationID, "err", err)
 		}
 	}
 
-	s.cache.Set(keyHash, CachedKey{APIKey: apiKey, Installation: installation, ExternalKeys: externalKeys})
-	s.fireMarkUsed(apiKey.ID)
-	return installation, apiKey, externalKeys, nil
+	var clusterModelLists []ClusterModelList
+	clusterModelListsFetchOK := true
+	if s.clusterModelLists != nil {
+		clusterModelLists, err = s.clusterModelLists.GetForAPIKey(ctx, apiKey.ID)
+		if err != nil {
+			// Non-fatal: serve this request with artifact-default routing, but
+			// don't cache the empty result — a transient DB error would otherwise
+			// disable per-key cluster restrictions for the full positive TTL.
+			observability.FromContext(ctx).Warn("Failed to fetch cluster model lists", "api_key_id", apiKey.ID, "err", err)
+			clusterModelLists = nil
+			clusterModelListsFetchOK = false
+		}
+	}
+
+	if clusterModelListsFetchOK && includeUpstreamKeys {
+		s.cache.Set(keyHash, CachedKey{APIKey: apiKey, Installation: installation, ExternalKeys: externalKeys, ClusterModelLists: clusterModelLists})
+	}
+	s.fireMarkUsed(apiKey, installation)
+	s.fireMarkFirstRequestServed(apiKey.InstallationID)
+	return installation, apiKey, s.resolveUpstreamSecrets(ctx, externalKeys), clusterModelLists, nil
 }
 
 // ResolveAndStashUser upserts a router user and stashes the ID on ctx. Email
@@ -349,7 +970,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 // leaves the existing value). Never fails an authenticated request — returns
 // ctx unchanged on error.
 func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email, claudeAccountUUID, displayName string) context.Context {
-	log := observability.Get()
+	log := observability.FromContext(ctx)
 	if s.users == nil || installationID == "" {
 		log.Info("ResolveAndStashUser bailout", "reason", "nil_users_or_empty_inst", "users_nil", s.users == nil, "inst_empty", installationID == "")
 		return ctx
@@ -362,7 +983,7 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 	identityKey := userIdentityKey(email, claudeAccountUUID)
 	if cached, ok := s.userCache.Get(installationID, identityKey); ok {
 		log.Debug("ResolveAndStashUser cache hit", "installation_id", installationID, "user_id", cached)
-		return context.WithValue(ctx, UserIDContextKey{}, cached)
+		return s.withUserSettings(ctx, installationID, cached)
 	}
 
 	var namePtr *string
@@ -392,7 +1013,7 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 		})
 	}
 	if err != nil {
-		observability.Get().Warn(
+		observability.FromContext(ctx).Warn(
 			"Failed to resolve router user",
 			"installation_id", installationID,
 			"err", err,
@@ -401,7 +1022,167 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 	}
 	s.userCache.Set(installationID, identityKey, user.ID)
 	log.Debug("ResolveAndStashUser upsert ok", "installation_id", installationID, "user_id", user.ID)
-	return context.WithValue(ctx, UserIDContextKey{}, user.ID)
+	return s.withUserSettings(ctx, installationID, user.ID)
+}
+
+// ResolveAndStashKeyOwner upserts the router user for the authenticated owner
+// of a personal API key and stashes the ID on ctx. It is the fallback for
+// requests that assert no identity of their own, so a client-sent email or
+// account UUID always takes precedence over it. Never fails an authenticated
+// request — returns ctx unchanged on error.
+func (s *Service) ResolveAndStashKeyOwner(ctx context.Context, installationID, credentialSubjectID, displayName string) context.Context {
+	log := observability.FromContext(ctx)
+	if s.users == nil || installationID == "" {
+		return ctx
+	}
+	identityKey := "subject:" + credentialSubjectID
+	if cached, ok := s.userCache.Get(installationID, identityKey); ok {
+		return s.withUserSettings(ctx, installationID, cached)
+	}
+	var optionalName *string
+	if displayName != "" {
+		optionalName = &displayName
+	}
+	user, err := s.users.UpsertByCredentialSubject(ctx, UpsertUserByCredentialSubjectParams{
+		InstallationID:      installationID,
+		CredentialSubjectID: credentialSubjectID,
+		DisplayName:         optionalName,
+	})
+	if err != nil {
+		log.Warn("Failed to resolve router user for API key owner", "installation_id", installationID, "err", err)
+		return ctx
+	}
+	s.userCache.Set(installationID, identityKey, user.ID)
+	log.Debug("ResolveAndStashKeyOwner upsert ok", "installation_id", installationID, "user_id", user.ID)
+	return s.withUserSettings(ctx, installationID, user.ID)
+}
+
+func (s *Service) withUserSettings(ctx context.Context, installationID, routerUserID string) context.Context {
+	ctx = s.withUserClusterLists(ctx, installationID, routerUserID)
+	if RoutingPolicyFrom(ctx).Mode != "" && RoutingPolicyFrom(ctx).Mode != RoutingPolicyInherit {
+		return ctx
+	}
+	return s.withBlindExperiment(ctx, installationID, routerUserID)
+}
+
+// withUserClusterLists stashes the router user ID and per-cluster selections on
+// ctx. Runs on both the cache-hit and upsert paths so a warm identity cache
+// doesn't silently drop selections. Fail-open: a DB error skips stashing
+// (not cached) so the default routing serves; a successful empty result IS
+// cached since most users configure nothing.
+func (s *Service) withUserClusterLists(ctx context.Context, installationID, routerUserID string) context.Context {
+	ctx = context.WithValue(ctx, UserIDContextKey{}, routerUserID)
+	if s.userClusterModelLists == nil || routerUserID == "" {
+		return ctx
+	}
+	lists, ok := s.userClusterCache.Get(routerUserID)
+	if !ok {
+		fetched, err := s.userClusterModelLists.GetForUser(ctx, routerUserID)
+		if err != nil {
+			observability.FromContext(ctx).Warn("Failed to fetch user cluster model lists", "router_user_id", routerUserID, "err", err)
+			return ctx
+		}
+		lists = fetched
+		s.userClusterCache.Set(installationID, routerUserID, lists)
+	}
+	if len(lists) == 0 {
+		return ctx
+	}
+	overrides := make(map[string][]string, len(lists))
+	for _, l := range lists {
+		if len(l.Models) == 0 {
+			continue
+		}
+		overrides[l.ClusterLabel] = l.Models
+	}
+	if len(overrides) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, UserClusterModelListsContextKey{}, overrides)
+}
+
+func (s *Service) withBlindExperiment(ctx context.Context, installationID, routerUserID string) context.Context {
+	if s.blindExperiments == nil || routerUserID == "" {
+		return ctx
+	}
+	var (
+		state                BlindExperimentState
+		hasFetched, resolved bool
+		generation           uint64
+	)
+	for attempt := 0; attempt < blindExperimentFetchAttempts && !resolved; attempt++ {
+		generation = s.blindExperimentCache.InstallationGeneration(installationID)
+		if cached, found := s.blindExperimentCache.GetAtGeneration(installationID, routerUserID, generation); found {
+			state, resolved = cached, true
+			break
+		}
+		fetched, ok := s.fetchBlindExperiment(ctx, installationID, routerUserID, generation)
+		if !ok {
+			break
+		}
+		state, hasFetched = fetched, true
+		// A no-op cache deliberately has no entry, so its fetched state is
+		// authoritative for this request.
+		if !s.blindExperimentCache.Enabled() {
+			resolved = true
+			break
+		}
+		if current, found := s.blindExperimentCache.GetAtGeneration(installationID, routerUserID, generation); found {
+			state, resolved = current, true
+		}
+	}
+	if !resolved {
+		if !hasFetched || ctx.Err() != nil {
+			return ctx
+		}
+		// Invalidations here are usually unchanged-config fanout. Dropping the
+		// arm would route a passthrough experiment, so serve the last read
+		// without caching it.
+		observability.FromContext(ctx).Warn("Blind router experiment assignment could not be confirmed after invalidation; using the last read uncached", "installation_id", installationID, "router_user_id", routerUserID, "fetch_generation", generation, "current_generation", s.blindExperimentCache.InstallationGeneration(installationID))
+	}
+	state = state.AtTime(s.now())
+	if !state.Active && state.CohortExperimentID == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, BlindExperimentContextKey{}, state)
+}
+
+// fetchBlindExperiment reads one assignment at a cache generation. The
+// generation is part of the singleflight key so a retry after invalidation
+// never joins a read that started before it.
+func (s *Service) fetchBlindExperiment(ctx context.Context, installationID, routerUserID string, generation uint64) (BlindExperimentState, bool) {
+	fetchKey := installationID + "\x00" + routerUserID + "\x00" + strconv.FormatUint(generation, 10)
+	resultCh := s.blindExperimentFetches.DoChan(fetchKey, func() (any, error) {
+		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), blindExperimentFetchTimeout)
+		defer cancel()
+		// A concurrent request may have filled the cache while this request
+		// waited for the per-user refresh. Re-check before querying Postgres.
+		if cached, found := s.blindExperimentCache.GetAtGeneration(installationID, routerUserID, generation); found {
+			return cached, nil
+		}
+		record, fetchErr := s.blindExperiments.GetForUser(fetchCtx, installationID, routerUserID)
+		if fetchErr != nil {
+			// Fail open for the request, but cache the failure only for the
+			// cache's short retry window so an outage does not hammer the DB or
+			// permanently bias the experiment cohort after recovery.
+			s.blindExperimentCache.SetErrorAtGeneration(installationID, routerUserID, generation)
+			return nil, fetchErr
+		}
+		resolved := resolveBlindExperiment(record, routerUserID)
+		s.blindExperimentCache.SetAtGeneration(installationID, routerUserID, resolved, generation)
+		return resolved, nil
+	})
+	var result singleflight.Result
+	select {
+	case result = <-resultCh:
+	case <-ctx.Done():
+		return BlindExperimentState{}, false
+	}
+	if result.Err != nil {
+		observability.FromContext(ctx).Warn("Failed to fetch blind router experiment assignment", "router_user_id", routerUserID, "err", result.Err)
+		return BlindExperimentState{}, false
+	}
+	return result.Val.(BlindExperimentState), true
 }
 
 func userIdentityKey(email, claudeAccountUUID string) string {
@@ -413,11 +1194,42 @@ func userIdentityKey(email, claudeAccountUUID string) string {
 
 // fireMarkUsed runs the last_used_at update off the request path. Uses context.Background because
 // the parent ctx is often canceled (response written) before the UPDATE completes.
-func (s *Service) fireMarkUsed(apiKeyID string) {
-	log := observability.Get().With("api_key_id", apiKeyID)
+func (s *Service) fireMarkUsed(apiKey *APIKey, installation *Installation) {
+	if apiKey == nil {
+		return
+	}
+	log := observability.Get().With("api_key_id", apiKey.ID)
 	observability.SafeGo(log, 2*time.Second, "fireMarkUsed", func(ctx context.Context) {
-		if err := s.apiKeys.MarkUsed(ctx, apiKeyID); err != nil {
+		firstUse, err := s.apiKeys.MarkUsed(ctx, apiKey.ID)
+		if err != nil {
 			log.Warn("Failed to mark router api key used", "err", err)
+			return
+		}
+		if firstUse && s.onboarding != nil && installation != nil && apiKey.Scope.Normalized() == ScopeRouting {
+			s.onboarding.APIKeyFirstUsed(APIKeyFirstUsedEvent{
+				InstallationExternalID: installation.ExternalID,
+				CredentialSubjectID:    apiKey.CredentialSubjectID,
+				APIKeyID:               apiKey.ID,
+				Harness:                apiKey.Harness,
+				OccurredAt:             s.now(),
+			})
 		}
 	})
+}
+
+// fireMarkFirstRequestServed stamps the installation-level onboarding flag
+// off the request path (same rationale as fireMarkUsed; not called on the analytics path).
+func (s *Service) fireMarkFirstRequestServed(installationID string) {
+	log := observability.Get().With("installation_id", installationID)
+	observability.SafeGo(log, 2*time.Second, "fireMarkFirstRequestServed", func(ctx context.Context) {
+		if err := s.installations.MarkFirstRequestServed(ctx, installationID); err != nil {
+			log.Warn("Failed to mark installation first request served", "err", err)
+		}
+	})
+}
+
+// WithAnthropicFederationTokenSource configures native Anthropic federation independently of Snowflake.
+func (s *Service) WithAnthropicFederationTokenSource(source AnthropicFederationTokenSource) *Service {
+	s.anthropicFederationTokens = source
+	return s
 }

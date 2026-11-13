@@ -1,16 +1,19 @@
 package translate_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 
-	"workweave/router/internal/router"
-	"workweave/router/internal/translate"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 var openAISimpleConversation = []byte(`{
@@ -468,6 +471,29 @@ func TestCrossFormat_OpenAIToAnthropic_MultipleSystemMessages(t *testing.T) {
 	assert.Equal(t, "user", msgAt(t, msgs, 0)["role"])
 }
 
+func TestCrossFormat_OpenAIToAnthropic_MidConversationSystemMessageDemotedInPlace(t *testing.T) {
+	// Mid-conversation system messages are demoted in place; hoisting would shift the cached prefix.
+	body := []byte(`{"model":"gpt-4","messages":[{"role":"system","content":"rules"},{"role":"user","content":"hi"},{"role":"assistant","content":"ok"},{"role":"system","content":"be terse"}]}`)
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-sonnet-4-20250514"})
+	require.NoError(t, err)
+
+	doc := unmarshalBody(t, prep.Body)
+	sys := getArray(t, doc, "system")
+	require.Len(t, sys, 1, "only the leading system message is hoisted")
+	assert.Equal(t, "rules", sys[0].(map[string]any)["text"])
+
+	msgs := getArray(t, doc, "messages")
+	require.Len(t, msgs, 3)
+	last := msgAt(t, msgs, 2)
+	assert.Equal(t, "user", last["role"])
+	blocks, _ := last["content"].([]any)
+	require.Len(t, blocks, 1)
+	assert.Equal(t, "be terse", blocks[0].(map[string]any)["text"])
+}
+
 func TestCrossFormat_OpenAIToAnthropic_AssistantTextAndToolCalls(t *testing.T) {
 	env, err := translate.ParseOpenAI(openAIAssistantTextAndToolCalls)
 	require.NoError(t, err)
@@ -593,7 +619,8 @@ func TestCrossFormat_OpenAIToGemini_SimpleText(t *testing.T) {
 
 	genConf := getMap(t, doc, "generationConfig")
 	assert.Equal(t, float64(0.7), genConf["temperature"])
-	assert.Equal(t, float64(1024), genConf["maxOutputTokens"])
+	// 2.5 Pro thinks by default, so the 1024 budget is floored for reasoning headroom.
+	assert.Equal(t, float64(16000), genConf["maxOutputTokens"])
 
 	assert.Equal(t, "true", prep.Headers.Get(translate.GeminiStreamHintHeader))
 }
@@ -851,6 +878,38 @@ func TestCrossFormat_AnthropicToOpenAI_ToolConversation(t *testing.T) {
 	assert.Equal(t, "package main\n\nfunc main() {}", toolResultMsg["content"])
 }
 
+// An assistant turn whose only text was a routing marker (the /force-model
+// ack) is stripped to an empty block list on ingress; it must still emit
+// with a content field, since chat-completions upstreams such as Meta reject
+// an assistant message carrying neither content nor tool_calls.
+func TestCrossFormat_AnthropicToOpenAI_EmptyAssistantKeepsContent(t *testing.T) {
+	body, err := translate.StripRoutingMarkerFromMessages([]byte(`{
+		"model": "claude-opus-5",
+		"max_tokens": 100,
+		"messages": [
+			{"role": "user", "content": "/force-model muse"},
+			{"role": "assistant", "content": [{"type": "text", "text": "✦ **Weave Router** → force-model applied: muse-spark-1.3 (meta) · Use /unforce-model to clear\n\n"}]},
+			{"role": "user", "content": "hi"}
+		]
+	}`))
+	require.NoError(t, err)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	prep, err := env.PrepareOpenAI(http.Header{}, translate.EmitOptions{
+		TargetModel:    "muse-spark-1.3",
+		TargetProvider: "meta",
+	})
+	require.NoError(t, err)
+
+	msgs := getArray(t, unmarshalBody(t, prep.Body), "messages")
+	require.Len(t, msgs, 3)
+	assistantMsg := msgAt(t, msgs, 1)
+	assert.Equal(t, "assistant", assistantMsg["role"])
+	assert.Equal(t, "", assistantMsg["content"])
+	assert.NotContains(t, assistantMsg, "tool_calls")
+}
+
 func TestCrossFormat_AnthropicToOpenAI_OverlongToolUseIDClampedAndPaired(t *testing.T) {
 	// OpenAI rejects tool_calls[].id over 64 chars; emit must clamp round-trip
 	// IDs while keeping tool_use paired with its tool_result tool_call_id.
@@ -919,6 +978,98 @@ func TestCrossFormat_AnthropicToOpenAI_Image(t *testing.T) {
 	require.True(t, ok)
 	assert.Contains(t, url, "data:image/png;base64,")
 	assert.Contains(t, url, "iVBORw0KGgo=")
+}
+
+// Agent harnesses return screenshots in tool_result blocks; OpenAI role:tool
+// content is text-only, so images must be hoisted into the trailing user message.
+func TestCrossFormat_AnthropicToOpenAI_ToolResultImageHoisted(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-8",
+		"messages": [
+			{"role": "user", "content": [{"type": "text", "text": "Read the screenshot"}]},
+			{"role": "assistant", "content": [
+				{"type": "tool_use", "id": "toolu_1", "name": "Read", "input": {"file_path": "/tmp/shot.png"}}
+			]},
+			{"role": "user", "content": [
+				{"type": "tool_result", "tool_use_id": "toolu_1", "content": [
+					{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
+				]}
+			]}
+		],
+		"max_tokens": 512
+	}`)
+
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareOpenAI(http.Header{}, translate.EmitOptions{
+		TargetModel:    "gpt-4",
+		TargetProvider: "openai",
+	})
+	require.NoError(t, err)
+
+	doc := unmarshalBody(t, prep.Body)
+	msgs := getArray(t, doc, "messages")
+	require.Len(t, msgs, 4)
+
+	toolMsg := msgAt(t, msgs, 2)
+	assert.Equal(t, "tool", toolMsg["role"])
+	assert.Equal(t, "toolu_1", toolMsg["tool_call_id"])
+	assert.Equal(t, "", toolMsg["content"], "text-only tool content stays empty")
+
+	userMsg := msgAt(t, msgs, 3)
+	assert.Equal(t, "user", userMsg["role"], "hoisted image rides a trailing user message")
+	content := userMsg["content"].([]any)
+	require.Len(t, content, 1)
+	imgPart := content[0].(map[string]any)
+	assert.Equal(t, "image_url", imgPart["type"])
+	imageURL := getMap(t, imgPart, "image_url")
+	url, ok := imageURL["url"].(string)
+	require.True(t, ok)
+	assert.Equal(t, "data:image/png;base64,iVBORw0KGgo=", url)
+}
+
+// A tool_result carrying both text and an image keeps its text on the tool
+// message; only the image is hoisted.
+func TestCrossFormat_AnthropicToOpenAI_ToolResultTextAndImageSplit(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-8",
+		"messages": [
+			{"role": "user", "content": [{"type": "text", "text": "Read the screenshot"}]},
+			{"role": "assistant", "content": [
+				{"type": "tool_use", "id": "toolu_1", "name": "Read", "input": {"file_path": "/tmp/shot.png"}}
+			]},
+			{"role": "user", "content": [
+				{"type": "tool_result", "tool_use_id": "toolu_1", "content": [
+					{"type": "text", "text": "PNG image data, 2986 x 546"},
+					{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "iVBORw0KGgo="}}
+				]}
+			]}
+		],
+		"max_tokens": 512
+	}`)
+
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareOpenAI(http.Header{}, translate.EmitOptions{
+		TargetModel:    "gpt-4",
+		TargetProvider: "openai",
+	})
+	require.NoError(t, err)
+
+	doc := unmarshalBody(t, prep.Body)
+	msgs := getArray(t, doc, "messages")
+	require.Len(t, msgs, 4)
+
+	toolMsg := msgAt(t, msgs, 2)
+	assert.Equal(t, "tool", toolMsg["role"])
+	assert.Equal(t, "PNG image data, 2986 x 546", toolMsg["content"], "text stays on the tool message")
+
+	userMsg := msgAt(t, msgs, 3)
+	assert.Equal(t, "user", userMsg["role"])
+	content := userMsg["content"].([]any)
+	require.Len(t, content, 1)
+	imgPart := content[0].(map[string]any)
+	assert.Equal(t, "image_url", imgPart["type"], "only the image is hoisted")
 }
 
 func TestCrossFormat_AnthropicToOpenAI_ArraySystemFlattened(t *testing.T) {
@@ -992,7 +1143,8 @@ func TestCrossFormat_AnthropicToGemini_SimpleText(t *testing.T) {
 
 	genConf := getMap(t, doc, "generationConfig")
 	assert.Equal(t, float64(0.7), genConf["temperature"])
-	assert.Equal(t, float64(1024), genConf["maxOutputTokens"])
+	// 2.5 Pro thinks by default, so the 1024 budget is floored for reasoning headroom.
+	assert.Equal(t, float64(16000), genConf["maxOutputTokens"])
 
 	assert.Equal(t, "true", prep.Headers.Get(translate.GeminiStreamHintHeader))
 }
@@ -1152,6 +1304,50 @@ func TestCrossFormat_OpenAIToAnthropic_ScalarFieldsCarriedThrough(t *testing.T) 
 	assert.Equal(t, []any{"STOP", "END"}, seqs)
 }
 
+func TestCrossFormat_OpenAIToAnthropic_FableOmitsSamplingParams(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-6-luna",
+		"messages":[{"role":"user","content":"hi"}],
+		"temperature":0.4,
+		"top_p":0.8,
+		"top_k":12
+	}`)
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+		TargetModel: "claude-fable-5-1", Capabilities: router.Lookup("claude-fable-5-1"), TargetProvider: "anthropic",
+	})
+	require.NoError(t, err)
+
+	doc := unmarshalBody(t, prep.Body)
+	assert.NotContains(t, doc, "temperature")
+	assert.NotContains(t, doc, "top_p")
+	assert.NotContains(t, doc, "top_k")
+}
+
+func TestCrossFormat_AnthropicToAnthropic_FableOmitsSamplingParams(t *testing.T) {
+	body := []byte(`{
+		"model":"claude-fable-5-1",
+		"messages":[{"role":"user","content":"hi"}],
+		"temperature":0.4,
+		"top_p":0.8,
+		"top_k":12
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+		TargetModel: "claude-fable-5-1", Capabilities: router.Lookup("claude-fable-5-1"),
+	})
+	require.NoError(t, err)
+
+	doc := unmarshalBody(t, prep.Body)
+	assert.NotContains(t, doc, "temperature")
+	assert.NotContains(t, doc, "top_p")
+	assert.NotContains(t, doc, "top_k")
+}
+
 func TestCrossFormat_AnthropicToOpenAI_ScalarFieldsCarriedThrough(t *testing.T) {
 	body := []byte(`{
 		"model": "claude-sonnet-4-20250514",
@@ -1222,7 +1418,8 @@ func TestCrossFormat_OpenAIToGemini_ScalarFieldsCarriedThrough(t *testing.T) {
 	genConf := getMap(t, doc, "generationConfig")
 	assert.Equal(t, float64(0.6), genConf["temperature"])
 	assert.Equal(t, float64(0.95), genConf["topP"])
-	assert.Equal(t, float64(1024), genConf["maxOutputTokens"])
+	// 2.5 Pro thinks by default, so the 1024 budget is floored for reasoning headroom.
+	assert.Equal(t, float64(16000), genConf["maxOutputTokens"])
 	assert.Equal(t, "true", prep.Headers.Get(translate.GeminiStreamHintHeader))
 }
 
@@ -1246,7 +1443,8 @@ func TestCrossFormat_AnthropicToGemini_ScalarFieldsCarriedThrough(t *testing.T) 
 	genConf := getMap(t, doc, "generationConfig")
 	assert.Equal(t, float64(0.4), genConf["temperature"])
 	assert.Equal(t, float64(0.85), genConf["topP"])
-	assert.Equal(t, float64(768), genConf["maxOutputTokens"])
+	// 2.5 Pro thinks by default, so the 768 budget is floored for reasoning headroom.
+	assert.Equal(t, float64(16000), genConf["maxOutputTokens"])
 	stops := genConf["stopSequences"].([]any)
 	assert.Equal(t, []any{"END"}, stops)
 	assert.Equal(t, "true", prep.Headers.Get(translate.GeminiStreamHintHeader))
@@ -1353,7 +1551,8 @@ func TestCrossFormat_AnthropicToOpenAI_StripsUnsupportedToolSchemaPattern(t *tes
 	amount := getMap(t, props, "amount")
 	assert.NotContains(t, amount, "pattern", "OpenAI-compatible providers can reject unsupported JSON Schema regexes")
 	assert.Contains(t, amount["description"], "decimal")
-	assert.Contains(t, amount["description"], "pattern:")
+	assert.Contains(t, amount["description"], "pattern constraint", "the dropped constraint survives as a hashed note")
+	assert.NotContains(t, amount["description"], "^(?!", "the raw pattern is hashed, not embedded verbatim")
 
 	msgs := getArray(t, doc, "messages")
 	assistant := msgAt(t, msgs, 1)
@@ -1891,6 +2090,250 @@ func TestSanitizeToolUseIDs_AnthropicToAnthropic(t *testing.T) {
 	assert.Equal(t, "functions_Grep_11", result["tool_use_id"], "tool_use_id must be sanitized in same-format path")
 }
 
+// routerReasoningID builds a tool id carrying a router-minted OpenAI reasoning
+// envelope, the shape the Responses→Anthropic writer emits.
+func routerReasoningID(id string) string {
+	envelope, _ := json.Marshal(map[string]any{"v": 1, "provider": "openai", "id": "rs_1", "enc": strings.Repeat("E", 6000), "scope": "scope"})
+	sig := base64.StdEncoding.EncodeToString(envelope)
+	return id + "__openai_reasoning__" + base64.RawURLEncoding.EncodeToString([]byte(sig))
+}
+
+func TestSanitizeToolUseIDs_AnthropicTargetDropsOpenAIReasoningCarrier(t *testing.T) {
+	reasoningID := routerReasoningID("call_abc")
+	thoughtID := "toolu_def__thought__" + strings.Repeat("R", 600)
+	undecodableID := "call_abc__openai_reasoning__" + strings.Repeat("Q", 40)
+	body := []byte(`{"model":"claude-opus-4-7","messages":[
+		{"role":"assistant","content":[
+			{"type":"tool_use","id":"` + reasoningID + `","name":"Read","input":{}},
+			{"type":"tool_use","id":"` + thoughtID + `","name":"Grep","input":{}},
+			{"type":"tool_use","id":"` + undecodableID + `","name":"Glob","input":{}}]},
+		{"role":"user","content":[
+			{"type":"tool_result","tool_use_id":"` + reasoningID + `","content":"a"},
+			{"type":"tool_result","tool_use_id":"` + thoughtID + `","content":"b"},
+			{"type":"tool_result","tool_use_id":"` + undecodableID + `","content":"c"}]}]}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	require.NoError(t, err)
+
+	uses := gjson.GetBytes(prep.Body, "messages.0.content.#.id").Array()
+	results := gjson.GetBytes(prep.Body, "messages.1.content.#.tool_use_id").Array()
+	require.Len(t, uses, 3)
+	require.Len(t, results, 3)
+	assert.Equal(t, "call_abc", uses[0].String(), "router reasoning carrier is not sent to Anthropic")
+	assert.Equal(t, thoughtID, uses[1].String(), "Gemini thought carrier keeps its documented round-trip")
+	assert.Equal(t, undecodableID, uses[2].String(), "an undecodable suffix is caller data and keeps the id distinct")
+	for i := range uses {
+		assert.Equal(t, uses[i].String(), results[i].String(), "tool_use/tool_result pairing survives")
+	}
+	assert.NotContains(t, string(prep.Body), strings.TrimPrefix(reasoningID, "call_abc"), "router reasoning bytes are gone from the dispatched body")
+}
+
+func TestSanitizeOverlongToolUseNames(t *testing.T) {
+	overlongName := "Bname</arg_key><arg_value>" + strings.Repeat("x", 220)
+	tests := []struct {
+		name  string
+		parse func([]byte) (*translate.RequestEnvelope, error)
+		body  string
+	}{
+		{
+			name:  "anthropic history",
+			parse: translate.ParseAnthropic,
+			body: `{
+				"model": "claude-opus-4-7",
+				"tools": [{"name": %q, "input_schema": {"type": "object"}}],
+				"tool_choice": {"type": "tool", "name": %q},
+				"messages": [
+					{"role": "assistant", "content": [
+						{"type": "tool_use", "id": "toolu_bad", "name": %q, "input": {}}
+					]},
+					{"role": "user", "content": [
+						{"type": "tool_result", "tool_use_id": "toolu_bad", "content": "unknown tool"}
+					]}
+				]
+			}`,
+		},
+		{
+			name:  "openai history",
+			parse: translate.ParseOpenAI,
+			body: `{
+				"model": "gpt-5",
+				"tools": [{"type": "function", "function": {"name": %q, "parameters": {"type": "object"}}}],
+				"tool_choice": {"type": "function", "function": {"name": %q}},
+				"messages": [
+					{"role": "assistant", "tool_calls": [
+						{"id": "call_bad", "type": "function", "function": {"name": %q, "arguments": "{}"}}
+					]},
+					{"role": "tool", "tool_call_id": "call_bad", "content": "unknown tool"}
+				]
+			}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env, err := tt.parse([]byte(fmt.Sprintf(tt.body, overlongName, overlongName, overlongName)))
+			require.NoError(t, err)
+			prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+			require.NoError(t, err)
+
+			emittedNames := []string{
+				gjson.GetBytes(prep.Body, "messages.0.content.0.name").String(),
+				gjson.GetBytes(prep.Body, "tools.0.name").String(),
+				gjson.GetBytes(prep.Body, "tool_choice.name").String(),
+			}
+			for _, emittedName := range emittedNames {
+				assert.LessOrEqual(t, len(emittedName), 200)
+				assert.Regexp(t, `^invalid_tool_[a-f0-9]{40}$`, emittedName)
+				assert.Equal(t, emittedNames[0], emittedName)
+			}
+			assert.NotContains(t, string(prep.Body), overlongName)
+		})
+	}
+}
+
+func TestSanitizeAnthropicToolNamesUsesFieldSpecificLimits(t *testing.T) {
+	validHistoricalUnicodeName := strings.Repeat("界", 100)
+	invalidDeclaredName := strings.Repeat("a", 129)
+	collidingDeclaredName := "invalid_tool_d96debf1bdcbc896e6c134ea76e8141f40d78536"
+	body := []byte(fmt.Sprintf(`{
+		"model": "claude-opus-4-7",
+		"tools": [
+			{"name": %q, "input_schema": {"type": "object"}},
+			{"name": %q, "input_schema": {"type": "object"}}
+		],
+		"tool_choice": {"type": "tool", "name": %q},
+		"messages": [{"role": "assistant", "content": [
+			{"type": "tool_use", "id": "toolu_valid_unicode", "name": %q, "input": {}},
+			{"type": "tool_use", "id": "toolu_invalid_declared", "name": %q, "input": {}}
+		]}]
+	}`, collidingDeclaredName, invalidDeclaredName, invalidDeclaredName, validHistoricalUnicodeName, invalidDeclaredName))
+
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	require.NoError(t, err)
+
+	assert.Equal(t, validHistoricalUnicodeName, gjson.GetBytes(prep.Body, "messages.0.content.0.name").String())
+	assert.Equal(t, collidingDeclaredName, gjson.GetBytes(prep.Body, "tools.0.name").String())
+	declaredAlias := gjson.GetBytes(prep.Body, "tools.1.name").String()
+	assert.Regexp(t, `^invalid_tool_[a-f0-9]{40}$`, declaredAlias)
+	assert.NotEqual(t, collidingDeclaredName, declaredAlias)
+	assert.Equal(t, declaredAlias, gjson.GetBytes(prep.Body, "tool_choice.name").String())
+	assert.Equal(t, declaredAlias, gjson.GetBytes(prep.Body, "messages.0.content.1.name").String())
+}
+
+func TestSanitizeAnthropicToolNamesKeepsToolReferencesResolvable(t *testing.T) {
+	validLongName := "mcp__claude_ai_Atlassian_Rovo_2__getJiraProjectIssueTypesMetadata"
+	invalidDeclaredName := strings.Repeat("a", 129)
+	body := []byte(fmt.Sprintf(`{
+		"model": "claude-sonnet-5-5",
+		"tools": [
+			{"name": "ToolSearch", "input_schema": {"type": "object"}},
+			{"name": %q, "input_schema": {"type": "object"}, "defer_loading": true},
+			{"name": %q, "input_schema": {"type": "object"}, "defer_loading": true}
+		],
+		"system": [
+			{"type": "text", "text": "system prompt"},
+			{"type": "tool_addition", "tool": {"type": "tool_reference", "name": %q}}
+		],
+		"messages": [
+			{"role": "user", "content": "load the tools"},
+			{"role": "assistant", "content": [
+				{"type": "tool_use", "id": "toolu_search", "name": "ToolSearch", "input": {}}
+			]},
+			{"role": "user", "content": [
+				{"type": "tool_result", "tool_use_id": "toolu_search", "content": [
+					{"type": "tool_reference", "tool_name": %q},
+					{"type": "tool_reference", "tool_name": %q}
+				]},
+				{"type": "tool_addition", "tool": {"type": "tool_reference", "name": %q}}
+			]},
+			{"role": "assistant", "content": "loaded"},
+			{"role": "user", "content": [
+				{"type": "text", "text": "unload it"},
+				{"type": "tool_removal", "tool": {"type": "tool_reference", "name": %q}}
+			]}
+		]
+	}`, validLongName, invalidDeclaredName, invalidDeclaredName, validLongName, invalidDeclaredName, invalidDeclaredName, invalidDeclaredName))
+
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-sonnet-5-5"})
+	require.NoError(t, err)
+
+	assert.Equal(t, validLongName, gjson.GetBytes(prep.Body, "tools.1.name").String())
+	alias := gjson.GetBytes(prep.Body, "tools.2.name").String()
+	assert.Regexp(t, `^invalid_tool_[a-f0-9]{40}$`, alias)
+	refs := gjson.GetBytes(prep.Body, `messages.2.content.#(type=="tool_result").content`).Array()
+	require.Len(t, refs, 2)
+	assert.Equal(t, validLongName, refs[0].Get("tool_name").String())
+	assert.Equal(t, alias, refs[1].Get("tool_name").String())
+	assert.Equal(t, alias, gjson.GetBytes(prep.Body, `system.#(type=="tool_addition").tool.name`).String())
+	assert.Equal(t, alias, gjson.GetBytes(prep.Body, `messages.#.content.#(type=="tool_addition").tool.name|0`).String())
+	assert.Equal(t, alias, gjson.GetBytes(prep.Body, `messages.#.content.#(type=="tool_removal").tool.name|0`).String())
+	assert.NotContains(t, string(prep.Body), invalidDeclaredName)
+}
+
+func TestSanitizeAnthropicHistoricalToolNameCountsUnicodeCharacters(t *testing.T) {
+	overlongHistoricalName := strings.Repeat("界", 201)
+	body := []byte(fmt.Sprintf(`{
+		"model": "claude-opus-4-7",
+		"messages": [{"role": "assistant", "content": [
+			{"type": "tool_use", "id": "toolu_overlong_unicode", "name": %q, "input": {}}
+		]}]
+	}`, overlongHistoricalName))
+
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	require.NoError(t, err)
+
+	assert.Regexp(t, `^invalid_tool_[a-f0-9]{40}$`, gjson.GetBytes(prep.Body, "messages.0.content.0.name").String())
+}
+
+func TestSanitizeAnthropicToolNameAliasStableAcrossReplay(t *testing.T) {
+	invalidDeclaredName := strings.Repeat("a", 129)
+	collidingDeclaredName := "invalid_tool_d96debf1bdcbc896e6c134ea76e8141f40d78536"
+	initialBody := []byte(fmt.Sprintf(`{
+		"model": "claude-opus-4-7",
+		"tools": [
+			{"name": %q, "input_schema": {"type": "object"}},
+			{"name": %q, "input_schema": {"type": "object"}}
+		],
+		"tool_choice": {"type": "tool", "name": %q},
+		"messages": [{"role": "user", "content": "use the tool"}]
+	}`, collidingDeclaredName, invalidDeclaredName, invalidDeclaredName))
+
+	env, err := translate.ParseAnthropic(initialBody)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	require.NoError(t, err)
+	initialAlias := gjson.GetBytes(prep.Body, "tools.1.name").String()
+	require.NotEqual(t, collidingDeclaredName, initialAlias)
+
+	replayBody := []byte(fmt.Sprintf(`{
+		"model": "claude-opus-4-7",
+		"tools": [
+			{"name": %q, "input_schema": {"type": "object"}},
+			{"name": %q, "input_schema": {"type": "object"}}
+		],
+		"tool_choice": {"type": "tool", "name": %q},
+		"messages": [{"role": "assistant", "content": [
+			{"type": "tool_use", "id": "toolu_prior_alias", "name": %q, "input": {}}
+		]}]
+	}`, collidingDeclaredName, invalidDeclaredName, invalidDeclaredName, initialAlias))
+
+	replayEnv, err := translate.ParseAnthropic(replayBody)
+	require.NoError(t, err)
+	replay, err := replayEnv.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	require.NoError(t, err)
+
+	assert.Equal(t, initialAlias, gjson.GetBytes(replay.Body, "tools.1.name").String())
+	assert.Equal(t, initialAlias, gjson.GetBytes(replay.Body, "tool_choice.name").String())
+	assert.Equal(t, initialAlias, gjson.GetBytes(replay.Body, "messages.0.content.0.name").String())
+}
+
 // TestStripToolUseThoughtSignature_AnthropicToAnthropic checks a Gemini
 // thought_signature on a tool_use block is stripped before forwarding to
 // Anthropic (which 400s on the unknown field), while the id — which smuggles
@@ -1958,9 +2401,81 @@ func TestCrossFormat_OpenAIToAnthropic_ToolChoiceVariants(t *testing.T) {
 	}
 }
 
+// TestCrossFormat_OpenAIToAnthropic_ParallelToolCalls covers the reverse of
+// writeOpenAIParallelToolCallsFromAnthropic: parallel_tool_calls:false must
+// reach Anthropic as tool_choice.disable_parallel_tool_use.
+func TestCrossFormat_OpenAIToAnthropic_ParallelToolCalls(t *testing.T) {
+	cases := []struct {
+		name  string
+		extra string
+		want  any
+	}{
+		{"auto", `"tool_choice":"auto","parallel_tool_calls":false`, map[string]any{"type": "auto", "disable_parallel_tool_use": true}},
+		{"required", `"tool_choice":"required","parallel_tool_calls":false`, map[string]any{"type": "any", "disable_parallel_tool_use": true}},
+		{"named", `"tool_choice":{"type":"function","function":{"name":"Bash"}},"parallel_tool_calls":false`, map[string]any{"type": "tool", "name": "Bash", "disable_parallel_tool_use": true}},
+		{"choice absent", `"parallel_tool_calls":false`, map[string]any{"type": "auto", "disable_parallel_tool_use": true}},
+		{"parallel allowed", `"tool_choice":"required","parallel_tool_calls":true`, map[string]any{"type": "any"}},
+		{"parallel allowed, choice absent", `"parallel_tool_calls":true`, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{
+				"model": "gpt-6.1-sol",
+				"messages": [{"role": "user", "content": "hi"}],
+				"tools": [{"type": "function", "function": {"name": "Bash", "parameters": {"type": "object"}}}],
+				` + tc.extra + `
+			}`)
+			env, err := translate.ParseOpenAI(body)
+			require.NoError(t, err)
+			prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+				TargetModel:  "claude-sonnet-5",
+				Capabilities: router.Lookup("claude-sonnet-5"),
+			})
+			require.NoError(t, err)
+
+			var doc map[string]any
+			require.NoError(t, json.Unmarshal(prep.Body, &doc))
+			if tc.want == nil {
+				assert.NotContains(t, doc, "tool_choice")
+				return
+			}
+			assert.Equal(t, tc.want, doc["tool_choice"])
+		})
+	}
+
+	t.Run("only non-function tools", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-6.1-sol","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"web_search_preview"}],"parallel_tool_calls":false}`)
+		env, err := translate.ParseOpenAI(body)
+		require.NoError(t, err)
+		prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-sonnet-5", Capabilities: router.Lookup("claude-sonnet-5")})
+		require.NoError(t, err)
+		assert.False(t, gjson.GetBytes(prep.Body, "tool_choice").Exists(), "no function tool reaches Anthropic, so tool_choice would be rejected")
+	})
+
+	t.Run("no tools", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-6.1-sol","messages":[{"role":"user","content":"hi"}],"tools":[],"parallel_tool_calls":false}`)
+		env, err := translate.ParseOpenAI(body)
+		require.NoError(t, err)
+		prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-sonnet-5", Capabilities: router.Lookup("claude-sonnet-5")})
+		require.NoError(t, err)
+		assert.False(t, gjson.GetBytes(prep.Body, "tool_choice").Exists(), "tool_choice without tools is rejected by Anthropic")
+	})
+
+	t.Run("auto-only model keeps the limit", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-6.1-sol","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"Bash","parameters":{"type":"object"}}}],"tool_choice":"required","parallel_tool_calls":false}`)
+		env, err := translate.ParseOpenAI(body)
+		require.NoError(t, err)
+		prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+			TargetModel:  "claude-sonnet-5-5",
+			Capabilities: router.Lookup("claude-sonnet-5-5"),
+		})
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"type":"auto","disable_parallel_tool_use":true}`, gjson.GetBytes(prep.Body, "tool_choice").Raw)
+	})
+}
+
 // TestCrossFormat_AnthropicToOpenAI_ToolChoiceVariants covers the Anthropic ->
-// OpenAI chat-completions tool_choice mapping. Anthropic's "none" has no
-// direct chat-completions equivalent and is intentionally left unmapped.
+// OpenAI chat-completions tool_choice mapping, including "none".
 func TestCrossFormat_AnthropicToOpenAI_ToolChoiceVariants(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -1969,6 +2484,7 @@ func TestCrossFormat_AnthropicToOpenAI_ToolChoiceVariants(t *testing.T) {
 	}{
 		{"auto", `{"type":"auto"}`, "auto"},
 		{"any", `{"type":"any"}`, "required"},
+		{"none", `{"type":"none"}`, "none"},
 		{"tool", `{"type":"tool","name":"Bash"}`, map[string]any{"type": "function", "function": map[string]any{"name": "Bash"}}},
 	}
 	for _, tc := range cases {

@@ -1,5 +1,5 @@
 BEGIN;
 
-DROP TABLE IF EXISTS router.policy_shadow_decisions;
+DROP TABLE router.policy_shadow_decisions;
 
 COMMIT;

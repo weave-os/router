@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"sort"
 
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/policy"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
 
 	"github.com/gin-gonic/gin"
 )
@@ -21,20 +21,13 @@ type policyCatalogEntry struct {
 // surface to the control plane. It contains no tenant or request data.
 func PolicyCatalogHandler(service *proxy.Service, defaultStrategy router.Strategy) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		entries := []policyCatalogEntry{{
-			Strategy:  router.StrategyCluster,
-			Available: service != nil && service.PolicyStrategyAvailable(router.StrategyCluster),
-			Capabilities: policy.Capabilities{
-				SchemaVersion:          policy.SchemaVersionV1,
-				HonorsPreferredModels:  true,
-				HonorsQualityPriceBias: true,
-				SupportsPreview:        true,
-				SupportsShadow:         true,
-			},
-		}}
+		entries := []policyCatalogEntry{}
 		if service != nil {
 			for _, strategy := range service.RegisteredStrategies() {
-				capabilities, _ := service.PolicyCapabilities(strategy)
+				capabilities, _ := service.PolicyCapabilitiesForRequest(c.Request.Context(), strategy)
+				// Derived, not separately negotiated: ranked fallback is the
+				// precondition for cluster overrides taking effect.
+				capabilities.HonorsClusterModelLists = capabilities.ReportsRankedFallback
 				entries = append(entries, policyCatalogEntry{
 					Strategy:     strategy,
 					Available:    service.PolicyStrategyAvailable(strategy),

@@ -1,3 +1,6 @@
+-- Creates a router API key. scope decides what the credential can do:
+-- 'routing' proxies inference (and can spend), 'analytics_read' is read-only,
+-- 'session_issuer' stores the public_jwk that verifies rs_ session tokens.
 -- name: CreateModelRouterAPIKey :one
 INSERT INTO router.model_router_api_keys (
     installation_id,
@@ -6,7 +9,10 @@ INSERT INTO router.model_router_api_keys (
     key_prefix,
     key_hash,
     key_suffix,
-    created_by
+    created_by,
+    scope,
+    harness,
+    public_jwk
 )
 VALUES (
     @installation_id::uuid,
@@ -15,7 +21,10 @@ VALUES (
     @key_prefix::varchar,
     @key_hash::varchar,
     @key_suffix::varchar,
-    @created_by
+    @created_by,
+    @scope::varchar,
+    @harness,
+    sqlc.narg(public_jwk)::jsonb
 )
 RETURNING *;
 
@@ -40,13 +49,21 @@ WHERE installation_id = @installation_id::uuid
   AND deleted_at IS NULL
 ORDER BY created_at DESC;
 
--- Records that a key was used. Called fire-and-forget by the Service after successful
--- auth. Idempotent on retry.
--- name: MarkModelRouterAPIKeyUsed :exec
+-- Only one concurrent caller can make the first-use transition.
+-- name: MarkModelRouterAPIKeyFirstUsed :execrows
 UPDATE router.model_router_api_keys
 SET last_used_at = NOW()
 WHERE id = @id::uuid
-  AND deleted_at IS NULL;
+  AND deleted_at IS NULL
+  AND last_used_at IS NULL;
+
+-- Coalesce subsequent usage writes to at most one per minute per key.
+-- name: RefreshModelRouterAPIKeyLastUsed :exec
+UPDATE router.model_router_api_keys
+SET last_used_at = NOW()
+WHERE id = @id::uuid
+  AND deleted_at IS NULL
+  AND last_used_at < NOW() - INTERVAL '1 minute';
 
 -- Fresh per-request read of a key's lifetime spend cap and spend-to-date for
 -- the spend-cap gate. Read straight from Postgres (not the auth cache) so a
@@ -59,8 +76,9 @@ FROM router.model_router_api_keys
 WHERE id = @id::uuid
   AND deleted_at IS NULL;
 
--- Soft-deletes a router API key. Cross-tenant safe via installation_id predicate.
--- name: SoftDeleteModelRouterAPIKey :exec
+-- Soft-deletes a router API key. Cross-tenant safe via installation_id
+-- predicate. :execrows lets callers tell a 0-row no-op from a real transition.
+-- name: SoftDeleteModelRouterAPIKey :execrows
 UPDATE router.model_router_api_keys
 SET deleted_at = NOW()
 WHERE id = @id::uuid

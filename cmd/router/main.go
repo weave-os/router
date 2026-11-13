@@ -6,9 +6,13 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,37 +22,55 @@ import (
 	"syscall"
 	"time"
 
-	"workweave/router/internal/api/admin"
-	"workweave/router/internal/auth"
-	"workweave/router/internal/billing"
-	"workweave/router/internal/config"
-	"workweave/router/internal/feedback"
-	"workweave/router/internal/observability"
-	"workweave/router/internal/observability/apm"
-	"workweave/router/internal/observability/otel"
-	"workweave/router/internal/policyclient"
-	"workweave/router/internal/postgres"
-	"workweave/router/internal/providers"
-	"workweave/router/internal/providers/anthropic"
-	googleProvider "workweave/router/internal/providers/google"
-	openaiProvider "workweave/router/internal/providers/openai"
-	openaiCompatProvider "workweave/router/internal/providers/openaicompat"
-	"workweave/router/internal/proxy"
-	"workweave/router/internal/proxy/usage"
-	routerpubsub "workweave/router/internal/pubsub"
-	"workweave/router/internal/router"
-	"workweave/router/internal/router/bandit"
-	"workweave/router/internal/router/banditexplore"
-	"workweave/router/internal/router/cache"
-	"workweave/router/internal/router/catalog"
-	"workweave/router/internal/router/cluster"
-	"workweave/router/internal/router/handover"
-	"workweave/router/internal/router/hmm"
-	"workweave/router/internal/router/planner"
-	"workweave/router/internal/router/policy"
-	"workweave/router/internal/router/rl"
-	"workweave/router/internal/router/sessionpin"
-	"workweave/router/internal/server"
+	"weave-os/router/internal/analytics"
+	"weave-os/router/internal/anthropicfederation"
+	"weave-os/router/internal/api/admin"
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/config"
+	"weave-os/router/internal/dispatch"
+	"weave-os/router/internal/entra"
+	"weave-os/router/internal/escalationmodal"
+	"weave-os/router/internal/feedback"
+	"weave-os/router/internal/flags"
+	"weave-os/router/internal/observability"
+	"weave-os/router/internal/observability/apm"
+	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/policyclient"
+	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/postgres"
+	"weave-os/router/internal/postgres/pgtls"
+	"weave-os/router/internal/postgres/poolconfig"
+	servingpostgres "weave-os/router/internal/postgres/serving"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/anthropic"
+	"weave-os/router/internal/providers/cortexagents"
+	googleProvider "weave-os/router/internal/providers/google"
+	providerHTTP "weave-os/router/internal/providers/httputil"
+	openaiProvider "weave-os/router/internal/providers/openai"
+	openaiCompatProvider "weave-os/router/internal/providers/openaicompat"
+	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/proxy/usage"
+	routerpubsub "weave-os/router/internal/pubsub"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/breaker"
+	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/decisionmodel"
+	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/llmescalation"
+	"weave-os/router/internal/router/planner"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/rl"
+	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/router/sessionstrategy"
+	"weave-os/router/internal/server"
+	"weave-os/router/internal/server/middleware"
+	"weave-os/router/internal/subscriptions"
+	"weave-os/router/internal/subscriptions/entitlement"
+	"weave-os/router/internal/websearch"
+	"weave-os/router/internal/wif"
 
 	_ "time/tzdata"
 
@@ -60,6 +82,14 @@ import (
 
 func main() {
 	logger := observability.Get()
+	egressProbe, err := newStartupEgressProbe(config.GetOr("ROUTER_STARTUP_EGRESS_ORIGINS", ""))
+	if err != nil {
+		logger.Error("Invalid startup egress configuration; refusing to boot", "err", err)
+		panic(err)
+	}
+	// Initialize propagation and APM before constructing HTTP clients so their
+	// OpenTelemetry transports capture the configured providers and propagator.
+	apm.Init()
 	if err := router.ValidateCatalogReasoningCapabilities(); err != nil {
 		logger.Error("Refusing to boot with invalid model reasoning capabilities", "err", err)
 		panic(err)
@@ -70,6 +100,21 @@ func main() {
 		logger.Error("Failed to parse postgres DSN", "err", err)
 		panic(err)
 	}
+	poolconfig.ConfigureTimeouts(cfg)
+	clientTLS, err := pgtls.Configure(cfg)
+	if err != nil {
+		logger.Error("Failed to configure postgres client TLS", "err", err)
+		panic(err)
+	}
+	if clientTLS {
+		logger.Info("Postgres connections authenticate with a client certificate")
+	}
+	dbTracer, err := postgres.NewPGXTracer(cfg.ConnConfig.Database)
+	if err != nil {
+		logger.Error("Failed to construct postgres tracer", "err", err)
+		panic(err)
+	}
+	cfg.ConnConfig.Tracer = dbTracer
 	// Defense-in-depth: pin every connection to the router schema so a missing
 	// `?search_path=router` in DATABASE_URL can't leak into public.*.
 	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
@@ -92,6 +137,15 @@ func main() {
 	}
 	defer pool.Close()
 
+	// pgxpool connects lazily; first request otherwise pays to build the pool inside
+	// its own budget. Failure keeps /startupz unsuccessful until the DB recovers.
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	pingErr := pool.Ping(pingCtx)
+	pingCancel()
+	if pingErr != nil {
+		logger.Warn("Postgres ping at boot failed; startup probe requires database connectivity", "err", pingErr)
+	}
+
 	// Gates the self-hoster dashboard + /admin/v1/* API. Defaults to selfhosted
 	// so docker-compose/bare-binary deploys work out of the box; managed Cloud
 	// Run services set ROUTER_DEPLOYMENT_MODE=managed to drop that surface.
@@ -104,6 +158,18 @@ func main() {
 		panic(err)
 	}
 	logger.Info("Router deployment mode", "mode", deploymentMode)
+	allowCodexCredits, creditsErr := config.CodexExtraCreditsAllowed()
+	if creditsErr != nil {
+		panic(creditsErr)
+	}
+	if allowCodexCredits && deploymentMode != server.DeploymentModeSelfHosted {
+		panic("ROUTER_CODEX_ALLOW_EXTRA_CREDITS is supported only in selfhosted mode")
+	}
+
+	if err := validateManagedServingBoot(deploymentMode, osEnvLookup); err != nil {
+		logger.Error("Managed serving configuration is incomplete; refusing to boot", "mode", deploymentMode, "err", err)
+		panic(err)
+	}
 
 	translationCompatibilityMode, err := config.TranslationCompatibilityMode()
 	if err != nil {
@@ -129,11 +195,15 @@ func main() {
 	}
 
 	repo := postgres.NewRepository(pool, encryptor)
+	discoveryHTTPClient, err := providerHTTP.NewModelDiscoveryClient(config.GetOr("ROUTER_MODEL_DISCOVERY_PRIVATE_ORIGINS", ""))
+	if err != nil {
+		logger.Error("Invalid model discovery private-origin configuration", "err", err)
+		panic(err)
+	}
 
 	providerMap := make(map[string]providers.Client)
-	// envKeyedProviders = providers with a real deployment-level API key.
-	// Feeds resolveHardPinModel so compaction only lands where deployment
-	// auth actually exists — a BYOK/passthrough-only provider would 401.
+	// envKeyedProviders = providers with a real deployment-level API key; a
+	// BYOK/passthrough-only provider would 401 without request credentials.
 	envKeyedProviders := make(map[string]struct{})
 	// True when Anthropic has no deployment key but is reachable via client
 	// auth passthrough (Claude Code's OAuth/x-api-key flow). Must stay out of
@@ -147,6 +217,7 @@ func main() {
 	// silently falling to BYOK-only, which would 400 every request.
 	var billingSvc *billing.Service
 	if deploymentMode == server.DeploymentModeManaged {
+		byokFeeRate := parseEnvFloat("BYOK_FEE_RATE", billing.DefaultByokFeeRate)
 		billingRepo := postgres.NewBillingRepo(pool)
 		bootCtx, bootCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		tablesExist, billingCheckErr := billingRepo.BillingTablesExist(bootCtx)
@@ -154,18 +225,22 @@ func main() {
 		switch {
 		case billingCheckErr != nil:
 			logger.Warn("Boot billing health check errored; defaulting to billing-enabled in managed mode", "err", billingCheckErr)
-			billingSvc = billing.NewService(billingRepo)
+			billingSvc = billing.NewService(billingRepo).WithByokFeeRate(byokFeeRate)
 		case !tablesExist:
 			logger.Warn("Billing tables missing from router schema; staying in BYOK-only mode. Apply db migration 0006_credit_billing to enable billing.")
 		default:
-			billingSvc = billing.NewService(billingRepo)
-			logger.Info("Router billing enabled", "min_balance_usd_micros", billing.MinBalanceMicros)
+			billingSvc = billing.NewService(billingRepo).WithByokFeeRate(byokFeeRate)
+			logger.Info("Router billing enabled", "min_balance_usd_micros", billing.MinBalanceMicros, "byok_fee_rate", byokFeeRate)
 		}
 	}
 
 	// Managed without billing stays BYOK-only (avoids spending platform-key
 	// budget if billing fails to wire); managed with billing flips to
 	// platform-key mode gated by balance checks. Self-hosted is never BYOK-only.
+	if billingSvc != nil {
+		billingSvc.WithInternalTestPrepaid(servingpostgres.NewInternalTestBook(pool))
+		billingSvc.WithDelegatedSpend(postgres.NewBillingRepo(pool))
+	}
 	byokOnly := deploymentMode == server.DeploymentModeManaged && billingSvc == nil
 
 	// Always registered. With ANTHROPIC_API_KEY (selfhosted only) the router
@@ -174,7 +249,8 @@ func main() {
 	if !byokOnly {
 		anthropicKey = config.GetOr("ANTHROPIC_API_KEY", "")
 	}
-	providerMap[providers.ProviderAnthropic] = anthropic.NewClient(anthropicKey, anthropic.DefaultBaseURL)
+	anthropicClient := anthropic.NewClient(anthropicKey, anthropic.DefaultBaseURL, anthropic.WithModelListHTTPClient(discoveryHTTPClient))
+	providerMap[providers.ProviderAnthropic] = anthropicClient
 	switch {
 	case byokOnly:
 		logger.Info("Anthropic provider enabled (BYOK only)", "base_url", anthropic.DefaultBaseURL)
@@ -195,7 +271,21 @@ func main() {
 		}
 		// Codex (ChatGPT) subscription reroute to the Codex backend lives in
 		// the OpenAI client itself, keyed off the resolved credential.
-		providerMap[providers.ProviderOpenAI] = openaiProvider.NewClient(openaiKey, openaiBaseURL)
+		openaiClient := openaiProvider.NewClientWithModelIDMap(
+			openaiKey,
+			openaiBaseURL,
+			upstreamIDsForProvider(providers.ProviderOpenAI),
+		)
+		openaiClient.SetCodexExtraCreditsAllowed(allowCodexCredits)
+		logger.Info("Codex subscription credit policy configured", "allow_extra_credits", allowCodexCredits)
+		// Local tests can point the subscription branch at a deterministic native
+		// Responses mock without changing the production ChatGPT endpoint.
+		if deploymentMode == server.DeploymentModeSelfHosted {
+			if codexBaseURL := config.GetOr("ROUTER_CODEX_BASE_URL", ""); codexBaseURL != "" {
+				openaiClient.SetCodexBaseURL(codexBaseURL)
+			}
+		}
+		providerMap[providers.ProviderOpenAI] = openaiClient
 		switch {
 		case byokOnly:
 			logger.Info("OpenAI provider enabled (BYOK only)", "base_url", openaiBaseURL)
@@ -221,7 +311,16 @@ func main() {
 		if !byokOnly && openRouterPlatformEnabled {
 			openRouterKey = config.GetOr("OPENROUTER_API_KEY", "")
 		}
-		providerMap[providers.ProviderOpenRouter] = openaiCompatProvider.NewClient(openRouterKey, openRouterBaseURL)
+		openRouterModelIDMap, err := openRouterModelIDs(os.Getenv("ROUTER_MODEL_ID_MAP"))
+		if err != nil {
+			panic(fmt.Sprintf("ROUTER_MODEL_ID_MAP: %v", err))
+		}
+		providerMap[providers.ProviderOpenRouter] = openaiCompatProvider.NewClientWithModelIDMap(
+			openRouterKey,
+			openRouterBaseURL,
+			openRouterModelIDMap,
+			openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient),
+		)
 		switch {
 		case byokOnly:
 			logger.Info("OpenRouter provider enabled (BYOK only)", "base_url", openRouterBaseURL)
@@ -240,31 +339,53 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderFireworks, "Fireworks", "FIREWORKS_API_KEY", fireworksBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderFireworks))
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderFireworks), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
 			})
 	}
 
 	{
-		// Makora uses DeepSeek-canonical model IDs vs. the router's slash-form
+		// DeepInfra is the primary OSS serving surface for the Max candidate
+		// models. It speaks OpenAI Chat Completions and receives the canonical
+		// model IDs from the catalog's UpstreamID bindings.
+		deepInfraBaseURL := config.GetOr("DEEPINFRA_BASE_URL", openaiCompatProvider.DeepInfraBaseURL)
+		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
+			providers.ProviderDeepInfra, "DeepInfra", "DEEPINFRA_API_KEY", deepInfraBaseURL, byokOnly,
+			func(key, baseURL string) providers.Client {
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderDeepInfra), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
+			})
+	}
+
+	{
+		// Makora uses provider-canonical model IDs vs. the router's slash-form
 		// slugs; modelIDMap comes from the catalog's per-binding UpstreamID.
 		makoraBaseURL := config.GetOr("MAKORA_BASE_URL", openaiCompatProvider.MakoraBaseURL)
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderMakora, "Makora", "MAKORA_API_KEY", makoraBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderMakora))
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderMakora), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
 			})
 	}
 
 	{
 		// Primary binding for DeepSeek V4 Pro / GLM-5.1 / MiniMax M2.7 (top of
-		// artificialanalysis.ai throughput tables); prior providers stay as
-		// ordered fallbacks. Uses "Org/Model" IDs vs. the router's slash-form
-		// slugs; modelIDMap comes from the catalog's per-binding UpstreamID.
+		// artificialanalysis.ai throughput tables); also an ordered fallback for
+		// models led by another provider. Uses "Org/Model" IDs vs. the router's
+		// slash-form slugs; modelIDMap comes from each binding's UpstreamID.
 		togetherBaseURL := config.GetOr("TOGETHER_BASE_URL", openaiCompatProvider.TogetherBaseURL)
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderTogether, "Together", "TOGETHER_API_KEY", togetherBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderTogether))
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderTogether), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
+			})
+	}
+
+	{
+		minimaxRegion := config.GetOr("MINIMAX_REGION", "global")
+		minimaxBaseURL := config.GetOr("MINIMAX_BASE_URL", openaiCompatProvider.MiniMaxBaseURL(minimaxRegion))
+		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
+			providers.ProviderMiniMax, "MiniMax", "MINIMAX_API_KEY", minimaxBaseURL, byokOnly,
+			func(key, baseURL string) providers.Client {
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderMiniMax), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
 			})
 	}
 
@@ -273,8 +394,51 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderXAI, "XAI", "XAI_API_KEY", xaiBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClient(key, baseURL)
+				return openaiCompatProvider.NewClient(key, baseURL, openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
 			})
+	}
+
+	{
+		metaBaseURL := config.GetOr("META_BASE_URL", openaiCompatProvider.MetaBaseURL)
+		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
+			providers.ProviderMeta, "Meta", "META_API_KEY", metaBaseURL, byokOnly,
+			func(key, baseURL string) providers.Client {
+				return openaiCompatProvider.NewClient(key, baseURL, openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
+			})
+	}
+
+	{
+		// Wafer-ZDR: required — Wafer rejects requests whose model doesn't
+		// support ZDR rather than serve them without retention.
+		waferBaseURL := config.GetOr("WAFER_BASE_URL", openaiCompatProvider.WaferBaseURL)
+		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
+			providers.ProviderWafer, "Wafer", "WAFER_API_KEY", waferBaseURL, byokOnly,
+			func(key, baseURL string) providers.Client {
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderWafer), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient)).
+					WithProtectedHeaders(http.Header{"Wafer-ZDR": []string{"required"}})
+			})
+	}
+
+	{
+		// Wafer's Anthropic-compatible Messages surface; same WAFER_API_KEY,
+		// bearer auth, fixed endpoint.
+		waferAnthropicKey := ""
+		if !byokOnly {
+			waferAnthropicKey = config.GetOr(providers.APIKeyEnvVar(providers.ProviderWaferAnthropic), "")
+		}
+		waferMessagesBaseURL := anthropic.WaferMessagesBaseURL
+		providerMap[providers.ProviderWaferAnthropic] = anthropic.NewClient(
+			waferAnthropicKey, waferMessagesBaseURL,
+			anthropic.WithAuthScheme(anthropic.AuthBearer),
+			anthropic.WithModelListHTTPClient(discoveryHTTPClient)).
+			WithProtectedHeaders(http.Header{"Wafer-ZDR": []string{"required"}}).
+			WithModelIDMap(upstreamIDsForProvider(providers.ProviderWaferAnthropic))
+		if waferAnthropicKey != "" {
+			envKeyedProviders[providers.ProviderWaferAnthropic] = struct{}{}
+			logger.Info("Wafer Anthropic provider enabled", "base_url", waferMessagesBaseURL)
+		} else {
+			logger.Info("Wafer Anthropic provider registered (BYOK only — set WAFER_API_KEY for deployment-level use)", "base_url", waferMessagesBaseURL)
+		}
 	}
 
 	{
@@ -287,9 +451,46 @@ func main() {
 		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
 			providers.ProviderBedrock, "Bedrock", "AWS_BEARER_TOKEN_BEDROCK", bedrockBaseURL, byokOnly,
 			func(key, baseURL string) providers.Client {
-				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderBedrock))
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderBedrock), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
 			},
 			"region", bedrockRegion)
+	}
+
+	{
+		// Endpoint is per-tenant with no vendor default; token is only used when a
+		// base URL is also set.
+		gatewayBaseURL := config.GetOr("ANTHROPIC_GATEWAY_BASE_URL", "")
+		gatewayToken := ""
+		if !byokOnly && gatewayBaseURL != "" {
+			gatewayToken = config.GetOr(providers.APIKeyEnvVar(providers.ProviderAnthropicGateway), "")
+		}
+		providerMap[providers.ProviderAnthropicGateway] = anthropic.NewClient(
+			gatewayToken, gatewayBaseURL,
+			anthropic.WithAuthScheme(anthropic.AuthBearer),
+			anthropic.WithModelListHTTPClient(discoveryHTTPClient))
+		if gatewayToken != "" {
+			envKeyedProviders[providers.ProviderAnthropicGateway] = struct{}{}
+			logger.Info("Anthropic gateway provider enabled", "base_url", gatewayBaseURL)
+		} else {
+			logger.Info("Anthropic gateway provider registered (BYOK only — set ANTHROPIC_GATEWAY_TOKEN and ANTHROPIC_GATEWAY_BASE_URL for deployment-level use)")
+		}
+	}
+
+	{
+		// Same arrangement for the OpenAI-spec surface of a customer gateway
+		// (Snowflake Cortex serves its non-Claude models only here).
+		gatewayBaseURL := config.GetOr("OPENAI_GATEWAY_BASE_URL", "")
+		gatewayToken := ""
+		if !byokOnly && gatewayBaseURL != "" {
+			gatewayToken = config.GetOr(providers.APIKeyEnvVar(providers.ProviderOpenAIGateway), "")
+		}
+		providerMap[providers.ProviderOpenAIGateway] = openaiCompatProvider.NewGatewayClient(gatewayToken, gatewayBaseURL, openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
+		if gatewayToken != "" {
+			envKeyedProviders[providers.ProviderOpenAIGateway] = struct{}{}
+			logger.Info("OpenAI gateway provider enabled", "base_url", gatewayBaseURL)
+		} else {
+			logger.Info("OpenAI gateway provider registered (BYOK only — set OPENAI_GATEWAY_TOKEN and OPENAI_GATEWAY_BASE_URL for deployment-level use)")
+		}
 	}
 
 	{
@@ -307,6 +508,11 @@ func main() {
 	for name := range providerMap {
 		availableProviders[name] = struct{}{}
 	}
+	inferenceExecutor, err := dispatch.NewExecutor(dispatch.NewClients(providerMap),
+		dispatch.WithAttemptSink(proxy.NewAttemptSink(repo.Telemetry, logger)))
+	if err != nil {
+		panic(fmt.Sprintf("inference executor: %v", err))
+	}
 
 	// A provider missing a ProviderFamilies entry would silently 502 every
 	// request despite looking "enabled" — panic at boot instead.
@@ -319,16 +525,28 @@ func main() {
 		panic(err)
 	}
 
-	rtr, defaultEmbedderID, err := buildClusterScorer(availableProviders)
-	if err != nil {
-		// Ops alerts on Cloud Run boot failures; silent degradation would mask quality regressions.
-		logger.Error("Cluster scorer failed to build; refusing to boot", "err", err)
-		panic(err)
+	var admissionDecisions *policyregistry.AdmissionDecisionCache
+	if managedServingEnabled(deploymentMode) {
+		target := policyregistry.ServingTarget(config.MustGet("ROUTER_SERVING_TARGET"))
+		environment, err := target.Environment()
+		if err != nil {
+			panic(err)
+		}
+		admissions, err := servingpostgres.NewServingAdmissionRepo(pool, environment)
+		if err != nil {
+			panic(err)
+		}
+		admissionDecisions, err = policyregistry.NewAdmissionDecisionCache(admissions, 10000, 30*time.Second, time.Now)
+		if err != nil {
+			panic(err)
+		}
 	}
-	logger.Info("Routing via cluster scorer", "embedder", defaultEmbedderID)
-
 	cache := auth.NewLRUAPIKeyCache(10000, 50000, 5*time.Minute, 60*time.Second)
 	userCache := auth.NewLRUUserCache(50000, 10*time.Minute)
+	// 5-min TTL matches the API-key cache so both halves share one staleness bound under a Pub/Sub outage.
+	userClusterCache := auth.NewLRUUserClusterListCache(50000, 5*time.Minute)
+	blindExperimentCache := auth.NewLRUBlindExperimentCache(50000, 5*time.Minute, time.Now)
+	routingPolicyCache := auth.NewRoutingPolicyCache(5 * time.Minute)
 
 	pubsubProjectID := config.MustGet("PUBSUB_PROJECT_ID")
 	pubsubTopicID := config.MustGet("PUBSUB_TOPIC_ROUTER_INVALIDATION")
@@ -359,9 +577,48 @@ func main() {
 		}
 	}
 
+	// Deployment-wide escape hatch: suppresses every per-organization flag
+	// override so an incident rollback via env var always wins. Off by default,
+	// i.e. per-org overrides are honored.
+	flagOverridesDisabled := config.GetOr("ROUTER_FLAG_OVERRIDES_DISABLED", "false") == "true"
+	if flagOverridesDisabled {
+		logger.Info("Per-organization flag overrides disabled deployment-wide (ROUTER_FLAG_OVERRIDES_DISABLED=true)")
+	}
+
 	authSvc := auth.NewService(repo.Installations, repo.APIKeys, repo.ExternalAPIKeys, repo.Users, cache, userCache, time.Now).
+		WithCredentialSubjectLookup(postgres.NewCredentialSubjectRepo(pool)).
 		WithEncryptor(encryptor).
-		WithInstallationChangeNotifier(notifier)
+		WithInstallationChangeNotifier(notifier).
+		WithClusterModelLists(repo.ClusterModelLists).
+		WithUserClusterModelLists(repo.UserClusterModelLists, userClusterCache).
+		WithBlindExperiments(repo.BlindExperiments, blindExperimentCache).
+		WithBlindExperimentSessions(repo.BlindExperimentSessions).
+		WithRoutingPolicies(repo.RoutingPolicies, routingPolicyCache).
+		WithWIFTokenSource(buildWIFTokenSource(logger)).
+		WithAnthropicFederationTokenSource(buildAnthropicFederationTokenSource(deploymentMode)).
+		WithEntraTokenSource(buildEntraTokenSource(logger)).
+		WithFlagOverridesDisabled(flagOverridesDisabled).
+		WithSessionSpendCaps(billingSvc != nil)
+	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
+	var subscriptionRuntime *subscriptions.Runtime
+	var subscriptionLogins admin.SubscriptionLoginFlow
+	if subscriptionPoolsEnabled {
+		authSvc.WithSubscriptionAccounts(repo.SubscriptionAccounts)
+		codexTokenURL := ""
+		if codexIssuer := strings.TrimRight(config.GetOr("WEAVE_CODEX_OAUTH_ISSUER", ""), "/"); codexIssuer != "" {
+			codexTokenURL = codexIssuer + "/oauth/token"
+		}
+		subscriptionOAuth := subscriptions.NewOAuthClient(
+			&http.Client{Timeout: subscriptions.RefreshHTTPTimeout}, codexTokenURL,
+			config.GetOr("WEAVE_ANTHROPIC_OAUTH_TOKEN", ""), time.Now,
+		)
+		authSvc.WithCodexEnrollmentVerifier(subscriptionOAuth)
+		subscriptionLogins = subscriptionOAuth
+		subscriptionRuntime = subscriptions.NewRuntime(authSvc, subscriptionOAuth, time.Now)
+		logger.Info("Server-side subscription account pools enabled")
+	} else {
+		logger.Info("Server-side subscription account pools disabled")
+	}
 
 	// Fans out Pub/Sub invalidations to this replica's cache; the 5-min TTL
 	// is the safety net if the listener falls behind.
@@ -377,7 +634,11 @@ func main() {
 	defer deleteSubscription()
 	logger.Info("Created per-replica invalidation subscription", "subscription", subscriptionName)
 
-	listener := routerpubsub.NewInvalidationListener(pubsubClient.Subscriber(subscriptionName), cache)
+	invalidators := []auth.InstallationInvalidator{cache, userClusterCache, blindExperimentCache, routingPolicyCache}
+	if admissionDecisions != nil {
+		invalidators = append(invalidators, admissionDecisions)
+	}
+	listener := routerpubsub.NewInvalidationListener(pubsubClient.Subscriber(subscriptionName), invalidators...)
 	listenerCtx, listenerCancel := context.WithCancel(context.Background())
 	defer func() {
 		listenerCancel()
@@ -389,16 +650,9 @@ func main() {
 	if deploymentMode == server.DeploymentModeSelfHosted {
 		adminPassword := config.GetOr("ROUTER_ADMIN_PASSWORD", "")
 		if adminPassword == "" {
-			adminPassword = "admin"
-			logger.Warn("ROUTER_ADMIN_PASSWORD not set; using default 'admin'. Set ROUTER_ADMIN_PASSWORD to secure the dashboard.")
+			logger.Warn("ROUTER_ADMIN_PASSWORD not set; dashboard administration is disabled. Set ROUTER_ADMIN_PASSWORD to enable it.")
 		}
 		authSvc.WithAdminPassword(adminPassword)
-	}
-	embedOnlyUser := config.GetOr("ROUTER_EMBED_ONLY_USER_MESSAGE", "true") == "true"
-	if embedOnlyUser {
-		logger.Info("Cluster scorer embedding user-role text only (ROUTER_EMBED_ONLY_USER_MESSAGE=true)")
-	} else {
-		logger.Info("Cluster scorer embedding concatenated stream (ROUTER_EMBED_ONLY_USER_MESSAGE=false)")
 	}
 	escapeNormalize := config.GetOr("ROUTER_DEEPSEEK_ESCAPE_NORMALIZE", "false") == "true"
 	if escapeNormalize {
@@ -415,9 +669,8 @@ func main() {
 	var telemetryEmitter proxy.TelemetryEmitter
 	if emitter != nil {
 		telemetryEmitter = emitter
+		authSvc.WithOnboardingObserver(otel.NewOnboardingObserver(emitter))
 	}
-
-	semanticCache := buildSemanticCache(rtr)
 
 	// Default-on: the scorer's α-blend ignores prompt-cache continuity, so
 	// without pinning, mid-conversation provider switches pay a cache-write
@@ -430,43 +683,53 @@ func main() {
 		logger.Info("Session pin store enabled (sliding 1h TTL, hourly sweep)")
 	}
 
+	sessionTurnClock := postgres.NewSessionTurnClockRepo(pool)
+	safeGo(logger, "session-turn-clock-sweep", func() { runSessionTurnClockSweep(context.Background(), sessionTurnClock) })
+
 	hardPinExplore := config.GetOr("ROUTER_HARD_PIN_EXPLORE", "true") == "true"
-	// Hard-pin compaction runs on every installation, so it must land on a
-	// provider with real deployment auth (env-keyed, excluding BYOK/passthrough)
-	// or it 401s. In managed/byokOnly mode no provider has deployment auth, so
-	// the boot-time pin here is just a fallback — per-request resolution below
-	// does the real work.
-	hardPinProvider, hardPinModel := resolveHardPinModel(envKeyedProviders, logger)
+	hardPinOverrideConfigured := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_MODEL", "")) != ""
+	// The boot-time pin seeds the title-gen, classifier, probe and sub-agent
+	// deployment targets; hard-pinned turns serve it directly only when the
+	// per-request resolver below is not wired (ROUTER_HARD_PIN_MODEL override).
+	hardPinProvider, hardPinModel, err := resolveHardPinModel()
+	if err != nil {
+		logger.Error("Invalid hard-pin model configuration; refusing to boot", "err", err)
+		panic(err)
+	}
 	if hardPinExplore {
 		logger.Info("Explore sub-agent hard-pin enabled", "provider", hardPinProvider, "model", hardPinModel)
 	}
 	logger.Info("Hard-pin model resolved", "provider", hardPinProvider, "model", hardPinModel, "byok_only", byokOnly)
 
-	// Per-request hard-pin resolver: closes over the default cluster bundle so
-	// the proxy can resolve per-request against the request's enabled-providers
-	// and the installation's excluded_models (the hard-pin tier bypasses the
-	// scorer, the only component that otherwise applies excluded_models).
-	// nil if the bundle fails to load, falling back to boot-time hardPin{Provider,Model}.
-	// Not wired when ROUTER_HARD_PIN_MODEL is set — an operator override is
-	// absolute and must never be silently rewritten by excluded_models.
-	var hardPinResolver func(enabled, denySet map[string]struct{}) (string, string, bool)
-	if config.GetOr("ROUTER_HARD_PIN_MODEL", "") == "" {
-		reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
-		if version, vErr := cluster.ResolveVersion(reqVersion); vErr == nil {
-			if bundle, bErr := cluster.LoadBundle(version); bErr == nil {
-				meta, registry := bundle.Metadata, bundle.Registry
-				hardPinResolver = func(enabled, denySet map[string]struct{}) (string, string, bool) {
-					return cluster.FastestModelInSet(meta, registry, enabled, denySet, nil)
-				}
-				logger.Info("Hard-pin resolver wired (per-request fastest model from cluster bundle, applies excluded_models)", "version", version, "byok_only", byokOnly)
-			} else {
-				logger.Warn("Hard-pin resolver disabled: cluster bundle failed to load; hard-pin will fall back to boot-time defaults and cannot apply excluded_models", "err", bErr, "version", version)
-			}
-		} else {
-			logger.Warn("Hard-pin resolver disabled: could not resolve cluster version; hard-pin will fall back to boot-time defaults and cannot apply excluded_models", "err", vErr)
-		}
+	// Per-request hard-pin resolver: picks the catalog utility target for the
+	// request's enabled providers, excluded_models and bindings (the hard-pin
+	// tier bypasses the scorer, the only component that otherwise applies
+	// excluded_models). Not wired when ROUTER_HARD_PIN_MODEL is set — an
+	// operator override is absolute and must never be silently rewritten by
+	// excluded_models.
+	var hardPinResolver proxy.HardPinResolver
+	if !hardPinOverrideConfigured {
+		hardPinResolver = proxy.CatalogUtilityHardPin
+		logger.Info("Hard-pin resolver wired (per-request catalog utility target, applies excluded_models)", "default_model", policy.UtilityHardPinDefaultModel, "byok_only", byokOnly)
 	} else {
 		logger.Info("Hard-pin resolver not wired: ROUTER_HARD_PIN_MODEL operator override is set and absolute by design", "model", hardPinModel)
+	}
+
+	// ROUTER_SUBAGENT_PROVIDER + ROUTER_SUBAGENT_MODEL pin SubAgentDispatch
+	// turns to a distinct provider/model; both must be set together.
+	subAgentProvider := config.GetOr("ROUTER_SUBAGENT_PROVIDER", "")
+	subAgentModel := config.GetOr("ROUTER_SUBAGENT_MODEL", "")
+	switch {
+	case subAgentModel != "" && subAgentProvider == "":
+		err := errors.New("ROUTER_SUBAGENT_MODEL requires ROUTER_SUBAGENT_PROVIDER")
+		logger.Error("Invalid sub-agent routing override; refusing to boot", "err", err)
+		panic(err)
+	case subAgentProvider != "" && subAgentModel == "":
+		err := errors.New("ROUTER_SUBAGENT_PROVIDER requires ROUTER_SUBAGENT_MODEL")
+		logger.Error("Invalid sub-agent routing override; refusing to boot", "err", err)
+		panic(err)
+	case subAgentModel != "":
+		logger.Info("Sub-agent routing override enabled", "provider", subAgentProvider, "model", subAgentModel)
 	}
 
 	// Default-eligible set: env-keyed providers only. BYOK/client credentials
@@ -493,13 +756,51 @@ func main() {
 	// below can be overridden per deployment.
 	plannerEnabled := config.GetOr("ROUTER_PLANNER_ENABLED", "true") == "true"
 	scoreToolResultTurns := config.GetOr("ROUTER_SCORE_TOOL_RESULT_TURNS", "true") == "true"
-	// Defensive backstop for Anthropic's cyber safety classifier: re-pin a
-	// session off a model that returned a safety refusal. Default off; enabled
-	// on the defensive deploy. Fallback target when the pin has no runner-up.
-	cyberRefusalRepin := config.GetOr("ROUTER_CYBER_REFUSAL_REPIN", "false") == "true"
+	// Safety-refusal backstop: re-pin session off the refusing model and ask
+	// Anthropic to re-serve the refused turn on a fallback model.
+	cyberRefusalRepin := config.GetOr("ROUTER_CYBER_REFUSAL_REPIN", "true") == "true"
+	cyberRefusalRetry := config.GetOr("ROUTER_CYBER_REFUSAL_RETRY", "true") == "true"
 	cyberRefusalFallbackModel := config.GetOr("ROUTER_CYBER_REFUSAL_FALLBACK_MODEL", "claude-sonnet-5")
+	anthropicServerSideFallback := config.GetOr("ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK", "true") == "true"
+	scopedSearchRequirement := config.GetOr("ROUTER_SCOPED_SEARCH_REQUIREMENT", "true") == "true"
+	searchRequirementDecayTurns := parseEnvInt("ROUTER_SEARCH_REQUIREMENT_DECAY_TURNS", proxy.DefaultSearchRequirementDecayTurns)
 	effortEscalation := config.GetOr("ROUTER_EFFORT_ESCALATION", "false") == "true"
+	// Kill switch for degrading to a same-cluster candidate when the routed
+	// model's bindings are all exhausted by a transient upstream fault.
+	siblingFailover := config.GetOr("ROUTER_SIBLING_FAILOVER", "true") == "true"
+	openAIResponsesBroad := config.GetOr("ROUTER_OPENAI_RESPONSES_BROAD", "true") == "true"
+	allowedModelsHeader := config.GetOr("ROUTER_ALLOWED_MODELS_HEADER", "false") == "true"
+	// Session-level demotion of an arm whose stream died after commit. Off
+	// until the upstream owner of those cuts is identified.
+	committedStreamArmDemotion := config.GetOr("ROUTER_COMMITTED_STREAM_ARM_DEMOTION", "false") == "true"
+	// Session-level demotion of the primary arm after a response-header timeout
+	// or another pre-commit failure followed by sibling rescue. Off until baked
+	// off against the committed-stream demotion.
+	rescuedFailureArmDemotion := config.GetOr("ROUTER_RESCUED_FAILURE_ARM_DEMOTION", "false") == "true"
+	// Upstream 429s as transient throttling: cooldown demotion, fail-open
+	// rescue and Retry-After-aware same-binding retry. Off until baked off.
+	transientRateLimit := config.GetOr("ROUTER_TRANSIENT_RATE_LIMIT", "false") == "true"
+	rateLimitCooldownSeconds := parseEnvInt("ROUTER_RATE_LIMIT_COOLDOWN_SECONDS", proxy.DefaultRateLimitCooldownSeconds)
+	// Per-model 529 circuit breaker. Its thresholds are fixed in
+	// internal/router/breaker/thresholds.go.
+	providerOverloaded := config.GetOr("ROUTER_PROVIDER_OVERLOADED", "true") == "true"
+	// nativeAnthropicResponseSignals records the stop reason and tool_use block
+	// count an Anthropic-native turn already streams past the usage extractor;
+	// kill switch for that extraction and the telemetry columns it fills.
+	nativeAnthropicResponseSignals := config.GetOr("ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS", "true") == "true"
+	// nativeOpenAIResponseSignals is the same kill switch for the OpenAI-native
+	// surfaces: chat/completions passthrough and /v1/responses passthrough.
+	nativeOpenAIResponseSignals := config.GetOr("ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS", "true") == "true"
+	sseKeepalive := sseKeepaliveInterval()
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
+	ccTaskToolsCrossVendor := config.GetOr("ROUTER_CC_TASK_TOOLS_CROSSVENDOR", "false") == "true"
+	ccAutonomySystemAppend := config.GetOr("ROUTER_CC_AUTONOMY_SYSTEM_APPEND", "false") == "true"
+	earlyStopRedo, err := flags.ParseEarlyStopRedoMode(config.GetOr("ROUTER_EARLY_STOP_REDO", string(flags.EarlyStopRedoOff)))
+	if err != nil {
+		logger.Error("Invalid ROUTER_EARLY_STOP_REDO; refusing to boot", "err", err)
+		panic(err)
+	}
+	ccWorkspaceSystemAppend := config.GetOr("ROUTER_CC_WORKSPACE_SYSTEM_APPEND", "false") == "true"
 	// Per-turn large-vs-small action-classifier swap. Off by default until the
 	// Layer-2 extrinsic validation clears it; enabling loads the compiled-in head.
 	bandSwapEnabled := config.GetOr("ROUTER_BAND_SWAP", "false") == "true"
@@ -521,6 +822,14 @@ func main() {
 	// Shadow mode is log-only, so it ships enabled; the switch just sheds the
 	// per-turn signal-scan cost if it misbehaves.
 	spiralShadowEnabled := config.GetOr("ROUTER_SPIRAL_SHADOW_ENABLED", "true") == "true"
+	// Per-turn signal snapshot on telemetry rows. Ships enabled; only source
+	// of negative examples. Skipped regardless for opted-out installations.
+	// Kill switch: ROUTER_TURN_SIGNAL_CAPTURE_ENABLED.
+	turnSignalCaptureEnabled := config.GetOr("ROUTER_TURN_SIGNAL_CAPTURE_ENABLED", "true") == "true"
+	// Session-level struggle detector, also log-only and shipped enabled.
+	// Switch sheds the per-turn check if it misbehaves; exists for symmetry with the spiral detector.
+	struggleShadowEnabled := config.GetOr("ROUTER_STRUGGLE_SHADOW_ENABLED", "true") == "true"
+
 	// Enforcing text-repetition break ships enabled; the switch is the kill
 	// switch if it ever false-positives on legit repeated narration.
 	textRepetitionBreakEnabled := config.GetOr("ROUTER_TEXT_REPETITION_BREAK_ENABLED", "true") == "true"
@@ -529,36 +838,146 @@ func main() {
 		ExpectedRemainingTurns: parseEnvInt("ROUTER_SWITCH_EXPECTED_REMAINING_TURNS", proxy.DefaultPlannerExpectedRemainingTurns),
 		TierUpgradeEnabled:     config.GetOr("ROUTER_SWITCH_TIER_UPGRADE_ENABLED", boolDefault(proxy.DefaultPlannerTierUpgradeEnabled)) == "true",
 		ColdPinFollowFresh:     config.GetOr("ROUTER_SWITCH_COLD_PIN_FOLLOW_FRESH", boolDefault(proxy.DefaultPlannerColdPinFollowFresh)) == "true",
+		CorrectedEconomics:     config.GetOr("ROUTER_SWITCH_CORRECTED_ECONOMICS", boolDefault(proxy.DefaultPlannerCorrectedEconomics)) == "true",
 	}
 	prefixTrimFreeSwitch := config.GetOr("ROUTER_PREFIX_TRIM_FREE_SWITCH", "true") == "true"
-	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", 0.85)
+	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", proxy.DefaultHMMUpgradeConfidenceThreshold)
+	upgradeConfig, err := authoritativeUpgradeConfigFromEnv()
+	if err != nil {
+		logger.Error("Invalid authoritative upgrade shadow configuration; refusing to boot", "err", err)
+		panic(err)
+	}
+	hmmSameTierPin := config.GetOr("ROUTER_HMM_SAME_TIER_PIN", "false") == "true"
+	// authoritativeUpgradeGate keeps the upgrade-confidence floor active for authoritative-per-turn
+	// policies; kill switch for a return to verbatim policy selection.
+	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
+	authoritativeUpgradePolicy := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_POLICY", string(flags.AuthoritativeUpgradePolicyScore))
+	parsedUpgradePolicy, err := flags.ParseAuthoritativeUpgradePolicy(authoritativeUpgradePolicy)
+	if err != nil {
+		logger.Error("Invalid ROUTER_AUTHORITATIVE_UPGRADE_POLICY; refusing to boot", "err", err)
+		panic(err)
+	}
+	authoritativeUpgradeHoldoutPct := parseEnvNonNegativeInt("ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT", 0)
+	if authoritativeUpgradeHoldoutPct > 100 {
+		logger.Error("ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT must be 0-100; refusing to boot", "value", authoritativeUpgradeHoldoutPct)
+		panic("invalid ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT")
+	}
+	authoritativeUpgradeVotes := parseEnvNonNegativeInt("ROUTER_AUTHORITATIVE_UPGRADE_VOTES", 3)
+	// authoritativeDowngradeGate mirrors the floor for cheaper-than-pin picks; off by default.
+	authoritativeDowngradeGate := config.GetOr("ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", "false") == "true"
+	authoritativeUpgradeSlidingThreshold := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD", "false") == "true"
+	// hmmDowngradeHysteresisTurns requires N consecutive cheaper-than-pin authoritative
+	// votes before the downgrade is served; 0 switches on the first vote.
+	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", proxy.DefaultHMMDowngradeHysteresisTurns)
+	// hmmDowngradeHysteresisShadowTurns is the threshold every served authoritative
+	// downgrade is shadow-scored against; telemetry only, 0 silences it.
+	hmmDowngradeHysteresisShadowTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS", 2)
+	// authorityCacheShadow records the HMM cache gate's counterfactual verdict on
+	// authoritative-per-turn turns, which return before that gate can run. Pure
+	// observation; kill switch for the added per-turn computation and log line.
+	authorityCacheShadow := config.GetOr("ROUTER_AUTHORITY_CACHE_SHADOW", "true") == "true"
+	// policyDeadlineFallback degrades a policy sidecar deadline/transport failure to
+	// the session pin (or tier-3 default below) instead of a 503. Kill switch; off by default.
+	policyDeadlineFallback := config.GetOr("ROUTER_POLICY_DEADLINE_FALLBACK", "false") == "true"
+	// policyDeadlineDefaultModel is the tier-3 static fallback on a deadline miss with no pin; empty = fail-closed.
+	policyDeadlineDefaultModel := config.GetOr("ROUTER_POLICY_DEADLINE_DEFAULT_MODEL", "")
 	handoverProviderName := config.GetOr("ROUTER_HANDOVER_PROVIDER", providers.ProviderAnthropic)
-	handoverModel := config.GetOr("ROUTER_HANDOVER_MODEL", proxy.DefaultHandoverModel)
+	handoverModel := config.GetOr("ROUTER_HANDOVER_MODEL", policy.HandoverSummaryDefaultModel)
 	handoverTimeout := parseEnvDurationMs("ROUTER_HANDOVER_TIMEOUT_MS", proxy.DefaultHandoverTimeout)
+	compactionTimeout := parseEnvDurationMs("ROUTER_COMPACTION_TIMEOUT_MS", proxy.DefaultCompactionTimeout)
+	compactionModel, err := resolveCompactionModel(handoverProviderName)
+	if err != nil {
+		logger.Error("Invalid compaction model configuration; refusing to boot", "err", err)
+		panic(err)
+	}
+
+	subAgentPolicyProvider := subAgentProvider
+	subAgentPolicyModel := subAgentModel
+	if subAgentPolicyModel == "" {
+		subAgentPolicyProvider = hardPinProvider
+		subAgentPolicyModel = hardPinModel
+	}
+	// Pi handoff summaries are authorized under the client-compaction purpose:
+	// on Anthropic unless the operator pinned every utility turn explicitly.
+	clientCompactionProvider, clientCompactionModel := providers.ProviderAnthropic, compactionModel
+	if hardPinOverrideConfigured {
+		clientCompactionProvider, clientCompactionModel = hardPinProvider, hardPinModel
+	}
+	deploymentTargets := []policy.PurposeTargetOverride{
+		{Purpose: policy.PurposeHandoverSummary, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: handoverModel, Provider: handoverProviderName}},
+		{Purpose: policy.PurposePrecompactionSummary, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: compactionModel, Provider: handoverProviderName}},
+		{Purpose: policy.PurposeCompactionHandoverSummary, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: compactionModel, Provider: handoverProviderName}},
+		{Purpose: policy.PurposeTitleGeneration, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: hardPinModel, Provider: hardPinProvider}},
+		{Purpose: policy.PurposeClassifier, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: hardPinModel, Provider: hardPinProvider}},
+		{Purpose: policy.PurposeProbe, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: hardPinModel, Provider: hardPinProvider}},
+		{Purpose: policy.PurposeSubAgentDispatch, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: subAgentPolicyModel, Provider: subAgentPolicyProvider}},
+		{Purpose: policy.PurposeClientCompaction, Target: policy.TargetOverride{Source: policy.OverrideSourceDeployment, CatalogID: clientCompactionModel, Provider: clientCompactionProvider}},
+	}
+	inferenceDeployment := policy.DeploymentPolicyConfig{
+		AvailableProviders: availableProviders,
+		TargetOverrides:    deploymentTargets,
+	}
+	escalationJudgeEnabled, err := strconv.ParseBool(config.GetOr("ROUTER_ESCALATION_JUDGE_ENABLED", "false"))
+	if err != nil {
+		logger.Error("Invalid escalation judge enablement", "err", err)
+		panic(err)
+	}
+	escalationJudgeKey := strings.TrimSpace(os.Getenv("FIREWORKS_API_KEY"))
+	escalationJudgeActiveEnabled, err := strconv.ParseBool(config.GetOr("ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED", "false"))
+	if err != nil {
+		logger.Error("Invalid escalation judge active rollout enablement", "err", err)
+		panic(err)
+	}
+	escalationShadowDefault := flags.EscalationClassifier(config.GetOr("ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT", string(flags.EscalationClassifierNone)))
+	if escalationShadowDefault != flags.EscalationClassifierNone && !flags.IsLLMEscalationClassifier(escalationShadowDefault) {
+		panic("ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT must be none, llm_escalation or switchyard_llm_v1")
+	}
+	if escalationJudgeActiveEnabled && !escalationJudgeEnabled {
+		panic("ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED requires ROUTER_ESCALATION_JUDGE_ENABLED")
+	}
+	if escalationJudgeEnabled {
+		if escalationJudgeKey == "" {
+			panic("FIREWORKS_API_KEY is required when the escalation judge is enabled")
+		}
+		inferenceDeployment.EnabledOptionalPurposes = map[policy.Purpose]bool{policy.PurposeEscalationJudge: true}
+	}
+	if err := policy.DefaultRegistry().ValidateDeployment(inferenceDeployment); err != nil {
+		logger.Error("Invalid inference policy deployment; refusing to boot", "err", err)
+		panic(err)
+	}
+
+	// Strategy-specific artifacts own selection membership; the legacy cluster bundle must not constrain HMM candidates.
+	routingTargets := catalog.RoutingTargetSet(availableProviders)
+	logger.Info("Catalog routing targets resolved", "catalog_routing_targets", len(routingTargets))
+
+	// One resolver serves every purpose: auxiliary summaries pick from the
+	// routing candidates plus the fixed-catalog policy members (which may be
+	// untiered, e.g. the large-window compaction summarizer), pinned by the
+	// validated deployment override, and public surfaces adopt the router's
+	// decision as a plan.
+	auxiliaryTargets := policy.DefaultRegistry().FixedCatalogTargetSet(availableProviders)
+	for id := range routingTargets {
+		auxiliaryTargets[id] = struct{}{}
+	}
+	inferencePlans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(
+		auxiliaryTargets, availableProviders, func(model catalog.Model) string { return model.ID }, policy.ProviderPolicy{}))
+	if err != nil {
+		panic(fmt.Sprintf("inference plan resolver: %v", err))
+	}
 	// Kept as the interface type: a typed-nil *ProviderSummarizer would defeat
 	// the orchestrator's `!= nil` check.
 	var summarizer handover.Summarizer
-	// compactionSz stays a true-nil interface unless the summarizer provider is
-	// registered, so the Service's nil-check disables Tier-3 correctly (a
-	// typed-nil concrete pointer would defeat it).
-	var compactionSz proxy.CompactionSummarizer
-	if client, ok := providerMap[handoverProviderName]; ok {
-		ps := proxy.NewProviderSummarizer(client, handoverModel, handoverTimeout)
+	var compactionHandoverSz handover.Summarizer
+	if _, ok := providerMap[handoverProviderName]; ok {
+		ps := proxy.NewProviderSummarizer(inferencePlans, inferenceExecutor, handoverProviderName, handoverModel, handoverTimeout).
+			WithCompactionModel(compactionModel).
+			WithCompactionTimeout(compactionTimeout)
 		summarizer = ps
-		compactionSz = ps
-		logger.Info("Handover summarizer wired", "provider", handoverProviderName, "model", handoverModel, "timeout_ms", handoverTimeout.Milliseconds())
+		compactionHandoverSz = ps.CompactionHandover()
+		logger.Info("Handover summarizer wired", "provider", handoverProviderName, "model", handoverModel, "timeout_ms", handoverTimeout.Milliseconds(), "compaction_timeout_ms", compactionTimeout.Milliseconds())
 	} else {
 		logger.Info("Handover summarizer disabled (provider not registered); switch turns will preserve full history instead", "requested_provider", handoverProviderName)
 	}
-	compactionPct := parseEnvFloat("ROUTER_COMPACTION_PCT", proxy.DefaultCompactionTriggerPct)
-
-	// Lets the planner force a switch when a pinned model's provider is
-	// removed. nil on a missing/unloadable bundle treats every pin as routable.
-	availableModels := resolveAvailableModels(availableProviders, logger)
-
-	// OFF by default: wraps only the proxy's routing entrypoint, so rtr stays
-	// the *cluster.Multiversion the admin cast and semantic cache reference.
-	routeEntry := buildExploringRouter(rtr, logger)
 
 	// Off unless WV_CAPTURE_CONTENT is set; managed deploys set "full". Redactor
 	// is nil (no-op) here — managed wires one.
@@ -588,104 +1007,217 @@ func main() {
 		rlHeaders := rlSidecarHeadersFromEnv()
 		rlRouter = rl.New(
 			rl.NewHTTPDeciderWithHeaders(rlSidecarURL, nil, rlTimeout, rlHeaders),
-			availableModels,
+			routingTargets,
 			availableProviders,
 		)
 		logger.Info(
 			"RL policy router wired",
 			"sidecar_url", rlSidecarURL,
 			"timeout_ms", rlTimeout.Milliseconds(),
-			"candidate_models", len(availableModels),
+			"candidate_models", len(routingTargets),
 			"modal_proxy_auth", len(rlHeaders) > 0,
 		)
 	} else {
 		logger.Info("RL policy router disabled (ROUTER_RL_SIDECAR_URL unset); x-weave-router-strategy: rl will return 503")
 	}
 
-	// Wired only when ROUTER_HMM_SIDECAR_URL is set; x-weave-router-strategy:
-	// hmm then routes through it. Unset fails closed with 503.
+	// HMM policy activation is driven only by generation-CAS lane heads. The
+	// classifier URL and Go selection policy are loaded as one snapshot.
+	var escalationObserver escalation.Observer
 	var hmmRouter router.Router
 	var hmmEmbeddingRouter router.Router
+	var hmmBetaRouter router.Router
+	var hmmQwenRouter router.Router
 	var hmmCapabilities policy.Capabilities
 	var hmmReadinessChecker admin.HealthChecker
+	var policyStatus admin.PolicyStatusSource
+	var hmmRosterSources map[router.Strategy]policy.RosterSource
 	var hmmRosterModels admin.HMMRosterSource
-	if hmmSidecarURL := config.GetOr("ROUTER_HMM_SIDECAR_URL", ""); hmmSidecarURL != "" {
-		hmmTimeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
-		hmmAuthMode := config.GetOr("ROUTER_HMM_SIDECAR_AUTH", policySidecarAuthNone)
-		hmmClient, clientErr := buildHMMPolicyClient(hmmSidecarURL, hmmAuthMode, hmmTimeout)
-		if clientErr != nil {
-			logger.Error("HMM policy sidecar client failed to build; refusing to boot", "auth_mode", hmmAuthMode, "err", clientErr)
-			panic(clientErr)
-		}
-		hmmReadinessChecker = hmmClient
-		hmmRosterModels = newHMMRosterSource(hmmClient, hmmTimeout)
-		capabilityCtx, cancelCapabilityDiscovery := context.WithTimeout(context.Background(), hmmTimeout)
-		var capabilityErr error
-		hmmCapabilities, capabilityErr = hmmClient.Capabilities(capabilityCtx)
-		cancelCapabilityDiscovery()
-		if capabilityErr != nil {
-			logger.Warn("HMM policy sidecar capabilities unavailable at boot; optional behavior remains disabled", "sidecar_url", hmmSidecarURL, "err", capabilityErr)
-		}
-		hmmPolicyRouter := hmm.New(hmmClient, availableModels, availableProviders)
-		hmmPolicyRouter.WithCapabilities(hmmCapabilities)
-		hmmEmbeddingPolicyRouter := hmm.NewForStrategy(
-			router.StrategyHMMEmbedding,
-			hmmClient,
-			availableModels,
-			availableProviders,
-		)
-		hmmEmbeddingPolicyRouter.WithCapabilities(hmmCapabilities)
-		if capabilityErr != nil {
-			go func() {
-				retryErr := retryPolicyCapabilitiesUntilAvailable(
-					context.Background(),
-					hmmClient,
-					hmmTimeout,
-					hmmCapabilityRetryInterval,
-					func(capabilities policy.Capabilities) {
-						hmmPolicyRouter.WithCapabilities(capabilities)
-						hmmEmbeddingPolicyRouter.WithCapabilities(capabilities)
-					},
-				)
-				if retryErr != nil {
-					logger.Warn("HMM policy sidecar capability refresh stopped", "sidecar_url", hmmSidecarURL, "err", retryErr)
-					return
-				}
-				logger.Info("HMM policy sidecar capabilities discovered after boot", "sidecar_url", hmmSidecarURL)
-			}()
-		}
-		hmmRouter = hmmPolicyRouter
-		hmmEmbeddingRouter = hmmEmbeddingPolicyRouter
-		logger.Info(
-			"HMM policy routers wired",
-			"sidecar_url", hmmSidecarURL,
-			"auth_mode", hmmAuthMode,
-			"timeout_ms", hmmTimeout.Milliseconds(),
-			"candidate_models", len(availableModels),
-			"strategies", []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding},
-		)
-	} else {
-		logger.Info("HMM policy routers disabled (ROUTER_HMM_SIDECAR_URL unset); HMM strategies will return 503")
+	var routingDistribution admin.DistributionRosterSource
+	var hmmBetaCapabilities policy.Capabilities
+	var servingAdmission *middleware.ServingAdmissionConfig
+	testPlansEnabled := strings.EqualFold(config.GetOr("ROUTER_TEST_PLANS_ENABLED", "false"), "true")
+	policyEnvironmentRaw := strings.TrimSpace(config.GetOr("ROUTER_POLICY_ENVIRONMENT", ""))
+	policyReleaseDir := strings.TrimSpace(config.GetOr("ROUTER_POLICY_RELEASE_DIR", ""))
+	taskRuntime, taskErr := loadTaskDomainRuntime(pool)
+	if taskErr != nil {
+		logger.Error("Task classifier configuration invalid; refusing to boot", "err", taskErr)
+		panic(taskErr)
 	}
-
-	// Wired only when ROUTER_BANDIT_POSTERIOR_FILE points at a ts_posterior.json;
-	// x-weave-router-strategy: bandit then routes through it. Wraps the raw
-	// cluster scorer, not the explore wrapper. Unset -> nil -> 503.
-	var banditRouter router.Router
-	if posteriorPath := strings.TrimSpace(config.GetOr("ROUTER_BANDIT_POSTERIOR_FILE", "")); posteriorPath != "" {
-		post, loadErr := bandit.LoadPosterior(posteriorPath)
-		if loadErr != nil {
-			logger.Error(
-				"Bandit posterior load failed; x-weave-router-strategy: bandit will return 503",
-				"path", posteriorPath,
-				"err", loadErr,
-			)
-		} else {
-			banditRouter = bandit.New(rtr, post)
-			logger.Info("Bandit strategy router wired", "posterior_file", posteriorPath)
+	if taskRuntime != nil {
+		taskSweepCtx, cancelTaskSweep := context.WithCancel(context.Background())
+		defer cancelTaskSweep()
+		safeGo(logger, "task-domain-sweep", func() { taskRuntime.sweep(taskSweepCtx) })
+	}
+	if managedServingEnabled(deploymentMode) {
+		prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), 60*time.Second)
+		admission, baseline, closeRegistry, err := buildManagedServingRuntime(prepareCtx, availableProviders, taskRuntime)
+		cancelPrepare()
+		if err != nil {
+			logger.Error("Managed worker preparation failed; refusing to boot", "target", config.GetOr("ROUTER_SERVING_TARGET", ""), "registry_uri", config.GetOr("ROUTER_SERVING_REGISTRY_URI", ""), "err", err)
+			panic(err)
 		}
+		defer closeRegistry()
+		servingAdmission = admission
+		servingAdmission.Decisions = admissionDecisions
+		if testPlansEnabled {
+			servingAdmission.TestPlans = &policyregistry.TestPlanTools{Repository: servingpostgres.NewTestPlanRepo(pool), Store: admission.Store, Clock: time.Now}
+		}
+		servingAdmission.TestBudgetEnabled = testPlansEnabled && billingSvc != nil
+		servingAdmission.Attribution = servingpostgres.NewRequestAttributionRepo(pool)
+		admittedRouter := policyregistry.NewAdmittedRouter(router.StrategyHMM, baseline)
+		hmmRouter = admittedRouter
+		hmmEmbeddingRouter = policyregistry.NewAdmittedRouter(router.StrategyHMMEmbedding, baseline)
+		if admission.Identity.Target == policyregistry.TargetInternal {
+			hmmBetaRouter = policyregistry.NewAdmittedRouter(router.StrategyHMMBeta, baseline)
+			hmmQwenRouter = policyregistry.NewAdmittedRouter(router.StrategyHMMQwen, baseline)
+		}
+		hmmCapabilities = admittedRouter.CurrentCapabilities()
+		escalationObserver = admittedRouter
+		rosterSource := policyregistry.AdmittedRosterSource{}
+		hmmRosterSources = map[router.Strategy]policy.RosterSource{
+			router.StrategyHMM: rosterSource, router.StrategyHMMEmbedding: rosterSource,
+		}
+		if admission.Identity.Target == policyregistry.TargetInternal {
+			hmmRosterSources[router.StrategyHMMBeta] = rosterSource
+			hmmRosterSources[router.StrategyHMMQwen] = rosterSource
+		}
+		if topic := strings.TrimSpace(config.GetOr("PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION", "")); topic != "" {
+			subscriptionCtx, cancelSubscription := context.WithTimeout(context.Background(), 30*time.Second)
+			subscriptionName, cleanup, err := routerpubsub.CreateReplicaSubscription(subscriptionCtx, pubsubClient, pubsubProjectID, topic, config.GetOr("PUBSUB_SUBSCRIPTION_ROUTER_POLICY_INVALIDATION", topic))
+			cancelSubscription()
+			if err != nil {
+				logger.Warn("Admission release invalidation unavailable; TTL remains authoritative", "err", err)
+			} else {
+				defer cleanup()
+				releaseListener := routerpubsub.NewPolicyReleaseListener(pubsubClient.Subscriber(subscriptionName), admissionDecisions.InvalidateAll)
+				releaseCtx, cancelRelease := context.WithCancel(context.Background())
+				defer func() { cancelRelease(); releaseListener.Wait() }()
+				safeGo(logger, "admission-release-invalidation", func() { releaseListener.Run(releaseCtx) })
+			}
+		}
+		logger.Info("Managed serving admission enabled", "target", admission.Identity.Target, "revision", admission.Identity.Revision)
+	} else if policyEnvironmentRaw != "" || policyReleaseDir != "" {
+		var policyRegistry policyregistry.Loader
+		var policyEnvironment policyregistry.Environment
+		policyLane := policyregistry.LaneStable
+		defaultSidecarAuth := policySidecarAuthGoogleIDToken
+		if policyReleaseDir != "" {
+			directoryRegistry, registryErr := policyregistry.NewDirectoryRegistry(policyReleaseDir, config.GetOr("ROUTER_HMM_SIDECAR_URL", ""))
+			if registryErr != nil {
+				logger.Error("Local router policy release is invalid; refusing to boot", "dir", policyReleaseDir, "err", registryErr)
+				panic(registryErr)
+			}
+			policyRegistry = directoryRegistry
+			policyEnvironment = directoryRegistry.Environment()
+			policyLane = directoryRegistry.Lane()
+			defaultSidecarAuth = policySidecarAuthNone
+		} else {
+			gcsRegistry, registryErr := policyregistry.NewGCSRegistry(context.Background(), strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry")))
+			if registryErr != nil {
+				logger.Error("Router policy registry failed to initialize; refusing to boot", "err", registryErr)
+				panic(registryErr)
+			}
+			defer gcsRegistry.Close()
+			policyRegistry = gcsRegistry
+			policyEnvironment = policyregistry.Environment(policyEnvironmentRaw)
+		}
+		hmmTimeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
+		hmmAttemptTimeout := parseEnvAttemptTimeoutMs("ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS", policyclient.DeriveAttemptTimeout(hmmTimeout))
+		hmmAuthMode := config.GetOr("ROUTER_HMM_SIDECAR_AUTH", defaultSidecarAuth)
+		stableManager, managerErr := policyregistry.NewManager(
+			policyRegistry,
+			policyEnvironment,
+			policyLane,
+			hmmPolicySnapshotBuilder(availableProviders, []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding}, hmmAuthMode, hmmTimeout, hmmAttemptTimeout),
+			logger,
+		)
+		if managerErr != nil {
+			logger.Error("Stable router policy manager is invalid; refusing to boot", "err", managerErr)
+			panic(managerErr)
+		}
+		refreshCtx, cancelRefresh := context.WithTimeout(context.Background(), 30*time.Second)
+		refreshErr := stableManager.Refresh(refreshCtx)
+		cancelRefresh()
+		if refreshErr != nil {
+			logger.Error("No valid stable router policy snapshot; refusing to boot", "err", refreshErr)
+			panic(refreshErr)
+		}
+		managerCtx, cancelManagers := context.WithCancel(context.Background())
+		defer cancelManagers()
+		safeGo(logger, "stable-policy-manager", func() { stableManager.Run(managerCtx) })
+
+		stableDynamicRouter := policyregistry.NewDynamicRouter(stableManager, router.StrategyHMM)
+		hmmRouter = stableDynamicRouter
+		hmmEmbeddingRouter = policyregistry.NewDynamicRouter(stableManager, router.StrategyHMMEmbedding)
+		hmmCapabilities = hmmRouter.(policy.CapabilitySource).CurrentCapabilities()
+		hmmReadinessChecker = stableManager
+		policyStatus = stableManager
+		hmmRosterSources = map[router.Strategy]policy.RosterSource{
+			router.StrategyHMM:          stableManager,
+			router.StrategyHMMEmbedding: stableManager,
+		}
+		hmmRosterModels = newHMMRosterSource(stableManager, hmmTimeout)
+		routingDistribution = stableManager
+		escalationObserver = stableDynamicRouter
+
+		var betaManager *policyregistry.Manager
+		var betaManagerErr error
+		if policyReleaseDir == "" {
+			betaManager, betaManagerErr = policyregistry.NewManager(
+				policyRegistry,
+				policyEnvironment,
+				policyregistry.LaneBeta,
+				hmmPolicySnapshotBuilder(availableProviders, []router.Strategy{router.StrategyHMMBeta}, hmmAuthMode, hmmTimeout, hmmAttemptTimeout),
+				logger,
+			)
+		}
+		if policyReleaseDir != "" {
+			logger.Info("Serving the local router policy release; beta lane disabled", "dir", policyReleaseDir)
+		} else if betaManagerErr != nil {
+			logger.Error("Beta router policy manager is invalid; beta disabled", "err", betaManagerErr)
+		} else {
+			hmmBetaRouter = policyregistry.NewDynamicRouter(betaManager, router.StrategyHMMBeta)
+			hmmRosterSources[router.StrategyHMMBeta] = betaManager
+			safeGo(logger, "beta-policy-manager", func() { betaManager.Run(managerCtx) })
+			betaRefreshCtx, cancelBetaRefresh := context.WithTimeout(context.Background(), 30*time.Second)
+			betaRefreshErr := betaManager.Refresh(betaRefreshCtx)
+			cancelBetaRefresh()
+			if betaRefreshErr != nil {
+				logger.Warn("No valid beta router policy snapshot; beta disabled", "err", betaRefreshErr)
+			} else {
+				hmmBetaCapabilities = hmmBetaRouter.(policy.CapabilitySource).CurrentCapabilities()
+			}
+		}
+		policyInvalidationTopic := strings.TrimSpace(config.GetOr("PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION", ""))
+		if policyInvalidationTopic != "" {
+			policyInvalidationPrefix := config.GetOr("PUBSUB_SUBSCRIPTION_ROUTER_POLICY_INVALIDATION", policyInvalidationTopic)
+			policySubscriptionCtx, cancelPolicySubscription := context.WithTimeout(context.Background(), 30*time.Second)
+			policySubscriptionName, deletePolicySubscription, subscriptionErr := routerpubsub.CreateReplicaSubscription(
+				policySubscriptionCtx, pubsubClient, pubsubProjectID, policyInvalidationTopic, policyInvalidationPrefix,
+			)
+			cancelPolicySubscription()
+			if subscriptionErr != nil {
+				logger.Warn("Policy invalidation subscription unavailable; polling remains authoritative", "err", subscriptionErr)
+			} else {
+				defer deletePolicySubscription()
+				policyListener := routerpubsub.NewPolicyReleaseListener(pubsubClient.Subscriber(policySubscriptionName), func() {
+					stableManager.Trigger()
+					if betaManager != nil {
+						betaManager.Trigger()
+					}
+				})
+				policyListenerCtx, cancelPolicyListener := context.WithCancel(context.Background())
+				defer func() {
+					cancelPolicyListener()
+					policyListener.Wait()
+				}()
+				safeGo(logger, "policy-invalidation-listener", func() { policyListener.Run(policyListenerCtx) })
+			}
+		}
+		logger.Info("HMM policy managers wired", "registry_uri", policyRegistry.RootURI(), "environment", policyEnvironment, "candidate_models", len(routingTargets))
 	} else {
-		logger.Info("Bandit strategy router disabled (ROUTER_BANDIT_POSTERIOR_FILE unset); x-weave-router-strategy: bandit will return 503")
+		logger.Info("HMM policy routers disabled (ROUTER_POLICY_ENVIRONMENT and ROUTER_POLICY_RELEASE_DIR unset); HMM strategies will return 503")
 	}
 
 	configuredPolicySpecs, err := buildConfiguredPolicySidecars(
@@ -693,7 +1225,7 @@ func main() {
 		config.GetOr("ROUTER_POLICY_SIDECARS", ""),
 		config.GetOr("ROUTER_POLICY_SIDECAR_AUTH", ""),
 		parseEnvDurationMs("ROUTER_POLICY_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout),
-		availableModels,
+		routingTargets,
 		availableProviders,
 		nil,
 		logger,
@@ -703,8 +1235,113 @@ func main() {
 		panic(err)
 	}
 
-	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+	// Publish the compiled-in flag registry, stamped with the defaults this
+	// process actually resolved, so the Weave control plane can render and
+	// validate the per-org override UI without importing router code. Best
+	// effort: the table is never read on the request path, so a failure here
+	// degrades that UI and nothing else.
+	publishFlagRegistry(logger, repo.FlagDefinitions, map[flags.Key]string{
+		flags.KeyEscalationActiveClassifier:           string(flags.EscalationClassifierNone),
+		flags.KeyEscalationShadowClassifier:           string(escalationShadowDefault),
+		flags.KeyEscalationCadence:                    strconv.Itoa(llmescalation.DefaultCadence),
+		flags.KeyEscalationEpoch:                      "0",
+		flags.KeyEscalationXGBoostEnabled:             boolDefault(false),
+		flags.KeyEscalationXGBoostShadowEnabled:       boolDefault(false),
+		flags.KeyEscalationXGBoostShadowMarkerEnabled: boolDefault(false),
+		flags.KeyEscalationXGBoostEpoch:               "0",
+		flags.KeySubscriptionPlanAwareRouting:         boolDefault(false),
+		flags.KeyClaudeEnterpriseOnly:                 boolDefault(true),
+		flags.KeySubscriptionExhaustedOpenRouterOnly:  boolDefault(false),
+		flags.KeyPlanUserClusterLists:                 boolDefault(false),
+		flags.KeyStruggleShadowEnabled:                boolDefault(struggleShadowEnabled),
+		flags.KeySpiralShadowEnabled:                  boolDefault(spiralShadowEnabled),
+		flags.KeyTurnSignalCapture:                    boolDefault(turnSignalCaptureEnabled),
+		flags.KeyLoopEscalationEnabled:                boolDefault(loopEscalationEnabled),
+		flags.KeyLoopEscalationHoldoutPct:             strconv.Itoa(loopEscalationHoldoutPct),
+		flags.KeyTextRepetitionBreak:                  boolDefault(textRepetitionBreakEnabled),
+		flags.KeyPlannerEnabled:                       boolDefault(plannerEnabled),
+		flags.KeyScoreToolResultTurns:                 boolDefault(scoreToolResultTurns),
+		flags.KeyHMMToolResultHold:                    boolDefault(false),
+		flags.KeyPrefixTrimFreeSwitch:                 boolDefault(prefixTrimFreeSwitch),
+		flags.KeyAuthoritativeUpgradeGate:             boolDefault(authoritativeUpgradeGate),
+		flags.KeyAuthoritativeUpgradePolicy:           string(parsedUpgradePolicy),
+		flags.KeyAuthoritativeUpgradeHoldoutPct:       strconv.Itoa(authoritativeUpgradeHoldoutPct),
+		flags.KeyAuthoritativeUpgradeVotes:            strconv.Itoa(authoritativeUpgradeVotes),
+		flags.KeyAuthoritativeDowngradeGate:           boolDefault(authoritativeDowngradeGate),
+		flags.KeyAuthoritativeUpgradeSlidingThreshold: boolDefault(authoritativeUpgradeSlidingThreshold),
+		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmDowngradeHysteresisTurns),
+		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmDowngradeHysteresisShadowTurns),
+		flags.KeyAuthorityCacheShadow:                 boolDefault(authorityCacheShadow),
+		flags.KeyAgreementShadowEpoch:                 "0",
+		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
+		flags.KeyOpenAIResponsesBroad:                 boolDefault(openAIResponsesBroad),
+		flags.KeyAllowedModelsHeader:                  boolDefault(allowedModelsHeader),
+		flags.KeyCCTaskToolsCrossVendor:               boolDefault(ccTaskToolsCrossVendor),
+		flags.KeyCCAutonomySystemAppend:               boolDefault(ccAutonomySystemAppend),
+		flags.KeyEarlyStopRedo:                        string(earlyStopRedo),
+		flags.KeyCCWorkspaceSystemAppend:              boolDefault(ccWorkspaceSystemAppend),
+		flags.KeyCommittedStreamArmDemotion:           boolDefault(committedStreamArmDemotion),
+		flags.KeyRescuedFailureArmDemotion:            boolDefault(rescuedFailureArmDemotion),
+		flags.KeyTransientRateLimit:                   boolDefault(transientRateLimit),
+		flags.KeyRateLimitCooldownSeconds:             strconv.Itoa(rateLimitCooldownSeconds),
+		flags.KeyProviderOverloaded:                   boolDefault(providerOverloaded),
+		flags.KeyNativeAnthropicResponseSignals:       boolDefault(nativeAnthropicResponseSignals),
+		flags.KeyNativeOpenAIResponseSignals:          boolDefault(nativeOpenAIResponseSignals),
+		flags.KeyEffortEscalation:                     boolDefault(effortEscalation),
+		flags.KeyCyberRefusalRepin:                    boolDefault(cyberRefusalRepin),
+		flags.KeyCyberRefusalRetry:                    boolDefault(cyberRefusalRetry),
+		flags.KeyCyberRefusalFallback:                 cyberRefusalFallbackModel,
+		flags.KeyAnthropicServerFallback:              boolDefault(anthropicServerSideFallback),
+	})
+
+	// Always wire even when beta is unavailable: existing beta sessions fail
+	// closed via nil policy registration rather than silently falling to stable.
+	var sessionStrategyStore sessionstrategy.Store = postgres.NewSessionStrategyRepo(pool)
+
+	escalationStore := postgres.NewEscalationRepo(pool)
+	escalationDashboardStore := postgres.NewEscalationDashboardRepo(pool)
+	safeGo(logger, "escalation-state-sweep", func() { runEscalationSweep(context.Background(), escalationStore) })
+	llmEscalationStore := postgres.NewLLMEscalationRepo(pool)
+	safeGo(logger, "llm-escalation-state-sweep", func() { runEscalationSweep(context.Background(), llmEscalationStore) })
+	var escalationJudge llmescalation.Judge
+	if escalationJudgeEnabled {
+		judge, judgeErr := proxy.NewEscalationJudge(inferencePlans, inferenceExecutor, escalationJudgeKey)
+		if judgeErr != nil {
+			panic(judgeErr)
+		}
+		escalationJudge = judge
+	}
+	qwenEscalationURL := strings.TrimSpace(os.Getenv("ROUTER_LLM_ESCALATION_URL"))
+	qwenEscalationKey := strings.TrimSpace(os.Getenv("ROUTER_LLM_ESCALATION_API_KEY"))
+	var qwenEscalationJudge llmescalation.Judge
+	if qwenEscalationURL != "" || qwenEscalationKey != "" {
+		judge, judgeErr := escalationmodal.NewJudge(qwenEscalationURL, qwenEscalationKey, nil)
+		if judgeErr != nil {
+			panic(judgeErr)
+		}
+		qwenEscalationJudge = judge
+	}
+	if (escalationShadowDefault == flags.EscalationClassifierSwitchyard && !escalationJudgeEnabled) ||
+		(escalationShadowDefault == flags.EscalationClassifierLLM && qwenEscalationJudge == nil) {
+		panic("ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT names a classifier whose judge is not configured")
+	}
+	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
+
+	proxySvc := proxy.NewService(nil, providerMap, telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+		WithTranslationMetrics(otel.NewTranslationMetrics()).
+		WithClaudeSubscriptionPlanReader(anthropicClient).
+		WithExternalKeyUsageRecorder(authSvc).
+		WithCodexExtraCredits(allowCodexCredits).
+		WithSessionStrategyStore(sessionStrategyStore).
+		WithSessionTurnClock(sessionTurnClock).
+		WithEscalation(escalationStore, escalationObserver).
+		WithEscalationDashboard(escalationDashboardStore).
+		WithLLMEscalation(llmEscalationStore, escalationJudge).
+		WithQwenEscalation(qwenEscalationJudge).
+		WithEscalationConfiguration(llmEscalationStore, authSvc.InvalidateInstallation, escalationJudgeActiveEnabled).
+		WithEscalationShadowDefault(escalationShadowDefault).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
+		WithScopedSearchRequirement(scopedSearchRequirement, searchRequirementDecayTurns).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: rlRouter, Unavailable: rl.ErrPolicyUnavailable}).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: router.StrategyHMM, Router: hmmRouter, Unavailable: hmm.ErrHMMUnavailable,
@@ -714,52 +1351,110 @@ func main() {
 			Strategy: router.StrategyHMMEmbedding, Router: hmmEmbeddingRouter, Unavailable: hmm.ErrHMMUnavailable,
 			Capabilities: hmmCapabilities,
 		}).
-		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyBandit, Router: banditRouter, Unavailable: bandit.ErrBanditUnavailable}).
+		WithPolicyStrategy(policy.StrategySpec{
+			Strategy: router.StrategyHMMBeta, Router: hmmBetaRouter, Unavailable: hmm.ErrHMMUnavailable,
+			Capabilities: hmmBetaCapabilities,
+		}).
+		WithPolicyStrategy(policy.StrategySpec{
+			Strategy: router.StrategyHMMQwen, Router: hmmQwenRouter, Unavailable: hmm.ErrHMMUnavailable,
+			Capabilities: hmmCapabilities,
+		}).
+		WithPolicyStrategy(policy.StrategySpec{
+			Strategy: router.StrategyDecisionModel, Router: buildDecisionModelRouter(logger), Unavailable: decisionmodel.ErrUnavailable,
+			Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true},
+		}).
 		WithContentCapture(captureMode, captureMaxBytes, nil).
 		WithFeedback(repo.Feedback, feedbackSigner, feedbackBaseURL).
+		WithPiHandoffSecret(config.GetOr("ROUTER_PI_HANDOFF_SECRET", "")).
 		WithByokOnly(byokOnly).
 		WithDeploymentKeyedProviders(deploymentEligible).
 		WithPassthroughEligibleProviders(passthroughEligible).
 		WithHardPinResolver(hardPinResolver).
+		WithExplicitUtilityHardPin(hardPinOverrideConfigured).
+		WithSubAgentOverride(subAgentProvider, subAgentModel).
 		WithPlannerEnabled(plannerEnabled).
 		WithScoreToolResultTurns(scoreToolResultTurns).
 		WithCyberRefusalRepin(cyberRefusalRepin).
+		WithCyberRefusalRetry(cyberRefusalRetry).
 		WithCyberRefusalFallbackModel(cyberRefusalFallbackModel).
+		WithAnthropicServerSideFallback(anthropicServerSideFallback).
+		WithSiblingFailover(siblingFailover).
+		WithOpenAIResponsesBroad(openAIResponsesBroad).
+		WithAllowedModelsHeader(allowedModelsHeader).
+		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
+		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
+		WithTransientRateLimit(transientRateLimit, rateLimitCooldownSeconds).
+		WithProviderOverloaded(providerOverloaded, breaker.New(breaker.Defaults(), nil)).
+		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
+		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
+		WithSSEKeepalive(sseKeepalive).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
+		WithAuthoritativeUpgradeConfig(upgradeConfig).
+		WithHMMSameTierPin(hmmSameTierPin).
+		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
+		WithAuthoritativeUpgradePolicy(parsedUpgradePolicy).
+		WithAuthoritativeUpgradeHoldoutPct(authoritativeUpgradeHoldoutPct).
+		WithAuthoritativeUpgradeVotes(authoritativeUpgradeVotes).
+		WithAuthoritativeDowngradeGate(authoritativeDowngradeGate).
+		WithAuthoritativeUpgradeSlidingThreshold(authoritativeUpgradeSlidingThreshold).
+		WithHMMDowngradeHysteresisTurns(hmmDowngradeHysteresisTurns).
+		WithHMMDowngradeHysteresisShadowTurns(hmmDowngradeHysteresisShadowTurns).
+		WithAuthorityCacheShadow(authorityCacheShadow).
+		WithPolicyDeadlineFallback(policyDeadlineFallback).
+		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
 		WithEscapeNormalize(escapeNormalize).
 		WithEffortEscalation(effortEscalation).
 		WithCCOrchestrationToolsCrossVendor(ccOrchToolsCrossVendor).
+		WithCCTaskToolsCrossVendor(ccTaskToolsCrossVendor).
+		WithCCAutonomySystemAppend(ccAutonomySystemAppend).
+		WithEarlyStopRedo(earlyStopRedo).
+		WithCCWorkspaceSystemAppend(ccWorkspaceSystemAppend).
 		WithBandSwap(bandSwapEnabled).
 		WithLoopEscalationConfig(loopEscalationEnabled, loopEscalationHoldoutPct).
 		WithLoopEscalationStore(repo.Telemetry).
+		WithGlobalAutomaticExclusions(repo.GlobalAutomaticExclusions).
 		WithSpiralShadowConfig(spiralShadowEnabled).
+		WithTurnSignalCapture(turnSignalCaptureEnabled).
 		WithSpiralShadowStore(repo.Telemetry).
+		WithStruggleShadowConfig(struggleShadowEnabled).
+		WithStruggleShadowStore(repo.Telemetry).
 		WithTextRepetitionBreak(textRepetitionBreakEnabled).
 		WithRouterFeedbackStore(repo.Telemetry).
 		WithPlanner(plannerCfg).
 		WithSummarizer(summarizer).
-		WithCompaction(compactionSz, compactionPct).
-		WithAvailableModels(availableModels).
+		WithCompactionHandoverSummarizer(compactionHandoverSz).
+		WithWebSearchExecutor(cortexWebSearch(logger)).
+		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
+	inferenceDeployment.RoutableModels = servedModels
+	if err := configureAtomicClassifier(proxySvc, pool, availableProviders, deploymentMode); err != nil {
+		logger.Error("Failed to configure atomic classifier", "err", err)
+		panic(err)
+	}
+	proxySvc = proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans).WithInferenceDeployment(inferenceDeployment)
+	if subscriptionRuntime != nil {
+		proxySvc.WithManagedSubscriptions(subscriptionRuntime)
+	}
 	for _, spec := range configuredPolicySpecs {
 		proxySvc = proxySvc.WithPolicyStrategy(spec)
-		logger.Info("Generic policy sidecar wired", "strategy", spec.Strategy, "candidate_models", len(availableModels))
+		logger.Info("Generic policy sidecar wired", "strategy", spec.Strategy, "candidate_models", len(routingTargets))
 	}
 	logger.Info("Effort escalation configured", "enabled", effortEscalation)
-	logger.Info("Cross-vendor Claude Code orchestration tools configured", "enabled", ccOrchToolsCrossVendor)
+	logger.Info("Cross-vendor Claude Code orchestration tools configured", "enabled", ccOrchToolsCrossVendor, "task_tools_enabled", ccTaskToolsCrossVendor)
 	logger.Info("Loop escalation configured", "enabled", loopEscalationEnabled, "holdout_pct", loopEscalationHoldoutPct)
 	logger.Info("Spiral shadow detector configured", "enabled", spiralShadowEnabled)
+	logger.Info("Turn signal capture configured", "enabled", turnSignalCaptureEnabled)
 	logger.Info("Text-repetition break configured", "enabled", textRepetitionBreakEnabled)
-	logger.Info("Planner configured", "enabled", plannerEnabled, "threshold_usd", plannerCfg.ThresholdUSD, "expected_remaining_turns", plannerCfg.ExpectedRemainingTurns, "tier_upgrade_enabled", plannerCfg.TierUpgradeEnabled, "cold_pin_follow_fresh", plannerCfg.ColdPinFollowFresh, "prefix_trim_free_switch", prefixTrimFreeSwitch, "available_models_count", len(availableModels))
+	logger.Info("Planner configured", "enabled", plannerEnabled, "threshold_usd", plannerCfg.ThresholdUSD, "expected_remaining_turns", plannerCfg.ExpectedRemainingTurns, "tier_upgrade_enabled", plannerCfg.TierUpgradeEnabled, "cold_pin_follow_fresh", plannerCfg.ColdPinFollowFresh, "corrected_economics", plannerCfg.CorrectedEconomics, "prefix_trim_free_switch", prefixTrimFreeSwitch, "routing_targets_count", len(routingTargets))
 	logger.Info("Tool-result scoring configured", "enabled", scoreToolResultTurns)
 
 	// Fail loud if a deployed model is missing from the tier table;
 	// TierUnknown would silently disable the guard for that pair.
-	if plannerCfg.TierUpgradeEnabled && len(availableModels) > 0 {
-		deployed := make([]string, 0, len(availableModels))
-		for m := range availableModels {
+	if plannerCfg.TierUpgradeEnabled && len(routingTargets) > 0 {
+		deployed := make([]string, 0, len(routingTargets))
+		for m := range routingTargets {
 			deployed = append(deployed, m)
 		}
 		if err := catalog.ValidateDeployed(deployed); err != nil {
@@ -809,6 +1504,15 @@ func main() {
 		panic(err)
 	}
 	usageObserver := usage.NewObserver(observerSalt, subscriptionTTL, time.Now)
+	if subscriptionRuntime != nil {
+		subscriptionRuntime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, now time.Time) subscriptions.CandidateSignal {
+			snapshot, observed := usageObserver.Snapshot(usageObserver.Key([]byte("subscription-account:" + accountID)))
+			if !observed {
+				return subscriptions.CandidateSignal{}
+			}
+			return subscriptionCandidateSignal(snapshot, now)
+		})
+	}
 	// Bound memory: evict expired observations periodically (the usage package
 	// spawns no goroutines of its own).
 	go func() {
@@ -820,46 +1524,103 @@ func main() {
 	}()
 	proxySvc = proxySvc.WithUsageObserver(usageObserver)
 
-	// Discounts a covered model's cost term by the caller's observed
-	// subscription rate-limit headroom (~epsilon with slack, →1 as it binds).
-	// Defaults ON; only affects turns with an observed subscription, so
-	// blast radius is narrow. Disabling here leaves the observer/bypass gate wired.
-	if config.GetOr("ROUTER_SUBSCRIPTION_AWARE_ROUTING", "true") == "true" {
-		epsilon := 0.05
-		if v, err := strconv.ParseFloat(config.GetOr("ROUTER_SUBSCRIPTION_COST_EPSILON", "0.05"), 64); err == nil {
-			epsilon = v
-		}
-		gamma := 2.0
-		if v, err := strconv.ParseFloat(config.GetOr("ROUTER_SUBSCRIPTION_COST_GAMMA", "2"), 64); err == nil {
-			gamma = v
-		}
-		proxySvc = proxySvc.WithSubscriptionAwareRouting(usageObserver, epsilon, gamma)
-		logger.Info("Subscription-aware routing configured", "epsilon", epsilon, "gamma", gamma, "observation_ttl", subscriptionTTL)
-	} else {
-		logger.Info("Usage observer wired; subscription-aware cost discount disabled", "observation_ttl", subscriptionTTL)
-	}
+	logger.Info("Subscription quota observer configured", "observation_ttl", subscriptionTTL)
 
-	// No-op when WV_APM_OTLP_ENDPOINT is unset. Flushed explicitly in the
-	// shutdown path below since a defer would run after SIGKILL.
-	apm.Init()
+	trafficCapture, err := newTrafficCaptureFromEnvironment()
+	if err != nil {
+		logger.Error("Unable to initialize local HTTP traffic capture", "err", err)
+		panic(err)
+	}
+	if trafficCapture != nil {
+		logger.Warn("Local HTTP traffic capture enabled; bodies may contain sensitive conversation content", "file", trafficCapture.file.Name(), "sensitive_headers_included", trafficCapture.includeSensitive)
+		defer func() {
+			if err := trafficCapture.Close(); err != nil {
+				logger.Error("Unable to close local HTTP traffic capture", "err", err)
+			}
+		}()
+	}
 
 	engine := gin.New()
 	engine.UnescapePathValues = true
 	engine.UseRawPath = true
 	engine.Use(
+		apm.Middleware(),
 		observability.Middleware(),
 		observability.AccessLog(),
-		apm.Middleware(),
-		gin.Recovery(),
 	)
 
-	// Lets the admin model-selection handler surface deployed models; nil
-	// fallback keeps non-cluster routers bootable.
-	deployedModels, _ := rtr.(*cluster.Multiversion)
-	server.Register(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, hmmReadinessChecker)
+	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
+	defaultStrategy, defaultStrategyErr := server.DefaultStrategyFromEnv()
+	if defaultStrategyErr != nil {
+		logger.Error("ROUTER_DEFAULT_STRATEGY is invalid; refusing to boot", "err", defaultStrategyErr)
+		panic(defaultStrategyErr)
+	}
+	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker, proxySvc, defaultStrategy)
+	if defaultStrategyErr := readinessChecker.checkDefaultStrategy(); defaultStrategyErr != nil {
+		logger.Error("ROUTER_DEFAULT_STRATEGY has no router configured; refusing to boot", "err", defaultStrategyErr)
+		panic(defaultStrategyErr)
+	}
+	// ROUTER_POLICY_PIN_ENABLED=true registers x-weave-policy-pin; when off,
+	// the header is never read and no pin telemetry is written.
+	policyPinEnabled := strings.EqualFold(config.GetOr("ROUTER_POLICY_PIN_ENABLED", "false"), "true")
+	if policyPinEnabled {
+		logger.Info("Policy pin header enabled", "header", middleware.PolicyPinOverrideHeader)
+	}
+	// ROUTER_SUBSCRIBER_ALLOWANCE_ENABLED=true enforces and meters individual
+	// Max/Boost allowances. Needs billing wired: enforcement only means
+	// anything where the same turn would otherwise debit an org balance.
+	var subscriberAllowanceSvc *entitlement.Service
+	if billingSvc != nil && strings.EqualFold(config.GetOr("ROUTER_SUBSCRIBER_ALLOWANCE_ENABLED", "false"), "true") {
+		subscriberAllowanceSvc = entitlement.NewService(
+			postgres.NewSubscriberEntitlementRepo(pool),
+			postgres.NewSubscriberAllowanceRepo(pool),
+		)
+		billingSvc = billingSvc.
+			WithSubscriberAllowance(subscriberAllowanceSvc)
+		logger.Info("Individual subscriber allowance enforcement enabled")
+	}
+	var testPlans *policyregistry.TestPlanTools
+	if testPlansEnabled {
+		if servingAdmission == nil || billingSvc == nil {
+			panic("internal test plan preparation requires managed serving and isolated prepaid billing")
+		}
+		testPlans = &policyregistry.TestPlanTools{Repository: servingpostgres.NewTestPlanRepo(pool), Store: servingAdmission.Store, Clock: time.Now}
+	}
+	initializedOrigins := make(map[string]struct{})
+	if os.Getenv("PUBSUB_EMULATOR_HOST") == "" {
+		initializedOrigins["https://pubsub.googleapis.com"] = struct{}{}
+	}
+	if managedServingEnabled(deploymentMode) || policyEnvironmentRaw != "" {
+		initializedOrigins["https://storage.googleapis.com"] = struct{}{}
+	}
+	processCtx, stopProcess := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stopProcess()
+	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
+	logger.Info("Router startup initialization complete")
+	serverFeatures := server.Features{
+		SubscriptionLogins:       subscriptionLogins,
+		StartupDatabasePing:      pool.Ping,
+		TestPlans:                testPlans,
+		PolicyPinEnabled:         policyPinEnabled,
+		ServingAdmission:         servingAdmission,
+		SubscriberAllowance:      subscriberAllowanceSvc,
+		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
+		PolicyStatus:             policyStatus,
+		RoutingDistribution:      routingDistribution,
+	}
+	if trafficCapture != nil {
+		serverFeatures.TrafficCapture = trafficCapture
+	}
+	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModelsSource(hmmRosterModels), deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)
 
+	port := config.GetOr("PORT", "8080")
+	address := ":" + port
+	if trafficCapture != nil {
+		captureListenHost := config.GetOr("ROUTER_HTTP_CAPTURE_LISTEN_HOST", "127.0.0.1")
+		address = net.JoinHostPort(captureListenHost, port)
+	}
 	srv := &http.Server{
-		Addr:    ":" + config.GetOr("PORT", "8080"),
+		Addr:    address,
 		Handler: engine,
 		// ReadTimeout/WriteTimeout would break streaming; per-route gin
 		// timeouts handle non-streaming routes instead.
@@ -881,9 +1642,6 @@ func main() {
 		}
 	}()
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-
 	select {
 	case err := <-serverErr:
 		logger.Error("Server exited with error", "err", err)
@@ -893,8 +1651,8 @@ func main() {
 		defer apmFailCancel()
 		apm.ShutdownWithContext(apmFailCtx)
 		return
-	case sig := <-stop:
-		logger.Info("Received shutdown signal; draining", "signal", sig.String())
+	case <-processCtx.Done():
+		logger.Info("Received shutdown signal; draining")
 	}
 
 	// Cloud Run gives 10s between SIGTERM and SIGKILL; budget across three
@@ -916,40 +1674,44 @@ func main() {
 	apm.ShutdownWithContext(apmCtx)
 }
 
-// buildExploringRouter optionally wraps rtr in the quality-tie-band explorer.
-// OFF unless ROUTER_EXPLORE_ENABLED=true (band half-width ROUTER_EXPLORE_EPSILON,
-// default 0.05). Intended for staging/small slices — never flip fleet-wide
-// without a bake-off.
-func buildExploringRouter(rtr router.Router, logger *slog.Logger) router.Router {
-	if !strings.EqualFold(config.GetOr("ROUTER_EXPLORE_ENABLED", "false"), "true") {
-		return rtr
-	}
-	multi, ok := rtr.(*cluster.Multiversion)
-	if !ok {
-		logger.Warn("ROUTER_EXPLORE_ENABLED set but router is not a cluster.Multiversion; exploration disabled")
-		return rtr
+func subscriptionCandidateSignal(snapshot usage.Snapshot, now time.Time) subscriptions.CandidateSignal {
+	if snapshot.OverageInUse {
+		signal := subscriptions.CandidateSignal{Observed: true, Billable: true, UsedFraction: 1}
+		if snapshot.UnifiedResetAt.After(now) {
+			signal.ResetAt = snapshot.UnifiedResetAt
+		}
+		signal.ObservedAt = snapshot.ObservedAt
+		return signal
 	}
 
-	providers := make(map[string]string)
-	for _, e := range multi.DefaultDeployedModels() {
-		// First binding wins; the default bundle lists a model's primary
-		// provider first, which matches the scorer's default resolution.
-		if _, seen := providers[e.Model]; !seen {
-			providers[e.Model] = e.Provider
+	signal := subscriptions.CandidateSignal{Exhausted: snapshot.ExhaustedAsOf(now), ObservedAt: snapshot.ObservedAt}
+	for _, window := range []usage.Window{snapshot.Primary, snapshot.Secondary} {
+		if math.IsNaN(window.UsedPercent) || math.IsInf(window.UsedPercent, 0) || window.UsedPercent < 0 || window.UsedPercent > 1 {
+			return subscriptions.CandidateSignal{}
+		}
+		if window.WindowMinutes <= 0 && window.UsedPercent <= 0 {
+			continue
+		}
+		resetAt := window.ResetAt
+		if resetAt.IsZero() && window.WindowMinutes > 0 {
+			observedAt := window.ObservedAt
+			if observedAt.IsZero() {
+				observedAt = snapshot.ObservedAt
+			}
+			resetAt = observedAt.Add(time.Duration(window.WindowMinutes) * time.Minute)
+		}
+		if !resetAt.IsZero() && !resetAt.After(now) {
+			continue
+		}
+		if !signal.Observed || window.UsedPercent > signal.UsedFraction {
+			signal.Observed = true
+			signal.UsedFraction = window.UsedPercent
+		}
+		if resetAt.After(now) && (signal.ResetAt.IsZero() || resetAt.Before(signal.ResetAt)) {
+			signal.ResetAt = resetAt
 		}
 	}
-	providerFor := func(model string) (string, bool) {
-		p, ok := providers[model]
-		return p, ok
-	}
-
-	epsilon := float32(parseEnvFloat("ROUTER_EXPLORE_EPSILON", 0.05))
-	logger.Info(
-		"Quality-tie-band exploration ENABLED (non-prod / shadow expected)",
-		"band_width", epsilon,
-		"deployed_models", len(providers),
-	)
-	return banditexplore.New(rtr, providerFor, epsilon)
+	return signal
 }
 
 // parseOtelHeaders parses a comma-separated key=value string into a map.
@@ -967,158 +1729,47 @@ func parseOtelHeaders(raw string) map[string]string {
 	return out
 }
 
-// buildClusterScorer constructs the cluster.Multiversion router, sharing one
-// ONNX embedder across versions. Errors force the caller to panic rather
-// than silently degrade to a default model. Also returns the default
-// version's embedder ID so the caller can log the resolved value rather than
-// a hardcoded literal.
-func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, string, error) {
-	logger := observability.Get()
-
-	requestedVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
-	defaultVersion, err := cluster.ResolveVersion(requestedVersion)
-	if err != nil {
-		return nil, "", fmt.Errorf("Resolve cluster version %q: %w", requestedVersion, err)
+// buildEntraTokenSource returns the lazy Microsoft Entra client-credentials token source;
+// a deployment without Azure keys never contacts Microsoft Entra.
+func buildEntraTokenSource(logger *slog.Logger) auth.EntraTokenSource {
+	logger.Debug("Microsoft Entra client credentials token source initialized")
+	// This client posts the decrypted BYOK client_secret; never follow a
+	// redirect with it. The refused 3xx fails mint()'s 2xx status check.
+	entraClient := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
+	return entra.NewClientCredentialsSource(entraClient, time.Now)
+}
 
-	// Builds only the served version by default. ROUTER_CLUSTER_BUILD_ALL_VERSIONS=true
-	// powers the eval harness's per-request x-weave-cluster-version A/B; prod
-	// skips it to avoid the extra memory and the header-override foot-gun.
-	buildAll := strings.EqualFold(config.GetOr("ROUTER_CLUSTER_BUILD_ALL_VERSIONS", "false"), "true")
-	var versions []string
-	if buildAll {
-		versions, err = cluster.ListVersions()
-		if err != nil {
-			return nil, "", fmt.Errorf("List cluster versions: %w", err)
+// buildWIFTokenSource constructs the workload attestation source backing BYOK
+// keys with auth_type=wif. Returns nil when ROUTER_WIF_PROVIDER is unset — the
+// identity is the deployment's own, so only the operator can configure it.
+func buildWIFTokenSource(logger *slog.Logger) auth.WIFTokenSource {
+	provider := strings.ToUpper(strings.TrimSpace(config.GetOr("ROUTER_WIF_PROVIDER", "")))
+	audience := config.GetOr("ROUTER_WIF_AUDIENCE", auth.WIFAudience)
+	switch provider {
+	case "":
+		return nil
+	case auth.WIFProviderGCP:
+		logger.Info("Workload identity federation enabled", "provider", provider, "audience", audience)
+		return wif.NewGoogleTokenSource(audience)
+	case auth.WIFProviderOIDC:
+		path := config.GetOr("ROUTER_WIF_OIDC_TOKEN_FILE", "")
+		if path == "" {
+			err := fmt.Errorf("ROUTER_WIF_PROVIDER=%s requires ROUTER_WIF_OIDC_TOKEN_FILE", provider)
+			logger.Error("Refusing to boot with incomplete workload identity configuration", "err", err)
+			panic(err)
 		}
-	} else {
-		versions = []string{defaultVersion}
+		logger.Info("Workload identity federation enabled", "provider", provider, "token_file", path)
+		return wif.NewFileTokenSource(path)
+	default:
+		err := fmt.Errorf("Invalid ROUTER_WIF_PROVIDER %q (expected %q or %q)", provider, auth.WIFProviderGCP, auth.WIFProviderOIDC)
+		logger.Error("Refusing to boot with invalid workload identity provider", "err", err)
+		panic(err)
 	}
-
-	embedders, err := cluster.NewEmbedderSet()
-	if err != nil {
-		return nil, "", err
-	}
-
-	cfg := cluster.DefaultConfig()
-	if v := config.GetOr("ROUTER_CLUSTER_EMBED_TIMEOUT_MS", ""); v != "" {
-		ms, parseErr := time.ParseDuration(v + "ms")
-		if parseErr != nil || ms <= 0 {
-			logger.Warn("Invalid ROUTER_CLUSTER_EMBED_TIMEOUT_MS; using default", "value", v, "default_ms", cfg.EmbedTimeout.Milliseconds())
-		} else {
-			cfg.EmbedTimeout = ms
-			logger.Info("Cluster embed timeout overridden", "embed_timeout_ms", ms.Milliseconds())
-		}
-	}
-	if v := config.GetOr("ROUTER_CLUSTER_TOP_P", ""); v != "" {
-		n, parseErr := strconv.Atoi(v)
-		if parseErr != nil || n <= 0 {
-			logger.Warn("Invalid ROUTER_CLUSTER_TOP_P; using default", "value", v, "default", cfg.TopP)
-		} else {
-			cfg.TopP = n
-			logger.Info("Cluster top_p overridden", "top_p", n)
-		}
-	}
-	scorers := make(map[string]*cluster.Scorer, len(versions))
-	warmed := make(map[string]cluster.Embedder)
-	var defaultEmbedderID string
-	for _, v := range versions {
-		bundle, err := cluster.LoadBundle(v)
-		if err != nil {
-			_ = embedders.Close()
-			return nil, "", fmt.Errorf("Load bundle %s: %w", v, err)
-		}
-		if v == defaultVersion {
-			defaultEmbedderID = bundle.EmbedderID()
-		}
-
-		missingProviders := map[string][]string{}
-		for _, e := range bundle.Registry.DeployedModels {
-			if _, ok := availableProviders[e.Provider]; !ok {
-				missingProviders[e.Provider] = append(missingProviders[e.Provider], e.Model)
-			}
-		}
-		for prov, models := range missingProviders {
-			logger.Warn(
-				"Cluster artifact references unregistered provider; affected models will be excluded from argmax",
-				"cluster_version", v,
-				"missing_provider", prov,
-				"affected_models", models,
-				"hint", "set "+envVarHint(prov)+" to keep these in the routing pool",
-			)
-		}
-
-		// Lazily construct only the embedders the built versions need:
-		// prod (single default version) loads exactly one model.
-		embedder, err := embedders.Get(bundle.EmbedderID())
-		if err != nil {
-			// The default version's embedder must construct; sibling
-			// versions degrade like any other per-version build failure.
-			if v == defaultVersion {
-				_ = embedders.Close()
-				return nil, "", fmt.Errorf("Construct embedder %q for default cluster version %s: %w", bundle.EmbedderID(), v, err)
-			}
-			logger.Warn("Cluster scorer version skipped; embedder unavailable", "cluster_version", v, "embedder", bundle.EmbedderID(), "err", err)
-			continue
-		}
-		warmed[embedder.ID()] = embedder
-
-		scorer, err := cluster.NewScorer(bundle, cfg, embedder, availableProviders)
-		if err != nil {
-			logger.Warn("Cluster scorer version skipped", "cluster_version", v, "err", err)
-			continue
-		}
-		scorers[v] = scorer
-		logger.Info("Cluster scorer version built", "cluster_version", v, "embedder", bundle.EmbedderID(), "models", bundle.Registry.Models())
-	}
-
-	if _, ok := scorers[defaultVersion]; !ok {
-		_ = embedders.Close()
-		return nil, "", fmt.Errorf("Default cluster version %q failed to build (likely no registered provider covers its deployed_models); set ROUTER_CLUSTER_VERSION to a version that does, or register the missing provider key", defaultVersion)
-	}
-
-	multi, err := cluster.NewMultiversion(defaultVersion, scorers)
-	if err != nil {
-		_ = embedders.Close()
-		return nil, "", fmt.Errorf("Build multiversion router: %w", err)
-	}
-	logger.Info(
-		"Cluster multiversion router ready",
-		"default_version", defaultVersion,
-		"built_versions", multi.Built(),
-		"built_embedders", embedders.Built(),
-		"requested_version", requestedVersion,
-		"build_all_versions", buildAll,
-	)
-
-	// Warmup: burn each embedder's lazy ONNX graph-optimization cost at boot.
-	for id, embedder := range warmed {
-		type warmupResult struct {
-			err error
-		}
-		warmupDone := make(chan warmupResult, 1)
-		go func(e cluster.Embedder) {
-			_, err := e.Embed(context.Background(), "warmup")
-			warmupDone <- warmupResult{err: err}
-		}(embedder)
-		select {
-		case res := <-warmupDone:
-			if res.err != nil {
-				_ = embedders.Close()
-				return nil, "", fmt.Errorf("Warm embedder %q: %w", id, res.err)
-			}
-		case <-time.After(15 * time.Second):
-			// Drain the goroutine before closing to avoid use-after-free.
-			go func() {
-				<-warmupDone
-				_ = embedders.Close()
-			}()
-			return nil, "", fmt.Errorf("Cluster embedder %q warmup timed out after 15s", id)
-		}
-		logger.Info("Cluster embedder warmed", "embedder", id, "embed_dim", embedder.Dim())
-	}
-
-	return multi, defaultEmbedderID, nil
 }
 
 // buildOtelEmitter constructs the OTel span emitter from environment
@@ -1177,12 +1828,24 @@ func buildOtelEmitter(deploymentMode string) (*otel.Emitter, error) {
 // parseEnvInt reads an env var as a positive integer. Returns fallback when
 // the var is unset, empty, or unparseable. Logs a warning on bad values.
 func parseEnvInt(key string, fallback int) int {
+	return parseEnvIntAtLeast(key, fallback, 1)
+}
+
+// parseEnvNonNegativeInt reads an env var as an integer for which 0 is a
+// meaningful "off" value rather than a bad input.
+func parseEnvNonNegativeInt(key string, fallback int) int {
+	return parseEnvIntAtLeast(key, fallback, 0)
+}
+
+// parseEnvIntAtLeast reads an env var as an integer of at least minimum,
+// falling back with a warning on anything smaller or unparseable.
+func parseEnvIntAtLeast(key string, fallback, minimum int) int {
 	raw := config.GetOr(key, "")
 	if raw == "" {
 		return fallback
 	}
 	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
+	if err != nil || n < minimum {
 		observability.Get().Warn("Invalid env var; using default", "key", key, "value", raw, "default", fallback)
 		return fallback
 	}
@@ -1192,6 +1855,21 @@ func parseEnvInt(key string, fallback int) int {
 // parseEnvFloat reads an env var as a float64, falling back on unset/empty/
 // unparseable. Zero and negative values are valid — e.g. operators set
 // ROUTER_SWITCH_EV_THRESHOLD_USD <= 0 to force aggressive planner switching.
+// proxyRoutableModels is RoutingTargetSet plus HMM-only rows when HMM is wired.
+func proxyRoutableModels(generic, providers map[string]struct{}, hmmWired bool) map[string]struct{} {
+	if !hmmWired {
+		return generic
+	}
+	out := catalog.HMMRoutingTargetSet(providers)
+	if len(generic) == 0 {
+		return out
+	}
+	for m := range generic {
+		out[m] = struct{}{}
+	}
+	return out
+}
+
 func parseEnvFloat(key string, fallback float64) float64 {
 	raw := config.GetOr(key, "")
 	if raw == "" {
@@ -1218,6 +1896,22 @@ func feedbackLinkTTL() time.Duration {
 	sec, err := strconv.Atoi(raw)
 	if err != nil || sec < 0 {
 		observability.Get().Warn("Invalid env var; using default", "key", "ROUTER_FEEDBACK_LINK_TTL_SEC", "value", raw, "default", defaultSec)
+		return defaultSec * time.Second
+	}
+	return time.Duration(sec) * time.Second
+}
+
+// sseKeepaliveInterval parses ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS.
+// Handled inline because 0 is a valid kill-switch value that parseEnvInt rejects.
+func sseKeepaliveInterval() time.Duration {
+	const defaultSec = 15
+	raw := config.GetOr("ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS", "")
+	if raw == "" {
+		return defaultSec * time.Second
+	}
+	sec, err := strconv.Atoi(raw)
+	if err != nil || sec < 0 {
+		observability.Get().Warn("Invalid env var; using default", "key", "ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS", "value", raw, "default", defaultSec)
 		return defaultSec * time.Second
 	}
 	return time.Duration(sec) * time.Second
@@ -1277,61 +1971,14 @@ func parseEnvDurationMs(key string, fallback time.Duration) time.Duration {
 	return time.Duration(ms) * time.Millisecond
 }
 
-// buildSemanticCache constructs the cross-request semantic cache, or nil when
-// disabled (ROUTER_SEMANTIC_CACHE_ENABLED=false). Per-cluster cosine thresholds
-// come from the default version's metadata.yaml, so promoting `artifacts/latest`
-// flips cache thresholds atomically along with the cluster version.
-func buildSemanticCache(rtr router.Router) *cache.Cache {
-	logger := observability.Get()
-	if config.GetOr("ROUTER_SEMANTIC_CACHE_ENABLED", "true") != "true" {
-		logger.Info("Semantic cache disabled (ROUTER_SEMANTIC_CACHE_ENABLED=false)")
-		return nil
+// parseEnvAttemptTimeoutMs is parseEnvDurationMs with 0 kept as a real value:
+// it is how an operator disables the per-attempt bound, which the shared parser
+// would otherwise reject and invert into the derived bound.
+func parseEnvAttemptTimeoutMs(key string, fallback time.Duration) time.Duration {
+	if ms, err := strconv.Atoi(config.GetOr(key, "")); err == nil && ms == 0 {
+		return 0
 	}
-	multi, ok := rtr.(*cluster.Multiversion)
-	if !ok {
-		// Defensive: guards against a future router shape silently disabling the cache.
-		logger.Warn("Semantic cache disabled: router is not a cluster.Multiversion")
-		return nil
-	}
-	defaultScorer, ok := multi.Versions[multi.Default]
-	if !ok {
-		// Defensive: NewMultiversion guarantees the default is built.
-		logger.Warn("Semantic cache disabled: default cluster scorer not found", "default_version", multi.Default)
-		return nil
-	}
-	perCluster, defaultThreshold := defaultScorer.CacheThresholds()
-
-	cfg := cache.DefaultConfig()
-	cfg.PerClusterThreshold = perCluster
-	if defaultThreshold > 0 {
-		cfg.DefaultThreshold = defaultThreshold
-	}
-	if v := config.GetOr("ROUTER_SEMANTIC_CACHE_TTL_SEC", ""); v != "" {
-		secs, err := strconv.Atoi(v)
-		if err != nil || secs <= 0 {
-			logger.Warn("Invalid ROUTER_SEMANTIC_CACHE_TTL_SEC; using default", "value", v, "default_sec", int(cfg.TTL.Seconds()))
-		} else {
-			cfg.TTL = time.Duration(secs) * time.Second
-		}
-	}
-	if v := config.GetOr("ROUTER_SEMANTIC_CACHE_BUCKET", ""); v != "" {
-		size, err := strconv.Atoi(v)
-		if err != nil || size <= 0 {
-			logger.Warn("Invalid ROUTER_SEMANTIC_CACHE_BUCKET; using default", "value", v, "default", cfg.BucketSize)
-		} else {
-			cfg.BucketSize = size
-		}
-	}
-	logger.Info(
-		"Semantic cache enabled",
-		"default_threshold", cfg.DefaultThreshold,
-		"per_cluster_overrides", len(cfg.PerClusterThreshold),
-		"bucket_size", cfg.BucketSize,
-		"ttl_sec", int(cfg.TTL.Seconds()),
-		"max_body_kib", cfg.MaxBodyBytes/1024,
-		"version", multi.Default,
-	)
-	return cache.New(cfg)
+	return parseEnvDurationMs(key, fallback)
 }
 
 // safeGo launches fn in a goroutine with panic recovery so a bug in a
@@ -1369,12 +2016,45 @@ func runSessionPinSweep(ctx context.Context, store sessionpin.Store) {
 	}
 }
 
-// defaultHardPinProvider and defaultHardPinModel are the fallback (provider,
-// model) used by resolveHardPinModel when the cluster bundle can't be loaded.
-const (
-	defaultHardPinProvider = providers.ProviderAnthropic
-	defaultHardPinModel    = "claude-haiku-4-5"
-)
+// runSessionTurnClockSweep deletes session turn clocks idle more than seven
+// days on an hourly cadence.
+func runSessionTurnClockSweep(ctx context.Context, store *postgres.SessionTurnClockRepo) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if err := store.SweepExpired(sweepCtx); err != nil {
+				observability.FromContext(ctx).Error("Session turn clock sweep failed", "err", err)
+			}
+			cancel()
+		}
+	}
+}
+
+// cortexWebSearch builds the Cortex Agents web-search executor for gateway
+// tenants whose Anthropic path rejects the native server tool. Returns nil
+// when ROUTER_CORTEX_WEB_SEARCH != "true", leaving those turns on normal routing.
+func cortexWebSearch(logger *slog.Logger) websearch.Executor {
+	if config.GetOr("ROUTER_CORTEX_WEB_SEARCH", "true") != "true" {
+		logger.Info("Cortex Agents web-search executor disabled (ROUTER_CORTEX_WEB_SEARCH)")
+		return nil
+	}
+	role := config.GetOr("SNOWFLAKE_AGENT_ROLE", "")
+	hostSuffix := config.GetOr("SNOWFLAKE_AGENT_HOST_SUFFIX", "")
+	timeout := parseEnvDurationMs("SNOWFLAKE_AGENT_TIMEOUT_MS", 0)
+	logger.Info("Cortex Agents web-search executor enabled",
+		"snowflake_role", role, "host_suffix_override", hostSuffix,
+		"timeout_ms", timeout.Milliseconds())
+	opts := []cortexagents.Option{cortexagents.WithRole(role), cortexagents.WithTimeout(timeout)}
+	if hostSuffix != "" {
+		opts = append(opts, cortexagents.WithHostSuffix(hostSuffix))
+	}
+	return cortexagents.NewClient(config.GetOr("ANTHROPIC_GATEWAY_BASE_URL", ""), opts...)
+}
 
 // resolveDefaultBaselineModel returns the cost-comparison baseline used when
 // RequestedModel has no pricing entry. Uses os.LookupEnv directly (not
@@ -1388,54 +2068,37 @@ func resolveDefaultBaselineModel() string {
 	return strings.TrimSpace(v)
 }
 
-// resolveHardPinModel returns the (provider, model) for compaction and
-// Explore hard-pins: operator override wins, else the fastest available
-// model in the default bundle, else (defaultHardPinProvider, defaultHardPinModel).
-func resolveHardPinModel(available map[string]struct{}, logger *slog.Logger) (provider, model string) {
-	if m := config.GetOr("ROUTER_HARD_PIN_MODEL", ""); m != "" {
-		p := config.GetOr("ROUTER_HARD_PIN_PROVIDER", defaultHardPinProvider)
-		return p, m
+// resolveCompactionModel returns the model the compaction cascade summarizes
+// with (ROUTER_COMPACTION_MODEL). The summarizer dispatches on the handover
+// provider's client only, so a model with no binding on that provider is a
+// startup error rather than a silent substitution.
+func resolveCompactionModel(summarizerProvider string) (string, error) {
+	m := strings.TrimSpace(config.GetOr("ROUTER_COMPACTION_MODEL", policy.PrecompactionDefaultModel))
+	if m == "" {
+		return policy.PrecompactionDefaultModel, nil
 	}
-
-	reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
-	defaultVersion, err := cluster.ResolveVersion(reqVersion)
-	if err != nil {
-		logger.Warn("Hard-pin model: could not resolve cluster version; using default", "err", err, "default_model", defaultHardPinModel)
-		return defaultHardPinProvider, defaultHardPinModel
+	if _, ok := catalog.ResolveBinding(m, map[string]struct{}{summarizerProvider: {}}); !ok {
+		return "", fmt.Errorf("ROUTER_COMPACTION_MODEL %q has no %s catalog binding", m, summarizerProvider)
 	}
-	bundle, err := cluster.LoadBundle(defaultVersion)
-	if err != nil {
-		logger.Warn("Hard-pin model: could not load bundle; using default", "err", err, "default_model", defaultHardPinModel)
-		return defaultHardPinProvider, defaultHardPinModel
-	}
-	p, m, ok := cluster.FastestModel(bundle.Metadata, bundle.Registry, available)
-	if !ok {
-		logger.Warn("Hard-pin model: no model found for available providers; using default", "default_model", defaultHardPinModel)
-		return defaultHardPinProvider, defaultHardPinModel
-	}
-	return p, m
+	return m, nil
 }
 
-// resolveAvailableModels returns the boot-time set of routable model names
-// (default bundle's deployed_models ∩ registered providers), or nil on load
-// failure so the planner treats every pin as routable.
-func resolveAvailableModels(availableProviders map[string]struct{}, logger *slog.Logger) map[string]struct{} {
-	reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
-	defaultVersion, err := cluster.ResolveVersion(reqVersion)
-	if err != nil {
-		logger.Warn("Available-models set: could not resolve cluster version; planner will treat every pin as routable", "err", err)
-		return nil
+// resolveHardPinModel returns the boot-time (provider, model) for Explore and
+// utility hard pins: the operator override, else the policy-owned utility
+// hard-pin default.
+func resolveHardPinModel() (provider, model string, resolutionErr error) {
+	configuredModel := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_MODEL", ""))
+	configuredProvider := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_PROVIDER", ""))
+	if configuredModel != "" {
+		if configuredProvider == "" {
+			configuredProvider = policy.UtilityHardPinDefaultProvider
+		}
+		return configuredProvider, configuredModel, nil
 	}
-	bundle, err := cluster.LoadBundle(defaultVersion)
-	if err != nil {
-		logger.Warn("Available-models set: could not load bundle; planner will treat every pin as routable", "err", err)
-		return nil
+	if configuredProvider != "" {
+		return "", "", errors.New("ROUTER_HARD_PIN_PROVIDER requires ROUTER_HARD_PIN_MODEL")
 	}
-	out := cluster.RoutableModelSet(bundle.Registry, availableProviders)
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
 }
 
 // envVarHint returns the env var name for a provider's API key, for log
@@ -1454,7 +2117,7 @@ func envVarHint(provider string) string {
 // key (respecting byokOnly), constructs its client via newClient, registers
 // it in providerMap, and logs its BYOK/keyed/passthrough state. Shared by the
 // providers whose registration collapses to "resolve key -> build client ->
-// three-way log switch" (Fireworks, Makora, Together, Bedrock, Google);
+// three-way log switch" (Fireworks, Makora, MiniMax, Together, Bedrock, Google);
 // OpenRouter and Anthropic/OpenAI have genuinely different gating
 // logic and stay bespoke. extraLogAttrs are appended only to the
 // deployment-keyed log line (e.g. Bedrock's region).
@@ -1483,6 +2146,21 @@ func registerDeploymentKeyedProvider(
 	}
 }
 
+// openRouterModelIDs layers ROUTER_MODEL_ID_MAP over the catalog's OpenRouter
+// upstream IDs so operator overrides still win.
+func openRouterModelIDs(raw string) (map[string]string, error) {
+	overrides, err := config.ParseModelIDMap(raw)
+	if err != nil {
+		return nil, err
+	}
+	ids := upstreamIDsForProvider(providers.ProviderOpenRouter)
+	if ids == nil {
+		return overrides, nil
+	}
+	maps.Copy(ids, overrides)
+	return ids, nil
+}
+
 func upstreamIDsForProvider(provider string) map[string]string {
 	out := make(map[string]string)
 	for _, m := range catalog.Models {
@@ -1496,4 +2174,49 @@ func upstreamIDsForProvider(provider string) map[string]string {
 		return nil
 	}
 	return out
+}
+
+type escalationStateSweeper interface {
+	SweepExpired(context.Context) error
+}
+
+func runEscalationSweep(ctx context.Context, store escalationStateSweeper) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if err := store.SweepExpired(sweepCtx); err != nil {
+				observability.FromContext(ctx).Error("Escalation state sweep failed", "err", err)
+			}
+			cancel()
+		}
+	}
+}
+
+func buildAnthropicFederationTokenSource(deploymentMode server.DeploymentMode) auth.AnthropicFederationTokenSource {
+	tokenFile := config.GetOr("ANTHROPIC_IDENTITY_TOKEN_FILE", "")
+	identityToken := wif.GoogleIdentityToken
+	if tokenFile != "" {
+		identityToken = func(ctx context.Context, _ string) (string, error) {
+			return wif.ReadAnthropicIdentityToken(ctx, tokenFile)
+		}
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	source := anthropicfederation.NewSource(client, identityToken, time.Now)
+	if deploymentMode != server.DeploymentModeManaged {
+		return source
+	}
+	bindingsJSON, err := base64.StdEncoding.DecodeString(config.GetOr("ROUTER_ANTHROPIC_FEDERATION_BINDINGS_B64", "e30="))
+	if err != nil {
+		panic("invalid base64 managed Anthropic federation bindings")
+	}
+	bindings, err := anthropicfederation.ParseInstallationBindings(string(bindingsJSON))
+	if err != nil {
+		panic(fmt.Errorf("invalid managed Anthropic federation configuration: %w", err))
+	}
+	return source.RequireInstallationBindings(bindings)
 }

@@ -1,32 +1,35 @@
 # internal/router/catalog — AGENTS
 
-> **Mirror notice.** Verbatim sync with [CLAUDE.md](CLAUDE.md). **Update both together** — divergence = bug.
+> **Mirror notice.** Generated from [CLAUDE.md](CLAUDE.md). Edit CLAUDE.md, then run `make generate-agent-guides`; CI rejects drift.
 
-Single source of truth for per-model data: capability tier, ordered list of provider bindings, per-binding pricing + upstream model ID. Read [root CLAUDE.md](../../../CLAUDE.md) first.
+Single source of truth for per-model data: capability tier, subscription coverage, ordered list of provider bindings, per-binding pricing + upstream model ID. Read [root CLAUDE.md](../../../CLAUDE.md) first.
 
 ## What's here
 
-- `Model` — one struct per logical model. Fields: `ID`, `Tier`, `ContextWindow`, `Providers []ProviderBinding`.
-- `ProviderBinding` — one `(Provider, UpstreamID, Price)` tuple. A model's bindings are ordered: the first whose `Provider` name is in the deploy's available set wins.
-- `Pricing` — per-binding input / output / cache-read pricing.
+- `Model` — one struct per logical model. Fields include `ID`, `Tier`, `ContextWindow`, `CodexSubscription`, and `Providers []ProviderBinding`.
+- `ProviderBinding` — one `(Provider, UpstreamID, Price, FastPrice)` tuple, with an optional `MaxImagesPerRequest` cap (zero means unknown). `FastPrice` is the provider's paid fast tier (OpenAI priority / Anthropic fast) and is zero on bindings without one; `FastPricing()` / `FastPriceFor` / `SupportsFastMode` read it. Routing scores on `Price` only — `FastPrice` is a post-dispatch billing rate. A model's bindings are ordered: the first whose `Provider` name is in the deploy's available set wins.
+- `Pricing` — per-binding input / output / cache pricing, with an optional prompt-size tier.
 - `Tier` — Low / Mid / High.
 - `ContextWindow` — model's total input+output token budget in tokens. 0 falls back to `DefaultContextWindow` (128K).
 - Lookup helpers: `ByID`, `ResolveBinding`, `PriceFor(provider, id)`, `PrimaryPriceFor(id)`, `TierFor`, `IsAtOrBelow`, `AllowedAtOrBelow`, `AllPrimaryPricing`, `ValidateDeployed`, `ContextWindowFor`.
-- Cost math: `EffectiveInputCost`, `EffectiveOutputCost` — the OTel emitter, telemetry write path, and billing debit hook all funnel through these.
+- Cost math: `EffectiveInputCost`, `EffectiveOutputCost` — the OTel emitter, telemetry write path, and billing debit hook all funnel through these. `UsageModifiers` carries the rate changers: the 1-hour share of cache writes (provider-reported when available, otherwise inferred from the dispatched request's declared TTL; 2x on Anthropic-spec upstreams vs 1.25x for 5-minute) and the provider-reported inference geography (`Pricing.USInferenceGeoMultiplier`, set only on first-party Anthropic bindings of models that accept `inference_geo`). Fast-tier pricing is selected by the caller (`FastPriceFor`) and stacks with both.
+- Wire listing (`listing.go`): `ModelListing` / `ModelListingResponse` are the rows and body of `GET /v1/router/models`; `Listing()` projects the whole catalog for `?scope=catalog` (`ScopeCatalog`). Both the worker's admin handler and the gateway's credential-free catalog answer serialize this one projection so the two never drift.
 
 ## Adding a model
 
-1. Append one `Model{}` struct literal to `Models` in `catalog.go`.
-2. If the model is a routing target, list it in the cluster bundle's `model_registry.json` (this catalog says how to price/dispatch a model; the registry says which version routes to it).
+1. Append one `Model{}` struct literal to `Models` in `catalog.go`. Mark `CodexSubscription` there when native ChatGPT/Codex OAuth serves the model; credential routing reads that catalog field directly.
+2. If the model is a routing target, add it as an arm in the HMM roster published through the serving registry (see [SERVING_CONTROL.md](../../../docs/SERVING_CONTROL.md#shared-code-cohorts-and-roster-configuration-selection-v3)). This catalog says how to price/dispatch a model; the roster says which groups route to it. Go validates every roster arm against this catalog (`hmm.ValidateRosterIDs`).
 3. Run `go run ./cmd/genprices` to regenerate `install/install.sh` + `install/cc-statusline.sh`.
 
-That's it. Nothing else needs editing — the planner, scorer, OTel emitter, install scripts, and provider modelIDMaps all flow from this file.
+That's it. Nothing else needs editing — the planner, policy resolver, OTel emitter, install scripts, and provider modelIDMaps all flow from this file.
 
 ## Multi-provider semantics
 
 Today most models carry a single binding. The catalog's data shape is multi-binding so SOC 2 direct-provider rows can append an OpenRouter fallback without touching call sites: managed-prod deploys (no `OPENROUTER_API_KEY`) get the primary binding; self-hosters with only OpenRouter get the trailing one.
 
-The cluster scorer resolves each routable model's binding at boot via `ResolveBinding(id, availableProviders)`. The chosen binding's `Provider` becomes the `router.Decision.Provider`; the planner then uses `catalog.PriceFor(provider, id)` so STAY-vs-SWITCH EV math is correct when a model is served by different providers at different prices.
+A trailing `SubscriptionOverflowOnly` OpenRouter binding on Claude/GPT rows is invisible to routing, failover and BYOK custom-binding dedup (`RoutableBindings`, `EnumerateBindings`, `ResolveBinding`); only the `subscription_exhausted_openrouter_only` exhausted-subscription lane in `internal/proxy` dispatches it, via `BindingFor`. `PriceFor` still prices it.
+
+Routing resolves each candidate model's binding via `ResolveBinding(id, availableProviders)`. The chosen binding's `Provider` becomes the `router.Decision.Provider`; the planner then uses `catalog.PriceFor(provider, id)` so STAY-vs-SWITCH EV math is correct when a model is served by different providers at different prices.
 
 ## Invariants
 
