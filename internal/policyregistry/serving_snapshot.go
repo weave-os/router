@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"slices"
 
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/armid"
 )
 
@@ -144,12 +146,28 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 		Policy:             prepared.Policy,
 		ClassifierAudience: prepared.Binding.Classifier.Audience,
 	}
+	if prepared.ClassifierServiceBinding != nil {
+		if prepared.ClassifierRuntimeBinding == nil {
+			return nil, errors.New("v4 selection has no classifier runtime binding")
+		}
+		candidate.ClassifierReleaseV5 = prepared.ClassifierReleaseV5
+		candidate.ClassifierReleaseID = prepared.ClassifierServiceBinding.Release.SHA256
+		candidate.ClassifierSelectionID = admission.Selection.Binding.SHA256
+		candidate.ClassifierWorkerURL = prepared.ClassifierRuntimeBinding.Binding.WorkerURL
+		candidate.ClassifierWorkerAudience = prepared.ClassifierRuntimeBinding.Binding.WorkerAudience
+		candidate.ClassifierEnabledVariants = slices.Clone(prepared.ClassifierServiceBinding.EnabledVariants)
+		candidate.SupportedAPIMajors = slices.Clone(prepared.Candidate.SupportedAPIMajors)
+	}
+	candidate.StrategyPolicies = prepared.StrategyPolicies
 	routers, err := c.builder(ctx, candidate)
 	if err != nil {
 		return nil, err
 	}
 	if len(routers) == 0 {
 		return nil, errors.New("admitted serving snapshot has no routers")
+	}
+	if routers[router.PrimaryRoutingStrategy] == nil {
+		return nil, errors.New("admitted serving snapshot has no primary classifier router")
 	}
 	snapshot := &Snapshot{Candidate: candidate, Routers: routers}
 	if existing, loaded, _ := c.loaded.PeekOrAdd(key, snapshot); loaded {

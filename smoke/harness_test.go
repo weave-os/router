@@ -215,9 +215,9 @@ func doCall(body []byte, streaming bool, model string, extra map[string]string) 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.RouterKey)
 	req.Header.Set("anthropic-version", anthropicVersion)
-	// Pin the served model unless this body is itself a force-model command
-	// (those must route through the command handler, not re-pin).
-	if !isForceModelCommand(body) {
+	// Pin the served model unless none is named or this body is itself a
+	// force-model command (those must route through the command handler).
+	if model != "" && !isForceModelCommand(body) {
 		req.Header.Set(forceModelHeader, model)
 	}
 	for k, v := range extra {

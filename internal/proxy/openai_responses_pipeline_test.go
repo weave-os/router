@@ -1,6 +1,7 @@
 package proxy_test
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,7 +13,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 
@@ -39,72 +39,12 @@ const chatCacheableTurnBody = `{"model":"auto","stream":false,"max_tokens":4096,
   "messages":[{"role":"user","content":"summarize the release notes"}],
   "reasoning_effort":"medium"}`
 
-func openAIChatServiceWithDecision(provider providers.Client, decision router.Decision, c *cache.Cache) *proxy.Service {
+func openAIChatServiceWithDecision(provider providers.Client, decision router.Decision) *proxy.Service {
 	return proxy.NewService(
 		&fakeRouter{decision: decision},
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
-		nil, false, c, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
+		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
 	)
-}
-
-// The semantic cache stores what the CLIENT received, so a turn served over
-// Responses must be replayed as chat/completions — caching the upstream's
-// Responses body would hand the next caller a foreign wire format.
-func TestService_ProxyOpenAIChatCompletion_ResponsesTurnCachesTranslatedBody(t *testing.T) {
-	provider := &fakeProvider{proxyResponse: responsesTextUpstream}
-	decision := router.Decision{
-		Provider: providers.ProviderOpenAI,
-		Model:    "gpt-5.6-luna",
-		Reason:   "test",
-		Metadata: &router.RoutingMetadata{Embedding: embeddingFixture(11), ClusterIDs: []int{0, 1}},
-	}
-	svc := openAIChatServiceWithDecision(provider, decision, cache.New(cache.DefaultConfig()))
-	ctx := proxyContextWithExternalID(t, "tenant-responses")
-
-	rec1 := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(chatCacheableTurnBody), rec1,
-		httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatCacheableTurnBody))))
-	require.Len(t, provider.proxyEndpoints, 1)
-	require.Equal(t, providers.EndpointResponses, provider.proxyEndpoints[0])
-
-	rec2 := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(chatCacheableTurnBody), rec2,
-		httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatCacheableTurnBody))))
-
-	assert.Len(t, provider.proxyEndpoints, 1, "the second turn must be served from cache")
-	assert.Equal(t, proxy.RouterCacheHit, rec2.Header().Get(proxy.HeaderRouterCache))
-	replayed := rec2.Body.Bytes()
-	assert.Equal(t, "chat.completion", gjson.GetBytes(replayed, "object").String(),
-		"a cached Responses turn must replay as chat/completions")
-	assert.Equal(t, "cached answer", gjson.GetBytes(replayed, "choices.0.message.content").String())
-	assert.Equal(t, rec1.Body.String(), rec2.Body.String())
-}
-
-// Streaming bypasses the semantic cache — its translated bytes are SSE frames
-// that would be unreadable as a chat.completion body on the next hit.
-func TestService_ProxyOpenAIChatCompletion_ResponsesStreamBypassesCache(t *testing.T) {
-	streamingBody := strings.Replace(chatCacheableTurnBody, `"stream":false`, `"stream":true`, 1)
-	provider := &fakeProvider{proxyResponse: responsesTextUpstream}
-	decision := router.Decision{
-		Provider: providers.ProviderOpenAI,
-		Model:    "gpt-5.6-luna",
-		Reason:   "test",
-		Metadata: &router.RoutingMetadata{Embedding: embeddingFixture(11), ClusterIDs: []int{0, 1}},
-	}
-	svc := openAIChatServiceWithDecision(provider, decision, cache.New(cache.DefaultConfig()))
-	ctx := proxyContextWithExternalID(t, "tenant-responses-stream")
-
-	for range 2 {
-		rec := httptest.NewRecorder()
-		require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(streamingBody), rec,
-			httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(streamingBody))))
-		assert.NotEqual(t, proxy.RouterCacheHit, rec.Header().Get(proxy.HeaderRouterCache))
-		assert.Contains(t, rec.Body.String(), "chat.completion.chunk")
-	}
-	assert.Equal(t,
-		[]providers.Endpoint{providers.EndpointResponses, providers.EndpointResponses},
-		provider.proxyEndpoints,
-		"both streaming turns must reach the provider on Responses")
 }
 
 // Usage lives in the Responses payload, not in a chat.completion, so the ledger
@@ -161,7 +101,7 @@ func TestService_ProxyMessages_HandoverSwitchToOpenAIEmitsResponses(t *testing.T
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderOpenAI:    openAI,
 		},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithSummarizer(summarizer)
 
 	rec := httptest.NewRecorder()
@@ -200,7 +140,7 @@ func TestService_ProxyOpenAIChatCompletion_HandoverUsesResponsesEndpoint(t *test
 			providers.ProviderAnthropic: &fakeProvider{},
 			providers.ProviderOpenAI:    openAI,
 		},
-		nil, false, nil, store, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
+		nil, store, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
 	).WithSummarizer(summarizer)
 	body := `{"model":"auto","stream":true,"max_tokens":256,"messages":[{"role":"user","content":"` + strings.Repeat("aaaa ", 8000) + `"}],"tools":[{"type":"function","function":{"name":"noop","parameters":{"type":"object"}}}],"reasoning_effort":"medium"}`
 	rec := httptest.NewRecorder()
@@ -211,4 +151,13 @@ func TestService_ProxyOpenAIChatCompletion_HandoverUsesResponsesEndpoint(t *test
 	require.Len(t, openAI.proxyEndpoints, 1)
 	assert.Equal(t, providers.EndpointResponses, openAI.proxyEndpoints[0])
 	assert.Contains(t, string(openAI.proxyBodies[0]), "HANDOVER SUMMARY MARKER")
+}
+
+func proxyContextWithExternalID(t *testing.T, externalID string) context.Context {
+	t.Helper()
+	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "pipeline-test-key")
+	if externalID != "" {
+		ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, externalID)
+	}
+	return ctx
 }

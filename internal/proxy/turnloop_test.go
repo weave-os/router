@@ -135,8 +135,6 @@ func newPinSvcCapturing(fr *fakeRouter, store *fakePinStore) (*proxy.Service, *f
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: p},
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,
@@ -565,8 +563,6 @@ func TestTurnLoop_ToolResultPinOnExcludedProviderFallsThroughToScorer(t *testing
 			providers.ProviderOpenAI:    &fakeProvider{},
 		},
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,
@@ -786,8 +782,6 @@ func TestTurnLoop_UsageWritebackPersistsCacheStats(t *testing.T) {
 	svc := proxy.NewService(
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: provider},
-		nil,
-		false,
 		nil,
 		store,
 		false,
@@ -1093,4 +1087,28 @@ func (recordingTelemetry) GetSessionCost(ctx context.Context, installationID, se
 
 func (recordingTelemetry) GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (proxy.TelemetryTurnResult, error) {
 	return proxy.TelemetryTurnResult{}, nil
+}
+
+func (recordingTelemetry) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryDashboardFact, error) {
+	return nil, nil
+}
+
+func (recordingTelemetry) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryActiveUsers, error) {
+	return nil, nil
+}
+
+func (recordingTelemetry) GetTelemetryDashboardPeople(context.Context, string) ([]proxy.TelemetryPerson, error) {
+	return nil, nil
+}
+
+func (recordingTelemetry) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]proxy.TelemetrySubscriptionSeat, error) {
+	return nil, nil
+}
+
+func (recordingTelemetry) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]proxy.TelemetryDrillDownRow, error) {
+	return nil, nil
+}
+
+func (recordingTelemetry) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryIndividualFact, error) {
+	return nil, nil
 }

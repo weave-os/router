@@ -317,7 +317,7 @@ check "update while off (project scope) recovers the key into settings.local.jso
 check "update while off (project scope) drops the direct-to-Anthropic override" \
   "$(jq -r '.env.ANTHROPIC_BASE_URL // ""' "$proj_off_local")" ""
 check "update while off (project scope) leaves the router URL live in settings.json" \
-  "$(jq -r '.env.ANTHROPIC_BASE_URL // ""' "$proj_off_settings")" "https://router.workweave.ai"
+  "$(jq -r '.env.ANTHROPIC_BASE_URL // ""' "$proj_off_settings")" "https://router.weaveos.com"
 
 # ---------- codex / opencode / pi: the same read-back Claude Code has ----------
 #

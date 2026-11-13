@@ -11,9 +11,9 @@ Opt-in `router.Router` that delegates model selection to a trained RL/DPO policy
 
 ## Load-bearing invariants
 
-- **Opt-in only.** Reached solely via `x-weave-router-strategy: rl` (see `proxy.Service.routeFor`); the deployment default stays the cluster scorer.
-- **Fail closed.** Every failure path (sidecar unreachable/errored, no eligible candidate, unrecognized selection) returns `ErrPolicyUnavailable`, which the API layer maps to HTTP 503 — mirroring `cluster.ErrClusterUnavailable`. **Never** add a silent fallback to a default model or to the cluster scorer; that masks regressions exactly like the retired heuristic fallback.
-- **Adapters don't import adapters.** This package defines its own `ErrPolicyUnavailable` rather than importing `cluster`. Keep it that way.
+- **Opt-in only.** Reached solely via `x-weave-router-strategy: rl` (see `proxy.Service.routeFor`); the deployment default stays `ROUTER_DEFAULT_STRATEGY`.
+- **Fail closed.** Every failure path (sidecar unreachable/errored, no eligible candidate, unrecognized selection) returns `ErrPolicyUnavailable`, which the API layer maps to HTTP 503. **Never** add a silent fallback to a default model or to another strategy; that masks regressions exactly like the retired heuristic fallback.
+- **Adapters don't import adapters.** This package defines its own `ErrPolicyUnavailable` rather than importing another router adapter. Keep it that way.
 - **Roster mapping is best-effort.** `mapping.go` mirrors `ml_dev/agent_environment/roster.py`'s `OPENROUTER_MODEL_ALIASES`. The sidecar intersects candidates against its trained roster, so a model it doesn't know is simply dropped — but keep the two dotted-form Claude exceptions accurate.
 
 ## Wiring

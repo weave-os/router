@@ -45,7 +45,7 @@ func TestProxyOpenAIChatCompletion_ManagedPoolFailureIsRenderedOnce(t *testing.T
 			providers.ProviderOpenAI:    openAI,
 			providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic},
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderOpenAI:    {},

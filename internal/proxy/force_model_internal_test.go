@@ -212,6 +212,41 @@ func TestResolveForceModel(t *testing.T) {
 			wantKnown:    true,
 		},
 		{
+			name:         "kimi k3.1 version pin",
+			input:        "kimi-k3.1",
+			wantID:       "moonshotai/kimi-k3.1",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "upstream kimi k3.1 pro spelling",
+			input:        "moonshotai/kimi-k3.1-pro",
+			wantID:       "moonshotai/kimi-k3.1",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "alias minimax current release",
+			input:        "minimax",
+			wantID:       "minimax/minimax-m3.1-flash",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "explicit minimax m3 pin remains exact",
+			input:        "minimax-m3",
+			wantID:       "minimax/minimax-m3",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "explicit kimi k3 pin remains exact",
+			input:        "kimi-k3",
+			wantID:       "moonshotai/kimi-k3",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
 			name:         "explicit kimi 2.7 pin remains exact",
 			input:        "kimi-k2.7",
 			wantID:       "moonshotai/kimi-k2.7",
@@ -419,6 +454,14 @@ func TestResolveForceModel_GrokFamilyAlias(t *testing.T) {
 	}
 }
 
+func TestResolveForceModel_MythosAlias(t *testing.T) {
+	gotID, gotProvider, gotKnown := resolveForceModel("mythos")
+
+	assert.Equal(t, "claude-mythos-5-2", gotID)
+	assert.Equal(t, providers.ProviderAnthropic, gotProvider)
+	assert.True(t, gotKnown)
+}
+
 // An explicit :level suffix must survive resolution to its catalog model.
 func TestResolveForceModel_EffortSuffixPreserved(t *testing.T) {
 	gotID, _, gotKnown, gotEffort := resolveForceModelWithEffort("grok-4.6:high")
@@ -445,6 +488,8 @@ func TestResolveForceModel_ObservedSpellings(t *testing.T) {
 		{"claude-sonnet-5.5", "claude-sonnet-5-5", ""},
 		{"claude-haiku-4.5", "claude-haiku-4-5", ""},
 		{"claude-fable-5.1", "claude-fable-5-1", ""},
+		{"claude-fable-5.2", "claude-fable-5-2", ""},
+		{"fable 5.2", "claude-fable-5-2", ""},
 		{"opus-4-5", "claude-opus-4-5", ""},
 		{"opus-4.7", "claude-opus-4-7", ""},
 		{"claude-opus-5-5[1m]", "claude-opus-5-5", ""},
@@ -453,6 +498,11 @@ func TestResolveForceModel_ObservedSpellings(t *testing.T) {
 		{"claude-opus-5-5[1m]-max", "claude-opus-5-5", "max"},
 		{"claude-opus-5-5[1m]:xhigh", "claude-opus-5-5", "xhigh"},
 		{"gpt 6.1 sol", "gpt-6.1-sol", ""},
+		{"sol-6-1", "gpt-6.1-sol", ""},
+		{"sol 6.1", "gpt-6.1-sol", ""},
+		{"sol-6.1:high", "gpt-6.1-sol", "high"},
+		{"terra-6.1", "gpt-6.1-terra", ""},
+		{"luna-5.6", "gpt-5.6-luna", ""},
 		{"gpt-5-6-luna", "gpt-5.6-luna", ""},
 		{"gemini-3-1-pro-preview", "gemini-3.1-pro-preview", ""},
 		{"glm 5.3", "z-ai/glm-5.3", ""},

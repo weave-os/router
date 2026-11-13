@@ -44,12 +44,14 @@ UPDATE router.session_strategy_preferences
 SET enabled = FALSE
 WHERE installation_id = $1::uuid
   AND session_key = $2::bytea
+  AND strategy = $3::varchar
   AND enabled
 `
 
 type UpdateSessionStrategyPreferenceDisabledParams struct {
 	InstallationID uuid.UUID
 	SessionKey     []byte
+	Strategy       string
 }
 
 // Turns the session's explicit override off and reports one affected row when
@@ -60,9 +62,10 @@ type UpdateSessionStrategyPreferenceDisabledParams struct {
 //	SET enabled = FALSE
 //	WHERE installation_id = $1::uuid
 //	  AND session_key = $2::bytea
+//	  AND strategy = $3::varchar
 //	  AND enabled
 func (q *Queries) UpdateSessionStrategyPreferenceDisabled(ctx context.Context, arg UpdateSessionStrategyPreferenceDisabledParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateSessionStrategyPreferenceDisabled, arg.InstallationID, arg.SessionKey)
+	result, err := q.db.Exec(ctx, updateSessionStrategyPreferenceDisabled, arg.InstallationID, arg.SessionKey, arg.Strategy)
 	if err != nil {
 		return 0, err
 	}
@@ -78,7 +81,8 @@ INSERT INTO router.session_strategy_preferences (
 ON CONFLICT (installation_id, session_key)
 DO UPDATE SET
   strategy = EXCLUDED.strategy,
-  enabled = NOT router.session_strategy_preferences.enabled
+  enabled = CASE WHEN router.session_strategy_preferences.strategy = EXCLUDED.strategy
+    THEN NOT router.session_strategy_preferences.enabled ELSE TRUE END
 RETURNING enabled
 `
 
@@ -91,7 +95,8 @@ type UpsertToggledSessionStrategyPreferenceParams struct {
 // Flips the session's explicit override and returns the state now persisted.
 // The row lock taken on conflict serializes overlapping toggles across router
 // instances, so each caller observes its own flip instead of a stale read.
-// The database constraint rejects any strategy other than hmm_beta.
+// A different command selects its classifier immediately; repeating the active
+// command disables it. Both choices use this single installation-scoped row.
 //
 //	INSERT INTO router.session_strategy_preferences (
 //	  installation_id, session_key, strategy, enabled
@@ -101,7 +106,8 @@ type UpsertToggledSessionStrategyPreferenceParams struct {
 //	ON CONFLICT (installation_id, session_key)
 //	DO UPDATE SET
 //	  strategy = EXCLUDED.strategy,
-//	  enabled = NOT router.session_strategy_preferences.enabled
+//	  enabled = CASE WHEN router.session_strategy_preferences.strategy = EXCLUDED.strategy
+//	    THEN NOT router.session_strategy_preferences.enabled ELSE TRUE END
 //	RETURNING enabled
 func (q *Queries) UpsertToggledSessionStrategyPreference(ctx context.Context, arg UpsertToggledSessionStrategyPreferenceParams) (bool, error) {
 	row := q.db.QueryRow(ctx, upsertToggledSessionStrategyPreference, arg.InstallationID, arg.SessionKey, arg.Strategy)

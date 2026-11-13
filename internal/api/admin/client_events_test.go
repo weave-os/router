@@ -83,6 +83,25 @@ func TestClientEventHandlerReportsLifecycle(t *testing.T) {
 	}}, recorder.events)
 }
 
+func TestClientEventHandlerAcceptsCopilotAndClaudeDesktop(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	for body, want := range map[string]auth.HarnessLifecycleEvent{
+		`{"action":"off","harness":"copilot"}`:              {Harness: auth.LifecycleHarnessCopilot, Action: auth.HarnessLifecycleActionOff},
+		`{"action":"uninstall","harness":"copilot"}`:        {Harness: auth.LifecycleHarnessCopilot, Action: auth.HarnessLifecycleActionUninstall},
+		`{"action":"connected","harness":"claude_desktop"}`: {Harness: auth.LifecycleHarnessDesktop, Action: auth.HarnessLifecycleActionConnected},
+		`{"action":"uninstall","harness":"claude_desktop"}`: {Harness: auth.LifecycleHarnessDesktop, Action: auth.HarnessLifecycleActionUninstall},
+	} {
+		t.Run(body, func(t *testing.T) {
+			recorder := &lifecycleRecorder{}
+			response := postClientEvent(clientEventEngine(t, recorder, now), clientEventTestToken, body)
+			require.Equal(t, http.StatusNoContent, response.Code, response.Body.String())
+			want.InstallationExternalID, want.CredentialSubjectID, want.APIKeyID, want.OccurredAt = "org-test", "subject", "key", now
+			require.Equal(t, []auth.HarnessLifecycleEvent{want}, recorder.events)
+		})
+	}
+}
+
 func TestClientEventHandlerRejectsInvalidBodies(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for name, body := range map[string]string{
@@ -92,6 +111,7 @@ func TestClientEventHandlerRejectsInvalidBodies(t *testing.T) {
 		"unknown action":  `{"action":"status","harness":"claude_code"}`,
 		"unknown harness": `{"action":"on","harness":"cursor"}`,
 		"short harness":   `{"action":"on","harness":"claude"}`,
+		"dashed harness":  `{"action":"connected","harness":"claude-desktop"}`,
 		"not json":        `action=on`,
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -19,7 +19,7 @@ if (args[0] === "codex" || args[0] === "claude") {
   return;
 }
 
-const defaultEntrypointURL = "https://router.workweave.ai/start";
+const defaultEntrypointURL = "https://app.weaveos.com/start";
 
 if (packageName === "@weave-os/router" && args.length === 0) {
   openDefaultEntrypoint(defaultEntrypointURL);
@@ -122,6 +122,9 @@ function isGitBash(executable) {
 }
 
 function openDefaultEntrypoint(url) {
+  console.log(`Weave Router: opening ${url} in your browser to get your key and finish setup.`);
+  console.log("Already have a key? Run npx @weave-os/router --claude (or --codex, --opencode, --pi).");
+  console.log("All options: npx @weave-os/router --help");
   const opener = process.platform === "darwin"
     ? ["open", [url]]
     : process.platform === "win32"
@@ -129,6 +132,6 @@ function openDefaultEntrypoint(url) {
       : ["xdg-open", [url]];
   const result = spawnSync(opener[0], opener[1], { stdio: "ignore" });
   if (result.error || result.status !== 0) {
-    console.log(`Open ${url} in your browser to get started.`);
+    console.log(`Couldn't open a browser. Open ${url} to get started.`);
   }
 }

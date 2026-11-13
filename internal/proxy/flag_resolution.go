@@ -11,7 +11,6 @@ import (
 // internal/flags. Precedence is per-org override > deployment default.
 // Call sites must use these instead of reading Service fields directly;
 // a direct field read silently ignores any per-org override.
-// ResolveEmbedOnlyUserMessage lives in service.go (header > per-org > default).
 
 // ResolveStruggleShadowEnabled reports whether the session-level struggle
 // detector runs for this request.
@@ -59,6 +58,12 @@ func (s *Service) ResolveScoreToolResultTurns(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyScoreToolResultTurns, s.scoreToolResultTurns)
 }
 
+// ResolveHMMToolResultHold reports whether tool-result turns keep the session
+// pin chosen on the turn's first call instead of following per-turn selection.
+func (s *Service) ResolveHMMToolResultHold(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyHMMToolResultHold, false)
+}
+
 // ResolvePrefixTrimFreeSwitch reports whether a trimmed prompt prefix counts as a
 // free switch point.
 func (s *Service) ResolvePrefixTrimFreeSwitch(ctx context.Context) bool {
@@ -91,6 +96,12 @@ func (s *Service) ResolveAuthoritativeUpgradeVotes(ctx context.Context) int {
 // applies to authoritative-per-turn downgrades.
 func (s *Service) ResolveAuthoritativeDowngradeGate(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAuthoritativeDowngradeGate, s.authoritativeDowngradeGate)
+}
+
+// ResolveAuthoritativeUpgradeSlidingThreshold reports whether an authoritative
+// upgrade inside a sliding-threshold band bypasses the confidence floor.
+func (s *Service) ResolveAuthoritativeUpgradeSlidingThreshold(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyAuthoritativeUpgradeSlidingThreshold, s.authoritativeUpgradeSlidingThreshold)
 }
 
 // ResolveHMMDowngradeHysteresisTurns returns how many consecutive
@@ -146,6 +157,16 @@ func (s *Service) ResolveCCAutonomySystemAppend(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyCCAutonomySystemAppend, s.ccAutonomySystemAppend)
 }
 
+// ResolveEarlyStopRedo reports the early_stop_redo mode (org-overridable). An
+// unset or unrecognized value resolves to off.
+func (s *Service) ResolveEarlyStopRedo(ctx context.Context) flags.EarlyStopRedoMode {
+	mode, err := flags.ParseEarlyStopRedoMode(flags.StringOr(ctx, flags.KeyEarlyStopRedo, string(s.earlyStopRedo)))
+	if err != nil {
+		return flags.EarlyStopRedoOff
+	}
+	return mode
+}
+
 // ResolveCCWorkspaceSystemAppend reports whether Claude Code main-loop and
 // tool-result turns served cross-vendor get translate.WorkspaceSystemText
 // appended (cc_workspace_system_append; org-overridable).
@@ -186,6 +207,13 @@ func (s *Service) ResolveRateLimitCooldown(ctx context.Context) time.Duration {
 		seconds = DefaultRateLimitCooldownSeconds
 	}
 	return time.Duration(seconds) * time.Second
+}
+
+// ResolveProviderOverloaded reports the ROUTER_PROVIDER_OVERLOADED flag: on,
+// the request's dispatch outcomes feed the per-model 529 circuit breaker and
+// its routing honours open circuits as deployment-wide automatic exclusions.
+func (s *Service) ResolveProviderOverloaded(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyProviderOverloaded, s.providerOverloaded)
 }
 
 // ResolveNativeAnthropicResponseSignals reports the

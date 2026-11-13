@@ -170,7 +170,7 @@ func TestPolicyShadowComparisonSkipsDryRunAndCollectsServingRoute(t *testing.T) 
 	svc := proxy.NewService(
 		&fakeRouter{decision: scorerDecision},
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
-		nil, false, nil, nil, false,
+		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", telem,
 	).WithPolicyStrategy(policy.StrategySpec{Strategy: shadowStrategy, Router: shadowRouter})
 
@@ -205,7 +205,7 @@ func TestPolicyShadowComparisonSkipsDryRunAndCollectsServingRoute(t *testing.T) 
 	assert.Equal(t, "org-1", row.OrganizationID)
 	assert.Equal(t, "rollout-1", row.RolloutID)
 	assert.True(t, row.TrainingAllowed)
-	assert.Equal(t, "cluster", row.ServingStrategy)
+	assert.Equal(t, string(router.StrategyHMMEmbedding), row.ServingStrategy)
 	assert.Equal(t, scorerDecision.Model, row.ServingModel)
 	assert.Equal(t, "future-policy", row.ShadowStrategy)
 	assert.Equal(t, "gpt-5.5", row.ShadowModel)
@@ -232,7 +232,7 @@ func TestPolicyShadowComparisonCollectsUsageBypassRoute(t *testing.T) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}},
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
-		nil, false, nil, nil, false,
+		nil, nil, false,
 		providers.ProviderAnthropic, bypassScorerPickMdl, telem,
 	).WithUsageObserver(observer).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: shadowStrategy, Router: shadowRouter})
@@ -253,9 +253,10 @@ func TestPolicyShadowComparisonCollectsUsageBypassRoute(t *testing.T) {
 	assert.False(t, row.ModelsAgree)
 }
 
-// TestProxyMessages_RecordsClusterObservation asserts cluster-routed decisions
-// surface every routing-brain field into the telemetry row (W-1339/W-1335).
-func TestProxyMessages_RecordsClusterObservation(t *testing.T) {
+// TestProxyMessages_RecordsRoutingObservation asserts scored decisions surface
+// every routing-brain field into the telemetry row, while the retired cluster
+// columns stay NULL even when a router still reports them.
+func TestProxyMessages_RecordsRoutingObservation(t *testing.T) {
 	const installID = "11111111-1111-1111-1111-111111111111"
 	decision := router.Decision{
 		Provider: providers.ProviderAnthropic,
@@ -275,8 +276,6 @@ func TestProxyMessages_RecordsClusterObservation(t *testing.T) {
 		&fakeRouter{decision: decision},
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
@@ -292,11 +291,11 @@ func TestProxyMessages_RecordsClusterObservation(t *testing.T) {
 	row := telem.firstRow(t)
 	assert.Equal(t, installID, row.InstallationID)
 	assert.Equal(t, "claude-haiku-4-5", row.DecisionModel)
-	assert.Equal(t, []int32{3, 7}, row.ClusterIDs)
+	assert.Nil(t, row.ClusterIDs)
 	assert.Equal(t, []string{"claude-opus-4-7", "claude-haiku-4-5"}, row.CandidateModels)
 	require.NotNil(t, row.ChosenScore)
 	assert.InDelta(t, 0.85, *row.ChosenScore, 1e-6)
-	assert.Equal(t, "v-test", row.ClusterRouterVersion)
+	assert.Empty(t, row.ClusterRouterVersion)
 	// Propensity=&1.0 for the deterministic argmax scorer; candidate_scores is
 	// the pre-argmax vector — off-policy logging substrate.
 	require.NotNil(t, row.Propensity)
@@ -350,7 +349,7 @@ func TestProxyMessages_RecordsPolicyObservation(t *testing.T) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: decision},
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
-		nil, false, nil, nil, false,
+		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem,
 	).WithContentCapture(proxy.CaptureHashed, 0, nil)
@@ -405,7 +404,7 @@ func TestProxyMessages_PersistsCacheTokens(t *testing.T) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: decision},
 		map[string]providers.Client{providers.ProviderAnthropic: provider},
-		nil, false, nil, nil, false,
+		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem,
 	)
@@ -442,7 +441,7 @@ func TestProxyMessages_ChosenScoreZeroIsPersisted(t *testing.T) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: decision},
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
-		nil, false, nil, nil, false,
+		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem,
 	)
@@ -474,8 +473,6 @@ func TestProxyMessages_NoMetadataOmitsClusterFields(t *testing.T) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: decision},
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -532,7 +529,7 @@ func TestProxyMessages_PersistsTurnType(t *testing.T) {
 			svc := proxy.NewService(
 				&fakeRouter{decision: decision},
 				map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
-				nil, false, nil, nil, false,
+				nil, nil, false,
 				providers.ProviderAnthropic, "claude-haiku-4-5",
 				telem,
 			)
@@ -562,7 +559,7 @@ func TestProxyMessages_PersistsRolloutID(t *testing.T) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: decision},
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
-		nil, false, nil, nil, false,
+		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem,
 	)
@@ -591,7 +588,7 @@ func TestProxyMessages_PersistedPolicyRolloutIDOverridesClientIdentity(t *testin
 	svc := proxy.NewService(
 		&fakeRouter{decision: decision},
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
-		nil, false, nil, nil, false,
+		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem,
 	)
@@ -623,7 +620,7 @@ func TestProxyMessages_PersistsSessionKeyAndRole(t *testing.T) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: decision},
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
-		nil, false, nil, nil, false,
+		nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		telem,
 	)
@@ -702,7 +699,7 @@ func TestProxyMessages_NativeAnthropicResponseSignals(t *testing.T) {
 			svc := proxy.NewService(
 				&fakeRouter{decision: decision},
 				map[string]providers.Client{providers.ProviderAnthropic: provider},
-				nil, false, nil, nil, false,
+				nil, nil, false,
 				providers.ProviderAnthropic, "claude-opus-4-7", telem,
 			).WithNativeAnthropicResponseSignals(tt.enabled)
 
@@ -735,7 +732,7 @@ func TestProxyMessages_NativeAnthropicResponseSignals(t *testing.T) {
 // leaves them unknown when the upstream stream ended before the turn did.
 func TestProxyOpenAIChatCompletion_ResponseSignalTelemetry(t *testing.T) {
 	const installID = "99999999-9999-9999-9999-999999999999"
-	completed := `{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"function_call","call_id":"call_1","name":"read_file","arguments":"{\"path\":\"main.go\"}"}],"usage":{"input_tokens":11,"output_tokens":7}}}`
+	completed := `{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"patching"}]},{"type":"function_call","call_id":"call_1","name":"read_file","arguments":"{\"path\":\"main.go\"}"}],"usage":{"input_tokens":11,"output_tokens":7}}}`
 	frames := []string{
 		`{"type":"response.output_text.delta","output_index":0,"delta":"patching"}`,
 		`{"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","call_id":"call_1","name":"read_file"}}`,
@@ -776,7 +773,7 @@ func TestProxyOpenAIChatCompletion_ResponseSignalTelemetry(t *testing.T) {
 			svc := proxy.NewService(
 				&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna"}},
 				map[string]providers.Client{providers.ProviderOpenAI: provider},
-				nil, false, nil, nil, false,
+				nil, nil, false,
 				providers.ProviderOpenAI, "gpt-5.6-sol", telem,
 			)
 
@@ -791,6 +788,43 @@ func TestProxyOpenAIChatCompletion_ResponseSignalTelemetry(t *testing.T) {
 			assert.Equal(t, tt.wantInvalidArgsBlocks, row.InvalidToolArgsBlocks)
 		})
 	}
+}
+
+func TestProxyOpenAIChatCompletion_AnthropicTranslatedResponseSignals(t *testing.T) {
+	const installID = "99999999-9999-9999-9999-999999999999"
+	frames := []string{
+		`event: message_start` + "\n" + `data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-5-5","content":[],"usage":{"input_tokens":11,"output_tokens":1}}}`,
+		`event: content_block_start` + "\n" + `data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"read_file","input":{}}}`,
+		`event: content_block_delta` + "\n" + `data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\":\"main.go\"}"}}`,
+		`event: content_block_stop` + "\n" + `data: {"type":"content_block_stop","index":0}`,
+		`event: message_delta` + "\n" + `data: {"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"output_tokens":7}}`,
+		`event: message_stop` + "\n" + `data: {"type":"message_stop"}`,
+	}
+	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		for _, f := range frames {
+			_, _ = w.Write([]byte(f + "\n\n"))
+		}
+	}}
+	telem := newCaptureTelemetry()
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-5-5"}},
+		map[string]providers.Client{providers.ProviderAnthropic: provider},
+		nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-5-5", telem,
+	)
+	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
+	_ = svc.ProxyOpenAIChatCompletion(ctx, []byte(chatToolTurnBody), rec, httpReq)
+
+	assert.Contains(t, rec.Body.String(), `"finish_reason":"tool_calls"`, "client stream must carry the translated tool call")
+	row := telem.firstRow(t)
+	assert.True(t, row.CrossFormat)
+	assert.Equal(t, ptrTo("tool_use"), row.UpstreamFinishReason)
+	assert.Equal(t, ptrTo("tool_calls"), row.StopReason)
+	assert.Equal(t, ptrTo(int32(1)), row.ToolUseBlocks)
 }
 
 // TestProxyOpenAIChatCompletion_NativeChatResponseSignals covers the
@@ -853,7 +887,7 @@ func TestProxyOpenAIChatCompletion_NativeChatResponseSignals(t *testing.T) {
 			svc := proxy.NewService(
 				&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4.1"}},
 				map[string]providers.Client{providers.ProviderOpenAI: provider},
-				nil, false, nil, nil, false,
+				nil, nil, false,
 				providers.ProviderOpenAI, "gpt-4.1", telem,
 			).WithNativeOpenAIResponseSignals(tt.enabled)
 
@@ -938,7 +972,7 @@ func TestProxyOpenAIResponses_NativeResponseSignals(t *testing.T) {
 			svc := proxy.NewService(
 				&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna"}},
 				map[string]providers.Client{providers.ProviderOpenAI: provider},
-				nil, false, nil, nil, false,
+				nil, nil, false,
 				providers.ProviderOpenAI, "gpt-5.6-sol", telem,
 			).WithNativeOpenAIResponseSignals(tt.enabled)
 
@@ -961,3 +995,27 @@ func TestProxyOpenAIResponses_NativeResponseSignals(t *testing.T) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+func (*captureTelemetry) GetTelemetryDashboardFacts(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryDashboardFact, error) {
+	return nil, nil
+}
+
+func (*captureTelemetry) GetTelemetryDashboardActiveUsers(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryActiveUsers, error) {
+	return nil, nil
+}
+
+func (*captureTelemetry) GetTelemetryDashboardPeople(context.Context, string) ([]proxy.TelemetryPerson, error) {
+	return nil, nil
+}
+
+func (*captureTelemetry) GetTelemetrySubscriptionPoolSeats(context.Context, string, time.Time, time.Time) ([]proxy.TelemetrySubscriptionSeat, error) {
+	return nil, nil
+}
+
+func (*captureTelemetry) GetTelemetryDashboardDrillDown(context.Context, string, time.Time, time.Time) ([]proxy.TelemetryDrillDownRow, error) {
+	return nil, nil
+}
+
+func (*captureTelemetry) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]proxy.TelemetryIndividualFact, error) {
+	return nil, nil
+}

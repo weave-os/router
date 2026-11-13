@@ -1,13 +1,13 @@
 "use client";
 
-import { Suspense, useState } from "react";
-import Image from "next/image";
+import { Input } from "@/components/Input";
+import { api } from "@/lib/api";
+import { Button } from "@/shared/components/molecules/Button";
+import { Appearance, Intent } from "@/shared/components/types";
+
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { Input } from "@/components/Input";
-import { Button } from "@/components/molecules/Button";
-import { Appearance, Intent } from "@/components/types";
-import { api } from "@/lib/api";
+import { Suspense, useState } from "react";
 
 export default function LoginPage() {
   return (
@@ -64,7 +64,13 @@ function LoginInner() {
     <div className="w-full max-w-sm rounded-lg border border-border-darker bg-background p-6 shadow-sm">
       <div className="mb-6 flex items-center gap-3">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/ui/weave.svg" alt="Weave Router" width={32} height={32} className="size-8 rounded-lg" />
+        <img
+          src="/ui/weave.svg"
+          alt="Weave Router"
+          width={32}
+          height={32}
+          className="size-8 rounded-lg"
+        />
         <div>
           <h1 className="font-display text-base font-semibold text-foreground">Weave Router</h1>
           <p className="text-2xs text-muted-foreground">Sign in to the dashboard</p>
@@ -82,7 +88,7 @@ function LoginInner() {
           data-form-type="other"
           autoFocus
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={e => setPassword(e.target.value)}
           placeholder="Value of ROUTER_ADMIN_PASSWORD"
           required
         />
@@ -93,7 +99,7 @@ function LoginInner() {
         )}
         <Button
           type="submit"
-          appearance={Appearance.Filled}
+          appearance={Appearance.Tinted}
           intent={Intent.Primary}
           className="w-full"
           disabled={submitting || password === ""}
@@ -103,8 +109,8 @@ function LoginInner() {
       </form>
 
       <p className="mt-4 text-2xs text-muted-foreground">
-        Set <code className="rounded bg-muted px-1 py-0.5 font-mono">ROUTER_ADMIN_PASSWORD</code> in your
-        router&rsquo;s environment to control this password.
+        Set <code className="rounded bg-muted px-1 py-0.5 font-mono">ROUTER_ADMIN_PASSWORD</code> in
+        your router&rsquo;s environment to control this password.
       </p>
     </div>
   );

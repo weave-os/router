@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"weave-os/router/internal/router/catalog"
@@ -24,8 +25,14 @@ type ForcedModelExcludedError struct {
 // Error implements error.
 func (e *ForcedModelExcludedError) Error() string { return e.Reason }
 
-// Unwrap ties the typed error to ErrForcedModelExcluded for errors.Is.
-func (e *ForcedModelExcludedError) Unwrap() error { return ErrForcedModelExcluded }
+// Unwrap ties the typed error to ErrForcedModelExcluded for errors.Is, and an
+// unfunded force also to ErrWeaveCreditsDisabled.
+func (e *ForcedModelExcludedError) Unwrap() []error {
+	if e.Reason == forcedModelUnfundedReason {
+		return []error{ErrForcedModelExcluded, ErrWeaveCreditsDisabled}
+	}
+	return []error{ErrForcedModelExcluded}
+}
 
 // forcedModelBinding resolves the provider a forced model should pin to
 // under exclusion policy. reason is "" when servable; provider is returned
@@ -52,6 +59,15 @@ func (s *Service) forcedModelBinding(ctx context.Context, model, provider string
 	}
 	excluded := s.policyExcludedProviders(ctx)
 	bindings := s.servableBindings(model, provider)
+	if funded, denied := weaveCreditsFundedProviders(ctx); denied {
+		bindings = slices.DeleteFunc(slices.Clone(bindings), func(b string) bool {
+			_, ok := funded[b]
+			return !ok
+		})
+		if len(bindings) == 0 {
+			return "", forcedModelUnfundedReason
+		}
+	}
 	if len(excluded) == 0 {
 		for _, binding := range bindings {
 			if binding == provider {
@@ -122,7 +138,7 @@ func (s *Service) servableBindings(model, provider string) []string {
 		return []string{provider}
 	}
 	out := make([]string, 0, len(m.Providers))
-	for _, b := range m.Providers {
+	for _, b := range catalog.RoutableBindings(m) {
 		if s.deploymentKeyedProviders != nil {
 			if _, keyed := s.deploymentKeyedProviders[b.Provider]; !keyed {
 				continue

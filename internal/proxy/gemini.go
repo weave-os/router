@@ -12,16 +12,17 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions/entitlement"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
+	"github.com/tidwall/sjson"
 )
 
 // ErrGeminiCrossFormatUnsupported is returned when a Gemini-source request
@@ -37,6 +38,10 @@ var ErrGeminiCrossFormatUnsupported = errors.New("gemini cross-format emit not i
 // and "stream" (true for :streamGenerateContent) fields into body before
 // calling; both are stripped before forwarding upstream.
 func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	ctx = withWeaveCreditsFunding(ctx, r.Header)
+	w, finishBlindExperimentWriter := withBlindExperimentWriter(ctx, w, body)
+	defer finishBlindExperimentWriter()
+	ctx = withAttemptTrace(ctx, geminiForwardedBody(body), r.Header)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
 	ctx, returnErr = s.withClassifierInput(ctx, body, router.EndpointGeminiGenerate)
 	if returnErr != nil {
@@ -57,8 +62,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
 	requestID := requestIDFor(ctx)
-	buf := s.newTelemetryBuffer()
-	ctx = buf.WithContext(ctx)
+	ctx = telemetry.WithRecorder(ctx, s.newTelemetryRecorder())
 
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
 	externalID, _ := ctx.Value(ExternalIDContextKey{}).(string)
@@ -89,7 +93,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		return fmt.Errorf("parse request: %w", parseErr)
 	}
 	inboundLastUser := env.LastUserMessage()
-	inboundUserPrompt := env.EndsWithUserPrompt()
+	inboundUserPrompt := routingEndsWithUserPrompt(ctx, env)
 	var responseBuffer *responseCostBuffer
 	if !env.Stream() {
 		responseBuffer = newResponseCostBuffer(w)
@@ -100,11 +104,11 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			}
 		}()
 	}
-	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
-	feats := env.RoutingFeatures(embedFlag)
+	feats := env.RoutingFeatures()
+	ctx = withRequestImageCount(ctx, feats.ImageCount)
 	promptText := feats.PromptText
 	embedInput := "concatenated_stream"
-	if embedFlag && feats.OnlyUserMessageText != "" {
+	if feats.OnlyUserMessageText != "" {
 		promptText = feats.OnlyUserMessageText
 		embedInput = "only_user_message"
 	}
@@ -131,14 +135,33 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 
 	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderGoogle, r.Header)
+	var creditsErr error
+	if enabledProviders, creditsErr = applyWeaveCreditsPolicy(ctx, enabledProviders); creditsErr != nil {
+		return creditsErr
+	}
 	excluded := s.excludedModelsForRequest(ctx)
 	outputReserve := contextWindowOutputReserve
 	if feats.MaxTokens > outputReserve {
 		outputReserve = feats.MaxTokens
 	}
+	excluded, geminiUnsigned := excludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
+	if len(geminiUnsigned) > 0 {
+		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
+			"excluded_models", strings.Join(geminiUnsigned, ","),
+		)
+	}
+	customBindings := s.customBindingsForRequest(ctx)
+	excluded, imageLimitExcluded := excludeImageLimitModels(feats.ImageCount, enabledProviders, customBindings, excluded, s.availableModels)
+	if len(imageLimitExcluded) > 0 {
+		log.Info("image limit pre-filter: excluded models whose bindings cap images below the request count",
+			"image_count", feats.ImageCount,
+			"excluded_models", strings.Join(imageLimitExcluded, ","),
+		)
+	}
+	hardExcluded := append(append([]string(nil), geminiUnsigned...), imageLimitExcluded...)
 	overflowEstimate := env.ContextOverflowTokenEstimate()
 	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, excluded, s.availableModels)
-	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders)
+	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders, router.RequestBindings{Custom: s.customBindingsForRequest(ctx), Gateways: s.gatewayProvidersForRequest(ctx)})
 	excluded = withoutModels(excluded, overflowAdmitted)
 	if len(ctxOverflowed) > 0 {
 		log.Info("context window pre-filter: excluded over-capacity models",
@@ -149,34 +172,31 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			"admitted_for_upstream", strings.Join(overflowAdmitted, ","),
 		)
 	}
-	excluded, geminiUnsigned := excludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
-	if len(geminiUnsigned) > 0 {
-		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
-			"excluded_models", strings.Join(geminiUnsigned, ","),
-		)
-	}
 
+	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
 	routeRequest := router.Request{
 		RequestedModel:                feats.Model,
 		ForceCluster:                  forceCluster,
 		EstimatedInputTokens:          feats.Tokens,
 		HasTools:                      feats.HasTools,
 		HasImages:                     feats.HasImages,
+		ImageCount:                    feats.ImageCount,
 		TranslationRequirements:       env.TranslationRequirements(router.EndpointGeminiGenerate),
 		ReasoningConfigurationSHA256:  env.ReasoningConfigurationSHA256(),
 		ToolConfigurationSHA256:       env.ToolConfigurationSHA256(),
-		PromptText:                    promptText,
-		ConversationMessages:          conversationMessagesForRouting(env),
+		PromptText:                    routingPromptText,
+		ConversationMessages:          routingMessages,
 		AvailableTools:                availableToolsForRouting(env),
 		Tools:                         toolsForRouting(env),
 		ClientSessionID:               clientSessionIDForRequest(ctx, env),
 		EnabledProviders:              enabledProviders,
-		CustomBindings:                s.customBindingsForRequest(ctx),
+		CustomBindings:                customBindings,
 		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
 		ExcludedModels:                excluded,
 		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders), overflowAdmitted, geminiUnsigned),
-		ContextWindowExcludedModels:   contextWindowOnlyExclusions(ctxOverflowed, overflowAdmitted, geminiUnsigned),
+		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders, customBindings), overflowAdmitted, hardExcluded),
+		ContextWindowExcludedModels:   contextWindowOnlyExclusions(ctxOverflowed, overflowAdmitted, hardExcluded),
+		ImageLimitExcludedModels:      modelSet(imageLimitExcluded),
 		UnsignedHistoryExcludedModels: modelSet(geminiUnsigned),
 		OverflowAdmittedModels:        modelSet(overflowAdmitted),
 		PreferredModels:               s.preferredModelsForRequest(ctx),
@@ -202,6 +222,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
+	}
+	if len(routeRes.ObservedOverflowModels) > 0 {
+		ctx = context.WithValue(ctx, ObservedOverflowModelsContextKey{}, routeRes.ObservedOverflowModels)
 	}
 	if len(routeRes.SessionDemotedModels) > 0 {
 		ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, routeRes.SessionDemotedModels)
@@ -233,11 +256,11 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	// below which omits router_user_id.
 	s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, "")
 
-	reqPricing := otel.Lookup(s.baselineFor(feats.Model))
-	actPricing := otel.Lookup(decision.Model)
+	reqPricing, _ := catalog.PrimaryPriceFor(s.baselineFor(ctx, feats.Model))
+	actPricing, _ := catalog.PrimaryPriceFor(decision.Model)
 	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
 	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
-	geminiDecisionBuilder := otel.NewAttrBuilder(46).
+	geminiDecisionBuilder := telemetry.NewAttrBuilder(46).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("client.device_id", clientID.DeviceID).
@@ -268,13 +291,14 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	applyPlannerAttrs(geminiDecisionBuilder, routeRes)
 	applyRoutingStateAttrs(geminiDecisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, geminiDecisionBuilder)
-	otel.Record(ctx, otel.Span{
+	applyBlindExperimentOutcomeAttrs(ctx, geminiDecisionBuilder, &routeRes, feats.Model, routeRes.Decision.Model)
+	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.decision",
 		Start: requestStart,
 		End:   time.Now(),
 		Attrs: geminiDecisionBuilder.Build(),
 	})
-	otel.Flush(ctx)
+	telemetry.Flush(ctx)
 
 	// Cross-format from a Gemini envelope is deferred; handler maps to HTTP 501.
 	if decision.Provider != providers.ProviderGoogle {
@@ -301,7 +325,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	inferenceParentCtx := ctx
 	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
 	defer inferenceSpan.End()
-	var extractor *otel.UsageExtractor
+	var extractor *telemetry.UsageExtractor
 	// Append the one-click feedback thumbs as a trailing part on streaming
 	// answers (see ProxyMessages for the rationale). The Gemini path resolves no
 	// router user, matching the decision span and feedback header above.
@@ -316,19 +340,18 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	// preludeBuf delays commit so a 429 or empty stream stays retryable.
 	preludeBuf := newPreludeBuffer(contentSink)
 	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
+	muteSlowStartFor(ctx, routeRes)
 	bindings := s.resolveBindingsForDispatch(ctx, decision)
 	primaryDecision := decision
+	notices := &requestNoticeStream{}
 	attempt := func(actx context.Context, d router.Decision, p providers.Client) error {
-		attemptSink := http.ResponseWriter(preludeBuf)
-		if marker != "" {
-			mw := translate.NewGeminiRoutingMarkerWriter(attemptSink, marker)
-			mw.Prepare(env.Stream())
-			attemptSink = mw
+		attemptSink, noticeErr := notices.prepare(r.Context(), preludeBuf, preludeBuf, translate.FormatGemini, env.Stream(), translate.NewRouterNotice(translate.NoticeModelSelection, marker, d.Model, ""))
+		if noticeErr != nil {
+			return fmt.Errorf("emit Gemini router notice: %w", noticeErr)
 		}
 		proxySink := attemptSink
 		if s.usageRequired() {
-			extractor = otel.NewUsageExtractor(attemptSink, d.Provider)
-			proxySink = extractor
+			extractor, proxySink = s.newUsageExtractor(attemptSink, d.Provider)
 		}
 		preludeBuf.Seal()
 		err := p.Proxy(actx, d, prep, proxySink, r)
@@ -346,9 +369,15 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		initialDecision: decision,
 		bindings:        bindings,
 		attempt:         attempt,
-		flushErr:        flushBufferedIfPresent,
-		purpose:         routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
-		origin:          routeRes.dispatchOrigin(decision),
+		flushErr: func(w http.ResponseWriter, err error) {
+			if env.Stream() && preludeBuf.PreludeSent() {
+				emitGeminiSSEErrorEvent(w)
+				return
+			}
+			flushBufferedIfPresent(w, err)
+		},
+		purpose: routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
+		origin:  routeRes.dispatchOrigin(decision),
 	})
 	primaryFailureErr := proxyErr
 	proxyMs := time.Since(proxyStart).Milliseconds()
@@ -367,12 +396,12 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
 	usageMods := extractor.UsageModifiers()
-	baselineWarmPrefill := routeRes.baselineWarmPrefillTokens(requestStart, cacheCreation, cacheRead, decision.Model, s.baselineFor(feats.Model), routeRequest.HistoryTruncated)
+	baselineWarmPrefill := routeRes.baselineWarmPrefillTokens(requestStart, cacheCreation, cacheRead, decision.Model, s.baselineFor(ctx, feats.Model), routeRequest.HistoryTruncated)
 	requestedInputCost := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, baselineWarmPrefill, reqPricing, decision.Provider, usageMods)
 	if responseBuffer != nil && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead, usageMods))
 	}
-	geminiUpstreamBuilder := otel.NewAttrBuilder(41).
+	geminiUpstreamBuilder := telemetry.NewAttrBuilder(41).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("client.device_id", clientID.DeviceID).
@@ -407,12 +436,13 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	applyPlannerAttrs(geminiUpstreamBuilder, routeRes)
 	applyRoutingStateAttrs(geminiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyCallerRoutingAttrs(ctx, geminiUpstreamBuilder)
+	applyBlindExperimentOutcomeAttrs(ctx, geminiUpstreamBuilder, &routeRes, feats.Model, decision.Model)
 	applyEffortAttrs(geminiUpstreamBuilder, effortServed)
 	s.applySubscriptionSpanTelemetry(ctx, geminiUpstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, geminiUpstreamBuilder)
 	geminiObs := buildObservationContext(ctx, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
 	geminiObs.applySpanAttrs(geminiUpstreamBuilder)
-	otel.Record(ctx, otel.Span{
+	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.upstream",
 		Start: proxyStart,
 		End:   time.Now(),
@@ -420,7 +450,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	})
 	respBody, respTrunc := capturedResponse(contentCap)
 	s.recordCallLog(ctx, geminiUpstreamBuilder.Build(), routeMs, proxyErr, body, respBody, respTrunc)
-	otel.Flush(ctx)
+	telemetry.Flush(ctx)
 
 	// Persist last-turn usage to the pin row so the next turn's planner
 	// has cache-hit and output-limit evidence.
@@ -430,6 +460,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	var subscriberTelemetry *InsertTelemetryParams
 	if installationID != uuid.Nil {
 		credentialKeyPrefix, credentialKeySuffix, credentialSource := s.credentialKeyParts(ctx)
+		s.markServedExternalKeyUsed(ctx, proxyErr)
 		// Gemini reports its output cap as a flag rather than a stop reason.
 		errorClass := classifyTurnError(proxyErr, "", 0)
 		if errorClass == "" && extractor.OutputLimitReached() {
@@ -463,12 +494,10 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			TotalLatencyMs:         time.Since(requestStart).Milliseconds(),
 			CrossFormat:            false,
 			UpstreamStatusCode:     int32(upstreamStatus(proxyErr)),
-			ClusterIDs:             geminiObs.ClusterIDs,
 			CandidateModels:        geminiObs.CandidateModels,
 			ChosenScore:            geminiObs.ChosenScore,
 			CandidateScores:        geminiObs.CandidateScores,
 			Propensity:             geminiObs.Propensity,
-			ClusterRouterVersion:   geminiObs.ClusterRouterVersion,
 			Strategy:               geminiObs.Strategy,
 			RouteID:                geminiObs.RouteID,
 			PolicyRouteKey:         geminiObs.PolicyRouteKey,
@@ -497,6 +526,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			PinAgeSec:              int64PtrIf(stickyHit && pinAgeSec > 0, pinAgeSec),
 			ToolResultBytes:        toolResultBytesPtr(inboundLastUser, tt),
 			ErrorClass:             errorClass,
+			FailureOwner:           turnFailureOwnerFor(ctx, proxyErr, errorClass),
 			UserPrompt:             &inboundUserPrompt,
 			CredentialKeyPrefix:    credentialKeyPrefix,
 			CredentialKeySuffix:    credentialKeySuffix,
@@ -509,15 +539,16 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		applyBlindExperimentTelemetry(ctx, &telemetryParams, &routeRes)
 		applyPolicyPinTelemetry(ctx, &telemetryParams, decision.Metadata)
 		applySubscriberTelemetry(ctx, &telemetryParams)
+		applyAgreementShadowTelemetry(ctx, &telemetryParams, routeRes)
 		subscriberTelemetry = &telemetryParams
 	}
 
 	var subscriberSettlement subscriberSettlementState
-	if proxyErr == nil {
+	if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
 		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead, usageMods)
 	}
 	if subscriberTelemetry != nil {
-		if proxyErr == nil {
+		if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
 			applySubscriberSettlementTelemetry(subscriberSettlement, subscriberTelemetry)
 		} else {
 			markSubscriberTelemetryUnsettled(subscriberTelemetry)
@@ -552,7 +583,18 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	demotionLogFields := armStrikeLogFieldsWithPrimaryReason(armDemoted, armDemotionReason, primaryFailureDemoted, primaryFailureDemotionReason)
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	log.Info("ProxyGeminiGenerateContent complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "decision_reason", decision.Reason, "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_status", upstreamStatus(proxyErr), "credential_source", servedCredentialSource, "subscription_tier", servedSubscriptionTier}, demotionLogFields...), append(plannerLogFields(routeRes), rateLimit.completionLogFields()...)...)...)
+	log.Info("ProxyGeminiGenerateContent complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "decision_reason", decision.Reason, "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, "", 0), "failure_owner", turnFailureOwnerFor(ctx, proxyErr, classifyTurnError(proxyErr, "", 0)), "upstream_status", upstreamStatus(proxyErr), "credential_source", servedCredentialSource, "client_app", completionLogClientApp(clientID), "subscription_tier", servedSubscriptionTier}, demotionLogFields...), append(plannerLogFields(routeRes), rateLimit.completionLogFields()...)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, decision.Provider, false, feats.Tokens, in, out, cacheCreation, cacheRead, usageMods, routeMs, proxyMs, proxyErr, nil)
 	return proxyErr
+}
+
+// geminiForwardedBody drops the synthetic routing fields the handler injected,
+// so the attempt trace compares against what a same-format dispatch forwards.
+func geminiForwardedBody(body []byte) []byte {
+	for _, field := range []string{"model", "stream"} {
+		if stripped, err := sjson.DeleteBytes(body, field); err == nil {
+			body = stripped
+		}
+	}
+	return body
 }

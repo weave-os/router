@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"sort"
@@ -29,12 +30,16 @@ type updateExcludedProvidersRequest struct {
 	Excluded []string `json:"excluded"`
 }
 
-// deployedProvidersDTO returns distinct provider names from the deployed-models
-// registry, sorted, so GET and PUT responses can't drift apart.
-func deployedProvidersDTO(models DeployedModelsSource) []string {
+// deployedProvidersDTO returns distinct provider names from the serving
+// roster, sorted, so GET and PUT responses can't drift apart.
+func deployedProvidersDTO(ctx context.Context, models HMMRosterSource) ([]string, error) {
+	entries, err := models.HMMDeployedModels(ctx)
+	if err != nil {
+		return nil, err
+	}
 	seen := make(map[string]struct{})
 	out := make([]string, 0)
-	for _, e := range models.DefaultDeployedModels() {
+	for _, e := range entries {
 		if _, dup := seen[e.Provider]; dup {
 			continue
 		}
@@ -42,15 +47,21 @@ func deployedProvidersDTO(models DeployedModelsSource) []string {
 		out = append(out, e.Provider)
 	}
 	sort.Strings(out)
-	return out
+	return out, nil
 }
 
 // GetExcludedProvidersHandler returns deployed providers and the installation's
 // exclusion list. `env_override_active` tells the UI to render read-only.
-func GetExcludedProvidersHandler(authSvc *auth.Service, models DeployedModelsSource, override ProviderExclusionOverrideSource) gin.HandlerFunc {
+func GetExcludedProvidersHandler(authSvc *auth.Service, models HMMRosterSource, override ProviderExclusionOverrideSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
 		if !ok {
+			return
+		}
+
+		available, err := deployedProvidersDTO(c.Request.Context(), models)
+		if err != nil {
+			abortRosterUnavailable(c, err)
 			return
 		}
 
@@ -67,7 +78,7 @@ func GetExcludedProvidersHandler(authSvc *auth.Service, models DeployedModelsSou
 		}
 
 		c.JSON(http.StatusOK, excludedProvidersResponse{
-			Available:         deployedProvidersDTO(models),
+			Available:         available,
 			Excluded:          excluded,
 			EnvOverrideActive: envActive,
 		})
@@ -76,7 +87,7 @@ func GetExcludedProvidersHandler(authSvc *auth.Service, models DeployedModelsSou
 
 // UpdateExcludedProvidersHandler replaces the installation's exclusion list.
 // 400 on unknown providers; 403 if the env override is active.
-func UpdateExcludedProvidersHandler(authSvc *auth.Service, models DeployedModelsSource, override ProviderExclusionOverrideSource) gin.HandlerFunc {
+func UpdateExcludedProvidersHandler(authSvc *auth.Service, models HMMRosterSource, override ProviderExclusionOverrideSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		installation, ok := resolveInstallation(c, authSvc)
@@ -96,7 +107,11 @@ func UpdateExcludedProvidersHandler(authSvc *auth.Service, models DeployedModels
 			return
 		}
 
-		available := deployedProvidersDTO(models)
+		available, err := deployedProvidersDTO(c.Request.Context(), models)
+		if err != nil {
+			abortRosterUnavailable(c, err)
+			return
+		}
 		allowed := make(map[string]struct{}, len(available))
 		for _, p := range available {
 			allowed[p] = struct{}{}
@@ -119,6 +134,13 @@ func UpdateExcludedProvidersHandler(authSvc *auth.Service, models DeployedModels
 			Excluded:  stored,
 		})
 	}
+}
+
+// abortRosterUnavailable maps a roster fetch failure to 503: validation needs
+// the serving universe and must not accept or reject against a guess.
+func abortRosterUnavailable(c *gin.Context, err error) {
+	observability.FromGin(c).Error("Serving model roster unavailable", "err", err)
+	c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Model roster unavailable; retry shortly."})
 }
 
 var _ ProviderExclusionOverrideSource = (*proxy.Service)(nil)

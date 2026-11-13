@@ -9,6 +9,22 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type RouterAgreementShadowState struct {
+	InstallationID uuid.UUID
+	SessionKey     []byte
+	Role           string
+	Revision       int64
+	State          []byte
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type RouterBlindExperimentSessionAssignment struct {
+	InstallationID uuid.UUID
+	SessionKey     string
+	Arm            string
+	CreatedAt      pgtype.Timestamptz
+}
+
 type RouterBlindRouterExperimentAssignment struct {
 	RouterUserID        uuid.UUID
 	InstallationID      uuid.UUID
@@ -33,6 +49,7 @@ type RouterBlindRouterExperimentConfiguration struct {
 	CohortEndsAt       pgtype.Timestamptz
 	CohortTimezone     *string
 	CohortRevision     *int32
+	SessionMode        bool
 }
 
 type RouterBlindRouterExperimentEmergencyOverride struct {
@@ -147,6 +164,14 @@ type RouterCredentialSubjectInstallation struct {
 	SubjectID      uuid.UUID
 	InstallationID uuid.UUID
 	AccessEnabled  bool
+}
+
+type RouterDelegatedTokenSpend struct {
+	IssuerKeyID    uuid.UUID
+	ScopeKind      string
+	ScopeID        string
+	SpentUsdMicros int64
+	UpdatedAt      pgtype.Timestamptz
 }
 
 type RouterEscalationCheckpoint struct {
@@ -345,13 +370,15 @@ type RouterModelRouterAPIKey struct {
 	CreatedBy         *string
 	SpendCapUsdMicros *int64
 	SpentUsdMicros    int64
-	// routing = rk_ data-plane key (can proxy and spend); analytics_read = ra_ export key (read-only, non-billable)
+	// routing = rk_ data-plane key (can proxy and spend); analytics_read = ra_ export key (read-only, non-billable); session_issuer = public key that signs rs_ session JWTs (never a bearer)
 	Scope               string
 	CredentialSubjectID pgtype.UUID
 	// Optional onboarding harness id (claude_code, codex, opencode, pi). Null for keys minted outside harness onboarding.
 	Harness                           *string
 	SharedSubscriptionAccess          bool
 	PaidFallbackOnSubscriptionRefusal bool
+	// Ed25519 public key (RFC 8037 OKP JWK: kty, crv, x) of a session_issuer row; NULL for every other scope
+	PublicJwk []byte
 }
 
 // Customer-owned provider API keys for BYOK routing
@@ -392,6 +419,10 @@ type RouterModelRouterExternalAPIKey struct {
 	ForwardedClientHeaders []string
 	// JSON baggage header forwarded to this key's endpoint with the resolved caller email under on-behalf-of; NULL forwards nothing
 	BaggageHeader *string
+	// Non-secret Anthropic federation rule, organization, service account, workspace and audience identifiers
+	FederationConfig []byte
+	// key_first spends this key before any subscription for its provider; plan_first uses it only when no subscription can serve the turn
+	FundingPriority string
 }
 
 // Ordered upstream attempts per inference operation; joins to model_router_request_telemetry on (installation_id, request_id)
@@ -420,6 +451,12 @@ type RouterModelRouterInferenceAttempt struct {
 	CacheCreationTokens *int32
 	CacheReadTokens     *int32
 	CostUsdMicros       *int64
+	// How the attempt failed (TurnErrorClass vocabulary); NULL on a served attempt
+	ErrorClass *string
+	// Who owns the attempt failure: provider, router, client or unknown; NULL on a served attempt
+	FailureOwner *string
+	// TRUE when the router rewrote the request body it sent (format translation or same-format rewrite); NULL on rows written before this column
+	BodyTranslated *bool
 }
 
 // Customer router installations; owns API keys
@@ -472,6 +509,8 @@ type RouterModelRouterInstallation struct {
 	SubscriptionStateModelsEnabled         bool
 	ModelsExcludedWhenSubscriptionActive   []string
 	ModelsExcludedWhenSubscriptionInactive []string
+	PickedModelCreditFallbackEnabled       bool
+	WeaveCreditInferenceEnabled            bool
 }
 
 type RouterModelRouterRequestTelemetry struct {
@@ -704,6 +743,15 @@ type RouterModelRouterRequestTelemetry struct {
 	InferenceGeo            *string
 	FailoverAttempted       *bool
 	ContextSnapshot         []byte
+	// Who owns the turn failure: provider, router, client or unknown; NULL on a normal completion
+	FailureOwner                    *string
+	CodexLimitHeaders               []byte
+	BlindExperimentModelSource      *string
+	BlindExperimentTreatmentApplied *bool
+	BlindExperimentBaselineModel    *string
+	BlindExperimentModelChanged     *bool
+	BlindExperimentMode             *string
+	BlindExperimentSessionKey       *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {
@@ -724,8 +772,11 @@ type RouterModelRouterSubscriptionAccount struct {
 	SubscriberID           pgtype.UUID
 	HealthState            string
 	// Provider-supplied human-readable account label; never used for identity or deduplication.
-	DisplayName    *string
-	ProviderUserID *string
+	DisplayName                   *string
+	ProviderUserID                *string
+	CredentialRejectionCount      int32
+	CredentialFirstRejectedAt     pgtype.Timestamp
+	CredentialLastRejectionReason *string
 }
 
 type RouterModelRouterSubscriptionAccountInstallation struct {
@@ -747,6 +798,8 @@ type RouterModelRouterUser struct {
 	DeletedAt         pgtype.Timestamp
 	// Free-form user display name (typically git user.name) carried on the X-Weave-User-Name request header. Nullable: requests without the header leave the column NULL; existing rows are not back-filled.
 	DisplayName *string
+	// Authenticated owner of the personal API key that carried a request with no client-asserted identity. Set only on rows created for such requests (email and claude_account_uuid NULL).
+	CredentialSubjectID pgtype.UUID
 }
 
 type RouterModelRouterUserClusterModelList struct {
@@ -1012,6 +1065,8 @@ type RouterSessionPin struct {
 	ConsecutiveUpgradeVotes   int32
 	DemotionCooldowns         []byte
 	TurnStrikes               []string
+	ForcedThreadKey           string
+	TokenizerCalibration      []byte
 }
 
 type RouterSessionPinRecoveryProbeLease struct {
@@ -1231,6 +1286,24 @@ type RouterSubscriberEntitlement struct {
 	ProjectedAt                      pgtype.Timestamptz
 	CreatedAt                        pgtype.Timestamptz
 	UpdatedAt                        pgtype.Timestamptz
+}
+
+type RouterSubscriptionCredentialEvent struct {
+	ID                  uuid.UUID
+	AccountID           uuid.UUID
+	SubscriberID        pgtype.UUID
+	Provider            string
+	EventKind           string
+	Reason              string
+	ProviderErrorType   string
+	ProviderRequestID   string
+	UpstreamStatus      int32
+	RequestID           string
+	RefreshLeaseID      pgtype.UUID
+	TokenRefreshVersion int64
+	RejectionCount      int32
+	FirstRejectedAt     pgtype.Timestamp
+	CreatedAt           pgtype.Timestamptz
 }
 
 type RouterTaskDomainProfile struct {

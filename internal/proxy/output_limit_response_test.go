@@ -59,7 +59,7 @@ func TestProxyOutputLimitAcrossResponsePaths(t *testing.T) {
 						_, _ = w.Write([]byte(response))
 					}}
 					svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: path.provider, Model: path.model, Reason: "fresh"}},
-						map[string]providers.Client{path.provider: provider}, nil, false, nil, store, false, path.provider, path.model, nil).
+						map[string]providers.Client{path.provider: provider}, nil, store, false, path.provider, path.model, nil).
 						WithOpenAIResponsesBroad(path.wire == "responses").
 						WithNativeAnthropicResponseSignals(false).
 						WithNativeOpenAIResponseSignals(false)
@@ -106,7 +106,7 @@ func TestProxyGeminiTelemetryClassifiesOutputCap(t *testing.T) {
 			}}
 			telem := newCaptureTelemetry()
 			svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: capGeminiModel, Reason: "fresh"}},
-				map[string]providers.Client{providers.ProviderGoogle: provider}, nil, false, nil, newFakePinStore(), false,
+				map[string]providers.Client{providers.ProviderGoogle: provider}, nil, newFakePinStore(), false,
 				providers.ProviderGoogle, capGeminiModel, telem)
 			body := []byte(`{"contents":[{"role":"user","parts":[{"text":"Inspect the repository files"}]}],"generationConfig":{"maxOutputTokens":64000}}`)
 			require.NoError(t, svc.ProxyGeminiGenerateContent(authedCtx(uuid.NewString()), body, httptest.NewRecorder(),

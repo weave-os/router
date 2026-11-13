@@ -120,8 +120,6 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				nil,
 				nil,
 				nil,
-				false,
-				nil,
 				store,
 				false,
 				providers.ProviderAnthropic,
@@ -133,6 +131,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 					ExpectedRemainingTurns: 3,
 				}).
 				WithSummarizer(summarizer).
+				WithHMMDowngradeHysteresisTurns(0).
 				WithPolicyStrategy(policy.StrategySpec{
 					Strategy: strategy,
 					Router:   policyRouter,
@@ -143,7 +142,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				})
 			env, err := translate.ParseAnthropic(test.body)
 			require.NoError(t, err)
-			features := env.RoutingFeatures(false)
+			features := env.RoutingFeatures()
 			ctx := router.WithStrategy(context.Background(), strategy)
 			req := router.Request{
 				RequestedModel:       features.Model,
@@ -202,20 +201,6 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 	}
 }
 
-func TestAuthoritativePolicyDisablesSemanticCache(t *testing.T) {
-	strategy := router.Strategy("authoritative-test")
-	svc := (&Service{}).WithPolicyStrategy(policy.StrategySpec{
-		Strategy: strategy,
-		Router:   &authoritativeTestRouter{},
-		Capabilities: policy.Capabilities{
-			AuthoritativePerTurnSelection: true,
-		},
-	})
-
-	assert.False(t, svc.semanticCacheAllowed(router.WithStrategy(context.Background(), strategy)))
-	assert.True(t, svc.semanticCacheAllowed(context.Background()))
-}
-
 func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 	strategy := router.Strategy("authoritative-force-test")
 	store := newStubPinStore()
@@ -234,14 +219,12 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
 		nil,
-	).WithPolicyStrategy(policy.StrategySpec{
+	).WithHMMDowngradeHysteresisTurns(0).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   policyRouter,
 		Capabilities: policy.Capabilities{
@@ -252,7 +235,7 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		[]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
 	)
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 
 	result, err := svc.runTurnLoop(
 		router.WithStrategy(context.Background(), strategy),
@@ -315,6 +298,34 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 			wantModel:  "claude-opus-4-8",
 			wantSticky: false,
 			wantTier:   "authoritative_per_turn",
+		},
+		{
+			name:     "majority-confidence upgrade serves fresh",
+			pinFound: true,
+			pinModel: "claude-haiku-4-5",
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-opus-4-8",
+				Reason:   "hmm_policy(classifier 'maximum' (p=0.55))",
+				Metadata: &router.RoutingMetadata{ChosenScore: 0.55},
+			},
+			wantModel:  "claude-opus-4-8",
+			wantSticky: false,
+			wantTier:   "authoritative_per_turn",
+		},
+		{
+			name:     "sub-majority upgrade keeps cheaper pin",
+			pinFound: true,
+			pinModel: "claude-haiku-4-5",
+			fresh: router.Decision{
+				Provider: providers.ProviderAnthropic,
+				Model:    "claude-opus-4-8",
+				Reason:   "hmm_policy(classifier 'maximum' (p=0.45))",
+				Metadata: &router.RoutingMetadata{ChosenScore: 0.45},
+			},
+			wantModel:  "claude-haiku-4-5",
+			wantSticky: true,
+			wantTier:   "authoritative_hmm_upgrade_confidence_low",
 		},
 		{
 			name:     "downgrade serves fresh despite low confidence",
@@ -388,14 +399,12 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 				nil,
 				nil,
 				nil,
-				false,
-				nil,
 				store,
 				false,
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
 				nil,
-			).WithPolicyStrategy(policy.StrategySpec{
+			).WithHMMDowngradeHysteresisTurns(0).WithPolicyStrategy(policy.StrategySpec{
 				Strategy: strategy,
 				Router:   policyRouter,
 				Capabilities: policy.Capabilities{
@@ -408,7 +417,7 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 			}
 			env, err := translate.ParseAnthropic(body)
 			require.NoError(t, err)
-			features := env.RoutingFeatures(false)
+			features := env.RoutingFeatures()
 
 			result, err := svc.runTurnLoop(
 				router.WithStrategy(context.Background(), strategy),

@@ -23,6 +23,40 @@ const SchemaVersionV3 = "policy_router_v3"
 // forbidden on this boundary.
 const SchemaVersionV4 = "policy_router_v4"
 
+// SchemaVersionV5 identifies the release-addressed classifier service contract.
+const SchemaVersionV5 = "policy_router_v5"
+
+// ClassifierAPIMajor identifies a classifier request/response taxonomy contract.
+type ClassifierAPIMajor int
+
+const (
+	ClassifierAPIMajorV4 ClassifierAPIMajor = 4
+	ClassifierAPIMajorV5 ClassifierAPIMajor = 5
+)
+
+// SupportedClassifierAPIMajors returns the classifier API majors this binary speaks, in ascending order.
+func SupportedClassifierAPIMajors() []ClassifierAPIMajor {
+	return []ClassifierAPIMajor{ClassifierAPIMajorV4, ClassifierAPIMajorV5}
+}
+
+// ClassifierVariantID is the fixed classifier implementation role within a release.
+type ClassifierVariantID string
+
+const (
+	ClassifierVariantPrimary ClassifierVariantID = "primary"
+	ClassifierVariantHMMBeta ClassifierVariantID = "hmm_beta"
+	ClassifierVariantQwen    ClassifierVariantID = "qwen"
+)
+
+// ClassifierArtifact identifies an alternate classifier with the sidecar's taxonomy.
+type ClassifierArtifact struct {
+	ArtifactID      string `json:"artifact_id"`
+	PackageSHA256   string `json:"package_sha256"`
+	Endpoint        string `json:"endpoint,omitempty"`
+	Audience        string `json:"audience,omitempty"`
+	ServingRevision string `json:"serving_revision,omitempty"`
+}
+
 const (
 	ExecutionModeServing = "serving"
 	ExecutionModeShadow  = "shadow"
@@ -53,6 +87,10 @@ type Capabilities struct {
 	// AuthoritativePerTurnSelection makes eligible main/tool-result decisions
 	// model-authoritative through dispatch.
 	AuthoritativePerTurnSelection bool `json:"authoritative_per_turn_selection"`
+	// InteractionStatePackageSHA256s lists the loaded classifier packages that
+	// read interaction-state inputs: the wider per-message clip and
+	// omitted_user_turn_count. Every other package keeps the default request.
+	InteractionStatePackageSHA256s []string `json:"interaction_state_package_sha256s,omitempty"`
 }
 
 // CapabilitySource returns the live capability set of a sidecar router.
@@ -116,6 +154,17 @@ type Query struct {
 	// ArtifactSHA256 selects a boot-loaded sidecar package; empty serves the
 	// sidecar's default package.
 	ArtifactSHA256 string
+	// ClassifierReleaseID binds a v5 request to one immutable logical release.
+	ClassifierReleaseID string
+	// ClassifierSelectionID binds v5 resolution to one immutable target allowlist.
+	ClassifierSelectionID string
+	// ClassifierVariantID selects a classifier within that release, never a provider/model.
+	ClassifierVariantID ClassifierVariantID
+	// ClassifierArtifactSHA256 is the variant artifact the pinned v5 release must serve.
+	ClassifierArtifactSHA256 string
+	// InteractionStateInputs is set when the strategy's classifier package is
+	// one the sidecar listed in InteractionStatePackageSHA256s.
+	InteractionStateInputs bool
 }
 
 // Result is a policy sidecar's selected candidate and decision metadata.
@@ -140,6 +189,14 @@ type Result struct {
 	DisplayMarker        string
 	PolicyArtifactID     string
 	PolicyArtifactSHA256 string
+	// ClassifierReleaseID is the immutable logical release served by a v5 classifier service.
+	ClassifierReleaseID string
+	// ClassifierSelectionID is the target selection whose allowlist authorized the variant.
+	ClassifierSelectionID string
+	// ClassifierVariantID is the variant served from that exact release.
+	ClassifierVariantID ClassifierVariantID
+	// ClassifierTaxonomySHA256 is the exact ordered class taxonomy served by v5.
+	ClassifierTaxonomySHA256 string
 	// Timings is the sidecar's per-stage decision cost decomposed into
 	// non-overlapping stages; nil when the sidecar reported no timings.
 	Timings *router.SidecarTimings
@@ -180,23 +237,27 @@ type PreviewGroup struct {
 // PreviewResult is a side-effect-free policy evaluation with every arm in the
 // first nonempty ranked group, plus authoritative router resolution details.
 type PreviewResult struct {
-	SchemaVersion         string             `json:"schema_version"`
-	RouteID               string             `json:"route_id"`
-	Strategy              router.Strategy    `json:"strategy"`
-	PolicyArtifactID      string             `json:"policy_artifact_id"`
-	PolicyArtifactSHA256  string             `json:"policy_artifact_sha256"`
-	RosterSHA256          string             `json:"roster_sha256"`
-	HMMStateID            int                `json:"hmm_state_id"`
-	HMMStatePath          []int              `json:"hmm_state_path"`
-	HMMStateProbabilities []float64          `json:"hmm_state_probabilities"`
-	ClassOrder            []string           `json:"class_order"`
-	ClassProbabilities    map[string]float64 `json:"class_probabilities"`
-	PredictedLabel        string             `json:"predicted_label"`
-	RankedFallback        []PreviewGroup     `json:"ranked_fallback"`
-	SelectedGroup         string             `json:"selected_group,omitempty"`
-	EligibleRosterIDs     []string           `json:"eligible_roster_ids"`
-	ResolverCandidates    []Candidate        `json:"resolver_candidates"`
-	ResolverExclusions    []Diagnostic       `json:"resolver_exclusions"`
+	SchemaVersion            string              `json:"schema_version"`
+	RouteID                  string              `json:"route_id"`
+	Strategy                 router.Strategy     `json:"strategy"`
+	PolicyArtifactID         string              `json:"policy_artifact_id"`
+	PolicyArtifactSHA256     string              `json:"policy_artifact_sha256"`
+	ClassifierReleaseID      string              `json:"classifier_release_id,omitempty"`
+	ClassifierSelectionID    string              `json:"classifier_selection_id,omitempty"`
+	ClassifierVariantID      ClassifierVariantID `json:"classifier_variant_id,omitempty"`
+	ClassifierTaxonomySHA256 string              `json:"classifier_taxonomy_sha256,omitempty"`
+	RosterSHA256             string              `json:"roster_sha256"`
+	HMMStateID               int                 `json:"hmm_state_id"`
+	HMMStatePath             []int               `json:"hmm_state_path"`
+	HMMStateProbabilities    []float64           `json:"hmm_state_probabilities"`
+	ClassOrder               []string            `json:"class_order"`
+	ClassProbabilities       map[string]float64  `json:"class_probabilities"`
+	PredictedLabel           string              `json:"predicted_label"`
+	RankedFallback           []PreviewGroup      `json:"ranked_fallback"`
+	SelectedGroup            string              `json:"selected_group,omitempty"`
+	EligibleRosterIDs        []string            `json:"eligible_roster_ids"`
+	ResolverCandidates       []Candidate         `json:"resolver_candidates"`
+	ResolverExclusions       []Diagnostic        `json:"resolver_exclusions"`
 }
 
 // RosterSnapshot is the live Go selection-policy projection used by routing,
@@ -248,3 +309,9 @@ type OutcomeReporter interface {
 type FeedbackReporter interface {
 	ReportFeedback(ctx context.Context, payload map[string]interface{}) error
 }
+
+// ClassifierTimeoutHeader carries the Router's remaining classify budget, in whole milliseconds, so the classifier stops inference the Router will no longer wait for.
+const ClassifierTimeoutHeader = "X-Weave-Classifier-Timeout-Ms"
+
+// MaxClassifierTimeoutMilliseconds is the largest budget the classifier accepts in ClassifierTimeoutHeader.
+const MaxClassifierTimeoutMilliseconds = 600_000

@@ -101,8 +101,6 @@ func newEvictionTestService(store *evictionStubPinStore) *Service {
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",

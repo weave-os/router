@@ -20,12 +20,12 @@ func TestPinMatchesEffectiveStrategy(t *testing.T) {
 		stored   router.Strategy
 		expected bool
 	}{
-		{name: "stable exact", request: router.StrategyCluster, stored: router.StrategyCluster, expected: true},
+		{name: "stable exact", request: router.StrategyHMMEmbedding, stored: router.StrategyHMMEmbedding, expected: true},
 		{name: "beta exact", request: router.StrategyHMMBeta, stored: router.StrategyHMMBeta, expected: true},
-		{name: "beta rejects stable", request: router.StrategyHMMBeta, stored: router.StrategyCluster, expected: false},
-		{name: "stable rejects beta", request: router.StrategyCluster, stored: router.StrategyHMMBeta, expected: false},
+		{name: "beta rejects stable", request: router.StrategyHMMBeta, stored: router.StrategyHMMEmbedding, expected: false},
+		{name: "stable rejects beta", request: router.StrategyHMMEmbedding, stored: router.StrategyHMMBeta, expected: false},
 		{name: "other HMM rejects beta", request: router.StrategyHMM, stored: router.StrategyHMMBeta, expected: false},
-		{name: "stable accepts legacy during rollout", request: router.StrategyCluster, stored: "", expected: true},
+		{name: "stable accepts legacy during rollout", request: router.StrategyHMMEmbedding, stored: "", expected: true},
 		{name: "non-beta opt-in accepts legacy during rollout", request: router.StrategyHMM, stored: "", expected: true},
 		{name: "beta rejects legacy", request: router.StrategyHMMBeta, stored: "", expected: false},
 	}
@@ -40,6 +40,6 @@ func TestPinMatchesEffectiveStrategy(t *testing.T) {
 	betaContext := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
 	assert.True(t, pinMatchesEffectiveStrategy(betaContext, sessionpin.Pin{
 		Reason:   translate.ReasonUserForceModel,
-		Strategy: router.StrategyCluster,
+		Strategy: router.StrategyHMMEmbedding,
 	}), "an explicit force must survive routing-strategy changes")
 }

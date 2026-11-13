@@ -18,7 +18,7 @@ func pinMatchesEffectiveStrategy(ctx context.Context, pin sessionpin.Pin) bool {
 	if pin.Strategy == expected {
 		return true
 	}
-	return pin.Strategy == "" && expected != router.StrategyHMMBeta
+	return pin.Strategy == "" && !router.IsBetaStrategy(expected)
 }
 
 func strategyContext(strategy router.Strategy) context.Context {
@@ -34,5 +34,5 @@ func strategyForTurnLoopResult(res turnLoopResult) router.Strategy {
 			return router.Strategy(decision.Metadata.Strategy)
 		}
 	}
-	return router.StrategyCluster
+	return router.StrategyHMMEmbedding
 }

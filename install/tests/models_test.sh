@@ -24,7 +24,7 @@ mkdir -p "$fake_bin"
 # -o, -w, and file-backed headers) and routes on the request path. $ROUTER_MODE decides which
 # router it impersonates:
 #   full    — serves the model-selection API
-#   managed — 404s /admin/v1/* (the Weave-hosted router) but serves the catalog
+#   managed — 404s /admin/v1/* (the Weave-hosted router) but serves ?scope=catalog
 #   down    — connection failure
 # Requests are appended to $REQUEST_LOG as "METHOD PATH BODY".
 cat >"$fake_bin/curl" <<'FAKE_CURL'
@@ -73,7 +73,7 @@ models='[{"model":"claude-opus-5","provider":"anthropic","enabled":true},{"model
 providers='[{"provider":"anthropic","enabled":true},{"provider":"openai","enabled":false}]'
 
 case "$path" in
-  /v1/router/models) emit 200 "$catalog" ;;
+  "/v1/router/models?scope=catalog") emit 200 "$catalog" ;;
 esac
 
 if [ "${ROUTER_MODE:-full}" = "managed" ]; then
@@ -281,7 +281,9 @@ ROUTER_MODE="managed"
 run_models "$home" -- --claude
 check "list against a router without the API still exits 0" "$rc" "0"
 contains "list falls back to the public catalog" "$out" "claude-opus-5"
-contains "list says where model selection lives" "$out" "router.workweave.ai/models"
+check "the fallback asks for the catalog scope" \
+  "$(grep -c '^GET /v1/router/models?scope=catalog ' "$REQUEST_LOG")" "1"
+contains "list says where model selection lives" "$out" "app.weaveos.com/organization/settings/weave-router/models"
 # The catalog endpoint reports what is deployed, not what this installation
 # enabled, so the fallback must not render on/off state it cannot know.
 case "$out" in
@@ -291,14 +293,14 @@ esac
 
 run_models "$home" -- disable gpt-5.6 --claude
 check "editing against a router without the API fails" "$rc" "1"
-contains "the failure names the dashboard" "$out" "router.workweave.ai/models"
+contains "the failure names the dashboard" "$out" "app.weaveos.com/organization/settings/weave-router/models"
 
 # `models providers` is read-only, same as `models list` — it must degrade the
 # same way on a 404 rather than hard-failing while listing still succeeds.
 run_models "$home" -- providers --claude
 check "providers list against a router without the API still exits 0" "$rc" "0"
 contains "providers list falls back to the public catalog" "$out" "anthropic"
-contains "providers list says where selection lives" "$out" "router.workweave.ai/models"
+contains "providers list says where selection lives" "$out" "app.weaveos.com/organization/settings/weave-router/models"
 case "$out" in
   *"[x]"*|*"[ ]"*) no "the providers fallback claims no on/off state" "no checkbox markers" "$out" ;;
   *)               ok "the providers fallback claims no on/off state" ;;
@@ -310,7 +312,7 @@ check "providers list --json against a router without the API emits the provider
 
 run_models "$home" -- providers disable openai --claude
 check "editing providers against a router without the API still fails" "$rc" "1"
-contains "the providers failure names the dashboard" "$out" "router.workweave.ai/models"
+contains "the providers failure names the dashboard" "$out" "app.weaveos.com/organization/settings/weave-router/models"
 
 ROUTER_MODE="full"
 
@@ -432,12 +434,23 @@ unset WEAVE_ROUTER_KEY
 # The same split against the hosted default is the layout the installer itself
 # writes, so it must keep working — the endpoint is one the user can vouch for.
 legit="$work/legit"
-seed_project_split "$legit" "https://router.workweave.ai"
+seed_project_split "$legit" "https://router.weaveos.com"
 export REQUEST_LOG="$work/legit.log"
 : >"$REQUEST_LOG"
 run_models_project "$legit/repo"
 check "the installer's own committed-hosted layout still works" "$rc" "0"
 check "the hosted-default endpoint is actually called" \
+  "$(grep -c '^GET /admin/v1/models ' "$REQUEST_LOG")" "1"
+
+# Projects committed before the weaveos.com move still name the old hosted
+# endpoint; it must stay trusted so teammates are not locked out of `models`.
+legacy="$work/legacy-hosted"
+seed_project_split "$legacy" "https://router.workweave.ai"
+export REQUEST_LOG="$work/legacy-hosted.log"
+: >"$REQUEST_LOG"
+run_models_project "$legacy/repo"
+check "a committed pre-move hosted endpoint is still trusted" "$rc" "0"
+check "the pre-move hosted endpoint is actually called" \
   "$(grep -c '^GET /admin/v1/models ' "$REQUEST_LOG")" "1"
 
 # A self-hosted project endpoint gets the same marker from a real installer
@@ -528,8 +541,12 @@ check "models rejects an unsupported client" "$rc" "2"
 contains "models says which clients it supports" "$out" "supports --claude and --codex only"
 
 HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" models </dev/null >"$work/out" 2>&1
-check "models without a client flag is refused" "$?" "2"
-contains "models without a client flag names its clients" "$(cat "$work/out")" "requires an explicit client"
+check "models without a client flag uses the installed client" "$?" "0"
+contains "models without a client flag lists the installation's models" "$(cat "$work/out")" "Weave Router models"
+
+HOME="$work/empty-home" PATH="$test_path" NO_COLOR=1 bash "$installer" models </dev/null >"$work/out" 2>&1
+check "models without any install is refused" "$?" "1"
+contains "models without any install says how to install" "$(cat "$work/out")" "not installed for Claude Code or Codex"
 
 run_models "$home" -- enable --claude
 check "enable with no model id is refused" "$rc" "2"

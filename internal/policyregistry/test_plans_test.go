@@ -55,7 +55,9 @@ func testPlanFixture(t *testing.T) (*policyregistry.TestPlanTools, *testLaunchRe
 	release := store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
 	for _, plan := range []entitlement.Plan{entitlement.PlanMax, entitlement.PlanBoost} {
 		profile, _ := entitlement.ServingProfileFor(plan)
-		set.Profiles[profile.Key] = registerProfileFixture(t, store, set.Default, profile.Key, release.Policy)
+		if profile.Key != "" {
+			set.Profiles[profile.Key] = registerProfileFixture(t, store, set.Default, profile.Key, release.Policy)
+		}
 	}
 	snapshot, _ := storedActivateFixture(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 	store.states[policyregistry.TargetStable] = snapshot
@@ -67,7 +69,7 @@ func testPlanFixture(t *testing.T) (*policyregistry.TestPlanTools, *testLaunchRe
 func TestInternalPlanLaunchTargetsStableAndSignsExactTestScope(t *testing.T) {
 	for _, plan := range []policyregistry.TestPlan{policyregistry.TestPlanStable, policyregistry.TestPlanMax, policyregistry.TestPlanBoost} {
 		t.Run(string(plan), func(t *testing.T) {
-			tools, repo, store, now, _ := testPlanFixture(t)
+			tools, repo, store, now, selectionSet := testPlanFixture(t)
 			preview, err := tools.Preview(context.Background(), repo.identity.SubjectID, plan)
 			require.NoError(t, err)
 			require.Equal(t, policyregistry.TargetStable, preview.Admission.Target)
@@ -79,7 +81,10 @@ func TestInternalPlanLaunchTargetsStableAndSignsExactTestScope(t *testing.T) {
 			case policyregistry.TestPlanMax:
 				require.Equal(t, "75018458-5306-5d29-9911-ec06c5376a9f", preview.Admission.ProfileKey)
 			case policyregistry.TestPlanBoost:
-				require.Equal(t, "32acfab2-7d79-55c7-8d63-e8535fb66027", preview.Admission.ProfileKey)
+				require.Empty(t, preview.Admission.ProfileKey)
+				require.Nil(t, preview.Admission.Selection.Profile)
+				defaultRelease := store.object(t, policyregistry.ServingReleases, selectionSet.Default.Release).(*policyregistry.ServingRelease)
+				require.Equal(t, defaultRelease.Policy.SHA256, preview.PolicyRevision)
 			}
 			_, err = tools.Prepare(context.Background(), preview, false)
 			require.Error(t, err)

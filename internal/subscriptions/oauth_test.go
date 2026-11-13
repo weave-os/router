@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -164,4 +165,84 @@ func TestCodexEnrollmentUsesProviderIDTokenUserClaim(t *testing.T) {
 	verified, err := client.VerifyCodexEnrollment(context.Background(), "shared-workspace", []byte("refresh"))
 	require.NoError(t, err)
 	require.Equal(t, "provider-user-id-token", verified.ProviderUserID)
+}
+
+func TestOAuthRefreshErrorCarriesProviderErrorCode(t *testing.T) {
+	for name, body := range map[string]string{
+		"oauth": `{"error":"invalid_grant","error_description":"Refresh token not found or invalid"}`,
+		"typed": `{"type":"error","error":{"type":"invalid_grant","message":"nope"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+			client := subscriptions.NewOAuthClient(server.Client(), server.URL, server.URL, nil)
+
+			_, err := client.Refresh(context.Background(), subscriptions.ProviderClaude, "refresh")
+			var refreshErr *subscriptions.OAuthRefreshError
+			require.ErrorAs(t, err, &refreshErr)
+			require.Equal(t, "invalid_grant", refreshErr.Code)
+			require.NotContains(t, err.Error(), "Refresh token not found")
+		})
+	}
+}
+
+func TestOAuthRefreshPreservesSpecificCodeAndProviderRequestID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("x-request-id", "synthetic-provider-request")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"refresh_token_reused","message":"private-token-fragment"}}`))
+	}))
+	defer server.Close()
+	client := subscriptions.NewOAuthClient(server.Client(), server.URL, server.URL, nil)
+	_, err := client.Refresh(context.Background(), subscriptions.ProviderCodex, "synthetic-refresh")
+	var rejected *subscriptions.OAuthRefreshError
+	require.ErrorAs(t, err, &rejected)
+	require.Equal(t, "refresh_token_reused", rejected.Code)
+	require.Contains(t, err.Error(), "synthetic-provider-request")
+	require.NotContains(t, err.Error(), "private-token-fragment")
+	require.NotContains(t, err.Error(), "synthetic-refresh")
+}
+
+func TestOAuthRefreshRejectsUnsafeDiagnosticFields(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("x-request-id", "Bearer synthetic-secret")
+		w.Header().Set("request-id", "safe-provider-request")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"error":{"type":"invalid_request_error","code":"Bearer synthetic-secret","message":"private-token-description"}}`))
+	}))
+	defer server.Close()
+	client := subscriptions.NewOAuthClient(server.Client(), server.URL, server.URL, nil)
+	_, err := client.Refresh(context.Background(), subscriptions.ProviderCodex, "refresh-secret")
+	var rejected *subscriptions.OAuthRefreshError
+	require.ErrorAs(t, err, &rejected)
+	require.Equal(t, "invalid_request_error", rejected.ErrorType)
+	require.Equal(t, "invalid_request_error", rejected.Code)
+	require.Equal(t, "safe-provider-request", rejected.RequestID)
+	require.NotContains(t, err.Error(), "synthetic-secret")
+	require.NotContains(t, err.Error(), "private-token-description")
+}
+
+func TestOAuthRefreshOmitsCredentialEchoFromMachineIdentifiers(t *testing.T) {
+	const submittedCredential = "Synthetic-URLSafe-Refresh-Credential"
+	for _, provider := range []subscriptions.Provider{subscriptions.ProviderClaude, subscriptions.ProviderCodex} {
+		t.Run(string(provider), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("x-request-id", "request-"+submittedCredential)
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write([]byte(`{"error":{"code":"` + submittedCredential + `","type":"` + submittedCredential + `","message":"description"}}`))
+			}))
+			defer server.Close()
+			client := subscriptions.NewOAuthClient(server.Client(), server.URL, server.URL, nil)
+			_, err := client.Refresh(context.Background(), provider, submittedCredential)
+			var rejected *subscriptions.OAuthRefreshError
+			require.ErrorAs(t, err, &rejected)
+			require.Empty(t, rejected.Code)
+			require.Empty(t, rejected.ErrorType)
+			require.Empty(t, rejected.RequestID)
+			require.NotContains(t, strings.ToLower(err.Error()), strings.ToLower(submittedCredential))
+		})
+	}
 }

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"weave-os/router/internal/auth"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
@@ -299,6 +300,10 @@ func (s *Service) handleNoProgressBreak(
 		)
 	}
 
+	if _, active := auth.BlindExperimentFrom(ctx); active {
+		msg = blindExperimentLoopStopMessage
+	}
+
 	log.Info("No-progress loop detected; breaking turn",
 		"repeat_count", count,
 		"window_size", noProgressWindowSize,
@@ -317,10 +322,6 @@ func (s *Service) handleNoProgressBreak(
 		}
 	}
 
-	switch env.SourceFormat() {
-	case translate.FormatOpenAI:
-		return writeSyntheticOpenAIResponse(w, env, msg, inputTokens)
-	default:
-		return writeSyntheticAnthropicResponse(w, env, msg, inputTokens)
-	}
+	ack := newCommandAcknowledgment(translate.CommandLoopStop)
+	return writeCommandOutcome(ctx, w, env, msg, ack.outcome, inputTokens)
 }

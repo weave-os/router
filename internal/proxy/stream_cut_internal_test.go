@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/http2"
 )
 
 func TestClassifyStreamFailure(t *testing.T) {
@@ -48,6 +49,10 @@ func TestClassifyStreamFailure(t *testing.T) {
 		{name: "transport read timeout", err: &url.Error{Op: "Post", URL: "https://upstream.test", Err: headerTimeoutError{msg: "read tcp 10.0.0.1:443: i/o timeout"}}, want: streamFailureUpstreamTimeout},
 		{name: "upstream status after commit", err: &providers.UpstreamStatusError{Status: 502}, want: streamFailureUpstreamErrorFrame},
 		{name: "upstream error event then transport failure", err: errors.New("stream closed"), lastEvent: streamCutErrorEvent, want: streamFailureUpstreamErrorFrame},
+		{name: "http/2 keepalive ping lost", err: http2LostPing(), want: streamFailureUpstreamReset},
+		{name: "http/2 keepalive ping lost mid-stream", err: fmt.Errorf("read upstream stream: %w", errors.New("http2: client connection lost")), lastEvent: "content_block_delta", want: streamFailureUpstreamReset},
+		{name: "http/2 stream reset by the peer", err: http2PeerStreamReset(), want: streamFailureUpstreamReset},
+		{name: "http/2 goaway", err: &url.Error{Op: "Post", URL: "https://upstream.test", Err: http2.GoAwayError{ErrCode: http2.ErrCodeEnhanceYourCalm}}, want: streamFailureUpstreamReset},
 		{name: "unattributable", err: errors.New("stream closed"), lastEvent: "content_block_delta", want: streamFailureOther},
 	}
 	for _, tc := range cases {
@@ -82,6 +87,7 @@ func TestClassifyTurnError(t *testing.T) {
 		{name: "http/2 response-header timeout", err: http2HeaderTimeout(), want: TurnErrorTimeout},
 		{name: "stream without a terminal event", err: translate.ErrStreamIncomplete, want: TurnErrorStreamCut},
 		{name: "stream that never started", err: translate.ErrStreamEmpty, want: TurnErrorStreamCut},
+		{name: "http/2 keepalive ping lost", err: http2LostPing(), want: TurnErrorStreamCut},
 		{name: "unattributable failure", err: errors.New("stream closed"), want: TurnErrorOther},
 		{name: "refusal", stopReason: "refusal", want: TurnErrorRefusal},
 		{name: "openai output cap", stopReason: "length", want: TurnErrorMaxTokens},
@@ -104,6 +110,16 @@ func (e headerTimeoutError) Temporary() bool { return true }
 
 func http2HeaderTimeout() error {
 	return &url.Error{Op: "Post", URL: "https://upstream.test", Err: headerTimeoutError{msg: "http2: timeout awaiting response headers"}}
+}
+
+// http2LostPing mirrors x/net/http2's error when the provider stops answering
+// keepalive pings; it is an untyped errors.New.
+func http2LostPing() error {
+	return &url.Error{Op: "Post", URL: "https://upstream.test", Err: errors.New("http2: client connection lost")}
+}
+
+func http2PeerStreamReset() error {
+	return fmt.Errorf("stream error: %w", http2.StreamError{StreamID: 3337, Code: http2.ErrCodeInternal})
 }
 
 // http1HeaderTimeout mirrors the HTTP/1 transport's error, which also matches

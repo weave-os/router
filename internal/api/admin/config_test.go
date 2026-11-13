@@ -43,4 +43,5 @@ func TestConfigHandler_EnvProviderKeys_IncludesEveryDeployedProvider(t *testing.
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Contains(t, body.EnvProviderKeys, providers.ProviderMakora)
 	require.Contains(t, body.EnvProviderKeys, providers.ProviderBedrock)
+	require.NotContains(t, rec.Body.String(), "cluster_version")
 }

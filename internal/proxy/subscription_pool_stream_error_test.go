@@ -35,7 +35,7 @@ func TestProxyMessages_ManagedPoolStreamingFailureLeavesRenderingToHandler(t *te
 			Metadata: &router.RoutingMetadata{CandidateModels: []string{"claude-opus-4-8"}},
 		}},
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
@@ -76,7 +76,7 @@ func TestProxyMessages_ManagedPoolFailureBeforeAnyBytesLeavesRenderingToHandler(
 			Metadata: &router.RoutingMetadata{CandidateModels: []string{"claude-opus-4-8"}},
 		}},
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 

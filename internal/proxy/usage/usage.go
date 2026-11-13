@@ -248,9 +248,13 @@ func (o *Observer) Record(key CredentialKey, snap Snapshot) {
 	if prev, ok := o.data[key]; ok && o.now().Sub(prev.ObservedAt) <= o.freshFor(prev) {
 		if !snap.Primary.present() {
 			snap.Primary = prev.Primary
+		} else if snap.Primary.ResetAt.IsZero() && prev.Primary.ResetAt.After(now) {
+			snap.Primary.ResetAt = prev.Primary.ResetAt
 		}
 		if !snap.Secondary.present() {
 			snap.Secondary = prev.Secondary
+		} else if snap.Secondary.ResetAt.IsZero() && prev.Secondary.ResetAt.After(now) {
+			snap.Secondary.ResetAt = prev.Secondary.ResetAt
 		}
 	}
 	snap.ObservedAt = now
@@ -328,8 +332,9 @@ func parseCodexWindow(h http.Header, which string, defaultWindowMinutes int) (Wi
 	if !ok {
 		return Window{}, false
 	}
-	w := Window{UsedPercent: used, WindowMinutes: defaultWindowMinutes}
-	if m, ok := parseInt(h.Get("x-codex-" + which + "-window-minutes")); ok {
+	resetAt, _ := ParseResetTime(h.Get("x-codex-" + which + "-reset-at"))
+	w := Window{UsedPercent: used, WindowMinutes: defaultWindowMinutes, ResetAt: resetAt}
+	if m, ok := parseInt(h.Get("x-codex-" + which + "-window-minutes")); ok && m > 0 && int64(m) <= int64((1<<63-1)/time.Minute) {
 		w.WindowMinutes = m
 	}
 	return w, true
@@ -359,7 +364,7 @@ func ParseAnthropicUnifiedHeaders(h http.Header) (Snapshot, bool) {
 	if !pOK && !sOK && claim == "" {
 		return Snapshot{}, false
 	}
-	resetAt, _ := parseResetTime(h.Get("anthropic-ratelimit-unified-reset"))
+	resetAt, _ := ParseResetTime(h.Get("anthropic-ratelimit-unified-reset"))
 	return Snapshot{
 		Primary: primary, Secondary: secondary, RepresentativeClaim: claim,
 		OverageInUse:   PaidAnthropicOverage(claim, h.Get("anthropic-ratelimit-unified-overage-in-use")),
@@ -369,7 +374,7 @@ func ParseAnthropicUnifiedHeaders(h http.Header) (Snapshot, bool) {
 
 func parseAnthropicWindow(h http.Header, which string, windowMinutes int) (Window, bool) {
 	prefix := "anthropic-ratelimit-unified-" + which + "-"
-	resetAt, _ := parseResetTime(h.Get(prefix + "reset"))
+	resetAt, _ := ParseResetTime(h.Get(prefix + "reset"))
 	if used, ok := parseFraction(h.Get(prefix + "utilization")); ok {
 		return Window{UsedPercent: used, WindowMinutes: windowMinutes, ResetAt: resetAt}, true
 	}
@@ -382,13 +387,13 @@ func parseAnthropicWindow(h http.Header, which string, windowMinutes int) (Windo
 	return Window{UsedPercent: used, WindowMinutes: windowMinutes, ResetAt: resetAt}, true
 }
 
-// parseResetTime parses a rate-limit *-reset header into an absolute instant.
+// ParseResetTime parses a rate-limit *-reset header into an absolute instant.
 // Anthropic emits these as RFC 3339 timestamps (the standard
 // anthropic-ratelimit-*-reset format); a bare unix-seconds value is accepted as
 // a fallback so a format shift doesn't silently disable reset-aware retention.
 // Returns (zero, false) when absent or unparseable — callers then fall back to
 // the window-length horizon.
-func parseResetTime(s string) (time.Time, bool) {
+func ParseResetTime(s string) (time.Time, bool) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return time.Time{}, false

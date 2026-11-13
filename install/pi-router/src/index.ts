@@ -3,7 +3,8 @@
  *
  * Wiring:
  *   - provider:     register `weave` with per-process knob headers (quality on
- *                   the main loop, speed/cheap in subagents).
+ *                   the main loop, speed/cheap in subagents) and its single
+ *                   `auto` model.
  *   - metadata:     stamp body.metadata.user_id for sticky sessions + subagent
  *                   detection.
  *   - Loom UI:      branded header, Wooly animation, actual route, and saved $.
@@ -21,6 +22,7 @@
 
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { registerAutoModel } from "./auto-model.js";
 import { registerBetaCommand } from "./beta.js";
 import { registerClassifierThread } from "./classifier-thread.js";
 import { isSubagent } from "./config.js";
@@ -44,6 +46,8 @@ export default function (pi: ExtensionAPI): void {
 	registerWeave(pi);
 	pi.on("session_start", () => registerWeave(pi));
 
+	// First, so every later request hook sees the wire model.
+	registerAutoModel(pi);
 	registerMetadata(pi);
 	const classifierThreadActive = registerClassifierThread(pi);
 	registerBetaCommand(pi);

@@ -8,7 +8,51 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/subscriptions/entitlement"
 )
+
+func TestCohortCustomSelectionRetiresProfileAndRetainsHistory(t *testing.T) {
+	ctx := context.Background()
+	store, original := cohortFixture(t)
+	original.Profiles[entitlement.LegacyBoostProfileKey] = original.Profiles[profileKeyOne]
+	delete(original.Profiles, profileKeyOne)
+	controller := permissiveController(t, store)
+	initialProposal := cohortProposal(t, store, original, nil, policyregistry.ChangeFull, "")
+	initial, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, initialProposal), "workflow")
+	require.NoError(t, err)
+
+	retired := original
+	retired.Profiles = maps.Clone(original.Profiles)
+	delete(retired.Profiles, entitlement.LegacyBoostProfileKey)
+	for _, scope := range []policyregistry.ChangeScope{policyregistry.ChangeFull, policyregistry.ChangeRouter, policyregistry.ChangeRoster, policyregistry.ChangeClassifier} {
+		proposal := cohortProposal(t, store, retired, &initial.Activation.SelectionSet, scope, "")
+		require.ErrorContains(t, controller.ValidateProposal(ctx, proposal), "registered profile keys cannot be removed")
+	}
+	custom := cohortProposal(t, store, retired, &initial.Activation.SelectionSet, policyregistry.ChangeCustom, "")
+	require.NoError(t, controller.ValidateProposal(ctx, custom))
+
+	withoutCustomer := retired
+	withoutCustomer.Profiles = maps.Clone(retired.Profiles)
+	delete(withoutCustomer.Profiles, profileKeyTwo)
+	dropped := cohortProposal(t, store, withoutCustomer, &initial.Activation.SelectionSet, policyregistry.ChangeCustom, "")
+	require.ErrorContains(t, controller.ValidateProposal(ctx, dropped), "registered profile keys cannot be removed")
+
+	changed := retired
+	changed.Profiles = maps.Clone(retired.Profiles)
+	changed.Profiles[profileKeyTwo] = original.Profiles[entitlement.LegacyBoostProfileKey]
+	invalid := cohortProposal(t, store, changed, &initial.Activation.SelectionSet, policyregistry.ChangeCustom, "")
+	require.ErrorContains(t, controller.ValidateProposal(ctx, invalid), "retain destination profile revisions")
+
+	activated, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, custom), "workflow")
+	require.NoError(t, err)
+	require.Equal(t, custom.SelectionSet, activated.Activation.SelectionSet)
+	require.Contains(t, activated.Snapshot.State.Activations, initial.Activation.ID)
+	oldSelection := original.View(initial.Activation.SelectionSet).Profiles[entitlement.LegacyBoostProfileKey]
+	historical, err := policyregistry.ReadPreparedSelection(ctx, store, original.Target, entitlement.LegacyBoostProfileKey, oldSelection)
+	require.NoError(t, err)
+	require.Equal(t, original.Profiles[entitlement.LegacyBoostProfileKey].SHA256, historical.PolicyReference.SHA256)
+}
 
 func TestCohortConfigurationScopesRejectCodeOrUnrelatedPolicyChanges(t *testing.T) {
 	for _, scope := range []policyregistry.ChangeScope{policyregistry.ChangeRoster, policyregistry.ChangeProfile} {
@@ -105,6 +149,7 @@ func TestCohortWorkerColdStartAndDestinationValidationUseEveryAssignedPolicy(t *
 		require.NoError(t, err)
 		require.True(t, attestation.Ready)
 		require.Equal(t, selection, attestation.Selection)
+		require.Equal(t, []policy.ClassifierAPIMajor{policy.ClassifierAPIMajorV4, policy.ClassifierAPIMajorV5}, attestation.SupportedAPIMajors, "the worker attests the classifier APIs its binary speaks")
 		if key == profileKeyTwo {
 			require.Equal(t, []string{alternateRosterArm}, attestation.CatalogArms)
 		}

@@ -166,6 +166,9 @@ func newClient(apiKey, baseURL string, modelIDMap map[string]string, opts ...Opt
 
 // DeploymentPrincipal fingerprints the account this client's own key
 // authenticates as; see providers.DeploymentPrincipal.
+// BaseURL is the deployment endpoint, used when a request carries none.
+func (c *Client) BaseURL() string { return c.baseURL }
+
 func (c *Client) DeploymentPrincipal() string {
 	return providers.CredentialPrincipal(c.baseURL, c.apiKey)
 }

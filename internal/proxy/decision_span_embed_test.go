@@ -96,7 +96,7 @@ func newEmbedTestService(t *testing.T, collector *bypassSpanCollector, rt router
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = emitter.Shutdown(context.Background()) })
-	return NewService(rt, map[string]providers.Client{providers.ProviderAnthropic: embedTestProvider{}, providers.ProviderGoogle: embedTestProvider{}}, emitter, false, nil, pins, false,
+	return NewService(rt, map[string]providers.Client{providers.ProviderAnthropic: embedTestProvider{}, providers.ProviderGoogle: embedTestProvider{}}, emitter, pins, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 }
 
@@ -276,29 +276,32 @@ func TestDecisionSpan_RolloutIDFromClientIdentity(t *testing.T) {
 func TestDecisionAndUpstreamSpansCarryCallerRoutingState(t *testing.T) {
 	type proxyCall func(*Service, context.Context, []byte, http.ResponseWriter, *http.Request) error
 	ingresses := []struct {
-		name     string
-		path     string
-		body     []byte
-		call     proxyCall
-		provider string
-		model    string
+		name      string
+		path      string
+		body      []byte
+		call      proxyCall
+		provider  string
+		model     string
+		requested string
 	}{
-		{name: "anthropic messages", path: "/v1/messages", body: embedTurnBody(), call: (*Service).ProxyMessages},
+		{name: "anthropic messages", path: "/v1/messages", body: embedTurnBody(), call: (*Service).ProxyMessages, requested: "claude-opus-4-8"},
 		{
 			name: "openai chat",
 			path: "/v1/chat/completions",
 			body: []byte(`{"model":"claude-opus-4-8","max_tokens":4096,` +
 				`"tools":[{"type":"function","function":{"name":"Bash","parameters":{"type":"object"}}}],` +
 				`"messages":[{"role":"user","content":"hi"}]}`),
-			call: (*Service).ProxyOpenAIChatCompletion,
+			call:      (*Service).ProxyOpenAIChatCompletion,
+			requested: "claude-opus-4-8",
 		},
 		{
-			name:     "gemini",
-			path:     "/v1beta/models/gemini-2.5-pro:generateContent",
-			body:     []byte(`{"model":"gemini-2.5-pro","stream":false,"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`),
-			call:     (*Service).ProxyGeminiGenerateContent,
-			provider: providers.ProviderGoogle,
-			model:    "gemini-2.5-flash",
+			name:      "gemini",
+			path:      "/v1beta/models/gemini-2.5-pro:generateContent",
+			body:      []byte(`{"model":"gemini-2.5-pro","stream":false,"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`),
+			call:      (*Service).ProxyGeminiGenerateContent,
+			provider:  providers.ProviderGoogle,
+			model:     "gemini-2.5-flash",
+			requested: "gemini-2.5-pro",
 		},
 	}
 	for _, ingress := range ingresses {
@@ -307,6 +310,8 @@ func TestDecisionAndUpstreamSpansCarryCallerRoutingState(t *testing.T) {
 			ctx             context.Context
 			wantPassthrough bool
 			wantSource      callerRoutingSource
+			wantArm         auth.BlindExperimentArm
+			wantModelSource auth.BlindExperimentModelSource
 		}{
 			{name: "default routed", ctx: context.Background(), wantSource: callerRoutingSourceDefault},
 			{
@@ -317,6 +322,18 @@ func TestDecisionAndUpstreamSpansCarryCallerRoutingState(t *testing.T) {
 				}),
 				wantPassthrough: true,
 				wantSource:      callerRoutingSourceExperiment,
+				wantArm:         auth.BlindExperimentArmPassthrough,
+				wantModelSource: auth.BlindExperimentModelSourceExperimentPassthrough,
+			},
+			{
+				name: "experiment router_on arm",
+				ctx: context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{
+					Active: true,
+					Arm:    auth.BlindExperimentArmRouterOn,
+				}),
+				wantSource:      callerRoutingSourceExperiment,
+				wantArm:         auth.BlindExperimentArmRouterOn,
+				wantModelSource: auth.BlindExperimentModelSourceRouter,
 			},
 		} {
 			t.Run(ingress.name+"/"+tc.name, func(t *testing.T) {
@@ -334,6 +351,17 @@ func TestDecisionAndUpstreamSpansCarryCallerRoutingState(t *testing.T) {
 					require.Len(t, spans, 1, spanName)
 					assert.Equal(t, tc.wantPassthrough, spanBool(t, spans[0], "routing.caller_passthrough"), spanName)
 					assert.Equal(t, string(tc.wantSource), spanStr(t, spans[0], "routing.caller_routing_source"), spanName)
+					if tc.wantArm == "" {
+						for _, kv := range spans[0].Attributes {
+							assert.NotContains(t, kv.Key, "blind_experiment", spanName)
+						}
+						continue
+					}
+					assert.Equal(t, string(tc.wantArm), spanStr(t, spans[0], "routing.blind_experiment_arm"), spanName)
+					assert.Equal(t, string(tc.wantModelSource), spanStr(t, spans[0], "routing.blind_experiment_model_source"), spanName)
+					assert.True(t, spanBool(t, spans[0], "routing.blind_experiment_treatment_applied"), spanName)
+					assert.Equal(t, ingress.requested, spanStr(t, spans[0], "routing.blind_experiment_baseline_model"), spanName)
+					assert.Equal(t, tc.wantArm == auth.BlindExperimentArmRouterOn, spanBool(t, spans[0], "routing.blind_experiment_model_changed"), spanName)
 				}
 			})
 		}

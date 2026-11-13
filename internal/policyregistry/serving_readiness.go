@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/policy"
@@ -39,7 +40,7 @@ func (c *ServingRuntimeCache) PrepareWorker(ctx context.Context, identity Worker
 			return nil, errors.New("prepared policy contains arms absent from the worker catalog")
 		}
 		if profileKey == "" {
-			baseline = &Snapshot{Candidate: Candidate{Policy: prepared.Policy}}
+			baseline = &Snapshot{Candidate: Candidate{Policy: prepared.Policy, StrategyPolicies: prepared.StrategyPolicies}}
 		}
 	}
 	return baseline, nil
@@ -55,7 +56,8 @@ func (AdmittedRosterSource) DistributionRoster(ctx context.Context) (*rosterdata
 	if snapshot == nil || snapshot.Policy == nil {
 		return nil, ErrNoActivePolicy
 	}
-	return snapshot.Policy, nil
+	roster, _ := snapshot.policyForStrategy(router.StrategyFromContext(ctx))
+	return roster, nil
 }
 
 // ClusterRoster supplies the admitted policy to discovery and escalation.
@@ -64,7 +66,7 @@ func (AdmittedRosterSource) ClusterRoster(ctx context.Context) (policy.RosterSna
 	if snapshot == nil {
 		return policy.RosterSnapshot{}, ErrNoActivePolicy
 	}
-	return snapshotRoster(snapshot), nil
+	return snapshotRoster(snapshot, router.StrategyFromContext(ctx)), nil
 }
 
 // Roster supplies the complete arm union without a mutable cross-profile cache.
@@ -73,5 +75,6 @@ func (AdmittedRosterSource) Roster(ctx context.Context) ([]string, error) {
 	if snapshot == nil {
 		return nil, ErrNoActivePolicy
 	}
-	return snapshot.Policy.AllArms(), nil
+	roster, _ := snapshot.policyForStrategy(router.StrategyFromContext(ctx))
+	return roster.AllArms(), nil
 }

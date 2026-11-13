@@ -6,7 +6,7 @@ Presentation layer. Handlers adapt HTTP ↔ Service. Read [root CLAUDE.md](../..
 
 ## Subpackages
 
-- `admin/` — operational endpoints: `/health`, `/validate`, `/v1/client-events` (harness CLI off/on/uninstall report → log + `router.harness_lifecycle` span, nothing stored), `/admin/v1/*`, and `/v1/sessions/:session_id/cost` (authed by `middleware.WithReadKey`: an `rk_` or `ra_` key resolves its installation; per-installation `WithInstallationRateLimit`; no admission, billing or spend gates)
+- `admin/` — operational endpoints: `/health`, `/validate`, `/v1/client-events` (harness CLI off/on/uninstall report → log + `router.harness_lifecycle` span; Claude Desktop proxy's `connected` report → `router.harness_connected`; nothing stored), `/admin/v1/*`, and `/v1/sessions/:session_id/cost` (authed by `middleware.WithReadKey`: an `rk_` or `ra_` key resolves its installation; per-installation `WithInstallationRateLimit`; no admission, billing or spend gates)
 - `anthropic/` — Anthropic Messages surface (`/v1/messages`, passthrough, `/v1/route`)
 - `openai/` — OpenAI Chat Completions (`/v1/chat/completions`)
 - `gemini/` — Gemini native (`/v1beta/models/:modelAction`)
@@ -16,7 +16,7 @@ Presentation layer. Handlers adapt HTTP ↔ Service. Read [root CLAUDE.md](../..
 ## Import rules
 
 - May import `internal/auth` (Service handle + middleware-context types) and `internal/proxy` (routing/dispatch service handle).
-- May import `internal/observability` for logging, `internal/providers` for shared sentinel errors, `internal/router/cluster` for `ErrClusterUnavailable` sentinel + `DeployedModelsSource` interface, `internal/analytics` for the export Service handle + row/schema types.
+- May import `internal/observability` for logging, `internal/providers` for shared sentinel errors, `internal/analytics` for the export Service handle + row/schema types.
 - **Must not import** `internal/postgres`, any concrete `internal/providers/*` adapter, or `internal/translate` directly.
 - Concrete instances reach presentation only via constructor params from composition root.
 
@@ -32,4 +32,4 @@ Presentation layer. Handlers adapt HTTP ↔ Service. Read [root CLAUDE.md](../..
 
 ## History
 
-`internal/router/heuristic` and `internal/router/evalswitch` previously lived in the API ring; both removed when heuristic fallback retired in favor of `cluster.ErrClusterUnavailable` → HTTP 503.
+`internal/router/heuristic` and `internal/router/evalswitch` previously lived in the API ring; both removed when heuristic fallback retired in favor of a fail-closed HTTP 503 (`router.ErrRoutingUnavailable`).

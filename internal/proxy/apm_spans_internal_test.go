@@ -64,8 +64,6 @@ func TestProxyMessagesEmitsHighLevelFlowSpans(t *testing.T) {
 		routerImpl,
 		map[string]providers.Client{providers.ProviderAnthropic: providerImpl},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		providers.ProviderAnthropic,
@@ -113,8 +111,6 @@ func TestProxyOpenAITranslationErrorMarksInferenceSpanFailed(t *testing.T) {
 	svc := NewService(
 		routerImpl,
 		map[string]providers.Client{providers.ProviderGoogle: providerImpl},
-		nil,
-		false,
 		nil,
 		nil,
 		false,

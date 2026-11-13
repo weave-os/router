@@ -45,7 +45,7 @@ func TestBandSwapServed_DisabledServesAnchor(t *testing.T) {
 		Provider: "anthropic", Model: "claude-opus-4-7",
 		PairedProvider: "anthropic", PairedModel: "claude-haiku-4-5", Reason: "cluster",
 	}
-	got := s.bandSwapServed(context.Background(), turntype.MainLoop, pin, router.Decision{}, false, nil, nil)
+	got := s.bandSwapServed(context.Background(), turntype.MainLoop, pin, router.Decision{}, false, 0, nil, nil)
 	if got.Model != "claude-opus-4-7" {
 		t.Fatalf("served %q, want anchor claude-opus-4-7", got.Model)
 	}
@@ -55,7 +55,7 @@ func TestBandSwapServed_DisabledServesAnchor(t *testing.T) {
 func TestBandSwapServed_NoPairServesAnchor(t *testing.T) {
 	s := &Service{}
 	pin := sessionpin.Pin{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}
-	got := s.bandSwapServed(context.Background(), turntype.MainLoop, pin, router.Decision{}, false, nil, nil)
+	got := s.bandSwapServed(context.Background(), turntype.MainLoop, pin, router.Decision{}, false, 0, nil, nil)
 	if got.Model != "claude-opus-4-7" {
 		t.Fatalf("served %q, want anchor", got.Model)
 	}
@@ -93,10 +93,9 @@ func TestBandSwapServed_UnservableChoiceFallsBackToAnchor(t *testing.T) {
 	}
 
 	s := &Service{
-		embedOnlyUserMessage: true,
-		bandSwap:             clf,
-		availableModels:      map[string]struct{}{large: {}, small: {}},
-		clients:              dispatch.NewClients(map[string]providers.Client{"anthropic": nil}),
+		bandSwap:        clf,
+		availableModels: map[string]struct{}{large: {}, small: {}},
+		clients:         dispatch.NewClients(map[string]providers.Client{"anthropic": nil}),
 	}
 	pin := sessionpin.Pin{
 		Provider: "anthropic", Model: anchor,
@@ -105,17 +104,17 @@ func TestBandSwapServed_UnservableChoiceFallsBackToAnchor(t *testing.T) {
 	fresh := router.Decision{Metadata: &router.RoutingMetadata{Embedding: emb}}
 
 	// Baseline: with no restrictions the head swaps to the paired model.
-	if got := s.bandSwapServed(context.Background(), turntype.MainLoop, pin, fresh, false, nil, nil); got.Model != served {
+	if got := s.bandSwapServed(context.Background(), turntype.MainLoop, pin, fresh, false, 0, nil, nil); got.Model != served {
 		t.Fatalf("baseline swap served %q, want %q", got.Model, served)
 	}
 	// Chosen model in the context-window deny set -> anchor.
 	excluded := map[string]struct{}{served: {}}
-	if got := s.bandSwapServed(context.Background(), turntype.MainLoop, pin, fresh, false, nil, excluded); got.Model != anchor {
+	if got := s.bandSwapServed(context.Background(), turntype.MainLoop, pin, fresh, false, 0, nil, excluded); got.Model != anchor {
 		t.Fatalf("excluded-model swap served %q, want anchor %q", got.Model, anchor)
 	}
 	// Chosen model's provider not in the request's enabled set -> anchor.
 	enabled := map[string]struct{}{"openrouter": {}}
-	if got := s.bandSwapServed(context.Background(), turntype.MainLoop, pin, fresh, false, enabled, nil); got.Model != anchor {
+	if got := s.bandSwapServed(context.Background(), turntype.MainLoop, pin, fresh, false, 0, enabled, nil); got.Model != anchor {
 		t.Fatalf("ineligible-provider swap served %q, want anchor %q", got.Model, anchor)
 	}
 }

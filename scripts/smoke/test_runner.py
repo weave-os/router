@@ -236,7 +236,7 @@ class SmokeRunnerTest(unittest.TestCase):
         calls = self.calls()
         teardown = next(call for call in calls if "down" in call["args"])
         self.assertFalse(Path(teardown["override_path"]).parent.exists())
-        self.assertEqual(3, sum(call["args"][:2] == ["image", "rm"] for call in calls))
+        self.assertEqual(4, sum(call["args"][:2] == ["image", "rm"] for call in calls))
         self.assertFalse(list(self.state.glob("router-smoke-*")))
         self.assertEqual(
             "unrelated developer resources",
@@ -329,7 +329,12 @@ class SmokeRunnerTest(unittest.TestCase):
             any(call["args"][:2] == ["image", "rm"] for call in self.calls())
         )
         override = next(call["override"] for call in self.calls() if "project" in call)
-        for image in ("router-server", "router-seed", "router-mitmproxy"):
+        for image in (
+            "router-server",
+            "router-seed",
+            "router-mitmproxy",
+            "router-hmm-stub",
+        ):
             self.assertIn(f"image: {image}\n", override)
 
     def test_owned_image_tags_are_removed_even_after_partial_build_failure(
@@ -347,7 +352,7 @@ class SmokeRunnerTest(unittest.TestCase):
                     for call in self.calls()[before:]
                     if call["args"][:2] == ["image", "rm"]
                 ]
-                self.assertEqual(3, len(image_removals))
+                self.assertEqual(4, len(image_removals))
                 self.assertFalse(list(self.state.glob("router-smoke-*")))
 
     def test_unowned_image_tag_is_never_removed(self) -> None:

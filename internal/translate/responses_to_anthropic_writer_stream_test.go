@@ -1,6 +1,7 @@
 package translate_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
@@ -740,7 +741,10 @@ data: {"type":"response.failed","response":{"id":"r","status":"failed","output":
 // at block 1.
 func TestResponsesToAnthropicWriter_RoutingMarker(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewResponsesToAnthropicWriter(rec, "gpt-5.5", nil).WithRoutingMarker("[routed: gpt-5.5]")
+	delivery := noticeDelivery(context.Background(), rec, translate.FormatAnthropic)
+	_, noticeErr := delivery.Deliver(translate.NewRouterNotice(translate.NoticeModelSelection, "[routed: gpt-5.5]", "gpt-5.5", ""))
+	require.NoError(t, noticeErr)
+	w := translate.NewResponsesToAnthropicWriter(delivery, "gpt-5.5", nil)
 
 	require.NoError(t, w.Prelude(true))
 	_, err := w.Write([]byte(responsesStreamFixture))

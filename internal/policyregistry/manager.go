@@ -32,11 +32,20 @@ type Loader interface {
 
 // Candidate is a fully read and cross-validated release awaiting runtime construction.
 type Candidate struct {
-	AuxiliaryModels    map[string]ObjectRef
-	HeadSnapshot       HeadSnapshot
-	Release            Release
-	Policy             *rosterdata.Roster
-	ClassifierAudience string
+	AuxiliaryModels       map[string]ObjectRef
+	HeadSnapshot          HeadSnapshot
+	Release               Release
+	ClassifierReleaseV5   *ClassifierReleaseManifestV1
+	ClassifierReleaseID   string
+	ClassifierSelectionID string
+	// ClassifierWorkerURL and ClassifierWorkerAudience come only from the release's runtime binding.
+	ClassifierWorkerURL       string
+	ClassifierWorkerAudience  string
+	ClassifierEnabledVariants []policy.ClassifierVariantID
+	SupportedAPIMajors        []policy.ClassifierAPIMajor
+	Policy                    *rosterdata.Roster
+	StrategyPolicies          map[router.Strategy]StrategyPolicy
+	ClassifierAudience        string
 }
 
 // Snapshot is the immutable policy, classifier binding, and executable routers
@@ -217,7 +226,7 @@ func (m *Manager) ClusterRoster(ctx context.Context) (policy.RosterSnapshot, err
 	if snapshot == nil {
 		return policy.RosterSnapshot{}, ErrNoActivePolicy
 	}
-	roster := snapshotRoster(snapshot)
+	roster := snapshotRoster(snapshot, router.StrategyFromContext(ctx))
 	status := m.Status()
 	roster.Environment, roster.Lane = string(m.environment), string(m.lane)
 	roster.LatestObservedGeneration, roster.RejectedGeneration = status.LatestObservedGeneration, status.RejectedGeneration
@@ -225,22 +234,23 @@ func (m *Manager) ClusterRoster(ctx context.Context) (policy.RosterSnapshot, err
 	return roster, nil
 }
 
-func snapshotRoster(snapshot *Snapshot) policy.RosterSnapshot {
-	clusters := make(map[string][]string, len(snapshot.Policy.Clusters))
-	for label, cluster := range snapshot.Policy.Clusters {
+func snapshotRoster(snapshot *Snapshot, strategy router.Strategy) policy.RosterSnapshot {
+	roster, reference := snapshot.policyForStrategy(strategy)
+	clusters := make(map[string][]string, len(roster.Clusters))
+	for label, cluster := range roster.Clusters {
 		clusters[label] = append([]string(nil), cluster.Arms...)
 	}
 	harnesses := make(map[string]map[string][]string)
-	for label, cluster := range snapshot.Policy.Clusters {
+	for label, cluster := range roster.Clusters {
 		for harness, arms := range cluster.ArmsByHarness {
 			if harnesses[string(harness)] == nil {
-				harnesses[string(harness)] = make(map[string][]string, len(snapshot.Policy.Clusters))
+				harnesses[string(harness)] = make(map[string][]string, len(roster.Clusters))
 			}
 			harnesses[string(harness)][label] = append([]string(nil), arms...)
 		}
 	}
 	for harness, harnessClusters := range harnesses {
-		for label, cluster := range snapshot.Policy.Clusters {
+		for label, cluster := range roster.Clusters {
 			if len(harnessClusters[label]) == 0 {
 				harnessClusters[label] = append([]string(nil), cluster.Arms...)
 			}
@@ -248,8 +258,8 @@ func snapshotRoster(snapshot *Snapshot) policy.RosterSnapshot {
 		harnesses[harness] = harnessClusters
 	}
 	return policy.RosterSnapshot{
-		SchemaVersion: string(snapshot.Policy.SchemaVersion), ReleaseID: snapshot.HeadSnapshot.Head.ReleaseSHA256,
-		PolicySHA256: snapshot.Release.Policy.SHA256, RosterSHA256: snapshot.Release.Policy.SHA256,
+		SchemaVersion: string(roster.SchemaVersion), ReleaseID: snapshot.HeadSnapshot.Head.ReleaseSHA256,
+		PolicySHA256: reference.SHA256, RosterSHA256: reference.SHA256,
 		HeadGeneration: snapshot.HeadSnapshot.Generation, Clusters: clusters, Harnesses: harnesses,
 	}
 }
@@ -265,6 +275,16 @@ func (m *Manager) AllRosterArms() ([]string, error) {
 
 // Roster returns the active harness-aware arm union for deployed-model discovery.
 func (m *Manager) Roster(context.Context) ([]string, error) { return m.AllRosterArms() }
+
+// DistributionRoster exposes the active policy for the dial preview.
+func (m *Manager) DistributionRoster(ctx context.Context) (*rosterdata.Roster, error) {
+	snapshot := m.Active()
+	if snapshot == nil || snapshot.Policy == nil {
+		return nil, ErrNoActivePolicy
+	}
+	roster, _ := snapshot.policyForStrategy(router.StrategyFromContext(ctx))
+	return roster, nil
+}
 
 // DynamicRouter loads one snapshot once per operation and delegates to its bound router.
 type DynamicRouter struct {

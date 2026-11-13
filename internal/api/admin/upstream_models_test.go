@@ -65,7 +65,7 @@ func upstreamModelsAuthService(keys []*auth.ExternalAPIKey) *auth.Service {
 }
 
 func upstreamModelsProxyService(providerMap map[string]providers.Client) *proxy.Service {
-	return proxy.NewService(nil, providerMap, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	return proxy.NewService(nil, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 }
 
 func TestListUpstreamModelsHandler_ReturnsEndpointModels(t *testing.T) {

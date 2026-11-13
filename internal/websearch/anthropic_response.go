@@ -55,9 +55,10 @@ type ResultBlock struct {
 // requests are counted separately by Anthropic; we report the searches we ran
 // so a client rendering usage sees a non-zero count.
 type Usage struct {
-	InputTokens   int              `json:"input_tokens"`
-	OutputTokens  int              `json:"output_tokens"`
-	ServerToolUse *ServerToolUsage `json:"server_tool_use,omitempty"`
+	CacheReadInputTokens int              `json:"cache_read_input_tokens,omitempty"`
+	InputTokens          int              `json:"input_tokens"`
+	OutputTokens         int              `json:"output_tokens"`
+	ServerToolUse        *ServerToolUsage `json:"server_tool_use,omitempty"`
 }
 
 // ServerToolUsage counts server-side tool invocations.
@@ -85,6 +86,10 @@ func SynthesizeMessage(msgID, model, toolName string, q Query, resp Response, in
 		results = append(results, ResultBlock{Type: resultBlockType, Title: title, URL: r.URL, PageAge: r.PageAge})
 	}
 	text := answerText(resp)
+	usage := Usage{InputTokens: inputTokens, OutputTokens: len(text) / 4, ServerToolUse: &ServerToolUsage{WebSearchRequests: 1}}
+	if resp.Usage != nil {
+		usage = *resp.Usage
+	}
 	return Message{
 		ID:    msgID,
 		Type:  "message",
@@ -96,11 +101,7 @@ func SynthesizeMessage(msgID, model, toolName string, q Query, resp Response, in
 			{Type: "text", Text: text},
 		},
 		StopReason: "end_turn",
-		Usage: Usage{
-			InputTokens:   inputTokens,
-			OutputTokens:  len(text) / 4,
-			ServerToolUse: &ServerToolUsage{WebSearchRequests: 1},
-		},
+		Usage:      usage,
 	}
 }
 

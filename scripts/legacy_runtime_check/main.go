@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
@@ -28,6 +29,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/server"
+	"weave-os/router/smoke/hmmstub"
 )
 
 func main() {
@@ -46,7 +48,7 @@ func run() error {
 	}
 	binary, err := filepath.Abs(os.Getenv("ROUTER_TEST_WORKER_BINARY"))
 	if err != nil || os.Getenv("ROUTER_TEST_WORKER_BINARY") == "" {
-		return errors.New("ROUTER_TEST_WORKER_BINARY must name the real ORT-enabled worker binary")
+		return errors.New("ROUTER_TEST_WORKER_BINARY must name the real worker binary")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
@@ -70,19 +72,37 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Workers boot on the hmm_embedding default, so serve a stub classifier
+	// and its baked release instead of real classifier infrastructure.
+	releaseDir, err := os.MkdirTemp("", "router-legacy-policy-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(releaseDir)
+	if err := hmmstub.WriteRelease(releaseDir); err != nil {
+		return err
+	}
+	classifier := httptest.NewServer(hmmstub.Handler())
+	defer classifier.Close()
+	policy := policyFixture{releaseDir: releaseDir, classifierURL: classifier.URL}
 	pubsub := grpc.NewServer()
 	pubsubpb.RegisterSubscriberServer(pubsub, pubsubFixture{})
 	defer pubsub.Stop()
 	go func() { _ = pubsub.Serve(listener) }()
 	for _, mode := range []server.DeploymentMode{server.DeploymentModeSelfHosted, server.DeploymentModeManaged} {
-		if err := checkWorker(ctx, binary, dsn, listener.Addr().String(), token, mode); err != nil {
+		if err := checkWorker(ctx, binary, dsn, listener.Addr().String(), token, policy, mode); err != nil {
 			return fmt.Errorf("%s worker: %w", mode, err)
 		}
 	}
 	return nil
 }
 
-func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, mode server.DeploymentMode) error {
+type policyFixture struct {
+	releaseDir    string
+	classifierURL string
+}
+
+func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, policy policyFixture, mode server.DeploymentMode) error {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
@@ -95,36 +115,7 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	}
 	defer logFile.Close()
 	command := exec.CommandContext(ctx, binary)
-	// Do not inherit developer provider keys, cloud credentials, sidecars, or release configuration.
-	command.Env = []string{
-		"PATH=" + os.Getenv("PATH"),
-		"DATABASE_URL=" + dsn,
-		"PORT=" + fmt.Sprint(port),
-		"ROUTER_DEPLOYMENT_MODE=" + string(mode),
-		"ROUTER_ONNX_ASSETS_DIR=" + os.Getenv("ROUTER_ONNX_ASSETS_DIR"),
-		"ROUTER_ONNX_LIBRARY_DIR=" + os.Getenv("ROUTER_ONNX_LIBRARY_DIR"),
-		"PUBSUB_EMULATOR_HOST=" + pubsubAddress,
-		"PUBSUB_PROJECT_ID=legacy-runtime-fixture",
-		"PUBSUB_TOPIC_ROUTER_INVALIDATION=legacy-invalidation",
-		"PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION=legacy-invalidation",
-		"OPENAI_API_KEY=fixture-never-sent-to-provider",
-		"OPENAI_BASE_URL=http://127.0.0.1:1",
-		"ROUTER_SEMANTIC_CACHE_ENABLED=false",
-		"GIN_MODE=release",
-	}
-	if mode == server.DeploymentModeSelfHosted {
-		// Self-hosted only: these prove the worker leaves ROUTER_SERVING_*
-		// unread while the assertion-key opt-in is absent. The managed leg is
-		// an unstamped legacy worker and must set none of them, because any
-		// ROUTER_SERVING_* variable set in managed mode without the assertion
-		// key refuses to boot (cmd/router/serving_runtime.go).
-		command.Env = append(command.Env,
-			"ROUTER_SERVING_REGISTRY_URI=invalid-disabled-registry",
-			"ROUTER_SERVING_CONFIGURATION_URI=invalid-disabled-configuration",
-			"ROUTER_SERVING_CONFIGURATION_GENERATION=invalid-disabled-generation",
-			"ROUTER_SERVING_TARGET=invalid-disabled-target",
-		)
-	}
+	command.Env = workerEnv(dsn, pubsubAddress, port, policy, mode)
 	command.Stdout = logFile
 	command.Stderr = logFile
 	if err := command.Start(); err != nil {
@@ -198,6 +189,42 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	}
 	slog.Info("Legacy worker started and served authenticated requests without serving dependencies", "mode", mode, "log", logFile.Name())
 	return nil
+}
+
+func workerEnv(dsn, pubsubAddress string, port int, policy policyFixture, mode server.DeploymentMode) []string {
+	// Do not inherit developer provider keys, cloud credentials, sidecars, or release configuration;
+	// the only policy release and classifier are the stub fixture passed below.
+	env := []string{
+		"PATH=" + os.Getenv("PATH"),
+		"DATABASE_URL=" + dsn,
+		"PORT=" + fmt.Sprint(port),
+		"ROUTER_DEPLOYMENT_MODE=" + string(mode),
+		"PUBSUB_EMULATOR_HOST=" + pubsubAddress,
+		"PUBSUB_PROJECT_ID=legacy-runtime-fixture",
+		"PUBSUB_TOPIC_ROUTER_INVALIDATION=legacy-invalidation",
+		"PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION=legacy-invalidation",
+		"OPENAI_API_KEY=fixture-never-sent-to-provider",
+		"OPENAI_BASE_URL=http://127.0.0.1:1",
+		"ROUTER_SEMANTIC_CACHE_ENABLED=false",
+		"ROUTER_POLICY_RELEASE_DIR=" + policy.releaseDir,
+		"ROUTER_HMM_SIDECAR_URL=" + policy.classifierURL,
+		"ROUTER_HMM_SIDECAR_AUTH=none",
+		"GIN_MODE=release",
+	}
+	if mode == server.DeploymentModeSelfHosted {
+		// Self-hosted only: these prove the worker leaves ROUTER_SERVING_*
+		// unread while the assertion-key opt-in is absent. The managed leg is
+		// an unstamped legacy worker and must set none of them, because any
+		// ROUTER_SERVING_* variable set in managed mode without the assertion
+		// key refuses to boot (cmd/router/serving_runtime.go).
+		env = append(env,
+			"ROUTER_SERVING_REGISTRY_URI=invalid-disabled-registry",
+			"ROUTER_SERVING_CONFIGURATION_URI=invalid-disabled-configuration",
+			"ROUTER_SERVING_CONFIGURATION_GENERATION=invalid-disabled-generation",
+			"ROUTER_SERVING_TARGET=invalid-disabled-target",
+		)
+	}
+	return env
 }
 
 func expectResponse(client *http.Client, request *http.Request, status int, contains string) error {

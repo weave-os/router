@@ -44,7 +44,7 @@ func TestAnthropicToolChangeReferencesFollowCollisionAlias(t *testing.T) {
 	require.NotEqual(t, collision, alias)
 	require.Equal(t, collision, gjson.GetBytes(prep.Body, "tools.0.name").String())
 	require.Equal(t, alias, gjson.GetBytes(prep.Body, "system.0.tool.name").String())
-	require.Equal(t, alias, gjson.GetBytes(prep.Body, "messages.1.content.0.tool.name").String())
+	require.Equal(t, alias, gjson.GetBytes(prep.Body, `messages.#(role=="system").content.0.tool.name`).String())
 	require.Equal(t, name, prep.ResponseToolNames[alias])
 	_, collidingNameAliased := prep.ResponseToolNames[collision]
 	require.False(t, collidingNameAliased)

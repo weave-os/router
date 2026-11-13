@@ -113,7 +113,7 @@ func TestClaudeLoginReconnectsThroughAPIAndPostgres(t *testing.T) {
 			"organization": gin.H{"uuid": organizationID, "name": "Test Org"},
 		})
 	})
-	group := router.Group("/v1", func(c *gin.Context) {
+	group := router.Group("", func(c *gin.Context) {
 		key := keys[c.GetHeader(auth.RouterKeyHeader)]
 		if key == nil {
 			c.AbortWithStatus(http.StatusUnauthorized)
@@ -122,7 +122,8 @@ func TestClaudeLoginReconnectsThroughAPIAndPostgres(t *testing.T) {
 		c.Set("router_installation", &auth.Installation{ID: installation.ID.String(), ExternalID: installation.ExternalID})
 		c.Set("router_api_key", key)
 	})
-	subscriptionsapi.Register(group, svc)
+	group.GET("/validate", func(c *gin.Context) { c.Status(http.StatusOK) })
+	subscriptionsapi.Register(group.Group("/v1"), svc)
 	// A subprocess does not synchronize Go memory; hand off the rollback-only
 	// transaction explicitly between fixture assertions and HTTP enrollment.
 	enrollmentReady := make(chan struct{}, 1)

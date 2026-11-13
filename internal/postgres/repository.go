@@ -22,14 +22,15 @@ type Repository struct {
 	ClusterModelLists auth.ClusterModelListRepository
 	// UserClusterModelLists is the per-user sibling of ClusterModelLists: the
 	// key-scoped list is the org default, this narrows it per router user.
-	UserClusterModelLists auth.UserClusterModelListRepository
-	BlindExperiments      auth.BlindExperimentRepository
-	RoutingPolicies       auth.RoutingPolicyRepository
-	SubscriptionAccounts  auth.SubscriptionAccountRepository
-	Telemetry             *TelemetryRepo
-	Feedback              *FeedbackRepo
-	Analytics             *AnalyticsRepo
-	FlagDefinitions       *FlagDefinitionRepo
+	UserClusterModelLists   auth.UserClusterModelListRepository
+	BlindExperiments        auth.BlindExperimentRepository
+	BlindExperimentSessions auth.BlindExperimentSessionRepository
+	RoutingPolicies         auth.RoutingPolicyRepository
+	SubscriptionAccounts    auth.SubscriptionAccountRepository
+	Telemetry               *TelemetryRepo
+	Feedback                *FeedbackRepo
+	Analytics               *AnalyticsRepo
+	FlagDefinitions         *FlagDefinitionRepo
 	// GlobalAutomaticExclusions is deployment-scoped rather than
 	// installation-scoped: it is the control plane's list of models withdrawn
 	// from automatic routing for every tenant.
@@ -46,6 +47,7 @@ func NewRepository(tx sqlc.DBTX, encryptor auth.Encryptor) *Repository {
 		ClusterModelLists:         NewClusterModelListRepo(tx),
 		UserClusterModelLists:     NewUserClusterModelListRepo(tx),
 		BlindExperiments:          NewBlindExperimentRepo(tx),
+		BlindExperimentSessions:   NewBlindExperimentSessionRepo(tx),
 		RoutingPolicies:           NewRoutingPolicyRepo(tx),
 		SubscriptionAccounts:      NewSubscriptionAccountRepo(tx),
 		Telemetry:                 NewTelemetryRepo(tx),
@@ -379,6 +381,7 @@ func (r *apiKeyRepo) Create(ctx context.Context, params auth.CreateAPIKeyParams)
 		KeySuffix:      params.KeySuffix,
 		CreatedBy:      params.CreatedBy,
 		Scope:          string(params.Scope),
+		PublicJwk:      params.PublicJWK,
 	})
 	if err != nil {
 		return nil, err

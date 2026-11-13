@@ -96,7 +96,7 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 	// --- Pipeline A: signed feedback-link submission ---
 	repo := &fakeFeedbackRepoForSpanTest{}
 	signer := feedbacktoken.NewSigner("secret", time.Hour)
-	linkSvc := proxy.NewService(nil, nil, emitter, false, nil, nil, false, "", "", nil).
+	linkSvc := proxy.NewService(nil, nil, emitter, nil, false, "", "", nil).
 		WithFeedback(repo, signer, "https://router.example.com")
 
 	err := linkSvc.SubmitFeedback(context.Background(), proxy.SubmitFeedbackParams{
@@ -118,8 +118,6 @@ func TestFeedbackSpans_UseDistinctNamesAndSchemas(t *testing.T) {
 		fr,
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		emitter,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,

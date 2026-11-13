@@ -54,7 +54,7 @@ func runTurnLoopWithBody(t *testing.T, svc *Service, body string) turnLoopResult
 	t.Helper()
 	env, err := translate.ParseAnthropic([]byte(body))
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(context.Background(), env, features, "api-key", uuid.New(), "", http.Header{}, router.Request{
 		RequestedModel:       features.Model,
 		EstimatedInputTokens: features.Tokens,
@@ -190,7 +190,7 @@ func TestSiblingRescueRecordsEveryFailedModel(t *testing.T) {
 	svc := NewService(staticRouter{decision: decision}, map[string]providers.Client{
 		providers.ProviderAnthropic: anthropicClient,
 		providers.ProviderOpenAI:    openAIClient,
-	}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}})
 	svc.retrySleep = noopSleep
 	ctx := withTurnFailures(context.Background())

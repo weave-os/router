@@ -3,6 +3,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -23,8 +24,8 @@ import (
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -51,7 +52,8 @@ const (
 	subscriptionAccountTimeout = 30 * time.Second
 	// catalogModelsTimeout bounds GET /v1/router/models; must exceed the HMM
 	// sidecar client budget (policyclient.DefaultTimeout) or a cold cache 503s.
-	catalogModelsTimeout = policyclient.DefaultTimeout * 2
+	catalogModelsTimeout    = policyclient.DefaultTimeout * 2
+	modelPreparationTimeout = 10 * time.Second
 	// feedbackTimeout bounds the no-login feedback link reads/writes. Both are
 	// single-row Postgres ops plus an async span emit, so 5s is generous.
 	feedbackTimeout = 5 * time.Second
@@ -77,11 +79,9 @@ const (
 // Register wires routes onto the engine. In managed mode the dashboard +
 // /admin/v1/* routes are not registered at all.
 //
-// deployedModels may be nil in tests; required in selfhosted prod so the
-// dashboard can render the universe of routable models.
-//
-// hmmModels is optional; nil when no HMM sidecar is wired — falls back to the
-// cluster registry.
+// hmmModels is the serving HMM roster, the deployed-model universe behind
+// /v1/router/models and admin model/provider validation; nil (tests, no
+// policy wired) leaves those routes unmounted.
 //
 // billingSvc is set only in managed mode when credit-billing is enabled; it
 // gates every inference route on prepaid balance via WithBalanceCheck. nil
@@ -97,24 +97,32 @@ const (
 //
 // Register keeps the default route surface backwards-compatible. Optional
 // request features are enabled through RegisterWithFeatures.
-func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, deployedModels admin.DeployedModelsSource, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, hmmDistributionRosters ...*rosterdata.Roster) {
-	RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmModels, mode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, Features{}, hmmDistributionRosters...)
+func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service) {
+	RegisterWithFeatures(engine, authSvc, proxySvc, hmmModels, mode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, Features{})
 }
 
 // DefaultStrategyFromEnv is the deployment-level strategy for installations
-// with no persisted override (ROUTER_DEFAULT_STRATEGY, cluster when unset).
-func DefaultStrategyFromEnv() router.Strategy {
+// with no persisted override (ROUTER_DEFAULT_STRATEGY, hmm_embedding when unset).
+func DefaultStrategyFromEnv() (router.Strategy, error) {
 	return ParseDefaultStrategy(os.Getenv("ROUTER_DEFAULT_STRATEGY"))
 }
 
 // ParseDefaultStrategy normalizes a raw ROUTER_DEFAULT_STRATEGY value; empty
-// means the legacy cluster default.
-func ParseDefaultStrategy(raw string) router.Strategy {
+// means hmm_embedding. The retired cluster strategy and the per-installation
+// opt-in lanes are rejected so a bad setting fails boot instead of passing
+// /readyz and then answering every default-following request with 503.
+func ParseDefaultStrategy(raw string) (router.Strategy, error) {
 	strategy := router.Strategy(strings.ToLower(strings.TrimSpace(raw)))
-	if strategy == "" {
-		return router.StrategyCluster
+	switch {
+	case strategy == "":
+		return router.StrategyHMMEmbedding, nil
+	case router.IsRetiredStrategy(strategy):
+		return "", fmt.Errorf("ROUTER_DEFAULT_STRATEGY=%q is no longer supported: the cluster scorer is retired; unset it to use %q or set another registered strategy", raw, router.StrategyHMMEmbedding)
 	}
-	return strategy
+	if router.IsBetaStrategy(strategy) || strategy == router.StrategyLLMClassifier {
+		return "", fmt.Errorf("ROUTER_DEFAULT_STRATEGY=%q is not a valid deployment default: beta and classifier lanes are opt-in per installation", raw)
+	}
+	return strategy, nil
 }
 
 // Features configures dependencies and optional request surfaces.
@@ -134,10 +142,21 @@ type Features struct {
 	// subscriber's included Router allowance. Nil leaves every request on the
 	// org/prepaid billing gates alone.
 	SubscriberAllowance *entitlement.Service
+	// SubscriptionPoolsEnabled mirrors ROUTER_SUBSCRIPTION_POOLS_ENABLED so the
+	// dashboard can tell a disabled pool from an empty one.
+	SubscriptionPoolsEnabled bool
+	// SubscriptionLogins runs browser reconnects for the control plane. Nil
+	// leaves enrollment on `router login` alone.
+	SubscriptionLogins admin.SubscriptionLoginFlow
+	// PolicyStatus adds the active stable policy release to /v1/version.
+	PolicyStatus admin.PolicyStatusSource
+	// RoutingDistribution backs the dial preview outside managed serving,
+	// where the admitted request policy is used instead.
+	RoutingDistribution admin.DistributionRosterSource
 }
 
 // RegisterWithFeatures is Register with optional request features enabled.
-func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, deployedModels admin.DeployedModelsSource, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, features Features, hmmDistributionRosters ...*rosterdata.Roster) {
+func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, features Features) {
 	// Browser clients need an explicit expose list before fetch can read the
 	// router's routing and cost metadata from a cross-origin response.
 	engine.Use(func(c *gin.Context) {
@@ -146,7 +165,6 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			proxy.HeaderRouterProvider,
 			proxy.HeaderRouterModel,
 			proxy.HeaderRouterContextWindow,
-			proxy.HeaderRouterCache,
 			proxy.HeaderRouterFallbackFrom,
 			proxy.HeaderRouterFallbackAttempt,
 			proxy.HeaderRouterCostUSD,
@@ -186,6 +204,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		discoveryMiddleware = append(discoveryMiddleware, servingAdmissionMiddleware...)
 	}
 	discovery := engine.Group("", discoveryMiddleware...)
+	if features.ServingAdmission != nil && mode == DeploymentModeManaged {
+		discovery.POST("/v1/router/models/:model/prepare", middleware.WithTimeout(modelPreparationTimeout), classifierapi.PrepareModelHandler(proxySvc))
+		discovery.GET("/v1/router/models/:model/prepare/:operation", middleware.WithTimeout(modelPreparationTimeout), classifierapi.PrepareModelHandler(proxySvc))
+	}
 	if features.ServingAdmission != nil {
 		discovery.GET("/v1/test-plan/validate", middleware.WithTimeout(catalogModelsTimeout), admin.TestPlanValidationHandler)
 	}
@@ -198,14 +220,18 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 
 	// /v1/version reports the binary's git commit + build time (via -ldflags),
 	// used by the README's managed-deployment badge. Public build metadata, unauthed like /health.
-	engine.GET("/v1/version", middleware.WithTimeout(healthTimeout), admin.VersionHandler)
+	engine.GET("/v1/version", middleware.WithTimeout(healthTimeout), admin.VersionHandler(features.PolicyStatus))
 	var registeredStrategies []router.Strategy
 	var strategyAvailability middleware.StrategyAvailability
 	if proxySvc != nil {
 		registeredStrategies = proxySvc.RegisteredStrategies()
 		strategyAvailability = proxySvc.PolicyStrategyAvailable
 	}
-	defaultStrategy := middleware.NormalizeRouterStrategyDefault(DefaultStrategyFromEnv(), registeredStrategies...)
+	envDefaultStrategy, err := DefaultStrategyFromEnv()
+	if err != nil {
+		panic(err)
+	}
+	defaultStrategy := middleware.NormalizeRouterStrategyDefault(envDefaultStrategy, registeredStrategies...)
 	discovery.GET(
 		"/v1/router/policies",
 		middleware.WithTimeout(healthTimeout),
@@ -216,18 +242,18 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	// submissions against the live deployed-models universe instead of
 	// hand-copying it per gitlink bump. Unauthed: read-only, and the list is
 	// already public on the RouterArena leaderboard.
-	if deployedModels != nil {
-		engine.GET("/v1/router/models", middleware.WithTimeout(catalogModelsTimeout), admin.CatalogModelsHandler(deployedModels, hmmModels))
-
-		// Projects the quality-vs-price dial's model mix across dial positions
-		// for the dashboard's distribution preview. Same unauthed rationale as
-		// /v1/router/models; the assertion skips sources that can't project one.
-		if dist, ok := deployedModels.(admin.RoutingDistributionSource); ok && features.ServingAdmission == nil {
-			discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.RoutingDistributionHandler(dist, hmmDistributionRosters...))
-		}
+	if hmmModels != nil {
+		engine.GET("/v1/router/models", middleware.WithTimeout(catalogModelsTimeout), admin.CatalogModelsHandler(hmmModels))
 	}
+
+	// Projects the quality-vs-price dial's model mix across dial positions
+	// for the dashboard's distribution preview. Self-hosted serves it unauthed
+	// (same rationale as /v1/router/models); managed binds it to the admitted
+	// request.
 	if features.ServingAdmission != nil {
-		discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.AdmittedRoutingDistributionHandler(policyregistry.AdmittedRosterSource{}))
+		discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.RoutingDistributionHandler(policyregistry.AdmittedRosterSource{}))
+	} else if features.RoutingDistribution != nil {
+		discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.RoutingDistributionHandler(features.RoutingDistribution))
 	}
 
 	// /v1/router/hmm-roster: frozen per-cluster arm roster mapped to catalog IDs.
@@ -249,10 +275,16 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			internalGroup.DELETE("/test-plans/launches/:id", admin.InternalTestPlanRevokeHandler(features.TestPlans))
 		}
 		internalGroup.POST("/provider-keys/models", admin.InternalListUpstreamModelsHandler(authSvc, proxySvc))
+		internalGroup.POST("/session-issuers", admin.InternalRegisterSessionIssuerHandler(authSvc))
+		internalGroup.DELETE("/session-issuers/:installationID/:kid", admin.InternalRevokeSessionIssuerHandler(authSvc))
 		if authSvc.SubscriptionAccountsEnabled() {
 			internalGroup.GET("/subscription-accounts/:subscriberID", admin.InternalListSubscriptionAccountsHandler(authSvc))
 			internalGroup.PATCH("/subscription-accounts/:subscriberID/:accountID", admin.InternalUpdateSubscriptionAccountHandler(authSvc))
 			internalGroup.DELETE("/subscription-accounts/:subscriberID/:accountID", admin.InternalDeleteSubscriptionAccountHandler(authSvc))
+			if features.SubscriptionLogins != nil {
+				internalGroup.POST("/subscription-logins/:subscriberID", admin.InternalStartSubscriptionLoginHandler(authSvc, features.SubscriptionLogins))
+				internalGroup.POST("/subscription-logins/:subscriberID/complete", admin.InternalCompleteSubscriptionLoginHandler(authSvc, features.SubscriptionLogins))
+			}
 		}
 		// Inference-policy inspection: the reviewed registry, the deployment's
 		// view of it, and a resolution preview. Read-only and content-free; the
@@ -301,6 +333,12 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		metrics.GET("/metrics/timeseries", admin.MetricsTimeseriesHandler(proxySvc))
 		metrics.GET("/metrics/details", admin.MetricsDetailsHandler(proxySvc))
 		metrics.GET("/metrics/model-breakdown", admin.MetricsModelBreakdownHandler(proxySvc))
+		metrics.GET("/metrics/series", admin.MetricsSeriesHandler(proxySvc))
+		metrics.GET("/metrics/report-summary", admin.MetricsReportSummaryHandler(proxySvc))
+		metrics.GET("/metrics/people", admin.MetricsPeopleHandler(proxySvc))
+		metrics.GET("/metrics/drill-down", admin.MetricsDrillDownHandler(proxySvc))
+		metrics.GET("/metrics/individuals", admin.MetricsIndividualsHandler(proxySvc))
+		metrics.GET("/subscription-pool", admin.SubscriptionPoolHandler(proxySvc, features.SubscriptionPoolsEnabled, time.Now))
 
 		// Mutations: admin cookie REQUIRED. rk_ tokens are rejected so a leaked data-plane key can't mint fresh router keys or rotate provider credentials.
 		mgmt := engine.Group("/admin/v1", middleware.WithTimeout(adminTimeout), middleware.WithAdminOnly(authSvc))
@@ -309,8 +347,9 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		mgmt.POST("/keys/:id/rotate", admin.RotateAPIKeyHandler(authSvc))
 		mgmt.DELETE("/keys/:id", admin.DeleteAPIKeyHandler(authSvc))
 		mgmt.GET("/provider-keys", admin.ListExternalKeysHandler(authSvc))
-		mgmt.POST("/provider-keys", admin.UpsertExternalKeyHandler(authSvc, deployedModels))
-		mgmt.PUT("/provider-keys/:id/model-aliases", admin.UpdateExternalKeyAliasesHandler(authSvc, deployedModels))
+		mgmt.POST("/provider-keys", admin.UpsertExternalKeyHandler(authSvc, hmmModels))
+		mgmt.PUT("/provider-keys/:id/model-aliases", admin.UpdateExternalKeyAliasesHandler(authSvc, hmmModels))
+		mgmt.PUT("/provider-keys/:id/funding-priority", admin.UpdateExternalKeyFundingPriorityHandler(authSvc))
 		// Discovery hits the provider endpoint itself; the group's adminTimeout
 		// (10s) bounds that upstream GET /models call.
 		mgmt.GET("/provider-keys/:id/models", admin.ListUpstreamModelsHandler(authSvc, proxySvc))
@@ -324,13 +363,13 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		mgmt.PUT("/content-capture", admin.UpdateContentCaptureHandler(authSvc, proxySvc))
 		mgmt.GET("/fast-mode-models", admin.GetFastModeModelsHandler(authSvc))
 		mgmt.PUT("/fast-mode-models", admin.UpdateFastModeModelsHandler(authSvc))
-		if deployedModels != nil {
-			mgmt.GET("/excluded-models", admin.GetExcludedModelsHandler(authSvc, deployedModels, proxySvc))
-			mgmt.PUT("/excluded-models", admin.UpdateExcludedModelsHandler(authSvc, deployedModels, proxySvc))
-			mgmt.GET("/allowed-models", admin.GetAllowedModelsHandler(authSvc, deployedModels))
-			mgmt.PUT("/allowed-models", admin.UpdateAllowedModelsHandler(authSvc, deployedModels, proxySvc))
-			mgmt.GET("/excluded-providers", admin.GetExcludedProvidersHandler(authSvc, deployedModels, proxySvc))
-			mgmt.PUT("/excluded-providers", admin.UpdateExcludedProvidersHandler(authSvc, deployedModels, proxySvc))
+		if hmmModels != nil {
+			mgmt.GET("/excluded-models", admin.GetExcludedModelsHandler(authSvc, proxySvc))
+			mgmt.PUT("/excluded-models", admin.UpdateExcludedModelsHandler(authSvc, proxySvc))
+			mgmt.GET("/allowed-models", admin.GetAllowedModelsHandler(authSvc))
+			mgmt.PUT("/allowed-models", admin.UpdateAllowedModelsHandler(authSvc, proxySvc))
+			mgmt.GET("/excluded-providers", admin.GetExcludedProvidersHandler(authSvc, hmmModels, proxySvc))
+			mgmt.PUT("/excluded-providers", admin.UpdateExcludedProvidersHandler(authSvc, hmmModels, proxySvc))
 		}
 	}
 
@@ -347,13 +386,12 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			middleware.WithBillingSpan(),
 			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
 			middleware.WithAPIKeySpendCap(billingSvc),
+			middleware.WithDelegatedSpendCap(billingSvc),
 			middleware.WithOrgMonthlySpendCap(billingSvc),
 			middleware.WithBillingSpanEnd(),
 		)
 	}
 	messagesMiddleware = append(messagesMiddleware,
-		middleware.WithEmbedOnlyUserMessageOverride(),
-		middleware.WithClusterVersionOverride(),
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
@@ -361,7 +399,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithForceEffortOverride(),
 	)
 	messagesMiddleware = append(messagesMiddleware, policyPinMiddleware...)
-	messagesMiddleware = append(messagesMiddleware, middleware.WithClassifierThread(proxySvc))
+	messagesMiddleware = append(messagesMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
 	messagesGroup := engine.Group("", messagesMiddleware...)
 	messagesGroup.POST("/v1/messages", middleware.WithProviderWait(), anthropicapi.MessagesHandler(proxySvc, authSvc))
 	messagesGroup.POST("/v1/route/handoff", anthropicapi.PrepareHandoffHandler(proxySvc, authSvc))
@@ -378,20 +416,19 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			middleware.WithBillingSpan(),
 			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
 			middleware.WithAPIKeySpendCap(billingSvc),
+			middleware.WithDelegatedSpendCap(billingSvc),
 			middleware.WithOrgMonthlySpendCap(billingSvc),
 			middleware.WithBillingSpanEnd(),
 		)
 	}
 	chatCompletionMiddleware = append(chatCompletionMiddleware,
-		middleware.WithEmbedOnlyUserMessageOverride(),
-		middleware.WithClusterVersionOverride(),
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
 	)
-	chatCompletionMiddleware = append(chatCompletionMiddleware, middleware.WithClassifierThread(proxySvc))
+	chatCompletionMiddleware = append(chatCompletionMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
 	chatCompletionWithoutPolicyPin := append([]gin.HandlerFunc(nil), chatCompletionMiddleware...)
 	chatCompletionMiddleware = append(chatCompletionMiddleware, policyPinMiddleware...)
 	chatCompletionGroup := engine.Group("", chatCompletionMiddleware...)
@@ -414,8 +451,12 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	passthroughGroup.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(proxySvc))
 	passthroughGroup.GET("/v1/models", openaiapi.ModelsHandler(anthropicapi.PassthroughHandler(proxySvc), proxySvc.CodexModelCatalog))
 	passthroughGroup.GET("/v1/models/:model", anthropicapi.PassthroughHandler(proxySvc))
-	// Rides the passthrough group (cheap, no billing middleware) — read-only, no routing side-effects.
-	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler)
+	passthroughGroup.GET("/v1/codex/models", openaiapi.CodexCatalogHandler(proxySvc.CodexSelectionCatalog))
+	// Rides the passthrough group (cheap, no billing middleware). Resolving the caller may upsert its router user; no routing side-effects.
+	passthroughGroup.GET("/v1/display-settings", admin.DisplaySettingsHandler(authSvc, func(c *gin.Context) context.Context {
+		ctx := requestcontext.WithClientIdentity(c.Request.Context(), proxy.ClientIdentityFromHeaders(c.Request.Header))
+		return proxy.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c))
+	}, authSvc))
 
 	// Read-only product surface: the Codex status hook's rk_ key and API clients'
 	// ra_ keys read one installation's committed cost. Deliberately outside
@@ -438,13 +479,12 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			middleware.WithBillingSpan(),
 			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
 			middleware.WithAPIKeySpendCap(billingSvc),
+			middleware.WithDelegatedSpendCap(billingSvc),
 			middleware.WithOrgMonthlySpendCap(billingSvc),
 			middleware.WithBillingSpanEnd(),
 		)
 	}
 	routeMiddleware = append(routeMiddleware,
-		middleware.WithEmbedOnlyUserMessageOverride(),
-		middleware.WithClusterVersionOverride(),
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
@@ -452,7 +492,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithForceEffortOverride(),
 	)
 	routeMiddleware = append(routeMiddleware, policyPinMiddleware...)
-	routeMiddleware = append(routeMiddleware, middleware.WithClassifierThread(proxySvc))
+	routeMiddleware = append(routeMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
 	routeGroup := engine.Group("", routeMiddleware...)
 	routeGroup.POST("/v1/route", anthropicapi.RouteHandler(proxySvc))
 
@@ -464,14 +504,13 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	previewMiddleware = append(previewMiddleware, servingAdmissionMiddleware...)
 	previewMiddleware = append(previewMiddleware, subscriberProductScopeMiddleware...)
 	previewMiddleware = append(previewMiddleware,
-		middleware.WithEmbedOnlyUserMessageOverride(),
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
 	)
 	previewMiddleware = append(previewMiddleware, policyPinMiddleware...)
-	previewMiddleware = append(previewMiddleware, middleware.WithClassifierThread(proxySvc))
+	previewMiddleware = append(previewMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
 	previewGroup := engine.Group("", previewMiddleware...)
 	previewGroup.POST("/v1/route/preview", anthropicapi.PreviewRouteHandler(proxySvc))
 
