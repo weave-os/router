@@ -134,6 +134,7 @@ func FirstOutputMark(ctx context.Context, mark func()) func() {
 	t := TimingFrom(ctx)
 	return func() {
 		t.StampUpstreamFirstOutput()
+		endProviderWait(ctx)
 		mark()
 	}
 }

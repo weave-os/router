@@ -1,0 +1,31 @@
+name: Upstream provider wait
+
+on:
+  pull_request:
+    paths:
+      - install/upstream-wait/**
+      - install/npm/**
+      - .github/workflows/test_upstream_wait.yml
+  push:
+    branches: [main]
+    paths:
+      - install/upstream-wait/**
+      - install/npm/**
+      - .github/workflows/test_upstream_wait.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  clients:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install --prefix install/npm --ignore-scripts --package-lock=false --no-audit --no-fund
+      - run: node install/npm/scripts/copy-installer.js
+      - run: NODE_PATH="$PWD/install/npm/node_modules" node --test install/upstream-wait/test/*.test.cjs
+      - run: node --test install/upstream-wait/test/*.test.mjs
