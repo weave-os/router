@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	anthropicapi "weave-os/router/internal/api/anthropic"
 	geminiapi "weave-os/router/internal/api/gemini"
 	openaiapi "weave-os/router/internal/api/openai"
 	"weave-os/router/internal/auth"
@@ -25,8 +26,10 @@ import (
 // Handler-driven ingresses run the real gin handler, so the client bytes
 // include the error envelope each surface renders from a returned error.
 const (
-	ingressResponses = "openai_responses"
-	ingressGemini    = "gemini_generate_content"
+	ingressResponses     = "openai_responses"
+	ingressGemini        = "gemini_generate_content"
+	ingressAnthropicHTTP = "anthropic_messages_http"
+	ingressOpenAIHTTP    = "openai_chat_http"
 
 	goldenGeminiModel    = "gemini-2.5-flash"
 	goldenOpenAIModel    = "gpt-5.5"
@@ -39,10 +42,12 @@ type goldenIngressSurface struct {
 }
 
 var goldenIngressSurfaces = map[string]goldenIngressSurface{
-	ingressAnthropic: {path: "/v1/messages", serve: (*proxy.Service).ProxyMessages},
-	ingressOpenAI:    {path: "/v1/chat/completions", serve: (*proxy.Service).ProxyOpenAIChatCompletion},
-	ingressResponses: {path: "/v1/responses", serve: goldenHandler("/v1/responses", openaiapi.ResponsesHandler)},
-	ingressGemini:    {path: goldenGeminiPath(false), serve: goldenHandler("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler)},
+	ingressAnthropic:     {path: "/v1/messages", serve: (*proxy.Service).ProxyMessages},
+	ingressOpenAI:        {path: "/v1/chat/completions", serve: (*proxy.Service).ProxyOpenAIChatCompletion},
+	ingressResponses:     {path: "/v1/responses", serve: goldenHandler("/v1/responses", openaiapi.ResponsesHandler)},
+	ingressGemini:        {path: goldenGeminiPath(false), serve: goldenHandler("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler)},
+	ingressAnthropicHTTP: {path: "/v1/messages", serve: goldenHandler("/v1/messages", anthropicapi.MessagesHandler)},
+	ingressOpenAIHTTP:    {path: "/v1/chat/completions", serve: goldenHandler("/v1/chat/completions", openaiapi.ChatCompletionHandler)},
 }
 
 func init() { gin.SetMode(gin.TestMode) }
@@ -340,6 +345,78 @@ func goldenGeminiScenarios() []goldenScenario {
 	return out
 }
 
+const goldenMessagesToolBody = `{"model":"claude-sonnet-4-5","max_tokens":1024,"stream":true,"system":[{"type":"text","text":"Be brief."}],` +
+	`"tools":[{"name":"get_weather","description":"Weather","input_schema":{"type":"object","properties":{"city":{"type":"string"}}}}],` +
+	`"messages":[{"role":"user","content":"Weather in Paris?"}]}`
+
+const goldenChatToolBody = `{"model":"gpt-5","stream":true,"messages":[{"role":"system","content":"Be brief."},{"role":"user","content":"Weather in Paris?"}],` +
+	`"tools":[{"type":"function","function":{"name":"get_weather","description":"Weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}}]}`
+
+const goldenChatHistoryBody = `{"model":"gpt-5","stream":false,"max_tokens":256,"temperature":0.2,"messages":[` +
+	`{"role":"user","content":"Weather in Paris?"},` +
+	`{"role":"assistant","content":null,"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Paris\"}"}}]},` +
+	`{"role":"tool","tool_call_id":"call_1","content":"sunny"}],` +
+	`"tools":[{"type":"function","function":{"name":"get_weather","parameters":{"type":"object","properties":{"city":{"type":"string"}}}}}]}`
+
+// goldenMessagesChatScenarios fill the Messages and Chat gaps the inference
+// matrix leaves: they run the real handlers, so the client bytes include each
+// surface's error envelope, keepalive pings and stream terminal handling.
+func goldenMessagesChatScenarios() []goldenScenario {
+	var out []goldenScenario
+	anthropicFrames := goldenAnthropicStream(goldenAnthropicModel, "partial")
+	nativeFrames := goldenResponsesStream(goldenOpenAIModel, "partial")
+	overloaded := goldenSSE("error", goldenOverloadBody)
+	for _, sc := range []struct {
+		ingress, body string
+		chatBody      func(bool) string
+	}{
+		{ingress: ingressAnthropicHTTP, chatBody: goldenAnthropicBody},
+		{ingress: ingressOpenAIHTTP, chatBody: goldenOpenAIBody},
+	} {
+		add := func(name, body string, d router.Decision, provider string, steps ...goldenStep) {
+			out = append(out, goldenScenario{name: sc.ingress + "_" + name, ingress: sc.ingress, decisions: []router.Decision{d},
+				upstreams: map[string][]goldenStep{provider: steps}, requests: []goldenRequest{{body: body}}})
+		}
+		refused := func(name, body string, routeErr error) {
+			out = append(out, goldenScenario{name: sc.ingress + "_" + name, ingress: sc.ingress, routeErr: routeErr,
+				upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(false, "never")}},
+				requests:  []goldenRequest{{body: body, noTelemetry: true}}})
+		}
+		for _, stream := range []bool{true, false} {
+			add(streamName(stream)+"_anthropic_success", sc.chatBody(stream), goldenAnthropicDecision, providers.ProviderAnthropic, anthropicOK(stream, "hi"))
+			add(streamName(stream)+"_upstream_bad_request", sc.chatBody(stream), goldenAnthropicDecision, providers.ProviderAnthropic,
+				goldenUpstreamError(http.StatusBadRequest, `{"type":"error","error":{"type":"invalid_request_error","message":"messages: field required"}}`))
+			refused(streamName(stream)+"_no_eligible_provider", sc.chatBody(stream), router.ErrNoEligibleProvider)
+		}
+		refused("nonstream_route_error", sc.chatBody(false), errors.New("no eligible model"))
+		refused("nonstream_invalid_json_body", `{"messages":`, nil)
+		add("stream_anthropic_native_missing_message_stop", sc.chatBody(true), goldenAnthropicDecision, providers.ProviderAnthropic,
+			goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: anthropicFrames[:5]})
+		add("stream_anthropic_native_error_event", sc.chatBody(true), goldenAnthropicDecision, providers.ProviderAnthropic,
+			goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: append(anthropicFrames[:3:3], overloaded)})
+		add("stream_slow_upstream_keepalive", sc.chatBody(true), goldenAnthropicDecision, providers.ProviderAnthropic, goldenSlow(anthropicOK(true, "slow")))
+		out[len(out)-1].configure = withSlowKeepalive
+	}
+	add := func(ingress, name, body string, d router.Decision, provider string, steps ...goldenStep) {
+		out = append(out, goldenScenario{name: ingress + "_" + name, ingress: ingress, decisions: []router.Decision{d},
+			upstreams: map[string][]goldenStep{provider: steps}, requests: []goldenRequest{{body: body}}})
+	}
+	add(ingressAnthropicHTTP, "stream_tool_use_with_system", goldenMessagesToolBody, goldenAnthropicDecision, providers.ProviderAnthropic,
+		goldenOK("text/event-stream", goldenAnthropicToolStream()))
+	add(ingressOpenAIHTTP, "stream_tool_call_from_anthropic", goldenChatToolBody, goldenAnthropicDecision, providers.ProviderAnthropic,
+		goldenOK("text/event-stream", goldenAnthropicToolStream()))
+	add(ingressOpenAIHTTP, "nonstream_tool_history_and_options", goldenChatHistoryBody, goldenAnthropicDecision, providers.ProviderAnthropic,
+		anthropicOK(false, "sunny"))
+	add(ingressOpenAIHTTP, "stream_openai_native_success", goldenOpenAIBody(true), goldenOpenAIDecision, providers.ProviderOpenAI,
+		responsesOK(true, "hi"))
+	add(ingressOpenAIHTTP, "stream_openai_native_missing_terminal", goldenOpenAIBody(true), goldenOpenAIDecision, providers.ProviderOpenAI,
+		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: nativeFrames[:3]})
+	add(ingressOpenAIHTTP, "stream_openai_native_cut_after_content", goldenOpenAIBody(true), goldenOpenAIDecision, providers.ProviderOpenAI,
+		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: nativeFrames[:3], err: io.ErrUnexpectedEOF})
+	return out
+}
+
 func goldenIngressScenarios() []goldenScenario {
-	return append(goldenResponsesScenarios(), goldenGeminiScenarios()...)
+	out := append(goldenResponsesScenarios(), goldenGeminiScenarios()...)
+	return append(out, goldenMessagesChatScenarios()...)
 }

@@ -1,0 +1,29 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages_http",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "claude-sonnet-4-5",
+          "error": "router: no eligible provider for request"
+        }
+      ],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "error": {
+            "message": "No enabled provider can serve any deployed model: add a provider key (BYOK or a provider Authorization header), or re-enable an excluded provider.",
+            "type": "invalid_request_error"
+          },
+          "type": "error"
+        }
+      }
+    }
+  ],
+  "scenario": "anthropic_messages_http_stream_no_eligible_provider"
+}
