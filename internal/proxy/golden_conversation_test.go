@@ -20,7 +20,7 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-const goldenConvPrefix = ingressAnthropic + "_conversation_"
+const goldenConversationPrefix = ingressAnthropic + "_conversation_"
 
 // goldenConversationScenarios pin Conversation Lifecycle behavior: slash
 // commands, post-command continuation, compaction and handover, loop and
@@ -34,49 +34,44 @@ func goldenConversationScenarios() []goldenScenario {
 	return append(out, goldenToolResultScenarios()...)
 }
 
-func convUser(text string) string {
-	return fmt.Sprintf(`{"role":"user","content":%s}`, convJSON(text))
+func conversationUser(text string) string {
+	return fmt.Sprintf(`{"role":"user","content":%s}`, quoteJSON(text))
 }
 
-func convAssistant(text string) string {
-	return fmt.Sprintf(`{"role":"assistant","content":%s}`, convJSON(text))
+func conversationAssistant(text string) string {
+	return fmt.Sprintf(`{"role":"assistant","content":%s}`, quoteJSON(text))
 }
 
-func convToolUse(id, name, input string) string {
+func conversationToolUse(id, name, input string) string {
 	return fmt.Sprintf(`{"role":"assistant","content":[{"type":"tool_use","id":%q,"name":%q,"input":%s}]}`, id, name, input)
 }
 
-func convToolResult(id, content string) string {
-	return fmt.Sprintf(`{"role":"user","content":[{"type":"tool_result","tool_use_id":%q,"content":%s}]}`, id, convJSON(content))
+func conversationToolResult(id, content string) string {
+	return fmt.Sprintf(`{"role":"user","content":[{"type":"tool_result","tool_use_id":%q,"content":%s}]}`, id, quoteJSON(content))
 }
 
-func convJSON(v string) string {
-	b, _ := json.Marshal(v)
-	return string(b)
-}
-
-const goldenConvTools = `[{"name":"Bash","description":"run","input_schema":{"type":"object","properties":{"command":{"type":"string"}}}},` +
+const goldenConversationTools = `[{"name":"Bash","description":"run","input_schema":{"type":"object","properties":{"command":{"type":"string"}}}},` +
 	`{"name":"Read","description":"read","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}},` +
 	`{"name":"Edit","description":"edit","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}]`
 
-func convBody(stream bool, messages ...string) string {
+func conversationBody(stream bool, messages ...string) string {
 	return fmt.Sprintf(`{"model":%q,"stream":%t,"max_tokens":1024,"tools":%s,"messages":[%s]}`,
-		goldenAnthropicModel, stream, goldenConvTools, strings.Join(messages, ","))
+		goldenAnthropicModel, stream, goldenConversationTools, strings.Join(messages, ","))
 }
 
-func convOpenAIBody(messages ...string) string {
+func conversationOpenAIBody(messages ...string) string {
 	return fmt.Sprintf(`{"model":%q,"stream":false,"messages":[%s]}`, goldenAnthropicModel, strings.Join(messages, ","))
 }
 
-func convOpenAIUser(text string) string {
-	return fmt.Sprintf(`{"role":"user","content":%s}`, convJSON(text))
+func conversationOpenAIUser(text string) string {
+	return fmt.Sprintf(`{"role":"user","content":%s}`, quoteJSON(text))
 }
 
-func convOpenAIAssistant(text string) string {
-	return fmt.Sprintf(`{"role":"assistant","content":%s}`, convJSON(text))
+func conversationOpenAIAssistant(text string) string {
+	return fmt.Sprintf(`{"role":"assistant","content":%s}`, quoteJSON(text))
 }
 
-const goldenConvOpening = "refactor the parser package"
+const goldenConversationOpening = "refactor the parser package"
 
 func goldenSessionCtx(ctx context.Context) context.Context {
 	return requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode, SessionID: "golden-session"})
@@ -95,22 +90,22 @@ func anthropicSteps(n int) []goldenStep {
 	return steps
 }
 
-func convScenario(name string, requests ...goldenRequest) goldenScenario {
+func conversationScenario(name string, requests ...goldenRequest) goldenScenario {
 	return goldenScenario{
-		name: goldenConvPrefix + name, ingress: ingressAnthropic,
+		name: goldenConversationPrefix + name, ingress: ingressAnthropic,
 		decisions: []router.Decision{decision(providers.ProviderAnthropic, goldenAnthropicModel)},
 		upstreams: map[string][]goldenStep{providers.ProviderAnthropic: anthropicSteps(len(requests))},
 		requests:  requests,
 	}
 }
 
-func convReq(messages ...string) goldenRequest {
-	return goldenRequest{body: convBody(false, messages...)}
+func conversationReq(messages ...string) goldenRequest {
+	return goldenRequest{body: conversationBody(false, messages...)}
 }
 
-// convCmd is a turn answered by the router itself, which emits no request row.
-func convCmd(messages ...string) goldenRequest {
-	return goldenRequest{body: convBody(false, messages...), noTelemetry: true}
+// conversationCmd is a turn answered by the router itself, which emits no request row.
+func conversationCmd(messages ...string) goldenRequest {
+	return goldenRequest{body: conversationBody(false, messages...), noTelemetry: true}
 }
 
 func withConvStores(sc goldenScenario, seed bool) goldenScenario {
@@ -126,92 +121,92 @@ func withConvStores(sc goldenScenario, seed bool) goldenScenario {
 }
 
 func goldenCommandScenarios() []goldenScenario {
-	first := convUser(goldenConvOpening)
-	reply := convAssistant("Here is the plan for the parser package refactor.")
-	forced := convScenario("force_model_command_then_forced_turn",
-		convCmd(first, reply, convUser("/force-model "+goldenSiblingModel)),
-		convReq(first, reply, convUser("/force-model "+goldenSiblingModel), convAssistant("forced"), convUser("continue")))
+	first := conversationUser(goldenConversationOpening)
+	reply := conversationAssistant("Here is the plan for the parser package refactor.")
+	forced := conversationScenario("force_model_command_then_forced_turn",
+		conversationCmd(first, reply, conversationUser("/force-model "+goldenSiblingModel)),
+		conversationReq(first, reply, conversationUser("/force-model "+goldenSiblingModel), conversationAssistant("forced"), conversationUser("continue")))
 	forced.upstreams[providers.ProviderAnthropic] = []goldenStep{anthropicOK(false, "forced reply")}
-	forcedStream := convScenario("force_model_command_stream_ack",
-		goldenRequest{body: convBody(true, first, reply, convUser("/force-model "+goldenSiblingModel)), noTelemetry: true})
-	unforce := convScenario("unforce_model_command_returns_to_routing",
-		convCmd(first, reply, convUser("/force-model "+goldenSiblingModel)),
-		convCmd(first, reply, convUser("/unforce-model")),
-		convReq(first, reply, convUser("/unforce-model"), convAssistant("unforced"), convUser("continue")))
-	unknown := convScenario("force_model_command_unknown_model", convCmd(first, reply, convUser("/force-model not-a-real-model")))
+	forcedStream := conversationScenario("force_model_command_stream_ack",
+		goldenRequest{body: conversationBody(true, first, reply, conversationUser("/force-model "+goldenSiblingModel)), noTelemetry: true})
+	unforce := conversationScenario("unforce_model_command_returns_to_routing",
+		conversationCmd(first, reply, conversationUser("/force-model "+goldenSiblingModel)),
+		conversationCmd(first, reply, conversationUser("/unforce-model")),
+		conversationReq(first, reply, conversationUser("/unforce-model"), conversationAssistant("unforced"), conversationUser("continue")))
+	unknown := conversationScenario("force_model_command_unknown_model", conversationCmd(first, reply, conversationUser("/force-model not-a-real-model")))
 	openAIForce := goldenScenario{
 		name: ingressOpenAI + "_conversation_force_model_command_ack", ingress: ingressOpenAI,
 		decisions: []router.Decision{decision(providers.ProviderAnthropic, goldenAnthropicModel)},
 		upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(false, "never")}},
-		requests: []goldenRequest{{body: convOpenAIBody(convOpenAIUser(goldenConvOpening),
-			convOpenAIAssistant("plan"), convOpenAIUser("/force-model "+goldenSiblingModel)), noTelemetry: true}},
+		requests: []goldenRequest{{body: conversationOpenAIBody(conversationOpenAIUser(goldenConversationOpening),
+			conversationOpenAIAssistant("plan"), conversationOpenAIUser("/force-model "+goldenSiblingModel)), noTelemetry: true}},
 	}
-	session := convScenario("router_session_command", convCmd(first, reply, convUser("/router-session")))
-	sessionWithID := convScenario("router_session_command_with_client_session", inSession(convCmd(first, reply, convUser("/router-session"))))
-	models := convScenario("router_models_command", convCmd(first, reply, convUser("/router-models")))
-	feedback := withConvStores(convScenario("router_feedback_command_records_event",
-		convCmd(first, reply, convUser("/router-feedback the parser plan was a great pick"))), false)
-	feedbackEmpty := withConvStores(convScenario("router_feedback_command_without_text",
-		convCmd(first, reply, convUser("/router-feedback"))), false)
+	session := conversationScenario("router_session_command", conversationCmd(first, reply, conversationUser("/router-session")))
+	sessionWithID := conversationScenario("router_session_command_with_client_session", inSession(conversationCmd(first, reply, conversationUser("/router-session"))))
+	models := conversationScenario("router_models_command", conversationCmd(first, reply, conversationUser("/router-models")))
+	feedback := withConvStores(conversationScenario("router_feedback_command_records_event",
+		conversationCmd(first, reply, conversationUser("/router-feedback the parser plan was a great pick"))), false)
+	feedbackEmpty := withConvStores(conversationScenario("router_feedback_command_without_text",
+		conversationCmd(first, reply, conversationUser("/router-feedback"))), false)
 	openAIFeedback := withConvStores(goldenScenario{
 		name: ingressOpenAI + "_conversation_router_feedback_command", ingress: ingressOpenAI,
 		decisions: []router.Decision{decision(providers.ProviderAnthropic, goldenAnthropicModel)},
 		upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(false, "never")}},
-		requests: []goldenRequest{{body: convOpenAIBody(convOpenAIUser(goldenConvOpening),
-			convOpenAIAssistant("plan"), convOpenAIUser("/router-feedback wrong model for this task")), noTelemetry: true}},
+		requests: []goldenRequest{{body: conversationOpenAIBody(conversationOpenAIUser(goldenConversationOpening),
+			conversationOpenAIAssistant("plan"), conversationOpenAIUser("/router-feedback wrong model for this task")), noTelemetry: true}},
 	}, false)
-	betaNoStore := convScenario("beta_command_without_store", convCmd(first, reply, convUser("/beta")))
-	betaDisable := withConvStores(convScenario("beta_command_disables_unavailable_strategy",
-		inSession(convCmd(first, reply, convUser("/beta")))), true)
-	historical := convScenario("historical_command_stripped_from_upstream",
-		convReq(first, reply, convUser("/router-session"), convAssistant("session details"), convUser("now add tests")))
+	betaNoStore := conversationScenario("beta_command_without_store", conversationCmd(first, reply, conversationUser("/beta")))
+	betaDisable := withConvStores(conversationScenario("beta_command_disables_unavailable_strategy",
+		inSession(conversationCmd(first, reply, conversationUser("/beta")))), true)
+	historical := conversationScenario("historical_command_stripped_from_upstream",
+		conversationReq(first, reply, conversationUser("/router-session"), conversationAssistant("session details"), conversationUser("now add tests")))
 	return []goldenScenario{forced, forcedStream, unforce, unknown, openAIForce, session, sessionWithID, models,
 		feedback, feedbackEmpty, openAIFeedback, betaNoStore, betaDisable, historical}
 }
 
 func goldenContinuationScenarios() []goldenScenario {
-	first := convUser(goldenConvOpening)
-	reply := convAssistant("Here is the plan for the parser package refactor.")
-	grant := convScenario("post_command_continuation_granted_and_consumed",
-		convReq(first),
-		convCmd(first, reply, convUser("/router-session")),
-		convReq(first, reply, convUser("/router-session"), convAssistant("session details"), convUser("continue the refactor")))
-	noPin := convScenario("post_command_continuation_skipped_without_pin",
-		convCmd(first, reply, convUser("/router-session")),
-		convReq(first, reply, convUser("/router-session"), convAssistant("session details"), convUser("continue the refactor")))
-	forced := convScenario("post_command_continuation_skipped_when_forced",
-		convCmd(first, reply, convUser("/force-model "+goldenSiblingModel)),
-		convCmd(first, reply, convUser("/router-models")),
-		convReq(first, reply, convUser("/router-models"), convAssistant("models"), convUser("continue the refactor")))
-	expired := convScenario("post_command_continuation_expires",
-		convReq(first),
-		convCmd(first, reply, convUser("/router-session")),
-		goldenRequest{advance: 2 * time.Hour, body: convBody(false, first, reply, convUser("/router-session"),
-			convAssistant("session details"), convUser("continue the refactor"))})
+	first := conversationUser(goldenConversationOpening)
+	reply := conversationAssistant("Here is the plan for the parser package refactor.")
+	grant := conversationScenario("post_command_continuation_granted_and_consumed",
+		conversationReq(first),
+		conversationCmd(first, reply, conversationUser("/router-session")),
+		conversationReq(first, reply, conversationUser("/router-session"), conversationAssistant("session details"), conversationUser("continue the refactor")))
+	noPin := conversationScenario("post_command_continuation_skipped_without_pin",
+		conversationCmd(first, reply, conversationUser("/router-session")),
+		conversationReq(first, reply, conversationUser("/router-session"), conversationAssistant("session details"), conversationUser("continue the refactor")))
+	forced := conversationScenario("post_command_continuation_skipped_when_forced",
+		conversationCmd(first, reply, conversationUser("/force-model "+goldenSiblingModel)),
+		conversationCmd(first, reply, conversationUser("/router-models")),
+		conversationReq(first, reply, conversationUser("/router-models"), conversationAssistant("models"), conversationUser("continue the refactor")))
+	expired := conversationScenario("post_command_continuation_expires",
+		conversationReq(first),
+		conversationCmd(first, reply, conversationUser("/router-session")),
+		goldenRequest{advance: 2 * time.Hour, body: conversationBody(false, first, reply, conversationUser("/router-session"),
+			conversationAssistant("session details"), conversationUser("continue the refactor"))})
 	return []goldenScenario{grant, noPin, forced, expired}
 }
 
-func convLongHistory(turns int) []string {
-	msgs := []string{convUser(goldenConvOpening)}
+func conversationLongHistory(turns int) []string {
+	msgs := []string{conversationUser(goldenConversationOpening)}
 	for i := range turns {
-		msgs = append(msgs, convAssistant(fmt.Sprintf("step %d done", i)), convUser(fmt.Sprintf("next step %d", i)))
+		msgs = append(msgs, conversationAssistant(fmt.Sprintf("step %d done", i)), conversationUser(fmt.Sprintf("next step %d", i)))
 	}
 	return msgs
 }
 
 func handoverScenario(name string, summarizer handover.Summarizer) goldenScenario {
-	long := convLongHistory(6)
-	short := []string{convUser(goldenConvOpening), convAssistant("Summary: parser split into lexer and grammar."), convUser("keep going")}
+	long := conversationLongHistory(6)
+	short := []string{conversationUser(goldenConversationOpening), conversationAssistant("Summary: parser split into lexer and grammar."), conversationUser("keep going")}
 	sc := goldenScenario{
-		name: goldenConvPrefix + name, ingress: ingressAnthropic,
+		name: goldenConversationPrefix + name, ingress: ingressAnthropic,
 		decisions: []router.Decision{decision(providers.ProviderFireworks, goldenCompatModel)},
 		upstreams: map[string][]goldenStep{
 			providers.ProviderFireworks: {compatOK(false, "first"), compatOK(false, "second")},
 			providers.ProviderAnthropic: {anthropicOK(false, "never")},
 		},
 		requests: []goldenRequest{
-			{body: convBody(false, long...), decorateContext: goldenSessionCtx},
-			{body: convBody(false, short...), decorateContext: goldenSessionCtx},
+			{body: conversationBody(false, long...), decorateContext: goldenSessionCtx},
+			{body: conversationBody(false, short...), decorateContext: goldenSessionCtx},
 		},
 	}
 	if summarizer != nil {
@@ -228,7 +223,7 @@ func handoverScenario(name string, summarizer handover.Summarizer) goldenScenari
 const goldenHandoffSecret = "golden-handoff-secret-0123456789abcdef"
 
 func handoffScenario(name string, requests ...goldenRequest) goldenScenario {
-	sc := convScenario(name, requests...)
+	sc := conversationScenario(name, requests...)
 	sc.decisions = nil
 	sc.configure = func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 		classifier := &goldenRouter{rec: h.rec, decisions: []router.Decision{decision(providers.ProviderAnthropic, goldenAnthropicModel)}}
@@ -259,7 +254,7 @@ func withHandoffToken(body string, previous []byte) string {
 
 func goldenHandoverScenarios() []goldenScenario {
 	body := fmt.Sprintf(`{"model":%q,"max_tokens":1024,"stream":false,"metadata":{"user_id":"pi:golden"},"messages":[%s]}`,
-		goldenAnthropicModel, convUser(goldenConvOpening))
+		goldenAnthropicModel, conversationUser(goldenConversationOpening))
 	return []goldenScenario{
 		handoverScenario("compaction_handover_summarizes_history", &goldenSummarizer{summary: "Earlier: parser split into lexer and grammar."}),
 		handoverScenario("compaction_handover_summarizer_error_keeps_history", &goldenSummarizer{err: errors.New("summarizer unavailable")}),
@@ -272,84 +267,84 @@ func goldenHandoverScenarios() []goldenScenario {
 			goldenRequest{body: strings.Replace(body, `{"model"`, `{"weave_handoff":"not-a-token","model"`, 1),
 				decorateContext: handoffCtx(false), noTelemetry: true}),
 		handoffScenario("handoff_prepare_bypassed_for_forced_model",
-			goldenRequest{body: strings.Replace(body, convUser(goldenConvOpening), strings.Join([]string{convUser(goldenConvOpening), convAssistant("plan"), convUser("/force-model " + goldenSiblingModel)}, ","), 1),
+			goldenRequest{body: strings.Replace(body, conversationUser(goldenConversationOpening), strings.Join([]string{conversationUser(goldenConversationOpening), conversationAssistant("plan"), conversationUser("/force-model " + goldenSiblingModel)}, ","), 1),
 				decorateContext: handoffCtx(true), noTelemetry: true}),
 	}
 }
 
-func convRepeatedToolCalls(n int, name, input string) []string {
-	msgs := []string{convUser(goldenConvOpening)}
+func conversationRepeatedToolCalls(n int, name, input string) []string {
+	msgs := []string{conversationUser(goldenConversationOpening)}
 	for i := range n {
 		id := fmt.Sprintf("toolu_%02d", i)
-		msgs = append(msgs, convToolUse(id, name, input), convToolResult(id, "same output"))
+		msgs = append(msgs, conversationToolUse(id, name, input), conversationToolResult(id, "same output"))
 	}
 	return msgs
 }
 
 func goldenDetectionScenarios() []goldenScenario {
-	loop := withConvStores(convScenario("cyclic_tool_loop_escalates",
-		convReq(convRepeatedToolCalls(24, "Read", `{"path":"parser.go"}`)...)), false)
-	loopDisabled := withConvStores(convScenario("cyclic_tool_loop_disabled_records_event",
-		convReq(convRepeatedToolCalls(24, "Read", `{"path":"parser.go"}`)...)), false)
+	loop := withConvStores(conversationScenario("cyclic_tool_loop_escalates",
+		conversationReq(conversationRepeatedToolCalls(24, "Read", `{"path":"parser.go"}`)...)), false)
+	loopDisabled := withConvStores(conversationScenario("cyclic_tool_loop_disabled_records_event",
+		conversationReq(conversationRepeatedToolCalls(24, "Read", `{"path":"parser.go"}`)...)), false)
 	base := loopDisabled.configure
 	loopDisabled.configure = func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
 		return base(svc, h).WithLoopEscalationConfig(false, 0)
 	}
-	withEdit := convRepeatedToolCalls(23, "Read", `{"path":"parser.go"}`)
-	withEdit = append(withEdit, convToolUse("toolu_edit", "Edit", `{"path":"parser.go"}`), convToolResult("toolu_edit", "ok"))
-	editProgress := withConvStores(convScenario("cyclic_tool_loop_with_edit_is_progress", convReq(withEdit...)), false)
+	withEdit := conversationRepeatedToolCalls(23, "Read", `{"path":"parser.go"}`)
+	withEdit = append(withEdit, conversationToolUse("toolu_edit", "Edit", `{"path":"parser.go"}`), conversationToolResult("toolu_edit", "ok"))
+	editProgress := withConvStores(conversationScenario("cyclic_tool_loop_with_edit_is_progress", conversationReq(withEdit...)), false)
 
-	stuck := convRepeatedToolCalls(1, "Bash", `{"command":"go test ./..."}`)
+	stuck := conversationRepeatedToolCalls(1, "Bash", `{"command":"go test ./..."}`)
 	noProgressReqs := make([]goldenRequest, 5)
 	for i := range noProgressReqs {
-		noProgressReqs[i] = convReq(stuck...)
+		noProgressReqs[i] = conversationReq(stuck...)
 	}
 	noProgressReqs[4].noTelemetry = true
-	noProgress := convScenario("no_progress_break_after_identical_tool_turns", noProgressReqs...)
+	noProgress := conversationScenario("no_progress_break_after_identical_tool_turns", noProgressReqs...)
 
 	repeated := "I will now run the parser tests again to confirm the fix works as expected."
-	repetition := []string{convUser(goldenConvOpening)}
+	repetition := []string{conversationUser(goldenConversationOpening)}
 	for i := range 3 {
 		id := fmt.Sprintf("toolu_r%d", i)
 		repetition = append(repetition,
-			fmt.Sprintf(`{"role":"assistant","content":[{"type":"text","text":%s},{"type":"tool_use","id":%q,"name":"Bash","input":{"command":"go test ./parser/%d"}}]}`, convJSON(repeated), id, i),
-			convToolResult(id, fmt.Sprintf("ok %d", i)))
+			fmt.Sprintf(`{"role":"assistant","content":[{"type":"text","text":%s},{"type":"tool_use","id":%q,"name":"Bash","input":{"command":"go test ./parser/%d"}}]}`, quoteJSON(repeated), id, i),
+			conversationToolResult(id, fmt.Sprintf("ok %d", i)))
 	}
-	repBreak := convReq(repetition...)
+	repBreak := conversationReq(repetition...)
 	repBreak.noTelemetry = true
-	textRep := convScenario("text_repetition_break", repBreak)
-	textRepOff := convScenario("text_repetition_break_disabled", convReq(repetition...))
+	textRep := conversationScenario("text_repetition_break", repBreak)
+	textRepOff := conversationScenario("text_repetition_break_disabled", conversationReq(repetition...))
 	textRepOff.configure = func(svc *proxy.Service, _ *goldenHarness) *proxy.Service { return svc.WithTextRepetitionBreak(false) }
-	openAIRep := []string{convOpenAIUser(goldenConvOpening)}
+	openAIRep := []string{conversationOpenAIUser(goldenConversationOpening)}
 	for i := range 3 {
 		id := fmt.Sprintf("call_r%d", i)
 		openAIRep = append(openAIRep,
-			fmt.Sprintf(`{"role":"assistant","content":%s,"tool_calls":[{"id":%q,"type":"function","function":{"name":"Bash","arguments":"{\"command\":\"go test ./parser/%d\"}"}}]}`, convJSON(repeated), id, i),
+			fmt.Sprintf(`{"role":"assistant","content":%s,"tool_calls":[{"id":%q,"type":"function","function":{"name":"Bash","arguments":"{\"command\":\"go test ./parser/%d\"}"}}]}`, quoteJSON(repeated), id, i),
 			fmt.Sprintf(`{"role":"tool","tool_call_id":%q,"content":"ok %d"}`, id, i))
 	}
 	openAITextRep := goldenScenario{
 		name: ingressOpenAI + "_conversation_text_repetition_break", ingress: ingressOpenAI,
 		decisions: []router.Decision{decision(providers.ProviderAnthropic, goldenAnthropicModel)},
 		upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(false, "never")}},
-		requests: []goldenRequest{{body: convOpenAIBody(openAIRep...), noTelemetry: true, decorateContext: func(ctx context.Context) context.Context {
+		requests: []goldenRequest{{body: conversationOpenAIBody(openAIRep...), noTelemetry: true, decorateContext: func(ctx context.Context) context.Context {
 			return requestcontext.WithClientIdentity(ctx, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
 		}}},
 	}
 
-	errs := []string{convUser(goldenConvOpening)}
+	erroredTurns := []string{conversationUser(goldenConversationOpening)}
 	for i := range 12 {
 		id := fmt.Sprintf("toolu_e%02d", i)
-		errs = append(errs, convToolUse(id, "Bash", fmt.Sprintf(`{"command":"go build ./pkg%d"}`, i)),
+		erroredTurns = append(erroredTurns, conversationToolUse(id, "Bash", fmt.Sprintf(`{"command":"go build ./pkg%d"}`, i)),
 			fmt.Sprintf(`{"role":"user","content":[{"type":"tool_result","tool_use_id":%q,"is_error":true,"content":"build failed"}]}`, id))
 	}
-	consented := goldenRequest{body: convBody(false, errs...), decorateContext: func(ctx context.Context) context.Context {
+	consented := goldenRequest{body: conversationBody(false, erroredTurns...), decorateContext: func(ctx context.Context) context.Context {
 		return context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
 	}}
-	spiral := withConvStores(convScenario("spiral_shadow_records_error_streak", consented), false)
+	spiral := withConvStores(conversationScenario("spiral_shadow_records_error_streak", consented), false)
 	spiral.configure = chainConfigure(spiral.configure, func(svc *proxy.Service) *proxy.Service {
 		return svc.WithSpiralShadowConfig(true).WithContentCapture(proxy.CaptureHashed, 0, nil)
 	})
-	spiralNoConsent := withConvStores(convScenario("spiral_shadow_skipped_without_training_consent", convReq(errs...)), false)
+	spiralNoConsent := withConvStores(conversationScenario("spiral_shadow_skipped_without_training_consent", conversationReq(erroredTurns...)), false)
 
 	var struggleHarness *goldenHarness
 	agedPin := func(ctx context.Context) context.Context {
@@ -362,9 +357,9 @@ func goldenDetectionScenarios() []goldenScenario {
 		}
 		return ctx
 	}
-	struggle := withConvStores(convScenario("struggle_shadow_records_long_session",
-		convReq(convLongHistory(1)...),
-		goldenRequest{body: convBody(false, convLongHistory(2)...), decorateContext: agedPin}), false)
+	struggle := withConvStores(conversationScenario("struggle_shadow_records_long_session",
+		conversationReq(conversationLongHistory(1)...),
+		goldenRequest{body: conversationBody(false, conversationLongHistory(2)...), decorateContext: agedPin}), false)
 	struggle.configure = chainConfigure(struggle.configure, func(svc *proxy.Service) *proxy.Service { return svc.WithStruggleShadowConfig(true) })
 	struggleBase := struggle.configure
 	struggle.configure = func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
@@ -380,17 +375,17 @@ func chainConfigure(base func(*proxy.Service, *goldenHarness) *proxy.Service, ne
 }
 
 func goldenToolResultScenarios() []goldenScenario {
-	first := convUser(goldenConvOpening)
-	call := convToolUse("toolu_1", "Bash", `{"command":"go test ./..."}`)
-	result := convToolResult("toolu_1", "FAIL parser")
-	sticky := convScenario("tool_result_turn_reuses_pin",
-		convReq(first),
-		convReq(first, call, result))
+	first := conversationUser(goldenConversationOpening)
+	call := conversationToolUse("toolu_1", "Bash", `{"command":"go test ./..."}`)
+	result := conversationToolResult("toolu_1", "FAIL parser")
+	sticky := conversationScenario("tool_result_turn_reuses_pin",
+		conversationReq(first),
+		conversationReq(first, call, result))
 	sticky.decisions = []router.Decision{decision(providers.ProviderAnthropic, goldenAnthropicModel), decision(providers.ProviderAnthropic, goldenSiblingModel)}
-	orphan := convScenario("orphaned_tool_call_sanitized",
-		convReq(first, call, convUser("never mind, explain the failure instead")))
-	duplicate := convScenario("duplicate_tool_result_coalesced",
-		convReq(first, call, result, convToolResult("toolu_1", "FAIL parser")))
+	orphan := conversationScenario("orphaned_tool_call_sanitized",
+		conversationReq(first, call, conversationUser("never mind, explain the failure instead")))
+	duplicate := conversationScenario("duplicate_tool_result_coalesced",
+		conversationReq(first, call, result, conversationToolResult("toolu_1", "FAIL parser")))
 	return []goldenScenario{sticky, orphan, duplicate}
 }
 
@@ -458,7 +453,8 @@ func (s *goldenConversationStore) Disable(_ context.Context, _ uuid.UUID, _ [ses
 	return was, nil
 }
 
-// goldenSummarizer is a scripted compaction-handover summarizer.
+// goldenSummarizer returns a fixed summary or error and records each call as a
+// handover.summarize store event.
 type goldenSummarizer struct {
 	rec     *goldenRecorder
 	summary string
