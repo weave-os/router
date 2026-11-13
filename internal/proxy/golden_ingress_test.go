@@ -66,15 +66,11 @@ func goldenResponsesStream(model, text string) []string {
 	}
 }
 
-func goldenResponsesJSON(model, text string) []string {
-	return []string{`{"id":"resp-upstream","object":"response","status":"completed","model":"` + model + `","output":[{"type":"message","id":"msg-upstream","status":"completed","role":"assistant","content":[{"type":"output_text","text":"` + text + `","annotations":[]}]}],"usage":{"input_tokens":12,"output_tokens":7,"total_tokens":19}}`}
-}
-
 func responsesOK(stream bool, text string) goldenStep {
 	if stream {
 		return goldenOK("text/event-stream", goldenResponsesStream(goldenOpenAIModel, text))
 	}
-	return goldenOK("application/json", goldenResponsesJSON(goldenOpenAIModel, text))
+	return goldenOK("application/json", []string{`{"id":"resp-upstream","object":"response","status":"completed","model":"` + goldenOpenAIModel + `","output":[{"type":"message","id":"msg-upstream","status":"completed","role":"assistant","content":[{"type":"output_text","text":"` + text + `","annotations":[]}]}],"usage":{"input_tokens":12,"output_tokens":7,"total_tokens":19}}`})
 }
 
 var (
