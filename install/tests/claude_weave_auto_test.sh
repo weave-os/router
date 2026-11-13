@@ -71,6 +71,18 @@ test "$(jq -r '.modelPicker // "unset"' "$parked/.claude/settings.json")" = unse
 run "$parked" on --scope user
 test "$(jq -r '.model' "$parked/.claude/settings.json")" = 'opus[1m]'
 
+# Updating an install parked off while Weave Auto was selected also restores opus[1m].
+parked_update="$work/parked-update"
+mkdir -p "$parked_update/.claude"
+printf '%s\n' '{}' >"$parked_update/.claude/settings.json"
+run "$parked_update" --scope user
+jq '.model = "weave-auto[1m]"' "$parked_update/.claude/settings.json" >"$work/legacy" && mv "$work/legacy" "$parked_update/.claude/settings.json"
+run "$parked_update" off --scope user
+test "$(jq -r '.weave_auto_selected' "$parked_update/.claude/.weave-parked.json")" = true
+run "$parked_update" --scope user
+test "$(jq -r '.model' "$parked_update/.claude/settings.json")" = 'opus[1m]'
+test ! -f "$parked_update/.claude/.weave-parked.json"
+
 # Project scope migrates the local selection and keeps committed settings clean.
 project_home="$work/project-home"
 project="$work/project"

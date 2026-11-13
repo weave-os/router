@@ -8275,7 +8275,11 @@ write_claude_settings() {
     chmod 600 "$local_settings_file"
     ok "Router key header written to $local_settings_file"
   fi
-  migrate_claude_weave_auto "$context_settings_file"
+  local parked_weave_auto="false"
+  if [ -f "$settings_dir/.weave-parked.json" ]; then
+    parked_weave_auto="$(jq -r '.weave_auto_selected // false' "$settings_dir/.weave-parked.json")"
+  fi
+  migrate_claude_weave_auto "$context_settings_file" "$parked_weave_auto"
   context_window_action="install"
   if [ "$mode" = "update" ] && [ ! -f "$settings_dir/.weave-parked.json" ]; then
     context_window_action="update"
