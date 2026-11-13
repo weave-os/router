@@ -51,7 +51,7 @@ func (t *ThrottleLedger) RecordCooldown(until time.Time, cooldown time.Duration)
 }
 
 func (t *ThrottleLedger) recordThrottle(decision ThrottleDecision) {
-	if t == nil || !decision.Honoured {
+	if !decision.Honoured {
 		return
 	}
 	t.mu.Lock()
