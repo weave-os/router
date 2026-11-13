@@ -52,8 +52,20 @@ func (o *OnboardingObserver) SubscriptionConnected(event auth.SubscriptionConnec
 	buf.Flush()
 }
 
-// HarnessLifecycle records a client-reported off/on/uninstall of a harness.
+// HarnessLifecycle records a client-reported off/on/uninstall of a harness. A
+// reported connection exports as router.harness_connected, the span key first
+// use emits for every other harness.
 func (o *OnboardingObserver) HarnessLifecycle(event auth.HarnessLifecycleEvent) {
+	if event.Action == auth.HarnessLifecycleActionConnected {
+		o.APIKeyFirstUsed(auth.APIKeyFirstUsedEvent{
+			InstallationExternalID: event.InstallationExternalID,
+			CredentialSubjectID:    event.CredentialSubjectID,
+			APIKeyID:               event.APIKeyID,
+			Harness:                string(event.Harness),
+			OccurredAt:             event.OccurredAt,
+		})
+		return
+	}
 	buf := o.emitter.NewBuffer()
 	if buf == nil {
 		return

@@ -19,8 +19,24 @@ calls="$work/calls.log"
 mkdir -p "$home" "$fake_bin" "$state"
 : >"$calls"
 
+events="$work/events.log"
+: >"$events"
+
+# Client events are logged as "<router key> <body>"; everything else is a probe.
 cat >"$fake_bin/curl" <<'FAKE_CURL'
 #!/usr/bin/env bash
+if [ "${!#}" = "http://127.0.0.1:9/v1/client-events" ]; then
+  body="" key=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --data-binary) body="$2"; shift 2 ;;
+      --header) key="$(sed -n 's/^X-Weave-Router-Key: //p' "${2#@}")"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  printf '%s %s\n' "$key" "$body" >>"$EVENT_LOG"
+  exit 0
+fi
 case "${!#}" in
   http://127.0.0.1:9/validate|http://127.0.0.1:9/health|http://127.0.0.1:47821/health) ;;
   *) exit 22 ;;
@@ -69,7 +85,7 @@ fail() {
 }
 
 run() {
-  env -u WEAVE_ROUTER_KEY -u WEAVE_ROUTER_URL -u XDG_CONFIG_HOME -u WEAVE_DESKTOP_CERT_DIR HOME="$home" PATH="$test_path" NO_COLOR=1 "$@"
+  env -u WEAVE_ROUTER_KEY -u WEAVE_ROUTER_URL -u XDG_CONFIG_HOME -u WEAVE_DESKTOP_CERT_DIR HOME="$home" PATH="$test_path" NO_COLOR=1 EVENT_LOG="$events" "$@"
 }
 
 install_desktop() {
@@ -198,6 +214,8 @@ fi
 out="$(run env FAKE_UNAME=Darwin FAKE_TRUST_REMOVAL_FAILS=1 bash "$uninstaller" --claude-desktop 2>&1)" || fail "macOS uninstall with a cancelled prompt failed: $out"
 [ -f "$shim_dir/ca.pem" ] || fail "uninstall deleted the CA it could not untrust"
 [ -f "$config" ] || fail "uninstall deleted the config a rerun needs"
+sleep 0.3
+[ ! -s "$events" ] || fail "an unfinished uninstall reported: $(cat "$events")"
 grep -Fq "Rerun: npx @weave-os/router --uninstall --claude-desktop" <<<"$out" || fail "no rerun hint: $out"
 install_desktop env FAKE_UNAME=Darwin >/dev/null 2>&1 || fail "macOS reinstall failed"
 
@@ -208,6 +226,8 @@ grep -Fq "sudo networksetup -setautoproxystate Wi-Fi off" "$calls" || fail "auto
 grep -Eq "^launchctl bootout gui/[0-9]+/ai.workweave.router-desktop-shim$" "$calls" || fail "launchd agent not stopped"
 [ ! -e "$shim_dir" ] || fail "proxy dir left behind"
 [ ! -e "$plist" ] || fail "launchd plist left behind"
+for _ in $(seq 1 50); do [ -s "$events" ] && break; sleep 0.1; done
+[ "$(cat "$events")" = 'rk_desktop_test {"action":"uninstall","harness":"claude_desktop"}' ] || fail "uninstall not reported: $(cat "$events")"
 
 # Linux uninstall reverts the GNOME auto-proxy, and a bare --uninstall finds the install.
 reset_os

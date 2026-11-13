@@ -83,6 +83,41 @@ func TestOnboardingObserverExportsDomainEvents(t *testing.T) {
 	}
 }
 
+func TestOnboardingObserverExportsReportedConnectionAsHarnessConnected(t *testing.T) {
+	coll := newCollector(t)
+	emitter := newTestEmitter(t, coll.server.URL)
+	t.Cleanup(func() { _ = emitter.Shutdown(context.Background()) })
+	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
+	otel.NewOnboardingObserver(emitter).HarnessLifecycle(auth.HarnessLifecycleEvent{
+		InstallationExternalID: "org-test", CredentialSubjectID: "subject", APIKeyID: "key",
+		Harness: auth.LifecycleHarnessDesktop, Action: auth.HarnessLifecycleActionConnected, OccurredAt: now,
+	})
+	require.NoError(t, emitter.Shutdown(context.Background()))
+
+	coll.mu.Lock()
+	defer coll.mu.Unlock()
+	var spans []*tracepb.Span
+	for _, payload := range coll.payloads {
+		var request coltracepb.ExportTraceServiceRequest
+		require.NoError(t, proto.Unmarshal(payload, &request))
+		for _, resource := range request.ResourceSpans {
+			for _, scope := range resource.ScopeSpans {
+				spans = append(spans, scope.Spans...)
+			}
+		}
+	}
+	require.Len(t, spans, 1)
+	require.Equal(t, "router.harness_connected", spans[0].Name)
+	got := make(map[string]string)
+	for _, attr := range spans[0].Attributes {
+		got[attr.Key] = attr.Value.GetStringValue()
+	}
+	require.Equal(t, map[string]string{
+		"external_id": "org-test", "router_api_key_id": "key", "credential_subject_id": "subject", "harness": "claude_desktop",
+	}, got)
+	require.Equal(t, uint64(now.UnixNano()), spans[0].StartTimeUnixNano)
+}
+
 func TestOnboardingObserverWithDisabledEmitter(t *testing.T) {
 	observer := otel.NewOnboardingObserver(nil)
 	require.NotPanics(t, func() {
