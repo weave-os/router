@@ -454,6 +454,14 @@ func TestResolveForceModel_GrokFamilyAlias(t *testing.T) {
 	}
 }
 
+func TestResolveForceModel_MythosAlias(t *testing.T) {
+	gotID, gotProvider, gotKnown := resolveForceModel("mythos")
+
+	assert.Equal(t, "claude-mythos-5-2", gotID)
+	assert.Equal(t, providers.ProviderAnthropic, gotProvider)
+	assert.True(t, gotKnown)
+}
+
 // An explicit :level suffix must survive resolution to its catalog model.
 func TestResolveForceModel_EffortSuffixPreserved(t *testing.T) {
 	gotID, _, gotKnown, gotEffort := resolveForceModelWithEffort("grok-4.6:high")
