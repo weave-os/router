@@ -3009,6 +3009,7 @@ CLAUDE_WEAVE_AUTO_PICKER_STRIP_JQ='(if (.modelPicker | type) == "object" then
       | (if (.modelPicker.options | length) == 0 then del(.modelPicker.options) else . end)
       | (if (.modelPicker | length) == 0 then del(.modelPicker) else . end)
     else . end)'
+# shellcheck disable=SC2016 # jq variables, expanded by jq.
 CLAUDE_WEAVE_AUTO_MIGRATE_JQ='(if .model == "weave-auto" or .model == "weave-auto[1m]" or ($select == "true" and (has("model") | not)) then .model = $replacement else . end) | '"$CLAUDE_WEAVE_AUTO_PICKER_STRIP_JQ"
 CLAUDE_WEAVE_AUTO_STRIP_JQ='(if (.model == "weave-auto" or .model == "weave-auto[1m]") then del(.model) else . end) | '"$CLAUDE_WEAVE_AUTO_PICKER_STRIP_JQ"
 
