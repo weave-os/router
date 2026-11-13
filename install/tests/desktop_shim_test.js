@@ -50,15 +50,25 @@ function makeCerts() {
 
 function recordingServer(handler) {
   const seen = [];
+  const events = [];
   const server = http.createServer((req, res) => {
     let body = "";
     req.on("data", (chunk) => { body += chunk; });
     req.on("end", () => {
-      seen.push({ method: req.method, url: req.url, headers: req.headers, body });
+      const record = { method: req.method, url: req.url, headers: req.headers, body };
+      (req.url.endsWith("/v1/client-events") ? events : seen).push(record);
       handler(req, res);
     });
   });
-  return { server, seen };
+  return { server, seen, events };
+}
+
+async function waitFor(condition, what) {
+  for (let i = 0; i < 100; i++) {
+    if (condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error(`${what} did not happen within 2s`);
 }
 
 async function listen(server) {
@@ -109,7 +119,14 @@ test("desktop shim", async (t) => {
 
   let heldStreamClosed;
   const heldStreamClosedPromise = new Promise((resolve) => { heldStreamClosed = resolve; });
+  let rejectEventsFor = new Set();
   const router = recordingServer((req, res) => {
+    if (req.url.endsWith("/v1/client-events")) {
+      const key = req.headers["x-weave-router-key"];
+      res.writeHead(rejectEventsFor.delete(key) ? 503 : 204);
+      res.end();
+      return;
+    }
     res.writeHead(200, { "content-type": "text/event-stream" });
     res.write("event: message_start\n\n");
     if (req.url.includes("hold")) {
@@ -257,6 +274,42 @@ test("desktop shim", async (t) => {
     assert.equal(await new Promise((resolve) => shim.peerUid(sameClientPortOtherAddress, resolve)), null);
     client.destroy();
     server.close();
+  });
+
+  await t.test("the first routed answer reports Desktop as connected, once per key", async () => {
+    await waitFor(() => router.events.length >= 1, "connected report");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(router.events.length, 1, "later routed calls reported again");
+    const [event] = router.events;
+    assert.equal(event.method, "POST");
+    assert.equal(event.url, "/prefix/v1/client-events");
+    assert.equal(event.headers["x-weave-router-key"], "rk_desktop_test");
+    assert.deepEqual(JSON.parse(event.body), { action: "connected", harness: "claude_desktop" });
+
+    const restarted = shim.start(shim.loadConfig(configFile));
+    await once(restarted, "listening");
+    t.after(() => restarted.close());
+    await viaProxy(restarted.address().port, ca, { method: "POST", reqPath: "/v1/messages", headers: { "user-agent": CODE_TAB_USER_AGENT }, body: "{}" });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(router.events.length, 1, "a restarted proxy reported the same key again");
+  });
+
+  await t.test("a rejected report is retried and a new key reports again", async () => {
+    const rotatedConfig = path.join(work, "rotated.json");
+    fs.writeFileSync(rotatedConfig, JSON.stringify({ ...JSON.parse(fs.readFileSync(configFile, "utf8")), router_key: "rk_desktop_rotated" }));
+    rejectEventsFor = new Set(["rk_desktop_rotated"]);
+    const rotated = shim.start(shim.loadConfig(rotatedConfig));
+    await once(rotated, "listening");
+    t.after(() => rotated.close());
+    const send = () => viaProxy(rotated.address().port, ca, { method: "POST", reqPath: "/v1/messages", headers: { "user-agent": CODE_TAB_USER_AGENT }, body: "{}" });
+
+    await send();
+    await waitFor(() => router.events.length >= 2, "first report for the new key");
+    assert.equal(fs.existsSync(`${rotatedConfig}.connected`), false, "a rejected report was recorded as sent");
+    await send();
+    await waitFor(() => fs.existsSync(`${rotatedConfig}.connected`), "accepted report");
+    assert.equal(router.events.length, 3);
+    assert.equal(router.events.at(-1).headers["x-weave-router-key"], "rk_desktop_rotated");
   });
 
   await t.test("health endpoint answers", async () => {

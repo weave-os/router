@@ -6,7 +6,7 @@ Presentation layer. Handlers adapt HTTP ↔ Service. Read [root CLAUDE.md](../..
 
 ## Subpackages
 
-- `admin/` — operational endpoints: `/health`, `/validate`, `/v1/client-events` (harness CLI off/on/uninstall report → log + `router.harness_lifecycle` span, nothing stored), `/admin/v1/*`, and `/v1/sessions/:session_id/cost` (authed by `middleware.WithReadKey`: an `rk_` or `ra_` key resolves its installation; per-installation `WithInstallationRateLimit`; no admission, billing or spend gates)
+- `admin/` — operational endpoints: `/health`, `/validate`, `/v1/client-events` (harness CLI off/on/uninstall report → log + `router.harness_lifecycle` span; Claude Desktop proxy's `connected` report → `router.harness_connected`; nothing stored), `/admin/v1/*`, and `/v1/sessions/:session_id/cost` (authed by `middleware.WithReadKey`: an `rk_` or `ra_` key resolves its installation; per-installation `WithInstallationRateLimit`; no admission, billing or spend gates)
 - `anthropic/` — Anthropic Messages surface (`/v1/messages`, passthrough, `/v1/route`)
 - `openai/` — OpenAI Chat Completions (`/v1/chat/completions`)
 - `gemini/` — Gemini native (`/v1beta/models/:modelAction`)

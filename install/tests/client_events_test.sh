@@ -322,5 +322,28 @@ wait_for_events 1
 check "uninstall reports after capturing models.json" "$(last_event_payload)" 'POST /v1/client-events {"action":"uninstall","harness":"pi"}'
 check "pi key was sent in the header file" "$(grep -c 'X-Weave-Router-Key: rk_pi_secret_12345' "$key_log")" "1"
 
+# ---------- copilot ----------
+printf 'copilot\n'
+: >"$event_log"; : >"$key_log"
+home="$work/copilot"; mkdir -p "$home"
+run "$home" WEAVE_ROUTER_KEY=rk_copilot_secret_123 -- --copilot --quiet --non-interactive --base-url https://router.weaveos.com
+providers="$home/.copilot/providers.json"
+[ -f "$providers" ] || { echo "copilot install did not write $providers" >&2; exit 1; }
+settle
+check "install itself reports nothing" "$(event_count)" "0"
+run "$home" -- off --copilot --quiet; status=$?
+check "off exits 0" "$status" "0"
+wait_for_events 1
+check "off event body" "$(last_event)" 'POST /v1/client-events {"action":"off","harness":"copilot"} absent'
+run "$home" -- on --copilot --quiet
+wait_for_events 2
+check "on event body" "$(last_event)" 'POST /v1/client-events {"action":"on","harness":"copilot"} absent'
+: >"$key_log"
+run_uninstall "$home" "$providers" -- --copilot; status=$?
+check "uninstall exits 0" "$status" "0"
+wait_for_events 3
+check "uninstall event body" "$(last_event_payload)" 'POST /v1/client-events {"action":"uninstall","harness":"copilot"}'
+check "uninstall captured the Copilot key" "$(cat "$key_log")" 'X-Weave-Router-Key: rk_copilot_secret_123'
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

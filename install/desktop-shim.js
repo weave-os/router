@@ -9,6 +9,7 @@
 "use strict";
 
 const { execFile } = require("node:child_process");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
@@ -43,6 +44,7 @@ function loadConfig(file) {
     }
   }
   return {
+    connectedMarker: `${file}.connected`,
     host: parsed.listen_host || "127.0.0.1",
     port: Number(parsed.listen_port ?? 47821),
     router: new URL(parsed.router_base_url),
@@ -101,6 +103,51 @@ function pacFile(port) {
 `;
 }
 
+function keyFingerprint(key) {
+  return crypto.createHash("sha256").update(key).digest("hex");
+}
+
+// reportConnected tells the router, once per router key, that Desktop's traffic
+// reached it. Desktop shares the Claude Code key, so the router can't tell a
+// Desktop connection from the key's first use. The marker is written only after
+// the router accepts the report, so a failed report is retried on a later call.
+function reportConnected(cfg) {
+  if (!cfg.routerKey || cfg.connectedReport) return;
+  const fingerprint = keyFingerprint(cfg.routerKey);
+  try {
+    if (fs.readFileSync(cfg.connectedMarker, "utf8").trim() === fingerprint) {
+      cfg.connectedReport = "done";
+      return;
+    }
+  } catch {}
+  cfg.connectedReport = "pending";
+  const target = cfg.router;
+  const body = JSON.stringify({ action: "connected", harness: "claude_desktop" });
+  const client = target.protocol === "http:" ? http : https;
+  const req = client.request({
+    protocol: target.protocol,
+    hostname: target.hostname,
+    port: target.port || (target.protocol === "http:" ? 80 : 443),
+    method: "POST",
+    path: `${target.pathname.replace(/\/+$/, "")}/v1/client-events`,
+    headers: { "content-type": "application/json", "content-length": Buffer.byteLength(body), [ROUTER_KEY_HEADER]: cfg.routerKey },
+    timeout: 5000,
+  }, (res) => {
+    res.resume();
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      try {
+        fs.writeFileSync(cfg.connectedMarker, `${fingerprint}\n`, { mode: 0o600 });
+      } catch {}
+      cfg.connectedReport = "done";
+    } else {
+      cfg.connectedReport = undefined;
+    }
+  });
+  req.on("timeout", () => req.destroy());
+  req.on("error", () => { cfg.connectedReport = undefined; });
+  req.end(body);
+}
+
 function forward(cfg, req, res) {
   const toRouter = routesToRouter(req);
   const target = toRouter ? cfg.router : cfg.anthropic;
@@ -123,6 +170,7 @@ function forward(cfg, req, res) {
       headers,
     },
     (upstreamRes) => {
+      if (toRouter && upstreamRes.statusCode >= 200 && upstreamRes.statusCode < 300) reportConnected(cfg);
       const out = {};
       for (const [name, value] of Object.entries(upstreamRes.headers)) {
         if (!HOP_BY_HOP.has(name)) out[name] = value;
