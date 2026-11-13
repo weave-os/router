@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
@@ -21,6 +22,9 @@ const TopUpURL = "https://app.weaveos.com/organization/settings/weave-router/cre
 // installation lookup below is guaranteed to be populated.
 //
 // Behavior (evaluated in order):
+//   - Weave-credit inference disabled on the installation → pass through,
+//     flagged billing.WithWeaveCreditsDenied (and the override flag); the
+//     balance never gates it.
 //   - Override row present → pass through; flag the request context so
 //     the proxy's debit hook writes a delta=0 ledger row.
 //   - Balance ≤ minBalanceMicros (or no balance row) → HTTP 402 unless
@@ -78,8 +82,8 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 		}
 
 		orgID := installation.ExternalID
-		if !installation.WeaveCreditInferenceEnabled {
-			c.Request = c.Request.WithContext(billing.WithWeaveCreditsDenied(c.Request.Context()))
+		if admittedWithoutCredits(c, svc, installation) {
+			return
 		}
 
 		// Subscription turns debit $0 (cost.subscription_served), so gating them on
@@ -164,4 +168,21 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 		c.Request = c.Request.WithContext(billing.WithOrganizationPrepaid(c.Request.Context()))
 		c.Next()
 	}
+}
+
+// admittedWithoutCredits passes through an installation whose inference Weave
+// credits can't fund: the balance can't gate it, since the proxy serves only
+// customer plans and provider keys. An override still exempts the org from
+// monthly spend caps.
+func admittedWithoutCredits(c *gin.Context, svc *billing.Service, installation *auth.Installation) bool {
+	if installation.WeaveCreditInferenceEnabled {
+		return false
+	}
+	ctx := billing.WithWeaveCreditsDenied(c.Request.Context())
+	if result, err := svc.CheckBalance(ctx, installation.ExternalID); err == nil && result.HasOverride {
+		ctx = context.WithValue(ctx, billing.HasOverrideContextKey, true)
+	}
+	c.Request = c.Request.WithContext(ctx)
+	c.Next()
+	return true
 }

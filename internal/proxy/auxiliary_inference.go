@@ -78,7 +78,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		CacheRead:       usage.CacheRead,
 		Pricing:         pricing,
 		UsageModifiers:  usageMods,
-		HasOverride:     billing.HasOverrideFromContext(ctx),
+		HasOverride:     billing.HasOverrideFromContext(ctx) || weaveCreditsDenied(ctx),
 		ByokServed:      byokServed,
 		APIKeyID:        apiKeyID,
 		RouterUserID:    auth.UserIDFrom(ctx),

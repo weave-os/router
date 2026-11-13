@@ -371,3 +371,14 @@ func (*auxTelemetryRepo) GetTelemetryDashboardDrillDown(context.Context, string,
 func (*auxTelemetryRepo) GetTelemetryDashboardIndividualFacts(context.Context, string, time.Time, time.Time, string) ([]TelemetryIndividualFact, error) {
 	return nil, nil
 }
+
+func TestBillAuxiliaryInferenceNeverDebitsWhenWeaveCreditsDenied(t *testing.T) {
+	s, billingRepo, _ := auxTestService(t)
+
+	ctx := billing.WithWeaveCreditsDenied(auxTestContext(uuid.New(), auxTestSessionID))
+	s.billAuxiliaryInference(ctx, auxTestRequestID, auxSuffixHandoverSummary, auxTestOrgID, auxTestUsage())
+
+	debits := billingRepo.snapshot()
+	require.Len(t, debits, 1)
+	assert.Zero(t, debits[0].DeltaUsdMicros, "an installation without Weave-credit inference is never debited for a summary")
+}

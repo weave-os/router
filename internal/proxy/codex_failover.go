@@ -221,3 +221,13 @@ func (s *Service) recordCodexPlanSpent(ctx context.Context, codexTok string, res
 }
 
 func (s *Service) codexExtraCreditsAllowed() bool { return s.codexExtraCredits }
+
+// codexSubscriptionRotates reports whether a failed attempt on the caller's
+// Codex login moves the turn to the next credential.
+func codexSubscriptionRotates(credentialCtx context.Context, err error) bool {
+	if !servedOnCodexSubscription(credentialCtx) {
+		return false
+	}
+	_, quotaSpent := codexQuotaExhaustion(err)
+	return quotaSpent || codexOAuthCredentialRejected(err) || codexSubscriptionModelRejected(err) || providers.IsRetryable(err)
+}

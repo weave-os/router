@@ -512,9 +512,9 @@ type nativeResponsesReasoningHashContextKey struct{}
 // nativeResponsesToolHashContextKey preserves native Responses tool identity.
 type nativeResponsesToolHashContextKey struct{}
 
-// codexFeedbackSkillContextKey marks a Responses request where Codex is
-// returning output from a user-invoked $rf skill.
-type codexFeedbackSkillContextKey struct{}
+// codexSkillContextKey carries the translate.CodexSkillTurn of a Responses
+// request where Codex is returning output from a router skill.
+type codexSkillContextKey struct{}
 
 // responsesFooterEchoedContextKey is set when the original Responses input
 // already carries a rating hint.
@@ -7256,7 +7256,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				routingEnv.ExtractForceModelCommand()
 			}
 			log.Info("ProxyOpenAIChatCompletion force-model command", "force_model_cmd", cmd)
-			if cmd.FromToolResult {
+			if agentForceModelContinuesTurn(ctx, cmd) {
 				var err error
 				agentForceModel, _, err = s.applyForceModelCommand(ctx, cmd, installationID, sessionKey, forceModelSessionKey)
 				if err != nil {
@@ -7277,7 +7277,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			routingEnv.ExtractRouterFeedbackCommand()
 		}
 		log.Info("ProxyOpenAIChatCompletion router-feedback command")
-		skillFeedback, _ := ctx.Value(codexFeedbackSkillContextKey{}).(bool)
+		skillFeedback := codexSkillTurnFrom(ctx) == translate.CodexSkillTurnFeedback
 		synthetic := !cmd.FromToolResult || skillFeedback
 		if err := s.handleRouterFeedbackCommand(ctx, w, env, cmd, installationID, sessionKey, feats.Tokens, synthetic); err != nil {
 			return err
@@ -9186,9 +9186,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	if portableCodex && codexModelSwitched(r.Header, conversion) {
 		ctx = withCodexSelectedModel(ctx, model, nativeBody)
 	}
-	if conversion.CodexFeedbackSkill {
-		ctx = context.WithValue(ctx, codexFeedbackSkillContextKey{}, true)
-	}
+	ctx = context.WithValue(ctx, codexSkillContextKey{}, conversion.CodexSkill)
 	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
 	// Every Responses turn stashes its original bytes for post-routing native
 	// dispatch; NativeOnly and Codex-subscription turns also dispatch verbatim now.

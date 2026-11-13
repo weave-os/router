@@ -327,6 +327,8 @@ jobs:
           REVOKE ALL ON router.credential_subjects, router.credential_subject_installations,
             router.installation_profile_assignments, router.session_release_bindings,
             router.serving_request_attribution FROM legacy_runtime_fixture;
+          -- The balance gate only applies to installations whose inference Weave credits may fund.
+          ALTER TABLE router.model_router_installations ALTER COLUMN weave_credit_inference_enabled SET DEFAULT TRUE;
           SQL
           worker_fixture="$(mktemp -d)"
           CGO_ENABLED=0 go build -o "$worker_fixture/router" ./cmd/router

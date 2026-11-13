@@ -19,12 +19,16 @@ import (
 // StripHistoricalCommands captures first (ThreadDiscriminatorText), so the pin
 // an opening directive created survives.
 
-// stripHistoricalDirective returns text with any leading router directive
-// removed, reporting whether one was found. Any text the user wrote alongside
+// stripHistoricalDirective returns text with any leading router directive,
+// including one a client wrapped (typedMessageInWrapper), removed, reporting whether one was found. Any text the user wrote alongside
 // the directive is kept.
 func stripHistoricalDirective(text string) (stripped string, found bool) {
 	for _, directive := range routerDirectives {
-		if ok, rest := directive.parse(text); ok {
+		parse := func(text string) (struct{}, bool, string) {
+			ok, rest := directive.parse(text)
+			return struct{}{}, ok, rest
+		}
+		if _, ok, rest := parseInCursorQuery(text, parse); ok {
 			return rest, true
 		}
 	}

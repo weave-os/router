@@ -275,14 +275,14 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			if managedAttempt && !committed(in.buf) {
 				s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
 			}
-			if !managedAttempt && servedOnCodexSubscription(credentialCtx) && !committed(in.buf) {
-				_, quotaSpent := codexQuotaExhaustion(attemptErr)
-				if quotaSpent || codexOAuthCredentialRejected(attemptErr) || codexSubscriptionModelRejected(attemptErr) || providers.IsRetryable(attemptErr) {
-					s.recordCodexCredentialUnusable(bookkeepingCtx, CredentialsFromContext(credentialCtx), attemptErr)
-					s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
-					attemptCtx = resolveAndInjectCredentials(withSuppressedCodexSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{})
-					rotate = true
-				}
+			if !managedAttempt && !committed(in.buf) && codexSubscriptionRotates(credentialCtx, attemptErr) {
+				s.recordCodexCredentialUnusable(bookkeepingCtx, CredentialsFromContext(credentialCtx), attemptErr)
+				s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
+				attemptCtx = resolveAndInjectCredentials(withSuppressedCodexSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{})
+				rotate = true
+			}
+			if next, capped := claudeEnterpriseCapRotation(credentialCtx, attemptCtx, decision, attemptErr); capped && !managedAttempt && !committed(in.buf) {
+				attemptCtx, rotate = next, true
 			}
 			if credentialRejectionStands(lastSubscriptionErr, attemptErr, codexOAuthCredentialRejected) {
 				return lastSubscriptionErr

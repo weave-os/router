@@ -87,6 +87,13 @@ func PaidAnthropicOverage(claim AnthropicClaim, overageInUse string) bool {
 	return claim == AnthropicClaimOverage && overageInUse == "true"
 }
 
+// AnthropicOverageCapRejected reports a refusal of both the plan's included
+// usage and its overage: the seat cannot serve until its limits reset.
+func AnthropicOverageCapRejected(h http.Header) bool {
+	return h.Get("anthropic-ratelimit-unified-status") == "rejected" &&
+		h.Get("anthropic-ratelimit-unified-overage-status") == "rejected"
+}
+
 // BillableOrExhausted reports when a Claude subscription should not be treated
 // as free capacity. Overage still serves requests, but draws paid credits.
 func (s Snapshot) BillableOrExhausted() bool { return s.OverageInUse || s.Exhausted() }

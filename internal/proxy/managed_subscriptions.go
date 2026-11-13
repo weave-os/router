@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -78,18 +77,9 @@ type ManagedSubscriptionUsage struct {
 	WinningCredentials     *Credentials
 	ClaudeSubscriptionPlan providers.SubscriptionPlan
 	ClaudePlanUnverified   bool
-}
-
-var (
-	ErrSubscriptionPoolExhausted   = errors.New("subscription account pool exhausted")
-	ErrSubscriptionPoolUnavailable = errors.New("subscription account pool unavailable")
-	// ErrSubscriptionPoolThrottled is a pool-unavailable refusal whose only
-	// blockers are rate-limit cooldowns: a client-retryable 429, not an outage.
-	ErrSubscriptionPoolThrottled = fmt.Errorf("%w: every blocking account is rate-limited", ErrSubscriptionPoolUnavailable)
-)
-
-func isSubscriptionPoolError(err error) bool {
-	return errors.Is(err, ErrSubscriptionPoolExhausted) || errors.Is(err, ErrSubscriptionPoolUnavailable) || errors.Is(err, ErrClaudeEnterpriseSubscriptionUnavailable)
+	// ClaudeEnterpriseCapRefused records that the caller's Enterprise seat
+	// refused this turn at its overage cap.
+	ClaudeEnterpriseCapRefused bool
 }
 
 // WithManagedSubscriptionUsage prepares request-local subscription attribution.
