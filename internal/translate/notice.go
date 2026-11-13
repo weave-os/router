@@ -199,25 +199,32 @@ func (d *NoticeDelivery) Write(payload []byte) (int, error) {
 		if consumed == 0 {
 			break
 		}
-		if err := d.writeEvent(event, consumed); err != nil {
+		providerContent, err := d.beforeEvent(event)
+		if err != nil {
+			return 0, err
+		}
+		if _, d.failure = d.sink.Write(d.pending[:consumed]); d.failure != nil {
+			return 0, d.failure
+		}
+		if err := d.afterEvent(event, consumed, providerContent); err != nil {
 			return 0, err
 		}
 	}
 	return consumedBytes, nil
 }
 
-// writeEvent forwards one complete pending SSE record, emitting any notice due
-// before or after it. Callers hold d.mu.
-func (d *NoticeDelivery) writeEvent(event []byte, consumed int) error {
+// beforeEvent emits notices due before a pending SSE record. Callers hold d.mu.
+func (d *NoticeDelivery) beforeEvent(event []byte) (bool, error) {
 	providerContent := noticeProviderContent(d.capabilities.Format, event)
 	if providerContent && !d.providerContentStarted && !d.terminal {
-		if d.failure = d.emitBeforeContent(); d.failure != nil {
-			return d.failure
-		}
+		d.failure = d.emitBeforeContent()
 	}
-	if _, d.failure = d.sink.Write(d.pending[:consumed]); d.failure != nil {
-		return d.failure
-	}
+	return providerContent, d.failure
+}
+
+// afterEvent records a written SSE record and emits notices due after it.
+// Callers hold d.mu.
+func (d *NoticeDelivery) afterEvent(event []byte, consumed int, providerContent bool) error {
 	if providerContent {
 		d.providerContentStarted = true
 	}
