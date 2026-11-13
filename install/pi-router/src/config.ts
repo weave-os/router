@@ -61,7 +61,7 @@ export function getRouterBaseUrl(): string {
 // ---------- router key resolution ----------
 
 /** Agent config dir, honoring PI_CODING_AGENT_DIR (set for project-scope installs). */
-function getAgentDir(): string {
+export function getAgentDir(): string {
 	const env = process.env.PI_CODING_AGENT_DIR?.trim();
 	if (env) return env.startsWith("~/") ? path.join(os.homedir(), env.slice(2)) : env;
 	return path.join(os.homedir(), ".pi", "agent");
@@ -220,37 +220,44 @@ export function providerHeaders(role: Role, key: string): Record<string, string>
 
 // ---------- model list ----------
 
-// Carried as a shared constant rather than relying on registerProvider preserving
-// an omitted `models` list, so the extension is self-sufficient: a freshly
-// dispatched child (and a `pi -e` smoke test with no models.json) can still
-// resolve `weave/<model>`. The list mirrors the installer's headline models;
-// the router re-routes every request regardless, so this is a UX/label surface.
-// The context windows mirror the router's catalog for these models (see
-// internal/router/catalog) so the footer and auto-compaction budget reflect
-// what the router actually serves; per-request reroutes can still land on a
-// different window, which the served-window header reports on the response.
-export const WEAVE_MODELS: ProviderModelConfig[] = [
-	model("claude-opus-4-8", "Claude Opus 4.8 (via Weave Router)", 64000, 1_000_000),
-	model("claude-opus-4-7", "Claude Opus 4.7 (via Weave Router)", 64000, 1_000_000),
-	model("claude-sonnet-4-6", "Claude Sonnet 4.6 (via Weave Router)", 64000, 1_000_000),
-	model("claude-haiku-4-5", "Claude Haiku 4.5 (via Weave Router)", 32000, 200_000),
-	model("grok-4.6", "Grok 4.6 (via Weave Router)", 131072, 500_000),
-	model("grok-4.7", "Grok 4.7 (via Weave Router)", 131072, 500_000),
-	model("qwen/qwen3.8-max", "Qwen 3.8 Max (via Weave Router)", 131072, 1_000_000),
-];
+/**
+ * The one model pi's picker shows. The router picks the served model for every
+ * request from the organization's enabled set, so concrete entries here only
+ * advertised choices that were never honored, and went stale. /fm pins a model.
+ * Deliberately not `weave-auto`: the router reads that as a routing-strategy
+ * selector, which turns /beta off.
+ */
+export const WEAVE_AUTO_MODEL_ID = "auto";
 
-function model(id: string, name: string, maxTokens: number, contextWindow: number = 200000): ProviderModelConfig {
-	return {
-		id,
-		name,
+/**
+ * Request model sent for an `auto` turn. Installs selected it as pi's default
+ * before `auto` existed, so the router sees the same requests as before: it
+ * routes them, and serves this model as-is only where routing is off for the
+ * caller. It is also the baseline `auto` savings are priced against.
+ */
+export const AUTO_WIRE_MODEL = "claude-sonnet-4-6";
+
+/** The model id to put on the wire for a model selected in pi. */
+export function wireModelId(modelId: string): string {
+	return modelId === WEAVE_AUTO_MODEL_ID ? AUTO_WIRE_MODEL : modelId;
+}
+
+// Registered with explicit models (not left to models.json) so a dispatched
+// child or a `pi -e` run without models.json still resolves weave/auto.
+// The window is a starting value: each response's served-window header
+// replaces it with the routed model's window.
+export const WEAVE_MODELS: ProviderModelConfig[] = [
+	{
+		id: WEAVE_AUTO_MODEL_ID,
+		name: "Weave Router",
 		reasoning: true,
 		input: ["text", "image"],
 		// Real cost is decided by the router per request and is unknown client-side.
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow,
-		maxTokens,
-	};
-}
+		contextWindow: 1_000_000,
+		maxTokens: 64000,
+	},
+];
 
 // ---------- dispatch / misc tunables ----------
 
@@ -262,7 +269,7 @@ export const ROUTED_CONTEXT_WINDOW_HEADER = "x-router-context-window";
 /** Marker a headless child prints to stderr so the parent dispatch can read its routed model. */
 export const ROUTED_MODEL_STDERR_PREFIX = "weave-routed-model:";
 
-export const SUBAGENT_MODEL = process.env.WEAVE_PI_SUBAGENT_MODEL?.trim() || "claude-sonnet-4-6";
+export const SUBAGENT_MODEL = process.env.WEAVE_PI_SUBAGENT_MODEL?.trim() || WEAVE_AUTO_MODEL_ID;
 export const DISPATCH_CONCURRENCY = Math.max(1, numEnv("WEAVE_PI_DISPATCH_CONCURRENCY", 4));
 export const MAX_SUBAGENTS = 8;
 export const SUBAGENT_TIMEOUT_MS = Math.max(1000, numEnv("WEAVE_PI_SUBAGENT_TIMEOUT_MS", 600000));

@@ -1140,15 +1140,15 @@ if [ "$target" = "pi" ]; then
   # router. Leaving defaultProvider="weave" after removing the provider would
   # break pi startup, so reverting is the correct reverse of the install.
   # defaultModel is reverted ONLY when defaultProvider was "weave" (the state
-  # install creates): install sets defaultModel only when it was empty, so a user
-  # who independently picked claude-sonnet-4-6 with their own provider keeps it.
+  # install creates) and it names a model install wrote: "auto", or
+  # claude-sonnet-4-6 from installs before weave/auto.
   if [ -f "$pi_settings_file" ]; then
     cleaned="$(jq '
       (if .packages then .packages -= ["npm:@workweave/router", "npm:@weave-os/router", "npm:@workweave/pi-router"] else . end)
       | (if (.packages // []) == [] then del(.packages) else . end)
       | (if .defaultProvider == "weave"
            then del(.defaultProvider)
-                | (if .defaultModel == "claude-sonnet-4-6" then del(.defaultModel) else . end)
+                | (if .defaultModel == "auto" or .defaultModel == "claude-sonnet-4-6" then del(.defaultModel) else . end)
            else . end)
     ' "$pi_settings_file")"
     printf '%s\n' "$cleaned" >"$pi_settings_file"

@@ -5,6 +5,7 @@ import {
 	PROVIDER_NAME,
 	ROUTED_CONTEXT_WINDOW_HEADER,
 	ROUTED_MODEL_HEADER,
+	WEAVE_AUTO_MODEL_ID,
 	WEAVE_MODELS,
 } from "../src/config.js";
 import { parseRoutedContextWindow } from "../src/context-window.js";
@@ -148,7 +149,7 @@ test("malformed structured metadata suppresses legacy prose across restored bran
 	assert.equal(extension.commandEntries[0]?.customType, ROUTER_COMMAND_ENTRY_TYPE);
 });
 
-function context({ modelId = "claude-haiku-4-5", provider = PROVIDER_NAME, entries = [] as SessionEntry[], sessionId = "synthetic-pi-session" } = {}) {
+function context({ modelId = WEAVE_AUTO_MODEL_ID, provider = PROVIDER_NAME, entries = [] as SessionEntry[], sessionId = "synthetic-pi-session" } = {}) {
 	return {
 		hasUI: false,
 		model: { provider, id: modelId },
@@ -179,17 +180,15 @@ test("uses the served context-window header only for Pi's active Weave model", (
 			{
 				type: "after_provider_response",
 				status: 200,
-				headers: { [ROUTED_MODEL_HEADER]: "qwen/qwen3.8-max", [ROUTED_CONTEXT_WINDOW_HEADER]: "1000000" },
+				headers: { [ROUTED_MODEL_HEADER]: "qwen/qwen3.8-max", [ROUTED_CONTEXT_WINDOW_HEADER]: "400000" },
 			},
 			context(),
 		);
 
 		assert.equal(extension.registrations.length, 1);
 		assert.equal(extension.registrations[0]?.name, PROVIDER_NAME);
-		assert.equal(extension.registrations[0]?.config.models?.length, WEAVE_MODELS.length);
-		assert.equal(contextWindow(extension.registrations[0]!, "claude-haiku-4-5"), 1_000_000);
-		assert.equal(contextWindow(extension.registrations[0]!, "grok-4.6"), 500_000);
-		assert.equal(WEAVE_MODELS.find((model) => model.id === "claude-haiku-4-5")?.contextWindow, 200_000);
+		assert.equal(contextWindow(extension.registrations[0]!, WEAVE_AUTO_MODEL_ID), 400_000);
+		assert.equal(WEAVE_MODELS.find((model) => model.id === WEAVE_AUTO_MODEL_ID)?.contextWindow, 1_000_000);
 	});
 });
 
@@ -215,13 +214,13 @@ test("rejects malformed windows and windows from another provider", () => {
 			{
 				type: "after_provider_response",
 				status: 200,
-				headers: { [ROUTED_MODEL_HEADER]: "qwen/qwen3.8-max", [ROUTED_CONTEXT_WINDOW_HEADER]: "1000000" },
+				headers: { [ROUTED_MODEL_HEADER]: "qwen/qwen3.8-max", [ROUTED_CONTEXT_WINDOW_HEADER]: "400000" },
 			},
 			context({ provider: "anthropic" }),
 		);
 		extension.emit(
 			"after_provider_response",
-			{ type: "after_provider_response", status: 200, headers: { [ROUTED_CONTEXT_WINDOW_HEADER]: "1000000" } },
+			{ type: "after_provider_response", status: 200, headers: { [ROUTED_CONTEXT_WINDOW_HEADER]: "400000" } },
 			context(),
 		);
 		extension.emit(
@@ -229,7 +228,7 @@ test("rejects malformed windows and windows from another provider", () => {
 			{
 				type: "after_provider_response",
 				status: 503,
-				headers: { [ROUTED_MODEL_HEADER]: "qwen/qwen3.8-max", [ROUTED_CONTEXT_WINDOW_HEADER]: "1000000" },
+				headers: { [ROUTED_MODEL_HEADER]: "qwen/qwen3.8-max", [ROUTED_CONTEXT_WINDOW_HEADER]: "400000" },
 			},
 			context(),
 		);
@@ -246,14 +245,14 @@ test("returns to the conservative virtual context window after model selection",
 			{
 				type: "after_provider_response",
 				status: 200,
-				headers: { [ROUTED_MODEL_HEADER]: "qwen/qwen3.8-max", [ROUTED_CONTEXT_WINDOW_HEADER]: "1000000" },
+				headers: { [ROUTED_MODEL_HEADER]: "qwen/qwen3.8-max", [ROUTED_CONTEXT_WINDOW_HEADER]: "400000" },
 			},
 			ctx,
 		);
-		extension.emit("model_select", { type: "model_select", model: { id: "claude-haiku-4-5" } }, ctx);
+		extension.emit("model_select", { type: "model_select", model: { id: WEAVE_AUTO_MODEL_ID } }, ctx);
 
-		assert.equal(contextWindow(extension.registrations[0]!, "claude-haiku-4-5"), 1_000_000);
-		assert.equal(contextWindow(extension.registrations[1]!, "claude-haiku-4-5"), 200_000);
+		assert.equal(contextWindow(extension.registrations[0]!, WEAVE_AUTO_MODEL_ID), 400_000);
+		assert.equal(contextWindow(extension.registrations[1]!, WEAVE_AUTO_MODEL_ID), 1_000_000);
 	});
 });
 
@@ -266,13 +265,13 @@ test("does not carry a served context window across a session-tree change", () =
 			{
 				type: "after_provider_response",
 				status: 200,
-				headers: { [ROUTED_MODEL_HEADER]: "qwen/qwen3.8-max", [ROUTED_CONTEXT_WINDOW_HEADER]: "1000000" },
+				headers: { [ROUTED_MODEL_HEADER]: "qwen/qwen3.8-max", [ROUTED_CONTEXT_WINDOW_HEADER]: "400000" },
 			},
 			ctx,
 		);
 		extension.emit("session_tree", { type: "session_tree" }, ctx);
 
-		assert.equal(contextWindow(extension.registrations[0]!, "claude-haiku-4-5"), 1_000_000);
-		assert.equal(contextWindow(extension.registrations[1]!, "claude-haiku-4-5"), 200_000);
+		assert.equal(contextWindow(extension.registrations[0]!, WEAVE_AUTO_MODEL_ID), 400_000);
+		assert.equal(contextWindow(extension.registrations[1]!, WEAVE_AUTO_MODEL_ID), 1_000_000);
 	});
 });

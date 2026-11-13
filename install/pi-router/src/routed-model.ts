@@ -17,6 +17,7 @@ import {
 	ROUTED_PROVIDER_HEADER,
 	ROUTER_DECISION_HEADER,
 	PROVIDER_NAME,
+	wireModelId,
 } from "./config.js";
 import { parseRoutedContextWindow } from "./context-window.js";
 import {
@@ -91,7 +92,7 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 		entries = restored.entries;
 		savings = restored.aggregate;
 		const lastEntry = restored.aggregate.lastEntry;
-		requestedModel = ctx.model?.id ?? lastEntry?.requestedModel;
+		requestedModel = ctx.model ? wireModelId(ctx.model.id) : lastEntry?.requestedModel;
 		routedModel =
 			lastEntry && requestedModel && normalizeModelId(requestedModel) === lastEntry.requestedModel
 				? lastEntry.routedModel
@@ -119,7 +120,7 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 		// Restore the conservative virtual-model default until its first response.
 		registerWeave(pi);
 		if (isSubagent()) return;
-		requestedModel = event.model.id;
+		requestedModel = wireModelId(event.model.id);
 		routedModel = undefined;
 		refresh(ctx);
 	});
@@ -142,7 +143,7 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 			registerWeave(pi, { modelId: ctx.model.id, contextWindow });
 		}
 		const route: PendingRoute = {
-			...(ctx.model?.id ? { requestedModel: ctx.model.id } : {}),
+			...(ctx.model?.id ? { requestedModel: wireModelId(ctx.model.id) } : {}),
 			routedModel: normalizeModelId(model),
 			...(event.headers[ROUTED_PROVIDER_HEADER] ? { provider: event.headers[ROUTED_PROVIDER_HEADER] } : {}),
 			...(event.headers[ROUTER_DECISION_HEADER] ? { decision: event.headers[ROUTER_DECISION_HEADER] } : {}),
@@ -186,7 +187,7 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 		const pending = pendingRoutes.shift();
 		if (!pending) return;
 		const message = event.message as AssistantMessage;
-		const selected = pending.requestedModel || message.model || ctx.model?.id;
+		const selected = pending.requestedModel || message.model || (ctx.model && wireModelId(ctx.model.id));
 		if (!selected) return;
 		const decision: RouteDecision = {
 			requestedModel: selected,
