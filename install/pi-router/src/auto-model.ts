@@ -65,7 +65,7 @@ export function migrateSavedDefaults(cwd: string): SavedDefault {
 	const merged = files.reduce<SavedDefault>((acc, { settings }) => ({ ...acc, ...savedDefault(settings) }), {});
 	if (!isRetiredWeaveModel(merged.provider, merged.model)) return merged;
 	const source = [...files].reverse().find(({ settings }) => typeof settings?.defaultModel === "string");
-	if (!source?.settings) return merged;
+	if (!source) return merged;
 	try {
 		fs.writeFileSync(source.file, `${JSON.stringify({ ...source.settings, defaultModel: WEAVE_AUTO_MODEL_ID }, null, 2)}\n`);
 	} catch {
