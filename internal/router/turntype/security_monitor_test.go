@@ -48,7 +48,7 @@ func TestDetectFromEnvelope_SecurityMonitor(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env, err := translate.ParseAnthropic([]byte(tc.body))
 			require.NoError(t, err)
-			assert.Equal(t, tc.want, turntype.DetectFromEnvelope(env, env.RoutingFeatures(false), ""))
+			assert.Equal(t, tc.want, turntype.DetectFromEnvelope(env, env.RoutingFeatures(), ""))
 		})
 	}
 }
