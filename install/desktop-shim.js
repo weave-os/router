@@ -103,17 +103,13 @@ function pacFile(port) {
 `;
 }
 
-function keyFingerprint(key) {
-  return crypto.createHash("sha256").update(key).digest("hex");
-}
-
 // reportConnected tells the router, once per router key, that Desktop's traffic
 // reached it. Desktop shares the Claude Code key, so the router can't tell a
 // Desktop connection from the key's first use. The marker is written only after
 // the router accepts the report, so a failed report is retried on a later call.
 function reportConnected(cfg) {
   if (!cfg.routerKey || cfg.connectedReport) return;
-  const fingerprint = keyFingerprint(cfg.routerKey);
+  const fingerprint = crypto.createHash("sha256").update(cfg.routerKey).digest("hex");
   try {
     if (fs.readFileSync(cfg.connectedMarker, "utf8").trim() === fingerprint) {
       cfg.connectedReport = "done";
