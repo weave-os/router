@@ -339,6 +339,11 @@ func (o *Observer) Sweep() {
 			delete(o.data, k)
 		}
 	}
+	for k, until := range o.rejected {
+		if !cutoff.Before(until) {
+			delete(o.rejected, k)
+		}
+	}
 	o.mu.Unlock()
 }
 

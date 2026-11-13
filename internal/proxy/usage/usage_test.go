@@ -342,6 +342,19 @@ func TestObserver_OverageOnlyWithoutResetRequiresFreshHeadroom(t *testing.T) {
 	assert.False(t, snapshot.OverageInUse)
 }
 
+func TestObserver_SweepDropsExpiredRejections(t *testing.T) {
+	base := time.Unix(1_790_000_000, 0).UTC()
+	clock := base
+	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return clock })
+	key := observer.Key([]byte("retired-codex-token"))
+	observer.RecordRejected(key, base.Add(time.Minute))
+	require.True(t, observer.Rejected(key))
+	clock = base.Add(2 * time.Minute)
+	observer.Sweep()
+	clock = base
+	assert.False(t, observer.Rejected(key), "Sweep must drop an expired rejection the token never revisits")
+}
+
 func TestObserver_DistinctTokensDistinctKeys(t *testing.T) {
 	o := usage.NewObserver([]byte("salt"), time.Minute, func() time.Time { return time.Unix(1, 0) })
 	assert.NotEqual(t, o.Key([]byte("token-a")), o.Key([]byte("token-b")))
