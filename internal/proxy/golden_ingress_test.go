@@ -366,40 +366,36 @@ func goldenMessagesChatScenarios() []goldenScenario {
 	anthropicFrames := goldenAnthropicStream(goldenAnthropicModel, "partial")
 	responsesFrames := goldenResponsesStream(goldenOpenAIModel, "partial")
 	overloaded := goldenSSE("error", goldenOverloadBody)
+	add := func(ingress, name, body string, d router.Decision, provider string, steps ...goldenStep) {
+		out = append(out, goldenScenario{name: ingress + "_" + name, ingress: ingress, decisions: []router.Decision{d},
+			upstreams: map[string][]goldenStep{provider: steps}, requests: []goldenRequest{{body: body}}})
+	}
 	for _, sc := range []struct {
-		ingress, body string
-		chatBody      func(bool) string
+		ingress  string
+		chatBody func(bool) string
 	}{
 		{ingress: ingressAnthropicHTTP, chatBody: goldenAnthropicBody},
 		{ingress: ingressOpenAIHTTP, chatBody: goldenOpenAIBody},
 	} {
-		add := func(name, body string, d router.Decision, provider string, steps ...goldenStep) {
-			out = append(out, goldenScenario{name: sc.ingress + "_" + name, ingress: sc.ingress, decisions: []router.Decision{d},
-				upstreams: map[string][]goldenStep{provider: steps}, requests: []goldenRequest{{body: body}}})
-		}
 		rejectedBeforeDispatch := func(name, body string, routeErr error) {
 			out = append(out, goldenScenario{name: sc.ingress + "_" + name, ingress: sc.ingress, routeErr: routeErr,
 				upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(false, "never")}},
 				requests:  []goldenRequest{{body: body, noTelemetry: true}}})
 		}
 		for _, stream := range []bool{true, false} {
-			add(streamName(stream)+"_anthropic_success", sc.chatBody(stream), goldenAnthropicDecision, providers.ProviderAnthropic, anthropicOK(stream, "hi"))
-			add(streamName(stream)+"_upstream_bad_request", sc.chatBody(stream), goldenAnthropicDecision, providers.ProviderAnthropic,
+			add(sc.ingress, streamName(stream)+"_anthropic_success", sc.chatBody(stream), goldenAnthropicDecision, providers.ProviderAnthropic, anthropicOK(stream, "hi"))
+			add(sc.ingress, streamName(stream)+"_upstream_bad_request", sc.chatBody(stream), goldenAnthropicDecision, providers.ProviderAnthropic,
 				goldenUpstreamError(http.StatusBadRequest, `{"type":"error","error":{"type":"invalid_request_error","message":"messages: field required"}}`))
 			rejectedBeforeDispatch(streamName(stream)+"_no_eligible_provider", sc.chatBody(stream), router.ErrNoEligibleProvider)
 		}
 		rejectedBeforeDispatch("nonstream_route_error", sc.chatBody(false), errors.New("no eligible model"))
 		rejectedBeforeDispatch("nonstream_invalid_json_body", `{"messages":`, nil)
-		add("stream_anthropic_native_missing_message_stop", sc.chatBody(true), goldenAnthropicDecision, providers.ProviderAnthropic,
+		add(sc.ingress, "stream_anthropic_native_missing_message_stop", sc.chatBody(true), goldenAnthropicDecision, providers.ProviderAnthropic,
 			goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: anthropicFrames[:5]})
-		add("stream_anthropic_native_error_event", sc.chatBody(true), goldenAnthropicDecision, providers.ProviderAnthropic,
+		add(sc.ingress, "stream_anthropic_native_error_event", sc.chatBody(true), goldenAnthropicDecision, providers.ProviderAnthropic,
 			goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: append(anthropicFrames[:3:3], overloaded)})
-		add("stream_slow_upstream_keepalive", sc.chatBody(true), goldenAnthropicDecision, providers.ProviderAnthropic, goldenSlow(anthropicOK(true, "slow")))
+		add(sc.ingress, "stream_slow_upstream_keepalive", sc.chatBody(true), goldenAnthropicDecision, providers.ProviderAnthropic, goldenSlow(anthropicOK(true, "slow")))
 		out[len(out)-1].configure = withSlowKeepalive
-	}
-	add := func(ingress, name, body string, d router.Decision, provider string, steps ...goldenStep) {
-		out = append(out, goldenScenario{name: ingress + "_" + name, ingress: ingress, decisions: []router.Decision{d},
-			upstreams: map[string][]goldenStep{provider: steps}, requests: []goldenRequest{{body: body}}})
 	}
 	add(ingressAnthropicHTTP, "stream_tool_use_with_system", goldenMessagesToolBody, goldenAnthropicDecision, providers.ProviderAnthropic,
 		goldenOK("text/event-stream", goldenAnthropicToolStream()))
