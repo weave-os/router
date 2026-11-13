@@ -177,29 +177,20 @@ func (s *Service) recordCodexQuotaExhaustion(ctx context.Context, headers http.H
 	s.recordCodexPlanSpent(ctx, codexTok, resetAt)
 }
 
-// recordCodexQuotaExhaustionForCredentials records the spent plan under the
-// token the rejected attempt carried. Dispatch has no inbound headers, and the
-// caller's ChatGPT login usually arrives only on them.
-func (s *Service) recordCodexQuotaExhaustionForCredentials(ctx context.Context, creds *Credentials, err error) {
+// recordCodexCredentialUnusable records the token the failed attempt carried as
+// unable to serve: a spent plan until its reset, or a rejected (401/403) token
+// for the default window. Dispatch has no inbound headers, and the caller's
+// ChatGPT login usually arrives only on them. A refreshed token hashes to a new
+// key and is tried again.
+func (s *Service) recordCodexCredentialUnusable(ctx context.Context, creds *Credentials, err error) {
 	if s.usageObserver == nil || creds == nil || !creds.OAuth {
 		return
 	}
 	resetAt, exhausted := codexQuotaExhaustion(err)
-	if !exhausted {
+	if !exhausted && !codexOAuthCredentialRejected(err) {
 		return
 	}
 	s.recordCodexPlanSpent(ctx, string(creds.APIKey), resetAt)
-}
-
-// recordCodexCredentialRejected marks a rejected caller ChatGPT token as unable
-// to serve, so later turns skip it and paid recovery is not blocked waiting for
-// quota evidence a dead token can never produce. A refreshed token hashes to a
-// new key and is tried again.
-func (s *Service) recordCodexCredentialRejected(ctx context.Context, creds *Credentials, err error) {
-	if s.usageObserver == nil || creds == nil || !creds.OAuth || !codexOAuthCredentialRejected(err) {
-		return
-	}
-	s.recordCodexPlanSpent(ctx, string(creds.APIKey), time.Time{})
 }
 
 func (s *Service) recordCodexPlanSpent(ctx context.Context, codexTok string, resetAt time.Time) {
