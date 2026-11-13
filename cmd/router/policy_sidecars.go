@@ -31,6 +31,11 @@ var reservedPolicyStrategies = map[router.Strategy]struct{}{
 	router.StrategyDecisionModel: {},
 }
 
+func isReservedPolicyStrategy(strategy router.Strategy) bool {
+	_, reserved := reservedPolicyStrategies[strategy]
+	return reserved || router.IsRetiredStrategy(strategy)
+}
+
 // buildConfiguredPolicySidecars turns a JSON strategy-to-URL map into policy.StrategySpec registrations; sidecars own model logic, the router owns candidate resolution and lifecycle.
 func buildConfiguredPolicySidecars(
 	ctx context.Context,
@@ -69,7 +74,7 @@ func buildConfiguredPolicySidecars(
 		if !configuredPolicyStrategyPattern.MatchString(string(strategy)) {
 			return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS strategy %q must match %s", strategy, configuredPolicyStrategyPattern)
 		}
-		if _, reserved := reservedPolicyStrategies[strategy]; reserved || router.IsRetiredStrategy(strategy) {
+		if isReservedPolicyStrategy(strategy) {
 			return nil, fmt.Errorf("ROUTER_POLICY_SIDECARS strategy %q is reserved", strategy)
 		}
 		if _, duplicate := seen[strategy]; duplicate {
