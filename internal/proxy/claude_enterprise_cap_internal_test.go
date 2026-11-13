@@ -82,3 +82,14 @@ func TestClaudeEnterpriseOverageCapKeyFailureDoesNotReachWeaveCredits(t *testing
 		require.Equal(t, parityAnthropicBYOK, key, "a failing customer key must not fall through to the deployment key")
 	}
 }
+
+func TestClaudeEnterpriseOverageCapRescueSurvivesEmptyLinkedPool(t *testing.T) {
+	ingress := parityAnthropicIngress()
+	upstream := enterpriseCapUpstream(ingress, enterpriseCapRefusalHeaders())
+	service := ingress.quotaService(upstream).WithManagedSubscriptions(&scriptedSubscriptionLeaser{})
+	ctx := withAnthropicKey(enterpriseOnlyContext(ingress.subCtx()), auth.FundingPriorityPlanFirst)
+	ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	recorder, request, body := ingress.request(t, false)
+	require.NoError(t, ingress.call(service, ctx, body, recorder, request))
+	require.Equal(t, []string{parityAnthropicBYOK}, upstream.paidKeys)
+}

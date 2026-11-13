@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/providers"
 )
 
 // ErrWeaveCreditsDisabled refuses a turn that only Weave's own provider keys
@@ -89,10 +90,11 @@ func customerFunded(creds *Credentials) bool {
 }
 
 // withPaidFallbackCredentials attaches the credential a paid-fallback probe is judged
-// on: the customer's usable provider key when Weave credits are denied,
-// otherwise none (the deployment key).
+// on: the customer's usable provider key when Weave credits are denied or an
+// Enterprise seat's overage cap hands the turn to that key, otherwise none
+// (the deployment key).
 func withPaidFallbackCredentials(ctx context.Context, provider string) context.Context {
-	if weaveCreditsDenied(ctx) {
+	if weaveCreditsDenied(ctx) || provider == providers.ProviderAnthropic && claudeEnterpriseCapRescue(ctx) {
 		if byok := usableBYOK(ctx, provider); byok != nil {
 			return context.WithValue(ctx, CredentialsContextKey{}, byok)
 		}
