@@ -17,6 +17,8 @@ const Method = Object.freeze({
 const threadMethods = new Set(["thread/start", "thread/resume", "thread/fork"]);
 const hopHeaders = new Set(["connection", "transfer-encoding", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "upgrade"]);
 
+// Keep config keys literal while producing a null-prototype object; arrays and
+// Dates are values and not merged recursively.
 function mergeConfig(base, overlay) {
   const merged = Object.assign(Object.create(null), base);
   for (const [key, value] of Object.entries(overlay)) {
@@ -109,9 +111,9 @@ class UpstreamWaitBridge {
     turn.run = null;
   }
 
-  setWaiting(id, request, waiting) {
-    request.waiting = waiting;
-    const turn = request.turn;
+  setWaiting(id, entry, waiting) {
+    entry.waiting = waiting;
+    const turn = entry.turn;
     if (!turn || this.turns.get(turn.threadId) !== turn) return;
     if (waiting) turn.waits.add(id);
     else turn.waits.delete(id);
