@@ -121,18 +121,6 @@ services:
     environment:
       DATABASE_URL: postgres://router:router@postgres:5432/router?sslmode=disable
       PORT: "8080"
-      # .env.development sets ROUTER_ONNX_ASSETS_DIR to a repo-relative path
-      # that's correct for `make dev` outside Docker but wrong inside the
-      # container, where the Dockerfile populates /opt/router/assets/. The
-      # `environment:` block overrides env_file values, so we pin the
-      # in-container path here. Without this override, the Go embedder's
-      # resolveAssetsDir() picks up the dev-only path, the cluster scorer
-      # fails to load, and the router silently falls open to the heuristic.
-      ROUTER_ONNX_ASSETS_DIR: /opt/router/assets
-      # .env.local may set ROUTER_ONNX_LIBRARY_DIR to a macOS Homebrew path
-      # that doesn't exist inside the container. The Dockerfile copies
-      # libonnxruntime.so to /usr/lib which is on the default linker path.
-      ROUTER_ONNX_LIBRARY_DIR: /usr/lib
       # Pub/Sub broadcast for cross-replica cache invalidation. main.go
       # panics at startup if any of these is unset (config.MustGet). The
       # gcppubsub client honors PUBSUB_EMULATOR_HOST and routes there

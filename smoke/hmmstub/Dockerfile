@@ -1,4 +1,4 @@
-# Stub HMM classifier for the smoke stack; no CGO/ONNX toolchain needed.
+# Stub HMM classifier for the smoke stack.
 FROM golang:1.26.10-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./

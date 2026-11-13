@@ -256,8 +256,8 @@ jobs:
         run: go test -count=1 ./scripts/subscription_verification_check
 
   # These checks exercise the compatibility boundary against a disposable
-  # database and native runtime assets. Run them beside the static/database
-  # checks so their downloads and two ORT builds do not extend that job's tail.
+  # database. Run them beside the static/database checks so their two worker
+  # builds do not extend that job's tail.
   go-runtime-checks:
     name: Go runtime compatibility checks
     needs: changed-paths
@@ -328,39 +328,20 @@ jobs:
             router.installation_profile_assignments, router.session_release_bindings,
             router.serving_request_attribution FROM legacy_runtime_fixture;
           SQL
-          native_fixture="$(mktemp -d)"
-          mkdir -p "$native_fixture/native" "$native_fixture/assets/jina-v2-base-code-int8"
-          ort_version="$(awk -F= '/^ARG ONNXRUNTIME_VERSION=/{print $2}' Dockerfile)"
-          tokenizers_version="$(awk -F= '/^ARG TOKENIZERS_VERSION=/{print $2}' Dockerfile)"
-          model_repo="$(awk -F= '/^ARG HF_MODEL_REPO=/{print $2}' Dockerfile)"
-          model_revision="$(awk -F= '/^ARG HF_MODEL_REVISION=/{print $2}' Dockerfile)"
-          curl --fail --silent --show-error --location \
-            "https://github.com/microsoft/onnxruntime/releases/download/v${ort_version}/onnxruntime-linux-x64-${ort_version}.tgz" \
-            | tar -xz -C "$native_fixture/native" --strip-components=1
-          curl --fail --silent --show-error --location \
-            "https://github.com/daulet/tokenizers/releases/download/${tokenizers_version}/libtokenizers.linux-x86_64.tar.gz" \
-            | tar -xz -C "$native_fixture/native/lib"
-          curl --fail --silent --show-error --location \
-            "https://huggingface.co/${model_repo}/resolve/${model_revision}/onnx/model_quantized.onnx" \
-            -o "$native_fixture/assets/jina-v2-base-code-int8/model.onnx"
-          curl --fail --silent --show-error --location \
-            "https://huggingface.co/${model_repo}/resolve/${model_revision}/tokenizer.json" \
-            -o "$native_fixture/assets/jina-v2-base-code-int8/tokenizer.json"
-          CGO_LDFLAGS="-L$native_fixture/native/lib" go build -tags ORT -o "$native_fixture/router" ./cmd/router
+          worker_fixture="$(mktemp -d)"
+          CGO_ENABLED=0 go build -o "$worker_fixture/router" ./cmd/router
           ROUTER_TEST_DATABASE_URL='postgres://legacy_runtime_fixture:fixture-only@localhost:5432/router?sslmode=disable&search_path=router' \
-            ROUTER_TEST_WORKER_BINARY="$native_fixture/router" \
+            ROUTER_TEST_WORKER_BINARY="$worker_fixture/router" \
             go run ./scripts/legacy_runtime_check
           # PR checkout is a merge commit: its first parent is the retained base runtime.
-          mkdir "$native_fixture/old-source"
-          git archive HEAD^ | tar -x -C "$native_fixture/old-source"
+          mkdir "$worker_fixture/old-source"
+          git archive HEAD^ | tar -x -C "$worker_fixture/old-source"
           (
-            cd "$native_fixture/old-source"
-            CGO_LDFLAGS="-L$native_fixture/native/lib" go build -tags ORT -o "$native_fixture/router-old" ./cmd/router
+            cd "$worker_fixture/old-source"
+            CGO_ENABLED=0 go build -o "$worker_fixture/router-old" ./cmd/router
           )
           ROUTER_TEST_DATABASE_URL='postgres://legacy_runtime_fixture:fixture-only@localhost:5432/router?sslmode=disable&search_path=router' \
-            ROUTER_TEST_WORKER_BINARY="$native_fixture/router-old" \
-            ROUTER_ONNX_ASSETS_DIR="$native_fixture/assets" \
-            ROUTER_ONNX_LIBRARY_DIR="$native_fixture/native/lib" \
+            ROUTER_TEST_WORKER_BINARY="$worker_fixture/router-old" \
             go run ./scripts/legacy_runtime_check
 
   # Advisory until proven stable: kept out of the required `Test` gate below
@@ -624,7 +605,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      BENCH_PACKAGES: ./internal/translate ./internal/sse ./internal/router/cluster
+      BENCH_PACKAGES: ./internal/translate ./internal/sse
     steps:
       - name: Checkout head
         uses: actions/checkout@v4

@@ -113,10 +113,10 @@ func DefaultStrategyFromEnv() (router.Strategy, error) {
 // /readyz and then answering every default-following request with 503.
 func ParseDefaultStrategy(raw string) (router.Strategy, error) {
 	strategy := router.Strategy(strings.ToLower(strings.TrimSpace(raw)))
-	switch strategy {
-	case "":
+	switch {
+	case strategy == "":
 		return router.StrategyHMMEmbedding, nil
-	case router.StrategyCluster:
+	case router.IsRetiredStrategy(strategy):
 		return "", fmt.Errorf("ROUTER_DEFAULT_STRATEGY=%q is no longer supported: the cluster scorer is retired; unset it to use %q or set another registered strategy", raw, router.StrategyHMMEmbedding)
 	}
 	if router.IsBetaStrategy(strategy) || strategy == router.StrategyLLMClassifier {

@@ -347,7 +347,7 @@ class AgentChecksTest(unittest.TestCase):
             executable_dir = root / "bin"
             executable_dir.mkdir()
             probe_output = root / "probe.jsonl"
-            fields = list(poisoned) + ["GOCACHE", "ROUTER_ONNX_ASSETS_DIR"]
+            fields = list(poisoned) + ["GOCACHE"]
             probe = (
                 f"#!{sys.executable}\nimport json, os, sys\nfrom pathlib import Path\n"
                 f"observed = {{key: os.environ[key] for key in {fields!r} if key in os.environ}}\n"
@@ -376,7 +376,6 @@ class AgentChecksTest(unittest.TestCase):
             fixture_environment = poisoned | {
                 "PATH": f"{executable_dir}:{os.environ['PATH']}",
                 "VALIDATION_PROBE_OUTPUT": str(probe_output),
-                "ROUTER_ONNX_ASSETS_DIR": "/synthetic/native/assets",
             }
             with patch.dict(os.environ, fixture_environment):
                 for suite_id in (
@@ -403,9 +402,6 @@ class AgentChecksTest(unittest.TestCase):
             for observed in probes:
                 environment = observed["environment"]
                 self.assertEqual(inherited_cache, environment.get("GOCACHE"))
-                self.assertEqual(
-                    "/synthetic/native/assets", environment["ROUTER_ONNX_ASSETS_DIR"]
-                )
                 self.assertEqual("-mod=readonly", environment["GOFLAGS"])
                 for key in poisoned.keys() - {"GOFLAGS", "SMOKE_PROXY_MODE"}:
                     self.assertNotIn(key, environment, observed["argv"])

@@ -483,7 +483,7 @@ func TestEscalationShadowMarkerRequiresCommittedPositiveShadowCheckpoint(t *test
 }
 
 func TestActiveEscalationRemainsRestrictedToEmbeddingHMM(t *testing.T) {
-	for _, strategy := range []router.Strategy{router.StrategyCluster, router.StrategyRL, router.StrategyHMM, router.StrategyHMMBeta} {
+	for _, strategy := range []router.Strategy{router.Strategy("cluster"), router.StrategyRL, router.StrategyHMM, router.StrategyHMMBeta} {
 		t.Run(string(strategy), func(t *testing.T) {
 			observer := &escalationTestObserver{}
 			svc := (&Service{}).WithEscalation(newEscalationTestStore(), observer)

@@ -126,7 +126,7 @@ func TestRoutingDistributionHandler_RejectsBadGrid(t *testing.T) {
 func TestRoutingDistributionHandler_RejectsNonHMMStrategy(t *testing.T) {
 	src := &fakeDistributionRoster{roster: twoArmDistributionRoster()}
 	engine := newDistributionEngine(src)
-	for _, strategy := range []router.Strategy{router.StrategyCluster, router.StrategyRL, router.StrategyHMMBeta, "unknown"} {
+	for _, strategy := range []router.Strategy{router.Strategy("cluster"), router.StrategyRL, router.StrategyHMMBeta, "unknown"} {
 		rec := getDistribution(engine, "?strategy="+string(strategy))
 		assert.Equal(t, http.StatusBadRequest, rec.Code, strategy)
 	}

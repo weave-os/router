@@ -63,11 +63,11 @@ func TestRetiredClusterStrategyIsNotRoutable(t *testing.T) {
 	defaultRouter := &registryRouter{}
 	svc := NewService(defaultRouter, nil, nil, nil, false, "", "", nil)
 
-	_, err := svc.Route(router.WithStrategy(context.Background(), router.StrategyCluster), router.Request{})
+	_, err := svc.Route(router.WithStrategy(context.Background(), router.Strategy("cluster")), router.Request{})
 
 	require.ErrorIs(t, err, router.ErrStrategyUnavailable)
 	assert.Zero(t, defaultRouter.calls)
-	assert.False(t, svc.PolicyStrategyAvailable(router.StrategyCluster))
+	assert.False(t, svc.PolicyStrategyAvailable(router.Strategy("cluster")))
 }
 
 func TestRouteWithoutDefaultRouterFailsClosed(t *testing.T) {

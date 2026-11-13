@@ -9,14 +9,13 @@ Inner-ring `Router` interface + `Request`/`Decision`/`ModelSpec`/`ModelRegistry`
 | Package | Role | Guide |
 |---|---|---|
 | [`catalog/`](catalog) | **Single source of truth** for per-model data (tier, ordered provider bindings, pricing, cost math). Add a model here. | [catalog/CLAUDE.md](catalog/CLAUDE.md) |
-| [`cluster/`](cluster) | Legacy AvengersPro scorer being removed; read only by `cmd/routing-report`, no longer built by workers | [cluster/CLAUDE.md](cluster/CLAUDE.md) |
 | [`policy/`](policy) | Shared candidate resolution, sidecar adapter, and conformance primitives for external policy routers | — |
 | [`planner/`](planner) | Cache-aware EV policy (STAY vs SWITCH) | [planner/CLAUDE.md](planner/CLAUDE.md) |
 | [`handover/`](handover) | `Summarizer` interface + envelope rewrite | [handover/CLAUDE.md](handover/CLAUDE.md) |
 | [`sessionpin/`](sessionpin) | Sticky per-session routing pin | [sessionpin/CLAUDE.md](sessionpin/CLAUDE.md) |
 | [`turntype/`](turntype) | Inbound turn-type classifier | [turntype/CLAUDE.md](turntype/CLAUDE.md) |
 
-All I/O-free inner-ring packages, except the legacy `cluster/` scorer, which loads model artifacts from disk for the offline routing report. Add nothing to it.
+All subpackages above are inner-ring and I/O-free; see the [root layer diagram](../../CLAUDE.md).
 
 ## Adding a new `router.Router` implementation
 

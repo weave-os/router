@@ -1,5 +1,5 @@
 # Standalone image for the smoke suite's record/replay MITM proxy. Deliberately
-# separate from the main router Dockerfile (no CGO/ONNX toolchain needed here).
+# separate from the main router Dockerfile.
 FROM golang:1.26.10-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./

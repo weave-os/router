@@ -38,7 +38,7 @@ func TestMaxServingForcesProfileStrategyAndIgnoresCustomerHeaders(t *testing.T) 
 			c.Next()
 		})
 		engine.Use(
-			middleware.WithRouterStrategyDefault(router.StrategyCluster, allRegisteredLive, router.StrategyHMM, router.StrategyRL),
+			middleware.WithRouterStrategyDefault(router.Strategy("cluster"), allRegisteredLive, router.StrategyHMM, router.StrategyRL),
 			middleware.WithAllowedModelsOverride(planOwnedAllowedModelsGate{}),
 			middleware.WithRoutingKnobsOverride(),
 			middleware.WithForceEffortOverride(),
@@ -86,7 +86,7 @@ func TestBoostServingUsesInstallationStrategyAndAuthorizedOverride(t *testing.T)
 				c.Request = c.Request.WithContext(ctx)
 				c.Next()
 			})
-			engine.Use(middleware.WithRouterStrategyDefault(router.StrategyCluster, allRegisteredLive, router.StrategyHMM, router.StrategyRL))
+			engine.Use(middleware.WithRouterStrategyDefault(router.Strategy("cluster"), allRegisteredLive, router.StrategyHMM, router.StrategyRL))
 			var strategy router.Strategy
 			engine.GET("/probe", func(c *gin.Context) {
 				strategy = router.StrategyFromContext(c.Request.Context())
@@ -116,7 +116,7 @@ func TestPlanOwnedServingRejectsUnknownPlan(t *testing.T) {
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	})
-	engine.Use(middleware.WithRouterStrategyDefault(router.StrategyCluster, allRegisteredLive, router.StrategyHMM))
+	engine.Use(middleware.WithRouterStrategyDefault(router.Strategy("cluster"), allRegisteredLive, router.StrategyHMM))
 	engine.GET("/probe", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 	response := httptest.NewRecorder()

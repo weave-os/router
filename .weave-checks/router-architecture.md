@@ -17,8 +17,7 @@ The root `CLAUDE.md` names these I/O-free inner-ring packages: `internal/inferen
 `internal/translate`, `internal/sse`, `internal/timing`, `internal/requestcontext`,
 `internal/feedback`, `internal/router/{breaker,catalog,handover,planner,policy,sessionpin,turntype}`
 and `internal/proxy/usage`. It also describes `internal/websearch` as pure. This is not a ban on
-I/O in every descendant: `internal/providers/<adapter>` packages and the legacy
-`internal/router/cluster` package (being removed) are adapters.
+I/O in every descendant: `internal/providers/<adapter>` packages are adapters.
 
 ## Flag
 
