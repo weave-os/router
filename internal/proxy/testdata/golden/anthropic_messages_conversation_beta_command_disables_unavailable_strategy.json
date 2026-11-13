@@ -1,0 +1,41 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "✦ **Weave Router** → Beta disabled. Stable routing restored.\n\n",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "weave-router",
+          "role": "assistant",
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "type": "message",
+          "usage": {
+            "input_tokens": 20,
+            "output_tokens": 16
+          }
+        }
+      },
+      "store_events": [
+        {
+          "op": "session_strategy.disable",
+          "detail": "hmm_beta"
+        }
+      ]
+    }
+  ],
+  "scenario": "anthropic_messages_conversation_beta_command_disables_unavailable_strategy"
+}

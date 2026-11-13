@@ -1,0 +1,44 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "✦ **Weave Router** → force-model: \"not-a-real-model\" isn't a recognized model · keeping automatic routing. Use a model ID or shorthand, e.g. opus, claude-opus-5-5, gpt-6.1-sol, or gemini-3.1-pro-preview.\n\n",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "weave-router",
+          "role": "assistant",
+          "router_command": {
+            "command": "force_model",
+            "disposition": "rejected",
+            "id": "\u003cuuid\u003e",
+            "pin": {
+              "transition": "unchanged"
+            },
+            "version": 1
+          },
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "type": "message",
+          "usage": {
+            "input_tokens": 26,
+            "output_tokens": 52
+          }
+        }
+      }
+    }
+  ],
+  "scenario": "anthropic_messages_conversation_force_model_command_unknown_model"
+}

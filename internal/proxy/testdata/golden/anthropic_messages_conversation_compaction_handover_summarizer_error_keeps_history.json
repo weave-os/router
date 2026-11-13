@@ -1,0 +1,547 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "claude-haiku-4-5",
+          "model": "deepseek/deepseek-v4-pro",
+          "provider": "fireworks",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "fireworks",
+          "wire_model": "deepseek/deepseek-v4-pro",
+          "outbound_body": {
+            "max_tokens": 1024,
+            "messages": [
+              {
+                "content": "refactor the parser package",
+                "role": "user"
+              },
+              {
+                "content": "step 0 done",
+                "role": "assistant"
+              },
+              {
+                "content": "next step 0",
+                "role": "user"
+              },
+              {
+                "content": "step 1 done",
+                "role": "assistant"
+              },
+              {
+                "content": "next step 1",
+                "role": "user"
+              },
+              {
+                "content": "step 2 done",
+                "role": "assistant"
+              },
+              {
+                "content": "next step 2",
+                "role": "user"
+              },
+              {
+                "content": "step 3 done",
+                "role": "assistant"
+              },
+              {
+                "content": "next step 3",
+                "role": "user"
+              },
+              {
+                "content": "step 4 done",
+                "role": "assistant"
+              },
+              {
+                "content": "next step 4",
+                "role": "user"
+              },
+              {
+                "content": "step 5 done",
+                "role": "assistant"
+              },
+              {
+                "content": "next step 5",
+                "role": "user"
+              }
+            ],
+            "model": "deepseek/deepseek-v4-pro",
+            "stream": false,
+            "tools": [
+              {
+                "function": {
+                  "description": "run",
+                  "name": "Bash",
+                  "parameters": {
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "function"
+              },
+              {
+                "function": {
+                  "description": "read",
+                  "name": "Read",
+                  "parameters": {
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "function"
+              },
+              {
+                "function": {
+                  "description": "edit",
+                  "name": "Edit",
+                  "parameters": {
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "function"
+              }
+            ]
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "deepseek/deepseek-v4-pro",
+            "Provider": "fireworks",
+            "UpstreamID": "accounts/fireworks/models/deepseek-v4-pro"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "245",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1048576",
+          "X-Router-Cost-Input-Usd": "0.00002088",
+          "X-Router-Cost-Output-Usd": "0.00002436",
+          "X-Router-Cost-Usd": "0.00004524",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "deepseek/deepseek-v4-pro",
+          "X-Router-Provider": "fireworks"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "first",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "deepseek/deepseek-v4-pro",
+          "role": "assistant",
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "type": "message",
+          "usage": {
+            "input_tokens": 12,
+            "output_tokens": 7
+          }
+        }
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_low",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "deepseek/deepseek-v4-pro",
+            "Provider": "fireworks",
+            "Reason": "golden_route",
+            "Role": "default_low",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_low",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "deepseek/deepseek-v4-pro",
+            "ServedProvider": "fireworks",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -45,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 45,
+          "OrganizationID": "golden-org",
+          "RouterModel": "deepseek/deepseek-v4-pro"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.00002088,
+          "ActualOutputCostUSD": 0.00002436,
+          "CaptureMode": "off",
+          "ClientApp": "claude-code",
+          "ContextSnapshot": {
+            "context_window": 1048576,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 245,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "claude-haiku-4-5",
+            "served_model": "deepseek/deepseek-v4-pro",
+            "version": 1
+          },
+          "CrossFormat": true,
+          "DecisionModel": "deepseek/deepseek-v4-pro",
+          "DecisionProvider": "fireworks",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 42,
+          "FinalModelFamily": "deepseek/deepseek-v-pro",
+          "FreshDecisionModel": "deepseek/deepseek-v4-pro",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "deepseek/deepseek-v-pro",
+          "LatestToolCallCounts": {},
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedInputCostUSD": 0.000012,
+          "RequestedModel": "claude-haiku-4-5",
+          "RequestedOutputCostUSD": 0.000035,
+          "Role": "default_low",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SessionID": "golden-session",
+          "SpanType": "router.upstream",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    },
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "claude-haiku-4-5",
+          "model": "deepseek/deepseek-v4-pro",
+          "provider": "fireworks",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "fireworks",
+          "wire_model": "deepseek/deepseek-v4-pro",
+          "outbound_body": {
+            "max_tokens": 1024,
+            "messages": [
+              {
+                "content": "refactor the parser package",
+                "role": "user"
+              },
+              {
+                "content": "Summary: parser split into lexer and grammar.",
+                "role": "assistant"
+              },
+              {
+                "content": "keep going",
+                "role": "user"
+              }
+            ],
+            "model": "deepseek/deepseek-v4-pro",
+            "stream": false,
+            "tools": [
+              {
+                "function": {
+                  "description": "run",
+                  "name": "Bash",
+                  "parameters": {
+                    "properties": {
+                      "command": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "function"
+              },
+              {
+                "function": {
+                  "description": "read",
+                  "name": "Read",
+                  "parameters": {
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "function"
+              },
+              {
+                "function": {
+                  "description": "edit",
+                  "name": "Edit",
+                  "parameters": {
+                    "properties": {
+                      "path": {
+                        "type": "string"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "type": "function"
+              }
+            ]
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "deepseek/deepseek-v4-pro",
+            "Provider": "fireworks",
+            "UpstreamID": "accounts/fireworks/models/deepseek-v4-pro"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "147",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1048576",
+          "X-Router-Cost-Input-Usd": "0.00002088",
+          "X-Router-Cost-Output-Usd": "0.00002436",
+          "X-Router-Cost-Usd": "0.00004524",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "deepseek/deepseek-v4-pro",
+          "X-Router-Provider": "fireworks"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "second",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "deepseek/deepseek-v4-pro",
+          "role": "assistant",
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "type": "message",
+          "usage": {
+            "input_tokens": 12,
+            "output_tokens": 7
+          }
+        }
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_low",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "LastInputTokens": 12,
+            "LastOutputTokens": 7,
+            "LastServedModel": "deepseek/deepseek-v4-pro",
+            "Model": "deepseek/deepseek-v4-pro",
+            "Provider": "fireworks",
+            "Reason": "golden_route",
+            "Role": "default_low",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_low",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "PriorServedModel": "deepseek/deepseek-v4-pro",
+            "ServedModel": "deepseek/deepseek-v4-pro",
+            "ServedProvider": "fireworks",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "store_events": [
+        {
+          "op": "handover.summarize",
+          "detail": {
+            "estimated_tokens": 98,
+            "requested_model": "claude-haiku-4-5"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -45,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 45,
+          "OrganizationID": "golden-org",
+          "RouterModel": "deepseek/deepseek-v4-pro"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.00002088,
+          "ActualOutputCostUSD": 0.00002436,
+          "CaptureMode": "off",
+          "ClientApp": "claude-code",
+          "ContextSnapshot": {
+            "context_window": 1048576,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 147,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "claude-haiku-4-5",
+            "served_model": "deepseek/deepseek-v4-pro",
+            "version": 1
+          },
+          "CrossFormat": true,
+          "DecisionModel": "deepseek/deepseek-v4-pro",
+          "DecisionProvider": "fireworks",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 21,
+          "FinalModelFamily": "deepseek/deepseek-v-pro",
+          "FreshDecisionModel": "deepseek/deepseek-v4-pro",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "deepseek/deepseek-v-pro",
+          "LatestToolCallCounts": {},
+          "OutputTokens": 7,
+          "PinTier": "postgres_stay_same_model",
+          "PlannerOutcome": "stay",
+          "PlannerPinModel": "deepseek/deepseek-v4-pro",
+          "PlannerPinProvider": "fireworks",
+          "PlannerReason": "same_model",
+          "RequestedInputCostUSD": 0.000012,
+          "RequestedModel": "claude-haiku-4-5",
+          "RequestedOutputCostUSD": 0.000035,
+          "Role": "default_low",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SessionID": "golden-session",
+          "SpanType": "router.upstream",
+          "StickyHit": true,
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "anthropic_messages_conversation_compaction_handover_summarizer_error_keeps_history"
+}

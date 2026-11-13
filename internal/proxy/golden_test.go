@@ -56,6 +56,8 @@ type goldenRequest struct {
 	decorateContext func(context.Context) context.Context
 	// noTelemetry marks requests refused before a request row is emitted.
 	noTelemetry bool
+	// bodyFrom builds the body from the previous raw response when set.
+	bodyFrom func(previous []byte) string
 }
 
 type goldenRecorder struct {
@@ -66,6 +68,7 @@ type goldenRecorder struct {
 	attempts          []goldenAttempt
 	inferenceAttempts []any
 	pinEvents         []goldenPinEvent
+	storeEvents       []goldenPinEvent
 	debits            []any
 	telemetry         []any
 	cancel            context.CancelFunc
@@ -73,13 +76,13 @@ type goldenRecorder struct {
 
 // goldenRecordLengths marks where one request's records start.
 type goldenRecordLengths struct {
-	routes, attempts, inferenceAttempts, pinEvents, debits, telemetry int
+	routes, attempts, inferenceAttempts, pinEvents, storeEvents, debits, telemetry int
 }
 
 func (r *goldenRecorder) lengths() goldenRecordLengths {
 	return goldenRecordLengths{
 		routes: len(r.routes), attempts: len(r.attempts), inferenceAttempts: len(r.inferenceAttempts),
-		pinEvents: len(r.pinEvents), debits: len(r.debits), telemetry: len(r.telemetry),
+		pinEvents: len(r.pinEvents), storeEvents: len(r.storeEvents), debits: len(r.debits), telemetry: len(r.telemetry),
 	}
 }
 
@@ -113,6 +116,7 @@ type goldenHarness struct {
 	telemetry *goldenTelemetry
 	pins      *goldenPinStore
 	svc       *proxy.Service
+	lastBody  []byte
 }
 
 // newGoldenHarness wires a real Service the way cmd/router/main.go does, with
@@ -180,6 +184,7 @@ type goldenRequestTrace struct {
 	Response          goldenResponse       `json:"response"`
 	DispatchError     *goldenDispatchError `json:"dispatch_error,omitempty"`
 	PinEvents         []goldenPinEvent     `json:"pin_events,omitempty"`
+	StoreEvents       []goldenPinEvent     `json:"store_events,omitempty"`
 	Billing           []any                `json:"billing,omitempty"`
 	Telemetry         []any                `json:"telemetry,omitempty"`
 }
@@ -222,6 +227,7 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 		Stream bool `json:"stream"`
 	}
 	_ = json.Unmarshal([]byte(req.body), &parsed)
+	h.lastBody = rec.Body.Bytes()
 	h.rec.mu.Lock()
 	defer h.rec.mu.Unlock()
 	trace := goldenRequestTrace{
@@ -232,6 +238,7 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 		InferenceAttempts: h.rec.inferenceAttempts[before.inferenceAttempts:],
 		Response:          goldenClientResponse(rec),
 		PinEvents:         h.rec.pinEvents[before.pinEvents:],
+		StoreEvents:       h.rec.storeEvents[before.storeEvents:],
 		Billing:           h.rec.debits[before.debits:],
 		Telemetry:         h.rec.telemetry[before.telemetry:],
 	}
@@ -373,9 +380,12 @@ var goldenUUID = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 var goldenVolatileKey = regexp.MustCompile(`(?i)(_at|_ms|latency|timestamp)$`)
 
 // goldenMintedID matches response ids the router mints per request.
+var goldenJWT = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+`)
+
 var goldenMintedID = regexp.MustCompile(`\bchatcmpl-[0-9a-f]{16}\b`)
 
 func scrubGoldenString(s string) string {
+	s = goldenJWT.ReplaceAllString(s, "<jwt>")
 	s = goldenMintedID.ReplaceAllString(s, "chatcmpl-<id>")
 	return goldenUUID.ReplaceAllStringFunc(s, func(id string) string {
 		if id == goldenInstallationID {
@@ -474,6 +484,9 @@ func runGoldenScenario(t *testing.T, sc goldenScenario) {
 	h := newGoldenHarness(t, sc)
 	traces := make([]goldenRequestTrace, 0, len(sc.requests))
 	for _, req := range sc.requests {
+		if req.bodyFrom != nil {
+			req.body = req.bodyFrom(h.lastBody)
+		}
 		traces = append(traces, h.serve(t, sc.ingress, req))
 	}
 	got, err := json.MarshalIndent(map[string]any{"scenario": sc.name, "requests": traces}, "", "  ")
@@ -494,7 +507,7 @@ func runGoldenScenario(t *testing.T, sc goldenScenario) {
 func TestGolden(t *testing.T) {
 	t.Parallel()
 	names := map[string]bool{}
-	for _, sc := range goldenInferenceScenarios() {
+	for _, sc := range append(goldenInferenceScenarios(), goldenConversationScenarios()...) {
 		require.False(t, names[sc.name], "duplicate golden scenario %s", sc.name)
 		names[sc.name] = true
 		t.Run(sc.name, func(t *testing.T) {

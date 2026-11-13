@@ -1,0 +1,531 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "claude-haiku-4-5",
+          "model": "claude-haiku-4-5",
+          "provider": "anthropic",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-haiku-4-5",
+          "outbound_body": {
+            "max_tokens": 1024,
+            "messages": [
+              {
+                "content": "refactor the parser package",
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_e00",
+                    "input": {
+                      "command": "go build ./pkg0"
+                    },
+                    "name": "Bash",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "build failed",
+                    "is_error": true,
+                    "tool_use_id": "toolu_e00",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_e01",
+                    "input": {
+                      "command": "go build ./pkg1"
+                    },
+                    "name": "Bash",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "build failed",
+                    "is_error": true,
+                    "tool_use_id": "toolu_e01",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_e02",
+                    "input": {
+                      "command": "go build ./pkg2"
+                    },
+                    "name": "Bash",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "build failed",
+                    "is_error": true,
+                    "tool_use_id": "toolu_e02",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_e03",
+                    "input": {
+                      "command": "go build ./pkg3"
+                    },
+                    "name": "Bash",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "build failed",
+                    "is_error": true,
+                    "tool_use_id": "toolu_e03",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_e04",
+                    "input": {
+                      "command": "go build ./pkg4"
+                    },
+                    "name": "Bash",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "build failed",
+                    "is_error": true,
+                    "tool_use_id": "toolu_e04",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_e05",
+                    "input": {
+                      "command": "go build ./pkg5"
+                    },
+                    "name": "Bash",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "build failed",
+                    "is_error": true,
+                    "tool_use_id": "toolu_e05",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_e06",
+                    "input": {
+                      "command": "go build ./pkg6"
+                    },
+                    "name": "Bash",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "build failed",
+                    "is_error": true,
+                    "tool_use_id": "toolu_e06",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_e07",
+                    "input": {
+                      "command": "go build ./pkg7"
+                    },
+                    "name": "Bash",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "build failed",
+                    "is_error": true,
+                    "tool_use_id": "toolu_e07",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_e08",
+                    "input": {
+                      "command": "go build ./pkg8"
+                    },
+                    "name": "Bash",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "build failed",
+                    "is_error": true,
+                    "tool_use_id": "toolu_e08",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_e09",
+                    "input": {
+                      "command": "go build ./pkg9"
+                    },
+                    "name": "Bash",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "build failed",
+                    "is_error": true,
+                    "tool_use_id": "toolu_e09",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_e10",
+                    "input": {
+                      "command": "go build ./pkg10"
+                    },
+                    "name": "Bash",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "content": "build failed",
+                    "is_error": true,
+                    "tool_use_id": "toolu_e10",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              },
+              {
+                "content": [
+                  {
+                    "id": "toolu_e11",
+                    "input": {
+                      "command": "go build ./pkg11"
+                    },
+                    "name": "Bash",
+                    "type": "tool_use"
+                  }
+                ],
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "content": "build failed",
+                    "is_error": true,
+                    "tool_use_id": "toolu_e11",
+                    "type": "tool_result"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-haiku-4-5",
+            "stream": false,
+            "tools": [
+              {
+                "description": "run",
+                "input_schema": {
+                  "properties": {
+                    "command": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "name": "Bash"
+              },
+              {
+                "description": "read",
+                "input_schema": {
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "name": "Read"
+              },
+              {
+                "description": "edit",
+                "input_schema": {
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "name": "Edit"
+              }
+            ]
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-haiku-4-5",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-haiku-4-5"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "838",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "200000",
+          "X-Router-Cost-Input-Usd": "0.000012",
+          "X-Router-Cost-Output-Usd": "0.000035",
+          "X-Router-Cost-Usd": "0.000047",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "claude-haiku-4-5",
+          "X-Router-Provider": "anthropic"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "reply 1",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "claude-haiku-4-5",
+          "role": "assistant",
+          "stop_reason": "end_turn",
+          "type": "message",
+          "usage": {
+            "input_tokens": 12,
+            "output_tokens": 7
+          }
+        }
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_low",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "claude-haiku-4-5",
+            "Provider": "anthropic",
+            "Reason": "golden_route",
+            "Role": "default_low",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_low",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "claude-haiku-4-5",
+            "ServedProvider": "anthropic",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -47,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 47,
+          "OrganizationID": "golden-org",
+          "RouterModel": "claude-haiku-4-5"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000012,
+          "ActualOutputCostUSD": 0.000035,
+          "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 200000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 838,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "claude-haiku-4-5",
+            "served_model": "claude-haiku-4-5",
+            "version": 1
+          },
+          "DecisionModel": "claude-haiku-4-5",
+          "DecisionProvider": "anthropic",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 6,
+          "FinalModelFamily": "claude-haiku",
+          "FreshDecisionModel": "claude-haiku-4-5",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "claude-haiku",
+          "LatestToolCallCounts": {
+            "Bash": {
+              "calls": 1,
+              "errors": 1
+            }
+          },
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedInputCostUSD": 0.000012,
+          "RequestedModel": "claude-haiku-4-5",
+          "RequestedOutputCostUSD": 0.000035,
+          "Role": "default_low",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StopReason": "end_turn",
+          "Strategy": "hmm_embedding",
+          "ToolErrorCounts": {
+            "Bash": {
+              "calls": 12,
+              "errors": 12
+            }
+          },
+          "ToolResultBytes": 14,
+          "TurnType": "tool_result",
+          "UpstreamFinishReason": "end_turn",
+          "UpstreamStatusCode": 200
+        }
+      ]
+    }
+  ],
+  "scenario": "anthropic_messages_conversation_spiral_shadow_skipped_without_training_consent"
+}
