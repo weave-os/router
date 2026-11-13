@@ -26,6 +26,26 @@ import (
 
 const reasoningProgressModel = string(catalog.ModelIDGPT55)
 
+type providerWaitObserver struct {
+	waiting atomic.Bool
+}
+
+func withProviderWaitCapture(ctx context.Context) (context.Context, *providerWaitObserver) {
+	observer := &providerWaitObserver{}
+	return timing.WithProviderWaitObserver(ctx, observer.waiting.Store), observer
+}
+
+func (o *providerWaitObserver) assertDuringReasoning(t *testing.T, stamps *timing.Timing) {
+	assert.Positive(t, stamps.UpstreamFirstByteNanos.Load())
+	assert.Zero(t, stamps.UpstreamFirstOutputNanos.Load(), "reasoning must not stamp first output")
+	assert.True(t, o.waiting.Load(), "reasoning and keepalives must retain the upstream wait")
+}
+
+func (o *providerWaitObserver) assertAfterOutput(t *testing.T, stamps *timing.Timing) {
+	assert.Positive(t, stamps.UpstreamFirstOutputNanos.Load())
+	assert.False(t, o.waiting.Load(), "first useful output must clear the upstream wait")
+}
+
 func completedReasoningFrame(index int) string {
 	return fmt.Sprintf(`{"type":"response.output_item.done","output_index":%d,"item":{"type":"reasoning","id":"rs_%d","encrypted_content":"opaque_%d","summary":[]}}`, index, index, index)
 }
@@ -50,8 +70,7 @@ func TestResponsesReasoningProgress_LongReasoningCompletes(t *testing.T) {
 			logBuf := captureCompletionLog(t)
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			ctx, stamps := timing.WithTiming(ctx)
-			var providerWaiting atomic.Bool
-			ctx = timing.WithProviderWaitObserver(ctx, providerWaiting.Store)
+			ctx, providerWait := withProviderWaitCapture(ctx)
 			reasoningFinished := make(chan struct{})
 			releaseAnswer := make(chan struct{})
 			var attempts atomic.Int32
@@ -130,9 +149,7 @@ func TestResponsesReasoningProgress_LongReasoningCompletes(t *testing.T) {
 				t.Fatal("reasoning phase did not finish")
 			case <-reasoningFinished:
 			}
-			assert.Positive(t, stamps.UpstreamFirstByteNanos.Load())
-			assert.Zero(t, stamps.UpstreamFirstOutputNanos.Load(), "reasoning must not stamp first output")
-			assert.True(t, providerWaiting.Load(), "reasoning and keepalives must retain the upstream wait")
+			providerWait.assertDuringReasoning(t, stamps)
 			close(releaseAnswer)
 			select {
 			case err := <-finished:
@@ -141,8 +158,7 @@ func TestResponsesReasoningProgress_LongReasoningCompletes(t *testing.T) {
 				t.Fatal("stream did not complete")
 			}
 			assert.EqualValues(t, 1, attempts.Load())
-			assert.Positive(t, stamps.UpstreamFirstOutputNanos.Load())
-			assert.False(t, providerWaiting.Load(), "first useful output must clear the upstream wait")
+			providerWait.assertAfterOutput(t, stamps)
 			body := rec.Body.String()
 			assert.Contains(t, body, "answer")
 			assert.Contains(t, body, `"name":"read_file"`)
