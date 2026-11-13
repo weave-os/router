@@ -91,7 +91,7 @@ func (t *ThrottleLedger) CompletionLogFields() []any {
 	}
 }
 
-// throttleRetryDelay is the Transport.RetryDelay for a turn under
+// RetryDelay is the Transport.RetryDelay for a turn under
 // transient_rate_limit: a 429's Retry-After is honoured up to the cap, one
 // above the cap ends same-binding retries so the turn goes to rescue, and a
 // bare 429 backs off 500 ms then 1.5 s. Nil (flag off) keeps the executor's
