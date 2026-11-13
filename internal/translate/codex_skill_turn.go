@@ -21,10 +21,10 @@ const (
 
 func codexSkillTurnFor(input gjson.Result) CodexSkillTurn {
 	switch {
-	case codexFeedbackSkillInvocation(input):
-		return CodexSkillTurnFeedback
 	case codexForceModelSkillToolOutput(input):
 		return CodexSkillTurnForceModel
+	case codexFeedbackSkillInvocation(input):
+		return CodexSkillTurnFeedback
 	default:
 		return CodexSkillTurnNone
 	}

@@ -427,6 +427,23 @@ func TestCodexFeedbackSkillDoesNotLatchAcrossTurns(t *testing.T) {
 	assert.NotEqual(t, translate.CodexSkillTurnFeedback, converted.CodexSkill)
 }
 
+func TestCodexSkillTurnLatestForceModelOutputWinsOverEarlierFeedback(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-5.6-terra",
+		"input": []any{
+			map[string]any{"type": "message", "role": "user", "content": "$rf +"},
+			map[string]any{"type": "message", "role": "user", "content": "<skill>\n<name>rf</name>\nrun the feedback skill\n</skill>"},
+			map[string]any{"type": "custom_tool_call", "call_id": "call_rf", "name": "exec", "input": "..."},
+			map[string]any{"type": "custom_tool_call_output", "call_id": "call_rf", "output": " /router-feedback +\n"},
+			map[string]any{"type": "custom_tool_call", "call_id": "call_fm", "name": "exec", "input": "/x/skills/fm/scripts/emit.sh astra"},
+			map[string]any{"type": "custom_tool_call_output", "call_id": "call_fm", "output": " /force-model astra\n"},
+		},
+	})
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.Equal(t, translate.CodexSkillTurnForceModel, converted.CodexSkill)
+}
+
 func TestExtractRouterFeedbackCommand_CodexExecDocumentationIsNotCommand(t *testing.T) {
 	body := mustMarshalJSON(t, map[string]any{
 		"model": "gpt-5.6-sol",
