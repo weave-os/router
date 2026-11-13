@@ -691,30 +691,38 @@ render_codex_nudge() {
 }
 for version in '' 0 bad 1 2; do
   write_nudge_config "$nudge/home/.codex/config.toml" "$version"
-  result="$(render_codex_nudge "$nudge/home/.weave/codex-status.sh")"
-  case "$version:$result" in
+  title="$(render_codex_nudge "$nudge/home/.weave/codex-status.sh")"
+  case "$version:$title" in
     1:*'config is out of date'*|2:*'config is out of date'*) echo "current/newer Codex stamp nudged"; exit 1 ;;
     1:*|2:*) ;;
     *'config is out of date: npx @weave-os/router update --codex') ;;
-    *) echo "missing Codex nudge for $version: $result"; exit 1 ;;
+    *) echo "missing Codex nudge for $version: $title"; exit 1 ;;
   esac
 done
 for directory in "project root" "custom dir"; do
   write_nudge_config "$nudge/$directory/.codex/config.toml" 0
-  result="$(render_codex_nudge "$nudge/$directory/.codex/weave-status.sh")"
-  [[ "$result" == *"update --codex --dir $(printf '%q' "$nudge/$directory")" ]] || { echo "wrong scoped Codex repair: $result"; exit 1; }
+  title="$(render_codex_nudge "$nudge/$directory/.codex/weave-status.sh")"
+  [[ "$title" == *"update --codex --dir $(printf '%q' "$nudge/$directory")" ]] || { echo "wrong scoped Codex repair: $title"; exit 1; }
 done
 write_nudge_config "$nudge/home/.codex/config.toml" 0 openai
-result="$(render_codex_nudge "$nudge/home/.weave/codex-status.sh")"
-[[ "$result" != *'config is out of date'* ]] || { echo "direct Codex routing nudged"; exit 1; }
+title="$(render_codex_nudge "$nudge/home/.weave/codex-status.sh")"
+[[ "$title" != *'config is out of date'* ]] || { echo "direct Codex routing nudged"; exit 1; }
+write_nudge_config "$nudge/home/.codex/config.toml" 0
+sed -i 's/^model_provider/  model_provider/' "$nudge/home/.codex/config.toml"
+title="$(render_codex_nudge "$nudge/home/.weave/codex-status.sh")"
+[[ "$title" == *'config is out of date'* ]] || { echo "indented root provider missed: $title"; exit 1; }
+write_nudge_config "$nudge/home/.codex/config.toml" 0 openai
+printf '\n[profiles.unused]\nmodel_provider = "weave"\n' >>"$nudge/home/.codex/config.toml"
+title="$(render_codex_nudge "$nudge/home/.weave/codex-status.sh")"
+[[ "$title" != *'config is out of date'* ]] || { echo "unused profile triggered config hint: $title"; exit 1; }
 write_nudge_config "$nudge/home/.codex/config.toml" 0
 sed -i 's/X-Weave-Router-Key/Other-Key/' "$nudge/home/.codex/config.toml"
-result="$(render_codex_nudge "$nudge/home/.weave/codex-status.sh")"
-[[ "$result" != *'config is out of date'* ]] || { echo "Codex without router key nudged"; exit 1; }
+title="$(render_codex_nudge "$nudge/home/.weave/codex-status.sh")"
+[[ "$title" != *'config is out of date'* ]] || { echo "Codex without router key nudged"; exit 1; }
 write_nudge_config "$nudge/home/.codex/config.toml" 0
 printf '{"hide_terminal_surfaces":true}' >"$nudge/display.json"
 rm -rf "$nudge/cache"
-result="$(render_codex_nudge "$nudge/home/.weave/codex-status.sh")"
-[[ "$result" = Codex ]] || { echo "hidden Codex config hint leaked: $result"; exit 1; }
+title="$(render_codex_nudge "$nudge/home/.weave/codex-status.sh")"
+[[ "$title" = Codex ]] || { echo "hidden Codex config hint leaked: $title"; exit 1; }
 
 echo "Codex status helper regression tests passed"

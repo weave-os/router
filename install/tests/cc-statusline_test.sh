@@ -973,9 +973,9 @@ check_not_contains "display-settings refresh drops unrelated headers" "$headers"
 
 echo
 nudge="$work/config-nudge"
-mkdir -p "$nudge/home/.weave" "$nudge/project root/.claude" "$nudge/custom dir/.claude"
+mkdir -p "$nudge/home/.weave" "$nudge/project root/.claude" "$nudge/custom dir/.claude" "$nudge/custom dir/.weave"
 printf '{"hide_terminal_surfaces":false}' >"$nudge/display.json"
-for location in "$nudge/home/.weave" "$nudge/project root/.claude" "$nudge/custom dir/.claude"; do
+for location in "$nudge/home/.weave" "$nudge/project root/.claude" "$nudge/custom dir/.claude" "$nudge/custom dir/.weave"; do
   cp "$statusline" "$location/cc-statusline.sh"
 done
 printf '{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: rk_test"}}' >"$nudge/project root/.claude/settings.local.json"
@@ -1002,6 +1002,11 @@ check_contains "project config repair uses explicit cwd" "$out" "cd $(printf '%q
 check_not_contains "project config repair never uses dir" "$out" '--dir'
 out="$(render_nudge "$nudge/custom dir/.claude" 0)"
 check_contains "custom directory config repair" "$out" "update --claude --dir $(printf '%q' "$nudge/custom dir")"
+
+out="$(render_nudge "$nudge/custom dir/.weave" 0)"
+check_contains "user-scope custom directory config repair" "$out" "update --claude --dir $(printf '%q' "$nudge/custom dir")"
+out="$(render_nudge "$nudge/home/.weave" 0)"
+check_not_contains "home installation repair has no directory override" "$out" '--dir'
 
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

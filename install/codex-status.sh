@@ -210,7 +210,11 @@ config_update_clause() {
     return 0
   fi
   [ -f "$config" ] || return 0
-  grep -Eq '^model_provider[[:space:]]*=[[:space:]]*"weave"' "$config" || return 0
+  awk '
+    /^[[:space:]]*\[/ { exit }
+    /^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*(#.*)?$/ { found = 1; exit }
+    END { exit !found }
+  ' "$config" || return 0
   [ -n "$(read_codex_endpoint)" ] || return 0
   version="$(read_codex_endpoint version)"
   case "$version" in ''|*[!0-9]*) version=0 ;; esac

@@ -5605,7 +5605,11 @@ config_update_clause() {
     return 0
   fi
   [ -f "$config" ] || return 0
-  grep -Eq '^model_provider[[:space:]]*=[[:space:]]*"weave"' "$config" || return 0
+  awk '
+    /^[[:space:]]*\[/ { exit }
+    /^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*(#.*)?$/ { found = 1; exit }
+    END { exit !found }
+  ' "$config" || return 0
   [ -n "$(read_codex_endpoint)" ] || return 0
   version="$(read_codex_endpoint version)"
   case "$version" in ''|*[!0-9]*) version=0 ;; esac
@@ -8167,6 +8171,12 @@ weave_login_scope=""
 weave_update_command="npx @weave-os/router update --claude"
 weave_sl_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
 case "$weave_sl_dir" in
+  */.weave)
+    if [ "$weave_sl_dir" != "$HOME/.weave" ]; then
+      weave_login_scope=" --dir $(printf '%q' "${weave_sl_dir%/.weave}")"
+      weave_update_command="$weave_update_command$weave_login_scope"
+    fi
+    ;;
   */.claude)
     weave_login_scope=" --dir $(printf '%q' "${weave_sl_dir%/.claude}")"
     weave_update_command="$weave_update_command$weave_login_scope"

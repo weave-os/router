@@ -69,4 +69,9 @@ mkdir -p "$custom"
 run_install "$user_home" --dir "$custom"
 test "$(jq -r '.env.WEAVE_ROUTER_CONFIG_VERSION' "$custom/.claude/settings.json")" = "1"
 
+HOME="$user_home" PATH="$fake_bin:$PATH" bash "$script_dir/../uninstall.sh" --claude --scope user >/dev/null 2>&1
+test "$(jq -r '.env.WEAVE_ROUTER_CONFIG_VERSION' "$user_home/.claude/settings.json")" = "null"
+(cd "$project" && HOME="$project_home" PATH="$fake_bin:$PATH" bash "$script_dir/../uninstall.sh" --claude --scope project >/dev/null 2>&1)
+test "$(jq -r '.env.WEAVE_ROUTER_CONFIG_VERSION' "$project/.claude/settings.local.json")" = "null"
+
 echo "Claude tool-search and auto-mode installer regression tests passed"

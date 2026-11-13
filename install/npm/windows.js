@@ -268,7 +268,7 @@ function installClaude(paths, baseUrl, key, email, attribution) {
   }
   settings.env.ENABLE_TOOL_SEARCH = "true";
   settings.env.CLAUDE_CODE_AUTO_MODE_SERVER = "0";
-  state.configVersion ||= { exists: Object.hasOwn((localSettings || settings).env || {}, "WEAVE_ROUTER_CONFIG_VERSION"), value: (localSettings || settings).env?.WEAVE_ROUTER_CONFIG_VERSION };
+  state.configVersion ||= { exists: Object.hasOwn((localSettings || settings).env, "WEAVE_ROUTER_CONFIG_VERSION"), value: (localSettings || settings).env.WEAVE_ROUTER_CONFIG_VERSION };
   (localSettings || settings).env.WEAVE_ROUTER_CONFIG_VERSION = "1";
   const modelSettings = localSettings || settings;
   const modelUnset = !process.env.ANTHROPIC_MODEL && [settings, localSettings, readJson(path.join(process.env.USERPROFILE || process.env.HOME, ".claude", "settings.json"))].every((layer) => !layer || (!Object.hasOwn(layer, "model") && !layer.env?.ANTHROPIC_MODEL));

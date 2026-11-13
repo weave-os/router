@@ -1179,6 +1179,12 @@ weave_login_scope=""
 weave_update_command="npx @weave-os/router update --claude"
 weave_sl_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
 case "$weave_sl_dir" in
+  */.weave)
+    if [ "$weave_sl_dir" != "$HOME/.weave" ]; then
+      weave_login_scope=" --dir $(printf '%q' "${weave_sl_dir%/.weave}")"
+      weave_update_command="$weave_update_command$weave_login_scope"
+    fi
+    ;;
   */.claude)
     weave_login_scope=" --dir $(printf '%q' "${weave_sl_dir%/.claude}")"
     weave_update_command="$weave_update_command$weave_login_scope"
