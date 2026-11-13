@@ -7,12 +7,29 @@ import "sort"
 const ScopeCatalog = "catalog"
 
 // ModelListing is one wire row of GET /v1/router/models: the ID clients send,
-// the primary provider the settings UI groups by, and whether the dashboard
-// may offer a fast-mode toggle for the model.
+// the primary provider the settings UI groups by, whether the dashboard may
+// offer a fast-mode toggle for the model, and the listed provider's base
+// per-1M-token prices so model pickers never keep their own price table.
+// Prices are omitted for a roster model the catalog cannot price.
 type ModelListing struct {
-	Model    string `json:"model"`
-	Provider string `json:"provider"`
-	FastMode bool   `json:"fast_mode"`
+	Model          string  `json:"model"`
+	Provider       string  `json:"provider"`
+	FastMode       bool    `json:"fast_mode"`
+	InputUSDPer1M  float64 `json:"input_usd_per_1m,omitempty"`
+	OutputUSDPer1M float64 `json:"output_usd_per_1m,omitempty"`
+}
+
+// NewModelListing builds the wire row for a model served by provider, priced
+// from that provider's binding.
+func NewModelListing(model, provider string) ModelListing {
+	price, _ := PriceFor(provider, model)
+	return ModelListing{
+		Model:          model,
+		Provider:       provider,
+		FastMode:       SupportsFastMode(model),
+		InputUSDPer1M:  price.InputUSDPer1M,
+		OutputUSDPer1M: price.OutputUSDPer1M,
+	}
 }
 
 // ModelListingResponse is the body of GET /v1/router/models. Kept stable so
@@ -31,7 +48,7 @@ func Listing() []ModelListing {
 		if m.ID == "" {
 			continue
 		}
-		rows = append(rows, ModelListing{Model: m.ID, Provider: m.PrimaryProvider(), FastMode: SupportsFastMode(m.ID)})
+		rows = append(rows, NewModelListing(m.ID, m.PrimaryProvider()))
 	}
 	SortListing(rows)
 	return rows
