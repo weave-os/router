@@ -659,7 +659,7 @@ func (s *Service) bypassToAnthropic(
 	}
 	if env.Stream() && proxyErr != nil && preludeBuf.Committed() {
 		proxyErr = emitAnthropicSSEErrorEvent(w, proxyErr)
-	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) && !claudeEnterpriseOnly(ctx) {
+	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) && bypassMayReroute(ctx, proxyErr) {
 		return errBypassRetryable
 	}
 	if !claudeEnterpriseOnly(ctx) && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) &&

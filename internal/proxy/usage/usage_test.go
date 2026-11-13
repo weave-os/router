@@ -489,3 +489,15 @@ func TestObserverKeepsFutureResetWhenInferenceOmitsPreflightMetadata(t *testing.
 	snapshot, _ = observer.Snapshot(key)
 	require.Equal(t, newReset, snapshot.Primary.ResetAt)
 }
+
+func TestAnthropicOverageCapRejectedRequiresBothRejections(t *testing.T) {
+	h := http.Header{}
+	h.Set("anthropic-ratelimit-unified-status", "rejected")
+	require.False(t, usage.AnthropicOverageCapRejected(h), "included usage spent but overage still allowed")
+	h.Set("anthropic-ratelimit-unified-overage-status", "allowed")
+	require.False(t, usage.AnthropicOverageCapRejected(h))
+	h.Set("anthropic-ratelimit-unified-overage-status", "rejected")
+	require.True(t, usage.AnthropicOverageCapRejected(h))
+	h.Set("anthropic-ratelimit-unified-status", "allowed")
+	require.False(t, usage.AnthropicOverageCapRejected(h))
+}

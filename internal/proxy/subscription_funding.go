@@ -82,12 +82,7 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 			return ErrWeaveCreditsDisabled
 		}
 		if claudeEnterpriseTarget(callCtx, target) || claudeEnterpriseTurn(callCtx) {
-			creds := CredentialsFromContext(callCtx)
-			pool, compatible := subscriptionPoolForModel(target)
-			if creds == nil || !creds.OAuth || creds.Source != credSourceSubscription || !compatible || pool != subscriptions.ProviderClaude || !s.supportsSubscriptionTransport(target.Provider) {
-				return ErrClaudeEnterpriseSubscriptionUnavailable
-			}
-			return nil
+			return claudeEnterpriseFunding(callCtx, target, s.supportsSubscriptionTransport(target.Provider))
 		}
 		if creds := CredentialsFromContext(callCtx); creds != nil && creds.OAuth {
 			return nil
