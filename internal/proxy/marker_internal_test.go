@@ -595,7 +595,7 @@ func TestSubscriptionTargetMarker_UndispatchedPickIsNotCalledOverloaded(t *testi
 
 	failed := tracedAttempt{Target: inference.Target{Provider: providers.ProviderOpenAI, CatalogID: "xiaomi/mimo-v2.6-pro"}, Err: errors.New("boom"),
 		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorUpstream5xx)}}
-	traced := context.WithValue(context.Background(), attemptTraceContextKey{}, &attemptTrace{attempts: []tracedAttempt{failed}})
+	traced := context.WithValue(context.Background(), attemptTraceContextKey{}, traceOf(failed))
 	assert.Contains(t, subscriptionTargetMarker(traced, http.Header{}, res, picked, target, routingMarkerFor(res)), "switched after xiaomi/mimo-v2.6-pro",
 		"a pick that did fail is still named as the failed model")
 }

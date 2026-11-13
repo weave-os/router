@@ -719,7 +719,7 @@ func machineReadTurn(res turnLoopResult) bool {
 // its tool results and consume the parent's notice cooldown.
 func muteSlowStartFor(ctx context.Context, res turnLoopResult) {
 	if machineReadTurn(res) || res.HardPinned || res.TurnType == turntype.SubAgentDispatch {
-		attemptTraceFromContext(ctx).muteSlowStart()
+		attemptTraceFromContext(ctx).MuteSlowStart()
 	}
 }
 
@@ -916,7 +916,7 @@ func siblingMarkerReason(ctx context.Context, failedModel string) string {
 		return markerReasonSibling
 	}
 	cause := "was unavailable"
-	if failed, ok := attemptTraceFromContext(ctx).lastFailureOn(failedModel); ok {
+	if failed, ok := lastFailureOn(attemptTraceFromContext(ctx), failedModel); ok {
 		cause = failureWordingFor(failed).badge
 	}
 	return "switched after " + failedModel + " " + cause
@@ -951,7 +951,7 @@ func subscriptionTargetMarker(ctx context.Context, h http.Header, res turnLoopRe
 	}
 	// A pick the subscription lane never dispatched did not fail; it was
 	// swapped for a model the subscription covers.
-	if !attemptTraceFromContext(ctx).failedOn(picked.Model) {
+	if !failedOn(attemptTraceFromContext(ctx), picked.Model) {
 		return switchMarkerFor(ctx, h, res, markerReasonSubscriptionCovered, target.Model)
 	}
 	return siblingMarkerFor(ctx, h, res, picked.Model, target.Model)

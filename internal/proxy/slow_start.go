@@ -11,6 +11,7 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/translate"
 )
@@ -105,73 +106,50 @@ func (t *slowStartTracker) claim(session string, now time.Time) bool {
 }
 
 type slowStartAttempt struct {
-	current          tracedAttempt
-	attemptAt        time.Time
-	firstAttemptAt   time.Time
-	lastFailure      tracedAttempt
-	failed           bool
+	dispatch.AttemptSnapshot
 	clientToolTiming *translate.ClientToolTiming
-}
-
-func (t *attemptTrace) slowStartSnapshot() (slowStartAttempt, bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.attemptAt.IsZero() || t.slowStartMuted {
-		return slowStartAttempt{}, false
-	}
-	snap := slowStartAttempt{
-		current:        tracedAttempt{Target: t.current, BaseURL: t.baseURL},
-		attemptAt:      t.attemptAt,
-		firstAttemptAt: t.firstAttemptAt,
-	}
-	for i := len(t.attempts) - 1; i >= 0; i-- {
-		if t.attempts[i].Err != nil {
-			snap.lastFailure, snap.failed = t.attempts[i], true
-			break
-		}
-	}
-	return snap, true
 }
 
 // slowStartNotice runs when the serving attempt's first provider content
 // arrives: it records the attempt's TTFT and returns a notice when the
 // request's wait was well above the provider's usual.
 func slowStartNotice(ctx context.Context, trace *attemptTrace, tracker *slowStartTracker, now time.Time) (translate.RouterNotice, bool) {
-	snap, ok := trace.slowStartSnapshot()
+	snapshot, ok := trace.SlowStartSnapshot()
 	if !ok {
 		return translate.RouterNotice{}, false
 	}
-	p50, samples := tracker.observe(slowStartKey(snap.current), now.Sub(snap.attemptAt), now)
+	snap := slowStartAttempt{AttemptSnapshot: snapshot}
+	p50, samples := tracker.observe(slowStartKey(snap.Current), now.Sub(snap.AttemptAt), now)
 	threshold := slowStartFloor
 	if samples >= slowStartMinSamples {
 		threshold = max(threshold, slowStartMultiple*p50)
 	} else {
 		p50 = 0
 	}
-	wait := now.Sub(snap.firstAttemptAt)
-	if wait <= threshold || trace.hideDetails() || isHeadlessClientUserAgent(ClientIdentityFrom(ctx).UserAgent) {
+	wait := now.Sub(snap.FirstAttemptAt)
+	if wait <= threshold || trace.HideDetails() || isHeadlessClientUserAgent(ClientIdentityFrom(ctx).UserAgent) {
 		return translate.RouterNotice{}, false
 	}
-	if ClientIdentityFrom(ctx).ClientApp == ClientAppCodex && translate.SlowStartInResponsesTurn(trace.inbound) {
+	if ClientIdentityFrom(ctx).ClientApp == ClientAppCodex && translate.SlowStartInResponsesTurn(trace.Inbound()) {
 		return translate.RouterNotice{}, false
 	}
 	if cooldownKey, ok := slowStartCooldownKey(ctx); !ok || !tracker.claim(cooldownKey, now) {
 		return translate.RouterNotice{}, false
 	}
 	observability.FromContext(ctx).Info("Slow-start notice emitted",
-		"model", snap.current.Target.CatalogID,
-		"provider", snap.current.Target.Provider,
+		"model", snap.Current.Target.CatalogID,
+		"provider", snap.Current.Target.Provider,
 		"wait_ms", wait.Milliseconds(),
 		"usual_p50_ms", p50.Milliseconds(),
 		"threshold_ms", threshold.Milliseconds(),
 	)
 	if ClientIdentityFrom(ctx).ClientApp == ClientAppCodex {
-		if timing, reported := translate.CodexReportedToolTiming(trace.inbound); reported {
+		if timing, reported := translate.CodexReportedToolTiming(trace.Inbound()); reported {
 			snap.clientToolTiming = &timing
 		}
 	}
 	text := slowStartLine(snap, wait, p50)
-	return translate.NewRouterNotice(translate.NoticeSlowStart, text, snap.current.Target.CatalogID, ""), true
+	return translate.NewRouterNotice(translate.NoticeSlowStart, text, snap.Current.Target.CatalogID, ""), true
 }
 
 // slowStartCooldownKey scopes the notice cooldown to the client session, or
@@ -189,15 +167,15 @@ func slowStartCooldownKey(ctx context.Context) (string, bool) {
 
 // slowStartLine separates the upstream wait from client-reported tool runtime.
 func slowStartLine(snap slowStartAttempt, wait, p50 time.Duration) string {
-	provider := snap.current.providerName()
+	provider := attemptProviderName(snap.Current)
 	var details []string
 	if p50 > 0 {
 		details = append(details, "usually ~"+roundSeconds(p50))
 	}
-	if snap.failed {
-		failed := snap.lastFailure
+	if snap.Failed {
+		failed := snap.LastFailure
 		what := failed.Target.CatalogID
-		if name := failed.providerName(); name != provider {
+		if name := attemptProviderName(failed); name != provider {
 			what += " on " + name
 		}
 		details = append(details, what+" "+failureWordingFor(failed).badge+" first")

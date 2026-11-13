@@ -6,50 +6,22 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"sync"
-	"time"
 
 	"github.com/tidwall/sjson"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/requestcontext"
 )
 
 type attemptTraceContextKey struct{}
 
-// attemptTrace collects one request's upstream attempts so telemetry, routing
-// badges and terminal errors can name who owns each failure.
-type attemptTrace struct {
-	mu                 sync.Mutex
-	inbound            []byte
-	sent               []byte
-	customerCredential bool
-	baseURL            string
-	deploymentBaseURL  string
-	current            inference.Target
-	firstAttemptAt     time.Time
-	attemptAt          time.Time
-	attempts           []tracedAttempt
-	// hideRouterDetails is set when the request opted out of routing badges
-	// or the installation hides terminal surfaces.
-	hideRouterDetails bool
-	// slowStartMuted is set for turns whose output a client parses, where
-	// router text would corrupt the reply.
-	slowStartMuted bool
-}
+type (
+	attemptTrace  = dispatch.AttemptTrace
+	tracedAttempt = dispatch.TracedAttempt
+)
 
-type tracedAttempt struct {
-	Target inference.Target
-	// BaseURL is the customer gateway the attempt reached, empty for a
-	// provider's own endpoint.
-	BaseURL   string
-	Err       error
-	Diagnosis inference.AttemptDiagnosis
-}
-
-func (a tracedAttempt) owner() FailureOwner { return FailureOwner(a.Diagnosis.FailureOwner) }
+func attemptOwner(a tracedAttempt) FailureOwner { return FailureOwner(a.Diagnosis.FailureOwner) }
 
 // withAttemptTrace starts tracing the attempts that dispatch inbound. A
 // surface that delegates to another keeps the outer surface's inbound body.
@@ -57,33 +29,7 @@ func withAttemptTrace(ctx context.Context, inbound []byte, h http.Header) contex
 	if attemptTraceFromContext(ctx) != nil {
 		return ctx
 	}
-	return context.WithValue(ctx, attemptTraceContextKey{}, &attemptTrace{
-		inbound:           inbound,
-		hideRouterDetails: suppressMarkerIfRequested(ctx, h, "x") == "",
-	})
-}
-
-func (t *attemptTrace) hideDetails() bool {
-	return t != nil && t.hideRouterDetails
-}
-
-func (t *attemptTrace) muteSlowStart() {
-	if t == nil {
-		return
-	}
-	t.mu.Lock()
-	t.slowStartMuted = true
-	t.mu.Unlock()
-}
-
-// servingBaseURL is the gateway endpoint of the latest attempt.
-func (t *attemptTrace) servingBaseURL() string {
-	if t == nil {
-		return ""
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.baseURL
+	return context.WithValue(ctx, attemptTraceContextKey{}, dispatch.NewAttemptTrace(inbound, suppressMarkerIfRequested(ctx, h, "x") == ""))
 }
 
 func attemptTraceFromContext(ctx context.Context) *attemptTrace {
@@ -91,25 +37,12 @@ func attemptTraceFromContext(ctx context.Context) *attemptTrace {
 	return trace
 }
 
-func (t *attemptTrace) beginAttempt(target inference.Target, deploymentBaseURL string, now time.Time) {
-	t.mu.Lock()
-	t.current, t.attemptAt = target, now
-	t.deploymentBaseURL = deploymentBaseURL
-	if t.firstAttemptAt.IsZero() {
-		t.firstAttemptAt = now
+// observeAttemptSent records each prepared body with whether the attempt
+// authenticated with a customer-owned credential.
+func observeAttemptSent(trace *attemptTrace) func(context.Context, []byte) {
+	return func(ctx context.Context, body []byte) {
+		trace.ObserveSent(ctx, body, customerOwnedCredential(ctx))
 	}
-	t.sent, t.customerCredential, t.baseURL = nil, false, deploymentBaseURL
-	t.mu.Unlock()
-}
-
-func (t *attemptTrace) observeSent(ctx context.Context, body []byte) {
-	customer := customerOwnedCredential(ctx)
-	t.mu.Lock()
-	baseURL := requestcontext.EffectiveBaseURL(ctx, t.deploymentBaseURL)
-	t.sent = body
-	t.customerCredential = customer
-	t.baseURL = baseURL
-	t.mu.Unlock()
 }
 
 // customerOwnedCredential reports whether the attempt authenticated with the
@@ -130,85 +63,38 @@ func customerOwnedCredential(ctx context.Context) bool {
 	return false
 }
 
-// describe diagnoses the attempt dispatch just recorded and logs a failure
-// with its owner; an unowned failure is logged loudly so a rule can be added.
-func (t *attemptTrace) describe(ctx context.Context, attempt dispatch.Attempt, err error) inference.AttemptDiagnosis {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	diagnosis := inference.AttemptDiagnosis{BodyTranslated: bodyRewritten(t.inbound, t.sent)}
-	if err != nil {
-		diagnosis.ErrorClass = string(classifyTurnError(err, "", 0))
-		diagnosis.FailureOwner = string(classifyFailureOwner(failureOwnerInput{
-			Err:                err,
-			BodyTranslated:     diagnosis.BodyTranslated,
-			CustomerCredential: t.customerCredential,
-		}))
-		logAttemptFailure(ctx, attempt, err, diagnosis)
-	}
-	t.attempts = append(t.attempts, tracedAttempt{Target: attempt.Target, BaseURL: t.baseURL, Err: err, Diagnosis: diagnosis})
-	return diagnosis
-}
-
-// lastFailure skips served attempts: badges and terminal errors describe the
-// failure that forced a switch, not the attempt that recovered.
-func (t *attemptTrace) lastFailure() (tracedAttempt, bool) {
-	if t == nil {
-		return tracedAttempt{}, false
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	for i := len(t.attempts) - 1; i >= 0; i-- {
-		if t.attempts[i].Err != nil {
-			return t.attempts[i], true
+// describeAttempt diagnoses the attempt dispatch just recorded and logs a
+// failure with its owner; an unowned failure is logged loudly so a rule can be
+// added.
+func describeAttempt(ctx context.Context, trace *attemptTrace, attempt dispatch.Attempt, err error) inference.AttemptDiagnosis {
+	return trace.Record(attempt, err, func(inbound, sent []byte, customerCredential bool) inference.AttemptDiagnosis {
+		diagnosis := inference.AttemptDiagnosis{BodyTranslated: bodyRewritten(inbound, sent)}
+		if err != nil {
+			diagnosis.ErrorClass = string(classifyTurnError(err, "", 0))
+			diagnosis.FailureOwner = string(classifyFailureOwner(failureOwnerInput{
+				Err:                err,
+				BodyTranslated:     diagnosis.BodyTranslated,
+				CustomerCredential: customerCredential,
+			}))
+			logAttemptFailure(ctx, attempt, err, diagnosis)
 		}
-	}
-	return tracedAttempt{}, false
+		return diagnosis
+	})
 }
 
-// failedOn reports whether any attempt on model failed in this request. Models
-// match by base model (baseModelOf), so catalog variants of one model count.
 // lastFailureOn is the newest failed attempt on model's base model, so a marker
-// cites that model's own failure rather than a later candidate's.
-func (t *attemptTrace) lastFailureOn(model string) (tracedAttempt, bool) {
-	if t == nil {
-		return tracedAttempt{}, false
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	for i := len(t.attempts) - 1; i >= 0; i-- {
-		if t.attempts[i].Err != nil && baseModelOf(t.attempts[i].Target.CatalogID) == baseModelOf(model) {
-			return t.attempts[i], true
-		}
-	}
-	return tracedAttempt{}, false
+// cites that model's own failure rather than a later candidate's. Models match
+// by base model (baseModelOf), so catalog variants of one model count.
+func lastFailureOn(trace *attemptTrace, model string) (tracedAttempt, bool) {
+	return trace.LastFailureWhere(func(target inference.Target) bool {
+		return baseModelOf(target.CatalogID) == baseModelOf(model)
+	})
 }
 
-func (t *attemptTrace) failedOn(model string) bool {
-	if t == nil {
-		return false
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	for _, attempt := range t.attempts {
-		if attempt.Err != nil && baseModelOf(attempt.Target.CatalogID) == baseModelOf(model) {
-			return true
-		}
-	}
-	return false
-}
-
-// retriesOf counts the failed same-target attempts before a, so a terminal
-// error can say how often the router retried the binding.
-func (t *attemptTrace) retriesOf(a tracedAttempt) int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	n := 0
-	for _, prior := range t.attempts {
-		if prior.Err != nil && prior.Target.Provider == a.Target.Provider && prior.Target.CatalogID == a.Target.CatalogID {
-			n++
-		}
-	}
-	return max(n-1, 0)
+// failedOn reports whether any attempt on model failed in this request.
+func failedOn(trace *attemptTrace, model string) bool {
+	_, ok := lastFailureOn(trace, model)
+	return ok
 }
 
 func logAttemptFailure(ctx context.Context, attempt dispatch.Attempt, err error, diagnosis inference.AttemptDiagnosis) {
@@ -236,8 +122,8 @@ func turnFailureOwnerFor(ctx context.Context, err error, class TurnErrorClass) F
 	if err == nil {
 		return turnFailureOwner(class)
 	}
-	if last, ok := attemptTraceFromContext(ctx).lastFailure(); ok && errors.Is(err, last.Err) {
-		return last.owner()
+	if last, ok := attemptTraceFromContext(ctx).LastFailure(); ok && errors.Is(err, last.Err) {
+		return attemptOwner(last)
 	}
 	return classifyFailureOwner(failureOwnerInput{Err: err})
 }

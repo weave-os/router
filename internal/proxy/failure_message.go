@@ -59,7 +59,7 @@ func providerDisplayNameFor(provider, baseURL string) string {
 	return "your gateway (" + host + ")"
 }
 
-func (a tracedAttempt) providerName() string {
+func attemptProviderName(a tracedAttempt) string {
 	return providerDisplayNameFor(a.Target.Provider, a.BaseURL)
 }
 
@@ -126,7 +126,7 @@ func failureWordingFor(a tracedAttempt) failureWording {
 		return failureWording{"found the conversation too long for its context window", withStatus("context window exceeded")}
 	}
 	if status >= 400 && status < 500 {
-		if a.Diagnosis.BodyTranslated && a.owner() == FailureOwnerRouter {
+		if a.Diagnosis.BodyTranslated && attemptOwner(a) == FailureOwnerRouter {
 			return failureWording{"rejected our translated request", withStatus("rejected our translated request")}
 		}
 		return failureWording{"rejected the request", withStatus("rejected the request")}
@@ -137,15 +137,15 @@ func failureWordingFor(a tracedAttempt) failureWording {
 // rescueDetailLine is the badge's second line naming the failed attempt the
 // rescue replaced and who owned the failure.
 func rescueDetailLine(a tracedAttempt) string {
-	owner := a.owner()
+	owner := attemptOwner(a)
 	if owner == "" || owner == FailureOwnerUnknown {
 		return ""
 	}
 	// The conversation outgrew this model's window: neither side did anything wrong.
 	if isUpstreamContextOverflow(a.Err) {
-		return translate.RescueDetailPrefix + a.providerName() + " " + failureWordingFor(a).badge + "\n\n"
+		return translate.RescueDetailPrefix + attemptProviderName(a) + " " + failureWordingFor(a).badge + "\n\n"
 	}
-	return translate.RescueDetailPrefix + a.providerName() + " " + failureWordingFor(a).badge + " (" + string(owner) + " issue)\n\n"
+	return translate.RescueDetailPrefix + attemptProviderName(a) + " " + failureWordingFor(a).badge + " (" + string(owner) + " issue)\n\n"
 }
 
 // withRescueDetail appends the rescue detail line to a rendered badge. An
@@ -160,7 +160,7 @@ func withRescueDetail(marker, detail string) string {
 // lastFailureDetail renders the detail line for the request's latest failed
 // attempt, or "" when none was traced.
 func lastFailureDetail(trace *attemptTrace) string {
-	last, ok := trace.lastFailure()
+	last, ok := trace.LastFailure()
 	if !ok {
 		return ""
 	}
@@ -182,21 +182,21 @@ func (e attributedError) Unwrap() error { return e.err }
 // attributeTerminalError names the owner of err's attempt for the terminal
 // message, unless the request hides router surfaces.
 func attributeTerminalError(trace *attemptTrace, err error) error {
-	if err == nil || trace == nil || trace.hideDetails() {
+	if err == nil || trace == nil || trace.HideDetails() {
 		return err
 	}
-	last, ok := trace.lastFailure()
+	last, ok := trace.LastFailure()
 	if !ok || !errors.Is(err, last.Err) {
 		return err
 	}
-	return attributeAttempt(last, trace.retriesOf(last), err)
+	return attributeAttempt(last, trace.RetriesOf(last), err)
 }
 
 // attributeStreamError attributes a failure the serving attempt hit after its
 // stream committed, before dispatch has traced it.
 func attributeStreamError(ctx context.Context, provider string, err error) error {
 	trace := attemptTraceFromContext(ctx)
-	if err == nil || trace.hideDetails() {
+	if err == nil || trace.HideDetails() {
 		return err
 	}
 	var attributed attributedError
@@ -205,7 +205,7 @@ func attributeStreamError(ctx context.Context, provider string, err error) error
 	}
 	a := tracedAttempt{
 		Target:    inference.Target{Provider: provider},
-		BaseURL:   requestcontext.EffectiveBaseURL(ctx, trace.servingBaseURL()),
+		BaseURL:   requestcontext.EffectiveBaseURL(ctx, trace.ServingBaseURL()),
 		Err:       err,
 		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(classifyTurnError(err, "", 0))},
 	}
@@ -225,7 +225,7 @@ func attributeAttempt(a tracedAttempt, retries int, err error) error {
 // attributionPrefix states what the provider did, e.g. "Cortex
 // returned 429 (rate limited) after 2 router retries".
 func attributionPrefix(a tracedAttempt, retries int) string {
-	if a.owner() == FailureOwnerRouter {
+	if attemptOwner(a) == FailureOwnerRouter {
 		return ""
 	}
 	var outcome string
@@ -250,7 +250,7 @@ func attributionPrefix(a tracedAttempt, retries int) string {
 			return ""
 		}
 	}
-	prefix := a.providerName() + " " + outcome
+	prefix := attemptProviderName(a) + " " + outcome
 	switch {
 	case retries == 1:
 		prefix += " after 1 router retry"
@@ -266,8 +266,8 @@ func terminalMessageFor(a tracedAttempt) string {
 
 func attributedTerminalMessage(a tracedAttempt, prefix string) string {
 	wording := failureWordingFor(a).terminal
-	provider := a.providerName()
-	switch a.owner() {
+	provider := attemptProviderName(a)
+	switch attemptOwner(a) {
 	case FailureOwnerProvider:
 		if prefix != "" {
 			if msg := upstreamErrorText(a.Err); msg != "" {

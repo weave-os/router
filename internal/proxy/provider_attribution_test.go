@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -31,7 +32,16 @@ func cortexAttempt(model string, err error, class TurnErrorClass) tracedAttempt 
 }
 
 func traceOf(attempts ...tracedAttempt) *attemptTrace {
-	return &attemptTrace{attempts: attempts}
+	trace := dispatch.NewAttemptTrace(nil, false)
+	recordAttempts(trace, attempts...)
+	return trace
+}
+
+func recordAttempts(trace *attemptTrace, attempts ...tracedAttempt) {
+	for _, a := range attempts {
+		trace.BeginAttempt(a.Target, a.BaseURL, time.Time{})
+		trace.Record(dispatch.Attempt{Target: a.Target}, a.Err, func([]byte, []byte, bool) inference.AttemptDiagnosis { return a.Diagnosis })
+	}
 }
 
 func TestProviderDisplayNameFor_NamesCustomerGateway(t *testing.T) {
@@ -145,13 +155,16 @@ func TestSiblingMarkerReason_NamesRealFailureClass(t *testing.T) {
 }
 
 func slowStartTrace(attemptAt, firstAt time.Time, attempts ...tracedAttempt) *attemptTrace {
-	return &attemptTrace{
-		current:        inference.Target{Provider: providers.ProviderAnthropicGateway, CatalogID: "claude-opus-5-5"},
-		baseURL:        cortexGatewayURL,
-		attemptAt:      attemptAt,
-		firstAttemptAt: firstAt,
-		attempts:       attempts,
-	}
+	return slowStartTraceOf(nil, attemptAt, firstAt, attempts...)
+}
+
+func slowStartTraceOf(inbound []byte, attemptAt, firstAt time.Time, attempts ...tracedAttempt) *attemptTrace {
+	current := inference.Target{Provider: providers.ProviderAnthropicGateway, CatalogID: "claude-opus-5-5"}
+	trace := dispatch.NewAttemptTrace(inbound, false)
+	trace.BeginAttempt(current, cortexGatewayURL, firstAt)
+	recordAttempts(trace, attempts...)
+	trace.BeginAttempt(current, cortexGatewayURL, attemptAt)
+	return trace
 }
 
 func slowStartCtx(session, apiKeyID, userAgent string) context.Context {
@@ -256,7 +269,7 @@ func TestAttributeStreamError_NamesGatewayFromServingAttempt(t *testing.T) {
 func TestSlowStartNotice_MutedTurnGetsNoNotice(t *testing.T) {
 	tracker, now := slowStartAfterBaseline(t)
 	trace := slowStartTrace(now.Add(-41*time.Second), now.Add(-41*time.Second))
-	trace.muteSlowStart()
+	trace.MuteSlowStart()
 
 	_, shown := slowStartNotice(slowStartCtx("session-1", "key-1", "claude-cli/2.1.302 (external, cli)"), trace, tracker, now)
 	assert.False(t, shown)
