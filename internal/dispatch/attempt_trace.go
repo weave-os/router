@@ -48,7 +48,8 @@ func NewAttemptTrace(inbound []byte, hideRouterDetails bool) *AttemptTrace {
 	}
 }
 
-// Inbound is the client body the request arrived with.
+// Inbound is the client body before any translation, for comparison with the
+// sent body.
 func (t *AttemptTrace) Inbound() []byte {
 	return t.inbound
 }
@@ -127,7 +128,8 @@ func (t *AttemptTrace) LastFailure() (TracedAttempt, bool) {
 	return TracedAttempt{}, false
 }
 
-// LastFailureWhere is the newest failed attempt whose target matches.
+// LastFailureWhere is the newest failed attempt whose target match accepts;
+// later failures on other targets are skipped.
 func (t *AttemptTrace) LastFailureWhere(match func(inference.Target) bool) (TracedAttempt, bool) {
 	if t == nil {
 		return TracedAttempt{}, false

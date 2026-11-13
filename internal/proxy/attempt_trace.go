@@ -34,14 +34,6 @@ func attemptTraceFromContext(ctx context.Context) *dispatch.AttemptTrace {
 	return trace
 }
 
-// observeAttemptSent records each prepared body with whether the attempt
-// authenticated with a customer-owned credential.
-func observeAttemptSent(trace *dispatch.AttemptTrace) func(context.Context, []byte) {
-	return func(ctx context.Context, body []byte) {
-		trace.ObserveSent(ctx, body, customerOwnedCredential(ctx))
-	}
-}
-
 // customerOwnedCredential reports whether the attempt authenticated with the
 // customer's own key or subscription rather than a Weave-managed key or a
 // Weave-leased subscription account.
@@ -86,12 +78,6 @@ func lastFailureOn(trace *dispatch.AttemptTrace, model string) (dispatch.TracedA
 	return trace.LastFailureWhere(func(target inference.Target) bool {
 		return baseModelOf(target.CatalogID) == baseModelOf(model)
 	})
-}
-
-// failedOn reports whether any attempt on model failed in this request.
-func failedOn(trace *dispatch.AttemptTrace, model string) bool {
-	_, ok := lastFailureOn(trace, model)
-	return ok
 }
 
 func logAttemptFailure(ctx context.Context, attempt dispatch.Attempt, err error, diagnosis inference.AttemptDiagnosis) {

@@ -153,7 +153,9 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		trace := attemptTraceFromContext(ctx)
 		if trace != nil {
 			trace.BeginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
-			guarded = dispatch.ObservePrepared(guarded, observeAttemptSent(trace))
+			guarded = dispatch.ObservePrepared(guarded, func(ctx context.Context, body []byte) {
+				trace.ObserveSent(ctx, body, customerOwnedCredential(ctx))
+			})
 		}
 		var lastSubscriptionErr error
 		if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {

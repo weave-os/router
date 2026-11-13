@@ -951,7 +951,7 @@ func subscriptionTargetMarker(ctx context.Context, h http.Header, res turnLoopRe
 	}
 	// A pick the subscription lane never dispatched did not fail; it was
 	// swapped for a model the subscription covers.
-	if !failedOn(attemptTraceFromContext(ctx), picked.Model) {
+	if _, ok := lastFailureOn(attemptTraceFromContext(ctx), picked.Model); !ok {
 		return switchMarkerFor(ctx, h, res, markerReasonSubscriptionCovered, target.Model)
 	}
 	return siblingMarkerFor(ctx, h, res, picked.Model, target.Model)
