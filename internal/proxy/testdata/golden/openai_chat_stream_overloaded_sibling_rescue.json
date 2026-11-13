@@ -224,23 +224,6 @@
               "choices": [
                 {
                   "delta": {
-                    "content": "✦ **Weave Router** → deepseek/deepseek-v4-pro · switched after claude-opus-4-7 returned a 529\n\n↳ switched: Anthropic returned a 529 (provider issue)\n\n",
-                    "role": "assistant"
-                  },
-                  "finish_reason": null,
-                  "index": 0
-                }
-              ],
-              "id": "chatcmpl-\u003cid\u003e",
-              "model": "deepseek/deepseek-v4-pro",
-              "object": "chat.completion.chunk"
-            }
-          },
-          {
-            "data": {
-              "choices": [
-                {
-                  "delta": {
                     "content": "",
                     "role": "assistant"
                   },
@@ -250,6 +233,23 @@
               ],
               "id": "chatcmpl-up",
               "model": "accounts/fireworks/models/deepseek-v4-pro",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "✦ **Weave Router** → deepseek/deepseek-v4-pro · switched after claude-opus-4-7 returned a 529\n\n↳ switched: Anthropic returned a 529 (provider issue)\n\n",
+                    "role": "assistant"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-\u003cid\u003e",
+              "model": "deepseek/deepseek-v4-pro",
               "object": "chat.completion.chunk"
             }
           },

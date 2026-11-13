@@ -176,6 +176,13 @@ func (s *protocolNoticeSink) Seal() {
 	}
 }
 
+// Committed reports whether the client's retry buffer has committed to the
+// current attempt.
+func (s *protocolNoticeSink) Committed() bool {
+	committer, ok := s.client.(interface{ Committed() bool })
+	return ok && committer.Committed()
+}
+
 func (s *protocolNoticeSink) ResetNotices() {
 	replacement := NewProtocolNoticeSink(s.client, s.capabilities)
 	*s = *replacement

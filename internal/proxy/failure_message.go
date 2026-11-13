@@ -94,6 +94,12 @@ func failureWordingFor(a tracedAttempt) failureWording {
 	if errors.Is(a.Err, ErrSubscriptionPoolExhausted) {
 		return failureWording{"had no subscription capacity", "subscription capacity exhausted"}
 	}
+	if errors.Is(a.Err, ErrSubscriptionPoolThrottled) {
+		return failureWording{"had every subscription seat rate-limited", "subscription seats rate-limited"}
+	}
+	if errors.Is(a.Err, ErrSubscriptionPoolUnavailable) {
+		return failureWording{"had no usable subscription seat", "no usable subscription seat"}
+	}
 	if errors.Is(a.Err, translate.ErrCustomToolArguments) {
 		return failureWording{"sent tool arguments we couldn't translate", "tool call translation failed"}
 	}

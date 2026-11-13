@@ -86,6 +86,7 @@ type NoticeSink interface {
 	CommitNotice() error
 	ArmOutputProgress(func()) bool
 	Seal()
+	Committed() bool
 }
 
 var ErrInvalidNotice = errors.New("router notice requires identity, provenance, kind and text")
@@ -106,6 +107,20 @@ type NoticeDelivery struct {
 	providerContentStarted bool
 	failure                error
 	beforeContent          func() (RouterNotice, bool)
+	deferred               RouterNotice
+}
+
+// DeferIfEager holds notice until this attempt commits or starts provider
+// content, so an attempt that fails first never shows it. A later call replaces
+// it. Non-eager streams buffer notices already, so it reports false there.
+func (d *NoticeDelivery) DeferIfEager(notice RouterNotice) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if !d.capabilities.Eager {
+		return false
+	}
+	d.deferred = notice
+	return true
 }
 
 // SetBeforeProviderContent registers a notice decided when the attempt's first
@@ -184,35 +199,63 @@ func (d *NoticeDelivery) Write(payload []byte) (int, error) {
 		if consumed == 0 {
 			break
 		}
-		providerContent := noticeProviderContent(d.capabilities.Format, event)
-		if providerContent && !d.providerContentStarted && !d.terminal {
-			if d.failure = d.emitBeforeContent(); d.failure != nil {
-				return 0, d.failure
-			}
+		providerContent, err := d.beforeEvent(event)
+		if err != nil {
+			return 0, err
 		}
-		_, d.failure = d.sink.Write(d.pending[:consumed])
-		if d.failure != nil {
+		if _, d.failure = d.sink.Write(d.pending[:consumed]); d.failure != nil {
 			return 0, d.failure
 		}
-		if providerContent {
-			d.providerContentStarted = true
+		if err := d.afterEvent(event, consumed, providerContent); err != nil {
+			return 0, err
 		}
-		if noticeTerminal(d.capabilities.Format, event) {
-			d.terminal = true
-		}
-		d.pending = d.pending[consumed:]
-		for _, notice := range d.queued {
-			if d.terminal || d.providerContentStarted {
-				break
-			}
-			d.failure = d.emit(notice)
-			if d.failure != nil {
-				return 0, d.failure
-			}
-		}
-		d.queued = nil
 	}
 	return consumedBytes, nil
+}
+
+// beforeEvent emits notices due before a pending SSE record. Callers hold d.mu.
+func (d *NoticeDelivery) beforeEvent(event []byte) (bool, error) {
+	providerContent := noticeProviderContent(d.capabilities.Format, event)
+	if providerContent && !d.providerContentStarted && !d.terminal {
+		d.failure = d.emitBeforeContent()
+	}
+	return providerContent, d.failure
+}
+
+// afterEvent records a written SSE record and emits notices due after it.
+// Callers hold d.mu.
+func (d *NoticeDelivery) afterEvent(event []byte, consumed int, providerContent bool) error {
+	if providerContent {
+		d.providerContentStarted = true
+	}
+	if noticeTerminal(d.capabilities.Format, event) {
+		d.terminal = true
+	}
+	if d.failure = d.emitDeferredOnCommit(); d.failure != nil {
+		return d.failure
+	}
+	d.pending = d.pending[consumed:]
+	for _, notice := range d.queued {
+		if d.terminal || d.providerContentStarted {
+			break
+		}
+		if d.failure = d.emit(notice); d.failure != nil {
+			return d.failure
+		}
+	}
+	d.queued = nil
+	return nil
+}
+
+// emitDeferredOnCommit shows a deferred marker once its attempt has committed,
+// even when that attempt then fails before any provider content.
+func (d *NoticeDelivery) emitDeferredOnCommit() error {
+	if d.deferred.Text == "" || d.terminal || !d.sink.Committed() {
+		return nil
+	}
+	deferred := d.deferred
+	d.deferred = RouterNotice{}
+	return d.emitOnce(deferred)
 }
 
 // ResetAttempt drops an abandoned partial record, retaining client-visible
@@ -227,6 +270,7 @@ func (d *NoticeDelivery) ResetAttempt(retainNotices bool) {
 		d.providerContentStarted = false
 	}
 	d.pending = nil
+	d.deferred = RouterNotice{}
 	d.scanner.Reset()
 	for _, notice := range d.queued {
 		delete(d.seen, notice.ID)
@@ -247,13 +291,25 @@ func (d *NoticeDelivery) Seal() {
 }
 
 func (d *NoticeDelivery) emitBeforeContent() error {
+	deferred := d.deferred
+	d.deferred = RouterNotice{}
 	fn := d.beforeContent
 	d.beforeContent = nil
-	if fn == nil || !d.capabilities.SupportsNotices() {
+	if !d.capabilities.SupportsNotices() {
 		return nil
 	}
+	if err := d.emitOnce(deferred); err != nil || fn == nil {
+		return err
+	}
 	notice, ok := fn()
-	if !ok || notice.ID == "" || notice.Text == "" {
+	if !ok {
+		return nil
+	}
+	return d.emitOnce(notice)
+}
+
+func (d *NoticeDelivery) emitOnce(notice RouterNotice) error {
+	if notice.ID == "" || notice.Text == "" {
 		return nil
 	}
 	if _, exists := d.seen[notice.ID]; exists {
