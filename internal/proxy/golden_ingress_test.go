@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -51,14 +52,7 @@ func goldenHandler(route string, handler func(*proxy.Service, *auth.Service) gin
 }
 
 func goldenResponsesBody(stream bool) string {
-	return `{"model":"gpt-5","stream":` + boolJSON(stream) + `,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Say hi"}]}]}`
-}
-
-func boolJSON(b bool) string {
-	if b {
-		return "true"
-	}
-	return "false"
+	return `{"model":"gpt-5","stream":` + strconv.FormatBool(stream) + `,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Say hi"}]}]}`
 }
 
 func goldenResponsesStream(model, text string) []string {
@@ -188,13 +182,9 @@ func goldenResponsesScenarios() []goldenScenario {
 	native := goldenResponsesStream(goldenOpenAIModel, "partial")
 	failed := goldenSSE("response.failed", `{"type":"response.failed","response":{"id":"resp_up","object":"response","status":"failed","model":"`+goldenOpenAIModel+`","output":[],"error":{"code":"server_error","message":"upstream failed"}}}`)
 	p := ingressResponses + "_stream_"
-	single := func(d router.Decision, provider string, steps ...goldenStep) ([]router.Decision, map[string][]goldenStep) {
-		return []router.Decision{d}, map[string][]goldenStep{provider: steps}
-	}
 	add := func(name, body string, headers map[string]string, d router.Decision, provider string, steps ...goldenStep) {
-		decisions, upstreams := single(d, provider, steps...)
-		out = append(out, goldenScenario{name: p + name, ingress: ingressResponses, decisions: decisions, upstreams: upstreams,
-			requests: []goldenRequest{{body: body, headers: headers}}})
+		out = append(out, goldenScenario{name: p + name, ingress: ingressResponses, decisions: []router.Decision{d},
+			upstreams: map[string][]goldenStep{provider: steps}, requests: []goldenRequest{{body: body, headers: headers}}})
 	}
 	add("anthropic_tool_call", goldenResponsesToolBody, nil, goldenAnthropicDecision, providers.ProviderAnthropic,
 		goldenOK("text/event-stream", goldenAnthropicToolStream()))
