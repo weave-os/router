@@ -56,6 +56,9 @@ type goldenRequest struct {
 	decorateContext func(context.Context) context.Context
 	// noTelemetry marks requests refused before a request row is emitted.
 	noTelemetry bool
+	// path overrides the ingress's default request path; headers are sent as-is.
+	path    string
+	headers map[string]string
 }
 
 type goldenRecorder struct {
@@ -201,19 +204,18 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 	before := h.rec.lengths()
 	h.rec.mu.Unlock()
 
-	path := "/v1/messages"
-	if ingress == ingressOpenAI {
-		path = "/v1/chat/completions"
+	surface := goldenIngressSurfaces[ingress]
+	path := surface.path
+	if req.path != "" {
+		path = req.path
 	}
 	httpReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(req.body)).WithContext(ctx)
 	httpReq.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	var err error
-	if ingress == ingressOpenAI {
-		err = h.svc.ProxyOpenAIChatCompletion(ctx, []byte(req.body), rec, httpReq)
-	} else {
-		err = h.svc.ProxyMessages(ctx, []byte(req.body), rec, httpReq)
+	for k, v := range req.headers {
+		httpReq.Header.Set(k, v)
 	}
+	rec := httptest.NewRecorder()
+	err := surface.serve(h.svc, ctx, []byte(req.body), rec, httpReq)
 	if !req.noTelemetry {
 		h.awaitTelemetry(t, before.telemetry)
 	}
@@ -222,6 +224,7 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 		Stream bool `json:"stream"`
 	}
 	_ = json.Unmarshal([]byte(req.body), &parsed)
+	parsed.Stream = parsed.Stream || strings.HasSuffix(path, ":streamGenerateContent")
 	h.rec.mu.Lock()
 	defer h.rec.mu.Unlock()
 	trace := goldenRequestTrace{
@@ -311,6 +314,10 @@ func goldenClientResponse(rec *httptest.ResponseRecorder) goldenResponse {
 			if len(eventType) == 0 && len(data) == 0 {
 				continue
 			}
+			// Keepalive pings fire on wall-clock time; pin presence, not count.
+			if string(eventType) == "ping" && len(out.Events) > 0 && out.Events[len(out.Events)-1].Event == "ping" {
+				continue
+			}
 			out.Events = append(out.Events, goldenSSEEvent{Event: string(eventType), Data: goldenWireJSON(data)})
 		}
 		return out
@@ -375,8 +382,13 @@ var goldenVolatileKey = regexp.MustCompile(`(?i)(_at|_ms|latency|timestamp)$`)
 // goldenMintedID matches response ids the router mints per request.
 var goldenMintedID = regexp.MustCompile(`\bchatcmpl-[0-9a-f]{16}\b`)
 
+// goldenMintedItemID matches Responses/Gemini item ids minted from a counter
+// and the wall clock.
+var goldenMintedItemID = regexp.MustCompile(`\b(resp|msg|fc|ctc|rs)_[0-9a-z]{5,}\b`)
+
 func scrubGoldenString(s string) string {
 	s = goldenMintedID.ReplaceAllString(s, "chatcmpl-<id>")
+	s = goldenMintedItemID.ReplaceAllString(s, "${1}_<id>")
 	return goldenUUID.ReplaceAllStringFunc(s, func(id string) string {
 		if id == goldenInstallationID {
 			return id
@@ -494,7 +506,7 @@ func runGoldenScenario(t *testing.T, sc goldenScenario) {
 func TestGolden(t *testing.T) {
 	t.Parallel()
 	names := map[string]bool{}
-	for _, sc := range goldenInferenceScenarios() {
+	for _, sc := range append(goldenInferenceScenarios(), goldenIngressScenarios()...) {
 		require.False(t, names[sc.name], "duplicate golden scenario %s", sc.name)
 		names[sc.name] = true
 		t.Run(sc.name, func(t *testing.T) {
