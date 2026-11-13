@@ -59,10 +59,17 @@ type anthropicSystemLayout struct {
 	valid      []bool
 	runs       map[int][]anthropicLayoutMessage
 	directives map[int][]string
+	// movedIn counts messages relocated forward into a boundary; they sit
+	// ahead of the boundary's own run, in arrival order.
+	movedIn map[int]int
 }
 
 func newAnthropicSystemLayout(msgRaws []string) *anthropicSystemLayout {
-	layout := &anthropicSystemLayout{runs: map[int][]anthropicLayoutMessage{}, directives: map[int][]string{}}
+	layout := &anthropicSystemLayout{
+		runs:       map[int][]anthropicLayoutMessage{},
+		directives: map[int][]string{},
+		movedIn:    map[int]int{},
+	}
 	for _, raw := range msgRaws {
 		msg := gjson.Parse(raw)
 		if msg.Get("role").String() != "system" {
@@ -107,11 +114,14 @@ func (l *anthropicSystemLayout) relocate(boundary int) bool {
 	for _, candidate := range validBoundariesNearest(boundary, len(l.turns), l.validBoundary) {
 		existing, hadExisting := l.runs[candidate]
 		if candidate > boundary {
-			l.runs[candidate] = append(slices.Clone(run), existing...)
+			l.runs[candidate] = slices.Insert(slices.Clone(existing), l.movedIn[candidate], run...)
 		} else {
 			l.runs[candidate] = append(slices.Clone(existing), run...)
 		}
 		if l.cacheTTLsOrdered() {
+			if candidate > boundary {
+				l.movedIn[candidate] += len(run)
+			}
 			return true
 		}
 		if hadExisting {

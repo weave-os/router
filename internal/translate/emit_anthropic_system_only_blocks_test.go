@@ -373,6 +373,28 @@ func TestPrepareAnthropic_SystemToolDeltaPlacementKeepsCacheTTLOrder(t *testing.
 	assert.Equal(t, []string{"user", "system", "assistant", "user", "assistant", "user"}, roles)
 }
 
+func TestPrepareAnthropic_RelocatedSystemToolDeltasKeepOriginalOrder(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-8",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "hello"},
+			{"role": "assistant", "content": [{"type": "text", "text": "first"}]},
+			{"role": "system", "content": [{"type": "tool_removal", "tool": {"type": "tool_reference", "name": "Edit"}}]},
+			{"role": "assistant", "content": [{"type": "text", "text": "second"}]},
+			{"role": "system", "content": [{"type": "tool_addition", "tool": {"type": "tool_reference", "name": "Edit"}}]},
+			{"role": "user", "content": "go on"}
+		]
+	}`)
+	out := prepareAnthropicBody(t, body)
+
+	assertAnthropicSystemPlacement(t, out)
+	msgs := gjson.GetBytes(out, "messages").Array()
+	require.Len(t, msgs, 6)
+	assert.Equal(t, "tool_removal", msgs[4].Get("content.0.type").String())
+	assert.Equal(t, "tool_addition", msgs[5].Get("content.0.type").String())
+}
+
 func TestPrepareAnthropicPassthrough_SystemToolDeltaBetweenUserTurnsMovesToEnd(t *testing.T) {
 	body := []byte(`{
 		"model": "claude-opus-5-5",
