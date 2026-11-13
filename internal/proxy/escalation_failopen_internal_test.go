@@ -31,7 +31,7 @@ func TestEscalationCommitFailurePreservesEligibilityAndTurnEvidence(t *testing.T
 	svc.searchRequirementDecayTurns = DefaultSearchRequirementDecayTurns
 	svc.searchUse = newSearchUseTracker()
 	ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), flags.Overrides{Bools: map[flags.Key]bool{
-		flags.KeyEscalationXGBoostEnabled: true, flags.KeyPlannerEnabled: false, flags.KeyPrefixTrimFreeSwitch: true,
+		flags.KeyEscalationXGBoostEnabled: true,
 	}})
 	installation := uuid.New()
 	for n := 1; n <= 5; n++ {
@@ -49,7 +49,6 @@ func TestEscalationCommitFailurePreservesEligibilityAndTurnEvidence(t *testing.T
 		})
 		require.NoError(t, err)
 		if n < 5 {
-			require.Equal(t, providers.ProviderGoogle, res.Decision.Provider)
 			continue
 		}
 		require.Zero(t, res.EscalationOrdinal)

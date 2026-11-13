@@ -170,7 +170,6 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 					svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, store, false,
 						providers.ProviderAnthropic, outputLimitFirstModel, nil).
 						WithHMMDowngradeHysteresisTurns(0).
-						WithNativeAnthropicResponseSignals(false).
 						WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: routes,
 							Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
 					body, err := json.Marshal(map[string]any{"model": outputLimitSecondModel, "max_tokens": 64000, "stream": stream,

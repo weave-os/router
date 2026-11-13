@@ -71,8 +71,7 @@ func codexOverloadService(primary, sibling providers.Client, withSibling bool) *
 		map[string]providers.Client{providers.ProviderOpenAI: planClient{primary}, providers.ProviderAnthropic: planClient{sibling}},
 		nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}}).
-		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
-		WithSiblingFailover(true)
+		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	return svc
 }
 

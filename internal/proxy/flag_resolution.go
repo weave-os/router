@@ -22,12 +22,6 @@ func (s *Service) ResolveSpiralShadowEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeySpiralShadowEnabled, s.spiralShadowEnabled)
 }
 
-// ResolveTurnSignalCaptureEnabled reports whether per-turn behavioral
-// snapshots may be persisted. Installation privacy gates still take precedence.
-func (s *Service) ResolveTurnSignalCaptureEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyTurnSignalCapture, s.turnSignalCaptureEnabled)
-}
-
 // ResolveLoopEscalationEnabled reports whether a detected cyclic loop may
 // escalate the routed model. Detection telemetry is recorded either way.
 func (s *Service) ResolveLoopEscalationEnabled(ctx context.Context) bool {
@@ -40,40 +34,10 @@ func (s *Service) ResolveLoopEscalationHoldoutPct(ctx context.Context) int {
 	return flags.IntOr(ctx, flags.KeyLoopEscalationHoldoutPct, s.loopEscalationHoldoutPct)
 }
 
-// ResolveTextRepetitionBreakEnabled reports whether the enforcing text-repetition
-// loop break is armed for this request.
-func (s *Service) ResolveTextRepetitionBreakEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyTextRepetitionBreak, s.textRepetitionBreakEnabled)
-}
-
-// ResolvePlannerEnabled reports whether the cache-aware EV planner may propose a
-// mid-session switch for this request.
-func (s *Service) ResolvePlannerEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyPlannerEnabled, s.plannerEnabled)
-}
-
-// ResolveScoreToolResultTurns reports whether tool-result turns are re-scored
-// instead of following the session pin.
-func (s *Service) ResolveScoreToolResultTurns(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyScoreToolResultTurns, s.scoreToolResultTurns)
-}
-
 // ResolveHMMToolResultHold reports whether tool-result turns keep the session
 // pin chosen on the turn's first call instead of following per-turn selection.
 func (s *Service) ResolveHMMToolResultHold(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyHMMToolResultHold, false)
-}
-
-// ResolvePrefixTrimFreeSwitch reports whether a trimmed prompt prefix counts as a
-// free switch point.
-func (s *Service) ResolvePrefixTrimFreeSwitch(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyPrefixTrimFreeSwitch, s.prefixTrimFreeSwitch)
-}
-
-// ResolveAuthoritativeUpgradeGate reports whether the confidence floor stays
-// active for authoritative-per-turn policies.
-func (s *Service) ResolveAuthoritativeUpgradeGate(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyAuthoritativeUpgradeGate, s.authoritativeUpgradeGate)
 }
 
 func (s *Service) ResolveAuthoritativeUpgradePolicy(ctx context.Context) flags.AuthoritativeUpgradePolicy {
@@ -124,23 +88,11 @@ func (s *Service) ResolveAuthorityCacheShadow(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAuthorityCacheShadow, s.authorityCacheShadow)
 }
 
-// ResolveSiblingFailover reports whether an exhausted model may degrade to a
-// same-cluster candidate.
-func (s *Service) ResolveSiblingFailover(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeySiblingFailover, s.siblingFailover)
-}
-
 // ResolveAllowedModelsHeader reports the ROUTER_ALLOWED_MODELS_HEADER flag:
 // whether x-weave-allowed-models is honored for an installation that is not
 // authorized for policy headers.
 func (s *Service) ResolveAllowedModelsHeader(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAllowedModelsHeader, s.allowedModelsHeader)
-}
-
-// ResolveOpenAIResponsesBroad reports the ROUTER_OPENAI_RESPONSES_BROAD flag:
-// off, only the reasoning+tools turn chat/completions rejects is promoted.
-func (s *Service) ResolveOpenAIResponsesBroad(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyOpenAIResponsesBroad, s.openAIResponsesBroad)
 }
 
 // ResolveCCTaskToolsCrossVendor reports the ROUTER_CC_TASK_TOOLS_CROSSVENDOR
@@ -216,48 +168,8 @@ func (s *Service) ResolveProviderOverloaded(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyProviderOverloaded, s.providerOverloaded)
 }
 
-// ResolveNativeAnthropicResponseSignals reports the
-// ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS flag: whether an Anthropic-native
-// passthrough turn records its observed stop_reason and tool_use block count
-// on the telemetry row. Observability only.
-func (s *Service) ResolveNativeAnthropicResponseSignals(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyNativeAnthropicResponseSignals, s.nativeAnthropicResponseSignals)
-}
-
-// ResolveNativeOpenAIResponseSignals reports the
-// ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS flag: whether an OpenAI-native turn
-// records its observed finish_reason and tool-call count on the telemetry row.
-// Observability only.
-func (s *Service) ResolveNativeOpenAIResponseSignals(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyNativeOpenAIResponseSignals, s.nativeOpenAIResponseSignals)
-}
-
 // ResolveEffortEscalation reports whether policy-requested reasoning-effort
 // escalation is applied.
 func (s *Service) ResolveEffortEscalation(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyEffortEscalation, s.effortEscalation)
-}
-
-// ResolveCyberRefusalRepin reports whether a safety refusal re-pins the
-// session off the refusing model.
-func (s *Service) ResolveCyberRefusalRepin(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyCyberRefusalRepin, s.cyberRefusalRepin)
-}
-
-// ResolveCyberRefusalRetry reports whether a turn OpenAI declined on cyber
-// policy is re-dispatched to the fallback model within the same turn.
-func (s *Service) ResolveCyberRefusalRetry(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyCyberRefusalRetry, s.cyberRefusalRetry)
-}
-
-// ResolveCyberRefusalFallbackModel returns the model to re-pin to on a safety
-// refusal with no runner-up.
-func (s *Service) ResolveCyberRefusalFallbackModel(ctx context.Context) string {
-	return flags.StringOr(ctx, flags.KeyCyberRefusalFallback, s.cyberRefusalFallbackModel)
-}
-
-// ResolveAnthropicServerSideFallback reports whether Anthropic-targeted
-// requests ask Anthropic to re-serve a safety-refused turn on a fallback model.
-func (s *Service) ResolveAnthropicServerSideFallback(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyAnthropicServerFallback, s.anthropicServerSideFallback)
 }

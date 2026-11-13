@@ -176,7 +176,7 @@ func TestProxyMessages_GatewayResponsesRejectionIsNotRetried(t *testing.T) {
 const anthropicToollessTurn = `{"model":"gpt-5.4-mini","stream":true,"max_tokens":1024,` +
 	`"messages":[{"role":"user","content":"summarize this repo"}]}`
 
-func directOpenAIService(t *testing.T, baseURL string, broad bool) *proxy.Service {
+func directOpenAIService(t *testing.T, baseURL string) *proxy.Service {
 	t.Helper()
 	return proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.4-mini"}},
@@ -184,8 +184,7 @@ func directOpenAIService(t *testing.T, baseURL string, broad bool) *proxy.Servic
 			providers.ProviderOpenAI: openai.NewClient("test-key", baseURL),
 		},
 		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
-	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
-		WithOpenAIResponsesBroad(broad)
+	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 }
 
 // Under the broad rollout, direct-OpenAI serves every expressible turn on
@@ -197,7 +196,6 @@ func TestProxyMessages_DirectOpenAIToollessTurnFollowsRollout(t *testing.T) {
 		wantPaths []string
 	}{
 		{name: "rollout on", broad: true, wantPaths: []string{"/v1/responses"}},
-		{name: "rollout off", broad: false, wantPaths: []string{"/v1/chat/completions"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var (
@@ -218,7 +216,7 @@ func TestProxyMessages_DirectOpenAIToollessTurnFollowsRollout(t *testing.T) {
 
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-			require.NoError(t, directOpenAIService(t, upstream.URL, tc.broad).
+			require.NoError(t, directOpenAIService(t, upstream.URL).
 				ProxyMessages(context.Background(), []byte(anthropicToollessTurn), rec, req))
 
 			mu.Lock()

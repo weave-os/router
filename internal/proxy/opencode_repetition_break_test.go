@@ -22,7 +22,7 @@ func TestService_ProxyOpenAIResponses_BreaksRepeatedOpenCodeAnswers(t *testing.T
 	svc := makeProxyService(
 		router.Decision{Provider: providers.ProviderXAI, Model: "grok-4.6", Reason: "test"},
 		map[string]providers.Client{providers.ProviderXAI: provider},
-	).WithTextRepetitionBreak(true)
+	)
 
 	body := []byte(`{
 		"model":"auto",

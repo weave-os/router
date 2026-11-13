@@ -107,7 +107,7 @@ func upgradeTestFresh() router.Decision {
 
 func TestUpgradeShadowUsesCacheRulesAndExplicitIntent(t *testing.T) {
 	margin := 0.2
-	svc := (&Service{}).WithAuthorityCacheShadow(true).WithAuthoritativeUpgradeGate(true).
+	svc := (&Service{}).WithAuthorityCacheShadow(true).
 		WithAuthoritativeUpgradeConfig(AuthoritativeUpgradeConfig{MarginThreshold: &margin})
 	pin, fresh := upgradeTestPin(), upgradeTestFresh()
 	req := router.Request{RequestedModel: upgradeTestFreshModel, RoutingIntent: string(escalation.Maximum)}
@@ -152,7 +152,7 @@ func TestUpgradeShadowAgeAndAbsentPin(t *testing.T) {
 	pin, fresh := upgradeTestPin(), upgradeTestFresh()
 	shadow := svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
 	assert.Equal(t, upgradeStalePin, shadow.Verdict.Reason)
-	assert.Equal(t, flags.AuthoritativeUpgradePolicyOff, shadow.Mode)
+	assert.Equal(t, flags.AuthoritativeUpgradePolicyScore, shadow.Mode)
 
 	pin.FirstPinnedAt = time.Now().Add(-30 * time.Minute)
 	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
@@ -173,15 +173,13 @@ func TestUpgradeShadowPreservesServingAndPinWrites(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		score     float32
-		gate      bool
 		cold      bool
 		wantModel string
 	}{
-		{"warm blocked upgrade", 0.45, true, false, upgradeTestPinModel},
-		{"cold blocked upgrade", 0.45, true, true, upgradeTestPinModel},
-		{"confident upgrade", 0.91, true, false, upgradeTestFreshModel},
-		{"unscored upgrade", 0, true, false, upgradeTestFreshModel},
-		{"gate off", 0.45, false, false, upgradeTestFreshModel},
+		{"warm blocked upgrade", 0.45, false, upgradeTestPinModel},
+		{"cold blocked upgrade", 0.45, true, upgradeTestPinModel},
+		{"confident upgrade", 0.91, false, upgradeTestFreshModel},
+		{"unscored upgrade", 0, false, upgradeTestFreshModel},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var control turnLoopResult
@@ -198,7 +196,7 @@ func TestUpgradeShadowPreservesServingAndPinWrites(t *testing.T) {
 				margin := 0.1
 				strategy := router.Strategy("upgrade-shadow-test")
 				svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
-					WithAuthorityCacheShadow(enabled).WithAuthoritativeUpgradeGate(tc.gate).
+					WithAuthorityCacheShadow(enabled).
 					WithAuthoritativeUpgradeConfig(AuthoritativeUpgradeConfig{MarginThreshold: &margin}).
 					WithPolicyStrategy(policy.StrategySpec{Strategy: strategy, Router: &authorityShadowTestRouter{decision: fresh}, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 				env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())))
@@ -235,7 +233,7 @@ func TestUpgradeShadowLogsNullableEvidence(t *testing.T) {
 	var output bytes.Buffer
 	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&output, nil)))
 	fresh, pin := upgradeTestFresh(), upgradeTestPin()
-	svc := (&Service{}).WithAuthorityCacheShadow(true).WithAuthoritativeUpgradeGate(true)
+	svc := (&Service{}).WithAuthorityCacheShadow(true)
 	res := turnLoopResult{Fresh: fresh, Decision: pinDecision(pin), StickyHit: true}
 	res.UpgradeShadow = svc.authoritativeUpgradeFor(ctx, router.Request{}, pin, fresh, res, 1000)
 	logAuthoritativeUpgrade(ctx, res)
@@ -335,7 +333,6 @@ func TestEvidenceUpgradeServesFreshWhenQualified(t *testing.T) {
 	fresh.Metadata.ClassifierMargin = &margin
 	strategy := router.Strategy("upgrade-evidence-test")
 	svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
-		WithAuthoritativeUpgradeGate(true).
 		WithAuthoritativeUpgradePolicy(flags.AuthoritativeUpgradePolicyEvidence).
 		WithAuthoritativeUpgradeVotes(3).
 		WithAuthoritativeUpgradeConfig(AuthoritativeUpgradeConfig{MarginThreshold: &threshold}).
@@ -365,7 +362,6 @@ func TestEvidenceUpgradeHoldsWarmLowMarginAndCountsVotes(t *testing.T) {
 	fresh.Metadata.ClassifierMargin = &margin
 	strategy := router.Strategy("upgrade-evidence-hold")
 	svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
-		WithAuthoritativeUpgradeGate(true).
 		WithAuthoritativeUpgradePolicy(flags.AuthoritativeUpgradePolicyEvidence).
 		WithAuthoritativeUpgradeVotes(3).
 		WithAuthoritativeUpgradeConfig(AuthoritativeUpgradeConfig{MarginThreshold: &threshold}).

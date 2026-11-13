@@ -124,11 +124,6 @@ type Service struct {
 	// drops) so the router can rewrite non-Anthropic requests with a handover
 	// summary before the model loses awareness of prior completed work.
 	compaction *compactionTracker
-	// prefixTrimFreeSwitch treats a detected client history trim as a
-	// free-switch window: the planner prices the pin's cache as cold on that
-	// turn and the switch handover is skipped. Kill switch:
-	// ROUTER_PREFIX_TRIM_FREE_SWITCH.
-	prefixTrimFreeSwitch bool
 	// escapeNormalize enables the escape-repair pass on file-edit tool
 	// (Edit/Write/MultiEdit) args for cross-format OpenAI-upstream responses.
 	// Off by default. Kill switch: ROUTER_DEEPSEEK_ESCAPE_NORMALIZE.
@@ -213,11 +208,6 @@ type Service struct {
 	// hmmSameTierPin suppresses EV-positive same-tier lateral switches once a
 	// session pin is live. Env ROUTER_HMM_SAME_TIER_PIN, off by default.
 	hmmSameTierPin bool
-	// authoritativeUpgradeGate applies the upgrade-confidence threshold to
-	// authoritative-per-turn decisions too: a scored fresh decision that is
-	// pricier than the session pin only escalates at confidence >=
-	// hmmUpgradeConfidenceThreshold. Env ROUTER_AUTHORITATIVE_UPGRADE_GATE, on by default.
-	authoritativeUpgradeGate bool
 	// authoritativeDowngradeGate applies the same threshold in the other
 	// direction: a cheaper-than-pin fresh decision below
 	// hmmUpgradeConfidenceThreshold keeps the pin. Env
@@ -247,48 +237,8 @@ type Service struct {
 	// policyDeadlineDefaultModel is the tier-3 static fallback on a policy deadline
 	// miss with no session pin (~0.2% of failures); empty = fail-closed (503). Env ROUTER_POLICY_DEADLINE_DEFAULT_MODEL.
 	policyDeadlineDefaultModel string
-	// plannerEnabled is the kill switch. When false, the orchestrator falls
-	// back to first-decision-wins behavior.
-	plannerEnabled bool
-	// scoreToolResultTurns is the kill switch (ROUTER_SCORE_TOOL_RESULT_TURNS).
-	// When true (default), ToolResult turns run the cluster scorer + planner
-	// for MainLoop parity; when false, the pin is reused verbatim (#82 path).
-	// Runs the embedder on ToolResult traffic (majority of turns).
-	scoreToolResultTurns bool
-	// cyberRefusalRepin is the kill switch (ROUTER_CYBER_REFUSAL_REPIN, default
-	// on). When true, a safety refusal on the anthropic-native path re-pins
-	// the session off the refusing model (opus ~45% refusal rate; sonnet 0%).
-	// Refusal detection itself is unconditional — the flag gates only the action.
-	cyberRefusalRepin bool
-	// cyberRefusalRetry is the kill switch (ROUTER_CYBER_REFUSAL_RETRY, default
-	// on) for the same-turn rescue of a turn OpenAI declined on cyber policy:
-	// the refusal is withheld and re-dispatched off-vendor while nothing has
-	// reached the client. Independent of cyberRefusalRepin, which governs the
-	// following turns.
-	cyberRefusalRetry bool
-	// anthropicServerSideFallback (ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK, default on)
-	// opts Anthropic-targeted requests into server-side fallback: Anthropic re-serves
-	// a refused turn on a fallback model (rescues the current turn; cyberRefusalRepin
-	// only re-pins future turns).
-	anthropicServerSideFallback bool
 
-	// siblingFailover is the kill switch (ROUTER_SIBLING_FAILOVER, default on)
-	// for degrading to a same-cluster candidate when every binding of the
-	// routed model fails with a transient upstream fault.
-	siblingFailover   bool
 	codexExtraCredits bool
-	// openAIResponsesBroad is the deployment default for
-	// ROUTER_OPENAI_RESPONSES_BROAD; see ResolveOpenAIResponsesBroad.
-	openAIResponsesBroad bool
-	// nativeAnthropicResponseSignals records the stop reason and tool_use block
-	// count observed on an Anthropic-native passthrough turn. Env
-	// ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS, on by default.
-	nativeAnthropicResponseSignals bool
-	// nativeOpenAIResponseSignals records the finish reason and tool-call count
-	// observed on an OpenAI-native turn, on both the chat/completions and the
-	// /v1/responses passthrough. Env ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS, on
-	// by default.
-	nativeOpenAIResponseSignals bool
 	// allowedModelsHeader is the deployment default for
 	// ROUTER_ALLOWED_MODELS_HEADER; see ResolveAllowedModelsHeader.
 	allowedModelsHeader bool
@@ -313,10 +263,6 @@ type Service struct {
 	// sseKeepalive is the client-silence budget before a ping is injected
 	// (ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS; 0 disables). See sse.KeepaliveWriter.
 	sseKeepalive time.Duration
-	// cyberRefusalFallbackModel is the model to re-pin to on a cyber refusal
-	// when the session pin carries no runner-up (PairedModel). Set from
-	// ROUTER_CYBER_REFUSAL_FALLBACK_MODEL; defaults to claude-sonnet-5.
-	cyberRefusalFallbackModel string
 	// effortEscalation enables the escalate-on-failure reasoning-effort policy:
 	// gpt-5.x serves low effort by default and high after an observed
 	// failed/no-progress turn; gemini is pinned low. Off by default (set from
@@ -362,13 +308,6 @@ type Service struct {
 	// changes no routing behavior.
 	spiralShadowEnabled bool
 
-	// turnSignalCaptureEnabled gates per-turn snapshots independently of the
-	// threshold-only shadow detector. Privacy gates always take precedence.
-	turnSignalCaptureEnabled bool
-	// textRepetitionBreakEnabled gates the enforcing assistant-text repetition
-	// detector (see text_repetition.go). Defaults true; kill switch is
-	// ROUTER_TEXT_REPETITION_BREAK_ENABLED.
-	textRepetitionBreakEnabled bool
 	// spiralTracker de-duplicates shadow fires per (session, role, reason) on
 	// this replica.
 	spiralTracker *spiralTracker
@@ -1956,13 +1895,10 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		searchUse:                    newSearchUseTracker(),
 		searchRequirementDecayTurns:  DefaultSearchRequirementDecayTurns,
 		compaction:                   newCompactionTracker(),
-		prefixTrimFreeSwitch:         true,
 		spiralTracker:                newSpiralTracker(),
 		spiralShadowEnabled:          true,
-		turnSignalCaptureEnabled:     true,
 		struggleTracker:              newStruggleTracker(),
 		struggleShadowEnabled:        true,
-		textRepetitionBreakEnabled:   true,
 		ccOrchToolsCrossVendor:       true,
 		hardPinExplore:               hardPinExplore,
 		hardPinProvider:              hardPinProvider,
@@ -1973,23 +1909,12 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 			ExpectedRemainingTurns: DefaultPlannerExpectedRemainingTurns,
 			TierUpgradeEnabled:     DefaultPlannerTierUpgradeEnabled,
 		},
-		hmmUpgradeConfidenceThreshold:  DefaultHMMUpgradeConfidenceThreshold,
-		hmmDowngradeHysteresisTurns:    DefaultHMMDowngradeHysteresisTurns,
-		authoritativeUpgradeGate:       true,
-		authoritativeUpgradePolicy:     flags.AuthoritativeUpgradePolicyScore,
-		authoritativeUpgradeVotes:      3,
-		authorityCacheShadow:           true,
-		plannerEnabled:                 true,
-		scoreToolResultTurns:           true,
-		loopEscalationEnabled:          true,
-		cyberRefusalRepin:              true,
-		cyberRefusalRetry:              true,
-		anthropicServerSideFallback:    true,
-		siblingFailover:                true,
-		openAIResponsesBroad:           true,
-		nativeAnthropicResponseSignals: true,
-		nativeOpenAIResponseSignals:    true,
-		cyberRefusalFallbackModel:      "claude-sonnet-5",
+		hmmUpgradeConfidenceThreshold: DefaultHMMUpgradeConfidenceThreshold,
+		hmmDowngradeHysteresisTurns:   DefaultHMMDowngradeHysteresisTurns,
+		authoritativeUpgradePolicy:    flags.AuthoritativeUpgradePolicyScore,
+		authoritativeUpgradeVotes:     3,
+		authorityCacheShadow:          true,
+		loopEscalationEnabled:         true,
 	}
 	if r == nil {
 		return s
@@ -2030,55 +1955,6 @@ func (s *Service) WithPlanner(cfg planner.EVConfig) *Service {
 	s.planner.TierUpgradeEnabled = cfg.TierUpgradeEnabled
 	s.planner.ColdPinFollowFresh = cfg.ColdPinFollowFresh
 	s.planner.CorrectedEconomics = cfg.CorrectedEconomics
-	return s
-}
-
-// WithPlannerEnabled is the kill switch. When false, the orchestrator
-// preserves first-decision-wins behavior.
-func (s *Service) WithPlannerEnabled(enabled bool) *Service {
-	s.plannerEnabled = enabled
-	return s
-}
-
-// WithScoreToolResultTurns sets ROUTER_SCORE_TOOL_RESULT_TURNS; see scoreToolResultTurns.
-func (s *Service) WithScoreToolResultTurns(enabled bool) *Service {
-	s.scoreToolResultTurns = enabled
-	return s
-}
-
-// WithCyberRefusalRepin is the kill switch for the safety-refusal re-pin backstop
-// (ROUTER_CYBER_REFUSAL_REPIN); see cyberRefusalRepin.
-func (s *Service) WithCyberRefusalRepin(enabled bool) *Service {
-	s.cyberRefusalRepin = enabled
-	return s
-}
-
-// WithCyberRefusalRetry is the kill switch for the same-turn OpenAI
-// cyber-refusal rescue (ROUTER_CYBER_REFUSAL_RETRY); see cyberRefusalRetry.
-func (s *Service) WithCyberRefusalRetry(enabled bool) *Service {
-	s.cyberRefusalRetry = enabled
-	return s
-}
-
-// WithAnthropicServerSideFallback is the kill switch for Anthropic's
-// server-side fallback beta (ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK); see
-// anthropicServerSideFallback.
-func (s *Service) WithAnthropicServerSideFallback(enabled bool) *Service {
-	s.anthropicServerSideFallback = enabled
-	return s
-}
-
-// WithSiblingFailover is the kill switch for same-cluster model failover
-// (ROUTER_SIBLING_FAILOVER); see siblingFailover.
-func (s *Service) WithSiblingFailover(enabled bool) *Service {
-	s.siblingFailover = enabled
-	return s
-}
-
-// WithOpenAIResponsesBroad sets the rollout flag for direct-OpenAI Responses
-// routing (ROUTER_OPENAI_RESPONSES_BROAD).
-func (s *Service) WithOpenAIResponsesBroad(enabled bool) *Service {
-	s.openAIResponsesBroad = enabled
 	return s
 }
 
@@ -2213,24 +2089,6 @@ func (s *Service) clearRecoveredCooldown(ctx context.Context, res turnLoopResult
 	}
 }
 
-// WithNativeAnthropicResponseSignals is the kill switch
-// (ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS) for recording Anthropic-native
-// stop_reason and tool_use counts on telemetry. On by default; disabling
-// leaves those columns NULL on native turns.
-func (s *Service) WithNativeAnthropicResponseSignals(enabled bool) *Service {
-	s.nativeAnthropicResponseSignals = enabled
-	return s
-}
-
-// WithNativeOpenAIResponseSignals is the kill switch
-// (ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS) for recording OpenAI-native
-// finish_reason and tool-call counts on telemetry. On by default; disabling
-// leaves those columns NULL on native turns.
-func (s *Service) WithNativeOpenAIResponseSignals(enabled bool) *Service {
-	s.nativeOpenAIResponseSignals = enabled
-	return s
-}
-
 // WithAllowedModelsHeader sets the deployment default for honoring the
 // x-weave-allowed-models header (ROUTER_ALLOWED_MODELS_HEADER).
 func (s *Service) WithAllowedModelsHeader(enabled bool) *Service {
@@ -2252,15 +2110,6 @@ func (s *Service) WithRetrySleep(sleep func(context.Context, time.Duration) erro
 	return s
 }
 
-// WithCyberRefusalFallbackModel sets the re-pin target used when the session pin
-// carries no runner-up (ROUTER_CYBER_REFUSAL_FALLBACK_MODEL). Empty is ignored.
-func (s *Service) WithCyberRefusalFallbackModel(model string) *Service {
-	if strings.TrimSpace(model) != "" {
-		s.cyberRefusalFallbackModel = strings.TrimSpace(model)
-	}
-	return s
-}
-
 // WithHMMUpgradeConfidenceThreshold sets the minimum HMM sidecar ChosenScore
 // for a fresh upgrade to beat an EV stay on the cheaper pinned model.
 // Out-of-range values ([0,1] only) are ignored.
@@ -2276,14 +2125,6 @@ func (s *Service) WithHMMUpgradeConfidenceThreshold(v float64) *Service {
 // suppressing an EV-positive HMM switch between two same-tier models.
 func (s *Service) WithHMMSameTierPin(enabled bool) *Service {
 	s.hmmSameTierPin = enabled
-	return s
-}
-
-// WithAuthoritativeUpgradeGate is the kill switch (ROUTER_AUTHORITATIVE_UPGRADE_GATE)
-// for applying the upgrade-confidence threshold to authoritative-per-turn
-// decisions. On by default; disabling restores verbatim policy selection.
-func (s *Service) WithAuthoritativeUpgradeGate(enabled bool) *Service {
-	s.authoritativeUpgradeGate = enabled
 	return s
 }
 
@@ -2371,13 +2212,6 @@ func (s *Service) WithPolicyDeadlineFallback(enabled bool) *Service {
 // on a deadline miss with no pin yet. Empty preserves fail-closed (503) for pinless sessions.
 func (s *Service) WithPolicyDeadlineDefaultModel(model string) *Service {
 	s.policyDeadlineDefaultModel = model
-	return s
-}
-
-// WithPrefixTrimFreeSwitch is the kill switch for the prefix-trim free-switch
-// window. Detection and the post-routing compaction handover are unaffected.
-func (s *Service) WithPrefixTrimFreeSwitch(enabled bool) *Service {
-	s.prefixTrimFreeSwitch = enabled
 	return s
 }
 
@@ -2481,21 +2315,6 @@ func (s *Service) WithLoopEscalationStore(store LoopEscalationStore) *Service {
 // cost if it ever misbehaves.
 func (s *Service) WithSpiralShadowConfig(enabled bool) *Service {
 	s.spiralShadowEnabled = enabled
-	return s
-}
-
-// WithTurnSignalCapture sets the per-turn signal persistence kill switch.
-// It cannot override installation privacy settings.
-func (s *Service) WithTurnSignalCapture(enabled bool) *Service {
-	s.turnSignalCaptureEnabled = enabled
-	return s
-}
-
-// WithTextRepetitionBreak sets the enforcing text-repetition detector kill
-// switch (default on). enabled=false skips the per-turn scan entirely. See
-// text_repetition.go.
-func (s *Service) WithTextRepetitionBreak(enabled bool) *Service {
-	s.textRepetitionBreakEnabled = enabled
 	return s
 }
 
@@ -3668,11 +3487,6 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 	if s.pinStore == nil {
 		return
 	}
-	// Detection is unconditional so refusals stay measurable; the flag gates
-	// only the re-pin action.
-	if !s.ResolveCyberRefusalRepin(ctx) {
-		return
-	}
 	installationID := installationIDFromContext(ctx)
 	if installationID == uuid.Nil {
 		return
@@ -4017,12 +3831,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// separately because no threshold crossing is still a measured result.
 	var inboundSpiralSignals spiralSignals
 	var inboundSpiralReasons []spiralReason
-	inboundSpiralComputed := s.ResolveSpiralShadowEnabled(ctx) ||
-		s.ResolveTurnSignalCaptureEnabled(ctx)
-	if inboundSpiralComputed {
-		inboundSpiralSignals = computeSpiralSignals(env, feats.MessageCount)
-		inboundSpiralReasons = spiralReasons(inboundSpiralSignals)
-	}
+	inboundSpiralSignals = computeSpiralSignals(env, feats.MessageCount)
+	inboundSpiralReasons = spiralReasons(inboundSpiralSignals)
 
 	// Surface inbound tool_use / tool_result blocks the model is about to see.
 	// Lets us audit whether a misbehaving turn was provoked by a malformed prior
@@ -4295,7 +4105,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Text-repetition break: fresh tool calls each turn defeat the no-progress
 	// fingerprint; repeated narration is the durable tell. See text_repetition.go.
-	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
+	if !agentShadowMode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && (turntype.DetectFromEnvelope(env, feats, "") == turntype.MainLoop || turntype.DetectFromEnvelope(env, feats, "") == turntype.ToolResult) {
 		if looped, count, sampleHash := detectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, installationID, routeRes.SessionKey, role, decision.Model, decision.Provider, feats.Tokens)
@@ -4434,7 +4244,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		SessionAffinity:                   sessionAffinityHint(routeRes.SessionKey),
 		ModelSwitched:                     routeRes.modelSwitched(),
 		EnableExtendedContext:             shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserve),
-		EnableServerSideFallback:          s.ResolveAnthropicServerSideFallback(ctx),
+		EnableServerSideFallback:          true,
 		KeepCrossVendorOrchestrationTools: s.ccOrchToolsCrossVendor,
 		KeepCrossVendorTaskTools:          s.ResolveCCTaskToolsCrossVendor(ctx),
 		AppendAutonomySystem:              s.autonomySystemAppendApplies(ctx, body, env, routeRes.TurnType),
@@ -4758,7 +4568,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					Capabilities:   targetOpts.Capabilities,
 					HasTools:       feats.HasTools,
 					ChatOnlyParams: env.RequiresChatCompletionsParams(targetOpts.Capabilities),
-					Broad:          s.ResolveOpenAIResponsesBroad(actx),
 				}) && !s.gatewayLacksResponses(gatewayKey)
 				stripPCK := s.gatewayRejectsPromptCacheKey(gatewayKey)
 				rawErr, finalize := dispatchOpenAICompat(actx, d, p, useResponses, stripPCK)
@@ -5554,7 +5363,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// translator would have reported. The native stop_reason is the raw
 	// upstream value, hence both fields.
 	nativeRespSummary := false
-	if respSummary.StopReason == "" && s.ResolveNativeAnthropicResponseSignals(ctx) {
+	if respSummary.StopReason == "" {
 		if stopReason, toolUseBlocks, observed := extractor.AnthropicResponse(); observed {
 			respSummary.UpstreamFinishReason = stopReason
 			respSummary.StopReason = stopReason
@@ -5808,8 +5617,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// so only the detector's trusted turn types enter the training corpus.
 		signalTurn := tt == turntype.MainLoop || tt == turntype.ToolResult
 		applyTurnSignalTelemetry(&tel, inboundSpiralSignals, inboundSpiralReasons,
-			inboundSpiralComputed && signalTurn,
-			s.ResolveTurnSignalCaptureEnabled(ctx),
+			signalTurn,
+			true,
 			obs.TrainingAllowed,
 			s.effectiveCaptureMode(ctx))
 		applyClientGitContextTelemetry(ctx, &tel, routeRes.SessionFirstTurn, env.SystemBlocks())
@@ -7534,7 +7343,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	pinAgeSec := routeRes.PinAgeSec
 	s.logPlannerOutcome(ctx, routeRes)
 
-	if clientID.ClientApp == ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && s.ResolveTextRepetitionBreakEnabled(ctx) && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
+	if clientID.ClientApp == ClientAppOpencode && !routeRes.CallerModelPassthrough && !routeRes.AuthoritativePerTurn && (tt == turntype.MainLoop || tt == turntype.ToolResult) {
 		if looped, count, sampleHash := detectTextRepetition(env); looped {
 			role := roleForTier(catalog.TierFor(feats.Model))
 			return s.handleTextRepetitionBreak(ctx, w, env, count, sampleHash, installationID, sessionKey, role, decision.Model, decision.Provider, feats.Tokens)
@@ -7606,7 +7415,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Capabilities:             router.Lookup(decision.Model),
 		IncludeStreamUsage:       s.usageRequired(),
 		SessionAffinity:          sessionAffinityHint(routeRes.SessionKey),
-		EnableServerSideFallback: s.ResolveAnthropicServerSideFallback(ctx),
+		EnableServerSideFallback: true,
 		ModelSwitched:            routeRes.modelSwitched(),
 		EnableExtendedContext:    shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserveOAI),
 	}
@@ -7634,7 +7443,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			Capabilities:   opts.Capabilities,
 			HasTools:       feats.HasTools,
 			ChatOnlyParams: env.RequiresChatCompletionsParams(opts.Capabilities),
-			Broad:          s.ResolveOpenAIResponsesBroad(ctx),
 		}) && !s.gatewayLacksResponses(responsesEndpointKey)
 		if !env.RequiresChatCompletionsParams(opts.Capabilities) && !s.gatewayLacksResponses(responsesEndpointKey) && s.supportsSubscriptionTransport(decision.Provider) &&
 			(servedOnCodexSubscription(resolvedCtx) || managedSubscriptionCanServe(ctx, decision.Provider, decision.Model)) {
@@ -8055,7 +7863,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					}
 					respSummary = translate.ResponseSummary{UpstreamFinishReason: nativeTerminal.signals.FinishReason}
 					nativeRespSummary = false
-					if nativeTerminal.observed && s.ResolveNativeOpenAIResponseSignals(actx) {
+					if nativeTerminal.observed {
 						respSummary.StopReason = nativeTerminal.signals.FinishReason
 						respSummary.ToolUseBlocks = nativeTerminal.signals.ToolCalls
 						nativeRespSummary = true
@@ -8293,8 +8101,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// the first upstream byte, and the primary dispatch has to hold its
 	// exhaustion flush so the refusal envelope can still be swallowed.
 	_, explicitRequestedModel := catalog.ByID(routeRequest.RequestedModel)
-	cyberRetryEligible := s.ResolveCyberRefusalRetry(ctx) &&
-		!routeRes.CallerModelPassthrough &&
+	cyberRetryEligible := !routeRes.CallerModelPassthrough &&
 		decision.Provider == providers.ProviderOpenAI &&
 		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
 		!s.isHardPinnedTurn(ctx, routeRes.TurnType) &&
@@ -8808,7 +8615,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// extractor's parse of the upstream stream is the only account of how the
 	// turn ended. The native finish_reason is the raw upstream value, hence
 	// both fields.
-	if respSummary.StopReason == "" && s.ResolveNativeOpenAIResponseSignals(ctx) {
+	if respSummary.StopReason == "" {
 		if finishReason, toolCalls, observed := extractor.OpenAIChatResponse(); observed {
 			respSummary.UpstreamFinishReason = finishReason
 			respSummary.StopReason = finishReason

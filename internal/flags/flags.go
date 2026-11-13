@@ -23,7 +23,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 )
 
 // Key is the stable storage identifier for a flag. It is the JSON object key in
@@ -98,15 +97,9 @@ const (
 	KeyEscalationXGBoostEpoch               Key = "escalation_xgb_epoch"
 	KeyStruggleShadowEnabled                Key = "struggle_shadow_enabled"
 	KeySpiralShadowEnabled                  Key = "spiral_shadow_enabled"
-	KeyTurnSignalCapture                    Key = "turn_signal_capture_enabled"
 	KeyLoopEscalationEnabled                Key = "loop_escalation_enabled"
 	KeyLoopEscalationHoldoutPct             Key = "loop_escalation_holdout_pct"
-	KeyTextRepetitionBreak                  Key = "text_repetition_break_enabled"
-	KeyPlannerEnabled                       Key = "planner_enabled"
-	KeyScoreToolResultTurns                 Key = "score_tool_result_turns"
 	KeyHMMToolResultHold                    Key = "hmm_tool_result_hold"
-	KeyPrefixTrimFreeSwitch                 Key = "prefix_trim_free_switch"
-	KeyAuthoritativeUpgradeGate             Key = "authoritative_upgrade_gate"
 	KeyAuthoritativeUpgradePolicy           Key = "authoritative_upgrade_policy"
 	KeyAuthoritativeUpgradeHoldoutPct       Key = "authoritative_upgrade_holdout_pct"
 	KeyAuthoritativeUpgradeVotes            Key = "authoritative_upgrade_votes"
@@ -116,13 +109,7 @@ const (
 	KeyHMMDowngradeHysteresisShadowTurns    Key = "hmm_downgrade_hysteresis_shadow_turns"
 	KeyAuthorityCacheShadow                 Key = "authority_cache_shadow"
 	KeyAgreementShadowEpoch                 Key = "agreement_shadow_epoch"
-	KeySiblingFailover                      Key = "sibling_failover"
 	KeyEffortEscalation                     Key = "effort_escalation"
-	KeyCyberRefusalRepin                    Key = "cyber_refusal_repin"
-	KeyCyberRefusalRetry                    Key = "cyber_refusal_retry"
-	KeyCyberRefusalFallback                 Key = "cyber_refusal_fallback_model"
-	KeyAnthropicServerFallback              Key = "anthropic_server_side_fallback"
-	KeyOpenAIResponsesBroad                 Key = "openai_responses_broad"
 	KeyAllowedModelsHeader                  Key = "allowed_models_header"
 	KeyCCTaskToolsCrossVendor               Key = "cc_task_tools_crossvendor"
 	KeyCCAutonomySystemAppend               Key = "cc_autonomy_system_append"
@@ -136,8 +123,6 @@ const (
 	KeyTransientRateLimit                   Key = "transient_rate_limit"
 	KeyRateLimitCooldownSeconds             Key = "rate_limit_cooldown_seconds"
 	KeyProviderOverloaded                   Key = "provider_overloaded"
-	KeyNativeAnthropicResponseSignals       Key = "native_anthropic_response_signals"
-	KeyNativeOpenAIResponseSignals          Key = "native_openai_response_signals"
 	KeyPlanUserClusterLists                 Key = "plan_user_cluster_lists"
 )
 
@@ -146,21 +131,49 @@ const (
 // older revision cannot invalidate unrelated active overrides during a rolling
 // deploy. They are never registered, published, or read by routing code.
 const (
-	retiredKeyStruggleEscalationEnabled Key = "struggle_escalation_enabled"
-	retiredKeyStruggleEscalationHoldout Key = "struggle_escalation_holdout_pct"
-	retiredKeyStruggleEvidenceArming    Key = "struggle_evidence_arming"
-	retiredKeySubscriberPaidFallback    Key = "subscriber_paid_fallback_enabled"
-	retiredKeySubscriptionPoolQuota     Key = "subscription_pool_quota_aware_selection_enabled"
-	retiredKeyEmbedOnlyUserMessage      Key = "embed_only_user_message"
+	retiredKeyStruggleEscalationEnabled      Key = "struggle_escalation_enabled"
+	retiredKeyStruggleEscalationHoldout      Key = "struggle_escalation_holdout_pct"
+	retiredKeyStruggleEvidenceArming         Key = "struggle_evidence_arming"
+	retiredKeySubscriberPaidFallback         Key = "subscriber_paid_fallback_enabled"
+	retiredKeySubscriptionPoolQuota          Key = "subscription_pool_quota_aware_selection_enabled"
+	retiredKeyEmbedOnlyUserMessage           Key = "embed_only_user_message"
+	retiredKeyTurnSignalCaptureEnabled       Key = "turn_signal_capture_enabled"
+	retiredKeyTextRepetitionBreakEnabled     Key = "text_repetition_break_enabled"
+	retiredKeyPlannerEnabled                 Key = "planner_enabled"
+	retiredKeyScoreToolResultTurns           Key = "score_tool_result_turns"
+	retiredKeyPrefixTrimFreeSwitch           Key = "prefix_trim_free_switch"
+	retiredKeyAuthoritativeUpgradeGate       Key = "authoritative_upgrade_gate"
+	retiredKeySiblingFailover                Key = "sibling_failover"
+	retiredKeyCyberRefusalRepin              Key = "cyber_refusal_repin"
+	retiredKeyCyberRefusalRetry              Key = "cyber_refusal_retry"
+	retiredKeyCyberRefusalFallbackModel      Key = "cyber_refusal_fallback_model"
+	retiredKeyAnthropicServerSideFallback    Key = "anthropic_server_side_fallback"
+	retiredKeyOpenaiResponsesBroad           Key = "openai_responses_broad"
+	retiredKeyNativeAnthropicResponseSignals Key = "native_anthropic_response_signals"
+	retiredKeyNativeOpenaiResponseSignals    Key = "native_openai_response_signals"
 )
 
 var retiredOverrideKeys = map[Key]struct{}{
-	retiredKeyStruggleEscalationEnabled: {},
-	retiredKeyStruggleEscalationHoldout: {},
-	retiredKeyStruggleEvidenceArming:    {},
-	retiredKeySubscriberPaidFallback:    {},
-	retiredKeySubscriptionPoolQuota:     {},
-	retiredKeyEmbedOnlyUserMessage:      {},
+	retiredKeyStruggleEscalationEnabled:      {},
+	retiredKeyStruggleEscalationHoldout:      {},
+	retiredKeyStruggleEvidenceArming:         {},
+	retiredKeySubscriberPaidFallback:         {},
+	retiredKeySubscriptionPoolQuota:          {},
+	retiredKeyEmbedOnlyUserMessage:           {},
+	retiredKeyTurnSignalCaptureEnabled:       {},
+	retiredKeyTextRepetitionBreakEnabled:     {},
+	retiredKeyPlannerEnabled:                 {},
+	retiredKeyScoreToolResultTurns:           {},
+	retiredKeyPrefixTrimFreeSwitch:           {},
+	retiredKeyAuthoritativeUpgradeGate:       {},
+	retiredKeySiblingFailover:                {},
+	retiredKeyCyberRefusalRepin:              {},
+	retiredKeyCyberRefusalRetry:              {},
+	retiredKeyCyberRefusalFallbackModel:      {},
+	retiredKeyAnthropicServerSideFallback:    {},
+	retiredKeyOpenaiResponsesBroad:           {},
+	retiredKeyNativeAnthropicResponseSignals: {},
+	retiredKeyNativeOpenaiResponseSignals:    {},
 }
 
 // Definition describes one overridable flag. DeploymentDefault is not stored
@@ -181,7 +194,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 30
+const RegistryVersion = 31
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -236,13 +249,6 @@ var Registry = []Definition{
 		OrgOverridable: true,
 	},
 	{
-		Key:            KeyTurnSignalCapture,
-		EnvVar:         "ROUTER_TURN_SIGNAL_CAPTURE_ENABLED",
-		Kind:           KindBool,
-		Description:    "Persist the per-turn behavioral signal snapshot onto telemetry rows. Skipped regardless for installations that opted out of AI training or set content capture to off.",
-		OrgOverridable: true,
-	},
-	{
 		Key:            KeyLoopEscalationEnabled,
 		EnvVar:         "ROUTER_LOOP_ESCALATION_ENABLED",
 		Kind:           KindBool,
@@ -256,47 +262,12 @@ var Registry = []Definition{
 		Description:    "Percent of loop detections recorded without escalating, as a self-recovery baseline. 0-100.",
 		OrgOverridable: true,
 	},
-	{
-		Key:            KeyTextRepetitionBreak,
-		EnvVar:         "ROUTER_TEXT_REPETITION_BREAK_ENABLED",
-		Kind:           KindBool,
-		Description:    "Enforcing text-repetition loop break.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyPlannerEnabled,
-		EnvVar:         "ROUTER_PLANNER_ENABLED",
-		Kind:           KindBool,
-		Description:    "Cache-aware EV planner for mid-session model switches.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyScoreToolResultTurns,
-		EnvVar:         "ROUTER_SCORE_TOOL_RESULT_TURNS",
-		Kind:           KindBool,
-		Description:    "Re-score tool-result turns instead of following the session pin.",
-		OrgOverridable: true,
-	},
 	// Router policy owns this eval control; promote or remove it after the
 	// escalation benchmark comparison.
 	{
 		Key:            KeyHMMToolResultHold,
 		Kind:           KindBool,
 		Description:    "Hold the user turn's first policy pick across its tool-result turns unless escalation constrains the request.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyPrefixTrimFreeSwitch,
-		EnvVar:         "ROUTER_PREFIX_TRIM_FREE_SWITCH",
-		Kind:           KindBool,
-		Description:    "Treat a trimmed prompt prefix as a free switch point (cache already lost).",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAuthoritativeUpgradeGate,
-		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_GATE",
-		Kind:           KindBool,
-		Description:    "Keep the confidence floor active for authoritative-per-turn policies.",
 		OrgOverridable: true,
 	},
 	{
@@ -362,52 +333,10 @@ var Registry = []Definition{
 		OrgOverridable: true,
 	},
 	{
-		Key:            KeySiblingFailover,
-		EnvVar:         "ROUTER_SIBLING_FAILOVER",
-		Kind:           KindBool,
-		Description:    "Degrade to a same-cluster candidate when every binding for the routed model is exhausted.",
-		OrgOverridable: true,
-	},
-	{
 		Key:            KeyEffortEscalation,
 		EnvVar:         "ROUTER_EFFORT_ESCALATION",
 		Kind:           KindBool,
 		Description:    "Apply policy-requested reasoning-effort escalation.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyCyberRefusalRepin,
-		EnvVar:         "ROUTER_CYBER_REFUSAL_REPIN",
-		Kind:           KindBool,
-		Description:    "Re-pin a session off a model that returned a safety refusal (cyber, reasoning_extraction, ...).",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyCyberRefusalRetry,
-		EnvVar:         "ROUTER_CYBER_REFUSAL_RETRY",
-		Kind:           KindBool,
-		Description:    "Re-dispatch a turn OpenAI declined on cyber policy to a non-OpenAI fallback before any output reaches the client.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyCyberRefusalFallback,
-		EnvVar:         "ROUTER_CYBER_REFUSAL_FALLBACK_MODEL",
-		Kind:           KindString,
-		Description:    "Fallback model for a safety-refusal re-pin with no runner-up.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyAnthropicServerFallback,
-		EnvVar:         "ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK",
-		Kind:           KindBool,
-		Description:    "Ask Anthropic to re-serve a safety-refused turn on a fallback model instead of returning the refusal.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyOpenAIResponsesBroad,
-		EnvVar:         "ROUTER_OPENAI_RESPONSES_BROAD",
-		Kind:           KindBool,
-		Description:    "Serve every direct-OpenAI turn on /v1/responses. Off, only the reasoning tool turn chat/completions rejects is promoted.",
 		OrgOverridable: true,
 	},
 	{
@@ -471,20 +400,6 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_PROVIDER_OVERLOADED",
 		Kind:           KindBool,
 		Description:    "Per-model 529 circuit breaker: provider overloaded responses from every organization open a shared circuit, which withdraws the model from automatic selection only for organizations that have each observed overloads themselves; traffic through an organization's own gateway gets an isolated circuit. Probed again after a backoff. On by default; kill switch for the breaker.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyNativeAnthropicResponseSignals,
-		EnvVar:         "ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS",
-		Kind:           KindBool,
-		Description:    "Record stop_reason and tool_use block count on telemetry for Anthropic-native passthrough turns. On by default; kill switch for the added extraction. Observability only, never read by routing.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyNativeOpenAIResponseSignals,
-		EnvVar:         "ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS",
-		Kind:           KindBool,
-		Description:    "Record finish_reason and tool-call count on telemetry for OpenAI-native turns, both chat/completions and /v1/responses passthrough. On by default; kill switch for the added extraction. Observability only, never read by routing.",
 		OrgOverridable: true,
 	},
 	{
@@ -611,9 +526,6 @@ func ValidateOverrides(o Overrides) error {
 	for key, value := range o.Strings {
 		if err := check(key, KindString); err != nil {
 			return err
-		}
-		if key == KeyCyberRefusalFallback && strings.TrimSpace(value) == "" {
-			return fmt.Errorf("%w: %q cannot be empty", ErrInvalidValue, key)
 		}
 		if key == KeyAuthoritativeUpgradePolicy {
 			switch AuthoritativeUpgradePolicy(value) {

@@ -178,7 +178,6 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 			observer := &escalationTestObserver{}
 			overrides := flags.Overrides{Bools: map[flags.Key]bool{
 				flags.KeyEscalationXGBoostShadowEnabled: true,
-				flags.KeyPlannerEnabled:                 false,
 			}}
 			if showMarker {
 				overrides.Bools[flags.KeyEscalationXGBoostShadowMarkerEnabled] = true
@@ -404,26 +403,31 @@ func TestEscalationRecordsServedHistoryWithoutReplacingBaselinePin(t *testing.T)
 	require.Equal(t, 20, pins.lastUsage.OutputTokens)
 }
 
-func TestEscalationCommitFailurePreservesOrdinaryStickySelection(t *testing.T) {
+func TestEscalationCommitFailurePreservesOrdinarySelection(t *testing.T) {
 	store := newEscalationTestStore()
 	observer := &escalationTestObserver{}
 	pins := &rolePinStore{byRole: map[string]sessionpin.Pin{
 		roleForTier(catalog.TierFor("claude-opus-4-8")): {Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Strategy: router.StrategyHMMEmbedding, PinnedUntil: time.Now().Add(time.Hour)},
 	}}
 	svc := NewService(nil, nil, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).WithEscalation(store, observer).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1}})
-	ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostEnabled: true, flags.KeyPlannerEnabled: false}})
+	ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostEnabled: true}})
 	installation := uuid.New()
+	var ordinary router.Decision
 	for n := 1; n <= 5; n++ {
 		store.failCommit = n == 5
 		env := escalationTestEnvelope(t, n)
 		feats := env.RoutingFeatures()
 		res, err := svc.runTurnLoop(ctx, env, feats, "test-key", installation, "", http.Header{}, router.Request{RequestedModel: feats.Model})
 		require.NoError(t, err)
-		require.Equal(t, "claude-opus-4-7", res.Decision.Model)
-		require.True(t, res.StickyHit)
+		if n == 1 {
+			ordinary = res.Decision
+		}
+		require.Equal(t, ordinary.Model, res.Decision.Model)
 		if n == 5 {
 			require.Zero(t, res.EscalationOrdinal)
-			require.Nil(t, res.Decision.Metadata)
+			if res.Decision.Metadata != nil {
+				require.Nil(t, res.Decision.Metadata.Escalation)
+			}
 		}
 	}
 	require.Len(t, observer.requests, 5, "fail-open selection must not observe the same turn twice")

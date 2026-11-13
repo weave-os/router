@@ -154,31 +154,6 @@ const toolResultPinnedBody = `{
 	]
 }`
 
-// TestTurnLoop_ToolResultScoringDisabledSkipsScorer verifies kill-switch-off:
-// a pinned tool_result reuses the pin verbatim without scorer or planner.
-func TestTurnLoop_ToolResultScoringDisabledSkipsScorer(t *testing.T) {
-	store := newFakePinStore()
-	store.hasPin = true
-	store.pin = sessionpin.Pin{
-		Provider:    providers.ProviderAnthropic,
-		Model:       "claude-haiku-4-5",
-		Reason:      "cluster:v0.2",
-		PinnedUntil: time.Now().Add(time.Hour),
-	}
-	// fakeRouter.err makes any Route() call fail; the test passes only
-	// if the orchestrator never touches the scorer.
-	fr := &fakeRouter{err: errors.New("scorer must not be called when tool-result scoring is disabled")}
-	svc := newPinSvc(fr, store).WithScoreToolResultTurns(false)
-
-	ctx := authedCtx(uuid.New().String())
-	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(toolResultPinnedBody), rec, httpReq))
-
-	assert.Equal(t, 0, fr.routeCalls, "disabled tool-result scoring must not invoke the scorer")
-	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
-}
-
 // TestTurnLoop_ToolResultScoringEnabledRunsScorerAndStays verifies the default path:
 // scorer runs (routeCalls==1) but planner STAYs, so the served model is unchanged.
 func TestTurnLoop_ToolResultScoringEnabledRunsScorerAndStays(t *testing.T) {
@@ -193,7 +168,7 @@ func TestTurnLoop_ToolResultScoringEnabledRunsScorerAndStays(t *testing.T) {
 	// Scorer agrees with the pin, so the planner STAYs and the served model
 	// is the pin's — but the scorer MUST have been consulted (routeCalls==1).
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
-	svc := newPinSvc(fr, store) // default: scoreToolResultTurns == true
+	svc := newPinSvc(fr, store)
 
 	ctx := authedCtx(uuid.New().String())
 	rec := httptest.NewRecorder()
@@ -750,29 +725,6 @@ func TestTurnLoop_HandoverSkippedWhenClientCredsCrossProvider(t *testing.T) {
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "switch must still happen with full history passed through")
 }
 
-// ROUTER_PLANNER_ENABLED kill switch: an existing pin wins outright without
-// consulting the scorer, mirroring legacy stickiness.
-func TestTurnLoop_PlannerDisabledPreservesFirstDecisionWins(t *testing.T) {
-	store := newFakePinStore()
-	store.hasPin = true
-	store.pin = sessionpin.Pin{
-		Provider:    providers.ProviderAnthropic,
-		Model:       "claude-haiku-4-5",
-		Reason:      "cluster:v0.2",
-		PinnedUntil: time.Now().Add(time.Hour),
-	}
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Reason: "fresh"}}
-	svc := newPinSvc(fr, store).WithPlannerEnabled(false)
-
-	ctx := authedCtx(uuid.New().String())
-	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(pinTestBody), rec, httpReq))
-
-	assert.Equal(t, 0, fr.routeCalls, "planner-disabled with pin must skip the scorer")
-	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
-}
-
 // Asserts the orchestrator writes upstream usage back to the pin row.
 func TestTurnLoop_UsageWritebackPersistsCacheStats(t *testing.T) {
 	store := newFakePinStore()
@@ -870,34 +822,6 @@ func TestTurnLoop_PrefixTrimPricesPinColdAndSkipsSummarizer(t *testing.T) {
 		"trim turn must price the pin cold and switch to the fresh pick")
 	assert.Equal(t, int32(0), sz.calls.Load(),
 		"switch on a trim turn must skip the summarizer — the client's compaction summary already bounds the body")
-}
-
-// With the kill switch off, the trim is detected but the planner keeps
-// pricing the pin warm and stays, even with the cold-pin lever armed.
-func TestTurnLoop_PrefixTrimKillSwitchPreservesWarmStay(t *testing.T) {
-	store := newFakePinStore()
-	store.hasPin = true
-	store.pin = warmOpusPin()
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
-	sz := &fakeSummarizer{summary: "Prior conversation summary."}
-	svc := newPinSvc(fr, store).WithSummarizer(sz).WithPrefixTrimFreeSwitch(false).WithPlanner(planner.EVConfig{
-		ThresholdUSD:           0.001,
-		ExpectedRemainingTurns: 3,
-		ColdPinFollowFresh:     true,
-	})
-	ctx := authedCtx(uuid.New().String())
-
-	rec1 := httptest.NewRecorder()
-	req1 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	require.NoError(t, svc.ProxyMessages(ctx, trimSessionTurn(t, 9), rec1, req1))
-	require.Equal(t, "claude-opus-4-7", rec1.Header().Get(proxy.HeaderRouterModel))
-
-	rec2 := httptest.NewRecorder()
-	req2 := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	require.NoError(t, svc.ProxyMessages(ctx, trimSessionTurn(t, 3), rec2, req2))
-	assert.Equal(t, "claude-opus-4-7", rec2.Header().Get(proxy.HeaderRouterModel),
-		"kill switch off must preserve the warm-priced EV stay on the trim turn")
-	assert.Equal(t, int32(0), sz.calls.Load())
 }
 
 // A trim turn must skip the expired-pin re-anchor (guard (h)): the prior

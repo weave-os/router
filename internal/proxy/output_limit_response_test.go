@@ -59,10 +59,7 @@ func TestProxyOutputLimitAcrossResponsePaths(t *testing.T) {
 						_, _ = w.Write([]byte(response))
 					}}
 					svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: path.provider, Model: path.model, Reason: "fresh"}},
-						map[string]providers.Client{path.provider: provider}, nil, store, false, path.provider, path.model, nil).
-						WithOpenAIResponsesBroad(path.wire == "responses").
-						WithNativeAnthropicResponseSignals(false).
-						WithNativeOpenAIResponseSignals(false)
+						map[string]providers.Client{path.provider: provider}, nil, store, false, path.provider, path.model, nil)
 					ctx := authedCtx(uuid.NewString())
 					rec := httptest.NewRecorder()
 					body := []byte(fmt.Sprintf(`{"model":%q,"max_tokens":64000,"stream":%t,"messages":[{"role":"user","content":"Inspect the repository files"}]}`, path.model, stream))
@@ -193,7 +190,7 @@ func TestTurnLoop_HighOutputKeepsActiveAndExpiredPins(t *testing.T) {
 			store.pin = sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: capAnthropicModel, LastServedModel: capAnthropicModel,
 				Reason: "cluster", LastOutputTokens: 32000, LastTurnEndedAt: time.Now().Add(-time.Second), PinnedUntil: until}
 			routes := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: freshModel, Reason: "fresh"}}
-			svc := newPinSvc(routes, store).WithPlannerEnabled(false).WithAvailableModels(map[string]struct{}{capAnthropicModel: {}, freshModel: {}})
+			svc := newPinSvc(routes, store).WithAvailableModels(map[string]struct{}{capAnthropicModel: {}, freshModel: {}})
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyMessages(authedCtx(uuid.NewString()), []byte(pinTestBody), rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil)))
 			assert.Equal(t, capAnthropicModel, rec.Header().Get(proxy.HeaderRouterModel))

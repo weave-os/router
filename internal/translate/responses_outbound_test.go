@@ -688,31 +688,26 @@ func TestPrepareGemini_ThinkingBudget_Legacy25(t *testing.T) {
 
 func TestUseOpenAIResponsesAPI(t *testing.T) {
 	caps := router.Lookup("gpt-5.4-mini")
-	route := func(provider string, caps router.ModelSpec, hasTools, chatOnly, broad bool) translate.ResponsesRoute {
+	route := func(provider string, caps router.ModelSpec, hasTools, chatOnly bool) translate.ResponsesRoute {
 		return translate.ResponsesRoute{
 			Provider:       provider,
 			Capabilities:   caps,
 			HasTools:       hasTools,
 			ChatOnlyParams: chatOnly,
-			Broad:          broad,
 		}
 	}
-	assert.True(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, caps, true, false, true)))
-	assert.True(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, caps, false, false, true)),
-		"broad rollout serves every expressible direct-OpenAI turn, tools or not")
-	assert.True(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, router.Lookup("gpt-4o"), true, false, true)),
+	assert.True(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, caps, true, false)))
+	assert.True(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, caps, false, false)),
+		"every expressible direct-OpenAI turn rides Responses, tools or not")
+	assert.True(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, router.Lookup("gpt-4o"), true, false)),
 		"non-reasoning direct-OpenAI models go to Responses too")
-	assert.False(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, caps, true, true, true)),
+	assert.False(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, caps, true, true)),
 		"a turn using a chat-only parameter stays on chat/completions")
-	assert.True(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, caps, true, false, false)),
-		"with the rollout off, the reasoning tool turn chat/completions rejects is still promoted")
-	assert.False(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAI, caps, false, false, false)),
-		"with the rollout off, a toolless turn keeps the chat projection")
-	assert.False(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderFireworks, caps, true, false, true)))
-	assert.True(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAIGateway, caps, true, false, true)),
+	assert.False(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderFireworks, caps, true, false)))
+	assert.True(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAIGateway, caps, true, false)),
 		"BYOK gateways reject tools alongside an effort on chat/completions too")
-	assert.False(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAIGateway, caps, false, false, true)),
-		"gateways stay narrow even under the broad rollout: most mount no Responses surface")
+	assert.False(t, translate.UseOpenAIResponsesAPI(route(providers.ProviderOpenAIGateway, caps, false, false)),
+		"gateways stay narrow: most mount no Responses surface")
 }
 
 // An Anthropic image block must survive the Responses emit as a typed

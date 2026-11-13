@@ -152,8 +152,7 @@ func TestRunTurnLoop_ForcedModelContextOverflow_StaysInTier(t *testing.T) {
 	}}
 	svc := NewService(fr, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
-		WithAvailableModels(fr.available).
-		WithPlannerEnabled(false)
+		WithAvailableModels(fr.available)
 
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hello"}]}`))
 	require.NoError(t, err)

@@ -226,9 +226,6 @@ func TestOverloadBreaker_ProbeOnlyWhereRescuable(t *testing.T) {
 		{name: "messages", ctx: func() context.Context { return orgCtx(probeTestOrg) }, endpoint: router.EndpointAnthropicMessages, want: true},
 		{name: "chat completions", ctx: func() context.Context { return orgCtx(probeTestOrg) }, endpoint: router.EndpointOpenAIChat, want: true},
 		{name: "gemini never rescues", ctx: func() context.Context { return orgCtx(probeTestOrg) }, endpoint: router.EndpointGeminiGenerate},
-		{name: "sibling failover off", endpoint: router.EndpointAnthropicMessages, ctx: func() context.Context {
-			return flags.WithOverrides(orgCtx(probeTestOrg), flags.Overrides{Bools: map[flags.Key]bool{flags.KeySiblingFailover: false}})
-		}},
 		{name: "caller credentials", endpoint: router.EndpointAnthropicMessages, ctx: func() context.Context {
 			return requestcontext.WithCredentials(orgCtx(probeTestOrg), &Credentials{Source: credSourceBYOK})
 		}},

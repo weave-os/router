@@ -752,23 +752,9 @@ func main() {
 		passthroughEligible[providers.ProviderOpenAI] = struct{}{}
 	}
 
-	// Planner + handover config (Prism-style cache-aware routing); each default
-	// below can be overridden per deployment.
-	plannerEnabled := config.GetOr("ROUTER_PLANNER_ENABLED", "true") == "true"
-	scoreToolResultTurns := config.GetOr("ROUTER_SCORE_TOOL_RESULT_TURNS", "true") == "true"
-	// Safety-refusal backstop: re-pin session off the refusing model and ask
-	// Anthropic to re-serve the refused turn on a fallback model.
-	cyberRefusalRepin := config.GetOr("ROUTER_CYBER_REFUSAL_REPIN", "true") == "true"
-	cyberRefusalRetry := config.GetOr("ROUTER_CYBER_REFUSAL_RETRY", "true") == "true"
-	cyberRefusalFallbackModel := config.GetOr("ROUTER_CYBER_REFUSAL_FALLBACK_MODEL", "claude-sonnet-5")
-	anthropicServerSideFallback := config.GetOr("ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK", "true") == "true"
 	scopedSearchRequirement := config.GetOr("ROUTER_SCOPED_SEARCH_REQUIREMENT", "true") == "true"
 	searchRequirementDecayTurns := parseEnvInt("ROUTER_SEARCH_REQUIREMENT_DECAY_TURNS", proxy.DefaultSearchRequirementDecayTurns)
 	effortEscalation := config.GetOr("ROUTER_EFFORT_ESCALATION", "false") == "true"
-	// Kill switch for degrading to a same-cluster candidate when the routed
-	// model's bindings are all exhausted by a transient upstream fault.
-	siblingFailover := config.GetOr("ROUTER_SIBLING_FAILOVER", "true") == "true"
-	openAIResponsesBroad := config.GetOr("ROUTER_OPENAI_RESPONSES_BROAD", "true") == "true"
 	allowedModelsHeader := config.GetOr("ROUTER_ALLOWED_MODELS_HEADER", "false") == "true"
 	// Session-level demotion of an arm whose stream died after commit. Off
 	// until the upstream owner of those cuts is identified.
@@ -784,13 +770,6 @@ func main() {
 	// Per-model 529 circuit breaker. Its thresholds are fixed in
 	// internal/router/breaker/thresholds.go.
 	providerOverloaded := config.GetOr("ROUTER_PROVIDER_OVERLOADED", "true") == "true"
-	// nativeAnthropicResponseSignals records the stop reason and tool_use block
-	// count an Anthropic-native turn already streams past the usage extractor;
-	// kill switch for that extraction and the telemetry columns it fills.
-	nativeAnthropicResponseSignals := config.GetOr("ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS", "true") == "true"
-	// nativeOpenAIResponseSignals is the same kill switch for the OpenAI-native
-	// surfaces: chat/completions passthrough and /v1/responses passthrough.
-	nativeOpenAIResponseSignals := config.GetOr("ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS", "true") == "true"
 	sseKeepalive := sseKeepaliveInterval()
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
 	ccTaskToolsCrossVendor := config.GetOr("ROUTER_CC_TASK_TOOLS_CROSSVENDOR", "false") == "true"
@@ -822,17 +801,10 @@ func main() {
 	// Shadow mode is log-only, so it ships enabled; the switch just sheds the
 	// per-turn signal-scan cost if it misbehaves.
 	spiralShadowEnabled := config.GetOr("ROUTER_SPIRAL_SHADOW_ENABLED", "true") == "true"
-	// Per-turn signal snapshot on telemetry rows. Ships enabled; only source
-	// of negative examples. Skipped regardless for opted-out installations.
-	// Kill switch: ROUTER_TURN_SIGNAL_CAPTURE_ENABLED.
-	turnSignalCaptureEnabled := config.GetOr("ROUTER_TURN_SIGNAL_CAPTURE_ENABLED", "true") == "true"
 	// Session-level struggle detector, also log-only and shipped enabled.
 	// Switch sheds the per-turn check if it misbehaves; exists for symmetry with the spiral detector.
 	struggleShadowEnabled := config.GetOr("ROUTER_STRUGGLE_SHADOW_ENABLED", "true") == "true"
 
-	// Enforcing text-repetition break ships enabled; the switch is the kill
-	// switch if it ever false-positives on legit repeated narration.
-	textRepetitionBreakEnabled := config.GetOr("ROUTER_TEXT_REPETITION_BREAK_ENABLED", "true") == "true"
 	plannerCfg := planner.EVConfig{
 		ThresholdUSD:           parseEnvFloat("ROUTER_SWITCH_EV_THRESHOLD_USD", proxy.DefaultPlannerThresholdUSD),
 		ExpectedRemainingTurns: parseEnvInt("ROUTER_SWITCH_EXPECTED_REMAINING_TURNS", proxy.DefaultPlannerExpectedRemainingTurns),
@@ -840,7 +812,6 @@ func main() {
 		ColdPinFollowFresh:     config.GetOr("ROUTER_SWITCH_COLD_PIN_FOLLOW_FRESH", boolDefault(proxy.DefaultPlannerColdPinFollowFresh)) == "true",
 		CorrectedEconomics:     config.GetOr("ROUTER_SWITCH_CORRECTED_ECONOMICS", boolDefault(proxy.DefaultPlannerCorrectedEconomics)) == "true",
 	}
-	prefixTrimFreeSwitch := config.GetOr("ROUTER_PREFIX_TRIM_FREE_SWITCH", "true") == "true"
 	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", proxy.DefaultHMMUpgradeConfidenceThreshold)
 	upgradeConfig, err := authoritativeUpgradeConfigFromEnv()
 	if err != nil {
@@ -848,9 +819,6 @@ func main() {
 		panic(err)
 	}
 	hmmSameTierPin := config.GetOr("ROUTER_HMM_SAME_TIER_PIN", "false") == "true"
-	// authoritativeUpgradeGate keeps the upgrade-confidence floor active for authoritative-per-turn
-	// policies; kill switch for a return to verbatim policy selection.
-	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
 	authoritativeUpgradePolicy := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_POLICY", string(flags.AuthoritativeUpgradePolicyScore))
 	parsedUpgradePolicy, err := flags.ParseAuthoritativeUpgradePolicy(authoritativeUpgradePolicy)
 	if err != nil {
@@ -1255,15 +1223,9 @@ func main() {
 		flags.KeyPlanUserClusterLists:                 boolDefault(false),
 		flags.KeyStruggleShadowEnabled:                boolDefault(struggleShadowEnabled),
 		flags.KeySpiralShadowEnabled:                  boolDefault(spiralShadowEnabled),
-		flags.KeyTurnSignalCapture:                    boolDefault(turnSignalCaptureEnabled),
 		flags.KeyLoopEscalationEnabled:                boolDefault(loopEscalationEnabled),
 		flags.KeyLoopEscalationHoldoutPct:             strconv.Itoa(loopEscalationHoldoutPct),
-		flags.KeyTextRepetitionBreak:                  boolDefault(textRepetitionBreakEnabled),
-		flags.KeyPlannerEnabled:                       boolDefault(plannerEnabled),
-		flags.KeyScoreToolResultTurns:                 boolDefault(scoreToolResultTurns),
 		flags.KeyHMMToolResultHold:                    boolDefault(false),
-		flags.KeyPrefixTrimFreeSwitch:                 boolDefault(prefixTrimFreeSwitch),
-		flags.KeyAuthoritativeUpgradeGate:             boolDefault(authoritativeUpgradeGate),
 		flags.KeyAuthoritativeUpgradePolicy:           string(parsedUpgradePolicy),
 		flags.KeyAuthoritativeUpgradeHoldoutPct:       strconv.Itoa(authoritativeUpgradeHoldoutPct),
 		flags.KeyAuthoritativeUpgradeVotes:            strconv.Itoa(authoritativeUpgradeVotes),
@@ -1273,8 +1235,6 @@ func main() {
 		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmDowngradeHysteresisShadowTurns),
 		flags.KeyAuthorityCacheShadow:                 boolDefault(authorityCacheShadow),
 		flags.KeyAgreementShadowEpoch:                 "0",
-		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
-		flags.KeyOpenAIResponsesBroad:                 boolDefault(openAIResponsesBroad),
 		flags.KeyAllowedModelsHeader:                  boolDefault(allowedModelsHeader),
 		flags.KeyCCTaskToolsCrossVendor:               boolDefault(ccTaskToolsCrossVendor),
 		flags.KeyCCAutonomySystemAppend:               boolDefault(ccAutonomySystemAppend),
@@ -1285,13 +1245,7 @@ func main() {
 		flags.KeyTransientRateLimit:                   boolDefault(transientRateLimit),
 		flags.KeyRateLimitCooldownSeconds:             strconv.Itoa(rateLimitCooldownSeconds),
 		flags.KeyProviderOverloaded:                   boolDefault(providerOverloaded),
-		flags.KeyNativeAnthropicResponseSignals:       boolDefault(nativeAnthropicResponseSignals),
-		flags.KeyNativeOpenAIResponseSignals:          boolDefault(nativeOpenAIResponseSignals),
 		flags.KeyEffortEscalation:                     boolDefault(effortEscalation),
-		flags.KeyCyberRefusalRepin:                    boolDefault(cyberRefusalRepin),
-		flags.KeyCyberRefusalRetry:                    boolDefault(cyberRefusalRetry),
-		flags.KeyCyberRefusalFallback:                 cyberRefusalFallbackModel,
-		flags.KeyAnthropicServerFallback:              boolDefault(anthropicServerSideFallback),
 	})
 
 	// Always wire even when beta is unavailable: existing beta sessions fail
@@ -1372,27 +1326,15 @@ func main() {
 		WithHardPinResolver(hardPinResolver).
 		WithExplicitUtilityHardPin(hardPinOverrideConfigured).
 		WithSubAgentOverride(subAgentProvider, subAgentModel).
-		WithPlannerEnabled(plannerEnabled).
-		WithScoreToolResultTurns(scoreToolResultTurns).
-		WithCyberRefusalRepin(cyberRefusalRepin).
-		WithCyberRefusalRetry(cyberRefusalRetry).
-		WithCyberRefusalFallbackModel(cyberRefusalFallbackModel).
-		WithAnthropicServerSideFallback(anthropicServerSideFallback).
-		WithSiblingFailover(siblingFailover).
-		WithOpenAIResponsesBroad(openAIResponsesBroad).
 		WithAllowedModelsHeader(allowedModelsHeader).
 		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
 		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
 		WithTransientRateLimit(transientRateLimit, rateLimitCooldownSeconds).
 		WithProviderOverloaded(providerOverloaded, breaker.New(breaker.Defaults(), nil)).
-		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
-		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
 		WithSSEKeepalive(sseKeepalive).
-		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
 		WithAuthoritativeUpgradeConfig(upgradeConfig).
 		WithHMMSameTierPin(hmmSameTierPin).
-		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
 		WithAuthoritativeUpgradePolicy(parsedUpgradePolicy).
 		WithAuthoritativeUpgradeHoldoutPct(authoritativeUpgradeHoldoutPct).
 		WithAuthoritativeUpgradeVotes(authoritativeUpgradeVotes).
@@ -1415,11 +1357,9 @@ func main() {
 		WithLoopEscalationStore(repo.Telemetry).
 		WithGlobalAutomaticExclusions(repo.GlobalAutomaticExclusions).
 		WithSpiralShadowConfig(spiralShadowEnabled).
-		WithTurnSignalCapture(turnSignalCaptureEnabled).
 		WithSpiralShadowStore(repo.Telemetry).
 		WithStruggleShadowConfig(struggleShadowEnabled).
 		WithStruggleShadowStore(repo.Telemetry).
-		WithTextRepetitionBreak(textRepetitionBreakEnabled).
 		WithRouterFeedbackStore(repo.Telemetry).
 		WithPlanner(plannerCfg).
 		WithSummarizer(summarizer).
@@ -1445,10 +1385,7 @@ func main() {
 	logger.Info("Cross-vendor Claude Code orchestration tools configured", "enabled", ccOrchToolsCrossVendor, "task_tools_enabled", ccTaskToolsCrossVendor)
 	logger.Info("Loop escalation configured", "enabled", loopEscalationEnabled, "holdout_pct", loopEscalationHoldoutPct)
 	logger.Info("Spiral shadow detector configured", "enabled", spiralShadowEnabled)
-	logger.Info("Turn signal capture configured", "enabled", turnSignalCaptureEnabled)
-	logger.Info("Text-repetition break configured", "enabled", textRepetitionBreakEnabled)
-	logger.Info("Planner configured", "enabled", plannerEnabled, "threshold_usd", plannerCfg.ThresholdUSD, "expected_remaining_turns", plannerCfg.ExpectedRemainingTurns, "tier_upgrade_enabled", plannerCfg.TierUpgradeEnabled, "cold_pin_follow_fresh", plannerCfg.ColdPinFollowFresh, "corrected_economics", plannerCfg.CorrectedEconomics, "prefix_trim_free_switch", prefixTrimFreeSwitch, "routing_targets_count", len(routingTargets))
-	logger.Info("Tool-result scoring configured", "enabled", scoreToolResultTurns)
+	logger.Info("Planner configured", "threshold_usd", plannerCfg.ThresholdUSD, "expected_remaining_turns", plannerCfg.ExpectedRemainingTurns, "tier_upgrade_enabled", plannerCfg.TierUpgradeEnabled, "cold_pin_follow_fresh", plannerCfg.ColdPinFollowFresh, "corrected_economics", plannerCfg.CorrectedEconomics, "routing_targets_count", len(routingTargets))
 
 	// Fail loud if a deployed model is missing from the tier table;
 	// TierUnknown would silently disable the guard for that pair.

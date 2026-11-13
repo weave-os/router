@@ -25,7 +25,7 @@ import (
 //
 // Scans narration since the last real user turn; fires when a normalized text
 // of ≥textRepetitionMinLen chars recurs ≥textRepetitionThreshold times within
-// textRepetitionWindow messages. Gated by ROUTER_TEXT_REPETITION_BREAK_ENABLED.
+// textRepetitionWindow messages.
 const (
 	// textRepetitionWindow bounds the scan to recent messages so an early
 	// duplicate the agent recovered from doesn't count against it.

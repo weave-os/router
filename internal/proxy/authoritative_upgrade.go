@@ -179,9 +179,6 @@ func (s *Service) authoritativeUpgradeFor(ctx context.Context, req router.Reques
 		return nil
 	}
 	mode := s.resolveUpgradePolicyMode(ctx)
-	if mode == flags.AuthoritativeUpgradePolicyScore && !s.ResolveAuthoritativeUpgradeGate(ctx) {
-		mode = flags.AuthoritativeUpgradePolicyOff
-	}
 	decision := &authoritativeUpgradeDecision{
 		Mode:            mode,
 		PinModel:        pin.Model,

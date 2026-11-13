@@ -179,7 +179,7 @@ func TestProxyOpenAIResponses_RescuedTitleContainsOnlyTitle(t *testing.T) {
 	}, anthropicSSE: strings.Replace(anthropicRescueSSE, `"text":"rescued"`, `"text":"{\"title\":\"Rescued task\"}"`, 1)}
 	openAIURL, anthropicURL := upstreams.start(t)
 	pins := newFakePinStore()
-	svc := cyberRefusalService(openAIURL, anthropicURL, "test", pins, newCaptureTelemetry()).WithCyberRefusalRetry(true)
+	svc := cyberRefusalService(openAIURL, anthropicURL, "test", pins, newCaptureTelemetry())
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"text":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}}},"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Generate a concise task title."}]}]}`)
 	ctx := context.WithValue(authedCtx(cyberRefusalInstallationID), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	rec := httptest.NewRecorder()
@@ -235,18 +235,15 @@ func TestProxyOpenAIResponses_CyberRefusalRetrySkipped(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		reason       string
-		retryFlag    bool
 		wantFinalPin string
 	}{
-		{name: "force-model pin", reason: translate.ReasonUserForceModel, retryFlag: true, wantFinalPin: "gpt-5.6-sol"},
-		{name: "retry kill switch off", reason: "test", retryFlag: false, wantFinalPin: "claude-sonnet-5"},
+		{name: "force-model pin", reason: translate.ReasonUserForceModel, wantFinalPin: "gpt-5.6-sol"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			upstreams := &cyberRefusalUpstreams{openAIResponse: streamResponses(cyberRefusalSSE)}
 			openAIURL, anthropicURL := upstreams.start(t)
 			store := newFakePinStore()
-			svc := cyberRefusalService(openAIURL, anthropicURL, tc.reason, store, newCaptureTelemetry()).
-				WithCyberRefusalRetry(tc.retryFlag)
+			svc := cyberRefusalService(openAIURL, anthropicURL, tc.reason, store, newCaptureTelemetry())
 
 			rec := proxyResponsesTurn(t, svc)
 

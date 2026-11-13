@@ -661,7 +661,6 @@ func TestProxyMessages_NativeAnthropicResponseSignals(t *testing.T) {
 
 	tests := []struct {
 		name              string
-		enabled           bool
 		events            []string
 		wantStopReason    *string
 		wantToolUseBlocks *int32
@@ -669,21 +668,14 @@ func TestProxyMessages_NativeAnthropicResponseSignals(t *testing.T) {
 	}{
 		{
 			name:              "observed tool turn",
-			enabled:           true,
 			events:            toolTurn,
 			wantStopReason:    ptrTo("tool_use"),
 			wantToolUseBlocks: ptrTo(int32(2)),
 		},
 		{
 			name:    "stream cut before message_delta stays unknown",
-			enabled: true,
 			events:  toolTurn[:4],
 			wantCut: true,
-		},
-		{
-			name:    "flag off keeps the row as it is today",
-			enabled: false,
-			events:  toolTurn,
 		},
 	}
 
@@ -701,7 +693,7 @@ func TestProxyMessages_NativeAnthropicResponseSignals(t *testing.T) {
 				map[string]providers.Client{providers.ProviderAnthropic: provider},
 				nil, nil, false,
 				providers.ProviderAnthropic, "claude-opus-4-7", telem,
-			).WithNativeAnthropicResponseSignals(tt.enabled)
+			)
 
 			ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 			rec := httptest.NewRecorder()
@@ -842,34 +834,25 @@ func TestProxyOpenAIChatCompletion_NativeChatResponseSignals(t *testing.T) {
 
 	tests := []struct {
 		name              string
-		enabled           bool
 		frames            []string
 		wantFinishReason  *string
 		wantToolUseBlocks *int32
 	}{
 		{
 			name:              "observed tool turn",
-			enabled:           true,
 			frames:            toolTurn,
 			wantFinishReason:  ptrTo("tool_calls"),
 			wantToolUseBlocks: ptrTo(int32(1)),
 		},
 		{
 			name:              "observed text turn is a measured zero",
-			enabled:           true,
 			frames:            []string{`{"id":"chatcmpl-1","choices":[{"index":0,"delta":{"content":"ok"},"finish_reason":"stop"}]}`},
 			wantFinishReason:  ptrTo("stop"),
 			wantToolUseBlocks: ptrTo(int32(0)),
 		},
 		{
-			name:    "stream cut before finish_reason stays unknown",
-			enabled: true,
-			frames:  toolTurn[:3],
-		},
-		{
-			name:    "flag off keeps the row as it is today",
-			enabled: false,
-			frames:  toolTurn,
+			name:   "stream cut before finish_reason stays unknown",
+			frames: toolTurn[:3],
 		},
 	}
 
@@ -889,7 +872,7 @@ func TestProxyOpenAIChatCompletion_NativeChatResponseSignals(t *testing.T) {
 				map[string]providers.Client{providers.ProviderOpenAI: provider},
 				nil, nil, false,
 				providers.ProviderOpenAI, "gpt-4.1", telem,
-			).WithNativeOpenAIResponseSignals(tt.enabled)
+			)
 
 			ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 			rec := httptest.NewRecorder()
@@ -923,7 +906,6 @@ func TestProxyOpenAIResponses_NativeResponseSignals(t *testing.T) {
 
 	tests := []struct {
 		name              string
-		enabled           bool
 		frames            []string
 		wantFinishReason  *string
 		wantStopReason    *string
@@ -931,7 +913,6 @@ func TestProxyOpenAIResponses_NativeResponseSignals(t *testing.T) {
 	}{
 		{
 			name:              "observed tool turn",
-			enabled:           true,
 			frames:            toolTurn,
 			wantFinishReason:  ptrTo("tool_calls"),
 			wantStopReason:    ptrTo("tool_calls"),
@@ -939,23 +920,14 @@ func TestProxyOpenAIResponses_NativeResponseSignals(t *testing.T) {
 		},
 		{
 			name:              "observed text turn is a measured zero",
-			enabled:           true,
 			frames:            []string{`{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":5,"output_tokens":2}}}`},
 			wantFinishReason:  ptrTo("stop"),
 			wantStopReason:    ptrTo("stop"),
 			wantToolUseBlocks: ptrTo(int32(0)),
 		},
 		{
-			name:    "stream cut before the terminal event stays unknown",
-			enabled: true,
-			frames:  toolTurn[:1],
-		},
-		{
-			// The upstream finish reason predates this flag and is unaffected.
-			name:             "flag off keeps the row as it is today",
-			enabled:          false,
-			frames:           toolTurn,
-			wantFinishReason: ptrTo("tool_calls"),
+			name:   "stream cut before the terminal event stays unknown",
+			frames: toolTurn[:1],
 		},
 	}
 
@@ -974,7 +946,7 @@ func TestProxyOpenAIResponses_NativeResponseSignals(t *testing.T) {
 				map[string]providers.Client{providers.ProviderOpenAI: provider},
 				nil, nil, false,
 				providers.ProviderOpenAI, "gpt-5.6-sol", telem,
-			).WithNativeOpenAIResponseSignals(tt.enabled)
+			)
 
 			ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 			rec := httptest.NewRecorder()
