@@ -73,11 +73,6 @@ type Installation struct {
 	// subscription token exactly as before, so the prepaid billing path is
 	// unchanged. Defaults false -- preserves today's behavior.
 	SubscriptionRoutingDisabled bool
-	// PickedModelCreditFallbackEnabled lets a client-selected model (served
-	// as-is) fall back to Weave credits once the caller's own Claude/ChatGPT
-	// login cannot serve it. Defaults false: like the native client, a pick runs
-	// on that login's plan and then the provider's own extra usage.
-	PickedModelCreditFallbackEnabled bool
 	// WeaveCreditInferenceEnabled lets a turn that no plan or provider key of
 	// the customer's can fund run on Weave's own provider keys, paid from the
 	// organization's Weave credits. Existing installations keep it on; new

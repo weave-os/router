@@ -73,15 +73,15 @@ test("the native installer writes each client's config and keeps existing settin
   assert.equal(claude.env.ANTHROPIC_BASE_URL, baseUrl);
   assert.match(claude.env.ANTHROPIC_CUSTOM_HEADERS, /rk_test_native_windows/);
   assert.match(claude.env.ANTHROPIC_CUSTOM_HEADERS, /X-Custom: keep/);
-  assert.match(claude.env.ANTHROPIC_CUSTOM_HEADERS, /^X-Weave-Model-Passthrough: 1$/m);
-  assert.equal(claude.model, "weave-auto[1m]");
-  assert.equal(claude.modelPicker.options[0].model, "weave-auto[1m]");
+  assert.doesNotMatch(claude.env.ANTHROPIC_CUSTOM_HEADERS, /X-Weave-Model-Passthrough/);
+  assert.equal(claude.model, undefined);
+  assert.equal(claude.modelPicker, undefined);
   assert.deepEqual(claude.attribution, { commit: "original commit", custom: "keep" });
   const codexConfig = fs.readFileSync(path.join(temporaryHome, ".codex", "config.toml"), "utf8");
   assert.match(codexConfig, /model = "gpt-4.1"/);
   assert.match(codexConfig, /model_provider = "weave"/);
-  assert.equal(TOML.parse(codexConfig).model_providers.weave.model_catalog_url, `${baseUrl}/v1/codex/models`);
-  assert.equal(TOML.parse(codexConfig).model_providers.weave.http_headers["X-Weave-Codex-Model-Catalog"], "1");
+  assert.equal(TOML.parse(codexConfig).model_providers.weave.model_catalog_url, undefined);
+  assert.equal(TOML.parse(codexConfig).model_providers.weave.http_headers["X-Weave-Codex-Native-Model-Pin"], undefined);
   assert.equal(TOML.parse(codexConfig).profiles.work.model_provider, "openai");
   await runInstaller("--codex", "--non-interactive", "--base-url", baseUrl, "--email", "user@example.com");
   const reinstalledCodex = TOML.parse(fs.readFileSync(codexConfigPath, "utf8"));
@@ -107,22 +107,24 @@ test("native uninstall removes the managed Claude routing variables", async () =
   assert.equal(claude.modelPicker, undefined);
 });
 
-test("Claude moves a pre-passthrough model to Weave Auto once, then keeps the user's pick", async () => {
+test("Claude retires a Weave Auto install to opus[1m] and keeps the user's pick", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "weave-router-claude-model-"));
   try {
     const settingsPath = path.join(home, ".claude", "settings.json");
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-    fs.writeFileSync(settingsPath, JSON.stringify({ model: "opus", modelPicker: { options: [{ model: "my-model" }] } }));
+    fs.writeFileSync(settingsPath, JSON.stringify({
+      model: "weave-auto[1m]",
+      modelPicker: { options: [{ model: "weave-auto[1m]", label: "Weave Auto" }, { model: "my-model" }] },
+      env: { ANTHROPIC_CUSTOM_HEADERS: "X-Weave-Router-Key: rk_old\nX-App: claude-code\nX-Weave-Model-Passthrough: 1" },
+    }));
     await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
-    const rolledOver = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-    assert.equal(rolledOver.model, "weave-auto[1m]");
-    fs.writeFileSync(settingsPath, JSON.stringify({ ...rolledOver, model: "opus" }));
+    const migrated = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.equal(migrated.model, "opus[1m]");
+    assert.deepEqual(migrated.modelPicker, { options: [{ model: "my-model" }] });
+    assert.doesNotMatch(migrated.env.ANTHROPIC_CUSTOM_HEADERS, /X-Weave-Model-Passthrough/);
+    fs.writeFileSync(settingsPath, JSON.stringify({ ...migrated, model: "sonnet" }));
     await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
-    const installed = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-    assert.equal(installed.model, "opus");
-    assert.deepEqual(installed.modelPicker.options.map((option) => option.model), ["weave-auto[1m]", "my-model"]);
-    await runInstallerAt(home, ["--uninstall", "--claude"]);
-    assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, "utf8")).modelPicker, { options: [{ model: "my-model" }] });
+    assert.equal(JSON.parse(fs.readFileSync(settingsPath, "utf8")).model, "sonnet");
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
@@ -379,6 +381,7 @@ test("Codex uninstall after upgrading a stateless install removes the managed pr
   fs.mkdirSync(path.dirname(config), { recursive: true });
   fs.writeFileSync(config, 'model_provider = "weave"\nmodel = "weave-auto"\n[model_providers.weave]\nname = "Weave Router"\n');
   await runInstallerAt(home, ["--codex", "--non-interactive", "--base-url", baseUrl]);
+  assert.equal(TOML.parse(fs.readFileSync(config, "utf8")).model, undefined);
   await runInstallerAt(home, ["--codex", "--uninstall"]);
   const settings = TOML.parse(fs.readFileSync(config, "utf8"));
   assert.equal(settings.model_provider, undefined);

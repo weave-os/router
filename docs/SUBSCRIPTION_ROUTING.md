@@ -71,19 +71,6 @@ original history is preserved; if a compaction summary is rejected, the already
 compacted body remains unchanged. Committed streams are never replayed, and
 terminal upstream failures are accounted as errors.
 
-A model the user picked in the client (sent with `X-Weave-Model-Passthrough: 1`
-and served as-is) funds the way the native client would. On the caller's own
-Claude/ChatGPT login it stays on that login (unless a `key_first` key for that
-provider is connected, which pays instead): observed exhaustion or paid
-overage does not move it off, Codex may spend that login's own credits, and the
-provider's own refusal reaches the client instead of a metered rescue. Without
-a login for the served provider it funds like a routed request (the managed
-pool's included quota, then Weave credits). The installation setting
-`picked_model_credit_fallback_enabled` restores the routed funding rules for
-picks. A picked model the installation cannot serve as-is is routed instead and
-funds as routed traffic. A Codex `/model` pick (`X-Weave-Codex-Native-Model-Pin: 1`)
-served as selected funds the same way.
-
 The installation setting `weave_credit_inference_enabled` decides whether
 Weave's own provider keys, paid from Weave credits, may fund a turn at all.
 Installations that existed before the setting keep it on; new installations
@@ -91,7 +78,7 @@ start with it off. While it is off, routing only considers providers that a
 connected provider key or the caller's presented or linked Claude/ChatGPT plan
 can pay for, and the dispatch check refuses any remaining deployment-key
 attempt with a 402 (`ErrWeaveCreditsDisabled`) before provider I/O, so nothing
-is debited. A forced or picked model no customer credential can serve gets the
+is debited. A forced model no customer credential can serve gets the
 same 402. Self-hosted deployments never apply it.
 
 Native OpenAI Codex and Anthropic adapters accept subscription OAuth credentials.

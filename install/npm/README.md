@@ -58,7 +58,7 @@ Codex installs `$router-status`, `$router-off`, `$router-on`, and
 to the normal provider; Codex does not support third-party `/disable-routing`
 slash commands. The shell equivalent is `npx @weave-os/router disable-routing`.
 Cursor has no config file we own — toggle its base URL override in **Settings →
-Models** instead, with a custom model named `weave-auto`.
+Models** instead.
 
 Pick which models the router is allowed to route to:
 
@@ -104,19 +104,14 @@ Four install targets:
   api.anthropic.com.
 - **Codex** (`--codex`) — patches `~/.codex/config.toml` (or
   `<repo>/.codex/config.toml`) with a managed `[model_providers.weave]`
-  block plus `model_provider = "weave"`. Fresh installs select `weave-auto`,
-  while reinstalling preserves an existing model choice. The provider preserves
+  block plus `model_provider = "weave"`. Installs set no model, and
+  reinstalling preserves an existing model choice. The provider preserves
   the active ChatGPT OAuth login. No install pins `X-Weave-Router-Strategy`;
-  every endpoint keeps its router's configured default. Switching models with
-  Codex's native `/model` picker mid-session forces the named model and its
-  selected reasoning effort; the model a session launches with stays a
-  baseline that routes automatically, and selecting **Weave Router** resumes
-  per-request routing. An existing `$fm`
-  session pin still applies in automatic mode until `$ufm` clears it. Re-run
-  `npx @weave-os/router --codex` and restart Codex to enable this on an older
-  install. `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-6-sol`
-  can use the active ChatGPT plan; other selected models use their WorkWeave
-  deployment or BYOK credential.
+  every endpoint keeps its router's configured default. The router routes
+  whichever model Codex sends; a `/model` choice is only the baseline. Pin a
+  model with `$fm` and clear it with `$ufm`. `gpt-5.6-sol`, `gpt-5.6-terra`,
+  `gpt-5.6-luna`, and `gpt-6-sol` can use the active ChatGPT plan; other
+  models use their WorkWeave deployment or BYOK credential.
   Re-running the installer refreshes the Weave provider, and `--uninstall --codex`
    removes it while preserving the other settings in your config. Codex does not load
    third-party slash-command files; the installer provides native skills

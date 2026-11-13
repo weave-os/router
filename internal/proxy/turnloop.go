@@ -922,7 +922,7 @@ func (s *Service) runTurnLoop(
 	if isolatedSearch {
 		req.ForceModel = ""
 		res.HardPinned = true
-		ctx, decision, passthrough, err := s.passthroughDecision(ctx, req)
+		decision, passthrough, err := s.passthroughDecision(ctx, req)
 		if passthrough {
 			res.Decision = decision
 			res.CallerModelPassthrough = true
@@ -977,10 +977,7 @@ func (s *Service) runTurnLoop(
 		}
 	}
 	if !forceModelFound {
-		var decision router.Decision
-		var passthrough bool
-		var err error
-		ctx, decision, passthrough, err = s.passthroughDecision(ctx, req)
+		decision, passthrough, err := s.passthroughDecision(ctx, req)
 		if err != nil {
 			return res, err
 		}

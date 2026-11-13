@@ -52,6 +52,19 @@ fail() {
   exit 1
 }
 
+assert_no_top_level_setting() {
+  local setting="$1"
+  python3 - "$config" "$setting" <<'PY' \
+    || fail "Codex $setting is set at top level"
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as config_file:
+    config = tomllib.load(config_file)
+assert sys.argv[2] not in config, config.get(sys.argv[2])
+PY
+}
+
 assert_top_level_setting() {
   local setting="$1" expected="$2"
   python3 - "$config" "$setting" "$expected" <<'PY' \
@@ -79,17 +92,16 @@ config="$home/.codex/config.toml"
 [ -f "$config" ] || fail "Codex config was not created"
 grep -qx 'model_provider = "weave"' "$config" \
   || fail "Weave was not selected as the default provider"
-grep -qx 'model = "weave-auto"' "$config" \
-  || fail "fresh Codex installs do not start in automatic routing mode"
-assert_top_level_setting model weave-auto
-grep -Fq '"X-Weave-Codex-Native-Model-Pin" = "1"' "$config" \
-  || fail "Codex native model selection was not enabled"
+# The router routes whichever model Codex sends, so the install sets no model.
+assert_no_top_level_setting model
+if grep -Fq 'X-Weave-Codex-Native-Model-Pin' "$config"; then
+  fail "Codex install still opts into native /model pins"
+fi
 grep -qx 'requires_openai_auth = true' "$config" \
   || fail "Weave provider does not require ChatGPT OAuth"
-grep -Eqx 'model_catalog_url = "[^"]+/v1/codex/models"' "$config" \
-  || fail "API-key Codex logins do not get the Weave model catalog"
-grep -Fq '"X-Weave-Codex-Model-Catalog" = "1"' "$config" \
-  || fail "Codex catalog clients are not marked for model-instructions switches"
+if grep -Eq 'model_catalog_url|X-Weave-Codex-Model-Catalog' "$config"; then
+  fail "Codex install still replaces the native model catalog"
+fi
 grep -qx 'features.hooks = true' "$config" \
   || fail "Codex hooks were not enabled"
 grep -Fq '[[hooks.SessionStart]]' "$config" \
@@ -164,13 +176,12 @@ fi
 run_disable_routing
 grep -qx '# model_provider = "weave"  # weave-router: off (run on to re-enable)' "$config" \
   || fail "disable-routing did not turn off the Codex provider"
-grep -qx '# model = "weave-auto"  # weave-router: off (run on to re-enable)' "$config" \
-  || fail "disable-routing left the Weave-only model active on the direct provider"
 [ "$(grep -c '^\[model_providers\.weave\]$' "$config")" -eq 1 ] \
   || fail "disable-routing removed or duplicated the managed provider"
 HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
-grep -qx 'model = "weave-auto"' "$config" \
-  || fail "router-on did not restore automatic routing"
+if grep -q 'weave-auto' "$config"; then
+  fail "router-on wrote the retired weave-auto model"
+fi
 
 # A repeat install must refresh one managed block, not duplicate its auth rule.
 run_hosted_install
@@ -189,7 +200,7 @@ run_hosted_install
 run_disable_routing
 HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
 assert_top_level_setting model_provider weave
-assert_top_level_setting model weave-auto
+assert_no_top_level_setting model
 run_disable_routing
 run_uninstall
 if grep -Fq 'weave-router: off' "$config"; then
@@ -389,8 +400,10 @@ if grep -qx 'model = "weave-auto"' "$config"; then
   fail "router-off left automatic mode active after Codex rewrote config"
 fi
 HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
-grep -qx 'model = "weave-auto"' "$config" \
-  || fail "router-on did not restore automatic mode after Codex rewrote config"
+if grep -qx 'model = "weave-auto"' "$config"; then
+  fail "router-on restored the retired weave-auto model after Codex rewrote config"
+fi
+assert_top_level_setting model_provider weave
 
 # Codex may serialize an off-state without comments, leaving the configured
 # provider but no model_provider line. Router-on must restore it at top level.
@@ -400,7 +413,7 @@ awk '!/^[[:space:]]*#/' "$config" >"$work/markerless-off.toml"
 mv "$work/markerless-off.toml" "$config"
 HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
 assert_top_level_setting model_provider weave
-assert_top_level_setting model weave-auto
+assert_no_top_level_setting model
 assert_config_parses "router-on produced invalid TOML from a markerless off-state"
 [ "$(grep -c '^\[model_providers\.weave\]$' "$config")" -eq 1 ] \
   || fail "router-on duplicated the markerless Weave provider"
@@ -424,8 +437,11 @@ assert_config_parses "install over a Codex-rewritten config produced unparseable
   || fail "install over a Codex-rewritten config left the serializer's headers subtable"
 [ "$(grep -c '^model_provider = "weave"$' "$config")" -eq 1 ] \
   || fail "install over a Codex-rewritten config duplicated the top-level model_provider"
-[ "$(grep -c '^model = "weave-auto"$' "$config")" -eq 1 ] \
-  || fail "install over a Codex-rewritten config duplicated the automatic model"
+[ "$(grep -c '^model = "weave-auto"$' "$config")" -eq 0 ] \
+  || fail "install over a Codex-rewritten config kept the retired weave-auto model"
+if grep -Fq 'X-Weave-Codex-Native-Model-Pin' "$config"; then
+  fail "install over a Codex-rewritten config kept the native /model pin header"
+fi
 # Unrelated Codex-owned state is not ours to drop while rewriting around it.
 grep -Fq '[hooks.state."/Users/a/.codex/config.toml:stop:0:0"]' "$config" \
   || fail "install over a Codex-rewritten config dropped Codex hook state"

@@ -216,19 +216,28 @@ async function ensureProjectFilesPrivate(root, target) {
   return trackedProjectPaths;
 }
 
-// Claude Code sends a picker model ID verbatim (minus [1m], which it turns into
-// the 1M-context beta); the router routes only weave-auto and serves every other
-// model as-is (X-Weave-Model-Passthrough).
-const claudeWeaveAutoModel = "weave-auto[1m]";
-const isClaudeWeaveAuto = (model) => model === "weave-auto" || model === claudeWeaveAutoModel;
-const claudeWeaveAutoOption = { model: claudeWeaveAutoModel, label: "Weave Auto", description: "Weave picks the best model for each turn", behavesAs: "claude-opus-5-5" };
+// Older installs added a "Weave Auto" picker row (weave-auto[1m]) and served
+// every other pick as-is. The router now routes every model, so the row is
+// retired and a saved Weave Auto selection becomes opus[1m], keeping its 1M
+// context budget.
+const isClaudeWeaveAuto = (model) => model === "weave-auto" || model === "weave-auto[1m]";
+const claudeWeaveAutoReplacement = "opus[1m]";
 
-function stripClaudeWeaveAuto(layer) {
-  if (isClaudeWeaveAuto(layer.model)) delete layer.model;
+function stripClaudeWeaveAutoPicker(layer) {
   if (!layer.modelPicker || typeof layer.modelPicker !== "object") return;
   layer.modelPicker.options = (layer.modelPicker.options || []).filter((option) => !isClaudeWeaveAuto(option?.model));
   if (!layer.modelPicker.options.length) delete layer.modelPicker.options;
   if (!Object.keys(layer.modelPicker).length) delete layer.modelPicker;
+}
+
+function stripClaudeWeaveAuto(layer) {
+  if (isClaudeWeaveAuto(layer.model)) delete layer.model;
+  stripClaudeWeaveAutoPicker(layer);
+}
+
+function migrateClaudeWeaveAuto(layer) {
+  if (isClaudeWeaveAuto(layer.model)) layer.model = claudeWeaveAutoReplacement;
+  stripClaudeWeaveAutoPicker(layer);
 }
 
 function installClaude(paths, baseUrl, key, email, attribution) {
@@ -247,15 +256,11 @@ function installClaude(paths, baseUrl, key, email, attribution) {
   };
   state.installedBaseUrl = baseUrl;
   const customHeaders = localSettings?.env?.ANTHROPIC_CUSTOM_HEADERS ?? settings.env?.ANTHROPIC_CUSTOM_HEADERS ?? "";
-  // Before passthrough every model was routed, so a saved model was never a pin:
-  // move those installs (and new ones) to Weave Auto once, then keep the user's picks.
-  const weaveAutoRollout = ![settings, localSettings].some((layer) => /^X-Weave-Model-Passthrough:/im.test(layer?.env?.ANTHROPIC_CUSTOM_HEADERS || ""));
   const previousHeaders = customHeaders.split("\n").filter((header) => !/^X-(?:Weave-Router-Key|Weave-User-Email|Weave-User-Name|Weave-Model-Passthrough|App):/i.test(header));
   const routerHeaders = [
     `X-Weave-Router-Key: ${key}`,
     ...(email ? [`X-Weave-User-Email: ${email}`] : []),
     "X-App: claude-code",
-    "X-Weave-Model-Passthrough: 1",
   ];
   settings.env ||= {};
   settings.env.ANTHROPIC_BASE_URL = baseUrl;
@@ -268,14 +273,7 @@ function installClaude(paths, baseUrl, key, email, attribution) {
   }
   settings.env.ENABLE_TOOL_SEARCH = "true";
   settings.env.CLAUDE_CODE_AUTO_MODE_SERVER = "0";
-  const modelSettings = localSettings || settings;
-  const modelUnset = !process.env.ANTHROPIC_MODEL && [settings, localSettings, readJson(path.join(process.env.USERPROFILE || process.env.HOME, ".claude", "settings.json"))].every((layer) => !layer || (!Object.hasOwn(layer, "model") && !layer.env?.ANTHROPIC_MODEL));
-  modelSettings.modelPicker = { ...(modelSettings.modelPicker || {}) };
-  modelSettings.modelPicker.options = [claudeWeaveAutoOption, ...(modelSettings.modelPicker.options || []).filter((option) => !isClaudeWeaveAuto(option?.model))];
-  if (weaveAutoRollout) {
-    modelSettings.model = claudeWeaveAutoModel;
-    if (modelSettings.env) delete modelSettings.env.ANTHROPIC_MODEL;
-  } else if (modelUnset || modelSettings.model === "weave-auto") modelSettings.model = claudeWeaveAutoModel;
+  migrateClaudeWeaveAuto(localSettings || settings);
   if (attribution && (ownsAttribution || (settings.attribution == null && !optedOutOfAttribution))) {
     settings.attribution = { ...claudeAttribution, ...settings.attribution, commit: claudeAttribution.commit };
   } else if (!attribution && ownsAttribution) {
@@ -293,23 +291,18 @@ function installCodex(paths, baseUrl, key, email) {
   const state = readJson(paths.state);
   state.modelProvider ||= { exists: Object.hasOwn(settings, "model_provider") && settings.model_provider !== "weave", value: settings.model_provider !== "weave" ? settings.model_provider : undefined };
   writeJson(paths.state, state);
-  const currentModel = settings.model;
-  const hasUserModel = typeof currentModel === "string" && currentModel !== "weave-auto";
   settings.model_provider = "weave";
-  if (!hasUserModel) settings.model = "weave-auto";
+  if (settings.model === "weave-auto") delete settings.model;
   settings.model_providers ||= {};
   settings.model_providers.weave = {
     name: "Weave Router",
     base_url: `${baseUrl}/v1`,
     wire_api: "responses",
     requires_openai_auth: true,
-    model_catalog_url: `${baseUrl}/v1/codex/models`,
     http_headers: {
       "X-Weave-Router-Key": key,
       ...(email ? { "X-Weave-User-Email": email } : {}),
       "X-App": "codex",
-      "X-Weave-Codex-Native-Model-Pin": "1",
-      "X-Weave-Codex-Model-Catalog": "1",
     },
   };
   writeToml(paths.config, settings);

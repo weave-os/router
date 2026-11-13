@@ -619,10 +619,6 @@ type InstallationUsageBypassContextKey struct{}
 // subscription credentials are excluded before dispatch.
 type InstallationSubscriptionRoutingDisabledContextKey struct{}
 
-// InstallationPickedModelCreditFallbackContextKey carries the installation's
-// opt-in (bool) to rescue client-selected models on Weave credits.
-type InstallationPickedModelCreditFallbackContextKey struct{}
-
 // InstallationHideTerminalSurfacesContextKey is the context key for the
 // installation's hide-terminal-surfaces toggle (bool; absent == false);
 // suppresses the routing marker, feedback footer, and feedback-link header.
@@ -3371,7 +3367,7 @@ func (s *Service) routeFor(ctx context.Context, req router.Request) (router.Deci
 	if err != nil {
 		return router.Decision{}, err
 	}
-	ctx, decision, passthrough, err := s.passthroughDecision(ctx, req)
+	decision, passthrough, err := s.passthroughDecision(ctx, req)
 	if passthrough {
 		return decision, err
 	}
@@ -4298,7 +4294,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return routeErr
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
-	ctx = withPickedModelFunding(ctx, routeRes.CallerModelPassthrough, routeRes.Decision.Provider)
 	ctx = s.withTurnOverloadProbe(ctx, routeRes)
 	if preparingHandoff(ctx) {
 		return s.finishHandoffPreparation(ctx, w, env, req, routeRes)
@@ -7557,9 +7552,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if headerForceModel != "" {
 		forceModel = headerForceModel
 	}
-	if forceModel == "" {
-		forceModel = codexSelectedModel(ctx)
-	}
 	forceCluster, forceErr := applyForceClusterHeader(ctx, r)
 	if forceErr != nil {
 		return forceErr
@@ -7708,8 +7700,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return err
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
-	ctx = withPickedModelFunding(ctx, routeRes.CallerModelPassthrough, routeRes.Decision.Provider)
-	ctx = withCodexPickFunding(ctx, routeRes.Decision.Model, routeRes.Decision.Provider)
 	ctx = s.withTurnOverloadProbe(ctx, routeRes)
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
@@ -9439,9 +9429,6 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	if conversion.Requirements.NativeOnly {
 		observability.FromContext(ctx).Info("Responses request restricted to its native wire family",
 			"native_only_reasons", nativeOnlyReasons(conversion.Report, conversionBody))
-	}
-	if portableCodex && codexModelSwitched(r.Header, conversion) {
-		ctx = withCodexSelectedModel(ctx, model, nativeBody)
 	}
 	if conversion.CodexFeedbackSkill {
 		ctx = context.WithValue(ctx, codexFeedbackSkillContextKey{}, true)

@@ -230,9 +230,6 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	if !s.supportsSubscriptionTransport(provider) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
-	if current := CredentialsFromContext(ctx); current != nil && current.OAuth && pickedModelOnOwnPlan(ctx) {
-		return ctx, subscriptions.Lease{}, false, nil
-	}
 
 	diagnostics := subscriptionAdmissionDiagnostics{started: time.Now()}
 	defer diagnostics.log(ctx, poolProvider, model)

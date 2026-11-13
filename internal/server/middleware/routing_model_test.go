@@ -12,7 +12,6 @@ import (
 
 	"weave-os/router/internal/api/classifier"
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/billing"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -242,57 +241,21 @@ func TestRoutingModelGeminiURLOverridesBodyAndRejectsForceHeader(t *testing.T) {
 	}
 }
 
-func TestModelPassthroughHeaderServesClientSelectedModels(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		model  string
-		header string
-		want   bool
-	}{
-		{name: "selected upstream model", model: "claude-opus-5-5", header: "1", want: true},
-		{name: "automatic routing model still routes", model: string(router.ModelAutomatic), header: "1"},
-		{name: "missing model still routes", header: "1"},
-		{name: "without opt in", model: "claude-opus-5-5"},
-		{name: "other header value", model: "claude-opus-5-5", header: "true"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
+func TestLegacyModelPassthroughHeaderStillRoutes(t *testing.T) {
+	for _, model := range []string{"claude-opus-5-5", string(router.ModelAutomatic), ""} {
+		t.Run(model, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			engine := gin.New()
 			engine.POST("/v1/messages", middleware.WithClassifierThread(&proxy.Service{}, nil), func(c *gin.Context) {
-				require.Equal(t, tc.want, auth.ClientModelPassthroughFrom(c.Request.Context()))
-				require.Equal(t, tc.want, auth.RoutingPassthroughFrom(c.Request.Context()))
+				require.False(t, auth.RoutingPassthroughFrom(c.Request.Context()))
 				c.Status(http.StatusOK)
 			})
 			body := `{"messages":[{"role":"user","content":"hello"}]}`
-			if tc.model != "" {
-				body = `{"model":"` + tc.model + `","messages":[{"role":"user","content":"hello"}]}`
+			if model != "" {
+				body = `{"model":"` + model + `","messages":[{"role":"user","content":"hello"}]}`
 			}
 			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
-			if tc.header != "" {
-				req.Header.Set(middleware.ModelPassthroughHeader, tc.header)
-			}
-			recorder := httptest.NewRecorder()
-			engine.ServeHTTP(recorder, req)
-			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
-		})
-	}
-}
-
-func TestModelPassthroughKeepsSubscriptionFundingGates(t *testing.T) {
-	for _, reason := range []billing.SubscriptionOnlyReason{billing.SubscriptionOnlyLinkedFirst, billing.SubscriptionOnlyCreditsDepleted} {
-		t.Run(string(reason), func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
-			engine := gin.New()
-			engine.POST("/v1/messages", func(c *gin.Context) {
-				c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), reason))
-			}, middleware.WithClassifierThread(&proxy.Service{}, nil), func(c *gin.Context) {
-				got, _ := billing.SubscriptionOnlyReasonFromContext(c.Request.Context())
-				require.Equal(t, reason, got)
-				require.True(t, auth.ClientModelPassthroughFrom(c.Request.Context()))
-				c.Status(http.StatusOK)
-			})
-			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude-opus-5-5","messages":[{"role":"user","content":"hello"}]}`))
-			req.Header.Set(middleware.ModelPassthroughHeader, "1")
+			req.Header.Set("X-Weave-Model-Passthrough", "1")
 			recorder := httptest.NewRecorder()
 			engine.ServeHTTP(recorder, req)
 			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())

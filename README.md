@@ -81,8 +81,9 @@ Cursor routes its Agent and Ask chats through the router. Cursor calls the base
 URL from its own servers, not from your machine, so a `localhost` router is
 unreachable: use the hosted router or a publicly reachable self-hosted URL. In
 Cursor, open Settings → Models, turn on *OpenAI API Key* with your `rk_...`
-router key, set *Override OpenAI Base URL* to `<base-url>/v1`, and add a custom
-model named `weave-auto` (the router rejects other `weave-` names). Tab
+router key, and set *Override OpenAI Base URL* to `<base-url>/v1`. The router
+routes whichever model Cursor sends; a custom model named `weave-auto` also
+works (the router rejects other `weave-` names). Tab
 completion and Apply stay on Cursor's own models, and BYOK needs a paid Cursor
 seat.
 

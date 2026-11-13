@@ -281,7 +281,6 @@ type BlindExperimentModelSource string
 const (
 	BlindExperimentModelSourceRouter                   BlindExperimentModelSource = "router"
 	BlindExperimentModelSourceExperimentPassthrough    BlindExperimentModelSource = "experiment_passthrough"
-	BlindExperimentModelSourceClientModelPassthrough   BlindExperimentModelSource = "client_model_passthrough"
 	BlindExperimentModelSourceRoutingPolicyPassthrough BlindExperimentModelSource = "routing_policy_passthrough"
 	BlindExperimentModelSourceHardPin                  BlindExperimentModelSource = "hard_pin"
 	BlindExperimentModelSourceForceModel               BlindExperimentModelSource = "force_model"
