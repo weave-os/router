@@ -113,15 +113,11 @@ func goldenResponsesStream(model, text string) []string {
 	}
 }
 
-func goldenResponsesJSON(model, text string) []string {
-	return []string{`{"id":"resp-upstream","object":"response","status":"completed","model":"` + model + `","output":[{"type":"message","id":"msg-upstream","status":"completed","role":"assistant","content":[{"type":"output_text","text":"` + text + `","annotations":[]}]}],"usage":{"input_tokens":12,"output_tokens":7,"total_tokens":19}}`}
-}
-
 func responsesOK(stream bool, text string) goldenStep {
 	if stream {
 		return goldenOK("text/event-stream", goldenResponsesStream(goldenOpenAIModel, text))
 	}
-	return goldenOK("application/json", goldenResponsesJSON(goldenOpenAIModel, text))
+	return goldenOK("application/json", []string{`{"id":"resp-upstream","object":"response","status":"completed","model":"` + goldenOpenAIModel + `","output":[{"type":"message","id":"msg-upstream","status":"completed","role":"assistant","content":[{"type":"output_text","text":"` + text + `","annotations":[]}]}],"usage":{"input_tokens":12,"output_tokens":7,"total_tokens":19}}`})
 }
 
 var (
@@ -304,22 +300,23 @@ func goldenGeminiScenarios() []goldenScenario {
 		add("function_call", goldenGeminiHistoryBody, goldenGeminiDecision, google(geminiFinish(stream, "STOP", `{"functionCall":{"name":"get_weather","args":{"city":"Paris"}}}`)))
 		add("max_tokens_finish", goldenGeminiBody(), goldenGeminiDecision, google(geminiFinish(stream, "MAX_TOKENS", `{"text":"trunc"}`)))
 		add("history_and_config", goldenGeminiHistoryBody, goldenGeminiDecision, google(geminiOK(stream, "sunny")))
+		noTelemetryReq := []goldenRequest{{body: goldenGeminiBody(), path: path, noTelemetry: true}}
 		out = append(out,
 			goldenScenario{name: prefix + "cross_format_decision", ingress: ingressGemini, decisions: []router.Decision{goldenAnthropicDecision},
 				upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(stream, "never")}},
-				requests:  []goldenRequest{{body: goldenGeminiBody(), path: path, noTelemetry: true}}},
+				requests:  noTelemetryReq},
 			goldenScenario{name: prefix + "no_eligible_provider", ingress: ingressGemini, routeErr: router.ErrNoEligibleProvider,
 				upstreams: google(geminiOK(stream, "never")),
-				requests:  []goldenRequest{{body: goldenGeminiBody(), path: path, noTelemetry: true}}},
+				requests:  noTelemetryReq},
 			goldenScenario{name: prefix + "route_error", ingress: ingressGemini, routeErr: errors.New("no eligible model"),
 				upstreams: google(geminiOK(stream, "never")),
-				requests:  []goldenRequest{{body: goldenGeminiBody(), path: path, noTelemetry: true}}},
+				requests:  noTelemetryReq},
 		)
 	}
-	p := ingressGemini + "_stream_"
+	streamPrefix := ingressGemini + "_stream_"
 	frames := goldenGeminiStream("partial")
 	stream := func(name string, step goldenStep, rest ...goldenStep) goldenScenario {
-		return goldenScenario{name: p + name, ingress: ingressGemini, decisions: []router.Decision{goldenGeminiDecision},
+		return goldenScenario{name: streamPrefix + name, ingress: ingressGemini, decisions: []router.Decision{goldenGeminiDecision},
 			upstreams: map[string][]goldenStep{providers.ProviderGoogle: append([]goldenStep{step}, rest...)},
 			requests:  []goldenRequest{{body: goldenGeminiBody(), path: goldenGeminiPath(true)}}}
 	}
@@ -339,8 +336,8 @@ func goldenGeminiScenarios() []goldenScenario {
 		{"missing_model", "/v1beta/models/:generateContent", goldenGeminiBody()},
 	} {
 		out = append(out, goldenScenario{name: ingressGemini + "_nonstream_" + bad.name, ingress: ingressGemini,
-			upstreams: map[string][]goldenStep{providers.ProviderGoogle: {geminiOK(false, "never")}},
-			requests:  []goldenRequest{{body: bad.body, path: bad.path, noTelemetry: true}}})
+			decisions: []router.Decision{goldenGeminiDecision}, upstreams: map[string][]goldenStep{providers.ProviderGoogle: {geminiOK(false, "never")}},
+			requests: []goldenRequest{{body: bad.body, path: bad.path, noTelemetry: true}}})
 	}
 	return out
 }
