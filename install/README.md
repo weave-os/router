@@ -116,16 +116,12 @@ explicitly to its managed Codex config.
 | `<repo>/.claude/settings.local.json`| ❌ ignored | Stores your local `ANTHROPIC_CUSTOM_HEADERS` router-key header and any other per-teammate overrides. |
 | `<repo>/.claude/.credentials.json`  | ❌ ignored | CC's per-user credentials cache.                               |
 
-The installer also adds a **Weave Auto** row to Claude Code's `/model` picker
-(`modelPicker`, Claude Code 2.1.242+) and selects it (in project scope this goes in
-`settings.local.json`). The first install that adds the passthrough header below
-selects Weave Auto even over a saved `model` (and drops `env.ANTHROPIC_MODEL` from
-that file), since before passthrough every model was routed anyway. Later updates
-keep whatever model the user picked, and select Weave Auto only when none is set. The row is `weave-auto[1m]`, so Claude Code budgets a 1M window: it sends `weave-auto` with the 1M-context beta, and the router routes it.
-`X-Weave-Model-Passthrough: 1` in `ANTHROPIC_CUSTOM_HEADERS` serves any other
-model Claude Code sends (a picker choice, `--model`, a subagent's model) as-is,
-without routing. A model the organization cannot serve as-is (outside its
-allowed models, excluded, or without a gateway alias) is routed instead. `off` removes the row and the default; `on` restores them.
+The router routes whichever model Claude Code sends (a picker choice,
+`--model`, a subagent's model); the requested model is only the baseline. Pin
+one with `/force-model`. Older installs added a **Weave Auto** row
+(`weave-auto[1m]`) to the `/model` picker and an `X-Weave-Model-Passthrough`
+header. Re-running the installer removes both and moves a `weave-auto[1m]`
+selection to `opus[1m]`, which keeps Claude Code's 1M context budget.
 
 The router key lives in `ANTHROPIC_CUSTOM_HEADERS` so Claude Code can keep
 using its normal Anthropic auth (`Authorization` / `x-api-key`) for the
@@ -179,7 +175,7 @@ cloud-provider routing, and network access. See also
 
 | Path                       | Purpose                                                       |
 | -------------------------- | ------------------------------------------------------------- |
-| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block and sets top-level `model_provider = "weave"`. Fresh installs select `model = "weave-auto"`; the model and reasoning effort stay outside the managed markers so reinstalling preserves your selection. The provider preserves the existing ChatGPT OAuth login and keeps the target router's default routing strategy. |
+| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block and sets top-level `model_provider = "weave"`. Installs set no model, and reinstalling drops a `model = "weave-auto"` written by older installs; the model and reasoning effort stay outside the managed markers so reinstalling preserves your selection. The provider preserves the existing ChatGPT OAuth login and keeps the target router's default routing strategy. |
 | `~/.weave/codex-status.sh` | Codex `SessionStart`/`Stop` hook helper. Keeps the latest routed model in the terminal title without adding status messages to the conversation. |
 
 The status helper is installed with mode `0700`, stores only the session's requested and routed model IDs under `${XDG_CACHE_HOME:-~/.cache}/weave-router/codex/`, and never stores prompts, credentials, or response bodies. Existing Codex hooks are preserved and the managed hooks are safe to reinstall or remove.
@@ -201,19 +197,11 @@ Re-running the installer rewrites the managed block and top-level
 managed blocks so they survive future reinstalls. Profiles, alternate
 providers, and unrelated settings stay untouched.
 
-Run `npx @weave-os/router --codex` again to enable native `/model` selection on
-an existing install, then restart Codex. `/model` shows the models available to
-your active ChatGPT login plus **Weave Router**. The provider's
-`model_catalog_url` points at the router's `/v1/codex/models`, which serves
-that same list, or Codex's bundled catalog plus **Weave Router** for API-key
-logins (Codex replaces its whole list with this response). Switching to a named model with
-`/model` during a session forces that model for each request from then on, and
-Codex's selected reasoning effort is sent with it. The model a session launches
-with (from `config.toml` or an SDK thread option) is only a baseline and still
-routes automatically. Selecting **Weave Router** returns to Weave's per-request
-routing. An existing `$fm` session pin still takes precedence in automatic
-mode; clear it with `$ufm` to resume automatic routing. The native selection
-itself does not write a persistent `$fm` pin.
+The router routes whichever model Codex sends. A model chosen with `/model`,
+in `config.toml` or as an SDK thread option is only the baseline. Pin a model
+with `$fm` and clear the pin with `$ufm`. Re-running the installer removes the
+`model_catalog_url` and the `X-Weave-Codex-Native-Model-Pin` and
+`X-Weave-Codex-Model-Catalog` headers that older installs wrote.
 
 `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-6-sol` can use the
 active ChatGPT OAuth plan. Other OpenAI, Anthropic, Gemini, and
@@ -406,10 +394,8 @@ this install sets up three things:
    run at login by launchd (macOS) or systemd `--user` (Linux). It terminates TLS
    for `api.anthropic.com` only. Messages API calls (`/v1/messages*`) whose user
    agent names Desktop's Code tab (`claude-desktop`) or Cowork (`local-agent`) go
-   to the router with `X-Weave-Router-Key`. The proxy drops
-   `X-Weave-Model-Passthrough` from those calls: Desktop's model picker can't
-   list Weave Auto, so the router routes whichever model Desktop sends (pin one
-   with `/force-model`). Everything else, including other
+   to the router with `X-Weave-Router-Key`, and the router routes whichever
+   model Desktop sends (pin one with `/force-model`). Everything else, including other
    apps' `api.anthropic.com` traffic and Desktop's sign-in, passes through to
    Anthropic unchanged. Every other host is tunneled untouched.
 2. **A certificate for `api.anthropic.com`**, trusted by the OS (login keychain
@@ -753,16 +739,17 @@ What each `off` does (and `on` reverses byte-for-byte):
   project scope only the gitignored `settings.local.json` is touched, so the
   committed `settings.json` never shows up in `git diff`. **Claude Code reads
   env at launch, so quit and reopen it for an on/off to take effect.**
-- **Codex** — comments the `model_provider = "weave"` line and the Weave-only
-  `model = "weave-auto"` selection, if active. The `[model_providers.weave]`
-  block stays. Takes effect on the next `codex` run.
+- **Codex** — comments the `model_provider = "weave"` line (and a legacy
+  `model = "weave-auto"` selection, if present). `on` restores the provider
+  only. The `[model_providers.weave]` block stays. Takes effect on the next
+  `codex` run.
 - **opencode** — swaps the top-level `weave/...` model for the direct model
   parked during install; `provider.weave` stays. Next `opencode` run.
 - **Copilot CLI** — puts back the default model parked during install;
   `weave/auto` stays selectable in `/model`. Next `copilot` run.
 
-**Cursor** has no config file we own — its key, base URL, and `weave-auto`
-custom model live in Cursor's own settings UI. To toggle it, open **Settings →
+**Cursor** has no config file we own — its key and base URL live in Cursor's
+own settings UI. To toggle it, open **Settings →
 Models → Override OpenAI Base URL** and turn the override (`<base-url>/v1`) on
 or off there. Cursor calls that URL from its own servers, so it must be
 publicly reachable.

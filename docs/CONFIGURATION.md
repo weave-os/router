@@ -787,16 +787,9 @@ with nowhere to go (HTTP 503 from the scorer), so exclude deliberately.
 pin applies to parent and child agent threads that share the same client-session
 identity, regardless of their first prompt or active routing strategy. Clients
 that send no session identity can only be pinned at the current thread scope.
-Codex handles its own `/model` locally and never sends the command itself; on
-an opted-in install (`X-Weave-Codex-Native-Model-Pin: 1`) the router instead
-keys off the `<model_switch>` developer fragment Codex records when the user
-switches models mid-session, and pins the request's model from then on. An
-install that also loads the router catalog (`X-Weave-Codex-Model-Catalog: 1`)
-gets the same pin from the `<model_instructions>` fragment Codex records
-instead; other installs ignore that fragment, since Codex also emits it when
-base instructions change without a switch. The
-model a session launched with is a baseline and routes automatically. The
-installed `$force-model` / `$fm` skill remains the persistent-pin path.
+Codex handles its own `/model` locally and never sends the command itself, so
+a model chosen there is only the request's baseline and still routes. The
+installed `$force-model` / `$fm` skill is the Codex pin path.
 An explicit force-model choice also takes precedence over an installation's
 passthrough policy, including users without an assignment in assigned mode.
 Those policies disable automatic model selection, not the caller's explicit

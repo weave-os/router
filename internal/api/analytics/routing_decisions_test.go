@@ -244,7 +244,7 @@ func TestRoutingDecisionsRepositoryFailureIs500(t *testing.T) {
 }
 
 func TestRoutingDecisionsStreamsBlindExperimentModelSource(t *testing.T) {
-	source := auth.BlindExperimentModelSourceClientModelPassthrough
+	source := auth.BlindExperimentModelSourceExperimentPassthrough
 	applied := false
 	baseline := "claude-sonnet-4-6"
 	changed := false

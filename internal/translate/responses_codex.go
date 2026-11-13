@@ -100,38 +100,6 @@ func codexFeedbackSkillInstructions(content gjson.Result) bool {
 	return codexDeveloperMarkerContent(content, "<skill>", "</skill>")
 }
 
-// Codex records a /model switch as a retained developer message wrapped in
-// <model_switch> markers; the model it launched with leaves no such trace.
-func codexModelSwitchPresent(input gjson.Result) bool {
-	return codexDeveloperMarkerPresent(input, "<model_switch>", "</model_switch>")
-}
-
-// A Codex session whose catalog came from model_catalog_url records a /model
-// switch as <model_instructions>. Other base-instruction changes reuse the
-// marker, so it is only a switch for clients that loaded that catalog.
-func codexModelInstructionsPresent(input gjson.Result) bool {
-	return codexDeveloperMarkerPresent(input, "<model_instructions>", "</model_instructions>")
-}
-
-func codexDeveloperMarkerPresent(input gjson.Result, open, close string) bool {
-	if !input.IsArray() {
-		return false
-	}
-	for _, item := range input.Array() {
-		itemType := item.Get("type").Str
-		if itemType != "message" && itemType != "" {
-			continue
-		}
-		if item.Get("role").Str != "developer" {
-			continue
-		}
-		if codexDeveloperMarkerContent(item.Get("content"), open, close) {
-			return true
-		}
-	}
-	return false
-}
-
 func codexDeveloperMarkerContent(content gjson.Result, open, close string) bool {
 	if content.Type == gjson.String {
 		return strings.Contains(content.Str, open) && strings.Contains(content.Str, close)
@@ -217,8 +185,6 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 	converter.collectDeclaredTools(root)
 	converter.requireNativeForForcedWebSearch(root.Get("tool_choice"))
 	converter.result.CodexFeedbackSkill = codexFeedbackSkillInvocation(root.Get("input"))
-	converter.result.CodexModelSwitch = codexModelSwitchPresent(root.Get("input"))
-	converter.result.CodexModelInstructions = codexModelInstructionsPresent(root.Get("input"))
 	messages := converter.convertInput(root.Get("input"))
 	var systemMessages []map[string]any
 	if instructions := root.Get("instructions").Str; instructions != "" {

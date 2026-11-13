@@ -546,27 +546,24 @@ func TestBlindPassthroughUnknownModelBaselineHonoursExclusions(t *testing.T) {
 func TestBlindExperimentTelemetryNamesWhatDecidedTheModel(t *testing.T) {
 	decision := router.Decision{Model: "claude-sonnet-4-6"}
 	for _, tc := range []struct {
-		name        string
-		arm         auth.BlindExperimentArm
-		client      string
-		cohort      bool
-		clientModel bool
-		policy      bool
-		requested   string
-		served      string
-		routed      *turnLoopResult
-		source      auth.BlindExperimentModelSource
-		applied     bool
-		baseline    string
-		changed     bool
+		name      string
+		arm       auth.BlindExperimentArm
+		client    string
+		cohort    bool
+		policy    bool
+		requested string
+		served    string
+		routed    *turnLoopResult
+		source    auth.BlindExperimentModelSource
+		applied   bool
+		baseline  string
+		changed   bool
 	}{
 		{name: "router_on routed", arm: auth.BlindExperimentArmRouterOn, requested: "weave-auto", routed: &turnLoopResult{Decision: decision}, source: auth.BlindExperimentModelSourceRouter, applied: true, baseline: "claude-opus-5-5", changed: true},
 		{name: "router_on routed keeps requested", arm: auth.BlindExperimentArmRouterOn, requested: "claude-sonnet-4-6", routed: &turnLoopResult{Decision: decision}, source: auth.BlindExperimentModelSourceRouter, applied: true, baseline: "claude-sonnet-4-6"},
 		{name: "router_on retry served another model", arm: auth.BlindExperimentArmRouterOn, requested: "claude-sonnet-4-6", served: "claude-opus-5-5", routed: &turnLoopResult{Decision: decision}, source: auth.BlindExperimentModelSourceRouter, applied: true, baseline: "claude-sonnet-4-6", changed: true},
-		{name: "router_on named client pick", arm: auth.BlindExperimentArmRouterOn, clientModel: true, requested: "claude-sonnet-4-6", routed: &turnLoopResult{Decision: decision, CallerModelPassthrough: true}, source: auth.BlindExperimentModelSourceClientModelPassthrough, baseline: "claude-sonnet-4-6"},
 		{name: "passthrough arm", arm: auth.BlindExperimentArmPassthrough, requested: "weave-auto", routed: &turnLoopResult{Decision: router.Decision{Model: "claude-opus-5-5"}, CallerModelPassthrough: true}, source: auth.BlindExperimentModelSourceExperimentPassthrough, applied: true, baseline: "claude-opus-5-5"},
 		{name: "passthrough arm retired id", arm: auth.BlindExperimentArmPassthrough, requested: "claude-retired-9", routed: &turnLoopResult{Decision: router.Decision{Model: "claude-opus-5-5"}, CallerModelPassthrough: true}, source: auth.BlindExperimentModelSourceExperimentPassthrough, applied: true, baseline: "claude-opus-5-5"},
-		{name: "passthrough arm named client pick", arm: auth.BlindExperimentArmPassthrough, clientModel: true, requested: "claude-sonnet-4-6", routed: &turnLoopResult{Decision: decision, CallerModelPassthrough: true}, source: auth.BlindExperimentModelSourceClientModelPassthrough, baseline: "claude-sonnet-4-6"},
 		{name: "routing policy passthrough", arm: auth.BlindExperimentArmRouterOn, policy: true, requested: "claude-sonnet-4-6", routed: &turnLoopResult{Decision: decision, CallerModelPassthrough: true}, source: auth.BlindExperimentModelSourceRoutingPolicyPassthrough, baseline: "claude-sonnet-4-6"},
 		{name: "hard pin", arm: auth.BlindExperimentArmPassthrough, cohort: true, requested: "claude-opus-5-5", routed: &turnLoopResult{Decision: decision, HardPinned: true}, source: auth.BlindExperimentModelSourceHardPin, baseline: "claude-opus-5-5", changed: true},
 		{name: "force model", arm: auth.BlindExperimentArmRouterOn, requested: "weave-auto", routed: &turnLoopResult{Decision: router.Decision{Model: "claude-sonnet-4-6", Reason: translate.ReasonUserForceModel}}, source: auth.BlindExperimentModelSourceForceModel, baseline: "claude-opus-5-5", changed: true},
@@ -586,9 +583,6 @@ func TestBlindExperimentTelemetryNamesWhatDecidedTheModel(t *testing.T) {
 			}
 			ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
 			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: client})
-			if tc.clientModel {
-				ctx = auth.WithClientModelPassthrough(ctx)
-			}
 			if tc.policy {
 				ctx = auth.WithRoutingPolicy(ctx, auth.RoutingPolicy{Mode: auth.RoutingPolicyPassthrough})
 			}

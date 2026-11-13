@@ -18,17 +18,16 @@ func linkedFirst(ctx context.Context) bool {
 }
 
 // paidFallbackForbidden reports whether a live subscription failure may not be
-// rescued on metered capacity. A credits_depleted turn has nowhere to fall
-// through to, and a picked model stays on the caller's own login. Configured
-// subscription sets also forbid the ordinary same-model paid rescue; their
-// dispatcher separately authorizes the exhausted model set.
+// rescued on metered capacity. Only a credits_depleted turn has nowhere to fall
+// through to. Configured subscription sets also forbid the ordinary same-model
+// paid rescue; their dispatcher separately authorizes the exhausted model set.
 // Enterprise-only Claude turns also forbid metered recovery after a refusal.
 func paidFallbackForbidden(ctx context.Context) bool {
-	return claudeEnterpriseTurn(ctx) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
+	return claudeEnterpriseTurn(ctx) || subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
 }
 
 func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
-	if claudeEnterpriseTarget(ctx, inference.Target{CatalogID: model}) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
+	if claudeEnterpriseTarget(ctx, inference.Target{CatalogID: model}) || subscriptionAttemptOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
 		return true
 	}
 	if !subscriptionStateModelsEnabled(ctx) || subscriptionAPIOnly(ctx) {

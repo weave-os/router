@@ -169,10 +169,6 @@ func TestResolvedOAuthRemainsAvailableWithoutManagedCapacity(t *testing.T) {
 		{"enrollment unavailable", func(ctx context.Context) context.Context {
 			return context.WithValue(ctx, ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 		}, false},
-		{"explicit own-plan pick", func(ctx context.Context) context.Context {
-			ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, parityAnthropicToken)
-			return fundOnOwnPlan(ctx, providers.ProviderAnthropic)
-		}, true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			leaser := &scriptedSubscriptionLeaser{}

@@ -262,13 +262,9 @@ func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, he
 // claudeSnapshotUnservable reports whether an observed Claude subscription
 // should leave the turn. A usage-billed seat has no plan quota to exhaust, so
 // once paid fallback is off its overage is the caller's only lane; plan
-// overage still leaves the subscription. A picked model on the caller's own
-// login lets Anthropic decide, as the native client would.
+// overage still leaves the subscription.
 func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {
 	if claudeEnterpriseOnly(ctx) {
-		return false
-	}
-	if pickedModelOnOwnPlan(ctx) {
 		return false
 	}
 	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst && claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise {
