@@ -2,7 +2,7 @@
 
 > **Mirror notice.** Source for generated [AGENTS.md](AGENTS.md). Edit this file, then run `make generate-agent-guides`; CI rejects drift.
 
-Prism-style cache-aware EV policy. Decides STAY (preserve pinned model's upstream prompt cache) vs SWITCH (take cluster scorer's fresh decision + eat one-time cache miss) per action. Read [root CLAUDE.md](../../../CLAUDE.md) first.
+Prism-style cache-aware EV policy. Decides STAY (preserve pinned model's upstream prompt cache) vs SWITCH (take the routing policy's fresh decision + eat one-time cache miss) per action. Read [root CLAUDE.md](../../../CLAUDE.md) first.
 
 ## Contract
 
@@ -61,5 +61,5 @@ Python reference to 1e-9.
 
 ## What NOT to do
 
-- **Don't add a runtime override that mutates α-blend.** Cost weighting is baked into the cluster scorer at training time. Per-request cost knobs are a separate (P1) feature, not a planner responsibility.
+- **Don't add a runtime override that mutates α-blend.** Cost weighting belongs to the routing policy: roster knobs plus the per-request `QualityBias` dial (`selection.EffectiveAlpha`). Per-request cost knobs are a separate (P1) feature, not a planner responsibility.
 - **Don't read pricing from anywhere but [`../catalog`](../catalog).** Single source of truth — the OTel emitter and planner must agree.
