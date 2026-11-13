@@ -93,3 +93,16 @@ func TestClaudeEnterpriseOverageCapRescueSurvivesEmptyLinkedPool(t *testing.T) {
 	require.NoError(t, ingress.call(service, ctx, body, recorder, request))
 	require.Equal(t, []string{parityAnthropicBYOK}, upstream.paidKeys)
 }
+
+func TestClaudeEnterpriseOverageCapBypassReroutesToPlanFirstKey(t *testing.T) {
+	ingress := parityAnthropicIngress()
+	upstream := enterpriseCapUpstream(ingress, enterpriseCapRefusalHeaders())
+	service := ingress.quotaService(upstream)
+	threshold := 0.9
+	ctx := withAnthropicKey(enterpriseOnlyContext(ingress.subCtx()), auth.FundingPriorityPlanFirst)
+	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
+	recorder, request, body := ingress.request(t, false)
+	require.NoError(t, ingress.call(service, ctx, body, recorder, request))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Equal(t, []string{parityAnthropicBYOK}, upstream.paidKeys)
+}

@@ -56,3 +56,10 @@ func claudeEnterpriseCapRotation(credentialCtx, attemptCtx context.Context, deci
 	state.ClaudeEnterpriseCapRefused = true
 	return resolveAndInjectCredentials(withSuppressedClaudeSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{}), true
 }
+
+// bypassMayReroute reports whether a retryable bypass failure may fall through
+// to routed dispatch. Enterprise-only turns stay on the seat, except after an
+// overage-cap refusal that the customer's Anthropic key can take over.
+func bypassMayReroute(ctx context.Context, err error) bool {
+	return !claudeEnterpriseOnly(ctx) || claudeEnterpriseCapRefused(err) && usableBYOK(ctx, providers.ProviderAnthropic) != nil
+}
