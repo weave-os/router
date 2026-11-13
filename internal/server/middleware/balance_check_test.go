@@ -69,16 +69,18 @@ func (r *stubBillingRepo) GetAutopayConfig(_ context.Context, _ billing.Owner) (
 
 func withInstallation(c *gin.Context, externalID string) {
 	c.Set("router_installation", &auth.Installation{
-		ID:         "00000000-0000-0000-0000-000000000001",
-		ExternalID: externalID,
+		ID:                          "00000000-0000-0000-0000-000000000001",
+		ExternalID:                  externalID,
+		WeaveCreditInferenceEnabled: true,
 	})
 }
 
 func withUsageBypassInstallation(c *gin.Context, externalID string) {
 	c.Set("router_installation", &auth.Installation{
-		ID:                 "00000000-0000-0000-0000-000000000001",
-		ExternalID:         externalID,
-		UsageBypassEnabled: true,
+		ID:                          "00000000-0000-0000-0000-000000000001",
+		ExternalID:                  externalID,
+		UsageBypassEnabled:          true,
+		WeaveCreditInferenceEnabled: true,
 	})
 }
 
@@ -539,5 +541,39 @@ func TestWithBalanceCheck_MarksWeaveCreditsDenied(t *testing.T) {
 		})
 		engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/probe", nil))
 		assert.Equal(t, !allowed, denied, "allowed=%v", allowed)
+	}
+}
+
+func TestWithBalanceCheck_CreditsDisabledIgnoresBalance(t *testing.T) {
+	cases := map[string]*stubBillingRepo{
+		"depleted":    {balance: -1},
+		"row missing": {balanceErr: billing.ErrBalanceRowMissing},
+		"read error":  {balanceErr: errors.New("db down")},
+	}
+	for name, repo := range cases {
+		t.Run(name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			svc := billing.NewService(repo)
+			engine := gin.New()
+			var reached, subOnly, denied bool
+			engine.GET("/v1/messages", func(c *gin.Context) {
+				c.Set("router_installation", &auth.Installation{ID: "00000000-0000-0000-0000-000000000001", ExternalID: "org_keys_only"})
+				middleware.WithBalanceCheck(svc, 0)(c)
+				if c.IsAborted() {
+					return
+				}
+				reached = true
+				subOnly = billing.SubscriptionOnlyFromContext(c.Request.Context())
+				denied = billing.WeaveCreditsDeniedFromContext(c.Request.Context())
+				c.Status(http.StatusOK)
+			})
+			w := httptest.NewRecorder()
+			engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/messages", nil))
+			assert.True(t, reached, "a credits-disabled installation must not be gated on its balance")
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.False(t, subOnly, "customer keys must stay usable")
+			assert.True(t, denied)
+			assert.Empty(t, repo.balanceOrgIDs, "the balance is not read")
+		})
 	}
 }

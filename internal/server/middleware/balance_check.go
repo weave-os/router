@@ -21,6 +21,8 @@ const TopUpURL = "https://app.weaveos.com/organization/settings/weave-router/cre
 // installation lookup below is guaranteed to be populated.
 //
 // Behavior (evaluated in order):
+//   - Weave-credit inference disabled on the installation → pass through,
+//     flagged billing.WithWeaveCreditsDenied; the balance is not read.
 //   - Override row present → pass through; flag the request context so
 //     the proxy's debit hook writes a delta=0 ledger row.
 //   - Balance ≤ minBalanceMicros (or no balance row) → HTTP 402 unless
@@ -79,7 +81,11 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 
 		orgID := installation.ExternalID
 		if !installation.WeaveCreditInferenceEnabled {
+			// Credits can't fund inference here, so the balance can't gate it:
+			// the proxy serves only customer plans and provider keys.
 			c.Request = c.Request.WithContext(billing.WithWeaveCreditsDenied(c.Request.Context()))
+			c.Next()
+			return
 		}
 
 		// Subscription turns debit $0 (cost.subscription_served), so gating them on
