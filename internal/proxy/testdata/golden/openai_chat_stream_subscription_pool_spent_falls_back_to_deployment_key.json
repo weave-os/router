@@ -35,6 +35,29 @@
             "stream": true
           },
           "outcome": "upstream_status_429"
+        },
+        {
+          "provider": "openai",
+          "wire_model": "gpt-5.6-sol",
+          "endpoint": "responses",
+          "outbound_body": {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "Say hi",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "gpt-5.6-sol",
+            "prompt_cache_key": "4dbe9a4ce040ae135b0cd2c50ce8b33b",
+            "store": false,
+            "stream": true
+          },
+          "outcome": "ok"
         }
       ],
       "attempt_events": [
@@ -79,12 +102,9 @@
         },
         {
           "Diagnosis": {
-            "BodyTranslated": true,
-            "ErrorClass": "other",
-            "FailureOwner": "router"
+            "BodyTranslated": true
           },
-          "FailureReason": "funding_authorization",
-          "Outcome": "failed",
+          "Outcome": "served",
           "Provenance": {
             "PolicyID": "main-openai-chat-completions",
             "PolicyRevision": "3",
@@ -95,25 +115,6 @@
             "CatalogID": "gpt-5.6-sol",
             "Provider": "openai",
             "UpstreamID": "gpt-5.6-sol"
-          }
-        },
-        {
-          "Diagnosis": {
-            "ErrorClass": "other",
-            "FailureOwner": "router"
-          },
-          "FailureReason": "transport",
-          "Outcome": "failed",
-          "Provenance": {
-            "PolicyID": "main-openai-chat-completions",
-            "PolicyRevision": "3",
-            "Purpose": "openai_chat_completions",
-            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
-          },
-          "Target": {
-            "CatalogID": "gpt-6-sol",
-            "Provider": "openai",
-            "UpstreamID": "gpt-6-sol"
           }
         }
       ],
@@ -150,21 +151,43 @@
           },
           {
             "data": {
-              "error": {
-                "code": "upstream_error",
-                "message": "All enrolled subscription accounts are currently unavailable.",
-                "type": "api_error"
+              "choices": [
+                {
+                  "delta": {
+                    "content": "on deployment key"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-\u003cid\u003e",
+              "model": "gpt-5.6-sol",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {},
+                  "finish_reason": "stop",
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-\u003cid\u003e",
+              "model": "gpt-5.6-sol",
+              "object": "chat.completion.chunk",
+              "usage": {
+                "completion_tokens": 7,
+                "prompt_tokens": 12,
+                "total_tokens": 19
               }
             }
+          },
+          {
+            "data": "[DONE]"
           }
         ]
-      },
-      "dispatch_error": {
-        "outcome": "error: subscription account pool exhausted",
-        "kind": 17,
-        "status": 429,
-        "message": "All enrolled subscription accounts are currently unavailable.",
-        "retry_after": true
       },
       "pin_events": [
         {
@@ -198,54 +221,51 @@
           }
         },
         {
-          "op": "upsert",
+          "op": "update_usage",
           "role": "default",
           "detail": {
-            "InstallationID": [
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              64,
-              null,
-              128,
-              null,
-              null,
-              null,
-              null,
-              null,
-              null,
-              1
-            ],
-            "Reason": "subscription_pool_exhausted",
-            "Role": "default",
-            "Strategy": "hmm_embedding",
-            "TurnCount": 1
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "gpt-5.6-sol",
+            "ServedProvider": "openai",
+            "Strategy": "hmm_embedding"
           }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -188,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 188,
+          "OrganizationID": "golden-org",
+          "RouterModel": "gpt-5.6-sol"
         }
       ],
       "telemetry": [
         {
           "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000048,
+          "ActualOutputCostUSD": 0.00014,
           "CandidateModels": [
             "gpt-5.6-sol",
             "gpt-6-sol"
           ],
           "CaptureMode": "off",
-          "DecisionModel": "gpt-6-sol",
+          "DecisionModel": "gpt-5.6-sol",
           "DecisionProvider": "openai",
-          "DecisionReason": "sibling_failover",
+          "DecisionReason": "golden_route",
           "EmbedInput": "only_user_message",
-          "ErrorClass": "other",
           "EstimatedInputTokens": 1,
           "FailoverAttempted": true,
-          "FailureOwner": "router",
+          "FailoverUsed": true,
           "FinalModelFamily": "gpt-sol",
           "FreshDecisionModel": "gpt-5.6-sol",
+          "InputTokens": 12,
           "InstallationID": "00000000-0000-4000-8000-000000000001",
           "IntendedModelFamily": "gpt-sol",
+          "OutputTokens": 7,
           "PinTier": "miss",
           "PlannerOutcome": "switch",
           "PlannerReason": "no_pin",
@@ -267,15 +287,18 @@
             "harness": "",
             "selected_arm": "",
             "selected_group": "high",
-            "served_group": ""
+            "served_group": "high"
           },
           "SpanType": "router.upstream",
+          "StopReason": "stop",
           "Strategy": "hmm_embedding",
           "TurnType": "main_loop",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200,
           "UserPrompt": true
         }
       ]
     }
   ],
-  "scenario": "openai_chat_stream_subscription_pool_spent_ends_turn_without_paid_fallback"
+  "scenario": "openai_chat_stream_subscription_pool_spent_falls_back_to_deployment_key"
 }

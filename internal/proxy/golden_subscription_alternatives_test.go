@@ -71,9 +71,16 @@ func withGoldenCodexPool(accounts ...string) func(*proxy.Service, *goldenHarness
 	}
 }
 
-func goldenCodexPoolCtx(ctx context.Context) context.Context {
-	ctx = context.WithValue(ctx, proxy.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
-	return proxy.WithManagedSubscriptionUsage(ctx)
+func goldenCodexPoolRequest(body string, accounts ...string) goldenRequest {
+	enrolled := make([]*auth.SubscriptionAccount, 0, len(accounts))
+	for _, id := range accounts {
+		enrolled = append(enrolled, &auth.SubscriptionAccount{
+			ID: id, Provider: auth.SubscriptionProviderCodex, Enabled: true, State: auth.SubscriptionAccountStateActive,
+		})
+	}
+	return goldenRequest{body: body, decorateContext: func(ctx context.Context) context.Context {
+		return proxy.WithManagedSubscriptionUsage(proxy.WithManagedSubscriptionCandidates(ctx, enrolled))
+	}}
 }
 
 var goldenCodexAlternativeDecision = router.Decision{
@@ -92,7 +99,6 @@ var goldenCodexAlternativeDecision = router.Decision{
 // alternatives on leased subscription seats before any paid key is used.
 func goldenSubscriptionAlternativeScenarios() []goldenScenario {
 	prefix := ingressOpenAI + "_stream_"
-	requests := []goldenRequest{{body: goldenAutoChatBody, decorateContext: goldenCodexPoolCtx}}
 	deniedThenServed := map[string][]goldenStep{providers.ProviderOpenAI: {
 		goldenUpstreamError(http.StatusNotFound, goldenModelDeniedBody),
 		goldenResponsesOK("on alternative seat")}}
@@ -100,23 +106,26 @@ func goldenSubscriptionAlternativeScenarios() []goldenScenario {
 		{name: prefix + "subscription_alternative_after_seat_model_denied", ingress: ingressOpenAI,
 			decisions: []router.Decision{goldenCodexAlternativeDecision},
 			upstreams: deniedThenServed,
-			requests:  requests, configure: withGoldenCodexPool("seat-a")},
+			requests:  []goldenRequest{goldenCodexPoolRequest(goldenAutoChatBody, "seat-a")},
+			configure: withGoldenCodexPool("seat-a")},
 		{name: prefix + "subscription_alternative_with_tools_after_seat_model_denied", ingress: ingressOpenAI,
 			decisions: []router.Decision{goldenCodexAlternativeDecision},
 			upstreams: deniedThenServed,
-			requests:  []goldenRequest{{body: goldenAutoChatToolBody, decorateContext: goldenCodexPoolCtx}},
+			requests:  []goldenRequest{goldenCodexPoolRequest(goldenAutoChatToolBody, "seat-a")},
 			configure: withGoldenCodexPool("seat-a")},
 		{name: prefix + "subscription_seat_rotation_before_alternative", ingress: ingressOpenAI,
 			decisions: []router.Decision{goldenCodexAlternativeDecision},
 			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {
 				goldenUpstreamError(http.StatusTooManyRequests, goldenUsageLimitBody),
 				goldenResponsesOK("on second seat")}},
-			requests: requests, configure: withGoldenCodexPool("seat-a", "seat-b")},
-		{name: prefix + "subscription_pool_spent_ends_turn_without_paid_fallback", ingress: ingressOpenAI,
+			requests:  []goldenRequest{goldenCodexPoolRequest(goldenAutoChatBody, "seat-a", "seat-b")},
+			configure: withGoldenCodexPool("seat-a", "seat-b")},
+		{name: prefix + "subscription_pool_spent_falls_back_to_deployment_key", ingress: ingressOpenAI,
 			decisions: []router.Decision{goldenCodexAlternativeDecision},
 			upstreams: map[string][]goldenStep{providers.ProviderOpenAI: {
 				goldenUpstreamError(http.StatusTooManyRequests, goldenUsageLimitBody),
-				goldenResponsesOK("never served")}},
-			requests: requests, configure: withGoldenCodexPool("seat-a")},
+				goldenResponsesOK("on deployment key")}},
+			requests:  []goldenRequest{goldenCodexPoolRequest(goldenAutoChatBody, "seat-a")},
+			configure: withGoldenCodexPool("seat-a")},
 	}
 }
