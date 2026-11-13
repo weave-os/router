@@ -18,10 +18,10 @@ Single source of truth for per-model data: capability tier, subscription coverag
 ## Adding a model
 
 1. Append one `Model{}` struct literal to `Models` in `catalog.go`. Mark `CodexSubscription` there when native ChatGPT/Codex OAuth serves the model; credential routing reads that catalog field directly.
-2. If the model is a routing target, list it in the cluster bundle's `model_registry.json` (this catalog says how to price/dispatch a model; the registry says which version routes to it).
+2. If the model is a routing target, add it as an arm in the HMM roster (`ROUTER_HMM_ROSTER_PATH`; this catalog says how to price/dispatch a model, the roster says which groups route to it). Boot validates every roster arm against this catalog.
 3. Run `go run ./cmd/genprices` to regenerate `install/install.sh` + `install/cc-statusline.sh`.
 
-That's it. Nothing else needs editing — the planner, scorer, OTel emitter, install scripts, and provider modelIDMaps all flow from this file.
+That's it. Nothing else needs editing — the planner, policy resolver, OTel emitter, install scripts, and provider modelIDMaps all flow from this file.
 
 ## Multi-provider semantics
 
@@ -29,7 +29,7 @@ Today most models carry a single binding. The catalog's data shape is multi-bind
 
 A trailing `SubscriptionOverflowOnly` OpenRouter binding on Claude/GPT rows is invisible to routing, failover and BYOK custom-binding dedup (`RoutableBindings`, `EnumerateBindings`, `ResolveBinding`); only the `subscription_exhausted_openrouter_only` exhausted-subscription lane in `internal/proxy` dispatches it, via `BindingFor`. `PriceFor` still prices it.
 
-The cluster scorer resolves each routable model's binding at boot via `ResolveBinding(id, availableProviders)`. The chosen binding's `Provider` becomes the `router.Decision.Provider`; the planner then uses `catalog.PriceFor(provider, id)` so STAY-vs-SWITCH EV math is correct when a model is served by different providers at different prices.
+Routing resolves each candidate model's binding via `ResolveBinding(id, availableProviders)`. The chosen binding's `Provider` becomes the `router.Decision.Provider`; the planner then uses `catalog.PriceFor(provider, id)` so STAY-vs-SWITCH EV math is correct when a model is served by different providers at different prices.
 
 ## Invariants
 

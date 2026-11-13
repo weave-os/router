@@ -2,7 +2,7 @@
 
 > **Mirror notice.** Generated from [CLAUDE.md](CLAUDE.md). Edit CLAUDE.md, then run `make generate-agent-guides`; CI rejects drift.
 
-AvengersPro-derived primary router (arXiv 2508.12631, DAI 2025). **P0.** Read [root CLAUDE.md](../../../CLAUDE.md) and [internal/router/CLAUDE.md](../CLAUDE.md) first.
+**Legacy, being removed.** AvengersPro-derived scorer (arXiv 2508.12631, DAI 2025); no worker builds it and only `cmd/routing-report` imports it. Do not add to it. Read [root CLAUDE.md](../../../CLAUDE.md) and [internal/router/CLAUDE.md](../CLAUDE.md) first.
 
 ## What's load-bearing
 
@@ -57,7 +57,7 @@ Registered specs (`embedder.go` `embedderSpecs`):
 - `<root>/jina-v2-base-code-int8/{model.onnx,tokenizer.json}` — Jina's own INT8 export at `jinaai/jina-embeddings-v2-base-code`, file path `onnx/model_quantized.onnx`. Flat legacy layout (`<root>/model.onnx`) still resolves for Jina in local dev.
 - `<root>/qwen3-embedding-0.6b-int8/{model.onnx,tokenizer.json}` — `scripts/export_qwen3_onnx.py` output uploaded to a Weave HF repo; Dockerfile pulls it only when `HF_QWEN_REPO` is set.
 
-- Dockerfile pulls anonymously during build (Jina repo public — self-hosters don't need creds); follow the [local-development download steps](../../../docs/CONFIGURATION.md#cluster-routing-artifacts) outside Docker.
+- Dockerfile pulls anonymously during build (Jina repo public — self-hosters don't need creds).
 - `HF_TOKEN` build secret is *optional* (raises rate limits in CI) + `required=false` in Dockerfile.
 - Go embedders read from `/opt/router/assets/<id>/` (override root via `ROUTER_ONNX_ASSETS_DIR`).
 - If missing or <1 MiB, the embedder constructor errors at boot + `main.go` panics — router refuses to start rather than silently degrading.
