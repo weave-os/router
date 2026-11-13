@@ -48,10 +48,12 @@ func (r *loginAccountRepo) UpsertSubscriptionAccount(_ context.Context, params a
 
 type fakeLoginFlow struct {
 	returnPending      bool
+	startAttempts      []subscriptions.Provider
 	completionAttempts []subscriptions.PendingLogin
 }
 
 func (f *fakeLoginFlow) StartLogin(_ context.Context, provider subscriptions.Provider) (subscriptions.StartedLogin, error) {
+	f.startAttempts = append(f.startAttempts, provider)
 	return subscriptions.StartedLogin{
 		Pending:         subscriptions.PendingLogin{Provider: provider, Verifier: "secret-verifier", State: "state-1", ExpiresAt: time.Now().Add(time.Minute)},
 		VerificationURL: "https://provider.example/authorize",

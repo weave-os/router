@@ -62,6 +62,51 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export type SubscriptionLoginProvider = "claude" | "codex";
+
+export interface SubscriptionOwner {
+  subscriber_id: string;
+  display_name: string;
+  email: string;
+  key_prefix: string;
+  key_suffix: string;
+}
+
+export interface SubscriptionOwnersResponse {
+  enabled: boolean;
+  owners: SubscriptionOwner[];
+}
+
+export interface SubscriptionSeat {
+  account_id: string;
+  subscriber_id: string;
+  provider: SubscriptionLoginProvider;
+  display_name: string;
+  enabled: boolean;
+  owner_display_name: string;
+  owner_email: string;
+  owner_has_routing_key: boolean;
+}
+
+export interface SubscriptionSeatsResponse {
+  enabled: boolean;
+  seats: SubscriptionSeat[];
+}
+
+export interface StartedSubscriptionLogin {
+  login_token: string;
+  verification_url: string;
+  user_code?: string;
+  poll_interval_seconds?: number;
+  expires_at: string;
+}
+
+export interface LinkedSubscriptionAccount {
+  id: string;
+  provider: SubscriptionLoginProvider;
+  display_name?: string | null;
+}
+
 export const api = {
   auth: {
     me: () => request<MeResponse>("/auth/me"),
@@ -116,6 +161,34 @@ export const api = {
       if (routingState) params.set("routing_state", routingState);
       return request<ReportSummaryResponse>(`/metrics/report-summary?${params.toString()}`);
     },
+  },
+  subscriptionLogins: {
+    owners: () => request<SubscriptionOwnersResponse>("/subscription-owners"),
+    start: (subscriberID: string, provider: SubscriptionLoginProvider) =>
+      request<StartedSubscriptionLogin>(`/subscription-logins/${subscriberID}`, {
+        method: "POST",
+        body: JSON.stringify({ provider }),
+      }),
+    /** Resolves to null while a Codex device login is still waiting for approval. */
+    complete: async (
+      subscriberID: string,
+      loginToken: string,
+      authCode?: string,
+      signal?: AbortSignal,
+    ) => {
+      const outcome = await request<LinkedSubscriptionAccount | { status: "pending" }>(
+        `/subscription-logins/${subscriberID}/complete`,
+        {
+          method: "POST",
+          body: JSON.stringify({ login_token: loginToken, code: authCode ?? "" }),
+          ...(signal == null ? {} : { signal }),
+        },
+      );
+      return "status" in outcome ? null : outcome;
+    },
+    seats: () => request<SubscriptionSeatsResponse>("/subscription-accounts"),
+    unlink: (subscriberID: string, accountID: string) =>
+      request<void>(`/subscription-accounts/${subscriberID}/${accountID}`, { method: "DELETE" }),
   },
   subscriptionPool: () => request<SubscriptionPoolResponse>("/subscription-pool"),
   keys: {

@@ -682,3 +682,75 @@ func TestConcurrentSubscriptionHealthTransitionsCommitOneDisconnect(t *testing.T
 	require.NoError(t, fixture.pool.QueryRow(ctx, "SELECT count(*) FROM router.subscription_credential_events WHERE account_id=$1 AND event_kind=$2", account.ID, string(auth.SubscriptionCredentialEventReconnectRequired)).Scan(&eventCount))
 	require.Equal(t, 1, eventCount)
 }
+
+func TestSubscriptionEnrollmentOwnersAndSeatsTrackRoutingKeyState(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ownerLister, ok := repo.(auth.SubscriptionEnrollmentOwnerLister)
+	require.True(t, ok)
+	seatLister, ok := repo.(auth.SubscriptionSeatLister)
+	require.True(t, ok)
+	ctx := context.Background()
+
+	owners, err := ownerLister.ListSubscriptionEnrollmentOwners(ctx)
+	require.NoError(t, err)
+	ownerIDs := map[string]bool{}
+	for _, owner := range owners {
+		ownerIDs[owner.SubscriberID] = true
+	}
+	assert.True(t, ownerIDs[fixture.subscriberA.String()])
+	assert.True(t, ownerIDs[fixture.subscriberB.String()])
+
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: owner, Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "seat-owner", RefreshToken: []byte("ciphertext"),
+	})
+	require.NoError(t, err)
+
+	seats, err := seatLister.ListSubscriptionSeats(ctx)
+	require.NoError(t, err)
+	var seat *auth.SubscriptionSeat
+	for i := range seats {
+		if seats[i].AccountID == account.ID {
+			seat = &seats[i]
+			break
+		}
+	}
+	require.NotNil(t, seat)
+	assert.Equal(t, fixture.subscriberA.String(), seat.SubscriberID)
+	assert.True(t, seat.OwnerHasRoutingKey)
+
+	_, err = fixture.pool.Exec(ctx, "UPDATE router.credential_subject_installations SET access_enabled = FALSE WHERE subject_id = $1 AND installation_id = $2", fixture.subscriberB, fixture.installationID)
+	require.NoError(t, err)
+	owners, err = ownerLister.ListSubscriptionEnrollmentOwners(ctx)
+	require.NoError(t, err)
+	ownerIDs = map[string]bool{}
+	for _, candidate := range owners {
+		ownerIDs[candidate.SubscriberID] = true
+	}
+	assert.True(t, ownerIDs[fixture.subscriberA.String()])
+	assert.False(t, ownerIDs[fixture.subscriberB.String()], "access-disabled subjects must not be enrollment owners")
+
+	_, err = fixture.pool.Exec(ctx, "UPDATE router.model_router_api_keys SET deleted_at = CURRENT_TIMESTAMP WHERE id IN ($1, $2)", fixture.keyA1, fixture.keyA2)
+	require.NoError(t, err)
+	owners, err = ownerLister.ListSubscriptionEnrollmentOwners(ctx)
+	require.NoError(t, err)
+	ownerIDs = map[string]bool{}
+	for _, candidate := range owners {
+		ownerIDs[candidate.SubscriberID] = true
+	}
+	assert.False(t, ownerIDs[fixture.subscriberA.String()], "a subject whose keys are all deleted must not be an enrollment owner")
+	assert.False(t, ownerIDs[fixture.subscriberB.String()])
+
+	seats, err = seatLister.ListSubscriptionSeats(ctx)
+	require.NoError(t, err)
+	seat = nil
+	for i := range seats {
+		if seats[i].AccountID == account.ID {
+			seat = &seats[i]
+			break
+		}
+	}
+	require.NotNil(t, seat, "a seat remains listed after its owner loses every routing key")
+	assert.False(t, seat.OwnerHasRoutingKey)
+}

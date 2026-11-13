@@ -7,6 +7,12 @@ INSERT INTO router.credential_subjects DEFAULT VALUES RETURNING *;
 INSERT INTO router.credential_subject_installations(subject_id, installation_id)
 VALUES (@subject_id::uuid, @installation_id::uuid);
 
+-- Self-hosted issuance locks the installation it projects a subject into.
+-- name: LockInstallationForPersonalIssuance :one
+SELECT id FROM router.model_router_installations
+WHERE id = @installation_id::uuid AND deleted_at IS NULL
+FOR NO KEY UPDATE;
+
 -- Personal issuance never rebinds or rotates an installation-shared key.
 -- name: InsertPersonalRoutingKey :one
 INSERT INTO router.model_router_api_keys (

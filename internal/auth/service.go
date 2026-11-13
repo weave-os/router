@@ -76,6 +76,7 @@ type Service struct {
 	installations              InstallationRepository
 	apiKeys                    APIKeyRepository
 	credentialSubjects         CredentialSubjectLookup
+	personalCredentials        PersonalCredentialIssuer
 	externalKeys               ExternalAPIKeyRepository
 	users                      UserRepository
 	clusterModelLists          ClusterModelListRepository
@@ -360,20 +361,12 @@ func (s *Service) IssueScopedAPIKey(ctx context.Context, installationID string, 
 	if !scope.UserIssuable() {
 		return nil, "", fmt.Errorf("%w: %q", ErrInvalidKeyScope, scope)
 	}
-	scope = scope.Normalized()
-	rawToken := GenerateID(scope.TokenPrefix())
-	keyHash, keyPrefix, keySuffix := APITokenFingerprint(rawToken)
-	externalID := GenerateID("kid")
-	key, err := s.apiKeys.Create(ctx, CreateAPIKeyParams{
-		InstallationID: installationID,
-		ExternalID:     externalID,
-		Name:           name,
-		KeyPrefix:      keyPrefix,
-		KeyHash:        keyHash,
-		KeySuffix:      keySuffix,
-		Scope:          scope,
-		CreatedBy:      createdBy,
-	})
+	params, rawToken := newAPIKeyParams(installationID, scope.Normalized(), name, createdBy)
+	create := s.apiKeys.Create
+	if params.Scope == ScopeRouting && s.personalCredentials != nil {
+		create = s.personalCredentials.CreateProjected
+	}
+	key, err := create(ctx, params)
 	if err != nil {
 		return nil, "", err
 	}
@@ -396,11 +389,10 @@ func (s *Service) ListAPIKeys(ctx context.Context, installationID string) ([]*AP
 	return visible, nil
 }
 
-// RotateAPIKey soft-deletes the named key and issues a replacement under the
-// same installation, carrying forward its name. Returns ErrAPIKeyNotFound if
-// keyID isn't an active key owned by installationID, or if SoftDelete matches
-// 0 rows: a concurrent rotate or delete already transitioned the key, so
-// minting a successor would leave an untracked credential.
+// RotateAPIKey replaces the named key under the same installation, carrying
+// forward its name. Installation-shared keys soft-delete then issue; subject-owned
+// keys rotate through RotateProjected, which returns ErrAPIKeyNotFound on a 0-row
+// soft delete and ErrPersonalCredentialRequired for a revoked or incomplete subject.
 func (s *Service) RotateAPIKey(ctx context.Context, installationID, keyID string, createdBy *string) (*APIKey, string, error) {
 	existing, err := s.apiKeys.ListForInstallation(ctx, installationID)
 	if err != nil {
@@ -417,7 +409,7 @@ func (s *Service) RotateAPIKey(ctx context.Context, installationID, keyID string
 		return nil, "", ErrAPIKeyNotFound
 	}
 	if target.CredentialSubjectID != "" {
-		return nil, "", ErrPersonalCredentialRequired
+		return s.rotatePersonalAPIKey(ctx, target, createdBy)
 	}
 	n, err := s.apiKeys.SoftDelete(ctx, installationID, target.ID)
 	if err != nil {

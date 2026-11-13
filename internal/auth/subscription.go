@@ -255,6 +255,59 @@ type SubscriptionEnrollmentOwnerResolver interface {
 	SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (SubscriptionOwner, error)
 }
 
+// SubscriptionEnrollmentOwnerLister returns only projected, unrevoked, access-enabled
+// subjects that still hold a live routing key, since enrollment owns the seat through that key.
+type SubscriptionEnrollmentOwnerLister interface {
+	ListSubscriptionEnrollmentOwners(ctx context.Context) ([]SubscriptionEnrollmentCandidate, error)
+}
+
+// SubscriptionEnrollmentCandidate carries the key prefix/suffix so unnamed keys stay distinguishable.
+type SubscriptionEnrollmentCandidate struct {
+	SubscriberID string
+	DisplayName  string
+	Email        string
+	KeyPrefix    string
+	KeySuffix    string
+}
+
+// ListSubscriptionEnrollmentOwners lists subjects that hold a live routing key to enroll through.
+func (s *Service) ListSubscriptionEnrollmentOwners(ctx context.Context) ([]SubscriptionEnrollmentCandidate, error) {
+	lister, ok := s.subscriptionAccounts.(SubscriptionEnrollmentOwnerLister)
+	if !ok {
+		return nil, errors.New("subscription enrollment owner listing is not configured")
+	}
+	return lister.ListSubscriptionEnrollmentOwners(ctx)
+}
+
+// SubscriptionSeatLister lists every subscriber-owned seat, including seats
+// whose owner no longer holds a routing key, so they can still be unlinked.
+type SubscriptionSeatLister interface {
+	ListSubscriptionSeats(ctx context.Context) ([]SubscriptionSeat, error)
+}
+
+// SubscriptionSeat carries owner fields so the admin can tell whose seat to
+// unlink; OwnerHasRoutingKey is false once the owner's last key is deleted.
+type SubscriptionSeat struct {
+	AccountID          string
+	SubscriberID       string
+	Provider           SubscriptionProvider
+	DisplayName        string
+	Enabled            bool
+	OwnerDisplayName   string
+	OwnerEmail         string
+	OwnerHasRoutingKey bool
+}
+
+// ListSubscriptionSeats includes seats whose owner lost their last routing key,
+// which the owner picker hides, so the admin can still unlink them.
+func (s *Service) ListSubscriptionSeats(ctx context.Context) ([]SubscriptionSeat, error) {
+	lister, ok := s.subscriptionAccounts.(SubscriptionSeatLister)
+	if !ok {
+		return nil, errors.New("subscription seat listing is not configured")
+	}
+	return lister.ListSubscriptionSeats(ctx)
+}
+
 // ErrSubscriptionEnrollmentKeyNotFound means the subscriber has no active
 // personal routing key to own a browser-enrolled account.
 var ErrSubscriptionEnrollmentKeyNotFound = errors.New("subscriber has no active routing key")

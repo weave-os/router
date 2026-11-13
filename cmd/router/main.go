@@ -663,7 +663,7 @@ func main() {
 		if adminPassword == "" {
 			logger.Warn("ROUTER_ADMIN_PASSWORD not set; dashboard administration is disabled. Set ROUTER_ADMIN_PASSWORD to enable it.")
 		}
-		authSvc.WithAdminPassword(adminPassword)
+		authSvc.WithAdminPassword(adminPassword).WithPersonalCredentialIssuer(postgres.NewCredentialSubjectRepo(pool))
 	}
 	embedOnlyUser := config.GetOr("ROUTER_EMBED_ONLY_USER_MESSAGE", "true") == "true"
 	if embedOnlyUser {
