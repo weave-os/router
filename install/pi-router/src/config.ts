@@ -237,7 +237,7 @@ export const WEAVE_AUTO_MODEL_ID = "auto";
  */
 export const AUTO_WIRE_MODEL = "claude-sonnet-4-6";
 
-/** The model id to put on the wire for a model selected in pi. */
+/** Maps `auto` to AUTO_WIRE_MODEL; every other pi model id passes through unchanged. */
 export function wireModelId(modelId: string): string {
 	return modelId === WEAVE_AUTO_MODEL_ID ? AUTO_WIRE_MODEL : modelId;
 }
@@ -269,7 +269,6 @@ export const ROUTED_CONTEXT_WINDOW_HEADER = "x-router-context-window";
 /** Marker a headless child prints to stderr so the parent dispatch can read its routed model. */
 export const ROUTED_MODEL_STDERR_PREFIX = "weave-routed-model:";
 
-export const SUBAGENT_MODEL = process.env.WEAVE_PI_SUBAGENT_MODEL?.trim() || WEAVE_AUTO_MODEL_ID;
 export const DISPATCH_CONCURRENCY = Math.max(1, numEnv("WEAVE_PI_DISPATCH_CONCURRENCY", 4));
 export const MAX_SUBAGENTS = 8;
 export const SUBAGENT_TIMEOUT_MS = Math.max(1000, numEnv("WEAVE_PI_SUBAGENT_TIMEOUT_MS", 600000));

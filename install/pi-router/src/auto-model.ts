@@ -10,7 +10,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@mariozechner/pi-coding-agent";
 import { getAgentDir, isSubagent, PROVIDER_NAME, WEAVE_AUTO_MODEL_ID, wireModelId } from "./config.js";
 
 /** Rewrite an `auto` request body's model to its wire id. Returns undefined when unchanged. */
@@ -22,7 +22,7 @@ export function rewriteAutoPayload(payload: unknown): Record<string, unknown> | 
 	return model === body.model ? undefined : { ...body, model };
 }
 
-export interface SavedDefault {
+interface SavedDefault {
 	provider?: string;
 	model?: string;
 }
@@ -44,13 +44,8 @@ function savedDefault(settings: Record<string, unknown> | undefined): SavedDefau
 	};
 }
 
-function settingsFiles(cwd: string): string[] {
+function settingsFiles(cwd: string) {
 	return [path.join(getAgentDir(), "settings.json"), path.join(cwd, ".pi", "settings.json")];
-}
-
-/** Pi's saved default model, with project settings overriding global ones as Pi merges them. */
-export function readSavedDefault(cwd: string): SavedDefault {
-	return settingsFiles(cwd).reduce<SavedDefault>((merged, file) => ({ ...merged, ...savedDefault(readSettings(file)) }), {});
 }
 
 /** True when a session or saved default names a weave model this release no longer registers. */
@@ -59,32 +54,64 @@ export function isRetiredWeaveModel(provider: string | undefined, model: string 
 }
 
 /**
- * Point every settings file whose default is a retired weave model at
- * weave/auto. Pi falls back from such a default to whatever else is
- * authenticated, which can silently stop routing, and does so on every start.
- * Only `defaultModel` changes; Pi's own writes merge per field.
+ * Point a saved default that resolves to a retired weave model at weave/auto,
+ * and return the default as it stood. Pi merges project settings over global
+ * ones per field and falls back from such a default to whatever else is
+ * authenticated, which can silently stop routing on every start. Only the
+ * file supplying `defaultModel` changes; Pi's own writes merge per field.
  */
-export function migrateSavedDefaults(cwd: string): void {
-	for (const file of settingsFiles(cwd)) {
-		const settings = readSettings(file);
-		const saved = savedDefault(settings);
-		if (!settings || !isRetiredWeaveModel(saved.provider, saved.model)) continue;
-		try {
-			fs.writeFileSync(file, `${JSON.stringify({ ...settings, defaultModel: WEAVE_AUTO_MODEL_ID }, null, 2)}\n`);
-		} catch {
-			/* unwritable settings: the session itself still moves to weave/auto */
-		}
+export function migrateSavedDefaults(cwd: string): SavedDefault {
+	const files = settingsFiles(cwd).map((file) => ({ file, settings: readSettings(file) }));
+	const merged = files.reduce<SavedDefault>((acc, { settings }) => ({ ...acc, ...savedDefault(settings) }), {});
+	if (!isRetiredWeaveModel(merged.provider, merged.model)) return merged;
+	const source = [...files].reverse().find(({ settings }) => typeof settings?.defaultModel === "string");
+	if (!source?.settings) return merged;
+	try {
+		fs.writeFileSync(source.file, `${JSON.stringify({ ...source.settings, defaultModel: WEAVE_AUTO_MODEL_ID }, null, 2)}\n`);
+	} catch {
+		/* unwritable settings: the session itself still moves to weave/auto */
 	}
+	return merged;
 }
 
-export function registerAutoModel(pi: ExtensionAPI): void {
-	pi.on("before_provider_request", (event) => rewriteAutoPayload(event.payload));
+/** The model a resumed conversation last used, read the way Pi restores it. */
+function conversationModel(entries: SessionEntry[]): SavedDefault | undefined {
+	if (!entries.some((entry) => entry.type === "message")) return undefined;
+	let model: SavedDefault = {};
+	for (const entry of entries) {
+		if (entry.type === "model_change") model = { provider: entry.provider, model: entry.modelId };
+		else if (entry.type === "message" && entry.message.role === "assistant") model = { provider: entry.message.provider, model: entry.message.model };
+	}
+	return model;
+}
+
+const LAUNCH_MODEL_FLAGS = new Set(["--model", "--provider", "--models"]);
+
+/**
+ * Whether to select weave/auto at start: the active model is a retired weave
+ * entry, or Pi fell back to another provider only because the resumed
+ * conversation or saved default named one. Launch flags and a model scope
+ * without weave/auto are explicit choices and stay.
+ */
+function shouldSelectAuto(ctx: ExtensionContext, saved: SavedDefault, argv: readonly string[]): boolean {
+	if (ctx.model?.provider === PROVIDER_NAME) return isRetiredWeaveModel(ctx.model.provider, ctx.model.id);
+	if (argv.some((arg) => LAUNCH_MODEL_FLAGS.has(arg))) return false;
+	const scoped = ctx.scopedModels ?? [];
+	if (scoped.length > 0 && !scoped.some(({ model }) => model.provider === PROVIDER_NAME && model.id === WEAVE_AUTO_MODEL_ID)) return false;
+	return (conversationModel(ctx.sessionManager.getBranch()) ?? saved).provider === PROVIDER_NAME;
+}
+
+export function registerAutoModel(pi: ExtensionAPI, argv: readonly string[] = process.argv): void {
+	pi.on("before_provider_request", (event, ctx) => {
+		if (ctx.model?.provider !== PROVIDER_NAME) return;
+		return rewriteAutoPayload(event.payload);
+	});
 
 	// Children launch with an explicit model and must not write the user's settings.
 	if (isSubagent()) return;
 	pi.on("session_start", async (_event, ctx) => {
-		migrateSavedDefaults(ctx.cwd);
-		if (!isRetiredWeaveModel(ctx.model?.provider, ctx.model?.id)) return;
+		const saved = migrateSavedDefaults(ctx.cwd);
+		if (!shouldSelectAuto(ctx, saved, argv)) return;
 		const auto = ctx.modelRegistry.find(PROVIDER_NAME, WEAVE_AUTO_MODEL_ID);
 		if (auto) await pi.setModel(auto);
 	});

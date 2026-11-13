@@ -189,10 +189,10 @@ phase "Phase 2 — generated pricing + savings contract"
 if with_timeout 30 env PI_CODING_AGENT_DIR="$PI_DIR" \
   pi -e "$UNIT_SUITE" --no-session --offline --model weave/auto \
   -p "Run the unit suite." >"$WORK/unit.out" 2>&1 </dev/null; then
-  if [ "$(grep -Ec '^(✔ |ok [0-9]+ - )' "$WORK/unit.out" || true)" = "132" ]; then
+  if [ "$(grep -Ec '^(✔ |ok [0-9]+ - )' "$WORK/unit.out" || true)" = "136" ]; then
     ok "pricing, beta, force-model, UI, compaction, served-window, and LSP unit suite passed"
   else
-    bad "unit suite did not report all 132 passes (see $WORK/unit.out)"
+    bad "unit suite did not report all 136 passes (see $WORK/unit.out)"
   fi
 else
   bad "unit suite failed to load through pi (see $WORK/unit.out)"

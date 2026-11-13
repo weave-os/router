@@ -98,7 +98,6 @@ Plain `pi` then connects to the installed endpoint, normally
 | `WEAVE_ROUTER_KEY` | — | Router key (else read from `.weave_router_key`) |
 | `WEAVE_ROUTER_KEY_FILE` | `<agentDir>/.weave_router_key` | Override key file path |
 | `WEAVE_USER_EMAIL` / `WEAVE_USER_NAME` | from `git config` | Identity headers for attribution |
-| `WEAVE_PI_SUBAGENT_MODEL` | `auto` | `weave/<model>` handle children launch with (router re-routes) |
 | `WEAVE_PI_DISPATCH_CONCURRENCY` | `4` | Max concurrent subagents |
 | `WEAVE_PI_SUBAGENT_TIMEOUT_MS` | `600000` | Per-subagent timeout |
 | `WEAVE_PI_ALLOW_SUBAGENT_TOOLS` | unset | `1` lets `dispatch` grant subagents write/exec tools (bash, write, edit); default strips them |
