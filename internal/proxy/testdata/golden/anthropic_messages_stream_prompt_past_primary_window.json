@@ -239,7 +239,7 @@
           "DecisionProvider": "fireworks",
           "DecisionReason": "golden_route",
           "DegenerateShadow": true,
-          "EmbedInput": "concatenated_stream",
+          "EmbedInput": "only_user_message",
           "EstimatedInputTokens": 270000,
           "FinalModelFamily": "deepseek/deepseek-v-pro",
           "FreshDecisionModel": "deepseek/deepseek-v4-pro",

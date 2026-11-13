@@ -1103,10 +1103,10 @@ func TestService_ProxyMessages_StripsRoutingMarkerFromInboundHistory(t *testing.
 	assert.Contains(t, lastBlock["text"], "</result>", "wrapper text around an embedded marker must survive")
 }
 
-func TestService_ProxyMessages_EmbedOnlyUserMessageFlag(t *testing.T) {
+func TestService_ProxyMessages_RoutesOnUserRoleTextOnly(t *testing.T) {
 	const firstUserPrompt = "Walk every Go file under router/internal/ and produce a one-paragraph summary of each."
 	const secondUserPrompt = "Now narrow it to handlers under internal/api/."
-	// embedOnlyUserMessage must keep both user prompts, drop system text,
+	// Routing text must keep both user prompts, drop system text,
 	// assistant tool_use, and tool_result blocks.
 	body := []byte(`{
 		"model":"claude-opus-4-7",
@@ -1119,29 +1119,7 @@ func TestService_ProxyMessages_EmbedOnlyUserMessageFlag(t *testing.T) {
 		]
 	}`)
 
-	t.Run("flag off uses concatenated stream", func(t *testing.T) {
-		fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-haiku-4-5"}}
-		svc := proxy.NewService(fr,
-			map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
-			nil,
-			nil,
-			false,
-			providers.ProviderAnthropic, "claude-haiku-4-5",
-			nil,
-		)
-
-		rec := httptest.NewRecorder()
-		httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-		orgOff := flags.WithOverrides(context.Background(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEmbedOnlyUserMessage: false}})
-		require.NoError(t, svc.ProxyMessages(orgOff, body, rec, httpReq))
-
-		require.NotNil(t, fr.capturedReq)
-		got := fr.capturedReq.PromptText
-		assert.Contains(t, got, "You are Claude Code", "flag=off keeps system prompt")
-		assert.Contains(t, got, firstUserPrompt, "flag=off keeps first user message text")
-	})
-
-	t.Run("flag on concatenates user-role text and drops everything else", func(t *testing.T) {
+	t.Run("concatenates user-role text and drops everything else", func(t *testing.T) {
 		fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-haiku-4-5"}}
 		svc := proxy.NewService(fr,
 			map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
@@ -1159,51 +1137,8 @@ func TestService_ProxyMessages_EmbedOnlyUserMessageFlag(t *testing.T) {
 		require.NotNil(t, fr.capturedReq)
 		got := fr.capturedReq.PromptText
 		assert.Equal(t, firstUserPrompt+"\n"+secondUserPrompt, got,
-			"flag=on emits user-role text only (no system, no assistant tool_use, no tool_result)")
+			"routing text is user-role text only (no system, no assistant tool_use, no tool_result)")
 	})
-}
-
-func TestService_ProxyMessages_EmbedOnlyUserMessageOrgOverride(t *testing.T) {
-	const userPrompt = "Find the race condition in main.go"
-	body := []byte(`{
-		"model":"claude-opus-4-7",
-		"system":"You are Claude Code preamble...",
-		"messages":[{"role":"user","content":"` + userPrompt + `"}]
-	}`)
-
-	cases := []struct {
-		name           string
-		orgOverride    *bool
-		wantPromptText string
-	}{
-		{name: "default embeds user text only", wantPromptText: userPrompt},
-		{name: "org override off embeds the concatenated stream", orgOverride: boolPtr(false), wantPromptText: "You are Claude Code preamble...\n" + userPrompt},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-haiku-4-5"}}
-			svc := proxy.NewService(fr,
-				map[string]providers.Client{"anthropic": &fakeProvider{}},
-				nil,
-				nil,
-				false,
-				"anthropic", "claude-haiku-4-5",
-				nil,
-			)
-
-			ctx := context.Background()
-			if tc.orgOverride != nil {
-				ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEmbedOnlyUserMessage: *tc.orgOverride}})
-			}
-
-			rec := httptest.NewRecorder()
-			httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-			require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
-
-			require.NotNil(t, fr.capturedReq)
-			assert.Equal(t, tc.wantPromptText, fr.capturedReq.PromptText)
-		})
-	}
 }
 
 func boolPtr(b bool) *bool { return &b }

@@ -1292,7 +1292,6 @@ func main() {
 		flags.KeyCyberRefusalRetry:                    boolDefault(cyberRefusalRetry),
 		flags.KeyCyberRefusalFallback:                 cyberRefusalFallbackModel,
 		flags.KeyAnthropicServerFallback:              boolDefault(anthropicServerSideFallback),
-		flags.KeyEmbedOnlyUserMessage:                 boolDefault(true),
 	})
 
 	// Always wire even when beta is unavailable: existing beta sessions fail

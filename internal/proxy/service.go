@@ -3128,13 +3128,6 @@ var ErrRequestNotJSONObject = translate.ErrNotJSONObject
 // prod code never overrides it.
 var stripRoutingMarkerFromMessages = translate.StripRoutingMarkerFromMessages
 
-// ResolveEmbedOnlyUserMessage reports whether routing text is limited to
-// user-role content for ctx (per-organization override, default true).
-// Exposed so /v1/route resolves it the same way as ProxyMessages.
-func (s *Service) ResolveEmbedOnlyUserMessage(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyEmbedOnlyUserMessage, true)
-}
-
 func (s *Service) provider(name string) (providers.Client, error) {
 	return s.clients.Client(name)
 }
@@ -3863,8 +3856,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		log.Info("Stripped beta artifacts from Anthropic history", "removed_messages", removed)
 	}
 
-	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
-	feats := env.RoutingFeatures(embedFlag)
+	feats := env.RoutingFeatures(true)
 	ctx = withRequestImageCount(ctx, feats.ImageCount)
 	if err := validateHandoffEnvelope(ctx, env, r.Header, body); err != nil {
 		return err
@@ -3874,7 +3866,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	promptText := feats.PromptText
 	embedInput := "concatenated_stream"
-	if embedFlag && feats.OnlyUserMessageText != "" {
+	if feats.OnlyUserMessageText != "" {
 		promptText = feats.OnlyUserMessageText
 		embedInput = "only_user_message"
 	}
@@ -3981,11 +3973,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		requestBodyChanged = true
 	}
 	if requestBodyChanged {
-		feats = env.RoutingFeatures(embedFlag)
+		feats = env.RoutingFeatures(true)
 		ctx = withRequestImageCount(ctx, feats.ImageCount)
 		promptText = feats.PromptText
 		embedInput = "concatenated_stream"
-		if embedFlag && feats.OnlyUserMessageText != "" {
+		if feats.OnlyUserMessageText != "" {
 			promptText = feats.OnlyUserMessageText
 			embedInput = "only_user_message"
 		}
@@ -4124,7 +4116,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	hardExcluded := append(append(append([]string(nil), geminiUnsigned...), advisorOutranking...), imageLimitExcluded...)
 
 	routeStart := time.Now()
-	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText, embedFlag)
+	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
 	req := router.Request{
 		RequestedModel:               feats.Model,
 		ClientBudget:                 clientBudget,
@@ -6451,11 +6443,6 @@ func (s *Service) bandSwapServed(ctx context.Context, turnType turntype.TurnType
 	if s.bandSwap == nil || pin.PairedModel == "" || turnType != turntype.MainLoop {
 		return anchor
 	}
-	// Parity guard: the head trains on the user-message-only embedding. If this
-	// deploy embeds the full prompt instead, skip rather than feed a skewed input.
-	if !s.ResolveEmbedOnlyUserMessage(ctx) {
-		return anchor
-	}
 	if fresh.Metadata == nil || len(fresh.Metadata.Embedding) != bandswap.EmbedDim {
 		return anchor
 	}
@@ -7222,16 +7209,15 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		ctx = withBetaArtifactHistory(ctx)
 		log.Info("Stripped beta artifacts from OpenAI history", "removed_messages", removed)
 	}
-	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	codexTitleGen, _ := ctx.Value(codexTitleGenerationContextKey{}).(bool)
-	feats := env.RoutingFeatures(embedFlag)
+	feats := env.RoutingFeatures(true)
 	ctx = withRequestImageCount(ctx, feats.ImageCount)
 	if codexTitleGen {
 		feats.TitleGenHint = true
 	}
 	promptText := feats.PromptText
 	embedInput := "concatenated_stream"
-	if embedFlag && feats.OnlyUserMessageText != "" {
+	if feats.OnlyUserMessageText != "" {
 		promptText = feats.OnlyUserMessageText
 		embedInput = "only_user_message"
 	}
@@ -7343,14 +7329,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		routingEnv.SanitizeOrphanedToolCalls()
 	}
 	if requestBodyChanged {
-		feats = env.RoutingFeatures(embedFlag)
+		feats = env.RoutingFeatures(true)
 		ctx = withRequestImageCount(ctx, feats.ImageCount)
 		if codexTitleGen {
 			feats.TitleGenHint = true
 		}
 		promptText = feats.PromptText
 		embedInput = "concatenated_stream"
-		if embedFlag && feats.OnlyUserMessageText != "" {
+		if feats.OnlyUserMessageText != "" {
 			promptText = feats.OnlyUserMessageText
 			embedInput = "only_user_message"
 		}
@@ -7465,7 +7451,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		)
 	}
 
-	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText, embedFlag)
+	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
 	routeRequest := router.Request{
 		RequestedModel:               feats.Model,
 		ForceModel:                   forceModel,

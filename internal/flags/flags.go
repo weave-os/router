@@ -122,7 +122,6 @@ const (
 	KeyCyberRefusalRetry                    Key = "cyber_refusal_retry"
 	KeyCyberRefusalFallback                 Key = "cyber_refusal_fallback_model"
 	KeyAnthropicServerFallback              Key = "anthropic_server_side_fallback"
-	KeyEmbedOnlyUserMessage                 Key = "embed_only_user_message"
 	KeyOpenAIResponsesBroad                 Key = "openai_responses_broad"
 	KeyAllowedModelsHeader                  Key = "allowed_models_header"
 	KeyCCTaskToolsCrossVendor               Key = "cc_task_tools_crossvendor"
@@ -152,6 +151,7 @@ const (
 	retiredKeyStruggleEvidenceArming    Key = "struggle_evidence_arming"
 	retiredKeySubscriberPaidFallback    Key = "subscriber_paid_fallback_enabled"
 	retiredKeySubscriptionPoolQuota     Key = "subscription_pool_quota_aware_selection_enabled"
+	retiredKeyEmbedOnlyUserMessage      Key = "embed_only_user_message"
 )
 
 var retiredOverrideKeys = map[Key]struct{}{
@@ -160,6 +160,7 @@ var retiredOverrideKeys = map[Key]struct{}{
 	retiredKeyStruggleEvidenceArming:    {},
 	retiredKeySubscriberPaidFallback:    {},
 	retiredKeySubscriptionPoolQuota:     {},
+	retiredKeyEmbedOnlyUserMessage:      {},
 }
 
 // Definition describes one overridable flag. DeploymentDefault is not stored
@@ -400,12 +401,6 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK",
 		Kind:           KindBool,
 		Description:    "Ask Anthropic to re-serve a safety-refused turn on a fallback model instead of returning the refusal.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyEmbedOnlyUserMessage,
-		Kind:           KindBool,
-		Description:    "Embed user-role text only, instead of the concatenated stream.",
 		OrgOverridable: true,
 	},
 	{

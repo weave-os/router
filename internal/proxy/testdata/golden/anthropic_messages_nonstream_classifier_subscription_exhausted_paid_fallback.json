@@ -115,7 +115,7 @@
           "DecisionModel": "claude-opus-4-7",
           "DecisionProvider": "anthropic",
           "DecisionReason": "golden_route",
-          "EmbedInput": "concatenated_stream",
+          "EmbedInput": "only_user_message",
           "EstimatedInputTokens": 2,
           "FinalModelFamily": "claude-opus",
           "FreshDecisionModel": "claude-opus-4-7",

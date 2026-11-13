@@ -361,7 +361,7 @@
           "DecisionModel": "claude-opus-4-7",
           "DecisionProvider": "anthropic",
           "DecisionReason": "early-stop-redo",
-          "EmbedInput": "concatenated_stream",
+          "EmbedInput": "only_user_message",
           "EstimatedInputTokens": 6,
           "FailoverAttempted": true,
           "FailoverUsed": true,

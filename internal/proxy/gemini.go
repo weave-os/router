@@ -104,12 +104,11 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			}
 		}()
 	}
-	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
-	feats := env.RoutingFeatures(embedFlag)
+	feats := env.RoutingFeatures(true)
 	ctx = withRequestImageCount(ctx, feats.ImageCount)
 	promptText := feats.PromptText
 	embedInput := "concatenated_stream"
-	if embedFlag && feats.OnlyUserMessageText != "" {
+	if feats.OnlyUserMessageText != "" {
 		promptText = feats.OnlyUserMessageText
 		embedInput = "only_user_message"
 	}
@@ -174,7 +173,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		)
 	}
 
-	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText, embedFlag)
+	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
 	routeRequest := router.Request{
 		RequestedModel:                feats.Model,
 		ForceCluster:                  forceCluster,

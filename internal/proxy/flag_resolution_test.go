@@ -34,7 +34,6 @@ func TestResolversFallBackToDeploymentDefault(t *testing.T) {
 	assert.True(t, svc.ResolveLoopEscalationEnabled(ctx))
 	assert.Equal(t, 10, svc.ResolveLoopEscalationHoldoutPct(ctx))
 	assert.False(t, svc.ResolveSiblingFailover(ctx))
-	assert.True(t, svc.ResolveEmbedOnlyUserMessage(ctx))
 }
 
 func TestPerOrgOverrideBeatsDeploymentDefault(t *testing.T) {
@@ -90,14 +89,4 @@ func TestStringFlagOverride(t *testing.T) {
 		Strings: map[flags.Key]string{flags.KeyCyberRefusalFallback: "claude-opus-5"},
 	})
 	assert.Equal(t, "claude-opus-5", svc.ResolveCyberRefusalFallbackModel(ctx))
-}
-
-func TestEmbedOnlyUserMessageDefaultsOnAndHonorsPerOrgOverride(t *testing.T) {
-	svc := newFlagTestService()
-	assert.True(t, svc.ResolveEmbedOnlyUserMessage(context.Background()))
-
-	orgOff := flags.WithOverrides(context.Background(), flags.Overrides{
-		Bools: map[flags.Key]bool{flags.KeyEmbedOnlyUserMessage: false},
-	})
-	assert.False(t, svc.ResolveEmbedOnlyUserMessage(orgOff))
 }

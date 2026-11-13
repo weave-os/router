@@ -22,7 +22,6 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/dispatch"
-	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -191,7 +190,6 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 	base := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "golden-key")
 	base = context.WithValue(base, proxy.InstallationIDContextKey{}, goldenInstallationID)
 	base = context.WithValue(base, proxy.ExternalIDContextKey{}, "golden-org")
-	base = flags.WithOverrides(base, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEmbedOnlyUserMessage: false}})
 	if req.decorateContext != nil {
 		base = req.decorateContext(base)
 	}
