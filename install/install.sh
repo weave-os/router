@@ -3546,8 +3546,10 @@ toggle_copilot() {
 # refusal naming the dashboard.
 
 # Public, unauthed catalog of everything the router can route to. Mounted in
-# both deployment modes, so it is the one listing that always works.
-MODELS_CATALOG_PATH="/v1/router/models"
+# both deployment modes, so it is the one listing that always works. The scope
+# is explicit because the unscoped listing is a serving roster, which a managed
+# router cannot resolve without an admitted request.
+MODELS_CATALOG_PATH="/v1/router/models?scope=catalog"
 MODELS_DASHBOARD_URL="https://app.weaveos.com/organization/settings/weave-router/models"
 
 # Set by models_api on every call.
