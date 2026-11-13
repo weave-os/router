@@ -50,6 +50,22 @@ func TestCatalogModelsHandler_SortsByProviderThenModel(t *testing.T) {
 	assert.Equal(t, "gpt-5.5", got.Models[3].Model)
 }
 
+func TestCatalogModelsHandler_ServesCatalogPricesPerRow(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	engine := gin.New()
+	engine.GET("/v1/router/models", admin.CatalogModelsHandler(&fakeHMMRoster{entries: []router.DeployedEntry{
+		{Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic},
+	}}))
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/router/models", nil)
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.JSONEq(t, `{"models":[{"model":"claude-haiku-4-5","provider":"anthropic","fast_mode":false,"input_usd_per_1m":1,"output_usd_per_1m":5}]}`, rec.Body.String())
+}
+
 func TestCatalogModelsHandler_EmptyListReturnsEmptyArray(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -106,8 +122,8 @@ func TestCatalogModelsHandler_ServesHMMRosterForEveryStrategy(t *testing.T) {
 	assert.Equal(t, 4, hmmSrc.calls, "the default universe must come from the HMM roster, not a legacy scorer")
 }
 
-// The weave control plane decodes this body into {model, provider, fast_mode}
-// rows to validate exclusions; renaming or adding a field breaks that client.
+// The weave control plane decodes these rows to validate exclusions and price
+// its model pickers; renaming a field breaks that client.
 func TestCatalogModelsHandler_WireShapeContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -129,10 +145,12 @@ func TestCatalogModelsHandler_WireShapeContract(t *testing.T) {
 	rows := body["models"]
 	require.Len(t, rows, 2)
 	for _, row := range rows {
-		require.Len(t, row, 3, "each row is exactly {model, provider, fast_mode}: %v", row)
+		require.Len(t, row, 5, "each row is exactly {model, provider, fast_mode, input_usd_per_1m, output_usd_per_1m}: %v", row)
 		assert.IsType(t, "", row["model"])
 		assert.IsType(t, "", row["provider"])
 		assert.IsType(t, false, row["fast_mode"])
+		assert.IsType(t, float64(0), row["input_usd_per_1m"])
+		assert.IsType(t, float64(0), row["output_usd_per_1m"])
 	}
 	assert.Equal(t, "claude-opus-4-6", rows[0]["model"])
 	assert.Equal(t, "anthropic", rows[0]["provider"])
