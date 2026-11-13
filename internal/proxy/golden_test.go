@@ -56,6 +56,7 @@ type goldenRequest struct {
 	decorateContext func(context.Context) context.Context
 	// noTelemetry marks requests refused before a request row is emitted.
 	noTelemetry bool
+	headers     map[string]string
 }
 
 type goldenRecorder struct {
@@ -207,6 +208,9 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 	}
 	httpReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(req.body)).WithContext(ctx)
 	httpReq.Header.Set("Content-Type", "application/json")
+	for name, value := range req.headers {
+		httpReq.Header.Set(name, value)
+	}
 	rec := httptest.NewRecorder()
 	var err error
 	if ingress == ingressOpenAI {
@@ -494,7 +498,7 @@ func runGoldenScenario(t *testing.T, sc goldenScenario) {
 func TestGolden(t *testing.T) {
 	t.Parallel()
 	names := map[string]bool{}
-	for _, sc := range goldenInferenceScenarios() {
+	for _, sc := range append(goldenInferenceScenarios(), goldenRoutingPolicyScenarios()...) {
 		require.False(t, names[sc.name], "duplicate golden scenario %s", sc.name)
 		names[sc.name] = true
 		t.Run(sc.name, func(t *testing.T) {

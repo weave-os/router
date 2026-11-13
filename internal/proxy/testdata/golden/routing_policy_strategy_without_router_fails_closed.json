@@ -1,0 +1,19 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {},
+      "dispatch_error": {
+        "outcome": "error: strategy \"rl\" requested but no router configured: rl: policy router unavailable",
+        "kind": 12,
+        "status": 503,
+        "message": "Router unavailable: RL policy router failed and no fallback is configured.",
+        "retry_after": true
+      }
+    }
+  ],
+  "scenario": "routing_policy_strategy_without_router_fails_closed"
+}
