@@ -183,7 +183,9 @@ type Usage struct {
 	// ServedModel is the model that served the turn this usage came from.
 	ServedModel string
 	// ServedProvider is the provider binding that served the turn. UpdateUsage
-	// persists it into Provider so the next policy sees actual cache affinity.
+	// persists it into Provider only when the pinned model is empty or matches the
+	// served model (including model:effort variants), preserving the pinned binding
+	// across cross-model rescue.
 	ServedProvider string
 	// PriorServedModel is optional prior-turn evidence known by the caller.
 	// UpdateUsage uses it to latch HasEverSwitched when the stored row is new
