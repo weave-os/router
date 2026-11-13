@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/inference"
-	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
@@ -55,6 +54,5 @@ func claudeEnterpriseCapRotation(credentialCtx, attemptCtx context.Context, deci
 		return attemptCtx, false
 	}
 	state.ClaudeEnterpriseCapRefused = true
-	observability.FromContext(credentialCtx).Warn("Claude Enterprise seat refused the turn at its overage cap; retrying on the customer's Anthropic key", "model", decision.Model)
 	return resolveAndInjectCredentials(withSuppressedClaudeSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{}), true
 }
