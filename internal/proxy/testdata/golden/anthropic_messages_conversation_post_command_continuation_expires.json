@@ -309,7 +309,14 @@
     {
       "ingress": "anthropic_messages",
       "stream": false,
-      "routing_decisions": [],
+      "routing_decisions": [
+        {
+          "requested_model": "claude-haiku-4-5",
+          "model": "claude-haiku-4-5",
+          "provider": "anthropic",
+          "reason": "golden_route"
+        }
+      ],
       "dispatch_attempts": [
         {
           "provider": "anthropic",
@@ -443,10 +450,6 @@
       },
       "pin_events": [
         {
-          "op": "consume",
-          "role": "default_low_cmd_next"
-        },
-        {
           "op": "upsert",
           "role": "default_low",
           "detail": {
@@ -525,12 +528,17 @@
           "EmbedInput": "only_user_message",
           "EstimatedInputTokens": 28,
           "FinalModelFamily": "claude-haiku",
+          "FreshDecisionModel": "claude-haiku-4-5",
           "InputTokens": 12,
           "InstallationID": "00000000-0000-4000-8000-000000000001",
           "IntendedModelFamily": "claude-haiku",
           "LatestToolCallCounts": {},
           "OutputTokens": 7,
-          "PinTier": "post_command_continuation",
+          "PinTier": "postgres_stay_same_model",
+          "PlannerOutcome": "stay",
+          "PlannerPinModel": "claude-haiku-4-5",
+          "PlannerPinProvider": "anthropic",
+          "PlannerReason": "same_model",
           "RequestedInputCostUSD": 0.000012,
           "RequestedModel": "claude-haiku-4-5",
           "RequestedOutputCostUSD": 0.000035,
@@ -541,6 +549,7 @@
           "SpanType": "router.upstream",
           "StickyHit": true,
           "StopReason": "end_turn",
+          "Strategy": "hmm_embedding",
           "TurnType": "main_loop",
           "UpstreamFinishReason": "end_turn",
           "UpstreamStatusCode": 200,

@@ -472,7 +472,7 @@
           "APIKeyID": "golden-key",
           "ActualInputCostUSD": 0.000012,
           "ActualOutputCostUSD": 0.000035,
-          "CaptureMode": "off",
+          "CaptureMode": "hashed",
           "ContextSnapshot": {
             "context_window": 200000,
             "estimate_kind": "approximate",

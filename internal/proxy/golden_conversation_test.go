@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/translate"
 )
@@ -183,6 +184,13 @@ func goldenContinuationScenarios() []goldenScenario {
 		conversationCmd(first, reply, conversationUser("/router-session")),
 		goldenRequest{advance: 2 * time.Hour, body: conversationBody(false, first, reply, conversationUser("/router-session"),
 			conversationAssistant("session details"), conversationUser("continue the refactor"))})
+	// Production stamps the continuation deadline from the wall clock; re-anchor
+	// it to the fake clock so the two-hour advance actually expires it.
+	expired.requests[2].decorateContext = mutateStoredPins(&expired, func(key string, p *sessionpin.Pin) {
+		if strings.HasSuffix(key, "_cmd_next") {
+			p.PinnedUntil = goldenEpoch.Add(time.Hour)
+		}
+	})
 	return []goldenScenario{grant, noPin, forced, expired}
 }
 
@@ -345,29 +353,43 @@ func goldenDetectionScenarios() []goldenScenario {
 		return svc.WithSpiralShadowConfig(true).WithContentCapture(proxy.CaptureHashed, 0, nil)
 	})
 	spiralNoConsent := withConvStores(conversationScenario("spiral_shadow_skipped_without_training_consent", conversationReq(erroredTurns...)), false)
+	spiralNoConsent.configure = chainConfigure(spiralNoConsent.configure, func(svc *proxy.Service) *proxy.Service {
+		return svc.WithSpiralShadowConfig(true).WithContentCapture(proxy.CaptureHashed, 0, nil)
+	})
 
-	var struggleHarness *goldenHarness
-	agedPin := func(ctx context.Context) context.Context {
-		// The detector reads pin age against the wall clock, not the fake clock.
-		struggleHarness.rec.mu.Lock()
-		defer struggleHarness.rec.mu.Unlock()
-		for k, p := range struggleHarness.pins.pins {
-			p.TurnCount, p.FirstPinnedAt = 80, time.Now().Add(-time.Hour)
-			struggleHarness.pins.pins[k] = p
+	struggle := withConvStores(conversationScenario("struggle_shadow_records_long_session",
+		conversationReq(conversationLongHistory(1)...),
+		goldenRequest{body: conversationBody(false, conversationLongHistory(2)...)}), false)
+	struggle.configure = chainConfigure(struggle.configure, func(svc *proxy.Service) *proxy.Service { return svc.WithStruggleShadowConfig(true) })
+	// The detector reads pin age against the wall clock, not the fake clock.
+	struggle.requests[1].decorateContext = mutateStoredPins(&struggle, func(_ string, p *sessionpin.Pin) {
+		p.TurnCount, p.FirstPinnedAt = 80, time.Now().Add(-time.Hour)
+	})
+
+	return []goldenScenario{loop, loopDisabled, editProgress, noProgress, textRep, textRepOff, openAITextRep, spiral, spiralNoConsent, struggle}
+}
+
+// mutateStoredPins returns a request decorator that rewrites every stored pin
+// of sc's harness before that request runs.
+func mutateStoredPins(sc *goldenScenario, mutate func(key string, p *sessionpin.Pin)) func(context.Context) context.Context {
+	var h *goldenHarness
+	base := sc.configure
+	sc.configure = func(svc *proxy.Service, gh *goldenHarness) *proxy.Service {
+		h = gh
+		if base != nil {
+			return base(svc, gh)
+		}
+		return svc
+	}
+	return func(ctx context.Context) context.Context {
+		h.rec.mu.Lock()
+		defer h.rec.mu.Unlock()
+		for k, p := range h.pins.pins {
+			mutate(k, &p)
+			h.pins.pins[k] = p
 		}
 		return ctx
 	}
-	struggle := withConvStores(conversationScenario("struggle_shadow_records_long_session",
-		conversationReq(conversationLongHistory(1)...),
-		goldenRequest{body: conversationBody(false, conversationLongHistory(2)...), decorateContext: agedPin}), false)
-	struggle.configure = chainConfigure(struggle.configure, func(svc *proxy.Service) *proxy.Service { return svc.WithStruggleShadowConfig(true) })
-	struggleBase := struggle.configure
-	struggle.configure = func(svc *proxy.Service, h *goldenHarness) *proxy.Service {
-		struggleHarness = h
-		return struggleBase(svc, h)
-	}
-
-	return []goldenScenario{loop, loopDisabled, editProgress, noProgress, textRep, textRepOff, openAITextRep, spiral, spiralNoConsent, struggle}
 }
 
 func chainConfigure(base func(*proxy.Service, *goldenHarness) *proxy.Service, next func(*proxy.Service) *proxy.Service) func(*proxy.Service, *goldenHarness) *proxy.Service {
