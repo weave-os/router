@@ -253,3 +253,27 @@ func TestStripHistoricalCommandsFromResponsesInput_LeavesToolItemsPaired(t *test
 	assert.Contains(t, string(prepared.Body), "/x/skills/fm/scripts/emit.sh fable")
 	assert.Contains(t, string(prepared.Body), "functionResponse")
 }
+
+func TestStripHistoricalCommandsFromResponsesInput_CodexAppWrappedDirective(t *testing.T) {
+	for name, typed := range map[string]string{
+		"picked skill":        "[$fm](/Users/dev/.codex/skills/fm/SKILL.md) astra",
+		"pasted file, quoted": codexPastedFilesTurn + "`$fm astra`",
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := responsesBody(t,
+				codexUserItem("hello"),
+				codexAssistantItem("hi"),
+				codexUserItem(typed),
+				codexUserItem(codexSkillBlob),
+				codexAssistantItem(forceModelAck),
+				codexUserItem("now fix the bug"),
+			)
+			out, err := translate.StripHistoricalCommandsFromResponsesInput(body)
+			require.NoError(t, err)
+			for _, text := range inputTexts(t, out) {
+				assert.NotContains(t, text, "$fm")
+				assert.NotContains(t, text, "<skill>")
+			}
+		})
+	}
+}
