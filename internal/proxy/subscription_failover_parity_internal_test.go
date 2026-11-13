@@ -578,6 +578,8 @@ type parityUpstream struct {
 	subDispatches  int
 	paidDispatches int
 	servedModels   []string
+	// paidKeys records the key each paid dispatch carried; "" is the deployment key.
+	paidKeys []string
 }
 
 func (*parityUpstream) SupportsSubscriptions() bool { return true }
@@ -595,6 +597,11 @@ func (p *parityUpstream) Proxy(ctx context.Context, decision router.Decision, _ 
 		err = p.subErr
 	} else {
 		p.paidDispatches++
+		paidKey := ""
+		if creds != nil {
+			paidKey = string(creds.APIKey)
+		}
+		p.paidKeys = append(p.paidKeys, paidKey)
 	}
 	if err != nil {
 		if p.preErrBody != "" {
