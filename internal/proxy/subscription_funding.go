@@ -151,7 +151,7 @@ func (s *Service) authorizeSubscriptionAPI(ctx context.Context, pool subscriptio
 		if candidate.provider != auth.SubscriptionProvider(pool) || !candidate.enabled || candidate.state == auth.SubscriptionAccountStateDisabled || candidate.state == auth.SubscriptionAccountStateReconnectRequired {
 			continue
 		}
-		if s.managedAccountQuotaExhausted(ctx, candidate, now) {
+		if s.managedAccountQuotaExhausted(ctx, candidate, now) || managedAccountCredentialCooling(candidate, now) {
 			continue
 		}
 		if refusal.counts && pool == subscriptions.ProviderClaude && (refusal.poolRefused || s.subscriptionModels.managedClientAppDenied(candidate.accountID, providers.ProviderAnthropic, refusal.clientApp, now)) {
@@ -320,6 +320,13 @@ func managedAccountThrottled(ctx context.Context, candidate managedSubscriptionC
 		}
 	}
 	return candidate.state == auth.SubscriptionAccountStateCooldown && candidate.resetAt.After(now) && !candidate.credentialRejected
+}
+
+// managedAccountCredentialCooling reports a seat benched by a 401/403 strike:
+// it cannot be leased before its cooldown lapses, so like a reconnect-required
+// seat it can neither serve nor prove exhaustion.
+func managedAccountCredentialCooling(candidate managedSubscriptionCandidate, now time.Time) bool {
+	return candidate.state == auth.SubscriptionAccountStateCooldown && candidate.resetAt.After(now) && candidate.credentialRejected
 }
 
 func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate managedSubscriptionCandidate, now time.Time) bool {
