@@ -8051,7 +8051,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// Responses notices go out before dispatch; only a reconnect nudge
 			// raised by this attempt's funding still needs delivering.
 			if isResponses && responsesPreludeBuf != nil && notice.Kind == translate.NoticeSubscriptionReconnect && (!verbatimPassthrough || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
-				return sink, responsesNotices.deliverWithinAttempt(notice)
+				return sink, responsesNotices.deliver(notice)
 			}
 			return sink, nil
 		}

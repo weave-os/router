@@ -36,7 +36,7 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 		s.lastNotice = translate.RouterNotice{}
 		s.modelShown = false
 	}
-	if notice.Text == "" || (notice.Kind == s.lastNotice.Kind && notice.Text == s.lastNotice.Text) {
+	if s.repeats(notice) {
 		return s.delivery, nil
 	}
 	// Eager streams show the first marker immediately. Once one is visible, a
@@ -51,16 +51,16 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 	return s.delivery, nil
 }
 
-// deliverWithinAttempt adds notice to the attempt prepare already started,
-// keeping that attempt's deferred marker.
-func (s *requestNoticeStream) deliverWithinAttempt(notice translate.RouterNotice) error {
-	if notice.Text == "" || (notice.Kind == s.lastNotice.Kind && notice.Text == s.lastNotice.Text) {
-		return nil
-	}
-	return s.deliver(notice)
+func (s *requestNoticeStream) repeats(notice translate.RouterNotice) bool {
+	return notice.Text == "" || (notice.Kind == s.lastNotice.Kind && notice.Text == s.lastNotice.Text)
 }
 
+// deliver shows notice within the attempt prepare started, keeping that
+// attempt's deferred marker.
 func (s *requestNoticeStream) deliver(notice translate.RouterNotice) error {
+	if s.repeats(notice) {
+		return nil
+	}
 	outcome, err := s.delivery.Deliver(notice)
 	if err != nil {
 		return err
