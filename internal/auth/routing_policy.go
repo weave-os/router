@@ -64,11 +64,15 @@ func WithoutClientModelPassthrough(ctx context.Context) context.Context {
 }
 
 // ClientModelPassthroughFrom reports whether the client selected the requested
-// model. An active router_on experiment arm routes the pick instead.
+// model. Without an explicit installation policy, an active router_on
+// experiment arm routes the pick instead.
 func ClientModelPassthroughFrom(ctx context.Context) bool {
 	selected, _ := ctx.Value(clientModelPassthroughContextKey{}).(bool)
 	if !selected {
 		return false
+	}
+	if mode := RoutingPolicyFrom(ctx).Mode; mode == RoutingPolicyPassthrough || mode == RoutingPolicyAssigned {
+		return true
 	}
 	state, active := BlindExperimentFrom(ctx)
 	return !active || state.Arm != BlindExperimentArmRouterOn

@@ -190,6 +190,9 @@ func TestCallerRoutingStateFollowsRoutingPrecedence(t *testing.T) {
 		{name: "experiment router on arm routes a client-selected model", ctx: func(*testing.T) context.Context {
 			return auth.WithClientModelPassthrough(experiment(context.Background(), auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}))
 		}, wantSource: callerRoutingSourceExperiment},
+		{name: "passthrough policy keeps a client-selected model under a router on arm", ctx: func(t *testing.T) context.Context {
+			return auth.WithClientModelPassthrough(experiment(withPolicy(t, auth.RoutingPolicyPassthrough, false), auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}))
+		}, wantPassthrough: true, wantSource: callerRoutingSourceClientModel},
 		{name: "experiment passthrough arm keeps a client-selected model", ctx: func(*testing.T) context.Context {
 			return auth.WithClientModelPassthrough(experiment(context.Background(), passthroughArm))
 		}, wantPassthrough: true, wantSource: callerRoutingSourceClientModel},
@@ -277,6 +280,7 @@ func TestPickedModelFundsOnCallersOwnPlan(t *testing.T) {
 		{name: "credit fallback opt-in releases it", ctx: creditFallback(picked()), servedAsIs: true, provider: providers.ProviderAnthropic, wantPicked: true},
 		{name: "no login for the served provider funds like routed traffic", ctx: picked(), servedAsIs: true, provider: providers.ProviderOpenAI, wantPicked: true},
 		{name: "a pick the org routed instead is routed traffic", ctx: picked(), provider: providers.ProviderAnthropic},
+		{name: "a passthrough policy keeps own-plan funding under a router_on arm", ctx: auth.WithRoutingPolicy(context.WithValue(picked(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}), auth.RoutingPolicy{Mode: auth.RoutingPolicyPassthrough}), servedAsIs: true, provider: providers.ProviderAnthropic, wantOwn: true, wantPicked: true},
 		{name: "a router_on experiment arm funds the pick like routed traffic", ctx: context.WithValue(picked(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn}), servedAsIs: true, provider: providers.ProviderAnthropic},
 		{name: "routed request is untouched", ctx: context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken), servedAsIs: true, provider: providers.ProviderAnthropic},
 	} {
