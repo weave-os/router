@@ -62,6 +62,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Only an installation whose inference Weave credits may fund is gated on its balance.
+	if _, err := pool.Exec(ctx, "UPDATE router.model_router_installations SET weave_credit_inference_enabled = TRUE WHERE id = $1", installation.ID); err != nil {
+		return err
+	}
 	token := auth.GenerateID(auth.APIKeyPrefix)
 	hash, prefix, suffix := auth.APITokenFingerprint(token)
 	_, err = repositories.APIKeys.Create(ctx, auth.CreateAPIKeyParams{InstallationID: installation.ID, ExternalID: uuid.NewString(), KeyHash: hash, KeyPrefix: prefix, KeySuffix: suffix, Scope: auth.ScopeRouting})
