@@ -428,39 +428,6 @@ func TestSiblingFailoverDecision(t *testing.T) {
 	})
 }
 
-func TestSiblingFailover_ClusterScorerExhaustsModelTierBeforeAscending(t *testing.T) {
-	s := siblingService(providers.ProviderAnthropic, providers.ProviderFireworks, providers.ProviderOpenAI)
-	failed := router.Decision{
-		Provider: providers.ProviderAnthropic,
-		Model:    "claude-haiku-4-5",
-		Metadata: &router.RoutingMetadata{
-			ClusterRouterVersion: "v-test",
-			CandidateModels: []string{
-				"claude-haiku-4-5", "gpt-4.1-mini", "gpt-4.1-nano",
-				"claude-sonnet-5", "gpt-5",
-			},
-			CandidateScores: map[string]float32{
-				"claude-haiku-4-5": 0.95, "gpt-4.1-mini": 0.8,
-				"gpt-4.1-nano": 0.9, "claude-sonnet-5": 0.99, "gpt-5": 0.98,
-			},
-			CandidateProviders: map[string]string{
-				"gpt-4.1-mini":    providers.ProviderOpenAI,
-				"gpt-4.1-nano":    providers.ProviderOpenAI,
-				"claude-sonnet-5": providers.ProviderAnthropic,
-				"gpt-5":           providers.ProviderOpenAI,
-			},
-		},
-	}
-
-	got := s.siblingFailoverDecisions(context.Background(), failed, 1_000, 0, 0)
-	assert.Equal(t, []string{"gpt-4.1-nano", "gpt-4.1-mini", "claude-sonnet-5", "gpt-5"}, siblingModels(got))
-	assert.Empty(t, failed.Metadata.RescueModels, "rescue must not mutate the scorer's decision")
-
-	failed.Model = "claude-sonnet-5"
-	got = s.siblingFailoverDecisions(context.Background(), failed, 1_000, 0, 0)
-	assert.Equal(t, []string{"gpt-5"}, siblingModels(got), "a mid-tier failure cannot fall down to low")
-}
-
 func TestSiblingFailover_RosterOrderBeatsProviderPreferenceAndExcludesUnlistedModels(t *testing.T) {
 	s := siblingService(providers.ProviderAnthropic, providers.ProviderFireworks)
 	failed := overloadedDecision(&router.RoutingMetadata{
@@ -619,7 +586,7 @@ func TestRescueDecisions_StruckOutReadmissionStaysInScoredPool(t *testing.T) {
 
 	assert.Empty(t, s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0))
 
-	md.ScorerRescuePool = struck
+	md.SidecarRescuePool = struck
 	assert.Equal(t, struck, siblingModels(s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0)))
 }
 

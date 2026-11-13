@@ -70,11 +70,10 @@ func (s *Service) anthropicRoutingRequest(
 	if err != nil {
 		return ctx, router.Request{}, err
 	}
-	embedOnlyUser := s.ResolveEmbedOnlyUserMessage(ctx)
-	features := env.RoutingFeatures(embedOnlyUser)
+	features := env.RoutingFeatures()
 	ctx = withRequestImageCount(ctx, features.ImageCount)
 	promptText := features.PromptText
-	if embedOnlyUser && features.OnlyUserMessageText != "" {
+	if features.OnlyUserMessageText != "" {
 		promptText = features.OnlyUserMessageText
 	}
 
@@ -103,7 +102,7 @@ func (s *Service) anthropicRoutingRequest(
 	if id := installationIDFromContext(ctx); id != uuid.Nil {
 		installationID = id.String()
 	}
-	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText, embedOnlyUser)
+	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
 	return ctx, router.Request{
 		RequestedModel:               features.Model,
 		ClientBudget:                 requestcontext.ClientBudgetFrom(ctx),

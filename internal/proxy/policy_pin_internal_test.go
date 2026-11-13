@@ -138,14 +138,14 @@ func (r *countingPinnedRouter) Route(context.Context, router.Request) (router.De
 func pinnedTurnLoopService(t *testing.T, rt router.Router, store sessionpin.Store) *Service {
 	t.Helper()
 	clients := map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderOpenAI: nil}
-	return NewService(rt, clients, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	return NewService(rt, clients, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 }
 
 func pinnedTurnLoopEnvelope(t *testing.T) (*translate.RequestEnvelope, translate.RoutingFeatures) {
 	t.Helper()
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-7","system":"sys","messages":[{"role":"user","content":"original prompt"}],"max_tokens":8192}`))
 	require.NoError(t, err)
-	return env, env.RoutingFeatures(false)
+	return env, env.RoutingFeatures()
 }
 
 func TestRunTurnLoop_HonouredPinBypassesStickyPinAndScoresFresh(t *testing.T) {
@@ -206,7 +206,7 @@ func TestRunTurnLoop_HonouredPinKeepsSessionIdentity(t *testing.T) {
 func TestRunTurnLoop_HonouredPinClassifierKeepsSessionKeyZero(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-haiku-4-5","max_tokens":5,"messages":[{"role":"user","content":"hello"}]}`))
 	require.NoError(t, err)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rt := &countingPinnedRouter{decision: router.Decision{
 		Provider: providers.ProviderOpenAI, Model: "gpt-5.5",
 		Metadata: &router.RoutingMetadata{PolicyPinHonoured: true},
@@ -251,7 +251,7 @@ func TestRunTurnLoop_HonouredPinScoresAutomaticProbesWithoutConversationState(t 
 			t.Run(model+"/"+forceModel, func(t *testing.T) {
 				env, err := translate.ParseAnthropic([]byte(`{"model":"` + model + `","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`))
 				require.NoError(t, err)
-				feats := env.RoutingFeatures(false)
+				feats := env.RoutingFeatures()
 				rt := &countingPinnedRouter{decision: router.Decision{
 					Provider: providers.ProviderOpenAI, Model: catalog.ModelIDGPT55.String(),
 					Metadata: &router.RoutingMetadata{PolicyPinHonoured: true},

@@ -37,11 +37,11 @@ func TestAutomaticUtilitySelectionDoesNotUseDeploymentShortcut(t *testing.T) {
 						Metadata: &router.RoutingMetadata{PolicyPinHonoured: true},
 					}}
 					pins := newStubPinStore()
-					service := NewService(scorer, nil, nil, false, nil, pins, false,
+					service := NewService(scorer, nil, nil, pins, false,
 						providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 					envelope, err := translate.ParseAnthropic([]byte(fixture.body))
 					require.NoError(t, err)
-					features := envelope.RoutingFeatures(false)
+					features := envelope.RoutingFeatures()
 					turn, err := service.runTurnLoop(ctx, envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
 						RequestedModel:   features.Model,
 						EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
@@ -109,12 +109,12 @@ func TestAutomaticProbeWithoutConcreteTargetScoresWithoutPinning(t *testing.T) {
 				Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String(),
 			}}
 			pins := newStubPinStore()
-			service := NewService(scorer, nil, nil, false, nil, pins, false,
+			service := NewService(scorer, nil, nil, pins, false,
 				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 			body := strings.Replace(blindExperimentUtilityTurnBodies()[0].body, catalog.ModelIDClaudeOpus48.String(), requestedModel, 1)
 			envelope, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)
-			features := envelope.RoutingFeatures(false)
+			features := envelope.RoutingFeatures()
 			turn, err := service.runTurnLoop(context.Background(), envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
 				RequestedModel: features.Model, EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 			})
@@ -140,12 +140,12 @@ func TestDefaultProbeDroppedForceDoesNotAttachConversationState(t *testing.T) {
 				Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String(),
 			}}
 			pins := newStubPinStore()
-			service := NewService(scorer, nil, nil, false, nil, pins, false,
+			service := NewService(scorer, nil, nil, pins, false,
 				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 			body := strings.Replace(blindExperimentUtilityTurnBodies()[0].body, catalog.ModelIDClaudeOpus48.String(), requestedModel, 1)
 			envelope, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)
-			features := envelope.RoutingFeatures(false)
+			features := envelope.RoutingFeatures()
 			turn, err := service.runTurnLoop(context.Background(), envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
 				RequestedModel:   features.Model,
 				ForceModel:       catalog.ModelIDGPT55.String(),

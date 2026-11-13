@@ -76,7 +76,7 @@ func outOfRosterFundingService(client providers.Client, reason string, repo bill
 	svc := NewService(
 		staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: outOfRosterCodexModel, Reason: reason}},
 		map[string]providers.Client{providers.ProviderOpenAI: client},
-		nil, false, nil, nil, false, providers.ProviderOpenAI, outOfRosterCodexModel, nil,
+		nil, nil, false, providers.ProviderOpenAI, outOfRosterCodexModel, nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 		WithBillingService(billing.NewService(repo))
 	svc.retrySleep = noopSleep

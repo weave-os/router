@@ -150,14 +150,14 @@ func TestRunTurnLoop_ForcedModelContextOverflow_StaysInTier(t *testing.T) {
 		Reason:      translate.ReasonUserForceModel,
 		PinnedUntil: time.Now().Add(time.Hour),
 	}}
-	svc := NewService(fr, nil, nil, false, nil, store, false,
+	svc := NewService(fr, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithAvailableModels(fr.available).
 		WithPlannerEnabled(false)
 
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hello"}]}`))
 	require.NoError(t, err)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 
 	// The context-window pre-filter would add the forced model to ExcludedModels
 	// on the turn its window is breached; simulate that here.
@@ -193,8 +193,6 @@ func TestRunTurnLoop_ForcedModelOverridesHardPin(t *testing.T) {
 		fr,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,
@@ -208,7 +206,7 @@ func TestRunTurnLoop_ForcedModelOverridesHardPin(t *testing.T) {
 		"messages":[{"role":"user","content":"summarize"}]
 	}`))
 	require.NoError(t, err)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
 		RequestedModel: feats.Model,
@@ -239,8 +237,6 @@ func TestRunTurnLoop_ForcedModelServesDespiteDisabledProvider(t *testing.T) {
 		fr,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,
@@ -253,7 +249,7 @@ func TestRunTurnLoop_ForcedModelServesDespiteDisabledProvider(t *testing.T) {
 		"messages":[{"role":"user","content":"hello"}]
 	}`))
 	require.NoError(t, err)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
 		RequestedModel:   feats.Model,
@@ -281,8 +277,6 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 		fr,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,
@@ -303,7 +297,7 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 	_, _, forceErr := svc.applyForceModelHeader(context.Background(), headerReq, uuid.New(), key)
 	require.NoError(t, forceErr)
 
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", headerReq.Header, router.Request{
 		RequestedModel: feats.Model,
 	})
@@ -318,7 +312,7 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 // Guards the empty-pool escape hatch: with no in-tier candidate, the helper
 // must return ok=false rather than hand the scorer an empty pool.
 func TestRestrictToTier_FallsBackWhenNoInTierCandidate(t *testing.T) {
-	svc := NewService(nil, nil, nil, false, nil, nil, false,
+	svc := NewService(nil, nil, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithAvailableModels(map[string]struct{}{"claude-haiku-4-5": {}})
 
@@ -331,7 +325,7 @@ func TestRestrictToTier_FallsBackWhenNoInTierCandidate(t *testing.T) {
 // Every available model outside the target tier gets excluded; in-tier
 // models stay eligible.
 func TestRestrictToTier_ExcludesOtherTiers(t *testing.T) {
-	svc := NewService(nil, nil, nil, false, nil, nil, false,
+	svc := NewService(nil, nil, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithAvailableModels(map[string]struct{}{
 			"claude-opus-5":     {}, // high

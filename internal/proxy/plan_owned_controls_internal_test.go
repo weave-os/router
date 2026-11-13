@@ -144,7 +144,7 @@ func TestBoostServingHeaderForceModelCarriesEffortSameTurn(t *testing.T) {
 	assert.Equal(t, "gpt-6.1-sol:medium", forced)
 
 	env := forceCommandEnv(t)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	result, err := svc.runTurnLoop(
 		ctx, env, features, "api-key", uuid.New(), "", request.Header,
 		router.Request{RequestedModel: features.Model, ForceModel: forced},
@@ -200,7 +200,7 @@ func TestBoostServingAppliesForceModelCommand(t *testing.T) {
 
 func TestBoostServingRoutesExplicitForceModel(t *testing.T) {
 	env := forceCommandEnv(t)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	svc := &Service{}
 
 	result, err := svc.runTurnLoop(

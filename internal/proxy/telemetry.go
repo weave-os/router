@@ -120,6 +120,8 @@ type InsertTelemetryParams struct {
 	CrossFormat            bool
 	UpstreamStatusCode     int32
 
+	// ClusterIDs and ClusterRouterVersion back retired cluster-scorer columns
+	// and are no longer populated.
 	ClusterIDs           []int32
 	CandidateModels      []string
 	ChosenScore          *float64
@@ -127,8 +129,8 @@ type InsertTelemetryParams struct {
 	CandidateScores      []byte // pre-marshaled JSON model->score; nil for non-score routers
 	Propensity           *float64
 	ClusterRouterVersion string
-	// Strategy names the routing model that produced this decision ("cluster",
-	// "hmm", "rl", "bandit"). Always populated. Empty leaves the column NULL.
+	// Strategy names the routing model that produced this decision ("hmm",
+	// "rl"). Always populated. Empty leaves the column NULL.
 	Strategy string
 	// RouteID is the opaque sidecar correlation id (HMM/RL) joining a decision
 	// to its outcome report. Empty for the default cluster scorer → NULL column.

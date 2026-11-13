@@ -9,15 +9,14 @@ Inner-ring `Router` interface + `Request`/`Decision`/`ModelSpec`/`ModelRegistry`
 | Package | Role | Guide |
 |---|---|---|
 | [`catalog/`](catalog) | **Single source of truth** for per-model data (tier, ordered provider bindings, pricing, cost math). Add a model here. | [catalog/CLAUDE.md](catalog/CLAUDE.md) |
-| [`cluster/`](cluster) | AvengersPro-derived primary `Router` impl (P0) | [cluster/CLAUDE.md](cluster/CLAUDE.md) |
+| [`cluster/`](cluster) | Legacy AvengersPro scorer; read only by `cmd/routing-report`, no longer built by workers | [cluster/CLAUDE.md](cluster/CLAUDE.md) |
 | [`policy/`](policy) | Shared candidate resolution, sidecar adapter, and conformance primitives for external policy routers | — |
 | [`planner/`](planner) | Cache-aware EV policy (STAY vs SWITCH) | [planner/CLAUDE.md](planner/CLAUDE.md) |
 | [`handover/`](handover) | `Summarizer` interface + envelope rewrite | [handover/CLAUDE.md](handover/CLAUDE.md) |
-| [`cache/`](cache) | Cross-request semantic response cache | [cache/CLAUDE.md](cache/CLAUDE.md) |
 | [`sessionpin/`](sessionpin) | Sticky per-session routing pin | [sessionpin/CLAUDE.md](sessionpin/CLAUDE.md) |
 | [`turntype/`](turntype) | Inbound turn-type classifier | [turntype/CLAUDE.md](turntype/CLAUDE.md) |
 
-All inner-ring — except `cluster/`, which is the adapter-tier exception: it does real filesystem I/O to load model artifacts (embedder weights, cluster bundles) at boot. See the [root layer diagram](../../CLAUDE.md), which places `internal/router/cluster` in the adapter tier alongside `internal/postgres` and `internal/providers/*`. Every other subpackage above is I/O-free.
+All inner-ring — except `cluster/`, which is the adapter-tier exception: it does real filesystem I/O to load model artifacts (embedder weights, cluster bundles) for the offline routing report. See the [root layer diagram](../../CLAUDE.md), which places `internal/router/cluster` in the adapter tier alongside `internal/postgres` and `internal/providers/*`. Every other subpackage above is I/O-free.
 
 ## Adding a new `router.Router` implementation
 

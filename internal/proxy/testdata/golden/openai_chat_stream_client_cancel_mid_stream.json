@@ -206,7 +206,7 @@
           "DecisionModel": "claude-haiku-4-5",
           "DecisionProvider": "anthropic",
           "DecisionReason": "golden_route",
-          "EmbedInput": "concatenated_stream",
+          "EmbedInput": "only_user_message",
           "ErrorClass": "client_canceled",
           "EstimatedInputTokens": 1,
           "FailureOwner": "client",

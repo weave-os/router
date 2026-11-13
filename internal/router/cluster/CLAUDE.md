@@ -29,9 +29,7 @@ Every committed bundle lives at `artifacts/v<X.Y>/` with four files: `centroids.
 
 ### Multi-version build flag
 
-Go runtime builds **only the served default version** by default (`cmd/router/main.go`'s `buildClusterScorer`). Setting `ROUTER_CLUSTER_BUILD_ALL_VERSIONS=true` switches to building **one Scorer per committed bundle** so callers can pin per-request to a sibling version with `x-weave-cluster-version: v0.X` via `middleware.WithClusterVersionOverride`.
-
-"Compare-against-each-other" mechanism — staging/eval deploys set the flag so a single deploy carries every committed bundle + the eval harness flips between them per-request. Prod leaves the flag off: only the default bundle is loaded into memory, and the header override is a no-op.
+Workers no longer build any scorer; the multi-version flag and `x-weave-cluster-version` header were removed with the boot path.
 
 ### Centroids/rankings are write-once
 

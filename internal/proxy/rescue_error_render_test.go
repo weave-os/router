@@ -47,7 +47,7 @@ func TestProxyMessages_SubscriptionRescueFailurePreservesHTTPError(t *testing.T)
 		map[string]providers.Client{
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", upstream.URL),
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 		WithRetrySleep(noRetrySleep).
 		WithUsageObserver(usage.NewObserver([]byte("rescue-render-quota-salt"), time.Hour, time.Now))

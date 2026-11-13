@@ -56,7 +56,7 @@ func TestChatCompletionHandler_CrossFormatOverflowReturnsNativeError(t *testing.
 		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
 			svc := proxy.NewService(
 				overflowRouter{}, map[string]providers.Client{providers.ProviderOpenAI: overflowProvider{}},
-				nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5-mini", nil,
+				nil, nil, false, providers.ProviderOpenAI, "gpt-5-mini", nil,
 			)
 			engine := gin.New()
 			engine.POST("/v1/chat/completions", openai.ChatCompletionHandler(svc, nil))

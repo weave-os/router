@@ -11,7 +11,6 @@ import (
 // internal/flags. Precedence is per-org override > deployment default.
 // Call sites must use these instead of reading Service fields directly;
 // a direct field read silently ignores any per-org override.
-// ResolveEmbedOnlyUserMessage lives in service.go (header > per-org > default).
 
 // ResolveStruggleShadowEnabled reports whether the session-level struggle
 // detector runs for this request.

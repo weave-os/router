@@ -77,7 +77,7 @@ func TestApplyForceClusterHeader_RejectsNonSidecarStrategy(t *testing.T) {
 func TestProxyMessages_ForceClusterOnNonSidecarStrategyRejects(t *testing.T) {
 	fr := &stripFailureRouter{}
 	fp := &stripFailureProvider{}
-	svc := NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, false, nil, nil, false,
+	svc := NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	body := `{"model":"claude-opus-4-8","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`
@@ -113,7 +113,7 @@ func TestProxyMessages_ForceClusterReachesRouterRequest(t *testing.T) {
 		Reason:   "hmm_policy:force_cluster",
 	}}
 	fp := &stripFailureProvider{}
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, false, nil, nil, false,
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: fp}, nil, nil, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: strategy, Router: fr})
 

@@ -23,7 +23,7 @@ const autonomyGateBody = `{
 }`
 
 func newAutonomyGateService() *Service {
-	return NewService(nil, map[string]providers.Client{}, nil, false, nil, nil,
+	return NewService(nil, map[string]providers.Client{}, nil, nil,
 		false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 }
 

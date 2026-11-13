@@ -171,7 +171,6 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 		{name: "hidden HMM", strategy: router.StrategyHMM},
 		{name: "hidden RL", strategy: router.StrategyRL},
 		{name: "hidden beta HMM", strategy: router.StrategyHMMBeta},
-		{name: "hidden bandit", strategy: router.StrategyBandit},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			showMarker := tc.showMarker
@@ -186,12 +185,12 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 			}
 			ctx := flags.WithOverrides(router.WithStrategy(context.Background(), tc.strategy), overrides)
 			installation := uuid.New()
-			svc := NewService(escalationDispatchRouter{}, nil, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil).
+			svc := NewService(escalationDispatchRouter{}, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil).
 				WithEscalation(store, observer).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: tc.strategy, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: router.IsHMMStrategy(tc.strategy)}})
 			for ordinal := 1; ordinal <= 11; ordinal++ {
 				env := escalationTestEnvelope(t, ordinal)
-				features := env.RoutingFeatures(false)
+				features := env.RoutingFeatures()
 				turn, err := svc.runTurnLoop(ctx, env, features, "shadow-key", installation, "", http.Header{}, router.Request{RequestedModel: features.Model})
 				require.NoError(t, err)
 				require.Equal(t, tc.strategy, turn.Strategy)
@@ -215,7 +214,7 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 			}
 			for _, disabledInstallation := range []uuid.UUID{installation, uuid.New()} {
 				env := escalationTestEnvelope(t, 12)
-				features := env.RoutingFeatures(false)
+				features := env.RoutingFeatures()
 				disabled, err := svc.runTurnLoop(router.WithStrategy(escalationTestContext(false, false), tc.strategy), env, features, "shadow-key", disabledInstallation, "", http.Header{}, router.Request{RequestedModel: features.Model})
 				require.NoError(t, err)
 				require.Zero(t, disabled.EscalationOrdinal)
@@ -348,10 +347,10 @@ func TestEscalationLiveModelThroughTurnLoop(t *testing.T) {
 	var last turnLoopResult
 	for n, body := range observations[:11] {
 		// Recreate the service each turn: all continuity must come from the store.
-		svc := NewService(nil, nil, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithEscalation(store, client).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
+		svc := NewService(nil, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithEscalation(store, client).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
 		env, parseErr := translate.ParseAnthropic(body)
 		require.NoError(t, parseErr)
-		features := env.RoutingFeatures(false)
+		features := env.RoutingFeatures()
 		last, err = svc.runTurnLoop(ctx, env, features, "test-key", installation, "", http.Header{}, router.Request{RequestedModel: features.Model, EstimatedInputTokens: features.Tokens, HasTools: features.HasTools, ConversationMessages: conversationMessagesForRouting(env)})
 		require.NoError(t, err)
 		require.Equal(t, int64(n+1), last.EscalationOrdinal)
@@ -376,13 +375,13 @@ func TestEscalationOrdinaryHigherClassificationDoesNotRaiseFloor(t *testing.T) {
 }
 func TestEscalationCommitFailureDoesNotDispatchUncommittedPromotion(t *testing.T) {
 	store := newEscalationTestStore()
-	svc := NewService(nil, nil, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithEscalation(store, &escalationTestObserver{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
+	svc := NewService(nil, nil, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithEscalation(store, &escalationTestObserver{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
 	ctx := escalationTestContext(true, false)
 	installation := uuid.New()
 	for n := 1; n <= 5; n++ {
 		store.failCommit = n == 5
 		env := escalationTestEnvelope(t, n)
-		feats := env.RoutingFeatures(false)
+		feats := env.RoutingFeatures()
 		res, err := svc.runTurnLoop(ctx, env, feats, "test-key", installation, "", http.Header{}, router.Request{RequestedModel: feats.Model})
 		require.NoError(t, err)
 		require.Equal(t, "claude-haiku-4-5", res.Decision.Model)
@@ -395,7 +394,7 @@ func TestEscalationCommitFailureDoesNotDispatchUncommittedPromotion(t *testing.T
 
 func TestEscalationRecordsServedHistoryWithoutReplacingBaselinePin(t *testing.T) {
 	pins := newStubPinStore()
-	svc := NewService(nil, nil, nil, false, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := NewService(nil, nil, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	res := turnLoopResult{Strategy: router.StrategyHMMEmbedding, InstallationID: uuid.New(), PinRole: "default", Decision: router.Decision{Model: "claude-sonnet-4-6", Provider: providers.ProviderAnthropic, Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMMEmbedding), Escalation: &escalation.Decision{Baseline: escalation.Low, Effective: escalation.Medium, Outcome: escalation.OutcomePromoted, Constrained: true}}}}
 	res.SessionKey[0] = 1
 	svc.recordTurnUsage(context.Background(), res, providers.ProviderAnthropic, "claude-sonnet-4-6", 100, 20, 0, 0, false)
@@ -411,13 +410,13 @@ func TestEscalationCommitFailurePreservesOrdinaryStickySelection(t *testing.T) {
 	pins := &rolePinStore{byRole: map[string]sessionpin.Pin{
 		roleForTier(catalog.TierFor("claude-opus-4-8")): {Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Strategy: router.StrategyHMMEmbedding, PinnedUntil: time.Now().Add(time.Hour)},
 	}}
-	svc := NewService(nil, nil, nil, false, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).WithEscalation(store, observer).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1}})
+	svc := NewService(nil, nil, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).WithEscalation(store, observer).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1}})
 	ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostEnabled: true, flags.KeyPlannerEnabled: false}})
 	installation := uuid.New()
 	for n := 1; n <= 5; n++ {
 		store.failCommit = n == 5
 		env := escalationTestEnvelope(t, n)
-		feats := env.RoutingFeatures(false)
+		feats := env.RoutingFeatures()
 		res, err := svc.runTurnLoop(ctx, env, feats, "test-key", installation, "", http.Header{}, router.Request{RequestedModel: feats.Model})
 		require.NoError(t, err)
 		require.Equal(t, "claude-opus-4-7", res.Decision.Model)
@@ -437,9 +436,9 @@ func TestEscalationCommitFailureDoesNotRepeatUnconstrainedSelection(t *testing.T
 			store.failCommit = true
 			pins := newStubPinStore()
 			classifier := &authoritativeTestRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMMEmbedding), Escalation: &escalation.Decision{Baseline: escalation.Maximum, Effective: escalation.Maximum, Outcome: outcome}}}}
-			svc := NewService(nil, nil, nil, false, nil, pins, false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithEscalation(store, &escalationTestObserver{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: classifier, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
+			svc := NewService(nil, nil, nil, pins, false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithEscalation(store, &escalationTestObserver{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: classifier, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})
 			env := escalationTestEnvelope(t, 1)
-			feats := env.RoutingFeatures(false)
+			feats := env.RoutingFeatures()
 			res, err := svc.runTurnLoop(escalationTestContext(true, false), env, feats, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
 			require.NoError(t, err)
 			require.Equal(t, "claude-opus-4-8", res.Decision.Model)
@@ -484,7 +483,7 @@ func TestEscalationShadowMarkerRequiresCommittedPositiveShadowCheckpoint(t *test
 }
 
 func TestActiveEscalationRemainsRestrictedToEmbeddingHMM(t *testing.T) {
-	for _, strategy := range []router.Strategy{router.StrategyCluster, router.StrategyRL, router.StrategyHMM, router.StrategyHMMBeta, router.StrategyBandit} {
+	for _, strategy := range []router.Strategy{router.StrategyCluster, router.StrategyRL, router.StrategyHMM, router.StrategyHMMBeta} {
 		t.Run(string(strategy), func(t *testing.T) {
 			observer := &escalationTestObserver{}
 			svc := (&Service{}).WithEscalation(newEscalationTestStore(), observer)

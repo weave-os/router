@@ -21,7 +21,7 @@ import (
 // Use observability.FromContext(ctx) for request-path sites. Only lower these.
 var globalLoggerBudget = map[string]int{
 	// Composition root: no request exists yet.
-	"cmd/router": 11,
+	"cmd/router": 9,
 
 	// Pure schema-emit / validation helpers with no ctx in scope. Threading a
 	// ctx through these is a wider refactor; they are diagnostics about a
@@ -44,10 +44,8 @@ var globalLoggerBudget = map[string]int{
 
 	// Allocation failures inside LRU construction and a row-parse fallback:
 	// no ctx parameter at these call sites.
-	"internal/router/cache":         2,
-	"internal/router/banditexplore": 1,
-	"internal/postgres":             1,
-	"internal/billing":              1,
+	"internal/postgres": 1,
+	"internal/billing":  1,
 
 	// Transport construction (cmd/router composition root) has no request ctx;
 	// this log reports h2 budget scaling — a process-level config warning.

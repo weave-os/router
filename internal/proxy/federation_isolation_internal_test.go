@@ -55,7 +55,7 @@ func TestUnavailableFederationIsIsolatedToItsProvider(t *testing.T) {
 func TestFederationOutageDoesNotBlockOpenAIInference(t *testing.T) {
 	upstream := &bypassFakeProvider{respBody: `{"id":"chatcmpl_1","object":"chat.completion","model":"gpt-5.6-luna","choices":[{"index":0,"message":{"role":"assistant","content":"served"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`}
 	decision := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}
-	service := NewService(staticRouter{decision: decision}, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil)
+	service := NewService(staticRouter{decision: decision}, map[string]providers.Client{providers.ProviderOpenAI: upstream}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil)
 	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{ID: "federation-key", Provider: providers.ProviderAnthropic, AuthType: auth.AuthTypeAnthropicWIF, CredentialError: auth.ErrAnthropicFederationUnavailable},
 		{ID: "openai-key", Provider: providers.ProviderOpenAI, Plaintext: []byte("synthetic-openai-key")},
@@ -76,7 +76,7 @@ func TestFederationOutageFailsClosedOnAnthropicInference(t *testing.T) {
 	defer upstream.Close()
 	client := anthropic.NewClient("synthetic-platform-key", upstream.URL)
 	decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}
-	service := NewService(staticRouter{decision: decision}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil)
+	service := NewService(staticRouter{decision: decision}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil)
 	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{ID: "federation-key", Provider: providers.ProviderAnthropic, AuthType: auth.AuthTypeAnthropicWIF, CredentialError: auth.ErrAnthropicFederationUnavailable}})
 	ctx = context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	body := []byte(`{"model":"claude-opus-4-8","max_tokens":100,"messages":[{"role":"user","content":"hello"}]}`)

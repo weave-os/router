@@ -47,7 +47,7 @@ func newOpenCodeTurnSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
 			providers.ProviderAnthropic: &fakeProvider{proxyResponse: anthropicResp},
 			providers.ProviderOpenAI:    &fakeProvider{proxyResponse: responsesResp},
 		},
-		nil, false, nil, store, false,
+		nil, store, false,
 		providers.ProviderOpenAI, openCodeHardPinModel, nil,
 	)
 }

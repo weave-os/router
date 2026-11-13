@@ -64,7 +64,7 @@ func TestHMMToolResultHoldKeepsUserTurnPick(t *testing.T) {
 				Model:    freshModel,
 				Reason:   "hold-test_policy",
 			}}
-			svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+			svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 				WithScoreToolResultTurns(true).
 				WithHMMDowngradeHysteresisTurns(0).
 				WithPolicyStrategy(policy.StrategySpec{
@@ -77,7 +77,7 @@ func TestHMMToolResultHoldKeepsUserTurnPick(t *testing.T) {
 				})
 			env, err := translate.ParseAnthropic(test.body)
 			require.NoError(t, err)
-			features := env.RoutingFeatures(false)
+			features := env.RoutingFeatures()
 			ctx := router.WithStrategy(context.Background(), strategy)
 			ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeyHMMToolResultHold: test.hold}})
 			req := router.Request{

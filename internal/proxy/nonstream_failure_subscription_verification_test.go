@@ -46,7 +46,7 @@ func TestVerificationNonstreamFailedJSONCannotWin(t *testing.T) {
 			client := openai.NewClient("synthetic-api-key", upstream.URL)
 			client.SetCodexBaseURL(upstream.URL)
 			leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "first-account", OwnerID: "first-owner", Tier: auth.SubscriptionTierPersonal, AccessToken: "first-seat", ProviderAccount: "first-provider"}, {AccountID: "second-account", OwnerID: "second-owner", Tier: auth.SubscriptionTierShared, AccessToken: "second-seat"}}}
-			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 			ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 			rec := httptest.NewRecorder()
 			err := fixture.run(svc, ctx, []byte(fixture.body), rec, httptest.NewRequest(http.MethodPost, fixture.path, strings.NewReader(fixture.body)))

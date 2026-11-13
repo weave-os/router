@@ -85,7 +85,7 @@ export function ProviderSelectionPanel() {
         <Card.Content>
           {available.length === 0 ? (
             <EmptyHint>
-              No deployed providers. Check ROUTER_CLUSTER_VERSION and provider keys.
+              No deployed providers. Check the routing policy and provider keys.
             </EmptyHint>
           ) : (
             <ul className="space-y-1 px-5 py-3">

@@ -36,7 +36,7 @@ func TestProxyMessages_WeaveCreditsDenied(t *testing.T) {
 			repo := &capturingBillingRepo{}
 			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6"}}
 			p := &fakeProvider{proxyResponse: bypassStreamResponse}
-			svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+			svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 				WithBillingService(billing.NewService(repo))
 
 			ctx := context.WithValue(context.Background(), proxy.ExternalIDContextKey{}, "org-credits")

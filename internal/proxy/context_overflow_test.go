@@ -36,7 +36,7 @@ func TestProxyMessages_UpstreamOverflowIsLeftForNativeRendering(t *testing.T) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster"}},
 		map[string]providers.Client{providers.ProviderAnthropic: upstream},
-		nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	)
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"claude-haiku-4-5","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`)
@@ -59,7 +59,7 @@ func TestProxyMessages_ForcedModelDispatchesPastByteEstimate(t *testing.T) {
 	upstream := &fakeProvider{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5", Reason: "cluster"}}
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: upstream},
-		nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithAvailableModels(map[string]struct{}{forced: {}, "claude-opus-5": {}})
 
 	// 150k non-ASCII runes, each ASCII-escaped to a 6-byte JSON escape: ~900KB
@@ -83,7 +83,7 @@ func proxyResponsesOverflow(t *testing.T, stream bool) *httptest.ResponseRecorde
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster"}},
 		map[string]providers.Client{providers.ProviderAnthropic: upstream},
-		nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	)
 	rec := httptest.NewRecorder()
 	body := `{"model":"claude-haiku-4-5","input":"hi","stream":false}`
@@ -174,7 +174,7 @@ func TestCrossFormatResponsesOverflowClassifiesAsContextWindowExceeded(t *testin
 				svc := proxy.NewService(
 					&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5-mini", Reason: "cluster"}},
 					map[string]providers.Client{providers.ProviderOpenAI: upstream},
-					nil, false, nil, newFakePinStore(), false, providers.ProviderOpenAI, "gpt-5-mini", nil,
+					nil, newFakePinStore(), false, providers.ProviderOpenAI, "gpt-5-mini", nil,
 				)
 				rec := httptest.NewRecorder()
 				body := []byte(fmt.Sprintf(ingress.body, stream))
@@ -212,7 +212,7 @@ func hmmOverflowService(provider string, upstream providers.Client, models ...st
 	resolver := policy.NewResolver(available, map[string]struct{}{provider: {}}, func(m catalog.Model) string { return m.ID }, policy.ManagedProviderPolicy())
 	routing := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyHMM, Unavailable: hmm.ErrHMMUnavailable}, overflowPolicy{}, resolver)
 	return proxy.NewService(&fakeRouter{}, map[string]providers.Client{provider: upstream},
-		nil, false, nil, newFakePinStore(), false, provider, models[0], nil).
+		nil, newFakePinStore(), false, provider, models[0], nil).
 		WithAvailableModels(available).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: routing, Unavailable: hmm.ErrHMMUnavailable})
 }

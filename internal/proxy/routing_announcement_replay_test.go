@@ -47,7 +47,7 @@ func testRoutingAnnouncementOverlap(t *testing.T) {
 		<-release
 		responsesTextUpstream(w)
 	}}
-	first := openAIChatServiceWithDecision(firstProvider, decision, nil)
+	first := openAIChatServiceWithDecision(firstProvider, decision)
 	writer := newObservedResponseWriter()
 	go func() {
 		done <- first.ProxyOpenAIResponses(announcementReplayContext(), announcementReplayBody(t), writer,
@@ -64,7 +64,7 @@ func testRoutingAnnouncementOverlap(t *testing.T) {
 	// Another worker resumes the same client after its eager badge, before
 	// completion or usage history from the first request can be written.
 	secondProvider := &fakeProvider{proxyResponse: responsesTextUpstream}
-	second := openAIChatServiceWithDecision(secondProvider, decision, nil)
+	second := openAIChatServiceWithDecision(secondProvider, decision)
 	rec := httptest.NewRecorder()
 	require.NoError(t, second.ProxyOpenAIResponses(announcementReplayContext(), announcementReplayBody(t, visible), rec,
 		httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
@@ -91,7 +91,7 @@ func testLatestClientAnnouncement(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			provider := &fakeProvider{proxyResponse: responsesTextUpstream}
-			svc := openAIChatServiceWithDecision(provider, router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-6-luna", Reason: "test"}, nil)
+			svc := openAIChatServiceWithDecision(provider, router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-6-luna", Reason: "test"})
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyOpenAIResponses(announcementReplayContext(), announcementReplayBody(t, test.history...), rec,
 				httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
@@ -116,7 +116,7 @@ func testSidecarClientAnnouncement(t *testing.T) {
 	var history []string
 	for turn := range 2 {
 		provider := &fakeProvider{proxyResponse: responsesTextUpstream}
-		svc := openAIChatServiceWithDecision(provider, decision, nil)
+		svc := openAIChatServiceWithDecision(provider, decision)
 		rec := httptest.NewRecorder()
 		require.NoError(t, svc.ProxyOpenAIResponses(announcementReplayContext(), announcementReplayBody(t, history...), rec,
 			httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))

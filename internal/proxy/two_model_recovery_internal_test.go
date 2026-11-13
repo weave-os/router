@@ -36,7 +36,7 @@ func TestTwoModelGatewayRecoveryReadmitsStruckSibling(t *testing.T) {
 	}}
 	svc := NewService(staticRouter{decision: decision}, map[string]providers.Client{
 		providers.ProviderOpenAIGateway: primary, providers.ProviderAnthropicGateway: sibling,
-	}, nil, false, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).WithRetrySleep(func(context.Context, time.Duration) error { return nil })
+	}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	svc.now = func() time.Time { return rateLimitTestNow }
 	body := []byte(`{"model":"gpt-6-luna","stream":true,"messages":[{"role":"user","content":"synthetic exhausted pool"}]}`)
 	rec := httptest.NewRecorder()
@@ -259,7 +259,7 @@ func TestTwoModelGatewayRecoveryRetriesThenRecordsWithdrawal(t *testing.T) {
 			svc := NewService(staticRouter{decision: decision}, map[string]providers.Client{
 				providers.ProviderOpenAIGateway:    primary,
 				providers.ProviderAnthropicGateway: sibling,
-			}, nil, false, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).
+			}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).
 				WithRescuedFailureArmDemotion(true).WithTransientRateLimit(scenario.transient, 45)
 			now := rateLimitTestNow
 			svc.now = func() time.Time { return now }

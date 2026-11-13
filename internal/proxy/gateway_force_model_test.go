@@ -65,7 +65,7 @@ func TestService_GatewayForcedPinOutsideAllowlistServes(t *testing.T) {
 	}}
 	svc := proxy.NewService(fr,
 		map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	ctx := gatewayAllowlistCtx([]string{"claude-opus-5-5"}, "claude-opus-5", "claude-opus-5-5")
 	rec := httptest.NewRecorder()
@@ -85,7 +85,7 @@ func TestService_GatewayForceCommandOutsideAllowlistApplies(t *testing.T) {
 	}}
 	svc := proxy.NewService(fr,
 		map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	ctx := gatewayAllowlistCtx([]string{"claude-opus-5-5"}, "claude-opus-5", "claude-opus-5-5")
 	rec := httptest.NewRecorder()
@@ -109,7 +109,7 @@ func TestService_GatewayForceCommandUnaliasedModelStillRejected(t *testing.T) {
 	}}
 	svc := proxy.NewService(fr,
 		map[string]providers.Client{providers.ProviderAnthropicGateway: anthropicOKProvider()},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	ctx := gatewayAllowlistCtx([]string{"claude-opus-5-5"}, "claude-opus-5", "claude-opus-5-5")
 	rec := httptest.NewRecorder()

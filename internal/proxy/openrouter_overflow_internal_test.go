@@ -28,7 +28,7 @@ func newOverflowDispatch(activeProviders map[subscriptions.Provider]bool) *overf
 		anthropic:  &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{writeBytes: []byte("anthropic answer")}}},
 		openRouter: &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("openrouter answer")}}},
 	}
-	d.svc = NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: d.anthropic, providers.ProviderOpenRouter: d.openRouter}, nil, false, nil, nil, false, "", "", nil).
+	d.svc = NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: d.anthropic, providers.ProviderOpenRouter: d.openRouter}, nil, nil, false, "", "", nil).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: activeProviders})
 	d.svc.deploymentKeyedProviders = map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}, providers.ProviderOpenRouter: {}}
 	return d

@@ -36,7 +36,7 @@ func newFastModeService(decision router.Decision, upstream providers.Client) (*S
 		providers.ProviderAnthropic:  upstream,
 		providers.ProviderOpenAI:     upstream,
 		providers.ProviderOpenRouter: upstream,
-	}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry)
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry)
 	return svc, telemetry
 }
 

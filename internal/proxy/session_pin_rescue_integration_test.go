@@ -89,7 +89,7 @@ func TestProxyMessages_CrossModelRescueKeepsNextTurnOnPinnedBinding(t *testing.T
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicServer.URL),
 			providers.ProviderFireworks: openaicompat.NewClient("test-fw-key", fireworksServer.URL),
 		},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry(),
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry(),
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderAnthropic: {}, providers.ProviderFireworks: {},
 	}).WithRetrySleep(noRetrySleep).WithRescuedFailureArmDemotion(false)

@@ -320,31 +320,6 @@ func TestRescueDecisions_ReadmitsCoolingArmAbsentFromScoredCandidates(t *testing
 	assert.Equal(t, providers.ProviderAnthropic, got[1].Provider)
 }
 
-func TestSiblingFailover_ScorerReadmitsOnlyEligibleCoolingPeersAtOrAboveSelectedTier(t *testing.T) {
-	s := siblingService(providers.ProviderAnthropic, providers.ProviderOpenAI)
-	failed := router.Decision{
-		Provider: providers.ProviderAnthropic,
-		Model:    "claude-sonnet-5",
-		Metadata: &router.RoutingMetadata{
-			ClusterRouterVersion: "v-test",
-			CandidateModels:      []string{"claude-sonnet-5", "gpt-5"},
-			ScorerRescuePool:     []string{"claude-sonnet-5", "gpt-5", "claude-opus-5", "claude-haiku-4-5"},
-			CandidateProviders:   map[string]string{"gpt-5": providers.ProviderOpenAI},
-		},
-	}
-	ctx := context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, []string{"claude-opus-5", "claude-haiku-4-5", "gpt-4.1-mini"})
-	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{
-		"claude-opus-5":    rateLimitTestNow.Add(30 * time.Second),
-		"claude-haiku-4-5": rateLimitTestNow.Add(10 * time.Second),
-		"gpt-4.1-mini":     rateLimitTestNow.Add(5 * time.Second),
-	})
-
-	got := s.siblingFailoverDecisions(ctx, failed, 1_000, 0, 0)
-
-	assert.Equal(t, []string{"gpt-5", "claude-opus-5"}, siblingModels(got))
-	assert.Equal(t, providers.ProviderAnthropic, got[1].Provider)
-}
-
 func TestSiblingFailover_SidecarReadmitsCoolingRosterArmLast(t *testing.T) {
 	s := siblingService(providers.ProviderAnthropic, providers.ProviderOpenAI)
 	failed := router.Decision{
@@ -467,7 +442,7 @@ func cooldownTurnLoopService(store sessionpin.Store, transient bool) (*Service, 
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := NewService(scorer, nil, nil, false, nil, store, false,
+	svc := NewService(scorer, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithTransientRateLimit(transient, 45)
 	svc.now = func() time.Time { return rateLimitTestNow }

@@ -11,7 +11,6 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/bandit"
 	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/router/hmm"
@@ -44,7 +43,6 @@ const (
 	DispatchErrorImageLimitExceeded
 	DispatchErrorInvalidRoutingKnobs
 	DispatchErrorRLPolicyUnavailable
-	DispatchErrorBanditUnavailable
 	DispatchErrorHMMUnavailable
 	DispatchErrorPolicyUnavailable
 	DispatchErrorClusterUnavailable
@@ -447,15 +445,6 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			RetryAfter: true,
 			LogLevel:   "error",
 			LogMessage: "RL routing unavailable",
-		}, true
-	case errors.Is(err, bandit.ErrBanditUnavailable):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorBanditUnavailable,
-			Status:     http.StatusServiceUnavailable,
-			Message:    "Router unavailable: bandit router failed and no fallback is configured.",
-			RetryAfter: true,
-			LogLevel:   "error",
-			LogMessage: "Bandit routing unavailable",
 		}, true
 	case errors.Is(err, decisionmodel.ErrUnavailable):
 		return DispatchErrorClass{

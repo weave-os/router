@@ -96,7 +96,7 @@ func newEmbedTestService(t *testing.T, collector *bypassSpanCollector, rt router
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = emitter.Shutdown(context.Background()) })
-	return NewService(rt, map[string]providers.Client{providers.ProviderAnthropic: embedTestProvider{}, providers.ProviderGoogle: embedTestProvider{}}, emitter, false, nil, pins, false,
+	return NewService(rt, map[string]providers.Client{providers.ProviderAnthropic: embedTestProvider{}, providers.ProviderGoogle: embedTestProvider{}}, emitter, pins, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 }
 

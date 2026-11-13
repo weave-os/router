@@ -43,7 +43,7 @@ func TestCodexOwnPlanSpentIsRememberedAcrossTurns(t *testing.T) {
 	defer server.Close()
 	client := openai.NewClient("weave-capacity", server.URL)
 	client.SetCodexBaseURL(server.URL)
-	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).
+	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}}).
 		WithUsageObserver(usage.NewObserver([]byte("test-salt"), time.Hour, time.Now))
 

@@ -105,7 +105,7 @@
           "DecisionModel": "claude-haiku-5-5",
           "DecisionProvider": "anthropic",
           "DecisionReason": "classifier_model",
-          "EmbedInput": "concatenated_stream",
+          "EmbedInput": "only_user_message",
           "EstimatedInputTokens": 2,
           "FinalModelFamily": "claude-haiku",
           "InputTokens": 12,

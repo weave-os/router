@@ -184,12 +184,12 @@ func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
 			Reason:      "cluster:v0.2",
 			PinnedUntil: time.Now().Add(time.Hour),
 		}, found: true}
-		return NewService(fr, nil, nil, false, nil, store, false,
+		return NewService(fr, nil, nil, store, false,
 			providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 			WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic, providers.ProviderOpenAI))
 	}
 	env := forceCommandEnv(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 
 	fr := &tierProbeRouter{available: map[string]struct{}{testOpus: {}, "gpt-5.4-mini": {}}}
 	svc := newSvc(fr)

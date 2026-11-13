@@ -49,7 +49,7 @@ func serviceWithDefaultRouter(r router.Router) *Service {
 
 func TestRouteWithoutStrategyContextUsesHMMEmbeddingDefault(t *testing.T) {
 	defaultRouter := &registryRouter{decision: router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: providers.ProviderFireworks}}
-	svc := NewService(defaultRouter, nil, nil, false, nil, nil, false, "", "", nil)
+	svc := NewService(defaultRouter, nil, nil, nil, false, "", "", nil)
 
 	decision, err := svc.Route(context.Background(), router.Request{})
 
@@ -61,7 +61,7 @@ func TestRouteWithoutStrategyContextUsesHMMEmbeddingDefault(t *testing.T) {
 
 func TestRetiredClusterStrategyIsNotRoutable(t *testing.T) {
 	defaultRouter := &registryRouter{}
-	svc := NewService(defaultRouter, nil, nil, false, nil, nil, false, "", "", nil)
+	svc := NewService(defaultRouter, nil, nil, nil, false, "", "", nil)
 
 	_, err := svc.Route(router.WithStrategy(context.Background(), router.StrategyCluster), router.Request{})
 
@@ -71,7 +71,7 @@ func TestRetiredClusterStrategyIsNotRoutable(t *testing.T) {
 }
 
 func TestRouteWithoutDefaultRouterFailsClosed(t *testing.T) {
-	svc := NewService(nil, nil, nil, false, nil, nil, false, "", "", nil)
+	svc := NewService(nil, nil, nil, nil, false, "", "", nil)
 
 	_, err := svc.Route(context.Background(), router.Request{})
 

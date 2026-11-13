@@ -84,7 +84,7 @@ func TestProxyMessages_NativeToolUseStopPersistsLastToolDetail(t *testing.T) {
 			svc := proxy.NewService(
 				&fakeRouter{decision: decision},
 				map[string]providers.Client{providers.ProviderAnthropic: provider},
-				nil, false, nil, nil, false,
+				nil, nil, false,
 				providers.ProviderAnthropic, "claude-opus-4-7", telem,
 			)
 
@@ -132,7 +132,7 @@ func TestProxyMessages_TranslatedToolUseStopPersistsLastToolDetail(t *testing.T)
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna"}},
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
-		nil, false, nil, nil, false,
+		nil, nil, false,
 		providers.ProviderAnthropic, "claude-opus-4-7", telem,
 	)
 
