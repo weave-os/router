@@ -36,6 +36,9 @@ type ResponsesConversion struct {
 	// CodexFeedbackSkill reports a user-invoked $rf/$router-feedback skill
 	// whose emitted directive arrived in a later tool-result item.
 	CodexFeedbackSkill bool
+	// CodexForceModelSkill reports that the latest tool output answers a
+	// force-model skill's emit.sh, whose directive ends the turn.
+	CodexForceModelSkill bool
 	// CodexModelSwitch reports that the user switched models with Codex's
 	// native /model picker during this session, as opposed to launching with
 	// a configured model.

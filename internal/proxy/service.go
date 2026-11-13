@@ -516,6 +516,8 @@ type nativeResponsesToolHashContextKey struct{}
 // returning output from a user-invoked $rf skill.
 type codexFeedbackSkillContextKey struct{}
 
+type codexForceModelSkillContextKey struct{}
+
 // responsesFooterEchoedContextKey is set when the original Responses input
 // already carries a rating hint.
 type responsesFooterEchoedContextKey struct{}
@@ -7256,7 +7258,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				routingEnv.ExtractForceModelCommand()
 			}
 			log.Info("ProxyOpenAIChatCompletion force-model command", "force_model_cmd", cmd)
-			if cmd.FromToolResult {
+			// A Codex force-model skill ends its turn once emit.sh prints the
+			// directive, so the router answers it like a typed command.
+			skillForce, _ := ctx.Value(codexForceModelSkillContextKey{}).(bool)
+			if cmd.FromToolResult && !skillForce {
 				var err error
 				agentForceModel, _, err = s.applyForceModelCommand(ctx, cmd, installationID, sessionKey, forceModelSessionKey)
 				if err != nil {
@@ -9188,6 +9193,9 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	}
 	if conversion.CodexFeedbackSkill {
 		ctx = context.WithValue(ctx, codexFeedbackSkillContextKey{}, true)
+	}
+	if conversion.CodexForceModelSkill {
+		ctx = context.WithValue(ctx, codexForceModelSkillContextKey{}, true)
 	}
 	codexNativeRequest := codexResponsesRequest(ctx, r.Header)
 	// Every Responses turn stashes its original bytes for post-routing native

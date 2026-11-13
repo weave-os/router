@@ -150,9 +150,14 @@ func foldModelSpelling(name string) string {
 }
 
 // cutSpelledEffort splits an effort level typed without the colon
-// ("astra high", "gpt-6-sol-max") off the end of name.
+// ("astra high", "gpt-6-sol-max", "astra extra high") off the end of name.
 func cutSpelledEffort(name string) (head, level string, ok bool) {
 	folded := foldModelSpelling(name)
+	for _, spelled := range []string{"-extra-high", "-x-high"} {
+		if head, ok := strings.CutSuffix(strings.ToLower(folded), spelled); ok && head != "" {
+			return head, "xhigh", true
+		}
+	}
 	idx := strings.LastIndexByte(folded, '-')
 	if idx <= 0 || !looksLikeEffortAlias(folded[idx+1:]) {
 		return "", "", false
