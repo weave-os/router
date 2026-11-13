@@ -271,7 +271,7 @@ func geminiFinish(stream bool, finish string, part string) goldenStep {
 func goldenGeminiScenarios() []goldenScenario {
 	var out []goldenScenario
 	unavailable := goldenUpstreamError(http.StatusServiceUnavailable, `{"error":{"code":503,"message":"unavailable","status":"UNAVAILABLE"}}`)
-	limited := goldenUpstreamError(http.StatusTooManyRequests, `{"error":{"code":429,"message":"quota","status":"RESOURCE_EXHAUSTED"}}`)
+	rateLimited := goldenUpstreamError(http.StatusTooManyRequests, `{"error":{"code":429,"message":"quota","status":"RESOURCE_EXHAUSTED"}}`)
 	for _, stream := range []bool{true, false} {
 		prefix := ingressGemini + "_" + streamName(stream) + "_"
 		path := goldenGeminiPath(stream)
@@ -285,8 +285,8 @@ func goldenGeminiScenarios() []goldenScenario {
 		add("google_success", goldenGeminiBody(), goldenGeminiDecision, google(geminiOK(stream, "hi")))
 		add("server_error_retries_exhausted", goldenGeminiBody(), goldenGeminiDecision, google(unavailable, unavailable, unavailable))
 		add("server_error_retry_success", goldenGeminiBody(), goldenGeminiDecision, google(unavailable, geminiOK(stream, "rescued")))
-		add("rate_limited", goldenGeminiBody(), goldenGeminiDecision, google(limited, limited, limited))
-		add("rate_limited_retry_success", goldenGeminiBody(), goldenGeminiDecision, google(limited, geminiOK(stream, "rescued")))
+		add("rate_limited", goldenGeminiBody(), goldenGeminiDecision, google(rateLimited, rateLimited, rateLimited))
+		add("rate_limited_retry_success", goldenGeminiBody(), goldenGeminiDecision, google(rateLimited, geminiOK(stream, "rescued")))
 		add("timeout", goldenGeminiBody(), goldenGeminiDecision, google(goldenStep{err: &net.OpError{Op: "read", Net: "tcp", Err: os.ErrDeadlineExceeded}}, geminiOK(stream, "rescued")))
 		add("upstream_bad_request", goldenGeminiBody(), goldenGeminiDecision, google(goldenUpstreamError(http.StatusBadRequest,
 			`{"error":{"code":400,"message":"Invalid value at 'contents'","status":"INVALID_ARGUMENT"}}`)))
