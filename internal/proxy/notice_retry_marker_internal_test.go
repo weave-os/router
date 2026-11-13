@@ -8,14 +8,23 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/translate"
+)
+
+const (
+	markerOpus   = "claude-opus-5"
+	markerSonnet = "claude-sonnet-5"
+	markerTerra  = "gpt-6.1-terra"
+	markerSol    = "gpt-6.1-sol"
+	markerMimo   = "xiaomi/mimo-v2.6-pro"
 )
 
 func TestRequestNoticeStream_FailedFallbackCandidatesShowNoMarker(t *testing.T) {
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	var stream requestNoticeStream
-	models := []string{"claude-opus-5", "claude-sonnet-5", "gpt-6.1-terra", "xiaomi/mimo-v2.6-pro"}
+	models := []string{markerOpus, markerSonnet, markerTerra, markerMimo}
 	for i, model := range models {
 		notice := translate.NewRouterNotice(translate.NoticeModelSelection, "✦ **Weave Router** → "+model+"\n\n", model, "")
 		w, err := stream.prepare(context.Background(), buf, buf, translate.FormatOpenAIResponses, true, notice)
@@ -36,20 +45,20 @@ func TestRequestNoticeStream_FailedFallbackCandidatesShowNoMarker(t *testing.T) 
 		}
 	}
 	assert.Equal(t, 2, markers, "only the first pick and the model that served may show a marker:\n%s", body)
-	assert.Contains(t, body, "claude-opus-5")
-	assert.NotContains(t, body, "claude-sonnet-5")
-	assert.NotContains(t, body, "gpt-6.1-terra")
-	assert.Contains(t, body, "xiaomi/mimo-v2.6-pro")
+	assert.Contains(t, body, markerOpus)
+	assert.NotContains(t, body, markerSonnet)
+	assert.NotContains(t, body, markerTerra)
+	assert.Contains(t, body, markerMimo)
 	assert.True(t, buf.Committed())
 }
 
 func TestSiblingMarkerReason_CitesThePickedModelsOwnFailure(t *testing.T) {
 	trace := traceOf(
-		cortexAttempt("gpt-6.1-sol", ErrSubscriptionPoolThrottled, TurnErrorRateLimited),
-		cortexAttempt("claude-opus-5", ErrSubscriptionPoolExhausted, TurnErrorRateLimited),
+		cortexAttempt(markerSol, ErrSubscriptionPoolThrottled, TurnErrorRateLimited),
+		cortexAttempt(markerOpus, ErrSubscriptionPoolExhausted, TurnErrorRateLimited),
 	)
 	ctx := context.WithValue(context.Background(), attemptTraceContextKey{}, trace)
-	assert.Equal(t, "switched after gpt-6.1-sol had every subscription seat rate-limited", siblingMarkerReason(ctx, "gpt-6.1-sol"))
-	assert.Equal(t, "switched after gpt-6-luna was unavailable", siblingMarkerReason(ctx, "gpt-6-luna"),
+	assert.Equal(t, "switched after "+markerSol+" had every subscription seat rate-limited", siblingMarkerReason(ctx, markerSol))
+	assert.Equal(t, "switched after "+catalog.ModelGPT6Luna+" was unavailable", siblingMarkerReason(ctx, catalog.ModelGPT6Luna),
 		"a model with no traced failure must not be blamed for overload")
 }
