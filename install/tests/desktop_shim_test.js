@@ -318,10 +318,10 @@ test("desktop shim", async (t) => {
     const stalledConfig = path.join(work, "stalled.json");
     fs.writeFileSync(stalledConfig, JSON.stringify({ ...JSON.parse(fs.readFileSync(configFile, "utf8")), router_key: "rk_desktop_stalled", report_timeout_ms: 100 }));
     stallEventsFor = new Set(["rk_desktop_stalled"]);
-    const stalled = shim.start(shim.loadConfig(stalledConfig));
-    await once(stalled, "listening");
-    t.after(() => stalled.close());
-    const send = () => viaProxy(stalled.address().port, ca, { method: "POST", reqPath: "/v1/messages", headers: { "user-agent": CODE_TAB_USER_AGENT }, body: "{}" });
+    const stalledShim = shim.start(shim.loadConfig(stalledConfig));
+    await once(stalledShim, "listening");
+    t.after(() => stalledShim.close());
+    const send = () => viaProxy(stalledShim.address().port, ca, { method: "POST", reqPath: "/v1/messages", headers: { "user-agent": CODE_TAB_USER_AGENT }, body: "{}" });
     const before = router.events.length;
 
     await send();
