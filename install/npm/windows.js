@@ -369,7 +369,7 @@ function installPi(paths, baseUrl, key, email) {
     apiKey: key,
     authHeader: false,
     headers: { "X-Weave-Router-Key": key, "X-App": "pi", "x-weave-routing-marker": "off", "x-weave-routing-alpha": "0.8", "x-weave-routing-speed-weight": "0.05", "x-weave-routing-output-cost-ratio": "0.5", "x-weave-routing-expected-output-tokens": "3000", ...(email ? { "X-Weave-User-Email": email } : {}) },
-    models: [{ id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (via Weave Router)", reasoning: true, input: ["text", "image"], contextWindow: 1000000, maxTokens: 64000 }],
+    models: [{ id: "auto", name: "Weave Router", reasoning: true, input: ["text", "image"], contextWindow: 1000000, maxTokens: 64000 }],
   };
   const settings = readJson(paths.settings);
   const state = readJson(paths.state);
@@ -377,7 +377,7 @@ function installPi(paths, baseUrl, key, email) {
   if (!Object.hasOwn(state, "defaultModel")) state.defaultModel = { exists: Object.hasOwn(settings, "defaultModel"), value: settings.defaultModel };
   settings.packages = [...new Set([...(settings.packages || []).filter((item) => !/^npm:@(?:workweave\/(?:pi-)?router|weave-os\/router)$/.test(item)), `npm:${packageName}`])];
   settings.defaultProvider = "weave";
-  settings.defaultModel ||= "claude-sonnet-4-6";
+  settings.defaultModel = "auto";
   writeJson(paths.config, models);
   writeJson(paths.settings, settings);
   writeJson(paths.state, state);
@@ -467,6 +467,7 @@ function uninstall(paths, target) {
       const state = readJson(paths.state);
       settings.packages = (settings.packages || []).filter((item) => item !== `npm:${packageName}`);
       restoreField(settings, "defaultProvider", state.defaultProvider, "weave");
+      restoreField(settings, "defaultModel", state.defaultModel, "auto");
       restoreField(settings, "defaultModel", state.defaultModel, "claude-sonnet-4-6");
       writeJson(paths.settings, settings);
     }

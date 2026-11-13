@@ -29,7 +29,13 @@ Plain `pi` then connects to the installed endpoint, normally
   session. Wooly is visual only: there is no
   dialogue box, narration, coaching request, or separate Loom runtime.
 - **Automatic model selection.** All pi traffic flows through the router, which
-  selects the model per request. You don't pick a model — the router does.
+  selects the model per request from the models your organization has enabled.
+  pi's `/model` picker shows one entry, `weave/auto` ("Weave Router"); the
+  status line shows which model served each response. A session or saved
+  default on a per-model `weave/…` entry from an older release moves to
+  `weave/auto` on start. `weave/auto` requests carry `claude-sonnet-4-6`,
+  the default earlier installs selected, as the requested model; the router
+  routes them, and session savings are priced against that model.
 - **Force-model commands.** `/fm <model>` and `/force-model <model>` pin the
   current router session; `/ufm` and `/unforce-model` resume automatic routing.
   The status records `last pin: <model>` alongside response attribution after
@@ -92,7 +98,6 @@ Plain `pi` then connects to the installed endpoint, normally
 | `WEAVE_ROUTER_KEY` | — | Router key (else read from `.weave_router_key`) |
 | `WEAVE_ROUTER_KEY_FILE` | `<agentDir>/.weave_router_key` | Override key file path |
 | `WEAVE_USER_EMAIL` / `WEAVE_USER_NAME` | from `git config` | Identity headers for attribution |
-| `WEAVE_PI_SUBAGENT_MODEL` | `claude-sonnet-4-6` | `weave/<model>` handle children launch with (router re-routes) |
 | `WEAVE_PI_DISPATCH_CONCURRENCY` | `4` | Max concurrent subagents |
 | `WEAVE_PI_SUBAGENT_TIMEOUT_MS` | `600000` | Per-subagent timeout |
 | `WEAVE_PI_ALLOW_SUBAGENT_TOOLS` | unset | `1` lets `dispatch` grant subagents write/exec tools (bash, write, edit); default strips them |

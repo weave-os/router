@@ -115,6 +115,16 @@ if jq -e --arg u "$BASE_URL" '.providers.weave.baseUrl == $u' "$PI_DIR/models.js
 else
   bad "models.json baseUrl wrong (want root, no /v1)"
 fi
+if jq -e '[.providers.weave.models[] | [.id, .name]] == [["auto", "Weave Router"]]' "$PI_DIR/models.json" >/dev/null 2>&1; then
+  ok "models.json offers only weave/auto (\"Weave Router\")"
+else
+  bad "models.json weave models are not exactly [auto]"
+fi
+if jq -e '.defaultProvider == "weave" and .defaultModel == "auto"' "$PI_DIR/settings.json" >/dev/null 2>&1; then
+  ok "settings.json selects weave/auto"
+else
+  bad "settings.json default is not weave/auto"
+fi
 if jq -e '.providers.weave.api == "anthropic-messages" and .providers.weave.authHeader == false' "$PI_DIR/models.json" >/dev/null 2>&1; then
   ok "provider api=anthropic-messages, authHeader=false"
 else
@@ -177,12 +187,12 @@ phase "Phase 2 — generated pricing + savings contract"
 # loader and module resolution that the published extension uses. The wrapper
 # deliberately is not named *.test.ts because Pi 0.74 excludes those paths.
 if with_timeout 30 env PI_CODING_AGENT_DIR="$PI_DIR" \
-  pi -e "$UNIT_SUITE" --no-session --offline --model weave/claude-sonnet-4-6 \
+  pi -e "$UNIT_SUITE" --no-session --offline --model weave/auto \
   -p "Run the unit suite." >"$WORK/unit.out" 2>&1 </dev/null; then
-  if [ "$(grep -Ec '^(✔ |ok [0-9]+ - )' "$WORK/unit.out" || true)" = "125" ]; then
+  if [ "$(grep -Ec '^(✔ |ok [0-9]+ - )' "$WORK/unit.out" || true)" = "136" ]; then
     ok "pricing, beta, force-model, UI, compaction, served-window, and LSP unit suite passed"
   else
-    bad "unit suite did not report all 125 passes (see $WORK/unit.out)"
+    bad "unit suite did not report all 136 passes (see $WORK/unit.out)"
   fi
 else
   bad "unit suite failed to load through pi (see $WORK/unit.out)"
@@ -192,7 +202,7 @@ fi
 phase "Phase 3 — main-loop routing (real pi -p)"
 # -------------------------------------------------------------------------
 with_timeout 90 env PI_CODING_AGENT_DIR="$PI_DIR" \
-  pi -e "$EXT" --no-session --offline --model weave/claude-sonnet-4-6 \
+  pi -e "$EXT" --no-session --offline --model weave/auto \
   -p "Say hello in three words." >"$WORK/main.out" 2>&1 </dev/null || true
 
 if [ "$(jqcount '.method=="POST" and .app=="pi" and .path=="/v1/messages" and .rejected==false')" -ge 1 ]; then
@@ -225,6 +235,12 @@ if [ "$(jqcount '.app=="pi" and .marker_opt=="off"')" -ge 1 ]; then
 else
   bad "routing-marker opt-out header not sent"
 fi
+if [ "$(jqcount '.app=="pi" and .path=="/v1/messages" and .model=="claude-sonnet-4-6"')" -ge 1 ] && \
+   [ "$(jqcount '.path=="/v1/messages" and (.user_id // "" | test("^(pi|subagent):")) and .model=="auto"')" = "0" ]; then
+  ok "weave/auto sends claude-sonnet-4-6 on the wire, never the picker id"
+else
+  bad "weave/auto request model wrong on the wire"
+fi
 if grep -q "weave-routed-model: claude-opus-4-8" "$WORK/main.out"; then
   ok "x-router-model surfaced (headless stderr marker)"
 else
@@ -239,7 +255,7 @@ phase "Phase 4 — dispatch fan-out (real subagent processes)"
 # as the regression test for that env-isolation fix.
 with_timeout 120 env PI_CODING_AGENT_DIR="$PI_DIR" \
   WEAVE_ROUTING_ALPHA=0.99 WEAVE_ROUTING_SPEED_WEIGHT=0.02 \
-  pi -e "$EXT" --no-session --offline --model weave/claude-sonnet-4-6 \
+  pi -e "$EXT" --no-session --offline --model weave/auto \
   -p "__DISPATCH__ run two quick parallel checks." >"$WORK/dispatch.out" 2>&1 </dev/null || true
 
 if [ "$(jqcount '.app=="pi" and .served=="tool_use"')" -ge 1 ]; then
@@ -287,7 +303,7 @@ phase "Phase 5 — on-disk resolution (no env; key file + models.json)"
 # installer-written key file and the base URL from models.json (the bug fix).
 with_timeout 90 env -u WEAVE_ROUTER_KEY -u WEAVE_ROUTER_URL -u WEAVE_USER_EMAIL -u WEAVE_USER_NAME \
   PI_CODING_AGENT_DIR="$PI_DIR" \
-  pi -e "$EXT" --no-session --offline --model weave/claude-sonnet-4-6 \
+  pi -e "$EXT" --no-session --offline --model weave/auto \
   -p "Resolve credentials from disk." >"$WORK/resolve.out" 2>&1 </dev/null || true
 
 # Requests carrying our test key's suffix prove key-file + models.json resolution
@@ -303,7 +319,7 @@ phase "Phase 6 — explicit classifier admission and independent children (Pi 0.
 MESSAGES_BEFORE="$(jqcount '.path=="/v1/messages"')"
 HANDOFFS_BEFORE="$(jqcount '.path=="/v1/route/handoff"')"
 with_timeout 60 env PI_CODING_AGENT_DIR="$PI_DIR" WEAVE_PI_LLM_CLASSIFIER=1 \
-  pi -e "$EXT" --no-session --offline --model weave/claude-sonnet-4-6 \
+  pi -e "$EXT" --no-session --offline --model weave/auto \
   -p "__DISPATCH__ run two classifier checks." >"$WORK/classifier.out" 2>&1 </dev/null || true
 
 if [ "$(jqcount '.path=="/v1/router/threads" and .classifier_denied==false')" = "3" ] && \
@@ -323,7 +339,7 @@ fi
 MESSAGES_BEFORE="$(jqcount '.path=="/v1/messages"')"
 with_timeout 30 env PI_CODING_AGENT_DIR="$PI_DIR" WEAVE_PI_LLM_CLASSIFIER=1 \
   WEAVE_ROUTER_KEY=rk_e2e_classifier_denied \
-  pi -e "$EXT" --no-session --offline --model weave/claude-sonnet-4-6 \
+  pi -e "$EXT" --no-session --offline --model weave/auto \
   -p "Enrollment must fail closed." >"$WORK/classifier-denied.out" 2>&1 </dev/null || true
 if [ "$(jqcount '.classifier_denied==true')" -ge 1 ] && \
    [ "$(jqcount '.path=="/v1/messages"')" = "$MESSAGES_BEFORE" ]; then
