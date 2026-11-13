@@ -33,9 +33,9 @@ type ResponsesConversion struct {
 	OriginalBody []byte
 	Stream       bool
 	Model        string
-	// CodexFeedbackSkill reports a user-invoked $rf/$router-feedback skill
-	// whose emitted directive arrived in a later tool-result item.
-	CodexFeedbackSkill bool
+	// CodexSkill names the router skill whose emitted directive arrived in
+	// a later tool-result item.
+	CodexSkill CodexSkillTurn
 	// CodexModelSwitch reports that the user switched models with Codex's
 	// native /model picker during this session, as opposed to launching with
 	// a configured model.
