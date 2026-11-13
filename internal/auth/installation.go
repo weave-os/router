@@ -25,11 +25,14 @@ type Installation struct {
 	// routing is confined to these models minus ExcludedModels.
 	// Empty = no restriction; fail-closed when no eligible overlap remains.
 	AllowedModels []string
-	// ModelsWhenSubscriptionActive limits models served through included Claude
-	// or Codex capacity. Empty refuses included serving when either set is configured.
+	// SubscriptionStateModelsEnabled makes the two model sets authoritative, so an
+	// empty set refuses that state's serving instead of falling back to the catalog.
+	SubscriptionStateModelsEnabled bool
+	// ModelsWhenSubscriptionActive is the catalog minus the active-state
+	// exclusions: the preference for included Claude or Codex capacity.
 	ModelsWhenSubscriptionActive []string
-	// ModelsWhenSubscriptionInactive limits paid fallback after included targets
-	// are unavailable. Empty refuses paid fallback when either set is configured.
+	// ModelsWhenSubscriptionInactive is the catalog minus the exhausted-state
+	// exclusions: the limit for paid fallback. Empty refuses paid fallback when enabled.
 	ModelsWhenSubscriptionInactive []string
 	// ExcludedProviders is the per-installation provider exclusion list.
 	// Empty means no exclusion.
@@ -70,6 +73,16 @@ type Installation struct {
 	// subscription token exactly as before, so the prepaid billing path is
 	// unchanged. Defaults false -- preserves today's behavior.
 	SubscriptionRoutingDisabled bool
+	// PickedModelCreditFallbackEnabled lets a client-selected model (served
+	// as-is) fall back to Weave credits once the caller's own Claude/ChatGPT
+	// login cannot serve it. Defaults false: like the native client, a pick runs
+	// on that login's plan and then the provider's own extra usage.
+	PickedModelCreditFallbackEnabled bool
+	// WeaveCreditInferenceEnabled lets a turn that no plan or provider key of
+	// the customer's can fund run on Weave's own provider keys, paid from the
+	// organization's Weave credits. Existing installations keep it on; new
+	// installations start with it off.
+	WeaveCreditInferenceEnabled bool
 	// RoutingStrategy is the canonical strategy selected for this installation.
 	// Existing installations default to the cluster scorer until allowlisted.
 	RoutingStrategy router.Strategy

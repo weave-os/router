@@ -5,33 +5,49 @@ import json
 import os
 import fcntl
 import shutil
-import tarfile
 import tempfile
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import httpx
 import numpy as np
 
 from .schemas import FrozenPackageManifest
+from .classifier_package.manifest import (
+    is_classifier_package_manifest,
+)
+from .classifier_package.package_loader import (
+    MAX_ARCHIVE_BYTES,
+    extract_classifier_archive,
+    verify_classifier_package,
+)
 
-MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
-MAX_ARCHIVE_MEMBERS = 128
-MAX_MEMBER_BYTES = 64 * 1024 * 1024
 # Upper bound on HMM_PACKAGE_REGISTRY entries (excluding the default package):
 # every entry is downloaded, verified and loaded at boot, so the registry must
 # stay small enough for startup to finish inside a readiness window.
 MAX_PACKAGE_REGISTRY_ENTRIES = 8
 DEFAULT_CACHE_DIR = Path("/tmp/workweave-hmm-artifacts")
+# Weave registry model id of a published package: family + first 16 hex of the
+# package sha256. Releases pin this as the classifier artifact id.
+PACKAGE_MODEL_FAMILY = "hmm_router_sidecar_package"
 
 
 @dataclass(frozen=True)
 class FrozenArtifacts:
     root: Path
-    manifest: FrozenPackageManifest
+    manifest: FrozenPackageManifest | None
     package_sha256: str
-    probe_vector: np.ndarray
+    probe_vector: np.ndarray | None
+    package_manifest: dict[str, Any] | None = None
+
+    @property
+    def model_id(self) -> str:
+        if self.package_manifest is not None:
+            return f"{PACKAGE_MODEL_FAMILY}_{self.package_sha256[:16]}"
+        assert self.manifest is not None
+        return self.manifest.model_id
 
 
 @dataclass(frozen=True)
@@ -158,26 +174,11 @@ def _download(url: str, destination: Path) -> None:
 def _safe_extract(archive: Path, destination: Path) -> None:
     if archive.stat().st_size > MAX_ARCHIVE_BYTES:
         raise ValueError("HMM package exceeds maximum archive size")
-    with tarfile.open(archive, "r:*") as payload:
-        members = payload.getmembers()
-        if len(members) > MAX_ARCHIVE_MEMBERS:
-            raise ValueError("HMM package has too many archive members")
-        root = destination.resolve()
-        for member in members:
-            if not member.isfile() and not member.isdir():
-                raise ValueError(f"unsupported archive member: {member.name}")
-            if member.size > MAX_MEMBER_BYTES:
-                raise ValueError(f"archive member is too large: {member.name}")
-            target = (destination / member.name).resolve()
-            if root not in (target, *target.parents):
-                raise ValueError(f"unsafe archive member path: {member.name}")
-        payload.extractall(destination, members=members, filter="data")
+    extract_classifier_archive(archive.read_bytes(), destination)
 
 
-def _verify_manifest(root: Path) -> FrozenPackageManifest:
-    manifest_path = root / "manifest.json"
-    manifest = FrozenPackageManifest.model_validate_json(manifest_path.read_text())
-    for relative, expected in manifest.files.items():
+def _verify_files(root: Path, files: dict[str, str]) -> None:
+    for relative, expected in files.items():
         path = root / relative
         if not path.is_file():
             raise ValueError(f"package file is missing: {relative}")
@@ -187,6 +188,14 @@ def _verify_manifest(root: Path) -> FrozenPackageManifest:
                 f"package file sha256 mismatch for {relative}: "
                 f"expected {expected}, got {actual}"
             )
+
+
+def _verify_manifest(root: Path) -> FrozenPackageManifest | dict[str, Any]:
+    raw = json.loads((root / "manifest.json").read_text())
+    if isinstance(raw, dict) and is_classifier_package_manifest(raw):
+        return verify_classifier_package(root)
+    manifest = FrozenPackageManifest.model_validate(raw)
+    _verify_files(root, manifest.files)
     return manifest
 
 
@@ -264,6 +273,8 @@ def _resolve_package(source: PackageSource, cache: Path) -> FrozenArtifacts:
         )
     root = _materialize_archive(archive, actual, cache)
     manifest = _verify_manifest(root)
+    if isinstance(manifest, dict):
+        return FrozenArtifacts(root, None, actual, None, package_manifest=manifest)
     probe_path = root / manifest.embedding_contract.probe_vector_file
     probe = np.asarray(np.load(probe_path, allow_pickle=False), dtype=np.float64)
     if probe.shape != (manifest.embedding_contract.dimensions,):

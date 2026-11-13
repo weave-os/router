@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
+	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,8 +18,9 @@ import (
 )
 
 type codexQuotaWindow struct {
-	UsedPercent *float64 `json:"used_percent"`
-	ResetAt     int64    `json:"reset_at"`
+	UsedPercent   *float64 `json:"used_percent"`
+	ResetAt       int64    `json:"reset_at"`
+	WindowSeconds int64    `json:"limit_window_seconds"`
 }
 type codexIncludedQuota struct {
 	Allowed      *bool             `json:"allowed"`
@@ -27,15 +31,21 @@ type codexIncludedQuota struct {
 
 // Usage is checked before inference because exhausted subscriptions can accept
 // inference by spending purchased credits rather than returning a quota error.
-func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) error {
+func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) (quotaErr error) {
+	started := time.Now()
+	upstreamStatus := 0
+	defer func() {
+		observability.FromContext(ctx).Info("Codex quota preflight completed", "quota_preflight_ms", time.Since(started).Milliseconds(),
+			"model", model, "admitted", quotaErr == nil, "upstream_status", upstreamStatus)
+	}()
 	parentCtx := ctx
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	log := observability.FromContext(ctx)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(strings.TrimRight(c.codexBaseURL, "/"), "/codex")+"/wham/usage", nil)
 	if err != nil {
-		log.Debug("Codex quota preflight request build failed", "err", err)
-		return codexQuotaUnavailable()
+		log.Warn("Codex quota preflight request build failed", "err", err)
+		return codexQuotaUnavailable(providers.QuotaVerificationFailureRequest, 0)
 	}
 	creds := codexSubscriptionCreds(ctx)
 	req.Header.Set("Authorization", "Bearer "+string(creds.APIKey))
@@ -44,45 +54,105 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) erro
 	req.Header.Set(codexUserAgentHeader, codexUserAgentValue)
 	resp, err := c.http.Do(req)
 	if err != nil {
-		log.Debug("Codex quota preflight transport failed", "err", err)
+		log.Warn("Codex quota preflight transport failed", "err", err)
 		if parentCtx.Err() != nil {
 			return parentCtx.Err()
 		}
-		return codexQuotaUnavailable()
+		return codexQuotaTransportUnavailable(err, 0)
 	}
 	defer resp.Body.Close()
+	upstreamStatus = resp.StatusCode
 	if resp.StatusCode != http.StatusOK {
-		log.Debug("Codex quota preflight rejected", "upstream_status", resp.StatusCode)
+		log.Warn("Codex quota preflight rejected", "upstream_status", resp.StatusCode)
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
 			body, _ := json.Marshal(codexQuotaError{Error: codexQuotaErrorDetails{Type: codexQuotaErrorAuthentication, Message: "Codex subscription authentication was rejected. Reconnect the account."}})
 			return &providers.UpstreamErrorResponse{Status: resp.StatusCode, Body: body}
 		}
-		return codexQuotaUnavailable()
+		return codexQuotaUnavailable(providers.QuotaVerificationFailureEndpoint, resp.StatusCode)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		log.Debug("Codex quota preflight body read failed", "err", err)
-		return codexQuotaUnavailable()
+		log.Warn("Codex quota preflight body read failed", "err", err)
+		if parentCtx.Err() != nil {
+			return parentCtx.Err()
+		}
+		return codexQuotaTransportUnavailable(err, resp.StatusCode)
 	}
 	var quotaStatus struct {
-		RateLimit            *codexIncludedQuota `json:"rate_limit"`
+		PlanType     string              `json:"plan_type"`
+		RateLimit    *codexIncludedQuota `json:"rate_limit"`
+		SpendControl *struct {
+			Reached bool `json:"reached"`
+		} `json:"spend_control"`
+		RateLimitReachedType *struct {
+			Type string `json:"type"`
+		} `json:"rate_limit_reached_type"`
 		AdditionalRateLimits []struct {
 			Model     string              `json:"normal_model_slug"`
 			RateLimit *codexIncludedQuota `json:"rate_limit"`
 		} `json:"additional_rate_limits"`
 	}
 	if err := json.Unmarshal(body, &quotaStatus); err != nil {
-		log.Debug("Codex quota preflight decode failed", "err", err)
-		return codexQuotaUnavailable()
+		log.Warn("Codex quota preflight decode failed", "err", err)
+		return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, resp.StatusCode)
 	}
-	if err = validateCodexIncludedQuota(quotaStatus.RateLimit); err != nil {
-		log.Debug("Codex included quota preflight denied inference", "err", err)
+	// Usage-based and workspace plans report a plan without windowed limits;
+	// their exhaustion arrives as spend_control or rate_limit_reached_type.
+	planReported := quotaStatus.PlanType != ""
+	limitReached := (quotaStatus.SpendControl != nil && quotaStatus.SpendControl.Reached) ||
+		(quotaStatus.RateLimitReachedType != nil && codexReachedTypes[quotaStatus.RateLimitReachedType.Type])
+	creditReason := codexCreditsDisabled
+	if c.allowCodexExtraCredits || requestcontext.SubscriptionExtraUsageFrom(ctx) {
+		var metadata struct {
+			Credits      json.RawMessage `json:"credits"`
+			SpendControl json.RawMessage `json:"spend_control"`
+			ReachedType  json.RawMessage `json:"rate_limit_reached_type"`
+		}
+		if err := json.Unmarshal(body, &metadata); err != nil {
+			return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, resp.StatusCode)
+		}
+		creditReason = codexCreditAdmissionReason(metadata.Credits, metadata.SpendControl, metadata.ReachedType)
+	}
+	allowCredits := creditReason == codexCreditsAvailable && quotaStatus.RateLimit != nil &&
+		(quotaStatus.RateLimit.Primary != nil || quotaStatus.RateLimit.Secondary != nil)
+	err = validateCodexIncludedQuota(quotaStatus.RateLimit, planReported || limitReached)
+	// Publish only account-wide, validated windows through the existing header
+	// observation boundary. Model-specific limits must not poison other models.
+	if quotaStatus.RateLimit != nil && (err == nil || codexIncludedLimitReached(err)) {
+		headers := make(http.Header)
+		for i, window := range []*codexQuotaWindow{quotaStatus.RateLimit.Primary, quotaStatus.RateLimit.Secondary} {
+			if window == nil {
+				continue
+			}
+			prefix := "x-codex-primary-"
+			if i == 1 {
+				prefix = "x-codex-secondary-"
+			}
+			headers.Set(prefix+"used-percent", strconv.FormatFloat(*window.UsedPercent, 'f', -1, 64))
+			if window.ResetAt > 0 {
+				headers.Set(prefix+"reset-at", strconv.FormatInt(window.ResetAt, 10))
+			}
+			if window.WindowSeconds >= 60 && window.WindowSeconds/60 <= int64((1<<63-1)/time.Minute) {
+				headers.Set(prefix+"window-minutes", strconv.FormatInt(window.WindowSeconds/60, 10))
+			}
+		}
+		if len(headers) > 0 {
+			providers.ObserveUpstreamHeaders(ctx, headers)
+		}
+	}
+	// Windows go first so an exhausted window keeps its reset time.
+	if err != nil && !(allowCredits && codexIncludedLimitReached(err)) {
+		logCodexQuotaDenial(log, err, "plan_type", quotaStatus.PlanType, "has_rate_limit", quotaStatus.RateLimit != nil, "credit_reason", creditReason, "allow_credits", allowCredits)
 		return err
+	}
+	if limitReached && !allowCredits {
+		log.Info("Codex workspace limit preflight denied inference", "plan_type", quotaStatus.PlanType, "credit_reason", creditReason)
+		return codexQuotaExhausted(0)
 	}
 	for _, modelRateLimit := range quotaStatus.AdditionalRateLimits {
 		if modelRateLimit.Model == model {
-			if err = validateCodexIncludedQuota(modelRateLimit.RateLimit); err != nil {
-				log.Debug("Codex model quota preflight denied inference", "model", model, "err", err)
+			if err = validateCodexIncludedQuota(modelRateLimit.RateLimit, planReported); err != nil {
+				logCodexQuotaDenial(log, err, "plan_type", quotaStatus.PlanType, "model", model, "has_rate_limit", modelRateLimit.RateLimit != nil)
 				var upstream *providers.UpstreamErrorResponse
 				if errors.As(err, &upstream) && upstream.Status == http.StatusTooManyRequests {
 					// Account cooldown applies to account-wide quota only. A model
@@ -97,9 +167,38 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) erro
 	return nil
 }
 
-func validateCodexIncludedQuota(quota *codexIncludedQuota) error {
-	if quota == nil || quota.Allowed == nil || quota.LimitReached == nil {
-		return codexQuotaUnavailable()
+// codexReachedTypes are the rate_limit_reached_type values that mean the plan
+// cannot serve the turn; unknown values are ignored as Codex itself does.
+var codexReachedTypes = map[string]bool{
+	"rate_limit_reached":                   true,
+	"workspace_owner_credits_depleted":     true,
+	"workspace_member_credits_depleted":    true,
+	"workspace_owner_usage_limit_reached":  true,
+	"workspace_member_usage_limit_reached": true,
+}
+
+// logCodexQuotaDenial surfaces unverifiable quota at WARN: it fails every turn
+// for the token, unlike exhaustion, which the caller records and routes around.
+func logCodexQuotaDenial(log *slog.Logger, err error, attrs ...any) {
+	var upstream *providers.UpstreamErrorResponse
+	if errors.As(err, &upstream) && upstream.Status == http.StatusServiceUnavailable {
+		log.Warn("Codex quota preflight could not verify included quota", attrs...)
+		return
+	}
+	log.Info("Codex quota preflight denied inference", append(attrs, "err", err)...)
+}
+
+// windowsOptional accepts a quota without windows, or no quota at all, once the
+// payload reported a plan: plans without windowed limits omit them.
+func validateCodexIncludedQuota(quota *codexIncludedQuota, windowsOptional bool) error {
+	if quota == nil {
+		if windowsOptional {
+			return nil
+		}
+		return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, http.StatusOK)
+	}
+	if quota.Allowed == nil || quota.LimitReached == nil {
+		return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, http.StatusOK)
 	}
 	exhausted := !*quota.Allowed || *quota.LimitReached
 	resetAt := int64(0)
@@ -109,7 +208,7 @@ func validateCodexIncludedQuota(quota *codexIncludedQuota) error {
 			continue
 		}
 		if window.UsedPercent == nil || *window.UsedPercent < 0 || *window.UsedPercent > 100 {
-			return codexQuotaUnavailable()
+			return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, http.StatusOK)
 		}
 		validWindow = true
 		if *window.UsedPercent >= 100 {
@@ -120,16 +219,33 @@ func validateCodexIncludedQuota(quota *codexIncludedQuota) error {
 		}
 	}
 	if exhausted {
-		body, _ := json.Marshal(codexQuotaError{Error: codexQuotaErrorDetails{Type: codexQuotaErrorExhausted, ResetsAt: resetAt, Message: "Codex included quota is exhausted."}})
-		return &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: body}
+		return codexQuotaExhausted(resetAt)
 	}
-	if !validWindow {
-		return codexQuotaUnavailable()
+	if !validWindow && !windowsOptional {
+		return codexQuotaUnavailable(providers.QuotaVerificationFailureInvalidResponse, http.StatusOK)
 	}
 	return nil
 }
-func codexQuotaUnavailable() error {
-	return &providers.UpstreamErrorResponse{Status: http.StatusServiceUnavailable, Body: []byte(`{"error":{"type":"api_error","message":"Included Codex quota could not be verified."}}`)}
+
+func codexQuotaExhausted(resetAt int64) error {
+	body, _ := json.Marshal(codexQuotaError{Error: codexQuotaErrorDetails{Type: codexQuotaErrorExhausted, ResetsAt: resetAt, Message: "Codex included quota is exhausted."}})
+	return &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: body}
+}
+func codexQuotaTransportUnavailable(err error, upstreamStatus int) error {
+	failure := providers.QuotaVerificationFailureTransport
+	var transportErr net.Error
+	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &transportErr) && transportErr.Timeout() {
+		failure = providers.QuotaVerificationFailureTimeout
+	}
+	return codexQuotaUnavailable(failure, upstreamStatus)
+}
+
+func codexQuotaUnavailable(failure providers.QuotaVerificationFailure, upstreamStatus int) error {
+	return &providers.UpstreamErrorResponse{
+		Status: http.StatusServiceUnavailable,
+		Body:   []byte(`{"error":{"type":"api_error","message":"Included Codex quota could not be verified."}}`),
+		Cause:  &providers.QuotaVerificationUnavailableError{Failure: failure, UpstreamStatus: upstreamStatus},
+	}
 }
 
 type codexQuotaErrorType string

@@ -100,6 +100,12 @@ type SubscriptionAccount struct {
 	State                  SubscriptionAccountState
 	CooldownUntil          *time.Time
 	CreatedAt              time.Time
+	// AccessTokenMissing reports a dropped persisted access token, so replicas
+	// discard their cached copy instead of replaying a rejected token.
+	AccessTokenMissing bool
+	// CredentialRejections counts unresolved provider credential rejections,
+	// so owners can reconnect before the account is disabled.
+	CredentialRejections int
 }
 
 // CreateSubscriptionAccountParams describes an encrypted account enrollment.
@@ -179,6 +185,45 @@ type RefreshLeaseAcquisition struct {
 	TookOver bool
 }
 
+type SubscriptionCredentialEventKind string
+
+const (
+	SubscriptionCredentialEventRejected           SubscriptionCredentialEventKind = "credential_rejected"
+	SubscriptionCredentialEventReconnectRequired  SubscriptionCredentialEventKind = "reconnect_required"
+	SubscriptionCredentialEventPersistenceFailed  SubscriptionCredentialEventKind = "token_persistence_failed"
+	SubscriptionCredentialEventSelected           SubscriptionCredentialEventKind = "account_selected"
+	SubscriptionCredentialEventLeaseAttempted     SubscriptionCredentialEventKind = "account_lease_attempted"
+	SubscriptionCredentialEventCandidateEvaluated SubscriptionCredentialEventKind = "candidate_evaluated"
+	SubscriptionCredentialEventAttempted          SubscriptionCredentialEventKind = "account_attempted"
+	SubscriptionCredentialEventAdmissionEvaluated SubscriptionCredentialEventKind = "account_admission_evaluated"
+)
+
+// SubscriptionCredentialRejectionInput describes one provider credential
+// rejection. A refresh rejection sets LeaseID and ExpectedVersion so a
+// refresher that lost its lease cannot strike replacement credentials.
+type SubscriptionCredentialRejectionInput struct {
+	Reason                string
+	ProviderErrorType     string
+	ProviderRequestID     string
+	UpstreamStatus        int
+	RequestID             string
+	RejectedAt            time.Time
+	Window                time.Duration
+	InvalidateAccessToken bool
+	LeaseID               string
+	ExpectedVersion       int64
+}
+
+// SubscriptionCredentialRejection is an account's provider credential
+// rejection history inside the current strike window. PreviousReason is the
+// reason recorded by the strike before this one.
+type SubscriptionCredentialRejection struct {
+	Count              int
+	FirstRejectedAt    time.Time
+	PreviousReason     string
+	RepeatedDisconnect bool
+}
+
 // SubscriptionRefreshRepository coordinates refresh leases and encrypted
 // credential persistence across router replicas.
 type SubscriptionRefreshRepository interface {
@@ -187,6 +232,7 @@ type SubscriptionRefreshRepository interface {
 	ReleaseSubscriptionRefreshLease(context.Context, string, SubscriptionOwner, string) error
 	DisableSubscriptionAccountIfRefreshHolder(context.Context, string, SubscriptionOwner, string, int64) error
 	CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, SubscriptionOwner, string, int64, time.Time) error
+	RecordSubscriptionCredentialRejection(context.Context, string, SubscriptionOwner, SubscriptionCredentialRejectionInput) (SubscriptionCredentialRejection, error)
 	GetSubscriptionCredentialRecord(context.Context, string, SubscriptionOwner) (*SubscriptionCredentialRecord, error)
 	PersistSubscriptionTokens(context.Context, string, SubscriptionOwner, string, int64, []byte, []byte, time.Time) error
 }
@@ -201,6 +247,26 @@ type SubscriptionAccountRepository interface {
 	UpdateSubscriptionRefreshToken(context.Context, string, SubscriptionOwner, []byte) error
 	DeleteSubscriptionAccount(context.Context, string, SubscriptionOwner) error
 	SubscriptionRefreshRepository
+}
+
+// SubscriptionEnrollmentOwnerResolver finds the routing key a keyless browser
+// reconnect enrolls through.
+type SubscriptionEnrollmentOwnerResolver interface {
+	SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (SubscriptionOwner, error)
+}
+
+// ErrSubscriptionEnrollmentKeyNotFound means the subscriber has no active
+// personal routing key to own a browser-enrolled account.
+var ErrSubscriptionEnrollmentKeyNotFound = errors.New("subscriber has no active routing key")
+
+// SubscriberEnrollmentOwner resolves the full owner a browser reconnect needs,
+// since enrollment records the routing key and installation alongside the subscriber.
+func (s *Service) SubscriberEnrollmentOwner(ctx context.Context, subscriberID string) (SubscriptionOwner, error) {
+	resolver, ok := s.subscriptionAccounts.(SubscriptionEnrollmentOwnerResolver)
+	if !ok {
+		return SubscriptionOwner{}, errors.New("subscription enrollment owner lookup is not configured")
+	}
+	return resolver.SubscriberEnrollmentOwner(ctx, subscriberID)
 }
 
 // ErrSubscriptionAccountNotFound indicates a state mutation did not match the
@@ -413,6 +479,16 @@ func (s *Service) CooldownSubscriptionAccountIfRefreshHolder(ctx context.Context
 	return repo.CooldownSubscriptionAccountIfRefreshHolder(ctx, accountID, owner, leaseID, expectedVersion, cooldownUntil)
 }
 
+// RecordSubscriptionCredentialRejection counts one provider credential
+// rejection; strikes older than window restart the count.
+func (s *Service) RecordSubscriptionCredentialRejection(ctx context.Context, owner SubscriptionOwner, accountID string, input SubscriptionCredentialRejectionInput) (SubscriptionCredentialRejection, error) {
+	repo, err := s.subscriptionRefreshRepository()
+	if err != nil {
+		return SubscriptionCredentialRejection{}, err
+	}
+	return repo.RecordSubscriptionCredentialRejection(ctx, accountID, owner, input)
+}
+
 // LoadSubscriptionCredentials decrypts the current refresh and access tokens
 // for the runtime. Access-token decryption happens on cache fill, not per
 // inference request.
@@ -488,17 +564,17 @@ func (s *Service) UpdateSubscriptionAccountState(ctx context.Context, owner Subs
 	return rowsErr
 }
 
-// UpdateSubscriptionAccountHealth records a routing health transition.
-func (s *Service) UpdateSubscriptionAccountHealth(ctx context.Context, owner SubscriptionOwner, accountID string, state SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) error {
+// UpdateSubscriptionAccountHealth returns true only when a new disconnect event was committed.
+func (s *Service) UpdateSubscriptionAccountHealth(ctx context.Context, owner SubscriptionOwner, accountID string, state SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) (bool, error) {
 	if s.subscriptionAccounts == nil {
-		return errors.New("subscription accounts are not configured")
+		return false, errors.New("subscription accounts are not configured")
 	}
 	if repository, ok := s.subscriptionAccounts.(interface {
-		UpdateSubscriptionAccountHealth(context.Context, string, SubscriptionOwner, SubscriptionAccountState, bool, *time.Time) error
+		UpdateSubscriptionAccountHealth(context.Context, string, SubscriptionOwner, SubscriptionAccountState, bool, *time.Time) (bool, error)
 	}); ok {
 		return repository.UpdateSubscriptionAccountHealth(ctx, accountID, owner, state, enabled, cooldownUntil)
 	}
-	return s.subscriptionAccounts.UpdateSubscriptionAccountState(ctx, accountID, owner, enabled, cooldownUntil)
+	return false, s.subscriptionAccounts.UpdateSubscriptionAccountState(ctx, accountID, owner, enabled, cooldownUntil)
 }
 
 // DeleteSubscriptionAccount removes an account only for the authenticated owner.

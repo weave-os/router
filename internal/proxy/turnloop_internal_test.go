@@ -118,8 +118,8 @@ func TestPinCacheCold_OrdinaryAndHMMShareTheSameRule(t *testing.T) {
 func TestConsumePostCommandContinuation_RequiresEffectiveStrategy(t *testing.T) {
 	store := newStubPinStore()
 	store.consumeHit = true
-	store.consumePin = sessionpin.Pin{Strategy: router.StrategyCluster}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	store.consumePin = sessionpin.Pin{Strategy: router.StrategyHMMEmbedding}
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
 
@@ -197,8 +197,6 @@ func TestRecordTurnUsage_WritesToStore(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -235,8 +233,6 @@ func TestRecordTurnUsage_PassthroughDoesNotReadOrWritePins(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -264,8 +260,6 @@ func TestRecordTurnUsage_ForwardsSwitchHistory(t *testing.T) {
 	svc := NewService(
 		nil,
 		nil,
-		nil,
-		false,
 		nil,
 		store,
 		false,
@@ -299,8 +293,6 @@ func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 	svc := NewService(
 		nil,
 		nil,
-		nil,
-		false,
 		nil,
 		store,
 		false,
@@ -359,8 +351,6 @@ func TestRecordTurnUsage_HMMModelChangeWritesCurrentUsageOnly(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -406,8 +396,6 @@ func TestRecordHMMTurnHistory_ZeroUsageRefreshesTTLButSkipsUsageWriteback(t *tes
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -452,8 +440,6 @@ func TestRecordHMMTurnHistory_ZeroUsagePreservesPriorProvider(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderMakora: nil, providers.ProviderOpenAI: nil},
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
@@ -491,8 +477,6 @@ func TestNormalizeHMMStayPin_RepairsMismatchedProvider(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderMakora: nil, providers.ProviderOpenAI: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
@@ -516,8 +500,6 @@ func TestNormalizeHMMStayPin_ReResolvesDisabledProvider(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderMakora: nil, providers.ProviderOpenAI: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -545,8 +527,6 @@ func TestNormalizeHMMStayPin_PreservesCatalogRoutableTerra(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderOpenAI: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
@@ -572,8 +552,6 @@ func TestRecordTurnUsage_HMMEVStayWritesHistoryOnly(t *testing.T) {
 	svc := NewService(
 		nil,
 		nil,
-		nil,
-		false,
 		nil,
 		store,
 		false,
@@ -640,8 +618,6 @@ func TestHMMCostGate_StaysOnWarmCacheWhenCheaperFreshDoesNotClearEV(t *testing.T
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -685,8 +661,6 @@ func TestHMMCostGate_SwitchesCheaperFreshWhenEVPositive(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -728,8 +702,6 @@ func TestHMMCostGate_SameTierPinSuppressesLateralSwitchWhenEnabled(t *testing.T)
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderOpenRouter: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -793,8 +765,6 @@ func TestHMMCostGate_SameTierPinDoesNotBlockCrossTierSwitch(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -837,8 +807,6 @@ func TestHMMCostGate_SameTierPinDoesNotBlockConfidentUpgrade(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderFireworks: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -883,8 +851,6 @@ func TestHMMCostGate_SameTierPinIgnoresUnknownTierModels(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -927,8 +893,6 @@ func TestHMMCostGate_PhaseChangeFollowsFreshDecision(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -975,8 +939,6 @@ func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecision(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -1016,12 +978,10 @@ func TestHMMCostGate_HistoryPhaseChangeFollowsFreshDecision(t *testing.T) {
 	assert.Equal(t, hmmReasonPhaseChange, plan.Reason)
 }
 
-func TestHMMCostGate_UpgradeConfidenceThresholdBoundary(t *testing.T) {
+func TestHMMCostGate_ExpensiveUpgradeRequiresHighConfidence(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderFireworks: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -1081,8 +1041,6 @@ func TestHMMCostGate_LowConfidenceUpgradeKeepsIndependentPlannerSwitch(t *testin
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderFireworks: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -1130,8 +1088,6 @@ func TestHMMCostGate_IgnoresExpiredActivePin(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -1175,8 +1131,6 @@ func TestHMMCostGate_IgnoresNonHMMActivePin(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -1225,8 +1179,6 @@ func TestHMMCostGate_HonorsHMMReasonedActivePin(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -1274,8 +1226,6 @@ func TestHMMCostGate_IgnoresMaxedHistory(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -1326,8 +1276,6 @@ func TestLoadPin_DoesNotServeExpiredPostgresPinButKeepsEmitHistory(t *testing.T)
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -1374,8 +1322,6 @@ func TestLoadPin_ServesFreshPostgresPin(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -1414,9 +1360,9 @@ func TestLoadPin_RequiresBetaStrategyMatch(t *testing.T) {
 		found   bool
 	}{
 		{name: "beta exact", request: router.StrategyHMMBeta, stored: router.StrategyHMMBeta, found: true},
-		{name: "beta rejects stable", request: router.StrategyHMMBeta, stored: router.StrategyCluster, found: false},
+		{name: "beta rejects stable", request: router.StrategyHMMBeta, stored: router.StrategyHMMEmbedding, found: false},
 		{name: "beta rejects legacy", request: router.StrategyHMMBeta, stored: "", found: false},
-		{name: "stable rejects beta", request: router.StrategyCluster, stored: router.StrategyHMMBeta, found: false},
+		{name: "stable rejects beta", request: router.StrategyHMMEmbedding, stored: router.StrategyHMMBeta, found: false},
 	}
 
 	for _, tt := range tests {
@@ -1429,7 +1375,7 @@ func TestLoadPin_RequiresBetaStrategyMatch(t *testing.T) {
 				Strategy:    tt.stored,
 				PinnedUntil: time.Now().Add(time.Hour),
 			}
-			svc := NewService(nil, nil, nil, false, nil, store, false,
+			svc := NewService(nil, nil, nil, store, false,
 				providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 			ctx := router.WithStrategy(context.Background(), tt.request)
 
@@ -1519,22 +1465,18 @@ func TestService_NewService_HMMUpgradeConfidenceDefaults(t *testing.T) {
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil},
 		nil,
-		false,
-		nil,
 		nil,
 		false,
 		"anthropic", "claude-haiku-4-5",
 		nil,
 	)
-	assert.Equal(t, 0.50, svc.hmmUpgradeConfidenceThreshold)
+	assert.Equal(t, DefaultHMMUpgradeConfidenceThreshold, svc.hmmUpgradeConfidenceThreshold)
 }
 
 func TestService_WithHMMUpgradeConfidenceThreshold(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,
@@ -1559,8 +1501,6 @@ func TestHMMCostGate_UpgradeThresholdConfigurable(t *testing.T) {
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderFireworks: nil},
-		nil,
-		false,
 		nil,
 		nil,
 		false,

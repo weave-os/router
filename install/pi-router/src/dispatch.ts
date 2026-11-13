@@ -32,8 +32,8 @@ import {
 	resolveIdentity,
 	resolveRouterKey,
 	ROUTED_MODEL_STDERR_PREFIX,
-	SUBAGENT_MODEL,
 	SUBAGENT_TIMEOUT_MS,
+	WEAVE_AUTO_MODEL_ID,
 } from "./config.js";
 
 /**
@@ -136,7 +136,7 @@ function runChild(
 	index: number,
 	lspEnv: Record<string, string> | undefined,
 ): Promise<ChildResult> {
-	const args = ["--print", "--mode", "json", "--no-session", "-e", selfPath, "--model", `${PROVIDER_NAME}/${SUBAGENT_MODEL}`];
+	const args = ["--print", "--mode", "json", "--no-session", "-e", selfPath, "--model", `${PROVIDER_NAME}/${WEAVE_AUTO_MODEL_ID}`];
 
 	// Secure-by-default tool gating. Task input is model-influenced, so without an
 	// explicit opt-in we never hand a child write/exec tools: model-requested

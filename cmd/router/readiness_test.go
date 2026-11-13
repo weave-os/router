@@ -39,7 +39,7 @@ func TestReadinessCheckerRequiresDatabase(t *testing.T) {
 	}), healthCheckerFunc(func(context.Context) error {
 		t.Fatal("HMM readiness should not run when PostgreSQL is unavailable")
 		return nil
-	}), strategySet{router.StrategyCluster: true}, router.StrategyCluster)
+	}), strategySet{router.StrategyHMMEmbedding: true}, router.StrategyHMMEmbedding)
 
 	err := checker.CheckHealth(context.Background())
 	require.Error(t, err)
@@ -56,7 +56,7 @@ func TestReadinessCheckerChecksHMMAfterDatabase(t *testing.T) {
 	}), healthCheckerFunc(func(context.Context) error {
 		checks = append(checks, "hmm")
 		return hmmErr
-	}), strategySet{router.StrategyCluster: true}, router.StrategyCluster)
+	}), strategySet{router.StrategyHMMEmbedding: true}, router.StrategyHMMEmbedding)
 
 	err := checker.CheckHealth(context.Background())
 	require.Error(t, err)
@@ -65,13 +65,13 @@ func TestReadinessCheckerChecksHMMAfterDatabase(t *testing.T) {
 }
 
 func TestReadinessCheckerWithoutHMM(t *testing.T) {
-	checker := newReadinessChecker(databasePingerFunc(healthyDatabase), nil, strategySet{router.StrategyCluster: true}, router.StrategyCluster)
+	checker := newReadinessChecker(databasePingerFunc(healthyDatabase), nil, strategySet{router.StrategyHMMEmbedding: true}, router.StrategyHMMEmbedding)
 
 	assert.NoError(t, checker.CheckHealth(context.Background()))
 }
 
 func TestReadinessCheckerFailsWhenDefaultStrategyHasNoRouter(t *testing.T) {
-	checker := newReadinessChecker(databasePingerFunc(healthyDatabase), nil, strategySet{router.StrategyCluster: true}, router.StrategyHMMEmbedding)
+	checker := newReadinessChecker(databasePingerFunc(healthyDatabase), nil, strategySet{router.StrategyHMM: true}, router.StrategyHMMEmbedding)
 
 	err := checker.CheckHealth(context.Background())
 	require.Error(t, err)

@@ -30,11 +30,47 @@ func markSubscriptionClientAppRefused(ctx context.Context) {
 	}
 }
 
+// APIKeyPaidFallbackOnSubscriptionRefusalContextKey carries the authenticated
+// key's admin opt-in (bool) to serve forced Claude turns on paid API capacity
+// when every linked subscription refuses the client app. Absent means no.
+type APIKeyPaidFallbackOnSubscriptionRefusalContextKey struct{}
+
+type clientAppRefusalPaidFallbackKey struct{}
+
+// withClientAppRefusalPaidFallback marks a dispatch whose forced Claude turn the
+// key opted into paid capacity, so subscriptions that refused the client app
+// count as spent rather than blocking the paid attempt.
+func withClientAppRefusalPaidFallback(ctx context.Context, decision router.Decision) context.Context {
+	consented, _ := ctx.Value(APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}).(bool)
+	if !consented || !strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) {
+		return ctx
+	}
+	return context.WithValue(ctx, clientAppRefusalPaidFallbackKey{}, true)
+}
+
+func clientAppRefusalPaidFallback(ctx context.Context) bool {
+	allowed, _ := ctx.Value(clientAppRefusalPaidFallbackKey{}).(bool)
+	return allowed
+}
+
+// claudePoolRefusesClientApp reports whether an opted-in forced turn already
+// saw a Claude seat refuse its client app. Anthropic applies that refusal to
+// every subscription's plan limits, so any other seat could serve the app only
+// from its holder's extra usage, which the router never spends: the whole Claude
+// pool is unusable for the turn, including seats it never leased.
+func claudePoolRefusesClientApp(ctx context.Context) bool {
+	if !clientAppRefusalPaidFallback(ctx) {
+		return false
+	}
+	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	return usage != nil && usage.ClientAppRefused
+}
+
 // forcedClaudeClientAppRefused reports whether a paid attempt would only stand
-// in for subscriptions that refused this client app on a forced model. A
-// routed turn keeps its paid rescue; a forced one is the user's explicit pick.
+// in for subscriptions that refused this client app on a forced model. Routed
+// turns additionally require independent pool-wide funding authorization.
 func forcedClaudeClientAppRefused(ctx context.Context, decision router.Decision, creds *Credentials) bool {
-	if creds != nil && (creds.OAuth || creds.Source == credSourceBYOK) {
+	if creds != nil && (creds.OAuth || creds.Source == credSourceBYOK) || clientAppRefusalPaidFallback(ctx) {
 		return false
 	}
 	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)

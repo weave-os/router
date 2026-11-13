@@ -2,7 +2,9 @@ package proxy
 
 import (
 	"context"
+	"net/url"
 	"sort"
+	"strings"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
@@ -38,7 +40,7 @@ func (s *Service) gatewayUnservedModelsForRequest(ctx context.Context) map[strin
 		}
 		for model := range key.ModelAliases {
 			m, known := catalog.ByID(model)
-			if !known || m.Tier == catalog.TierUnknown {
+			if !known {
 				continue
 			}
 			declared[m.ID]++
@@ -77,6 +79,10 @@ func gatewayProvidersFromKeys(keys []*auth.ExternalAPIKey) map[string]struct{} {
 }
 
 func customBindingsFromKeys(keys []*auth.ExternalAPIKey) map[string][]string {
+	return aliasedBindingsFromKeys(keys, false)
+}
+
+func aliasedBindingsFromKeys(keys []*auth.ExternalAPIKey, includeRetired bool) map[string][]string {
 	var out map[string][]string
 	for _, key := range keys {
 		// Mirrors enabledProvidersForRequest: a key with no usable plaintext
@@ -86,7 +92,7 @@ func customBindingsFromKeys(keys []*auth.ExternalAPIKey) map[string][]string {
 		}
 		for model := range key.ModelAliases {
 			m, known := catalog.ByID(model)
-			if !known || m.Tier == catalog.TierUnknown {
+			if !known || (m.Tier == catalog.TierUnknown && !includeRetired) {
 				continue
 			}
 			if out == nil {
@@ -101,4 +107,36 @@ func customBindingsFromKeys(keys []*auth.ExternalAPIKey) map[string][]string {
 		sort.Strings(provs)
 	}
 	return out
+}
+
+// cortexGatewayProvidersForRequest returns the gateway providers whose BYOK
+// key points at Cortex, the only gateways with measured windows.
+func cortexGatewayProvidersForRequest(ctx context.Context) map[string]struct{} {
+	var out map[string]struct{}
+	for _, key := range externalKeysFromContext(ctx) {
+		if len(key.Plaintext) == 0 || !providers.IsGateway(key.Provider) || !isCortexHost(key.BaseURL) {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]struct{}, 1)
+		}
+		out[key.Provider] = struct{}{}
+	}
+	return out
+}
+
+func isCortexHost(baseURL string) bool {
+	u, err := url.Parse(baseURL)
+	return err == nil && strings.HasSuffix(strings.ToLower(u.Hostname()), ".snowflakecomputing.com")
+}
+
+// gatewayContextWindow is contextWindowForRequest with the measured window of
+// a Cortex gateway, which can cap a model below the vendor's window.
+func gatewayContextWindow(cortexGateways map[string]struct{}, modelID, provider string) int {
+	if _, measured := cortexGateways[provider]; measured {
+		if w, ok := catalog.CortexGatewayContextWindow(modelID, provider); ok {
+			return w
+		}
+	}
+	return contextWindowForRequest(modelID, provider)
 }

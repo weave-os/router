@@ -163,6 +163,10 @@ func TestLoadSubscriptionCredentialsUsesPurposeBoundAccessEncryption(t *testing.
 func (*subscriptionAccountRepoStub) DisableSubscriptionAccountIfRefreshHolder(context.Context, string, SubscriptionOwner, string, int64) error {
 	return nil
 }
+func (*subscriptionAccountRepoStub) RecordSubscriptionCredentialRejection(context.Context, string, SubscriptionOwner, SubscriptionCredentialRejectionInput) (SubscriptionCredentialRejection, error) {
+	return SubscriptionCredentialRejection{}, nil
+}
+
 func (*subscriptionAccountRepoStub) CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, SubscriptionOwner, string, int64, time.Time) error {
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"weave-os/router/internal/auth"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/sessionpin"
@@ -107,6 +108,10 @@ func (s *Service) handleTextRepetitionBreak(
 		)
 	}
 
+	if _, active := auth.BlindExperimentFrom(ctx); active {
+		msg = blindExperimentLoopStopMessage
+	}
+
 	log.Info("Text-repetition loop detected; breaking turn",
 		"repeat_count", count,
 		"window_size", textRepetitionWindow,
@@ -127,10 +132,6 @@ func (s *Service) handleTextRepetitionBreak(
 		}
 	}
 
-	switch env.SourceFormat() {
-	case translate.FormatOpenAI:
-		return writeSyntheticOpenAIResponse(w, env, msg, inputTokens)
-	default:
-		return writeSyntheticAnthropicResponse(w, env, msg, inputTokens)
-	}
+	ack := newCommandAcknowledgment(translate.CommandLoopStop)
+	return writeCommandOutcome(ctx, w, env, msg, ack.outcome, inputTokens)
 }

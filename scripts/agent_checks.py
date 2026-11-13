@@ -195,7 +195,7 @@ SUITES = (
             ("go", "vet", "./..."),
         ),
         ("go",),
-        note="Native tokenizer libraries may be required; never change or clear GOCACHE to retry.",
+        note="Never change or clear GOCACHE to retry.",
     ),
     Suite(
         SuiteID.LINT,
@@ -455,18 +455,14 @@ def validation_environment(suite: SuiteID) -> dict[str, str]:
         "PASSWORD",
         "SECRET",
     }
-    native_dependencies = {"ROUTER_ONNX_ASSETS_DIR", "ROUTER_ONNX_LIBRARY_DIR"}
     # Copy untouched tool/cache configuration, including any inherited Go cache.
     # Never assign, clear, or redirect it to obtain a passing validation.
     environment = {
         key: value
         for key, value in os.environ.items()
-        if key in native_dependencies
-        or (
-            key not in excluded
-            and not key.startswith(runtime_prefixes)
-            and not key.endswith(credential_suffixes)
-        )
+        if key not in excluded
+        and not key.startswith(runtime_prefixes)
+        and not key.endswith(credential_suffixes)
     }
     # A nonempty approved value also overrides persistent `go env -w GOFLAGS`,
     # which could otherwise skip assertions or enable live integration tags.

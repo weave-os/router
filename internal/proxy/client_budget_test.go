@@ -29,7 +29,7 @@ func TestClientBudgetServingAndPreviewUseOriginalVariantEachTurn(t *testing.T) {
 	provider := &fakeProvider{}
 	serving := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: budgetIngressModel}}
 	preview := &fakePreviewRouter{}
-	svc := proxy.NewService(serving, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, nil, nil, false, providers.ProviderAnthropic, budgetIngressModel, nil).
+	svc := proxy.NewService(serving, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, nil, false, providers.ProviderAnthropic, budgetIngressModel, nil).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: preview})
 	ctx := requestcontext.WithClientIdentity(context.Background(), proxy.ClientIdentity{SessionID: "session-a", ClientApp: proxy.ClientAppClaudeCode, UserAgent: budgetIngressUserAgent})
 

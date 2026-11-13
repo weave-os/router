@@ -96,6 +96,10 @@ type Request struct {
 	// PreviousPolicyGroup is the last scored HMM group, used only when a
 	// continuation has no user text to classify and escalation is active.
 	PreviousPolicyGroup escalation.Group
+	// SlidingThresholdPinGroup is the session pin's group on an authoritative
+	// turn with the sliding threshold on; selection steps toward a higher
+	// classified group.
+	SlidingThresholdPinGroup escalation.Group
 
 	RequestedModel string
 	ClientBudget   ClientBudget
@@ -127,6 +131,8 @@ type Request struct {
 	// HasImages: scorer drops text-only models from the eligible pool; turn
 	// loop evicts a text-only session pin.
 	HasImages bool
+	// ImageCount is the number of image parts across the request history.
+	ImageCount int
 	// TranslationRequirements are hard semantic requirements inferred at
 	// ingress. Routing implementations must not turn their empty result into
 	// an incompatible fallback pool.
@@ -171,6 +177,8 @@ type Request struct {
 	// GatewayProviders is the installation's BYOK gateway providers. Non-empty
 	// means gateway-exclusive routing: only aliased models are routable.
 	GatewayProviders map[string]struct{}
+	// SubscriptionProviders holds the providers whose subscription credential can serve this request.
+	SubscriptionProviders map[string]struct{}
 	// Per-request model exclusion — nil or empty means no exclusion.
 	// If filtering empties eligible set, scorer returns ErrNoEligibleProvider.
 	// Full union: installation excluded_models plus request-time safety filters.
@@ -192,6 +200,9 @@ type Request struct {
 	// A /force-model pin on one of these is still dispatched, so the provider's
 	// exact token count decides instead of the estimate.
 	ContextWindowExcludedModels map[string]struct{}
+	// ImageLimitExcludedModels is the subset of ExcludedModels removed only
+	// because every binding caps images below ImageCount.
+	ImageLimitExcludedModels map[string]struct{}
 	// UnsignedHistoryExcludedModels holds models excluded because they cannot
 	// accept this request's unsigned tool-call history.
 	UnsignedHistoryExcludedModels map[string]struct{}
@@ -427,25 +438,36 @@ type RoutingMetadata struct {
 	ArmScores map[string]float32
 }
 
+type SelectionOverrideReason string
+
+const (
+	SelectionOverrideNone             SelectionOverrideReason = ""
+	SelectionOverrideSlidingThreshold SelectionOverrideReason = "sliding_threshold"
+	SelectionOverrideForceCluster     SelectionOverrideReason = "force_cluster"
+	SelectionOverrideCluster          SelectionOverrideReason = "cluster_override"
+)
+
 // SelectionTrace is the content-free replay record for one Go-owned policy
 // decision. It captures the classifier ordering, exact eligible roster IDs,
 // bounded preference inputs, effective orders and typed hard exclusions.
 type SelectionTrace struct {
-	TaskDomain             *taskdomain.Outcome                            `json:"task_domain,omitempty"`
-	ClassifierRanking      []string                                       `json:"classifier_ranking"`
-	Harness                string                                         `json:"harness"`
-	ForcedGroup            string                                         `json:"forced_group,omitempty"`
-	CandidateRosterIDs     []string                                       `json:"candidate_roster_ids"`
-	QualityBias            *float64                                       `json:"quality_bias,omitempty"`
-	PreferredModels        []string                                       `json:"preferred_models,omitempty"`
-	EffectiveOrders        map[string][]string                            `json:"effective_orders"`
-	ScoresByGroup          map[string]map[string]float32                  `json:"scores_by_group,omitempty"`
-	ScoreComponentsByGroup map[string]map[string]SelectionScoreComponents `json:"score_components_by_group,omitempty"`
-	ResolverExclusions     []SelectionExclusion                           `json:"resolver_exclusions,omitempty"`
-	SelectedGroup          string                                         `json:"selected_group"`
-	SelectedArm            string                                         `json:"selected_arm"`
-	FallbackDepth          int                                            `json:"fallback_depth"`
-	OverrideReason         string                                         `json:"override_reason,omitempty"`
+	TaskDomain              *taskdomain.Outcome                            `json:"task_domain,omitempty"`
+	ClassifierRanking       []string                                       `json:"classifier_ranking"`
+	Harness                 string                                         `json:"harness"`
+	ForcedGroup             string                                         `json:"forced_group,omitempty"`
+	CandidateRosterIDs      []string                                       `json:"candidate_roster_ids"`
+	QualityBias             *float64                                       `json:"quality_bias,omitempty"`
+	PreferredModels         []string                                       `json:"preferred_models,omitempty"`
+	SubscriptionProviders   []string                                       `json:"subscription_providers,omitempty"`
+	EffectiveOrders         map[string][]string                            `json:"effective_orders"`
+	ScoresByGroup           map[string]map[string]float32                  `json:"scores_by_group,omitempty"`
+	ScoreComponentsByGroup  map[string]map[string]SelectionScoreComponents `json:"score_components_by_group,omitempty"`
+	ResolverExclusions      []SelectionExclusion                           `json:"resolver_exclusions,omitempty"`
+	SelectedGroup           string                                         `json:"selected_group"`
+	SelectedArm             string                                         `json:"selected_arm"`
+	FallbackDepth           int                                            `json:"fallback_depth"`
+	OverrideReason          SelectionOverrideReason                        `json:"override_reason,omitempty"`
+	ClusterOverridesPresent bool                                           `json:"cluster_overrides_present,omitempty"`
 }
 
 // SelectionScoreComponents records the bounded terms behind an arm's final score.

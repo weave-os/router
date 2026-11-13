@@ -11,7 +11,7 @@
 # mode=max caches every intermediate build stage (not just the final layer),
 # which matters here: both Dockerfiles are multi-stage (server: ui-builder +
 # build-stage + build-release-stage; mitmproxy: build + distroless), and the
-# expensive steps (ONNX/tokenizer downloads, npm build, go build) all live in
+# expensive steps (npm build, go build) all live in
 # non-final stages that mode=max is what actually caches.
 services:
   server:
@@ -34,3 +34,10 @@ services:
         - type=gha,scope=router-smoke-seed
       cache_to:
         - type=gha,scope=router-smoke-seed,mode=max
+
+  hmm-stub:
+    build:
+      cache_from:
+        - type=gha,scope=router-smoke-hmm-stub
+      cache_to:
+        - type=gha,scope=router-smoke-hmm-stub,mode=max

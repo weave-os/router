@@ -42,7 +42,7 @@ func (nonListerClient) Passthrough(context.Context, providers.PreparedRequest, h
 }
 
 func upstreamModelsService(providerMap map[string]providers.Client) *proxy.Service {
-	return proxy.NewService(nil, providerMap, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	return proxy.NewService(nil, providerMap, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 }
 
 func TestListUpstreamModels_PassesCredentialsToLister(t *testing.T) {

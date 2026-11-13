@@ -17,13 +17,13 @@ import (
 
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 )
 
@@ -176,16 +176,12 @@ func TestUpgradeShadowPreservesServingAndPinWrites(t *testing.T) {
 		gate      bool
 		cold      bool
 		wantModel string
-		threshold float64
 	}{
-		{"warm blocked upgrade", 0.49, true, false, upgradeTestPinModel, 0},
-		{"cold blocked upgrade", 0.49, true, true, upgradeTestPinModel, 0},
-		{"upgrade at 50 percent", 0.50, true, false, upgradeTestFreshModel, 0},
-		{"upgrade above 50 percent", 0.70, true, false, upgradeTestFreshModel, 0},
-		{"explicit 85 percent threshold", 0.70, true, false, upgradeTestPinModel, 0.85},
-		{"confident upgrade", 0.91, true, false, upgradeTestFreshModel, 0},
-		{"unscored upgrade", 0, true, false, upgradeTestFreshModel, 0},
-		{"gate off", 0.7, false, false, upgradeTestFreshModel, 0},
+		{"warm blocked upgrade", 0.45, true, false, upgradeTestPinModel},
+		{"cold blocked upgrade", 0.45, true, true, upgradeTestPinModel},
+		{"confident upgrade", 0.91, true, false, upgradeTestFreshModel},
+		{"unscored upgrade", 0, true, false, upgradeTestFreshModel},
+		{"gate off", 0.45, false, false, upgradeTestFreshModel},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var control turnLoopResult
@@ -201,16 +197,13 @@ func TestUpgradeShadowPreservesServingAndPinWrites(t *testing.T) {
 				fresh.Metadata.ChosenScore = tc.score
 				margin := 0.1
 				strategy := router.Strategy("upgrade-shadow-test")
-				svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
+				svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
 					WithAuthorityCacheShadow(enabled).WithAuthoritativeUpgradeGate(tc.gate).
 					WithAuthoritativeUpgradeConfig(AuthoritativeUpgradeConfig{MarginThreshold: &margin}).
 					WithPolicyStrategy(policy.StrategySpec{Strategy: strategy, Router: &authorityShadowTestRouter{decision: fresh}, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
-				if tc.threshold > 0 {
-					svc.WithHMMUpgradeConfidenceThreshold(tc.threshold)
-				}
 				env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())))
 				require.NoError(t, err)
-				feats := env.RoutingFeatures(false)
+				feats := env.RoutingFeatures()
 				res, err := svc.runTurnLoop(router.WithStrategy(context.Background(), strategy), env, feats, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantModel, res.Decision.Model)
@@ -266,7 +259,7 @@ func TestUpgradeShadowCapturesMarginOnStayButNotReplay(t *testing.T) {
 	obs := buildObservationContext(context.Background(), served, fresh, CaptureOff)
 	assert.Equal(t, &zero, obs.FreshClassifierMargin)
 	assert.Equal(t, string(escalation.High), obs.FreshPolicyGroup)
-	builder := otel.NewAttrBuilder(4)
+	builder := telemetry.NewAttrBuilder(4)
 	obs.applySpanAttrs(builder)
 	found := false
 	for _, attr := range builder.Build() {
@@ -291,7 +284,7 @@ func TestUpgradeShadowPreservesHigherPrecedencePaths(t *testing.T) {
 		wantModel  string
 	}{
 		{name: "forced pin", forced: true, wantModel: upgradeTestPinModel},
-		{name: "compaction hard pin", compaction: true, wantModel: upgradeTestPinModel},
+		{name: "compaction session pin", compaction: true, wantModel: upgradeTestPinModel},
 		{name: "policy deadline fallback", deadline: true, wantModel: upgradeTestPinModel},
 		{name: "active escalation floor", escalated: true, wantModel: upgradeTestFreshModel},
 	} {
@@ -311,7 +304,7 @@ func TestUpgradeShadowPreservesHigherPrecedencePaths(t *testing.T) {
 				policyRouter = &erroringTestRouter{err: policyDeadlineTestErr}
 			}
 			strategy := router.Strategy("upgrade-precedence-test")
-			svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
+			svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
 				WithAuthorityCacheShadow(true).WithPolicyDeadlineFallback(true).
 				WithPolicyStrategy(policy.StrategySpec{Strategy: strategy, Router: policyRouter, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())
@@ -320,12 +313,12 @@ func TestUpgradeShadowPreservesHigherPrecedencePaths(t *testing.T) {
 			}
 			env, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)
-			feats := env.RoutingFeatures(false)
+			feats := env.RoutingFeatures()
 			res, err := svc.runTurnLoop(router.WithStrategy(context.Background(), strategy), env, feats, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantModel, res.Decision.Model)
 			assert.Nil(t, res.UpgradeShadow)
-			assert.Equal(t, tc.compaction, res.HardPinned)
+			assert.False(t, res.HardPinned)
 			assert.Equal(t, tc.deadline, res.PolicyFallback)
 		})
 	}
@@ -341,7 +334,7 @@ func TestEvidenceUpgradeServesFreshWhenQualified(t *testing.T) {
 	threshold := 0.15
 	fresh.Metadata.ClassifierMargin = &margin
 	strategy := router.Strategy("upgrade-evidence-test")
-	svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
+	svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
 		WithAuthoritativeUpgradeGate(true).
 		WithAuthoritativeUpgradePolicy(flags.AuthoritativeUpgradePolicyEvidence).
 		WithAuthoritativeUpgradeVotes(3).
@@ -349,7 +342,7 @@ func TestEvidenceUpgradeServesFreshWhenQualified(t *testing.T) {
 		WithPolicyStrategy(policy.StrategySpec{Strategy: strategy, Router: &authorityShadowTestRouter{decision: fresh}, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 	env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())))
 	require.NoError(t, err)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(router.WithStrategy(context.Background(), strategy), env, feats, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
 	require.NoError(t, err)
 	assert.Equal(t, upgradeTestFreshModel, res.Decision.Model)
@@ -371,7 +364,7 @@ func TestEvidenceUpgradeHoldsWarmLowMarginAndCountsVotes(t *testing.T) {
 	threshold := 0.15
 	fresh.Metadata.ClassifierMargin = &margin
 	strategy := router.Strategy("upgrade-evidence-hold")
-	svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
+	svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
 		WithAuthoritativeUpgradeGate(true).
 		WithAuthoritativeUpgradePolicy(flags.AuthoritativeUpgradePolicyEvidence).
 		WithAuthoritativeUpgradeVotes(3).
@@ -379,7 +372,7 @@ func TestEvidenceUpgradeHoldsWarmLowMarginAndCountsVotes(t *testing.T) {
 		WithPolicyStrategy(policy.StrategySpec{Strategy: strategy, Router: &authorityShadowTestRouter{decision: fresh}, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
 	env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())))
 	require.NoError(t, err)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(router.WithStrategy(context.Background(), strategy), env, feats, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
 	require.NoError(t, err)
 	assert.Equal(t, upgradeTestPinModel, res.Decision.Model)
@@ -420,7 +413,7 @@ func TestEvidenceUpgradeExclusionKeepsEligiblePin(t *testing.T) {
 	fresh := upgradeTestFresh()
 	store.getPin.DemotedModels = []string{fresh.Model}
 	strategy := router.Strategy("upgrade-evidence-exclusion")
-	svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
+	svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
 			Router:   &authorityShadowTestRouter{decision: fresh},
@@ -430,7 +423,7 @@ func TestEvidenceUpgradeExclusionKeepsEligiblePin(t *testing.T) {
 		})
 	env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())))
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(router.WithStrategy(context.Background(), strategy), env, features, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: features.Model})
 	require.NoError(t, err)
 	assert.Equal(t, upgradeTestPinModel, res.Decision.Model)
@@ -447,7 +440,7 @@ func TestEvidenceUpgradeExclusionFailsOpenWhenOnlyDemotedModelIsAvailable(t *tes
 	fresh := upgradeTestFresh()
 	store.getPin.DemotedModels = []string{store.getPin.Model, fresh.Model}
 	strategy := router.Strategy("upgrade-evidence-exclusion-last-resort")
-	svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
+	svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
 			Router:   &authorityShadowTestRouter{decision: fresh},
@@ -457,7 +450,7 @@ func TestEvidenceUpgradeExclusionFailsOpenWhenOnlyDemotedModelIsAvailable(t *tes
 		})
 	env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())))
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	res, err := svc.runTurnLoop(router.WithStrategy(context.Background(), strategy), env, features, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: features.Model})
 	require.NoError(t, err)
 	assert.Equal(t, fresh.Model, res.Decision.Model)

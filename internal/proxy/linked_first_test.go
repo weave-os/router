@@ -36,7 +36,7 @@ func spentCodexService(p *fakeProvider) *proxy.Service {
 	obs.Record(obs.Key([]byte(codexSubToken)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 1.0, WindowMinutes: 300},
 	})
-	return proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).
+	return proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).
 		WithUsageObserver(obs).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 }
@@ -93,7 +93,7 @@ func TestLinkedFirst_OpenAI_PaidRoute_ContinuesOnCredits(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"id":"x","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`)
 	}}
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenRouter: p}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenRouter: p}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 
 	body := `{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Refactor the auth middleware and add tests."}],"max_tokens":4096,"tools":[{"type":"function","function":{"name":"edit_file","parameters":{"type":"object"}}}]}`
 	rec, req := codexSubRequest(t, body)
@@ -115,7 +115,7 @@ func TestLinkedFirst_Anthropic_SpentClaudePlan_ContinuesOnWeaveKey(t *testing.T)
 	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
 		Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080},
 	})
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
 		WithUsageObserver(obs).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
@@ -160,7 +160,7 @@ func TestLinkedFirst_Anthropic_BypassThrottled_ReroutesOnCredits(t *testing.T) {
 	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: observing}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: observing}, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
 		WithUsageObserver(obs).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
@@ -189,7 +189,7 @@ func TestLinkedFirst_Anthropic_SpentClaudePlan_NoFallbackKey_RefusesPoolExhauste
 	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
 		Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080},
 	})
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
 		WithUsageObserver(obs)
 
 	rec, req, body := bypassRequest(t)
@@ -260,15 +260,14 @@ func underThresholdObserver() *usage.Observer {
 	return obs
 }
 
-// TestLinkedFirst_Anthropic_BypassThirdPartyRefusal_ReroutesOnCredits: a
-// linked-first turn whose plan refuses the client app (not Claude Code) is
-// funded, so it reroutes on organization credits like a throttled bypass.
-func TestLinkedFirst_Anthropic_BypassThirdPartyRefusal_ReroutesOnCredits(t *testing.T) {
+// A client-app refusal does not establish quota exhaustion, even with available
+// organization credits and a deployment provider key.
+func TestLinkedFirst_Anthropic_BypassThirdPartyRefusal_RefusesPaidReroute(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(map[bool]string{false: "non_streaming", true: "streaming"}[stream], func(t *testing.T) {
 			p := &planRefusingProvider{stream: stream}
 			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl, Reason: "cluster:v0.2"}}
-			svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
+			svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
 				WithUsageObserver(underThresholdObserver()).
 				WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
@@ -277,14 +276,12 @@ func TestLinkedFirst_Anthropic_BypassThirdPartyRefusal_ReroutesOnCredits(t *test
 				body = []byte(`{"model":"` + bypassRequestedMdl + `","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 			}
 			ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyLinkedFirst)
-			require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
+			require.ErrorIs(t, svc.ProxyMessages(ctx, body, rec, req), proxy.ErrSubscriptionPoolUnavailable)
 
 			assert.Positive(t, p.subscriptionCalls)
-			assert.Equal(t, 1, p.paidCalls, "the refused turn must serve once on organization credits")
-			assert.NotEqual(t, http.StatusBadRequest, rec.Code)
-			assert.NotContains(t, rec.Body.String(), "Third-party apps")
+			assert.Zero(t, p.paidCalls, "a client-app refusal cannot authorize organization-credit inference")
 			assert.NotContains(t, rec.Body.String(), "credits are depleted")
-			assert.Contains(t, rec.Body.String(), `"text":"hi"`)
+			assert.NotContains(t, rec.Body.String(), `"text":"hi"`)
 		})
 	}
 }
@@ -294,7 +291,7 @@ func TestLinkedFirst_Anthropic_BypassThirdPartyRefusal_ReroutesOnCredits(t *test
 func TestCreditsDepleted_Anthropic_BypassThirdPartyRefusal_StaysOffCredits(t *testing.T) {
 	p := &planRefusingProvider{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl, Reason: "cluster:v0.2"}}
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
 		WithUsageObserver(underThresholdObserver()).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 

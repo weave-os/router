@@ -23,7 +23,7 @@ test_path="$fake_bin:$PATH"
 run_hosted_install() {
   HOME="$home" PATH="$test_path" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
     bash "$installer" --codex --scope user --quiet \
-      --base-url https://router.workweave.ai
+      --base-url https://router.weaveos.com
 }
 
 run_install() {
@@ -86,6 +86,10 @@ grep -Fq '"X-Weave-Codex-Native-Model-Pin" = "1"' "$config" \
   || fail "Codex native model selection was not enabled"
 grep -qx 'requires_openai_auth = true' "$config" \
   || fail "Weave provider does not require ChatGPT OAuth"
+grep -Eqx 'model_catalog_url = "[^"]+/v1/codex/models"' "$config" \
+  || fail "API-key Codex logins do not get the Weave model catalog"
+grep -Fq '"X-Weave-Codex-Model-Catalog" = "1"' "$config" \
+  || fail "Codex catalog clients are not marked for model-instructions switches"
 grep -qx 'features.hooks = true' "$config" \
   || fail "Codex hooks were not enabled"
 grep -Fq '[[hooks.SessionStart]]' "$config" \
@@ -98,7 +102,7 @@ if grep -Fq '[[hooks.PreToolUse]]' "$config"; then
   fail "ordinary Codex installs registered classifier-only hooks"
 fi
 status_helper="$home/.weave/codex-status.sh"
-  [ "$(grep -Fc "command = \"$status_helper\"" "$config")" -eq 3 ] \
+  [ "$(grep -Fc "command = \"$status_helper\"" "$config")" -eq 4 ] \
   || fail "Codex hooks do not point at the installed status helper"
 [ -f "$status_helper" ] || fail "Codex status helper was not installed"
 grep -Fq '<!-- weave-router managed codex status -->' "$status_helper" \
@@ -255,7 +259,7 @@ cat >"$config" <<'MISPLACED'
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 MISPLACED
@@ -351,7 +355,7 @@ enabled = true
 trusted_hash = "sha256:deadbeef"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 name = "Weave Router"
 requires_openai_auth = true
 wire_api = "responses"
@@ -434,18 +438,30 @@ grep -Fq '[projects."/Users/a/Code/weave"]' "$config" \
 seed_codex_normalized_config
 router_status="$(HOME="$home" PATH="$test_path" NO_COLOR=1 \
   bash "$installer" status --scope user 2>&1 || true)"
-printf '%s' "$router_status" | grep -q 'Codex: points at Router' \
+printf '%s' "$router_status" | grep -q 'Codex        on' \
   || fail "status did not detect a Codex install whose markers Codex had dropped"
+if printf '%s' "$router_status" | grep -q "Couldn't read Codex's router endpoint"; then
+  fail "status could not read the endpoint of a Codex install whose markers Codex had dropped"
+fi
+
+# `off` comments out model_provider but keeps the provider table, so status
+# must report the toggle state rather than the table's endpoint.
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" off --codex --scope user >/dev/null 2>&1
+router_status="$(HOME="$home" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" status --codex --scope user 2>&1 || true)"
+printf '%s' "$router_status" | grep -q 'Codex        on' \
+  && fail "status reported Codex on the router after off --codex"
+printf '%s' "$router_status" | grep -q 'Codex        off' \
+  || fail "status did not report Codex as off after off --codex"
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user >/dev/null 2>&1
 
 # `login codex` is where users hit this first: it refused to enroll a
 # subscription against a working install and told them to run the installer
-# again. The device-authorization step still fails offline here -- what must not
-# come back is the "no install" refusal that precedes it.
+# again. The offline validation failure confirms that the install was found.
 login_out="$(HOME="$home" PATH="$test_path" NO_COLOR=1 \
   bash "$installer" login codex --scope user 2>&1 || true)"
-if printf '%s' "$login_out" | grep -q 'No Weave Router install found'; then
-  fail "login codex did not see an install whose markers Codex had dropped"
-fi
+printf '%s' "$login_out" | grep -Fq 'Could not reach the router at https://router.weaveos.com' \
+  || fail "login codex did not validate an install whose markers Codex had dropped"
 
 # The key reader has to accept both spellings of the header name: our writer
 # emits one quoted inline table, Codex re-emits it as a bare key in a subtable.
@@ -454,7 +470,7 @@ fi
 seed_codex_normalized_config
 HOME="$home" PATH="$test_path" NO_COLOR=1 WEAVE_ROUTER_KEY="" \
   bash "$installer" --codex --scope user --quiet --non-interactive \
-    --base-url https://router.workweave.ai </dev/null >/dev/null 2>&1 \
+    --base-url https://router.weaveos.com </dev/null >/dev/null 2>&1 \
   || fail "re-install could not reuse the key from a Codex-rewritten config"
 grep -Fq 'rk_normalized_key' "$config" \
   || fail "re-install replaced the router key already in a Codex-rewritten config"
@@ -520,7 +536,7 @@ cat >"$config" <<TOML
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 
 [model_providers.weave.http_headers]
 X-Weave-Router-Key = "rk_prior"
@@ -577,7 +593,7 @@ registered_hook="$(awk -F'"' '/^command = /{print $2}' "$config" | grep -F 'code
 # The duplicates are the same orphan class: Codex normalized our block out of
 # the markers, so the previous install could not see them and appended more.
 # Stripping by helper filename collapses them to the one the block re-adds.
-[ "$(grep -c "command = \"$home/.weave/codex-status.sh\"" "$config")" -eq 3 ] \
+[ "$(grep -c "command = \"$home/.weave/codex-status.sh\"" "$config")" -eq 4 ] \
   || fail "expected exactly one status registration per event, got $(grep -c "command = \"$home/.weave/codex-status.sh\"" "$config")"
 
 # A third party's hook in a group we also wrote to must survive.
@@ -602,7 +618,7 @@ cat >"$config" <<TOML
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 
 [[hooks.SessionStart]]
 [[hooks.SessionStart.hooks]]
@@ -646,7 +662,7 @@ cat >"$config" <<TOML
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 
 [[hooks.UserPromptSubmit]]
 [[hooks.UserPromptSubmit.hooks]]
@@ -674,7 +690,7 @@ cat >"$config" <<TOML
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 
 [[hooks.UserPromptSubmit]]
 [[hooks.UserPromptSubmit.hooks]]
@@ -702,7 +718,7 @@ cat >"$config" <<TOML
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 
 [[hooks.SessionStart]]
 [[hooks.SessionStart.hooks]]
@@ -740,7 +756,7 @@ cat >"$config" <<TOML
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 
 [[hooks.UserPromptSubmit]]
 [[hooks.UserPromptSubmit.hooks]]
@@ -788,7 +804,7 @@ cat >"$config" <<TOML
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 
 [[hooks.UserPromptSubmit]]
 [[hooks.UserPromptSubmit.hooks]]
@@ -817,7 +833,7 @@ git -C "$proj_repo" config user.email test@example.com
 git -C "$proj_repo" config user.name test
 ( cd "$proj_repo" && HOME="$proj_home" PATH="$test_path" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
     bash "$installer" --codex --scope project --quiet \
-      --base-url https://router.workweave.ai >/dev/null 2>&1 )
+      --base-url https://router.weaveos.com >/dev/null 2>&1 )
 
 for entry in \
   ".codex/config.toml" \
@@ -897,7 +913,7 @@ assert_config_parses "install over a symlinked directive helper produced unparse
 
 grep -Fq 'important unrelated file' "$outside" \
   || fail "the install followed the symlink and overwrote its target"
-if grep -Fq 'hooks.UserPromptSubmit' "$config"; then
+if grep -Fq "command = \"$home/.weave/codex-directive.sh\"" "$config"; then
   fail "the install registered a symlinked hook path"
 fi
 grep -Fq 'model_provider = "weave"' "$config" \
@@ -927,7 +943,7 @@ ln -s "$missing" "$home/.weave/codex-directive.sh"
 run_hosted_install || fail "a dangling symlink must not fail the install"
 [ ! -e "$missing" ] \
   || fail "the install wrote through a dangling symlink and created its target"
-if grep -Fq 'hooks.UserPromptSubmit' "$config"; then
+if grep -Fq "command = \"$home/.weave/codex-directive.sh\"" "$config"; then
   fail "the install registered a dangling symlink as the prompt hook"
 fi
 

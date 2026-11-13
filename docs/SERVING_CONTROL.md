@@ -149,6 +149,31 @@ and `configuration`), `requirements` (`runtime_contract`, `policy_schema`,
 `classifier_wire_schema`, `taxonomy_sha256`), and `provenance` (`router_revision`,
 `weave_revision`, `build_attestation`).
 
+The optional `strategy_policies` map pins an independent compiled policy for a
+beta classifier variant. Each key must identify a pinned classifier variant;
+the policy must share its schema and ordered taxonomy. Routing and model discovery
+use that policy only for the requested strategy, preserving the default policy.
+
+Clients can select an automatic router with the request `model` IDs
+`weave-auto`, `weave-hmm-20261019-0001v1`, `weave-hmm-beta`,
+`weave-qwen-20261008-0001v2`, and `weave-decision-model-20261019-0001v1`.
+`weave-auto` uses the configured default. `weave-hmm-20261019-0001v1` always
+selects the release's primary HMM classifier, which every managed release
+serves. The other IDs select the corresponding classifier variant and its pinned
+roster within the admitted release; when the admitted release (or, for the
+decision model, the worker) no longer provides a variant, the request is served
+by the primary HMM classifier of the same admitted release instead. The worker
+never changes the admitted release. Managed variant selection requires internal
+organization admission without a subscriber plan. Classifier variants use the
+existing classifier sidecar.
+
+`GET /v1/router/models?scope=selection` lists these IDs and upstream model IDs
+with a description and a `kind` of `router` or `direct`. Explicit router IDs take
+precedence over legacy session beta preferences. Legacy beta commands in those
+sessions direct clients to the model selector instead of changing hidden state.
+Signed atomic-classifier thread enrollment remains authoritative for `weave-auto`;
+selecting an alternate router requires a fresh thread.
+
 **`selection_set`** (`schema_version: router_serving_selection_set_v2`) — one per
 target per change: `target`, `default` lane, `profiles` (map of profile key → lane;
 explicit even when `{}`). A **lane** is `candidate` (`ObjectRef`), `project`, `region`, `router` and
@@ -517,7 +542,8 @@ reuse the already-published candidate and publish only the set and proposal.
 | `profile` | Register or change only `profile_key`'s policy; preserve default, all other profiles and exact code candidate/binding. `source_candidate` names shared code. |
 | `router` | Move all customers together to the source image/provenance and one new worker revision; retain effective policies, requirements and classifier. |
 | `classifier` | Reuse the worker and effective policies; validate the new classifier against every roster. |
-| `full` / `custom` | Existing forward profile-preservation rules apply; full promotion reuses the exact source candidate. |
+| `full` | Preserve the complete profile inventory; full promotion reuses the exact source candidate. |
+| `custom` | Use the exact reviewed selection set. It may retire only the legacy Boost profile key while preserving every remaining lane's exact policy. |
 | `rollback` | Restore the exact previously activated selection set on the same target. This may restore code as well as configuration. |
 
 To roll back only a roster while retaining current code, publish a `roster` or
@@ -526,11 +552,17 @@ revision is required. Existing eligible conversations retain their original poli
 classifier and worker selection across either forward promotion or rollback. New
 conversations use the current assignment. Preserve assignment generations during
 roster content updates: changing enrollment, authorization, entitlement or profile
-assignment generations deliberately triggers the existing rebind behavior.
+assignment generations deliberately triggers the existing rebind behavior. So does
+changing the installation's allowed models, excluded models, excluded providers or
+routing strategy: admission compares a digest of those controls, so a pinned
+conversation cannot keep a roster that no longer overlaps the customer's models.
+Bindings persisted before the digest existed keep their pin.
 
-Retention remains bounded by the existing session lifecycle: 24 hours idle, seven
-days from activation supersession, then at least 15 minutes drain grace. Explicit
-withdrawals still force rebind. Preserve every policy, selection set, candidate,
+A conversation keeps its activation while it stays active and rebinds to the
+current activation once it has been idle for one hour, the session-pin prompt-cache
+window. Supersession age alone never forces a rebind; explicit withdrawal is the way
+to move active conversations immediately. In-flight requests drain on the old worker
+revision for at least 15 minutes. Preserve every policy, selection set, candidate,
 classifier artifact, physical revision and bootstrap closure referenced by eligible
 sessions, feedback attribution or the supported rollback history. Cache eviction
 is not permission to delete an artifact. This runtime performs no history garbage
@@ -581,6 +613,81 @@ V3 removes per-profile candidate/binding duplication from new configuration; it
 retains legacy readers and historical profile bindings for sessions and rollback.
 No app deployment-time prerequisite gate or routine production live-request test
 is introduced. Implementation tests are separate from live rollout acceptance.
+## Classifier service (selection v4, candidate v3, classifier API v5)
+
+`router_serving_selection_set_v4` separates the Router's code and policies from the
+classifier. Its `code` names a `router_serving_candidate_v3` (Router image,
+requirements, supported classifier API majors, provenance) and the Router
+`RevisionBinding`; it no longer carries a classifier revision. Its `classifier`
+field is a `ClassifierServiceBinding`:
+
+| Field | Meaning |
+| --- | --- |
+| `release` | ObjectRef of an immutable `classifier_releases` manifest (API major 5, wire schema `policy_router_v5`, taxonomy, per-variant artifact ID/SHA-256 and model `WeaveDataRef`s) |
+| `enabled_variants` | Sorted, unique variants this target may serve; must include `primary` and exclude internal-only variants on customer targets |
+| `service_url`, `audience` | Retired gateway fields. Optional; validated when present for historical sets, never dispatched to |
+
+`default_policy`, `strategy_policies` and `profiles` keep their v3 meaning. V1–v3
+sets still decode and serve unchanged, and resolve no runtime binding.
+
+Each Router commit declares the candidate requirements its code satisfies in
+`docs/ROUTER_CANDIDATE_REQUIREMENTS.json` (`router_candidate_requirements_v1`),
+generated from `policyregistry.BuiltRouterCandidateRequirements` and
+`policy.SupportedClassifierAPIMajors` by `make generate-candidate-requirements`.
+A publisher building a `router_serving_candidate_v3` for that commit copies
+`requirements` verbatim. A router-only promotion may change
+`supported_api_majors` (the source candidate's set is used), but preparation
+still requires the selected release's API major.
+
+### Direct worker binding
+
+There is no classifier gateway. For every v4 selection the Router reads the
+release's runtime binding from the same serving registry:
+`runtime_bindings/<environment>/classifier_releases/<release_sha256>.json`
+(`router_classifier_runtime_binding_v1`, published by the classifier release
+workflow). The reader records the object's exact generation and payload SHA-256 and
+fails closed when the binding is missing, unparsable, has unknown fields, names
+another release, environment or project, or is not canonical:
+
+- `worker_url` and `worker_audience` are bare HTTPS Cloud Run origins of the
+  `router-classifier-worker` service: lowercase host, no credentials, port, path,
+  query, fragment or trailing slash;
+- `worker_revision` is the tagged Cloud Run revision that loaded the release;
+- `image_digest` is `sha256:<64 hex>` and `configuration_sha256` is a digest.
+
+The selected lane's v5 client calls `worker_url` with a Google ID token minted for
+`worker_audience`. URLs come only from registry objects; no request, header or
+caller field can supply one. The session pin is unchanged: the selection set names
+the release, and the release names its runtime binding.
+
+The publisher creates each binding once (create-only, identical bytes on retry), so
+the Router caches a prepared v4 snapshot per admitted selection without re-reading
+it. Moving a release to another worker revision means publishing a new release and
+activating a selection that names it.
+
+### Activation and per-request identity
+
+`serving apply` attests each v4 lane against the runtime-bound worker before the
+CAS. `GET /internal/serving/attestation?release_id=<release>` must return
+`router_classifier_worker_attestation_v1` with status `ready` and the binding's
+environment, release, worker revision, image digest and configuration digest, and
+the release manifest's artifact ID/SHA-256 for every enabled variant.
+`GET /v5/capabilities` must report the selection, release, wire schema, taxonomy,
+class order, enabled variants and preview support. Both attestations are
+memoized per activation.
+
+Every successful `/v5/classify` and `/v5/preview` response must echo the pinned request,
+selection, release, variant, taxonomy, artifact ID and artifact SHA-256. Any
+mismatch is `ErrPolicyPinUnavailable`: the request fails closed and does not fall
+back to the default roster. Ordinary classifier unavailability (warming, timeout,
+`classifier_unavailable`) keeps the existing degradation policy.
+
+Each classify/preview attempt sends its remaining budget as
+`X-Weave-Classifier-Timeout-Ms` (whole milliseconds, at least 1). The v5
+classifier API bounds inference by it, answering 503 `classifier_unavailable`
+when it expires, and rejects a malformed or out-of-range budget with 422 before
+inference.
+
 ## Internal production plan tests
 
 `ROUTER_TEST_PLANS_ENABLED` defaults to false. It enables internal launch
@@ -598,7 +705,8 @@ creates only the short-lived grant and never changes entitlements or issues keys
 
 Stable, Max and Boost are typed test selectors, separate from subscription plans.
 Every test targets `prod/stable`; enrollment authorizes access without projecting
-the ordinary internal lane. Max/Boost reuse their server-owned profile keys.
+the ordinary internal lane. Max uses its server-owned profile; Boost uses the
+target's default policy while retaining Boost as the test billing identity.
 Preparation re-resolves the preview, and each admission checks the grant digest,
 current eligibility, single bound session, expiry/revocation and exact retained
 activation/profile/policy. There is no fallback to a current head.

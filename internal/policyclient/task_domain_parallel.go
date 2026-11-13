@@ -19,7 +19,11 @@ func (c *Client) decideWithTaskDomain(ctx context.Context, query policy.Query) (
 	var task taskdomain.Outcome
 	group.Go(func() error {
 		var err error
-		classification, err = c.decide(concurrentCtx, query)
+		if query.ClassifierReleaseID != "" || query.ClassifierSelectionID != "" {
+			classification, err = c.decideV5(concurrentCtx, query)
+		} else {
+			classification, err = c.decide(concurrentCtx, query)
+		}
 		return err
 	})
 	group.Go(func() error {

@@ -17,6 +17,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/httputil"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/websearch"
@@ -172,11 +173,11 @@ func (c *Client) checkHost(baseURL string) error {
 	return nil
 }
 
-// agentRunURL places agent:run under the Cortex root. The inference surfaces
-// hang off /v1 and a tenant's configured base URL may include that segment,
-// but agent:run does not live under it.
+// agentRunURL places agent:run under the Cortex REST root. The inference
+// surfaces hang off /v1 and a tenant's configured base URL may include that
+// segment, or point at an AI Gateway, but agent:run lives under neither.
 func agentRunURL(baseURL string) string {
-	return strings.TrimSuffix(strings.TrimRight(baseURL, "/"), "/v1") + runPath
+	return providers.CortexRESTRoot(baseURL) + runPath
 }
 
 // maxResponseBytes caps the buffered agent response; an agent answer plus

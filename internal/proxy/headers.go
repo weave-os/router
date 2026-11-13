@@ -19,9 +19,6 @@ const (
 	HeaderRouterContextReserve      = "x-router-context-output-reserve-tokens"
 	HeaderRouterContextEstimateKind = "x-router-context-estimate-kind"
 	HeaderRouterContextVersion      = "x-router-context-version"
-	// HeaderRouterCache reports semantic-cache status; value is RouterCacheHit
-	// on a cache hit and the header is omitted otherwise.
-	HeaderRouterCache = "x-router-cache"
 	// HeaderRouterFallbackFrom names the primary provider that was abandoned
 	// when runtime provider failover served the turn from a fallback binding.
 	HeaderRouterFallbackFrom = "x-router-fallback-from"
@@ -39,7 +36,3 @@ const (
 	// HeaderRouterCacheCreationTokens carries cache-creation token count.
 	HeaderRouterCacheCreationTokens = "x-router-cache-creation-tokens"
 )
-
-// RouterCacheHit is the HeaderRouterCache value set when a response is served
-// from the semantic cache.
-const RouterCacheHit = "hit"

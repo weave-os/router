@@ -7,10 +7,10 @@ import (
 	"net/http"
 	"slices"
 
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 )
 
@@ -27,10 +27,10 @@ type anthropicTierAttempt struct {
 	native        dispatchAttempt
 	sink          http.ResponseWriter
 	preludeBuf    *preludeBuffer
-	preludeState  *anthropicPreludeState
+	preludeState  *requestNoticeStream
 	streamCut     *streamCutObserver
-	marker        string
-	setExtractor  func(*otel.UsageExtractor)
+	notice        translate.RouterNotice
+	setExtractor  func(*telemetry.UsageExtractor)
 	setStreamCost func(router.Decision, bool, func() bool)
 	logBody       func(router.Decision, []byte)
 }
@@ -51,7 +51,7 @@ func (a *anthropicTierAttempt) forBinding(actx context.Context, d router.Decisio
 		return attemptOpts, nil, fast, fmt.Errorf("emit body: %w", err)
 	}
 	a.logBody(d, prep.Body)
-	native := a.s.anthropicNativeAttempt(a.env, a.r, prep, a.sink, a.preludeBuf, a.preludeState, a.streamCut, a.marker, a.setExtractor, a.setStreamCost)
+	native := a.s.anthropicNativeAttempt(a.env, a.r, prep, a.sink, a.preludeBuf, a.preludeState, a.streamCut, a.notice, a.setExtractor, a.setStreamCost)
 	return attemptOpts, native, fast, nil
 }
 
@@ -86,7 +86,7 @@ func (a *anthropicTierAttempt) dispatch(actx context.Context, d router.Decision,
 	}
 	a.logBody(d, prep.Body)
 	recordFast(false)
-	standard := a.s.anthropicNativeAttempt(a.env, a.r, prep, a.sink, a.preludeBuf, a.preludeState, a.streamCut, a.marker, a.setExtractor, a.setStreamCost)
+	standard := a.s.anthropicNativeAttempt(a.env, a.r, prep, a.sink, a.preludeBuf, a.preludeState, a.streamCut, a.notice, a.setExtractor, a.setStreamCost)
 	return standardOpts, standard(actx, d, p)
 }
 

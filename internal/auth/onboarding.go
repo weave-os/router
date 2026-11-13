@@ -30,26 +30,30 @@ type SubscriptionConnectedEvent struct {
 	OccurredAt             time.Time
 }
 
-// HarnessLifecycleAction is a state-changing local toggle a harness CLI
-// reports after it has already succeeded.
+// HarnessLifecycleAction is a client-side state change a harness CLI or its
+// local proxy reports after it has already happened.
 type HarnessLifecycleAction string
 
 const (
 	HarnessLifecycleActionOff       HarnessLifecycleAction = "off"
 	HarnessLifecycleActionOn        HarnessLifecycleAction = "on"
 	HarnessLifecycleActionUninstall HarnessLifecycleAction = "uninstall"
+	// HarnessLifecycleActionConnected reports the harness's first request the
+	// router served, for harnesses whose key is shared with another harness
+	// (Claude Desktop reuses the Claude Code key), so key first use can't say.
+	HarnessLifecycleActionConnected HarnessLifecycleAction = "connected"
 )
 
 // Valid reports whether the action is one the CLI is allowed to report.
 func (a HarnessLifecycleAction) Valid() bool {
 	switch a {
-	case HarnessLifecycleActionOff, HarnessLifecycleActionOn, HarnessLifecycleActionUninstall:
+	case HarnessLifecycleActionOff, HarnessLifecycleActionOn, HarnessLifecycleActionUninstall, HarnessLifecycleActionConnected:
 		return true
 	}
 	return false
 }
 
-// LifecycleHarness names the client whose local routing config was toggled.
+// LifecycleHarness names the client whose local routing config changed.
 // Values match the harness ids stored on minted keys (APIKey.Harness), so
 // lifecycle spans join the harness_connected ones on the same string.
 type LifecycleHarness string
@@ -59,19 +63,22 @@ const (
 	LifecycleHarnessCodex    LifecycleHarness = "codex"
 	LifecycleHarnessOpencode LifecycleHarness = "opencode"
 	LifecycleHarnessPi       LifecycleHarness = "pi"
+	LifecycleHarnessCopilot  LifecycleHarness = "copilot"
+	LifecycleHarnessDesktop  LifecycleHarness = "claude_desktop"
 )
 
-// Valid reports whether the harness is one the CLI can toggle.
+// Valid reports whether the harness is one the installer configures.
 func (h LifecycleHarness) Valid() bool {
 	switch h {
-	case LifecycleHarnessClaude, LifecycleHarnessCodex, LifecycleHarnessOpencode, LifecycleHarnessPi:
+	case LifecycleHarnessClaude, LifecycleHarnessCodex, LifecycleHarnessOpencode, LifecycleHarnessPi,
+		LifecycleHarnessCopilot, LifecycleHarnessDesktop:
 		return true
 	}
 	return false
 }
 
-// HarnessLifecycleEvent records a client-reported off/on/uninstall of a
-// harness's local router config. The local mutation has already happened; the
+// HarnessLifecycleEvent records a client-reported off/on/uninstall/connected
+// of a harness's local router config. The local mutation has already happened; the
 // report is fail-open on the client, so absence of an event proves nothing.
 type HarnessLifecycleEvent struct {
 	InstallationExternalID string

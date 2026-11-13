@@ -1,6 +1,6 @@
 {
   "schema_version": "inference_policy_registry_v2",
-  "registry_revision": "sha256:3baeb6cecb678d675d7766700260b5ae4f7188fc4077ef55d864657f4968608c",
+  "registry_revision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a",
   "policies": [
     {
       "purpose": "agent_shadow_evaluation",
@@ -109,9 +109,9 @@
       "purpose": "client_compaction",
       "dispatch_class": "client_authoritative",
       "policy_id": "client-compaction",
-      "policy_revision": "2",
+      "policy_revision": "3",
       "owner": "@steventohme",
-      "rationale": "Serve the client-supplied compaction turn on the session's own warm model when it is summary-grade, else the deployment compaction hard pin, rather than inventing another router summary operation.",
+      "rationale": "Authorize the Pi handoff summary on the session's previous model. Client compaction turns route as main inference: an eligible forced model, else the session pin, else the scorer.",
       "selection_strategy": "deployment_hard_pin",
       "candidate_source": "deployment",
       "hard_constraints": [
@@ -177,7 +177,8 @@
         "claude-opus-4-8",
         "claude-opus-5-5",
         "claude-fable-5",
-        "claude-fable-5-1"
+        "claude-fable-5-1",
+        "claude-fable-5-2"
       ],
       "hard_constraints": [
         "catalog_binding",
@@ -523,7 +524,8 @@
         "claude-opus-4-8",
         "claude-opus-5-5",
         "claude-fable-5",
-        "claude-fable-5-1"
+        "claude-fable-5-1",
+        "claude-fable-5-2"
       ],
       "hard_constraints": [
         "catalog_binding",

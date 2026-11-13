@@ -13,7 +13,12 @@ the router is whatever URL you configure, task definitions are fetched from
 their official sources, and router-billed cost comes from the
 public [analytics export](../docs/ANALYTICS_EXPORT.md).
 
-Claude Code harnesses are out of scope for now (Codex only).
+For the comparison design, pinned versions, paired-trial caveats, and cost
+provenance, read the [Router benchmark methodology](https://weaveos.com/router/benchmark-methodology).
+
+Claude Code harnesses are out of scope for these comparisons (Codex only).
+The token-efficiency savings measurement, which covers Claude Code and Codex,
+has its own kit: [token-efficiency/](token-efficiency/README.md).
 
 ## What is in the box
 
@@ -52,7 +57,7 @@ variables that hold them (defaults: `WEAVE_ROUTER_API_KEY`,
 weave-bench probe
 ```
 
-Prints the router build (`/health` → commit + cluster artifact version), the
+Prints the router build (`/v1/version` → commit + stable policy release), the
 sha256 of the stable HMM roster it is serving, and the router's reply to a
 `/beta` turn. Exit status is 0 only if the reply contains `Beta enabled` — the
 same acknowledgement the agent asserts at the start of every router trial (it

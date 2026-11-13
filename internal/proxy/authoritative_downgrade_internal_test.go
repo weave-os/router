@@ -30,8 +30,6 @@ func authoritativeDowngradeService(store *stubPinStore, fresh router.Decision) *
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,
@@ -51,7 +49,7 @@ func runAuthoritativeDowngradeTurn(t *testing.T, svc *Service) turnLoopResult {
 	t.Helper()
 	env, err := translate.ParseAnthropic(authoritativeDowngradeBody)
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 
 	result, err := svc.runTurnLoop(
 		router.WithStrategy(context.Background(), authoritativeDowngradeStrategy),
@@ -85,8 +83,8 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 	cheapFresh := router.Decision{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-haiku-4-5",
-		Reason:   "hmm_policy(classifier 'fast' (p=0.49))",
-		Metadata: &router.RoutingMetadata{ChosenScore: 0.49},
+		Reason:   "hmm_policy(classifier 'fast' (p=0.30))",
+		Metadata: &router.RoutingMetadata{ChosenScore: 0.3},
 	}
 	confidentCheapFresh := router.Decision{
 		Provider: providers.ProviderAnthropic,
@@ -230,8 +228,8 @@ func TestAuthoritativeDowngradeShadow(t *testing.T) {
 	cheapFresh := router.Decision{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-haiku-4-5",
-		Reason:   "hmm_policy(classifier 'fast' (p=0.49))",
-		Metadata: &router.RoutingMetadata{ChosenScore: 0.49},
+		Reason:   "hmm_policy(classifier 'fast' (p=0.30))",
+		Metadata: &router.RoutingMetadata{ChosenScore: 0.3},
 	}
 	confidentCheapFresh := router.Decision{
 		Provider: providers.ProviderAnthropic,
@@ -312,6 +310,7 @@ func TestAuthoritativeDowngradeShadow(t *testing.T) {
 			store.getFound = true
 			store.getPin = authoritativeDowngradePin(test.pinModel, 0)
 			svc := authoritativeDowngradeService(store, test.fresh).
+				WithHMMDowngradeHysteresisTurns(0).
 				WithHMMDowngradeHysteresisShadowTurns(test.shadowTurns)
 
 			result := runAuthoritativeDowngradeTurn(t, svc)
@@ -352,8 +351,8 @@ func TestAuthoritativeDowngradeHysteresisAcrossTurns(t *testing.T) {
 	cheaper := router.Decision{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-haiku-4-5",
-		Reason:   "hmm_policy(classifier 'fast' (p=0.50))",
-		Metadata: &router.RoutingMetadata{ChosenScore: 0.5},
+		Reason:   "hmm_policy(classifier 'fast' (p=0.30))",
+		Metadata: &router.RoutingMetadata{ChosenScore: 0.3},
 	}
 	confirming := router.Decision{
 		Provider: providers.ProviderAnthropic,
@@ -389,6 +388,40 @@ func TestAuthoritativeDowngradeHysteresisAcrossTurns(t *testing.T) {
 		assert.Equal(t, turn.wantTier, result.PinTier, "turn %d tier", i+1)
 		require.Len(t, store.upserts, 1)
 		assert.Equal(t, turn.wantVotes, store.upserts[0].ConsecutiveDowngradeVotes, "turn %d votes", i+1)
+
+		pin = store.upserts[0]
+		pin.PinnedUntil = time.Now().Add(time.Hour)
+	}
+}
+
+func TestAuthoritativeDowngradeDefaultHysteresisHoldsSingleVote(t *testing.T) {
+	cheaper := router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-haiku-4-5",
+		Reason:   "hmm_policy:tool_execution(classifier 'low' (p=0.30))",
+		Metadata: &router.RoutingMetadata{ChosenScore: 0.3},
+	}
+
+	pin := authoritativeDowngradePin("claude-opus-4-8", 0)
+	for i, want := range []struct {
+		model string
+		tier  string
+		votes int
+	}{
+		{model: "claude-opus-4-8", tier: "authoritative_hmm_downgrade_hysteresis", votes: 1},
+		{model: "claude-haiku-4-5", tier: "authoritative_per_turn", votes: 0},
+	} {
+		store := newStubPinStore()
+		store.getFound = true
+		store.getPin = pin
+		svc := authoritativeDowngradeService(store, cheaper)
+
+		result := runAuthoritativeDowngradeTurn(t, svc)
+
+		assert.Equal(t, want.model, result.Decision.Model, "turn %d model", i+1)
+		assert.Equal(t, want.tier, result.PinTier, "turn %d tier", i+1)
+		require.Len(t, store.upserts, 1)
+		assert.Equal(t, want.votes, store.upserts[0].ConsecutiveDowngradeVotes, "turn %d votes", i+1)
 
 		pin = store.upserts[0]
 		pin.PinnedUntil = time.Now().Add(time.Hour)

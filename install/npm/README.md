@@ -8,15 +8,15 @@ it prints a migration warning directing users to `@weave-os/router`.
 
 ```bash
 npx @weave-os/router                       # open the hosted setup page
-npx @weave-os/router --claude              # skip the picker, target Claude Code
-npx @weave-os/router --codex               # skip the picker, target the OpenAI Codex CLI
+npx @weave-os/router --claude              # install for Claude Code
+npx @weave-os/router --codex               # install for the OpenAI Codex CLI
 npx @weave-os/router setup --claude --codex # configure both native clients
 npx @weave-os/router accounts list --claude # list enrolled subscription accounts
 npx @weave-os/router login claude           # enroll Claude Pro/Max with PKCE
 npx @weave-os/router login codex            # enroll ChatGPT Pro/Plus device flow
 npx @weave-os/router status                 # connectivity, native configs, account health
-npx @weave-os/router --opencode            # skip the picker, target opencode
-npx @weave-os/router --pi                  # skip the picker, target pi + Loom UI
+npx @weave-os/router --opencode            # install for opencode
+npx @weave-os/router --pi                  # install for pi + Loom UI
 npx @weave-os/router --scope project       # per-repo install; key-bearing config stays out of git
 npx @weave-os/router --local               # self-hosted via docker-compose (localhost:8080)
 npx @weave-os/router --base-url https://router.acme.internal
@@ -58,7 +58,7 @@ Codex installs `$router-status`, `$router-off`, `$router-on`, and
 to the normal provider; Codex does not support third-party `/disable-routing`
 slash commands. The shell equivalent is `npx @weave-os/router disable-routing`.
 Cursor has no config file we own — toggle its base URL override in **Settings →
-Models** instead.
+Models** instead, with a custom model named `weave-auto`.
 
 Pick which models the router is allowed to route to:
 

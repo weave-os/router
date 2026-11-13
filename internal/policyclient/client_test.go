@@ -1022,3 +1022,17 @@ func floatPtr(value float64) *float64 { return &value }
 func intPointer(value int) *int { return &value }
 
 func int64Ptr(value int64) *int64 { return &value }
+
+func TestQwenWarmingStopsClassificationRetries(t *testing.T) {
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"error":"qwen_warming","preparation":{"state":"warming","operation_id":"fc-warmup"}}`))
+	}))
+	defer server.Close()
+	client := New(server.URL, server.Client(), time.Second)
+	_, err := client.Decide(context.Background(), policy.Query{Strategy: router.StrategyHMMQwen, RouteID: "cold", SchemaVersion: policy.SchemaVersionV4})
+	require.ErrorContains(t, err, "Qwen classifier is warming")
+	require.Equal(t, 1, calls, "cold GPU startup should be prepared explicitly, not retried inside classification")
+}

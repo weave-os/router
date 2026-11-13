@@ -93,8 +93,6 @@ func newDemotionTestService(store sessionpin.Store, flagOn bool) *Service {
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -128,7 +126,7 @@ func TestMaybeDemoteArmAfterUnrescuedStall(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &demotionStubPinStore{}
-			svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+			svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 				WithRescuedFailureArmDemotion(tc.flagOn)
 			ctx := context.Background()
 			if tc.cancelled {
@@ -496,8 +494,6 @@ func newRescuedDemotionTestService(store sessionpin.Store, flagOn bool) *Service
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		"anthropic", "claude-haiku-4-5",
@@ -613,7 +609,7 @@ func TestUnrescuedResponseHeaderTimeoutExcludesPrimaryOnNextTurn(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "response-header-timeout-next-turn",
 	}}
-	nextTurnService := NewService(nil, nil, nil, false, nil, &rolePinStore{byRole: store.rows}, false,
+	nextTurnService := NewService(nil, nil, nil, &rolePinStore{byRole: store.rows}, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
@@ -943,12 +939,6 @@ func TestIsCommittedStreamFailure_SSEErrorFrameKeepsCause(t *testing.T) {
 			})
 		}
 	}
-}
-
-// The completion line's reason field is only populated on a real demotion.
-func TestArmDemotionReason(t *testing.T) {
-	assert.Equal(t, "", armDemotionReason(""))
-	assert.Equal(t, "committed_stream_failure", armDemotionReason(demotedArm))
 }
 
 // arm_demoted names the committed-stream strike when it landed and the

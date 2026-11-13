@@ -1,0 +1,60 @@
+/* The active tab's fill is one pill that slides between triggers. useActiveTabIndicator writes its
+   box as custom properties and sets data-tab-indicator once it has measured; until then (and in
+   lists that opt out) each active trigger paints its own fill. The pill only exists while placed,
+   so its first appearance lands without travelling. */
+.tray {
+  position: relative;
+  isolation: isolate;
+}
+
+.tray[data-tab-indicator]::before {
+  @apply rounded-md bg-wv-tab-active shadow-sm;
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--tab-indicator-width);
+  height: var(--tab-indicator-height);
+  translate: var(--tab-indicator-x) var(--tab-indicator-y);
+  pointer-events: none;
+  transition:
+    translate var(--wv-duration-ui) var(--wv-ease-in-out-cubic),
+    width var(--wv-duration-ui) var(--wv-ease-in-out-cubic),
+    height var(--wv-duration-ui) var(--wv-ease-in-out-cubic),
+    scale var(--wv-duration-fast) var(--wv-ease-out-cubic);
+}
+
+/* Positioned after the pill in source order, so labels paint above it. */
+.trigger {
+  position: relative;
+  transition:
+    background-color var(--wv-duration-ui) var(--wv-ease-out-cubic),
+    color var(--wv-duration-ui) var(--wv-ease-out-cubic),
+    scale var(--wv-duration-fast) var(--wv-ease-out-cubic);
+}
+
+/* Clears only the elevation shadow; the focus ring shares box-shadow and must survive. */
+.tray[data-tab-indicator] > .trigger[data-state="active"] {
+  --tw-shadow: 0 0 #0000;
+  background-color: transparent;
+}
+
+.trigger:active {
+  scale: 0.96;
+}
+
+.tray[data-tab-indicator]:has(> .trigger[data-state="active"]:active)::before {
+  scale: 0.96;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tray[data-tab-indicator]::before,
+  .trigger {
+    transition: none;
+  }
+
+  .trigger:active,
+  .tray[data-tab-indicator]:has(> .trigger[data-state="active"]:active)::before {
+    scale: none;
+  }
+}

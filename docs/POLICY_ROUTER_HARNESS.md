@@ -94,10 +94,19 @@ When `authoritative_per_turn_selection=true`, each eligible main-loop or
 tool-result `/route` selection is model-authoritative for that turn. Go still
 owns hard eligibility, explicit force-model/operator pins, credentials, and
 same-model provider retries. It disables automatic session reuse, EV planner
-overrides, model-changing baseline failover, semantic-cache hits, and
+overrides, model-changing baseline failover, and
 router-generated summarizer calls for those turns. Post-selection synthetic
 loop breakers are also bypassed so one accepted policy action maps to one
 selected model dispatch attempt.
+
+An optional `interaction_state_package_sha256s` list names the loaded
+classifier packages that were trained on interaction-state inputs. A v4
+request goes to such a package only from the strategy that package serves.
+For those requests, the router clips each routed message at 8,000 bytes
+(128,000 in total) instead of 3,000 (48,000 in total). Once the shared budget
+cuts a message, older messages carry no text. The request also sets
+`omitted_user_turn_count`. Every other package receives the default request
+unchanged, and a sidecar that omits the list receives only default requests.
 
 The subscription usage-bypass gate is deliberately outside that list: it
 decides whether a turn is routed and billed at all, so a caller's own prepaid
@@ -245,8 +254,8 @@ resolve `latest`, local files, or an unverified mutable URL.
 6. Exercise serving and shadow traffic for every supported harness. Verify
    model/provider/artifact/roster/route-key/rollout telemetry and lifecycle
    callbacks join on `route_id`.
-7. Start with installation allowlisting. Keep the deployment default at
-   `cluster` until error, latency, provider, privacy, and quality gates pass.
+7. Start with installation allowlisting. Keep the deployment default on
+   the current promoted strategy until error, latency, provider, privacy, and quality gates pass.
 8. Promote globally by changing `ROUTER_DEFAULT_STRATEGY`. Keep an explicit
    installation override available for operational rollback; do not add an
    automatic per-request fallback.
@@ -259,8 +268,8 @@ export ROUTER_POLICY_SIDECAR_AUTH='{"quality-v2":"google-id-token"}'
 export ROUTER_POLICY_SIDECAR_TIMEOUT_MS=3000
 ```
 
-The strategy ID must match `[a-z][a-z0-9_-]{0,63}` and cannot be `cluster`,
-`rl`, `hmm`, or `bandit`. New policies use catalog IDs as roster IDs at the
+The strategy ID must match `[a-z][a-z0-9_-]{0,63}` and cannot be a built-in
+strategy ID such as `rl`, `hmm`, `hmm_embedding`, or `llm_classifier`. New policies use catalog IDs as roster IDs at the
 wire boundary; an artifact with different internal labels translates them
 inside the sidecar. `google-id-token` authentication uses the exact configured
 origin as the token audience and fails router startup when credentials cannot

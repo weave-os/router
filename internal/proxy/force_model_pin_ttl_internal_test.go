@@ -80,13 +80,13 @@ func TestPinExpiry_UserForcedNeverExpires(t *testing.T) {
 // can never silently drop the user's directive.
 func TestSetForceModelSessionPin_WritesNeverExpiresSentinel(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	var key [sessionpin.SessionKeyLen]byte
 	require.NoError(t, svc.setForceModelSessionPin(
 		context.Background(), key, uuid.New(),
-		"claude-opus-4-8", providers.ProviderAnthropic, ""))
+		"claude-opus-4-8", providers.ProviderAnthropic, "", ""))
 
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, forceModelSessionRole, store.upserts[0].Role)
@@ -97,13 +97,13 @@ func TestSetForceModelSessionPin_WritesNeverExpiresSentinel(t *testing.T) {
 
 func TestSetForceModelSessionPin_IsStrategyIndependent(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
 	require.NoError(t, svc.setForceModelSessionPin(
 		ctx, [sessionpin.SessionKeyLen]byte{}, uuid.New(),
-		"claude-opus-4-8", providers.ProviderAnthropic, ""))
+		"claude-opus-4-8", providers.ProviderAnthropic, "", ""))
 
 	require.Len(t, store.upserts, 1)
 	assert.Empty(t, store.upserts[0].Strategy)

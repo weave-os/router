@@ -3,6 +3,10 @@ package policyregistry
 import (
 	"context"
 	"errors"
+	"maps"
+	"slices"
+
+	"weave-os/router/internal/router/policy"
 )
 
 // WorkerIdentity is release-owned boot configuration attested during preparation.
@@ -96,5 +100,20 @@ func ValidateWorkerSelection(ctx context.Context, store ServingStore, cache *Ser
 	if err != nil {
 		return WorkerAttestation{}, err
 	}
-	return WorkerAttestation{Identity: identity, Requirements: prepared.Candidate.Requirements, CatalogArms: snapshot.Policy.AllArms(), Selection: request.Selection, Ready: true}, nil
+	return WorkerAttestation{Identity: identity, Requirements: prepared.Candidate.Requirements, SupportedAPIMajors: policy.SupportedClassifierAPIMajors(), CatalogArms: snapshotCatalogArms(snapshot), Selection: request.Selection, Ready: true}, nil
+}
+
+// snapshotCatalogArms attests every arm the loaded snapshot can select,
+// including independently pinned strategy rosters.
+func snapshotCatalogArms(snapshot *Snapshot) []string {
+	arms := snapshot.Policy.AllArms()
+	strategies := slices.Sorted(maps.Keys(snapshot.StrategyPolicies))
+	for _, strategy := range strategies {
+		for _, arm := range snapshot.StrategyPolicies[strategy].Roster.AllArms() {
+			if !slices.Contains(arms, arm) {
+				arms = append(arms, arm)
+			}
+		}
+	}
+	return arms
 }

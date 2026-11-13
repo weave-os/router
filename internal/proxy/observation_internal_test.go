@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"testing"
 
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/telemetry"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,7 +16,7 @@ import (
 
 func TestServingSpanAttributesAreIndependentOfRoutingDecision(t *testing.T) {
 	ctx := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Target: string(policyregistry.TargetStable), ReleaseID: "release", BindingID: "binding", ActivationID: "activation", ProfileKey: "profile", ProfileName: "boost-default", ProfileRevision: "version", Plan: "boost", EntitlementVersion: 9, BindingGeneration: 3})
-	attributes := otel.NewAttrBuilder(10)
+	attributes := telemetry.NewAttrBuilder(10)
 	applyServingSpanAttrs(ctx, attributes)
 	attributeValues := make(map[string]string)
 	integerValues := make(map[string]int64)
@@ -32,7 +32,7 @@ func TestServingSpanAttributesAreIndependentOfRoutingDecision(t *testing.T) {
 	require.Equal(t, "boost", attributeValues["routing.plan"])
 	require.Equal(t, int64(9), integerValues["routing.entitlement_version"])
 	require.Equal(t, int64(3), integerValues["serving.binding_generation"])
-	legacy := otel.NewAttrBuilder(0)
+	legacy := telemetry.NewAttrBuilder(0)
 	applyServingSpanAttrs(context.Background(), legacy)
 	require.Empty(t, legacy.Build())
 }
@@ -133,7 +133,7 @@ func TestBuildObservationContext_CapturesHMMStrategy(t *testing.T) {
 	// Sidecar sent no candidate-score map, so that column stays NULL.
 	assert.Nil(t, obs.CandidateScores)
 
-	builder := otel.NewAttrBuilder(16)
+	builder := telemetry.NewAttrBuilder(16)
 	obs.applySpanAttrs(builder)
 	attrs := make(map[string]any)
 	for _, attr := range builder.Build() {
@@ -180,7 +180,7 @@ func TestBuildObservationContext_DefaultsStrategyToActive(t *testing.T) {
 
 	obs := buildObservationContext(context.Background(), served, router.Decision{}, CaptureOff)
 
-	assert.Equal(t, string(router.StrategyCluster), obs.Strategy)
+	assert.Equal(t, string(router.StrategyHMMEmbedding), obs.Strategy)
 	assert.Empty(t, obs.RouteID)
 }
 

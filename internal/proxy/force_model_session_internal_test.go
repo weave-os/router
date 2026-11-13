@@ -171,16 +171,16 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 		Provider:          providers.ProviderAnthropic,
 		Model:             forcedModel,
 		Reason:            translate.ReasonUserForceModel,
-		Strategy:          router.StrategyCluster,
+		Strategy:          router.StrategyHMMEmbedding,
 		PinnedUntil:       pinNeverExpires,
 		LastOutputTokens:  32000,
 		LastTurnEndedAt:   endedAt,
 		LastOutputLimitAt: endedAt,
 	}
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := NewService(freshRouter, nil, nil, false, nil, store, false,
+	svc := NewService(freshRouter, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
-	features := child.RoutingFeatures(false)
+	features := child.RoutingFeatures()
 
 	ctx = router.WithStrategy(ctx, router.StrategyHMMBeta)
 	result, err := svc.runTurnLoop(ctx, child, features, apiKeyID, installationID, "", nil, router.Request{
@@ -214,7 +214,7 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 		"messages":[{"role":"user","content":"task"}]
 	}`))
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	threadKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadKey)
 	role := roleForTier(catalog.TierFor(features.Model))
@@ -235,7 +235,7 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 		Provider:       providers.ProviderOpenAI,
 		Model:          "gpt-5.5",
 		Reason:         "cluster:existing",
-		Strategy:       router.StrategyCluster,
+		Strategy:       router.StrategyHMMEmbedding,
 		PinnedUntil:    time.Now().Add(time.Hour),
 	}
 	store.pins[forceModelMapKey(threadKey, hmmHistoryRole(role))] = sessionpin.Pin{
@@ -246,10 +246,10 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 		},
 	}
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := NewService(freshRouter, nil, nil, false, nil, store, false,
+	svc := NewService(freshRouter, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	svc.WithTransientRateLimit(true, 45)
-	ctx = router.WithStrategy(ctx, router.StrategyCluster)
+	ctx = router.WithStrategy(ctx, router.StrategyHMMEmbedding)
 
 	result, err := svc.runTurnLoop(ctx, env, features, apiKeyID, installationID, "", nil, router.Request{
 		RequestedModel: features.Model,
@@ -270,13 +270,13 @@ func TestRunTurnLoop_ClearTombstoneBlocksLegacyForce(t *testing.T) {
 	const apiKeyID = "api-key"
 	installationID := uuid.New()
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "client-session"})
-	ctx = router.WithStrategy(ctx, router.StrategyCluster)
+	ctx = router.WithStrategy(ctx, router.StrategyHMMEmbedding)
 	env, err := translate.ParseAnthropic([]byte(`{
 		"model":"claude-opus-4-8",
 		"messages":[{"role":"user","content":"task after unforce"}]
 	}`))
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	threadKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadKey)
 	role := roleForTier(catalog.TierFor(features.Model))
@@ -298,7 +298,7 @@ func TestRunTurnLoop_ClearTombstoneBlocksLegacyForce(t *testing.T) {
 	freshRouter := &tierProbeRouter{
 		available: map[string]struct{}{"claude-haiku-4-5": {}},
 	}
-	svc := NewService(freshRouter, nil, nil, false, nil, store, false,
+	svc := NewService(freshRouter, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	result, err := svc.runTurnLoop(ctx, env, features, apiKeyID, installationID, "", nil, router.Request{
@@ -334,9 +334,9 @@ func TestRunTurnLoop_SessionForceOverridesAuxiliaryHardPin(t *testing.T) {
 		PinnedUntil:    pinNeverExpires,
 	}
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
-	svc := NewService(freshRouter, nil, nil, false, nil, store, false,
+	svc := NewService(freshRouter, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 
 	result, err := svc.runTurnLoop(ctx, env, features, apiKeyID, installationID, "", nil, router.Request{
 		RequestedModel: features.Model,
@@ -352,7 +352,7 @@ func TestRunTurnLoop_SessionForceOverridesAuxiliaryHardPin(t *testing.T) {
 func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *testing.T) {
 	const (
 		apiKeyID     = "api-key"
-		fableModelID = "claude-fable-5-1"
+		fableModelID = "claude-fable-5-2"
 		astraModelID = "gpt-6-astra"
 	)
 	installationID := uuid.New()
@@ -365,10 +365,10 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 	threadKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadKey)
 	store := newForceModelMapStore()
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
-	forcedModel, _, err := svc.applyForceModelCommand(ctx, env, translate.ForceModelResult{Model: "fable"}, installationID, threadKey, forceKey)
+	forcedModel, _, err := svc.applyForceModelCommand(ctx, translate.ForceModelResult{Model: "fable"}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
 	assert.Equal(t, fableModelID, forcedModel)
 	pin, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
@@ -384,7 +384,7 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 		assert.False(t, threadForceFound, "new force state must have only one authoritative row")
 	}
 
-	nextModel, _, err := svc.applyForceModelCommand(ctx, env, translate.ForceModelResult{Model: "astra"}, installationID, threadKey, forceKey)
+	nextModel, _, err := svc.applyForceModelCommand(ctx, translate.ForceModelResult{Model: "astra"}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
 	assert.Equal(t, astraModelID, nextModel)
 	switched, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
@@ -393,7 +393,7 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 	assert.Equal(t, fableModelID, switched.LastServedModel)
 	assert.Equal(t, providers.ProviderOpenAI, switched.Provider)
 
-	_, _, err = svc.applyForceModelCommand(ctx, env, translate.ForceModelResult{Clear: true}, installationID, threadKey, forceKey)
+	_, _, err = svc.applyForceModelCommand(ctx, translate.ForceModelResult{Clear: true}, installationID, threadKey, forceKey)
 	require.NoError(t, err)
 	cleared, found, err := store.Get(ctx, forceKey, forceModelSessionRole)
 	require.NoError(t, err)
@@ -407,7 +407,7 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 
 func TestRecordTurnUsage_ForcedDecisionWritesThreadHistoryOnly(t *testing.T) {
 	store := newForceModelMapStore()
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	threadKey := [sessionpin.SessionKeyLen]byte{1}
 	controlKey := [sessionpin.SessionKeyLen]byte{2}

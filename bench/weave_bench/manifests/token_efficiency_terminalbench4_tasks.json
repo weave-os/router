@@ -1,0 +1,142 @@
+{
+ "benchmark": "Terminal-Bench 4.0",
+ "harbor_dataset": "terminal-bench/terminal-bench@4.0.0",
+ "content_sha256": "39d9f44b40420cde8fdcc087579c0d72a7e14fa3656d603c3f0d22fb35e27732",
+ "description": "Quality-factor tasks: a stratified 22-task subset of the full 66 (fixed22) plus 11 tasks gpt-6.1-sol solved in a full run (sol_solved), so the comparison arms are not all floored at zero.",
+ "digest_rule": "sha256 of the sorted task names (without the terminal-bench/ prefix) joined by newlines",
+ "digest": "7e92e0a388041e88dee47c9627445bb8ad6dfd092e3e846ae4434f2c17d04afd",
+ "tasks": [
+  {
+   "name": "coq-block-bound",
+   "group": "fixed22"
+  },
+  {
+   "name": "ctr-optimization",
+   "group": "fixed22"
+  },
+  {
+   "name": "cumulative-layout-shift",
+   "group": "fixed22"
+  },
+  {
+   "name": "distributed-dedup",
+   "group": "fixed22"
+  },
+  {
+   "name": "foodstuff-beta-activity",
+   "group": "fixed22"
+  },
+  {
+   "name": "formal-crypto",
+   "group": "fixed22"
+  },
+  {
+   "name": "fp8-rmsnorm-gemm",
+   "group": "fixed22"
+  },
+  {
+   "name": "freecad-spring-clip",
+   "group": "fixed22"
+  },
+  {
+   "name": "freight-dispatch-shift",
+   "group": "fixed22"
+  },
+  {
+   "name": "heat-pump-warranty",
+   "group": "fixed22"
+  },
+  {
+   "name": "hof-topology-interpenetration",
+   "group": "fixed22"
+  },
+  {
+   "name": "layout-config-recreation2",
+   "group": "fixed22"
+  },
+  {
+   "name": "mp-checkpoint-consolidation",
+   "group": "fixed22"
+  },
+  {
+   "name": "mvcc-lsm-compaction",
+   "group": "fixed22"
+  },
+  {
+   "name": "ontology-kg-querying",
+   "group": "fixed22"
+  },
+  {
+   "name": "payments-pipeline-fix",
+   "group": "fixed22"
+  },
+  {
+   "name": "session-window-debug",
+   "group": "fixed22"
+  },
+  {
+   "name": "sglang-qwen-burst",
+   "group": "fixed22"
+  },
+  {
+   "name": "sound-change-cascade",
+   "group": "fixed22"
+  },
+  {
+   "name": "uefi-bootkit",
+   "group": "fixed22"
+  },
+  {
+   "name": "vf2-speedup-networkx",
+   "group": "fixed22"
+  },
+  {
+   "name": "wdm-design",
+   "group": "fixed22"
+  },
+  {
+   "name": "atrx-vep-crispr",
+   "group": "sol_solved"
+  },
+  {
+   "name": "html-js-filter",
+   "group": "sol_solved"
+  },
+  {
+   "name": "vpp-loss-divergence",
+   "group": "sol_solved"
+  },
+  {
+   "name": "biped-contact-dynamics",
+   "group": "sol_solved"
+  },
+  {
+   "name": "fin-saccr-rwa",
+   "group": "sol_solved"
+  },
+  {
+   "name": "live-database-cutover",
+   "group": "sol_solved"
+  },
+  {
+   "name": "react-lead-form",
+   "group": "sol_solved"
+  },
+  {
+   "name": "risk-scorer-replay",
+   "group": "sol_solved"
+  },
+  {
+   "name": "shadow-relay",
+   "group": "sol_solved"
+  },
+  {
+   "name": "takens-embedding-lean",
+   "group": "sol_solved"
+  },
+  {
+   "name": "vba-userform-port",
+   "group": "sol_solved"
+  }
+ ]
+}

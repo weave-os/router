@@ -72,7 +72,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		}
 		defer recordProjection()
 		queries := dbbudget.Queries(tx)
-		_, err := queries.GetServingInstallationForAdmission(ctx, installationUUID)
+		installation, err := queries.GetServingInstallationForAdmission(ctx, installationUUID)
 		if err != nil {
 			return err
 		}
@@ -89,7 +89,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 			}
 			subject = &auth.CredentialSubject{ID: projection.RouterCredentialSubject.ID.String(), ProjectionComplete: projection.RouterCredentialSubject.ProjectionComplete, InternalEnrolled: projection.RouterCredentialSubject.InternalEnrolled, EnrollmentGeneration: projection.RouterCredentialSubject.EnrollmentGeneration, AccessEnabled: projection.AccessEnabled, RevokedAt: timestamptzPtr(projection.RouterCredentialSubject.RevokedAt)}
 		}
-		if err := auth.ValidateCredentialSubject(key, subject); err != nil {
+		if err := auth.ValidateServingCredential(key, subject); err != nil {
 			return err
 		}
 		lane, err := queries.GetServingInstallationLaneEnrollment(ctx, installationUUID)
@@ -97,6 +97,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 			return err
 		}
 		projection := enrollmentProjection(lane, subject)
+		projection.RoutingControlsDigest = policyregistry.RoutingControlsDigest(installation.AllowedModels, installation.ExcludedModels, installation.ExcludedProviders, installation.RoutingStrategy)
 		identity := apiKeyID
 		if subject != nil {
 			identity = subject.ID
@@ -131,6 +132,9 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 			}
 			if err == nil {
 				projection.ProfileKey = uuidString(assignment.ProfileKey)
+				if projection.ProfileKey == entitlement.LegacyBoostProfileKey {
+					projection.ProfileKey = ""
+				}
 				projection.AssignmentGeneration = assignment.AssignmentGeneration
 			}
 		}
@@ -237,7 +241,7 @@ func subscriberPlanProjection(planValue string, version int64) (policyregistry.A
 	plan := entitlement.Plan(planValue)
 	profile, ok := entitlement.ServingProfileFor(plan)
 	if !ok || version <= 0 {
-		return policyregistry.AdmissionProjection{}, errors.New("active subscriber plan has no valid server-owned serving profile")
+		return policyregistry.AdmissionProjection{}, errors.New("active subscriber plan has no valid routing policy")
 	}
 	return policyregistry.AdmissionProjection{
 		ProfileKey:           profile.Key,

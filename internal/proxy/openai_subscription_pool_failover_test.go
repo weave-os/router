@@ -51,7 +51,7 @@ func TestProxyOpenAIChatCompletion_SubscriptionPoolExhaustionRescuesSibling(t *t
 			providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic},
 			providers.ProviderOpenAI:    rescue,
 		},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderAnthropic: {},
@@ -62,7 +62,7 @@ func TestProxyOpenAIChatCompletion_SubscriptionPoolExhaustionRescuesSibling(t *t
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude),
 		InstallationIDContextKey{}, installationID.String())
 	rec := httptest.NewRecorder()
-	body := openaiChatBody()
+	body := []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body)))
 
 	err := svc.ProxyOpenAIChatCompletion(ctx, body, rec, req)
@@ -72,7 +72,7 @@ func TestProxyOpenAIChatCompletion_SubscriptionPoolExhaustionRescuesSibling(t *t
 	assert.Contains(t, rec.Body.String(), "served after retry")
 }
 
-func TestProxyOpenAIChatCompletion_SubscriptionOnlyKeepsPoolExhaustion(t *testing.T) {
+func TestProxyOpenAIChatCompletion_SubscriptionOnlyKeepsPoolUnavailability(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{}
 	rescue := &responsesRetryClient{}
 	svc := NewService(
@@ -81,7 +81,7 @@ func TestProxyOpenAIChatCompletion_SubscriptionOnlyKeepsPoolExhaustion(t *testin
 			providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic},
 			providers.ProviderOpenAI:    rescue,
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderAnthropic: {},
@@ -108,7 +108,7 @@ func TestProxyMessages_SubscriptionPoolExhaustionRescuesSibling(t *testing.T) {
 			providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic},
 			providers.ProviderOpenAI:    rescue,
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithManagedSubscriptions(leaser).
 		WithDeploymentKeyedProviders(map[string]struct{}{
 			providers.ProviderAnthropic: {},
@@ -118,7 +118,7 @@ func TestProxyMessages_SubscriptionPoolExhaustionRescuesSibling(t *testing.T) {
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude),
 		InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
 	rec := httptest.NewRecorder()
-	body := anthropicMessagesBody()
+	body := []byte(`{"model":"auto","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"read main.go"}],"tools":[{"name":"read_file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}]}`)
 
 	err := svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body))))
 
@@ -172,7 +172,7 @@ func TestProxyEndpoints_CachedManagedModelDenialEvictsAutomaticPin(t *testing.T)
 			svc := NewService(
 				staticRouter{decision: claudeOpusPinnedDecision()},
 				map[string]providers.Client{providers.ProviderAnthropic: upstream},
-				nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+				nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 			).WithManagedSubscriptions(leaser)
 			svc.subscriptionModels.denyManaged("account:opaque-claude", "opaque-claude", providers.ProviderAnthropic, "claude-opus-5", time.Now().Add(time.Minute))
 

@@ -1,0 +1,20 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_chat",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "gpt-5",
+          "error": "no eligible model"
+        }
+      ],
+      "dispatch_attempts": [],
+      "response": {},
+      "dispatch_error": {
+        "outcome": "error: no eligible model"
+      }
+    }
+  ],
+  "scenario": "openai_chat_nonstream_route_error"
+}

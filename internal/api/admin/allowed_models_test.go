@@ -29,7 +29,7 @@ func putAllowedModels(t *testing.T, routable admin.RoutableModelsSource, allowed
 	engine := gin.New()
 	engine.PUT("/admin/v1/allowed-models", func(c *gin.Context) {
 		c.Set("router_installation", &auth.Installation{ID: "inst-1"})
-	}, admin.UpdateAllowedModelsHandler(nil, nil, routable))
+	}, admin.UpdateAllowedModelsHandler(nil, routable))
 
 	body, err := json.Marshal(map[string][]string{"allowed": allowed})
 	require.NoError(t, err)

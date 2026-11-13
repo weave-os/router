@@ -4,13 +4,16 @@ import (
 	"crypto/sha1"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -64,15 +67,13 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
-	body, err = normalizeAnthropicFinalAssistant(body)
+	body, err = dropUnsupportedCacheControlFields(body, opts.TargetProvider == providers.ProviderAnthropic, in.Get("anthropic-beta"))
 	if err != nil {
-		return providers.PreparedRequest{}, fmt.Errorf("normalize anthropic final assistant: %w", err)
+		return providers.PreparedRequest{}, err
 	}
-	if opts.Capabilities.Supports(router.CapAssistantPrefillUnsupported) {
-		body, err = dropAnthropicFinalAssistant(body)
-		if err != nil {
-			return providers.PreparedRequest{}, fmt.Errorf("drop anthropic final assistant: %w", err)
-		}
+	body, err = prepareAnthropicMessageTail(body, opts.Capabilities.Supports(router.CapAssistantPrefill))
+	if err != nil {
+		return providers.PreparedRequest{}, err
 	}
 	body, err = applyAnthropicCachePolicy(body, true)
 	if err != nil {
@@ -96,7 +97,12 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
-	if maxOutputTokens := modelMaxOutputTokens[router.StripDateSuffix(opts.TargetModel)]; maxOutputTokens > 0 {
+	modelID := router.StripDateSuffix(opts.TargetModel)
+	maxOutputTokens := modelMaxOutputTokens[modelID]
+	if model, ok := catalog.ByID(modelID); ok && model.MaxOutputTokens > 0 {
+		maxOutputTokens = model.MaxOutputTokens
+	}
+	if maxOutputTokens > 0 {
 		body = clampFieldBytes(body, "max_tokens", int64(maxOutputTokens))
 	}
 	return providers.PreparedRequest{Body: body, Headers: deriveAnthropicHeaders(in, opts, body), ResponseToolNames: toolAliases}, nil
@@ -400,16 +406,9 @@ func writeAnthropicSystemAndMessages(jw *jsonWriter, body []byte) {
 	}
 }
 
-// cacheControlMember is the router-generated Anthropic prompt-cache breakpoint.
-const cacheControlMember = `"cache_control":{"type":"ephemeral"}`
-
-// appendCacheControl inserts the cache_control marker into a raw JSON content
+// appendCacheControlRaw inserts a cache_control policy into a raw JSON content
 // block we constructed (final byte is the closing brace); guard fails open on
 // anything unexpected.
-func appendCacheControl(block string) string {
-	return appendCacheControlRaw(block, `{"type":"ephemeral"}`)
-}
-
 func appendCacheControlRaw(block, policy string) string {
 	if len(block) < 2 || block[len(block)-1] != '}' || !strings.Contains(block, ":") {
 		return block
@@ -420,13 +419,9 @@ func appendCacheControlRaw(block, policy string) string {
 	return block[:len(block)-1] + `,"cache_control":` + policy + "}"
 }
 
-// cacheControlOnLastBlock adds a cache_control breakpoint to a message's final
-// content block, promoting string content to a text block to carry it
-// (Anthropic treats "x" and [{"type":"text","text":"x"}] identically).
-func cacheControlOnLastBlock(msg string) string {
-	return cacheControlOnLastBlockWithPolicy(msg, `{"type":"ephemeral"}`)
-}
-
+// cacheControlOnLastBlockWithPolicy adds a cache_control breakpoint to a
+// message's final content block, promoting string content to a text block to
+// carry it (Anthropic treats "x" and [{"type":"text","text":"x"}] identically).
 func cacheControlOnLastBlockWithPolicy(msg, policy string) string {
 	if policy == "" {
 		return msg
@@ -802,20 +797,18 @@ func writeAnthropicToolChoice(jw *jsonWriter, body []byte, autoOnly bool) {
 	jw.Raw(string(tw.Bytes()))
 }
 
+// anthropicSamplingParams are the sampling controls Fable 5.1+ reject.
+var anthropicSamplingParams = []string{"temperature", "top_p", "top_k"}
+
 func writeAnthropicSamplingParams(jw *jsonWriter, body []byte, capabilities router.ModelSpec) {
-	if !capabilities.Supports(router.CapTemperatureUnsupported) {
-		if value := gjson.GetBytes(body, "temperature"); value.Exists() {
-			jw.Key("temperature")
+	if capabilities.Supports(router.CapSamplingParamsUnsupported) {
+		return
+	}
+	for _, key := range anthropicSamplingParams {
+		if value := gjson.GetBytes(body, key); value.Exists() {
+			jw.Key(key)
 			jw.Raw(value.Raw)
 		}
-	}
-	if value := gjson.GetBytes(body, "top_p"); value.Exists() {
-		jw.Key("top_p")
-		jw.Raw(value.Raw)
-	}
-	if value := gjson.GetBytes(body, "top_k"); value.Exists() {
-		jw.Key("top_k")
-		jw.Raw(value.Raw)
 	}
 }
 
@@ -938,8 +931,8 @@ func containsAnthropicSystemOnlyContentBlocks(body []byte) bool {
 // (Anthropic's API 400s on them after a mid-session model switch). Only the
 // leading run is hoisted; mid-conversation ones are rewritten as user messages
 // in place to keep the cached prefix stable. Message-scoped output_config is
-// moved to the request-level field before demotion so role-specific options are
-// not left on a user message.
+// moved to the request-level field and system-only clear_at is dropped before
+// demotion, since Anthropic 400s on either field on a user message.
 func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
@@ -976,6 +969,13 @@ func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 				}
 				if config.Type != gjson.Null && hoistedOutputConfig == "" {
 					hoistedOutputConfig = config.Raw
+				}
+			}
+			if gjson.GetBytes(demoted, "clear_at").Exists() {
+				var err error
+				demoted, err = sjson.DeleteBytes(demoted, "clear_at")
+				if err != nil {
+					return nil, fmt.Errorf("remove demoted system clear_at: %w", err)
 				}
 			}
 			demoted, err := sjson.SetBytes(demoted, "role", "user")
@@ -1160,7 +1160,7 @@ func uniqueSanitizedAnthropicToolName(name string, reservedNames map[string]stru
 }
 
 func anthropicToolSchemaRaw(schema gjson.Result) string {
-	raw, err := json.Marshal(sanitizeAnthropicSchema(schema.Value()))
+	raw, err := json.Marshal(sanitizeAnthropicInputSchema(schema.Value()))
 	if err != nil {
 		return schema.Raw
 	}
@@ -1183,7 +1183,7 @@ func sanitizeAnthropicTools(v any) any {
 		nativeDomainFilter := isAnthropicNativeDomainFilterTool(tool)
 		for k, child := range tool {
 			if k == "input_schema" {
-				copied[k] = sanitizeAnthropicSchema(child)
+				copied[k] = sanitizeAnthropicInputSchema(child)
 				continue
 			}
 			// Anthropic 400s empty allowed_domains/blocked_domains ("Empty list of
@@ -1212,6 +1212,117 @@ func isEmptyDomainList(v any) bool {
 	default:
 		return false
 	}
+}
+
+// sanitizeAnthropicInputSchema also lifts top-level allOf/anyOf/oneOf, which
+// Anthropic rejects on input_schema, into one object schema.
+func sanitizeAnthropicInputSchema(v any) any {
+	sanitized := sanitizeAnthropicSchema(v)
+	root, ok := sanitized.(map[string]any)
+	if !ok {
+		return sanitized
+	}
+	return liftAnthropicTopLevelComposition(root)
+}
+
+// liftAnthropicTopLevelComposition merges the object branches of top-level
+// allOf/anyOf/oneOf (resolving local $refs) into the root's properties. A
+// property is required when allOf requires it or every anyOf/oneOf alternative
+// does; the branch constraints themselves cannot be expressed and are dropped.
+func liftAnthropicTopLevelComposition(root map[string]any) map[string]any {
+	keywords := []string{"allOf", "anyOf", "oneOf"}
+	if !slices.ContainsFunc(keywords, func(k string) bool { _, ok := root[k]; return ok }) {
+		return root
+	}
+	out := make(map[string]any, len(root))
+	for k, v := range root {
+		if !slices.Contains(keywords, k) {
+			out[k] = v
+		}
+	}
+	mergedProps, _ := out["properties"].(map[string]any)
+	mergedProps = maps.Clone(mergedProps)
+	if mergedProps == nil {
+		mergedProps = map[string]any{}
+	}
+	required := schemaRequiredSet(out)
+	for _, k := range keywords {
+		branches, _ := root[k].([]any)
+		var requiredInAll map[string]struct{}
+		for _, b := range branches {
+			branch, ok := resolveLocalSchemaRef(root, b).(map[string]any)
+			if !ok {
+				// A boolean (or unreadable) alternative requires nothing.
+				requiredInAll = map[string]struct{}{}
+				continue
+			}
+			branch = liftAnthropicTopLevelComposition(branch)
+			if branchProps, ok := branch["properties"].(map[string]any); ok {
+				for name, schema := range branchProps {
+					if _, exists := mergedProps[name]; !exists {
+						mergedProps[name] = schema
+					}
+				}
+			}
+			branchRequired := schemaRequiredSet(branch)
+			switch {
+			case k == "allOf":
+				maps.Copy(required, branchRequired)
+			case requiredInAll == nil:
+				requiredInAll = branchRequired
+			default:
+				maps.DeleteFunc(requiredInAll, func(name string, _ struct{}) bool {
+					_, ok := branchRequired[name]
+					return !ok
+				})
+			}
+		}
+		maps.Copy(required, requiredInAll)
+	}
+	out["type"] = "object"
+	out["properties"] = mergedProps
+	delete(out, "required")
+	if len(required) > 0 {
+		names := slices.Sorted(maps.Keys(required))
+		requiredNames := make([]any, len(names))
+		for i, name := range names {
+			requiredNames[i] = name
+		}
+		out["required"] = requiredNames
+	}
+	return out
+}
+
+// resolveLocalSchemaRef follows a "#/$defs/X" or "#/definitions/X" branch to
+// its definition on root; any other value is returned unchanged.
+func resolveLocalSchemaRef(root map[string]any, branch any) any {
+	node, ok := branch.(map[string]any)
+	if !ok {
+		return branch
+	}
+	ref, _ := node["$ref"].(string)
+	for _, defsKey := range []string{"$defs", "definitions"} {
+		name, found := strings.CutPrefix(ref, "#/"+defsKey+"/")
+		if !found {
+			continue
+		}
+		defs, _ := root[defsKey].(map[string]any)
+		if target, exists := defs[name]; exists {
+			return target
+		}
+	}
+	return branch
+}
+
+func schemaRequiredSet(schema map[string]any) map[string]struct{} {
+	set := map[string]struct{}{}
+	requiredValues, _ := schema["required"].([]any)
+	for _, v := range requiredValues {
+		if name, ok := v.(string); ok {
+			set[name] = struct{}{}
+		}
+	}
+	return set
 }
 
 func sanitizeAnthropicSchema(v any) any {

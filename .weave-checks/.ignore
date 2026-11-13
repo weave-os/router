@@ -19,7 +19,6 @@ bench/uv.lock
 sidecars/hmm/uv.lock
 
 # Trained routing artifacts and recorded provider traffic
-internal/router/cluster/artifacts
 internal/router/percallband/artifacts
 internal/router/bandswap/artifacts
 smoke/mitmproxy/cassettes

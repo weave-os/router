@@ -62,7 +62,7 @@ func TestProxyMessages_GeminiBuildIncompatibilityFailsOverToBaselineAnthropic(t 
 			providers.ProviderGoogle:    google.NewNativeClient("test-google-key", googleUpstream.URL),
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 		},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel,
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderGoogle:    {},
 		providers.ProviderAnthropic: {},

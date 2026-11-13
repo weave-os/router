@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
+import re
 import sys
 from contextlib import asynccontextmanager
 from typing import Any
@@ -18,10 +21,39 @@ from .embeddings import (
     verify_embedding_contract,
 )
 from .policy import FrozenPolicy
+from .package_policy import PackagePolicy
+from .schemas import SELECTION_AUTHORITY_FIELDS
+from .classifier_api import (
+    ResolvedClassifierRelease,
+    ResolvedClassifierSelection,
+    UnknownClassifierRelease,
+    create_classifier_router,
+)
+from .local_classifier_resolver import resolve_local_classifier_resolver
 
 log = logging.getLogger(__name__)
 VERSION = os.environ.get("VERSION", "dev")
 LOG_LEVEL = os.environ.get("HMM_LOG_LEVEL", "INFO").upper()
+
+
+class _LocalClassifierResolverSlot:
+    """Stable route dependency populated from local files during app startup."""
+
+    def __init__(self) -> None:
+        self.resolver = None
+
+    async def resolve(self, release_id: str) -> ResolvedClassifierRelease:
+        if self.resolver is None:
+            raise UnknownClassifierRelease(release_id)
+        return await self.resolver.resolve(release_id)
+
+    async def resolve_selection(self, selection_id: str) -> ResolvedClassifierSelection:
+        if self.resolver is None:
+            raise UnknownClassifierRelease(selection_id)
+        return await self.resolver.resolve_selection(selection_id)
+
+
+local_classifier_resolver = _LocalClassifierResolverSlot()
 
 
 def configure_logging() -> None:
@@ -60,15 +92,22 @@ def _probe_key(artifacts: FrozenArtifacts) -> tuple[object, ...]:
 
 async def load_policies(
     registry: ArtifactRegistry,
-) -> tuple[dict[str, FrozenPolicy], float]:
+) -> tuple[dict[str, FrozenPolicy | PackagePolicy], float | None]:
     """Build one policy per registry package, probing the embedding endpoint
     once per distinct embedding contract (packages sharing a contract share the
     embedder and its probe). Returns the policies and the default's similarity.
     """
-    policies: dict[str, FrozenPolicy] = {}
+    policies: dict[str, FrozenPolicy | PackagePolicy] = {}
     probed: dict[tuple[object, ...], tuple[Embedder, float]] = {}
+    package_probes = 0
     similarity = None
     for package_sha256, artifacts in registry.by_sha256.items():
+        if artifacts.package_manifest is not None:
+            package_policy = PackagePolicy(artifacts)
+            await package_policy.runtime.verify_embedding_config()
+            policies[package_sha256] = package_policy
+            package_probes += 1
+            continue
         key = _probe_key(artifacts)
         if key not in probed:
             embedder = build_embedder(artifacts.manifest.embedding_contract)
@@ -82,11 +121,11 @@ async def load_policies(
         policies[package_sha256] = FrozenPolicy(artifacts, embedder)
         if artifacts is registry.default:
             similarity = probe_similarity
-    if similarity is None:
+    if registry.default.package_sha256 not in policies:
         raise RuntimeError("artifact registry default is not among its packages")
     log.info(
         "HMM sidecar probed %d embedding contract(s) for %d package(s)",
-        len(probed),
+        len(probed) + package_probes,
         len(policies),
     )
     return policies, similarity
@@ -103,6 +142,14 @@ async def lifespan(application: FastAPI):
         application.state.policy = policies[registry.default.package_sha256]
         application.state.policies = policies
         application.state.embedding_probe_similarity = similarity
+        local_resolver = resolve_local_classifier_resolver(registry, policies)
+        local_classifier_resolver.resolver = local_resolver
+        application.state.classifier_release_id = (
+            local_resolver.release_id if local_resolver is not None else None
+        )
+        application.state.classifier_selection_id = (
+            local_resolver.selection_id if local_resolver is not None else None
+        )
         application.state.startup_error = None
         log.info(
             "HMM sidecar loaded %d frozen package(s); default %s",
@@ -117,10 +164,14 @@ async def lifespan(application: FastAPI):
         application.state.policies = {}
         application.state.embedding_probe_similarity = None
         application.state.startup_error = f"{type(exc).__name__}: {exc}"
+        local_classifier_resolver.resolver = None
+        application.state.classifier_release_id = None
+        application.state.classifier_selection_id = None
     yield
 
 
 app = FastAPI(title="WorkWeave frozen HMM sidecar", lifespan=lifespan)
+app.include_router(create_classifier_router(local_classifier_resolver))
 
 
 def _artifacts() -> FrozenArtifacts | None:
@@ -171,27 +222,53 @@ def livez() -> JSONResponse:
     return JSONResponse({"status": "ok", "service": "hmm-sidecar", "version": VERSION})
 
 
+IMAGE_DIGEST_PATTERN = re.compile(r"sha256:[0-9a-f]{64}")
+
+
+def _classifier_image_digest() -> str | None:
+    """Digest of the image serving this package; releases pin it, so it is required."""
+    value = os.environ.get("CLASSIFIER_IMAGE_DIGEST", "").strip()
+    return value if IMAGE_DIGEST_PATTERN.fullmatch(value) else None
+
+
+def taxonomy_sha256(class_order: tuple[str, ...]) -> str:
+    """Match the Go registry's digest of ``json.Marshal(class_order)``."""
+    encoded = json.dumps(list(class_order), separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
 @app.get("/health")
 @app.get("/readyz")
 def ready() -> JSONResponse:
     artifacts = _artifacts()
-    loaded = getattr(app.state, "policy", None) is not None
+    policy: FrozenPolicy | None = getattr(app.state, "policy", None)
+    image_digest = _classifier_image_digest()
+    error = getattr(app.state, "startup_error", None)
+    if policy is not None and image_digest is None:
+        error = "CLASSIFIER_IMAGE_DIGEST must be set to sha256:<64 hex>"
+    ready_to_serve = policy is not None and image_digest is not None
+    class_order = tuple(policy.classifier.classes) if policy is not None else ()
     body = {
-        "ready": loaded,
-        "status": "healthy" if loaded else "unhealthy",
-        "runtime_state": "frozen_policy" if loaded else "unservable",
+        "ready": ready_to_serve,
+        "status": "healthy" if ready_to_serve else "unhealthy",
+        "runtime_state": "frozen_policy" if ready_to_serve else "unservable",
         "service": "hmm-sidecar",
         "version": VERSION,
         "schema_version": SCHEMA_VERSION,
-        "policy_artifact_id": artifacts.manifest.model_id if artifacts else None,
-        "policy_artifact_sha256": artifacts.package_sha256 if artifacts else None,
-        "policy_artifact_sha256s": _loaded_artifact_sha256s(),
+        "classifier_artifact_id": artifacts.model_id if artifacts else None,
+        "classifier_artifact_sha256": artifacts.package_sha256 if artifacts else None,
+        "classifier_image_digest": image_digest,
+        "classifier_class_order": list(class_order),
+        "classifier_taxonomy_sha256": (
+            taxonomy_sha256(class_order) if class_order else None
+        ),
+        "classifier_artifact_sha256s": _loaded_artifact_sha256s(),
         "embedding_probe_similarity": getattr(
             app.state, "embedding_probe_similarity", None
         ),
-        "error": getattr(app.state, "startup_error", None),
+        "error": error,
     }
-    return JSONResponse(body, status_code=200 if loaded else 503)
+    return JSONResponse(body, status_code=200 if ready_to_serve else 503)
 
 
 @app.get("/capabilities")
@@ -199,6 +276,7 @@ def capabilities() -> JSONResponse:
     return JSONResponse(
         {
             "schema_version": SCHEMA_VERSION,
+            "supported_schema_versions": [SCHEMA_VERSION],
             "reports_outcomes": False,
             "reports_feedback": False,
             "honors_preferred_models": False,
@@ -206,35 +284,11 @@ def capabilities() -> JSONResponse:
             "supports_debug_route_detail": True,
             "supports_preview": True,
             "supports_shadow": True,
-            "reports_ranked_fallback": True,
-            "authoritative_per_turn_selection": False,
             "learning": {
                 "enabled": False,
                 "state": "frozen_policy",
                 "reason": "self-hosted sidecar serves immutable artifacts",
             },
-        }
-    )
-
-
-@app.get("/roster")
-def roster(artifact_sha256: str | None = None) -> JSONResponse:
-    """Return the frozen roster: flat arm union + per-cluster ordered arm lists."""
-    if artifact_sha256 in (None, "") and getattr(app.state, "policy", None) is None:
-        return JSONResponse({"error": "policy unavailable"}, status_code=503)
-    policy = _policy_for(artifact_sha256)
-    if isinstance(policy, JSONResponse):
-        return policy
-    clusters: dict[str, list[str]] = {
-        label: [str(arm) for arm in cluster.get("arms") or []]
-        for label, cluster in policy.clusters.items()
-    }
-    return JSONResponse(
-        {
-            "schema_version": SCHEMA_VERSION,
-            "roster_version": policy.roster_version,
-            "roster_ids": policy.roster_ids(),
-            "clusters": clusters,
         }
     )
 
@@ -249,60 +303,50 @@ def feedback() -> None:
     return None
 
 
-@app.post("/route")
-async def route(payload: dict[str, Any]) -> JSONResponse:
+def _reject_request(payload: dict[str, Any]) -> JSONResponse | None:
+    if payload.get("schema_version") != SCHEMA_VERSION:
+        return JSONResponse({"error": "unsupported policy schema"}, status_code=400)
+    forbidden = sorted(SELECTION_AUTHORITY_FIELDS.intersection(payload))
+    if forbidden:
+        return JSONResponse(
+            {"error": "selection fields are not accepted", "fields": forbidden},
+            status_code=400,
+        )
+    return None
+
+
+async def _classify(payload: dict[str, Any], operation: str) -> JSONResponse:
     policy = _policy_for(payload.get(ARTIFACT_SHA256_FIELD))
     if isinstance(policy, JSONResponse):
         return policy
-    if payload.get("schema_version") not in (None, SCHEMA_VERSION):
-        return JSONResponse({"error": "unsupported policy schema"}, status_code=400)
+    rejected = _reject_request(payload)
+    if rejected is not None:
+        return rejected
     try:
-        result, timings = await policy.route_with_timings(payload)
+        result, timings = await policy.classify_with_timings(payload)
     except (ValueError, EmbeddingError) as exc:
-        log.warning("HMM route request rejected: %s", exc)
-        return JSONResponse({"error": "route request rejected"}, status_code=422)
+        log.warning("HMM %s request rejected: %s", operation, exc)
+        return JSONResponse({"error": f"{operation} request rejected"}, status_code=422)
     except Exception as exc:
-        log.exception("HMM route failed")
+        log.exception("HMM %s failed", operation)
         return JSONResponse(
-            {"error": f"route failed: {type(exc).__name__}"}, status_code=503
+            {"error": f"{operation} failed: {type(exc).__name__}"}, status_code=503
         )
-    # One line per decision, durations and counts only. The routing decision is
-    # serialized ahead of the upstream request, so this is the only place the
-    # per-stage cost of that wait is observable; the response contract carries
-    # no timing fields and the caller sees a single opaque total.
-    log.info("hmm route timing %s", timings.log_fields())
-    return JSONResponse(
-        {
-            "schema_version": SCHEMA_VERSION,
-            **result.model_dump(mode="json"),
-        }
-    )
+    # One line per decision, durations and counts only: the classification is
+    # serialized ahead of the upstream request and the body carries no timings.
+    log.info("hmm %s timing %s", operation, timings.log_fields())
+    return JSONResponse(result.model_dump(mode="json", exclude_none=True))
+
+
+@app.post("/route")
+async def route(payload: dict[str, Any]) -> JSONResponse:
+    return await _classify(payload, "route")
 
 
 @app.post("/preview")
 async def preview(payload: dict[str, Any]) -> JSONResponse:
-    policy = _policy_for(payload.get(ARTIFACT_SHA256_FIELD))
-    if isinstance(policy, JSONResponse):
-        return policy
-    if payload.get("schema_version") not in (None, SCHEMA_VERSION):
-        return JSONResponse({"error": "unsupported policy schema"}, status_code=400)
     if payload.get("execution_mode") != "preview":
         return JSONResponse(
             {"error": "preview execution mode required"}, status_code=400
         )
-    try:
-        result = await policy.preview(payload)
-    except (ValueError, EmbeddingError) as exc:
-        log.warning("HMM preview request rejected: %s", exc)
-        return JSONResponse({"error": "preview request rejected"}, status_code=422)
-    except Exception as exc:
-        log.exception("HMM preview failed")
-        return JSONResponse(
-            {"error": f"preview failed: {type(exc).__name__}"}, status_code=503
-        )
-    return JSONResponse(
-        {
-            "schema_version": SCHEMA_VERSION,
-            **result.model_dump(mode="json"),
-        }
-    )
+    return await _classify(payload, "preview")

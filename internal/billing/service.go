@@ -28,6 +28,21 @@ func HasOverrideFromContext(ctx context.Context) bool {
 	return b
 }
 
+type organizationPrepaidContextKeyT struct{}
+
+// WithOrganizationPrepaid marks a request admitted against the organization's
+// prepaid credit balance, so a paid turn can name Weave credits as its funding.
+func WithOrganizationPrepaid(ctx context.Context) context.Context {
+	return context.WithValue(ctx, organizationPrepaidContextKeyT{}, true)
+}
+
+// OrganizationPrepaidFromContext reports whether WithBalanceCheck admitted the
+// request against the organization's prepaid credit balance.
+func OrganizationPrepaidFromContext(ctx context.Context) bool {
+	admitted, _ := ctx.Value(organizationPrepaidContextKeyT{}).(bool)
+	return admitted
+}
+
 // subscriptionOnlyContextKeyT lives in billing (not middleware/proxy) so both
 // sides can reference it without a layering violation, mirroring
 // hasOverrideContextKeyT.
@@ -35,15 +50,15 @@ type subscriptionOnlyContextKeyT struct{}
 
 // SubscriptionOnlyReason names why a request was flagged subscription-only.
 // Every reason is served identically — on the caller's own subscription, with
-// no paid failover and no debit — but only a funding failure is a billing state
-// change the caller needs to hear about, so the reason decides the marker.
+// no paid failover and no debit. The reason decides what a refused turn tells
+// the caller (top-up CTA, cap notice) and which marker a served turn carries.
 type SubscriptionOnlyReason string
 
 const (
 	// SubscriptionOnlyCreditsDepleted marks a turn the organization cannot pay
 	// for: prepaid credits are gone or a balance row is missing. The caller's
-	// own plan is absorbing work Weave would otherwise have billed, so the turn
-	// carries the top-up CTA.
+	// own plan is absorbing work Weave would otherwise have billed. A turn the
+	// plan cannot serve is refused with the top-up CTA; one it serves is silent.
 	SubscriptionOnlyCreditsDepleted SubscriptionOnlyReason = "credits_depleted"
 	// SubscriptionOnlySpendCapReached marks a turn a configured spend cap (API
 	// key lifetime, org monthly, or engineer monthly) bars from paid capacity.
@@ -64,14 +79,14 @@ var SubscriptionOnlyContextKey = subscriptionOnlyContextKeyT{}
 // WithSubscriptionOnly marks ctx subscription-only for reason. The reason is a
 // required argument rather than a default so a gate added later must decide
 // what the caller is told, instead of silently inheriting the depleted-credits
-// warning — which is how linked-first turns came to claim credits were gone.
+// refusal — which is how linked-first turns came to claim credits were gone.
 //
 // A recorded reason is never downgraded (see precedence): a funding failure
-// outranks a funding preference, because the caller still needs to be told
-// paid fallback is off, and a depleted balance's warning outranks a reached
-// cap's, because its top-up CTA is the more pressing action (a reached cap
-// still blocks paid routing after a top-up). The precedence is enforced here
-// rather than left resting on gate registration order, which no gate can see.
+// outranks a funding preference, because paid fallback is off and a refused
+// turn must say why, and a depleted balance outranks a reached cap, because
+// its 402 top-up path is the more pressing action (a reached cap still blocks
+// paid routing after a top-up). The precedence is enforced here rather than
+// left resting on gate registration order, which no gate can see.
 func WithSubscriptionOnly(ctx context.Context, reason SubscriptionOnlyReason) context.Context {
 	if existing, ok := subscriptionOnlyReason(ctx); ok && existing.precedence() > reason.precedence() {
 		return ctx
@@ -95,7 +110,7 @@ func (r SubscriptionOnlyReason) precedence() int {
 // only one: once it cannot serve, the turn falls through to the organization
 // balance the gates already admitted it against. A credits_depleted or
 // spend_cap_reached mark is kept — there is nothing to fall through to, and
-// the caller still needs to be told paid fallback is off.
+// a turn the plan cannot serve is still refused.
 func ReleaseLinkedFirst(ctx context.Context) context.Context {
 	if reason, ok := subscriptionOnlyReason(ctx); ok && reason == SubscriptionOnlyLinkedFirst {
 		return context.WithValue(ctx, SubscriptionOnlyContextKey, nil)
@@ -149,6 +164,7 @@ type Service struct {
 	allowances        SubscriberAllowanceSettler
 	prepaid           *PrepaidBooks
 	subscriberPrepaid SubscriberPrepaidAuthorizer
+	delegatedSpend    DelegatedSpendReader
 }
 
 // NewService constructs a billing service. The Repo is required; nil panics
@@ -256,6 +272,24 @@ type APIKeySpendCapResult struct {
 	CapMicros   *int64
 }
 
+// ErrDelegatedSpendUnavailable is returned when a delegated cap must be checked
+// but no spend reader is wired.
+var ErrDelegatedSpendUnavailable = errors.New("delegated spend reader not configured")
+
+func (s *Service) WithDelegatedSpend(reader DelegatedSpendReader) *Service {
+	s.delegatedSpend = reader
+	return s
+}
+
+// CheckDelegatedSpend reads a delegated session's and task's spend-to-date
+// fresh from storage so concurrent sessions cannot overrun a cap through a cache.
+func (s *Service) CheckDelegatedSpend(ctx context.Context, issuerKeyID, sessionID, taskID string) (sessionSpentMicros, taskSpentMicros int64, err error) {
+	if s.delegatedSpend == nil {
+		return 0, 0, ErrDelegatedSpendUnavailable
+	}
+	return s.delegatedSpend.GetDelegatedTokenSpend(ctx, issuerKeyID, sessionID, taskID)
+}
+
 // CheckAPIKeySpendCap reads fresh from the repo (not the auth cache) so a
 // hot cached key can't overrun its cap within the cache TTL.
 func (s *Service) CheckAPIKeySpendCap(ctx context.Context, apiKeyID string) (APIKeySpendCapResult, error) {
@@ -345,6 +379,10 @@ type DebitInferenceParams struct {
 	// APIKeyID attributes the debit to the authenticating key for
 	// spend-cap tracking; empty leaves per-key spend untouched.
 	APIKeyID string
+	// DelegatedSessionID and DelegatedTaskID attribute the debit to a delegated
+	// session token's session and task; empty for every other credential.
+	DelegatedSessionID string
+	DelegatedTaskID    string
 	// RouterUserID attributes the debit to the resolved engineer identity for
 	// monthly spend-limit tracking; empty leaves per-user spend untouched.
 	RouterUserID string
@@ -426,6 +464,8 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 		RouterModel:        p.Model,
 		APIKeyID:           p.APIKeyID,
 		RouterUserID:       p.RouterUserID,
+		DelegatedSessionID: p.DelegatedSessionID,
+		DelegatedTaskID:    p.DelegatedTaskID,
 	})
 	if err != nil {
 		return balanceAfter, err
