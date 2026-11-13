@@ -223,7 +223,7 @@ func goldenResponsesScenarios() []goldenScenario {
 		upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(false, "never")}},
 		requests:  []goldenRequest{{body: goldenOpenAIBody(false), noTelemetry: true}},
 	}})...)
-	nativeFrames := goldenResponsesStream(goldenOpenAIModel, "partial")
+	responsesFrames := goldenResponsesStream(goldenOpenAIModel, "partial")
 	failed := goldenSSE("response.failed", `{"type":"response.failed","sequence_number":3,"response":{"id":"resp-upstream","object":"response","status":"failed","model":"`+goldenOpenAIModel+`","output":[],"error":{"code":"server_error","message":"upstream failed"}}}`)
 	streamPrefix := ingressResponses + "_stream_"
 	add := func(name, body string, headers map[string]string, d router.Decision, provider string, steps ...goldenStep) {
@@ -233,11 +233,11 @@ func goldenResponsesScenarios() []goldenScenario {
 	add("anthropic_tool_call", goldenResponsesToolBody, nil, goldenAnthropicDecision, providers.ProviderAnthropic,
 		goldenOK("text/event-stream", goldenAnthropicToolStream()))
 	add("openai_native_missing_terminal", goldenResponsesBody(true), nil, goldenOpenAIDecision, providers.ProviderOpenAI,
-		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: nativeFrames[:3]})
+		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: responsesFrames[:3]})
 	add("openai_native_failed_event", goldenResponsesBody(true), nil, goldenOpenAIDecision, providers.ProviderOpenAI,
-		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: append(nativeFrames[:3:3], failed)})
+		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: append(responsesFrames[:3:3], failed)})
 	add("codex_openai_native_missing_terminal", goldenResponsesBody(true), goldenCodexHeaders, goldenOpenAIDecision, providers.ProviderOpenAI,
-		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: nativeFrames[:3]})
+		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: responsesFrames[:3]})
 	add("codex_openai_native_success", goldenResponsesBody(true), goldenCodexHeaders, goldenOpenAIDecision, providers.ProviderOpenAI,
 		responsesOK(true, "hi"))
 	add("compat_empty_stream", goldenResponsesBody(true), nil, goldenCompatDecision, providers.ProviderFireworks,
@@ -364,7 +364,7 @@ const goldenChatHistoryBody = `{"model":"gpt-5","stream":false,"max_tokens":256,
 func goldenMessagesChatScenarios() []goldenScenario {
 	var out []goldenScenario
 	anthropicFrames := goldenAnthropicStream(goldenAnthropicModel, "partial")
-	nativeFrames := goldenResponsesStream(goldenOpenAIModel, "partial")
+	responsesFrames := goldenResponsesStream(goldenOpenAIModel, "partial")
 	overloaded := goldenSSE("error", goldenOverloadBody)
 	for _, sc := range []struct {
 		ingress, body string
@@ -377,7 +377,7 @@ func goldenMessagesChatScenarios() []goldenScenario {
 			out = append(out, goldenScenario{name: sc.ingress + "_" + name, ingress: sc.ingress, decisions: []router.Decision{d},
 				upstreams: map[string][]goldenStep{provider: steps}, requests: []goldenRequest{{body: body}}})
 		}
-		refused := func(name, body string, routeErr error) {
+		rejectedBeforeDispatch := func(name, body string, routeErr error) {
 			out = append(out, goldenScenario{name: sc.ingress + "_" + name, ingress: sc.ingress, routeErr: routeErr,
 				upstreams: map[string][]goldenStep{providers.ProviderAnthropic: {anthropicOK(false, "never")}},
 				requests:  []goldenRequest{{body: body, noTelemetry: true}}})
@@ -386,10 +386,10 @@ func goldenMessagesChatScenarios() []goldenScenario {
 			add(streamName(stream)+"_anthropic_success", sc.chatBody(stream), goldenAnthropicDecision, providers.ProviderAnthropic, anthropicOK(stream, "hi"))
 			add(streamName(stream)+"_upstream_bad_request", sc.chatBody(stream), goldenAnthropicDecision, providers.ProviderAnthropic,
 				goldenUpstreamError(http.StatusBadRequest, `{"type":"error","error":{"type":"invalid_request_error","message":"messages: field required"}}`))
-			refused(streamName(stream)+"_no_eligible_provider", sc.chatBody(stream), router.ErrNoEligibleProvider)
+			rejectedBeforeDispatch(streamName(stream)+"_no_eligible_provider", sc.chatBody(stream), router.ErrNoEligibleProvider)
 		}
-		refused("nonstream_route_error", sc.chatBody(false), errors.New("no eligible model"))
-		refused("nonstream_invalid_json_body", `{"messages":`, nil)
+		rejectedBeforeDispatch("nonstream_route_error", sc.chatBody(false), errors.New("no eligible model"))
+		rejectedBeforeDispatch("nonstream_invalid_json_body", `{"messages":`, nil)
 		add("stream_anthropic_native_missing_message_stop", sc.chatBody(true), goldenAnthropicDecision, providers.ProviderAnthropic,
 			goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: anthropicFrames[:5]})
 		add("stream_anthropic_native_error_event", sc.chatBody(true), goldenAnthropicDecision, providers.ProviderAnthropic,
@@ -410,9 +410,9 @@ func goldenMessagesChatScenarios() []goldenScenario {
 	add(ingressOpenAIHTTP, "stream_openai_native_success", goldenOpenAIBody(true), goldenOpenAIDecision, providers.ProviderOpenAI,
 		responsesOK(true, "hi"))
 	add(ingressOpenAIHTTP, "stream_openai_native_missing_terminal", goldenOpenAIBody(true), goldenOpenAIDecision, providers.ProviderOpenAI,
-		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: nativeFrames[:3]})
+		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: responsesFrames[:3]})
 	add(ingressOpenAIHTTP, "stream_openai_native_cut_after_content", goldenOpenAIBody(true), goldenOpenAIDecision, providers.ProviderOpenAI,
-		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: nativeFrames[:3], err: io.ErrUnexpectedEOF})
+		goldenStep{status: http.StatusOK, headers: goldenEventStream, frames: responsesFrames[:3], err: io.ErrUnexpectedEOF})
 	return out
 }
 

@@ -317,7 +317,7 @@ func goldenClientResponse(rec *httptest.ResponseRecorder) goldenResponse {
 				continue
 			}
 			// Keepalive pings fire on wall-clock time; pin presence, not count or position.
-			if string(eventType) == "ping" {
+			if string(eventType) == "ping" && string(data) == `{"type":"ping"}` {
 				out.Keepalive = true
 				continue
 			}
