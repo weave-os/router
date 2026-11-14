@@ -1,0 +1,44 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "✦ **Weave Router** → Router-feedback needs a verdict or a note, e.g. /rf+ or /rf- too slow.\n\n",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "weave-router",
+          "role": "assistant",
+          "router_command": {
+            "command": "router_feedback",
+            "disposition": "rejected",
+            "id": "\u003cuuid\u003e",
+            "pin": {
+              "transition": "unchanged"
+            },
+            "version": 1
+          },
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "type": "message",
+          "usage": {
+            "input_tokens": 23,
+            "output_tokens": 24
+          }
+        }
+      }
+    }
+  ],
+  "scenario": "anthropic_messages_conversation_router_feedback_command_without_text"
+}

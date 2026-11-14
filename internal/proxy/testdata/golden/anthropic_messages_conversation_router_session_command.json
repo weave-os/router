@@ -1,0 +1,44 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "✦ **Weave Router** → no session id on this request. This client did not send one, so its turns are not correlated in router telemetry.\n\n",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "weave-router",
+          "role": "assistant",
+          "router_command": {
+            "command": "router_session",
+            "disposition": "accepted",
+            "id": "\u003cuuid\u003e",
+            "pin": {
+              "transition": "unchanged"
+            },
+            "version": 1
+          },
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "type": "message",
+          "usage": {
+            "input_tokens": 23,
+            "output_tokens": 35
+          }
+        }
+      }
+    }
+  ],
+  "scenario": "anthropic_messages_conversation_router_session_command"
+}

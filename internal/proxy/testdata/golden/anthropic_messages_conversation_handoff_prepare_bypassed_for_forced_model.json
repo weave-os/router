@@ -1,0 +1,20 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "bypass": true
+        }
+      }
+    }
+  ],
+  "scenario": "anthropic_messages_conversation_handoff_prepare_bypassed_for_forced_model"
+}
