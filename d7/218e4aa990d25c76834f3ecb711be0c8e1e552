@@ -1,0 +1,32 @@
+internal/translate/cache_usage_test.go
+  s_00fc0f6bc93aab::t_c7d0a53c23976f 290-293,298
+  s_00fc0f6bc93aab::t_521742048d640d 288-289,294-297,299-307
+internal/translate/responses_to_anthropic_writer_stream_test.go
+  s_00fc0f6bc93aab::t_d7dc71cdbcede6 216
+internal/translate/responses_to_anthropic_writer.go
+  s_4528709f0a4b78::t_f3b779f67f4f9a 666-669,685,692-695
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "d7218e4aa990d25c76834f3ecb711be0c8e1e552",
+  "prompts": {},
+  "sessions": {
+    "s_00fc0f6bc93aab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "58323feb-e361-4f8d-af85-d7bedfa2cf15",
+        "model": "grok-4.6"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_4528709f0a4b78": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "258bd15c-18af-463c-987a-f11b589cc072",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

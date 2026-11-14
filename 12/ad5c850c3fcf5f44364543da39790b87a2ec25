@@ -1,0 +1,39 @@
+docs/POLICY_INFERENCE.json
+  s_f15b33039acfa2::t_770a64aadf74dd 3,267,269,273-274
+docs/POLICY_INFERENCE.md
+  s_f15b33039acfa2::t_51b83bea9e6a4d 6,20
+internal/proxy/compaction.go
+  s_f15b33039acfa2::t_e7a6ea1c819dc6 484-486
+internal/proxy/compaction_test.go
+  s_f15b33039acfa2::t_9ae8c5504b2bc9 387-395
+internal/proxy/handover.go
+  s_f15b33039acfa2::t_d59e9b27ce944d 157,239,244-265,320,374-377,380
+internal/proxy/handover_internal_test.go
+  s_f15b33039acfa2::t_f4de74e450bdd2 143,151-173
+internal/proxy/openai_cyber_refusal.go
+  s_f15b33039acfa2::t_b62c91bb180cfa 186,200
+internal/proxy/service.go
+  s_f15b33039acfa2::t_d294a1d2c1bb17 6912
+internal/proxy/turnloop.go
+  s_f15b33039acfa2::t_41841414f65fa2 1144-1146,1212,1215-1217
+internal/router/policy/inference_registry.go
+  s_f15b33039acfa2::t_48f4b68d202527 526,528,531
+internal/translate/emit_same_format_test.go
+  s_f15b33039acfa2::t_546bdc12b779ba 592-602
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "12ad5c850c3fcf5f44364543da39790b87a2ec25",
+  "prompts": {},
+  "sessions": {
+    "s_f15b33039acfa2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09379-2c2d-7be3-963e-827888eb0ee5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

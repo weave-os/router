@@ -1,0 +1,44 @@
+internal/providers/openai/codex_quota.go
+  s_2a2bb68f460a0e::t_527e447d8662b6 135
+  s_2a2bb68f460a0e::t_81b80fb8e4f813 36,39,64
+internal/proxy/dispatch_plan.go
+  s_2a2bb68f460a0e::t_81b80fb8e4f813 244
+  s_2a2bb68f460a0e::t_fb7ede493543a6 242
+internal/proxy/usage/usage_test.go
+  s_2a2bb68f460a0e::t_b734241c74554c 64-72
+internal/subscriptions/candidate_selection.go
+  s_2a2bb68f460a0e::t_fb7ede493543a6 127
+  s_2a2bb68f460a0e::t_71db36d7eb7fd4 128
+internal/auth/subscription.go
+  s_2a2bb68f460a0e::t_81b80fb8e4f813 195
+internal/subscriptions/candidate_selection_internal_test.go
+  s_2a2bb68f460a0e::t_fb7ede493543a6 67,94
+  s_2a2bb68f460a0e::t_560ab8a3594679 132
+  s_2a2bb68f460a0e::t_77e597c9e6aaaa 123-124,126-128,130-131,133-134,136-147
+  s_2a2bb68f460a0e::t_71db36d7eb7fd4 125,129,135
+internal/subscriptions/runtime.go
+  s_2a2bb68f460a0e::t_81b80fb8e4f813 221
+internal/proxy/usage/usage.go
+  s_2a2bb68f460a0e::t_527e447d8662b6 337
+internal/providers/openai/codex_quota_test.go
+  s_2a2bb68f460a0e::t_81b80fb8e4f813 350-354
+  s_2a2bb68f460a0e::t_29924431216e46 359-372
+docs/SUBSCRIPTION_ROUTING.md
+  s_2a2bb68f460a0e::t_81b80fb8e4f813 29-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b05ede282191a4cec73c81471db6d2b5dc687f84",
+  "prompts": {},
+  "sessions": {
+    "s_2a2bb68f460a0e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ccb7-f08d-77d0-90e8-3d30f68fe881",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

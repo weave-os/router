@@ -1,0 +1,23 @@
+cmd/router/subscription_selection_test.go
+  s_4a5b20b31cab48::t_6bd5e5201267f8 24-46
+cmd/router/main.go
+  s_4a5b20b31cab48::t_6bd5e5201267f8 1800-1802
+internal/flags/flags.go
+  s_4a5b20b31cab48::t_6bd5e5201267f8 210-212,216
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6582ded63a875b8684bf5e57c43f4773060427e5",
+  "prompts": {},
+  "sessions": {
+    "s_4a5b20b31cab48": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1c1ea-4f9f-7f23-9ba4-1c6d2643e4ff",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

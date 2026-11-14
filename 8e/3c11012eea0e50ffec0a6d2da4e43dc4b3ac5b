@@ -1,0 +1,111 @@
+cmd/router-warmup/main_test.go
+  s_1639860e28960e::t_dd86f4a9e5842a 5,9,50,54-56,61-65,76
+  s_1639860e28960e::t_f1738696729a22 17-18,21-24
+  s_1639860e28960e::t_748a88d3b4adb4 38-40,48-49,52-53,57-60,66,80-87
+  s_5aba7f1635b317::t_ddf91a5709f672 25,88
+internal/policyregistry/serving_admission_cache_test.go
+  s_1639860e28960e::t_8e44543a551a1a 107-136
+cmd/AGENTS.md
+  s_1639860e28960e::t_064be8f7541b8b 9
+internal/server/middleware/auth.go
+  s_1639860e28960e::t_129bff00b6e09b 80,85-88,263-264
+  s_1639860e28960e::t_20983238f98692 265
+  s_5aba7f1635b317::t_d6a539b182569c 266-267
+internal/servingvalidate/client_test.go
+  s_1639860e28960e::t_ef8bf5ce34d715 48,70,114,127,138,140,158
+cmd/policyctl/serving_lifecycle_test.go
+  s_1639860e28960e::t_064be8f7541b8b 188-193
+  s_1639860e28960e::t_748a88d3b4adb4 194
+internal/server/middleware/serving_admission_test.go
+  s_1639860e28960e::t_802d0b49214575 145-148,150,169-180
+  s_1639860e28960e::t_103e7f43829885 325
+  s_1639860e28960e::t_d5d626aee54f1d 294,299-301,307-324,326-329
+  s_1639860e28960e::t_409cc38802bec6 191,194
+  s_1639860e28960e::t_ee332944d43b3c 181,183-190,192-193,195-196,330
+  s_1639860e28960e::t_1c454f5dcd2966 182
+internal/server/middleware/direct_admission.go
+  s_1639860e28960e::t_129bff00b6e09b 15-16,71,89
+internal/servingvalidate/client.go
+  s_1639860e28960e::t_f444c9b2999f98 34,41
+docs/SERVING_CONTROL.md
+  s_1639860e28960e::t_f1738696729a22 112
+  s_1639860e28960e::t_775362ac215bcc 111
+cmd/policyctl/serving.go
+  s_1639860e28960e::t_f444c9b2999f98 81,83,85,274-278,347
+  s_1639860e28960e::t_775362ac215bcc 53,77,84,86
+scripts/legacy_runtime_check/main.go
+  s_1639860e28960e::t_e0d85ccab973fd 51,141,143,147,152-157,161-166
+cmd/router-warmup/main.go
+  s_1639860e28960e::t_dd86f4a9e5842a 61,90-99,101-104,107-110
+  s_1639860e28960e::t_f1738696729a22 17-18,40-41,50-54,75,100,105-106
+internal/server/middleware/serving_admission.go
+  s_1639860e28960e::t_705f0469e4e920 53
+  s_1639860e28960e::t_a34985387b052e 67
+  s_1639860e28960e::t_74f8d7fee5887e 54-58
+  s_1639860e28960e::t_409cc38802bec6 59,61-66
+  s_1639860e28960e::t_72141533f411c1 68-69
+  s_1639860e28960e::t_129bff00b6e09b 7,79-88
+  s_1639860e28960e::t_ee332944d43b3c 16
+  s_1639860e28960e::t_a7a7821b0734ab 6
+internal/server/server.go
+  s_1639860e28960e::t_abd231a7afe41c 267-270
+  s_1639860e28960e::t_4113ca176877cc 213
+docs/CONFIGURATION.md
+  s_1639860e28960e::t_775362ac215bcc 462-464
+  s_1639860e28960e::t_f1738696729a22 460-461,470
+internal/policyregistry/serving_admission_cache.go
+  s_1639860e28960e::t_064be8f7541b8b 23-27,29-30,68
+  s_1639860e28960e::t_f1738696729a22 28,41,64-65,69-71,75,91,100,112,124
+cmd/router/main.go
+  s_1639860e28960e::t_09d883062fce94 532,1063,1407
+cmd/router/atomic_classifier.go
+  s_1639860e28960e::t_09d883062fce94 38,43
+  s_1639860e28960e::t_a7a7821b0734ab 24
+cmd/router/serving_runtime_test.go
+  s_1639860e28960e::t_09d883062fce94 12,14-15
+cmd/router/atomic_classifier_test.go
+  s_1639860e28960e::t_7be17e27265b56 21,26,29,69
+cmd/router/serving_runtime.go
+  s_1639860e28960e::t_8e44543a551a1a 42
+  s_1639860e28960e::t_09d883062fce94 45-46
+internal/proxy/beta_internal_test.go
+  s_1639860e28960e::t_fd5cd553306871 31-41
+internal/server/middleware/test_plan_auth_test.go
+  s_1639860e28960e::t_c013d3d325afc4 65,68-72,100
+internal/server/session_cost_route_test.go
+  s_1639860e28960e::t_d4caf42965676e 14,32-38,43-44,46,51-52
+internal/server/server_test.go
+  s_1639860e28960e::t_d5d626aee54f1d 190-198
+internal/proxy/beta.go
+  s_1639860e28960e::t_56f3142eac6fec 31,35-36,42-43
+  s_1639860e28960e::t_72141533f411c1 33,39,45,47-48
+  s_1639860e28960e::t_409cc38802bec6 7,28-30,32,34,37-38,40-41,44,46
+cmd/CLAUDE.md
+  s_1639860e28960e::t_f1738696729a22 9
+internal/observability/apm/apm.go
+  s_1639860e28960e::t_f1738696729a22 154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8e3c11012eea0e50ffec0a6d2da4e43dc4b3ac5b",
+  "prompts": {},
+  "sessions": {
+    "s_1639860e28960e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a112b1-c802-7021-b4cd-dfec74516f39",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_5aba7f1635b317": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1124c-710d-7153-8e53-af71bb17a043",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

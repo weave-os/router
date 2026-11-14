@@ -1,0 +1,27 @@
+internal/router/hmm/selection/selector.go
+  s_bd6b6f6f884c00::t_55f9e9c2510db1 13
+internal/router/policy/arm_selector_test.go
+  s_bd6b6f6f884c00::t_55f9e9c2510db1 89-105,107-109
+  s_bd6b6f6f884c00::t_0e1b736a83f2a6 106
+internal/router/policy/sidecar_router.go
+  s_bd6b6f6f884c00::t_55f9e9c2510db1 5,342-343,345-352
+internal/router/policy/arm_selector.go
+  s_bd6b6f6f884c00::t_55f9e9c2510db1 5,10-12
+  s_bd6b6f6f884c00::t_792420e4ae987e 13
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "01c427e02c1958e12c1175285ceec6277580b851",
+  "prompts": {},
+  "sessions": {
+    "s_bd6b6f6f884c00": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e7c-7401-7f10-b72b-466f0338455a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

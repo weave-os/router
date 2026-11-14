@@ -1,0 +1,21 @@
+install/pi-router/src/lsp.ts
+  s_928d18cf622157::t_6fc39979c1d635 343-344
+  s_928d18cf622157::t_1fd0ffc2c3aac0 381-382
+  s_928d18cf622157::t_b1ab1fefc25ea0 265-274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "b24fce0040c67e84b0d177454b2e921c429c6cf8",
+  "prompts": {},
+  "sessions": {
+    "s_928d18cf622157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1a744bfb-f40f-4395-b5ba-cd37866e6b0a",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

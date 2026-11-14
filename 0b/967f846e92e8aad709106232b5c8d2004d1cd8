@@ -1,0 +1,21 @@
+internal/proxy/usage/CLAUDE.md
+  s_49df7faaffb6d3::t_a3935a3a2a682e 22
+internal/subscriptions/plan_resolver.go
+  s_49df7faaffb6d3::t_a3935a3a2a682e 32,51,57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0b967f846e92e8aad709106232b5c8d2004d1cd8",
+  "prompts": {},
+  "sessions": {
+    "s_49df7faaffb6d3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1b46d-ba9e-7bb0-96d6-04aceeaa203b",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
