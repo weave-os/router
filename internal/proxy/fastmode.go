@@ -68,26 +68,42 @@ func (a *anthropicTierAttempt) dispatch(actx context.Context, d router.Decision,
 		return attemptOpts, err
 	}
 	err = native(actx, d, p)
-	if err == nil || !fast || committed(a.preludeBuf) || !providers.IsAnthropicFastModeQuotaRejection(err) {
-		return attemptOpts, err
+	err, retried := retryAnthropicStandardSpeed(a.log, a.preludeBuf, d, attemptOpts, err, func(standardOpts translate.EmitOptions) (func() error, error) {
+		prep, emitErr := a.env.PrepareAnthropic(a.r.Header, standardOpts)
+		if emitErr != nil {
+			return nil, emitErr
+		}
+		return func() error {
+			a.logBody(d, prep.Body)
+			recordFast(false)
+			standard := a.s.anthropicNativeAttempt(a.env, a.r, prep, a.sink, a.preludeBuf, a.preludeState, a.streamCut, a.notice, a.setExtractor, a.setStreamCost)
+			return standard(actx, d, p)
+		}, nil
+	})
+	if retried {
+		attemptOpts.FastMode = false
 	}
-	standardOpts := attemptOpts
-	standardOpts.FastMode = false
-	prep, emitErr := a.env.PrepareAnthropic(a.r.Header, standardOpts)
+	return attemptOpts, err
+}
+
+func retryAnthropicStandardSpeed(log *slog.Logger, buffer *preludeBuffer, target router.Decision, opts translate.EmitOptions,
+	upstreamErr error, prepare func(translate.EmitOptions) (func() error, error),
+) (error, bool) {
+	if upstreamErr == nil || !opts.FastMode || committed(buffer) || !providers.IsAnthropicFastModeQuotaRejection(upstreamErr) {
+		return upstreamErr, false
+	}
+	opts.FastMode = false
+	send, emitErr := prepare(opts)
 	if emitErr != nil {
-		a.log.Error("Failed to re-emit Anthropic body at standard speed", "err", emitErr)
-		return attemptOpts, err
+		log.Error("Failed to re-emit Anthropic body at standard speed", "err", emitErr)
+		return upstreamErr, false
 	}
-	a.log.Warn("Retrying Anthropic request at standard speed after fast-mode quota rejection",
-		"model", d.Model,
-		"provider", d.Provider)
-	if a.preludeBuf != nil {
-		a.preludeBuf.Discard()
+	log.Warn("Retrying Anthropic request at standard speed after fast-mode quota rejection",
+		"model", target.Model, "provider", target.Provider)
+	if buffer != nil {
+		buffer.Discard()
 	}
-	a.logBody(d, prep.Body)
-	recordFast(false)
-	standard := a.s.anthropicNativeAttempt(a.env, a.r, prep, a.sink, a.preludeBuf, a.preludeState, a.streamCut, a.notice, a.setExtractor, a.setStreamCost)
-	return standardOpts, standard(actx, d, p)
+	return send(), true
 }
 
 // attempt is dispatch as a dispatchAttempt.
