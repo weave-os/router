@@ -51,11 +51,15 @@ type runtimeStore struct {
 	extendCount          atomic.Int32
 	rejections           map[string]auth.SubscriptionCredentialRejection
 	rejectionReasons     map[string]string
+	listHook             func()
 }
 
 // ListSubscriptionCandidates mirrors the candidate SQL: every subscriber-assigned
 // account is admitted, the requester's personal accounts first.
 func (s *runtimeStore) ListSubscriptionCandidates(_ context.Context, owner auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error) {
+	if s.listHook != nil {
+		s.listHook()
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var personal, shared []*auth.SubscriptionAccount
@@ -118,7 +122,7 @@ func (s *runtimeStore) TryAcquireSubscriptionRefreshLease(ctx context.Context, _
 	now := time.Now()
 	for _, account := range s.accounts {
 		allowOverage := requestcontext.SubscriptionExtraUsageFrom(ctx) && account.Provider == auth.SubscriptionProviderClaude && account.State == auth.SubscriptionAccountStateExhausted
-		if account.ID == accountID && (!account.Enabled || (!allowOverage && account.CooldownUntil != nil && account.CooldownUntil.After(now))) {
+		if account.ID == accountID && (!account.Enabled || (!allowOverage && !requestcontext.SubscriptionQuotaRecoveryFrom(ctx) && account.CooldownUntil != nil && account.CooldownUntil.After(now))) {
 			return auth.RefreshLeaseAcquisition{}, nil
 		}
 	}

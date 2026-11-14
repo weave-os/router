@@ -232,6 +232,7 @@ func (r *subscriptionAccountRepo) TryAcquireSubscriptionRefreshLease(ctx context
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID,
 		LeaseSeconds:       int64(leaseTTL / time.Second),
 		AllowClaudeOverage: requestcontext.SubscriptionExtraUsageFrom(ctx),
+		AllowQuotaRecovery: requestcontext.SubscriptionQuotaRecoveryFrom(ctx),
 	})
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

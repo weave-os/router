@@ -107,6 +107,9 @@ type Runtime struct {
 	candidateLoads     map[string]*candidateLoad
 	explorationBudgets *expirable.LRU[string, *explorationBudget]
 	selectionSequence  uint64
+	resetClient        CodexResetClient
+	resetStore         ResetStore
+	resetTieChoice     func(int) int
 }
 
 // CandidateSignal is the latest local quota evidence for one physical account.
@@ -542,14 +545,6 @@ func subscriptionAccessTokenUsable(credentials auth.SubscriptionCredentials, now
 		return false
 	}
 	return credentials.AccessTokenExpiresAt == nil || credentials.AccessTokenExpiresAt.IsZero() || credentials.AccessTokenExpiresAt.After(now.Add(time.Minute))
-}
-
-func subscriptionCredentialAvailable(ctx context.Context, provider Provider, credentials auth.SubscriptionCredentials, now time.Time) bool {
-	var cooldownUntil time.Time
-	if credentials.CooldownUntil != nil {
-		cooldownUntil = *credentials.CooldownUntil
-	}
-	return credentials.Enabled && subscriptionAccountEligible(ctx, provider, credentials.State, cooldownUntil, now)
 }
 
 func applySubscriptionCredentials(account Account, credentials auth.SubscriptionCredentials) Account {

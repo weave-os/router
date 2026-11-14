@@ -129,6 +129,8 @@ const (
 	KeyEarlyStopRedo                        Key = "early_stop_redo"
 	KeyCCWorkspaceSystemAppend              Key = "cc_workspace_system_append"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
+	KeyCodexAutoUsageReset                  Key = "codex_auto_usage_reset_enabled"
+	KeyCodexAutoUsageResetSubscribers       Key = "codex_auto_usage_reset_subscriber_ids"
 	KeyClaudeEnterpriseOnly                 Key = "claude_enterprise_only"
 	KeySubscriptionExhaustedOpenRouterOnly  Key = "subscription_exhausted_openrouter_only"
 	KeyCommittedStreamArmDemotion           Key = "committed_stream_arm_demotion"
@@ -181,7 +183,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 30
+const RegistryVersion = 31
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -189,6 +191,8 @@ const RegistryVersion = 30
 // are already per-installation columns on model_router_installations, or are
 // consumed at construction time and have no per-request read site to override.
 var Registry = []Definition{
+	{Key: KeyCodexAutoUsageReset, Kind: KindBool, Description: "Redeem an earned Codex usage reset when all personal accounts are exhausted, choosing the soonest expiring credit. Off by default.", OrgOverridable: true},
+	{Key: KeyCodexAutoUsageResetSubscribers, Kind: KindString, Description: "Restrict automatic Codex resets to these comma-separated verified subscriber IDs. Empty allows all subscribers when the reset flag is enabled.", OrgOverridable: true},
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
 	{Key: KeyEscalationShadowClassifier, Kind: KindString, Description: "Independent shadow escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation.", OrgOverridable: true},
 	{Key: KeyEscalationCadence, Kind: KindInt, Description: "Completed turns between LLM checkpoints: 3, 4, or 5. Default 3.", OrgOverridable: true},
@@ -748,73 +752,4 @@ func (o Overrides) MarshalJSON() (data []byte, err error) {
 		flat[string(k)] = v
 	}
 	return json.Marshal(flat)
-}
-
-type overridesContextKey struct{}
-
-// WithOverrides stashes per-organization overrides on ctx. An empty set leaves
-// ctx unchanged so the accessors take their cheap path.
-func WithOverrides(ctx context.Context, o Overrides) context.Context {
-	if o.IsEmpty() {
-		return ctx
-	}
-	return context.WithValue(ctx, overridesContextKey{}, o)
-}
-
-// OverridesFromContext returns the per-organization overrides carried by ctx.
-func OverridesFromContext(ctx context.Context) (o Overrides, ok bool) {
-	o, ok = ctx.Value(overridesContextKey{}).(Overrides)
-	return o, ok
-}
-
-// BoolOr returns the per-organization override for key, or deploymentDefault
-// when the request carries none.
-func BoolOr(ctx context.Context, key Key, deploymentDefault bool) (value bool) {
-	o, ok := OverridesFromContext(ctx)
-	if !ok {
-		return deploymentDefault
-	}
-	if v, found := o.Bools[key]; found {
-		return v
-	}
-	return deploymentDefault
-}
-
-// IntOr returns the per-organization override for key, or deploymentDefault
-// when the request carries none.
-func IntOr(ctx context.Context, key Key, deploymentDefault int) (value int) {
-	o, ok := OverridesFromContext(ctx)
-	if !ok {
-		return deploymentDefault
-	}
-	if v, found := o.Ints[key]; found {
-		return v
-	}
-	return deploymentDefault
-}
-
-// FloatOr returns the per-organization override for key, or deploymentDefault
-// when the request carries none.
-func FloatOr(ctx context.Context, key Key, deploymentDefault float64) (value float64) {
-	o, ok := OverridesFromContext(ctx)
-	if !ok {
-		return deploymentDefault
-	}
-	if v, found := o.Floats[key]; found {
-		return v
-	}
-	return deploymentDefault
-}
-
-// StringOr returns the per-organization override for key, or deploymentDefault
-// when the request carries none.
-func StringOr(ctx context.Context, key Key, deploymentDefault string) (value string) {
-	o, ok := OverridesFromContext(ctx)
-	if !ok {
-		return deploymentDefault
-	}
-	if v, found := o.Strings[key]; found {
-		return v
-	}
-	return deploymentDefault
 }

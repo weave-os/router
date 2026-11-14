@@ -890,7 +890,9 @@ acquired AS (
          OR (subscriber_id IS NULL AND api_key_id = $3::uuid))
     AND enabled = TRUE
     AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP
-         OR ($6::boolean AND provider = 'claude' AND health_state = 'exhausted'))
+         OR ($6::boolean AND provider = 'claude' AND health_state = 'exhausted')
+         -- Earned-reset recovery refreshes exhausted personal accounts without admitting inference.
+         OR $7::boolean)
     AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until <= CURRENT_TIMESTAMP)
   RETURNING id
 )
@@ -906,6 +908,7 @@ type TryAcquireModelRouterSubscriptionRefreshLeaseParams struct {
 	LeaseSeconds       int64
 	LeaseID            uuid.UUID
 	AllowClaudeOverage bool
+	AllowQuotaRecovery bool
 }
 
 // Try to reserve one account for a cross-replica token refresh. The lease ID
@@ -935,7 +938,9 @@ type TryAcquireModelRouterSubscriptionRefreshLeaseParams struct {
 //	         OR (subscriber_id IS NULL AND api_key_id = $3::uuid))
 //	    AND enabled = TRUE
 //	    AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP
-//	         OR ($6::boolean AND provider = 'claude' AND health_state = 'exhausted'))
+//	         OR ($6::boolean AND provider = 'claude' AND health_state = 'exhausted')
+//	         -- Earned-reset recovery refreshes exhausted personal accounts without admitting inference.
+//	         OR $7::boolean)
 //	    AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until <= CURRENT_TIMESTAMP)
 //	  RETURNING id
 //	)
@@ -950,6 +955,7 @@ func (q *Queries) TryAcquireModelRouterSubscriptionRefreshLease(ctx context.Cont
 		arg.LeaseSeconds,
 		arg.LeaseID,
 		arg.AllowClaudeOverage,
+		arg.AllowQuotaRecovery,
 	)
 	var took_over bool
 	err := row.Scan(&took_over)

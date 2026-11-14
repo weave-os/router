@@ -251,7 +251,9 @@ acquired AS (
          OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid))
     AND enabled = TRUE
     AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP
-         OR (@allow_claude_overage::boolean AND provider = 'claude' AND health_state = 'exhausted'))
+         OR (@allow_claude_overage::boolean AND provider = 'claude' AND health_state = 'exhausted')
+         -- Earned-reset recovery refreshes exhausted personal accounts without admitting inference.
+         OR @allow_quota_recovery::boolean)
     AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until <= CURRENT_TIMESTAMP)
   RETURNING id
 )
