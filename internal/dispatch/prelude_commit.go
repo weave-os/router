@@ -16,7 +16,7 @@ import (
 // that calls commit(), flushing the buffered status+body to inner and going
 // pass-through. If the attempt errors before ever writing, Committed() is
 // false and the caller can Discard() and retry or render the error itself.
-// Committed() is the retry gate (replaces firstByteGuard.written).
+// Committed() is the retry gate.
 type PreludeBuffer struct {
 	inner          http.ResponseWriter
 	initialHeaders http.Header
