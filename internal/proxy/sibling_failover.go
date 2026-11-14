@@ -87,7 +87,7 @@ func (s *Service) rescueDecisions(ctx context.Context, failed router.Decision, c
 		return nil
 	}
 	available := s.keyedProvidersExcluding(s.excludedProvidersForRequest(ctx))
-	excludedModels := s.excludedModelsForRequest(ctx)
+	excludedModels := mergeExcludedModels(s.excludedModelsForRequest(ctx), customToolExcludedModels(ctx))
 	var candidateProviders map[string]string
 	if failed.Metadata != nil {
 		candidateProviders = failed.Metadata.CandidateProviders
@@ -348,7 +348,7 @@ func (s *Service) rescueExcludedModels(ctx context.Context) map[string]struct{} 
 // gateway binding rank before those on the same gateway.
 func (s *Service) gatewayRescueDecisions(ctx context.Context, failed router.Decision, candidates []string, reason string, gw map[string]struct{}, est, sigSavings, outputReserve int) []router.Decision {
 	custom := s.customBindingsForRequest(ctx)
-	excludedModels := s.excludedModelsForRequest(ctx)
+	excludedModels := mergeExcludedModels(s.excludedModelsForRequest(ctx), customToolExcludedModels(ctx))
 	automaticExcluded := s.rescueExcludedModels(ctx)
 	providerFor := func(id string) (string, bool) {
 		return gatewayProviderFor(id, custom, gw)

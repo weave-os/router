@@ -812,3 +812,12 @@ func TestSubscriptionOverflowBindingsTrailOpenRouterVendorModels(t *testing.T) {
 		}
 	}
 }
+
+func TestCustomToolUnsupportedSet(t *testing.T) {
+	// MiMo v2.6 Pro returns {} for Codex's projected exec tool on DeepInfra and
+	// OpenRouter alike, so the flag is model-wide. Its Flash sibling is unaffected.
+	set := CustomToolUnsupportedSet()
+	assert.Contains(t, set, ModelMiMoV26Pro)
+	assert.NotContains(t, set, ModelMiMoV26Flash)
+	assert.NotContains(t, set, ModelIDClaudeOpus47.String())
+}
