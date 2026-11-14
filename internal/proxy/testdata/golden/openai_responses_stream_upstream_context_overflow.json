@@ -1,0 +1,283 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_responses",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "gpt-5",
+          "model": "claude-opus-4-7",
+          "provider": "anthropic",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-opus-4-7",
+          "outbound_body": {
+            "max_tokens": 16000,
+            "messages": [
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "text": "Say hi",
+                    "type": "text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-opus-4-7",
+            "stream": true
+          },
+          "outcome": "upstream_status_400"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true,
+            "ErrorClass": "invalid_request",
+            "FailureOwner": "client"
+          },
+          "FailureReason": "upstream_status",
+          "Outcome": "failed",
+          "Provenance": {
+            "PolicyID": "main-openai-responses",
+            "PolicyRevision": "3",
+            "Purpose": "openai_responses",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-opus-4-7",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-opus-4-7"
+          },
+          "UpstreamStatusCode": 400
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "29",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1000000",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "claude-opus-4-7",
+          "X-Router-Provider": "anthropic"
+        },
+        "events": [
+          {
+            "event": "response.created",
+            "data": {
+              "response": {
+                "id": "resp_\u003cid\u003e",
+                "model": "claude-opus-4-7",
+                "object": "response",
+                "status": "in_progress"
+              },
+              "sequence_number": 0,
+              "type": "response.created"
+            }
+          },
+          {
+            "event": "response.output_item.added",
+            "data": {
+              "item": {
+                "content": [],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "in_progress",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 1,
+              "type": "response.output_item.added"
+            }
+          },
+          {
+            "event": "response.content_part.added",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "",
+                "type": "output_text"
+              },
+              "sequence_number": 2,
+              "type": "response.content_part.added"
+            }
+          },
+          {
+            "event": "response.output_text.delta",
+            "data": {
+              "content_index": 0,
+              "delta": "⁣⁠⁣⁠✦ **Weave Router** → claude-opus-4-7 · best pick for this turn\n\n",
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 3,
+              "type": "response.output_text.delta"
+            }
+          },
+          {
+            "event": "response.output_text.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "sequence_number": 4,
+              "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-opus-4-7 · best pick for this turn\n\n",
+              "type": "response.output_text.done"
+            }
+          },
+          {
+            "event": "response.content_part.done",
+            "data": {
+              "content_index": 0,
+              "item_id": "msg_\u003cid\u003e",
+              "output_index": 0,
+              "part": {
+                "annotations": [],
+                "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-opus-4-7 · best pick for this turn\n\n",
+                "type": "output_text"
+              },
+              "sequence_number": 5,
+              "type": "response.content_part.done"
+            }
+          },
+          {
+            "event": "response.output_item.done",
+            "data": {
+              "item": {
+                "content": [
+                  {
+                    "annotations": [],
+                    "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-opus-4-7 · best pick for this turn\n\n",
+                    "type": "output_text"
+                  }
+                ],
+                "id": "\u003cid\u003e",
+                "role": "assistant",
+                "status": "completed",
+                "type": "message"
+              },
+              "output_index": 0,
+              "sequence_number": 6,
+              "type": "response.output_item.done"
+            }
+          },
+          {
+            "event": "response.failed",
+            "data": {
+              "response": {
+                "error": {
+                  "code": "context_length_exceeded",
+                  "message": "prompt is too long: the conversation exceeds the model's context window. Compact the conversation or start a new session."
+                },
+                "id": "resp_\u003cid\u003e",
+                "model": "claude-opus-4-7",
+                "object": "response",
+                "output": [
+                  {
+                    "content": [
+                      {
+                        "annotations": [],
+                        "text": "⁣⁠⁣⁠✦ **Weave Router** → claude-opus-4-7 · best pick for this turn\n\n",
+                        "type": "output_text"
+                      }
+                    ],
+                    "id": "\u003cid\u003e",
+                    "role": "assistant",
+                    "status": "completed",
+                    "type": "message"
+                  }
+                ],
+                "status": "failed"
+              },
+              "sequence_number": 7,
+              "type": "response.failed"
+            }
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_high",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "claude-opus-4-7",
+            "PolicyGroup": "golden-group",
+            "Provider": "anthropic",
+            "Reason": "golden_route",
+            "Role": "default_high",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "CandidateModels": [
+            "claude-opus-4-7",
+            "deepseek/deepseek-v4-pro"
+          ],
+          "CaptureMode": "off",
+          "CrossFormat": true,
+          "DecisionModel": "claude-opus-4-7",
+          "DecisionProvider": "anthropic",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "ErrorClass": "invalid_request",
+          "EstimatedInputTokens": 1,
+          "FailureOwner": "client",
+          "FinalModelFamily": "claude-opus",
+          "FreshDecisionModel": "claude-opus-4-7",
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "claude-opus",
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedModel": "gpt-5",
+          "Role": "default_high",
+          "SelectionTrace": {
+            "served_group": "golden-group"
+          },
+          "SpanType": "router.upstream",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamStatusCode": 400,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "openai_responses_stream_upstream_context_overflow"
+}

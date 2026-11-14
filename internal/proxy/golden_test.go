@@ -60,6 +60,8 @@ type goldenRequest struct {
 	decorateContext func(context.Context) context.Context
 	// noTelemetry marks requests refused before a request row is emitted.
 	noTelemetry bool
+	// path overrides the ingress's default request path; headers are sent as-is.
+	path string
 	// bodyFrom builds the body from the previous raw response when set.
 	bodyFrom func(previous []byte) string
 	headers  map[string]string
@@ -216,9 +218,10 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 	before := h.rec.lengths()
 	h.rec.mu.Unlock()
 
-	path := "/v1/messages"
-	if ingress == ingressOpenAI {
-		path = "/v1/chat/completions"
+	surface := goldenIngressSurfaces[ingress]
+	path := surface.path
+	if req.path != "" {
+		path = req.path
 	}
 	httpReq := httptest.NewRequest(http.MethodPost, path, strings.NewReader(req.body)).WithContext(ctx)
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -226,12 +229,7 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 		httpReq.Header.Set(k, v)
 	}
 	rec := httptest.NewRecorder()
-	var err error
-	if ingress == ingressOpenAI {
-		err = h.svc.ProxyOpenAIChatCompletion(ctx, []byte(req.body), rec, httpReq)
-	} else {
-		err = h.svc.ProxyMessages(ctx, []byte(req.body), rec, httpReq)
-	}
+	err := surface.serve(h.svc, ctx, []byte(req.body), rec, httpReq)
 	if !req.noTelemetry {
 		h.awaitTelemetry(t, before.telemetry)
 	}
@@ -240,6 +238,7 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 		Stream bool `json:"stream"`
 	}
 	_ = json.Unmarshal([]byte(req.body), &parsed)
+	parsed.Stream = parsed.Stream || strings.HasSuffix(path, ":streamGenerateContent")
 	h.lastResponseBody = rec.Body.Bytes()
 	h.rec.mu.Lock()
 	defer h.rec.mu.Unlock()
@@ -334,6 +333,10 @@ func goldenClientResponse(rec *httptest.ResponseRecorder) goldenResponse {
 			if len(eventType) == 0 && len(data) == 0 {
 				continue
 			}
+			// Keepalive pings fire on wall-clock time; pin presence, not count.
+			if string(eventType) == "ping" && len(out.Events) > 0 && out.Events[len(out.Events)-1].Event == "ping" {
+				continue
+			}
 			out.Events = append(out.Events, goldenSSEEvent{Event: string(eventType), Data: goldenWireJSON(data)})
 		}
 		return out
@@ -400,9 +403,22 @@ var goldenJWT = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z
 
 var goldenMintedID = regexp.MustCompile(`\bchatcmpl-[0-9a-f]{16}\b`)
 
+// goldenMintedItemID matches Responses/Gemini item ids minted from an unpadded
+// counter and clock fragment, so they can be as short as two characters.
+// goldenFixtureItemID is the scripted upstream id, which passes through as-is.
+var goldenMintedItemID = regexp.MustCompile(`\b(resp|msg|fc|ctc|rs)_[0-9a-z]{2,}\b`)
+
+const goldenFixtureItemID = "msg_up"
+
 func scrubGoldenString(s string) string {
 	s = goldenJWT.ReplaceAllString(s, "<jwt>")
 	s = goldenMintedID.ReplaceAllString(s, "chatcmpl-<id>")
+	s = goldenMintedItemID.ReplaceAllStringFunc(s, func(id string) string {
+		if id == goldenFixtureItemID {
+			return id
+		}
+		return id[:strings.IndexByte(id, '_')] + "_<id>"
+	})
 	return goldenUUID.ReplaceAllStringFunc(s, func(id string) string {
 		if id == goldenInstallationID {
 			return id
@@ -529,7 +545,8 @@ func TestGolden(t *testing.T) {
 	scenarios := append(goldenInferenceScenarios(), goldenInferenceExecutionScenarios()...)
 	scenarios = append(scenarios, goldenCredentialScenarios()...)
 	scenarios = append(scenarios, goldenRoutingPolicyScenarios()...)
-	for _, sc := range append(scenarios, goldenConversationScenarios()...) {
+	scenarios = append(scenarios, goldenConversationScenarios()...)
+	for _, sc := range append(scenarios, goldenIngressScenarios()...) {
 		require.False(t, names[sc.name], "duplicate golden scenario %s", sc.name)
 		names[sc.name] = true
 		t.Run(sc.name, func(t *testing.T) {
