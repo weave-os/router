@@ -1000,6 +1000,22 @@ check_not_contains "no router key has no config hint" "$out" 'config is out of d
 out="$(render_nudge "$nudge/project root/.claude" 0)"
 check_contains "project config repair uses explicit cwd" "$out" "cd $(printf '%q' "$nudge/project root") && npx @weave-os/router update --claude --scope project"
 check_not_contains "project config repair never uses dir" "$out" '--dir'
+out="$(render_nudge "$nudge/project root/.claude" 1)"
+check_contains "inherited current stamp cannot mask unstamped project" "$out" 'config is out of date'
+for version in 0 bad 1 2; do
+  jq -n --arg version "$version" '{env:{ANTHROPIC_CUSTOM_HEADERS:"X-Weave-Router-Key: rk_test",WEAVE_ROUTER_CONFIG_VERSION:$version}}' \
+    >"$nudge/project root/.claude/settings.local.json"
+  out="$(render_nudge "$nudge/project root/.claude" 1)"
+  case "$version" in
+    0|bad) check_contains "project stamp '$version' overrides inherited current stamp" "$out" 'config is out of date' ;;
+    *) check_not_contains "project stamp $version needs no update" "$out" 'config is out of date' ;;
+  esac
+done
+out="$(render_nudge "$nudge/project root/.claude" 0)"
+check_not_contains "current project stamp overrides inherited stale stamp" "$out" 'config is out of date'
+printf '{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: rk_test","WEAVE_ROUTER_CONFIG_VERSION":{"invalid":true}}}' >"$nudge/project root/.claude/settings.local.json"
+out="$(render_nudge "$nudge/project root/.claude" 1)"
+check_contains "non-scalar project stamp needs update" "$out" 'config is out of date'
 out="$(render_nudge "$nudge/custom dir/.claude" 0)"
 check_contains "custom directory config repair" "$out" "update --claude --dir $(printf '%q' "$nudge/custom dir")"
 
