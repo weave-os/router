@@ -185,7 +185,7 @@ func callerPlanRefusal(ctx context.Context, pool subscriptions.Provider, callerQ
 		return nil
 	}
 	if callerPlanThrottled(ctx, pool, now) {
-		return ErrSubscriptionPoolThrottled
+		return errCallerPlanThrottled
 	}
 	return fmt.Errorf("%w: caller subscription quota is available or unknown", ErrSubscriptionPoolUnavailable)
 }
