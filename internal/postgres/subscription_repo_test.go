@@ -270,6 +270,7 @@ func TestSubscriptionAccountReconnectCannotAdoptLegacyRow(t *testing.T) {
 		ExternalAccountID: "codex-legacy", RefreshToken: []byte("reconnected-ciphertext"),
 	})
 	require.Error(t, err, "reconnect must not silently claim an unassigned account")
+	assert.NotErrorIs(t, err, auth.ErrSubscriptionAccountHeldByAnotherOwner, "an unassigned row is not linked to another user")
 	assert.Nil(t, adopted)
 	assert.Equal(t, auth.SubscriptionUpsertUpdated, kind)
 	var persistedOwner *uuid.UUID
@@ -277,6 +278,41 @@ func TestSubscriptionAccountReconnectCannotAdoptLegacyRow(t *testing.T) {
 	require.NoError(t, fixture.pool.QueryRow(ctx, "SELECT subscriber_id, refresh_token_ciphertext FROM router.model_router_subscription_accounts WHERE id = $1", legacyID).Scan(&persistedOwner, &persistedToken))
 	assert.Nil(t, persistedOwner)
 	assert.Equal(t, []byte("legacy-ciphertext"), persistedToken)
+}
+
+func TestSubscriptionAccountHeldByAnotherSubscriberIsReportedAsLinkedElsewhere(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	ctx := context.Background()
+	ownerA := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	ownerB := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
+
+	held, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: ownerA, Provider: auth.SubscriptionProviderClaude,
+		ExternalAccountID: "claude-held", RefreshToken: []byte("owner-ciphertext"),
+	})
+	require.NoError(t, err)
+
+	claimed, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: ownerB, Provider: auth.SubscriptionProviderClaude,
+		ExternalAccountID: "claude-held", RefreshToken: []byte("claimant-ciphertext"),
+	})
+	require.ErrorIs(t, err, auth.ErrSubscriptionAccountHeldByAnotherOwner)
+	assert.Nil(t, claimed)
+	var persistedOwner uuid.UUID
+	var persistedToken []byte
+	require.NoError(t, fixture.pool.QueryRow(ctx, "SELECT subscriber_id, refresh_token_ciphertext FROM router.model_router_subscription_accounts WHERE id = $1", held.ID).Scan(&persistedOwner, &persistedToken))
+	assert.Equal(t, fixture.subscriberA, persistedOwner)
+	assert.Equal(t, []byte("owner-ciphertext"), persistedToken)
+
+	_, err = fixture.pool.Exec(ctx, "UPDATE router.credential_subject_installations SET access_enabled = FALSE WHERE subject_id = $1", fixture.subscriberA)
+	require.NoError(t, err)
+	_, _, err = repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		Owner: ownerA, Provider: auth.SubscriptionProviderClaude,
+		ExternalAccountID: "claude-held", RefreshToken: []byte("owner-ciphertext"),
+	})
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, auth.ErrSubscriptionAccountHeldByAnotherOwner, "the owner's own refused enrollment is not linked elsewhere")
 }
 
 func TestSubscriptionAccountConcurrentFirstEnrollmentConverges(t *testing.T) {

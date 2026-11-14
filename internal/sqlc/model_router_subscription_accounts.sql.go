@@ -601,6 +601,45 @@ func (q *Queries) ListModelRouterSubscriptionCandidates(ctx context.Context, arg
 	return items, nil
 }
 
+const modelRouterSubscriptionAccountHeldByAnotherOwner = `-- name: ModelRouterSubscriptionAccountHeldByAnotherOwner :one
+SELECT EXISTS (
+  SELECT 1 FROM router.model_router_subscription_accounts
+  WHERE provider = $1::varchar
+    AND external_account_id = $2::varchar
+    AND ($1::varchar <> 'codex' OR provider_user_id = $3::text)
+    AND subscriber_id <> $4::uuid
+)::boolean AS held
+`
+
+type ModelRouterSubscriptionAccountHeldByAnotherOwnerParams struct {
+	Provider          string
+	ExternalAccountID string
+	ProviderUserID    string
+	SubscriberID      uuid.UUID
+}
+
+// Explains an enrollment the upsert refused: the physical account is already
+// held by a row this subscriber does not own.
+//
+//	SELECT EXISTS (
+//	  SELECT 1 FROM router.model_router_subscription_accounts
+//	  WHERE provider = $1::varchar
+//	    AND external_account_id = $2::varchar
+//	    AND ($1::varchar <> 'codex' OR provider_user_id = $3::text)
+//	    AND subscriber_id <> $4::uuid
+//	)::boolean AS held
+func (q *Queries) ModelRouterSubscriptionAccountHeldByAnotherOwner(ctx context.Context, arg ModelRouterSubscriptionAccountHeldByAnotherOwnerParams) (bool, error) {
+	row := q.db.QueryRow(ctx, modelRouterSubscriptionAccountHeldByAnotherOwner,
+		arg.Provider,
+		arg.ExternalAccountID,
+		arg.ProviderUserID,
+		arg.SubscriberID,
+	)
+	var held bool
+	err := row.Scan(&held)
+	return held, err
+}
+
 const persistModelRouterSubscriptionTokens = `-- name: PersistModelRouterSubscriptionTokens :execrows
 UPDATE router.model_router_subscription_accounts
 SET refresh_token_ciphertext = $1::bytea,

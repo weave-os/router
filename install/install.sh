@@ -3592,6 +3592,9 @@ models_fail() {
     subscription_account_rejected)
       err "The router didn't accept that sign-in. Run 'npx $npm_package_name login claude' or 'login codex' again."
       return ;;
+    subscription_account_linked_elsewhere)
+      err "That account is already linked to another Weave Router user. Unlink it there first; signing in again won't help."
+      return ;;
   esac
   case "$models_http_status" in
     ""|000)

@@ -120,6 +120,10 @@ func createAccountHandler(authSvc *auth.Service) gin.HandlerFunc {
 			return
 		}
 		account, err := authSvc.AddSubscriptionAccount(c.Request.Context(), auth.CreateSubscriptionAccountParams{Owner: owner, Provider: request.Provider, ExternalAccountID: request.ExternalAccountID, DisplayName: request.DisplayName, RefreshToken: []byte(request.RefreshToken), InstallationExternalID: installation.ExternalID})
+		if errors.Is(err, auth.ErrSubscriptionAccountHeldByAnotherOwner) {
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "subscription_account_linked_elsewhere"})
+			return
+		}
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "subscription_account_rejected"})
 			return

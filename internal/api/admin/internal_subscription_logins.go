@@ -126,6 +126,11 @@ func InternalCompleteSubscriptionLoginHandler(authSvc *auth.Service, flow Subscr
 			DisplayName:       completed.DisplayName,
 			RefreshToken:      []byte(completed.RefreshToken),
 		})
+		if errors.Is(err, auth.ErrSubscriptionAccountHeldByAnotherOwner) {
+			log.Warn("Subscription login account is linked to another owner", "account_provider", completed.Provider)
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "subscription_account_linked_elsewhere"})
+			return
+		}
 		if err != nil {
 			log.Warn("Subscription login enrollment rejected", "err", err)
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "subscription_account_rejected"})

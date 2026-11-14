@@ -83,6 +83,17 @@ SELECT id, subscriber_id, api_key_id, provider, external_account_id, provider_us
        FALSE::boolean AS adopted
 FROM inserted;
 
+-- Explains an enrollment the upsert refused: the physical account is already
+-- held by a row this subscriber does not own.
+-- name: ModelRouterSubscriptionAccountHeldByAnotherOwner :one
+SELECT EXISTS (
+  SELECT 1 FROM router.model_router_subscription_accounts
+  WHERE provider = @provider::varchar
+    AND external_account_id = @external_account_id::varchar
+    AND (@provider::varchar <> 'codex' OR provider_user_id = @provider_user_id::text)
+    AND subscriber_id <> @subscriber_id::uuid
+)::boolean AS held;
+
 -- Account state is scoped by owner so a router key can never manage another
 -- subscriber's account: subscriber-owned rows answer to the credential subject,
 -- and rows left behind by the ownership migration answer only to the key that
