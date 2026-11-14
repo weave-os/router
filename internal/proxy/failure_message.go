@@ -101,7 +101,7 @@ func failureWordingFor(a tracedAttempt) failureWording {
 		return failureWording{"had no usable subscription seat", "no usable subscription seat"}
 	}
 	if errors.Is(a.Err, translate.ErrCustomToolArguments) {
-		return failureWording{"sent tool arguments we couldn't translate", "tool call translation failed"}
+		return failureWording{"sent malformed tool arguments", "malformed tool call arguments"}
 	}
 	switch TurnErrorClass(a.Diagnosis.ErrorClass) {
 	case TurnErrorStreamStalled:

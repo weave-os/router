@@ -90,6 +90,44 @@ func TestTranslationPlan_ImageConstraintShadowsBeforeEnforcement(t *testing.T) {
 	assert.True(t, enforced, "known text-only models are hard excluded in enforce mode")
 }
 
+func TestTranslationPlan_CustomToolsExcludeUnsupportedModelsInEveryMode(t *testing.T) {
+	// Codex code mode projects a freeform custom tool to {"input": string}.
+	// MiMo v2.6 Pro returns {} for it and the committed stream fails, so the
+	// exclusion holds even while the broader compatibility rollout is off.
+	for _, mode := range []TranslationCompatibilityMode{
+		TranslationCompatibilityOff,
+		TranslationCompatibilityShadow,
+		TranslationCompatibilityEnforce,
+	} {
+		t.Run(string(mode), func(t *testing.T) {
+			plan := compatibilityService(mode).planTranslation(router.Request{
+				TranslationRequirements: router.TranslationRequirements{
+					SourceFormat:  router.WireFormatOpenAI,
+					Endpoint:      router.EndpointOpenAIResponses,
+					FunctionTools: true,
+					CustomTools:   true,
+				},
+			})
+
+			assert.Contains(t, plan.ExcludedModels, "xiaomi/mimo-v2.6-pro")
+			assert.NotContains(t, plan.ExcludedModels, "xiaomi/mimo-v2.6-flash")
+			requireModelExclusion(t, plan, "custom_tool_unsupported", "xiaomi/mimo-v2.6-pro", true)
+		})
+	}
+}
+
+func TestTranslationPlan_FunctionToolsKeepCustomToolUnsupportedModels(t *testing.T) {
+	plan := compatibilityService(TranslationCompatibilityEnforce).planTranslation(router.Request{
+		TranslationRequirements: router.TranslationRequirements{
+			SourceFormat:  router.WireFormatOpenAI,
+			Endpoint:      router.EndpointOpenAIResponses,
+			FunctionTools: true,
+		},
+	})
+
+	assert.NotContains(t, plan.ExcludedModels, "xiaomi/mimo-v2.6-pro")
+}
+
 func TestTranslationPlan_OffRestoresNativeFamilyEligibility(t *testing.T) {
 	plan := compatibilityService(TranslationCompatibilityOff).planTranslation(router.Request{
 		EnabledProviders: map[string]struct{}{
@@ -252,4 +290,15 @@ func requireExclusion(t *testing.T, plan TranslationPlan, code, provider string,
 		}
 	}
 	t.Fatalf("missing exclusion code=%q provider=%q in %#v", code, provider, plan.Exclusions)
+}
+
+func requireModelExclusion(t *testing.T, plan TranslationPlan, code, model string, enforced bool) {
+	t.Helper()
+	for _, exclusion := range plan.Exclusions {
+		if exclusion.Code == code && exclusion.Model == model {
+			assert.Equal(t, enforced, exclusion.Enforced)
+			return
+		}
+	}
+	t.Fatalf("missing exclusion code=%q model=%q in %#v", code, model, plan.Exclusions)
 }
