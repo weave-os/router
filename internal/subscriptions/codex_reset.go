@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/google/uuid"
 )
@@ -228,7 +229,7 @@ func (r *Runtime) selectResetCredit(ctx context.Context, claim *ResetClaim, exha
 }
 
 func (r *Runtime) resetCredential(ctx context.Context, owner auth.SubscriptionOwner, account *auth.SubscriptionAccount) (Lease, error) {
-	credential, err := r.refreshCredentials(owner, true)(ctx, Account{ID: account.ID, OwnerID: "account:" + account.ID,
+	credential, err := r.refresh(owner)(requestcontext.WithSubscriptionQuotaRecovery(ctx), Account{ID: account.ID, OwnerID: "account:" + account.ID,
 		Provider: ProviderCodex, AccountID: account.ExternalAccountID, Enabled: account.Enabled, State: account.State})
 	if err != nil {
 		return Lease{}, err

@@ -266,7 +266,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		if poolProvider == subscriptions.ProviderClaude && claudeEnterpriseEnabled(ctx) {
 			leaseCtx = requestcontext.WithSubscriptionExtraUsage(ctx)
 		}
-		lease, present, err := s.leaseOrResetCodex(leaseCtx, owner, poolProvider, model, seen)
+		lease, present, err := leaseOrResetCodex(leaseCtx, s.managedSubscriptions, s.usageObserver, owner, poolProvider, model, seen)
 		if err != nil && !errors.Is(err, subscriptions.ErrNoAvailableAccount) {
 			if current := CredentialsFromContext(ctx); ctx.Err() == nil && current != nil && current.OAuth {
 				observability.FromContext(ctx).Warn("Subscription pool lease failed; using caller subscription", "provider", poolProvider, "err", err)
@@ -572,24 +572,6 @@ func (s *Service) recordManagedSubscriptionSuccess(ctx context.Context, provider
 		observability.FromContext(ctx).Error("Failed to mark subscription account active",
 			"provider", poolProvider, "account_id", lease.AccountID, "err", err)
 	}
-}
-
-func rejectManagedSubscriptionCredential(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, accountID string, upstreamStatus int) (bool, error) {
-	if rejector, ok := leaser.(interface {
-		RejectCredential(context.Context, auth.SubscriptionOwner, subscriptions.Provider, string, int) (bool, error)
-	}); ok {
-		return rejector.RejectCredential(ctx, owner, provider, accountID, upstreamStatus)
-	}
-	return true, reconnectManagedSubscription(ctx, leaser, owner, provider, accountID)
-}
-
-func reconnectManagedSubscription(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, accountID string) error {
-	if health, ok := leaser.(interface {
-		ReconnectRequired(context.Context, auth.SubscriptionOwner, subscriptions.Provider, string) error
-	}); ok {
-		return health.ReconnectRequired(ctx, owner, provider, accountID)
-	}
-	return leaser.Disable(ctx, owner, provider, accountID)
 }
 
 func managedSubscriptionResetAt(err error, now time.Time) time.Time {

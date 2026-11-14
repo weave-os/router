@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -16,13 +17,13 @@ type codexResetter interface {
 
 // leaseOrResetCodex leases a pool account and, when the personal Codex pool has
 // none, attempts one earned-reset recovery per request before paid fallback.
-func (s *Service) leaseOrResetCodex(ctx context.Context, owner auth.SubscriptionOwner, poolProvider subscriptions.Provider, model string, seen map[string]bool) (subscriptions.Lease, bool, error) {
-	lease, present, err := s.managedSubscriptions.Lease(ctx, owner, poolProvider, ClientIdentityFrom(ctx).SessionID)
+func leaseOrResetCodex(ctx context.Context, leaser subscriptions.Leaser, observer *usage.Observer, owner auth.SubscriptionOwner, poolProvider subscriptions.Provider, model string, seen map[string]bool) (subscriptions.Lease, bool, error) {
+	lease, present, err := leaser.Lease(ctx, owner, poolProvider, ClientIdentityFrom(ctx).SessionID)
 	if poolProvider != subscriptions.ProviderCodex || !(errors.Is(err, subscriptions.ErrNoAvailableAccount) || err == nil && !present) {
 		return lease, present, err
 	}
 	requestUsage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
-	resetter, ok := s.managedSubscriptions.(codexResetter)
+	resetter, ok := leaser.(codexResetter)
 	if requestUsage == nil || requestUsage.ResetAttempted || !ok || !subscriptions.CodexAutoUsageResetEnabled(ctx, owner.SubscriberID) {
 		return lease, present, err
 	}
@@ -38,9 +39,9 @@ func (s *Service) leaseOrResetCodex(ctx context.Context, owner auth.Subscription
 	}
 	delete(seen, restored.AccountID)
 	delete(requestUsage.AttemptedAccounts, restored.AccountID+"\x00"+model)
-	if s.usageObserver != nil {
-		s.usageObserver.Forget(s.usageObserver.Key([]byte("subscription-account:" + restored.AccountID)))
-		s.usageObserver.Forget(s.usageObserver.Key([]byte(restored.AccessToken)))
+	if observer != nil {
+		observer.Forget(observer.Key([]byte("subscription-account:" + restored.AccountID)))
+		observer.Forget(observer.Key([]byte(restored.AccessToken)))
 	}
 	return restored, true, nil
 }

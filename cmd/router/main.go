@@ -263,7 +263,6 @@ func main() {
 		logger.Info("Anthropic provider enabled (client auth passthrough)", "base_url", anthropic.DefaultBaseURL)
 	}
 
-	var codexResetClient subscriptions.CodexResetClient
 	{
 		openaiBaseURL := config.GetOr("OPENAI_BASE_URL", openaiProvider.DefaultBaseURL)
 		openaiKey := ""
@@ -287,7 +286,6 @@ func main() {
 			}
 		}
 		providerMap[providers.ProviderOpenAI] = openaiClient
-		codexResetClient = openaiClient
 		switch {
 		case byokOnly:
 			logger.Info("OpenAI provider enabled (BYOK only)", "base_url", openaiBaseURL)
@@ -616,8 +614,7 @@ func main() {
 		)
 		authSvc.WithCodexEnrollmentVerifier(subscriptionOAuth)
 		subscriptionLogins = subscriptionOAuth
-		subscriptionRuntime = subscriptions.NewRuntime(authSvc, subscriptionOAuth, time.Now).
-			WithCodexResets(codexResetClient, postgres.NewCodexResetStore(pool))
+		subscriptionRuntime = subscriptions.NewRuntime(authSvc, subscriptionOAuth, time.Now)
 		logger.Info("Server-side subscription account pools enabled")
 	} else {
 		logger.Info("Server-side subscription account pools disabled")
@@ -1253,8 +1250,6 @@ func main() {
 		flags.KeyEscalationXGBoostShadowMarkerEnabled: boolDefault(false),
 		flags.KeyEscalationXGBoostEpoch:               "0",
 		flags.KeySubscriptionPlanAwareRouting:         boolDefault(false),
-		flags.KeyCodexAutoUsageReset:                  boolDefault(false),
-		flags.KeyCodexAutoUsageResetSubscribers:       "",
 		flags.KeyClaudeEnterpriseOnly:                 boolDefault(true),
 		flags.KeySubscriptionExhaustedOpenRouterOnly:  boolDefault(false),
 		flags.KeyPlanUserClusterLists:                 boolDefault(false),
@@ -1440,7 +1435,7 @@ func main() {
 	}
 	proxySvc = proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans).WithInferenceDeployment(inferenceDeployment)
 	if subscriptionRuntime != nil {
-		proxySvc.WithManagedSubscriptions(subscriptionRuntime)
+		proxySvc.WithManagedSubscriptions(subscriptionRuntime.WithCodexResets(codexResetClient(providerMap), postgres.NewCodexResetStore(pool)))
 	}
 	for _, spec := range configuredPolicySpecs {
 		proxySvc = proxySvc.WithPolicyStrategy(spec)

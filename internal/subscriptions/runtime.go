@@ -12,7 +12,6 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/requestcontext"
 
 	"github.com/cenkalti/backoff/v5"
 	"github.com/google/uuid"
@@ -320,21 +319,7 @@ func (r *Runtime) updateAccountHealth(ctx context.Context, owner auth.Subscripti
 }
 
 func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
-	return r.refreshCredentials(owner, false)
-}
-
-// Quota management may refresh exhausted accounts without admitting inference.
-func (r *Runtime) refreshCredentials(owner auth.SubscriptionOwner, allowExhausted bool) Refresher {
 	return func(ctx context.Context, account Account) (Account, error) {
-		if allowExhausted {
-			ctx = requestcontext.WithSubscriptionQuotaRecovery(ctx)
-		}
-		available := func(credentials auth.SubscriptionCredentials) bool {
-			if allowExhausted {
-				return credentials.Enabled && resetAccountStateEligible(credentials.State)
-			}
-			return subscriptionCredentialAvailable(ctx, account.Provider, credentials, r.clock())
-		}
 		wait := refreshWaitInitial
 		for attempt := 0; attempt < refreshRetryLimit; attempt++ {
 			leaseID := uuid.NewString()
@@ -349,7 +334,7 @@ func (r *Runtime) refreshCredentials(owner auth.SubscriptionOwner, allowExhauste
 					observability.FromContext(ctx).Error("Failed to load subscription credentials while waiting for refresh", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", loadErr)
 					return Account{}, loadErr
 				}
-				if !available(credentials) {
+				if !subscriptionCredentialAvailable(ctx, account.Provider, credentials, r.clock()) {
 					return Account{}, ErrNoAvailableAccount
 				}
 				if subscriptionAccessTokenUsable(credentials, r.clock()) {
@@ -374,7 +359,7 @@ func (r *Runtime) refreshCredentials(owner auth.SubscriptionOwner, allowExhauste
 				observability.FromContext(ctx).Error("Failed to load subscription credentials for refresh", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", err)
 				return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, err)
 			}
-			if !available(credentials) {
+			if !subscriptionCredentialAvailable(ctx, account.Provider, credentials, r.clock()) {
 				return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, ErrNoAvailableAccount)
 			}
 			if subscriptionAccessTokenUsable(credentials, r.clock()) {
@@ -402,7 +387,7 @@ func (r *Runtime) refreshCredentials(owner auth.SubscriptionOwner, allowExhauste
 					return Account{}, err
 				}
 				latest, loadErr := r.store.LoadSubscriptionCredentials(ctx, owner, account.ID)
-				if loadErr == nil && available(latest) && subscriptionAccessTokenUsable(latest, r.clock()) {
+				if loadErr == nil && subscriptionCredentialAvailable(ctx, account.Provider, latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
 					return applySubscriptionCredentials(account, latest), nil
 				}
 				if loadErr != nil {
@@ -560,14 +545,6 @@ func subscriptionAccessTokenUsable(credentials auth.SubscriptionCredentials, now
 		return false
 	}
 	return credentials.AccessTokenExpiresAt == nil || credentials.AccessTokenExpiresAt.IsZero() || credentials.AccessTokenExpiresAt.After(now.Add(time.Minute))
-}
-
-func subscriptionCredentialAvailable(ctx context.Context, provider Provider, credentials auth.SubscriptionCredentials, now time.Time) bool {
-	var cooldownUntil time.Time
-	if credentials.CooldownUntil != nil {
-		cooldownUntil = *credentials.CooldownUntil
-	}
-	return credentials.Enabled && subscriptionAccountEligible(ctx, provider, credentials.State, cooldownUntil, now)
 }
 
 func applySubscriptionCredentials(account Account, credentials auth.SubscriptionCredentials) Account {
