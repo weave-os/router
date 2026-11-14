@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/translate"
@@ -36,9 +37,7 @@ const (
 	streamFailureOther                  streamFailureClass = "other"
 )
 
-// streamCutErrorEvent is the SSE event type an upstream uses to report an
-// error inside an otherwise-200 stream.
-const streamCutErrorEvent = "error"
+const streamCutErrorEvent = ingress.StreamErrorEvent
 
 // streamCutCarryCap bounds the partial-frame tail kept between writes. A
 // frame larger than this is pathological, so the scanner resyncs on the next

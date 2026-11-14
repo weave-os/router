@@ -1,10 +1,11 @@
-package proxy
+package ingress_test
 
 import (
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -45,8 +46,8 @@ type responsesTerminalState struct {
 	signals  translate.ResponsesTerminalSignals
 }
 
-func stateOf(o *responsesTerminalObserver) responsesTerminalState {
-	return responsesTerminalState{observed: o.observed, signals: o.signals}
+func stateOf(o *ingress.ResponsesTerminalObserver) responsesTerminalState {
+	return responsesTerminalState{observed: o.Observed(), signals: o.Signals()}
 }
 
 // responsesTerminalLargeStream pads the tool stream with a text delta larger
@@ -72,7 +73,7 @@ func TestResponsesTerminalObserver_ReadsTerminalSignals(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			obs := newResponsesTerminalObserver(rec)
+			obs := ingress.NewResponsesTerminalObserver(rec)
 			writeChunks(t, obs, []string{tc.body})
 			obs.Finalize()
 
@@ -98,13 +99,13 @@ func TestResponsesTerminalObserver_FragmentationMatchesSingleWrite(t *testing.T)
 	}
 	prefixState := func(t *testing.T, prefix string) responsesTerminalState {
 		t.Helper()
-		obs := newResponsesTerminalObserver(httptest.NewRecorder())
+		obs := ingress.NewResponsesTerminalObserver(httptest.NewRecorder())
 		writeChunks(t, obs, []string{prefix})
 		return stateOf(obs)
 	}
 	for _, fx := range fixtures {
 		t.Run(fx.name, func(t *testing.T) {
-			oracle := newResponsesTerminalObserver(httptest.NewRecorder())
+			oracle := ingress.NewResponsesTerminalObserver(httptest.NewRecorder())
 			writeChunks(t, oracle, []string{fx.body})
 			oracle.Finalize()
 			want := stateOf(oracle)
@@ -112,7 +113,7 @@ func TestResponsesTerminalObserver_FragmentationMatchesSingleWrite(t *testing.T)
 
 			for _, size := range chunkSizesFor(fx.body) {
 				rec := httptest.NewRecorder()
-				obs := newResponsesTerminalObserver(rec)
+				obs := ingress.NewResponsesTerminalObserver(rec)
 				writeChunks(t, obs, chunkEvery(fx.body, size))
 				obs.Finalize()
 				assert.Equal(t, want, stateOf(obs), "chunk size %d", size)
@@ -124,7 +125,7 @@ func TestResponsesTerminalObserver_FragmentationMatchesSingleWrite(t *testing.T)
 			}
 			for i := 1; i < len(fx.body); i++ {
 				rec := httptest.NewRecorder()
-				obs := newResponsesTerminalObserver(rec)
+				obs := ingress.NewResponsesTerminalObserver(rec)
 				writeChunks(t, obs, []string{fx.body[:i]})
 				require.Equal(t, prefixState(t, fx.body[:i]), stateOf(obs), "state after the first write, split at %d", i)
 				writeChunks(t, obs, []string{fx.body[i:]})
@@ -141,27 +142,27 @@ func TestResponsesTerminalObserver_FragmentationMatchesSingleWrite(t *testing.T)
 // states nothing at all.
 func TestResponsesTerminalObserver_UnterminatedTerminalIsReadAtFinalize(t *testing.T) {
 	unterminated := strings.TrimSuffix(responsesTerminalToolStream, "\n\n")
-	obs := newResponsesTerminalObserver(httptest.NewRecorder())
+	obs := ingress.NewResponsesTerminalObserver(httptest.NewRecorder())
 	writeChunks(t, obs, chunkEvery(unterminated, 7))
-	assert.False(t, obs.observed, "the terminal frame has no delimiter yet")
+	assert.False(t, obs.Observed(), "the terminal frame has no delimiter yet")
 
 	obs.Finalize()
 	assert.Equal(t, responsesTerminalState{observed: true, signals: responsesTerminalToolSignals}, stateOf(obs))
 
 	cut := responsesTerminalToolStream[:strings.Index(responsesTerminalToolStream, "event: response.completed")]
-	cutObs := newResponsesTerminalObserver(httptest.NewRecorder())
+	cutObs := ingress.NewResponsesTerminalObserver(httptest.NewRecorder())
 	writeChunks(t, cutObs, chunkEvery(cut, 13))
 	cutObs.Finalize()
-	assert.False(t, cutObs.observed)
+	assert.False(t, cutObs.Observed())
 }
 
 // A non-streaming body completes no SSE frame however it is chunked; it is the
 // bare response object and is classified at Finalize. Failed and in-progress
 // bodies state no outcome.
 func TestResponsesTerminalObserver_NonStreamingBodyIsReadAtFinalize(t *testing.T) {
-	obs := newResponsesTerminalObserver(httptest.NewRecorder())
+	obs := ingress.NewResponsesTerminalObserver(httptest.NewRecorder())
 	writeChunks(t, obs, chunkEvery(responsesTerminalNonStreamingBody, 33))
-	assert.False(t, obs.observed, "no frame completes before Finalize")
+	assert.False(t, obs.Observed(), "no frame completes before Finalize")
 	obs.Finalize()
 	assert.Equal(t, responsesTerminalState{observed: true, signals: responsesTerminalStopSignals}, stateOf(obs))
 
@@ -171,10 +172,10 @@ func TestResponsesTerminalObserver_NonStreamingBodyIsReadAtFinalize(t *testing.T
 		"error envelope":   `{"error":{"type":"server_error","message":"upstream unavailable"}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			obs := newResponsesTerminalObserver(httptest.NewRecorder())
+			obs := ingress.NewResponsesTerminalObserver(httptest.NewRecorder())
 			writeChunks(t, obs, chunkEvery(body, 7))
 			obs.Finalize()
-			assert.False(t, obs.observed)
+			assert.False(t, obs.Observed())
 		})
 	}
 }
@@ -183,7 +184,7 @@ func TestResponsesTerminalObserver_NonStreamingBodyIsReadAtFinalize(t *testing.T
 // and frames written afterwards are framed from scratch rather than as a
 // continuation of the tail Finalize already read.
 func TestResponsesTerminalObserver_FinalizeIsIdempotent(t *testing.T) {
-	obs := newResponsesTerminalObserver(httptest.NewRecorder())
+	obs := ingress.NewResponsesTerminalObserver(httptest.NewRecorder())
 	writeChunks(t, obs, []string{strings.TrimSuffix(responsesTerminalToolStream, "\n\n")})
 	obs.Finalize()
 	obs.Finalize()
@@ -200,9 +201,21 @@ func TestResponsesTerminalObserver_FinalizeIsIdempotent(t *testing.T) {
 // adapters' output-progress watchdog reachable.
 func TestResponsesTerminalObserver_ForwardsOutputProgressArming(t *testing.T) {
 	armer := &armerRecorder{ResponseRecorder: httptest.NewRecorder()}
-	assert.True(t, newResponsesTerminalObserver(armer).ArmOutputProgress(func() {}))
+	assert.True(t, ingress.NewResponsesTerminalObserver(armer).ArmOutputProgress(func() {}))
 	assert.Equal(t, 1, armer.marks)
 
-	assert.False(t, newResponsesTerminalObserver(httptest.NewRecorder()).ArmOutputProgress(func() {}),
+	assert.False(t, ingress.NewResponsesTerminalObserver(httptest.NewRecorder()).ArmOutputProgress(func() {}),
 		"a writer that cannot classify output frames must not claim to be armed")
+}
+
+// armerRecorder is a client writer that can arm the output-stall watchdog.
+type armerRecorder struct {
+	*httptest.ResponseRecorder
+	marks int
+}
+
+func (a *armerRecorder) ArmOutputProgress(mark func()) bool {
+	a.marks++
+	mark()
+	return true
 }

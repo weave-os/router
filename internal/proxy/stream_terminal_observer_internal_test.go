@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -96,15 +97,15 @@ func TestResponsesTerminalObserverState(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			o := newResponsesTerminalObserver(httptest.NewRecorder())
+			o := ingress.NewResponsesTerminalObserver(httptest.NewRecorder())
 			_, err := o.Write([]byte(tc.body))
 			require.NoError(t, err)
 			o.Finalize()
 			if tc.want == nil {
-				assert.NoError(t, o.state.err())
+				assert.NoError(t, o.Err())
 				return
 			}
-			assert.ErrorIs(t, o.state.err(), tc.want)
+			assert.ErrorIs(t, o.Err(), tc.want)
 		})
 	}
 }
