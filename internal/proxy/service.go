@@ -7618,7 +7618,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		writer:              responsesWriter,
 		nativeRequest:       len(responsesBody) > 0,
 		translatedResponses: !isResponses && len(responsesBody) == 0 && openAIResponsesEndpoint,
-		promoted:            promotedToResponses,
+		promotedToResponses: promotedToResponses,
 	}
 	initialNativeResponses := responseSwitch.nativeRequest && decision.Provider == providers.ProviderOpenAI
 	if rw, ok := w.(*translate.ResponsesWriter); ok {

@@ -53,8 +53,7 @@ func TestResponseProtocolSwitchRejectsCommittedNativeOutputBeforeBuilding(t *tes
 }
 
 func TestResponseProtocolSwitchRejectsCommittedBadgeOutput(t *testing.T) {
-	recorder := httptest.NewRecorder()
-	buffer := newPreludeBuffer(recorder)
+	buffer := newPreludeBuffer(httptest.NewRecorder())
 	writer := translate.NewResponsesWriter(buffer, "synthetic")
 	switcher := responseProtocolSwitch{writer: writer, buffer: buffer}
 	switcher.native(true)
@@ -91,7 +90,7 @@ func TestResponseProtocolSwitchReturnsToOpenAIThroughTranslation(t *testing.T) {
 
 func TestResponseProtocolSwitchEndpointFallbackUpdatesExistingBuilder(t *testing.T) {
 	writer := translate.NewResponsesWriter(httptest.NewRecorder(), "synthetic")
-	switcher := responseProtocolSwitch{writer: writer, nativeRequest: true, promoted: true}
+	switcher := responseProtocolSwitch{writer: writer, nativeRequest: true, promotedToResponses: true}
 	switcher.native(false)
 	build := switcher.wrapBuilder(func(router.Decision, translate.EmitOptions, string, context.Context) (dispatchAttempt, error) {
 		return func(context.Context, router.Decision, providers.Client) error {

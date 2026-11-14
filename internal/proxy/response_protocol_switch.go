@@ -34,7 +34,7 @@ type responseProtocolSwitch struct {
 	buffer              *preludeBuffer
 	nativeRequest       bool
 	translatedResponses bool
-	promoted            bool
+	promotedToResponses bool
 }
 
 func (s responseProtocolSwitch) passthrough() bool {
@@ -59,7 +59,7 @@ func (s *responseProtocolSwitch) fallbackToChat(surface openAISurface) error {
 		return errResponsesPassthroughStuck
 	}
 	if surface == surfaceResponsesNative {
-		if !s.promoted || s.writer == nil {
+		if !s.promotedToResponses || s.writer == nil {
 			return errResponsesPassthroughStuck
 		}
 		if err := s.leavePassthrough(); err != nil {
