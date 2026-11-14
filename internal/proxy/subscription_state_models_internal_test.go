@@ -618,6 +618,58 @@ func TestSubscriptionStateModelsCodexNativeAttemptAfterCrossFamilyPick(t *testin
 	assert.NotContains(t, out, "response.failed")
 }
 
+// A revoked own ChatGPT login is not spent quota: the turn answers 401 so
+// Codex signs in again, instead of the exhausted model set serving it (prod
+// 2026-11-13: token_revoked sessions ran on allowance models).
+func TestSubscriptionStateModelsRevokedCodexLoginFailsTurn(t *testing.T) {
+	for _, held := range []bool{false, true} {
+		t.Run(fmt.Sprintf("held=%v", held), func(t *testing.T) {
+			paidCalls := 0
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveSyntheticCodexQuota(w, r) {
+					return
+				}
+				if strings.HasSuffix(r.URL.Path, "/chat/completions") {
+					paidCalls++
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = io.WriteString(w, `{"error":{"message":"Encountered invalidated oauth token for user, failing request","code":"token_revoked"}}`)
+			}))
+			defer upstream.Close()
+			codexClient := openai.NewClient("expensive-paid-key", upstream.URL)
+			codexClient.SetCodexBaseURL(upstream.URL)
+			observer := usage.NewObserver([]byte("synthetic-salt"), time.Minute, time.Now)
+			if held {
+				observer.RecordRejected(observer.Key([]byte(codexTestToken)), time.Now().Add(time.Hour))
+			}
+			svc := NewService(stateModelRouter{}, map[string]providers.Client{
+				providers.ProviderOpenAI:     codexClient,
+				providers.ProviderOpenRouter: openaicompat.NewClient("cheap-paid-key", upstream.URL),
+			}, nil, nil, false, "", "", nil).
+				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{}}).
+				WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderOpenAI, providers.ProviderOpenRouter})).
+				WithUsageObserver(observer)
+			ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
+			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
+			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+			ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestToken)
+			ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, codexTestAccountID)
+			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+
+			body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}]}`
+			rec := httptest.NewRecorder()
+			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
+
+			require.Error(t, err)
+			class, ok := ClassifyDispatchError(err)
+			require.True(t, ok)
+			assert.Equal(t, http.StatusUnauthorized, class.Status)
+			assert.Zero(t, paidCalls, "the exhausted model set must not serve a revoked login")
+		})
+	}
+}
+
 // The same swap must keep a Codex freeform tool call intact: the caller asked
 // for a custom tool and must get a custom_tool_call back.
 func TestSubscriptionStateModelsCodexCustomToolAfterCrossFamilyPick(t *testing.T) {
