@@ -1,0 +1,30 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_responses",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "gpt-5",
+          "error": "no eligible model"
+        }
+      ],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 502,
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "error": {
+            "code": null,
+            "message": "Upstream call failed.",
+            "param": null,
+            "type": "api_error"
+          }
+        }
+      }
+    }
+  ],
+  "scenario": "openai_responses_nonstream_route_error"
+}
