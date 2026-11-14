@@ -180,7 +180,9 @@ type Service struct {
 	// plane withdrew from automatic routing. Nil leaves every model automatically
 	// selectable.
 	globalAutomaticExclusions *globalAutomaticExclusionCache
-	// credentials is the deployment's Credential Brokerage configuration.
+	// credentials is the deployment's Credential Brokerage configuration. A nil
+	// KeyedProviders means legacy all-keyed; PassthroughEligible is
+	// surface-scoped so one vendor's client key never reaches another vendor's API.
 	credentials credentials.Brokerage
 	// planner parameterizes the Prism-style EV policy for stay-vs-switch.
 	planner planner.EVConfig
