@@ -93,7 +93,7 @@ func TestPublicSurfaces_DispatchThroughResolvedPlan(t *testing.T) {
 			executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
 			require.NoError(t, err)
 			fr := &fakeRouter{decision: router.Decision{Provider: tc.provider, Model: tc.model, Reason: "test"}}
-			svc := proxy.NewService(fr, clients, nil, false, nil, newFakePinStore(), false, tc.provider, tc.model, nil).
+			svc := proxy.NewService(fr, clients, nil, newFakePinStore(), false, tc.provider, tc.model, nil).
 				WithInferenceExecutor(executor)
 
 			rec := httptest.NewRecorder()
@@ -143,7 +143,7 @@ func TestUtilityTurns_DispatchUnderResolvedPurpose(t *testing.T) {
 				executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
 				require.NoError(t, err)
 				fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "test"}}
-				svc := proxy.NewService(fr, clients, nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+				svc := proxy.NewService(fr, clients, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 					WithExplicitUtilityHardPin(explicit).
 					WithInferenceExecutor(executor)
 
@@ -176,8 +176,8 @@ func TestUtilityTurns_DispatchUnderResolvedPurpose(t *testing.T) {
 	}
 }
 
-// A classifier is scored, so it is authorized under the ingress surface's
-// main-inference policy and served on the scorer's pick, not the hard pin.
+// A classifier is not hard-pinned, so it is authorized under the ingress
+// surface's main-inference policy and served on the classifier model.
 func TestClassifierTurn_DispatchUnderSurfacePurpose(t *testing.T) {
 	const anthropicOK = `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`
 	body := `{"model":"claude-sonnet-4-6","max_tokens":64,"messages":[{"role":"user","content":"is this safe? yes/no"}]}`
@@ -187,21 +187,21 @@ func TestClassifierTurn_DispatchUnderSurfacePurpose(t *testing.T) {
 	sink := &purposeSink{}
 	executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
 	require.NoError(t, err)
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-6", Reason: "test"}}
-	svc := proxy.NewService(fr, clients, nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Reason: "test"}}
+	svc := proxy.NewService(fr, clients, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithInferenceExecutor(executor)
 
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), rec,
 		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
-	assert.Equal(t, 1, fr.routeCalls)
+	assert.Equal(t, 0, fr.routeCalls)
 	require.Len(t, sink.events, 1)
 	event := sink.events[0]
 	assert.Equal(t, inference.PurposeAnthropicMessages, event.Purpose)
 	assert.Equal(t, inference.PolicyID("main-anthropic-messages"), event.PolicyID)
 	assert.Equal(t, inference.AttemptOutcomeServed, event.Outcome)
-	assert.Equal(t, "claude-sonnet-4-6", event.Target.CatalogID)
+	assert.Equal(t, "claude-haiku-5-5", event.Target.CatalogID)
 }
 
 func TestAutomaticProbesServeUnderIngressPolicyWithoutConversationState(t *testing.T) {
@@ -214,7 +214,7 @@ func TestAutomaticProbesServeUnderIngressPolicyWithoutConversationState(t *testi
 			require.NoError(t, err)
 			scorer := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String()}}
 			pins := newFakePinStore()
-			svc := proxy.NewService(scorer, clients, nil, false, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil).WithInferenceExecutor(executor)
+			svc := proxy.NewService(scorer, clients, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil).WithInferenceExecutor(executor)
 			body := []byte(`{"model":"` + model + `","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`)
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyMessages(authedCtx("00000000-0000-0000-0000-000000000001"), body, rec,
@@ -243,7 +243,7 @@ func TestConcreteProbeFailureNeverRescuesAnotherModel(t *testing.T) {
 	executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
 	require.NoError(t, err)
 	pins := newFakePinStore()
-	svc := proxy.NewService(scorer, clients, nil, false, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil).
+	svc := proxy.NewService(scorer, clients, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil).
 		WithInferenceExecutor(executor).WithRetrySleep(noRetrySleep).WithSiblingFailover(true).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderFireworks: {}})
 	requestedModel := catalog.ModelIDClaudeOpus48.String()

@@ -26,7 +26,7 @@ func TestCodexNativeModelSelection_ForcesModelAndEffort(t *testing.T) {
 		_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`)
 	}}
 	routerStub := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "fresh"}}
-	svc := proxy.NewService(routerStub, map[string]providers.Client{providers.ProviderOpenAI: provider}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	svc := proxy.NewService(routerStub, map[string]providers.Client{providers.ProviderOpenAI: provider}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 	body := []byte(`{"model":"gpt-6-sol","input":[` + codexModelSwitchInput + `,{"type":"message","role":"user","content":"review this change"}],"reasoning":{"effort":"max"}}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
@@ -56,6 +56,8 @@ func TestCodexNativeModelSelection_AutomaticAndLegacyStillScore(t *testing.T) {
 		want     string
 	}{
 		{name: "automatic choice", model: proxy.CodexAutomaticModel, optIn: true, switched: true, want: proxy.CodexAutomaticModel},
+		{name: "hmm router choice", model: string(router.ModelHMM), optIn: true, switched: true, want: string(router.ModelHMM)},
+		{name: "qwen router choice", model: string(router.ModelQwen), optIn: true, switched: true, want: string(router.ModelQwen)},
 		{name: "older install", model: "gpt-6-sol", optIn: false, switched: true, want: "gpt-6-sol"},
 		// A model the session launched with (config.toml or an SDK thread
 		// option) is a baseline, not a /model choice; only a switch pins.
@@ -67,7 +69,7 @@ func TestCodexNativeModelSelection_AutomaticAndLegacyStillScore(t *testing.T) {
 				_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`)
 			}}
 			routerStub := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "fresh"}}
-			svc := proxy.NewService(routerStub, map[string]providers.Client{providers.ProviderOpenAI: provider}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+			svc := proxy.NewService(routerStub, map[string]providers.Client{providers.ProviderOpenAI: provider}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
 			input := `[{"type":"message","role":"user","content":"review this change"}]`
 			if tc.switched {
@@ -83,6 +85,48 @@ func TestCodexNativeModelSelection_AutomaticAndLegacyStillScore(t *testing.T) {
 			assert.Positive(t, routerStub.routeCalls, "automatic routing must still invoke the scorer")
 			require.NotNil(t, routerStub.capturedReq)
 			assert.Equal(t, tc.want, routerStub.capturedReq.RequestedModel)
+			assert.Equal(t, "gpt-5.6-luna", rec.Header().Get(proxy.HeaderRouterModel))
+		})
+	}
+}
+
+// codexModelInstructionsInput is the developer fragment Codex records for a
+// /model switch when its catalog came from model_catalog_url.
+const codexModelInstructionsInput = `{"type":"message","role":"developer","content":[{"type":"input_text","text":"<model_instructions>\nThe current model is gpt-6-sol.\n</model_instructions>"}]}`
+
+func TestCodexNativeModelSelection_ModelInstructionsPinOnlyForCatalogClients(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		catalogClient bool
+		wantPinned    bool
+	}{
+		{name: "catalog client switch pins", catalogClient: true, wantPinned: true},
+		// Installs without the catalog header see <model_instructions> for
+		// other base-instruction changes, so their launch model keeps routing.
+		{name: "older install keeps routing", catalogClient: false, wantPinned: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`)
+			}}
+			routerStub := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "fresh"}}
+			svc := proxy.NewService(routerStub, map[string]providers.Client{providers.ProviderOpenAI: provider}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+			body := []byte(`{"model":"gpt-6-sol","input":[` + codexModelInstructionsInput + `,{"type":"message","role":"user","content":"review this change"}]}`)
+			req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			req.Header.Set(proxy.CodexNativeModelPinHeader, "1")
+			if tc.catalogClient {
+				req.Header.Set(proxy.CodexModelCatalogHeader, "1")
+			}
+			rec := httptest.NewRecorder()
+			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+			if tc.wantPinned {
+				assert.Zero(t, routerStub.routeCalls, "a catalog client's /model switch must bypass scoring")
+				assert.Equal(t, "gpt-6-sol", rec.Header().Get(proxy.HeaderRouterModel))
+				return
+			}
+			assert.Positive(t, routerStub.routeCalls, "an older install's launch model must still be scored")
 			assert.Equal(t, "gpt-5.6-luna", rec.Header().Get(proxy.HeaderRouterModel))
 		})
 	}

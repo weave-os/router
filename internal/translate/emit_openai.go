@@ -253,8 +253,12 @@ func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error
 	if err != nil {
 		return nil, err
 	}
+	forced := resolveReasoningEffortFor(opts)
+	if forced == "" {
+		forced = alwaysOnFloorForDisabledEffort(body, opts)
+	}
 	// Write reasoning_effort for CapReasoning targets that accept it on chat/completions.
-	if forced := resolveReasoningEffortFor(opts); forced != "" && opts.Capabilities.Supports(router.CapReasoning) && reasoningEffortAcceptedOnChatCompletions(opts, hasNonEmptyTools(body)) {
+	if forced != "" && opts.Capabilities.Supports(router.CapReasoning) && reasoningEffortAcceptedOnChatCompletions(opts, hasNonEmptyTools(body)) {
 		body, err = sjson.SetBytes(body, "reasoning_effort", forced)
 		if err != nil {
 			return nil, fmt.Errorf("set reasoning_effort: %w", err)
@@ -1106,4 +1110,14 @@ func appendSchemaConstraintDescription(node map[string]any, key string, value an
 		return
 	}
 	node["description"] = note
+}
+
+// alwaysOnFloorForDisabledEffort maps a client's disabled reasoning_effort to
+// the lowest level of a target that always reasons, which 400s on "none".
+func alwaysOnFloorForDisabledEffort(body []byte, opts EmitOptions) string {
+	caps := opts.Capabilities.Reasoning()
+	if !caps.AlwaysOn || len(caps.Levels) == 0 || ParseReasoningIntent(FormatOpenAI, body).Kind != ReasoningDisabled {
+		return ""
+	}
+	return caps.Levels[0]
 }

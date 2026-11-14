@@ -2,6 +2,7 @@ package translate_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -33,6 +34,16 @@ func TestAnthropicSameFormat_ExistingMaxTokensUnchanged(t *testing.T) {
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	assert.Equal(t, float64(1024), out["max_tokens"])
+}
+
+func TestMythos52AnthropicOutputLimit(t *testing.T) {
+	const model = "claude-mythos-5-2"
+	opts := translate.EmitOptions{TargetModel: model, Capabilities: router.Lookup(model)}
+	for _, tc := range []struct{ requested, want int }{{128000, 128000}, {200000, 128000}} {
+		body := []byte(fmt.Sprintf(`{"model":"claude-opus-5","messages":[{"role":"user","content":"hi"}],"max_tokens":%d}`, tc.requested))
+		out := parseAndEmit(t, body, "anthropic", opts)
+		assert.Equal(t, float64(tc.want), out["max_tokens"])
+	}
 }
 
 func TestPrepareAnthropic_ClampsTitleGenerationOutputToHaikuLimit(t *testing.T) {

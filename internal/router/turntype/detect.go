@@ -53,6 +53,15 @@ const codexCompactionMarkerPhrase = "you are performing a context checkpoint com
 // appends as the trailing user message of a forked copy of the conversation.
 const recapMarkerPhrase = "the user stepped away and is coming back. recap in under"
 
+// promptSuggestionMarkerPhrase opens Claude Code's next-prompt suggestion
+// instruction, which it appends as the trailing user message of a forked copy
+// of the conversation.
+const promptSuggestionMarkerPhrase = "[suggestion mode: suggest what the user might naturally type next"
+
+// codexAutoReviewModel is the model Codex requests for its approval reviewer,
+// a separate agent that judges the main agent's pending action.
+const codexAutoReviewModel = "codex-auto-review"
+
 // openCodeTitlePromptPrefix opens the system prompt of OpenCode's built-in
 // title agent. OpenCode 2.x identifies this request from its native prompt,
 // gated on the detected client rather than a plugin-provided header.
@@ -76,12 +85,19 @@ const compactionSniffLen = 4096
 // the prompt body, so quoted or injected prompt text cannot trigger it.
 const subAgentSystemMarker = "cc_is_subagent=true"
 
-// Bounds for short-form classifier calls (e.g. Claude Code's security monitor:
-// max_tokens=64, message_count=2). Headroom for similar calls without catching main-loop turns.
+// Bounds for short-form classifier calls (max_tokens=64, message_count=2 for
+// models that accept disabled thinking). Headroom for similar calls without catching main-loop turns.
 const (
 	classifierMaxTokensThreshold = 256
 	classifierMaxMessageCount    = 3
 )
+
+// securityMonitorPromptPrefix opens Claude Code's auto-mode security monitor
+// system prompt. Its max_tokens ranges from 64 to 10240+ depending on the
+// model's thinking support, so the prompt identifies it, not the size cap.
+const securityMonitorPromptPrefix = "you are a security monitor for autonomous ai coding agents"
+
+const billingHeaderLinePrefix = "x-anthropic-billing-header:"
 
 // OpenCodeCaller is the caller's OpenCode identity; the zero value is any
 // other client.
@@ -133,17 +149,30 @@ func Detect(env *translate.RequestEnvelope, feats translate.RoutingFeatures, sub
 	if env.SourceFormat() == translate.FormatAnthropic && isRecap(lastUserText) {
 		return Recap
 	}
-	if openCode.IsSubagent ||
-		isSubAgentDispatch(env.MetadataUserID(), env.AnthropicBillingHeader(), env.FirstUserMessageText(), subAgentHint) {
+	if openCode.IsSubagent || isSubAgentDispatch(env.MetadataUserID(), env.AnthropicBillingHeader(), "", subAgentHint) {
 		return SubAgentDispatch
 	}
-	if isClassifier(feats) {
+	// Claude Code's security monitor also opens its payload with <transcript>,
+	// so the body sniff yields to the tool-less classifier shape.
+	if isClassifier(feats) || isSecurityMonitor(env, feats) {
 		return Classifier
+	}
+	if isSubAgentDispatch("", "", env.FirstUserMessageText(), "") {
+		return SubAgentDispatch
 	}
 	if feats.LastKind == "tool_result" {
 		return ToolResult
 	}
 	return MainLoop
+}
+
+// IsSubAgent reports child identity independently of the turn's purpose, so
+// utility turns such as compaction retain their caller's routing scope.
+func IsSubAgent(env *translate.RequestEnvelope, subAgentHint string, openCode OpenCodeCaller) bool {
+	if openCode.IsSubagent || subAgentHint != "" {
+		return true
+	}
+	return env != nil && isSubAgentDispatch(env.MetadataUserID(), env.AnthropicBillingHeader(), env.FirstUserMessageText(), subAgentHint)
 }
 
 func isProbe(feats translate.RoutingFeatures) bool {
@@ -165,6 +194,30 @@ func isClassifier(feats translate.RoutingFeatures) bool {
 		return false
 	}
 	return true
+}
+
+// isSecurityMonitor reports whether a tool-less Anthropic request opens a
+// system block (after any billing-header line) with Claude Code's security
+// monitor prompt.
+func isSecurityMonitor(env *translate.RequestEnvelope, feats translate.RoutingFeatures) bool {
+	if feats.HasTools || env.SourceFormat() != translate.FormatAnthropic {
+		return false
+	}
+	for _, block := range env.SystemBlocks() {
+		text := strings.TrimSpace(block)
+		if hasFoldedPrefix(text, billingHeaderLinePrefix) {
+			_, rest, _ := strings.Cut(text, "\n")
+			text = strings.TrimSpace(rest)
+		}
+		if hasFoldedPrefix(text, securityMonitorPromptPrefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasFoldedPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && strings.EqualFold(s[:len(prefix)], prefix)
 }
 
 // isTitleGen reports whether a request is Claude Code's sidebar-title call:
@@ -237,6 +290,19 @@ func isCodexCompaction(lastUserText string) bool {
 // MainLoop. Only the trailing turn is checked: once the recap renders, later
 // real turns carry it in history and must stay MainLoop.
 func isRecap(lastUserText string) bool {
+	return trailingMessageOpensWith(lastUserText, recapMarkerPhrase)
+}
+
+// IsSideRequest reports a harness request that forks or reviews the
+// conversation without advancing it: Claude Code's prompt suggestion and
+// Codex's approval reviewer.
+func IsSideRequest(model, lastUserText string) bool {
+	return model == codexAutoReviewModel || trailingMessageOpensWith(lastUserText, promptSuggestionMarkerPhrase)
+}
+
+// trailingMessageOpensWith reports whether the trailing user message opens with
+// phrase after any harness <system-reminder> blocks.
+func trailingMessageOpensWith(lastUserText, phrase string) bool {
 	if len(lastUserText) > compactionSniffLen {
 		lastUserText = lastUserText[:compactionSniffLen]
 	}
@@ -248,7 +314,7 @@ func isRecap(lastUserText string) bool {
 		}
 		text = strings.TrimSpace(text[end+len(systemReminderClose):])
 	}
-	return strings.HasPrefix(strings.ToLower(text), recapMarkerPhrase)
+	return strings.HasPrefix(strings.ToLower(text), phrase)
 }
 
 // isSubAgentDispatch reports whether the request originates from a sub-agent:

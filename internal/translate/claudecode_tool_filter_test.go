@@ -230,11 +230,11 @@ func TestKeepOrchestrationTools_OpenAITarget_KeepsOrchestrationDropsRest(t *test
 	assert.ElementsMatch(t, []string{
 		"Read", "Edit", "Write", "Bash", "NotebookEdit",
 		"ScheduleWakeup", "CronCreate", "CronDelete", "CronList", "Monitor", "BashOutput", "KillShell",
-		"Task", "Agent",
+		"Task", "Agent", "SendMessage",
 		"EnterPlanMode", "ExitPlanMode", "UpdatePlan", "Skill", "Workflow",
 		"ToolSearch",
 	}, names, "orchestration + scheduling tools survive when the flag is on")
-	assert.NotContains(t, names, "SendMessage", "non-orchestration CC-only tools stay stripped")
+	assert.Contains(t, names, "SendMessage", "peer messaging survives with orchestration enabled")
 	assert.NotContains(t, names, "AskUserQuestion", "non-orchestration CC-only tools stay stripped")
 	assert.Contains(t, names, "ToolSearch")
 	assert.NotContains(t, names, "TodoWrite")
@@ -286,11 +286,11 @@ func TestKeepOrchestrationTools_GeminiTarget_KeepsOrchestrationDropsRest(t *test
 	assert.ElementsMatch(t, []string{
 		"Read", "Edit", "Write", "Bash", "NotebookEdit",
 		"ScheduleWakeup", "CronCreate", "CronDelete", "CronList", "Monitor", "BashOutput", "KillShell",
-		"Task", "Agent",
+		"Task", "Agent", "SendMessage",
 		"EnterPlanMode", "ExitPlanMode", "UpdatePlan", "Skill", "Workflow",
 		"ToolSearch",
 	}, names, "Anthropic→Gemini keeps orchestration + scheduling tools when the flag is on")
-	assert.NotContains(t, names, "SendMessage")
+	assert.Contains(t, names, "SendMessage")
 	assert.NotContains(t, names, "AskUserQuestion")
 	assert.Contains(t, names, "ToolSearch")
 }

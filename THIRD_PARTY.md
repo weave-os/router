@@ -23,12 +23,6 @@ copyrights, and attribution when redistributing them.
 - **Dashboard dependencies:** retain applicable upstream license and notice
   files when distributing the bundled static dashboard.
   Versions are recorded in [frontend/package-lock.json](frontend/package-lock.json).
-- **ONNX Runtime:** MIT; retain its release's `LICENSE` and
-  `ThirdPartyNotices.txt` when redistributing the shared library.
-- **Native tokenizers:** the `daulet/tokenizers` library is MIT and contains
-  separately licensed Rust dependencies, including Hugging Face Tokenizers
-  (Apache-2.0). Check the release source and its locked Cargo dependencies
-  for their licenses/notices; do not infer them from the Go bindings.
 - **Python dependencies:** the HMM image retains the installed distributions'
   `.dist-info` metadata, license files, and bundled notices in `/app/.venv`.
   Dependencies for benchmark tooling remain subject to their own terms too.

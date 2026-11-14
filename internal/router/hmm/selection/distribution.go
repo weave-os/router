@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sort"
 
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
@@ -15,7 +15,7 @@ const defaultDistributionGrid = 21
 // RoutingDistribution projects the HMM roster's within-band model mix across
 // the quality/price dial. Each classifier band contributes equal weight; live
 // traffic weights remain request-dependent and are intentionally not guessed.
-func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, excludedProviders map[string]struct{}) ([]cluster.DistributionPoint, error) {
+func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, excludedProviders map[string]struct{}) ([]router.DistributionPoint, error) {
 	if roster == nil || !isDynamicRoster(roster) {
 		return nil, fmt.Errorf("HMM routing distribution requires a dynamic roster or compiled serving policy")
 	}
@@ -27,7 +27,7 @@ func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, e
 		labels = append(labels, label)
 	}
 	sort.Strings(labels)
-	points := make([]cluster.DistributionPoint, 0, gridN)
+	points := make([]router.DistributionPoint, 0, gridN)
 	for gridIndex := 0; gridIndex < gridN; gridIndex++ {
 		qualityBias := float64(gridIndex) / float64(gridN-1)
 		counts := make(map[string]int)
@@ -69,13 +69,13 @@ func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, e
 			counts[hmm.CatalogIDForRoster(pick.Arm)]++
 		}
 		if len(counts) == 0 {
-			return nil, fmt.Errorf("exclusions leave no eligible candidates: %w", cluster.ErrNoEligibleProvider)
+			return nil, fmt.Errorf("exclusions leave no eligible candidates: %w", router.ErrNoEligibleProvider)
 		}
-		modelShares := make([]cluster.ModelShare, 0, len(counts))
+		modelShares := make([]router.ModelShare, 0, len(counts))
 		projectedCost := 0.0
 		for model, count := range counts {
 			share := float64(count) / float64(selectedGroups)
-			modelShares = append(modelShares, cluster.ModelShare{Model: model, Share: share})
+			modelShares = append(modelShares, router.ModelShare{Model: model, Share: share})
 			projectedCost += share * prices[model]
 		}
 		sort.Slice(modelShares, func(i, j int) bool {
@@ -84,7 +84,7 @@ func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, e
 			}
 			return modelShares[i].Model < modelShares[j].Model
 		})
-		points = append(points, cluster.DistributionPoint{
+		points = append(points, router.DistributionPoint{
 			QualityBias:                qualityBias,
 			Models:                     modelShares,
 			ProjectedCostPer1KInputUSD: projectedCost,

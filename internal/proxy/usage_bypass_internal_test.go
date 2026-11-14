@@ -25,6 +25,7 @@ import (
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -236,7 +237,7 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 		LastServedModel: "claude-haiku-4-5",
 		HasEverSwitched: true,
 	}
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithUsageObserver(obs)
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
@@ -244,7 +245,7 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 		Threshold: &threshold,
 	})
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 
 	res, err := svc.runTurnLoop(ctx, env, feats, "api-key", uuid.New(), "", http.Header{}, router.Request{
 		RequestedModel: feats.Model,
@@ -280,7 +281,7 @@ func TestUsageBypass_EngagesUnderAuthoritativePolicy(t *testing.T) {
 		Model:    "gpt-5.6-luna",
 		Reason:   "authoritative-bypass-test_policy",
 	}}
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithUsageObserver(obs).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
@@ -297,7 +298,7 @@ func TestUsageBypass_EngagesUnderAuthoritativePolicy(t *testing.T) {
 	})
 	ctx = router.WithStrategy(ctx, strategy)
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 
 	res, err := svc.runTurnLoop(ctx, env, feats, "api-key", uuid.New(), "", http.Header{}, router.Request{
 		RequestedModel: feats.Model,
@@ -329,7 +330,7 @@ func TestBypass_429_ReturnsErrBypassRetryable_NoBytesWritten(t *testing.T) {
 	svc := newBypassService(upstream)
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -354,7 +355,7 @@ func TestBypass_NonRetryableError_StillFlushes(t *testing.T) {
 	svc := newBypassService(upstream)
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -371,7 +372,7 @@ func TestBypass_NilError_ReturnsNil(t *testing.T) {
 	svc := newBypassService(upstream)
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -393,7 +394,7 @@ func TestBypass_NonStreamResponseIncludesCostHeaders(t *testing.T) {
 	svc.telemetry = newBypassCaptureTelemetry() // enables usage extraction
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -422,7 +423,7 @@ func TestBypass_TransportError_ReroutesViaScorer(t *testing.T) {
 	svc := newBypassService(upstream)
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -445,7 +446,7 @@ func TestBypass_LocalPrepError_PropagatesToClient(t *testing.T) {
 	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{})}
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -510,6 +511,10 @@ func newBypassSpanCollector(t *testing.T) *bypassSpanCollector {
 	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
+		if r.URL.Path != "/v1/traces" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		var req coltracepb.ExportTraceServiceRequest
 		require.NoError(t, proto.Unmarshal(body, &req))
 		c.mu.Lock()
@@ -608,12 +613,12 @@ func TestBypass_EmitsUsageAndCost(t *testing.T) {
 	svc.emitter = emitter // makes usageRequired() true so the extractor runs
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	buf := otel.NewBuffer(emitter)
-	ctx := buf.WithContext(context.Background())
+	ctx := telemetry.WithRecorder(context.Background(), buf)
 	err = svc.bypassToAnthropic(ctx, env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 	require.NoError(t, err)
 	buf.Flush()
@@ -684,7 +689,7 @@ func TestBypass_PersistsTelemetryRowWithUnifiedHeaders(t *testing.T) {
 	svc.telemetry = sink
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	// Subscription bearer on the inbound request: resolveAndInjectCredentials
@@ -755,7 +760,7 @@ func TestBypass_NoTelemetryRowWithoutInstallation(t *testing.T) {
 	svc.telemetry = sink
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
@@ -777,7 +782,7 @@ func TestBypass_TelemetryRowClassifiesOutputCap(t *testing.T) {
 	svc.telemetry = sink
 
 	env := bypassAnthropicEnvelope(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())

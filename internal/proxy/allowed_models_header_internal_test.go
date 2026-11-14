@@ -184,12 +184,12 @@ func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
 			Reason:      "cluster:v0.2",
 			PinnedUntil: time.Now().Add(time.Hour),
 		}, found: true}
-		return NewService(fr, nil, nil, false, nil, store, false,
+		return NewService(fr, nil, nil, store, false,
 			providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 			WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic, providers.ProviderOpenAI))
 	}
 	env := forceCommandEnv(t)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 
 	fr := &tierProbeRouter{available: map[string]struct{}{testOpus: {}, "gpt-5.4-mini": {}}}
 	svc := newSvc(fr)
@@ -213,4 +213,22 @@ func TestRequestAllowedModelsPresent(t *testing.T) {
 	assert.False(t, requestAllowedModelsPresent(context.Background()))
 	assert.True(t, requestAllowedModelsPresent(
 		ctxWithRequestSubset(context.Background(), testSol)))
+}
+
+func TestReadmitForcedModel_GatewayBypassKeepsUnsignedHistoryGeminiExclusion(t *testing.T) {
+	const gemini = "gemini-3.1-pro-preview"
+	s := &Service{availableModels: map[string]struct{}{testOpus: {}, gemini: {}}}
+	ctx := context.WithValue(gatewayKeyCtx(gemini), InstallationAllowedModelsContextKey{}, []string{testOpus})
+	req := router.Request{ExcludedModels: s.excludedModelsForRequest(ctx)}
+	require.Contains(t, req.ExcludedModels, gemini)
+	pin := sessionpin.Pin{Model: gemini, Provider: providers.ProviderAnthropicGateway}
+
+	fresh, err := translate.ParseAnthropic([]byte(`{"model":"x","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	assert.NotContains(t, s.readmitForcedModel(ctx, req, fresh, translate.RoutingFeatures{MaxTokens: 16}, pin), gemini)
+
+	unsigned, err := translate.ParseAnthropic([]byte(`{"model":"x","max_tokens":16,"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{}}]}]}`))
+	require.NoError(t, err)
+	assert.Contains(t, s.readmitForcedModel(ctx, req, unsigned, translate.RoutingFeatures{MaxTokens: 16}, pin), gemini,
+		"gemini-3.x cannot take unsigned tool-call history")
 }

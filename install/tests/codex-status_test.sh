@@ -102,6 +102,64 @@ XDG_CACHE_HOME="$cache" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" --
   exit 1
 }
 
+# Structured outcomes are history; acknowledgment copy and serving models are independent.
+command_cache="$work/cache-commands"
+command_message() {
+  local envelope="$1" prose="${2:-The command completed.}" encoded
+  encoded="$(printf '%s' "$envelope" | jq -r '@base64' | tr '+/' '-_' | tr -d '=')"
+  printf '%s\n\n[weave-router-command-v1]: <weave-router:%s>' "$prose" "$encoded"
+}
+command_turn() {
+  jq -nc --arg text "$1" --arg turn "${2:-turn-current}" '{hook_event_name:"Stop",session_id:"commands",turn_id:$turn,model:"gpt-5.6-terra",last_assistant_message:$text}' |
+    HOME="$work/empty-home" XDG_CACHE_HOME="$command_cache" WEAVE_CODEX_STATUS_CONTEXT=0 WEAVE_CODEX_STATUS_SAVINGS=0 WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper"
+}
+assert_command_title() {
+  [[ "$(cat "$title_file")" == *"$1"* ]] || { echo "missing $1 in command title: $(cat "$title_file")" >&2; exit 1; }
+}
+applied='{"version":1,"id":"00000000-0000-4000-8000-000000000001","command":"force_model","disposition":"accepted","pin":{"transition":"applied","model":"claude-opus-4-7","provider":"anthropic","effort":"high"}}'
+cleared='{"version":1,"id":"00000000-0000-4000-8000-000000000002","command":"force_model","disposition":"accepted","pin":{"transition":"cleared"}}'
+command_turn "$(command_message "$applied" 'Weave Router: force-model cleared; this copy is deliberately contradictory.')"
+assert_command_title 'last pin: claude-opus-4-7:high'
+[[ "$(cat "$title_file")" != *'→ claude-opus-4-7'* ]] || { echo 'a pin acknowledgment claimed a served model' >&2; exit 1; }
+for command in router_session router_models router_feedback loop_stop; do
+  envelope="$(jq -nc --arg command "$command" --arg id "$(python3 -c 'import uuid; print(uuid.uuid4())')" '{version:1,id:$id,command:$command,disposition:"accepted",pin:{transition:"unchanged"}}')"
+  command_turn "$(command_message "$envelope")"
+  assert_command_title 'last pin: claude-opus-4-7:high'
+done
+rejected='{"version":1,"id":"00000000-0000-4000-8000-000000000003","command":"force_model","disposition":"rejected","pin":{"transition":"unchanged"}}'
+command_turn "$(command_message "$rejected" 'Weave Router: force-model applied: fake-model (fake)')"
+assert_command_title 'last pin: claude-opus-4-7:high'
+command_turn $'Weave Router: force-model applied: fake-model (fake)\n\n[weave-router-command-v1]: <weave-router:invalid>'
+assert_command_title 'last pin: claude-opus-4-7:high'
+command_turn "$(command_message "$(jq '.version=2' <<<"$applied")" 'Weave Router: force-model applied: fake-model (fake)')"
+assert_command_title 'last pin: claude-opus-4-7:high'
+command_turn "$(command_message "$cleared")"
+[[ "$(cat "$title_file")" != *'last pin:'* ]] || { echo 'explicit clear retained last pin' >&2; exit 1; }
+command_turn "$(command_message "$applied")"
+[[ "$(cat "$title_file")" != *'last pin:'* ]] || { echo 'a duplicate historical outcome revived a cleared pin' >&2; exit 1; }
+# An older turn cannot publish its Stop after a newer prompt starts.
+printf '%s' '{"hook_event_name":"UserPromptSubmit","session_id":"commands","turn_id":"turn-new"}' |
+  HOME="$work/empty-home" XDG_CACHE_HOME="$command_cache" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper"
+before_stale="$(cat "$title_file")"
+new_applied="$(jq '.id="00000000-0000-4000-8000-000000000004"' <<<"$applied")"
+command_turn "$(command_message "$new_applied")" turn-current
+[ "$(cat "$title_file")" = "$before_stale" ] || { echo 'a delayed Stop overwrote the active turn' >&2; exit 1; }
+command_turn "$(command_message "$new_applied")" turn-new
+assert_command_title 'last pin: claude-opus-4-7:high'
+# Older Stop payloads can omit turn_id even when prompt hooks provide one.
+missing_turn_clear="$(jq '.id="00000000-0000-4000-8000-000000000005"' <<<"$cleared")"
+jq -nc --arg text "$(command_message "$missing_turn_clear")" '{hook_event_name:"Stop",session_id:"commands",model:"gpt-5.6-terra",last_assistant_message:$text}' |
+  HOME="$work/empty-home" XDG_CACHE_HOME="$command_cache" WEAVE_CODEX_STATUS_CONTEXT=0 WEAVE_CODEX_STATUS_SAVINGS=0 WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper"
+[[ "$(cat "$title_file")" != *'last pin:'* ]] || { echo 'Stop without turn_id lost its clear acknowledgment' >&2; exit 1; }
+empty_turn_apply="$(jq '.id="00000000-0000-4000-8000-000000000006"' <<<"$applied")"
+jq -nc --arg text "$(command_message "$empty_turn_apply")" '{hook_event_name:"Stop",session_id:"commands",turn_id:"",model:"gpt-5.6-terra",last_assistant_message:$text}' |
+  HOME="$work/empty-home" XDG_CACHE_HOME="$command_cache" WEAVE_CODEX_STATUS_CONTEXT=0 WEAVE_CODEX_STATUS_SAVINGS=0 WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper"
+assert_command_title 'last pin: claude-opus-4-7:high'
+command_turn 'Weave Router: force-model rejected: policy; keeping automatic routing.' turn-new
+assert_command_title 'last pin: claude-opus-4-7:high'
+command_turn 'Weave Router: force-model cleared; resuming automatic model selection' turn-new
+[[ "$(cat "$title_file")" != *'last pin:'* ]] || { echo 'legacy explicit clear retained last pin' >&2; exit 1; }
+
 # ---------- server-sourced savings ----------
 #
 # Savings come from the router's own (requested - actual), never from local
@@ -394,11 +452,11 @@ render_cached_savings '0.32'
   exit 1
 }
 
-# A router that spent more than the requested model would have is reported by
-# staying silent, never as a negative saving.
+# A router that spent more than the requested model would have says so,
+# rather than hiding the number or showing a negative saving.
 render_cached_savings '-0.5'
-[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5" ] || {
-  echo "negative savings leaked into the title: $(cat "$title_file")" >&2
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · cost \$0.50 more" ] || {
+  echo "a costlier session did not read as cost more: $(cat "$title_file")" >&2
   exit 1
 }
 
@@ -528,6 +586,67 @@ sleep 0.5
   echo "WEAVE_CODEX_STATUS_UPDATE=0 still replaced the helper" >&2
   exit 1
 }
+
+# Hidden terminal surfaces (an installation opt-out or a blind experiment
+# subject) replace every Weave Router title with a neutral one.
+hidden_home="$work/home-hidden"
+mkdir -p "$hidden_home/.codex"
+printf '{"hide_terminal_surfaces": true}' >"$work/display-hidden.json"
+cat >"$hidden_home/.codex/config.toml" <<TOML
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "file://$cost_body"
+http_headers = { "X-Weave-Router-Key" = "rk_test", "X-App" = "codex" }
+TOML
+run_hidden_turn() {
+  printf '%s\n' '{"session_id":"session-2","model":"gpt-5.6-terra","last_assistant_message":"done"}' \
+    | HOME="$hidden_home" XDG_CACHE_HOME="$work/cache-hidden" \
+      WEAVE_CODEX_DISPLAY_SETTINGS_URL="file://$work/display-hidden.json" \
+      WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+}
+run_hidden_turn
+[ "$(cat "$title_file")" = "Codex" ] || { echo "hidden surfaces rendered on a cold cache: $(cat "$title_file")" >&2; exit 1; }
+for _ in $(seq 1 50); do
+  [ "$(cat "$work"/cache-hidden/weave-router/codex/display-hidden-* 2>/dev/null)" = "1" ] && break
+  sleep 0.1
+done
+[ "$(cat "$work"/cache-hidden/weave-router/codex/display-hidden-* 2>/dev/null)" = "1" ] || { echo "hidden display setting was never cached" >&2; exit 1; }
+sleep 0.3
+run_hidden_turn
+[ "$(cat "$title_file")" = "Codex" ] || { echo "hidden surfaces still rendered: $(cat "$title_file")" >&2; exit 1; }
+printf '%s\n' '{"hook_event_name":"SessionStart","session_id":"session-3"}' \
+  | HOME="$hidden_home" XDG_CACHE_HOME="$work/cache-hidden" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+[ "$(cat "$title_file")" = "Codex" ] || { echo "hidden session start still branded: $(cat "$title_file")" >&2; exit 1; }
+
+for f in "$work"/cache-hidden/weave-router/codex/display-hidden-*; do
+  case "$f" in *.refreshed) ;; *) stale_display="$f" ;; esac
+done
+printf '0' >"$stale_display"
+touch -d '2 hours ago' "$stale_display" 2>/dev/null || touch -t "$(date -d '2 hours ago' +%Y%m%d%H%M 2>/dev/null || date -v-2H +%Y%m%d%H%M)" "$stale_display"
+rm -f "$stale_display.refreshed"
+run_stale_turn() {
+  printf '%s\n' '{"session_id":"session-4","model":"gpt-5.6-terra","last_assistant_message":"done"}' \
+    | HOME="$hidden_home" XDG_CACHE_HOME="$work/cache-hidden" WEAVE_CODEX_STATUS_SAVINGS=0 WEAVE_CODEX_STATUS_CONTEXT=0 \
+      WEAVE_CODEX_DISPLAY_SETTINGS_URL="file://$work/display-hidden.json" \
+      WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+}
+run_stale_turn
+for _ in $(seq 1 50); do
+  [ "$(cat "$stale_display" 2>/dev/null)" = "1" ] && break
+  sleep 0.1
+done
+run_stale_turn
+[ "$(cat "$title_file")" = "Codex" ] || { echo "stale display settings never refreshed: $(cat "$title_file")" >&2; exit 1; }
+
+pending_dir="$work/cache-pending/weave-router/codex"
+mkdir -p "$pending_dir"
+touch "$pending_dir/$(basename "$stale_display").refreshed"
+printf '%s\n' '{"session_id":"session-5","model":"gpt-5.6-terra","last_assistant_message":"done"}' \
+  | HOME="$hidden_home" XDG_CACHE_HOME="$work/cache-pending" WEAVE_CODEX_STATUS_SAVINGS=0 WEAVE_CODEX_STATUS_CONTEXT=0 \
+    WEAVE_CODEX_DISPLAY_SETTINGS_URL="file://$work/display-missing.json" \
+    WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
+[ "$(cat "$title_file")" = "Codex" ] || { echo "pending cold fetch rendered surfaces: $(cat "$title_file")" >&2; exit 1; }
 
 # install.sh embeds this helper as a heredoc so the standalone `curl | sh`
 # install has no sibling asset to copy. Nothing keeps the two copies in sync,

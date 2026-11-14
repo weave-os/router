@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
-# Weave Router uninstaller for Claude Code, Codex, opencode, and pi.
+# Weave Router uninstaller for Claude Code, Codex, opencode, pi, and GitHub Copilot CLI.
 #
-# Default target is Claude Code: removes the env vars, statusLine, and local
+# Without a client flag, every client with Weave Router config is uninstalled
+# in turn. --claude removes the env vars, statusLine, and local
 # router auth that install.sh added; leaves the rest of settings.json
 # untouched. Pass --codex to strip the managed [model_providers.weave]
 # block (and the matching top-level `model_provider`) from Codex's
@@ -14,10 +15,12 @@
 # weave defaults, and remove the router key file.
 #
 # Usage:
-#   npx @workweave/router --uninstall                            # Claude Code, user scope
+#   npx @workweave/router --uninstall                            # every configured client, user scope
+#   npx @workweave/router --uninstall --claude                   # Claude Code only
 #   npx @workweave/router --uninstall --codex                    # Codex, user scope
 #   npx @workweave/router --uninstall --opencode                 # opencode, user scope
 #   npx @workweave/router --uninstall --pi                       # pi, user scope
+#   npx @workweave/router --uninstall --copilot                  # GitHub Copilot CLI (providers.json, skills)
 #   npx @workweave/router --uninstall --scope project            # run inside the repo
 #   npx @workweave/router --uninstall --dir /tmp/test            # --dir alone (user scope, .weave/)
 #   npx @workweave/router --uninstall --scope project --dir /tmp # --dir + project scope (.claude/)
@@ -44,12 +47,14 @@ WEAVE_REGISTRY_DATA=$(cat <<'WEAVE_REGISTRY_EOF'
 # canonical|aliases|capability|claude|codex|opencode|pi|cursor|adapter
 # aliases are comma-separated; client columns are yes/no. adapter is the native asset kind.
 force-model|fm|prompt|yes|yes|yes|yes|manual|command,skill
+force-parent||prompt|yes|yes|yes|yes|manual|command,skill
 unforce-model|ufm|prompt|yes|yes|yes|yes|manual|command,skill
 router-feedback|rf|prompt|yes|yes|yes|no|manual|command,skill
 router-off||local-toggle|yes|yes|no|no|manual|command,skill
 router-on||local-toggle|yes|yes|no|no|manual|command,skill
 router-status||local-toggle|yes|yes|no|no|manual|command,skill
 router-session||prompt|yes|yes|no|no|manual|command,skill
+list-models||prompt|yes|yes|no|no|manual|command,skill
 router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
 disable-routing||local-toggle|no|yes|no|no|manual|skill
 beta||prompt|yes|no|no|yes|manual|command
@@ -147,6 +152,13 @@ EOF
 target="claude"
 
 CLAUDE_STATUSLINE_MARKER="# Claude Code statusline for the Weave Router."
+# Mirrors install.sh: removes only the Weave Auto picker row and default.
+CLAUDE_WEAVE_AUTO_STRIP_JQ='(if (.model == "weave-auto" or .model == "weave-auto[1m]") then del(.model) else . end)
+  | (if (.modelPicker | type) == "object" then
+      .modelPicker.options = ((.modelPicker.options // []) | map(select(.model != "weave-auto" and .model != "weave-auto[1m]")))
+      | (if (.modelPicker.options | length) == 0 then del(.modelPicker.options) else . end)
+      | (if (.modelPicker | length) == 0 then del(.modelPicker) else . end)
+    else . end)'
 
 err()  { printf "\033[31merror:\033[0m %s\n" "$*" >&2; }
 warn() { printf "\033[33mwarning:\033[0m %s\n" "$*" >&2; }
@@ -163,6 +175,53 @@ refuse_if_symlink() {
     err "$target is a symlink (-> $(readlink "$target")). Refusing to operate on it."
     exit 1
   fi
+}
+
+# build_skill_entry_has_symlink reports whether any component of a manifest entry under the
+# skill dir is a symlink, so cleanup never follows a link out of the skill.
+build_skill_entry_has_symlink() {
+  local path="$1" rel="$2"
+  while [ -n "$rel" ]; do
+    path="$path/${rel%%/*}"
+    [ -L "$path" ] && return 0
+    case "$rel" in */*) rel="${rel#*/}" ;; *) rel="" ;; esac
+  done
+  return 1
+}
+
+# uninstall_build_skill removes the managed build skill tree recorded in its
+# manifest and any marker-bearing build agents, leaving user files in place.
+uninstall_build_skill() {
+  local skills_dir="$1" agents_dir="${2:-}" skill_dir rel agent_file name
+  skill_dir="$skills_dir/build"
+  if [ -L "$skills_dir" ] || [ -L "$skill_dir" ]; then
+    warn "$skill_dir is behind a symlink; leaving the build skill untouched."
+  elif [ -f "$skill_dir/SKILL.md" ] && ! grep -Fq "<!-- weave-router managed build skill -->" "$skill_dir/SKILL.md"; then
+    warn "Leaving user-owned build skill at $skill_dir untouched."
+  elif [ -L "$skill_dir/.weave-router-files" ]; then
+    rm -f "$skill_dir/.weave-router-files"
+    warn "Removed a symlinked build skill manifest at $skill_dir; leaving its files untouched."
+  elif [ -f "$skill_dir/.weave-router-files" ]; then
+    while IFS= read -r rel; do
+      case "$rel" in ""|/*|*..*) continue ;; esac
+      if build_skill_entry_has_symlink "$skill_dir" "$rel"; then continue; fi
+      rm -f "$skill_dir/$rel"
+    done <"$skill_dir/.weave-router-files"
+    rm -f "$skill_dir/.weave-router-files"
+    rmdir "$skill_dir/references" "$skill_dir/scripts" "$skill_dir" 2>/dev/null || true
+    ok "Removed $skill_dir"
+  fi
+  rmdir "$skills_dir" 2>/dev/null || true
+
+  if [ -z "$agents_dir" ] || [ ! -d "$agents_dir" ] || [ -L "$agents_dir" ]; then return 0; fi
+  for agent_file in "$agents_dir"/build-*.md; do
+    if [ ! -f "$agent_file" ] || [ -L "$agent_file" ]; then continue; fi
+    name="$(basename "$agent_file" .md)"
+    grep -Fq "<!-- weave-router managed agent: $name -->" "$agent_file" || continue
+    rm -f "$agent_file"
+    ok "Removed $agent_file"
+  done
+  rmdir "$agents_dir" 2>/dev/null || true
 }
 
 # weave_command_router_owned accepts legacy marker-bearing wrappers and
@@ -204,6 +263,17 @@ weave_command_router_owned() {
   return 1
 }
 
+# Git Bash rewrites $HOME's /c/... form to C:/... in arguments to native
+# executables such as jq.exe, so the stored command can use either form.
+statusline_commands_match() {
+  local first_mixed second_mixed
+  [ "$1" = "$2" ] && return 0
+  command -v cygpath >/dev/null 2>&1 || return 1
+  first_mixed="$(cygpath -m -- "$1" 2>/dev/null)" && [ -n "$first_mixed" ] || return 1
+  second_mixed="$(cygpath -m -- "$2" 2>/dev/null)" && [ -n "$second_mixed" ] || return 1
+  [ "$first_mixed" = "$second_mixed" ]
+}
+
 # claude_statusline_router_owned reports whether a settings entry points at the
 # router's statusline. Existing scripts prove ownership with the marker; when a
 # script is missing, the adjacent ownership marker proves that the router wrote
@@ -212,7 +282,7 @@ claude_statusline_router_owned() {
   local settings_path="$1" expected_command="$2" script_path="$3" ownership_marker_path="$4" configured_command
   [ -f "$settings_path" ] || return 1
   configured_command="$(jq -r '.statusLine.command // empty' "$settings_path" 2>/dev/null || true)"
-  [ "$configured_command" = "$expected_command" ] || return 1
+  statusline_commands_match "$configured_command" "$expected_command" || return 1
   if [ -f "$script_path" ]; then
     if grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$script_path" 2>/dev/null; then
       return 0
@@ -223,6 +293,8 @@ claude_statusline_router_owned() {
     && grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$ownership_marker_path"
 }
 
+uninstall_args=("$@")
+target_explicit="false"
 while [ $# -gt 0 ]; do
   case "$1" in
     --scope)
@@ -235,20 +307,26 @@ while [ $# -gt 0 ]; do
       [ -n "$install_dir" ] || { err "--dir requires a path."; exit 2; }
       ;;
     --codex)
-      target="codex"; shift
+      target="codex"; target_explicit="true"; shift
       ;;
     --opencode)
-      target="opencode"; shift
+      target="opencode"; target_explicit="true"; shift
       ;;
     --pi)
-      target="pi"; shift
+      target="pi"; target_explicit="true"; shift
+      ;;
+    --copilot)
+      target="copilot"; target_explicit="true"; shift
+      ;;
+    --claude-desktop)
+      target="claude-desktop"; target_explicit="true"; shift
       ;;
     --claude)
       # No-op selector for symmetry with --codex / --opencode and install.sh's
       # --claude. Lets `./install.sh --uninstall --claude` (which forwards
       # remaining args here) succeed instead of hitting the unknown-flag
       # catch-all.
-      target="claude"; shift
+      target="claude"; target_explicit="true"; shift
       ;;
     -h|--help)
       # awk avoids GNU `head -n -<N>` (rejected by BSD head on macOS).
@@ -261,7 +339,67 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if { [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ]; } && ! command -v jq >/dev/null 2>&1; then
+# skip_if_not_installed ends a child of a bare --uninstall quietly (exit 3)
+# unless config $1 has a line matching ERE $2 or any further path exists. A
+# client that is installed still needs jq, checked here rather than up front.
+skip_if_not_installed() {
+  [ -n "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] || return 0
+  local config="$1" pattern="$2" installed="false" extra
+  shift 2
+  [ -f "$config" ] && grep -Eq -- "$pattern" "$config" && installed="true"
+  for extra in "$@"; do [ -e "$extra" ] && installed="true"; done
+  [ "$installed" = "true" ] || exit 3
+  [ "$target" = "codex" ] || command -v jq >/dev/null 2>&1 || { err "jq is required for the $target uninstall path."; exit 1; }
+}
+
+client_label() {
+  case "$1" in
+    claude) printf 'Claude Code' ;;
+    codex)  printf 'Codex' ;;
+    copilot) printf 'Copilot CLI' ;;
+    claude-desktop) printf 'Claude Desktop' ;;
+    *)      printf '%s' "$1" ;;
+  esac
+}
+
+# A bare --uninstall removes Weave Router from every client it configured. Each
+# client runs as its own child so its path stays exactly the --<client> one. A
+# piped run with no recoverable source keeps the old Claude Code-only default.
+uninstall_self="$0"
+[ -f "$uninstall_self" ] || uninstall_self=""
+if [ "$target_explicit" = "false" ] && [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] \
+  && { [ -n "$uninstall_self" ] || [ -n "${BASH_EXECUTION_STRING:-}" ]; }; then
+  uninstall_self_tmp=""
+  if [ -z "$uninstall_self" ]; then
+    uninstall_self_tmp="$(mktemp -t weave-uninstall.XXXXXX)"
+    printf '%s\n' "$BASH_EXECUTION_STRING" >"$uninstall_self_tmp"
+    uninstall_self="$uninstall_self_tmp"
+  fi
+  removed=""
+  failed=""
+  for client in claude codex opencode pi copilot claude-desktop; do
+    child_status=0
+    WEAVE_UNINSTALL_ALL_CHILD=1 bash "$uninstall_self" "${uninstall_args[@]+"${uninstall_args[@]}"}" "--$client" || child_status=$?
+    case "$child_status" in
+      0) removed="${removed:+$removed, }$(client_label "$client")" ;;
+      3) ;;
+      *) failed="${failed:+$failed, }$(client_label "$client")" ;;
+    esac
+  done
+  [ -z "$uninstall_self_tmp" ] || rm -f "$uninstall_self_tmp"
+  printf '\n'
+  if [ -z "$removed" ] && [ -z "$failed" ]; then
+    info "Weave Router isn't configured for Claude Code, Codex, opencode, pi, Copilot CLI or Claude Desktop here (scope=$scope); nothing to remove."
+  fi
+  [ -z "$removed" ] || ok "Removed Weave Router from: $removed."
+  if [ -n "$failed" ]; then
+    err "Weave Router may still be routing: $failed. See the errors above."
+    exit 1
+  fi
+  exit 0
+fi
+
+if [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] && { [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ] || [ "$target" = "copilot" ]; } && ! command -v jq >/dev/null 2>&1; then
   err "jq is required for the $target uninstall path."
   exit 1
 fi
@@ -279,7 +417,8 @@ fi
 # install, and never supplies a key; a checkout-supplied endpoint never
 # receives one (same gates as install.sh's key_source_is_own and
 # models_endpoint_is_trusted).
-HOSTED_BASE_URL="https://router.workweave.ai"
+HOSTED_BASE_URL="https://router.weaveos.com"
+LEGACY_HOSTED_BASE_URL="https://router.workweave.ai"
 ROUTER_KEY_HEADER="X-Weave-Router-Key"
 
 uninstall_json_get() {
@@ -360,7 +499,7 @@ report_claude_uninstall_event() {
   done
   [ -n "$key" ] || return 0
   local trusted="false"
-  if [ "$endpoint" = "${HOSTED_BASE_URL%/}" ] || [ "$base_src" = "$key_src" ]; then
+  if [ "$endpoint" = "${HOSTED_BASE_URL%/}" ] || [ "$endpoint" = "${LEGACY_HOSTED_BASE_URL%/}" ] || [ "$base_src" = "$key_src" ]; then
     trusted="true"
   elif [ -n "$local_settings_file" ] && [ -f "$local_settings_file" ] && [ ! -L "$local_settings_file" ]; then
     marked="$(uninstall_json_get "$local_settings_file" '.env.WEAVE_ROUTER_BASE_URL')"
@@ -430,6 +569,84 @@ report_pi_uninstall_event() {
   [ -n "$key" ] || key="$(uninstall_json_get "$models" '.providers.weave.headers["X-Weave-Router-Key"]')"
   report_uninstall_event pi "$endpoint" "$key"
 }
+
+report_desktop_uninstall_event() {
+  local f="$1"
+  uninstall_file_is_own "$f" || return 0
+  report_uninstall_event claude_desktop "$(uninstall_json_get "$f" '.router_base_url')" "$(uninstall_json_get "$f" '.router_key')"
+}
+
+# Claude Desktop runs through a local proxy service (see install.sh); remove the
+# service, its certificate and the stored router key.
+if [ "$target" = "claude-desktop" ]; then
+  if [ "$scope" = "project" ]; then
+    [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] || exit 3
+    err "--claude-desktop installs in user scope only; drop --scope project."
+    exit 2
+  fi
+  desktop_shim_dir="${install_dir:-$HOME}/.weave-router/desktop-shim"
+  desktop_shim_config="$desktop_shim_dir/config.json"
+  desktop_shim_plist="$HOME/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist"
+  desktop_shim_unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/weave-router-desktop-shim.service"
+  skip_if_not_installed "$desktop_shim_config" 'router_base_url'
+  # The service files live under $HOME whatever --dir says; only remove the ones
+  # that run this install's config.
+  desktop_shim_config_xml="$(printf '%s' "$desktop_shim_config" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
+  if [ -f "$desktop_shim_plist" ] && grep -Fq "<string>$desktop_shim_config_xml</string>" "$desktop_shim_plist"; then
+    launchctl bootout "gui/$(id -u)/ai.workweave.router-desktop-shim" >/dev/null 2>&1 || true
+    rm -f "$desktop_shim_plist"
+    ok "Removed $desktop_shim_plist"
+  fi
+  if [ -f "$desktop_shim_unit" ] && grep -Fq "\"$desktop_shim_config\"" "$desktop_shim_unit"; then
+    systemctl --user disable --now weave-router-desktop-shim.service >/dev/null 2>&1 || true
+    rm -f "$desktop_shim_unit"
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    ok "Removed $desktop_shim_unit"
+  fi
+  # Undo the trusted certificate and the auto-proxy, but only where they are this install's.
+  desktop_shim_pac="http://127.0.0.1:$(jq -r '.listen_port // 47821' "$desktop_shim_config" 2>/dev/null || echo 47821)/proxy.pac"
+  case "$(uname -s)" in
+    Darwin)
+      if [ -f "$desktop_shim_dir/ca.pem" ] \
+        && security find-certificate -c "Weave Router Claude Desktop proxy" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
+        if ! security remove-trusted-cert "$desktop_shim_dir/ca.pem" \
+          || ! security delete-certificate -Z "$(openssl x509 -noout -fingerprint -sha1 -in "$desktop_shim_dir/ca.pem" | sed 's/.*=//; s/://g')" \
+            "$HOME/Library/Keychains/login.keychain-db" >/dev/null; then
+          desktop_shim_ca_left="true"
+        fi
+      fi
+      while IFS= read -r service; do
+        if [ "$(networksetup -getautoproxyurl "$service" | sed -n 's/^URL: //p')" = "$desktop_shim_pac" ]; then
+          sudo networksetup -setautoproxystate "$service" off
+        fi
+      done < <(networksetup -listallnetworkservices | tail -n +2 | grep -v '^\*')
+      ;;
+    Linux)
+      desktop_shim_ca_store="/usr/local/share/ca-certificates/weave-router-claude-desktop.crt"
+      if [ -f "$desktop_shim_ca_store" ] && cmp -s "$desktop_shim_dir/ca.pem" "$desktop_shim_ca_store"; then
+        if ! { sudo rm -f "$desktop_shim_ca_store" && sudo update-ca-certificates --fresh >/dev/null; }; then
+          desktop_shim_ca_left="true"
+        fi
+      fi
+      if [ "$(gsettings get org.gnome.system.proxy autoconfig-url 2>/dev/null)" = "'$desktop_shim_pac'" ]; then
+        gsettings set org.gnome.system.proxy mode 'none'
+        gsettings reset org.gnome.system.proxy autoconfig-url
+      fi
+      ;;
+  esac
+  # Keep ca.pem and the config while the OS still trusts the CA, so a rerun can remove it.
+  if [ "${desktop_shim_ca_left:-}" = "true" ]; then
+    warn "Could not remove the proxy certificate from the OS trust store (a cancelled password prompt?). Rerun: npx @weave-os/router --uninstall --claude-desktop"
+  elif [ -d "$desktop_shim_dir" ]; then
+    refuse_if_symlink "$desktop_shim_dir"
+    report_desktop_uninstall_event "$desktop_shim_config"
+    rm -rf "$desktop_shim_dir"
+    rmdir "$(dirname "$desktop_shim_dir")" 2>/dev/null || true
+    ok "Removed $desktop_shim_dir"
+  fi
+  info "Quit and reopen Claude Desktop so new sessions go direct to Anthropic."
+  exit 0
+fi
 
 # Markers must stay in sync with install.sh. Keep verbatim.
 WEAVE_CODEX_BEGIN_MARKER="# >>> weave-router managed (do not edit between markers) >>>"
@@ -657,6 +874,7 @@ if [ "$target" = "opencode" ]; then
     refuse_if_symlink "$opencode_dir"
   fi
   opencode_config_file="$opencode_dir/opencode.json"
+  skip_if_not_installed "$opencode_config_file" '"weave(-claude|-codex)?"' "$opencode_dir/.weave-parked.json"
   opencode_parked="$opencode_dir/.weave-parked.json"
   opencode_direct_model=""
   refuse_if_symlink "$opencode_config_file"
@@ -786,6 +1004,74 @@ EOF
   exit 0
 fi
 
+# ---------- copilot uninstall path ----------
+
+if [ "$target" = "copilot" ]; then
+  # Mirrors install.sh: user scope only; --dir is a throwaway COPILOT_HOME.
+  if [ -n "$install_dir" ]; then
+    install_dir="$(cd "$install_dir" 2>/dev/null && pwd || echo "$install_dir")"
+    copilot_dir="$install_dir/.copilot"
+  else
+    copilot_dir="${COPILOT_HOME:-$HOME/.copilot}"
+  fi
+  copilot_providers_file="$copilot_dir/providers.json"
+  copilot_settings_file="$copilot_dir/settings.json"
+  copilot_parked_file="$copilot_dir/.weave-parked.json"
+  for path in "$copilot_dir" "$copilot_providers_file" "$copilot_settings_file" "$copilot_parked_file"; do
+    refuse_if_symlink "$path"
+  done
+  skip_if_not_installed "$copilot_providers_file" '"name": *"weave"' "$copilot_parked_file"
+
+  if [ -f "$copilot_providers_file" ]; then
+    report_uninstall_event copilot \
+      "$(jq -r '[(.providers // [])[] | select(.name == "weave") | .baseUrl // empty][0] // empty' "$copilot_providers_file" 2>/dev/null | sed 's#/v1$##')" \
+      "$(jq -r '[(.providers // [])[] | select(.name == "weave") | .headers["X-Weave-Router-Key"] // empty][0] // empty' "$copilot_providers_file" 2>/dev/null)" || true
+    cleaned="$(jq '
+      .providers = [(.providers // [])[] | select(.name != "weave")]
+      | .models = [(.models // [])[] | select(.provider != "weave")]
+    ' "$copilot_providers_file")"
+    if [ "$(printf '%s' "$cleaned" | jq '(.providers | length) + (.models | length) + (del(.providers, .models) | length)')" = "0" ]; then
+      rm -f "$copilot_providers_file"
+      ok "Removed empty $copilot_providers_file"
+    else
+      printf '%s\n' "$cleaned" >"$copilot_providers_file"
+      chmod 600 "$copilot_providers_file"
+      ok "Removed the weave provider from $copilot_providers_file"
+    fi
+  else
+    info "No Copilot CLI providers.json at $copilot_providers_file (already uninstalled?)"
+  fi
+
+  if [ -f "$copilot_settings_file" ]; then
+    direct_model=""
+    [ -f "$copilot_parked_file" ] && direct_model="$(jq -r '.direct_model // empty' "$copilot_parked_file" 2>/dev/null || true)"
+    cleaned="$(jq --arg direct "$direct_model" '
+      if ((.model // "") | startswith("weave/"))
+      then (if $direct != "" then .model = $direct else del(.model) end)
+      else . end
+    ' "$copilot_settings_file")"
+    printf '%s\n' "$cleaned" >"$copilot_settings_file"
+    ok "Restored Copilot CLI default model in $copilot_settings_file${direct_model:+ ($direct_model)}"
+  fi
+  rm -f "$copilot_parked_file"
+
+  # Only remove skills that still carry our ownership marker.
+  if [ -d "$copilot_dir/skills" ] && [ ! -L "$copilot_dir/skills" ]; then
+    for skill_dir in "$copilot_dir"/skills/*/; do
+      [ -d "$skill_dir" ] || continue
+      skill_dir="${skill_dir%/}"
+      name="${skill_dir##*/}"
+      [ -L "$skill_dir" ] && continue
+      if [ ! -f "$skill_dir/SKILL.md" ] || [ -L "$skill_dir/SKILL.md" ]; then continue; fi
+      grep -Fq "<!-- weave-router managed $name skill -->" "$skill_dir/SKILL.md" || continue
+      rm -rf "$skill_dir"
+    done
+    rmdir "$copilot_dir/skills" 2>/dev/null || true
+    ok "Removed Weave Router Copilot skills"
+  fi
+  exit 0
+fi
+
 # ---------- pi uninstall path ----------
 
 if [ "$target" = "pi" ]; then
@@ -837,6 +1123,7 @@ if [ "$target" = "pi" ]; then
   refuse_if_symlink "$pi_settings_file"
   refuse_if_symlink "$pi_key_file"
 
+  skip_if_not_installed "$pi_models_file" '"weave"'
   report_pi_uninstall_event "$pi_models_file" "$pi_key_file" || true
   # models.json: drop provider.weave; remove the file if nothing else remains.
   # Other providers/models the user added are preserved.
@@ -860,15 +1147,15 @@ if [ "$target" = "pi" ]; then
   # router. Leaving defaultProvider="weave" after removing the provider would
   # break pi startup, so reverting is the correct reverse of the install.
   # defaultModel is reverted ONLY when defaultProvider was "weave" (the state
-  # install creates): install sets defaultModel only when it was empty, so a user
-  # who independently picked claude-sonnet-4-6 with their own provider keeps it.
+  # install creates) and it names a model install wrote: "auto", or
+  # claude-sonnet-4-6 from installs before weave/auto.
   if [ -f "$pi_settings_file" ]; then
     cleaned="$(jq '
       (if .packages then .packages -= ["npm:@workweave/router", "npm:@weave-os/router", "npm:@workweave/pi-router"] else . end)
       | (if (.packages // []) == [] then del(.packages) else . end)
       | (if .defaultProvider == "weave"
            then del(.defaultProvider)
-                | (if .defaultModel == "claude-sonnet-4-6" then del(.defaultModel) else . end)
+                | (if .defaultModel == "auto" or .defaultModel == "claude-sonnet-4-6" then del(.defaultModel) else . end)
            else . end)
     ' "$pi_settings_file")"
     printf '%s\n' "$cleaned" >"$pi_settings_file"
@@ -954,6 +1241,7 @@ if [ "$target" = "codex" ]; then
   # exits before strip_codex_block, so one symlinked helper left the config
   # wired to a router the uninstall had just been asked to remove.
 
+  skip_if_not_installed "$codex_config_file" 'model_providers.weave'
   report_codex_uninstall_event "$codex_config_file" || true
   if [ -f "$codex_config_file" ]; then
     strip_codex_block "$codex_config_file"
@@ -1059,6 +1347,7 @@ EOF
     # Drop skills/ when nothing is left in it, matching how the prompts and
     # Claude command paths clean up their now-empty directories. rmdir refuses
     # a non-empty dir, so an unrelated user skill keeps it.
+    uninstall_build_skill "$codex_dir/skills"
     rmdir "$codex_dir/skills" 2>/dev/null || true
   fi
 
@@ -1147,6 +1436,8 @@ else
   refuse_if_symlink "$statusline_ownership_file"
 fi
 
+skip_if_not_installed "$settings_file" 'ANTHROPIC_BASE_URL|Weave Router|cc-statusline' \
+  "$(dirname "$settings_file")/.weave-parked.json" "$(dirname "$settings_file")/.weave-context-window.json" "$statusline_file"
 statusline_file_owned="false"
 statusline_setting_owned="false"
 context_state_file="$(dirname "$settings_file")/.weave-context-window.json"
@@ -1176,23 +1467,30 @@ fi
 
 report_claude_uninstall_event || true
 
+
 if [ -f "$settings_file" ]; then
   # Only remove keys we actually installed: scrub our env vars, and only
   # delete `statusLine` / `apiKeyHelper` when they point at scripts this
   # installer used in older versions. Otherwise an unrelated user-configured
   # statusLine or apiKeyHelper would be silently clobbered.
-  cleaned="$(jq --arg statusline_setting_owned "$statusline_setting_owned" '
+  cleaned="$(jq --arg statusline_setting_owned "$statusline_setting_owned" "$CLAUDE_WEAVE_AUTO_STRIP_JQ"' | 
     if .env then
-      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH))
+      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH, .CLAUDE_CODE_AUTO_MODE_SERVER))
       | (if (.env | length) == 0 then del(.env) else . end)
     else . end
     | (if $statusline_setting_owned == "true" then del(.statusLine) else . end)
+    | (if (.hooks.UserPromptSubmit | type) == "array" then
+        .hooks.UserPromptSubmit |= (map(if (.hooks | type) == "array" then .hooks |= map(select((.command // "" | tostring | test("cc-statusline\\.sh\"? --prompt-hook( |$)")) | not)) else . end) | map(select((.hooks | type) != "array" or (.hooks | length) > 0)))
+        | (if (.hooks.UserPromptSubmit | length) == 0 then del(.hooks.UserPromptSubmit) else . end)
+        | (if (.hooks | length) == 0 then del(.hooks) else . end)
+      else . end)
     | (if (.apiKeyHelper // "" | tostring | endswith("weave-key.sh"))
          then del(.apiKeyHelper) else . end)
     | (if ((.attribution.commit == "Co-Authored-By: Weave Router <router@weaveos.com>"
               or .attribution.commit == "Co-Authored-By: Weave Router <router@workweave.ai>"
               or .attribution.commit == "Co-Authored-By: Weave Router <noreply@workweave.ai>")
-              and .attribution.pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)")
+              and (.attribution.pr == "🤖 Generated with [Weave Router](https://router.weaveos.com)"
+                   or .attribution.pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)"))
          then del(.attribution) else . end)
   ' "$settings_file")"
   printf '%s\n' "$cleaned" >"$settings_file"
@@ -1206,9 +1504,9 @@ if [ -n "$local_settings_file" ] && [ -f "$local_settings_file" ]; then
   # (the off path overrides it to Anthropic in the local file). Project installs
   # also keep WEAVE_ROUTER_BASE_URL here as a private endpoint marker beside the
   # router key; scrub both so uninstall fully reverts the local config.
-  cleaned="$(jq '
+  cleaned="$(jq "$CLAUDE_WEAVE_AUTO_STRIP_JQ"' |
     if .env then
-      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH, .WEAVE_ROUTER_BASE_URL))
+      .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH, .CLAUDE_CODE_AUTO_MODE_SERVER, .WEAVE_ROUTER_BASE_URL))
       | (if (.env | length) == 0 then del(.env) else . end)
     else . end
     | del(.apiKeyHelper)
@@ -1268,6 +1566,7 @@ EOF
   # Clean up the dir only if we left nothing behind.
   rmdir "$commands_dir" 2>/dev/null || true
 fi
+uninstall_build_skill "$(dirname "$settings_file")/skills" "$(dirname "$settings_file")/agents"
 
 if [ -n "$install_dir" ]; then
   ok "Weave Router uninstalled from $install_dir."

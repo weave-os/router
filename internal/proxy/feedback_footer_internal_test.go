@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/turntype"
 
 	"github.com/stretchr/testify/assert"
@@ -44,7 +45,29 @@ func TestFeedbackFooter_ClientGating(t *testing.T) {
 		assert.Empty(t, withStore.feedbackFooter(hiddenCtx, ClientAppClaudeCode, turntype.MainLoop, false), "hidden orgs get no /rf hint")
 	})
 
-	t.Run("an echoed footer with no new human turn suppresses the hint", func(t *testing.T) {
+	t.Run("headless runs never get the hint", func(t *testing.T) {
+		for _, ua := range []string{
+			"claude-cli/2.1.309 (external, sdk-cli)",
+			"claude-cli/2.1.309 (external, sdk-ts, agent-sdk/0.2.0)",
+			"codex_exec/0.164.0 (Ubuntu 22.4.0; x86_64) unknown (codex_exec; 0.164.0)",
+			"codex_sdk_ts/0.164.0 (Mac OS 15.0.0; arm64)",
+		} {
+			ctx := requestcontext.WithClientIdentity(context.Background(), ClientIdentity{UserAgent: ua})
+			assert.Empty(t, withStore.feedbackFooter(ctx, ClientAppClaudeCode, turntype.MainLoop, false), "expected no footer for %q", ua)
+		}
+	})
+
+	t.Run("interactive runs keep the hint", func(t *testing.T) {
+		for _, ua := range []string{
+			"claude-cli/2.1.309 (external, cli)",
+			"codex_cli_rs/0.164.0 (Ubuntu 22.4.0; x86_64) xterm-256color",
+		} {
+			ctx := requestcontext.WithClientIdentity(context.Background(), ClientIdentity{UserAgent: ua})
+			assert.NotEmpty(t, withStore.feedbackFooter(ctx, ClientAppClaudeCode, turntype.MainLoop, false), "expected footer for %q", ua)
+		}
+	})
+
+	t.Run("an echoed footer anywhere in the conversation suppresses the hint", func(t *testing.T) {
 		for _, tt := range []turntype.TurnType{turntype.MainLoop, turntype.ToolResult} {
 			assert.Empty(t, withStore.feedbackFooter(context.Background(), ClientAppClaudeCode, tt, true), "expected no footer for %q — continuation chains would stack duplicate hints", tt)
 		}

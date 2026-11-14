@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/telemetry"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -89,7 +90,8 @@ func parityAnthropicIngress() parityIngress {
 		byokKey:        parityAnthropicBYOK,
 		subCtx: func() context.Context {
 			ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, parityAnthropicToken)
-			return context.WithValue(ctx, InstallationIDContextKey{}, parityInstallationID)
+			// These parity cases exercise the explicitly enabled API fallback.
+			return withClaudeCreditFallback(context.WithValue(ctx, InstallationIDContextKey{}, parityInstallationID))
 		},
 		servedOnSub:       servedOnSubscription,
 		fallbackAvailable: (*Service).anthropicFallbackKeyAvailable,
@@ -165,8 +167,13 @@ func parityIngresses() []parityIngress {
 
 // byokCtx adds a BYOK key for the ingress' provider.
 func (in parityIngress) byokCtx(ctx context.Context) context.Context {
+	// Mirrors stored keys: Anthropic rows predating funding priorities are key-first.
+	priority := auth.FundingPriorityPlanFirst
+	if in.provider == providers.ProviderAnthropic {
+		priority = auth.FundingPriorityKeyFirst
+	}
 	return context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: in.provider, Plaintext: []byte(in.byokKey)},
+		{Provider: in.provider, Plaintext: []byte(in.byokKey), FundingPriority: priority},
 	})
 }
 
@@ -285,7 +292,7 @@ func TestSubscriptionFailoverParity_ModelCoverage(t *testing.T) {
 
 	t.Run("anthropic has no coverage gate", func(t *testing.T) {
 		in := parityAnthropicIngress()
-		ctx := resolveAndInjectCredentials(in.byokCtx(in.subCtx()), in.provider, in.uncoveredModel, http.Header{})
+		ctx := resolveAndInjectCredentials(in.subCtx(), in.provider, in.uncoveredModel, http.Header{})
 		require.NotNil(t, CredentialsFromContext(ctx))
 		assert.True(t, servedOnSubscription(ctx),
 			"any Anthropic model the caller can reach serves on the Claude subscription (D2)")
@@ -402,10 +409,8 @@ func upstreamErr(status int, body string) error {
 	return &providers.UpstreamErrorResponse{Status: status, Body: []byte(body)}
 }
 
-// TestSubscriptionFailoverParity_ErrorClassification pins, per provider, which
-// upstream failure counts as "token rejected", which as generic-retryable, and
-// which stays terminal. The rescue fires on (retryable OR token-rejected), so
-// the two columns together are the rescue trigger.
+// Error classification guides included-account recovery; it does not itself
+// authorize paid capacity without quota-exhaustion evidence.
 func TestSubscriptionFailoverParity_ErrorClassification(t *testing.T) {
 	type row struct {
 		name string
@@ -560,7 +565,8 @@ func TestSubscriptionFailoverParity_ObserverWrites(t *testing.T) {
 // same-binding retries the dispatcher interposes between them.
 type parityUpstream struct {
 	// subErr fails every dispatch that carries the caller's subscription.
-	subErr error
+	subErr     error
+	subHeaders http.Header
 	// paidErr fails every dispatch that serves on a paid key.
 	paidErr error
 	// okBody is written by a dispatch scripted to succeed.
@@ -572,6 +578,8 @@ type parityUpstream struct {
 	subDispatches  int
 	paidDispatches int
 	servedModels   []string
+	// paidKeys records the key each paid dispatch carried; "" is the deployment key.
+	paidKeys []string
 }
 
 func (*parityUpstream) SupportsSubscriptions() bool { return true }
@@ -585,9 +593,15 @@ func (p *parityUpstream) Proxy(ctx context.Context, decision router.Decision, _ 
 	err := p.paidErr
 	if onSubscription {
 		p.subDispatches++
+		providers.ObserveUpstreamHeaders(ctx, p.subHeaders)
 		err = p.subErr
 	} else {
 		p.paidDispatches++
+		paidKey := ""
+		if creds != nil {
+			paidKey = string(creds.APIKey)
+		}
+		p.paidKeys = append(p.paidKeys, paidKey)
 	}
 	if err != nil {
 		if p.preErrBody != "" {
@@ -609,10 +623,28 @@ func (in parityIngress) parityService(upstream providers.Client) *Service {
 	svc := NewService(
 		staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
 		map[string]providers.Client{in.provider: upstream},
-		nil, false, nil, nil, false, in.provider, in.model, nil,
+		nil, nil, false, in.provider, in.model, nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{in.provider: {}})
 	svc.retrySleep = noopSleep
 	return svc
+}
+
+func (in parityIngress) quotaFailureUpstream(paidErr error, stream bool) *parityUpstream {
+	upstream := &parityUpstream{
+		subErr:  upstreamErr(http.StatusTooManyRequests, `{"error":{"type":"usage_limit_reached"}}`),
+		paidErr: paidErr, okBody: in.upstreamOK(stream),
+	}
+	if in.provider == providers.ProviderAnthropic {
+		upstream.subErr = upstreamErr(http.StatusTooManyRequests, `{"error":{"type":"rate_limit_error"}}`)
+		upstream.subHeaders = make(http.Header)
+		upstream.subHeaders.Set("anthropic-ratelimit-unified-5h-utilization", "1")
+		upstream.subHeaders.Set("anthropic-ratelimit-unified-5h-reset", "4102444800")
+	}
+	return upstream
+}
+
+func (in parityIngress) quotaService(upstream providers.Client) *Service {
+	return in.parityService(upstream).WithUsageObserver(usage.NewObserver([]byte("quota-parity-salt"), time.Hour, time.Now))
 }
 
 func (in parityIngress) request(t *testing.T, stream bool) (*httptest.ResponseRecorder, *http.Request, []byte) {
@@ -621,15 +653,16 @@ func (in parityIngress) request(t *testing.T, stream bool) (*httptest.ResponseRe
 	return httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, in.path, strings.NewReader(body)), []byte(body)
 }
 
-// TestSubscriptionFailoverParity_RescueDispatch pins the rescue itself on both
-// ingresses: a subscription-served turn whose subscription fails pre-commit is
-// re-dispatched once, on the paid key, for the same model.
+// Credential faults must not buy API inference; confirmed exhaustion still
+// permits funded recovery on the same model, and a provider 5xx on the plan
+// authorizes paid rescue of the turn without claiming the quota is spent.
 func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 	triggers := []struct {
-		name string
-		err  error
+		name       string
+		err        error
+		wantRescue bool
 	}{
-		{name: "retryable fault", err: upstreamErr(http.StatusServiceUnavailable, `{"error":{"type":"overloaded_error"}}`)},
+		{name: "retryable fault", err: upstreamErr(http.StatusServiceUnavailable, `{"error":{"type":"overloaded_error"}}`), wantRescue: true},
 		{name: "rejected token", err: upstreamErr(http.StatusUnauthorized, `{"error":{"type":"authentication_error"}}`)},
 	}
 	for _, in := range parityIngresses() {
@@ -639,11 +672,23 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 				svc := in.parityService(upstream)
 				rec, req, body := in.request(t, false)
 
-				require.NoError(t, in.call(svc, in.subCtx(), body, rec, req))
+				err := in.call(svc, in.subCtx(), body, rec, req)
 
 				assert.Positive(t, upstream.subDispatches, "the turn must first be attempted on the caller's subscription")
-				assert.Equal(t, 1, upstream.paidDispatches,
-					"a subscription failure the client cannot see yet must be rescued once on the paid key")
+				if trigger.wantRescue {
+					require.NoError(t, err)
+					assert.Positive(t, upstream.paidDispatches, "a provider 5xx on the plan is rescued on paid capacity")
+					for _, servedModel := range upstream.servedModels {
+						assert.Equal(t, in.model, servedModel, "the rescue keeps the caller's model")
+					}
+					return
+				}
+				require.Error(t, err)
+				assert.Zero(t, upstream.paidDispatches,
+					"credential faults do not establish quota exhaustion")
+				assert.Equal(t, http.StatusUnauthorized, rec.Code,
+					"the client must see its own credential rejection so it can re-authenticate")
+				assert.Contains(t, rec.Body.String(), "authentication_error")
 			})
 		}
 
@@ -668,7 +713,7 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 			svc := NewService(
 				staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
 				map[string]providers.Client{in.provider: upstream},
-				nil, false, nil, nil, false, in.provider, in.model, nil,
+				nil, nil, false, in.provider, in.model, nil,
 			)
 			svc.retrySleep = noopSleep
 			rec, req, body := in.request(t, false)
@@ -691,27 +736,23 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 				"subscription-only mode exists to forbid exactly this paid spend")
 		})
 
-		t.Run(in.name+"/linked-first plan failure rescues on credits", func(t *testing.T) {
-			upstream := &parityUpstream{
-				subErr: upstreamErr(http.StatusTooManyRequests, `{"error":{"type":"rate_limit_error"}}`),
-				okBody: in.upstreamOK(false),
-			}
-			svc := in.parityService(upstream)
+		t.Run(in.name+"/linked-first exhausted plan rescues on credits", func(t *testing.T) {
+			upstream := in.quotaFailureUpstream(nil, false)
+			svc := in.quotaService(upstream)
 			rec, req, body := in.request(t, false)
 
 			require.NoError(t, in.call(svc, billing.WithSubscriptionOnly(in.subCtx(), billing.SubscriptionOnlyLinkedFirst), body, rec, req))
 			assert.Positive(t, upstream.subDispatches, "the linked plan is still tried first")
 			assert.Equal(t, 1, upstream.paidDispatches,
-				"a linked-first turn has organization credits behind it; the first binding 429 must roll over, not surface raw")
+				"confirmed plan exhaustion permits rollover onto organization credits")
 		})
 	}
 }
 
 // TestSubscriptionFailoverParity_CallerModelPassthrough pins D9: on a
 // blind-experiment passthrough turn, both ingresses keep the caller's model
-// fixed and fall back to authorized API funding for that same model.
+// fixed without buying API inference for a non-quota failure.
 func TestSubscriptionFailoverParity_CallerModelPassthrough(t *testing.T) {
-	wantPaid := map[string]int{"anthropic": 1, "codex": 1}
 	for _, in := range parityIngresses() {
 		t.Run(in.name, func(t *testing.T) {
 			upstream := &parityUpstream{
@@ -727,9 +768,9 @@ func TestSubscriptionFailoverParity_CallerModelPassthrough(t *testing.T) {
 			})
 			rec, req, body := in.request(t, false)
 
-			_ = in.call(svc, ctx, body, rec, req)
-			assert.Equal(t, wantPaid[in.name], upstream.paidDispatches,
-				"caller model remains fixed while authorized funding falls back for either provider")
+			require.Error(t, in.call(svc, ctx, body, rec, req))
+			assert.Zero(t, upstream.paidDispatches,
+				"passthrough does not turn an overload into quota-exhaustion evidence")
 			for _, servedModel := range upstream.servedModels {
 				assert.Equal(t, in.model, servedModel, "fallback must keep the caller's model")
 			}
@@ -772,15 +813,8 @@ func TestRoutingPolicyPassthroughPreservesSameModelCredentialRescue(t *testing.T
 					}
 					recorder, request, body := in.request(t, false)
 					err = in.call(service, ctx, body, recorder, request)
-					if subscriptionOnly {
-						require.Error(t, err)
-						assert.Zero(t, upstream.paidDispatches)
-					} else {
-						require.NoError(t, err)
-						assert.Equal(t, http.StatusOK, recorder.Code)
-						assert.Contains(t, recorder.Body.String(), "hi")
-						assert.Equal(t, 1, upstream.paidDispatches)
-					}
+					require.Error(t, err)
+					assert.Zero(t, upstream.paidDispatches, "routing policy does not authorize API recovery from non-quota failures")
 					assert.Positive(t, upstream.subDispatches)
 					for _, servedModel := range upstream.servedModels {
 						assert.Equal(t, in.model, servedModel, "credential recovery must never substitute a model")
@@ -807,11 +841,11 @@ func TestSubscriptionFailoverParity_Telemetry(t *testing.T) {
 		for _, tc := range cases {
 			t.Run(in.name+"/"+tc.name, func(t *testing.T) {
 				fault := upstreamErr(http.StatusServiceUnavailable, `{"error":{"type":"overloaded_error"}}`)
-				upstream := &parityUpstream{subErr: fault, okBody: in.upstreamOK(false)}
+				upstream := in.quotaFailureUpstream(nil, false)
 				if !tc.rescueSucceeds {
 					upstream.paidErr = fault
 				}
-				svc := in.parityService(upstream)
+				svc := in.quotaService(upstream)
 
 				collector := newBypassSpanCollector(t)
 				emitter, err := otel.NewEmitter(otel.EmitterConfig{
@@ -826,7 +860,7 @@ func TestSubscriptionFailoverParity_Telemetry(t *testing.T) {
 				svc.emitter = emitter
 
 				buf := otel.NewBuffer(emitter)
-				ctx := buf.WithContext(in.subCtx())
+				ctx := telemetry.WithRecorder(in.subCtx(), buf)
 				rec, req, body := in.request(t, false)
 				_ = in.call(svc, ctx, body, rec, req)
 				buf.Flush()
@@ -864,8 +898,8 @@ func TestSubscriptionFailoverParity_HeldErrorDelivery(t *testing.T) {
 
 	for _, in := range parityIngresses() {
 		t.Run(in.name+"/buffered response is written exactly once", func(t *testing.T) {
-			upstream := &parityUpstream{subErr: fault, paidErr: fault, okBody: in.upstreamOK(false)}
-			svc := in.parityService(upstream)
+			upstream := in.quotaFailureUpstream(fault, false)
+			svc := in.quotaService(upstream)
 			rec, req, body := in.request(t, false)
 
 			require.Error(t, in.call(svc, in.subCtx(), body, rec, req))
@@ -875,8 +909,8 @@ func TestSubscriptionFailoverParity_HeldErrorDelivery(t *testing.T) {
 		})
 
 		t.Run(in.name+"/stream failure keeps the protocol framing", func(t *testing.T) {
-			upstream := &parityUpstream{subErr: fault, paidErr: fault, okBody: in.upstreamOK(true)}
-			svc := in.parityService(upstream)
+			upstream := in.quotaFailureUpstream(fault, true)
+			svc := in.quotaService(upstream)
 			rec, req, body := in.request(t, true)
 
 			require.Error(t, in.call(svc, in.subCtx(), body, rec, req))

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/net/http2"
+
 	"weave-os/router/internal/router"
 )
 
@@ -232,6 +234,17 @@ func RequiresBaseURL(provider string) bool {
 	return ok
 }
 
+// OutputExcludesReasoning reports whether this provider's reported output token
+// count omits its reasoning tokens, so billed output is output + reasoning.
+// xAI reports completion_tokens_details.reasoning_tokens on top of
+// completion_tokens (prompt + completion + reasoning = total_tokens) while
+// billing reasoning at the output rate. Every other OpenAI-compatible
+// upstream, OpenRouter's xAI route included, folds reasoning into
+// completion_tokens as OpenAI does.
+func OutputExcludesReasoning(provider string) bool {
+	return provider == ProviderXAI
+}
+
 // CacheTTL is the best-effort upstream prompt-cache lifetime per provider.
 // Anthropic's 1h extended cache is what pinSessionTTL is sized to; OSS
 // OpenAI-compatible providers cache on an undocumented minutes-scale window,
@@ -377,6 +390,25 @@ func (e *UpstreamErrorResponse) Error() string {
 
 func (e *UpstreamErrorResponse) Unwrap() error { return e.Cause }
 
+type QuotaVerificationFailure string
+
+const (
+	QuotaVerificationFailureRequest         QuotaVerificationFailure = "request"
+	QuotaVerificationFailureTransport       QuotaVerificationFailure = "transport"
+	QuotaVerificationFailureTimeout         QuotaVerificationFailure = "timeout"
+	QuotaVerificationFailureEndpoint        QuotaVerificationFailure = "endpoint"
+	QuotaVerificationFailureInvalidResponse QuotaVerificationFailure = "invalid_response"
+)
+
+type QuotaVerificationUnavailableError struct {
+	Failure        QuotaVerificationFailure
+	UpstreamStatus int
+}
+
+func (e *QuotaVerificationUnavailableError) Error() string {
+	return fmt.Sprintf("subscription quota verification unavailable: %s (upstream status %d)", e.Failure, e.UpstreamStatus)
+}
+
 // MaxBufferedErrorBytes caps the buffered upstream error body; beyond this
 // it's truncated and the rest of the stream is drained without retention.
 const MaxBufferedErrorBytes = 64 * 1024
@@ -502,6 +534,34 @@ func IsResponseHeaderTimeout(err error) bool {
 		return false
 	}
 	return strings.Contains(urlErr.Err.Error(), "timeout awaiting response headers")
+}
+
+// IsHTTP2ConnectionLoss reports whether the provider's HTTP/2 connection
+// failed under the request: a stream reset, GOAWAY or connection error, or a
+// keepalive ping it never answered. net/http's bundled HTTP/2 client returns
+// unexported copies of the x/net error types; only its StreamError converts
+// via errors.As, so the rest are matched by the text both packages share.
+func IsHTTP2ConnectionLoss(err error) bool {
+	var streamErr http2.StreamError
+	var connErr http2.ConnectionError
+	if errors.As(err, &streamErr) || errors.As(err, &connErr) {
+		return true
+	}
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "http2: client connection lost") ||
+		strings.Contains(msg, "http2: server sent GOAWAY and closed the connection") {
+		return true
+	}
+	// net/http's unexported HTTP/2 ConnectionError has the bare message "connection error: <code>".
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		if strings.HasPrefix(e.Error(), "connection error: ") {
+			return true
+		}
+	}
+	return false
 }
 
 // IsUpstreamModelNotFound reports whether err is a buffered upstream 404,

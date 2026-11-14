@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/translate"
 
@@ -107,7 +108,7 @@ func TestSafetyExcludedModels_CatchesPolicyExcludedOverflow(t *testing.T) {
 
 	// safetyExcludedModels re-runs against an empty base, so it DOES catch the
 	// overflow regardless of policy exclusion.
-	safety := s.safetyExcludedModels(env, 8_000, nil)
+	safety := s.safetyExcludedModels(env, 8_000, nil, nil)
 	_, blocked := safety["claude-haiku-4-5"]
 	assert.True(t, blocked, "a policy-excluded model that also overflows must land in the safety set so bypass blocks it")
 }
@@ -164,17 +165,53 @@ func TestAdmitWidestOnTotalOverflow(t *testing.T) {
 	}
 	ruledOut, overflowed := excludeContextOverflowModels(2_000_000, 0, 8_000, nil, nil, available)
 	require.ElementsMatch(t, []string{"claude-opus-4-8", "claude-haiku-4-5"}, overflowed)
-	assert.Equal(t, []string{"claude-opus-4-8"}, admitWidestOnTotalOverflow(ruledOut, overflowed, available, nil),
+	assert.Equal(t, []string{"claude-opus-4-8"}, admitWidestOnTotalOverflow(ruledOut, overflowed, available, nil, router.RequestBindings{}),
 		"only the widest model is re-admitted")
 
 	ruledOut, overflowed = excludeContextOverflowModels(250_000, 0, 8_000, nil, nil, available)
-	assert.Nil(t, admitWidestOnTotalOverflow(ruledOut, overflowed, available, nil),
+	assert.Nil(t, admitWidestOnTotalOverflow(ruledOut, overflowed, available, nil, router.RequestBindings{}),
 		"a request some model fits leaves the pre-filter's exclusions alone")
 
 	policyExcluded := map[string]struct{}{"claude-opus-4-8": {}}
 	ruledOut, overflowed = excludeContextOverflowModels(2_000_000, 0, 8_000, nil, policyExcluded, available)
-	assert.Equal(t, []string{"claude-haiku-4-5"}, admitWidestOnTotalOverflow(ruledOut, overflowed, available, nil),
+	assert.Equal(t, []string{"claude-haiku-4-5"}, admitWidestOnTotalOverflow(ruledOut, overflowed, available, nil, router.RequestBindings{}),
 		"a policy-excluded model is never re-admitted; the widest allowed one is")
+}
+
+// A wider model the request cannot reach (its provider is not enabled) must
+// not count as fitting: every servable model overflowing is still a total
+// overflow, and the servable widest go to the upstream.
+func TestAdmitWidestOnTotalOverflow_IgnoresUnservableModels(t *testing.T) {
+	available := map[string]struct{}{
+		"claude-opus-5-5":  {},
+		"claude-haiku-5-5": {},
+		"gemini-3.5-flash": {},
+	}
+	anthropicOnly := map[string]struct{}{providers.ProviderAnthropic: {}}
+	ruledOut, overflowed := excludeContextOverflowModels(872_297, 0, 128_000, anthropicOnly, nil, available)
+	require.ElementsMatch(t, []string{"claude-opus-5-5", "claude-haiku-5-5"}, overflowed,
+		"the 1.05M Gemini window still fits the estimate")
+	assert.ElementsMatch(t, []string{"claude-opus-5-5", "claude-haiku-5-5"},
+		admitWidestOnTotalOverflow(ruledOut, overflowed, available, anthropicOnly, router.RequestBindings{}))
+
+	withGoogle := map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderGoogle: {}}
+	ruledOut, overflowed = excludeContextOverflowModels(872_297, 0, 128_000, withGoogle, nil, available)
+	assert.Nil(t, admitWidestOnTotalOverflow(ruledOut, overflowed, available, withGoogle, router.RequestBindings{}),
+		"a servable model that fits leaves the exclusions alone")
+
+	customGateway := map[string][]string{"gemini-3.5-flash": {providers.ProviderOpenRouter}}
+	withGateway := map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenRouter: {}}
+	ruledOut, overflowed = excludeContextOverflowModels(872_297, 0, 128_000, withGateway, nil, available)
+	assert.Nil(t, admitWidestOnTotalOverflow(ruledOut, overflowed, available, withGateway, router.RequestBindings{Custom: customGateway}),
+		"a configuration-declared binding makes the model servable")
+
+	gatewayOnly := router.RequestBindings{
+		Custom:   map[string][]string{"claude-opus-5-5": {providers.ProviderOpenRouter}},
+		Gateways: map[string]struct{}{providers.ProviderOpenRouter: {}},
+	}
+	ruledOut, overflowed = excludeContextOverflowModels(872_297, 0, 128_000, withGateway, nil, available)
+	assert.Equal(t, []string{"claude-opus-5-5"}, admitWidestOnTotalOverflow(ruledOut, overflowed, available, withGateway, gatewayOnly),
+		"a gateway-exclusive request reaches only its aliases, so vendor-only models never count as fitting")
 }
 
 func TestWithoutModels(t *testing.T) {

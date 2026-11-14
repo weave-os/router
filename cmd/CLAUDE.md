@@ -8,18 +8,15 @@ Composition root. Only place that constructs concrete adapters + wires them toge
 
 - **`cmd/router/main.go` wires admission, policy runtime, providers and persistence.** The shared stable fleet serves Default/Boost/Max; ordinary internal serving credentials are admitted only in the internal fleet. Scoped internal test-plan grants are the stable-fleet exception.
 - Keep `main.go` focused on wiring. Today's helpers:
-  - `buildClusterScorer` — per-version scorer and embedder initialization
-  - `buildExploringRouter` — optionally wraps the cluster router in `banditexplore` (env-flag gated; off by default)
-  - `buildSemanticCache` — response-cache assembly
   - `buildOtelEmitter` — OTel span exporter
   - `runSessionPinSweep` — TTL sweep loop
   - `resolveHardPinModel` / `resolveCompactionModel` / `resolveDefaultBaselineModel` / `resolveAvailableModels` — boot-time model resolution
   - `registerDeploymentKeyedProvider` — shared "resolve key → build client → log" registration for the providers whose gating collapses to that shape (Fireworks, Makora, Together, Bedrock, Google); OpenRouter and Anthropic/OpenAI stay bespoke
   - small env parsers (e.g. `envVarHint`, `parseEnvInt`, `parseEnvFloat`, `parseEnvDurationMs`)
-- **No more heuristic-fallback router.** If cluster routing fails to boot, `main.go` panics. Misconfiguration must abort the process rather than silently degrade.
+- **No heuristic-fallback router.** Workers route only through registered policy strategies; a default strategy with no configured router fails boot. Misconfiguration must abort the process rather than silently degrade.
 - Validate deployment target overrides through `policy.Registry.ValidateDeployment` after provider/model configuration is resolved. A partial or catalog-incompatible explicit target is a startup error, not permission to substitute a default.
 - **Never introduce DI container, reflection-based wiring, or service locator.** Composition = plain Go function calls.
-- **`panic` is reserved for startup-time fail-fast** (`config.MustGet`, cluster-scorer boot failure, invalid `ROUTER_DEPLOYMENT_MODE`). Never panic on request path.
+- **`panic` is reserved for startup-time fail-fast** (`config.MustGet`, invalid `ROUTER_DEPLOYMENT_MODE`, an unroutable default strategy). Never panic on request path.
 
 ## Deployment-mode dispatch
 
@@ -32,7 +29,7 @@ Composition root. Only place that constructs concrete adapters + wires them toge
 Provider registration:
 
 - Every provider goes into `providerMap` regardless of mode.
-- `envKeyedProviders` (parallel set) tracks which providers have a deployment-level key configured so the hard-pin resolver knows what's safe to pin to.
+- `envKeyedProviders` (parallel set) tracks which providers have a deployment-level key configured, i.e. which can serve without request credentials.
 - Provider credential mode follows `byokOnly` in `cmd/router/main.go`, not `managed` alone. Preserve installation BYOK opt-in and client subscription routing when changing registration.
 
 Single source of truth for provider→env-var mapping = `providers.APIKeyEnvVars` in [`../internal/providers/provider.go`](../internal/providers/provider.go). Admin `/config` view reads it so it can't drift from actual wiring.

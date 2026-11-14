@@ -25,9 +25,8 @@ import (
 type ManagedSubscriptionProvidersContextKey struct{}
 
 // ManagedSubscriptionEnrollmentUnavailableContextKey marks a request whose
-// enrollment snapshot could not be loaded. Codex OpenAI turns may use their
-// configured API credential when paid fallback is permitted; other subscription
-// lanes and subscription-only requests fail closed.
+// enrollment snapshot could not be loaded. Unknown enrollment never authorizes
+// paid inference for a subscription-compatible model.
 type ManagedSubscriptionEnrollmentUnavailableContextKey struct{}
 
 // ManagedSubscriptionUsageContextKey carries per-request billing attribution.
@@ -57,27 +56,31 @@ func subscriptionOwnerFromContext(ctx context.Context) auth.SubscriptionOwner {
 // ManagedSubscriptionUsage is request-local attribution shared by the auth
 // middleware context and provider-specific dispatch attempt contexts.
 type ManagedSubscriptionUsage struct {
-	Served                bool
-	SubscriptionAttempted bool
-	ResetAttempted        bool
-	CredentialSource      string
-	OverageInUse          bool
-	SubscriptionAccountID string
-	SubscriptionOwnerID   string
-	SubscriptionTier      auth.SubscriptionTier
-	IntendedModel         string
-	AttemptedAccounts     map[string]struct{}
-	Finished              bool
-	WinningCredentials    *Credentials
-}
-
-var (
-	ErrSubscriptionPoolExhausted   = errors.New("subscription account pool exhausted")
-	ErrSubscriptionPoolUnavailable = errors.New("subscription account pool unavailable")
-)
-
-func isSubscriptionPoolError(err error) bool {
-	return errors.Is(err, ErrSubscriptionPoolExhausted) || errors.Is(err, ErrSubscriptionPoolUnavailable)
+	Served                  bool
+	SubscriptionAttempted   bool
+	ResetAttempted          bool
+	CredentialSource        string
+	OverageInUse            bool
+	SubscriptionAccountID   string
+	SubscriptionOwnerID     string
+	SubscriptionTier        auth.SubscriptionTier
+	IntendedModel           string
+	AttemptedAccounts       map[string]struct{}
+	QuotaExhaustedAccounts  map[string]time.Time
+	QuotaExhaustedProviders map[subscriptions.Provider]time.Time
+	ThrottledAccounts       map[string]time.Time
+	// UnavailableProviders records, per pool, until when this turn's
+	// subscription attempts are known to have failed on provider capacity
+	// (5xx), which authorizes a paid rescue without proving quota exhaustion.
+	UnavailableProviders   map[subscriptions.Provider]time.Time
+	ClientAppRefused       bool
+	Finished               bool
+	WinningCredentials     *Credentials
+	ClaudeSubscriptionPlan providers.SubscriptionPlan
+	ClaudePlanUnverified   bool
+	// ClaudeEnterpriseCapRefused records that the caller's Enterprise seat
+	// refused this turn at its overage cap.
+	ClaudeEnterpriseCapRefused bool
 }
 
 // WithManagedSubscriptionUsage prepares request-local subscription attribution.
@@ -101,6 +104,10 @@ func managedSubscriptionProviderFromUpstream(provider, model string) (subscripti
 }
 
 func managedSubscriptionEnrolled(ctx context.Context, provider subscriptions.Provider) bool {
+	if provider == subscriptions.ProviderClaude && anthropicBYOKFirst(ctx) ||
+		provider == subscriptions.ProviderCodex && byokFirst(ctx, providers.ProviderOpenAI) {
+		return false
+	}
 	if subscriptionAPIOnly(ctx) || subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
 		return false
 	}
@@ -188,29 +195,24 @@ func (s *Service) costNeutralSubscriptionServed(ctx context.Context) bool {
 }
 
 func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model string) (context.Context, subscriptions.Lease, bool, error) {
+	if byokFirst(ctx, provider) {
+		return ctx, subscriptions.Lease{}, false, nil
+	}
 	poolProvider, eligible := managedSubscriptionProviderFromUpstream(provider, model)
 	if eligible && managedSubscriptionEnrollmentUnavailable(ctx) {
 		if credentials := CredentialsFromContext(ctx); credentials != nil && credentials.OAuth && s.supportsSubscriptionTransport(provider) {
 			return ctx, subscriptions.Lease{}, false, nil
 		}
-		if subscriptionAttemptOnly(ctx) || paidFallbackForbidden(ctx) || !s.managedProviderFallbackAvailable(ctx, poolProvider) {
-			return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolUnavailable
-		}
-		if credentials := CredentialsFromContext(ctx); credentials != nil && credentials.OAuth {
-			if poolProvider == subscriptions.ProviderClaude {
-				ctx = withSuppressedClaudeSubscription(ctx)
-			} else {
-				ctx = withSuppressedCodexSubscription(ctx)
-			}
-			ctx = resolveAndInjectCredentials(ctx, provider, model, http.Header{})
-		}
+		return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolUnavailable
+	}
+	if subscriptionAPIOnly(ctx) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 	if subscriptionAttemptOnly(ctx) && (!eligible || !s.supportsSubscriptionTransport(provider) || !managedSubscriptionEnrolled(ctx, poolProvider)) && !servedOnSubscription(ctx) {
-		return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
+		return ctx, subscriptions.Lease{}, true, subscriptionPoolExhausted(ctx)
 	}
 	if eligible && (claudeSubscriptionSuppressed(ctx) && provider == providers.ProviderAnthropic || codexSubscriptionSuppressed(ctx) && provider == providers.ProviderOpenAI) && !managedSubscriptionEnrolled(ctx, poolProvider) && !s.managedProviderFallbackAvailable(ctx, poolProvider) {
-		return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
+		return ctx, subscriptions.Lease{}, true, subscriptionPoolExhausted(ctx)
 	}
 	if !eligible || s.managedSubscriptions == nil || !managedSubscriptionEnrolled(ctx, poolProvider) ||
 		poolProvider == subscriptions.ProviderCodex && codexChatEndpoint(ctx) {
@@ -219,83 +221,115 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	if !s.supportsSubscriptionTransport(provider) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
-	if current := CredentialsFromContext(ctx); current != nil && current.OAuth {
+	if current := CredentialsFromContext(ctx); current != nil && current.OAuth && pickedModelOnOwnPlan(ctx) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 
+	diagnostics := subscriptionAdmissionDiagnostics{started: time.Now()}
+	defer diagnostics.log(ctx, poolProvider, model)
+
 	owner := subscriptionOwnerFromContext(ctx)
-	ctx = WithManagedSubscriptionUsage(ctx)
-	requestUsage := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
-	for pair := range requestUsage.AttemptedAccounts {
-		if strings.HasSuffix(pair, "\x00"+model) {
-			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, strings.TrimSuffix(pair, "\x00"+model))
+	if winner, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); winner != nil {
+		for pair := range winner.AttemptedAccounts {
+			if strings.HasSuffix(pair, "\x00"+model) {
+				owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, strings.TrimSuffix(pair, "\x00"+model))
+			}
 		}
 	}
 	seen := make(map[string]bool)
 	var modelDenial error
+	// A seat leased outside the admission snapshot is skipped, but its unproven
+	// quota still forbids paid recovery and an exhausted verdict.
+	unadmitted := false
+	poolSpent := func() (context.Context, subscriptions.Lease, bool, error) {
+		// A caller login remains usable when no admitted linked seat can serve,
+		// but must not bypass the pool's account selection and rotation.
+		if current := CredentialsFromContext(ctx); ctx.Err() == nil && current != nil && current.OAuth {
+			return ctx, subscriptions.Lease{}, false, nil
+		}
+		if !unadmitted && !subscriptionAttemptOnly(ctx) && !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) && s.subscriptionAPIAuthorization(ctx, provider, model) == nil {
+			return ctx, subscriptions.Lease{}, false, nil
+		}
+		if unadmitted {
+			return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolUnavailable
+		}
+		if modelDenial != nil {
+			return ctx, subscriptions.Lease{}, true, modelDenial
+		}
+		return ctx, subscriptions.Lease{}, true, subscriptionPoolExhausted(ctx)
+	}
 	for {
-		lease, present, err := s.managedSubscriptions.Lease(ctx, owner, poolProvider, ClientIdentityFrom(ctx).SessionID)
-		if poolProvider == subscriptions.ProviderCodex && !requestUsage.ResetAttempted && subscriptions.CodexAutoUsageResetEnabled(ctx, owner.SubscriberID) && (errors.Is(err, subscriptions.ErrNoAvailableAccount) || err == nil && !present) {
-			requestUsage.ResetAttempted = true
-			if resetter, ok := s.managedSubscriptions.(interface {
-				ResetCodex(context.Context, auth.SubscriptionOwner, string) (subscriptions.Lease, bool, error)
-			}); ok {
-				if restored, recovered, resetErr := resetter.ResetCodex(ctx, owner, ClientIdentityFrom(ctx).SessionID); resetErr != nil {
-					err = resetErr
-				} else if recovered {
-					lease, present, err = restored, true, nil
-					delete(seen, lease.AccountID)
-					delete(requestUsage.AttemptedAccounts, lease.AccountID+"\x00"+model)
-					if s.usageObserver != nil {
-						s.usageObserver.Forget(s.usageObserver.Key([]byte("subscription-account:" + lease.AccountID)))
-						s.usageObserver.Forget(s.usageObserver.Key([]byte(lease.AccessToken)))
-					}
-				}
+		if poolProvider == subscriptions.ProviderClaude && claudePoolRefusesClientApp(ctx) {
+			return poolSpent()
+		}
+		leaseCtx := ctx
+		if poolProvider == subscriptions.ProviderClaude && claudeEnterpriseEnabled(ctx) {
+			leaseCtx = requestcontext.WithSubscriptionExtraUsage(ctx)
+		}
+		lease, present, err := s.leaseOrResetCodex(leaseCtx, owner, poolProvider, model, seen)
+		if err != nil && !errors.Is(err, subscriptions.ErrNoAvailableAccount) {
+			if current := CredentialsFromContext(ctx); ctx.Err() == nil && current != nil && current.OAuth {
+				observability.FromContext(ctx).Warn("Subscription pool lease failed; using caller subscription", "provider", poolProvider, "err", err)
+				return ctx, subscriptions.Lease{}, false, nil
 			}
+			if !unadmitted && !subscriptionAttemptOnly(ctx) && !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) && s.subscriptionAPIAuthorization(ctx, provider, model) == nil {
+				return ctx, subscriptions.Lease{}, false, nil
+			}
+			return ctx, subscriptions.Lease{}, present, errors.Join(ErrSubscriptionPoolUnavailable, err)
 		}
 		if err != nil || !present {
-			if !subscriptionAttemptOnly(ctx) && !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) {
-				return ctx, subscriptions.Lease{}, false, nil
-			}
-			if err != nil && !errors.Is(err, subscriptions.ErrNoAvailableAccount) {
-				return ctx, subscriptions.Lease{}, present, errors.Join(ErrSubscriptionPoolUnavailable, err)
-			}
-			if modelDenial != nil {
-				return ctx, subscriptions.Lease{}, true, modelDenial
-			}
-			return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
+			return poolSpent()
 		}
 		if seen[lease.AccountID] {
+			diagnostics.skip(lease, subscriptionSkipRepeatedLease)
 			lease.Release()
-			if !subscriptionAttemptOnly(ctx) && !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) {
-				return ctx, subscriptions.Lease{}, false, nil
-			}
-			if modelDenial != nil {
-				return ctx, subscriptions.Lease{}, true, modelDenial
-			}
-			return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
+			return poolSpent()
 		}
 		seen[lease.AccountID] = true
+		if candidates, snapshotPresent := ctx.Value(managedSubscriptionCandidatesKey{}).([]managedSubscriptionCandidate); snapshotPresent {
+			admitted := false
+			for _, candidate := range candidates {
+				if candidate.accountID == lease.AccountID && candidate.provider == auth.SubscriptionProvider(poolProvider) {
+					admitted = true
+					break
+				}
+			}
+			if !admitted {
+				diagnostics.skip(lease, subscriptionSkipOutsideAdmission)
+				lease.Release()
+				observability.FromContext(ctx).Warn("Subscription lease is outside the request admission snapshot", "account_id", lease.AccountID, "provider", poolProvider)
+				unadmitted = true
+				owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
+				continue
+			}
+		}
+		if winner, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); winner != nil {
+			if _, attempted := winner.AttemptedAccounts[lease.AccountID+"\x00"+model]; attempted {
+				lease.Release()
+				owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
+				continue
+			}
+		}
+		if poolProvider == subscriptions.ProviderClaude && s.subscriptionModels.managedClientAppDenied(lease.AccountID, provider, ClientIdentityFrom(ctx).ClientApp, s.clockNow()) {
+			diagnostics.skip(lease, subscriptionSkipClientAppDenied)
+			markSubscriptionClientAppRefused(ctx)
+			lease.Release()
+			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
+			continue
+		}
+		if s.subscriptionModels.managedDenied(managedOverloadOwner(lease.AccountID), lease.AccountID, provider, model, s.clockNow()) {
+			diagnostics.skip(lease, subscriptionSkipOverloadCooldown)
+			s.markSubscriptionPoolUnavailable(ctx, poolProvider)
+			lease.Release()
+			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
+			continue
+		}
 		if s.subscriptionModels.managedDenied("account:"+lease.AccountID, lease.AccountID, provider, model, s.clockNow()) {
+			diagnostics.skip(lease, subscriptionSkipModelDenied)
 			if poolProvider == subscriptions.ProviderCodex {
 				modelDenial = codexSubscriptionModelUnavailable(model)
 			} else {
 				modelDenial = anthropicSubscriptionModelUnavailable(model)
-			}
-			lease.Release()
-			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
-			continue
-		}
-		snapshot, observed := s.managedSubscriptionUsageSnapshot(lease.AccountID, lease.AccessToken)
-		if observed && snapshot.OverageInUse {
-			lease.Release()
-			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
-			continue
-		}
-		if observed && snapshot.ExhaustedAsOf(s.clockNow()) {
-			resetAt := linkedSubscriptionResetAt(snapshot, s.clockNow())
-			if err := exhaustManagedSubscription(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID, resetAt); err != nil {
-				observability.FromContext(ctx).Error("Failed to persist exhausted subscription account", "provider", poolProvider, "account_id", lease.AccountID, "err", err)
 			}
 			lease.Release()
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
@@ -307,7 +341,40 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			creds.AccountID = []byte(lease.ProviderAccount)
 			creds.PrincipalID = "chatgpt-account:" + lease.ProviderAccount
 		}
-		return context.WithValue(ctx, CredentialsContextKey{}, creds), lease, true, nil
+		credentialCtx := context.WithValue(ctx, CredentialsContextKey{}, creds)
+		if poolProvider == subscriptions.ProviderClaude {
+			credentialCtx = s.withClaudeSubscriptionProfile(credentialCtx, nil)
+			if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil && claudeSubscriptionPlan(credentialCtx) == providers.SubscriptionPlanUnknown {
+				state.ClaudePlanUnverified = true
+			}
+		}
+		snapshot, observed := s.managedSubscriptionUsageSnapshot(lease.AccountID, lease.AccessToken)
+		allowClaudeOverage := poolProvider == subscriptions.ProviderClaude && claudeEnterpriseOnly(credentialCtx)
+		if poolProvider == subscriptions.ProviderClaude && !lease.AllowsPlanAttempt(claudeSubscriptionPlan(credentialCtx), claudeEnterpriseEnabled(ctx), s.clockNow()) {
+			diagnostics.skip(lease, subscriptionSkipPlanIneligible)
+			lease.Release()
+			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
+			continue
+		}
+		if observed && snapshot.OverageInUse && !allowClaudeOverage {
+			diagnostics.skip(lease, subscriptionSkipPaidOverage)
+			lease.Release()
+			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
+			continue
+		}
+		if observed && snapshot.ExhaustedAsOf(s.clockNow()) && !allowClaudeOverage && !(poolProvider == subscriptions.ProviderCodex && s.codexExtraCreditsAllowed()) {
+			diagnostics.skip(lease, subscriptionSkipQuotaExhausted)
+			resetAt := linkedSubscriptionResetAt(snapshot, s.clockNow())
+			recordManagedQuotaProof(ctx, lease.AccountID, resetAt)
+			if err := exhaustManagedSubscription(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID, resetAt); err != nil {
+				observability.FromContext(ctx).Error("Failed to persist exhausted subscription account", "provider", poolProvider, "account_id", lease.AccountID, "err", err)
+			}
+			lease.Release()
+			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
+			continue
+		}
+		diagnostics.admitted = true
+		return credentialCtx, lease, true, nil
 	}
 }
 
@@ -356,6 +423,14 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 			"provider", poolProvider, "account_id", lease.AccountID, "model", model)
 		return true
 	}
+	if provider == providers.ProviderAnthropic && anthropicSubscriptionThirdPartyRefused(attemptErr) {
+		clientApp := ClientIdentityFrom(ctx).ClientApp
+		s.subscriptionModels.denyManagedClientApp(lease.AccountID, provider, clientApp, s.clockNow().Add(subscriptionThirdPartyDenialTTL))
+		markSubscriptionClientAppRefused(ctx)
+		observability.FromContext(ctx).Warn("Managed subscription account refused third-party client on plan limits",
+			"provider", poolProvider, "account_id", lease.AccountID, "client_app", clientApp)
+		return true
+	}
 	if provider == providers.ProviderOpenAI && codexSubscriptionModelRejected(attemptErr) {
 		s.subscriptionModels.denyManaged("account:"+lease.AccountID, lease.AccountID, provider, model, s.clockNow().Add(subscriptionModelDenialTTL))
 		observability.FromContext(ctx).Warn("Managed subscription account cannot access model",
@@ -365,23 +440,117 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 	switch status {
 	case http.StatusTooManyRequests:
 		resetAt := managedSubscriptionResetAt(attemptErr, s.clockNow())
+		if quotaReset, exhausted := s.subscriptionQuotaExhaustion(poolProvider, lease, attemptErr); exhausted {
+			resetAt = quotaReset
+			recordManagedQuotaProof(ctx, lease.AccountID, resetAt)
+			if poolProvider == subscriptions.ProviderClaude && claudeEnterpriseOnly(ctx) {
+				if err := s.managedSubscriptions.Cooldown(ctx, owner, poolProvider, lease.AccountID, resetAt); err != nil {
+					observability.FromContext(ctx).Error("Failed to persist Claude overage refusal cooldown", "account_id", lease.AccountID, "err", err)
+				}
+				return true
+			}
+			if err := exhaustManagedSubscription(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID, resetAt); err != nil {
+				observability.FromContext(ctx).Error("Failed to persist exhausted subscription account", "provider", poolProvider, "account_id", lease.AccountID, "err", err)
+			}
+			observability.FromContext(ctx).Warn("Subscription included quota exhausted", "provider", poolProvider, "account_id", lease.AccountID, "reset_at", resetAt)
+			return true
+		}
 		if err := s.managedSubscriptions.Cooldown(ctx, owner, poolProvider, lease.AccountID, resetAt); err != nil {
 			observability.FromContext(ctx).Error("Failed to persist subscription account cooldown",
 				"provider", poolProvider, "account_id", lease.AccountID, "err", err)
 		}
-		observability.FromContext(ctx).Warn("Subscription account quota exhausted",
+		recordManagedThrottle(ctx, lease.AccountID, resetAt)
+		observability.FromContext(ctx).Warn("Subscription account throttled; quota exhaustion not established",
 			"provider", poolProvider, "account_id", lease.AccountID, "cooldown_until", resetAt)
 		return true
 	case http.StatusUnauthorized, http.StatusForbidden:
-		if err := reconnectManagedSubscription(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID); err != nil {
-			observability.FromContext(ctx).Error("Failed to disable rejected subscription account",
+		reconnect, err := rejectManagedSubscriptionCredential(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID, status)
+		if err != nil {
+			observability.FromContext(ctx).Error("Failed to record rejected subscription account",
 				"provider", poolProvider, "account_id", lease.AccountID, "err", err)
 		}
 		observability.FromContext(ctx).Warn("Subscription account credential rejected",
-			"provider", poolProvider, "account_id", lease.AccountID, "upstream_status", status)
+			"provider", poolProvider, "account_id", lease.AccountID, "upstream_status", status, "reconnect_required", reconnect)
 		return true
 	default:
+		if upstreamServerFailure(attemptErr) {
+			s.subscriptionModels.denyManaged(managedOverloadOwner(lease.AccountID), lease.AccountID, provider, model, s.clockNow().Add(managedOverloadCooldown))
+			observability.FromContext(ctx).Warn("Managed subscription account overloaded; skipping it briefly",
+				"provider", poolProvider, "account_id", lease.AccountID, "model", model, "upstream_status", status, "cooldown", managedOverloadCooldown)
+		}
 		return false
+	}
+}
+
+// managedOverloadCooldown keeps later requests off an account+model the
+// provider just answered with a 5xx, so each turn does not re-walk the same
+// overloaded seats. In-memory only: an overload says nothing about the login.
+const managedOverloadCooldown = 30 * time.Second
+
+func managedOverloadOwner(accountID string) string { return "overload:" + accountID }
+
+func recordManagedQuotaProof(ctx context.Context, accountID string, resetAt time.Time) {
+	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+		if state.QuotaExhaustedAccounts == nil {
+			state.QuotaExhaustedAccounts = make(map[string]time.Time)
+		}
+		state.QuotaExhaustedAccounts[accountID] = resetAt
+	}
+}
+
+func recordManagedThrottle(ctx context.Context, accountID string, cooldownUntil time.Time) {
+	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+		if state.ThrottledAccounts == nil {
+			state.ThrottledAccounts = make(map[string]time.Time)
+		}
+		state.ThrottledAccounts[accountID] = cooldownUntil
+	}
+}
+
+func (s *Service) subscriptionQuotaExhaustion(pool subscriptions.Provider, lease subscriptions.Lease, attemptErr error) (time.Time, bool) {
+	now := s.clockNow()
+	if pool == subscriptions.ProviderCodex {
+		if resetAt, exhausted := codexQuotaExhaustion(attemptErr); exhausted {
+			if resetAt.IsZero() {
+				resetAt = now.Add(time.Duration(codexQuotaWindowMinutes) * time.Minute)
+			}
+			return resetAt, resetAt.After(now)
+		}
+	}
+	var upstream *providers.UpstreamErrorResponse
+	if errors.As(attemptErr, &upstream) {
+		var snapshot usage.Snapshot
+		var observed bool
+		if pool == subscriptions.ProviderClaude {
+			snapshot, observed = usage.ParseAnthropicUnifiedHeaders(upstream.Headers)
+		} else {
+			snapshot, observed = usage.ParseCodexHeaders(upstream.Headers)
+		}
+		snapshot.ObservedAt = now
+		if observed && snapshot.ExhaustedAsOf(now) {
+			return linkedSubscriptionResetAt(snapshot, now), true
+		}
+	}
+	if snapshot, observed := s.managedSubscriptionUsageSnapshot(lease.AccountID, lease.AccessToken); observed && snapshot.ExhaustedAsOf(now) {
+		return linkedSubscriptionResetAt(snapshot, now), true
+	}
+	return time.Time{}, false
+}
+
+func (s *Service) recordDirectSubscriptionQuota(ctx context.Context, provider, model string, creds *Credentials, attemptErr error) {
+	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
+	if !compatible {
+		return
+	}
+	resetAt, exhausted := s.subscriptionQuotaExhaustion(pool, subscriptions.Lease{AccessToken: string(creds.APIKey)}, attemptErr)
+	if !exhausted {
+		return
+	}
+	if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+		if state.QuotaExhaustedProviders == nil {
+			state.QuotaExhaustedProviders = make(map[subscriptions.Provider]time.Time)
+		}
+		state.QuotaExhaustedProviders[pool] = resetAt
 	}
 }
 
@@ -403,6 +572,15 @@ func (s *Service) recordManagedSubscriptionSuccess(ctx context.Context, provider
 		observability.FromContext(ctx).Error("Failed to mark subscription account active",
 			"provider", poolProvider, "account_id", lease.AccountID, "err", err)
 	}
+}
+
+func rejectManagedSubscriptionCredential(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, accountID string, upstreamStatus int) (bool, error) {
+	if rejector, ok := leaser.(interface {
+		RejectCredential(context.Context, auth.SubscriptionOwner, subscriptions.Provider, string, int) (bool, error)
+	}); ok {
+		return rejector.RejectCredential(ctx, owner, provider, accountID, upstreamStatus)
+	}
+	return true, reconnectManagedSubscription(ctx, leaser, owner, provider, accountID)
 }
 
 func reconnectManagedSubscription(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, accountID string) error {
@@ -442,7 +620,7 @@ func (s *Service) supportsSubscriptionTransport(provider string) bool {
 // subscriptionAlternativeDecisions uses only the policy's request-compatible
 // ordering in its selected quality group. Explicit choices remain fixed.
 func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req router.Request, selected router.Decision) []router.Decision {
-	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || req.ForceModel != "" {
+	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) || req.ForceModel != "" || memberSelectedModel(ctx, selected.Model) {
 		return nil
 	}
 	if _, explicit := catalog.ByID(req.RequestedModel); explicit {
@@ -510,7 +688,9 @@ func (s *Service) subscriptionAlternativeDecisions(ctx context.Context, req rout
 			continue
 		}
 		entry, known := catalog.ByID(model)
-		if !known || entry.Tier < selectedEntry.Tier || req.HasTools && (entry.ToolUseQuality == catalog.ToolUseLow || entry.AgenticUse == catalog.AgenticLow) || req.HasImages && entry.ImageInput == catalog.ImageInputUnsupported {
+		if !known || entry.Tier < selectedEntry.Tier || req.HasTools && (entry.ToolUseQuality == catalog.ToolUseLow || entry.AgenticUse == catalog.AgenticLow) ||
+			req.HasImages && entry.ImageInput == catalog.ImageInputUnsupported ||
+			req.ImageCount > 0 && !catalog.AcceptsImageCount(model, req.ImageCount, req.EnabledProviders) {
 			continue
 		}
 		if entry.ContextWindow > 0 && req.EstimatedInputTokens > entry.ContextWindow {
@@ -542,7 +722,11 @@ func linkedSubscriptionResetAt(snapshot usage.Snapshot, now time.Time) time.Time
 		}
 		candidate := window.ResetAt
 		if candidate.IsZero() && window.WindowMinutes > 0 {
-			candidate = snapshot.ObservedAt.Add(time.Duration(window.WindowMinutes) * time.Minute)
+			observedAt := window.ObservedAt
+			if observedAt.IsZero() {
+				observedAt = snapshot.ObservedAt
+			}
+			candidate = observedAt.Add(time.Duration(window.WindowMinutes) * time.Minute)
 		}
 		if candidate.After(resetAt) {
 			resetAt = candidate

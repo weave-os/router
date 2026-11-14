@@ -6,6 +6,7 @@ import { after } from "node:test";
 // needs an event loop until node:test has finished the cancellation assertions.
 const testKeepAlive = setInterval(() => {}, 1_000);
 after(() => clearInterval(testKeepAlive));
+import "./auto-model.test.js";
 import "./beta.test.js";
 import "./force-model.test.js";
 import "./savings.test.js";

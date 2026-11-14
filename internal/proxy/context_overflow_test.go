@@ -36,7 +36,7 @@ func TestProxyMessages_UpstreamOverflowIsLeftForNativeRendering(t *testing.T) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster"}},
 		map[string]providers.Client{providers.ProviderAnthropic: upstream},
-		nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	)
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"claude-haiku-4-5","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`)
@@ -59,7 +59,7 @@ func TestProxyMessages_ForcedModelDispatchesPastByteEstimate(t *testing.T) {
 	upstream := &fakeProvider{}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5", Reason: "cluster"}}
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: upstream},
-		nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithAvailableModels(map[string]struct{}{forced: {}, "claude-opus-5": {}})
 
 	// 150k non-ASCII runes, each ASCII-escaped to a 6-byte JSON escape: ~900KB
@@ -83,7 +83,7 @@ func proxyResponsesOverflow(t *testing.T, stream bool) *httptest.ResponseRecorde
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster"}},
 		map[string]providers.Client{providers.ProviderAnthropic: upstream},
-		nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, newFakePinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	)
 	rec := httptest.NewRecorder()
 	body := `{"model":"claude-haiku-4-5","input":"hi","stream":false}`
@@ -174,7 +174,7 @@ func TestCrossFormatResponsesOverflowClassifiesAsContextWindowExceeded(t *testin
 				svc := proxy.NewService(
 					&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5-mini", Reason: "cluster"}},
 					map[string]providers.Client{providers.ProviderOpenAI: upstream},
-					nil, false, nil, newFakePinStore(), false, providers.ProviderOpenAI, "gpt-5-mini", nil,
+					nil, newFakePinStore(), false, providers.ProviderOpenAI, "gpt-5-mini", nil,
 				)
 				rec := httptest.NewRecorder()
 				body := []byte(fmt.Sprintf(ingress.body, stream))
@@ -212,7 +212,7 @@ func hmmOverflowService(provider string, upstream providers.Client, models ...st
 	resolver := policy.NewResolver(available, map[string]struct{}{provider: {}}, func(m catalog.Model) string { return m.ID }, policy.ManagedProviderPolicy())
 	routing := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyHMM, Unavailable: hmm.ErrHMMUnavailable}, overflowPolicy{}, resolver)
 	return proxy.NewService(&fakeRouter{}, map[string]providers.Client{provider: upstream},
-		nil, false, nil, newFakePinStore(), false, provider, models[0], nil).
+		nil, newFakePinStore(), false, provider, models[0], nil).
 		WithAvailableModels(available).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: routing, Unavailable: hmm.ErrHMMUnavailable})
 }
@@ -256,6 +256,27 @@ func TestHMMTotalOverflowReachesUpstreamOnEveryIngress(t *testing.T) {
 			require.Len(t, upstream.proxyBodies, 1, "the widest model is dispatched so the provider decides")
 		})
 	}
+}
+
+// A wider-window model the request cannot reach (its provider is not enabled)
+// must not mask a total overflow of every servable model: the widest servable
+// one is still dispatched so the provider decides.
+func TestTotalOverflowIgnoresWiderUnservableModel(t *testing.T) {
+	// ~900k-token estimate plus a 128k output reserve: past a 1M window, inside
+	// Gemini's 1,048,576 one.
+	prompt := strings.Repeat("overflow ", 400_000)
+	body := `{"model":"claude-opus-4-8","max_tokens":128000,"messages":[{"role":"user","content":"` + prompt + `"}]}`
+	upstream := overflowingProvider(`{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 1100000 tokens > 1000000 maximum"}}`)
+	svc := hmmOverflowService(providers.ProviderAnthropic, upstream, "claude-opus-4-8", "gemini-3.5-flash")
+	ctx := router.WithStrategy(authedCtx(overflowInstallationID), router.StrategyHMM)
+
+	err := svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+
+	require.Error(t, err)
+	cls, ok := proxy.ClassifyDispatchError(err)
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, cls.Kind, "got %v", err)
+	require.Len(t, upstream.proxyBodies, 1, "the widest servable model is dispatched so the provider decides")
 }
 
 // When a policy reason, not size, empties the pool, the org still hears it is

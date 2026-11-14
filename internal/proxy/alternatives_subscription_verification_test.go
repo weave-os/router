@@ -87,7 +87,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 			if scenario.sessionPinned {
 				pins = &overwritingPinStore{pin: sessionpin.Pin{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: translate.ReasonUserForceModel, PinnedUntil: pinNeverExpires}, found: true}
 			}
-			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Metadata: metadata, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, pins, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(&verificationAlternativeLeaser{}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Metadata: metadata, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, pins, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(&verificationAlternativeLeaser{}).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 			ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 			if scenario.max {
 				ctx = entitlement.WithProductScope(ctx, entitlement.PlanMax)
@@ -107,9 +107,9 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 				require.Empty(t, bearers)
 				return
 			}
-			require.NoError(t, dispatchErr)
-			require.Contains(t, rec.Body.String(), "alternative answer")
 			if scenario.alternative {
+				require.NoError(t, dispatchErr)
+				require.Contains(t, rec.Body.String(), "alternative answer")
 				require.Equal(t, []string{"Bearer alternative-seat", "Bearer alternative-seat"}, bearers)
 				require.Contains(t, models[1], "6")
 				require.True(t, servedOnSubscription(ctx))
@@ -122,8 +122,9 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 				require.Equal(t, "alternative-account", winner.SubscriptionAccountID)
 				require.Equal(t, "synthetic-owner", winner.SubscriptionOwnerID)
 			} else {
-				require.Equal(t, []string{"Bearer alternative-seat", "Bearer synthetic-api-key"}, bearers)
-				require.Equal(t, models[0], models[1])
+				require.Error(t, dispatchErr, "model denial or an ineligible alternative does not prove quota exhaustion")
+				require.Equal(t, []string{"Bearer alternative-seat"}, bearers)
+				require.NotContains(t, rec.Body.String(), "alternative answer")
 				require.False(t, servedOnSubscription(ctx))
 			}
 		})
@@ -132,7 +133,7 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 
 func TestVerificationAlternativesHonorHardRequestExclusions(t *testing.T) {
 	client := openai.NewClient("synthetic-api-key", "http://127.0.0.1:1")
-	svc := NewService(staticRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)
+	svc := NewService(staticRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil)
 	ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
 	selected := router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Metadata: &router.RoutingMetadata{CandidateModels: []string{codexCoveredModel, "gpt-6-sol", "gpt-6.1-sol"}}}
 	request := router.Request{

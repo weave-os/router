@@ -37,6 +37,27 @@ func TestWithSubscriptionOnlyReasonPrecedence(t *testing.T) {
 			},
 			billing.SubscriptionOnlyCreditsDepleted,
 		},
+		"spend cap then linked-first holds": {
+			func(ctx context.Context) context.Context {
+				ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlySpendCapReached)
+				return billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyLinkedFirst)
+			},
+			billing.SubscriptionOnlySpendCapReached,
+		},
+		"spend cap then depleted escalates": {
+			func(ctx context.Context) context.Context {
+				ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlySpendCapReached)
+				return billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
+			},
+			billing.SubscriptionOnlyCreditsDepleted,
+		},
+		"depleted then spend cap holds": {
+			func(ctx context.Context) context.Context {
+				ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
+				return billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlySpendCapReached)
+			},
+			billing.SubscriptionOnlyCreditsDepleted,
+		},
 		"depleted then linked-first holds": {
 			func(ctx context.Context) context.Context {
 				ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)

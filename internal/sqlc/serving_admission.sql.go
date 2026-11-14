@@ -101,21 +101,35 @@ func (q *Queries) GetServingCredentialForAdmission(ctx context.Context, arg GetS
 }
 
 const getServingInstallationForAdmission = `-- name: GetServingInstallationForAdmission :one
-SELECT id FROM router.model_router_installations
+SELECT id, allowed_models, excluded_models, excluded_providers, routing_strategy FROM router.model_router_installations
 WHERE id = $1::uuid AND deleted_at IS NULL
 FOR SHARE
 `
 
+type GetServingInstallationForAdmissionRow struct {
+	ID                uuid.UUID
+	AllowedModels     []string
+	ExcludedModels    []string
+	ExcludedProviders []string
+	RoutingStrategy   *string
+}
+
 // Admission shares the installation lock; assignment changes take its exclusive lock first.
 //
-//	SELECT id FROM router.model_router_installations
+//	SELECT id, allowed_models, excluded_models, excluded_providers, routing_strategy FROM router.model_router_installations
 //	WHERE id = $1::uuid AND deleted_at IS NULL
 //	FOR SHARE
-func (q *Queries) GetServingInstallationForAdmission(ctx context.Context, installationID uuid.UUID) (uuid.UUID, error) {
+func (q *Queries) GetServingInstallationForAdmission(ctx context.Context, installationID uuid.UUID) (GetServingInstallationForAdmissionRow, error) {
 	row := q.db.QueryRow(ctx, getServingInstallationForAdmission, installationID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+	var i GetServingInstallationForAdmissionRow
+	err := row.Scan(
+		&i.ID,
+		&i.AllowedModels,
+		&i.ExcludedModels,
+		&i.ExcludedProviders,
+		&i.RoutingStrategy,
+	)
+	return i, err
 }
 
 const getServingInstallationLaneEnrollment = `-- name: GetServingInstallationLaneEnrollment :one

@@ -16,7 +16,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
@@ -83,7 +82,7 @@ func TestClassifierDispatchAcrossProtocols(t *testing.T) {
 			})
 			upstream := &classifierResponseProvider{}
 			baseline := &betaTestRouter{}
-			svc := NewService(baseline, map[string]providers.Client{test.provider: upstream}, nil, false, nil, nil, false, test.provider, test.model, nil)
+			svc := NewService(baseline, map[string]providers.Client{test.provider: upstream}, nil, nil, false, test.provider, test.model, nil)
 			require.NoError(t, svc.WithClassifierSessions(fixtureService.classifierSessions.config, store, fixtureService.classifierSessions.classifier))
 			escalationClasses := []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}
 			roster := &rosterdata.Roster{SchemaVersion: rosterdata.SchemaVersionPolicyV1, SHA256: strings.Repeat("b", 64), ClassOrder: escalationClasses, Clusters: map[string]rosterdata.Cluster{}}
@@ -168,7 +167,7 @@ func TestClassifierDispatchUsesConfiguredSubscriptionState(t *testing.T) {
 	const model = "claude-sonnet-4-6"
 	fixtureService, principal, store := classifierSessionFixture(t, classifierMedium)
 	upstream := &classifierResponseProvider{}
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, false, nil, nil, false, "", "", nil)
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, nil, false, "", "", nil)
 	require.NoError(t, svc.WithClassifierSessions(fixtureService.classifierSessions.config, store, fixtureService.classifierSessions.classifier))
 	ctx := classifierAdmit(t, svc, principal)
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{model})
@@ -188,7 +187,7 @@ func TestClassifierDispatchUsesConfiguredSubscriptionState(t *testing.T) {
 	svc.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: routing, Capabilities: capabilities, Unavailable: router.ErrClassifierUnavailable})
 	recorder := httptest.NewRecorder()
 	err := svc.ProxyMessages(ctx, []byte(`{"model":"claude-sonnet-4-6","max_tokens":1024,"messages":[{"role":"user","content":"first"}]}`), recorder, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
-	require.ErrorIs(t, err, cluster.ErrAllowlistEmptiesPool, "a classifier-selected model outside both configured state sets must be refused")
+	require.ErrorIs(t, err, router.ErrAllowlistEmptiesPool, "a classifier-selected model outside both configured state sets must be refused")
 	require.Empty(t, upstream.body)
 }
 
@@ -197,7 +196,7 @@ func TestClassifierRecapServesWithoutAnchoringPin(t *testing.T) {
 	fixtureService, principal, store := classifierSessionFixture(t, classifierMedium)
 	upstream := &classifierResponseProvider{}
 	pins := newStubPinStore()
-	svc := NewService(&betaTestRouter{}, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, false, nil, pins, false, providers.ProviderAnthropic, model, nil)
+	svc := NewService(&betaTestRouter{}, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, pins, false, providers.ProviderAnthropic, model, nil)
 	require.NoError(t, svc.WithClassifierSessions(fixtureService.classifierSessions.config, store, fixtureService.classifierSessions.classifier))
 	escalationClasses := []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}
 	roster := &rosterdata.Roster{SchemaVersion: rosterdata.SchemaVersionPolicyV1, SHA256: strings.Repeat("b", 64), ClassOrder: escalationClasses, Clusters: map[string]rosterdata.Cluster{}}
@@ -264,7 +263,7 @@ func TestClassifierUtilityRequestsDoNotEstablishThreadRoot(t *testing.T) {
 	upstream := &classifierResponseProvider{}
 	baseline := &betaTestRouter{}
 	pins := newStubPinStore()
-	svc := NewService(baseline, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, false, nil, pins, false, providers.ProviderAnthropic, utilityModel.String(), nil)
+	svc := NewService(baseline, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, pins, false, providers.ProviderAnthropic, utilityModel.String(), nil)
 	require.NoError(t, svc.WithClassifierSessions(fixture.classifierSessions.config, store, fixture.classifierSessions.classifier))
 	ctx := classifierAdmit(t, svc, principal)
 	for _, utility := range []struct {

@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"time"
@@ -182,16 +183,18 @@ type externalKeyResponse struct {
 	ForwardedClientHeaders []string          `json:"forwarded_client_headers,omitempty"`
 	BaggageHeader          string            `json:"baggage_header,omitempty"`
 
-	AuthType    string     `json:"auth_type,omitempty"`
-	AuthAccount string     `json:"auth_account,omitempty"`
-	AuthUser    string     `json:"auth_user,omitempty"`
-	LastUsedAt  *time.Time `json:"last_used_at"`
-	CreatedAt   time.Time  `json:"created_at"`
+	AuthType         auth.AuthType                   `json:"auth_type,omitempty"`
+	FederationConfig *auth.AnthropicFederationConfig `json:"federation_config,omitempty"`
+	AuthAccount      string                          `json:"auth_account,omitempty"`
+	AuthUser         string                          `json:"auth_user,omitempty"`
+	FundingPriority  auth.FundingPriority            `json:"funding_priority"`
+	LastUsedAt       *time.Time                      `json:"last_used_at"`
+	CreatedAt        time.Time                       `json:"created_at"`
 }
 
 type upsertExternalKeyRequest struct {
 	Provider string `json:"provider" binding:"required"`
-	// Key is required for every auth type but "wif", which carries no secret;
+	// Federation modes carry no stored secret;
 	// the binding can't express that, so the emptiness check lives below.
 	Key  string  `json:"key"`
 	Name *string `json:"name"`
@@ -208,11 +211,13 @@ type upsertExternalKeyRequest struct {
 	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough to this endpoint.
 	ForwardedClientHeaders []string `json:"forwarded_client_headers"`
 	BaggageHeader          *string  `json:"baggage_header"`
-	// AuthType is "bearer" (default), "keypair_jwt" (Key is RSA; router signs a short-lived JWT
-	// for AuthAccount/AuthUser), or "wif" (no secret; router attests its own workload identity).
-	AuthType    string  `json:"auth_type"`
-	AuthAccount *string `json:"auth_account"`
-	AuthUser    *string `json:"auth_user"`
+	// AuthType selects stored-secret, gateway, or native Anthropic federation authentication.
+	AuthType         auth.AuthType                   `json:"auth_type"`
+	FederationConfig *auth.AnthropicFederationConfig `json:"federation_config"`
+	AuthAccount      *string                         `json:"auth_account"`
+	AuthUser         *string                         `json:"auth_user"`
+	// FundingPriority is key_first or plan_first; omitted means plan_first.
+	FundingPriority auth.FundingPriority `json:"funding_priority"`
 }
 
 func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
@@ -229,11 +234,13 @@ func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
 		ForwardedClientHeaders: k.ForwardedClientHeaders,
 		BaggageHeader:          k.BaggageHeader,
 
-		AuthType:    k.AuthType,
-		AuthAccount: k.AuthAccount,
-		AuthUser:    k.AuthUser,
-		LastUsedAt:  k.LastUsedAt,
-		CreatedAt:   k.CreatedAt,
+		AuthType:         k.AuthType,
+		FederationConfig: k.FederationConfig,
+		AuthAccount:      k.AuthAccount,
+		AuthUser:         k.AuthUser,
+		FundingPriority:  k.FundingPriority,
+		LastUsedAt:       k.LastUsedAt,
+		CreatedAt:        k.CreatedAt,
 	}
 }
 
@@ -257,8 +264,8 @@ func ListExternalKeysHandler(authSvc *auth.Service) gin.HandlerFunc {
 }
 
 // UpsertExternalKeyHandler stores a BYOK provider key; models (non-nil) validates aliases
-// against the deployed catalog so a typo'd ID fails at write time, not silently at runtime.
-func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource) gin.HandlerFunc {
+// against the serving roster so a typo'd ID fails at write time, not silently at runtime.
+func UpsertExternalKeyHandler(authSvc *auth.Service, models HMMRosterSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
 		if !ok {
@@ -269,21 +276,22 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Provider and key are required."})
 			return
 		}
-		if req.Key == "" && req.AuthType != auth.AuthTypeWIF {
+		if req.Key == "" && req.AuthType != auth.AuthTypeWIF && req.AuthType != auth.AuthTypeAnthropicWIF {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Provider and key are required."})
 			return
 		}
-		// A provider configured via the deployment's env var (e.g. ANTHROPIC_API_KEY)
-		// must not be shadowed by a dashboard BYOK key — credential resolution
-		// prefers BYOK, so the stored key would silently win on every outbound call.
-		// The frontend grays out env-keyed providers, but that guard is derived from
-		// GET /admin/v1/config and fails open if that fetch errors; this is the only
-		// backend enforcement. Mirrors the env-key check in ConfigHandler.
-		if config.GetOr(providers.APIKeyEnvVar(req.Provider), "") != "" {
+		// Federation is an explicit separate principal; static BYOK credentials
+		// must not silently shadow a deployment key.
+		anthropicFederation := req.Provider == providers.ProviderAnthropic && req.AuthType == auth.AuthTypeAnthropicWIF
+		if !anthropicFederation && config.GetOr(providers.APIKeyEnvVar(req.Provider), "") != "" {
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Provider already configured via deployment environment variable. Remove the env var before adding a dashboard key."})
 			return
 		}
-		allowed := deployedModelIDs(models)
+		allowed, err := deployedModelIDs(c.Request.Context(), models)
+		if err != nil {
+			abortRosterUnavailable(c, err)
+			return
+		}
 		key, err := authSvc.UpsertExternalAPIKey(c.Request.Context(), installation.ID, auth.UpsertExternalAPIKeyParams{
 			Provider:      req.Provider,
 			RawKey:        req.Key,
@@ -297,15 +305,18 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 			ForwardedClientHeaders: req.ForwardedClientHeaders,
 			BaggageHeader:          req.BaggageHeader,
 
-			AuthType:    req.AuthType,
-			AuthAccount: req.AuthAccount,
-			AuthUser:    req.AuthUser,
+			AuthType:         req.AuthType,
+			FederationConfig: req.FederationConfig,
+			AuthAccount:      req.AuthAccount,
+			AuthUser:         req.AuthUser,
+			FundingPriority:  req.FundingPriority,
 		})
 		if err != nil {
 			if errors.Is(err, auth.ErrUnknownModel) || errors.Is(err, auth.ErrInvalidModelAlias) ||
 				errors.Is(err, auth.ErrInvalidIdentityHeader) || errors.Is(err, auth.ErrInvalidForwardedHeader) ||
 				errors.Is(err, auth.ErrInvalidKeypairAuth) ||
-				errors.Is(err, auth.ErrInvalidEntraAuth) {
+				errors.Is(err, auth.ErrInvalidEntraAuth) || errors.Is(err, auth.ErrInvalidAnthropicFederation) ||
+				errors.Is(err, auth.ErrInvalidFundingPriority) {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}
@@ -331,7 +342,7 @@ type updateExternalKeyAliasesRequest struct {
 
 // UpdateExternalKeyAliasesHandler edits a stored key's model aliases without re-entering
 // the credential; returns 404 for missing or cross-tenant ids.
-func UpdateExternalKeyAliasesHandler(authSvc *auth.Service, models DeployedModelsSource) gin.HandlerFunc {
+func UpdateExternalKeyAliasesHandler(authSvc *auth.Service, models HMMRosterSource) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		installation, ok := resolveInstallation(c, authSvc)
 		if !ok {
@@ -347,7 +358,12 @@ func UpdateExternalKeyAliasesHandler(authSvc *auth.Service, models DeployedModel
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request body."})
 			return
 		}
-		key, err := authSvc.SetExternalAPIKeyModelAliases(c.Request.Context(), installation.ID, id, req.ModelAliases, deployedModelIDs(models))
+		allowed, err := deployedModelIDs(c.Request.Context(), models)
+		if err != nil {
+			abortRosterUnavailable(c, err)
+			return
+		}
+		key, err := authSvc.SetExternalAPIKeyModelAliases(c.Request.Context(), installation.ID, id, req.ModelAliases, allowed)
 		if err != nil {
 			if errors.Is(err, auth.ErrUnknownModel) || errors.Is(err, auth.ErrInvalidModelAlias) {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -364,17 +380,60 @@ func UpdateExternalKeyAliasesHandler(authSvc *auth.Service, models DeployedModel
 	}
 }
 
-// deployedModelIDs is the alias-validation set; nil source means skip validation.
-func deployedModelIDs(models DeployedModelsSource) map[string]struct{} {
-	if models == nil {
-		return nil
+type updateExternalKeyFundingPriorityRequest struct {
+	FundingPriority auth.FundingPriority `json:"funding_priority"`
+}
+
+// UpdateExternalKeyFundingPriorityHandler sets whether a stored key is spent
+// before or after the caller's subscription; returns 404 for missing or cross-tenant ids.
+func UpdateExternalKeyFundingPriorityHandler(authSvc *auth.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		installation, ok := resolveInstallation(c, authSvc)
+		if !ok {
+			return
+		}
+		id := c.Param("id")
+		if id == "" {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Missing ID."})
+			return
+		}
+		var req updateExternalKeyFundingPriorityRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid request body."})
+			return
+		}
+		key, err := authSvc.SetExternalAPIKeyFundingPriority(c.Request.Context(), installation.ID, id, req.FundingPriority)
+		if err != nil {
+			if errors.Is(err, auth.ErrInvalidFundingPriority) {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			if errors.Is(err, auth.ErrExternalAPIKeyNotFound) {
+				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Provider key not found."})
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to update funding priority."})
+			return
+		}
+		c.JSON(http.StatusOK, toExternalKeyResponse(key))
 	}
-	deployed := models.DefaultDeployedModels()
+}
+
+// deployedModelIDs is the alias-validation set; nil source (tests only: the
+// self-hosted composition root always wires one) means skip validation.
+func deployedModelIDs(ctx context.Context, models HMMRosterSource) (map[string]struct{}, error) {
+	if models == nil {
+		return nil, nil
+	}
+	deployed, err := models.HMMDeployedModels(ctx)
+	if err != nil {
+		return nil, err
+	}
 	allowed := make(map[string]struct{}, len(deployed))
 	for _, e := range deployed {
 		allowed[e.Model] = struct{}{}
 	}
-	return allowed
+	return allowed, nil
 }
 
 func DeleteExternalKeyHandler(authSvc *auth.Service) gin.HandlerFunc {

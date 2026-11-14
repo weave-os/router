@@ -2,9 +2,15 @@ package proxy
 
 import (
 	"context"
+	"maps"
+	"net/http"
 	"slices"
+	"strings"
+	"time"
 
-	"weave-os/router/internal/providers"
+	"github.com/google/uuid"
+
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/hmm"
@@ -12,144 +18,198 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 )
 
-// compactionModelOrDefault returns the configured Sonnet-class model for
-// Claude Code's own compaction turn.
-func (s *Service) compactionModelOrDefault() string {
-	if s.compactionModel != "" {
-		return s.compactionModel
-	}
-	return policy.PrecompactionDefaultModel
+const compactionSessionPinTier = "compaction_session_pin"
+
+// compactionSummarizer is a model a harness compaction turn may be served on,
+// with the override source that authorizes it.
+type compactionSummarizer struct {
+	provider string
+	model    string
+	source   policy.OverrideSource
 }
 
-// anthropicSummarizerEligible reports whether model is a reviewed member of
-// the precompaction-summary policy: an Anthropic-served, non-low-tier catalog
-// model Claude Code's own compaction turn may be pinned to.
-func anthropicSummarizerEligible(model string) bool {
-	spec, ok := policy.DefaultRegistry().Spec(policy.PurposePrecompactionSummary)
-	if !ok || !slices.Contains(spec.FixedCatalogModels, model) {
-		return false
-	}
-	m, ok := catalog.ByID(model)
-	if !ok || m.Tier == catalog.TierLow {
-		return false
-	}
-	for _, b := range m.Providers {
-		if b.Provider == providers.ProviderAnthropic {
-			return true
-		}
-	}
-	return false
-}
-
-// compactionPreferredSummarizer returns the session's active pinned model
-// when it is served by Anthropic directly — the same model that has been
-// running the conversation, so its prompt cache is warm for the summary call.
-// Empty when there is no pin store, no active pin, or the pin is elsewhere.
-func (s *Service) compactionPreferredSummarizer(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) string {
+// routeCompaction serves a client's own compaction turn on the model serving
+// the session, whose prompt cache is warm, and otherwise scores it like any
+// other turn. A utility hard pin is never a fallback: its fixed roster may be
+// excluded or too small for the transcript, which left the client retrying a
+// compaction that could not route.
+func (s *Service) routeCompaction(
+	ctx context.Context,
+	req router.Request,
+	res turnLoopResult,
+	reqHeaders http.Header,
+	sessionKey [sessionpin.SessionKeyLen]byte,
+	installationID uuid.UUID,
+	forceModelFound bool,
+	forceModelPin sessionpin.Pin,
+) (turnLoopResult, error) {
 	if s.pinStore == nil {
-		return ""
+		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
-	pin, active := s.loadPin(ctx, sessionKey, role)
-	if !active || pin.Provider != providers.ProviderAnthropic {
-		return ""
+	res.SessionKey = sessionKey
+	if forceModelFound && forcedPinEligible(forceModelPin, req) {
+		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
-	return pin.Model
+	session := compactionSession{
+		pins:           s.pinStore,
+		providers:      s.clients.NameSet(),
+		available:      s.availableModels,
+		cortexGateways: cortexGatewayProvidersForRequest(ctx),
+		now:            time.Now(),
+	}
+	decision, strikes, ok := session.decision(ctx, sessionKey, res.PinRole, req)
+	req = strikes.apply(req)
+	if ok {
+		// The scorer's roster gives the session model sibling rescue candidates.
+		scoreReq := req
+		scoreReq.PolicyTurnContext = buildPolicyTurnContext(req, res, sessionpin.Pin{}, sessionpin.Pin{})
+		if fresh, err := s.routeFor(ctx, scoreReq); err == nil {
+			res.Fresh = fresh
+		}
+		res.Decision = decision
+		res.StickyHit = true
+		res.PinModel = decision.Model
+		res.PinTier = compactionSessionPinTier
+		res.Origin = policy.OverrideSourceSession
+		return res, nil
+	}
+	res, err := s.routeWithoutPin(ctx, req, res, reqHeaders, false, sessionpin.Pin{})
+	if err != nil || res.UsageBypass || res.CallerModelPassthrough {
+		return res, err
+	}
+	s.writeNewPin(ctx, installationID, sessionKey, res.PinRole, res.Decision)
+	return res, nil
 }
 
-// compactionHardPin picks the model for a harness's own compaction turn: the
-// model that ran the conversation when it is Sonnet-class or better (prompt
-// cache warm — what Claude Code and Codex do against their vendor directly),
-// else the configured compaction model on Anthropic. A Codex thread arrives
-// in Responses format, so when a non-Anthropic model has been serving it the
-// turn stays there rather than being summarized cross-format by Sonnet — the
-// summary replaces the thread's history for every turn that follows. source
-// records whether the session's own model or the deployment's configured one
-// won, so the plan is authorized under the matching override. ok=false when
-// nothing is eligible for this request, so the caller falls back to the
-// generic hard-pin tier.
-func (s *Service) compactionHardPin(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (provider, model string, source policy.OverrideSource, ok bool) {
-	// Gateway-exclusive tenants drop vendor bindings; leave them to the resolver.
-	if len(req.GatewayProviders) > 0 {
-		return "", "", "", false
-	}
-	if req.ClientApp == ClientAppCodex {
-		if p, m, served := s.compactionSessionModel(ctx, sessionKey, role, req); served {
-			return p, m, policy.OverrideSourceSession, true
-		}
-	}
-	if req.EnabledProviders != nil {
-		if _, enabled := req.EnabledProviders[providers.ProviderAnthropic]; !enabled {
-			return "", "", "", false
-		}
-	}
-	eligible := func(m string) bool {
-		if !anthropicSummarizerEligible(m) {
-			return false
-		}
-		if s.availableModels != nil {
-			if _, available := s.availableModels[m]; !available {
-				return false
-			}
-		}
-		if _, excluded := req.ExcludedModels[m]; excluded {
-			return false
-		}
-		return !automaticallyDisabled(req, m)
-	}
-	preferred := s.compactionPreferredSummarizer(ctx, sessionKey, role)
-	if latest := catalog.LatestInFamily(preferred, eligible); latest != "" {
-		return providers.ProviderAnthropic, latest, policy.OverrideSourceSession, true
-	}
-	if m := catalog.LatestInFamily(s.compactionModelOrDefault(), eligible); m != "" {
-		return providers.ProviderAnthropic, m, policy.OverrideSourceDeployment, true
-	}
-	return "", "", "", false
+// compactionSession decides which session model a client compaction turn
+// stays on: the model that last served the session, when this request can
+// still use it. The active thread pin and HMM history compete by completion
+// time; both are read across strategies because a compaction may arrive under
+// a different strategy than the turns it summarizes.
+type compactionSession struct {
+	pins sessionpin.Store
+	// providers binds the served model when the request leaves
+	// EnabledProviders unrestricted.
+	providers      map[string]struct{}
+	available      map[string]struct{}
+	cortexGateways map[string]struct{}
+	now            time.Time
 }
 
-// compactionSessionModel upgrades the last served non-Anthropic session
-// family to its newest eligible catalog version. The active thread pin and
-// HMM history compete by completion time; Anthropic uses its separate path.
-func (s *Service) compactionSessionModel(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (provider, model string, ok bool) {
-	if s.pinStore == nil {
-		return "", "", false
+// sessionStrikes are the providers and models a session's failures withdrew
+// from automatic selection.
+type sessionStrikes struct {
+	disabledProviders []string
+	demotedModels     []string
+}
+
+// apply withdraws the strikes from the request so the scorer cannot reselect
+// them.
+func (st sessionStrikes) apply(req router.Request) router.Request {
+	if req.EnabledProviders != nil && len(st.disabledProviders) > 0 {
+		enabled := maps.Clone(req.EnabledProviders)
+		for _, provider := range st.disabledProviders {
+			delete(enabled, provider)
+		}
+		req.EnabledProviders = enabled
 	}
-	threadPin, active := s.loadPin(ctx, sessionKey, role)
-	if !active {
-		threadPin = sessionpin.Pin{}
+	if len(st.demotedModels) > 0 {
+		demoted := make(map[string]struct{}, len(st.demotedModels))
+		for _, model := range st.demotedModels {
+			demoted[model] = struct{}{}
+		}
+		req.AutomaticExcludedModels = mergeExcludedModels(req.AutomaticExcludedModels, demoted)
 	}
-	served := latestServedPin(threadPin, s.loadHMMHistory(ctx, sessionKey, role))
-	model = served.LastServedModel
+	return req
+}
+
+func (c compactionSession) decision(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, req router.Request) (router.Decision, sessionStrikes, bool) {
+	var served sessionpin.Pin
+	var strikes sessionStrikes
+	for _, pinRole := range []string{role, hmmHistoryRole(role)} {
+		pin, found, err := c.pins.Get(ctx, sessionKey, pinRole)
+		if err != nil {
+			observability.FromContext(ctx).Error("Compaction session history unavailable", "role", pinRole, "err", err)
+			continue
+		}
+		if !found {
+			continue
+		}
+		strikes.disabledProviders = mergeSessionStrikes(strikes.disabledProviders, pin.DisabledProviders)
+		strikes.demotedModels = mergeSessionStrikes(strikes.demotedModels, pin.DemotedModels)
+		if pinRole == role && !pin.PinnedUntil.After(c.now) {
+			continue
+		}
+		served = latestServedPin(served, pin)
+	}
+	model := served.LastServedModel
 	if model == "" {
 		model = served.Model
 	}
-	model, _ = hmm.SplitEffort(model)
-	model = catalog.LatestInFamily(model, func(candidate string) bool {
-		m, known := catalog.ByID(candidate)
-		if !known || m.Tier == catalog.TierLow {
-			return false
+	model, effort := hmm.SplitEffort(model)
+	if model == "" {
+		return router.Decision{}, strikes, false
+	}
+	if effort == "" && model == served.Model {
+		effort = served.Effort
+	}
+	providerSet := req.EnabledProviders
+	if providerSet == nil {
+		providerSet = c.providers
+	}
+	binding, bound := servedBinding(model, served.Provider, providerSet, req.CustomBindings)
+	if !bound {
+		return router.Decision{}, strikes, false
+	}
+	if c.available != nil {
+		if _, available := c.available[model]; !available {
+			return router.Decision{}, strikes, false
 		}
-		binding, bound := s.servedBinding(candidate, served.Provider, req)
-		if !bound || binding.Provider == providers.ProviderAnthropic {
-			return false
+	}
+	pin := sessionpin.Pin{Provider: binding.Provider, Model: model, Effort: effort, Reason: compactionSessionPinTier}
+	fits := req.EstimatedInputTokens <= 0 ||
+		req.EstimatedInputTokens+contextWindowOutputReserve <= gatewayContextWindow(c.cortexGateways, model, binding.Provider)
+	struck := slices.Contains(strikes.disabledProviders, binding.Provider) || slices.Contains(strikes.demotedModels, model)
+	if !fits || struck || !automaticPinEligible(pin, req) {
+		return router.Decision{}, strikes, false
+	}
+	return pinDecision(pin), strikes, true
+}
+
+// crossGatewayRescuers lists the request's gateway-held models on another
+// gateway than the primary's, highest tier then widest window first. Every
+// model behind one gateway shares a tokenizer and window, so an overflow there
+// is only rescuable across gateways: Claude
+// counts the same transcript as roughly 1.5x the tokens gpt-6-luna does, so a
+// nominally smaller window can still fit it.
+func (s *Service) crossGatewayRescuers(ctx context.Context, primary compactionSummarizer, req router.Request) []compactionSummarizer {
+	cortexGateways := cortexGatewayProvidersForRequest(ctx)
+	var out []compactionSummarizer
+	for model := range req.CustomBindings {
+		provider, held := gatewayProviderFor(model, req.CustomBindings, req.GatewayProviders)
+		if !held || provider == primary.provider || catalog.TierFor(model) < catalog.TierMid {
+			continue
+		}
+		if _, excluded := req.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
+			continue
 		}
 		if s.availableModels != nil {
-			if _, available := s.availableModels[candidate]; !available {
-				return false
+			if _, available := s.availableModels[model]; !available {
+				continue
 			}
 		}
-		if _, excluded := req.ExcludedModels[candidate]; excluded {
-			return false
+		out = append(out, compactionSummarizer{provider: provider, model: model, source: policy.OverrideSourceDeployment})
+	}
+	slices.SortFunc(out, func(a, b compactionSummarizer) int {
+		if ta, tb := catalog.TierFor(a.model), catalog.TierFor(b.model); ta != tb {
+			return int(tb) - int(ta)
 		}
-		return !automaticallyDisabled(req, candidate)
+		if wa, wb := gatewayContextWindow(cortexGateways, a.model, a.provider), gatewayContextWindow(cortexGateways, b.model, b.provider); wa != wb {
+			return wb - wa
+		}
+		return strings.Compare(a.model, b.model)
 	})
-	if model == "" {
-		return "", "", false
-	}
-	binding, bound := s.servedBinding(model, served.Provider, req)
-	if !bound {
-		return "", "", false
-	}
-	return binding.Provider, model, true
+	return out
 }
 
 // latestServedPin picks the pin whose last turn ended most recently among
@@ -170,19 +230,15 @@ func latestServedPin(pins ...sessionpin.Pin) sessionpin.Pin {
 }
 
 // servedBinding resolves the provider binding for a session's served model:
-// the provider that served it when that provider is still enabled and binds
-// the model, else the first enabled binding (a failed turn may leave the
-// stored provider stale).
-func (s *Service) servedBinding(model, servedProvider string, req router.Request) (catalog.ProviderBinding, bool) {
-	providerSet := req.EnabledProviders
-	if providerSet == nil {
-		providerSet = s.clients.NameSet()
-	}
+// the provider that served it when that provider is still in providerSet and
+// binds the model, else the first binding in providerSet (a failed turn may
+// leave the stored provider stale).
+func servedBinding(model, servedProvider string, providerSet map[string]struct{}, custom map[string][]string) (catalog.ProviderBinding, bool) {
 	if _, enabled := providerSet[servedProvider]; enabled {
 		pinned := map[string]struct{}{servedProvider: {}}
-		if binding, valid := catalog.ResolveBindingWithCustom(model, pinned, req.CustomBindings); valid {
+		if binding, valid := catalog.ResolveBindingWithCustom(model, pinned, custom); valid {
 			return binding, true
 		}
 	}
-	return catalog.ResolveBindingWithCustom(model, providerSet, req.CustomBindings)
+	return catalog.ResolveBindingWithCustom(model, providerSet, custom)
 }

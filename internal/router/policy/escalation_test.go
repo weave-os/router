@@ -52,6 +52,9 @@ func TestEscalationUsesNormalSelectorWithoutLosingFloor(t *testing.T) {
 		{name: "maximum override uses catalog IDs", baseline: escalation.Low, positive: true, overrides: map[string][]string{string(escalation.Maximum): {escalationOpus}}, wantGroup: escalation.Maximum, wantModel: escalationOpus, wantOutcome: escalation.OutcomePromoted, wantConstrained: true},
 		{name: "maximum override may add an eligible arm", baseline: escalation.Low, positive: true, overrides: map[string][]string{string(escalation.Maximum): {escalationSonnet}}, wantGroup: escalation.Maximum, wantModel: escalationSonnet, wantOutcome: escalation.OutcomePromoted, wantConstrained: true},
 		{name: "empty maximum override prevents promotion", baseline: escalation.Low, positive: true, overrides: map[string][]string{string(escalation.Maximum): {}}, wantGroup: escalation.Low, wantModel: escalationSonnet, wantOutcome: escalation.OutcomeNoTarget},
+		{name: "escalation target replaces maximum override on promotion", baseline: escalation.Low, positive: true, overrides: map[string][]string{string(escalation.Maximum): {escalationSonnet}, string(escalation.TargetClusterLabel): {escalationOpus}}, wantGroup: escalation.Maximum, wantModel: escalationOpus, wantOutcome: escalation.OutcomePromoted, wantConstrained: true},
+		{name: "escalation target serves persisted floor", baseline: escalation.Low, floor: escalation.Maximum, overrides: map[string][]string{string(escalation.Maximum): {escalationSonnet}, string(escalation.TargetClusterLabel): {escalationOpus}}, wantGroup: escalation.Maximum, wantModel: escalationOpus, wantOutcome: escalation.OutcomeFloor, wantConstrained: true},
+		{name: "escalation target ignored for unescalated maximum", baseline: escalation.Maximum, overrides: map[string][]string{string(escalation.Maximum): {escalationSonnet}, string(escalation.TargetClusterLabel): {escalationOpus}}, wantGroup: escalation.Maximum, wantModel: escalationSonnet, wantOutcome: escalation.OutcomeBelowThreshold},
 		{name: "negative without floor leaves selection unchanged", baseline: escalation.Low, wantGroup: escalation.Low, wantModel: escalationSonnet, wantOutcome: escalation.OutcomeBelowThreshold},
 	}
 	for _, test := range tests {
@@ -100,6 +103,10 @@ func TestEscalationUsesNormalSelectorWithoutLosingFloor(t *testing.T) {
 			assert.Equal(t, test.wantGroup, decision.Metadata.Escalation.Effective)
 			assert.Equal(t, test.wantOutcome, decision.Metadata.Escalation.Outcome)
 			assert.Equal(t, test.wantConstrained, decision.Metadata.Escalation.Constrained)
+			if target, hasTarget := test.overrides[escalation.TargetClusterLabel]; hasTarget && test.wantConstrained {
+				require.NotEmpty(t, decision.Metadata.RescueModels)
+				assert.Subset(t, target, decision.Metadata.RescueModels, "escalated rescue must stay on the escalation target")
+			}
 		})
 	}
 }

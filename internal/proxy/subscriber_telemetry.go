@@ -4,10 +4,10 @@ import (
 	"context"
 
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions/entitlement"
+	"weave-os/router/internal/telemetry"
 )
 
 // applyServingTelemetry stamps the managed serving identity on every admitted turn.
@@ -151,7 +151,7 @@ func applySubscriptionWinnerTelemetry(ctx context.Context, telemetry *InsertTele
 	telemetry.SubscriptionTier = winningUsage.SubscriptionTier
 }
 
-func (s *Service) applySubscriptionSpanTelemetry(ctx context.Context, attrs *otel.AttrBuilder, requestedModel, selectedModel string) {
+func (s *Service) applySubscriptionSpanTelemetry(ctx context.Context, attrs *telemetry.AttrBuilder, requestedModel, selectedModel string) {
 	if keyID := apiKeyIDFromContext(ctx); keyID != "" {
 		attrs.String("api_key_id", keyID)
 	}
@@ -176,7 +176,7 @@ func (s *Service) applySubscriptionSpanTelemetry(ctx context.Context, attrs *ote
 
 // Decision attribution keeps admitted failures in their original family even
 // when credential selection rejects the request before an upstream span starts.
-func applySubscriptionDecisionSpanTelemetry(ctx context.Context, attrs *otel.AttrBuilder, requestedModel, selectedModel string) {
+func applySubscriptionDecisionSpanTelemetry(ctx context.Context, attrs *telemetry.AttrBuilder, requestedModel, selectedModel string) {
 	if keyID := apiKeyIDFromContext(ctx); keyID != "" {
 		attrs.String("api_key_id", keyID)
 	}
@@ -187,4 +187,13 @@ func applySubscriptionDecisionSpanTelemetry(ctx context.Context, attrs *otel.Att
 	if family := canonicalTelemetryModelFamily(intendedModel); family != "" {
 		attrs.String("model.intended_family", family)
 	}
+}
+
+// servedCredentialLogValues names the credential that served the turn for the
+// completion log line. An empty source means the deployment key.
+func (s *Service) servedCredentialLogValues(ctx context.Context) (source, tier string) {
+	_, _, source = s.credentialKeyParts(ctx)
+	var telemetry InsertTelemetryParams
+	applySubscriptionWinnerTelemetry(ctx, &telemetry)
+	return source, string(telemetry.SubscriptionTier)
 }

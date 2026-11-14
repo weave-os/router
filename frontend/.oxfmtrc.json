@@ -1,0 +1,85 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "trailingComma": "all",
+  "singleQuote": false,
+  "printWidth": 100,
+  "arrowParens": "avoid",
+  "semi": true,
+  "sortImports": {
+    "internalPattern": ["@/"],
+    "customGroups": [
+      {
+        "groupName": "side-effect-imports",
+        "selector": "side_effect"
+      },
+      {
+        "groupName": "side-effect-styles",
+        "selector": "side_effect_style"
+      },
+      {
+        "groupName": "type-imports",
+        "selector": "type"
+      },
+      {
+        "groupName": "node-builtins",
+        "elementNamePattern": ["node:*"]
+      },
+      {
+        "groupName": "internal-alias",
+        "elementNamePattern": ["@/**"],
+        "selector": "internal"
+      },
+      {
+        "groupName": "scoped-dependencies",
+        "elementNamePattern": ["@*/*", "@*/*/**"],
+        "selector": "import"
+      },
+      {
+        "groupName": "a-m-dependencies",
+        "elementNamePattern": ["[a-m]*", "[a-m]*/**"],
+        "selector": "import"
+      },
+      {
+        "groupName": "next-root",
+        "elementNamePattern": ["next"],
+        "selector": "external"
+      },
+      {
+        "groupName": "next-subpaths",
+        "elementNamePattern": ["next/**"],
+        "selector": "import"
+      },
+      {
+        "groupName": "next-themes",
+        "elementNamePattern": ["next-themes"],
+        "selector": "external"
+      },
+      {
+        "groupName": "n-z-dependencies",
+        "elementNamePattern": ["[n-z]*", "[n-z]*/**"],
+        "selector": "import"
+      }
+    ],
+    "groups": [
+      ["side-effect-imports", "side-effect-styles"],
+      "type-imports",
+      "node-builtins",
+      "type-internal",
+      "internal-alias",
+      "value-internal",
+      ["scoped-dependencies", "a-m-dependencies"],
+      "next-root",
+      "next-subpaths",
+      "next-themes",
+      "n-z-dependencies",
+      ["type-parent", "type-sibling", "type-index"],
+      ["value-parent", "value-sibling", "value-index"],
+      "unknown"
+    ]
+  },
+  "sortPackageJson": {
+    "sortScripts": true
+  },
+  "sortTailwindcss": { "functions": ["cn", "cva"] },
+  "ignorePatterns": ["CLAUDE.md", "components/ModelComparisonPage/ModelComparisonTable.graphql"]
+}

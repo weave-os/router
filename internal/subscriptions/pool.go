@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 )
 
 // Provider identifies the subscription family an account can serve.
@@ -117,8 +118,11 @@ func (p *Pool) Upsert(account Account) error {
 		}
 		// A stale durable snapshot cannot shorten a cooldown this replica recorded
 		// before its database write is visible. Durable re-enablement still wins.
-		if existing.account.CooldownTil.After(account.CooldownTil) {
-			account.CooldownTil = existing.account.CooldownTil
+		if existing.account.CooldownTil.After(account.CooldownTil) ||
+			existing.account.State == auth.SubscriptionAccountStateCooldown && account.State == auth.SubscriptionAccountStateExhausted && existing.account.CooldownTil.After(p.clock()) {
+			if existing.account.CooldownTil.After(account.CooldownTil) {
+				account.CooldownTil = existing.account.CooldownTil
+			}
 			account.State = existing.account.State
 		}
 		existing.account = account
@@ -210,6 +214,20 @@ func (p *Pool) ReconnectRequired(accountID string) bool {
 	return true
 }
 
+// InvalidateAccessToken drops a cached access token the provider rejected so
+// the next lease refreshes it.
+func (p *Pool) InvalidateAccessToken(accountID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	state, ok := p.accounts[accountID]
+	if !ok {
+		return false
+	}
+	state.account.AccessToken = ""
+	state.account.AccessTokenExpiresAt = time.Time{}
+	return true
+}
+
 // Activate makes an account available after a successful provider response.
 func (p *Pool) Activate(accountID string) bool {
 	p.mu.Lock()
@@ -263,7 +281,7 @@ func (p *Pool) Lease(ctx context.Context, provider Provider, sessionID string, r
 		return Account{}, nil, ErrProviderMismatch
 	}
 	for attempts := 0; attempts < p.accountCount(provider); attempts++ {
-		account, release, err := p.tryLease(provider, sessionID)
+		account, release, err := p.tryLease(ctx, provider, sessionID)
 		if err != nil {
 			return Account{}, nil, err
 		}
@@ -301,14 +319,14 @@ func (p *Pool) accountCount(provider Provider) int {
 	return count
 }
 
-func (p *Pool) tryLease(provider Provider, sessionID string) (Account, func(), error) {
+func (p *Pool) tryLease(ctx context.Context, provider Provider, sessionID string) (Account, func(), error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	now := p.clock()
 	ids := make([]string, 0, len(p.accounts))
 	for id, state := range p.accounts {
 		if state.account.Provider == provider && state.account.Enabled &&
-			subscriptionAccountStateRoutable(state.account.State, state.account.CooldownTil, now) {
+			subscriptionAccountEligible(ctx, provider, state.account.State, state.account.CooldownTil, now) {
 			ids = append(ids, id)
 		}
 	}
@@ -338,6 +356,13 @@ func (p *Pool) tryLease(provider Provider, sessionID string) (Account, func(), e
 	account := state.account
 	var releaseOnce sync.Once
 	return account, func() { releaseOnce.Do(func() { p.release(account.ID) }) }, nil
+}
+
+func subscriptionAccountEligible(ctx context.Context, provider Provider, state auth.SubscriptionAccountState, cooldownUntil, now time.Time) bool {
+	if provider == ProviderClaude && requestcontext.SubscriptionExtraUsageFrom(ctx) && state == auth.SubscriptionAccountStateExhausted {
+		return true
+	}
+	return subscriptionAccountStateRoutable(state, cooldownUntil, now)
 }
 
 func subscriptionAccountStateRoutable(state auth.SubscriptionAccountState, cooldownUntil, now time.Time) bool {
@@ -408,8 +433,11 @@ func (p *Pool) refreshAccount(ctx context.Context, account Account, refresh Refr
 		}()
 		// Classify here so a failure is recorded even when every waiter left.
 		var terminal terminalRefreshError
+		var rejected *credentialRejectionCooldownError
 		switch {
 		case err == nil, errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		case errors.As(err, &rejected):
+			p.Cooldown(account.ID, rejected.until)
 		case errors.As(err, &terminal) && terminal.Terminal():
 			p.ReconnectRequired(account.ID)
 		default:

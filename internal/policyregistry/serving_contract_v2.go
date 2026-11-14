@@ -8,6 +8,9 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
 )
 
 // v2 kinds fold the seven v1 objects into three content-addressed artifacts. Their singular
@@ -41,11 +44,19 @@ type ClassifierComponent struct {
 // CandidateComposition is the environment-neutral effective tuple. A v1 release plus its
 // classifier bundle and a v2 candidate both normalize to it.
 type CandidateComposition struct {
-	RouterImageDigest string              `json:"router_image_digest"`
-	Policy            PolicyObject        `json:"selection_policy"`
-	Classifier        ClassifierComponent `json:"classifier"`
-	Requirements      ServingRequirements `json:"requirements"`
-	Provenance        ServingProvenance   `json:"provenance"`
+	RouterImageDigest          string                           `json:"router_image_digest"`
+	Policy                     PolicyObject                     `json:"selection_policy"`
+	StrategyPolicies           map[router.Strategy]PolicyObject `json:"strategy_policies,omitempty"`
+	Classifier                 ClassifierComponent              `json:"classifier"`
+	Requirements               ServingRequirements              `json:"requirements"`
+	Provenance                 ServingProvenance                `json:"provenance"`
+	ClassifierReleaseSHA256    string                           `json:"-"`
+	ClassifierServiceURL       string                           `json:"-"`
+	ClassifierAudience         string                           `json:"-"`
+	EnabledClassifierVariants  []policy.ClassifierVariantID     `json:"-"`
+	SupportedAPIMajors         []policy.ClassifierAPIMajor      `json:"-"`
+	ClassifierReleaseV5        *ClassifierReleaseManifestV1     `json:"-"`
+	ClassifierServiceBindingV4 *ClassifierServiceBinding        `json:"-"`
 }
 
 // CandidateV2 is one published build: the v1 release and classifier bundle folded together.
@@ -69,9 +80,13 @@ type LaneBinding struct {
 type ServingLane struct {
 	Candidate ObjectRef `json:"candidate"`
 	LaneBinding
-	ProfileKey          string               `json:"profile_key,omitempty"`
-	ProfilePolicy       *PolicyObject        `json:"profile_policy,omitempty"`
-	ProfileRequirements *ServingRequirements `json:"profile_requirements,omitempty"`
+	ProfileKey               string                           `json:"profile_key,omitempty"`
+	ProfilePolicy            *PolicyObject                    `json:"profile_policy,omitempty"`
+	ProfileRequirements      *ServingRequirements             `json:"profile_requirements,omitempty"`
+	classifierServiceBinding *ClassifierServiceBinding        `json:"-"`
+	classifierReleaseV5      *ClassifierReleaseManifestV1     `json:"-"`
+	v3Candidate              *CandidateV3                     `json:"-"`
+	v4StrategyPolicies       map[router.Strategy]PolicyObject `json:"-"`
 }
 
 // SelectionSetV2 is activated atomically, including all registered organization-owned keys.
@@ -114,13 +129,16 @@ func (b DeploymentBinding) lane() LaneBinding {
 
 // Equal compares every behavior-affecting classifier object, including the auxiliary inventory.
 func (c ClassifierComponent) Equal(other ClassifierComponent) bool {
-	return c.Identity.ArtifactID == other.Identity.ArtifactID && c.Identity.PackageSHA256 == other.Identity.PackageSHA256 && c.Identity.ImageDigest == other.Identity.ImageDigest && c.Identity.WireSchema == other.Identity.WireSchema && c.Identity.TaxonomySHA256 == other.Identity.TaxonomySHA256 && slices.Equal(c.Identity.ClassOrder, other.Identity.ClassOrder) && c.Package == other.Package && c.Configuration == other.Configuration && maps.Equal(c.AuxiliaryModels, other.AuxiliaryModels)
+	return c.Identity.Equal(other.Identity) && c.Package == other.Package && c.Configuration == other.Configuration && maps.Equal(c.AuxiliaryModels, other.AuxiliaryModels)
 }
 
 func (c ClassifierComponent) validate() error {
 	identity := c.Identity
 	if strings.TrimSpace(identity.ArtifactID) == "" || !validImageDigest(identity.ImageDigest) || identity.WireSchema != ClassifierWireSchemaV4 || len(identity.ClassOrder) == 0 || TaxonomyDigest(identity.ClassOrder) != identity.TaxonomySHA256 {
 		return errors.New("invalid classifier bundle identity or schema")
+	}
+	if err := identity.validateVariants(); err != nil {
+		return err
 	}
 	if err := validateArtifactRef(c.Package); err != nil {
 		return err
@@ -151,7 +169,7 @@ func (p ServingProvenance) validate() error {
 
 // Equal compares the effective composition; classifier equality includes the auxiliary inventory.
 func (c CandidateComposition) Equal(other CandidateComposition) bool {
-	return c.RouterImageDigest == other.RouterImageDigest && c.Policy == other.Policy && c.Requirements == other.Requirements && c.Provenance == other.Provenance && c.Classifier.Equal(other.Classifier)
+	return c.RouterImageDigest == other.RouterImageDigest && c.Policy == other.Policy && maps.Equal(c.StrategyPolicies, other.StrategyPolicies) && c.Requirements == other.Requirements && c.Provenance == other.Provenance && c.Classifier.Equal(other.Classifier) && c.ClassifierReleaseSHA256 == other.ClassifierReleaseSHA256 && c.ClassifierServiceURL == other.ClassifierServiceURL && c.ClassifierAudience == other.ClassifierAudience && slices.Equal(c.EnabledClassifierVariants, other.EnabledClassifierVariants) && slices.Equal(c.SupportedAPIMajors, other.SupportedAPIMajors)
 }
 
 func (c CandidateComposition) validate(root string) error {
@@ -169,6 +187,20 @@ func (c CandidateComposition) validate(root string) error {
 	}
 	if c.Requirements.ClassifierWireSchema != c.Classifier.Identity.WireSchema || c.Requirements.TaxonomySHA256 != c.Classifier.Identity.TaxonomySHA256 {
 		return errors.New("candidate requirements do not match its classifier identity")
+	}
+	for strategy, policy := range c.StrategyPolicies {
+		if !router.IsBetaStrategy(strategy) {
+			return fmt.Errorf("candidate strategy policy %q is not a beta strategy", strategy)
+		}
+		if _, found := c.Classifier.Identity.Variants[strategy]; !found {
+			return fmt.Errorf("candidate strategy policy %q has no classifier variant", strategy)
+		}
+		if err := validateServingPolicy(policy, root); err != nil {
+			return fmt.Errorf("candidate strategy policy %q: %w", strategy, err)
+		}
+		if policy.SchemaVersion != c.Requirements.PolicySchema {
+			return fmt.Errorf("candidate strategy policy %q schema does not match runtime requirements", strategy)
+		}
 	}
 	return c.Provenance.validate()
 }
@@ -393,12 +425,18 @@ func servingFamilyManifest(kind ServingKind, schema ServingSchema) (ServingManif
 		return &ServingRelease{}, nil
 	case kind == ServingCandidate && schema == ServingCandidateV2:
 		return &CandidateV2{}, nil
+	case kind == ServingCandidate && schema == ServingCandidateV3:
+		return &CandidateV3{}, nil
 	case kind == ServingSelectionSet && schema == ServingSelectionSetV1:
 		return &SelectionSet{}, nil
 	case kind == ServingSelectionSet && schema == ServingSelectionSetV2:
 		return &SelectionSetV2{}, nil
 	case kind == ServingSelectionSet && schema == ServingSelectionSetV3:
 		return &SelectionSetV3{}, nil
+	case kind == ServingSelectionSet && schema == ServingSelectionSetV4:
+		return &SelectionSetV4{}, nil
+	case kind == ServingClassifierReleases && schema == ServingClassifierReleaseV1:
+		return &ClassifierReleaseManifestV1{}, nil
 	case kind == ServingProposal && schema == ServingProposalV1:
 		return &DeploymentProposal{}, nil
 	case kind == ServingProposal && schema == ServingProposalV2:
@@ -430,7 +468,7 @@ func ValidatePublishableServingKind(kind ServingKind) error {
 		return fmt.Errorf("serving kind %q is read-only: folded into %q", kind, folded)
 	}
 	switch kind {
-	case ServingCandidate, ServingSelectionSet, ServingProposal:
+	case ServingCandidate, ServingSelectionSet, ServingProposal, ServingClassifierReleases:
 		return nil
 	default:
 		return fmt.Errorf("unsupported serving object kind %q", kind)
@@ -456,7 +494,7 @@ func DecodePublishableServingManifest(payload []byte, root string, kind ServingK
 // isServingArtifactManifest reports whether a decoded manifest uses the flat artifacts/ layout.
 func isServingArtifactManifest(manifest ServingManifest) bool {
 	switch manifest.(type) {
-	case *CandidateV2, *SelectionSetV2, *SelectionSetV3, *DeploymentProposalV2:
+	case *CandidateV2, *CandidateV3, *SelectionSetV2, *SelectionSetV3, *SelectionSetV4, *DeploymentProposalV2, *ClassifierReleaseManifestV1:
 		return true
 	default:
 		return false

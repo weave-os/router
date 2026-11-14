@@ -28,6 +28,8 @@ var codexQuotaErrorTypes = map[string]struct{}{
 // x-codex-primary-window-minutes header. Matches ParseCodexHeaders' default.
 const codexQuotaWindowMinutes = 5 * 60
 
+const codexRejectedTokenHold = 30 * time.Minute
+
 // codexExhaustionWindow is the window recorded for a plan the upstream reported
 // spent. freshFor only ever shortens retention to ResetAt, never extends past
 // WindowMinutes, so a weekly limit resetting days out must widen the window or
@@ -62,20 +64,32 @@ func (s *Service) openaiFallbackKeyAvailable(ctx context.Context) bool {
 }
 
 // codexSubscriptionExhausted reports whether the caller's present Codex
-// subscription has bound its plan window or is drawing billable overage per the
-// usage observer, regardless of whether an OpenAI fallback key exists. When true the
-// caller suppresses the spent token pre-dispatch (withSuppressedCodexSubscription)
-// so the turn tries an eligible shared subscription or API fallback, and is
-// refused when neither is available.
+// subscription cannot serve: the upstream recently rejected the token, or, with
+// extra credits disabled, the usage observer shows its plan window bound or
+// drawing billable overage, regardless of whether an OpenAI fallback key exists.
+// With extra credits enabled, cached included usage does not suppress the token;
+// the provider freshly checks quota and credits. When true the caller suppresses
+// the token pre-dispatch (withSuppressedCodexSubscription) so the turn tries an
+// eligible shared subscription or API fallback, and is refused when neither is
+// available.
 func (s *Service) codexSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
-	if s.usageObserver == nil {
+	if s.usageObserver == nil || pickedModelOnOwnPlan(ctx) {
 		return false
 	}
 	codexTok, _ := presentSubscriptionTokens(ctx, headers)
 	if codexTok == "" {
 		return false
 	}
-	snap, ok := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(codexTok)))
+	key := s.usageObserver.Key([]byte(codexTok))
+	if s.usageObserver.Rejected(key) {
+		return true
+	}
+	if s.codexExtraCreditsAllowed() {
+		// Included usage observations cannot rule out fresh purchased credits.
+		// The provider still verifies quota and credit availability per attempt.
+		return false
+	}
+	snap, ok := s.usageObserver.Snapshot(key)
 	return ok && snap.BillableOrExhausted()
 }
 
@@ -170,6 +184,32 @@ func (s *Service) recordCodexQuotaExhaustion(ctx context.Context, headers http.H
 		return
 	}
 	codexTok, _ := presentSubscriptionTokens(ctx, headers)
+	s.recordCodexPlanSpent(ctx, codexTok, resetAt)
+}
+
+// recordCodexCredentialUnusable records the token the failed attempt carried as
+// unable to serve: a spent plan until its reset, or a rejected (401/403) token
+// for codexRejectedTokenHold. A rejection only skips the token; it is not quota
+// evidence and never authorizes paid recovery. Dispatch has no inbound headers,
+// and the caller's ChatGPT login usually arrives only on them. A refreshed token
+// hashes to a new key and is tried again.
+func (s *Service) recordCodexCredentialUnusable(ctx context.Context, creds *Credentials, err error) {
+	if s.usageObserver == nil || creds == nil || !creds.OAuth {
+		return
+	}
+	if codexOAuthCredentialRejected(err) {
+		s.usageObserver.RecordRejected(s.usageObserver.Key(creds.APIKey), time.Now().Add(codexRejectedTokenHold))
+		observability.FromContext(ctx).Info("Codex subscription token rejected; skipping it on later turns", "hold", codexRejectedTokenHold)
+		return
+	}
+	resetAt, exhausted := codexQuotaExhaustion(err)
+	if !exhausted {
+		return
+	}
+	s.recordCodexPlanSpent(ctx, string(creds.APIKey), resetAt)
+}
+
+func (s *Service) recordCodexPlanSpent(ctx context.Context, codexTok string, resetAt time.Time) {
 	if codexTok == "" {
 		return
 	}
@@ -178,4 +218,16 @@ func (s *Service) recordCodexQuotaExhaustion(ctx context.Context, headers http.H
 	})
 	observability.FromContext(ctx).Info("Codex subscription reported its plan spent; suppressing it until reset",
 		"resets_at", resetAt)
+}
+
+func (s *Service) codexExtraCreditsAllowed() bool { return s.codexExtraCredits }
+
+// codexSubscriptionRotates reports whether a failed attempt on the caller's
+// Codex login moves the turn to the next credential.
+func codexSubscriptionRotates(credentialCtx context.Context, err error) bool {
+	if !servedOnCodexSubscription(credentialCtx) {
+		return false
+	}
+	_, quotaSpent := codexQuotaExhaustion(err)
+	return quotaSpent || codexOAuthCredentialRejected(err) || codexSubscriptionModelRejected(err) || providers.IsRetryable(err)
 }

@@ -17,18 +17,33 @@ func (r *SidecarRouter) selectEscalationArm(ctx context.Context, req router.Requ
 	if group == "" {
 		group = input.ForcedGroup
 	}
-	if _, hasOverride := req.ClusterArmOverrides[group]; !hasOverride {
+	overrides := escalationArmOverrides(req.ClusterArmOverrides, group)
+	if _, hasOverride := overrides[group]; !hasOverride {
 		return pick, err
 	}
 	// Key-configured arms may extend the artifact roster. Preserve that explicit
 	// order, but only inside the successfully constrained class.
-	override, overrideErr := ApplyClusterArmOverridesRequireMatch(req.ClusterArmOverrides, pick.RankedFallback, resolved, pick.Arm, group)
+	override, overrideErr := ApplyClusterArmOverridesRequireMatch(overrides, pick.RankedFallback, resolved, pick.Arm, group)
 	if overrideErr != nil {
 		return SelectionPick{}, ErrNoEligibleArm
 	}
 	pick.Group = override.Group
 	pick.Arm = override.RosterID
 	return pick, nil
+}
+
+// escalationArmOverrides serves the key's escalation target list in place of
+// each escalated group's list; without a target the overrides are unchanged.
+func escalationArmOverrides(overrides map[string][]string, groups ...string) map[string][]string {
+	target, hasTarget := overrides[escalation.TargetClusterLabel]
+	if !hasTarget {
+		return overrides
+	}
+	escalated := make(map[string][]string, len(groups))
+	for _, group := range groups {
+		escalated[group] = target
+	}
+	return escalated
 }
 
 func constrainEscalation(req router.Request, input SelectionInput, resolved ResolvedCandidates) (SelectionInput, *escalation.Decision, bool) {
@@ -80,6 +95,30 @@ func fallbackEscalation(req router.Request, input SelectionInput, resolved Resol
 	}
 	decision.Effective = decision.Baseline
 	return input, decision, false
+}
+
+// slidingThresholdGroupInput leads selection with the step group when the
+// sliding threshold moves the session part of the way toward the classified
+// group. The classifier's ranking stays behind it, so higher groups remain in
+// the fallback and rescue order.
+func slidingThresholdGroupInput(req router.Request, input SelectionInput) SelectionInput {
+	if req.SlidingThresholdPinGroup == "" || req.ForceCluster != "" || input.ForcedGroup != "" {
+		return input
+	}
+	classified := escalation.Group(input.PredictedLabel)
+	probability, scored := input.ClassProbabilities[input.PredictedLabel]
+	if !scored {
+		return input
+	}
+	target, covered := escalation.SlidingThresholdTarget(req.SlidingThresholdPinGroup, classified, probability)
+	if !covered || target == "" || target == classified {
+		return input
+	}
+	if _, classifiable := input.ClassProbabilities[string(target)]; !classifiable {
+		return input
+	}
+	input.LeadGroup = string(target)
+	return input
 }
 
 func escalationGroupInput(_ router.Request, input SelectionInput, _ ResolvedCandidates, effective escalation.Group) (SelectionInput, bool) {

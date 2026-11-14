@@ -212,6 +212,41 @@ func TestResolveForceModel(t *testing.T) {
 			wantKnown:    true,
 		},
 		{
+			name:         "kimi k3.1 version pin",
+			input:        "kimi-k3.1",
+			wantID:       "moonshotai/kimi-k3.1",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "upstream kimi k3.1 pro spelling",
+			input:        "moonshotai/kimi-k3.1-pro",
+			wantID:       "moonshotai/kimi-k3.1",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "alias minimax current release",
+			input:        "minimax",
+			wantID:       "minimax/minimax-m3.1-flash",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "explicit minimax m3 pin remains exact",
+			input:        "minimax-m3",
+			wantID:       "minimax/minimax-m3",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "explicit kimi k3 pin remains exact",
+			input:        "kimi-k3",
+			wantID:       "moonshotai/kimi-k3",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
 			name:         "explicit kimi 2.7 pin remains exact",
 			input:        "kimi-k2.7",
 			wantID:       "moonshotai/kimi-k2.7",
@@ -293,19 +328,28 @@ func TestResolveForceModel(t *testing.T) {
 			wantProvider: providers.ProviderOpenAI,
 			wantKnown:    false,
 		},
+		// Spaces spell the same name as dashes ("qwen-3.8" and "qwen-max" are
+		// aliases), so the whole multi-word name resolves, not its first word.
+		{
+			name:         "spaced model name resolves as one name",
+			input:        "qwen 3.8",
+			wantID:       "qwen/qwen3.8-max",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "spaced alias resolves as one name",
+			input:        "qwen max",
+			wantID:       "qwen/qwen3.8-max",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
 		// Matching is exact: a name that merely contains, or is contained by, a
 		// real one is unknown. Do not infer a version from a generic alias.
 		{
-			name:         "spaced model name is not known",
-			input:        "qwen 3.8",
-			wantID:       "qwen 3.8",
-			wantProvider: providers.ProviderAnthropic,
-			wantKnown:    false,
-		},
-		{
-			name:         "spaced alias is not known",
-			input:        "qwen max",
-			wantID:       "qwen max",
+			name:         "unknown version of a known family is not known",
+			input:        "qwen 9.9",
+			wantID:       "qwen 9.9",
 			wantProvider: providers.ProviderAnthropic,
 			wantKnown:    false,
 		},
@@ -410,10 +454,179 @@ func TestResolveForceModel_GrokFamilyAlias(t *testing.T) {
 	}
 }
 
+func TestResolveForceModel_MythosAlias(t *testing.T) {
+	gotID, gotProvider, gotKnown := resolveForceModel("mythos")
+
+	assert.Equal(t, "claude-mythos-5-2", gotID)
+	assert.Equal(t, providers.ProviderAnthropic, gotProvider)
+	assert.True(t, gotKnown)
+}
+
 // An explicit :level suffix must survive resolution to its catalog model.
 func TestResolveForceModel_EffortSuffixPreserved(t *testing.T) {
 	gotID, _, gotKnown, gotEffort := resolveForceModelWithEffort("grok-4.6:high")
 	assert.Equal(t, "grok-4.6", gotID, "canonical id")
 	assert.True(t, gotKnown, "known")
 	assert.Equal(t, "high", gotEffort, "effort")
+}
+
+// Spellings users actually typed into /force-model that were rejected in prod.
+// Each one differs from a real name only in separator spelling, the optional
+// "claude-" prefix, Claude Code's [1m] tag, or an effort level written without
+// the colon, so it must pin exactly the model it names.
+func TestResolveForceModel_ObservedSpellings(t *testing.T) {
+	tests := []struct {
+		input      string
+		wantID     string
+		wantEffort string
+	}{
+		{"claude-opus-5.5", "claude-opus-5-5", ""},
+		{"Claude-Opus-5.5", "claude-opus-5-5", ""},
+		{"claude opus 5.5", "claude-opus-5-5", ""},
+		{"opus 5.5", "claude-opus-5-5", ""},
+		{"opus_5_5", "claude-opus-5-5", ""},
+		{"claude-sonnet-5.5", "claude-sonnet-5-5", ""},
+		{"claude-haiku-4.5", "claude-haiku-4-5", ""},
+		{"claude-fable-5.1", "claude-fable-5-1", ""},
+		{"claude-fable-5.2", "claude-fable-5-2", ""},
+		{"fable 5.2", "claude-fable-5-2", ""},
+		{"opus-4-5", "claude-opus-4-5", ""},
+		{"opus-4.7", "claude-opus-4-7", ""},
+		{"claude-opus-5-5[1m]", "claude-opus-5-5", ""},
+		{"claude-opus-5.5[1m]", "claude-opus-5-5", ""},
+		{"claude-opus-5.5[1m] high", "claude-opus-5-5", "high"},
+		{"claude-opus-5-5[1m]-max", "claude-opus-5-5", "max"},
+		{"claude-opus-5-5[1m]:xhigh", "claude-opus-5-5", "xhigh"},
+		{"gpt 6.1 sol", "gpt-6.1-sol", ""},
+		{"sol-6-1", "gpt-6.1-sol", ""},
+		{"sol 6.1", "gpt-6.1-sol", ""},
+		{"sol-6.1:high", "gpt-6.1-sol", "high"},
+		{"terra-6.1", "gpt-6.1-terra", ""},
+		{"luna-5.6", "gpt-5.6-luna", ""},
+		{"gpt-5-6-luna", "gpt-5.6-luna", ""},
+		{"gemini-3-1-pro-preview", "gemini-3.1-pro-preview", ""},
+		{"glm 5.3", "z-ai/glm-5.3", ""},
+		{"kimi-k2-7", "moonshotai/kimi-k2.7", ""},
+		{"astra high", "gpt-6-astra", "high"},
+		{"gpt-6-sol-max", "gpt-6-sol", "max"},
+		{"gpt-6-astra-max", "gpt-6-astra", "max"},
+		{"opus 5.5 xhigh", "claude-opus-5-5", "xhigh"},
+		{"claude-opus-5.5:high", "claude-opus-5-5", "high"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			gotID, _, gotKnown, gotEffort := resolveForceModelWithEffort(tt.input)
+			assert.True(t, gotKnown, "known")
+			assert.Equal(t, tt.wantID, gotID, "canonical id")
+			assert.Equal(t, tt.wantEffort, gotEffort, "effort")
+		})
+	}
+}
+
+// Rejected prod inputs that name no model must stay rejected: folding fixes
+// spelling, it never guesses.
+func TestResolveForceModel_ObservedUnknowns(t *testing.T) {
+	for _, input := range []string{
+		"opsu", "opuis", "opues-5.5", "gtp-6-sol", "sool", "sokl", "astar",
+		"gpt-61.-sol", "sol.", "opus-5-", "kimi-k", "gpt-6-1", "gpt6-1",
+		"gpt-5.6-astra", "codex-sol-6", "sol-6", "gpt-sol-6", "/force-model sol",
+		"openai/gpt-oss-120b", "qwen/qwen3-32b", "gpt-", "gpt-5 help me debug this",
+		"opus high help",
+	} {
+		t.Run(input, func(t *testing.T) {
+			_, _, gotKnown, _ := resolveForceModelWithEffort(input)
+			assert.False(t, gotKnown, "known")
+		})
+	}
+}
+
+// Folding must never let one spelling reach two models. Every accepted name
+// whose folded spelling is shared only with names for the same model stays
+// reachable; a fold shared across models is dropped.
+func TestFoldedForceModelNames_Unambiguous(t *testing.T) {
+	targets := make(map[string]map[string]bool)
+	for name, id := range forceModelNames() {
+		key := foldModelSpelling(name)
+		if targets[key] == nil {
+			targets[key] = make(map[string]bool)
+		}
+		targets[key][id] = true
+	}
+	for key, ids := range targets {
+		got, listed := foldedForceModelNames[key]
+		if len(ids) > 1 {
+			assert.False(t, listed, "folded key %q is shared by %v and must not resolve", key, ids)
+			continue
+		}
+		require.True(t, listed, "folded key %q must resolve", key)
+		assert.True(t, ids[got], "folded key %q resolves to %q", key, got)
+	}
+}
+
+// Every name an exact lookup accepts must resolve to the same model through
+// its folded spelling, so folding can only add reach, never redirect it.
+func TestFoldedForceModelNames_AgreeWithExactNames(t *testing.T) {
+	for name, id := range forceModelNames() {
+		if folded, ok := foldedForceModelNames[foldModelSpelling(name)]; ok {
+			assert.Equal(t, id, folded, "name %q", name)
+		}
+	}
+}
+
+// The unknown-model hint must only name models /force-model accepts.
+func TestForceModelExamples_AreResolvable(t *testing.T) {
+	for _, example := range strings.Split(strings.ReplaceAll(forceModelExamples, ", or ", ", "), ", ") {
+		_, _, known := resolveForceModel(example)
+		assert.True(t, known, "example %q", example)
+	}
+}
+
+func TestSuggestForceModel(t *testing.T) {
+	tests := []struct{ input, want string }{
+		{"opsu", "opus"},
+		{"opuis", "opus"},
+		{"opues-5.5", "opus-5-5"},
+		{"gtp-6-sol", "gpt-6-sol"},
+		{"sool", "sol"},
+		{"sokl", "sol"},
+		{"astar", "astra"},
+		{"gpt-61.-sol", "gpt-6.1-sol"},
+		{"sonet", "sonnet"},
+		{"gemni", "gemini"},
+		{"opsu:high", "opus:high"},
+		// A different version number is a different model, not a typo.
+		{"gpt-6-1", ""},
+		{"gpt-5.6-astra", ""},
+		{"haiku-4.6", ""},
+		{"qwen/qwen3-32b", ""},
+		{"fix the tests", ""},
+		{"opus high help", ""},
+		{"zzzz", ""},
+		{"ab", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			assert.Equal(t, tt.want, suggestForceModel(tt.input))
+		})
+	}
+}
+
+// A hint is only useful if typing it pins a model; it must never name
+// something /force-model would reject.
+func TestSuggestForceModel_SuggestionsResolve(t *testing.T) {
+	for _, input := range []string{
+		"opsu", "opuis", "opues-5.5", "gtp-6-sol", "sool", "sokl", "astar", "gpt-61.-sol",
+		"sol.", "opus-5-", "kimi-k", "gpt-", "sonet", "gemni", "opsu:high", "haiku-45", "glm5.3x",
+	} {
+		t.Run(input, func(t *testing.T) {
+			_, _, inputKnown, _ := resolveForceModelWithEffort(input)
+			require.False(t, inputKnown, "input must be unknown for a hint to apply")
+			s := suggestForceModel(input)
+			if s == "" {
+				return
+			}
+			_, _, known, _ := resolveForceModelWithEffort(s)
+			assert.True(t, known, "suggestion %q must resolve", s)
+		})
+	}
 }

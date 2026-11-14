@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync/atomic"
+	"time"
 )
 
 type coverageContextKey struct{}
@@ -56,4 +57,25 @@ func MarkSettlementFailed(ctx context.Context) {
 func SettlementFailed(ctx context.Context) bool {
 	binding, ok := ctx.Value(coverageContextKey{}).(*coverageBinding)
 	return ok && binding.failed.Load()
+}
+
+type spentWindowContextKey struct{}
+
+// SpentWindow is the included-allowance window an exhausted admission found
+// spent, so a later refusal can say which window ran out and when it resets.
+type SpentWindow struct {
+	Plan     Plan
+	Kind     PeriodKind
+	ResetsAt time.Time
+}
+
+// WithSpentWindow stamps the spent allowance window onto the request context.
+func WithSpentWindow(ctx context.Context, window SpentWindow) context.Context {
+	return context.WithValue(ctx, spentWindowContextKey{}, window)
+}
+
+// SpentWindowFromContext returns the spent allowance window, if admission found one.
+func SpentWindowFromContext(ctx context.Context) (SpentWindow, bool) {
+	window, ok := ctx.Value(spentWindowContextKey{}).(SpentWindow)
+	return window, ok
 }

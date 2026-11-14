@@ -116,7 +116,7 @@ func cyberRefusalService(
 			providers.ProviderOpenAI:    openai.NewClient("test-openai-key", openAIURL),
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicURL),
 		},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry,
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderOpenAI:    {},
 		providers.ProviderAnthropic: {},
@@ -277,7 +277,7 @@ func TestProxyOpenAIResponses_OrdinaryOpenAIErrorIsUnchanged(t *testing.T) {
 	_, anthropicHits := upstreams.counts()
 	assert.Zero(t, anthropicHits)
 	assert.Contains(t, rec.Body.String(), "response.failed")
-	assert.Contains(t, rec.Body.String(), "Upstream call failed.")
+	assert.Contains(t, rec.Body.String(), "OpenAI returned 400 (rejected the request)")
 	require.NotEmpty(t, store.upserts)
 	assert.Equal(t, "gpt-5.6-sol", store.upserts[len(store.upserts)-1].Model,
 		"an ordinary error is no reason to move the session")

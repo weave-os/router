@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 )
@@ -17,15 +18,18 @@ func linkedFirst(ctx context.Context) bool {
 }
 
 // paidFallbackForbidden reports whether a live subscription failure may not be
-// rescued on metered capacity. Only a credits_depleted turn has nowhere to fall
-// through to. Configured subscription sets also forbid the ordinary same-model
-// paid rescue; their dispatcher separately authorizes the exhausted model set.
+// rescued on metered capacity. A credits_depleted turn has nowhere to fall
+// through to, and a picked model stays on the caller's own login. Configured
+// subscription sets also forbid the ordinary same-model paid rescue; their
+// dispatcher separately authorizes the exhausted model set.
+// Enterprise-only Claude turns also forbid metered recovery after a refusal,
+// except on the customer's plan-first key once the seat hit its overage cap.
 func paidFallbackForbidden(ctx context.Context) bool {
-	return subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
+	return claudeEnterpriseTurn(ctx) && !claudeEnterpriseCapRescue(ctx) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
 }
 
 func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
-	if subscriptionAttemptOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
+	if claudeEnterpriseTarget(ctx, inference.Target{CatalogID: model}) || pickedModelOnOwnPlan(ctx) || subscriptionAttemptOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
 		return true
 	}
 	if !subscriptionStateModelsEnabled(ctx) || subscriptionAPIOnly(ctx) {
@@ -73,12 +77,13 @@ func releaseUnservableLinkedFirst(ctx context.Context, decision router.Decision)
 
 // releaseThrottledLinkedFirst drops a linked-first mark when the caller's plan
 // refused the turn live — a retryable 429 the observer had not yet recorded,
-// which is usually the first exhaustion signal — so the reroute that follows
+// which is usually the first exhaustion signal, or a model-access or
+// third-party-client refusal the bypass reroutes — so the reroute that follows
 // runs on organization credits instead of being refused as if they were gone.
 func releaseThrottledLinkedFirst(ctx context.Context) (context.Context, bool) {
 	if !linkedFirst(ctx) {
 		return ctx, false
 	}
-	observability.FromContext(ctx).Info("Linked subscription throttled the turn; rerouting on organization credits")
+	observability.FromContext(ctx).Info("Linked subscription rejected the turn; rerouting on organization credits")
 	return billing.ReleaseLinkedFirst(ctx), true
 }

@@ -3,8 +3,8 @@ package subscriptions
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,7 +21,7 @@ type ResetCredit struct {
 	ExpiresAt time.Time
 }
 
-// ResetOutcome is the provider's redemption result.
+// ResetOutcome codes that ConsumeCodexReset accepts; any other code is treated as an error.
 type ResetOutcome string
 
 const (
@@ -88,6 +88,8 @@ func (r *Runtime) WithCodexResets(client CodexResetClient, store ResetStore) *Ru
 
 // ResetCodex recovers personal capacity only after live quota confirms exhaustion.
 // It consumes at most one credit per call; shared accounts never donate reset credits.
+// Accounts in owner.ExcludedAccountIDs cannot serve this request, so they are never
+// returned, but their headroom still prevents spending a credit.
 func (r *Runtime) ResetCodex(ctx context.Context, owner auth.SubscriptionOwner, sessionID string) (lease Lease, recovered bool, err error) {
 	if !CodexAutoUsageResetEnabled(ctx, owner.SubscriberID) || r.resetClient == nil || r.resetStore == nil {
 		return Lease{}, false, nil
@@ -106,75 +108,72 @@ func (r *Runtime) ResetCodex(ctx context.Context, owner auth.SubscriptionOwner, 
 			observability.FromContext(ctx).Warn("Codex earned reset recovery failed", "err", err)
 		}
 	}()
-	store, ok := r.store.(interface {
-		ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
-	})
-	if !ok {
-		return Lease{}, false, errors.New("subscription candidate admission is not configured")
-	}
-	accounts, err := store.ListSubscriptionCandidates(ctx, owner)
+	scan, err := r.scanResetAccounts(ctx, owner)
 	if err != nil {
 		return Lease{}, false, err
 	}
-	var exhausted []Lease
+	if scan.headroom != nil {
+		return r.recoverResetAccount(ctx, owner, sessionID, claim, *scan.headroom)
+	}
+	if scan.excludedHeadroom || len(scan.exhausted) == 0 {
+		return Lease{}, false, nil
+	}
+	return r.redeemReset(ctx, owner, sessionID, claim, scan.exhausted)
+}
+
+type resetScan struct {
+	headroom         *Lease
+	excludedHeadroom bool
+	exhausted        []Lease
+}
+
+func (r *Runtime) scanResetAccounts(ctx context.Context, owner auth.SubscriptionOwner) (resetScan, error) {
+	store, err := r.candidateLister()
+	if err != nil {
+		return resetScan{}, err
+	}
+	accounts, err := store.ListSubscriptionCandidates(ctx, owner)
+	if err != nil {
+		return resetScan{}, err
+	}
+	var scan resetScan
 	for _, account := range accounts {
 		if account.Provider != auth.SubscriptionProviderCodex || account.SubscriberID != owner.SubscriberID || !account.Enabled || !resetAccountStateEligible(account.State) {
 			continue
 		}
 		credential, credentialErr := r.resetCredential(ctx, owner, account)
 		if credentialErr != nil {
-			return Lease{}, false, credentialErr
+			return resetScan{}, credentialErr
 		}
-		spent, quotaErr := r.resetClient.CodexQuotaExhausted(ctx, credential)
+		quotaExhausted, quotaErr := r.resetClient.CodexQuotaExhausted(ctx, credential)
 		if quotaErr != nil {
-			return Lease{}, false, quotaErr
+			return resetScan{}, quotaErr
 		}
-		if !spent {
-			return r.recoverResetAccount(ctx, owner, sessionID, claim, credential)
+		excluded := slices.Contains(owner.ExcludedAccountIDs, account.ID)
+		switch {
+		case !quotaExhausted && excluded:
+			scan.excludedHeadroom = true
+		case !quotaExhausted:
+			scan.headroom = &credential
+			return scan, nil
+		case !excluded:
+			scan.exhausted = append(scan.exhausted, credential)
 		}
-		exhausted = append(exhausted, credential)
 	}
-	if len(exhausted) == 0 {
-		return Lease{}, false, nil
-	}
-	var selected Lease
-	if claim.CreditID != "" {
-		for _, account := range exhausted {
-			if account.AccountID == claim.AccountID {
-				selected = account
-				break
-			}
-		}
-		// An uncertain redemption remains reserved even after account access changes.
-		if selected.AccountID == "" {
-			return Lease{}, false, nil
-		}
-	} else {
-		var candidates []resetCandidate
-		for _, account := range exhausted {
-			credits, listErr := r.resetClient.CodexResetCredits(ctx, account)
-			if listErr != nil {
-				return Lease{}, false, listErr
-			}
-			for _, credit := range credits {
-				if credit.ID != "" && (credit.ExpiresAt.IsZero() || credit.ExpiresAt.After(r.clock())) {
-					candidates = append(candidates, resetCandidate{account: account, credit: credit})
-				}
-			}
-		}
-		winner, found := earliestReset(candidates, r.resetTieChoice)
-		if !found {
-			return Lease{}, false, nil
-		}
-		selected = winner.account
-		claim.AccountID, claim.CreditID = selected.AccountID, winner.credit.ID
-		claim.RequestID = uuid.NewSHA1(uuid.NameSpaceOID, []byte("weave-codex-reset:"+claim.AccountID+":"+claim.CreditID)).String()
-		if err := r.resetStore.SelectCodexReset(ctx, claim); err != nil {
-			return Lease{}, false, err
-		}
+	return scan, nil
+}
+
+func (r *Runtime) redeemReset(ctx context.Context, owner auth.SubscriptionOwner, sessionID string, claim ResetClaim, exhausted []Lease) (Lease, bool, error) {
+	selected, selectedNow, found, err := r.selectResetCredit(ctx, &claim, exhausted)
+	if err != nil || !found {
+		return Lease{}, false, err
 	}
 	// Re-read admission immediately before spending a credit, including resumed claims.
 	if err := r.admitReset(ctx, owner, selected.AccountID); err != nil {
+		if selectedNow {
+			// No request was sent for this new selection, so release the credit.
+			err = errors.Join(err, r.resetStore.ClearCodexReset(ctx, claim))
+		}
 		return Lease{}, false, err
 	}
 	outcome, err := r.resetClient.ConsumeCodexReset(ctx, selected, claim.CreditID, claim.RequestID)
@@ -185,16 +184,47 @@ func (r *Runtime) ResetCodex(ctx context.Context, owner auth.SubscriptionOwner, 
 	if outcome == ResetNoCredit {
 		return Lease{}, false, r.resetStore.ClearCodexReset(ctx, claim)
 	}
-	switch outcome {
-	case ResetApplied, ResetAlreadyRedeemed, ResetNothingToReset:
-	default:
-		return Lease{}, false, fmt.Errorf("unknown Codex reset outcome: %q", outcome)
-	}
-	spent, err := r.resetClient.CodexQuotaExhausted(ctx, selected)
-	if err != nil || spent {
+	quotaExhausted, err := r.resetClient.CodexQuotaExhausted(ctx, selected)
+	if err != nil || quotaExhausted {
 		return Lease{}, false, err
 	}
 	return r.recoverResetAccount(ctx, owner, sessionID, claim, selected)
+}
+
+// selectResetCredit resumes a pending selection or persists the earliest-expiring
+// credit. selectedNow reports a selection made by this call.
+func (r *Runtime) selectResetCredit(ctx context.Context, claim *ResetClaim, exhausted []Lease) (selected Lease, selectedNow, found bool, err error) {
+	if claim.CreditID != "" {
+		for _, account := range exhausted {
+			if account.AccountID == claim.AccountID {
+				return account, false, true, nil
+			}
+		}
+		// An uncertain redemption remains reserved even after account access changes.
+		return Lease{}, false, false, nil
+	}
+	var candidates []resetCandidate
+	for _, account := range exhausted {
+		credits, listErr := r.resetClient.CodexResetCredits(ctx, account)
+		if listErr != nil {
+			return Lease{}, false, false, listErr
+		}
+		for _, credit := range credits {
+			if credit.ID != "" && (credit.ExpiresAt.IsZero() || credit.ExpiresAt.After(r.clock())) {
+				candidates = append(candidates, resetCandidate{account: account, credit: credit})
+			}
+		}
+	}
+	winner, ok := earliestReset(candidates, r.resetTieChoice)
+	if !ok {
+		return Lease{}, false, false, nil
+	}
+	claim.AccountID, claim.CreditID = winner.account.AccountID, winner.credit.ID
+	claim.RequestID = uuid.NewSHA1(uuid.NameSpaceOID, []byte("weave-codex-reset:"+claim.AccountID+":"+claim.CreditID)).String()
+	if err := r.resetStore.SelectCodexReset(ctx, *claim); err != nil {
+		return Lease{}, false, false, err
+	}
+	return winner.account, true, true, nil
 }
 
 func (r *Runtime) resetCredential(ctx context.Context, owner auth.SubscriptionOwner, account *auth.SubscriptionAccount) (Lease, error) {
@@ -222,12 +252,22 @@ func (r *Runtime) recoverResetAccount(ctx context.Context, owner auth.Subscripti
 	return lease, true, nil
 }
 
-func (r *Runtime) admitReset(ctx context.Context, owner auth.SubscriptionOwner, accountID string) error {
-	store, ok := r.store.(interface {
-		ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
-	})
+type subscriptionCandidateLister interface {
+	ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
+}
+
+func (r *Runtime) candidateLister() (subscriptionCandidateLister, error) {
+	store, ok := r.store.(subscriptionCandidateLister)
 	if !ok {
-		return errors.New("subscription candidate admission is not configured")
+		return nil, errors.New("subscription candidate admission is not configured")
+	}
+	return store, nil
+}
+
+func (r *Runtime) admitReset(ctx context.Context, owner auth.SubscriptionOwner, accountID string) error {
+	store, err := r.candidateLister()
+	if err != nil {
+		return err
 	}
 	accounts, err := store.ListSubscriptionCandidates(ctx, owner)
 	if err != nil {

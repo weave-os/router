@@ -122,6 +122,8 @@ func TestCheckUserMonthlySpendLimit_CapReachedCoveringSubscriptionServesSubscrip
 	outCtx, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.NoError(t, err, "a covered turn must not 402 when the cap is reached")
 	assert.True(t, billing.SubscriptionOnlyFromContext(outCtx), "the returned ctx must carry the subscription-only flag")
+	reason, _ := billing.SubscriptionOnlyReasonFromContext(outCtx)
+	assert.Equal(t, billing.SubscriptionOnlySpendCapReached, reason)
 }
 
 func TestCheckUserMonthlySpendLimit_CapReachedNoSubscriptionStillRejects(t *testing.T) {

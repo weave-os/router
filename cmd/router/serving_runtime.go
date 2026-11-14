@@ -76,7 +76,10 @@ func validateManagedServingDefaultStrategy(lookup func(string) (string, bool)) e
 			envDefaultStrategy, strategyList(managedServingStrategies),
 		)
 	}
-	strategy := server.ParseDefaultStrategy(raw)
+	strategy, err := server.ParseDefaultStrategy(raw)
+	if err != nil {
+		return err
+	}
 	if !slices.Contains(managedServingStrategies, strategy) {
 		return fmt.Errorf(
 			"%s=%q is not a managed serving strategy; set one of %s",
@@ -116,7 +119,7 @@ func buildManagedServingRuntime(ctx context.Context, availableProviders map[stri
 	timeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
 	attemptTimeout := parseEnvAttemptTimeoutMs("ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS", policyclient.DeriveAttemptTimeout(timeout))
 	cache, err := policyregistry.NewServingRuntimeCache(registry, hmmPolicySnapshotBuilder(
-		availableProviders, managedServingStrategies,
+		availableProviders, append(slices.Clone(managedServingStrategies), router.StrategyHMMBeta, router.StrategyHMMQwen),
 		config.GetOr("ROUTER_HMM_SIDECAR_AUTH", policySidecarAuthGoogleIDToken), timeout, attemptTimeout,
 		taskRuntimes...,
 	))

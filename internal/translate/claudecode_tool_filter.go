@@ -38,7 +38,7 @@ var claudeCodeOnlyToolNames = map[string]struct{}{
 	"TaskList":    {},
 	"TaskOutput":  {},
 	"TaskStop":    {},
-	"SendMessage": {}, // teammate/subagent messaging: CC-internal like Task*
+	"SendMessage": {},
 	// Plan mode / skills / workflows.
 	"EnterPlanMode":   {},
 	"ExitPlanMode":    {},
@@ -88,6 +88,7 @@ var claudeCodeOrchestrationToolNames = map[string]struct{}{
 	"Agent":         {},
 	"TaskOutput":    {},
 	"TaskStop":      {},
+	"SendMessage":   {},
 	"Workflow":      {},
 	"Skill":         {},
 	"EnterPlanMode": {},
@@ -191,7 +192,7 @@ type ccToolFilterResult struct {
 //
 // ToolSearch is always retained because it is Claude Code's client-side
 // loader for deferred MCP schemas. When opts.KeepOrchestration is set, the
-// orchestration subset (Task/Agent, TaskOutput/TaskStop, Workflow, Skill,
+// orchestration subset (Task/Agent, TaskOutput/TaskStop, SendMessage, Workflow, Skill,
 // plan-mode) is also retained — plus the task-list tools when
 // opts.KeepTaskTools is set; other CC-only tools are still dropped.
 //

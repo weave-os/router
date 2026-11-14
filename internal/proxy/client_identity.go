@@ -4,6 +4,9 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"unicode/utf8"
+
+	"golang.org/x/text/encoding/charmap"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
@@ -48,6 +51,16 @@ func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 	return id
 }
 
+// ChatClientIdentity is ClientIdentityFromHeaders plus the Cursor agent id
+// from a Chat Completions body when no header names the session.
+func ChatClientIdentity(h http.Header, body []byte) ClientIdentity {
+	id := ClientIdentityFromHeaders(h)
+	if id.ClientApp == ClientAppCursor && id.SessionID == "" {
+		id.SessionID = requestcontext.CursorAgentSessionID(body)
+	}
+	return id
+}
+
 func openCodeCaller(id ClientIdentity) turntype.OpenCodeCaller {
 	isClient := id.ClientApp == ClientAppOpencode
 	return turntype.OpenCodeCaller{IsClient: isClient, IsSubagent: isClient && id.OpenCodeSubagent}
@@ -68,10 +81,31 @@ func splitEvalClientApp(xApp string) (string, bool) {
 }
 
 // ResolveUserFromContext dispatches identity signals from ctx to
-// auth.Service.ResolveAndStashUser. No-op if deps are missing or both email
-// and account_uuid are empty — Claude CLI v2.1.x sends account_uuid only, so
-// gating on email alone would break that path.
-func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installation *auth.Installation) context.Context {
+// auth.Service.ResolveAndStashUser. Either email or account_uuid is enough —
+// Claude CLI v2.1.x sends account_uuid only, so gating on email alone would
+// break that path. With neither (GitHub Copilot, Cursor, raw API calls), a
+// personal key attributes the request to its authenticated owner; a shared
+// key leaves the request unattributed.
+func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installation *auth.Installation, apiKey *auth.APIKey) context.Context {
+	return withBlindExperimentSession(resolveUserFromContext(ctx, authSvc, installation, apiKey), authSvc, installation, apiKey)
+}
+
+func withBlindExperimentSession(ctx context.Context, authSvc *auth.Service, installation *auth.Installation, apiKey *auth.APIKey) context.Context {
+	if authSvc == nil || installation == nil {
+		return ctx
+	}
+	if _, internalTest := requestcontext.InternalTestIdentityFrom(ctx); internalTest {
+		return ctx
+	}
+	apiKeyID := ""
+	if apiKey != nil {
+		apiKeyID = apiKey.ID
+	}
+	sessionKey := auth.BlindExperimentSessionSubjectKey(sessionCredentialIdentity(ctx, apiKeyID), ClientIdentityFrom(ctx).SessionID)
+	return authSvc.WithBlindExperimentSession(ctx, installation.ID, sessionKey)
+}
+
+func resolveUserFromContext(ctx context.Context, authSvc *auth.Service, installation *auth.Installation, apiKey *auth.APIKey) context.Context {
 	if _, ok := requestcontext.InternalTestIdentityFrom(ctx); ok {
 		return ctx
 	}
@@ -87,6 +121,9 @@ func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installa
 	id := ClientIdentityFrom(ctx)
 	ctx = observability.WithClientSessionID(ctx, id.SessionID)
 	if id.Email == "" && id.AccountID == "" {
+		if apiKey != nil && apiKey.CredentialSubjectID != "" {
+			return authSvc.ResolveAndStashKeyOwner(ctx, installation.ID, apiKey.CredentialSubjectID, id.DisplayName)
+		}
 		log.Info("ResolveUserFromContext bailout",
 			"reason", "no_identity_signal",
 			"installation_id", installation.ID,
@@ -188,6 +225,32 @@ const (
 	ClientAppOpencode   = "opencode"
 )
 
+// completionLogClientApp is the client_app completion-log field, which log
+// metrics use as a label. X-App is caller-controlled, so anything but a
+// canonical app collapses to one value.
+func completionLogClientApp(id ClientIdentity) string {
+	if id.ClientApp == "" {
+		return ""
+	}
+	if id.Eval {
+		return "eval"
+	}
+	switch id.ClientApp {
+	case ClientAppClaudeCode:
+		return ClientAppClaudeCode
+	case ClientAppCodex:
+		return ClientAppCodex
+	case ClientAppCursor:
+		return ClientAppCursor
+	case ClientAppGeminiCLI:
+		return ClientAppGeminiCLI
+	case ClientAppOpencode:
+		return ClientAppOpencode
+	default:
+		return "other"
+	}
+}
+
 func supportsResponsesTerminalSurfaces(clientApp string) bool {
 	return clientApp == ClientAppCodex || clientApp == ClientAppOpencode
 }
@@ -199,7 +262,7 @@ func supportsResponsesTerminalSurfaces(clientApp string) bool {
 // "/" through untouched.
 //
 // Ingress accepts both spellings from every client regardless (see
-// translate.parseForceModelCommand) -- this only decides which one we print
+// translate.parseForceModelCommandFromSource) -- this only decides which one we print
 // back. Unknown clients get "/", the form the docs and every non-Codex client
 // use.
 func directivePrefix(clientApp string) string {
@@ -261,6 +324,12 @@ func NormalizeDisplayName(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" || len(s) > MaxDisplayNameLen {
 		return ""
+	}
+	// Node clients (Claude Code) send header values as Latin-1 bytes, not UTF-8.
+	if !utf8.ValidString(s) {
+		if decoded, err := charmap.ISO8859_1.NewDecoder().String(s); err == nil {
+			s = decoded
+		}
 	}
 	var b strings.Builder
 	b.Grow(len(s))

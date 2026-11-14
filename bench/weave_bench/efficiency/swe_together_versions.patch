@@ -1,0 +1,22 @@
+diff --git a/src/run_eval.py b/src/run_eval.py
+index 81b4842..fc329d9 100644
+--- a/src/run_eval.py
++++ b/src/run_eval.py
+@@ -430,7 +430,7 @@ def build_trial_config(
+         # install pulls LATEST (currently 2.1.119), which has a client-side
+         # model-name validator that rejects non-Anthropic names like kimi-k2.6
+         # before any API call is made.
+-        "version": "2.1.108",
++        "version": os.environ.get("SWE_TOGETHER_CLAUDE_CODE_VERSION", "2.1.108"),
+     }
+ 
+     # Model name sent to Harbor.self.model_name governs BOTH the ANTHROPIC_MODEL
+@@ -461,6 +461,8 @@ def build_trial_config(
+         # `Codex.install()` as `npm install -g @openai/codex@2.1.108` (npm
+         # ETARGET — that version doesn't exist).
+         user_sim_kwargs.pop("version", None)
++        if codex_version := os.environ.get("SWE_TOGETHER_CODEX_VERSION"):
++            user_sim_kwargs["codex_version"] = codex_version
+         # Strip claude_code-only env vars but KEEP codex-relevant ones
+         codex_env = {
+             k: v for k, v in agent_env.items()

@@ -208,3 +208,215 @@ func TestPrepareAnthropic_LeavesOrdinaryMessagesUnchanged(t *testing.T) {
 		}
 	}
 }
+
+func TestPrepareAnthropic_ModelSwitchKeepsSystemMessageBeforeAssistantWhenThinkingOnlyTurnDropped(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-8",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "start"},
+			{"role": "system", "content": [
+				{"type": "text", "text": "The following tools just became available"},
+				{"type": "tool_addition", "toolset_id": "artifact"}
+			]},
+			{"role": "assistant", "content": [{"type": "thinking", "thinking": "plan", "signature": "sig-from-previous-model"}]},
+			{"role": "user", "content": "Describe your most recent action"}
+		]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-8", ModelSwitched: true})
+	require.NoError(t, err)
+
+	msgs := gjson.GetBytes(prep.Body, "messages").Array()
+	require.Len(t, msgs, 3)
+	assert.Equal(t, "user", msgs[0].Get("role").String())
+	assert.Equal(t, "start", msgs[0].Get("content").String())
+	assert.Equal(t, "user", msgs[1].Get("role").String())
+	assert.Equal(t, "Describe your most recent action", msgs[1].Get("content").String())
+	assert.Equal(t, "system", msgs[2].Get("role").String(), "a system message must precede an assistant turn or end the array")
+	assert.Equal(t, "tool_addition", msgs[2].Get("content.1.type").String())
+}
+
+func TestPrepareAnthropic_ModelSwitchMovesSystemMessageToNextAssistantTurn(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-8",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "start"},
+			{"role": "system", "content": [{"type": "tool_addition", "toolset_id": "artifact"}]},
+			{"role": "assistant", "content": [{"type": "thinking", "thinking": "plan", "signature": "sig-from-previous-model"}]},
+			{"role": "user", "content": "continue"},
+			{"role": "assistant", "content": [{"type": "text", "text": "done"}]},
+			{"role": "user", "content": "next"}
+		]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-8", ModelSwitched: true})
+	require.NoError(t, err)
+
+	var roles []string
+	for _, msg := range gjson.GetBytes(prep.Body, "messages").Array() {
+		roles = append(roles, msg.Get("role").String())
+	}
+	assert.Equal(t, []string{"user", "user", "system", "assistant", "user"}, roles)
+}
+
+// assertAnthropicSystemPlacement checks Anthropic's placement rule for
+// role:"system" messages: each must follow a user turn (or an assistant turn
+// ending in a server tool result) and precede an assistant turn or end the
+// array.
+func assertAnthropicSystemPlacement(t *testing.T, body []byte) {
+	t.Helper()
+	msgs := gjson.GetBytes(body, "messages").Array()
+	for i, msg := range msgs {
+		if msg.Get("role").String() != "system" {
+			continue
+		}
+		prev := i - 1
+		for prev >= 0 && msgs[prev].Get("role").String() == "system" {
+			prev--
+		}
+		require.GreaterOrEqual(t, prev, 0, "messages.%d: system message has no preceding turn", i)
+		assert.Equal(t, "user", msgs[prev].Get("role").String(), "messages.%d: system message must follow a user turn", i)
+		next := i + 1
+		for next < len(msgs) && msgs[next].Get("role").String() == "system" {
+			next++
+		}
+		if next < len(msgs) {
+			assert.Equal(t, "assistant", msgs[next].Get("role").String(), "messages.%d: system message must precede an assistant turn", i)
+		}
+	}
+}
+
+func TestPrepareAnthropic_SystemToolDeltaAfterStrippedHistoricalDirective(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-5-5",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "hello"},
+			{"role": "assistant", "content": [{"type": "text", "text": "No response requested."}]},
+			{"role": "user", "content": [{"type": "text", "text": "/fm claude-opus-5-5"}]},
+			{"role": "system", "content": [
+				{"type": "text", "text": "The following tools are no longer available."},
+				{"type": "tool_removal", "tool": {"type": "tool_reference", "name": "Edit"}}
+			]},
+			{"role": "assistant", "content": [{"type": "text", "text": "Forced."}]},
+			{"role": "user", "content": [{"type": "text", "text": "keep going"}]},
+			{"role": "system", "content": [
+				{"type": "text", "text": "The following tools just became available."},
+				{"type": "tool_addition", "tool": {"type": "tool_reference", "name": "Edit"}}
+			]}
+		]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	removed, err := env.StripHistoricalCommands()
+	require.NoError(t, err)
+	require.Equal(t, 1, removed)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-5-5"})
+	require.NoError(t, err)
+
+	assertAnthropicSystemPlacement(t, prep.Body)
+	var deltas []string
+	for _, msg := range gjson.GetBytes(prep.Body, "messages").Array() {
+		if msg.Get("role").String() == "system" {
+			deltas = append(deltas, msg.Get("content.1.type").String())
+		}
+	}
+	assert.Equal(t, []string{"tool_removal", "tool_addition"}, deltas)
+}
+
+func TestPrepareAnthropic_SystemToolDeltaAfterTrailingAssistantSurvivesPrefillDrop(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-8",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "hello"},
+			{"role": "assistant", "content": [{"type": "text", "text": "Sure "}]},
+			{"role": "system", "content": [{"type": "tool_removal", "tool": {"type": "tool_reference", "name": "Edit"}}]}
+		]
+	}`)
+	out := prepareAnthropicBody(t, body)
+
+	assertAnthropicSystemPlacement(t, out)
+	msgs := gjson.GetBytes(out, "messages").Array()
+	require.Len(t, msgs, 2)
+	assert.Equal(t, "user", msgs[0].Get("role").String())
+	assert.Equal(t, "tool_removal", msgs[1].Get("content.0.type").String())
+}
+
+func TestPrepareAnthropic_SystemToolDeltaPlacementKeepsCacheTTLOrder(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-8",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "hello"},
+			{"role": "assistant", "content": [{"type": "text", "text": "Sure"}]},
+			{"role": "system", "content": [
+				{"type": "text", "text": "Tools changed.", "cache_control": {"type": "ephemeral", "ttl": "1h"}},
+				{"type": "tool_removal", "tool": {"type": "tool_reference", "name": "Edit"}}
+			]},
+			{"role": "user", "content": [{"type": "text", "text": "next", "cache_control": {"type": "ephemeral"}}]},
+			{"role": "assistant", "content": [{"type": "text", "text": "Done"}]},
+			{"role": "user", "content": "go on"}
+		]
+	}`)
+	out := prepareAnthropicBody(t, body)
+
+	assertAnthropicSystemPlacement(t, out)
+	var roles []string
+	for _, msg := range gjson.GetBytes(out, "messages").Array() {
+		roles = append(roles, msg.Get("role").String())
+	}
+	assert.Equal(t, []string{"user", "system", "assistant", "user", "assistant", "user"}, roles)
+}
+
+func TestPrepareAnthropic_RelocatedSystemToolDeltasKeepOriginalOrder(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-8",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "hello"},
+			{"role": "assistant", "content": [{"type": "text", "text": "first"}]},
+			{"role": "system", "content": [{"type": "tool_removal", "tool": {"type": "tool_reference", "name": "Edit"}}]},
+			{"role": "assistant", "content": [{"type": "text", "text": "second"}]},
+			{"role": "system", "content": [{"type": "tool_addition", "tool": {"type": "tool_reference", "name": "Edit"}}]},
+			{"role": "user", "content": "go on"}
+		]
+	}`)
+	out := prepareAnthropicBody(t, body)
+
+	assertAnthropicSystemPlacement(t, out)
+	msgs := gjson.GetBytes(out, "messages").Array()
+	require.Len(t, msgs, 6)
+	assert.Equal(t, "tool_removal", msgs[4].Get("content.0.type").String())
+	assert.Equal(t, "tool_addition", msgs[5].Get("content.0.type").String())
+}
+
+func TestPrepareAnthropicPassthrough_SystemToolDeltaBetweenUserTurnsMovesToEnd(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-5-5",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "hello"},
+			{"role": "system", "content": [{"type": "tool_removal", "tool": {"type": "tool_reference", "name": "Edit"}}]},
+			{"role": "user", "content": "continue"},
+			{"role": "system", "content": [], "output_config": {"effort": "low"}},
+			{"role": "user", "content": "go"}
+		]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropicPassthrough(http.Header{})
+	require.NoError(t, err)
+
+	var roles []string
+	for _, msg := range gjson.GetBytes(prep.Body, "messages").Array() {
+		roles = append(roles, msg.Get("role").String())
+	}
+	assert.Equal(t, []string{"user", "user", "system", "user", "system"}, roles)
+	assert.Equal(t, "tool_removal", gjson.GetBytes(prep.Body, "messages.4.content.0.type").String())
+	assert.True(t, gjson.GetBytes(prep.Body, "messages.2.output_config").Exists())
+}

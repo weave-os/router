@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -62,11 +63,11 @@ func (c *Client) CodexResetCredits(ctx context.Context, lease subscriptions.Leas
 		if credit.Type != codexRateLimitReset || credit.Status != codexResetAvailable || credit.ID == "" {
 			continue
 		}
-		available := subscriptions.ResetCredit{ID: credit.ID}
+		redeemable := subscriptions.ResetCredit{ID: credit.ID}
 		if credit.ExpiresAt != nil {
-			available.ExpiresAt = *credit.ExpiresAt
+			redeemable.ExpiresAt = *credit.ExpiresAt
 		}
-		credits = append(credits, available)
+		credits = append(credits, redeemable)
 	}
 	return credits, nil
 }
@@ -83,7 +84,7 @@ func (c *Client) ConsumeCodexReset(ctx context.Context, lease subscriptions.Leas
 	if err != nil {
 		return "", err
 	}
-	body, err := c.codexResetRequest(ctx, lease, http.MethodPost, "/consume", payload)
+	body, err := c.codexResetRequest(ctx, lease, http.MethodPost, "consume", payload)
 	if err != nil {
 		return "", err
 	}
@@ -107,8 +108,12 @@ func (c *Client) codexResetRequest(ctx context.Context, lease subscriptions.Leas
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	endpoint := strings.TrimSuffix(strings.TrimRight(c.codexBaseURL, "/"), "/codex") + "/wham/rate-limit-reset-credits" + suffix
-	req, err := http.NewRequestWithContext(ctx, method, endpoint, bytes.NewReader(payload))
+	base, err := url.Parse(strings.TrimSuffix(strings.TrimRight(c.codexBaseURL, "/"), "/codex"))
+	if err != nil {
+		return nil, fmt.Errorf("parse Codex base URL: %w", err)
+	}
+	endpoint := base.JoinPath("wham", "rate-limit-reset-credits", suffix)
+	req, err := http.NewRequestWithContext(ctx, method, endpoint.String(), bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}

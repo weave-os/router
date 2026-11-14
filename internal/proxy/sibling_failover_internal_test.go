@@ -47,6 +47,84 @@ func siblingModels(decisions []router.Decision) []string {
 	return models
 }
 
+func TestSiblingFailoverSelectsImageCompatibleBinding(t *testing.T) {
+	const model = "xiaomi/mimo-v2.6-pro"
+	s := siblingService(providers.ProviderDeepInfra, providers.ProviderOpenRouter)
+	failed := overloadedDecision(&router.RoutingMetadata{
+		CandidateModels: []string{"claude-opus-5", model},
+		CandidateProviders: map[string]string{
+			model: providers.ProviderDeepInfra,
+		},
+	})
+
+	for _, tc := range []struct {
+		name         string
+		imageCount   int
+		wantProvider string
+	}{
+		{name: "over DeepInfra cap", imageCount: 17, wantProvider: providers.ProviderOpenRouter},
+		{name: "within DeepInfra cap", imageCount: 3, wantProvider: providers.ProviderDeepInfra},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := withRequestImageCount(context.Background(), tc.imageCount)
+			got, ok := firstSibling(s, ctx, failed, 1_000, 0, 0)
+			require.True(t, ok)
+			assert.Equal(t, model, got.Model)
+			assert.Equal(t, tc.wantProvider, got.Provider)
+		})
+	}
+}
+
+func TestSiblingProviderPreservesCompatibleResolvedBinding(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		model        string
+		resolved     map[string]string
+		available    map[string]struct{}
+		imageCount   int
+		wantProvider string
+	}{
+		{
+			name:         "resolved OpenRouter wins over catalog order",
+			model:        "moonshotai/kimi-k3",
+			resolved:     map[string]string{"moonshotai/kimi-k3": providers.ProviderOpenRouter},
+			available:    map[string]struct{}{providers.ProviderFireworks: {}, providers.ProviderOpenRouter: {}},
+			imageCount:   17,
+			wantProvider: providers.ProviderOpenRouter,
+		},
+		{
+			name:         "capped resolved binding falls back",
+			model:        "xiaomi/mimo-v2.6-pro",
+			resolved:     map[string]string{"xiaomi/mimo-v2.6-pro": providers.ProviderDeepInfra},
+			available:    map[string]struct{}{providers.ProviderDeepInfra: {}, providers.ProviderOpenRouter: {}},
+			imageCount:   17,
+			wantProvider: providers.ProviderOpenRouter,
+		},
+		{
+			name:         "compatible resolved binding stays selected",
+			model:        "xiaomi/mimo-v2.6-pro",
+			resolved:     map[string]string{"xiaomi/mimo-v2.6-pro": providers.ProviderDeepInfra},
+			available:    map[string]struct{}{providers.ProviderDeepInfra: {}, providers.ProviderOpenRouter: {}},
+			imageCount:   3,
+			wantProvider: providers.ProviderDeepInfra,
+		},
+		{
+			name:         "unknown binding has no known image cap",
+			model:        "custom-model",
+			resolved:     map[string]string{"custom-model": providers.ProviderAnthropicGateway},
+			available:    map[string]struct{}{providers.ProviderAnthropicGateway: {}},
+			imageCount:   17,
+			wantProvider: providers.ProviderAnthropicGateway,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			provider, ok := siblingProvider(tc.model, tc.resolved, tc.available, tc.imageCount)
+			require.True(t, ok)
+			assert.Equal(t, tc.wantProvider, provider)
+		})
+	}
+}
+
 func TestRescueBasisForTurnKeepsHeldPrimaryIdentity(t *testing.T) {
 	primary := router.Decision{Provider: providers.ProviderOpenAIGateway, Model: "gpt-6-luna", Reason: "held_pin"}
 	fresh := &router.RoutingMetadata{
@@ -350,39 +428,6 @@ func TestSiblingFailoverDecision(t *testing.T) {
 	})
 }
 
-func TestSiblingFailover_ClusterScorerExhaustsModelTierBeforeAscending(t *testing.T) {
-	s := siblingService(providers.ProviderAnthropic, providers.ProviderFireworks, providers.ProviderOpenAI)
-	failed := router.Decision{
-		Provider: providers.ProviderAnthropic,
-		Model:    "claude-haiku-4-5",
-		Metadata: &router.RoutingMetadata{
-			ClusterRouterVersion: "v-test",
-			CandidateModels: []string{
-				"claude-haiku-4-5", "gpt-4.1-mini", "gpt-4.1-nano",
-				"claude-sonnet-5", "gpt-5",
-			},
-			CandidateScores: map[string]float32{
-				"claude-haiku-4-5": 0.95, "gpt-4.1-mini": 0.8,
-				"gpt-4.1-nano": 0.9, "claude-sonnet-5": 0.99, "gpt-5": 0.98,
-			},
-			CandidateProviders: map[string]string{
-				"gpt-4.1-mini":    providers.ProviderOpenAI,
-				"gpt-4.1-nano":    providers.ProviderOpenAI,
-				"claude-sonnet-5": providers.ProviderAnthropic,
-				"gpt-5":           providers.ProviderOpenAI,
-			},
-		},
-	}
-
-	got := s.siblingFailoverDecisions(context.Background(), failed, 1_000, 0, 0)
-	assert.Equal(t, []string{"gpt-4.1-nano", "gpt-4.1-mini", "claude-sonnet-5", "gpt-5"}, siblingModels(got))
-	assert.Empty(t, failed.Metadata.RescueModels, "rescue must not mutate the scorer's decision")
-
-	failed.Model = "claude-sonnet-5"
-	got = s.siblingFailoverDecisions(context.Background(), failed, 1_000, 0, 0)
-	assert.Equal(t, []string{"gpt-5"}, siblingModels(got), "a mid-tier failure cannot fall down to low")
-}
-
 func TestSiblingFailover_RosterOrderBeatsProviderPreferenceAndExcludesUnlistedModels(t *testing.T) {
 	s := siblingService(providers.ProviderAnthropic, providers.ProviderFireworks)
 	failed := overloadedDecision(&router.RoutingMetadata{
@@ -507,8 +552,8 @@ func TestNoteRescueReadmission_RecordsStruckOutArm(t *testing.T) {
 
 func TestImageSafeModels_DropsTextOnlyArmsOnImageTurns(t *testing.T) {
 	models := []string{"claude-opus-5", "z-ai/glm-5.1"}
-	assert.Equal(t, models, imageSafeModels(models, false))
-	assert.Equal(t, []string{"claude-opus-5"}, imageSafeModels(models, true))
+	assert.Equal(t, models, imageSafeModels(models, 0))
+	assert.Equal(t, []string{"claude-opus-5"}, imageSafeModels(models, 1))
 }
 
 // Strike readmission belongs to sibling failover only: the cyber-refusal
@@ -541,7 +586,7 @@ func TestRescueDecisions_StruckOutReadmissionStaysInScoredPool(t *testing.T) {
 
 	assert.Empty(t, s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0))
 
-	md.ScorerRescuePool = struck
+	md.SidecarRescuePool = struck
 	assert.Equal(t, struck, siblingModels(s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0)))
 }
 

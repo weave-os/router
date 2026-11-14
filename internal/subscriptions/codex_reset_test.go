@@ -315,3 +315,58 @@ func TestCodexResetRefreshesExpiredTokenWithoutReactivatingQuota(t *testing.T) {
 	require.Equal(t, auth.SubscriptionAccountStateExhausted, accounts.accounts[1].State)
 	require.NotNil(t, accounts.accounts[1].CooldownUntil)
 }
+
+func TestCodexResetNeverReturnsExcludedAccount(t *testing.T) {
+	runtime, _, provider, _, ctx := resetFixture(t)
+	// "a" has headroom but cannot serve the requested model; "b" is exhausted.
+	provider.exhausted["a"] = false
+	owner := testOwner
+	owner.ExcludedAccountIDs = []string{"a"}
+	_, recovered, err := runtime.ResetCodex(ctx, owner, "session")
+	require.NoError(t, err)
+	require.False(t, recovered, "an excluded account must not be returned for recovery")
+	require.Empty(t, provider.redemptions, "headroom on an excluded account still forbids spending a credit")
+}
+
+func TestCodexResetRecoversNaturallyRestoredAccountBesideExcludedAccount(t *testing.T) {
+	runtime, _, provider, _, ctx := resetFixture(t)
+	provider.exhausted["a"], provider.exhausted["b"] = true, false
+	owner := testOwner
+	owner.ExcludedAccountIDs = []string{"a"}
+	lease, recovered, err := runtime.ResetCodex(ctx, owner, "session")
+	require.NoError(t, err)
+	require.True(t, recovered)
+	require.Equal(t, "b", lease.AccountID)
+	require.Empty(t, provider.redemptions)
+}
+
+func TestCodexResetReleasesNewSelectionWhenAdmissionFails(t *testing.T) {
+	runtime, accounts, provider, store, ctx := resetFixture(t)
+	accounts.listHook = func() {
+		// Admission changes after the credit is selected but before it is spent.
+		if store.claim.CreditID != "" {
+			accounts.accounts[1].Enabled = false
+		}
+	}
+	_, recovered, err := runtime.ResetCodex(ctx, testOwner, "session")
+	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
+	require.False(t, recovered)
+	require.Empty(t, provider.redemptions)
+	require.Empty(t, store.claim.CreditID, "an unsent selection must not stay reserved")
+}
+
+func TestCodexResetKeepsResumedSelectionWhenAdmissionFails(t *testing.T) {
+	runtime, accounts, provider, store, ctx := resetFixture(t)
+	store.claim = subscriptions.ResetClaim{AccountID: "b", CreditID: "earliest", RequestID: "request-1"}
+	calls := 0
+	accounts.listHook = func() {
+		calls++
+		if calls > 1 {
+			accounts.accounts[1].Enabled = false
+		}
+	}
+	_, _, err := runtime.ResetCodex(ctx, testOwner, "session")
+	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
+	require.Empty(t, provider.redemptions)
+	require.Equal(t, "earliest", store.claim.CreditID, "a possibly sent redemption keeps its credit and key")
+}

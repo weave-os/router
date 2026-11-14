@@ -17,10 +17,20 @@ var ErrNoRoutableModels = errors.New("policy: configuration leaves no routable m
 var ErrGatewayServesNoDeployedModel = fmt.Errorf(
 	"policy: no deployed model is aliased by a gateway key: %w", ErrNoRoutableModels)
 
+// ErrNoProviderCredentials is ErrNoRoutableModels narrowed to the unkeyed
+// case: every deployed model was dropped for want of a usable provider.
+var ErrNoProviderCredentials = fmt.Errorf(
+	"policy: no enabled provider can dispatch any deployed model: %w", ErrNoRoutableModels)
+
 // ErrContextWindowExceeded signals that resolution came back empty because the
 // request is too large, so the client receives its native prompt-too-long
 // error and compacts rather than being told to change its configuration.
 var ErrContextWindowExceeded = errors.New("policy: request context exceeds every eligible model's window")
+
+// ErrImageLimitExceeded signals that no eligible binding can accept the
+// request's image count while preserving ErrNoRoutableModels matching.
+var ErrImageLimitExceeded = fmt.Errorf(
+	"policy: request images exceed every eligible model's per-request image limit: %w", ErrNoRoutableModels)
 
 // emptyCandidateError names why resolution produced no candidate, so the
 // caller reports the configuration that has to change rather than a generic
@@ -28,13 +38,28 @@ var ErrContextWindowExceeded = errors.New("policy: request context exceeds every
 // context-window error; later request constraints can still empty an
 // overflow-admitted pool for an unrelated reason.
 func emptyCandidateError(diagnostics []Diagnostic) error {
-	if len(diagnostics) > 0 && !slices.ContainsFunc(diagnostics, func(d Diagnostic) bool { return d.Reason != ExclusionGatewayNotServed }) {
-		return ErrGatewayServesNoDeployedModel
-	}
 	if slices.ContainsFunc(diagnostics, func(d Diagnostic) bool { return d.Reason == ExclusionContextWindow }) {
 		return ErrContextWindowExceeded
 	}
+	if slices.ContainsFunc(diagnostics, func(d Diagnostic) bool { return d.Reason == ExclusionImageLimit }) {
+		return ErrImageLimitExceeded
+	}
+	if len(diagnostics) > 0 && !slices.ContainsFunc(diagnostics, func(d Diagnostic) bool { return d.Reason != ExclusionGatewayNotServed }) {
+		return ErrGatewayServesNoDeployedModel
+	}
+	if slices.ContainsFunc(diagnostics, isProviderExclusion) &&
+		!slices.ContainsFunc(diagnostics, func(d Diagnostic) bool {
+			// Unmapped/unknown roster drops are structural: no installation setting undoes them.
+			structural := d.Reason == ExclusionUnmappedRoster || d.Reason == ExclusionUnknownCatalogModel
+			return !isProviderExclusion(d) && !structural
+		}) {
+		return ErrNoProviderCredentials
+	}
 	return ErrNoRoutableModels
+}
+
+func isProviderExclusion(d Diagnostic) bool {
+	return d.Reason == ExclusionNoProvider || d.Reason == ExclusionProviderPolicy
 }
 
 // candidateLogFields flattens a resolution into slog fields so a failed

@@ -33,6 +33,13 @@ type TelemetryRepository interface {
 	GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]TelemetryModelBucket, error)
 	GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (TelemetryTurnResult, error)
 	GetSessionCost(ctx context.Context, installationID, sessionID string) (SessionCost, error)
+	// Dashboard reads scope to installationID, or every installation when it is empty.
+	GetTelemetryDashboardFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryDashboardFact, error)
+	GetTelemetryDashboardActiveUsers(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryActiveUsers, error)
+	GetTelemetryDashboardPeople(ctx context.Context, installationID string) ([]TelemetryPerson, error)
+	GetTelemetrySubscriptionPoolSeats(ctx context.Context, installationID string, servedSince, readingsSince time.Time) ([]TelemetrySubscriptionSeat, error)
+	GetTelemetryDashboardDrillDown(ctx context.Context, installationID string, from, to time.Time) ([]TelemetryDrillDownRow, error)
+	GetTelemetryDashboardIndividualFacts(ctx context.Context, installationID string, from, to time.Time, granularity string) ([]TelemetryIndividualFact, error)
 }
 
 // InferenceAttemptStore persists the ordered upstream attempts of an inference
@@ -61,10 +68,12 @@ type SessionCost struct {
 	CacheCreationTokens    int64
 	CacheReadTokens        int64
 	LastRecordedAt         time.Time
+	BlindExperiment        bool
 }
 
 // InsertTelemetryParams mirrors one router.upstream span row.
 type InsertTelemetryParams struct {
+	agreementShadow *agreementShadowInput
 	ContextSnapshot []byte
 	InstallationID  string
 	// APIKeyID attributes the row to the authenticating api key (per-key spend
@@ -81,6 +90,8 @@ type InsertTelemetryParams struct {
 	BlindExperimentArm              auth.BlindExperimentArm
 	BlindExperimentAssignmentSource auth.BlindExperimentAssignmentSource
 	BlindExperimentSubjectKey       string
+	BlindExperimentMode             auth.BlindExperimentMode
+	BlindExperimentSessionKey       string
 	CohortExperimentID              string
 	CohortGroupID                   *int16
 	CohortPhaseIndex                *int16
@@ -88,6 +99,10 @@ type InsertTelemetryParams struct {
 	CohortScheduledArm              auth.BlindExperimentArm
 	CohortTreatmentApplied          *bool
 	CohortBypassReason              auth.CohortBypassReason
+	BlindExperimentModelSource      auth.BlindExperimentModelSource
+	BlindExperimentTreatmentApplied *bool
+	BlindExperimentBaselineModel    string
+	BlindExperimentModelChanged     *bool
 	EstimatedInputTokens            int32
 	StickyHit                       bool
 	// PinTier is the actual served-path turn-loop tier. Empty leaves the column NULL.
@@ -105,6 +120,8 @@ type InsertTelemetryParams struct {
 	CrossFormat            bool
 	UpstreamStatusCode     int32
 
+	// ClusterIDs and ClusterRouterVersion back retired cluster-scorer columns
+	// and are no longer populated.
 	ClusterIDs           []int32
 	CandidateModels      []string
 	ChosenScore          *float64
@@ -112,8 +129,8 @@ type InsertTelemetryParams struct {
 	CandidateScores      []byte // pre-marshaled JSON model->score; nil for non-score routers
 	Propensity           *float64
 	ClusterRouterVersion string
-	// Strategy names the routing model that produced this decision ("cluster",
-	// "hmm", "rl", "bandit"). Always populated. Empty leaves the column NULL.
+	// Strategy names the routing model that produced this decision ("hmm",
+	// "rl"). Always populated. Empty leaves the column NULL.
 	Strategy string
 	// RouteID is the opaque sidecar correlation id (HMM/RL) joining a decision
 	// to its outcome report. Empty for the default cluster scorer → NULL column.
@@ -235,6 +252,9 @@ type InsertTelemetryParams struct {
 	// set, pre-marshaled JSON. Phase 0 instrumentation — nil on non-subscription
 	// turns. Nothing reads this yet.
 	UnifiedLimitHeaders []byte
+	// CodexLimitHeaders is the verbatim x-codex-{primary,secondary,credits}-*
+	// header set, pre-marshaled JSON. nil on turns no Codex subscription served.
+	CodexLimitHeaders []byte
 
 	// Planner* columns persist the per-turn verdict. nil/empty when planner did not run;
 	// a stored zero must not read as evidence. Cost fields are float64 USD; postgres adapter converts to micros.
@@ -311,8 +331,9 @@ type InsertTelemetryParams struct {
 	// from the session turn clock, never by the call site.
 	UserPromptGapMs         *int64
 	UserPromptGapPriorModel string
-	// ErrorClass is empty on a normal completion.
-	ErrorClass TurnErrorClass
+	// ErrorClass and FailureOwner are empty on a normal completion.
+	ErrorClass   TurnErrorClass
+	FailureOwner FailureOwner
 	// LatestToolCallCounts is pre-marshaled JSON {tool name: {calls, errors}}
 	// over incoming Anthropic tool results. {} marks an observed empty result;
 	// nil means outcomes were not collected, including unsupported input formats.
@@ -381,6 +402,16 @@ func applyBlindExperimentTelemetry(ctx context.Context, params *InsertTelemetryP
 	params.BlindExperimentArm = state.Arm
 	params.BlindExperimentAssignmentSource = state.AssignmentSource
 	params.BlindExperimentSubjectKey = state.CanonicalSubjectKey
+	params.BlindExperimentMode = state.Mode
+	if state.Mode == auth.BlindExperimentModeSession && state.SessionSubjectKey == "" {
+		params.BlindExperimentMode = auth.BlindExperimentModeUser
+	}
+	params.BlindExperimentSessionKey = state.SessionSubjectKey
+	outcome := blindExperimentOutcomeFor(ctx, state, routed, params.RequestedModel, params.DecisionModel)
+	params.BlindExperimentModelSource = outcome.source
+	params.BlindExperimentTreatmentApplied = &outcome.treatmentApplied
+	params.BlindExperimentBaselineModel = outcome.baselineModel
+	params.BlindExperimentModelChanged = outcome.modelChanged
 	if state.CohortExperimentID != "" {
 		phaseIndex := int16(state.CohortPhaseIndex)
 		params.CohortPhaseIndex = &phaseIndex
@@ -424,6 +455,81 @@ type TelemetryBucket struct {
 	Bucket           time.Time
 	RequestedCostUSD float64
 	ActualCostUSD    float64
+}
+
+// TelemetryDashboardFact sums upstream spans sharing a bucket, served model,
+// billing path and decision type.
+type TelemetryDashboardFact struct {
+	Bucket              time.Time
+	DecisionModel       string
+	SubscriptionServed  bool
+	DecisionType        string
+	AutomaticAlias      bool
+	RequestCount        int64
+	InputTokens         int64
+	OutputTokens        int64
+	CacheCreationTokens int64
+	CacheReadTokens     int64
+	ActualCostUSD       float64
+}
+
+// TelemetryDrillDownRow is one person's session and requested/decision model
+// pair; the embedded fact carries its tokens, cost and billing.
+type TelemetryDrillDownRow struct {
+	TelemetryDashboardFact
+	PersonID       string
+	Linked         bool
+	DisplayName    string
+	Email          string
+	SessionID      string
+	ClientApp      string
+	RequestedModel string
+	Providers      []string
+	StartedAt      time.Time
+	FinishedAt     time.Time
+}
+
+// Unlinked people are identified by their API key, not a router user.
+type TelemetryIndividualFact struct {
+	TelemetryDashboardFact
+	PersonID    string
+	Linked      bool
+	DisplayName string
+	Email       string
+}
+
+// TelemetryActiveUsers counts distinct people in one bucket.
+type TelemetryActiveUsers struct {
+	Bucket    time.Time
+	Linked    bool
+	UserCount int64
+}
+
+// TelemetryPerson is someone who can route: a roster user (linked) or an API
+// key that sent traffic without one (unlinked). LastRequestAt is nil until
+// their first request.
+type TelemetryPerson struct {
+	ID            string
+	Linked        bool
+	DisplayName   string
+	Email         string
+	LastRequestAt *time.Time
+}
+
+// TelemetrySubscriptionSeat is one pooled Claude/Codex subscription with the
+// raw limit headers of its newest served turn inside the reading lookback.
+type TelemetrySubscriptionSeat struct {
+	ID                 string
+	Provider           string
+	DisplayName        *string
+	OwnerName          *string
+	Enabled            bool
+	State              string
+	CooldownUntil      *time.Time
+	ServedRequests     int64
+	LimitsObservedAt   *time.Time
+	ClaudeLimitHeaders map[string]string
+	CodexLimitHeaders  map[string]string
 }
 
 // TelemetryModelBucket is one time-bucket entry for a single decision model,

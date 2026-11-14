@@ -111,6 +111,10 @@ func runSpendCapSub(t *testing.T, routePath, keyID string, setInstall func(*gin.
 		}
 		reached = true
 		subOnly = billing.SubscriptionOnlyFromContext(c.Request.Context())
+		if subOnly {
+			reason, _ := billing.SubscriptionOnlyReasonFromContext(c.Request.Context())
+			assert.Equal(t, billing.SubscriptionOnlySpendCapReached, reason, "a reached cap must not report depleted credits")
+		}
 		c.Status(http.StatusOK)
 	})
 	w := httptest.NewRecorder()

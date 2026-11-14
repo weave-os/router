@@ -98,8 +98,8 @@ func TestCodexResetQuotaRequiresAccountWideExhaustion(t *testing.T) {
 			defer server.Close()
 			client := NewClient("", server.URL)
 			client.SetCodexBaseURL(server.URL)
-			spent, err := client.CodexQuotaExhausted(context.Background(), subscriptions.Lease{AccessToken: "token", ProviderAccount: "account"})
-			require.Equal(t, tc.exhausted, spent)
+			quotaExhausted, err := client.CodexQuotaExhausted(context.Background(), subscriptions.Lease{AccessToken: "token", ProviderAccount: "account"})
+			require.Equal(t, tc.exhausted, quotaExhausted)
 			require.Equal(t, tc.fails, err != nil)
 		})
 	}

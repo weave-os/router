@@ -4,14 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
-	"weave-os/router/internal/router/bandit"
-	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rl"
@@ -26,15 +27,37 @@ func TestClassifyDispatchError_UnknownErrorIsUnmatched(t *testing.T) {
 	assert.False(t, ok, "an error not matching any known sentinel must not be classified")
 }
 
+func TestClassifyDispatchError_ClaudeEnterpriseOnlyIsNotRetryable(t *testing.T) {
+	classification, ok := proxy.ClassifyDispatchError(fmt.Errorf("dispatch: %w", proxy.ErrClaudeEnterpriseSubscriptionUnavailable))
+	require.True(t, ok)
+	require.Equal(t, http.StatusPaymentRequired, classification.Status)
+	require.True(t, classification.NoClientRetry)
+	require.False(t, classification.RetryAfter)
+	require.Equal(t, "warn", classification.LogLevel)
+	require.Contains(t, classification.Message, "Enterprise-only billing")
+}
+
+func TestClassifyDispatchError_ImageLimitExceeded(t *testing.T) {
+	err := fmt.Errorf("route: %w", policy.ErrImageLimitExceeded)
+	classification, ok := proxy.ClassifyDispatchError(err)
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorImageLimitExceeded, classification.Kind)
+	assert.Equal(t, http.StatusBadRequest, classification.Status)
+	assert.True(t, classification.Kind.IsClientError())
+	assert.Equal(t, "Request image count exceeds every eligible model's limit", classification.LogMessage)
+}
+
 func TestClassifyDispatchError_SubscriptionPoolFailures(t *testing.T) {
 	tests := []struct {
 		name       string
 		err        error
 		kind       proxy.DispatchErrorKind
 		statusCode int
+		logLevel   string
 	}{
-		{name: "exhausted", err: proxy.ErrSubscriptionPoolExhausted, kind: proxy.DispatchErrorSubscriptionPoolExhausted, statusCode: http.StatusTooManyRequests},
-		{name: "unavailable", err: proxy.ErrSubscriptionPoolUnavailable, kind: proxy.DispatchErrorSubscriptionPoolUnavailable, statusCode: http.StatusServiceUnavailable},
+		{name: "exhausted", err: proxy.ErrSubscriptionPoolExhausted, kind: proxy.DispatchErrorSubscriptionPoolExhausted, statusCode: http.StatusTooManyRequests, logLevel: "warn"},
+		{name: "unavailable", err: proxy.ErrSubscriptionPoolUnavailable, kind: proxy.DispatchErrorSubscriptionPoolUnavailable, statusCode: http.StatusServiceUnavailable, logLevel: "error"},
+		{name: "throttled", err: proxy.ErrSubscriptionPoolThrottled, kind: proxy.DispatchErrorSubscriptionPoolThrottled, statusCode: http.StatusTooManyRequests, logLevel: "warn"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -42,6 +65,7 @@ func TestClassifyDispatchError_SubscriptionPoolFailures(t *testing.T) {
 			require.True(t, ok)
 			require.Equal(t, test.kind, classification.Kind)
 			require.Equal(t, test.statusCode, classification.Status)
+			require.Equal(t, test.logLevel, classification.LogLevel)
 			require.True(t, classification.RetryAfter)
 		})
 	}
@@ -118,17 +142,47 @@ func TestClassifyDispatchError_UpstreamErrorResponsePreservesStatus(t *testing.T
 	assert.Equal(t, http.StatusTooManyRequests, cls.Status)
 }
 
-func TestClassifyDispatchError_ClusterUnavailableRetriesAndLogsError(t *testing.T) {
-	cls, ok := proxy.ClassifyDispatchError(cluster.ErrClusterUnavailable)
+func TestClassifyDispatchError_RoutingUnavailableRetriesAndLogsError(t *testing.T) {
+	cls, ok := proxy.ClassifyDispatchError(router.ErrRoutingUnavailable)
 
 	require.True(t, ok)
+	assert.NotContains(t, cls.Message, "cluster")
 	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
 	assert.True(t, cls.RetryAfter)
 	assert.Equal(t, "error", cls.LogLevel)
 }
 
+// Wrapped routing sentinels must classify identically to the bare ones.
+func TestClassifyDispatchError_RoutingSentinelsKeepStatusAndKind(t *testing.T) {
+	cases := []struct {
+		name       string
+		err        error
+		kind       proxy.DispatchErrorKind
+		status     int
+		retryAfter bool
+	}{
+		{"no eligible provider", router.ErrNoEligibleProvider, proxy.DispatchErrorNoEligibleProvider, http.StatusBadRequest, false},
+		{"allowlist empties pool", router.ErrAllowlistEmptiesPool, proxy.DispatchErrorAllowlistEmptiesPool, http.StatusBadRequest, false},
+		{"invalid routing knobs", router.ErrInvalidRoutingKnobs, proxy.DispatchErrorInvalidRoutingKnobs, http.StatusBadRequest, false},
+		{"routing unavailable", router.ErrRoutingUnavailable, proxy.DispatchErrorClusterUnavailable, http.StatusServiceUnavailable, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, err := range []error{tc.err, fmt.Errorf("hard-pin: %w", tc.err)} {
+				cls, ok := proxy.ClassifyDispatchError(err)
+				require.True(t, ok, "expected %v to be classified", err)
+				assert.Equal(t, tc.kind, cls.Kind)
+				assert.Equal(t, tc.status, cls.Status)
+				assert.Equal(t, tc.retryAfter, cls.RetryAfter)
+				assert.NotContains(t, strings.ToLower(cls.Message), "cluster")
+				assert.NotContains(t, strings.ToLower(cls.LogMessage), "cluster")
+			}
+		})
+	}
+}
+
 func TestClassifyDispatchError_NoEligibleProviderIsClientErrorAndWarns(t *testing.T) {
-	cls, ok := proxy.ClassifyDispatchError(cluster.ErrNoEligibleProvider)
+	cls, ok := proxy.ClassifyDispatchError(router.ErrNoEligibleProvider)
 
 	require.True(t, ok)
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
@@ -140,7 +194,7 @@ func TestClassifyDispatchError_NoEligibleProviderIsClientErrorAndWarns(t *testin
 // ErrAllowlistEmptiesPool wraps ErrNoEligibleProvider, so switch ordering is
 // load-bearing: the generic case must not match first and misattribute the cause.
 func TestClassifyDispatchError_AllowlistEmptiesPoolPrecedesNoEligibleProvider(t *testing.T) {
-	cls, ok := proxy.ClassifyDispatchError(cluster.ErrAllowlistEmptiesPool)
+	cls, ok := proxy.ClassifyDispatchError(router.ErrAllowlistEmptiesPool)
 
 	require.True(t, ok)
 	assert.Equal(t, proxy.DispatchErrorAllowlistEmptiesPool, cls.Kind)
@@ -152,13 +206,23 @@ func TestClassifyDispatchError_AllowlistEmptiesPoolPrecedesNoEligibleProvider(t 
 	assert.Contains(t, cls.Message, "allowlist")
 }
 
-func TestClassifyDispatchError_BanditRLandHMMUnavailableRetry(t *testing.T) {
-	for _, err := range []error{bandit.ErrBanditUnavailable, rl.ErrPolicyUnavailable, hmm.ErrHMMUnavailable} {
+func TestClassifyDispatchError_RLAndHMMUnavailableRetry(t *testing.T) {
+	for _, err := range []error{rl.ErrPolicyUnavailable, hmm.ErrHMMUnavailable, decisionmodel.ErrUnavailable} {
 		cls, ok := proxy.ClassifyDispatchError(err)
 		require.True(t, ok, "expected %v to be classified", err)
 		assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
 		assert.True(t, cls.RetryAfter)
 	}
+}
+
+func TestClassifyDispatchError_SpendCapIs402WithoutTopUpCTA(t *testing.T) {
+	cls, ok := proxy.ClassifyDispatchError(proxy.ErrSpendCapSubscriptionUnavailable)
+
+	require.True(t, ok, "the spend-cap sentinel must be classified")
+	assert.Equal(t, proxy.DispatchErrorSpendCapReached, cls.Kind)
+	assert.Equal(t, http.StatusPaymentRequired, cls.Status)
+	assert.Contains(t, cls.Message, "spend cap")
+	assert.NotContains(t, cls.Message, "credits", "a reached cap must not claim the balance is depleted")
 }
 
 func TestClassifyDispatchError_CreditsExhaustedIs402(t *testing.T) {
@@ -371,6 +435,20 @@ func TestClassifyDispatchError_NoRoutableModels(t *testing.T) {
 	assert.False(t, cls.RetryAfter)
 }
 
+func TestClassifyDispatchError_NoProviderCredentials(t *testing.T) {
+	err := fmt.Errorf("hmm_embedding: no eligible candidate: %w: %w",
+		policy.ErrNoProviderCredentials, hmm.ErrHMMUnavailable)
+
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorNoEligibleProvider, cls.Kind)
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.Contains(t, cls.Message, "add a provider key")
+	assert.Contains(t, cls.Message, "re-enable an excluded provider")
+	assert.False(t, cls.RetryAfter)
+}
+
 func TestClassifyDispatchError_HMMUnavailableStaysAnOutage(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(fmt.Errorf("hmm: sidecar decide: %w", hmm.ErrHMMUnavailable))
 
@@ -401,4 +479,21 @@ func TestClassifyDispatchError_ResponsesChatCompletionsBodyIs400ClientError(t *t
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.Contains(t, cls.Message, "moved to 'input'")
 	assert.True(t, cls.Kind.IsClientError(), "the caller sent the wrong wire format; not an upstream failure")
+}
+
+func TestClassifyDispatchError_QwenWarmingIsActionable(t *testing.T) {
+	classification, found := proxy.ClassifyDispatchError(fmt.Errorf("route: %w: %w", policy.ErrClassifierWarming, hmm.ErrHMMUnavailable))
+	require.True(t, found)
+	assert.Equal(t, http.StatusServiceUnavailable, classification.Status)
+	assert.Contains(t, classification.Message, "prepare-model")
+	assert.True(t, classification.RetryAfter)
+}
+
+func TestClassifyDispatchError_PassthroughModelUnknownOutsideRoutingPolicyIsNeutral(t *testing.T) {
+	cls, ok := proxy.ClassifyDispatchError(&proxy.PassthroughModelUnknownError{Model: "auto"})
+
+	require.True(t, ok)
+	assert.NotContains(t, cls.Message, "as-is", "an experiment subject must not learn the request skipped routing")
+	assert.NotContains(t, cls.Message, "passthrough")
+	assert.NotContains(t, cls.Message, "routing")
 }

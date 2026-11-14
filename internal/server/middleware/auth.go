@@ -102,8 +102,11 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 		var apiKey *auth.APIKey
 		var externalKeys []*auth.ExternalAPIKey
 		var clusterModelLists []auth.ClusterModelList
+		var delegatedSession *auth.DelegatedSession
 		var err error
-		if testPlan != nil {
+		if auth.IsSessionToken(token) {
+			installation, apiKey, externalKeys, clusterModelLists, delegatedSession, err = svc.VerifySessionToken(authCtx, token, testPlan == nil)
+		} else if testPlan != nil {
 			installation, apiKey, clusterModelLists, err = svc.VerifyPlatformAPIKey(authCtx, token)
 		} else {
 			installation, apiKey, externalKeys, clusterModelLists, err = svc.VerifyAPIKey(authCtx, token)
@@ -130,8 +133,12 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 				return
 			}
 		}
+		ctx = auth.WithDelegatedSession(ctx, delegatedSession)
 		if apiKey != nil {
 			ctx = context.WithValue(ctx, proxy.APIKeyIDContextKey{}, apiKey.ID)
+			if apiKey.PaidFallbackOnSubscriptionRefusal {
+				ctx = context.WithValue(ctx, proxy.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}, true)
+			}
 			ctx = proxy.WithManagedSubscriptionUsage(ctx)
 			owner := subscriptionOwnerForRequest(c, apiKey)
 			c.Set(ctxKeySubscriptionOwner, owner)
@@ -142,14 +149,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 					observability.FromContext(ctx).Error("Failed to load subscription account enrollment", "err", listErr)
 					ctx = context.WithValue(ctx, proxy.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 				} else {
-					enrolled := make(map[auth.SubscriptionProvider]struct{})
-					for _, account := range accounts {
-						enrolled[account.Provider] = struct{}{}
-					}
-					if len(enrolled) > 0 {
-						ctx = context.WithValue(ctx, proxy.ManagedSubscriptionProvidersContextKey{}, enrolled)
-					}
-
+					ctx = proxy.WithManagedSubscriptionCandidates(ctx, accounts)
 				}
 			}
 		}
@@ -165,6 +165,9 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			}
 			if len(installation.AllowedModels) > 0 {
 				ctx = context.WithValue(ctx, proxy.InstallationAllowedModelsContextKey{}, installation.AllowedModels)
+			}
+			if installation.SubscriptionStateModelsEnabled {
+				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionStateModelsEnabledContextKey{}, true)
 			}
 			if len(installation.ModelsWhenSubscriptionActive) > 0 {
 				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionModelsWhenActiveContextKey{}, installation.ModelsWhenSubscriptionActive)
@@ -196,6 +199,9 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			}
 			if installation.SubscriptionRoutingDisabled {
 				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionRoutingDisabledContextKey{}, true)
+			}
+			if installation.PickedModelCreditFallbackEnabled {
+				ctx = context.WithValue(ctx, proxy.InstallationPickedModelCreditFallbackContextKey{}, true)
 			}
 			if installation.HideTerminalSurfaces {
 				ctx = context.WithValue(ctx, proxy.InstallationHideTerminalSurfacesContextKey{}, true)
@@ -285,10 +291,6 @@ func tryAdminCookie(c *gin.Context, svc *auth.Service) *auth.AdminPrincipal {
 // extractToken pulls the router token from RouterKeyHeader first, then falls back to Authorization: Bearer or x-api-key.
 func extractToken(c *gin.Context) string {
 	return auth.RoutingTokenFromHeaders(c.Request.Header)
-}
-
-func extractBearer(header string) string {
-	return auth.BearerToken(header)
 }
 
 func handleAuthError(c *gin.Context, err error) {

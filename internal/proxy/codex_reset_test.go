@@ -2,7 +2,9 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
@@ -16,11 +18,12 @@ type resetSubscriptionLeaser struct {
 	*scriptedSubscriptionLeaser
 	resets    int
 	recovered subscriptions.Lease
+	err       error
 }
 
 func (l *resetSubscriptionLeaser) ResetCodex(context.Context, auth.SubscriptionOwner, string) (subscriptions.Lease, bool, error) {
 	l.resets++
-	return l.recovered, l.recovered.AccountID != "", nil
+	return l.recovered, l.recovered.AccountID != "", l.err
 }
 
 func TestManagedCodexResetIsOptInAndPreservesSubscriptionModes(t *testing.T) {
@@ -83,4 +86,22 @@ func TestManagedCodexResetClearsStaleExhaustionAndRetriesSameAccount(t *testing.
 	require.Empty(t, attribution.AttemptedAccounts)
 	_, found := svc.managedSubscriptionUsageSnapshot(account.AccountID, account.AccessToken)
 	require.False(t, found)
+}
+
+func TestManagedCodexResetFailureKeepsPoolExhaustion(t *testing.T) {
+	leaser := &resetSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{}, err: errors.New("quota endpoint unavailable")}
+	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderOpenAI: &fakeClient{name: providers.ProviderOpenAI}}).WithManagedSubscriptions(leaser)
+	ctx := flags.WithOverrides(managedSubscriptionContext(auth.SubscriptionProviderCodex), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyCodexAutoUsageReset: true}})
+	ctx = WithSubscriptionOwner(ctx, auth.SubscriptionOwner{SubscriberID: "subscriber-1"})
+	ctx = context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true)
+	_, _, _, err := svc.leaseManagedSubscription(ctx, providers.ProviderOpenAI, "gpt-6.1-sol")
+	require.Equal(t, 1, leaser.resets)
+	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.NotErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+}
+
+func TestCodexResetOwnerExcludesOnlyNonQuotaSkips(t *testing.T) {
+	usage := &ManagedSubscriptionUsage{QuotaExhaustedAccounts: map[string]time.Time{"spent": time.Now().Add(time.Hour)}}
+	owner := codexResetOwner(auth.SubscriptionOwner{ExcludedAccountIDs: []string{"spent", "model-denied"}}, usage)
+	require.Equal(t, []string{"model-denied"}, owner.ExcludedAccountIDs)
 }

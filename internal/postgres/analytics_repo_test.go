@@ -130,6 +130,9 @@ func TestDecisionFromExportRowMapsServedCosts(t *testing.T) {
 	require.NotNil(t, got.ActualInputCostUSD)
 	assert.InDelta(t, 1.0, *got.ActualInputCostUSD, 1e-9)
 	assert.InDelta(t, 0.25, *got.ActualOutputCostUSD, 1e-9)
+	require.NotNil(t, got.APIRateInputCostUSD)
+	assert.InDelta(t, 1.0, *got.APIRateInputCostUSD, 1e-9)
+	assert.InDelta(t, 0.25, *got.APIRateOutputCostUSD, 1e-9)
 }
 
 // A subscription-served turn is paid for by the caller's own quota, so it
@@ -151,6 +154,10 @@ func TestDecisionFromExportRowSubscriptionServedCostsAreZero(t *testing.T) {
 	require.NotNil(t, got.ActualOutputCostUSD)
 	assert.Zero(t, *got.ActualInputCostUSD)
 	assert.Zero(t, *got.ActualOutputCostUSD)
+	require.NotNil(t, got.APIRateInputCostUSD)
+	require.NotNil(t, got.APIRateOutputCostUSD)
+	assert.InDelta(t, 1.0, *got.APIRateInputCostUSD, 1e-9)
+	assert.InDelta(t, 0.25, *got.APIRateOutputCostUSD, 1e-9)
 	require.NotNil(t, got.InputTokens)
 	assert.Equal(t, int64(4_200), *got.InputTokens)
 }
