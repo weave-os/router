@@ -53,8 +53,8 @@ func TestOrderedBindingsWithoutFailoverRejectsImageCappedBindingUnlessForced(t *
 
 func TestOrderedBindingsKeepsTheDecisionProviderFirst(t *testing.T) {
 	got := dispatch.OrderedBindings(dispatch.BindingRequest{
-		Decision: router.Decision{Model: multiBindingModel, Provider: providers.ProviderOpenRouter},
-		Keyed:    keyed(providers.ProviderFireworks, providers.ProviderOpenRouter),
+		Decision:                 router.Decision{Model: multiBindingModel, Provider: providers.ProviderOpenRouter},
+		DeploymentKeyedProviders: keyed(providers.ProviderFireworks, providers.ProviderOpenRouter),
 	})
 	require.GreaterOrEqual(t, len(got), 2)
 	assert.Equal(t, providers.ProviderOpenRouter, got[0].Provider)
@@ -63,32 +63,32 @@ func TestOrderedBindingsKeepsTheDecisionProviderFirst(t *testing.T) {
 
 func TestOrderedBindingsSubscriptionAdmitsAnUnkeyedDecisionProvider(t *testing.T) {
 	req := dispatch.BindingRequest{
-		Decision: router.Decision{Model: multiBindingModel, Provider: providers.ProviderFireworks},
-		Keyed:    keyed(providers.ProviderOpenRouter),
+		Decision:                 router.Decision{Model: multiBindingModel, Provider: providers.ProviderFireworks},
+		DeploymentKeyedProviders: keyed(providers.ProviderOpenRouter),
 	}
 	assert.Equal(t, []string{providers.ProviderFireworks}, providersOf(dispatch.OrderedBindings(req)),
 		"one keyed fallback collapses to the decision provider alone")
 
 	req.SubscriptionServes = true
-	with := providersOf(dispatch.OrderedBindings(req))
-	assert.Equal(t, []string{providers.ProviderFireworks, providers.ProviderOpenRouter}, with)
-	assert.Equal(t, keyed(providers.ProviderOpenRouter), req.Keyed, "the keyed set must not be mutated")
+	withSubscription := providersOf(dispatch.OrderedBindings(req))
+	assert.Equal(t, []string{providers.ProviderFireworks, providers.ProviderOpenRouter}, withSubscription)
+	assert.Equal(t, keyed(providers.ProviderOpenRouter), req.DeploymentKeyedProviders, "the keyed set must not be mutated")
 }
 
 func TestOrderedBindingsDropsImageCappedPrimary(t *testing.T) {
 	got := dispatch.OrderedBindings(dispatch.BindingRequest{
-		Decision:   router.Decision{Model: imageCappedModel, Provider: providers.ProviderDeepInfra},
-		Keyed:      keyed(providers.ProviderDeepInfra, providers.ProviderOpenRouter),
-		ImageCount: 17,
+		Decision:                 router.Decision{Model: imageCappedModel, Provider: providers.ProviderDeepInfra},
+		DeploymentKeyedProviders: keyed(providers.ProviderDeepInfra, providers.ProviderOpenRouter),
+		ImageCount:               17,
 	})
 	assert.Equal(t, []string{providers.ProviderOpenRouter}, providersOf(got))
 }
 
 func TestOrderedBindingsImageCapLeavingNothingFailsUnlessForced(t *testing.T) {
 	req := dispatch.BindingRequest{
-		Decision:   router.Decision{Model: imageCappedModel, Provider: providers.ProviderDeepInfra},
-		Keyed:      keyed(providers.ProviderDeepInfra),
-		ImageCount: 17,
+		Decision:                 router.Decision{Model: imageCappedModel, Provider: providers.ProviderDeepInfra},
+		DeploymentKeyedProviders: keyed(providers.ProviderDeepInfra),
+		ImageCount:               17,
 	}
 	assert.Nil(t, dispatch.OrderedBindings(req))
 
@@ -98,8 +98,8 @@ func TestOrderedBindingsImageCapLeavingNothingFailsUnlessForced(t *testing.T) {
 
 func TestOrderedBindingsUnboundForcedCatalogModelHasNoWalk(t *testing.T) {
 	req := dispatch.BindingRequest{
-		Decision: router.Decision{Model: multiBindingModel, Provider: providers.ProviderFireworks},
-		Keyed:    keyed(providers.ProviderAnthropic),
+		Decision:                 router.Decision{Model: multiBindingModel, Provider: providers.ProviderFireworks},
+		DeploymentKeyedProviders: keyed(providers.ProviderAnthropic),
 	}
 	assert.Equal(t, []string{providers.ProviderFireworks}, providersOf(dispatch.OrderedBindings(req)))
 
@@ -109,9 +109,9 @@ func TestOrderedBindingsUnboundForcedCatalogModelHasNoWalk(t *testing.T) {
 
 func TestOrderedBindingsExcludedPrimaryWithNoBindingsHasNoWalk(t *testing.T) {
 	got := dispatch.OrderedBindings(dispatch.BindingRequest{
-		Decision: router.Decision{Model: multiBindingModel, Provider: providers.ProviderFireworks},
-		Keyed:    keyed(providers.ProviderFireworks, providers.ProviderOpenRouter),
-		Excluded: keyed(providers.ProviderFireworks, providers.ProviderOpenRouter),
+		Decision:                 router.Decision{Model: multiBindingModel, Provider: providers.ProviderFireworks},
+		DeploymentKeyedProviders: keyed(providers.ProviderFireworks, providers.ProviderOpenRouter),
+		Excluded:                 keyed(providers.ProviderFireworks, providers.ProviderOpenRouter),
 	})
 	assert.Nil(t, got)
 }

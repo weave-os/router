@@ -197,7 +197,7 @@ func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision route
 		ForceModel: decision.Reason == translate.ReasonUserForceModel,
 	}
 	if s.shouldFailover(ctx) && s.deploymentKeyedProviders != nil {
-		req.Keyed = s.deploymentKeyedProviders
+		req.DeploymentKeyedProviders = s.deploymentKeyedProviders
 		req.SubscriptionServes = managedSubscriptionCanServe(ctx, decision.Provider, decision.Model) && s.supportsSubscriptionTransport(decision.Provider)
 		req.Excluded = s.excludedProvidersForRequest(ctx)
 	}
