@@ -3770,13 +3770,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	inboundUserPrompt := routingEndsWithUserPrompt(ctx, env)
 	inboundLatestToolCalls := latestToolCallCountsJSON(env)
 
-	pre := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
+	prefiltered := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
 		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserve, Eligibility: eligibility,
 		Excluded: baseExcluded, Available: s.availableModels,
 		AdvisorExclusions: advisorExclusions(env, s.routableUniverse()), ExcludeAdvisorOutranking: true,
 	})
-	logPrefilter(log, env, feats.ImageCount, outputReserve, pre)
-	excluded, overflowEstimate := pre.Excluded, pre.OverflowEstimate
+	logPrefilter(log, env, feats.ImageCount, outputReserve, prefiltered)
+	excluded, overflowEstimate := prefiltered.Excluded, prefiltered.OverflowEstimate
 
 	routeStart := time.Now()
 	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
@@ -3808,11 +3808,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excluded,
 		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          pre.Safety,
-		ContextWindowExcludedModels:   pre.ContextWindowOnly,
-		ImageLimitExcludedModels:      modelSet(pre.ImageLimited),
-		UnsignedHistoryExcludedModels: modelSet(pre.UnsignedHistory),
-		OverflowAdmittedModels:        modelSet(pre.OverflowAdmitted),
+		SafetyExcludedModels:          prefiltered.Safety,
+		ContextWindowExcludedModels:   prefiltered.ContextWindowOnly,
+		ImageLimitExcludedModels:      modelSet(prefiltered.ImageLimited),
+		UnsignedHistoryExcludedModels: modelSet(prefiltered.UnsignedHistory),
+		OverflowAdmittedModels:        modelSet(prefiltered.OverflowAdmitted),
 		PreferredModels:               s.preferredModelsForRequest(ctx),
 		RoutingKnobs:                  routingKnobsForRequest(ctx),
 		ClusterArmOverrides:           clusterArmOverridesForRequest(ctx),
@@ -7079,13 +7079,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	inboundLastUser := env.LastUserMessage()
 	inboundUserPromptOAI := routingEndsWithUserPrompt(ctx, env)
 
-	pre := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
+	prefiltered := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
 		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserveOAI, Eligibility: eligibility,
 		Excluded: baseExcludedOAI, Available: s.availableModels,
 		AdvisorExclusions: advisorExclusions(env, s.routableUniverse()),
 	})
-	logPrefilter(log, env, feats.ImageCount, outputReserveOAI, pre)
-	excludedOAI, overflowEstimateOAI := pre.Excluded, pre.OverflowEstimate
+	logPrefilter(log, env, feats.ImageCount, outputReserveOAI, prefiltered)
+	excludedOAI, overflowEstimateOAI := prefiltered.Excluded, prefiltered.OverflowEstimate
 
 	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
 	routeRequest := router.Request{
@@ -7114,11 +7114,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excludedOAI,
 		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          pre.Safety,
-		ContextWindowExcludedModels:   pre.ContextWindowOnly,
-		ImageLimitExcludedModels:      modelSet(pre.ImageLimited),
-		UnsignedHistoryExcludedModels: modelSet(pre.UnsignedHistory),
-		OverflowAdmittedModels:        modelSet(pre.OverflowAdmitted),
+		SafetyExcludedModels:          prefiltered.Safety,
+		ContextWindowExcludedModels:   prefiltered.ContextWindowOnly,
+		ImageLimitExcludedModels:      modelSet(prefiltered.ImageLimited),
+		UnsignedHistoryExcludedModels: modelSet(prefiltered.UnsignedHistory),
+		OverflowAdmittedModels:        modelSet(prefiltered.OverflowAdmitted),
 		PreferredModels:               s.preferredModelsForRequest(ctx),
 		RoutingKnobs:                  routingKnobsForRequest(ctx),
 		ClusterArmOverrides:           clusterArmOverridesForRequest(ctx),

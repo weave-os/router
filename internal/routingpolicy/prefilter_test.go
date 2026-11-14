@@ -101,9 +101,9 @@ func TestSafetyExcludedModels_CatchesPolicyExcludedOverflow(t *testing.T) {
 		nil, map[string]struct{}{"claude-haiku-4-5": {}}, available,
 	)
 	assert.NotContains(t, routingOverflowed, "claude-haiku-4-5",
-		"the routing filter skips a policy-excluded model — this is the gap safetyExcludedModels must close")
+		"the routing filter skips a policy-excluded model — this is the gap SafetyExcludedModels must close")
 
-	// safetyExcludedModels re-runs against an empty base, so it DOES catch the
+	// SafetyExcludedModels re-runs against an empty base, so it DOES catch the
 	// overflow regardless of policy exclusion.
 	safety := routingpolicy.SafetyExcludedModels(env, 8_000, nil, nil, available, nil)
 	_, blocked := safety["claude-haiku-4-5"]

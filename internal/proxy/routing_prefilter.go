@@ -14,31 +14,31 @@ func advisorExclusions(env *translate.RequestEnvelope, routable map[string]struc
 	}
 }
 
-func logPrefilter(log *slog.Logger, env *translate.RequestEnvelope, imageCount, outputReserve int, pre routingpolicy.Prefiltered) {
-	if len(pre.UnsignedHistory) > 0 {
+func logPrefilter(log *slog.Logger, env *translate.RequestEnvelope, imageCount, outputReserve int, prefiltered routingpolicy.Prefiltered) {
+	if len(prefiltered.UnsignedHistory) > 0 {
 		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
-			"excluded_models", strings.Join(pre.UnsignedHistory, ","),
+			"excluded_models", strings.Join(prefiltered.UnsignedHistory, ","),
 		)
 	}
-	if len(pre.AdvisorOutranking) > 0 {
+	if len(prefiltered.AdvisorOutranking) > 0 {
 		log.Info("advisor pre-filter: excluded models the advisor tool cannot advise",
 			"advisor_model", env.AdvisorToolModel(),
-			"excluded_models", strings.Join(pre.AdvisorOutranking, ","),
+			"excluded_models", strings.Join(prefiltered.AdvisorOutranking, ","),
 		)
 	}
-	if len(pre.ImageLimited) > 0 {
+	if len(prefiltered.ImageLimited) > 0 {
 		log.Info("image limit pre-filter: excluded models whose bindings cap images below the request count",
 			"image_count", imageCount,
-			"excluded_models", strings.Join(pre.ImageLimited, ","),
+			"excluded_models", strings.Join(prefiltered.ImageLimited, ","),
 		)
 	}
-	if len(pre.ContextOverflowed) > 0 {
+	if len(prefiltered.ContextOverflowed) > 0 {
 		log.Info("context window pre-filter: excluded over-capacity models",
-			"overflow_token_estimate", pre.OverflowEstimate,
+			"overflow_token_estimate", prefiltered.OverflowEstimate,
 			"output_reserve", outputReserve,
-			"excluded_count", len(pre.ContextOverflowed)-len(pre.OverflowAdmitted),
-			"excluded_models", strings.Join(pre.ContextOverflowed, ","),
-			"admitted_for_upstream", strings.Join(pre.OverflowAdmitted, ","),
+			"excluded_count", len(prefiltered.ContextOverflowed)-len(prefiltered.OverflowAdmitted),
+			"excluded_models", strings.Join(prefiltered.ContextOverflowed, ","),
+			"admitted_for_upstream", strings.Join(prefiltered.OverflowAdmitted, ","),
 		)
 	}
 }

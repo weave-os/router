@@ -145,13 +145,13 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if feats.MaxTokens > outputReserve {
 		outputReserve = feats.MaxTokens
 	}
-	pre := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
+	prefiltered := routingpolicy.Prefilter(routingpolicy.PrefilterRequest{
 		Envelope: env, ImageCount: feats.ImageCount, OutputReserve: outputReserve, Eligibility: eligibility,
 		Excluded: excluded, Available: s.availableModels,
 		AdvisorExclusions: advisorExclusions(env, s.routableUniverse()),
 	})
-	logPrefilter(log, env, feats.ImageCount, outputReserve, pre)
-	excluded, overflowEstimate := pre.Excluded, pre.OverflowEstimate
+	logPrefilter(log, env, feats.ImageCount, outputReserve, prefiltered)
+	excluded, overflowEstimate := prefiltered.Excluded, prefiltered.OverflowEstimate
 
 	routingPromptText, routingMessages := routingInputForRequest(ctx, env, promptText)
 	routeRequest := router.Request{
@@ -174,11 +174,11 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
 		ExcludedModels:                excluded,
 		AllowedModels:                 allowedModelsForRequest(ctx),
-		SafetyExcludedModels:          pre.Safety,
-		ContextWindowExcludedModels:   pre.ContextWindowOnly,
-		ImageLimitExcludedModels:      modelSet(pre.ImageLimited),
-		UnsignedHistoryExcludedModels: modelSet(pre.UnsignedHistory),
-		OverflowAdmittedModels:        modelSet(pre.OverflowAdmitted),
+		SafetyExcludedModels:          prefiltered.Safety,
+		ContextWindowExcludedModels:   prefiltered.ContextWindowOnly,
+		ImageLimitExcludedModels:      modelSet(prefiltered.ImageLimited),
+		UnsignedHistoryExcludedModels: modelSet(prefiltered.UnsignedHistory),
+		OverflowAdmittedModels:        modelSet(prefiltered.OverflowAdmitted),
 		PreferredModels:               s.preferredModelsForRequest(ctx),
 		RoutingKnobs:                  router.RoutingKnobsFromContext(ctx),
 		ClusterArmOverrides:           clusterArmOverridesForRequest(ctx),

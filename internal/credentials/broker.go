@@ -14,8 +14,8 @@ type Broker interface {
 	Eligibility(ctx context.Context, req EligibilityRequest) (Eligibility, error)
 }
 
-// EligibilityRequest identifies the inbound request whose credentials are
-// resolved.
+// EligibilityRequest carries what a broker needs to resolve one inbound
+// request's credentials.
 type EligibilityRequest struct {
 	// Surface is the wire-format provider: anthropic, openai or google.
 	Surface string

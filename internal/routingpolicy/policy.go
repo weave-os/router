@@ -20,7 +20,8 @@ type Planner interface {
 	Plan(request policy.RoutedResolutionRequest) (policy.ResolvedPlan, error)
 }
 
-// Policy is the Routing Policy collaborator.
+// Policy owns request-time eligibility and plan authorization; credential
+// reach comes only from the broker.
 type Policy struct {
 	broker                 credentials.Broker
 	plans                  *policy.PlanResolver
@@ -29,13 +30,13 @@ type Policy struct {
 
 var _ Planner = (*Policy)(nil)
 
-// New builds a Policy that reads credential reach from broker and resolves
-// plans through plans.
+// New builds a Policy; a nil plans makes Plan fail closed with
+// ErrNoPlanResolver.
 func New(broker credentials.Broker, plans *policy.PlanResolver) *Policy {
 	return &Policy{broker: broker, plans: plans}
 }
 
-// Plan resolves the immutable plan for a routed decision.
+// Plan fails closed with ErrNoPlanResolver when no plan resolver is wired.
 func (p *Policy) Plan(request policy.RoutedResolutionRequest) (policy.ResolvedPlan, error) {
 	if p == nil || p.plans == nil {
 		return policy.ResolvedPlan{}, ErrNoPlanResolver
@@ -43,7 +44,8 @@ func (p *Policy) Plan(request policy.RoutedResolutionRequest) (policy.ResolvedPl
 	return p.plans.ResolveRouted(request)
 }
 
-// Eligibility returns the provider reach of the request's credentials.
+// Eligibility delegates credential reach to the broker; Policy adds no
+// filtering of its own.
 func (p *Policy) Eligibility(ctx context.Context, req credentials.EligibilityRequest) (credentials.Eligibility, error) {
 	return p.broker.Eligibility(ctx, req)
 }

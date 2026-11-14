@@ -358,22 +358,21 @@ type Prefiltered struct {
 // total-overflow admission.
 func Prefilter(req PrefilterRequest) Prefiltered {
 	env, available := req.Envelope, req.Available
-	enabled, custom := req.Eligibility.EnabledProviders, req.Eligibility.CustomBindings
+	enabled, customBindings := req.Eligibility.EnabledProviders, req.Eligibility.CustomBindings
 	var out Prefiltered
 	excluded, unsigned := ExcludeGemini3xOnUnsignedHistory(env, req.Excluded, available)
 	out.UnsignedHistory = unsigned
 	if req.ExcludeAdvisorOutranking {
 		excluded, out.AdvisorOutranking = req.AdvisorExclusions(excluded)
 	}
-	excluded, out.ImageLimited = ExcludeImageLimitModels(req.ImageCount, enabled, custom, excluded, available)
+	excluded, out.ImageLimited = ExcludeImageLimitModels(req.ImageCount, enabled, customBindings, excluded, available)
 	out.OverflowEstimate = env.ContextOverflowTokenEstimate()
 	excluded, out.ContextOverflowed = ExcludeContextOverflowModels(out.OverflowEstimate, env.SignatureTokenSavings(), req.OutputReserve, enabled, excluded, available)
-	bindings := router.RequestBindings{Custom: custom, Gateways: req.Eligibility.GatewayProviders}
-	out.OverflowAdmitted = AdmitWidestOnTotalOverflow(excluded, out.ContextOverflowed, available, enabled, bindings)
+	out.OverflowAdmitted = AdmitWidestOnTotalOverflow(excluded, out.ContextOverflowed, available, enabled, router.RequestBindings{Custom: customBindings, Gateways: req.Eligibility.GatewayProviders})
 	out.Excluded = WithoutModels(excluded, out.OverflowAdmitted)
-	hard := append(append(append([]string(nil), out.UnsignedHistory...), out.AdvisorOutranking...), out.ImageLimited...)
+	hardExcluded := append(append(append([]string(nil), out.UnsignedHistory...), out.AdvisorOutranking...), out.ImageLimited...)
 	_, safetyAdvisor := req.AdvisorExclusions(nil)
-	out.Safety = WithoutModelsKeep(SafetyExcludedModels(env, req.OutputReserve, enabled, custom, available, safetyAdvisor), out.OverflowAdmitted, hard)
-	out.ContextWindowOnly = ContextWindowOnlyExclusions(out.ContextOverflowed, out.OverflowAdmitted, hard)
+	out.Safety = WithoutModelsKeep(SafetyExcludedModels(env, req.OutputReserve, enabled, customBindings, available, safetyAdvisor), out.OverflowAdmitted, hardExcluded)
+	out.ContextWindowOnly = ContextWindowOnlyExclusions(out.ContextOverflowed, out.OverflowAdmitted, hardExcluded)
 	return out
 }
