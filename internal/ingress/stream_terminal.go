@@ -59,11 +59,13 @@ func (s StreamTerminalState) Err() error {
 	}
 }
 
-// NoteWrite records bytes written to the client.
+// NoteWrite counts only a non-empty write as the client having received bytes.
 func (s *StreamTerminalState) NoteWrite(p []byte) { s.wrote = s.wrote || len(p) > 0 }
 
-// MarkStarted records that the response began.
+// MarkStarted is called on a protocol's response-start event, or on any
+// payload frame for protocols without one.
 func (s *StreamTerminalState) MarkStarted() { s.started = true }
 
-// MarkEnded records the stream's terminal event.
+// MarkEnded is called on a terminal event and on an upstream error frame:
+// both name the outcome on the wire.
 func (s *StreamTerminalState) MarkEnded() { s.ended = true }
