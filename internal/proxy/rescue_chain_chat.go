@@ -64,7 +64,6 @@ func (o *chatRescue) leaveVerbatimPassthrough(target router.Decision) {
 
 func (o *chatRescue) armCyberRetry(ctx context.Context) {
 	s := o.svc
-	env := o.env
 	routeRes := o.routeRes
 	// OpenAI's cybersecurity classifier declines the turn itself, so the rescue
 	// has to leave the vendor — a retry on another OpenAI binding meets the same
@@ -80,7 +79,7 @@ func (o *chatRescue) armCyberRetry(ctx context.Context) {
 		!billing.SubscriptionOnlyFromContext(ctx)
 	if cyberRetryEligible {
 		target, found := s.cyberRefusalRetryTarget(ctx, o.decision, routeRes.SessionKey, stickyStateRole(routeRes),
-			o.overflowEstimate, env.SignatureTokenSavings(), o.outputReserve)
+			o.overflowEstimate, o.env.SignatureTokenSavings(), o.outputReserve)
 		o.cyberRetryViable = found && (s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, target)) &&
 			(!subscriptionStateModelsEnabled(ctx) || !paidFallbackForbiddenForModel(ctx, target.Model))
 		o.cyberRetryTarget = target
@@ -114,14 +113,12 @@ func (o *chatRescue) armSubscriptionRetries(ctx context.Context) {
 // the chain renders through this — a JSON envelope appended to a live stream
 // is unparseable to the client.
 func (o *chatRescue) flushErrAsOpenAI(w http.ResponseWriter, err error) {
-	env := o.env
-	preludeBuf := o.preludeBuf
 	// Native Responses bytes are passed through verbatim; there is no
 	// error frame we can synthesize into that stream.
 	if o.isResponses && o.responsesPreludeBuf != nil && o.responsesPreludeBuf.PreludeSent() {
 		return
 	}
-	if env.Stream() && preludeBuf.PreludeSent() {
+	if o.env.Stream() && o.preludeBuf.PreludeSent() {
 		_ = emitOpenAISSEErrorEvent(w, err)
 		return
 	}
@@ -137,8 +134,6 @@ func (o *chatRescue) flushErrAsOpenAI(w http.ResponseWriter, err error) {
 // failure is rendered by the handler from the classified sentinel, so the
 // proxy must not write it here as well.
 func (o *chatRescue) flushDeferredErr() {
-	env := o.env
-	preludeBuf := o.preludeBuf
 	if o.deferredErrFlushed {
 		return
 	}
@@ -146,7 +141,7 @@ func (o *chatRescue) flushDeferredErr() {
 	if o.isResponses && o.responsesPreludeBuf != nil && o.responsesPreludeBuf.PreludeSent() {
 		return
 	}
-	if env.Stream() && preludeBuf.PreludeSent() {
+	if o.env.Stream() && o.preludeBuf.PreludeSent() {
 		// The handler cannot render anything once the client has bytes,
 		// so an in-stream frame is the only way the turn reports at all —
 		// including for a pool sentinel, which would otherwise truncate
@@ -170,7 +165,6 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 	r := o.r
 	log := o.log
 	routeRes := o.routeRes
-	opts := o.opts
 	preludeBuf := o.preludeBuf
 	if o.codexRetryViable && !paidFallbackForbiddenForModel(ctx, o.decision.Model) && o.proxyErr != nil && !preludeBuf.Committed() &&
 		(providers.IsRetryable(o.proxyErr) || codexOAuthCredentialRejected(o.proxyErr) || codexSubscriptionModelRejected(o.proxyErr)) {
@@ -179,7 +173,7 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 		s.recordCodexQuotaExhaustion(ctx, r.Header, o.proxyErr)
 		subCtx := subscriptionStatePaidRescueContext(withSuppressedCodexSubscription(ctx), o.decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderOpenAI, o.decision.Model, r.Header)
-		subOpts := opts
+		subOpts := o.opts
 		subOpts.FastMode = fastModeForAttempt(subCtx, o.decision.Model, providers.ProviderOpenAI)
 		subAttempt, subBuildErr := o.buildAttempt(o.decision, subOpts, o.marker, subCtx)
 		subBindings := s.resolveBindingsForDispatch(subCtx, o.decision)
@@ -229,15 +223,13 @@ func (o *chatRescue) codexRetry(ctx context.Context) {
 
 func (o *chatRescue) claudeRetry(ctx context.Context) {
 	s := o.svc
-	r := o.r
 	log := o.log
 	routeRes := o.routeRes
-	opts := o.opts
 	preludeBuf := o.preludeBuf
 	if o.claudeRetryViable && !paidFallbackForbiddenForModel(ctx, o.decision.Model) && o.proxyErr != nil && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(o.proxyErr) || anthropicSubscriptionThirdPartyRefused(o.proxyErr)) {
 		subCtx := subscriptionStatePaidRescueContext(withSuppressedClaudeSubscription(ctx), o.decision.Model)
-		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, o.decision.Model, r.Header)
-		subOpts := opts
+		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, o.decision.Model, o.r.Header)
+		subOpts := o.opts
 		subOpts.FastMode = fastModeForAttempt(subCtx, o.decision.Model, providers.ProviderAnthropic)
 		subAttempt, subBuildErr := o.buildAttempt(o.decision, subOpts, o.marker, subCtx)
 		subBindings := s.resolveBindingsForDispatch(subCtx, o.decision)
@@ -287,11 +279,10 @@ func (o *chatRescue) cyberRetry(ctx context.Context) {
 	r := o.r
 	log := o.log
 	routeRes := o.routeRes
-	opts := o.opts
 	preludeBuf := o.preludeBuf
 	if o.cyberRetryViable && o.proxyErr != nil && !preludeBuf.Committed() &&
 		providers.IsUpstreamCyberPolicyRefusal(o.proxyErr) {
-		retryOpts := opts
+		retryOpts := o.opts
 		retryOpts.TargetModel = o.cyberRetryTarget.Model
 		retryOpts.TargetProvider = o.cyberRetryTarget.Provider
 		retryOpts.Capabilities = router.Lookup(o.cyberRetryTarget.Model)
@@ -352,12 +343,10 @@ func (o *chatRescue) cyberRetry(ctx context.Context) {
 }
 
 func (o *chatRescue) finish(ctx context.Context) {
-	routeRes := o.routeRes
-	preludeBuf := o.preludeBuf
 	// No rescuer served (none ran, or the last one failed pre-commit); surface
 	// the held error now so it's never dropped.
-	o.proxyErr = asCompactionUnservable(routeRes.TurnType, o.decision, o.proxyErr)
-	if (o.siblingRescueOwed || o.overflowRescueOnly) && o.proxyErr != nil && !preludeBuf.Committed() {
+	o.proxyErr = asCompactionUnservable(o.routeRes.TurnType, o.decision, o.proxyErr)
+	if (o.siblingRescueOwed || o.overflowRescueOnly) && o.proxyErr != nil && !o.preludeBuf.Committed() {
 		o.flushDeferredErr()
 	}
 

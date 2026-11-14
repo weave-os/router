@@ -118,7 +118,6 @@ type rescueChain struct {
 func (c *rescueChain) armSiblings(ctx context.Context, rescueBlocked bool) context.Context {
 	s := c.svc
 	env := c.env
-	routeRes := c.routeRes
 	// Same-cluster model failover: when the routed model's only binding is dark,
 	// degrade to a peer the policy already scored. Gated out for depleted-credit
 	// turns (a different model incurs the paid spend that mode forbids). BYOK
@@ -127,7 +126,7 @@ func (c *rescueChain) armSiblings(ctx context.Context, rescueBlocked bool) conte
 	// The plan-capacity mark set during dispatch must be readable here.
 	ctx = withClaudeEnterpriseTurn(ctx, c.decision)
 	ctx = WithManagedSubscriptionUsage(ctx)
-	c.siblingDecisions = subscriptionStatePaidRescueDecisions(ctx, s.siblingFailoverDecisions(ctx, rescueBasisForTurn(c.decision, routeRes), c.overflowEstimate, env.SignatureTokenSavings(), c.outputReserve))
+	c.siblingDecisions = subscriptionStatePaidRescueDecisions(ctx, s.siblingFailoverDecisions(ctx, rescueBasisForTurn(c.decision, c.routeRes), c.overflowEstimate, env.SignatureTokenSavings(), c.outputReserve))
 	c.siblingViable = len(c.siblingDecisions) > 0 &&
 		!rescueBlocked &&
 		s.siblingRescueAllowed(ctx, s.gatewaySiblingAllowed(ctx, c.siblingDecisions[0]))
@@ -161,12 +160,10 @@ func (c *rescueChain) dispatchPrimaryAttempt(ctx context.Context, deferFlush boo
 	s := c.svc
 	r := c.r
 	routeRes := c.routeRes
-	opts := c.opts
-	preludeBuf := c.preludeBuf
 	c.winnerIdx, c.proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
 		// contentSink is the raw w when capture is off.
 		w:                               c.contentSink,
-		buf:                             preludeBuf,
+		buf:                             c.preludeBuf,
 		initialDecision:                 c.decision,
 		subscriptionStateRequest:        c.req,
 		subscriptionStateHeaders:        r.Header,
@@ -178,7 +175,7 @@ func (c *rescueChain) dispatchPrimaryAttempt(ctx context.Context, deferFlush boo
 			return s.subscriptionAlternativeDecisions(ctx, *c.req, c.decision)
 		}(),
 		buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
-			alternativeOpts := opts
+			alternativeOpts := c.opts
 			alternativeOpts.TargetModel = target.Model
 			alternativeOpts.TargetProvider = target.Provider
 			alternativeOpts.Capabilities = router.Lookup(target.Model)
@@ -217,12 +214,10 @@ func (c *rescueChain) dispatchPrimaryAttempt(ctx context.Context, deferFlush boo
 }
 
 func (c *rescueChain) notePrimaryFailure(ctx context.Context) {
-	s := c.svc
-	preludeBuf := c.preludeBuf
 	c.primaryFailureErr = c.proxyErr
 	c.primarySubscriptionArmFailure = c.proxyErr
-	if (servedOnSubscription(ctx) || c.subscriptionOnlySibling) && !preludeBuf.Committed() {
-		s.recordSubscriptionUnavailable(ctx, c.decision.Provider, c.decision.Model, c.proxyErr)
+	if (servedOnSubscription(ctx) || c.subscriptionOnlySibling) && !c.preludeBuf.Committed() {
+		c.svc.recordSubscriptionUnavailable(ctx, c.decision.Provider, c.decision.Model, c.proxyErr)
 	}
 }
 
@@ -231,7 +226,6 @@ func (c *rescueChain) notePrimaryFailure(ctx context.Context) {
 // rescue chain.
 func (c *rescueChain) siblingRescue(ctx context.Context) {
 	s := c.svc
-	routeRes := c.routeRes
 	preludeBuf := c.preludeBuf
 	// Keyed off the flush, not off whether an earlier rescue ran: a failed
 	// subscription retry keeps the same dark model, so a cluster peer can still
@@ -256,7 +250,7 @@ func (c *rescueChain) siblingRescue(ctx context.Context) {
 			providers.IsUpstreamProviderBillingBlocked(c.proxyErr) ||
 			isSubscriptionPoolError(c.proxyErr) ||
 			c.crossBindingRejected ||
-			rescuesCompactionOverflow(routeRes.TurnType, c.proxyErr) ||
+			rescuesCompactionOverflow(c.routeRes.TurnType, c.proxyErr) ||
 			overflowRescued) {
 		for _, siblingDecision := range rescueOrder {
 			// A rescuer that itself failed pre-commit hands the turn to the next
@@ -274,9 +268,7 @@ func (c *rescueChain) dispatchSibling(ctx context.Context, siblingDecision route
 	r := c.r
 	log := c.log
 	routeRes := c.routeRes
-	opts := c.opts
-	preludeBuf := c.preludeBuf
-	siblingOpts := opts
+	siblingOpts := c.opts
 	siblingOpts.TargetModel = siblingDecision.Model
 	siblingOpts.TargetProvider = siblingDecision.Provider
 	siblingOpts.Capabilities = router.Lookup(siblingDecision.Model)
@@ -328,7 +320,7 @@ func (c *rescueChain) dispatchSibling(ctx context.Context, siblingDecision route
 	}
 	c.winnerIdx, c.proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
 		w:                      c.contentSink,
-		buf:                    preludeBuf,
+		buf:                    c.preludeBuf,
 		initialDecision:        siblingDecision,
 		bindings:               siblingBindings,
 		attempt:                siblingAttempt,
