@@ -169,14 +169,9 @@ type Service struct {
 	// byokOnly disables deployment-level credential fallback so customer
 	// requests never silently consume the platform's API key budget.
 	byokOnly bool
-	// noResponsesGateways memoizes gateway endpoints that answered they have no
-	// Responses API, so only the first tool turn against such an endpoint pays
-	// the probe. Keyed by gatewayResponsesKey.
-	noResponsesGateways sync.Map
-	// noPromptCacheKeyGateways memoizes gateway endpoints that rejected
-	// prompt_cache_key as an unknown field, so only the first turn against
-	// such an endpoint pays the 400. Keyed by gatewayResponsesKey.
-	noPromptCacheKeyGateways sync.Map
+	// gatewayCaps memoizes gateway endpoints that rejected the Responses API
+	// or prompt_cache_key. Keyed by gatewayResponsesKey.
+	gatewayCaps dispatch.GatewayCapabilities
 	// unservedGatewayModels memos (endpoint, model) pairs a gateway answered
 	// model-not-found for. Keyed by gatewayModelKey.
 	unservedGatewayModels sync.Map
@@ -2828,25 +2823,6 @@ func gatewayResponsesKey(ctx context.Context, provider string) string {
 	return EffectiveBaseURL(ctx, provider)
 }
 
-// gatewayLacksResponses reports whether that endpoint already told us it serves
-// no Responses API.
-func (s *Service) gatewayLacksResponses(key string) bool {
-	if key == "" {
-		return false
-	}
-	_, ok := s.noResponsesGateways.Load(key)
-	return ok
-}
-
-// rememberGatewayLacksResponses records a gateway's rejection of the Responses
-// API so later tool turns go straight to chat/completions.
-func (s *Service) rememberGatewayLacksResponses(key string) {
-	if key == "" {
-		return
-	}
-	s.noResponsesGateways.Store(key, struct{}{})
-}
-
 // gatewayModelKey returns "endpoint|model" for gateway providers (BYOK base
 // URL, or provider name when deployment-keyed); empty for direct vendors.
 func gatewayModelKey(endpoint, provider, model string) string {
@@ -2878,25 +2854,6 @@ func (s *Service) rememberGatewayLacksModel(ctx context.Context, provider, model
 		return
 	}
 	s.unservedGatewayModels.Store(key, struct{}{})
-}
-
-// gatewayRejectsPromptCacheKey reports whether that endpoint already told us
-// it refuses bodies carrying prompt_cache_key.
-func (s *Service) gatewayRejectsPromptCacheKey(key string) bool {
-	if key == "" {
-		return false
-	}
-	_, ok := s.noPromptCacheKeyGateways.Load(key)
-	return ok
-}
-
-// rememberGatewayRejectsPromptCacheKey records a gateway's unknown-field
-// rejection of prompt_cache_key so later turns go out without the hint.
-func (s *Service) rememberGatewayRejectsPromptCacheKey(key string) {
-	if key == "" {
-		return
-	}
-	s.noPromptCacheKeyGateways.Store(key, struct{}{})
 }
 
 // newTelemetryRecorder returns a request-scoped recorder, or nil when telemetry is disabled — guards against a nil-interface method-call panic.
@@ -4759,8 +4716,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					HasTools:       feats.HasTools,
 					ChatOnlyParams: env.RequiresChatCompletionsParams(targetOpts.Capabilities),
 					Broad:          s.ResolveOpenAIResponsesBroad(actx),
-				}) && !s.gatewayLacksResponses(gatewayKey)
-				stripPCK := s.gatewayRejectsPromptCacheKey(gatewayKey)
+				}) && !s.gatewayCaps.LacksResponses(gatewayKey)
+				stripPCK := s.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
 				rawErr, finalize := dispatchOpenAICompat(actx, d, p, useResponses, stripPCK)
 				// A gateway with no usable Responses surface answers 404, or 4xx
 				// prose saying the API is off for this account. Re-emit onto
@@ -4768,7 +4725,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				// so the next turn skips the probe.
 				if rawErr != nil && useResponses && !committed(preludeBuf) &&
 					providers.IsUpstreamResponsesUnsupported(rawErr) {
-					s.rememberGatewayLacksResponses(gatewayKey)
+					s.gatewayCaps.RememberLacksResponses(gatewayKey)
 					log.Warn("Gateway rejected the Responses API; retrying on chat/completions",
 						"model", d.Model,
 						"decision_provider", d.Provider,
@@ -4784,7 +4741,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				// while pre-commit; memoize the endpoint so later turns skip it.
 				if rawErr != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
 					providers.IsUpstreamPromptCacheKeyRejection(rawErr) {
-					s.rememberGatewayRejectsPromptCacheKey(gatewayKey)
+					s.gatewayCaps.RememberRejectsPromptCacheKey(gatewayKey)
 					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
 						"model", d.Model,
 						"decision_provider", d.Provider,
@@ -7635,8 +7592,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			HasTools:       feats.HasTools,
 			ChatOnlyParams: env.RequiresChatCompletionsParams(opts.Capabilities),
 			Broad:          s.ResolveOpenAIResponsesBroad(ctx),
-		}) && !s.gatewayLacksResponses(responsesEndpointKey)
-		if !env.RequiresChatCompletionsParams(opts.Capabilities) && !s.gatewayLacksResponses(responsesEndpointKey) && s.supportsSubscriptionTransport(decision.Provider) &&
+		}) && !s.gatewayCaps.LacksResponses(responsesEndpointKey)
+		if !env.RequiresChatCompletionsParams(opts.Capabilities) && !s.gatewayCaps.LacksResponses(responsesEndpointKey) && s.supportsSubscriptionTransport(decision.Provider) &&
 			(servedOnCodexSubscription(resolvedCtx) || managedSubscriptionCanServe(ctx, decision.Provider, decision.Model)) {
 			openAIResponsesEndpoint = true
 		}
@@ -8105,13 +8062,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					}
 				}
 				gatewayKey := gatewayResponsesKey(actx, d.Provider)
-				stripPCK := s.gatewayRejectsPromptCacheKey(gatewayKey)
+				stripPCK := s.gatewayCaps.RejectsPromptCacheKey(gatewayKey)
 				err := dispatchOpenAI(actx, d, p, surface, stripPCK)
 				// Same prompt_cache_key unknown-field class as ProxyMessages' OpenAI-compat
 				// path: re-emit once without the hint while pre-commit; memoize the endpoint.
 				if err != nil && !stripPCK && gatewayKey != "" && !committed(preludeBuf) &&
 					providers.IsUpstreamPromptCacheKeyRejection(err) {
-					s.rememberGatewayRejectsPromptCacheKey(gatewayKey)
+					s.gatewayCaps.RememberRejectsPromptCacheKey(gatewayKey)
 					stripPCK = true
 					log.Warn("Gateway rejected prompt_cache_key; retrying without the affinity hint",
 						"model", d.Model,
@@ -8139,7 +8096,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					responsesPassthrough = false
 				}
 				translateToResponses = false
-				s.rememberGatewayLacksResponses(responsesEndpointKey)
+				s.gatewayCaps.RememberLacksResponses(responsesEndpointKey)
 				log.Warn("OpenAI endpoint rejected the Responses API; retrying on chat/completions",
 					"model", d.Model,
 					"decision_provider", d.Provider,
