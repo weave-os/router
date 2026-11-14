@@ -12,7 +12,8 @@ const ownCodexCredentialRejectedNudge = routingMarkerPrefix +
 	SubscriptionsDashboardURL + "?reconnect=codex\n\n"
 
 func codexSubscriptionReconnectNudge(ctx context.Context, headers http.Header, observer *usage.Observer) string {
-	if ownCodexLoginRejected(ctx, headers, observer) {
+	token, _ := presentSubscriptionTokens(ctx, headers)
+	if observer.Rejected(observer.Key([]byte(token))) {
 		return ownCodexCredentialRejectedNudge
 	}
 	return ownCodexPlanSpentNudge

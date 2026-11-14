@@ -622,8 +622,12 @@ func TestSubscriptionStateModelsCodexNativeAttemptAfterCrossFamilyPick(t *testin
 // Codex signs in again, instead of the exhausted model set serving it (prod
 // 2026-11-13: token_revoked sessions ran on allowance models).
 func TestSubscriptionStateModelsRevokedCodexLoginFailsTurn(t *testing.T) {
-	for _, held := range []bool{false, true} {
-		t.Run(fmt.Sprintf("held=%v", held), func(t *testing.T) {
+	for _, tc := range []struct {
+		held, stream bool
+		client       string
+	}{{false, true, ClientAppCodex}, {true, true, ClientAppCodex}, {false, false, ClientAppCodex}, {true, true, ClientAppClaudeCode}} {
+		held := tc.held
+		t.Run(fmt.Sprintf("held=%v/stream=%v/%s", tc.held, tc.stream, tc.client), func(t *testing.T) {
 			paidCalls := 0
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if serveSyntheticCodexQuota(w, r) {
@@ -655,17 +659,25 @@ func TestSubscriptionStateModelsRevokedCodexLoginFailsTurn(t *testing.T) {
 			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 			ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestToken)
 			ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, codexTestAccountID)
-			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: tc.client})
 
-			body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}]}`
+			body := fmt.Sprintf(`{"model":"auto","stream":%v,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic task"}]}]}`, tc.stream)
 			rec := httptest.NewRecorder()
 			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, routePathResponses, strings.NewReader(body)))
 
+			if tc.client != ClientAppCodex {
+				assert.Equal(t, 1, paidCalls, "a client that does not depend on its linked Codex login keeps the exhausted model set")
+				return
+			}
 			require.Error(t, err)
 			class, ok := ClassifyDispatchError(err)
 			require.True(t, ok)
 			assert.Equal(t, http.StatusUnauthorized, class.Status)
+			assert.Contains(t, class.Message, "reconnect=codex", "the ingress handler's error names the recovery")
 			assert.Zero(t, paidCalls, "the exhausted model set must not serve a revoked login")
+			if tc.stream {
+				assert.Contains(t, rec.Body.String(), "reconnect=codex", "a committed stream's response.failed names the recovery")
+			}
 		})
 	}
 }
