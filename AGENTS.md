@@ -25,6 +25,18 @@ root for read-only prerequisite and suite discovery. Missing required checks rem
 blocked; do not report local checks as complete CI. Keep private incident notes in
 ignored `.context/`; only authored, synthetic reproductions belong in public fixtures.
 
+## Harness integration pre-commit check
+
+Before committing or pushing new harness support or changes to harness identity,
+authentication, request rewriting, session/cache affinity, streaming, tools, UI,
+telemetry, or model switching,
+use [test-harness-integration](.agents/skills/test-harness-integration/SKILL.md).
+Run real inference through the changed router with the actual client when
+possible, including UI display, telemetry delivery, model switching, supported
+provider formats, multi-turn cache reads, and a tool round trip. Report coverage
+and evidence; disclose unavailable live checks rather than treating mocks or
+replay as full integration validation.
+
 ## Engineering principles
 
 - **Patterns of Enterprise Application Architecture** (Fowler)
