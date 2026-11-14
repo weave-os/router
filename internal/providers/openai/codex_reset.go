@@ -112,8 +112,7 @@ func (c *Client) codexResetRequest(ctx context.Context, lease subscriptions.Leas
 	if err != nil {
 		return nil, fmt.Errorf("parse Codex base URL: %w", err)
 	}
-	endpoint := base.JoinPath("wham", "rate-limit-reset-credits", suffix)
-	req, err := http.NewRequestWithContext(ctx, method, endpoint.String(), bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, method, base.JoinPath("wham", "rate-limit-reset-credits", suffix).String(), bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
 	}

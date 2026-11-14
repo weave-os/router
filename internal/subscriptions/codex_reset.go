@@ -211,7 +211,7 @@ func (r *Runtime) selectResetCredit(ctx context.Context, claim *ResetClaim, exha
 			return Lease{}, false, false, listErr
 		}
 		for _, credit := range credits {
-			if credit.ID != "" && (credit.ExpiresAt.IsZero() || credit.ExpiresAt.After(r.clock())) {
+			if credit.ExpiresAt.IsZero() || credit.ExpiresAt.After(r.clock()) {
 				candidates = append(candidates, resetCandidate{account: account, credit: credit})
 			}
 		}
