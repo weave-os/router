@@ -32,6 +32,8 @@ func TestExhaustedLeaseRequiresVerifiedEnterpriseOverage(t *testing.T) {
 }
 
 type runtimeStore struct {
+	clock                func() time.Time
+	refreshedAt          map[string]time.Time
 	mu                   sync.Mutex
 	accounts             []*auth.SubscriptionAccount
 	refreshTokens        map[string][]byte
@@ -112,12 +114,20 @@ func (s *runtimeStore) UpdateSubscriptionRefreshToken(_ context.Context, _ auth.
 	return nil
 }
 
-func (s *runtimeStore) TryAcquireSubscriptionRefreshLease(ctx context.Context, _ auth.SubscriptionOwner, accountID, leaseID string, leaseTTL time.Duration) (auth.RefreshLeaseAcquisition, error) {
+func (s *runtimeStore) TryAcquireSubscriptionRefreshLease(ctx context.Context, _ auth.SubscriptionOwner, accountID, leaseID string, ttl time.Duration) (auth.RefreshLeaseAcquisition, error) {
+	return s.acquireRefreshLease(ctx, accountID, leaseID, ttl, false)
+}
+
+func (s *runtimeStore) TryAcquireSubscriptionMaintenanceRefreshLease(ctx context.Context, _ auth.SubscriptionOwner, accountID, leaseID string, ttl time.Duration) (auth.RefreshLeaseAcquisition, error) {
+	return s.acquireRefreshLease(ctx, accountID, leaseID, ttl, true)
+}
+
+func (s *runtimeStore) acquireRefreshLease(ctx context.Context, accountID, leaseID string, leaseTTL time.Duration, maintenance bool) (auth.RefreshLeaseAcquisition, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
 	for _, account := range s.accounts {
-		allowOverage := requestcontext.SubscriptionExtraUsageFrom(ctx) && account.Provider == auth.SubscriptionProviderClaude && account.State == auth.SubscriptionAccountStateExhausted
+		allowOverage := maintenance && account.State == auth.SubscriptionAccountStateExhausted || requestcontext.SubscriptionExtraUsageFrom(ctx) && account.Provider == auth.SubscriptionProviderClaude && account.State == auth.SubscriptionAccountStateExhausted
 		if account.ID == accountID && (!account.Enabled || (!allowOverage && account.CooldownUntil != nil && account.CooldownUntil.After(now))) {
 			return auth.RefreshLeaseAcquisition{}, nil
 		}
@@ -189,6 +199,9 @@ func (s *runtimeStore) LoadSubscriptionCredentials(_ context.Context, _ auth.Sub
 		State:               state,
 		CooldownUntil:       cooldownUntil,
 	}
+	if refreshed := s.refreshedAt[accountID]; !refreshed.IsZero() {
+		credentials.TokenRefreshedAt = &refreshed
+	}
 	if expiry := s.accessExpiry[accountID]; !expiry.IsZero() {
 		value := expiry
 		credentials.AccessTokenExpiresAt = &value
@@ -219,6 +232,11 @@ func (s *runtimeStore) PersistSubscriptionTokens(ctx context.Context, _ auth.Sub
 	s.refreshTokens[accountID] = append([]byte(nil), refreshToken...)
 	s.accessTokens[accountID] = append([]byte(nil), accessToken...)
 	s.accessExpiry[accountID] = expiresAt
+	if s.clock != nil {
+		s.refreshedAt[accountID] = s.clock()
+	} else {
+		s.refreshedAt[accountID] = time.Now()
+	}
 	s.tokenRefreshVersions[accountID]++
 	delete(s.leaseIDs, accountID)
 	delete(s.leaseUntil, accountID)
@@ -278,7 +296,7 @@ func (f runtimeRefreshFunc) Refresh(ctx context.Context, provider subscriptions.
 
 func newRuntimeStore(accounts ...*auth.SubscriptionAccount) *runtimeStore {
 	return &runtimeStore{
-		accounts: accounts, refreshTokens: make(map[string][]byte),
+		accounts: accounts, refreshedAt: make(map[string]time.Time), refreshTokens: make(map[string][]byte),
 		accessTokens: make(map[string][]byte), accessExpiry: make(map[string]time.Time),
 		tokenRefreshVersions: make(map[string]int64), leaseIDs: make(map[string]string), leaseUntil: make(map[string]time.Time),
 		rotatedTokens: make(map[string][]byte), enabledUpdates: make(map[string]bool), cooldowns: make(map[string]time.Time),
