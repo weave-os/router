@@ -259,6 +259,9 @@ func SafetyExcludedModels(env *translate.RequestEnvelope, outputReserve int, ena
 	return out
 }
 
+// ExcludeImageLimitModels excludes image-capable models no enabled binding
+// can serve imageCount images on, returning the widened set and the models
+// it added. Custom-bound models are left to the tenant.
 func ExcludeImageLimitModels(
 	imageCount int,
 	enabledProviders map[string]struct{},
