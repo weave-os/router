@@ -52,8 +52,9 @@ func customerOwnedCredential(ctx context.Context) bool {
 	return false
 }
 
-// observeAttemptSent records each prepared body with whether the attempt
-// authenticated with a customer-owned credential.
+// observeAttemptSent keeps the prepared body so describeAttempt can blame a
+// rejected router rewrite on the router, and the credential owner so an auth
+// failure on a customer's own key is blamed on the client.
 func observeAttemptSent(trace *dispatch.AttemptTrace) func(context.Context, []byte) {
 	return func(ctx context.Context, body []byte) {
 		trace.ObserveSent(ctx, body, customerOwnedCredential(ctx))
