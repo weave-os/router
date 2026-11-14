@@ -1,0 +1,18 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {},
+      "dispatch_error": {
+        "outcome": "error: \"no-such-model\" is not a known model",
+        "kind": 26,
+        "status": 400,
+        "message": "\"no-such-model\" is not a known model. Use a full model ID, e.g. claude-opus-5, gpt-5.6-sol, or gemini-3-pro-preview."
+      }
+    }
+  ],
+  "scenario": "routing_policy_force_model_unknown_fails_closed"
+}

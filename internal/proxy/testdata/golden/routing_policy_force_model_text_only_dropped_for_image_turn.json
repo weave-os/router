@@ -1,0 +1,487 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [
+        {
+          "provider": "fireworks",
+          "wire_model": "z-ai/glm-5.1",
+          "outbound_body": {
+            "chat_template_kwargs": {
+              "enable_thinking": false
+            },
+            "max_tokens": 4096,
+            "messages": [
+              {
+                "content": "Say hi",
+                "role": "user"
+              }
+            ],
+            "model": "z-ai/glm-5.1",
+            "stream": false,
+            "tool_stream": true
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "z-ai/glm-5.1",
+            "Provider": "fireworks",
+            "UpstreamID": "accounts/fireworks/models/glm-5p1"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "27",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "202752",
+          "X-Router-Cost-Input-Usd": "0.0000168",
+          "X-Router-Cost-Output-Usd": "0.0000308",
+          "X-Router-Cost-Usd": "0.0000476",
+          "X-Router-Decision": "user_forced",
+          "X-Router-Model": "z-ai/glm-5.1",
+          "X-Router-Provider": "fireworks"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "ok",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "z-ai/glm-5.1",
+          "role": "assistant",
+          "stop_reason": "end_turn",
+          "stop_sequence": null,
+          "type": "message",
+          "usage": {
+            "input_tokens": 12,
+            "output_tokens": 7
+          }
+        }
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "force_model",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "z-ai/glm-5.1",
+            "Provider": "fireworks",
+            "Reason": "user_forced",
+            "Role": "force_model",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "upsert",
+          "role": "default_mid_force_hist",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "z-ai/glm-5.1",
+            "Provider": "fireworks",
+            "Reason": "force_model_history",
+            "Role": "default_mid_force_hist",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_mid_force_hist",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "z-ai/glm-5.1",
+            "ServedProvider": "fireworks",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -48,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 48,
+          "OrganizationID": "golden-org",
+          "RouterModel": "z-ai/glm-5.1"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.0000168,
+          "ActualOutputCostUSD": 0.0000308,
+          "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 202752,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 27,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "claude-sonnet-4-5",
+            "served_model": "z-ai/glm-5.1",
+            "version": 1
+          },
+          "CrossFormat": true,
+          "DecisionModel": "z-ai/glm-5.1",
+          "DecisionProvider": "fireworks",
+          "DecisionReason": "user_forced",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 1,
+          "FinalModelFamily": "z-ai/glm",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "z-ai/glm",
+          "LatestToolCallCounts": {},
+          "OutputTokens": 7,
+          "PinTier": "user_forced",
+          "RequestedInputCostUSD": 0.000036,
+          "RequestedModel": "claude-sonnet-4-5",
+          "RequestedOutputCostUSD": 0.000105,
+          "Role": "default_mid",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StickyHit": true,
+          "TurnType": "main_loop",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    },
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "claude-sonnet-4-5",
+          "excluded": [
+            "claude-fable-5",
+            "claude-haiku-4-5",
+            "claude-haiku-5-5",
+            "claude-mythos-5-2",
+            "claude-opus-4-0",
+            "claude-opus-4-1",
+            "claude-opus-4-5",
+            "claude-opus-4-8",
+            "claude-sonnet-4-5",
+            "claude-sonnet-4-6",
+            "claude-sonnet-5",
+            "claude-sonnet-5-5",
+            "deepseek/deepseek-v4-flash",
+            "deepseek/deepseek-v4-pro",
+            "deepseek/deepseek-v4-pro-0813",
+            "deepseek/deepseek-v4.1-flash",
+            "gemini-2.0-flash",
+            "gemini-2.0-flash-lite",
+            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            "gemini-2.5-pro",
+            "gemini-3-flash-preview",
+            "gemini-3.1-flash-lite-preview",
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.6-flash",
+            "gemini-3.7-flash",
+            "gemini-3.8-flash",
+            "gemini-4-argon",
+            "google/gemma-4-26b-a4b-it",
+            "gpt-4.1",
+            "gpt-4.1-mini",
+            "gpt-4.1-nano",
+            "gpt-4o",
+            "gpt-4o-mini",
+            "gpt-5-chat",
+            "gpt-5-mini",
+            "gpt-5-nano",
+            "gpt-5.4-mini",
+            "gpt-5.4-nano",
+            "gpt-5.5",
+            "gpt-5.5-mini",
+            "gpt-5.5-nano",
+            "gpt-5.6-luna",
+            "gpt-5.6-luna-pro",
+            "gpt-5.6-sol-pro",
+            "gpt-6-luna",
+            "gpt-6.1-terra",
+            "inclusionai/ling-3.0-flash",
+            "meta/muse-spark-open",
+            "mistralai/mistral-small-2603",
+            "qwen/qwen3-235b-a22b-2507",
+            "qwen/qwen3-30b-a3b-instruct-2507",
+            "qwen/qwen3-coder-next",
+            "qwen/qwen3-next-80b-a3b-instruct",
+            "qwen/qwen3.5-flash-02-23",
+            "qwen/qwen3.6-35b-a3b",
+            "qwen/qwen3.7-plus",
+            "xiaomi/mimo-v2.6-flash",
+            "z-ai/glm-5.1",
+            "z-ai/glm-5.3-flash"
+          ],
+          "model": "claude-opus-4-7",
+          "provider": "anthropic",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-opus-4-7",
+          "outbound_body": {
+            "max_tokens": 4096,
+            "messages": [
+              {
+                "content": "Say hi",
+                "role": "user"
+              },
+              {
+                "content": "hi",
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "source": {
+                      "data": "iVBORw0KGgo=",
+                      "media_type": "image/png",
+                      "type": "base64"
+                    },
+                    "type": "image"
+                  },
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "text": "What is this?",
+                    "type": "text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-opus-4-7"
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-opus-4-7",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-opus-4-7"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "1669",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1000000",
+          "X-Router-Cost-Input-Usd": "0.00006",
+          "X-Router-Cost-Output-Usd": "0.000175",
+          "X-Router-Cost-Usd": "0.000235",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "claude-opus-4-7",
+          "X-Router-Provider": "anthropic"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "ok",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "claude-haiku-4-5",
+          "role": "assistant",
+          "stop_reason": "end_turn",
+          "type": "message",
+          "usage": {
+            "input_tokens": 12,
+            "output_tokens": 7
+          }
+        }
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_mid",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "claude-opus-4-7",
+            "Provider": "anthropic",
+            "Reason": "golden_route",
+            "Role": "default_mid",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_mid",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "PriorServedModel": "z-ai/glm-5.1",
+            "ServedModel": "claude-opus-4-7",
+            "ServedProvider": "anthropic",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -235,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 235,
+          "OrganizationID": "golden-org",
+          "RouterModel": "claude-opus-4-7"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.00006,
+          "ActualOutputCostUSD": 0.000175,
+          "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 1000000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 1669,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "claude-sonnet-4-5",
+            "served_model": "claude-opus-4-7",
+            "version": 1
+          },
+          "DecisionModel": "claude-opus-4-7",
+          "DecisionProvider": "anthropic",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 5,
+          "FinalModelFamily": "claude-opus",
+          "FreshDecisionModel": "claude-opus-4-7",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "claude-opus",
+          "LatestToolCallCounts": {},
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedInputCostUSD": 0.000036,
+          "RequestedModel": "claude-sonnet-4-5",
+          "RequestedOutputCostUSD": 0.000105,
+          "Role": "default_mid",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StopReason": "end_turn",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "end_turn",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "routing_policy_force_model_text_only_dropped_for_image_turn"
+}

@@ -164,6 +164,7 @@ type goldenRouteCall struct {
 	Provider          string   `json:"provider,omitempty"`
 	Reason            string   `json:"reason,omitempty"`
 	Error             string   `json:"error,omitempty"`
+	Request           any      `json:"request,omitempty"`
 }
 
 // goldenRouter returns the first decision whose model is not excluded.

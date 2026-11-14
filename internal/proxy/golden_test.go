@@ -514,7 +514,8 @@ func TestGolden(t *testing.T) {
 	t.Parallel()
 	names := map[string]bool{}
 	scenarios := append(goldenInferenceScenarios(), goldenInferenceExecutionScenarios()...)
-	for _, sc := range append(scenarios, goldenCredentialScenarios()...) {
+	scenarios = append(scenarios, goldenCredentialScenarios()...)
+	for _, sc := range append(scenarios, goldenRoutingPolicyScenarios()...) {
 		require.False(t, names[sc.name], "duplicate golden scenario %s", sc.name)
 		names[sc.name] = true
 		t.Run(sc.name, func(t *testing.T) {

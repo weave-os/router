@@ -1,0 +1,414 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "claude-sonnet-4-5",
+          "model": "claude-haiku-4-5",
+          "provider": "anthropic",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-haiku-4-5",
+          "outbound_body": {
+            "max_tokens": 4096,
+            "messages": [
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "text": "Say hi",
+                    "type": "text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-haiku-4-5",
+            "stream": false
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-haiku-4-5",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-haiku-4-5"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "27",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "200000",
+          "X-Router-Cost-Input-Usd": "0.000012",
+          "X-Router-Cost-Output-Usd": "0.000035",
+          "X-Router-Cost-Usd": "0.000047",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "claude-haiku-4-5",
+          "X-Router-Provider": "anthropic"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "ok",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "claude-haiku-4-5",
+          "role": "assistant",
+          "stop_reason": "end_turn",
+          "type": "message",
+          "usage": {
+            "input_tokens": 12,
+            "output_tokens": 7
+          }
+        }
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_mid",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "claude-haiku-4-5",
+            "PairedModel": "claude-opus-4-7",
+            "PairedProvider": "anthropic",
+            "Provider": "anthropic",
+            "Reason": "golden_route",
+            "Role": "default_mid",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_mid",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "claude-haiku-4-5",
+            "ServedProvider": "anthropic",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -47,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 47,
+          "OrganizationID": "golden-org",
+          "RouterModel": "claude-haiku-4-5"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000012,
+          "ActualOutputCostUSD": 0.000035,
+          "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 200000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 27,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "claude-sonnet-4-5",
+            "served_model": "claude-haiku-4-5",
+            "version": 1
+          },
+          "DecisionModel": "claude-haiku-4-5",
+          "DecisionProvider": "anthropic",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 1,
+          "FinalModelFamily": "claude-haiku",
+          "FreshDecisionModel": "claude-haiku-4-5",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "claude-haiku",
+          "LatestToolCallCounts": {},
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedInputCostUSD": 0.000036,
+          "RequestedModel": "claude-sonnet-4-5",
+          "RequestedOutputCostUSD": 0.000105,
+          "Role": "default_mid",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StopReason": "end_turn",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "end_turn",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    },
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "claude-sonnet-4-5",
+          "excluded": [
+            "claude-opus-4-7"
+          ],
+          "model": "claude-haiku-4-5",
+          "provider": "anthropic",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-haiku-4-5",
+          "outbound_body": {
+            "max_tokens": 4096,
+            "messages": [
+              {
+                "content": "Say hi",
+                "role": "user"
+              },
+              {
+                "content": "hi",
+                "role": "assistant"
+              },
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "text": "Now say bye",
+                    "type": "text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-haiku-4-5"
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-anthropic-messages",
+            "PolicyRevision": "3",
+            "Purpose": "anthropic_messages",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-haiku-4-5",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-haiku-4-5"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "42",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "200000",
+          "X-Router-Cost-Input-Usd": "0.000012",
+          "X-Router-Cost-Output-Usd": "0.000035",
+          "X-Router-Cost-Usd": "0.000047",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "claude-haiku-4-5",
+          "X-Router-Provider": "anthropic"
+        },
+        "body": {
+          "content": [
+            {
+              "text": "ok",
+              "type": "text"
+            }
+          ],
+          "id": "\u003cid\u003e",
+          "model": "claude-haiku-4-5",
+          "role": "assistant",
+          "stop_reason": "end_turn",
+          "type": "message",
+          "usage": {
+            "input_tokens": 12,
+            "output_tokens": 7
+          }
+        }
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_mid",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "LastInputTokens": 12,
+            "LastOutputTokens": 7,
+            "LastServedModel": "claude-haiku-4-5",
+            "Model": "claude-haiku-4-5",
+            "PairedModel": "claude-opus-4-7",
+            "PairedProvider": "anthropic",
+            "Provider": "anthropic",
+            "Reason": "golden_route",
+            "Role": "default_mid",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_mid",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "PriorServedModel": "claude-haiku-4-5",
+            "ServedModel": "claude-haiku-4-5",
+            "ServedProvider": "anthropic",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -47,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 47,
+          "OrganizationID": "golden-org",
+          "RouterModel": "claude-haiku-4-5"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000012,
+          "ActualOutputCostUSD": 0.000035,
+          "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 200000,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 42,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "requested_model": "claude-sonnet-4-5",
+            "served_model": "claude-haiku-4-5",
+            "version": 1
+          },
+          "DecisionModel": "claude-haiku-4-5",
+          "DecisionProvider": "anthropic",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 5,
+          "FinalModelFamily": "claude-haiku",
+          "FreshDecisionModel": "claude-haiku-4-5",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "claude-haiku",
+          "LatestToolCallCounts": {},
+          "OutputTokens": 7,
+          "PinTier": "postgres_stay_same_model",
+          "PlannerOutcome": "stay",
+          "PlannerPinModel": "claude-haiku-4-5",
+          "PlannerPinProvider": "anthropic",
+          "PlannerReason": "same_model",
+          "RequestedInputCostUSD": 0.000036,
+          "RequestedModel": "claude-sonnet-4-5",
+          "RequestedOutputCostUSD": 0.000105,
+          "Role": "default_mid",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StickyHit": true,
+          "StopReason": "end_turn",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "end_turn",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "routing_policy_band_swap_excluded_member_serves_anchor"
+}

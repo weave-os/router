@@ -1,0 +1,18 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {},
+      "dispatch_error": {
+        "outcome": "error: claude-opus-4-7 is not on this organization's allowed-model list",
+        "kind": 25,
+        "status": 400,
+        "message": "claude-opus-4-7 is not on this organization's allowed-model list. Clear it with the unforce-model directive, or pick a model from a permitted provider."
+      }
+    }
+  ],
+  "scenario": "routing_policy_force_model_outside_allowlist_fails_closed"
+}
