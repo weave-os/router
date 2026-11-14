@@ -1,0 +1,217 @@
+{
+  "requests": [
+    {
+      "ingress": "gemini_generate_content",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "gemini-2.5-flash",
+          "model": "gemini-2.5-flash",
+          "provider": "google",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "google",
+          "wire_model": "gemini-2.5-flash",
+          "outbound_body": {
+            "contents": [
+              {
+                "parts": [
+                  {
+                    "text": "Say hi"
+                  }
+                ],
+                "role": "user"
+              }
+            ]
+          },
+          "outcome": "upstream_status_429"
+        },
+        {
+          "provider": "google",
+          "wire_model": "gemini-2.5-flash",
+          "outbound_body": {
+            "contents": [
+              {
+                "parts": [
+                  {
+                    "text": "Say hi"
+                  }
+                ],
+                "role": "user"
+              }
+            ]
+          },
+          "outcome": "upstream_status_429"
+        },
+        {
+          "provider": "google",
+          "wire_model": "gemini-2.5-flash",
+          "outbound_body": {
+            "contents": [
+              {
+                "parts": [
+                  {
+                    "text": "Say hi"
+                  }
+                ],
+                "role": "user"
+              }
+            ]
+          },
+          "outcome": "upstream_status_429"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "ErrorClass": "rate_limited",
+            "FailureOwner": "provider"
+          },
+          "FailureReason": "upstream_status",
+          "Outcome": "failed",
+          "Provenance": {
+            "PolicyID": "main-gemini-generate-content",
+            "PolicyRevision": "3",
+            "Purpose": "gemini_generate_content",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "gemini-2.5-flash",
+            "Provider": "google",
+            "UpstreamID": "gemini-2.5-flash"
+          },
+          "UpstreamStatusCode": 429
+        },
+        {
+          "AttemptIndex": 1,
+          "Diagnosis": {
+            "ErrorClass": "rate_limited",
+            "FailureOwner": "provider"
+          },
+          "FailureReason": "upstream_status",
+          "Outcome": "failed",
+          "Provenance": {
+            "PolicyID": "main-gemini-generate-content",
+            "PolicyRevision": "3",
+            "Purpose": "gemini_generate_content",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "gemini-2.5-flash",
+            "Provider": "google",
+            "UpstreamID": "gemini-2.5-flash"
+          },
+          "UpstreamStatusCode": 429
+        },
+        {
+          "AttemptIndex": 2,
+          "Diagnosis": {
+            "ErrorClass": "rate_limited",
+            "FailureOwner": "provider"
+          },
+          "FailureReason": "upstream_status",
+          "Outcome": "failed",
+          "Provenance": {
+            "PolicyID": "main-gemini-generate-content",
+            "PolicyRevision": "3",
+            "Purpose": "gemini_generate_content",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "gemini-2.5-flash",
+            "Provider": "google",
+            "UpstreamID": "gemini-2.5-flash"
+          },
+          "UpstreamStatusCode": 429
+        }
+      ],
+      "response": {
+        "status": 429,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "24",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1048576",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "gemini-2.5-flash",
+          "X-Router-Provider": "google"
+        },
+        "body": {
+          "error": {
+            "code": 429,
+            "message": "Gemini returned 429 (rate limited) after 2 router retries: quota",
+            "status": "RESOURCE_EXHAUSTED"
+          }
+        }
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_low",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "gemini-2.5-flash",
+            "Provider": "google",
+            "Reason": "golden_route",
+            "Role": "default_low",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "CaptureMode": "off",
+          "DecisionModel": "gemini-2.5-flash",
+          "DecisionProvider": "google",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "ErrorClass": "rate_limited",
+          "EstimatedInputTokens": 1,
+          "FailureOwner": "provider",
+          "FinalModelFamily": "gemini-flash",
+          "FreshDecisionModel": "gemini-2.5-flash",
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "gemini-flash",
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedModel": "gemini-2.5-flash",
+          "Role": "default_low",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamStatusCode": 429,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "gemini_generate_content_stream_rate_limited"
+}

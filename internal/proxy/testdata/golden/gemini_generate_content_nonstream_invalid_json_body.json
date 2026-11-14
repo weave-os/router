@@ -1,0 +1,173 @@
+{
+  "requests": [
+    {
+      "ingress": "gemini_generate_content",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "model": "gemini-2.5-flash",
+          "provider": "google",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "google",
+          "wire_model": "gemini-2.5-flash",
+          "outbound_body": {},
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-gemini-generate-content",
+            "PolicyRevision": "3",
+            "Purpose": "gemini_generate_content",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "gemini-2.5-flash",
+            "Provider": "google",
+            "UpstreamID": "gemini-2.5-flash"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json",
+          "X-Router-Cache-Creation-Tokens": "0",
+          "X-Router-Cache-Read-Tokens": "0",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "4",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1048576",
+          "X-Router-Cost-Input-Usd": "0.0000036",
+          "X-Router-Cost-Output-Usd": "0.0000084",
+          "X-Router-Cost-Usd": "0.000012",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "gemini-2.5-flash",
+          "X-Router-Provider": "google"
+        },
+        "body": {
+          "candidates": [
+            {
+              "content": {
+                "parts": [
+                  {
+                    "text": "never"
+                  }
+                ],
+                "role": "model"
+              },
+              "finishReason": "STOP",
+              "index": 0
+            }
+          ],
+          "modelVersion": "gemini-2.5-flash",
+          "usageMetadata": {
+            "candidatesTokenCount": 7,
+            "promptTokenCount": 12,
+            "totalTokenCount": 19
+          }
+        }
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "gemini-2.5-flash",
+            "Provider": "google",
+            "Reason": "golden_route",
+            "Role": "default",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "gemini-2.5-flash",
+            "ServedProvider": "google",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -12,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 12,
+          "OrganizationID": "golden-org",
+          "RouterModel": "gemini-2.5-flash"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.0000036,
+          "ActualOutputCostUSD": 0.0000084,
+          "CaptureMode": "off",
+          "ContextSnapshot": {
+            "context_window": 1048576,
+            "estimate_kind": "approximate",
+            "estimate_tokens": 4,
+            "output_reserve_tokens": 8000,
+            "request_id": "\u003cuuid\u003e",
+            "served_model": "gemini-2.5-flash",
+            "version": 1
+          },
+          "DecisionModel": "gemini-2.5-flash",
+          "DecisionProvider": "google",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "concatenated_stream",
+          "FinalModelFamily": "gemini-flash",
+          "FreshDecisionModel": "gemini-2.5-flash",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "gemini-flash",
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "Role": "default",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamStatusCode": 200
+        }
+      ]
+    }
+  ],
+  "scenario": "gemini_generate_content_nonstream_invalid_json_body"
+}
