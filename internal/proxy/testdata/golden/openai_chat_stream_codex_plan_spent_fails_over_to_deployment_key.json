@@ -1,0 +1,472 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_chat",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "gpt-5",
+          "model": "gpt-5.6-sol",
+          "provider": "openai",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "openai",
+          "wire_model": "gpt-5.6-sol",
+          "endpoint": "responses",
+          "credential_source": "codex_subscription",
+          "outbound_body": {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "Say hi",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "gpt-5.6-sol",
+            "prompt_cache_key": "4dbe9a4ce040ae135b0cd2c50ce8b33b",
+            "store": false,
+            "stream": true
+          },
+          "outcome": "upstream_status_429"
+        },
+        {
+          "provider": "openai",
+          "wire_model": "gpt-5.6-sol",
+          "endpoint": "responses",
+          "outbound_body": {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "Say hi",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "gpt-5.6-sol",
+            "prompt_cache_key": "4dbe9a4ce040ae135b0cd2c50ce8b33b",
+            "store": false,
+            "stream": true
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-chat-completions",
+            "PolicyRevision": "3",
+            "Purpose": "openai_chat_completions",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "gpt-5.6-sol",
+            "Provider": "openai",
+            "UpstreamID": "gpt-5.6-sol"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "19",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1050000",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "gpt-5.6-sol",
+          "X-Router-Provider": "openai"
+        },
+        "events": [
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "✦ **Weave Router** → gpt-5.6-sol · best pick for this turn · funded by Codex subscription\n\n",
+                    "role": "assistant"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-\u003cid\u003e",
+              "model": "gpt-5.6-sol",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "on key"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-\u003cid\u003e",
+              "model": "gpt-5.6-sol",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {},
+                  "finish_reason": "stop",
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-\u003cid\u003e",
+              "model": "gpt-5.6-sol",
+              "object": "chat.completion.chunk",
+              "usage": {
+                "completion_tokens": 7,
+                "prompt_tokens": 12,
+                "total_tokens": 19
+              }
+            }
+          },
+          {
+            "data": "[DONE]"
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_high",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "gpt-5.6-sol",
+            "Provider": "openai",
+            "Reason": "golden_route",
+            "Role": "default_high",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_high",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "ServedModel": "gpt-5.6-sol",
+            "ServedProvider": "openai",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -188,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 188,
+          "OrganizationID": "golden-org",
+          "RouterModel": "gpt-5.6-sol"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000048,
+          "ActualOutputCostUSD": 0.00014,
+          "CaptureMode": "off",
+          "DecisionModel": "gpt-5.6-sol",
+          "DecisionProvider": "openai",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 1,
+          "FailoverAttempted": true,
+          "FailoverUsed": true,
+          "FinalModelFamily": "gpt-sol",
+          "FreshDecisionModel": "gpt-5.6-sol",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "gpt-sol",
+          "OutputTokens": 7,
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedInputCostUSD": 0.00003,
+          "RequestedModel": "gpt-5",
+          "RequestedOutputCostUSD": 0.00007,
+          "Role": "default_high",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StopReason": "stop",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    },
+    {
+      "ingress": "openai_chat",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "gpt-5",
+          "model": "gpt-5.6-sol",
+          "provider": "openai",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "openai",
+          "wire_model": "gpt-5.6-sol",
+          "endpoint": "responses",
+          "outbound_body": {
+            "input": [
+              {
+                "content": [
+                  {
+                    "text": "Say hi",
+                    "type": "input_text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "gpt-5.6-sol",
+            "prompt_cache_key": "4dbe9a4ce040ae135b0cd2c50ce8b33b",
+            "store": false,
+            "stream": true
+          },
+          "outcome": "ok"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true
+          },
+          "Outcome": "served",
+          "Provenance": {
+            "PolicyID": "main-openai-chat-completions",
+            "PolicyRevision": "3",
+            "Purpose": "openai_chat_completions",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "gpt-5.6-sol",
+            "Provider": "openai",
+            "UpstreamID": "gpt-5.6-sol"
+          }
+        }
+      ],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "text/event-stream",
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "19",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1050000",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "gpt-5.6-sol",
+          "X-Router-Provider": "openai"
+        },
+        "events": [
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "✦ **Weave Router** → your own ChatGPT (Codex) plan is out of usage for now. Connect or reconnect a Codex seat to keep this on a subscription: https://app.weaveos.com/organization/settings/weave-router/subscriptions?reconnect=codex\n\n",
+                    "role": "assistant"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-\u003cid\u003e",
+              "model": "gpt-5.6-sol",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {
+                    "content": "still on key"
+                  },
+                  "finish_reason": null,
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-\u003cid\u003e",
+              "model": "gpt-5.6-sol",
+              "object": "chat.completion.chunk"
+            }
+          },
+          {
+            "data": {
+              "choices": [
+                {
+                  "delta": {},
+                  "finish_reason": "stop",
+                  "index": 0
+                }
+              ],
+              "id": "chatcmpl-\u003cid\u003e",
+              "model": "gpt-5.6-sol",
+              "object": "chat.completion.chunk",
+              "usage": {
+                "completion_tokens": 7,
+                "prompt_tokens": 12,
+                "total_tokens": 19
+              }
+            }
+          },
+          {
+            "data": "[DONE]"
+          }
+        ]
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_high",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "LastInputTokens": 12,
+            "LastOutputTokens": 7,
+            "LastServedModel": "gpt-5.6-sol",
+            "Model": "gpt-5.6-sol",
+            "Provider": "openai",
+            "Reason": "golden_route",
+            "Role": "default_high",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "update_usage",
+          "role": "default_high",
+          "detail": {
+            "InputTokens": 12,
+            "OutputTokens": 7,
+            "PriorServedModel": "gpt-5.6-sol",
+            "ServedModel": "gpt-5.6-sol",
+            "ServedProvider": "openai",
+            "Strategy": "hmm_embedding"
+          }
+        }
+      ],
+      "billing": [
+        {
+          "APIKeyID": "golden-key",
+          "DeltaUsdMicros": -188,
+          "EntryType": "inference",
+          "FeeEntryType": "byok_fee",
+          "NotionalCostMicros": 188,
+          "OrganizationID": "golden-org",
+          "RouterModel": "gpt-5.6-sol"
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "ActualInputCostUSD": 0.000048,
+          "ActualOutputCostUSD": 0.00014,
+          "CaptureMode": "off",
+          "DecisionModel": "gpt-5.6-sol",
+          "DecisionProvider": "openai",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "EstimatedInputTokens": 1,
+          "FinalModelFamily": "gpt-sol",
+          "FreshDecisionModel": "gpt-5.6-sol",
+          "InputTokens": 12,
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "gpt-sol",
+          "OutputTokens": 7,
+          "PinTier": "postgres_stay_same_model",
+          "PlannerOutcome": "stay",
+          "PlannerPinModel": "gpt-5.6-sol",
+          "PlannerPinProvider": "openai",
+          "PlannerReason": "same_model",
+          "RequestedInputCostUSD": 0.00003,
+          "RequestedModel": "gpt-5",
+          "RequestedOutputCostUSD": 0.00007,
+          "Role": "default_high",
+          "SelectionTrace": {
+            "served_group": ""
+          },
+          "SpanType": "router.upstream",
+          "StickyHit": true,
+          "StopReason": "stop",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamFinishReason": "stop",
+          "UpstreamStatusCode": 200,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "openai_chat_stream_codex_plan_spent_fails_over_to_deployment_key"
+}

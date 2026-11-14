@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -166,10 +167,16 @@ func TestRouterOwnedFailureWording(t *testing.T) {
 	assert.Equal(t, "↳ switched: Anthropic had no subscription capacity (router issue)\n\n", rescueDetailLine(pool))
 	assert.Equal(t, "Router error: Anthropic subscription capacity exhausted.", terminalMessageFor(pool))
 
-	customTool := tracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: translate.ErrCustomToolArguments,
-		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), FailureOwner: string(FailureOwnerRouter), BodyTranslated: true}}
-	assert.Equal(t, "↳ switched: Anthropic sent tool arguments we couldn't translate (router issue)\n\n", rescueDetailLine(customTool))
-	assert.Equal(t, "Router error: Anthropic tool call translation failed.", terminalMessageFor(customTool))
+}
+
+func TestMalformedCustomToolArgumentsAreProviderOwned(t *testing.T) {
+	err := fmt.Errorf("write: %w: expected exactly one input field", translate.ErrCustomToolArguments)
+	customTool := tracedAttempt{Target: inference.Target{Provider: providers.ProviderDeepInfra}, Err: err,
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), BodyTranslated: true}}
+	customTool.Diagnosis.FailureOwner = string(classifyFailureOwner(failureOwnerInput{Err: err, BodyTranslated: true}))
+
+	assert.Equal(t, "↳ switched: DeepInfra sent malformed tool arguments (provider issue)\n\n", rescueDetailLine(customTool))
+	assert.Equal(t, "Provider DeepInfra failed: malformed tool call arguments.", terminalMessageFor(customTool))
 }
 
 func TestWithRescueDetail_SuppressedBadgeStaysEmpty(t *testing.T) {

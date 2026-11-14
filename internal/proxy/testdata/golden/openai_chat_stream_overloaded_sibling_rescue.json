@@ -343,6 +343,16 @@
             "ServedProvider": "fireworks",
             "Strategy": "hmm_embedding"
           }
+        },
+        {
+          "op": "strike_turn_model",
+          "role": "default_high",
+          "detail": "claude-opus-4-7"
+        },
+        {
+          "op": "strike_turn_model",
+          "role": "default_high_hmm_history",
+          "detail": "claude-opus-4-7"
         }
       ],
       "billing": [

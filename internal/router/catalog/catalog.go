@@ -17,6 +17,9 @@ const ModelGPT6Luna = "gpt-6-luna"
 // ModelMiMoV26Flash is the canonical Xiaomi MiMo-V2.6-Flash model ID.
 const ModelMiMoV26Flash = "xiaomi/mimo-v2.6-flash"
 
+// ModelMiMoV26Pro is the canonical Xiaomi MiMo-V2.6-Pro model ID.
+const ModelMiMoV26Pro = "xiaomi/mimo-v2.6-pro"
+
 // ModelMuseSparkOpen is the canonical Meta Muse Spark Open model ID.
 const ModelMuseSparkOpen = "meta/muse-spark-open"
 
@@ -178,18 +181,6 @@ const (
 	AgenticLow
 )
 
-// ImageInput marks whether a model accepts image content parts.
-// ImageInputUnknown (zero value) = no restriction; first-party models default
-// here since they're all multimodal. ImageInputUnsupported flags text-only
-// models that 4xx on image parts (e.g. GLM-5.1). The scorer excludes the
-// ImageInputUnsupported set from image-bearing requests.
-type ImageInput int
-
-const (
-	ImageInputUnknown ImageInput = iota
-	ImageInputUnsupported
-)
-
 // ModelID is a catalog model identifier. Production lookup still uses string IDs
 // because the table is data, but call sites that name a known catalog model
 // should use these constants instead of repeating raw strings.
@@ -247,6 +238,10 @@ type Model struct {
 	// ImageInput: default ImageInputUnknown; set ImageInputUnsupported on
 	// text-only models so the scorer keeps image-bearing turns off them.
 	ImageInput ImageInput
+	// CustomToolInput: default CustomToolInputUnknown; set
+	// CustomToolInputUnsupported when the model cannot fill a projected custom
+	// tool's {"input": string} wrapper, so custom-tool requests route around it.
+	CustomToolInput CustomToolInput
 	// ThinkTagReasoning marks a model that streams inline <think>...</think>
 	// instead of reasoning_content; the Anthropic translator reroutes a
 	// leading <think> block into Anthropic thinking. Default false.
@@ -774,7 +769,7 @@ var Models = []Model{
 	}},
 	// MiMo-V2.6 Pro remains DeepInfra-first, with the higher capability tier
 	// reserved for maximum-complexity Max requests.
-	{ID: "xiaomi/mimo-v2.6-pro", Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_048_576, ThinkTagReasoning: true, Providers: []ProviderBinding{
+	{ID: ModelMiMoV26Pro, Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_048_576, ThinkTagReasoning: true, CustomToolInput: CustomToolInputUnsupported, Providers: []ProviderBinding{
 		{Provider: providers.ProviderDeepInfra, UpstreamID: "XiaomiMiMo/MiMo-V2.6-Pro",
 			// DeepInfra returns "Too many images in request: N > 4".
 			MaxImagesPerRequest: 4,

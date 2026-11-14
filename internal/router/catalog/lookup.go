@@ -418,6 +418,18 @@ func AgenticLowSet() map[string]struct{} {
 	return out
 }
 
+// CustomToolUnsupportedSet returns model IDs flagged CustomToolInputUnsupported,
+// excluded when the request declares Responses custom tools.
+func CustomToolUnsupportedSet() map[string]struct{} {
+	out := make(map[string]struct{})
+	for _, m := range Models {
+		if m.CustomToolInput == CustomToolInputUnsupported {
+			out[m.ID] = struct{}{}
+		}
+	}
+	return out
+}
+
 // ImageUnsupportedSet returns model IDs flagged ImageInputUnsupported,
 // excluded when the request carries image content. Mirrors ToolUseLowSet's
 // fallback behavior.
@@ -440,6 +452,13 @@ func AcceptsImages(id string) bool {
 		return true
 	}
 	return m.ImageInput != ImageInputUnsupported
+}
+
+// AcceptsCustomTools reports whether the model can fill projected Responses
+// custom tools. Unknown models default to true.
+func AcceptsCustomTools(id string) bool {
+	m, ok := ByID(id)
+	return !ok || m.CustomToolInput != CustomToolInputUnsupported
 }
 
 // AllPrimaryPricing returns primary-binding pricing for every known model,
