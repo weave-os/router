@@ -631,15 +631,6 @@ func errorFrameType(cls DispatchErrorClass) string {
 	return "api_error"
 }
 
-// emitGeminiSSEErrorEvent writes a terminal error frame to a committed
-// Gemini stream; called only on post-commit transport or truncation failure.
-func emitGeminiSSEErrorEvent(sink http.ResponseWriter) {
-	_, _ = sink.Write([]byte("data: {\"error\":{\"code\":\"UNAVAILABLE\",\"message\":\"upstream stream failed\"}}\n\n"))
-	if f, ok := sink.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
 // flushUpstreamErrorAsAnthropic is ProxyMessages' flushErr: translates the
 // OpenAI-compat upstream's error body to Anthropic-shape JSON. No-op when
 // err is not an *UpstreamErrorResponse.

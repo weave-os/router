@@ -15,6 +15,7 @@ import (
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/ingress"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
@@ -209,11 +210,11 @@ func TestCustomerOwnedCredential(t *testing.T) {
 func TestBodyRewrittenIgnoresGeminiRoutingFields(t *testing.T) {
 	inbound := []byte(`{"model":"gemini-3-pro","stream":true,"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
 	forwarded := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
-	if bodyRewritten(geminiForwardedBody(inbound), forwarded) {
+	if bodyRewritten(ingress.GeminiForwardedBody(inbound), forwarded) {
 		t.Fatal("stripping the synthetic model/stream fields must not count as a rewrite")
 	}
 	sanitized := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[]}`)
-	if !bodyRewritten(geminiForwardedBody(inbound), sanitized) {
+	if !bodyRewritten(ingress.GeminiForwardedBody(inbound), sanitized) {
 		t.Fatal("a body change beyond the routing fields must count as a rewrite")
 	}
 }
