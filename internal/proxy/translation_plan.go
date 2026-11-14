@@ -165,6 +165,14 @@ func (s *Service) planTranslation(req router.Request) TranslationPlan {
 	return plan
 }
 
+// compatibilityExcludesModel reports whether the request's content rules model
+// out regardless of context fit.
+func compatibilityExcludesModel(req router.Request, model string) bool {
+	return req.TranslationRequirements.Images && !catalog.AcceptsImages(model) ||
+		req.ImageCount > 0 && !catalog.AcceptsImageCount(model, req.ImageCount, req.EnabledProviders) ||
+		req.TranslationRequirements.CustomTools && !catalog.AcceptsCustomTools(model)
+}
+
 // excludeModels reports each model under code and, when enforced, removes it
 // from the candidate set.
 func (plan *TranslationPlan) excludeModels(code string, models map[string]struct{}, enforced bool) {
