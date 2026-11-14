@@ -135,3 +135,99 @@ func TestBearerGatewayRequestKeepsCallerSystemPromptUntouched(t *testing.T) {
 
 	assert.Equal(t, "You are a haiku bot.", gjson.GetBytes(upstreamBody, "system").String())
 }
+
+// desktopBillingLine mirrors the billing line Claude Desktop sends as its first
+// system block. Its cch and prompt id change on every request.
+const desktopBillingLine = "x-anthropic-billing-header: cc_version=2.1.325.00a; cc_entrypoint=claude-desktop; cch=00000; cc_prompt_id=00000000-0000-4000-8000-000000000000; cc_turn_origin=human"
+
+// desktopSDKIdentity is the Agent SDK variant of claudeCodeIdentity that Desktop
+// sends after its billing line.
+const desktopSDKIdentity = "You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK."
+
+func TestSubscriptionDesktopLayoutKeepsBillingLineFirst(t *testing.T) {
+	// Regression: the router inserted its short identity ahead of Desktop's
+	// billing line, so the changing line sat inside the cached prefix and every
+	// turn rewrote the whole prompt (0 cache reads, ~88k cache writes).
+	request := `{"model":"claude-opus-5","system":[` +
+		`{"type":"text","text":"` + desktopBillingLine + `"},` +
+		`{"type":"text","text":"` + desktopSDKIdentity + `"},` +
+		`{"type":"text","text":"Project rules.","cache_control":{"type":"ephemeral","ttl":"1h","scope":"global"}}],` +
+		`"messages":[{"role":"user","content":"hi"}]}`
+	body := proxyWithBody(subscriptionContext(), t, request)
+
+	blocks := gjson.GetBytes(body, "system").Array()
+	require.Len(t, blocks, 3, "Desktop already identifies as Claude Code; nothing may be inserted")
+	assert.Equal(t, desktopBillingLine, blocks[0].Get("text").String(), "billing line must stay the first block")
+	assert.Equal(t, desktopSDKIdentity, blocks[1].Get("text").String())
+	assert.Equal(t, "global", blocks[2].Get("cache_control.scope").String(), "caller breakpoint with scope survives")
+}
+
+func TestSubscriptionIdentityIsInsertedAfterBillingLine(t *testing.T) {
+	// A billing-line-first body without an identity gets the identity after the
+	// billing line, never ahead of it.
+	request := `{"model":"claude-opus-5","system":[` +
+		`{"type":"text","text":"` + desktopBillingLine + `"},` +
+		`{"type":"text","text":"House rules.","cache_control":{"type":"ephemeral"}}],` +
+		`"messages":[{"role":"user","content":"hi"}]}`
+	body := proxyWithBody(subscriptionContext(), t, request)
+
+	blocks := gjson.GetBytes(body, "system").Array()
+	require.Len(t, blocks, 3)
+	assert.Equal(t, desktopBillingLine, blocks[0].Get("text").String())
+	assert.Equal(t, claudeCodeIdentity, blocks[1].Get("text").String())
+	assert.Equal(t, "House rules.", blocks[2].Get("text").String())
+	assert.Equal(t, "ephemeral", blocks[2].Get("cache_control.type").String(), "caller breakpoint survives")
+}
+
+func TestSubscriptionCLILayoutWithIdentityFirstIsUnchanged(t *testing.T) {
+	// Native Claude Code sends its identity before the billing line; the router
+	// adds nothing and the bytes are left exactly as the client sent them.
+	request := `{"model":"claude-opus-5","system":[` +
+		`{"type":"text","text":"` + claudeCodeIdentity + `"},` +
+		`{"type":"text","text":"` + desktopBillingLine + `"},` +
+		`{"type":"text","text":"Project rules.","cache_control":{"type":"ephemeral","ttl":"1h"}}],` +
+		`"messages":[{"role":"user","content":"hi"}]}`
+	body := proxyWithBody(subscriptionContext(), t, request)
+
+	blocks := gjson.GetBytes(body, "system").Array()
+	require.Len(t, blocks, 3, "no duplicate identity")
+	assert.Equal(t, claudeCodeIdentity, blocks[0].Get("text").String())
+	assert.Equal(t, desktopBillingLine, blocks[1].Get("text").String())
+}
+
+func TestAPIKeyBillingLineLayoutKeepsSystemUntouched(t *testing.T) {
+	// Paid API-key traffic never gets the subscription identity, whatever the
+	// billing line says; the caller's blocks are forwarded as sent.
+	ctx := context.WithValue(context.Background(), requestcontext.CredentialsContextKey{}, &requestcontext.Credentials{
+		APIKey: []byte("sk-ant-api-byok"),
+		Source: "byok",
+	})
+	request := `{"model":"claude-opus-5","system":[` +
+		`{"type":"text","text":"` + desktopBillingLine + `"},` +
+		`{"type":"text","text":"` + desktopSDKIdentity + `"}],` +
+		`"messages":[{"role":"user","content":"hi"}]}`
+	body := proxyWithBody(ctx, t, request)
+
+	blocks := gjson.GetBytes(body, "system").Array()
+	require.Len(t, blocks, 2)
+	assert.Equal(t, desktopBillingLine, blocks[0].Get("text").String())
+	assert.Equal(t, desktopSDKIdentity, blocks[1].Get("text").String())
+}
+
+func TestSubscriptionAgentSDKIdentityIsInsertedAfterBillingLine(t *testing.T) {
+	// SDK-driven clients lead with the billing line and then a generic Agent SDK
+	// identity that is not Claude Code's. The router adds Claude Code's identity
+	// after the billing line and keeps the SDK text behind it.
+	const sdkAgent = "You are a Claude agent, built on Anthropic's Claude Agent SDK."
+	request := `{"model":"claude-opus-5","system":[` +
+		`{"type":"text","text":"` + desktopBillingLine + `"},` +
+		`{"type":"text","text":"` + sdkAgent + `"}],` +
+		`"messages":[{"role":"user","content":"hi"}]}`
+	body := proxyWithBody(subscriptionContext(), t, request)
+
+	blocks := gjson.GetBytes(body, "system").Array()
+	require.Len(t, blocks, 3)
+	assert.Equal(t, desktopBillingLine, blocks[0].Get("text").String())
+	assert.Equal(t, claudeCodeIdentity, blocks[1].Get("text").String())
+	assert.Equal(t, sdkAgent, blocks[2].Get("text").String())
+}
