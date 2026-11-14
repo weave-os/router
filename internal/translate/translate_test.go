@@ -127,6 +127,7 @@ func TestTranslateResponse_StopReasons(t *testing.T) {
 		{"max_tokens", "length"},
 		{"stop_sequence", "stop"},
 		{"tool_use", "stop"},
+		{"model_context_window_exceeded", "length"},
 	}
 	for _, tt := range tests {
 		body := `{"id":"x","content":[{"type":"text","text":"hi"}],"model":"m","stop_reason":"` + tt.anthropic + `"}`

@@ -133,7 +133,9 @@ func mapStopReason(reason any) string {
 	switch s {
 	case "end_turn":
 		return "stop"
-	case "max_tokens":
+	case "max_tokens", "model_context_window_exceeded":
+		// model_context_window_exceeded: Sonnet 4.5+ stopped because the
+		// context window filled up; OpenAI reports that as "length".
 		return "length"
 	case "stop_sequence":
 		return "stop"
