@@ -702,6 +702,39 @@ echo "{\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}"
 wait_for 5 test ! -s "$cache_file.plans"
 check "a reconnected plan clears the cached warning" "$(cat "$cache_file.plans" 2>/dev/null)" ""
 
+# An install that predates the auto mode opt-out is pointed at `update`, scoped
+# to the install it came from; a value the user set suppresses the hint.
+AUTO_MODE_HINT="update to stop the auto mode gateway notice: npx @weave-os/router update --claude"
+c="$work/automode"; mkdir -p "$c/user/.weave" "$c/proj/.claude" "$c/cache"
+printf '{"hide_terminal_surfaces": false}' > "$c/ds.json"
+make_installed "$c/user/.weave/cc-statusline.sh"
+write_install "$c/proj" project "rk_proj_automode" "file://$c/ds.json"
+render_auto_mode() { # render_auto_mode <script> <base_url> [env...]
+  local script="$1" base_url="$2"
+  shift 2
+  echo "{\"model\":{\"id\":\"claude-sonnet-4-5\"},\"transcript_path\":\"$transcript\"}" \
+    | env -u CLAUDE_CODE_AUTO_MODE_SERVER XDG_CACHE_HOME="$c/cache" HOME="$c/home" \
+      WEAVE_STATUSLINE_UPDATE=0 WEAVE_COMMANDS_UPDATE=0 \
+      WEAVE_ROUTER_BASE_URL="file://$c/ds.json" WEAVE_ROUTER_KEY=rk_synthetic \
+      ANTHROPIC_BASE_URL="$base_url" ANTHROPIC_CUSTOM_HEADERS="X-Weave-Router-Key: rk_synthetic" \
+      "$@" bash "$script" 2>&1 | sed 's/\x1b\[[0-9;]*m//g'
+}
+out="$(render_auto_mode "$c/user/.weave/cc-statusline.sh" https://router.example.test)"
+check_contains "routed install without the auto mode opt-out shows the update hint" "$out" "$AUTO_MODE_HINT"
+check_not_contains "user-scope update hint carries no scope flags" "$out" "$AUTO_MODE_HINT --"
+out="$(render_auto_mode "$c/proj/.claude/cc-statusline.sh" https://router.example.test)"
+check_contains "project-scope update hint targets the project install" "$out" "$AUTO_MODE_HINT --scope project"
+check_not_contains "project-scope update hint omits --dir, which would move the key into settings.json" "$out" "$AUTO_MODE_HINT --scope project --dir"
+mkdir -p "$c/dir/.claude"; make_installed "$c/dir/.claude/cc-statusline.sh"
+out="$(render_auto_mode "$c/dir/.claude/cc-statusline.sh" https://router.example.test)"
+check_contains "--dir install update hint names its directory" "$out" "$AUTO_MODE_HINT --dir $c/dir"
+for auto_mode_value in 0 1; do
+  out="$(render_auto_mode "$c/user/.weave/cc-statusline.sh" https://router.example.test CLAUDE_CODE_AUTO_MODE_SERVER="$auto_mode_value")"
+  check_not_contains "CLAUDE_CODE_AUTO_MODE_SERVER=$auto_mode_value suppresses the update hint" "$out" "$AUTO_MODE_HINT"
+done
+out="$(render_auto_mode "$c/user/.weave/cc-statusline.sh" https://api.anthropic.com)"
+check_not_contains "routing off shows no update hint" "$out" "$AUTO_MODE_HINT"
+
 # A plans list older than the TTL is not shown: a statusline that has not
 # refreshed in days (unreachable router, idle install) must not report a plan
 # state the account may have left long ago.

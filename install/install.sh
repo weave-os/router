@@ -6983,6 +6983,10 @@ export PATH="$PATH:$HOME/.weave/bin"
 # stopped before it reaches a model, so checking the router never spends a
 # turn. The settings env (router URL and key header) is inherited by hooks, and
 # the session's last statusline render is cached by the statusline below.
+weave_router_routing_on() {
+  [[ -n "${ANTHROPIC_BASE_URL:-}" && "${ANTHROPIC_BASE_URL}" != https://api.anthropic.com* \
+    && "${ANTHROPIC_CUSTOM_HEADERS:-}" == *"X-Weave-Router-Key:"* ]]
+}
 weave_router_status_hook() {
   command -v jq >/dev/null 2>&1 || return 0
   local payload prompt session line="" root report scope_suffix=""
@@ -6992,7 +6996,7 @@ weave_router_status_hook() {
   [[ "$prompt" =~ ^[[:space:]]*/router-status[[:space:]]*$ ]] || return 0
   if [[ "${ANTHROPIC_BASE_URL:-}" == https://api.anthropic.com* ]]; then
     report="Weave Router is off: Claude Code talks to Anthropic directly. Turn it back on with /router-on."
-  elif [[ -n "${ANTHROPIC_BASE_URL:-}" && "${ANTHROPIC_CUSTOM_HEADERS:-}" == *"X-Weave-Router-Key:"* ]]; then
+  elif weave_router_routing_on; then
     report="Weave Router is on: Claude Code sends requests to ${ANTHROPIC_BASE_URL}."
   elif [[ -n "${ANTHROPIC_BASE_URL:-}" ]]; then
     report="Claude Code sends requests to ${ANTHROPIC_BASE_URL}, but no Weave Router key is set. Repair it with: npx @weave-os/router update --claude${scope_suffix}"
@@ -8128,26 +8132,43 @@ if [[ "$has_pin_record" == "true" ]]; then
   status_text="$status_text · last pin: $last_pin_model"
 fi
 
-# Point the reconnect command at this install: a bare login reads the
-# user-scope config, which a project or --dir install doesn't use.
-weave_login_scope=""
-if [ -n "${weave_disconnected_plans:-}" ]; then
+# Installs written before the auto mode opt-out existed lack
+# CLAUDE_CODE_AUTO_MODE_SERVER, and this script's self-refresh never rewrites
+# settings, so Claude Code keeps showing its "gateway isn't compatible" notice
+# until the installer runs again. Any value the user set is their choice.
+weave_needs_auto_mode_update="false"
+if weave_router_routing_on && [ -z "${CLAUDE_CODE_AUTO_MODE_SERVER+set}" ]; then
+  weave_needs_auto_mode_update="true"
+fi
+
+# Point repair commands at this install: a bare command reads the user-scope
+# config, which a project or --dir install doesn't use. `update` must not get
+# --dir for a project install: with --dir it writes the router key into the
+# tracked settings.json instead of settings.local.json.
+weave_login_scope_args=""
+weave_update_scope_args=""
+if [ -n "${weave_disconnected_plans:-}" ] || [ "$weave_needs_auto_mode_update" = "true" ]; then
   weave_sl_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd)"
   case "$weave_sl_dir" in
     */.claude)
-      weave_login_scope=" --dir $(printf '%q' "${weave_sl_dir%/.claude}")"
+      weave_login_scope_args=" --dir $(printf '%q' "${weave_sl_dir%/.claude}")"
+      weave_update_scope_args="$weave_login_scope_args"
       if grep -q 'X-Weave-Router-Key' "$weave_sl_dir/settings.local.json" 2>/dev/null; then
-        weave_login_scope=" --scope project$weave_login_scope"
+        weave_login_scope_args=" --scope project$weave_login_scope_args"
+        weave_update_scope_args=" --scope project"
       fi
       ;;
   esac
 fi
 for weave_plan in ${weave_disconnected_plans:-}; do
   case "$weave_plan" in
-    claude) status_text="$status_text · Claude plan needs login: npx @weave-os/router login claude$weave_login_scope" ;;
-    codex) status_text="$status_text · Codex plan needs login: npx @weave-os/router login codex$weave_login_scope" ;;
+    claude) status_text="$status_text · Claude plan needs login: npx @weave-os/router login claude$weave_login_scope_args" ;;
+    codex) status_text="$status_text · Codex plan needs login: npx @weave-os/router login codex$weave_login_scope_args" ;;
   esac
 done
+if [ "$weave_needs_auto_mode_update" = "true" ]; then
+  status_text="$status_text · update to stop the auto mode gateway notice: npx @weave-os/router update --claude$weave_update_scope_args"
+fi
 
 # /router-status reads this back through the prompt hook, so it can answer
 # without a model turn.
