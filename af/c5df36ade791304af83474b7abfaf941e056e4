@@ -1,0 +1,34 @@
+docs/SERVING_CONTROL.md
+  s_d35d7172a8b896::t_d689e03008632c 635-640,642
+internal/server/server.go
+  s_d35d7172a8b896::t_d26921a107bf18 5,120,122-123
+  s_d35d7172a8b896::t_d689e03008632c 39-40,196-197
+internal/server/server_test.go
+  s_d35d7172a8b896::t_d26921a107bf18 8,10,20,164-166,185-208,211-255
+  s_d35d7172a8b896::t_d689e03008632c 256,258-271
+  s_d35d7172a8b896::t_93d716156334f4 210
+  s_d35d7172a8b896::t_79842a79409f5d 209
+  s_d35d7172a8b896::t_2360452e918e93 257
+internal/api/admin/health.go
+  s_d35d7172a8b896::t_d689e03008632c 22-38
+cmd/router/main.go
+  s_d35d7172a8b896::t_d689e03008632c 139,144,1560
+README.md
+  s_d35d7172a8b896::t_d689e03008632c 261-265
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "afc5df36ade791304af83474b7abfaf941e056e4",
+  "prompts": {},
+  "sessions": {
+    "s_d35d7172a8b896": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e49-64cc-77a3-af7c-11c7b4524e4a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

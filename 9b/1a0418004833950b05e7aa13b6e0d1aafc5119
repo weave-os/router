@@ -1,0 +1,23 @@
+internal/router/catalog/catalog_test.go
+  s_b29ee43cd38f41::t_63888edae7e7b3 296-298
+internal/proxy/mythos_test.go
+  s_b29ee43cd38f41::t_81d1df70d70e86 46-64
+internal/router/catalog/catalog.go
+  s_b29ee43cd38f41::t_63888edae7e7b3 424
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9b1a0418004833950b05e7aa13b6e0d1aafc5119",
+  "prompts": {},
+  "sessions": {
+    "s_b29ee43cd38f41": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1d156-051d-7683-a42f-859d8ce4ffd6",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

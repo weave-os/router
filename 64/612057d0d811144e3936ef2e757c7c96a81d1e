@@ -1,0 +1,67 @@
+db/migrations/0137_session-issuer.down.sql
+  s_394c7cb9fc8be4::t_134d8efdc62869 1-15
+internal/sqlc/model_router_api_keys.sql.go
+  s_394c7cb9fc8be4::t_39c9be009d0559 24-25,36-37,39,52,56-57,68-69,80-81,83,95,117,123,142,170,244,253,286
+db/migrations/0137_session-issuer.up.sql
+  s_394c7cb9fc8be4::t_134d8efdc62869 1-18
+internal/auth/session_token.go
+  s_394c7cb9fc8be4::t_a3b73015e157c5 14-15,201-202,276,279,283-287,290
+  s_394c7cb9fc8be4::t_b99dfb4ad841d0 240
+  s_394c7cb9fc8be4::t_725606d17a3ab6 130-132,146-149,153-165
+  s_394c7cb9fc8be4::t_635146e2e7a725 1-13,16-57,62-65,67-79,80-111,112-116,118-129,133-145,150-152,166-200,203-239,241-258,260-275,277-278,280-282,288-289,291-294
+  s_394c7cb9fc8be4::t_c4b1185badfe7e 58-61,66,117,259
+internal/auth/id.go
+  s_394c7cb9fc8be4::t_a3b73015e157c5 16-19,54,58-59
+internal/server/middleware/session_token_auth_test.go
+  s_394c7cb9fc8be4::t_22c987a6f3d6a4 1-69
+db/queries/model_router_api_keys.sql
+  s_394c7cb9fc8be4::t_39c9be009d0559 2-3,14-15,26-27
+docs/DELEGATED_SESSION_TOKENS.md
+  s_394c7cb9fc8be4::t_b4d3cded5f58f0 1-59
+internal/auth/api_key.go
+  s_394c7cb9fc8be4::t_a3b73015e157c5 5,19-21,36-42,76-77,89-90
+docs/CONFIGURATION.md
+  s_394c7cb9fc8be4::t_b4d3cded5f58f0 56
+internal/sqlc/credential_subjects.sql.go
+  s_394c7cb9fc8be4::t_39c9be009d0559 97,117,148
+internal/auth/session_token_test.go
+  s_394c7cb9fc8be4::t_55f2f682e197b4 1-322
+internal/postgres/converters.go
+  s_394c7cb9fc8be4::t_250c39e5cab409 130-132
+  s_394c7cb9fc8be4::t_085dff5110723b 4,126,133-143
+internal/auth/service.go
+  s_394c7cb9fc8be4::t_a3b73015e157c5 110-112,355,378-379,381-391,844
+  s_394c7cb9fc8be4::t_39c9be009d0559 411,841-843
+internal/sqlc/models.go
+  s_394c7cb9fc8be4::t_39c9be009d0559 348,355-356
+docs/README.md
+  s_394c7cb9fc8be4::t_b4d3cded5f58f0 13
+cmd/router/main.go
+  s_394c7cb9fc8be4::t_2bb0ea555c8878 596-602,613-614
+internal/api/admin/internal_session_issuers.go
+  s_394c7cb9fc8be4::t_c68a778cd7972a 1-72
+internal/postgres/repository.go
+  s_394c7cb9fc8be4::t_77ae389d49bab3 382
+internal/server/middleware/auth.go
+  s_394c7cb9fc8be4::t_706a298c59bc4c 105,107-109,136
+internal/server/server.go
+  s_394c7cb9fc8be4::t_944a111c14b092 257-260
+go.mod
+  s_394c7cb9fc8be4::t_46ddf7da2a5ded 14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "64612057d0d811144e3936ef2e757c7c96a81d1e",
+  "prompts": {},
+  "sessions": {
+    "s_394c7cb9fc8be4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a16f2b-feba-72f3-a064-e0e2eff463af",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

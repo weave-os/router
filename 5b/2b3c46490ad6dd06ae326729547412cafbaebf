@@ -1,0 +1,19 @@
+internal/proxy/compaction_strategy_internal_test.go
+  s_b29ee43cd38f41::t_f5e9052fd78205 7,152-210
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5b2b3c46490ad6dd06ae326729547412cafbaebf",
+  "prompts": {},
+  "sessions": {
+    "s_b29ee43cd38f41": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1d156-051d-7683-a42f-859d8ce4ffd6",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

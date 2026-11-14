@@ -1,0 +1,29 @@
+install/README.md
+  s_a352c888620a6b::t_4ed4dce20c2034 165,445-447,459-462
+install/tests/codex_install_test.sh
+  s_a352c888620a6b::t_4ed4dce20c2034 85-90,492-493
+  s_a352c888620a6b::t_4a4fd92e7c257a 494
+install/npm/windows.js
+  s_a352c888620a6b::t_4ed4dce20c2034 16-17,249-252,351
+install/tests/context_window_test.sh
+  s_a352c888620a6b::t_4ed4dce20c2034 36-40,42-44,48-58
+  s_a352c888620a6b::t_22726bc9f7c5b2 59
+install/install.sh
+  s_a352c888620a6b::t_4ed4dce20c2034 20-22,121-122,495-497,875-882,884,894-897,983,1527-1531,1645,2700-2705,2707-2715,2717-2722,2732,2736,2741,2743
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e5fdabaa38d53043bbdc5d0a516f147b50cabc8b",
+  "prompts": {},
+  "sessions": {
+    "s_a352c888620a6b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a164e3-7bd5-7f22-9070-c5b6ce663f45",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
