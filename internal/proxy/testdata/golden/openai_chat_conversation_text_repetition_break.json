@@ -1,0 +1,132 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_chat",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "claude-haiku-4-5",
+          "model": "claude-haiku-4-5",
+          "provider": "anthropic",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "content": "Weave Router: repetition loop detected (claude-haiku-4-5/anthropic repeated the same response 3 times). Stopping and clearing the session pin; send a follow-up to resume on a different model.",
+                "role": "assistant"
+              }
+            }
+          ],
+          "id": "chatcmpl_router_cmd_\u003cuuid\u003e",
+          "model": "weave-router",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 47,
+            "prompt_tokens": 67,
+            "total_tokens": 114
+          }
+        }
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_low",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "claude-haiku-4-5",
+            "Provider": "anthropic",
+            "Reason": "golden_route",
+            "Role": "default_low",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "upsert",
+          "role": "default_low",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Reason": "text_repetition_break",
+            "Role": "default_low",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        },
+        {
+          "op": "upsert",
+          "role": "default_low_hmm_history",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Reason": "text_repetition_break",
+            "Role": "default_low_hmm_history",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        }
+      ]
+    }
+  ],
+  "scenario": "openai_chat_conversation_text_repetition_break"
+}

@@ -1,0 +1,49 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_chat",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "choices": [
+            {
+              "finish_reason": "stop",
+              "index": 0,
+              "message": {
+                "content": "Weave Router: Feedback recorded. Thank you.",
+                "role": "assistant"
+              }
+            }
+          ],
+          "id": "chatcmpl_router_cmd_\u003cuuid\u003e",
+          "model": "weave-router",
+          "object": "chat.completion",
+          "usage": {
+            "completion_tokens": 10,
+            "prompt_tokens": 18,
+            "total_tokens": 28
+          }
+        }
+      },
+      "store_events": [
+        {
+          "op": "router_feedback.insert",
+          "detail": {
+            "Feedback": "wrong model for this task",
+            "InstallationID": "00000000-0000-4000-8000-000000000001",
+            "RequestedModel": "claude-haiku-4-5",
+            "Role": "default_low",
+            "Source": "user"
+          }
+        }
+      ]
+    }
+  ],
+  "scenario": "openai_chat_conversation_router_feedback_command"
+}

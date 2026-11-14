@@ -1,0 +1,18 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {},
+      "dispatch_error": {
+        "outcome": "error: Pi handoff expired or no longer matches this request; prepare the route again",
+        "kind": 37,
+        "status": 409,
+        "message": "Pi handoff expired or no longer matches this request; prepare the route again"
+      }
+    }
+  ],
+  "scenario": "anthropic_messages_conversation_handoff_invalid_token_rejected"
+}
