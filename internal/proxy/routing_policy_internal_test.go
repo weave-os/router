@@ -195,6 +195,15 @@ func TestCallerRoutingStateFollowsRoutingPrecedence(t *testing.T) {
 		}, wantPassthrough: true, wantSource: callerRoutingSourceClientModel},
 		{name: "experiment passthrough arm keeps a client-selected model", ctx: func(*testing.T) context.Context {
 			return auth.WithClientModelPassthrough(experiment(context.Background(), passthroughArm))
+		}, wantPassthrough: true, wantSource: callerRoutingSourceExperiment},
+		{name: "cohort passthrough phase keeps a client-selected model", ctx: func(*testing.T) context.Context {
+			return auth.WithClientModelPassthrough(experiment(context.Background(), auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmPassthrough, CohortExperimentID: "cohort"}))
+		}, wantPassthrough: true, wantSource: callerRoutingSourceCohort},
+		{name: "client-selected model without an experiment", ctx: func(*testing.T) context.Context {
+			return auth.WithClientModelPassthrough(context.Background())
+		}, wantPassthrough: true, wantSource: callerRoutingSourceClientModel},
+		{name: "client-selected model under an inactive experiment", ctx: func(*testing.T) context.Context {
+			return auth.WithClientModelPassthrough(experiment(context.Background(), auth.BlindExperimentState{Arm: auth.BlindExperimentArmRouterOn}))
 		}, wantPassthrough: true, wantSource: callerRoutingSourceClientModel},
 		{name: "inherit policy defers to experiment", ctx: func(t *testing.T) context.Context {
 			return experiment(withPolicy(t, auth.RoutingPolicyInherit, false), passthroughArm)
