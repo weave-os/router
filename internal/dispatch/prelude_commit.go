@@ -49,13 +49,11 @@ func (b *PreludeBuffer) Write(p []byte) (int, error) {
 		return sse.WriteJSONChunk(b.inner, p)
 	}
 	if b.sealed {
-		// Post-Seal first write: commit buffered prelude, then pass through.
 		if err := b.commit(); err != nil {
 			return 0, err
 		}
 		return sse.WriteJSONChunk(b.inner, p)
 	}
-	// Pre-Seal: buffer.
 	return b.bufBody.Write(p)
 }
 
@@ -65,12 +63,8 @@ func (b *PreludeBuffer) WriteHeader(status int) {
 		b.inner.WriteHeader(status)
 		return
 	}
-	if b.sealed {
-		// Buffer success headers so an empty or retryable stream can still
-		// avoid committing a downstream 200 before upstream output arrives.
-		b.bufStatus = status
-		return
-	}
+	// Buffer success headers so an empty or retryable stream can still
+	// avoid committing a downstream 200 before upstream output arrives.
 	b.bufStatus = status
 }
 
