@@ -284,7 +284,7 @@ func anthropicUp(steps ...goldenStep) map[string][]goldenStep {
 	return map[string][]goldenStep{providers.ProviderAnthropic: steps}
 }
 
-func responsesOK() goldenStep {
+func credentialResponsesOK() goldenStep {
 	return goldenOK("text/event-stream", []string{
 		"data: " + `{"type":"response.output_text.delta","output_index":0,"delta":"ok"}` + "\n\n",
 		"data: " + `{"type":"response.completed","response":{"id":"golden","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":1,"output_tokens":1}}}` + "\n\n",
@@ -293,7 +293,7 @@ func responsesOK() goldenStep {
 
 func goldenCredentialScenarios() []goldenScenario {
 	ok := anthropicOK(false, "ok")
-	openaiOK := responsesOK()
+	openaiOK := credentialResponsesOK()
 	anthropicDecisions := []router.Decision{goldenAnthropicDecision}
 	openaiDecisions := []router.Decision{goldenOpenAIDecision}
 	cases := []credentialCase{

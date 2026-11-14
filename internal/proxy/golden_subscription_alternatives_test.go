@@ -16,7 +16,7 @@ import (
 
 const (
 	goldenCodexAlternativeModel = "gpt-6-sol"
-	goldenModelDeniedBody       = `{"error":{"code":"model_not_found","message":"golden seat model unavailable"}}`
+	goldenSeatModelDeniedBody   = `{"error":{"code":"model_not_found","message":"golden seat model unavailable"}}`
 	goldenUsageLimitBody        = `{"error":{"type":"usage_limit_reached","message":"The usage limit has been reached","resets_in_seconds":3600}}`
 	goldenAutoChatBody          = `{"model":"auto","stream":true,"messages":[{"role":"user","content":"Say hi"}]}`
 	goldenAutoChatToolBody      = `{"model":"auto","stream":true,"messages":[{"role":"user","content":"Say hi"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
@@ -100,7 +100,7 @@ var goldenCodexAlternativeDecision = router.Decision{
 func goldenSubscriptionAlternativeScenarios() []goldenScenario {
 	prefix := ingressOpenAI + "_stream_"
 	deniedThenServed := map[string][]goldenStep{providers.ProviderOpenAI: {
-		goldenUpstreamError(http.StatusNotFound, goldenModelDeniedBody),
+		goldenUpstreamError(http.StatusNotFound, goldenSeatModelDeniedBody),
 		goldenResponsesOK("on alternative seat")}}
 	return []goldenScenario{
 		{name: prefix + "subscription_alternative_after_seat_model_denied", ingress: ingressOpenAI,
