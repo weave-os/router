@@ -59,8 +59,8 @@ type goldenStep struct {
 	err     error
 	// cancel cancels the client's request context after frames are written.
 	cancel bool
-	// pause holds the stream open after the first frame, in wall-clock time,
-	// so a keepalive writer can fire.
+	// pause holds the stream open before the last frame, in wall-clock time,
+	// so a keepalive writer can fire once the response has committed.
 	pause time.Duration
 }
 
@@ -111,7 +111,7 @@ func (p *goldenProvider) Proxy(ctx context.Context, decision router.Decision, pr
 			if f, ok := w.(http.Flusher); ok {
 				f.Flush()
 			}
-			if i == 0 && step.pause > 0 {
+			if i == len(step.frames)-2 && step.pause > 0 {
 				time.Sleep(step.pause)
 			}
 		}

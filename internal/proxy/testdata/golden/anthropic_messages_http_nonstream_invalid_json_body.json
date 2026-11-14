@@ -1,0 +1,24 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages_http",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "error": {
+            "message": "Request body must be a JSON object.",
+            "type": "invalid_request_error"
+          },
+          "type": "error"
+        }
+      }
+    }
+  ],
+  "scenario": "anthropic_messages_http_nonstream_invalid_json_body"
+}

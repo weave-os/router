@@ -1,0 +1,29 @@
+{
+  "requests": [
+    {
+      "ingress": "anthropic_messages_http",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "claude-sonnet-4-5",
+          "error": "no eligible model"
+        }
+      ],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 502,
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "error": {
+            "message": "Upstream call failed.",
+            "type": "api_error"
+          },
+          "type": "error"
+        }
+      }
+    }
+  ],
+  "scenario": "anthropic_messages_http_nonstream_route_error"
+}

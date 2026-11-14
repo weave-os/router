@@ -1,0 +1,30 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_chat_http",
+      "stream": true,
+      "routing_decisions": [
+        {
+          "requested_model": "gpt-5",
+          "error": "router: no eligible provider for request"
+        }
+      ],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 400,
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "error": {
+            "code": null,
+            "message": "No enabled provider can serve any deployed model: add a provider key (BYOK or a provider Authorization header), or re-enable an excluded provider.",
+            "param": null,
+            "type": "invalid_request_error"
+          }
+        }
+      }
+    }
+  ],
+  "scenario": "openai_chat_http_stream_no_eligible_provider"
+}

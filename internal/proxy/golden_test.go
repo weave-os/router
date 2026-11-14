@@ -173,6 +173,8 @@ type goldenResponse struct {
 	Headers map[string]string `json:"headers,omitempty"`
 	Body    any               `json:"body,omitempty"`
 	Events  []goldenSSEEvent  `json:"events,omitempty"`
+	// Set when a keepalive ping reaches the client. Presence only: ping timing is wall-clock, so no count is kept.
+	Keepalive bool `json:"keepalive,omitempty"`
 }
 
 type goldenSSEEvent struct {
@@ -326,8 +328,9 @@ func goldenClientResponse(rec *httptest.ResponseRecorder) goldenResponse {
 			if len(eventType) == 0 && len(data) == 0 {
 				continue
 			}
-			// Keepalive pings fire on wall-clock time; pin presence, not count.
-			if string(eventType) == "ping" && len(out.Events) > 0 && out.Events[len(out.Events)-1].Event == "ping" {
+			// Keepalive pings fire on wall-clock time; pin presence, not count or position.
+			if string(eventType) == "ping" && string(data) == `{"type":"ping"}` {
+				out.Keepalive = true
 				continue
 			}
 			out.Events = append(out.Events, goldenSSEEvent{Event: string(eventType), Data: goldenWireJSON(data)})
