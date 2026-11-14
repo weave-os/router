@@ -162,7 +162,7 @@ func TestAuthorizeSubscriptionAPI_CallerQuotaExhaustionStillAuthorizesPaidFallba
 	now := time.Now()
 	svc := &Service{now: func() time.Time { return now }}
 	ctx := throttleTestContext()
-	spent := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"usage_limit_reached","message":"limit"}}`)}
-	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, &Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}, spent)
+	quotaExhaustedErr := &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"usage_limit_reached","message":"limit"}}`)}
+	svc.recordDirectSubscriptionQuota(ctx, providers.ProviderOpenAI, codexCoveredModel, &Credentials{APIKey: []byte("caller-codex-token"), OAuth: true}, quotaExhaustedErr)
 	require.NoError(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, "caller-codex-token", "", clientAppRefusalFunding{}))
 }
