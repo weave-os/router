@@ -11,10 +11,10 @@ import (
 // which provider bindings one decision may walk.
 type BindingRequest struct {
 	Decision router.Decision
-	// Keyed lists the providers holding deployment keys. It is nil when the
+	// DeploymentKeyedProviders is nil when the
 	// request may not fail over (caller credentials, failover disabled, or
 	// the legacy all-registered mode), which serves the decision's provider only.
-	Keyed map[string]struct{}
+	DeploymentKeyedProviders map[string]struct{}
 	// SubscriptionServes reports that a linked subscription serves the
 	// decision's provider natively without a deployment key.
 	SubscriptionServes bool
@@ -35,7 +35,7 @@ type BindingRequest struct {
 func OrderedBindings(req BindingRequest) []catalog.ProviderBinding {
 	decision := req.Decision
 	primary := catalog.ProviderBinding{Provider: decision.Provider}
-	if req.Keyed == nil {
+	if req.DeploymentKeyedProviders == nil {
 		if binding, ok := catalog.BindingFor(decision.Model, decision.Provider); ok &&
 			!binding.AcceptsImageCount(req.ImageCount) && !req.UserForced {
 			return nil
@@ -88,7 +88,7 @@ func OrderedBindings(req BindingRequest) []catalog.ProviderBinding {
 // too, or a fallback binding could resurrect a provider the scorer already
 // filtered out.
 func eligibleProviders(req BindingRequest) map[string]struct{} {
-	available := req.Keyed
+	available := req.DeploymentKeyedProviders
 	if req.SubscriptionServes {
 		available = maps.Clone(available)
 		available[req.Decision.Provider] = struct{}{}
