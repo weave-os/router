@@ -111,12 +111,12 @@ func (r *goldenRecorder) cancelClient() {
 }
 
 type goldenHarness struct {
-	clock     *goldenClock
-	rec       *goldenRecorder
-	telemetry *goldenTelemetry
-	pins      *goldenPinStore
-	svc       *proxy.Service
-	lastBody  []byte
+	clock            *goldenClock
+	rec              *goldenRecorder
+	telemetry        *goldenTelemetry
+	pins             *goldenPinStore
+	svc              *proxy.Service
+	lastResponseBody []byte
 }
 
 // newGoldenHarness wires a real Service the way cmd/router/main.go does, with
@@ -227,7 +227,7 @@ func (h *goldenHarness) serve(t *testing.T, ingress string, req goldenRequest) g
 		Stream bool `json:"stream"`
 	}
 	_ = json.Unmarshal([]byte(req.body), &parsed)
-	h.lastBody = rec.Body.Bytes()
+	h.lastResponseBody = rec.Body.Bytes()
 	h.rec.mu.Lock()
 	defer h.rec.mu.Unlock()
 	trace := goldenRequestTrace{
@@ -485,7 +485,7 @@ func runGoldenScenario(t *testing.T, sc goldenScenario) {
 	traces := make([]goldenRequestTrace, 0, len(sc.requests))
 	for _, req := range sc.requests {
 		if req.bodyFrom != nil {
-			req.body = req.bodyFrom(h.lastBody)
+			req.body = req.bodyFrom(h.lastResponseBody)
 		}
 		traces = append(traces, h.serve(t, sc.ingress, req))
 	}
