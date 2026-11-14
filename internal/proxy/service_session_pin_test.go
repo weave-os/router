@@ -1234,38 +1234,6 @@ func TestService_SessionPin_OpenAI_ForceModelCommandStreamShape(t *testing.T) {
 	assert.NotContains(t, body, `"type":"message"`, "must not emit Anthropic wire format on OpenAI ingress")
 }
 
-func TestService_SessionPin_OpenAI_ToolResultShortCircuit(t *testing.T) {
-	// Kill switch OFF: pinned tool_result reuses the pin verbatim (legacy #82 path).
-	// Default (scorer runs) is covered by turnloop_test.go.
-	const toolResultBody = `{
-		"model":"gpt-4o",
-		"messages":[
-			{"role":"system","content":"You are helpful."},
-			{"role":"user","content":"original prompt"},
-			{"role":"assistant","content":null,"tool_calls":[{"id":"t1","type":"function","function":{"name":"Bash","arguments":"{}"}}]},
-			{"role":"tool","tool_call_id":"t1","content":"ls output"}
-		]
-	}`
-	store := newFakePinStore()
-	store.hasPin = true
-	store.pin = sessionpin.Pin{
-		Provider:    providers.ProviderOpenAI,
-		Model:       "gpt-5",
-		Reason:      "cluster:v0.2",
-		PinnedUntil: time.Now().Add(30 * time.Minute),
-	}
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4o", Reason: "fresh"}}
-	svc := newOpenAIPinSvc(fr, store).WithScoreToolResultTurns(false)
-
-	ctx := authedCtx(uuid.New().String())
-	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
-	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(toolResultBody), rec, httpReq))
-
-	assert.Equal(t, 0, fr.routeCalls, "disabled tool-result scoring must not re-run the scorer")
-	assert.Equal(t, "gpt-5", rec.Header().Get(proxy.HeaderRouterModel))
-}
-
 // newOpenAIHardPinSvc keeps the hard-pin target on OpenAI so the path stays
 // same-format (cross-format translation needs a real response body).
 func newOpenAIHardPinSvc(fr *fakeRouter, store *fakePinStore, hardPinExplore bool) *proxy.Service {

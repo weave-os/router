@@ -66,8 +66,7 @@ func nativeSurfaceService(provider *fakeProvider, providerName, model string) *p
 		&fakeRouter{decision: router.Decision{Provider: providerName, Model: model, Reason: "test"}},
 		map[string]providers.Client{providerName: provider},
 		nil, nil, false, providerName, model, nil,
-	).WithOpenAIResponsesBroad(providerName == providers.ProviderOpenAI).
-		WithRetrySleep(noRetrySleep)
+	).WithRetrySleep(noRetrySleep)
 }
 
 // The adapter returns nil on a clean EOF after a 200, so a connection the
@@ -170,7 +169,7 @@ func TestProxyMessages_NativeCutAfterMessageDeltaIsProviderOwned(t *testing.T) {
 	svc := makeProxyService(
 		router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"},
 		map[string]providers.Client{providers.ProviderAnthropic: provider},
-	).WithNativeAnthropicResponseSignals(true)
+	)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))

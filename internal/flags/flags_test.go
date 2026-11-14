@@ -15,13 +15,13 @@ func TestParseOverridesValid(t *testing.T) {
 	o, err := flags.ParseOverrides([]byte(`{
 		"struggle_shadow_enabled": false,
 		"loop_escalation_holdout_pct": 25,
-		"cyber_refusal_fallback_model": "claude-opus-5"
+		"agreement_shadow_epoch": 3
 	}`))
 	require.NoError(t, err)
 
 	assert.False(t, o.Bools[flags.KeyStruggleShadowEnabled])
 	assert.Equal(t, 25, o.Ints[flags.KeyLoopEscalationHoldoutPct])
-	assert.Equal(t, "claude-opus-5", o.Strings[flags.KeyCyberRefusalFallback])
+	assert.Equal(t, 3, o.Ints[flags.KeyAgreementShadowEpoch])
 	assert.False(t, o.IsEmpty())
 }
 
@@ -61,15 +61,22 @@ func TestParseOverridesIgnoresRetiredFlags(t *testing.T) {
 		"struggle_evidence_arming": false,
 		"subscriber_paid_fallback_enabled": false,
 		"subscription_pool_quota_aware_selection_enabled": true,
+		"embed_only_user_message": true,
 		"planner_enabled": false,
+		"sibling_failover": false,
+		"cyber_refusal_fallback_model": "claude-opus-5",
+		"hmm_tool_result_hold": false,
 		"loop_escalation_holdout_pct": 25
 	}`))
 	require.NoError(t, err)
-	assert.False(t, o.Bools[flags.KeyPlannerEnabled])
+	assert.False(t, o.Bools[flags.KeyHMMToolResultHold])
 	assert.Equal(t, 25, o.Ints[flags.KeyLoopEscalationHoldoutPct])
 	assert.NotContains(t, o.Keys(), flags.Key("struggle_escalation_enabled"))
 	assert.NotContains(t, o.Keys(), flags.Key("subscriber_paid_fallback_enabled"))
 	assert.NotContains(t, o.Keys(), flags.Key("subscription_pool_quota_aware_selection_enabled"))
+	assert.NotContains(t, o.Keys(), flags.Key("planner_enabled"))
+	assert.NotContains(t, o.Keys(), flags.Key("sibling_failover"))
+	assert.NotContains(t, o.Keys(), flags.Key("cyber_refusal_fallback_model"))
 }
 
 func TestParseOverridesRejectsBadPayloads(t *testing.T) {
@@ -81,7 +88,7 @@ func TestParseOverridesRejectsBadPayloads(t *testing.T) {
 		"bool given a number": `{"struggle_shadow_enabled": 1}`,
 		"int given a string":  `{"loop_escalation_holdout_pct": "25"}`,
 		"int given a float":   `{"loop_escalation_holdout_pct": 2.5}`,
-		"string given a bool": `{"cyber_refusal_fallback_model": true}`,
+		"string given a bool": `{"escalation_active_classifier": true}`,
 		"not an object":       `[1, 2, 3]`,
 		"malformed json":      `{"struggle_shadow_enabled":`,
 	} {
@@ -93,7 +100,7 @@ func TestParseOverridesRejectsBadPayloads(t *testing.T) {
 }
 
 func TestOverridesRoundTrip(t *testing.T) {
-	original := []byte(`{"planner_enabled":false,"loop_escalation_holdout_pct":7,"cyber_refusal_fallback_model":"claude-sonnet-5"}`)
+	original := []byte(`{"hmm_tool_result_hold":false,"loop_escalation_holdout_pct":7,"escalation_active_classifier":"xgb"}`)
 	parsed, err := flags.ParseOverrides(original)
 	require.NoError(t, err)
 
@@ -114,7 +121,7 @@ func TestEmptyOverridesMarshalsToEmptyObject(t *testing.T) {
 func TestValidateOverridesRejectsWrongKindAndSemanticValues(t *testing.T) {
 	for name, overrides := range map[string]flags.Overrides{
 		"wrong typed map": {
-			Ints: map[flags.Key]int{flags.KeyPlannerEnabled: 1},
+			Ints: map[flags.Key]int{flags.KeyHMMToolResultHold: 1},
 		},
 		"holdout above 100": {
 			Ints: map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 101},
@@ -123,11 +130,8 @@ func TestValidateOverridesRejectsWrongKindAndSemanticValues(t *testing.T) {
 			Ints: map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: -1},
 		},
 		"duplicate key across maps": {
-			Bools: map[flags.Key]bool{flags.KeyPlannerEnabled: true},
-			Ints:  map[flags.Key]int{flags.KeyPlannerEnabled: 1},
-		},
-		"empty fallback model": {
-			Strings: map[flags.Key]string{flags.KeyCyberRefusalFallback: "  "},
+			Bools: map[flags.Key]bool{flags.KeyHMMToolResultHold: true},
+			Ints:  map[flags.Key]int{flags.KeyHMMToolResultHold: 1},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -140,24 +144,24 @@ func TestValidateOverridesAcceptsTypedValues(t *testing.T) {
 	o := flags.Overrides{
 		Bools:   map[flags.Key]bool{flags.KeyLoopEscalationEnabled: true},
 		Ints:    map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 50},
-		Strings: map[flags.Key]string{flags.KeyCyberRefusalFallback: "claude-opus-5"},
+		Strings: map[flags.Key]string{flags.KeyEscalationActiveClassifier: "xgb"},
 	}
 	require.NoError(t, flags.ValidateOverrides(o))
 }
 
 func TestAccessorsFallBackToDeploymentDefault(t *testing.T) {
 	// A bare context carries no overrides at all.
-	assert.True(t, flags.BoolOr(context.Background(), flags.KeyPlannerEnabled, true))
-	assert.False(t, flags.BoolOr(context.Background(), flags.KeyPlannerEnabled, false))
+	assert.True(t, flags.BoolOr(context.Background(), flags.KeyHMMToolResultHold, true))
+	assert.False(t, flags.BoolOr(context.Background(), flags.KeyHMMToolResultHold, false))
 	assert.Equal(t, 10, flags.IntOr(context.Background(), flags.KeyLoopEscalationHoldoutPct, 10))
-	assert.Equal(t, "a", flags.StringOr(context.Background(), flags.KeyCyberRefusalFallback, "a"))
+	assert.Equal(t, "a", flags.StringOr(context.Background(), flags.KeyEscalationActiveClassifier, "a"))
 
 	// A context carrying *some* overrides still falls back for the others.
 	ctx := flags.WithOverrides(context.Background(), flags.Overrides{
-		Bools: map[flags.Key]bool{flags.KeyPlannerEnabled: false},
+		Bools: map[flags.Key]bool{flags.KeyHMMToolResultHold: false},
 	})
-	assert.False(t, flags.BoolOr(ctx, flags.KeyPlannerEnabled, true), "override should win")
-	assert.True(t, flags.BoolOr(ctx, flags.KeySiblingFailover, true), "unset flag keeps its default")
+	assert.False(t, flags.BoolOr(ctx, flags.KeyHMMToolResultHold, true), "override should win")
+	assert.True(t, flags.BoolOr(ctx, flags.KeyLoopEscalationEnabled, true), "unset flag keeps its default")
 	assert.Equal(t, 10, flags.IntOr(ctx, flags.KeyLoopEscalationHoldoutPct, 10))
 }
 
@@ -243,15 +247,15 @@ func TestSubscriptionPlanAwareRoutingIsAnOrganizationOnlyBoolean(t *testing.T) {
 
 func TestKeysIsSortedAcrossKinds(t *testing.T) {
 	o, err := flags.ParseOverrides([]byte(`{
-		"planner_enabled": true,
-		"cyber_refusal_fallback_model": "x",
-		"loop_escalation_holdout_pct": 1
+		"loop_escalation_holdout_pct": 1,
+		"escalation_active_classifier": "xgb",
+		"hmm_tool_result_hold": true
 	}`))
 	require.NoError(t, err)
 	assert.Equal(t, []flags.Key{
-		flags.KeyCyberRefusalFallback,
+		flags.KeyEscalationActiveClassifier,
+		flags.KeyHMMToolResultHold,
 		flags.KeyLoopEscalationHoldoutPct,
-		flags.KeyPlannerEnabled,
 	}, o.Keys())
 }
 

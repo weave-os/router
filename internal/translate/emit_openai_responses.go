@@ -147,9 +147,6 @@ type ResponsesRoute struct {
 	// ChatOnlyParams reports whether the request uses a parameter only
 	// chat/completions can express; see RequiresChatCompletionsParams.
 	ChatOnlyParams bool
-	// Broad is the rollout flag (ROUTER_OPENAI_RESPONSES_BROAD). Off, only
-	// the reasoning tool turn chat/completions outright rejects is promoted.
-	Broad bool
 }
 
 // UseOpenAIResponsesAPI reports whether a dispatch should use POST
@@ -159,15 +156,11 @@ type ResponsesRoute struct {
 // Gateways keep the narrow rule — reasoning tool turns only — because most
 // mount no Responses surface; one without it is downgraded by the caller.
 func UseOpenAIResponsesAPI(rt ResponsesRoute) bool {
-	narrow := rt.Capabilities.Supports(router.CapReasoning) && rt.HasTools
 	switch rt.Provider {
 	case providers.ProviderOpenAI:
-		if rt.ChatOnlyParams {
-			return false
-		}
-		return rt.Broad || narrow
+		return !rt.ChatOnlyParams
 	case providers.ProviderOpenAIGateway:
-		return narrow
+		return rt.Capabilities.Supports(router.CapReasoning) && rt.HasTools
 	default:
 		return false
 	}

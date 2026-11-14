@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -391,47 +390,6 @@ func TestService_ProxyOpenAIResponses_StaysNativeForDirectOpenAI(t *testing.T) {
 			assert.Equal(t, "medium", gjson.GetBytes(provider.proxyBodies[0], "reasoning.effort").Str,
 				"native dispatch keeps the caller's reasoning")
 			assert.Equal(t, "remove the router", gjson.GetBytes(provider.proxyBodies[0], "input").Str)
-		})
-	}
-}
-
-// Killing the broad rollout per org must not take the incident fix: the
-// reasoning+tools turn stays promoted either way.
-func TestService_ProxyOpenAIResponses_BroadRolloutOffKeepsNarrowPromotion(t *testing.T) {
-	for _, tc := range []struct {
-		name         string
-		tools        string
-		wantEndpoint providers.Endpoint
-	}{
-		{
-			name:         "reasoning tool turn is still promoted",
-			tools:        `,"tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]`,
-			wantEndpoint: providers.EndpointResponses,
-		},
-		{name: "toolless turn keeps the chat projection"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
-			}}
-			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}}
-			svc := proxy.NewService(fr, map[string]providers.Client{
-				providers.ProviderOpenAI: provider,
-			}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
-
-			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
-			ctx = flags.WithOverrides(ctx, flags.Overrides{
-				Bools: map[flags.Key]bool{flags.KeyOpenAIResponsesBroad: false},
-			})
-			body := []byte(`{"model":"auto","input":"remove the router","reasoning":{"effort":"medium"}` + tc.tools + `}`)
-			rec := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
-
-			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
-			require.Len(t, provider.proxyBodies, 1)
-			assert.Equal(t, tc.wantEndpoint, provider.proxyEndpoints[0])
 		})
 	}
 }
@@ -1230,9 +1188,12 @@ func TestService_ProxyOpenAIChatCompletion_AnthropicProxyError_PropagatesError(t
 func TestService_ProxyOpenAIChatCompletion_NativeOpenAI(t *testing.T) {
 	provider := &fakeProvider{
 		proxyResponse: func(w http.ResponseWriter) {
-			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Content-Type", "text/event-stream")
 			w.WriteHeader(http.StatusOK)
-			_, _ = io.WriteString(w, `{"id":"chatcmpl-1","object":"chat.completion"}`)
+			_, _ = io.WriteString(w, "event: response.output_text.delta\n"+
+				"data: {\"type\":\"response.output_text.delta\",\"sequence_number\":0,\"item_id\":\"msg_1\",\"output_index\":0,\"content_index\":0,\"delta\":\"ok\"}\n\n"+
+				"event: response.completed\n"+
+				"data: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":{\"id\":\"resp_1\",\"status\":\"completed\",\"output\":[{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}\n\n")
 		},
 	}
 	svc := makeProxyService(
@@ -1244,23 +1205,26 @@ func TestService_ProxyOpenAIChatCompletion_NativeOpenAI(t *testing.T) {
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
-	// Broad rollout off: this asserts the untranslated same-format path, which
-	// stays reachable as the kill switch's target.
-	ctx := flags.WithOverrides(context.Background(), flags.Overrides{
-		Bools: map[flags.Key]bool{flags.KeyOpenAIResponsesBroad: false},
-	})
-	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httpReq)
+	err := svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec, httpReq)
 	require.NoError(t, err)
 	assertContextHeaders(t, rec.Header())
 
 	require.Len(t, provider.proxyBodies, 1)
-	assert.Equal(t, providers.EndpointChatCompletions, provider.proxyEndpoints[0])
+	assert.Equal(t, providers.EndpointResponses, provider.proxyEndpoints[0], "direct OpenAI chat turns ride the Responses API")
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(provider.proxyBodies[0], &got))
 	assert.Equal(t, "gpt-4o", got["model"], "envelope rewrites model to decision.Model")
-	msgs, _ := got["messages"].([]any)
-	require.Len(t, msgs, 1)
-	assert.Contains(t, rec.Body.String(), `"chat.completion"`)
+	assert.NotContains(t, got, "messages")
+	assert.Contains(t, got, "input")
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	assert.Equal(t, "chat.completion", resp["object"], "Responses output is translated back to Chat Completions")
+	choices, _ := resp["choices"].([]any)
+	require.Len(t, choices, 1)
+	message, _ := choices[0].(map[string]any)["message"].(map[string]any)
+	assert.Equal(t, "ok", message["content"])
 }
 
 // OpenRouter speaks OpenAI Chat Completions natively, so an OpenAI-format

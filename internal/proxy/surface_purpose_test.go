@@ -244,7 +244,7 @@ func TestConcreteProbeFailureNeverRescuesAnotherModel(t *testing.T) {
 	require.NoError(t, err)
 	pins := newFakePinStore()
 	svc := proxy.NewService(scorer, clients, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil).
-		WithInferenceExecutor(executor).WithRetrySleep(noRetrySleep).WithSiblingFailover(true).
+		WithInferenceExecutor(executor).WithRetrySleep(noRetrySleep).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderFireworks: {}})
 	requestedModel := catalog.ModelIDClaudeOpus48.String()
 	body := []byte(`{"model":"` + requestedModel + `","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`)

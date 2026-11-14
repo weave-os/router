@@ -295,8 +295,7 @@ func TestRunTurnLoop_PinTurnCountsCurrentTurnInclusively(t *testing.T) {
 	}
 	svc := NewService(fr, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
-		WithAvailableModels(fr.available).
-		WithPlannerEnabled(false)
+		WithAvailableModels(fr.available)
 
 	env, err := translate.ParseAnthropic(
 		[]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"continue"}]}`),

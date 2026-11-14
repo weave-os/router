@@ -67,20 +67,6 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 			pinExpires: time.Now().Add(time.Hour),
 		},
 		{
-			name: "tool result ignores sticky kill switch",
-			body: []byte(`{
-				"model":"claude-opus-4-8",
-				"tools":[{"name":"Read","description":"read","input_schema":{"type":"object"}}],
-				"messages":[
-					{"role":"user","content":"inspect the repository"},
-					{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"path":"README.md"}}]},
-					{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"contents"}]}
-				]
-			}`),
-			pinFound:   true,
-			pinExpires: time.Now().Add(time.Hour),
-		},
-		{
 			name:       "expired pin does not reanchor",
 			body:       []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
 			pinFound:   true,
@@ -125,11 +111,10 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
 				nil,
-			).WithScoreToolResultTurns(false).
-				WithPlanner(planner.EVConfig{
-					ThresholdUSD:           1_000_000,
-					ExpectedRemainingTurns: 3,
-				}).
+			).WithPlanner(planner.EVConfig{
+				ThresholdUSD:           1_000_000,
+				ExpectedRemainingTurns: 3,
+			}).
 				WithSummarizer(summarizer).
 				WithHMMDowngradeHysteresisTurns(0).
 				WithPolicyStrategy(policy.StrategySpec{
@@ -367,21 +352,6 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 			wantSticky: false,
 			wantTier:   "authoritative_per_turn",
 		},
-		{
-			name:     "gate disabled serves fresh",
-			gateOff:  true,
-			pinFound: true,
-			pinModel: "claude-haiku-4-5",
-			fresh: router.Decision{
-				Provider: providers.ProviderAnthropic,
-				Model:    "claude-opus-4-8",
-				Reason:   "hmm_policy(classifier 'maximum' (p=0.18))",
-				Metadata: &router.RoutingMetadata{ChosenScore: 0.18},
-			},
-			wantModel:  "claude-opus-4-8",
-			wantSticky: false,
-			wantTier:   "authoritative_per_turn",
-		},
 	}
 
 	for _, test := range tests {
@@ -412,9 +382,6 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 					AuthoritativePerTurnSelection: true,
 				},
 			})
-			if test.gateOff {
-				svc = svc.WithAuthoritativeUpgradeGate(false)
-			}
 			env, err := translate.ParseAnthropic(body)
 			require.NoError(t, err)
 			features := env.RoutingFeatures()

@@ -15,6 +15,10 @@ import (
 	"weave-os/router/internal/sse"
 )
 
+// CyberRefusalFallbackModel is the cyber-refusal re-pin target when the
+// session pin carries no runner-up.
+const CyberRefusalFallbackModel = "claude-sonnet-5"
+
 // ReasonCyberRefusalRetry marks a turn re-dispatched to a non-OpenAI model
 // after OpenAI's cybersecurity classifier declined it.
 const ReasonCyberRefusalRetry = "cyber-refusal-retry"
@@ -293,7 +297,7 @@ func (s *Service) cyberRefusalRetryTarget(
 	}
 	// The pin's runner-up can itself be an OpenAI model, which this rescue cannot
 	// use; the configured fallback backs it up.
-	for _, model := range []string{repinTarget, s.ResolveCyberRefusalFallbackModel(ctx)} {
+	for _, model := range []string{repinTarget, CyberRefusalFallbackModel} {
 		if model == "" || model == failed.Model ||
 			!modelPermittedByAllowlist(ctx, model) || !modelInRequestSubset(ctx, model) {
 			continue
@@ -322,7 +326,7 @@ func (s *Service) cyberRefusalFallback(
 	served router.Decision,
 	avoidProvider string,
 ) (model, provider string, ok bool) {
-	model = s.ResolveCyberRefusalFallbackModel(ctx)
+	model = CyberRefusalFallbackModel
 	if s.pinStore != nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
 		if existing, found, err := s.pinStore.Get(context.Background(), sessionKey, role); err == nil && found &&
 			pinMatchesEffectiveStrategy(ctx, existing) && existing.PairedModel != "" &&

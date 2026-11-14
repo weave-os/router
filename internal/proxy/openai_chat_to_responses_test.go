@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
@@ -102,13 +101,11 @@ func TestService_ProxyOpenAIChatCompletion_TranslatesOntoResponsesNonStreaming(t
 }
 
 // Endpoint selection per turn: a chat-only knob keeps the turn on
-// chat/completions rather than dropping the field, and killing the broad
-// rollout still promotes the reasoning tool turn chat/completions rejects.
+// chat/completions rather than dropping the field.
 func TestService_ProxyOpenAIChatCompletion_ResponsesEndpointSelection(t *testing.T) {
 	for _, tc := range []struct {
 		name         string
 		body         string
-		broadOff     bool
 		wantEndpoint providers.Endpoint
 	}{
 		{
@@ -126,18 +123,6 @@ func TestService_ProxyOpenAIChatCompletion_ResponsesEndpointSelection(t *testing
 			body:         `{"model":"auto","stream":true,"logprobs":true,"messages":[{"role":"user","content":"hi"}]}`,
 			wantEndpoint: providers.EndpointChatCompletions,
 		},
-		{
-			name:         "rollout off still promotes the reasoning tool turn",
-			body:         chatToolTurnBody,
-			broadOff:     true,
-			wantEndpoint: providers.EndpointResponses,
-		},
-		{
-			name:         "rollout off keeps a plain turn on chat/completions",
-			body:         `{"model":"auto","stream":true,"messages":[{"role":"user","content":"hi"}]}`,
-			broadOff:     true,
-			wantEndpoint: providers.EndpointChatCompletions,
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
@@ -151,11 +136,6 @@ func TestService_ProxyOpenAIChatCompletion_ResponsesEndpointSelection(t *testing
 			svc := openAIChatService(provider, "gpt-5.6-luna")
 
 			ctx := context.Background()
-			if tc.broadOff {
-				ctx = flags.WithOverrides(ctx, flags.Overrides{
-					Bools: map[flags.Key]bool{flags.KeyOpenAIResponsesBroad: false},
-				})
-			}
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(tc.body))
 			require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(tc.body), rec, req))

@@ -277,6 +277,18 @@
       "rationale": "Approved subscription-sharing plan permits automatic included-capacity alternatives only from the existing request-eligible policy ordering, with quality/tool/context constraints and explicit targets preserved. Every alternative is prepared and dispatched through the existing inference resolver and executor; this creates no provider call bypass.",
       "operation_class": "main_inference",
       "removal_phase": "8"
+    },
+    {
+      "id": "feature_target_constant|internal/proxy/openai_cyber_refusal.go|proxy.package|CyberRefusalFallbackModel|1",
+      "kind": "feature_target_constant",
+      "file": "internal/proxy/openai_cyber_refusal.go",
+      "line": 20,
+      "symbol": "proxy.package",
+      "detail": "CyberRefusalFallbackModel=claude-sonnet-5",
+      "owner": "@steventohme",
+      "rationale": "Former ROUTER_CYBER_REFUSAL_FALLBACK_MODEL default, never overridden; the rescue target remains feature-owned until refusal fallback becomes a typed policy transition.",
+      "operation_class": "main_inference",
+      "removal_phase": "8"
     }
   ]
 }

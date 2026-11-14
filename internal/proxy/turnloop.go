@@ -1266,9 +1266,7 @@ func (s *Service) runTurnLoop(
 		sessionKey, installationID, res.PinRole,
 		feats.MessageCount, len(env.AssistantToolCallSignatures()),
 	)
-	// prefixTrimFreeSwitch gates actions only; detection stays unconditional
-	// so the compaction handover keeps working when the lever is off.
-	prefixBroken := s.ResolvePrefixTrimFreeSwitch(ctx) && res.PrefixTrimmed
+	prefixBroken := res.PrefixTrimmed
 	res.PrefixBroken = prefixBroken
 	if res.PrefixTrimmed {
 		log.Info("turnloop detected client history trim",
@@ -1619,7 +1617,7 @@ func (s *Service) runTurnLoop(
 	// to parse server-side (kimi/qwen3), the upstream emits them as content and
 	// generates to the output cap, triggering Claude Code's auto-continue to
 	// re-pin the same broken model in a loop. Exclude it and treat the pin as
-	// missing so sticky branches (ToolResult, !plannerEnabled) can't re-anchor
+	// missing so the sticky ToolResult branch can't re-anchor
 	// it before the scorer runs.
 	if maxedModel := maxedOutServedModel(pin); pinFound && maxedModel != "" {
 		// Key off LastServedModel, not pin.Model: with band swap the served
@@ -1890,23 +1888,13 @@ func (s *Service) runTurnLoop(
 		// translate.userPromptTextGJSON strips tool_result blocks from the embed input.
 		// Switches degrade safely — handover.RewriteEnvelope strips orphaned tool_results.
 		if req.Escalation == nil && !res.AuthoritativePerTurn &&
-			(!s.ResolveScoreToolResultTurns(ctx) || holdToolResult) &&
+			holdToolResult &&
 			res.TurnType == turntype.ToolResult &&
 			pinFound {
 			decision := pinDecision(pin)
 			res.Decision = decision
 			res.StickyHit = true
 			res.PinTier = "postgres_tool_result_sc"
-			s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
-			return res, nil
-		}
-
-		// Planner-disabled + pin found: preserve first-decision-wins behavior.
-		if req.Escalation == nil && !res.AuthoritativePerTurn && !s.ResolvePlannerEnabled(ctx) && pinFound {
-			decision := pinDecision(pin)
-			res.Decision = decision
-			res.StickyHit = true
-			res.PinTier = "postgres"
 			s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
 			return res, nil
 		}
@@ -2099,7 +2087,7 @@ func (s *Service) runTurnLoop(
 			// confidence >= threshold; below it the session stays on its pin.
 			// Unscored decisions, downgrades, and unpinned turns pass through.
 			evidenceServedFresh := s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.Outcome == upgradeAllow
-			upgradeGateActive := s.ResolveAuthoritativeUpgradeGate(ctx) && s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !evidenceServedFresh && !slidingServed
+			upgradeGateActive := s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !evidenceServedFresh && !slidingServed
 			if upgradeGateActive && pinFound && pin.Model != "" && pin.Model != fresh.Model &&
 				hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens) {
 				if confidence, ok := hmmDecisionConfidence(fresh); ok && confidence < s.hmmUpgradeConfidenceThreshold {
@@ -2292,12 +2280,6 @@ func (s *Service) runTurnLoop(
 					}
 				}
 			}
-		}
-
-		if !s.ResolvePlannerEnabled(ctx) {
-			res.Decision = fresh
-			s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, fresh)
-			return res, nil
 		}
 
 		plannerTokens := s.plannerTokensFor(env, feats)
