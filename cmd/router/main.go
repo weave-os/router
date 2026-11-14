@@ -764,12 +764,10 @@ func main() {
 	anthropicServerSideFallback := config.GetOr("ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK", "true") == "true"
 	scopedSearchRequirement := config.GetOr("ROUTER_SCOPED_SEARCH_REQUIREMENT", "true") == "true"
 	searchRequirementDecayTurns := parseEnvInt("ROUTER_SEARCH_REQUIREMENT_DECAY_TURNS", proxy.DefaultSearchRequirementDecayTurns)
-	effortEscalation := config.GetOr("ROUTER_EFFORT_ESCALATION", "false") == "true"
 	// Kill switch for degrading to a same-cluster candidate when the routed
 	// model's bindings are all exhausted by a transient upstream fault.
 	siblingFailover := config.GetOr("ROUTER_SIBLING_FAILOVER", "true") == "true"
 	openAIResponsesBroad := config.GetOr("ROUTER_OPENAI_RESPONSES_BROAD", "true") == "true"
-	allowedModelsHeader := config.GetOr("ROUTER_ALLOWED_MODELS_HEADER", "false") == "true"
 	// Session-level demotion of an arm whose stream died after commit. Off
 	// until the upstream owner of those cuts is identified.
 	committedStreamArmDemotion := config.GetOr("ROUTER_COMMITTED_STREAM_ARM_DEMOTION", "false") == "true"
@@ -779,8 +777,6 @@ func main() {
 	rescuedFailureArmDemotion := config.GetOr("ROUTER_RESCUED_FAILURE_ARM_DEMOTION", "false") == "true"
 	// Upstream 429s as transient throttling: cooldown demotion, fail-open
 	// rescue and Retry-After-aware same-binding retry. Off until baked off.
-	transientRateLimit := config.GetOr("ROUTER_TRANSIENT_RATE_LIMIT", "false") == "true"
-	rateLimitCooldownSeconds := parseEnvInt("ROUTER_RATE_LIMIT_COOLDOWN_SECONDS", proxy.DefaultRateLimitCooldownSeconds)
 	// Per-model 529 circuit breaker. Its thresholds are fixed in
 	// internal/router/breaker/thresholds.go.
 	providerOverloaded := config.GetOr("ROUTER_PROVIDER_OVERLOADED", "true") == "true"
@@ -794,13 +790,11 @@ func main() {
 	sseKeepalive := sseKeepaliveInterval()
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
 	ccTaskToolsCrossVendor := config.GetOr("ROUTER_CC_TASK_TOOLS_CROSSVENDOR", "false") == "true"
-	ccAutonomySystemAppend := config.GetOr("ROUTER_CC_AUTONOMY_SYSTEM_APPEND", "false") == "true"
 	earlyStopRedo, err := flags.ParseEarlyStopRedoMode(config.GetOr("ROUTER_EARLY_STOP_REDO", string(flags.EarlyStopRedoOff)))
 	if err != nil {
 		logger.Error("Invalid ROUTER_EARLY_STOP_REDO; refusing to boot", "err", err)
 		panic(err)
 	}
-	ccWorkspaceSystemAppend := config.GetOr("ROUTER_CC_WORKSPACE_SYSTEM_APPEND", "false") == "true"
 	// Per-turn large-vs-small action-classifier swap. Off by default until the
 	// Layer-2 extrinsic validation clears it; enabling loads the compiled-in head.
 	bandSwapEnabled := config.GetOr("ROUTER_BAND_SWAP", "false") == "true"
@@ -851,20 +845,6 @@ func main() {
 	// authoritativeUpgradeGate keeps the upgrade-confidence floor active for authoritative-per-turn
 	// policies; kill switch for a return to verbatim policy selection.
 	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
-	authoritativeUpgradePolicy := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_POLICY", string(flags.AuthoritativeUpgradePolicyScore))
-	parsedUpgradePolicy, err := flags.ParseAuthoritativeUpgradePolicy(authoritativeUpgradePolicy)
-	if err != nil {
-		logger.Error("Invalid ROUTER_AUTHORITATIVE_UPGRADE_POLICY; refusing to boot", "err", err)
-		panic(err)
-	}
-	authoritativeUpgradeHoldoutPct := parseEnvNonNegativeInt("ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT", 0)
-	if authoritativeUpgradeHoldoutPct > 100 {
-		logger.Error("ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT must be 0-100; refusing to boot", "value", authoritativeUpgradeHoldoutPct)
-		panic("invalid ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT")
-	}
-	authoritativeUpgradeVotes := parseEnvNonNegativeInt("ROUTER_AUTHORITATIVE_UPGRADE_VOTES", 3)
-	// authoritativeDowngradeGate mirrors the floor for cheaper-than-pin picks; off by default.
-	authoritativeDowngradeGate := config.GetOr("ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", "false") == "true"
 	authoritativeUpgradeSlidingThreshold := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD", "false") == "true"
 	// hmmDowngradeHysteresisTurns requires N consecutive cheaper-than-pin authoritative
 	// votes before the downgrade is served; 0 switches on the first vote.
@@ -1247,7 +1227,6 @@ func main() {
 		flags.KeyEscalationEpoch:                      "0",
 		flags.KeyEscalationXGBoostEnabled:             boolDefault(false),
 		flags.KeyEscalationXGBoostShadowEnabled:       boolDefault(false),
-		flags.KeyEscalationXGBoostShadowMarkerEnabled: boolDefault(false),
 		flags.KeyEscalationXGBoostEpoch:               "0",
 		flags.KeySubscriptionPlanAwareRouting:         boolDefault(false),
 		flags.KeyClaudeEnterpriseOnly:                 boolDefault(true),
@@ -1264,10 +1243,6 @@ func main() {
 		flags.KeyHMMToolResultHold:                    boolDefault(false),
 		flags.KeyPrefixTrimFreeSwitch:                 boolDefault(prefixTrimFreeSwitch),
 		flags.KeyAuthoritativeUpgradeGate:             boolDefault(authoritativeUpgradeGate),
-		flags.KeyAuthoritativeUpgradePolicy:           string(parsedUpgradePolicy),
-		flags.KeyAuthoritativeUpgradeHoldoutPct:       strconv.Itoa(authoritativeUpgradeHoldoutPct),
-		flags.KeyAuthoritativeUpgradeVotes:            strconv.Itoa(authoritativeUpgradeVotes),
-		flags.KeyAuthoritativeDowngradeGate:           boolDefault(authoritativeDowngradeGate),
 		flags.KeyAuthoritativeUpgradeSlidingThreshold: boolDefault(authoritativeUpgradeSlidingThreshold),
 		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmDowngradeHysteresisTurns),
 		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmDowngradeHysteresisShadowTurns),
@@ -1275,19 +1250,13 @@ func main() {
 		flags.KeyAgreementShadowEpoch:                 "0",
 		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
 		flags.KeyOpenAIResponsesBroad:                 boolDefault(openAIResponsesBroad),
-		flags.KeyAllowedModelsHeader:                  boolDefault(allowedModelsHeader),
 		flags.KeyCCTaskToolsCrossVendor:               boolDefault(ccTaskToolsCrossVendor),
-		flags.KeyCCAutonomySystemAppend:               boolDefault(ccAutonomySystemAppend),
 		flags.KeyEarlyStopRedo:                        string(earlyStopRedo),
-		flags.KeyCCWorkspaceSystemAppend:              boolDefault(ccWorkspaceSystemAppend),
 		flags.KeyCommittedStreamArmDemotion:           boolDefault(committedStreamArmDemotion),
 		flags.KeyRescuedFailureArmDemotion:            boolDefault(rescuedFailureArmDemotion),
-		flags.KeyTransientRateLimit:                   boolDefault(transientRateLimit),
-		flags.KeyRateLimitCooldownSeconds:             strconv.Itoa(rateLimitCooldownSeconds),
 		flags.KeyProviderOverloaded:                   boolDefault(providerOverloaded),
 		flags.KeyNativeAnthropicResponseSignals:       boolDefault(nativeAnthropicResponseSignals),
 		flags.KeyNativeOpenAIResponseSignals:          boolDefault(nativeOpenAIResponseSignals),
-		flags.KeyEffortEscalation:                     boolDefault(effortEscalation),
 		flags.KeyCyberRefusalRepin:                    boolDefault(cyberRefusalRepin),
 		flags.KeyCyberRefusalRetry:                    boolDefault(cyberRefusalRetry),
 		flags.KeyCyberRefusalFallback:                 cyberRefusalFallbackModel,
@@ -1380,10 +1349,8 @@ func main() {
 		WithAnthropicServerSideFallback(anthropicServerSideFallback).
 		WithSiblingFailover(siblingFailover).
 		WithOpenAIResponsesBroad(openAIResponsesBroad).
-		WithAllowedModelsHeader(allowedModelsHeader).
 		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
 		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
-		WithTransientRateLimit(transientRateLimit, rateLimitCooldownSeconds).
 		WithProviderOverloaded(providerOverloaded, breaker.New(breaker.Defaults(), nil)).
 		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
 		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
@@ -1393,10 +1360,6 @@ func main() {
 		WithAuthoritativeUpgradeConfig(upgradeConfig).
 		WithHMMSameTierPin(hmmSameTierPin).
 		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
-		WithAuthoritativeUpgradePolicy(parsedUpgradePolicy).
-		WithAuthoritativeUpgradeHoldoutPct(authoritativeUpgradeHoldoutPct).
-		WithAuthoritativeUpgradeVotes(authoritativeUpgradeVotes).
-		WithAuthoritativeDowngradeGate(authoritativeDowngradeGate).
 		WithAuthoritativeUpgradeSlidingThreshold(authoritativeUpgradeSlidingThreshold).
 		WithHMMDowngradeHysteresisTurns(hmmDowngradeHysteresisTurns).
 		WithHMMDowngradeHysteresisShadowTurns(hmmDowngradeHysteresisShadowTurns).
@@ -1404,12 +1367,9 @@ func main() {
 		WithPolicyDeadlineFallback(policyDeadlineFallback).
 		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
 		WithEscapeNormalize(escapeNormalize).
-		WithEffortEscalation(effortEscalation).
 		WithCCOrchestrationToolsCrossVendor(ccOrchToolsCrossVendor).
 		WithCCTaskToolsCrossVendor(ccTaskToolsCrossVendor).
-		WithCCAutonomySystemAppend(ccAutonomySystemAppend).
 		WithEarlyStopRedo(earlyStopRedo).
-		WithCCWorkspaceSystemAppend(ccWorkspaceSystemAppend).
 		WithBandSwap(bandSwapEnabled).
 		WithLoopEscalationConfig(loopEscalationEnabled, loopEscalationHoldoutPct).
 		WithLoopEscalationStore(repo.Telemetry).
@@ -1441,7 +1401,6 @@ func main() {
 		proxySvc = proxySvc.WithPolicyStrategy(spec)
 		logger.Info("Generic policy sidecar wired", "strategy", spec.Strategy, "candidate_models", len(routingTargets))
 	}
-	logger.Info("Effort escalation configured", "enabled", effortEscalation)
 	logger.Info("Cross-vendor Claude Code orchestration tools configured", "enabled", ccOrchToolsCrossVendor, "task_tools_enabled", ccTaskToolsCrossVendor)
 	logger.Info("Loop escalation configured", "enabled", loopEscalationEnabled, "holdout_pct", loopEscalationHoldoutPct)
 	logger.Info("Spiral shadow detector configured", "enabled", spiralShadowEnabled)

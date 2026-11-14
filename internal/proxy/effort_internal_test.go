@@ -13,7 +13,7 @@ import (
 
 func TestResolveEffort_SourcesAndClamping(t *testing.T) {
 	svc := NewService(nil, nil, nil, nil, false,
-		providers.ProviderAnthropic, "claude-haiku-4-5", nil).WithEffortEscalation(true)
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	for _, tc := range []struct {
 		name         string
@@ -28,7 +28,7 @@ func TestResolveEffort_SourcesAndClamping(t *testing.T) {
 	}{
 		{
 			name:         "no arm or knob falls to the per-model default",
-			model:        "gpt-5.6-luna",
+			model:        "grok-4.6",
 			wantSelected: "low",
 			wantSent:     "low",
 			wantSource:   effortSourceModelPolicy,
@@ -71,25 +71,6 @@ func TestResolveEffort_SourcesAndClamping(t *testing.T) {
 			wantSent:     "low",
 			wantSource:   effortSourceUser,
 			wantMismatch: true,
-		},
-		{
-			name:         "escalation raises an arm below it",
-			model:        "gpt-5.6-luna",
-			armEffort:    "low",
-			escalate:     true,
-			wantSelected: "high",
-			wantSent:     "high",
-			wantSource:   effortSourceEscalation,
-			wantMismatch: true,
-		},
-		{
-			name:         "escalation never downgrades a richer arm",
-			model:        "gpt-5.6-luna",
-			armEffort:    "xhigh",
-			escalate:     true,
-			wantSelected: "xhigh",
-			wantSent:     "xhigh",
-			wantSource:   effortSourceArm,
 		},
 		{
 			name:         "grok escalation never downgrades a richer arm",

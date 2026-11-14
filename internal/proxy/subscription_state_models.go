@@ -143,11 +143,6 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	if sessionUnavailableModels == nil {
 		sessionUnavailableModels = make(map[string]struct{})
 	}
-	for model, cooldownUntil := range sessionCooldownModelsFromContext(ctx) {
-		if cooldownUntil.After(s.clockNow()) {
-			sessionUnavailableModels[model] = struct{}{}
-		}
-	}
 	request.AutomaticExcludedModels = mergeExcludedModels(request.AutomaticExcludedModels, sessionUnavailableModels)
 	if in.initialDecision.Reason == translate.ReasonUserForceModel {
 		// The validated decision carries the catalog ID separately from effort;

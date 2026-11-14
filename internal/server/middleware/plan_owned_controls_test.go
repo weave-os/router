@@ -1,7 +1,6 @@
 package middleware_test
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,10 +15,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 )
-
-type planOwnedAllowedModelsGate struct{}
-
-func (planOwnedAllowedModelsGate) ResolveAllowedModelsHeader(context.Context) bool { return true }
 
 func TestMaxServingForcesProfileStrategyAndIgnoresCustomerHeaders(t *testing.T) {
 	t.Parallel()
@@ -39,7 +34,7 @@ func TestMaxServingForcesProfileStrategyAndIgnoresCustomerHeaders(t *testing.T) 
 		})
 		engine.Use(
 			middleware.WithRouterStrategyDefault(router.Strategy("cluster"), allRegisteredLive, router.StrategyHMM, router.StrategyRL),
-			middleware.WithAllowedModelsOverride(planOwnedAllowedModelsGate{}),
+			middleware.WithAllowedModelsOverride(),
 			middleware.WithRoutingKnobsOverride(),
 			middleware.WithForceEffortOverride(),
 			middleware.WithPolicyPinOverride(),

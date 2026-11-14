@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"testing"
-	"time"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
@@ -505,12 +504,6 @@ func TestRescueDecisions_StruckOutArmsOnlyWhenNothingElseIsLeft(t *testing.T) {
 	ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, []string{"claude-sonnet-5"})
 
 	assert.Equal(t, []string{"claude-haiku-4-5"}, siblingModels(s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0)))
-
-	ctx = context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, []string{"claude-sonnet-5", "claude-haiku-4-5"})
-	ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, []string{"claude-sonnet-5"})
-	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{"claude-haiku-4-5": time.Now().Add(time.Minute)})
-
-	assert.Equal(t, []string{"claude-haiku-4-5"}, siblingModels(s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0)))
 }
 
 // Lifting a session strike never lifts the deployment-wide exclusion or a
@@ -530,24 +523,6 @@ func TestRescueDecisions_StruckOutReadmissionKeepsGlobalExclusion(t *testing.T) 
 	ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, struck)
 
 	assert.Equal(t, []string{"claude-haiku-4-5"}, siblingModels(s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0)))
-}
-
-// Dispatching a readmitted struck-out arm is recorded as rescue-pool
-// exhaustion on the completion line.
-func TestNoteRescueReadmission_RecordsStruckOutArm(t *testing.T) {
-	s := siblingService(providers.ProviderAnthropic)
-	ctx := context.WithValue(context.Background(), SessionStrikeReadmitModelsContextKey{}, []string{"claude-sonnet-5"})
-	ctx, turn := withRateLimitTurn(ctx)
-	failed := overloadedDecision(&router.RoutingMetadata{})
-
-	s.noteRescueReadmission(ctx, failed, router.Decision{Model: "claude-haiku-4-5"})
-	assert.NotContains(t, turn.completionLogFields(), true)
-
-	s.noteRescueReadmission(ctx, failed, router.Decision{Model: "claude-sonnet-5"})
-	fields := turn.completionLogFields()
-	assert.Contains(t, fields, "rescue_pool_exhausted")
-	assert.Contains(t, fields, true)
-	assert.Contains(t, fields, []string{"claude-sonnet-5"})
 }
 
 func TestImageSafeModels_DropsTextOnlyArmsOnImageTurns(t *testing.T) {

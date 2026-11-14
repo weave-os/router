@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
-	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -176,10 +175,8 @@ const policyPinTier = "policy_pin"
 type pinTier string
 
 const (
-	pinTierAuthoritativeUpgradeEvidence         pinTier = "authoritative_upgrade_evidence"
 	pinTierAuthoritativeSlidingThresholdUpgrade pinTier = "authoritative_sliding_threshold_upgrade"
 	pinTierAuthoritativeUpgradeConfidenceLow    pinTier = "authoritative_hmm_upgrade_confidence_low"
-	pinTierAuthoritativeDowngradeConfidenceLow  pinTier = "authoritative_hmm_downgrade_confidence_low"
 	pinTierAuthoritativeDowngradeHysteresis     pinTier = "authoritative_hmm_downgrade_hysteresis"
 	pinTierAuthoritativeExcludedPin             pinTier = "authoritative_excluded_pin"
 	pinTierAuthoritativeExcludedReroute         pinTier = "authoritative_excluded_reroute"
@@ -187,12 +184,11 @@ const (
 
 // turnLoopResult bundles the routing decision and pin/planner state.
 type turnLoopResult struct {
-	EscalationShadowMarked bool
-	EscalationScope        [32]byte
-	EscalationOrdinal      int64
-	escalationActivation   [32]byte
-	escalationObservation  translate.EscalationObservation
-	llmEscalation          *llmEscalationTurn
+	EscalationScope       [32]byte
+	EscalationOrdinal     int64
+	escalationActivation  [32]byte
+	escalationObservation translate.EscalationObservation
+	llmEscalation         *llmEscalationTurn
 
 	Decision       router.Decision
 	SessionKey     [sessionpin.SessionKeyLen]byte
@@ -320,26 +316,13 @@ type turnLoopResult struct {
 	// ObservedOverflowModels are models the thread's billed usage says this
 	// request overflows. Stashed on ctx so in-turn rescues skip them too.
 	ObservedOverflowModels []string
-	// SessionCooldownModels are the rate-limit cooldowns still in force
-	// (model → expiry). Also listed in SessionDemotedModels; kept apart so
-	// the in-turn rescue can readmit them when honouring them would leave no
-	// candidate. Empty unless transient_rate_limit is on.
-	SessionCooldownModels map[string]time.Time
-	// CooldownProbeReleases hold one half-open probe slot per expired session
-	// cooldown, plus any overload-circuit probe, until provider dispatch
-	// completes.
+	// CooldownProbeReleases hold any overload-circuit probe slot until
+	// provider dispatch completes.
 	CooldownProbeReleases []func()
 	// OverloadProbe is the overload-circuit probe this request holds, if
 	// any; the ingress carries it to dispatch so only its outcome resolves
 	// the circuit.
 	OverloadProbe *breaker.Probe
-	// CooldownProbes maps each model this request holds a recovery probe for
-	// to the cooldown expiry it observed, so a successful turn clears exactly
-	// that cooldown and leaves a newer one alone.
-	CooldownProbes map[string]time.Time
-	// CooldownProbeDeniedModels are expired models held by another request.
-	// They stay hard-excluded for this turn, including the rescue walk.
-	CooldownProbeDeniedModels []string
 	// SessionStrikeReadmitModels are the session-lifetime demotions the
 	// in-turn rescue may readmit as a last resort when no other candidate is
 	// left: a session that has struck out every arm must not 502 a turn that
@@ -1385,40 +1368,6 @@ func (s *Service) runTurnLoop(
 		}
 	}
 	res.SessionStrikeReadmitModels = harnessSafeModels(imageSafeModels(demoted, req.ImageCount), req.HasTools)
-	if s.ResolveTransientRateLimit(ctx) && (!forceModelFound || !forcedPinEligible(forceModelPin, req)) {
-		// A transient strike expires: only one request per session/model may
-		// probe the recovered arm at a time.
-		cooldowns := mergeDemotionCooldowns(pin.DemotionCooldowns, hmmHistory.DemotionCooldowns)
-		now := s.clockNow()
-		cooling := activeDemotionCooldowns(cooldowns, now)
-		if len(cooling) > 0 {
-			res.SessionCooldownModels = readmittableCooldowns(cooling, demoted, req.ImageCount)
-			demoted = mergeSessionStrikes(demoted, cooldownsByExpiry(cooling))
-		}
-		// One probe per request: the first expired arm (longest cooled first)
-		// whose lease this request wins is readmitted; every other expired arm
-		// stays out this turn so it is never served without a lease.
-		expired := expiredDemotionCooldowns(cooldowns, now)
-		probed := false
-		for _, model := range cooldownsByExpiry(expired) {
-			if slices.Contains(demoted, model) ||
-				modelExcludedForRecoveryProbe(req, model) {
-				continue
-			}
-			if !probed {
-				if release, acquired := s.acquireRecoveryProbe(ctx, res.SessionKey, model); acquired {
-					res.CooldownProbeReleases = append(res.CooldownProbeReleases, release)
-					res.CooldownProbes = map[string]time.Time{model: expired[model]}
-					probed = true
-					continue
-				}
-			}
-			demoted = mergeSessionStrikes(demoted, []string{model})
-			res.CooldownProbeDeniedModels = append(res.CooldownProbeDeniedModels, model)
-			req.ExcludedModels = excludingModel(req.ExcludedModels, model)
-			ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, res.CooldownProbeDeniedModels)
-		}
-	}
 	if len(demoted) > 0 {
 		res.SessionDemotedModels = demoted
 		for _, model := range demoted {
@@ -2072,34 +2021,12 @@ func (s *Service) runTurnLoop(
 					"probability", slidingProbability,
 				)
 			}
-			if !slidingServed && s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil {
-				res.UpgradeShadow.Applied = true
-				switch res.UpgradeShadow.Verdict.Outcome {
-				case upgradeAllow:
-					// Fall through to serve the fresh model; the confidence floor does not run.
-				case upgradeHold:
-					decision := pinDecision(pin)
-					res.Decision = decision
-					res.StickyHit = true
-					res.PinTier = string(pinTierAuthoritativeUpgradeEvidence)
-					votes := *res.UpgradeShadow.Evidence.VoteCount
-					log.Info("turnloop held authoritative upgrade on evidence; keeping session pin",
-						"pin_model", pin.Model,
-						"fresh_model", fresh.Model,
-						"reason", res.UpgradeShadow.Verdict.Reason,
-						"upgrade_votes", votes,
-					)
-					s.refreshPinVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, 0, votes)
-					return res, nil
-				}
-			}
 			// Upgrade-confidence guard: authoritative selection bypasses the HMM
 			// cost gate, but the escalation floor still applies. A scored fresh
 			// decision that costs more than the pinned model only wins at
 			// confidence >= threshold; below it the session stays on its pin.
 			// Unscored decisions, downgrades, and unpinned turns pass through.
-			evidenceServedFresh := s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.Outcome == upgradeAllow
-			upgradeGateActive := s.ResolveAuthoritativeUpgradeGate(ctx) && s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !evidenceServedFresh && !slidingServed
+			upgradeGateActive := s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !slidingServed
 			if upgradeGateActive && pinFound && pin.Model != "" && pin.Model != fresh.Model &&
 				hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens) {
 				if confidence, ok := hmmDecisionConfidence(fresh); ok && confidence < s.hmmUpgradeConfidenceThreshold {
@@ -2126,24 +2053,6 @@ func (s *Service) runTurnLoop(
 				!hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens) {
 				hysteresisTurns := s.ResolveHMMDowngradeHysteresisTurns(ctx)
 				confidence, scored := hmmDecisionConfidence(fresh)
-				if s.ResolveAuthoritativeDowngradeGate(ctx) && scored && confidence < s.hmmUpgradeConfidenceThreshold {
-					decision := pinDecision(pin)
-					res.Decision = decision
-					res.StickyHit = true
-					res.PinTier = string(pinTierAuthoritativeDowngradeConfidenceLow)
-					log.Info("turnloop suppressed low-confidence authoritative downgrade; keeping session pin",
-						"pin_model", pin.Model,
-						"pin_provider", pin.Provider,
-						"fresh_model", fresh.Model,
-						"fresh_provider", fresh.Provider,
-						"confidence", confidence,
-						"threshold", s.hmmUpgradeConfidenceThreshold,
-						"downgrade_votes", pin.ConsecutiveDowngradeVotes,
-						"hysteresis_turns", hysteresisTurns,
-					)
-					s.refreshPinDowngradeVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, pin.ConsecutiveDowngradeVotes)
-					return res, nil
-				}
 				votes := pin.ConsecutiveDowngradeVotes + 1
 				if hysteresisTurns > 0 && votes < hysteresisTurns {
 					decision := pinDecision(pin)

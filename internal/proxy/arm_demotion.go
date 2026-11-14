@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"time"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -62,7 +61,7 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 	if !committedStream || !isCommittedStreamFailure(ctx, proxyErr) {
 		return ""
 	}
-	if !s.demoteArmForSession(ctx, model, sessionpin.DemotionReasonCommittedStreamFailure, time.Time{}, upstreamStatus(proxyErr), installationID, sessionKey, role, pinRole) {
+	if !s.demoteArmForSession(ctx, model, sessionpin.DemotionReasonCommittedStreamFailure, upstreamStatus(proxyErr), installationID, sessionKey, role, pinRole) {
 		return ""
 	}
 	return model
@@ -73,11 +72,6 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 // sibling rescue ran, whether or not the rescuer then served. The rescue
 // already proved the primary unusable for this turn; without the strike the
 // next turn re-decides from scratch and returns to the same arm.
-//
-// Under transient_rate_limit a primary that failed with a buffered 429 or
-// gateway 5xx is temporarily withdrawn (ResolveRateLimitCooldown) and becomes
-// eligible again when its cooldown expires. Other rescued failures keep the
-// session-lifetime demotion.
 //
 // Returns the demoted model, or "" when nothing was demoted. Shares the
 // no-op conditions of maybeDemoteArmAfterCommittedStreamFailure (flag off,
@@ -131,31 +125,14 @@ func (s *Service) maybeStrikeArmAfterRescuedFailure(
 		}
 		return "", ""
 	}
-	reason, cooldownUntil := sessionpin.DemotionReasonRescuedFailure, time.Time{}
+	reason := sessionpin.DemotionReasonRescuedFailure
 	if headerTimeout {
 		reason = sessionpin.DemotionReasonResponseHeaderTimeout
-	} else if s.ResolveTransientRateLimit(ctx) && isTransientGatewayFailure(primaryErr) {
-		cooldown := s.ResolveRateLimitCooldown(ctx)
-		reason, cooldownUntil = sessionpin.DemotionReasonTransientFailure, s.clockNow().Add(cooldown)
-		rateLimitTurnFromContext(ctx).recordCooldown(cooldownUntil, cooldown)
-	} else if s.ResolveTransientRateLimit(ctx) && isRateLimitedPrimaryFailure(primaryErr) {
-		cooldown := s.ResolveRateLimitCooldown(ctx)
-		reason, cooldownUntil = sessionpin.DemotionReasonRateLimited, s.clockNow().Add(cooldown)
-		rateLimitTurnFromContext(ctx).recordCooldown(cooldownUntil, cooldown)
 	}
-	if !s.demoteArmForSession(ctx, primary.Model, reason, cooldownUntil, upstreamStatus(primaryErr), installationID, sessionKey, role, pinRole) {
+	if !s.demoteArmForSession(ctx, primary.Model, reason, upstreamStatus(primaryErr), installationID, sessionKey, role, pinRole) {
 		return "", ""
 	}
 	return primary.Model, reason
-}
-
-func isTransientGatewayFailure(err error) bool {
-	switch upstreamStatus(err) {
-	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		return true
-	default:
-		return false
-	}
 }
 
 // maybeDemoteArmAfterUnrescuedStall protects the next automatic turn when a
@@ -174,21 +151,18 @@ func (s *Service) maybeDemoteArmAfterUnrescuedStall(
 		strings.HasPrefix(failed.Reason, translate.ReasonUserForceModel) || !isUpstreamWatchdogError(stallErr) {
 		return ""
 	}
-	if !s.demoteArmForSession(ctx, failed.Model, sessionpin.DemotionReasonUnrescuedStall, time.Time{}, upstreamStatus(stallErr), installationID, sessionKey, role, pinRole) {
+	if !s.demoteArmForSession(ctx, failed.Model, sessionpin.DemotionReasonUnrescuedStall, upstreamStatus(stallErr), installationID, sessionKey, role, pinRole) {
 		return ""
 	}
 	return failed.Model
 }
 
 // demoteArmForSession writes one strike against model on every pin row the
-// session's next turn merges. Reports whether the strike landed. A non-zero
-// cooldownUntil records a time-limited strike instead of a session-lifetime
-// one; a store without sessionpin.CooldownStore demotes for the session.
+// session's next turn merges. Reports whether the strike landed.
 func (s *Service) demoteArmForSession(
 	ctx context.Context,
 	model string,
 	reason sessionpin.DemotionReason,
-	cooldownUntil time.Time,
 	primaryStatus int,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
@@ -230,20 +204,9 @@ func (s *Service) demoteArmForSession(
 	// context.Background() for the writes: the request ctx may already be
 	// canceled once the stream has ended, and the strike must still land.
 	strategy := router.StrategyFromContext(ctx)
-	cooldownStore, hasCooldownStore := s.pinStore.(sessionpin.CooldownStore)
-	if !cooldownUntil.IsZero() && !hasCooldownStore {
-		log.Warn("session pin store cannot persist a cooldown, demoting for the session", "model", model, "reason", string(reason))
-		cooldownUntil = time.Time{}
-	}
 	for _, strikeRole := range demotionRoles(role, pinRole) {
 		expired := expiredSessionPin(installationID, sessionKey, strikeRole, string(reason), strategy)
-		var err error
-		if cooldownUntil.IsZero() {
-			err = s.pinStore.ExpireAndDemoteModel(context.Background(), expired, model, reason)
-		} else {
-			err = cooldownStore.ExpireAndCoolDownModel(context.Background(), expired, model, cooldownUntil, reason)
-		}
-		if err != nil {
+		if err := s.pinStore.ExpireAndDemoteModel(context.Background(), expired, model, reason); err != nil {
 			log.Error("session model demotion failed", "err", err, "role", strikeRole, "model", model, "reason", string(reason))
 			return false
 		}
@@ -251,16 +214,6 @@ func (s *Service) demoteArmForSession(
 	if err := s.invalidatePostCommandContinuation(ctx, sessionKey, pinRole); err != nil {
 		log.Error("continuation invalidation after session model demotion failed", "err", err, "role", role, "pin_role", pinRole, "model", model, "reason", string(reason))
 		return false
-	}
-	if !cooldownUntil.IsZero() {
-		log.Info("model cooling down for session",
-			"role", role,
-			"model", model,
-			"reason", string(reason),
-			"upstream_status", primaryStatus,
-			"demotion_expires_at", cooldownUntil.UTC().Format(time.RFC3339),
-		)
-		return true
 	}
 	log.Info("model demoted for session",
 		"role", role,
@@ -315,8 +268,7 @@ func armDemotionLogFields(committedDemoted, rescuedDemoted string) []any {
 }
 
 // armStrikeLogFields is armDemotionLogFields with the rescued strike's own
-// reason: rescued_failure for the session-lifetime strike, rate_limited or
-// transient_failure for a cooldown.
+// reason: rescued_failure, or response_header_timeout for a header stall.
 func armStrikeLogFields(committedDemoted, rescuedDemoted string, rescuedReason sessionpin.DemotionReason) []any {
 	return armStrikeLogFieldsWithPrimaryReason(committedDemoted, sessionpin.DemotionReasonCommittedStreamFailure, rescuedDemoted, rescuedReason)
 }

@@ -89,11 +89,7 @@ func hasNonEmptyTools(body []byte) bool {
 
 // PrepareOpenAI builds an OpenAI Chat Completions request body.
 func (e *RequestEnvelope) PrepareOpenAI(in http.Header, opts EmitOptions) (providers.PreparedRequest, error) {
-	e, err := e.withRouterSystemAppends(opts)
-	if err != nil {
-		return providers.PreparedRequest{}, err
-	}
-	e, err = e.withUnambiguousReadPrefixes()
+	e, err := e.withUnambiguousReadPrefixes()
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}

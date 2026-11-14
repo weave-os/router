@@ -641,34 +641,29 @@ If the routing policy can't decide (sidecar unavailable, invalid decision,
 etc.), the router returns HTTP 503 — it does *not* silently fall back to a
 default model. Failures are loud by design.
 
-### Authoritative upgrade evidence policy
+### Authoritative upgrade gates
 
 For the independent observation-only agreement experiment, see
 [Internal agreement shadow](HMM_GO_SELECTION.md#internal-agreement-shadow).
 Its organization-only `agreement_shadow_epoch` is 0 (off) by default and
 restricted to admitted internal traffic; it never replaces the gates below.
 
-Authoritative HMM turns evaluate a typed evidence policy for expensive fresh
-models. The deployment default is `score`, the `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` floor.
-Set `ROUTER_AUTHORITATIVE_UPGRADE_POLICY=evidence` (or the installation override
-`authoritative_upgrade_policy`) to serve that policy. `off` serves the fresh
-HMM pick without that floor.
+Authoritative HMM turns gate an upgrade to an expensive fresh model on the
+`ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` floor. The margin and stale-pin
+rules below are evaluated in shadow only.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `ROUTER_AUTHORITATIVE_UPGRADE_POLICY` | `score` | `score`, `evidence`, or `off`. Installation override wins. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT` | `0` | Session-sticky share that stays on `score` while evidence is on. 0-100. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_VOTES` | `3` | Consecutive same-group expensive votes required before evidence switches. `0` disables vote hysteresis. |
 | `ROUTER_AUTHORITATIVE_UPGRADE_SHADOW_MARGIN` | unset | Top-1 minus top-2 classifier margin threshold in `[0,1]`. Unset falls back to the score gate for margin-needed cases. |
 | `ROUTER_AUTHORITATIVE_UPGRADE_SHADOW_STALE_AFTER` | unset | Pin-age cutoff as a Go duration. Unset or `0s` disables the stale-pin rule. |
 | `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` | `0.50` | Minimum top-class classifier probability (four groups, floor 0.25) for an upgrade to a pricier model than the session pin. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_GATE` | `true` | Confidence-floor kill switch, used when policy is `score` or evidence falls back to existing policy. |
+| `ROUTER_AUTHORITATIVE_UPGRADE_GATE` | `true` | Confidence-floor kill switch. |
 | `ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD` | `false` | Upgrade by the predicted class's probability, bypassing the confidence floor. From a low/medium pin, maximum at 0.3-0.5 serves high and at >=0.5 maximum; from low, high at 0.3-0.5 serves medium and at >=0.5 high, and medium at >=0.3 serves medium; from medium, high needs >=0.4; from high, maximum needs >=0.5. Below a band, and for other transitions, the gates above decide. Installation override `authoritative_upgrade_sliding_threshold`. |
 
-Invalid policy, holdout, margin, or duration values fail startup. Force/hard
+Invalid margin or duration values fail startup. Force/hard
 pins, utility turns, deadline fallbacks, and active escalation floors still win.
-A content-free `authoritative upgrade evidence` log records mode, applied,
-holdout, outcome, reason, margin, votes, and served model.
+A content-free `authoritative upgrade evidence` log records the shadow
+outcome, reason, margin, votes, and served model.
 
 ## Escalation target and tool-result hold
 

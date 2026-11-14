@@ -165,14 +165,14 @@ func TestOverrideWinsOverDeploymentDefaultInBothDirections(t *testing.T) {
 	// The point of the mechanism: an org can turn a flag ON when the deployment
 	// default is off, and OFF when the deployment default is on.
 	on := flags.WithOverrides(context.Background(), flags.Overrides{
-		Bools: map[flags.Key]bool{flags.KeyEffortEscalation: true},
+		Bools: map[flags.Key]bool{flags.KeyStruggleShadowEnabled: true},
 	})
-	assert.True(t, flags.BoolOr(on, flags.KeyEffortEscalation, false))
+	assert.True(t, flags.BoolOr(on, flags.KeyStruggleShadowEnabled, false))
 
 	off := flags.WithOverrides(context.Background(), flags.Overrides{
-		Bools: map[flags.Key]bool{flags.KeyEffortEscalation: false},
+		Bools: map[flags.Key]bool{flags.KeyStruggleShadowEnabled: false},
 	})
-	assert.False(t, flags.BoolOr(off, flags.KeyEffortEscalation, true))
+	assert.False(t, flags.BoolOr(off, flags.KeyStruggleShadowEnabled, true))
 }
 
 func TestWithOverridesIgnoresEmptySet(t *testing.T) {
@@ -256,12 +256,6 @@ func TestKeysIsSortedAcrossKinds(t *testing.T) {
 }
 
 func TestAuthoritativeDowngradeControlsAreOrgOverridable(t *testing.T) {
-	gate, ok := flags.Lookup(flags.KeyAuthoritativeDowngradeGate)
-	require.True(t, ok)
-	assert.Equal(t, flags.KindBool, gate.Kind)
-	assert.Equal(t, "ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", gate.EnvVar)
-	assert.True(t, gate.OrgOverridable)
-
 	hysteresis, ok := flags.Lookup(flags.KeyHMMDowngradeHysteresisTurns)
 	require.True(t, ok)
 	assert.Equal(t, flags.KindInt, hysteresis.Kind)
@@ -275,7 +269,6 @@ func TestAuthoritativeDowngradeControlsAreOrgOverridable(t *testing.T) {
 	assert.True(t, shadow.OrgOverridable)
 
 	overrides := flags.Overrides{
-		Bools: map[flags.Key]bool{flags.KeyAuthoritativeDowngradeGate: true},
 		Ints: map[flags.Key]int{
 			flags.KeyHMMDowngradeHysteresisTurns:       3,
 			flags.KeyHMMDowngradeHysteresisShadowTurns: 0,
@@ -283,7 +276,6 @@ func TestAuthoritativeDowngradeControlsAreOrgOverridable(t *testing.T) {
 	}
 	require.NoError(t, flags.ValidateOverrides(overrides))
 	ctx := flags.WithOverrides(context.Background(), overrides)
-	assert.True(t, flags.BoolOr(ctx, flags.KeyAuthoritativeDowngradeGate, false))
 	assert.Equal(t, 3, flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisTurns, 0))
 	assert.Equal(t, 0, flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisShadowTurns, 2))
 }

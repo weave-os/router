@@ -25,24 +25,6 @@ type forceModelMapStore struct {
 	usageKeys  [][sessionpin.SessionKeyLen]byte
 }
 
-type recoveryForceModelMapStore struct {
-	*forceModelMapStore
-	attempted []string
-}
-
-func (s *recoveryForceModelMapStore) AcquireRecoveryProbe(_ context.Context, _ [sessionpin.SessionKeyLen]byte, model string, _ uuid.UUID, _ time.Duration) (bool, error) {
-	s.attempted = append(s.attempted, model)
-	return true, nil
-}
-
-func (*recoveryForceModelMapStore) ReleaseRecoveryProbe(context.Context, [sessionpin.SessionKeyLen]byte, string, uuid.UUID) error {
-	return nil
-}
-
-func (*recoveryForceModelMapStore) ClearDemotionCooldown(context.Context, [sessionpin.SessionKeyLen]byte, string, string, time.Time) error {
-	return nil
-}
-
 func newForceModelMapStore() *forceModelMapStore {
 	return &forceModelMapStore{pins: make(map[string]sessionpin.Pin)}
 }
@@ -218,7 +200,7 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 	threadKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadKey)
 	role := roleForTier(catalog.TierFor(features.Model))
-	store := &recoveryForceModelMapStore{forceModelMapStore: newForceModelMapStore()}
+	store := newForceModelMapStore()
 	store.pins[forceModelMapKey(forceKey, forceModelSessionRole)] = sessionpin.Pin{
 		SessionKey:     forceKey,
 		Role:           forceModelSessionRole,
@@ -238,17 +220,9 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 		Strategy:       router.StrategyHMMEmbedding,
 		PinnedUntil:    time.Now().Add(time.Hour),
 	}
-	store.pins[forceModelMapKey(threadKey, hmmHistoryRole(role))] = sessionpin.Pin{
-		SessionKey: threadKey,
-		Role:       hmmHistoryRole(role),
-		DemotionCooldowns: map[string]time.Time{
-			catalog.ModelGPT6Luna: time.Now().Add(-time.Minute),
-		},
-	}
 	freshRouter := &tierProbeRouter{available: map[string]struct{}{"claude-haiku-4-5": {}}}
 	svc := NewService(freshRouter, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
-	svc.WithTransientRateLimit(true, 45)
 	ctx = router.WithStrategy(ctx, router.StrategyHMMEmbedding)
 
 	result, err := svc.runTurnLoop(ctx, env, features, apiKeyID, installationID, "", nil, router.Request{
@@ -262,8 +236,6 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 	assert.True(t, result.StickyHit)
 	assert.True(t, result.ForcedPinDropped)
 	assert.Equal(t, "provider_not_enabled", result.ForcedPinDropReason)
-	assert.Equal(t, []string{catalog.ModelGPT6Luna}, store.attempted,
-		"a forced pin dropped for this request must not suppress a recovery probe for an eligible model")
 }
 
 func TestRunTurnLoop_ClearTombstoneBlocksLegacyForce(t *testing.T) {

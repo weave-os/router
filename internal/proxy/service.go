@@ -64,10 +64,7 @@ type TelemetryEmitter interface {
 
 // Service orchestrates routing decisions and provider dispatch.
 type Service struct {
-	externalKeyUsage    ExternalKeyUsageRecorder
-	recoveryProbeMu     sync.Mutex
-	recoveryProbeLeases map[string]localRecoveryProbeLease
-	nextRecoveryProbeID uint64
+	externalKeyUsage ExternalKeyUsageRecorder
 
 	subscriptionModels subscriptionModelAccess
 	claudePlans        *subscriptions.PlanResolver
@@ -205,11 +202,8 @@ type Service struct {
 	planner planner.EVConfig
 	// hmmUpgradeConfidenceThreshold is the minimum classifier confidence needed
 	// for HMM to switch upward to a more expensive model despite cache inertia.
-	hmmUpgradeConfidenceThreshold  float64
-	authoritativeUpgradeConfig     AuthoritativeUpgradeConfig
-	authoritativeUpgradePolicy     flags.AuthoritativeUpgradePolicy
-	authoritativeUpgradeHoldoutPct int
-	authoritativeUpgradeVotes      int
+	hmmUpgradeConfidenceThreshold float64
+	authoritativeUpgradeConfig    AuthoritativeUpgradeConfig
 	// hmmSameTierPin suppresses EV-positive same-tier lateral switches once a
 	// session pin is live. Env ROUTER_HMM_SAME_TIER_PIN, off by default.
 	hmmSameTierPin bool
@@ -218,11 +212,6 @@ type Service struct {
 	// pricier than the session pin only escalates at confidence >=
 	// hmmUpgradeConfidenceThreshold. Env ROUTER_AUTHORITATIVE_UPGRADE_GATE, on by default.
 	authoritativeUpgradeGate bool
-	// authoritativeDowngradeGate applies the same threshold in the other
-	// direction: a cheaper-than-pin fresh decision below
-	// hmmUpgradeConfidenceThreshold keeps the pin. Env
-	// ROUTER_AUTHORITATIVE_DOWNGRADE_GATE, off by default.
-	authoritativeDowngradeGate bool
 	// authoritativeUpgradeSlidingThreshold lets an upgrade inside a per-group
 	// probability band (escalation.SlidingThresholdTarget) bypass the confidence
 	// floor. Env ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD, off by default.
@@ -289,9 +278,6 @@ type Service struct {
 	// /v1/responses passthrough. Env ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS, on
 	// by default.
 	nativeOpenAIResponseSignals bool
-	// allowedModelsHeader is the deployment default for
-	// ROUTER_ALLOWED_MODELS_HEADER; see ResolveAllowedModelsHeader.
-	allowedModelsHeader bool
 	// committedStreamArmDemotion is the deployment default for
 	// ROUTER_COMMITTED_STREAM_ARM_DEMOTION; see
 	// ResolveCommittedStreamArmDemotion.
@@ -300,11 +286,6 @@ type Service struct {
 	// ROUTER_RESCUED_FAILURE_ARM_DEMOTION; see
 	// ResolveRescuedFailureArmDemotion.
 	rescuedFailureArmDemotion bool
-	// transientRateLimit and rateLimitCooldownSeconds are the deployment
-	// defaults for ROUTER_TRANSIENT_RATE_LIMIT and
-	// ROUTER_RATE_LIMIT_COOLDOWN_SECONDS; see ResolveTransientRateLimit.
-	transientRateLimit       bool
-	rateLimitCooldownSeconds int
 	// providerOverloaded is the deployment default for
 	// ROUTER_PROVIDER_OVERLOADED; overloadBreaker is the replica's per-model
 	// 529 circuit registry. See ResolveProviderOverloaded.
@@ -317,11 +298,6 @@ type Service struct {
 	// when the session pin carries no runner-up (PairedModel). Set from
 	// ROUTER_CYBER_REFUSAL_FALLBACK_MODEL; defaults to claude-sonnet-5.
 	cyberRefusalFallbackModel string
-	// effortEscalation enables the escalate-on-failure reasoning-effort policy:
-	// gpt-5.x serves low effort by default and high after an observed
-	// failed/no-progress turn; gemini is pinned low. Off by default (set from
-	// ROUTER_EFFORT_ESCALATION) so it can be baked off before enabling.
-	effortEscalation bool
 	// ccOrchToolsCrossVendor keeps CC orchestration tools (Task/Agent, Workflow,
 	// Skill, plan-mode) on cross-vendor routes. Kill switch:
 	// ROUTER_CC_ORCH_TOOLS_CROSSVENDOR=false strips all CC-only tools.
@@ -331,15 +307,9 @@ type Service struct {
 	// cross-vendor routes. Deployment default for
 	// ROUTER_CC_TASK_TOOLS_CROSSVENDOR; see ResolveCCTaskToolsCrossVendor.
 	ccTaskToolsCrossVendor bool
-	// ccAutonomySystemAppend is the deployment default for
-	// ROUTER_CC_AUTONOMY_SYSTEM_APPEND; see ResolveCCAutonomySystemAppend.
-	ccAutonomySystemAppend bool
 	// earlyStopRedo is the deployment default for ROUTER_EARLY_STOP_REDO;
 	// see ResolveEarlyStopRedo.
 	earlyStopRedo flags.EarlyStopRedoMode
-	// ccWorkspaceSystemAppend is the deployment default for
-	// ROUTER_CC_WORKSPACE_SYSTEM_APPEND; see ResolveCCWorkspaceSystemAppend.
-	ccWorkspaceSystemAppend bool
 	// bandSwap is the per-turn large-vs-small action classifier. Non-nil only
 	// when ROUTER_BAND_SWAP is on and the head loaded; a sticky MainLoop STAY
 	// then serves the predicted band (one of the pin's {Model, PairedModel})
@@ -566,16 +536,6 @@ type SessionDemotedModelsContextKey struct{}
 // says this request overflows, so in-turn rescues skip them as routing did.
 type ObservedOverflowModelsContextKey struct{}
 
-// SessionCooldownModelsContextKey carries the session's rate-limit cooldowns
-// still in force (map[string]time.Time, model → expiry). Only populated while
-// transient_rate_limit is on; the in-turn rescue readmits these arms when
-// honouring them would leave no candidate.
-type SessionCooldownModelsContextKey struct{}
-
-// SessionCooldownProbeDeniedModelsContextKey carries expired models leased by
-// another in-flight request; rescue paths must not read them back in.
-type SessionCooldownProbeDeniedModelsContextKey struct{}
-
 // SessionStrikeReadmitModelsContextKey carries the session-lifetime demotions
 // ([]string) the in-turn rescue may readmit when every other candidate,
 // cooling arms included, is gone. Image-unsafe arms are already dropped.
@@ -762,10 +722,6 @@ func routingMarkerFor(res turnLoopResult) string {
 	if res.HardPinned {
 		return ""
 	}
-	// A shadow checkpoint is news even when ordinary routing keeps the same model.
-	if res.EscalationShadowMarked {
-		return routingMarkerPrefix + decision.Model + " · " + markerReasonShadowEscalation + "\n\n"
-	}
 	// Same model as last turn: the user already knows. Empty prior model means
 	// the first turn of this session (or role), which still shows. Effort changes
 	// do not constitute a new model choice for this display surface.
@@ -878,7 +834,6 @@ func sanitizeSidecarDisplayMarker(raw string) string {
 // the marker wording; tests assert the mapping against these constants rather
 // than re-spelling the literals.
 const (
-	markerReasonShadowEscalation    = "escalation marked — shadow mode; no action taken"
 	markerReasonUserForced          = "pinned by force-model"
 	markerReasonLoopEscalated       = "escalated due to loop"
 	markerReasonSwitched            = "switched for positive EV after cache eviction"
@@ -1286,17 +1241,6 @@ func observedOverflowModelsFromContext(ctx context.Context) []string {
 
 func sessionStrikeReadmitModelsFromContext(ctx context.Context) []string {
 	out, _ := ctx.Value(SessionStrikeReadmitModelsContextKey{}).([]string)
-	return out
-}
-
-// sessionCooldownModelsFromContext extracts the SessionCooldownModelsContextKey
-// map, or nil when the turn carries no active cooldowns.
-func sessionCooldownModelsFromContext(ctx context.Context) map[string]time.Time {
-	v := ctx.Value(SessionCooldownModelsContextKey{})
-	if v == nil {
-		return nil
-	}
-	out, _ := v.(map[string]time.Time)
 	return out
 }
 
@@ -1976,8 +1920,6 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		hmmUpgradeConfidenceThreshold:  DefaultHMMUpgradeConfidenceThreshold,
 		hmmDowngradeHysteresisTurns:    DefaultHMMDowngradeHysteresisTurns,
 		authoritativeUpgradeGate:       true,
-		authoritativeUpgradePolicy:     flags.AuthoritativeUpgradePolicyScore,
-		authoritativeUpgradeVotes:      3,
 		authorityCacheShadow:           true,
 		plannerEnabled:                 true,
 		scoreToolResultTurns:           true,
@@ -2098,121 +2040,6 @@ func (s *Service) WithRescuedFailureArmDemotion(enabled bool) *Service {
 	return s
 }
 
-// WithTransientRateLimit sets the deployment defaults for temporarily
-// withdrawing rescued 429 and gateway 5xx failures rather than striking them
-// for the session
-// (ROUTER_TRANSIENT_RATE_LIMIT, ROUTER_RATE_LIMIT_COOLDOWN_SECONDS).
-func (s *Service) WithTransientRateLimit(enabled bool, cooldownSeconds int) *Service {
-	s.transientRateLimit = enabled
-	s.rateLimitCooldownSeconds = cooldownSeconds
-	return s
-}
-
-const recoveryProbeLeaseDuration = 15 * time.Minute
-
-// localRecoveryProbeLease is the in-process stand-in for a durable lease row:
-// the id keeps a stale release from freeing a newer lease, the expiry keeps a
-// request that never released from denying the model forever.
-type localRecoveryProbeLease struct {
-	id    uint64
-	until time.Time
-}
-
-// recoveryProbeLeaseFor bounds a lease to the safety duration, or one minute
-// past a known request deadline when that is later, so a probe cannot be
-// freed while its request may still be streaming.
-func (s *Service) recoveryProbeLeaseFor(ctx context.Context) time.Duration {
-	leaseFor := recoveryProbeLeaseDuration
-	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
-		if untilDeadline := deadline.Add(time.Minute).Sub(s.clockNow()); untilDeadline > leaseFor {
-			leaseFor = untilDeadline
-		}
-	}
-	return leaseFor
-}
-
-// acquireRecoveryProbe grants one in-flight recovery attempt for a session/model
-// pair. A durable pin store shares the lease across router workers; the local
-// map keeps stores used by offline tests and tooling behaviorally equivalent.
-func (s *Service) acquireRecoveryProbe(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, model string) (func(), bool) {
-	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) || model == "" {
-		return func() {}, true
-	}
-	leaseFor := s.recoveryProbeLeaseFor(ctx)
-	if store, ok := s.pinStore.(sessionpin.RecoveryProbeStore); ok {
-		token := uuid.New()
-		acquired, err := store.AcquireRecoveryProbe(ctx, sessionKey, model, token, leaseFor)
-		if err != nil {
-			observability.FromContext(ctx).Warn("failed to acquire recovery probe lease; keeping model out for this request", "model", model, "err", err)
-			return nil, false
-		}
-		if !acquired {
-			return nil, false
-		}
-		var once sync.Once
-		return func() {
-			once.Do(func() {
-				releaseCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				defer cancel()
-				if err := store.ReleaseRecoveryProbe(releaseCtx, sessionKey, model, token); err != nil {
-					observability.FromContext(ctx).Warn("failed to release recovery probe lease; it will expire", "model", model, "err", err)
-				}
-			})
-		}, true
-	}
-	key := string(sessionKey[:]) + "\x00" + model
-	now := s.clockNow()
-	s.recoveryProbeMu.Lock()
-	if lease, exists := s.recoveryProbeLeases[key]; exists && now.Before(lease.until) {
-		s.recoveryProbeMu.Unlock()
-		return nil, false
-	}
-	if s.recoveryProbeLeases == nil {
-		s.recoveryProbeLeases = make(map[string]localRecoveryProbeLease)
-	}
-	s.nextRecoveryProbeID++
-	leaseID := s.nextRecoveryProbeID
-	s.recoveryProbeLeases[key] = localRecoveryProbeLease{id: leaseID, until: now.Add(leaseFor)}
-	s.recoveryProbeMu.Unlock()
-
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			s.recoveryProbeMu.Lock()
-			if s.recoveryProbeLeases[key].id == leaseID {
-				delete(s.recoveryProbeLeases, key)
-			}
-			s.recoveryProbeMu.Unlock()
-		})
-	}, true
-}
-
-// clearRecoveredCooldown lifts the cooldown behind this request's recovery
-// probe once the probed model served the turn without an upstream error, on
-// every row the next turn merges (see mergeDemotionCooldowns). A failed probe
-// leaves the cooldown to maybeStrikeArmAfterRescuedFailure, which rewrites it.
-func (s *Service) clearRecoveredCooldown(ctx context.Context, res turnLoopResult, servedModel string, proxyErr error) {
-	observedUntil, probed := res.CooldownProbes[servedModel]
-	if !probed || proxyErr != nil {
-		return
-	}
-	store, ok := s.pinStore.(sessionpin.RecoveryProbeStore)
-	if !ok {
-		return
-	}
-	pinRole := res.PinRole
-	if pinRole == "" {
-		pinRole = sessionpin.DefaultRole
-	}
-	// context.Background(): the request ctx is already canceled once streaming
-	// finishes, and the recovery must still land.
-	for _, role := range demotionRoles(pinRole, pinRole) {
-		if err := store.ClearDemotionCooldown(context.Background(), res.SessionKey, role, servedModel, observedUntil); err != nil {
-			observability.FromContext(ctx).Warn("failed to clear recovered cooldown; next turns keep probing", "model", servedModel, "role", role, "err", err)
-		}
-	}
-}
-
 // WithNativeAnthropicResponseSignals is the kill switch
 // (ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS) for recording Anthropic-native
 // stop_reason and tool_use counts on telemetry. On by default; disabling
@@ -2228,13 +2055,6 @@ func (s *Service) WithNativeAnthropicResponseSignals(enabled bool) *Service {
 // leaves those columns NULL on native turns.
 func (s *Service) WithNativeOpenAIResponseSignals(enabled bool) *Service {
 	s.nativeOpenAIResponseSignals = enabled
-	return s
-}
-
-// WithAllowedModelsHeader sets the deployment default for honoring the
-// x-weave-allowed-models header (ROUTER_ALLOWED_MODELS_HEADER).
-func (s *Service) WithAllowedModelsHeader(enabled bool) *Service {
-	s.allowedModelsHeader = enabled
 	return s
 }
 
@@ -2284,42 +2104,6 @@ func (s *Service) WithHMMSameTierPin(enabled bool) *Service {
 // decisions. On by default; disabling restores verbatim policy selection.
 func (s *Service) WithAuthoritativeUpgradeGate(enabled bool) *Service {
 	s.authoritativeUpgradeGate = enabled
-	return s
-}
-
-// WithAuthoritativeUpgradePolicy sets ROUTER_AUTHORITATIVE_UPGRADE_POLICY.
-// score keeps the confidence floor, evidence applies the composite gate, off serves the fresh policy.
-func (s *Service) WithAuthoritativeUpgradePolicy(mode flags.AuthoritativeUpgradePolicy) *Service {
-	s.authoritativeUpgradePolicy = mode
-	return s
-}
-
-// WithAuthoritativeUpgradeHoldoutPct sets the session-sticky control share for evidence mode.
-func (s *Service) WithAuthoritativeUpgradeHoldoutPct(pct int) *Service {
-	if pct < 0 {
-		pct = 0
-	}
-	if pct > 100 {
-		pct = 100
-	}
-	s.authoritativeUpgradeHoldoutPct = pct
-	return s
-}
-
-// WithAuthoritativeUpgradeVotes sets consecutive same-group votes required before an evidence upgrade.
-func (s *Service) WithAuthoritativeUpgradeVotes(votes int) *Service {
-	if votes < 0 {
-		votes = 0
-	}
-	s.authoritativeUpgradeVotes = votes
-	return s
-}
-
-// WithAuthoritativeDowngradeGate sets the deployment default for
-// ROUTER_AUTHORITATIVE_DOWNGRADE_GATE: whether an authoritative-per-turn
-// downgrade must also clear the confidence threshold. Off by default.
-func (s *Service) WithAuthoritativeDowngradeGate(enabled bool) *Service {
-	s.authoritativeDowngradeGate = enabled
 	return s
 }
 
@@ -2389,13 +2173,6 @@ func (s *Service) WithEscapeNormalize(enabled bool) *Service {
 	return s
 }
 
-// WithEffortEscalation enables the escalate-on-failure reasoning-effort policy.
-// When false (default) the router leaves request-derived effort untouched.
-func (s *Service) WithEffortEscalation(enabled bool) *Service {
-	s.effortEscalation = enabled
-	return s
-}
-
 // WithCCOrchestrationToolsCrossVendor preserves Claude Code orchestration
 // tools (Task/Agent, Workflow, Skill, plan-mode) on cross-vendor emit. False strips all.
 func (s *Service) WithCCOrchestrationToolsCrossVendor(enabled bool) *Service {
@@ -2411,25 +2188,10 @@ func (s *Service) WithCCTaskToolsCrossVendor(enabled bool) *Service {
 	return s
 }
 
-// WithCCAutonomySystemAppend appends translate.AutonomySystemText to the
-// system prompt of Claude Code main-loop and tool-result turns.
-func (s *Service) WithCCAutonomySystemAppend(enabled bool) *Service {
-	s.ccAutonomySystemAppend = enabled
-	return s
-}
-
 // WithEarlyStopRedo sets the deployment default for re-serving a Claude Code
 // tool-result turn that a lower-tier model ended without a tool call.
 func (s *Service) WithEarlyStopRedo(mode flags.EarlyStopRedoMode) *Service {
 	s.earlyStopRedo = mode
-	return s
-}
-
-// WithCCWorkspaceSystemAppend appends translate.WorkspaceSystemText to the
-// system prompt of Claude Code main-loop and tool-result turns served by a
-// non-Anthropic model.
-func (s *Service) WithCCWorkspaceSystemAppend(enabled bool) *Service {
-	s.ccWorkspaceSystemAppend = enabled
 	return s
 }
 
@@ -2543,33 +2305,15 @@ func (s *Service) WithContentCapture(mode ContentCaptureMode, maxBytes int, reda
 	return s
 }
 
-// forcedReasoningEffort implements escalate-on-failure effort policy, returning
-// the EmitOptions.ForceReasoningEffort override ("" = no override):
-//
-//   - gpt-5.x: "low" by default, "high" after a failed/no-progress prior turn.
-//     On SWE-Bench Pro this beats both fixed policies (24% < 32% < ~40% resolved)
-//     since high is spent only where it flips the outcome.
-//   - gemini-3.x: pinned "low" — effort-immune on hard tasks (0/15 in the sweep).
-//   - grok-4.x: pinned "low" — omitting effort falls to xAI's non-disableable
-//     "high" default, a ~15 s fixed TTFT stall on every pinned turn.
-//   - everything else: "" — left to its own path.
-func forcedReasoningEffort(model string, escalate bool) string {
-	// Unconditional: omitting effort falls to xAI's non-disableable "high" default
-	// (~15 s TTFT stall) — a defect to correct, not an escalation to tune.
+// forcedReasoningEffort returns the per-model EmitOptions.ForceReasoningEffort
+// floor ("" = no override). grok-4.x is pinned "low": omitting effort falls to
+// xAI's non-disableable "high" default, a ~15 s fixed TTFT stall on every
+// pinned turn.
+func forcedReasoningEffort(model string) string {
 	if strings.HasPrefix(model, "grok-") {
 		return "low"
 	}
-	switch {
-	case strings.HasPrefix(model, "gpt-5"):
-		if escalate {
-			return "high"
-		}
-		return "low"
-	case strings.HasPrefix(model, "gemini-3"):
-		return "low"
-	default:
-		return ""
-	}
+	return ""
 }
 
 // WithSummarizer installs the cheap-model summarizer for handover on switch
@@ -3250,11 +2994,6 @@ func (s *Service) WithHMMRouter(r router.Router) *Service {
 // which strategy actually served the turn.
 func (s *Service) routeFor(ctx context.Context, req router.Request) (router.Decision, error) {
 	var err error
-	if denied, _ := ctx.Value(SessionCooldownProbeDeniedModelsContextKey{}).([]string); len(denied) > 0 {
-		for _, model := range denied {
-			req.ExcludedModels = excludingModel(req.ExcludedModels, model)
-		}
-	}
 	req, err = s.applyTranslationPlan(ctx, req)
 	if err != nil {
 		return router.Decision{}, err
@@ -3762,7 +3501,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	ctx = s.withUsageObserver(ctx, r.Header)
 	ctx = withTurnFailures(ctx)
-	ctx, rateLimit := s.withRateLimitTurn(ctx)
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
 	requestID := requestIDFor(ctx)
@@ -4197,15 +3935,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	if len(routeRes.SessionDemotedModels) > 0 {
 		ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, routeRes.SessionDemotedModels)
-		if len(routeRes.SessionCooldownModels) > 0 {
-			ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, routeRes.SessionCooldownModels)
-		}
 		if len(routeRes.SessionStrikeReadmitModels) > 0 {
 			ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, routeRes.SessionStrikeReadmitModels)
 		}
-	}
-	if len(routeRes.CooldownProbeDeniedModels) > 0 {
-		ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, routeRes.CooldownProbeDeniedModels)
 	}
 
 	// A retryable bypass error falls through to normal dispatch. Rate-limit
@@ -4437,8 +4169,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		EnableServerSideFallback:          s.ResolveAnthropicServerSideFallback(ctx),
 		KeepCrossVendorOrchestrationTools: s.ccOrchToolsCrossVendor,
 		KeepCrossVendorTaskTools:          s.ResolveCCTaskToolsCrossVendor(ctx),
-		AppendAutonomySystem:              s.autonomySystemAppendApplies(ctx, body, env, routeRes.TurnType),
-		AppendWorkspaceSystem:             s.workspaceSystemAppendApplies(ctx, body, env, routeRes.TurnType),
 	}
 	// Names the level that reaches the wire, so a rescue candidate only takes it
 	// over once that candidate is committed to dispatch.
@@ -5658,7 +5388,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	if !agentShadowMode {
 		s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
-		s.clearRecoveredCooldown(ctx, routeRes, decision.Model, proxyErr)
 	}
 
 	var subscriberTelemetry *InsertTelemetryParams
@@ -5758,8 +5487,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			LastToolUseName:       terminalToolUse.Name,
 			LastToolUseInputBytes: int32PtrIfKnown(int32(terminalToolUse.InputBytes), endedOnToolUse),
 			ToolErrorCounts:       toolErrorCountsJSON(toolErrorTally),
-			AutonomyAppendFired:   boolPtrOrNil(autonomyAppendFired(opts, finalProvider)),
-			WorkspaceAppendFired:  boolPtrOrNil(workspaceAppendFired(opts, finalProvider)),
 			FailoverUsed:          boolPtrTrue(failoverUsed),
 			FailoverAttempted:     boolPtrTrue(failoverAttempted),
 			DegenerateShadow:      boolPtrOrNil(degShadow),
@@ -5908,7 +5635,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		streamCut.noteCut(proxyErr)
 	}
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	log.Info("ProxyMessages complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", failoverUsed, "failover_attempted", failoverAttempted, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "context_estimate_tokens", overflowEstimate, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", s.zdrLogField(ctx, feats.LastPreview), "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), terminalFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "resp_refusal", refusalObs.refused, "resp_refusal_category", refusalObs.category, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "last_tool_use_name", terminalToolUse.Name, "last_tool_use_input_bytes", terminalToolUse.InputBytes, "ended_on_tool_use", endedOnToolUse, "tool_error_counts", toolErrorTally, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "cc_task_reminders_stripped", reqStats.CCTaskRemindersStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "resp_reasoning_tokens", extractor.ReasoningTokens(), "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(clientID), "subscription_tier", servedSubscriptionTier}, append(append(append(armStrikeLogFieldsWithPrimaryReason(armDemoted, armDemotionReasonValue, rescuedArmDemoted, rescuedArmDemotionReason), plannerLogFields(routeRes)...), streamCut.completionLogFields()...), rateLimit.completionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)
+	log.Info("ProxyMessages complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", failoverUsed, "failover_attempted", failoverAttempted, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "context_estimate_tokens", overflowEstimate, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", s.zdrLogField(ctx, feats.LastPreview), "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), terminalFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "resp_refusal", refusalObs.refused, "resp_refusal_category", refusalObs.category, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "last_tool_use_name", terminalToolUse.Name, "last_tool_use_input_bytes", terminalToolUse.InputBytes, "ended_on_tool_use", endedOnToolUse, "tool_error_counts", toolErrorTally, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "cc_task_reminders_stripped", reqStats.CCTaskRemindersStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "resp_reasoning_tokens", extractor.ReasoningTokens(), "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(clientID), "subscription_tier", servedSubscriptionTier}, append(append(armStrikeLogFieldsWithPrimaryReason(armDemoted, armDemotionReasonValue, rescuedArmDemoted, rescuedArmDemotionReason), plannerLogFields(routeRes)...), streamCut.completionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)
 	policyRespBody, policyRespTrunc := capturedResponse(policyOutcomeCap)
 	var policyResp *policyOutcomeResponse
 	if policyOutcomeCap != nil {
@@ -6242,10 +5969,8 @@ func isAuthoritativePinHoldMismatch(res turnLoopResult, served router.Decision) 
 		return false
 	}
 	switch pinTier(res.PinTier) {
-	case pinTierAuthoritativeUpgradeEvidence,
-		pinTierAuthoritativeExcludedPin,
+	case pinTierAuthoritativeExcludedPin,
 		pinTierAuthoritativeUpgradeConfidenceLow,
-		pinTierAuthoritativeDowngradeConfidenceLow,
 		pinTierAuthoritativeDowngradeHysteresis:
 		return true
 	default:
@@ -7135,7 +6860,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	ctx = s.withUsageObserver(ctx, r.Header)
 	ctx = withTurnFailures(ctx)
-	ctx, rateLimit := s.withRateLimitTurn(ctx)
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
 	requestID := requestIDFor(ctx)
@@ -7515,15 +7239,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	if len(routeRes.SessionDemotedModels) > 0 {
 		ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, routeRes.SessionDemotedModels)
-		if len(routeRes.SessionCooldownModels) > 0 {
-			ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, routeRes.SessionCooldownModels)
-		}
 		if len(routeRes.SessionStrikeReadmitModels) > 0 {
 			ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, routeRes.SessionStrikeReadmitModels)
 		}
-	}
-	if len(routeRes.CooldownProbeDeniedModels) > 0 {
-		ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, routeRes.CooldownProbeDeniedModels)
 	}
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
 	decision := routeRes.Decision
@@ -8905,7 +8623,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
-	s.clearRecoveredCooldown(ctx, routeRes, decision.Model, proxyErr)
 
 	var subscriberSettlement subscriberSettlementState
 	if turnUsageBillable(ctx, proxyErr, in, out, cacheCreation, cacheRead) {
@@ -9083,7 +8800,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", failoverUsed, "failover_attempted", failoverAttempted, "subscription_failover", codexFailoverUsed || claudeFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), respSummary.UpstreamFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(clientID), "subscription_tier", servedSubscriptionTier}, append(append(armStrikeLogFieldsWithPrimaryReason(armDemotedOAI, armDemotionReasonOAI, rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI), plannerLogFields(routeRes)...), rateLimit.completionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)
+	log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", failoverUsed, "failover_attempted", failoverAttempted, "subscription_failover", codexFailoverUsed || claudeFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerAfterFinish(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), respSummary.UpstreamFinishReason), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "client_app", completionLogClientApp(clientID), "subscription_tier", servedSubscriptionTier}, append(armStrikeLogFieldsWithPrimaryReason(armDemotedOAI, armDemotionReasonOAI, rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI), plannerLogFields(routeRes)...)...), downgradeShadowLogFields(routeRes)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, usageMods, routeMs, proxyMs, proxyErr, nil)
 
 	// Subscription-only mode disables paid failover by pinning dispatch to the

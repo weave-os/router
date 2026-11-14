@@ -37,11 +37,7 @@ func (e *RequestEnvelope) PrepareGemini(_ http.Header, opts EmitOptions) (provid
 	if usesGemini3Contract(opts.TargetModel) && e.HasUnsignedToolCallHistory() {
 		return providers.PreparedRequest{}, fmt.Errorf("%w: Gemini 3.x requires a thoughtSignature on every historical function call", ErrGeminiUnsignedToolHistory)
 	}
-	e, err := e.withWorkspaceSystemAppended(opts)
-	if err != nil {
-		return providers.PreparedRequest{}, err
-	}
-	e, err = e.withUnambiguousReadPrefixes()
+	e, err := e.withUnambiguousReadPrefixes()
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}

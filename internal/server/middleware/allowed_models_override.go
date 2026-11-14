@@ -13,19 +13,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// AllowedModelsHeaderGate resolves the org-overridable allowed_models_header
-// flag; *proxy.Service implements it.
-type AllowedModelsHeaderGate interface {
-	ResolveAllowedModelsHeader(ctx context.Context) bool
-}
-
 // WithAllowedModelsOverride narrows routing to the x-weave-allowed-models
-// subset for installations authorized for policy headers or organizations
-// with the allowed_models_header flag on. The subset is intersected with the
+// subset for installations authorized for policy headers. The subset is intersected with the
 // installation allowlist; an unknown alias or an empty intersection is a 400,
 // and an unauthorized caller is a 403 — never a silent fall back to the full
 // roster.
-func WithAllowedModelsOverride(gate AllowedModelsHeaderGate) gin.HandlerFunc {
+func WithAllowedModelsOverride() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context()); managed && entitlement.PlanHasServingProfile(entitlement.Plan(identity.Plan)) {
 			c.Next()
@@ -42,7 +35,7 @@ func WithAllowedModelsOverride(gate AllowedModelsHeaderGate) gin.HandlerFunc {
 			return
 		}
 		ctx := c.Request.Context()
-		if !installation.PolicyHeaderOverridesEnabled && !gate.ResolveAllowedModelsHeader(ctx) {
+		if !installation.PolicyHeaderOverridesEnabled {
 			observability.FromGin(c).Warn("Allowed-models override rejected: installation is not authorized for policy headers", "installation_id", installation.ID)
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "allowed_models_header_not_authorized"})
 			return

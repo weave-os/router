@@ -119,7 +119,6 @@ func TestCodexAgentRoutingIsolation(t *testing.T) {
 		WithOpenAIResponsesBroad(true).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: routing, Capabilities: capabilities}).
 		WithAuthoritativeUpgradeSlidingThreshold(true).
-		WithAuthoritativeDowngradeGate(true).
 		WithHMMDowngradeHysteresisTurns(2)
 	installationID := uuid.New()
 	rootCtx, root := codexRoutingEnvelope(t, "/root", true)
