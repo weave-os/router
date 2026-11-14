@@ -173,7 +173,7 @@ type goldenResponse struct {
 	Headers map[string]string `json:"headers,omitempty"`
 	Body    any               `json:"body,omitempty"`
 	Events  []goldenSSEEvent  `json:"events,omitempty"`
-	// Keepalive records that at least one keepalive ping reached the client.
+	// Set when a keepalive ping reaches the client. Presence only: ping timing is wall-clock, so no count is kept.
 	Keepalive bool `json:"keepalive,omitempty"`
 }
 
