@@ -1,0 +1,24 @@
+{
+  "requests": [
+    {
+      "ingress": "gemini_generate_content",
+      "stream": false,
+      "routing_decisions": [],
+      "dispatch_attempts": [],
+      "response": {
+        "status": 404,
+        "headers": {
+          "Content-Type": "application/json; charset=utf-8"
+        },
+        "body": {
+          "error": {
+            "code": 404,
+            "message": "Unknown action \":generateContent\": expected :generateContent or :streamGenerateContent.",
+            "status": "INVALID_ARGUMENT"
+          }
+        }
+      }
+    }
+  ],
+  "scenario": "gemini_generate_content_nonstream_missing_model"
+}
