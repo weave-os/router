@@ -4899,7 +4899,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	rescue.redoIfStoppedEarly(ctx)
 	rescue.notePrimaryFailure(ctx)
 	rescue.classifyPrimaryFailure()
-	ctx = rescue.baseline(ctx)
+	ctx = rescue.baselineRescue(ctx)
 	rescue.subscriptionRetry(ctx)
 	rescue.siblingRescue(ctx)
 	rescue.finish(ctx)

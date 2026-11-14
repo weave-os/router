@@ -9,12 +9,12 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-// baseline handles a routed model whose bindings all failed with a fault
+// baselineRescue handles a routed model whose bindings all failed with a fault
 // another model could satisfy, pre-commit: it re-dispatches the requested
 // model on Anthropic. crossFormat/respSummary/reqStats reset to
 // Anthropic-native values so telemetry reflects the binding that actually
 // served.
-func (m *messagesRescue) baseline(ctx context.Context) context.Context {
+func (m *messagesRescue) baselineRescue(ctx context.Context) context.Context {
 	preludeBuf := m.preludeBuf
 	if m.proxyErr != nil && !preludeBuf.Committed() &&
 		((m.baselineEligible && (providers.IsRetryable(m.proxyErr) || providers.IsUpstreamModelNotFound(m.proxyErr))) ||
