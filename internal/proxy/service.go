@@ -7575,11 +7575,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// resolution falls through to the deployment/BYOK OpenAI key and the turn
 	// runs on Weave credits instead of hard-failing.
 	if s.codexSubscriptionExhausted(ctx, r.Header) {
+		nudge := s.codexSubscriptionReconnectNudge(ctx, r.Header)
 		ctx = withSuppressedCodexSubscription(ctx)
 		if s.linkedSeatCanCover(ctx, decision.Provider, decision.Model) {
-			ctx = withDeferredReconnectNudge(ctx, ownCodexPlanSpentNudge)
+			ctx = withDeferredReconnectNudge(ctx, nudge)
 		} else {
-			ctx = withSubscriptionReconnectNudge(ctx, ownCodexPlanSpentNudge)
+			ctx = withSubscriptionReconnectNudge(ctx, nudge)
 		}
 	}
 	resolvedCtx := s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
@@ -7810,7 +7811,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Dispatch keys off the provider's translation family, not a hardcoded name
 	// list, so a new OpenAI-compat provider routes here as soon as it has a
 	// ProviderFamilies entry (see internal/providers/provider.go).
-	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
+	buildProviderAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
 		targetNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, target.Model, targetMarker)
 		targetNotice = addRoutingFundingSource(fundingCtx, target.Provider, target.Model, targetNotice)
 		if rw, ok := w.(*translate.ResponsesWriter); ok {
@@ -8041,14 +8042,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				return err
 			}
 			return func(actx context.Context, d router.Decision, p providers.Client) error {
-				// A passthrough writer set up for an OpenAI pick forwards bytes
-				// verbatim, so another family replacing that pick must be
-				// translated instead.
-				if isResponses && d.Provider != providers.ProviderOpenAI {
-					if err := leaveResponsesPassthrough(responsesWriter, preludeBuf); err != nil {
-						return err
-					}
-				}
 				surface := surfaceChat
 				if d.Provider == providers.ProviderOpenAI {
 					switch {
@@ -8238,6 +8231,22 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 
+	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
+		attempt, err := buildProviderAttempt(target, targetOpts, targetMarker, fundingCtx)
+		if err != nil {
+			return nil, err
+		}
+		return func(actx context.Context, d router.Decision, p providers.Client) error {
+			// Every non-native family must leave native Responses passthrough,
+			// including a subscription rescue into Anthropic or Gemini.
+			if isResponses && d.Provider != providers.ProviderOpenAI {
+				if err := leaveResponsesPassthrough(responsesWriter, preludeBuf); err != nil {
+					return err
+				}
+			}
+			return attempt(actx, d, p)
+		}, nil
+	}
 	attempt, attemptBuildErr := buildAttempt(decision, opts, marker, fundingCtx)
 	if attemptBuildErr != nil {
 		finishInferenceSpan(inferenceSpan, decision, decision.Provider, -1, attemptBuildErr)
