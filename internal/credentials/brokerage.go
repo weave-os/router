@@ -32,7 +32,7 @@ type Brokerage struct {
 
 var _ Broker = Brokerage{}
 
-// Eligibility resolves which providers the request holds credentials for.
+// Eligibility applies deployment exclusions after enrollment; a BYOK gateway displaces every other provider.
 func (b Brokerage) Eligibility(_ context.Context, req EligibilityRequest) Eligibility {
 	excluded := b.ExcludedProviders(req.InstallationExcludedProviders, req.SessionDisabledProviders)
 	return Eligibility{
@@ -44,6 +44,12 @@ func (b Brokerage) Eligibility(_ context.Context, req EligibilityRequest) Eligib
 		ExcludedModels:         req.ExcludedModels,
 		UsesNonDeploymentCreds: b.UsesNonDeploymentCreds(req.ExternalKeys, req.Headers),
 	}
+}
+
+// EnabledProviders is Eligibility's EnabledProviders without the fields a
+// caller that only needs the enabled set would discard.
+func (b Brokerage) EnabledProviders(req EligibilityRequest) map[string]struct{} {
+	return b.enabledProviders(req, b.ExcludedProviders(req.InstallationExcludedProviders, req.SessionDisabledProviders))
 }
 
 // UsesNonDeploymentCreds reports whether the request would use BYOK

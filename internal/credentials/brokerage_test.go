@@ -106,3 +106,12 @@ func TestPolicyExcludedProviders_OverrideReplacesInstallationList(t *testing.T) 
 		b.ExcludedProviders([]string{providers.ProviderAnthropic}, []string{providers.ProviderOpenAI}))
 	assert.Nil(t, credentials.Brokerage{}.PolicyExcludedProviders(nil))
 }
+
+func TestEnabledProviders_MatchesEligibility(t *testing.T) {
+	b := credentials.Brokerage{KeyedProviders: set(providers.ProviderOpenAI), ExcludedProvidersOverride: set(providers.ProviderOpenAI)}
+	req := credentials.EligibilityRequest{
+		Registered:        set(providers.ProviderAnthropic, providers.ProviderOpenAI),
+		SubscriptionLanes: set(providers.ProviderAnthropic),
+	}
+	assert.Equal(t, b.Eligibility(context.Background(), req).EnabledProviders, b.EnabledProviders(req))
+}
