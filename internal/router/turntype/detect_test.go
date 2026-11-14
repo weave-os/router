@@ -255,6 +255,18 @@ func TestDetectFromEnvelope_Anthropic(t *testing.T) {
 			want: turntype.Classifier,
 		},
 		{
+			// The security monitor wraps its payload in <transcript> too; the
+			// classifier shape, not the Agent-tool envelope, decides it.
+			name: "security monitor with <transcript> payload is classifier",
+			body: `{"model":"claude-sonnet-5","max_tokens":64,"thinking":{"type":"disabled"},"messages":[{"role":"user","content":"<transcript>\n {\"user\":\"run the tests\"}\n</transcript>"}],"system":"You are a security monitor for autonomous AI coding agents."}`,
+			want: turntype.Classifier,
+		},
+		{
+			name: "explicit sub-agent metadata outranks the classifier shape",
+			body: `{"model":"claude-haiku-4-5","max_tokens":64,"metadata":{"user_id":"subagent:Explore"},"messages":[{"role":"user","content":"<transcript>\nUser: find it\n</transcript>"}]}`,
+			want: turntype.SubAgentDispatch,
+		},
+		{
 			name: "classifier with two messages still classifier",
 			body: `{"model":"claude-opus-4-7","max_tokens":64,"messages":[
 				{"role":"user","content":"transcript"},
@@ -355,7 +367,7 @@ func TestDetectFromEnvelope_Anthropic(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env, err := translate.ParseAnthropic([]byte(tc.body))
 			require.NoError(t, err)
-			feats := env.RoutingFeatures(false)
+			feats := env.RoutingFeatures()
 			got := turntype.DetectFromEnvelope(env, feats, tc.hint)
 			assert.Equal(t, tc.want, got)
 		})
@@ -470,7 +482,7 @@ func TestDetectFromEnvelope_OpenAI(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env, err := translate.ParseOpenAI([]byte(tc.body))
 			require.NoError(t, err)
-			feats := env.RoutingFeatures(false)
+			feats := env.RoutingFeatures()
 			got := turntype.DetectFromEnvelope(env, feats, tc.hint)
 			assert.Equal(t, tc.want, got)
 		})
@@ -553,7 +565,7 @@ func TestDetectFromEnvelope_Gemini(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env, err := translate.ParseGemini([]byte(tc.body))
 			require.NoError(t, err)
-			feats := env.RoutingFeatures(false)
+			feats := env.RoutingFeatures()
 			got := turntype.DetectFromEnvelope(env, feats, tc.hint)
 			assert.Equal(t, tc.want, got)
 		})
@@ -573,7 +585,7 @@ func TestDetectFromEnvelope_CodexTitleHintOverridesToolRegistry(t *testing.T) {
 		"messages":[{"role":"user","content":"Generate a title"}]
 	}`))
 	require.NoError(t, err)
-	feats := env.RoutingFeatures(false)
+	feats := env.RoutingFeatures()
 	assert.Equal(t, turntype.MainLoop, turntype.DetectFromEnvelope(env, feats, ""),
 		"a tool-bearing Chat Completions request remains a main loop without the Codex signal")
 	feats.TitleGenHint = true
@@ -666,7 +678,7 @@ func TestDetect_OpenCodeTitlePromptWithoutHeader(t *testing.T) {
 			require.NoError(t, err)
 			env, err := translate.ParseOpenAI(chat)
 			require.NoError(t, err)
-			assert.Equal(t, tc.want, turntype.Detect(env, env.RoutingFeatures(false), "", openCode))
+			assert.Equal(t, tc.want, turntype.Detect(env, env.RoutingFeatures(), "", openCode))
 		})
 	}
 
@@ -674,7 +686,7 @@ func TestDetect_OpenCodeTitlePromptWithoutHeader(t *testing.T) {
 		env, err := translate.ParseAnthropic([]byte(`{"model":"auto","max_tokens":32000,"system":` + p + `,
 			"messages":[{"role":"user","content":"who are you?"}]}`))
 		require.NoError(t, err)
-		assert.Equal(t, turntype.TitleGen, turntype.Detect(env, env.RoutingFeatures(false), "", openCode))
+		assert.Equal(t, turntype.TitleGen, turntype.Detect(env, env.RoutingFeatures(), "", openCode))
 	})
 
 	t.Run("the same body from another client stays main_loop", func(t *testing.T) {
@@ -684,7 +696,7 @@ func TestDetect_OpenCodeTitlePromptWithoutHeader(t *testing.T) {
 		require.NoError(t, err)
 		env, err := translate.ParseOpenAI(chat)
 		require.NoError(t, err)
-		feats := env.RoutingFeatures(false)
+		feats := env.RoutingFeatures()
 		assert.Equal(t, turntype.MainLoop, turntype.Detect(env, feats, "", turntype.OpenCodeCaller{}))
 		assert.Equal(t, turntype.MainLoop, turntype.DetectFromEnvelope(env, feats, ""))
 	})
@@ -699,7 +711,7 @@ func TestDetect_OpenCodeSubagent(t *testing.T) {
 		require.NoError(t, err)
 		env, err := translate.ParseOpenAI(chat)
 		require.NoError(t, err)
-		return env, env.RoutingFeatures(false)
+		return env, env.RoutingFeatures()
 	}
 	env, feats := parse(t, `{"model":"auto","stream":true,
 		"tools":[{"type":"function","name":"bash","parameters":{"type":"object"}}],
@@ -711,4 +723,23 @@ func TestDetect_OpenCodeSubagent(t *testing.T) {
 
 	feats.MaxTokens = 1
 	assert.Equal(t, turntype.Probe, turntype.Detect(env, feats, "", subagent))
+}
+
+func TestIsSideRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		model        string
+		lastUserText string
+		want         bool
+	}{
+		{name: "claude code prompt suggestion", model: "claude-opus-5-5", lastUserText: "[SUGGESTION MODE: Suggest what the user might naturally type next into Claude Code.]\n\nFIRST: Look at the user's recent messages.", want: true},
+		{name: "suggestion after system reminder", model: "claude-opus-5-5", lastUserText: "<system-reminder>ctx</system-reminder>\n[SUGGESTION MODE: Suggest what the user might naturally type next into Claude Code.]", want: true},
+		{name: "codex approval reviewer", model: "codex-auto-review", lastUserText: "The following is the Codex agent history", want: true},
+		{name: "user quoting suggestion mode", model: "claude-opus-5-5", lastUserText: "why did I see [SUGGESTION MODE: Suggest what the user might naturally type next] in logs?", want: false},
+		{name: "ordinary turn", model: "gpt-6.1-sol", lastUserText: "continue", want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, turntype.IsSideRequest(tc.model, tc.lastUserText))
+		})
+	}
 }

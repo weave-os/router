@@ -23,6 +23,14 @@ type accountResponse struct {
 	CreatedAt         time.Time                     `json:"created_at"`
 }
 
+type poolAccountResponse struct {
+	Provider      auth.SubscriptionProvider     `json:"provider"`
+	Tier          auth.SubscriptionTier         `json:"tier"`
+	Enabled       bool                          `json:"enabled"`
+	State         auth.SubscriptionAccountState `json:"state"`
+	CooldownUntil *time.Time                    `json:"cooldown_until,omitempty"`
+}
+
 type createAccountRequest struct {
 	Provider          auth.SubscriptionProvider `json:"provider" binding:"required"`
 	ExternalAccountID string                    `json:"external_account_id" binding:"required"`
@@ -38,9 +46,34 @@ type updateAccountRequest struct {
 // Register mounts account management endpoints on an authenticated group.
 func Register(group *gin.RouterGroup, authSvc *auth.Service) {
 	group.GET("/subscriptions/accounts", listAccountsHandler(authSvc))
+	group.GET("/subscriptions/pool", listPoolHandler(authSvc))
 	group.POST("/subscriptions/accounts", createAccountHandler(authSvc))
 	group.PATCH("/subscriptions/accounts/:id", updateAccountHandler(authSvc))
 	group.DELETE("/subscriptions/accounts/:id", deleteAccountHandler(authSvc))
+}
+
+func listPoolHandler(authSvc *auth.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		key := middleware.APIKeyFrom(c)
+		if key == nil {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "router_key_required"})
+			return
+		}
+		owner := auth.SubscriptionOwnerForKey(key)
+		accounts, err := authSvc.ListSubscriptionCandidates(c.Request.Context(), owner)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "subscription_pool_unavailable"})
+			return
+		}
+		response := make([]poolAccountResponse, 0, len(accounts))
+		for _, account := range accounts {
+			response = append(response, poolAccountResponse{
+				Provider: account.Provider, Tier: account.Tier, Enabled: account.Enabled,
+				State: account.State, CooldownUntil: account.CooldownUntil,
+			})
+		}
+		c.JSON(http.StatusOK, response)
+	}
 }
 
 func listAccountsHandler(authSvc *auth.Service) gin.HandlerFunc {

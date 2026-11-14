@@ -10,7 +10,25 @@ import (
 	"weave-os/router/internal/router"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+type translationMetricsRecorder struct {
+	compatibility []struct {
+		requirement, sourceFormat, targetFamily, mode string
+		enforced                                      bool
+	}
+}
+
+func (m *translationMetricsRecorder) RecordTranslationCompatibility(_ context.Context, requirement, sourceFormat, targetFamily, mode string, enforced bool) {
+	m.compatibility = append(m.compatibility, struct {
+		requirement, sourceFormat, targetFamily, mode string
+		enforced                                      bool
+	}{requirement, sourceFormat, targetFamily, mode, enforced})
+}
+
+func (*translationMetricsRecorder) RecordTranslationTransform(context.Context, string, string, string, string) {
+}
 
 func compatibilityService(mode TranslationCompatibilityMode) *Service {
 	return &Service{
@@ -172,6 +190,48 @@ func TestApplyTranslationPlan_CompatibleButUnavailable(t *testing.T) {
 	})
 
 	assert.ErrorIs(t, err, ErrTranslationCompatibleProviderUnavailable)
+}
+
+func TestApplyTranslationPlanRecordsCompatibilityMetrics(t *testing.T) {
+	metrics := &translationMetricsRecorder{}
+	svc := compatibilityService(TranslationCompatibilityShadow).WithTranslationMetrics(metrics)
+	_, err := svc.applyTranslationPlan(context.Background(), router.Request{
+		EnabledProviders: map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderOpenAI:    {},
+		},
+		TranslationRequirements: router.TranslationRequirements{
+			SourceFormat:       router.WireFormatAnthropic,
+			Endpoint:           router.EndpointAnthropicMessages,
+			PromptCacheControl: true,
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, metrics.compatibility, 1)
+	assert.Equal(t, struct {
+		requirement, sourceFormat, targetFamily, mode string
+		enforced                                      bool
+	}{"prompt_cache_control_native_required", "anthropic_messages", "anthropic", "shadow", false}, metrics.compatibility[0])
+}
+
+func TestApplyTranslationPlanUsesInjectedTranslationMetrics(t *testing.T) {
+	injectedMetrics := &translationMetricsRecorder{}
+	svc := compatibilityService(TranslationCompatibilityShadow)
+	svc.WithTranslationMetrics(injectedMetrics)
+
+	_, err := svc.applyTranslationPlan(context.Background(), router.Request{
+		EnabledProviders: map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderOpenAI:    {},
+		},
+		TranslationRequirements: router.TranslationRequirements{
+			SourceFormat:       router.WireFormatAnthropic,
+			Endpoint:           router.EndpointAnthropicMessages,
+			PromptCacheControl: true,
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, injectedMetrics.compatibility, 1)
 }
 
 func TestApplyTranslationPlan_IntrinsicallyIncompatible(t *testing.T) {

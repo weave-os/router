@@ -49,6 +49,8 @@ type Decision struct {
 	BlindExperimentArm              *auth.BlindExperimentArm              `json:"blind_experiment_arm"`
 	BlindExperimentAssignmentSource *auth.BlindExperimentAssignmentSource `json:"blind_experiment_assignment_source"`
 	BlindExperimentSubjectKey       *string                               `json:"blind_experiment_subject_key"`
+	BlindExperimentMode             *auth.BlindExperimentMode             `json:"blind_experiment_mode"`
+	BlindExperimentSessionKey       *string                               `json:"blind_experiment_session_key"`
 	CohortExperimentID              *string                               `json:"cohort_experiment_id"`
 	CohortGroupID                   *int64                                `json:"cohort_group_id"`
 	CohortPhaseIndex                *int64                                `json:"cohort_phase_index"`
@@ -56,12 +58,19 @@ type Decision struct {
 	CohortScheduledArm              *auth.BlindExperimentArm              `json:"cohort_scheduled_arm"`
 	CohortTreatmentApplied          *bool                                 `json:"cohort_treatment_applied"`
 	CohortBypassReason              *auth.CohortBypassReason              `json:"cohort_bypass_reason"`
+	BlindExperimentModelSource      *auth.BlindExperimentModelSource      `json:"blind_experiment_model_source"`
+	BlindExperimentTreatmentApplied *bool                                 `json:"blind_experiment_treatment_applied"`
+	BlindExperimentBaselineModel    *string                               `json:"blind_experiment_baseline_model"`
+	BlindExperimentModelChanged     *bool                                 `json:"blind_experiment_model_changed"`
 	// PolicyPin* are null when the turn carried no x-weave-policy-pin header.
 	PolicyPinRequested *bool `json:"policy_pin_requested"`
 	PolicyPinHonoured  *bool `json:"policy_pin_honoured"`
 	StickyHit          bool  `json:"sticky_hit"`
 	FailoverUsed       bool  `json:"failover_used"`
 	CrossFormat        bool  `json:"cross_format"`
+	// ErrorClass and FailureOwner are null on a normal completion.
+	ErrorClass   *string `json:"error_class"`
+	FailureOwner *string `json:"failure_owner"`
 
 	EstimatedInputTokens *int64 `json:"estimated_input_tokens"`
 	InputTokens          *int64 `json:"input_tokens"`
@@ -86,6 +95,10 @@ type Decision struct {
 	// Actual* price the served turn; counterfactual not exported — consumers reprice via RequestedModel + /v1/analytics/models.
 	ActualInputCostUSD  *float64 `json:"actual_input_cost_usd"`
 	ActualOutputCostUSD *float64 `json:"actual_output_cost_usd"`
+	// APIRate* price the served turn at API rates even when SubscriptionServed, so
+	// evaluations can compare model usage cost regardless of who paid for it.
+	APIRateInputCostUSD  *float64 `json:"api_rate_input_cost_usd"`
+	APIRateOutputCostUSD *float64 `json:"api_rate_output_cost_usd"`
 
 	RouteLatencyMs           *int64  `json:"route_latency_ms"`
 	UpstreamLatencyMs        *int64  `json:"upstream_latency_ms"`

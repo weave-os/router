@@ -39,7 +39,7 @@ func codexSubRequest(t *testing.T, body string) (*httptest.ResponseRecorder, *ht
 // TestSubscriptionOnly_OpenAI_ServesOnCodexSub: in subscription-only mode, a
 // Codex-covered turn routed to OpenAI must serve on the caller's own ChatGPT
 // subscription (OAuth credential => $0 debit), dispatch exactly once (no paid
-// failover), and surface the depleted-credits warning.
+// failover), and leave the response free of depleted-credits claims.
 func TestSubscriptionOnly_OpenAI_ServesOnCodexSub(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test"}}
 	// Direct OpenAI serves this turn on /v1/responses, so the upstream speaks
@@ -50,7 +50,7 @@ func TestSubscriptionOnly_OpenAI_ServesOnCodexSub(t *testing.T) {
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"hi\"}\n\n")
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"status\":\"completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n")
 	}}
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 
 	body := `{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hi"}],"max_tokens":100,"stream":true}`
 	rec, req := codexSubRequest(t, body)
@@ -61,9 +61,7 @@ func TestSubscriptionOnly_OpenAI_ServesOnCodexSub(t *testing.T) {
 	require.Len(t, p.proxyBodies, 1, "the turn must serve on the subscription exactly once (no paid failover)")
 	require.NotNil(t, p.proxyCreds[0], "the dispatch must carry the caller's subscription credential")
 	assert.True(t, p.proxyCreds[0].OAuth, "the turn must be served on the caller's own Codex subscription so billing debits $0")
-	assert.Contains(t, rec.Body.String(), "credits are depleted", "the customer must see the depleted-credits warning")
-	assert.Contains(t, rec.Body.String(), "ChatGPT (Codex)", "the warning must name the Codex subscription")
-	assert.Contains(t, rec.Body.String(), "weave-router", "the warning must surface the top-up CTA")
+	assert.NotContains(t, rec.Body.String(), "credits are depleted", "a subscription-paid turn must not claim depleted credits")
 }
 
 // TestSubscriptionOnly_OpenAI_PaidRoute_Refuses402: a Codex-covered request
@@ -77,7 +75,7 @@ func TestSubscriptionOnly_OpenAI_PaidRoute_Refuses402(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"id":"x","object":"chat.completion"}`)
 	}}
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenRouter: p}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenRouter: p}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 
 	// MainLoop-shaped (tools + large max_tokens) so the turn isn't classified as
 	// a hard-pinned classifier turn; that would bypass the scorer and defeat the
@@ -99,7 +97,7 @@ func TestSubscriptionOnly_OpenAI_InfrastructureModelRefusesWithoutDispatch(t *te
 	p := &fakeProvider{}
 	svc := proxy.NewService(fr, map[string]providers.Client{
 		providers.ProviderOpenAI: p,
-	}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).
+	}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 
 	body := `{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Refactor the auth middleware and add tests."}],"max_tokens":4096,"tools":[{"type":"function","function":{"name":"edit_file","parameters":{"type":"object"}}}]}`
@@ -123,7 +121,7 @@ func TestSubscriptionOnly_OpenAI_InfrastructureModelRefusesWithoutDispatch(t *te
 func TestSubscriptionOnly_OpenAI_SubFailure_NoPaidFailover(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test"}}
 	p := &fakeProvider{proxyErr: &providers.UpstreamStatusError{Status: http.StatusTooManyRequests}}
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 
 	body := `{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hi"}],"max_tokens":100}`
 	rec, req := codexSubRequest(t, body)

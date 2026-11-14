@@ -86,30 +86,6 @@ func foldSelectionSet(t *testing.T, store *servingMemoryStore, set policyregistr
 	return v2, store.publishArtifact(t, policyregistry.ServingSelectionSet, v2)
 }
 
-// foldProposal republishes a v1 proposal as v2: its selection set and source fold to artifacts/
-// while previous_selection_set keeps whatever (possibly v1) reference the history recorded.
-func foldProposal(t *testing.T, store *servingMemoryStore, proposal policyregistry.DeploymentProposal) (policyregistry.DeploymentProposalV2, policyregistry.ObjectRef) {
-	t.Helper()
-	set := store.object(t, policyregistry.ServingSelectionSets, proposal.SelectionSet).(*policyregistry.SelectionSet)
-	_, setRef := foldSelectionSet(t, store, *set)
-	v2 := policyregistry.DeploymentProposalV2{
-		SchemaVersion:        policyregistry.ServingProposalV2,
-		Target:               proposal.Target,
-		PreviousSelectionSet: proposal.PreviousSelectionSet,
-		SelectionSet:         setRef,
-		SourceCandidate:      foldCandidate(t, store, proposal.SourceRelease),
-		Scope:                proposal.Scope,
-		ProfileKey:           proposal.ProfileKey,
-		Actor:                proposal.Actor,
-		Reason:               proposal.Reason,
-		RequestID:            proposal.RequestID,
-		CreatedAt:            proposal.CreatedAt,
-		Evidence:             proposal.Evidence,
-		WithdrawActivations:  proposal.WithdrawActivations,
-	}
-	return v2, store.publishArtifact(t, policyregistry.ServingProposal, v2)
-}
-
 func newV2Fixture(t *testing.T, store *servingMemoryStore, set policyregistry.SelectionSet) v2Fixture {
 	t.Helper()
 	release := store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
@@ -316,7 +292,7 @@ func TestPreparedSelectionNormalizesV1TraversalAndV2LanesIdentically(t *testing.
 		driftedRef := store.publishArtifact(t, policyregistry.ServingSelectionSet, drifted)
 		selection := policyregistry.ServingSelection{Release: fixture.candidate, Binding: driftedRef}
 		_, err := policyregistry.ReadPreparedSelection(ctx, store, policyregistry.TargetStable, "", selection)
-		assert.ErrorContains(t, err, "differs from release or classifier")
+		assert.ErrorContains(t, err, "worker binding differs from candidate Router image")
 	})
 	t.Run("profile lane must pin the candidate policy", func(t *testing.T) {
 		drifted := fixture.set

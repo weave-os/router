@@ -242,3 +242,25 @@ func TestRoutingDecisionsRepositoryFailureIs500(t *testing.T) {
 	require.Equal(t, http.StatusInternalServerError, rec.Code)
 	require.NotContains(t, rec.Body.String(), "db down")
 }
+
+func TestRoutingDecisionsStreamsBlindExperimentModelSource(t *testing.T) {
+	source := auth.BlindExperimentModelSourceClientModelPassthrough
+	applied := false
+	baseline := "claude-sonnet-4-6"
+	changed := false
+	decisions := rowsAt(1)
+	decisions[0].BlindExperimentModelSource = &source
+	decisions[0].BlindExperimentTreatmentApplied = &applied
+	decisions[0].BlindExperimentBaselineModel = &baseline
+	decisions[0].BlindExperimentModelChanged = &changed
+	engine := newRouter(&fakeRepo{rows: decisions}, &auth.Installation{ID: "inst"})
+
+	recorder := get(engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	rows := decodeNDJSON(t, recorder.Body)
+	require.Len(t, rows, 1)
+	require.Equal(t, string(source), rows[0]["blind_experiment_model_source"])
+	require.Equal(t, applied, rows[0]["blind_experiment_treatment_applied"])
+	require.Equal(t, baseline, rows[0]["blind_experiment_baseline_model"])
+	require.Equal(t, changed, rows[0]["blind_experiment_model_changed"])
+}

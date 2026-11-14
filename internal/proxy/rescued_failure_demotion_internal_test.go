@@ -91,7 +91,7 @@ func newRescuedFailureTurnService(store sessionpin.Store, decision router.Decisi
 			providers.ProviderAnthropic: primary,
 			providers.ProviderOpenAI:    sibling,
 		},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderAnthropic: {},
 		providers.ProviderOpenAI:    {},
@@ -228,7 +228,7 @@ func TestProxyMessages_BaselineRetryKeepsStallDemotionOnPrimary(t *testing.T) {
 			providers.ProviderAnthropic: baseline,
 			providers.ProviderOpenAI:    primary,
 		},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderAnthropic: {},
 		providers.ProviderOpenAI:    {},

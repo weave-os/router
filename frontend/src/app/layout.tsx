@@ -1,13 +1,18 @@
-import { TooltipProvider } from "@/components/molecules/Tooltip";
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-
 import "./globals.css";
 
-const inter = Inter({
-  subsets: ["latin"],
+import type { Metadata } from "next";
+
+import { TooltipProvider } from "@/shared/components/molecules/Tooltip";
+
+import localFont from "next/font/local";
+
+const geist = localFont({
   display: "swap",
-  variable: "--font-inter",
+  src: [
+    { path: "./fonts/Geist[wght].woff2", style: "normal", weight: "100 900" },
+    { path: "./fonts/Geist-Italic[wght].woff2", style: "italic", weight: "100 900" },
+  ],
+  variable: "--font-geist",
 });
 
 export const metadata: Metadata = {
@@ -17,7 +22,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={geist.variable}>
       <body className="h-screen overflow-hidden font-sans antialiased">
         <TooltipProvider>{children}</TooltipProvider>
       </body>

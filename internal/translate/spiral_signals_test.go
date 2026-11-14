@@ -387,6 +387,9 @@ func TestEndsWithUserPrompt(t *testing.T) {
 	reminderThenTypedTagged := map[string]any{"role": "user", "content": []any{
 		map[string]any{"type": "text", "text": "<system-reminder>The task list changed.</system-reminder>\n<note>fix the flaky test</note>"},
 	}}
+	taskNotificationOnly := map[string]any{"role": "user", "content": "<task-notification><task-id>1</task-id></task-notification>"}
+	quotedResultOnly := map[string]any{"role": "user", "content": "</summary>\n<result>background task completed</result>\n<usage><total_tokens>0</total_tokens></usage>"}
+	quotedResultThenTyped := map[string]any{"role": "user", "content": "</summary>\n<result>background task completed</result>\n<usage><total_tokens>0</total_tokens></usage>please run the tests"}
 
 	cases := []struct {
 		name     string
@@ -400,6 +403,9 @@ func TestEndsWithUserPrompt(t *testing.T) {
 		{"tool result behind a trailing system notice", []any{typed, toolUse, toolResult, systemNotice}, false},
 		{"text split from the tool result into its own message", []any{typed, toolUse, toolResult, typed}, false},
 		{"injected reminder with no typed text", []any{typed, reply, reminderOnly}, false},
+		{"task notification with no typed text", []any{typed, reply, taskNotificationOnly}, false},
+		{"quoted result with no typed text", []any{typed, reply, quotedResultOnly}, false},
+		{"typed text after quoted result", []any{typed, reply, quotedResultThenTyped}, true},
 		{"tagged text the person typed", []any{typed, reply, typedTagged}, true},
 		{"tagged text typed behind an injected reminder", []any{typed, reply, reminderThenTypedTagged}, true},
 	}

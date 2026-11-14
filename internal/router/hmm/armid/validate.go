@@ -43,7 +43,7 @@ func ValidateWithCatalog(rosterIDs []string, models []catalog.Model, providerPol
 }
 
 func hasAllowedProvider(m catalog.Model, providerPolicy policy.ProviderPolicy) bool {
-	for _, binding := range m.Providers {
+	for _, binding := range catalog.RoutableBindings(m) {
 		if providerPolicy.Allows(binding.Provider) {
 			return true
 		}

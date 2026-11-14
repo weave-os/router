@@ -2,14 +2,11 @@ package proxy
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/translate"
 )
 
@@ -36,25 +33,6 @@ func TestContextEstimateHeadersProtocols(t *testing.T) {
 			require.NotEqual(t, "0", headers.Get(HeaderRouterContextEstimate))
 		})
 	}
-}
-
-func TestCachedContextEstimateUsesLiveRequest(t *testing.T) {
-	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-5","max_tokens":32,"messages":[{"role":"user","content":"a fresh request"}]}`))
-	require.NoError(t, err)
-	rec := httptest.NewRecorder()
-	setContextEstimateHeaders(rec.Header(), env.ContextOverflowTokenEstimate(), 8000)
-	estimate := rec.Header().Get(HeaderRouterContextEstimate)
-	stale := http.Header{}
-	stale.Set(HeaderRouterContextEstimate, "999999")
-	stale.Set(HeaderRouterContextReserve, "1")
-	stale.Set(HeaderRouterContextEstimateKind, "exact")
-	stale.Set(HeaderRouterContextWindow, "1")
-	(&Service{}).writeCachedResponse(rec, cache.CachedResponse{Headers: stale, Body: []byte(`{"ok":true}`)}, router.Decision{Model: "claude-sonnet-5", Provider: providers.ProviderAnthropic})
-	require.Equal(t, estimate, rec.Result().Header.Get(HeaderRouterContextEstimate))
-	require.Equal(t, "8000", rec.Result().Header.Get(HeaderRouterContextReserve))
-	require.Equal(t, "approximate", rec.Result().Header.Get(HeaderRouterContextEstimateKind))
-	require.NotEqual(t, "1", rec.Result().Header.Get(HeaderRouterContextWindow))
-	require.Equal(t, "hit", rec.Result().Header.Get(HeaderRouterCache))
 }
 
 func TestContextSnapshotFreshness(t *testing.T) {

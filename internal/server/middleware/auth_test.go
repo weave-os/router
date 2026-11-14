@@ -48,6 +48,14 @@ func (f *fakeExternalAPIKeyRepository) UpdateModelAliases(context.Context, strin
 
 func (f *fakeExternalAPIKeyRepository) MarkUsed(context.Context, string) error { return nil }
 
+func (f *fakeExternalAPIKeyRepository) ActiveFundingPriority(context.Context, string, string) (auth.FundingPriority, error) {
+	return "", errors.New("not used")
+}
+
+func (f *fakeExternalAPIKeyRepository) UpdateFundingPriority(context.Context, string, string, auth.FundingPriority) (*auth.ExternalAPIKey, error) {
+	return nil, errors.New("not used")
+}
+
 type fakeAPIKeyRepository struct {
 	byHash map[string]fakeKeyRow
 	// lookupErr stands in for an infra failure (pool exhausted, DB unreachable,
@@ -586,6 +594,10 @@ func TestWithAuthMalformedPrefixStays401(t *testing.T) {
 func (r failingSubscriptionAccountRepository) DisableSubscriptionAccountIfRefreshHolder(context.Context, string, auth.SubscriptionOwner, string, int64) error {
 	return r.err
 }
+func (r failingSubscriptionAccountRepository) RecordSubscriptionCredentialRejection(context.Context, string, auth.SubscriptionOwner, auth.SubscriptionCredentialRejectionInput) (auth.SubscriptionCredentialRejection, error) {
+	return auth.SubscriptionCredentialRejection{}, nil
+}
+
 func (r failingSubscriptionAccountRepository) CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, auth.SubscriptionOwner, string, int64, time.Time) error {
 	return r.err
 }

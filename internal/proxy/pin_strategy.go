@@ -34,5 +34,5 @@ func strategyForTurnLoopResult(res turnLoopResult) router.Strategy {
 			return router.Strategy(decision.Metadata.Strategy)
 		}
 	}
-	return router.StrategyCluster
+	return router.StrategyHMMEmbedding
 }

@@ -16,6 +16,7 @@ func TestLookup(t *testing.T) {
 		wantOutput float64
 	}{
 		// ── Anthropic ──────────────────────────────────────────
+		{name: "claude-fable-5-2", model: "claude-fable-5-2", wantInput: 8.00, wantOutput: 40.00},
 		{name: "claude-fable-5-1", model: "claude-fable-5-1", wantInput: 10.00, wantOutput: 50.00},
 		{name: "claude-fable-5", model: "claude-fable-5", wantInput: 10.00, wantOutput: 50.00},
 		{name: "claude-opus-5-5", model: "claude-opus-5-5", wantInput: 4.00, wantOutput: 20.00},
@@ -33,6 +34,7 @@ func TestLookup(t *testing.T) {
 		{name: "gpt-6-astra", model: "gpt-6-astra", wantInput: 10.00, wantOutput: 50.00},
 		{name: "gpt-6-sol", model: "gpt-6-sol", wantInput: 2.00, wantOutput: 10.00},
 		{name: "gpt-6.1-sol", model: "gpt-6.1-sol", wantInput: 2.00, wantOutput: 10.00},
+		{name: "gpt-6.1-terra", model: "gpt-6.1-terra", wantInput: 1.00, wantOutput: 5.00},
 		{name: "gpt-6-luna", model: "gpt-6-luna", wantInput: 0.10, wantOutput: 0.50},
 		{name: "gpt-5.6-sol", model: "gpt-5.6-sol", wantInput: 4.00, wantOutput: 20.00},
 		{name: "gpt-5.6-terra", model: "gpt-5.6-terra", wantInput: 2.00, wantOutput: 12.00},
@@ -47,6 +49,8 @@ func TestLookup(t *testing.T) {
 		{name: "grok-4.6", model: "grok-4.6", wantInput: 2.00, wantOutput: 6.00},
 		{name: "grok-4.7", model: "grok-4.7", wantInput: 2.00, wantOutput: 6.00},
 		{name: "muse-spark-1.3", model: "muse-spark-1.3", wantInput: 1.25, wantOutput: 4.25},
+		{name: "muse-ember-1.0", model: "muse-ember-1.0", wantInput: 0.10, wantOutput: 0.50},
+		{name: "muse-wonder-1.0", model: "muse-wonder-1.0", wantInput: 4.00, wantOutput: 20.00},
 
 		// ── OpenAI GPT-5.4 ─────────────────────────────────────
 		{name: "gpt-5.4", model: "gpt-5.4", wantInput: 2.50, wantOutput: 15.00},
@@ -84,9 +88,13 @@ func TestLookup(t *testing.T) {
 		{name: "gemini-2.0-flash", model: "gemini-2.0-flash", wantInput: 0.10, wantOutput: 0.40},
 		{name: "gemini-2.0-flash-lite", model: "gemini-2.0-flash-lite", wantInput: 0.075, wantOutput: 0.30},
 
-		// ── Moonshot (Fireworks primary binding) ───────────────
+		// ── Moonshot ───────────────────────────────────────────
 		{name: "moonshotai/kimi-k3", model: "moonshotai/kimi-k3", wantInput: 3.00, wantOutput: 15.00},
+		{name: "moonshotai/kimi-k3.1", model: "moonshotai/kimi-k3.1", wantInput: 2.00, wantOutput: 10.00},
 		{name: "moonshotai/kimi-k2.7", model: "moonshotai/kimi-k2.7", wantInput: 0.95, wantOutput: 4.00},
+
+		// ── MiniMax ────────────────────────────────────────────
+		{name: "minimax/minimax-m3.1-flash", model: "minimax/minimax-m3.1-flash", wantInput: 0.15, wantOutput: 0.60},
 
 		// ── Dated variants (8-digit suffix normalization) ──────
 		{name: "claude-haiku-4-5-20251001", model: "claude-haiku-4-5-20251001", wantInput: 1.00, wantOutput: 5.00},

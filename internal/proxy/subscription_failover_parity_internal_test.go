@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/telemetry"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -89,7 +90,8 @@ func parityAnthropicIngress() parityIngress {
 		byokKey:        parityAnthropicBYOK,
 		subCtx: func() context.Context {
 			ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, parityAnthropicToken)
-			return context.WithValue(ctx, InstallationIDContextKey{}, parityInstallationID)
+			// These parity cases exercise the explicitly enabled API fallback.
+			return withClaudeCreditFallback(context.WithValue(ctx, InstallationIDContextKey{}, parityInstallationID))
 		},
 		servedOnSub:       servedOnSubscription,
 		fallbackAvailable: (*Service).anthropicFallbackKeyAvailable,
@@ -165,8 +167,13 @@ func parityIngresses() []parityIngress {
 
 // byokCtx adds a BYOK key for the ingress' provider.
 func (in parityIngress) byokCtx(ctx context.Context) context.Context {
+	// Mirrors stored keys: Anthropic rows predating funding priorities are key-first.
+	priority := auth.FundingPriorityPlanFirst
+	if in.provider == providers.ProviderAnthropic {
+		priority = auth.FundingPriorityKeyFirst
+	}
 	return context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: in.provider, Plaintext: []byte(in.byokKey)},
+		{Provider: in.provider, Plaintext: []byte(in.byokKey), FundingPriority: priority},
 	})
 }
 
@@ -285,7 +292,7 @@ func TestSubscriptionFailoverParity_ModelCoverage(t *testing.T) {
 
 	t.Run("anthropic has no coverage gate", func(t *testing.T) {
 		in := parityAnthropicIngress()
-		ctx := resolveAndInjectCredentials(in.byokCtx(in.subCtx()), in.provider, in.uncoveredModel, http.Header{})
+		ctx := resolveAndInjectCredentials(in.subCtx(), in.provider, in.uncoveredModel, http.Header{})
 		require.NotNil(t, CredentialsFromContext(ctx))
 		assert.True(t, servedOnSubscription(ctx),
 			"any Anthropic model the caller can reach serves on the Claude subscription (D2)")
@@ -571,6 +578,8 @@ type parityUpstream struct {
 	subDispatches  int
 	paidDispatches int
 	servedModels   []string
+	// paidKeys records the key each paid dispatch carried; "" is the deployment key.
+	paidKeys []string
 }
 
 func (*parityUpstream) SupportsSubscriptions() bool { return true }
@@ -588,6 +597,11 @@ func (p *parityUpstream) Proxy(ctx context.Context, decision router.Decision, _ 
 		err = p.subErr
 	} else {
 		p.paidDispatches++
+		paidKey := ""
+		if creds != nil {
+			paidKey = string(creds.APIKey)
+		}
+		p.paidKeys = append(p.paidKeys, paidKey)
 	}
 	if err != nil {
 		if p.preErrBody != "" {
@@ -609,7 +623,7 @@ func (in parityIngress) parityService(upstream providers.Client) *Service {
 	svc := NewService(
 		staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
 		map[string]providers.Client{in.provider: upstream},
-		nil, false, nil, nil, false, in.provider, in.model, nil,
+		nil, nil, false, in.provider, in.model, nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{in.provider: {}})
 	svc.retrySleep = noopSleep
 	return svc
@@ -639,14 +653,16 @@ func (in parityIngress) request(t *testing.T, stream bool) (*httptest.ResponseRe
 	return httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, in.path, strings.NewReader(body)), []byte(body)
 }
 
-// Non-quota failures must not buy API inference; confirmed exhaustion still
-// permits funded recovery on the same model.
+// Credential faults must not buy API inference; confirmed exhaustion still
+// permits funded recovery on the same model, and a provider 5xx on the plan
+// authorizes paid rescue of the turn without claiming the quota is spent.
 func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 	triggers := []struct {
-		name string
-		err  error
+		name       string
+		err        error
+		wantRescue bool
 	}{
-		{name: "retryable fault", err: upstreamErr(http.StatusServiceUnavailable, `{"error":{"type":"overloaded_error"}}`)},
+		{name: "retryable fault", err: upstreamErr(http.StatusServiceUnavailable, `{"error":{"type":"overloaded_error"}}`), wantRescue: true},
 		{name: "rejected token", err: upstreamErr(http.StatusUnauthorized, `{"error":{"type":"authentication_error"}}`)},
 	}
 	for _, in := range parityIngresses() {
@@ -656,11 +672,23 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 				svc := in.parityService(upstream)
 				rec, req, body := in.request(t, false)
 
-				require.Error(t, in.call(svc, in.subCtx(), body, rec, req))
+				err := in.call(svc, in.subCtx(), body, rec, req)
 
 				assert.Positive(t, upstream.subDispatches, "the turn must first be attempted on the caller's subscription")
+				if trigger.wantRescue {
+					require.NoError(t, err)
+					assert.Positive(t, upstream.paidDispatches, "a provider 5xx on the plan is rescued on paid capacity")
+					for _, servedModel := range upstream.servedModels {
+						assert.Equal(t, in.model, servedModel, "the rescue keeps the caller's model")
+					}
+					return
+				}
+				require.Error(t, err)
 				assert.Zero(t, upstream.paidDispatches,
-					"transient and credential faults do not establish quota exhaustion")
+					"credential faults do not establish quota exhaustion")
+				assert.Equal(t, http.StatusUnauthorized, rec.Code,
+					"the client must see its own credential rejection so it can re-authenticate")
+				assert.Contains(t, rec.Body.String(), "authentication_error")
 			})
 		}
 
@@ -685,7 +713,7 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 			svc := NewService(
 				staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
 				map[string]providers.Client{in.provider: upstream},
-				nil, false, nil, nil, false, in.provider, in.model, nil,
+				nil, nil, false, in.provider, in.model, nil,
 			)
 			svc.retrySleep = noopSleep
 			rec, req, body := in.request(t, false)
@@ -832,7 +860,7 @@ func TestSubscriptionFailoverParity_Telemetry(t *testing.T) {
 				svc.emitter = emitter
 
 				buf := otel.NewBuffer(emitter)
-				ctx := buf.WithContext(in.subCtx())
+				ctx := telemetry.WithRecorder(in.subCtx(), buf)
 				rec, req, body := in.request(t, false)
 				_ = in.call(svc, ctx, body, rec, req)
 				buf.Flush()

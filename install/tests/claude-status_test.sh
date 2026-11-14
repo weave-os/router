@@ -88,10 +88,10 @@ JSON
 
   before="$(find "$config_root/.claude" -type f -exec cksum {} \; | sort)"
   status_output="$(run_status "$config_root" "$scope")"
-  assert_contains "$scope parked install reports off" "$status_output" 'Claude Code: off'
-  assert_not_contains "$scope parked install does not report active routing" "$status_output" 'points at Router'
-  assert_contains "$scope status can authenticate while off" "$status_output" 'Connectivity: connected'
-  assert_contains "$scope status separates authentication from inference" "$status_output" 'inference not verified'
+  assert_contains "$scope parked install reports off" "$status_output" 'Claude Code  off'
+  assert_not_contains "$scope parked install does not report active routing" "$status_output" 'Claude Code  on'
+  assert_contains "$scope status can authenticate while off" "$status_output" 'accepted'
+  assert_contains "$scope status separates authentication from inference" "$status_output" 'inference not checked'
   assert_contains "$scope status identifies settings being inspected" "$status_output" "$config_root/.claude"
   assert_contains "$scope status explains running-session limitation" "$status_output" 'Restart Claude Code'
   after="$(find "$config_root/.claude" -type f -exec cksum {} \; | sort)"
@@ -104,54 +104,54 @@ done
 config_root="$work/user"
 mv "$config_root/.claude/.weave-parked.json" "$config_root/.claude/settings.json"
 status_output="$(run_status "$config_root" user)"
-assert_contains 'active user config reports on' "$status_output" 'Claude Code: on'
+assert_contains 'active user config reports on' "$status_output" 'Claude Code  on'
 cp "$config_root/.claude/settings.json" "$config_root/.claude/.weave-parked.json"
 status_output="$(run_status "$config_root" user)"
-assert_contains 'stale parked file cannot override active user settings' "$status_output" 'Claude Code: on'
+assert_contains 'stale parked file cannot override active user settings' "$status_output" 'Claude Code  on'
 mv "$config_root/.claude/.weave-parked.json" "$config_root/saved-router.json"
 
 status_output="$(VALIDATE_STATUS=401 run_status "$config_root" user)"
-assert_contains 'invalid key is reported separately from config state' "$status_output" 'Connectivity: unavailable (HTTP 401)'
-assert_contains 'unavailable router does not hide active config' "$status_output" 'Claude Code: on'
+assert_contains 'invalid key is reported separately from config state' "$status_output" 'rejected'
+assert_contains 'unavailable router does not hide active config' "$status_output" 'Claude Code  on'
 
 printf '%s\n' '{"env":{"ANTHROPIC_BASE_URL":"https://router.example.test"}}' >"$config_root/.claude/settings.json"
 status_output="$(WEAVE_ROUTER_KEY=rk_synthetic_status_1234 run_status "$config_root" user)"
 assert_contains 'CLI-only key does not imply Claude is authenticated' "$status_output" 'router key header is missing'
-assert_not_contains 'missing live key is not on' "$status_output" 'Claude Code: on'
+assert_not_contains 'missing live key is not on' "$status_output" 'Claude Code  on'
 
 config_root="$work/project"
 mv "$config_root/.claude/.weave-parked.json" "$config_root/saved-router.json"
 printf '%s\n' '{"env":{"ANTHROPIC_BASE_URL":"https://api.anthropic.com","ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: rk_synthetic_status_1234"}}' >"$config_root/.claude/settings.local.json"
 status_output="$(run_status "$config_root" project)"
-assert_contains 'local direct override without parked file reports off' "$status_output" 'Claude Code (project): off'
-assert_not_contains 'committed URL cannot override local direct setting' "$status_output" 'points at Router'
+assert_contains 'local direct override without parked file reports off' "$status_output" 'Claude Code  off'
+assert_not_contains 'committed URL cannot override local direct setting' "$status_output" 'Claude Code  on'
 status_output="$(run_status "$config_root" project --dir "$config_root")"
-assert_contains 'explicit project directory respects local direct override' "$status_output" 'Claude Code (project): off'
+assert_contains 'explicit project directory respects local direct override' "$status_output" 'Claude Code  off'
 
 printf '%s\n' '{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Router-Key: rk_synthetic_status_1234"}}' >"$config_root/.claude/settings.local.json"
 status_output="$(run_status "$config_root" project)"
-assert_contains 'split project URL and local key reports on' "$status_output" 'Claude Code (project): on'
+assert_contains 'split project URL and local key reports on' "$status_output" 'Claude Code  on'
 status_output="$(run_status "$config_root" project --dir "$config_root")"
-assert_contains 'explicit project directory combines committed URL and local key' "$status_output" 'Claude Code (project): on'
+assert_contains 'explicit project directory combines committed URL and local key' "$status_output" 'Claude Code  on'
 
 printf '%s\n' '{}' >"$config_root/.claude/settings.json"
 cp "$config_root/saved-router.json" "$config_root/.claude/settings.local.json"
 status_output="$(run_status "$config_root" project)"
-assert_contains 'local-only project config reports on' "$status_output" 'Claude Code (project): on'
+assert_contains 'local-only project config reports on' "$status_output" 'Claude Code  on'
 status_output="$(run_status "$config_root" project --dir "$config_root")"
-assert_contains 'explicit project directory reads local-only config' "$status_output" 'Claude Code (project): on'
+assert_contains 'explicit project directory reads local-only config' "$status_output" 'Claude Code  on'
 cp "$config_root/saved-router.json" "$config_root/.claude/.weave-parked.json"
 status_output="$(run_status "$config_root" project)"
-assert_contains 'stale parked file cannot override active project settings' "$status_output" 'Claude Code (project): on'
+assert_contains 'stale parked file cannot override active project settings' "$status_output" 'Claude Code  on'
 status_output="$(run_status "$config_root" project --dir "$config_root")"
-assert_contains 'explicit project directory ignores stale parked credentials' "$status_output" 'Claude Code (project): on'
+assert_contains 'explicit project directory ignores stale parked credentials' "$status_output" 'Claude Code  on'
 mv "$config_root/.claude/.weave-parked.json" "$config_root/saved-router.json"
 
 cp "$config_root/saved-router.json" "$config_root/.claude/settings.json"
 printf '%s\n' '{"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-App: claude-code"}}' >"$config_root/.claude/settings.local.json"
 status_output="$(run_status "$config_root" project)"
 assert_contains 'local headers override a committed router key' "$status_output" 'router key header is missing'
-assert_not_contains 'overridden key is not active routing' "$status_output" 'Claude Code (project): on'
+assert_not_contains 'overridden key is not active routing' "$status_output" 'Claude Code  on'
 status_output="$(run_status "$config_root" project --dir "$config_root")"
 assert_contains 'explicit project directory respects local header override' "$status_output" 'router key header is missing'
 assert_not_contains 'explicit project directory does not use overridden key' "$status_output" 'on in saved settings'
@@ -168,5 +168,35 @@ assert_not_contains 'proxy credentials do not prompt a reinstall' "$status_outpu
 assert_not_contains 'status output redacts proxy credentials' "$status_output" 'proxy_synthetic_status_1234'
 assert_not_contains 'status never performs inference' "$(cat "$REQUEST_LOG")" '/v1/messages'
 assert_not_contains 'status never mutates router state' "$(cat "$REQUEST_LOG")" 'POST '
+
+mixed_root="$work/mixed"
+mkdir -p "$mixed_root/.claude" "$mixed_root/.codex"
+printf '%s\n' '{"env":{"ANTHROPIC_BASE_URL":"https://router.example.test"}}' >"$mixed_root/.claude/settings.json"
+cat >"$mixed_root/.codex/config.toml" <<'TOML'
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.example.test"
+name = "Weave Router"
+wire_api = "responses"
+
+[model_providers.weave.http_headers]
+X-Weave-Router-Key = "rk_synthetic_status_1234"
+TOML
+status_rc=0
+status_output="$(bash "$installer" status --dir "$mixed_root" --quiet --non-interactive 2>&1)" || status_rc=$?
+assert_contains 'Claude without a key still gets its own row' "$status_output" 'Claude Code  router key missing'
+assert_contains 'a keyless Claude does not hide a working Codex' "$status_output" 'Codex        on'
+assert_contains 'status checks the Codex key when Claude has none' "$status_output" 'accepted'
+assert_contains 'keyless Claude status exits 0' "$status_rc" '0'
+
+empty_root="$work/empty"
+mkdir -p "$empty_root"
+status_rc=0
+status_output="$(bash "$installer" status --dir "$empty_root" --quiet --non-interactive 2>&1)" || status_rc=$?
+assert_contains 'empty install reports no router' "$status_output" 'Router   not set up'
+assert_contains 'empty install lists Claude with its install command' "$status_output" 'Claude Code  not set up'
+assert_contains 'empty install lists Codex with its install command' "$status_output" 'Codex        not set up'
+assert_contains 'empty install status exits 0' "$status_rc" '0'
 printf '\nFailures: %s\n' "$failures"
 [ "$failures" -eq 0 ]

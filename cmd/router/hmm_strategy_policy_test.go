@@ -19,13 +19,14 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-func TestHMMQwenSelectsItsPinnedRosterThroughTheSharedSidecar(t *testing.T) {
+func TestThreeHMMClassifiersSelectPinnedRostersThroughTheSharedSidecar(t *testing.T) {
 	identity := policyregistry.ClassifierIdentity{
 		ArtifactID: "synthetic-hmm", PackageSHA256: strings.Repeat("a", 64),
 		ImageDigest: "sha256:" + strings.Repeat("b", 64), WireSchema: policy.SchemaVersionV4,
 		ClassOrder: []string{"high"}, TaxonomySHA256: strings.Repeat("c", 64),
 		Variants: map[router.Strategy]policy.ClassifierArtifact{
-			router.StrategyHMMQwen: {ArtifactID: "synthetic-qwen", PackageSHA256: strings.Repeat("d", 64)},
+			router.StrategyHMMQwen: {ArtifactID: "synthetic-qwen", PackageSHA256: strings.Repeat("d", 64), ServingRevision: strings.Repeat("f", 64)},
+			router.StrategyHMMBeta: {ArtifactID: "synthetic-new-hmm", PackageSHA256: strings.Repeat("e", 64)},
 		},
 	}
 	sidecar := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
@@ -74,10 +75,10 @@ func TestHMMQwenSelectsItsPinnedRosterThroughTheSharedSidecar(t *testing.T) {
 		},
 	}
 	build := hmmPolicySnapshotBuilder(map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderGoogle: {}},
-		[]router.Strategy{router.StrategyHMM, router.StrategyHMMQwen}, "none", time.Second, time.Second)
+		[]router.Strategy{router.StrategyHMM, router.StrategyHMMBeta, router.StrategyHMMQwen}, "none", time.Second, time.Second)
 	routers, err := build(context.Background(), candidate)
 	require.NoError(t, err)
-	for _, strategy := range []router.Strategy{router.StrategyHMM, router.StrategyHMMQwen} {
+	for _, strategy := range []router.Strategy{router.StrategyHMM, router.StrategyHMMBeta, router.StrategyHMMQwen} {
 		decision, err := routers[strategy].Route(context.Background(), router.Request{PromptText: "Inspect the synthetic fixture", ClientApp: "codex"})
 		require.NoError(t, err)
 		expectedModel, expectedSHA := catalog.ModelGPT6Luna, defaultPolicySHA

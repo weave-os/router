@@ -115,7 +115,7 @@ func (env *RequestEnvelope) StripRouterFeedbackArtifacts() int {
 
 // parseRouterFeedbackCommand scans text for a /router-feedback (alias /rf)
 // directive on the first non-empty line, applying the same leading-line +
-// injected-prefix guards as parseForceModelCommand (see that function for the
+// injected-prefix guards as parseForceModelCommandFromSource (see that function for the
 // rationale; the router-side alias serves clients without local slash-command
 // expansion). Codex exec results get a narrow exception for their known
 // "Script completed" preamble. Unlike /force-model, everything after the
@@ -185,7 +185,7 @@ func parseRouterFeedbackCommand(text string) (res RouterFeedbackResult, found bo
 func isRouterFeedbackCommandOnlyContent(content gjson.Result) bool {
 	switch {
 	case content.Type == gjson.String:
-		_, found, stripped := parseRouterFeedbackCommand(content.String())
+		_, found, stripped := parseInCursorQuery(content.String(), parseRouterFeedbackCommand)
 		return found && isOnlyInjectedCommandText(stripped)
 	case content.Type == gjson.JSON && content.IsArray():
 		seenCommand := false
@@ -196,12 +196,11 @@ func isRouterFeedbackCommandOnlyContent(content gjson.Result) bool {
 				return false
 			}
 			text := block.Get("text").String()
-			if strings.TrimSpace(text) == "" || isClaudeCodeInjectedBlock(text) {
+			if _, found, stripped := parseInCursorQuery(text, parseRouterFeedbackCommand); found && isOnlyInjectedCommandText(stripped) {
+				seenCommand = true
 				return true
 			}
-			_, found, stripped := parseRouterFeedbackCommand(text)
-			if found && isOnlyInjectedCommandText(stripped) {
-				seenCommand = true
+			if strings.TrimSpace(text) == "" || isClaudeCodeInjectedBlock(text) || isOnlyInjectedCommandText(text) {
 				return true
 			}
 			allSynthetic = false

@@ -99,7 +99,7 @@ func checkFeedbackLinkEndToEnd(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 
 	signer := token.NewSigner("e2e-secret", time.Hour)
-	svc := proxy.NewService(nil, nil, nil, false, nil, nil, false, "", "", nil).
+	svc := proxy.NewService(nil, nil, nil, nil, false, "", "", nil).
 		WithFeedback(postgres.NewFeedbackRepo(pool), signer, "https://router.example.com")
 
 	engine := gin.New()
@@ -221,7 +221,7 @@ func checkFeedbackWithoutTelemetry(ctx context.Context, pool *pgxpool.Pool) erro
 	}
 
 	signer := token.NewSigner("nt-secret", time.Hour)
-	svc := proxy.NewService(nil, nil, nil, false, nil, nil, false, "", "", nil).
+	svc := proxy.NewService(nil, nil, nil, nil, false, "", "", nil).
 		WithFeedback(postgres.NewFeedbackRepo(pool), signer, "https://router.example.com")
 	engine := gin.New()
 	engine.GET("/v1/feedback/link/:token", feedbackapi.GetContextHandler(svc))

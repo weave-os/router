@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -64,6 +65,14 @@ func TestCodexIncludedQuotaPreflight(t *testing.T) {
 				var upstream *providers.UpstreamErrorResponse
 				require.ErrorAs(t, err, &upstream)
 				require.Equal(t, tc.status, upstream.Status)
+				var unavailable *providers.QuotaVerificationUnavailableError
+				if tc.status == http.StatusServiceUnavailable && tc.name != "model_specific_exhaustion" {
+					require.ErrorAs(t, err, &unavailable)
+					require.Equal(t, providers.QuotaVerificationFailureInvalidResponse, unavailable.Failure)
+					require.Equal(t, http.StatusOK, unavailable.UpstreamStatus)
+				} else {
+					require.False(t, errors.As(err, &unavailable))
+				}
 				if tc.status == http.StatusTooManyRequests {
 					require.Contains(t, string(upstream.Body), "Codex included quota is exhausted.")
 				}
@@ -126,9 +135,15 @@ func TestCodexQuotaPreflightPreservesAuthRejection(t *testing.T) {
 			require.ErrorAs(t, err, &upstream)
 			if status == http.StatusNotFound {
 				require.Equal(t, 503, upstream.Status)
+				var unavailable *providers.QuotaVerificationUnavailableError
+				require.ErrorAs(t, err, &unavailable)
+				require.Equal(t, providers.QuotaVerificationFailureEndpoint, unavailable.Failure)
+				require.Equal(t, status, unavailable.UpstreamStatus)
 			} else {
 				require.Equal(t, status, upstream.Status)
 				require.Contains(t, string(upstream.Body), "Reconnect")
+				var unavailable *providers.QuotaVerificationUnavailableError
+				require.False(t, errors.As(err, &unavailable))
 			}
 			require.NotContains(t, string(upstream.Body), "private upstream response")
 			require.Zero(t, inferenceCalls.Load())
@@ -160,6 +175,15 @@ func TestCodexQuotaEndpointUnavailableNeverInfers(t *testing.T) {
 			require.ErrorAs(t, err, &upstream)
 			require.Equal(t, 503, upstream.Status)
 			require.True(t, providers.IsRetryable(err))
+			var unavailable *providers.QuotaVerificationUnavailableError
+			require.ErrorAs(t, err, &unavailable)
+			if timeout {
+				require.Equal(t, providers.QuotaVerificationFailureTimeout, unavailable.Failure)
+				require.Zero(t, unavailable.UpstreamStatus)
+			} else {
+				require.Equal(t, providers.QuotaVerificationFailureEndpoint, unavailable.Failure)
+				require.Equal(t, http.StatusBadGateway, unavailable.UpstreamStatus)
+			}
 			require.Zero(t, inferenceCalls.Load())
 			if timeout {
 				require.GreaterOrEqual(t, time.Since(started), 2800*time.Millisecond)
@@ -167,6 +191,115 @@ func TestCodexQuotaEndpointUnavailableNeverInfers(t *testing.T) {
 			}
 		})
 	}
+}
+
+type quotaReadFailure struct {
+	err    error
+	cancel context.CancelFunc
+}
+
+func (body quotaReadFailure) Read([]byte) (int, error) {
+	if body.cancel != nil {
+		body.cancel()
+	}
+	return 0, body.err
+}
+
+func (quotaReadFailure) Close() error { return nil }
+
+func TestCodexQuotaVerificationFailureClassification(t *testing.T) {
+	for _, fixture := range []struct {
+		name           string
+		transportErr   error
+		readErr        error
+		status         int
+		body           string
+		failure        providers.QuotaVerificationFailure
+		upstreamStatus int
+	}{
+		{name: "transport", transportErr: io.ErrUnexpectedEOF, failure: providers.QuotaVerificationFailureTransport},
+		{name: "internal timeout", transportErr: context.DeadlineExceeded, failure: providers.QuotaVerificationFailureTimeout},
+		{name: "endpoint 504", status: http.StatusGatewayTimeout, body: "private upstream body", failure: providers.QuotaVerificationFailureEndpoint, upstreamStatus: http.StatusGatewayTimeout},
+		{name: "endpoint 429", status: http.StatusTooManyRequests, failure: providers.QuotaVerificationFailureEndpoint, upstreamStatus: http.StatusTooManyRequests},
+		{name: "read failure", status: http.StatusOK, readErr: io.ErrUnexpectedEOF, failure: providers.QuotaVerificationFailureTransport, upstreamStatus: http.StatusOK},
+		{name: "body timeout", status: http.StatusOK, readErr: context.DeadlineExceeded, failure: providers.QuotaVerificationFailureTimeout, upstreamStatus: http.StatusOK},
+		{name: "invalid JSON", status: http.StatusOK, body: "private upstream body", failure: providers.QuotaVerificationFailureInvalidResponse, upstreamStatus: http.StatusOK},
+		{name: "invalid model quota", status: http.StatusOK, body: `{"plan_type":"pro","additional_rate_limits":[{"normal_model_slug":"gpt-6.1-sol","rate_limit":{"allowed":true}}]}`, failure: providers.QuotaVerificationFailureInvalidResponse, upstreamStatus: http.StatusOK},
+		{name: "invalid window", status: http.StatusOK, body: `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":101}}}`, failure: providers.QuotaVerificationFailureInvalidResponse, upstreamStatus: http.StatusOK},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			client := NewClient("synthetic-paid-key", "")
+			inferenceCalls := 0
+			client.http = &http.Client{Transport: creditsRoundTripper(func(req *http.Request) (*http.Response, error) {
+				if req.URL.Path != "/backend-api/wham/usage" {
+					inferenceCalls++
+					return creditsResponse(http.StatusOK, "unexpected inference"), nil
+				}
+				if fixture.transportErr != nil {
+					return nil, fixture.transportErr
+				}
+				response := creditsResponse(fixture.status, fixture.body)
+				if fixture.readErr != nil {
+					response.Body = quotaReadFailure{err: fixture.readErr}
+				}
+				return response, nil
+			})}
+			err := creditsProxy(client, codexCtx("synthetic-token", "synthetic-account"))
+			var upstream *providers.UpstreamErrorResponse
+			require.ErrorAs(t, err, &upstream)
+			require.Equal(t, http.StatusServiceUnavailable, upstream.Status)
+			require.JSONEq(t, `{"error":{"type":"api_error","message":"Included Codex quota could not be verified."}}`, string(upstream.Body))
+			var unavailable *providers.QuotaVerificationUnavailableError
+			require.ErrorAs(t, errors.Join(errors.New("synthetic outer failure"), err), &unavailable)
+			require.Equal(t, fixture.failure, unavailable.Failure)
+			require.Equal(t, fixture.upstreamStatus, unavailable.UpstreamStatus)
+			require.NotContains(t, unavailable.Error(), "private upstream body")
+			require.False(t, errors.Is(err, context.DeadlineExceeded), "internal preflight timeout is not caller expiry")
+			require.True(t, providers.IsRetryable(err))
+			require.Zero(t, inferenceCalls)
+		})
+	}
+}
+
+func TestCodexQuotaRequestBuildFailureIsClassified(t *testing.T) {
+	client := NewClient("synthetic-paid-key", "")
+	client.SetCodexBaseURL(":invalid")
+	err := client.checkCodexIncludedQuota(context.Background(), "gpt-6.1-sol")
+	var unavailable *providers.QuotaVerificationUnavailableError
+	require.ErrorAs(t, err, &unavailable)
+	require.Equal(t, providers.QuotaVerificationFailureRequest, unavailable.Failure)
+	require.Zero(t, unavailable.UpstreamStatus)
+}
+
+func TestCodexQuotaParentCancellationIsNotRetryable(t *testing.T) {
+	for _, readingBody := range []bool{false, true} {
+		t.Run(map[bool]string{false: "transport", true: "body"}[readingBody], func(t *testing.T) {
+			ctx, cancel := context.WithCancel(codexCtx("synthetic-token", "synthetic-account"))
+			defer cancel()
+			client := NewClient("synthetic-paid-key", "")
+			client.http = &http.Client{Transport: creditsRoundTripper(func(*http.Request) (*http.Response, error) {
+				if !readingBody {
+					cancel()
+					return nil, context.Canceled
+				}
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: quotaReadFailure{err: context.Canceled, cancel: cancel}}, nil
+			})}
+			err := creditsProxy(client, ctx)
+			require.ErrorIs(t, err, context.Canceled)
+			require.False(t, providers.IsRetryable(err))
+			var unavailable *providers.QuotaVerificationUnavailableError
+			require.False(t, errors.As(err, &unavailable))
+		})
+	}
+	ctx, cancel := context.WithDeadline(codexCtx("synthetic-token", "synthetic-account"), time.Unix(1, 0))
+	defer cancel()
+	client := NewClient("synthetic-paid-key", "")
+	client.http = &http.Client{Transport: creditsRoundTripper(func(req *http.Request) (*http.Response, error) {
+		return nil, req.Context().Err()
+	})}
+	err := client.checkCodexIncludedQuota(ctx, "gpt-6.1-sol")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.False(t, providers.IsRetryable(err))
 }
 
 func TestCodexReachedTypeKeepsWindowReset(t *testing.T) {
@@ -181,4 +314,59 @@ func TestCodexReachedTypeKeepsWindowReset(t *testing.T) {
 	require.True(t, errors.As(err, &upstream))
 	require.Equal(t, http.StatusTooManyRequests, upstream.Status)
 	require.Contains(t, string(upstream.Body), "1792600000")
+}
+
+func TestCodexPreflightPublishesAccountQuotaBeforeDenial(t *testing.T) {
+	for _, tc := range []struct {
+		name, payload              string
+		wantPrimary                float64
+		wantError, wantObservation bool
+	}{
+		{"healthy", `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":40,"reset_at":1794398700,"limit_window_seconds":18000},"secondary_window":{"used_percent":80,"reset_at":1794999900,"limit_window_seconds":604800}}}`, 40, false, true},
+		{"exhausted", `{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100,"reset_at":1794398700,"limit_window_seconds":18000}}}`, 100, true, true},
+		{"model_only_exhausted", `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":40,"reset_at":1794398700,"limit_window_seconds":18000}},"additional_rate_limits":[{"normal_model_slug":"gpt-6.1-sol","rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100,"reset_at":1794999900}}}]}`, 40, true, true},
+		{"invalid_window", `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":120}}}`, 0, true, false},
+		{"invalid_sibling", `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":40},"secondary_window":{"used_percent":120}}}`, 0, true, false},
+		{"missing_flags", `{"rate_limit":{"primary_window":{"used_percent":40}}}`, 0, true, false},
+		{"malformed", `{`, 0, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, "/wham/usage", r.URL.Path)
+				_, _ = io.WriteString(w, tc.payload)
+			}))
+			defer server.Close()
+			client := NewClient("", server.URL)
+			client.SetCodexBaseURL(server.URL)
+			var observed http.Header
+			ctx := providers.WithUpstreamHeaderObserver(codexCtx("synthetic-token", "synthetic-account"), func(_ context.Context, h http.Header) { observed = h.Clone() })
+			err := client.checkCodexIncludedQuota(ctx, "gpt-6.1-sol")
+			require.Equal(t, tc.wantError, err != nil)
+			require.Equal(t, tc.wantObservation, len(observed) > 0)
+			if tc.wantObservation {
+				require.Equal(t, strconv.FormatFloat(tc.wantPrimary, 'f', -1, 64), observed.Get("x-codex-primary-used-percent"))
+				require.Equal(t, "1794398700", observed.Get("x-codex-primary-reset-at"))
+				require.Equal(t, "300", observed.Get("x-codex-primary-window-minutes"))
+				if tc.name == "healthy" {
+					require.Equal(t, "80", observed.Get("x-codex-secondary-used-percent"))
+					require.Equal(t, "1794999900", observed.Get("x-codex-secondary-reset-at"))
+					require.Equal(t, "10080", observed.Get("x-codex-secondary-window-minutes"))
+				}
+			}
+		})
+	}
+}
+
+func TestCodexPreflightOmitsOverflowingWindowLength(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":40,"limit_window_seconds":9223372036854775807}}}`)
+	}))
+	defer server.Close()
+	client := NewClient("", server.URL)
+	client.SetCodexBaseURL(server.URL)
+	var observed http.Header
+	ctx := providers.WithUpstreamHeaderObserver(codexCtx("synthetic-token", "synthetic-account"), func(_ context.Context, h http.Header) { observed = h.Clone() })
+	require.NoError(t, client.checkCodexIncludedQuota(ctx, "gpt-6.1-sol"))
+	require.Equal(t, "40", observed.Get("x-codex-primary-used-percent"))
+	require.Empty(t, observed.Get("x-codex-primary-window-minutes"))
 }

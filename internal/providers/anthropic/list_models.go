@@ -32,6 +32,9 @@ const maxModelListPages = 20
 // Cortex) publish their catalog at the sibling /models instead, so a 404 on the
 // first page falls back to that.
 func (c *Client) ListModels(ctx context.Context) ([]string, error) {
+	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil && creds.CredentialError != nil {
+		return nil, creds.CredentialError
+	}
 	baseURL := requestcontext.EffectiveBaseURL(ctx, c.baseURL)
 	if baseURL == "" {
 		return nil, providers.ErrModelDiscoveryDestination
@@ -65,6 +68,7 @@ func (c *Client) ListModels(ctx context.Context) ([]string, error) {
 		}
 		upstream.Header.Set("anthropic-version", anthropicVersion)
 		c.setAuth(ctx, upstream, upstream)
+		c.applyOAuthBeta(ctx, upstream, upstream)
 		requestcontext.ApplyWIFTokenType(ctx, upstream)
 		requestcontext.ApplyIdentityHeader(ctx, upstream)
 

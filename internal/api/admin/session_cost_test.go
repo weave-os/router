@@ -37,7 +37,7 @@ func (r *sessionCostRepo) GetSessionCost(_ context.Context, installationID, sess
 
 func sessionCostEngine(t *testing.T, repo proxy.TelemetryRepository, installation *auth.Installation) *gin.Engine {
 	t.Helper()
-	svc := proxy.NewService(nil, nil, nil, false, nil, nil, false, "", "", repo)
+	svc := proxy.NewService(nil, nil, nil, nil, false, "", "", repo)
 	engine := gin.New()
 	engine.GET("/v1/sessions/:session_id/cost", func(c *gin.Context) {
 		if installation != nil {
@@ -115,6 +115,23 @@ func TestSessionCostHandler(t *testing.T) {
 			LastRecordedAt:         "2026-09-28T19:30:45.123456789Z",
 		}, body)
 		require.Equal(t, "session-1", repo.seenSessionID)
+	})
+
+	t.Run("blind experiment sessions read as not found", func(t *testing.T) {
+		repo := &sessionCostRepo{cost: proxy.SessionCost{
+			SessionID:              "session-1",
+			RequestCount:           2,
+			ActualCostUSDMicros:    100_000,
+			RequestedCostUSDMicros: 900_000,
+			BlindExperiment:        true,
+		}}
+		engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
+
+		rec := httptest.NewRecorder()
+		engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sessions/session-1/cost", nil))
+
+		require.Equal(t, http.StatusNotFound, rec.Code)
+		require.NotContains(t, rec.Body.String(), "savings")
 	})
 
 	t.Run("scopes the lookup to the calling installation", func(t *testing.T) {

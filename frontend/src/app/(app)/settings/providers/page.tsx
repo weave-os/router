@@ -2,6 +2,7 @@
 
 import { ProviderKeysPanel } from "@/components/settings/ProviderKeysPanel";
 import { SettingsPage, SettingsSection } from "@/components/settings/SettingsPage";
+
 import { Plug } from "lucide-react";
 
 export default function ProviderKeysSettingsPage() {
@@ -10,7 +11,7 @@ export default function ProviderKeysSettingsPage() {
       <SettingsSection
         icon={<Plug className="size-4" />}
         title="Provider API keys"
-        description="Bring your own keys for Anthropic, OpenAI, Google, OpenRouter, or an Anthropic-compatible gateway."
+        description="Bring your own provider keys, or point at an Anthropic- or OpenAI-compatible gateway."
       >
         <ProviderKeysPanel />
       </SettingsSection>

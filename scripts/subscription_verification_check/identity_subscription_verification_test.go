@@ -85,7 +85,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 	defer providerServer.Close()
 	client := &verificationIncludedClient{openai.NewClient("synthetic-api-key", providerServer.URL)}
 	client.SetCodexBaseURL(providerServer.URL)
-	svc := proxy.NewService(verificationBillingRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).WithManagedSubscriptions(runtime).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+	svc := proxy.NewService(verificationBillingRouter{}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).WithManagedSubscriptions(runtime).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 	var winners []*proxy.ManagedSubscriptionUsage
 	var resolvedOwners []auth.SubscriptionOwner
 	var proxyErrors []error

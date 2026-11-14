@@ -87,7 +87,7 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 			"openrouter": openaicompat.NewClient("test-or-key", openrouter.URL),
 			"anthropic":  anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 		},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel,
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		"fireworks":  {},
 		"openrouter": {},
@@ -183,8 +183,6 @@ func TestProxyMessages_AuthoritativePolicyNeverChangesModelOnFailover(t *testing
 			providers.ProviderOpenRouter: openaicompat.NewClient("test-or-key", openrouter.URL),
 			providers.ProviderAnthropic:  anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 		},
-		nil,
-		false,
 		nil,
 		newFakePinStore(),
 		false,
@@ -285,7 +283,7 @@ func TestProxyMessages_OSSOutageNoBaselineWhenRequestedModelIsOSS(t *testing.T) 
 			"openrouter": openaicompat.NewClient("k", openrouter.URL),
 			"anthropic":  anthropic.NewClient("k", anthropicUpstream.URL),
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		"fireworks": {}, "openrouter": {}, "anthropic": {},
 	}).WithRetrySleep(noRetrySleep)
@@ -327,7 +325,7 @@ func TestProxyMessages_OSSOutageNoBaselineWhenAnthropicExcluded(t *testing.T) {
 			"openrouter": openaicompat.NewClient("k", openrouter.URL),
 			"anthropic":  anthropic.NewClient("k", anthropicUpstream.URL),
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		"fireworks": {}, "openrouter": {}, "anthropic": {},
 	}).WithExcludedProvidersOverride([]string{providers.ProviderAnthropic})
@@ -366,7 +364,7 @@ func TestProxyMessages_FailedBaselineReportsAnthropicProvider(t *testing.T) {
 			"openrouter": openaicompat.NewClient("k", openrouter.URL),
 			"anthropic":  anthropic.NewClient("k", anthropicUpstream.URL),
 		},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel,
+		nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		"fireworks": {}, "openrouter": {}, "anthropic": {},
 	}).WithRetrySleep(noRetrySleep)
@@ -441,7 +439,7 @@ func TestProxyMessages_AuthoritativePolicyFailsOverOnCapabilityRejection(t *test
 			providers.ProviderOpenRouter: openaicompat.NewClient("test-or-key", openrouter.URL),
 			providers.ProviderAnthropic:  anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 		},
-		nil, false, nil, newFakePinStore(), false,
+		nil, newFakePinStore(), false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", newCaptureTelemetry(),
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderFireworks:  {},

@@ -30,7 +30,7 @@ func TestVerificationUnrepresentableChatRefusesAPIWithoutQuotaProof(t *testing.T
 	client := openai.NewClient("synthetic-api-key", server.URL)
 	client.SetCodexBaseURL(server.URL)
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "unsafe-wire-account", AccessToken: "unsafe-wire-seat"}}}
-	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	body := `{"model":"auto","n":2,"logprobs":true,"stream":true,"messages":[{"role":"user","content":"synthetic"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 	rec := httptest.NewRecorder()

@@ -50,6 +50,6 @@ func TestManagedServingStrategiesMatchRuntimeRegistration(t *testing.T) {
 	for _, strategy := range managedServingStrategies {
 		require.True(t, router.IsHMMStrategy(strategy))
 	}
-	require.NotContains(t, managedServingStrategies, router.StrategyCluster)
+	require.NotContains(t, managedServingStrategies, router.Strategy("cluster"))
 	require.NotContains(t, managedServingStrategies, router.StrategyHMMBeta)
 }

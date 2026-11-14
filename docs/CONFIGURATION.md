@@ -9,7 +9,8 @@ This page is the exhaustive reference; the [README](../README.md) has the
 
 - [Provider API keys](#provider-api-keys)
   - [Key-pair auth](#key-pair-auth)
-  - [Workload identity federation](#workload-identity-federation)
+  - [Snowflake workload identity federation](#workload-identity-federation)
+  - [Anthropic workload identity federation](#anthropic-workload-identity-federation)
 - [Postgres](#postgres)
 - [Server](#server)
 - [Managed serving (`ROUTER_SERVING_*`)](#managed-serving-router_serving_)
@@ -20,7 +21,6 @@ This page is the exhaustive reference; the [README](../README.md) has the
 - [Task-domain classifier](#task-domain-classifier)
 - [BYOK encryption](#byok-encryption)
 - [Telemetry (OpenTelemetry)](#telemetry-opentelemetry)
-- [Cluster-routing artifacts](#cluster-routing-artifacts)
 
 ## Task-domain classifier
 
@@ -42,7 +42,7 @@ Claude Code keep using the user's logged-in plan.
 
 | Variable              | Default                                                   | Effect |
 | --------------------- | --------------------------------------------------------- | ------ |
-| `OPENROUTER_API_KEY`  | *(none)*                                                  | **Recommended baseline.** Enables OpenRouter and the full OSS-model pool the cluster scorer is trained against. |
+| `OPENROUTER_API_KEY`  | *(none)*                                                  | **Recommended baseline.** Enables OpenRouter and the full OSS-model pool the routing policies serve. |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1`                            | Override for OpenRouter or any OpenAI-compatible endpoint (vLLM, Together, Fireworks, self-hosted). |
 | `ROUTER_MODEL_ID_MAP` | *(none)* | Comma-separated `catalog=upstream` pairs rewritten on the OpenRouter client's request body only. Catalog IDs, logs, `x-router-model`, and billing stay unchanged. Empty/unset is a no-op; invalid pairs fail boot. |
 | `ANTHROPIC_API_KEY`   | *(none — passthrough)*                                    | Router's own Anthropic key. When unset, client `Authorization` headers pass through. |
@@ -103,6 +103,28 @@ account level, and the authenticating user needs a role with agent privileges
 plus a default warehouse it can USAGE (or an explicit `SNOWFLAKE_AGENT_ROLE`
 that has one). Cortex's web search is served from Brave's index, so queries
 and results leave Snowflake's perimeter under Snowflake's vendor agreement.
+
+**Native web search with Codex subscriptions.** For a requested Codex model,
+or when no enabled provider can execute Anthropic server tools, Claude Code's
+isolated WebSearch helper can
+use an enrolled or caller-supplied Codex subscription. The router translates
+that helper to a native Responses web-search request and returns Anthropic
+search-result blocks and a cited answer. Ordinary conversations and mixed
+tool requests are unchanged. Hostname-only domain restrictions and user location are
+preserved; path-scoped or wildcard domain filters are rejected before search
+instead of being weakened. Measured token/cache usage is returned to the client.
+
+The bridge uses the existing Responses routing, account admission, quota and
+telemetry pipeline. It preserves a requested Codex-compatible model, otherwise
+uses ordinary Responses model selection; it does not pick a fixed search
+model or permit API-key fallback. Search uses low reasoning effort, a 90-second
+request deadline and a 2 MiB response bound. Because the Codex backend does
+not accept `max_tool_calls`, the bridge cancels its stream when native tool
+operations exceed `max_uses` (one by default, at most ten). Requests above that
+server-side limit are rejected before dispatch. Isolated helpers never read or
+write conversation model pins or their usage history. A successful search tool and
+terminal response are required before results are returned. No extra search
+provider key, MCP server or client configuration is needed.
 
 **OpenAI-compatible gateway.** `openai_gateway` is the same arrangement one
 wire family over: a customer endpoint speaking OpenAI Chat Completions, bearer
@@ -253,6 +275,9 @@ Authorization: Bearer WIF.GCP.<attestation>
 X-Snowflake-Authorization-Token-Type: WORKLOAD_IDENTITY_FEDERATION
 ```
 
+This `wif` mode is specific to Snowflake-compatible gateways. Native Anthropic
+uses the separate `anthropic_wif` mode described below.
+
 The attestation source is deployment-wide, not per key, because it identifies
 the router process rather than a tenant:
 
@@ -331,6 +356,122 @@ fields reject the same request-critical header names as `identity_header`, and
 both are applied after the client's headers so nothing upstream-critical can be
 overwritten. Omit both to forward nothing.
 
+
+### Anthropic workload identity federation
+
+Use `auth_type: "anthropic_wif"` on the native `anthropic` provider to authenticate
+with the router's workload identity instead of storing an API key. This bills
+Anthropic API usage to the rule's workspace; it does not use a Claude subscription.
+Your clients continue authenticating to the router with their router keys.
+
+In the [Claude Console](https://platform.claude.com/settings/workload-identity-federation),
+connect the router's Google Cloud service account, or register your OIDC issuer.
+For Google Cloud, use issuer `https://accounts.google.com` with discovery, audience
+`https://api.anthropic.com`, and match the service account's numeric `sub` and
+`email` exactly. Add the target Anthropic service account to the intended workspace.
+See [Anthropic's GCP guide](https://platform.claude.com/docs/en/manage-claude/wif-providers/gcp).
+
+Managed deployments require operator-approved target bindings before federation
+can authenticate. Set `ROUTER_ANTHROPIC_FEDERATION_BINDINGS_B64` in the router worker's
+operator-owned deployment environment to a base64-encoded JSON object keyed by router
+installation UUID. Each value is the exact approved `federation_config`, including
+the rule, Anthropic organization, service account, workspace (or omission), and
+audience. For example:
+
+```json
+{"00000000-0000-0000-0000-000000000003":{
+  "federation_rule_id":"fdrl_example",
+  "organization_id":"00000000-0000-0000-0000-000000000001",
+  "service_account_id":"svac_example",
+  "workspace_id":"wrkspc_example",
+  "audience":"https://api.anthropic.com"
+}}
+```
+
+The operator must verify that the installation owner controls the Anthropic
+organization before adding a binding. Tenant-provided IDs are not evidence of
+ownership. An absent or empty map denies every managed federation request before
+minting an assertion or reading a cached token. Such denials have no Anthropic
+authentication-history entry because no exchange is sent. A tenant cannot change the
+operator's map through the provider-key API. Malformed bindings abort startup;
+changes require a new worker revision. The Weave release controller reads the operator-owned
+`router-internal/config/anthropic-federation-bindings.json` map by serving target,
+encodes it into the worker environment, and includes it in the immutable revision
+key. Approve changes to that private file before preparing the worker release. Its
+top-level keys are serving targets such as `staging` and `prod/stable`, each
+containing the installation map shown above. For urgent revocation, disable the
+Anthropic rule and retire workers retaining the old approval; a retained worker
+keeps the authorization snapshot it was released with. Self-hosted
+routers use their owner's identity and do not require this managed allowlist.
+
+Add the credential through **Settings → Provider keys → Anthropic → Anthropic
+workload identity**, or the self-hosted admin API:
+
+```bash
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"anthropic","auth_type":"anthropic_wif",
+       "federation_config":{
+         "federation_rule_id":"fdrl_example",
+         "organization_id":"00000000-0000-0000-0000-000000000001",
+         "service_account_id":"svac_example",
+         "workspace_id":"wrkspc_example",
+         "audience":"https://api.anthropic.com"
+       }}'
+```
+
+Use your actual identifiers. `workspace_id` may be omitted only when the rule
+has a single enabled workspace; otherwise Anthropic requires it. `audience`
+defaults to `https://api.anthropic.com` and must match the rule. Do not send
+`key`, `auth_account`, or `auth_user`. Custom endpoints are rejected for this
+mode. A self-hosted deployment can retain `ANTHROPIC_API_KEY` while adding a
+federated Anthropic credential; when BYOK is selected, the federated credential
+takes precedence. An unresolved federation credential returns `503` rather than
+silently falling back to the deployment key.
+
+On Google compute with an attached service account, raw assertions are obtained
+from the Google identity credentials library for each exchange. For Kubernetes
+or another projected OIDC source, set `ANTHROPIC_IDENTITY_TOKEN_FILE` to the
+mounted token path; the file is reopened on every exchange and reads are bounded
+to 64 KiB. The JWT itself must be at most 16 KiB. The router uses
+per-credential federation configuration, not the Anthropic SDK's other
+`ANTHROPIC_FEDERATION_*` environment variables or credential precedence chain.
+Snowflake's `ROUTER_WIF_*` variables remain independent.
+
+The router sends the raw JWT to Anthropic's fixed `/v1/oauth/token` endpoint and
+uses the returned token with `Authorization: Bearer`. The exchange carries the
+OAuth and OIDC federation beta headers; Anthropic API calls carry the OAuth beta
+header. The router sends no Snowflake headers or Claude Code identity prompt. Access tokens
+are cached separately by installation, key, rule, organization, service account,
+workspace, and audience. Concurrent refreshes share an exchange. Advisory
+refresh starts up to 120 seconds before expiry (20% for shorter tokens), with
+mandatory refresh up to 30 seconds before expiry (10% for shorter tokens).
+Temporary endpoint failures can use the still-valid cached token until mandatory
+refresh; a selected Anthropic request with failed mandatory refresh returns HTTP
+503 rather than switching to a platform Anthropic API key. Unrelated providers
+remain available. A rejected exchange fails immediately.
+
+Assertions carrying `jti` must rotate before the next exchange. The router
+refuses to resend a previously attempted `jti` in its bounded process-local
+cache, including after an ambiguous transport failure. Anthropic remains the
+replay-protection authority across restarts and cache eviction. Update a
+projected file well before refresh; a static token file is unsuitable for
+continuous operation when `jti` is present. Tokens without `jti` may be reused
+while valid. See [Anthropic's WIF reference](https://platform.claude.com/docs/en/manage-claude/wif-reference).
+
+After saving, fetch models from the saved credential to exercise federation
+under the router's identity, then make a minimal inference request. Check the
+federation rule's authentication history in the Claude Console and verify usage
+is attributed to the intended workspace. An API key working in the same
+organization does not establish that federation works. Raw inbound
+`sk-ant-oat01-...` tokens cannot be distinguished from Claude subscription tokens
+by their prefix; configure workload federation explicitly rather than passing
+such tokens through the client subscription path.
+
+Migration `0139` must be applied before the router and control plane use the
+new credential fields. Apply it through the normal release process. Rolling it
+back deletes Anthropic federation credential rows before restoring the old
+constraint; recreate those configurations after upgrading again.
 
 ### Microsoft Entra client credentials
 
@@ -475,16 +616,13 @@ the admission caches using the same Pub/Sub project and topic.
 
 | Variable                          | Default                      | Purpose |
 | --------------------------------- | ---------------------------- | ------- |
-| `ROUTER_DEFAULT_STRATEGY`         | `cluster`                    | Strategy used when an installation has no persisted strategy. Change only after the policy rollout gate passes. The router refuses to boot, and `/readyz` fails, when this strategy has no router configured (e.g. `hmm_embedding` without `ROUTER_POLICY_ENVIRONMENT`). Managed serving workers (`ROUTER_DEPLOYMENT_MODE=managed` with `ROUTER_SERVING_TARGET`) additionally refuse to boot unless it is set to one of the policy strategies they register (`hmm`, `hmm_embedding`); the legacy `router` service and self-hosted deployments keep the `cluster` default. |
-| `ROUTER_CLUSTER_VERSION`          | *(reads `artifacts/latest`)* | Pin a specific cluster artifact version (e.g. `v0.27`). |
-| `ROUTER_CLUSTER_EMBED_TIMEOUT_MS` | `200`                        | Per-request ONNX embed timeout. Increase for slower hosts. |
-| `ROUTER_EMBED_ONLY_USER_MESSAGE`  | `true`                       | Feed only user-role text to the embedder. Set `false` to embed the full concatenated turn. |
+| `ROUTER_DEFAULT_STRATEGY`         | `hmm_embedding`              | Strategy used when an installation has no persisted strategy (a persisted `cluster` also follows it). Change only after the policy rollout gate passes. Beta lanes and `llm_classifier` are opt-in per installation and fail boot as a default. The router refuses to boot, and `/readyz` fails, when this strategy has no router configured (e.g. `hmm_embedding` without `ROUTER_POLICY_ENVIRONMENT`); the retired value `cluster` also fails boot. Requests whose persisted or default strategy is unregistered or unavailable get `503 routing_strategy_unavailable`. Managed serving workers (`ROUTER_DEPLOYMENT_MODE=managed` with `ROUTER_SERVING_TARGET`) additionally refuse to boot unless it is set to one of the policy strategies they register (`hmm`, `hmm_embedding`). |
 | `ROUTER_STICKY_DECISION_TTL_MS`   | `0` (disabled)               | Reuse a routing decision per API key for this many ms. |
 | `ROUTER_SESSION_PIN_ENABLED`      | `true`                       | Pin a session to its first-routed model so multi-turn conversations stay coherent. |
-| `ROUTER_HARD_PIN_MODEL`           | *(none)*                     | Force every request to a specific model, bypassing the cluster scorer. Debugging only. Without this explicit override, titles and probes with auto/empty models are scored independently, while provider/quota probes with concrete models preserve their requested target; none anchors an automatic conversation pin. |
+| `ROUTER_HARD_PIN_MODEL`           | *(none)*                     | Force every request to a specific model, bypassing the routing policy. Debugging only. Without this explicit override, titles and probes with auto/empty/`weave-*` routing models are scored independently, while provider/quota probes with concrete models preserve their requested target; none anchors an automatic conversation pin. |
 | `ROUTER_HARD_PIN_PROVIDER`        | *(none)*                     | Pair with `ROUTER_HARD_PIN_MODEL`. |
-| `ROUTER_HARD_PIN_EXPLORE`         | `true`                       | Pin Claude Code Task-tool sub-agent turns to `ROUTER_HARD_PIN_MODEL`/`ROUTER_HARD_PIN_PROVIDER` (or the cheapest deployed model, if those are unset). Set `false` to route sub-agents through the scorer like any other turn. Ignored under the HMM strategy, whose classifier selects sub-agent turns like any other turn. |
-| `ROUTER_SUBAGENT_MODEL`           | *(none)*                     | Route Claude Code Task-tool sub-agent turns to a distinct model, independent of `ROUTER_HARD_PIN_MODEL` — e.g. a local/self-hosted OpenAI-compatible model (point `OPENROUTER_BASE_URL` at your local server) while the main loop keeps using Anthropic/whatever the scorer picks. Requires `ROUTER_SUBAGENT_PROVIDER`; either alone is ignored. Takes effect regardless of `ROUTER_HARD_PIN_EXPLORE` and under every strategy, including HMM. |
+| `ROUTER_HARD_PIN_EXPLORE`         | `true`                       | Pin Claude Code Task-tool sub-agent turns to `ROUTER_HARD_PIN_MODEL`/`ROUTER_HARD_PIN_PROVIDER` (or the cheapest deployed model, if those are unset). Set `false` to route sub-agents through the routing policy like any other turn. Ignored under the HMM strategy, whose classifier selects sub-agent turns like any other turn. |
+| `ROUTER_SUBAGENT_MODEL`           | *(none)*                     | Route Claude Code Task-tool sub-agent turns to a distinct model, independent of `ROUTER_HARD_PIN_MODEL` — e.g. a local/self-hosted OpenAI-compatible model (point `OPENROUTER_BASE_URL` at your local server) while the main loop keeps using Anthropic/whatever the routing policy picks. Requires `ROUTER_SUBAGENT_PROVIDER`; either alone is ignored. Takes effect regardless of `ROUTER_HARD_PIN_EXPLORE` and under every strategy, including HMM. |
 | `ROUTER_SUBAGENT_PROVIDER`        | *(none)*                     | Pair with `ROUTER_SUBAGENT_MODEL`. |
 | `ROUTER_TRANSLATION_COMPATIBILITY_MODE` | `shadow` | Translation representability rollout: `off` disables broad filtering, `shadow` records candidate exclusions without changing routes, and `enforce` makes declared semantic requirements hard routing constraints. Native search remains enforced in every mode because another provider family cannot preserve its tool/result blocks; advertised-only search tools are scoped out separately. Other native-only safety paths (such as unsupported Responses tool unions and native Gemini ingress) remain protected unless mode is `off`. |
 | `ROUTER_SCOPED_SEARCH_REQUIREMENT` | `true` | Scopes the citations/search native-capability requirement to sessions that actually used a web-search tool this turn or recently, instead of every turn that merely advertises one. Advertised-only turns return to normal policy routing. |
@@ -494,21 +632,26 @@ the admission caches using the same Pub/Sub project and topic.
 | `ROUTER_COMPACTION_MODEL`         | `claude-sonnet-5`            | Fallback Anthropic family for compaction when no eligible session model is available. Selection upgrades to the newest eligible catalog version in that family, including session-derived choices. The configured model must bind on `ROUTER_HANDOVER_PROVIDER` and belong to the compaction policies' reviewed catalog set in [`POLICY_INFERENCE.md`](POLICY_INFERENCE.md); otherwise boot fails. Claude Code's client-side compaction still requires direct Anthropic; Codex checkpoint compaction can reuse other providers. Explicit `ROUTER_HARD_PIN_MODEL` overrides remain exact. |
 | `ROUTER_COMPACTION_TIMEOUT_MS`    | `90000`                      | Hard timeout for one compaction-handover summary call (separate from `ROUTER_HANDOVER_TIMEOUT_MS`; a Sonnet-class summary of a near-full window is slow). On timeout the full history is kept. |
 | `ROUTER_ESCALATION_JUDGE_ENABLED` | `false` | Enables the optional Weave-funded Switchyard LLM judge and requires `FIREWORKS_API_KEY`. The judge uses only the Fireworks binding for `z-ai/glm-5.3-flash`. |
+| `ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT` | `none` | Shadow classifier (`llm_escalation` or `switchyard_llm_v1`) for installations with no escalation selection and no active classifier. `switchyard_llm_v1` requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`; `llm_escalation` requires `ROUTER_LLM_ESCALATION_URL` and `ROUTER_LLM_ESCALATION_API_KEY`; startup fails otherwise. Shadow judging uses its own pool of 8 slots per instance. Each successful verdict is written to the judge's auxiliary telemetry row (`classifier_predicted_label`); failed judgments keep their cost row with no label. |
 | `ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED` | `false` | Allows `switchyard_llm_v1` to be selected as the active classifier. Keep false during shadow evaluation; requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`. |
-| `ROUTER_ONNX_ASSETS_DIR`          | `/opt/router/assets`         | Directory containing `model.onnx` + `tokenizer.json`. |
-| `ROUTER_ONNX_LIBRARY_DIR`         | *(system default)*           | Path to `libonnxruntime` (e.g. `/opt/homebrew/lib` on Apple Silicon). |
+| `ROUTER_PROVIDER_OVERLOADED`      | `true`                       | Per-model 529 circuit breaker. Provider-direct overloaded responses from every organization feed one shared circuit per model (3 overloaded operations within 2 minutes open it); once it opens, the model leaves automatic selection only for organizations that have each observed 2 overloads themselves. Traffic through an organization's own gateway gets a circuit of its own that no other organization feeds or sees. `/force-model` still reaches the model, and one request probes it after 30s, doubling to a 10-minute cap on each failed probe. Thresholds are fixed in `internal/router/breaker/thresholds.go`. Org-overridable as `provider_overloaded`. |
 
-If the cluster scorer can't run (missing model, embed timeout, etc.), the
-router returns HTTP 503 — it does *not* silently fall back to a default
-model. Failures are loud by design.
+If the routing policy can't decide (sidecar unavailable, invalid decision,
+etc.), the router returns HTTP 503 — it does *not* silently fall back to a
+default model. Failures are loud by design.
 
 ### Authoritative upgrade evidence policy
 
+For the independent observation-only agreement experiment, see
+[Internal agreement shadow](HMM_GO_SELECTION.md#internal-agreement-shadow).
+Its organization-only `agreement_shadow_epoch` is 0 (off) by default and
+restricted to admitted internal traffic; it never replaces the gates below.
+
 Authoritative HMM turns evaluate a typed evidence policy for expensive fresh
-models. The deployment default is `score` (today's 0.85 confidence floor).
+models. The deployment default is `score`, the `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` floor.
 Set `ROUTER_AUTHORITATIVE_UPGRADE_POLICY=evidence` (or the installation override
 `authoritative_upgrade_policy`) to serve that policy. `off` serves the fresh
-HMM pick without the 0.85 floor.
+HMM pick without that floor.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -517,12 +660,28 @@ HMM pick without the 0.85 floor.
 | `ROUTER_AUTHORITATIVE_UPGRADE_VOTES` | `3` | Consecutive same-group expensive votes required before evidence switches. `0` disables vote hysteresis. |
 | `ROUTER_AUTHORITATIVE_UPGRADE_SHADOW_MARGIN` | unset | Top-1 minus top-2 classifier margin threshold in `[0,1]`. Unset falls back to the score gate for margin-needed cases. |
 | `ROUTER_AUTHORITATIVE_UPGRADE_SHADOW_STALE_AFTER` | unset | Pin-age cutoff as a Go duration. Unset or `0s` disables the stale-pin rule. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_GATE` | `true` | Existing 0.85 floor kill switch, used when policy is `score` or evidence falls back to existing policy. |
+| `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` | `0.50` | Minimum top-class classifier probability (four groups, floor 0.25) for an upgrade to a pricier model than the session pin. |
+| `ROUTER_AUTHORITATIVE_UPGRADE_GATE` | `true` | Confidence-floor kill switch, used when policy is `score` or evidence falls back to existing policy. |
+| `ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD` | `false` | Upgrade by the predicted class's probability, bypassing the confidence floor. From a low/medium pin, maximum at 0.3-0.5 serves high and at >=0.5 maximum; from low, high at 0.3-0.5 serves medium and at >=0.5 high, and medium at >=0.3 serves medium; from medium, high needs >=0.4; from high, maximum needs >=0.5. Below a band, and for other transitions, the gates above decide. Installation override `authoritative_upgrade_sliding_threshold`. |
 
 Invalid policy, holdout, margin, or duration values fail startup. Force/hard
 pins, utility turns, deadline fallbacks, and active escalation floors still win.
 A content-free `authoritative upgrade evidence` log records mode, applied,
 holdout, outcome, reason, margin, votes, and served model.
+
+## Escalation target and tool-result hold
+
+A key-scoped cluster model list labelled `escalation` names the models served
+while an escalation verdict or persisted floor constrains a request. It
+replaces the effective group's list only on escalated turns, so a key can keep
+every unescalated group on one model and promote only escalated sessions. The
+LLM escalation judge skips a checkpoint (`served_escalation_target`) when the
+turn was already served by one of these models.
+
+`hmm_tool_result_hold` is an organization-overridable boolean flag, stored in
+the installation's flag overrides (no environment variable), default `false`. When on, authoritative per-turn selection
+scores only the first call after a user message; that turn's tool-result calls
+reuse the session pin unless escalation constrains the request.
 
 ## Plan-aware subscription routing
 
@@ -543,6 +702,39 @@ normal eligibility. `subscription_routing_disabled` suppresses this feature even
 when the org flag is on. This setting does not enable subscription-account
 enrollment or change how quota is observed.
 
+
+## Exhausted-subscription OpenRouter lane
+
+`subscription_exhausted_openrouter_only` is an organization-only boolean flag
+override (Admin → Router → Flags), default `false`. When on, Claude/Codex
+subscriptions serve first; once the router has quota-exhaustion evidence, paid
+turns go only to the OpenRouter binding of the exhausted-state models
+(`models_when_subscription_inactive`, or every OpenRouter-served model when
+that set is empty). Direct Anthropic/OpenAI API keys never serve the paid turn;
+if OpenRouter is excluded, unkeyed, or fails, the turn errors. Claude/GPT rows
+carry these OpenRouter bindings as `SubscriptionOverflowOnly`, so no other
+routing or failover path uses them. Managed deployments need
+`ROUTER_OPENROUTER_PLATFORM_ENABLED=true` (or an installation BYOK OpenRouter
+key) for the lane to have a key.
+
+## Member tier selections on plans
+
+`plan_user_cluster_lists` is an organization-only boolean flag override
+(Admin → Router → Flags), default `false`. Max requests normally ignore every
+per-cluster model list. When on, each member's own per-cluster selection applies
+again to Max; the installation's key-scoped cluster lists stay ignored, and
+`excluded_models` still applies. Boost uses the default roster and ordinary
+per-cluster model lists.
+
+The flag also keeps a member's selection when a linked Claude/Codex
+subscription is preferred for funding. If the routed model is one the member
+selected and no linked subscription can serve it, the turn is served on paid
+capacity instead of being re-routed to a model the subscription covers. This
+applies only when a paid binding can serve the pick (for example, not when the
+OpenRouter overflow lane is on and the model has no OpenRouter binding). Turns
+with no paid capacity behind them (credits depleted or spend cap reached) still
+serve on the subscription.
+
 ## Provider and model exclusions
 
 Exclusions keep traffic away from a provider or model — the control to reach
@@ -557,16 +749,16 @@ Without either env var the lists come from the installation, editable in the
 dashboard or through `PUT /admin/v1/excluded-providers` and
 `PUT /admin/v1/excluded-models`.
 
-From a terminal, `npx @weave-os/router models --claude` lists every deployed
+From a terminal, `npx @weave-os/router models` lists every deployed
 model with its on/off state and `models enable` / `models disable` edit it,
-reading the endpoint and key from the Claude Code install already on disk.
+reading the endpoint and key from the Claude Code (or else Codex) install already on disk.
 Claude Code gets the same thing as `/router-models` (alias `/models`). While
 either env var is set the CLI surfaces the 403 verbatim rather than pretending
 the edit landed. See [install/README.md](../install/README.md#choosing-which-models-the-router-may-pick).
 
 Exclusions are authoritative, not a preference. An excluded provider is
 subtracted from the request's eligible set before anything routes, so the
-scorer, the turn-type hard pins, session pins, and cross-binding failover all
+routing policy, the turn-type hard pins, session pins, and cross-binding failover all
 stay off it — including when the caller holds their own BYOK key for it.
 
 That extends to explicit forcing. `/force-model` and the `x-weave-force-model`
@@ -581,7 +773,7 @@ request too (see [Forcing a model or a routing
 cluster](#forcing-a-model-or-a-routing-cluster)).
 
 Excluding every provider that serves the models you route to leaves requests
-with nowhere to go (HTTP 503 from the scorer), so exclude deliberately.
+with nowhere to go (HTTP 503), so exclude deliberately.
 
 ## Forcing a model or a routing cluster
 
@@ -592,7 +784,11 @@ that send no session identity can only be pinned at the current thread scope.
 Codex handles its own `/model` locally and never sends the command itself; on
 an opted-in install (`X-Weave-Codex-Native-Model-Pin: 1`) the router instead
 keys off the `<model_switch>` developer fragment Codex records when the user
-switches models mid-session, and pins the request's model from then on. The
+switches models mid-session, and pins the request's model from then on. An
+install that also loads the router catalog (`X-Weave-Codex-Model-Catalog: 1`)
+gets the same pin from the `<model_instructions>` fragment Codex records
+instead; other installs ignore that fragment, since Codex also emits it when
+base instructions change without a switch. The
 model a session launched with is a baseline and routes automatically. The
 installed `$force-model` / `$fm` skill remains the persistent-pin path.
 An explicit force-model choice also takes precedence over an installation's
@@ -605,6 +801,15 @@ The name is matched **exactly** — it must be a canonical catalog ID
 (`qwen3.8-max`), or an alias (`opus`, `qwen-max`), optionally with a `:level`
 effort suffix (`opus:high`). There is no prefix, substring, or nearest-match
 fallback: a name the router doesn't recognize is refused, never approximated.
+
+`/force-parent <model>[:effort]` (Codex: `$force-parent`) uses the same model
+resolution and restrictions, but pins only the invoking thread. It replaces a
+conversation-wide force, so children sharing its client-session ID resume normal
+automatic routing. `/force-model` restores conversation-wide pinning, and
+`/unforce-model` clears either mode. Parent scope follows the router's thread
+digest, which includes the first user message: after compaction rewrites that
+message, reapply `/force-parent` in the parent. An explicit deployment or request
+header override still applies independently to children.
 
 That strictness is the point. Approximate matching served a model the caller
 never named — `/fm qwen 3.8` resolved through the bare `qwen` alias to
@@ -637,9 +842,9 @@ next roster bump. Consequences:
 - A label that *is* in the roster but has no eligible model for this request
   (everything in it excluded, over-window, or filtered out on capability) is
   also HTTP 400 — including when a per-key cluster model list empties it.
-- The header only works on the `hmm` / `hmm_embedding` strategies. The default
-  `cluster` strategy scores anonymous centroids with no named groups, so there
-  is nothing to constrain to and the request is HTTP 400 rather than a silent
+- The header only works on the HMM strategies (`hmm`, `hmm_embedding` and
+  their beta/variant lanes). Other strategies have no named groups, so there is
+  nothing to constrain to and the request is HTTP 400 rather than a silent
   no-op.
 - A sidecar too old to report its clusters also 400s. The constraint can't be
   proven against a roster the router can't see, and serving anyway would ignore
@@ -662,7 +867,7 @@ for Go-owned deterministic selection are documented in
 
 | Variable                           | Default | Purpose |
 | ---------------------------------- | ------- | ------- |
-| `ROUTER_POLICY_SIDECARS`           | *(none)* | JSON object mapping a new strategy ID to its sidecar origin, for example `{"quality-v2":"https://quality-v2.internal"}`. IDs must match `[a-z][a-z0-9_-]{0,63}`. At most 16 may be configured. `cluster`, `rl`, `hmm`, and `bandit` are reserved. |
+| `ROUTER_POLICY_SIDECARS`           | *(none)* | JSON object mapping a new strategy ID to its sidecar origin, for example `{"quality-v2":"https://quality-v2.internal"}`. IDs must match `[a-z][a-z0-9_-]{0,63}`. At most 16 may be configured. Built-in strategy IDs (such as `rl`, `hmm`, `hmm_embedding`, and `llm_classifier`) are reserved. |
 | `ROUTER_POLICY_SIDECAR_AUTH`       | *(none)* | JSON object mapping configured generic strategy IDs to `none` or `google-id-token`, for example `{"quality-v2":"google-id-token"}`. Google ID-token mode uses the exact sidecar origin as token audience and fails router startup when application default credentials cannot build the client. |
 | `ROUTER_POLICY_SIDECAR_TIMEOUT_MS` | `3000`  | Total timeout for each generic policy decision, including transient retries. Also bounds startup capability discovery. |
 | `ROUTER_HMM_SIDECAR_URL`           | *(none)* | Legacy built-in HMM registration. Prefer the generic map for new strategies. |
@@ -671,7 +876,7 @@ for Go-owned deterministic selection are documented in
 | `ROUTER_HMM_SIDECAR_AUTH`          | `none`  | Authentication for the HMM sidecar. Use `google-id-token` for managed Cloud Run; the exact sidecar origin is used as the token audience. |
 | `ROUTER_HMM_ROSTER_PATH`           | *(none; required with `ROUTER_HMM_SIDECAR_URL`)* | Path to a generated declarative roster JSON (`hmm_router_cluster_roster_v6`). The roster is loaded and validated against the model catalog at startup (boot fails on any invalid arm) and drives the router's authoritative deterministic within-cluster arm selection: the sidecar's classifier label/confidence is kept, its arm is not. Explicit force-cluster and per-key cluster overrides still take precedence when they actually constrain the pick; selection fails open to the sidecar's pick when no ranked group holds an eligible arm. Pin-sticky eligibility is neutralized on any Go pick so a session pin cannot veto it. Leaving it unset while an HMM sidecar is configured fails boot. |
 | `ROUTER_HMM_ROSTER_PINNABLE_PATHS` | *(none)* | Comma-separated paths of additional roster JSON files loaded and validated at boot alongside `ROUTER_HMM_ROSTER_PATH`. Every loaded roster is indexed by the sha256 of its file bytes so an `x-weave-policy-pin` may select it; nothing is read from disk on a live request. Only meaningful with `ROUTER_POLICY_PIN_ENABLED=true`. |
-| `ROUTER_POLICY_PIN_ENABLED`        | `false` | Registers the `x-weave-policy-pin: <policy_artifact_sha256>@<roster_sha256>` header on `/v1/messages`, `/v1/chat/completions`, `/v1/route` and `/v1/route/preview`. Off (default) the middleware is not registered, so the header has no effect and the telemetry columns `policy_pin_requested` / `policy_pin_honoured` stay NULL. On, the header value is only parsed for installations with `policy_header_overrides_enabled`: for every other installation the value (valid or not) is never inspected, the response is identical to a request without the header, and telemetry records `requested=true, honoured=false`. For an authorized installation a malformed value is HTTP 400 (`policy_pin_malformed`); a well-formed pin is honoured on policy-scored turns, which are scored fresh by the HMM sidecar with exactly that artifact (`HMM_PACKAGE_REGISTRY`) and select the arm from exactly that roster — session-sticky pins, `/force-model`, usage-bypass, blind-experiment passthrough and planner stays are not consulted. Auto/empty-model probes are independently scored without conversation state, including under an authorized policy pin. Non-scored utility exceptions retain their own path: probes with concrete models preserve the requested target unless explicitly overridden, compaction keeps its safeguard, and explicitly deployment-pinned titles keep their override. These exceptions may succeed with `policy_pin_honoured=false`. On policy-scored turns, if the artifact or roster is not loaded, or any path would serve a model the pinned policy did not pick, the turn fails HTTP 503 with typed reason `policy_pin_unavailable` and the telemetry row is written with `policy_pin_honoured=false` — an authorized pin never yields a 2xx with `policy_pin_honoured=false` on these turns, and the router never falls through to the current artifact or roster. |
+| `ROUTER_POLICY_PIN_ENABLED`        | `false` | Registers the `x-weave-policy-pin: <policy_artifact_sha256>@<roster_sha256>` header on `/v1/messages`, `/v1/chat/completions`, `/v1/route` and `/v1/route/preview`. Off (default) the middleware is not registered, so the header has no effect and the telemetry columns `policy_pin_requested` / `policy_pin_honoured` stay NULL. On, the header value is only parsed for installations with `policy_header_overrides_enabled`: for every other installation the value (valid or not) is never inspected, the response is identical to a request without the header, and telemetry records `requested=true, honoured=false`. For an authorized installation a malformed value is HTTP 400 (`policy_pin_malformed`); a well-formed pin is honoured on policy-scored turns, which are scored fresh by the HMM sidecar with exactly that artifact (`HMM_PACKAGE_REGISTRY`) and select the arm from exactly that roster — session-sticky pins, `/force-model`, usage-bypass, blind-experiment passthrough and planner stays are not consulted. Auto/empty/`weave-*` routing-model probes are independently scored without conversation state, including under an authorized policy pin. Non-scored utility exceptions retain their own path: probes with concrete models preserve the requested target unless explicitly overridden, compaction keeps its safeguard, and explicitly deployment-pinned titles keep their override. These exceptions may succeed with `policy_pin_honoured=false`. On policy-scored turns, if the artifact or roster is not loaded, or any path would serve a model the pinned policy did not pick, the turn fails HTTP 503 with typed reason `policy_pin_unavailable` and the telemetry row is written with `policy_pin_honoured=false` — an authorized pin never yields a 2xx with `policy_pin_honoured=false` on these turns, and the router never falls through to the current artifact or roster. |
 | `ROUTER_HMM_BETA_SIDECAR_URL`      | *(none)* | Second HMM sidecar serving the candidate package that sessions opt into with `/beta`. Unset leaves `/beta` answering "unavailable" and never touches stable routing. `ROUTER_HMM_BETA_SIDECAR_AUTH`, `ROUTER_HMM_BETA_SIDECAR_TIMEOUT_MS`, and `ROUTER_HMM_BETA_SIDECAR_ATTEMPT_TIMEOUT_MS` mirror the stable variables. |
 | `ROUTER_HMM_BETA_ROSTER_PATH`      | *(none; required with `ROUTER_HMM_BETA_SIDECAR_URL`)* | Declarative roster the beta strategy's Go-side selection reads. It must be the roster embedded in the pinned beta package, which may carry a different cluster taxonomy from stable's. Unlike the stable pair, a missing or invalid beta roster disables beta with an error log instead of failing boot, so a broken candidate cannot take stable routing down. |
 | `ROUTER_RL_SIDECAR_URL`            | *(none)* | Legacy built-in RL registration. Prefer the generic map for new strategies. |
@@ -688,14 +893,14 @@ rollout state visible without pretending that a different strategy served.
 Policy route requests retry network failures and HTTP 500, 502, 503, and 504
 up to three attempts within the configured total timeout. Other failures are
 not retried. An unavailable or invalid policy decision returns HTTP 503; it
-never falls back to cluster or another policy.
+never falls back to another policy.
 
 ### Self-hosted frozen HMM sidecar
 
 The repository includes an optional companion container under
 `sidecars/hmm/`. Start it with `make up-hmm`; the normal `make up` and
-`make full-setup` paths remain cluster-only. HMM is not selected unless an
-operator explicitly chooses the `hmm` strategy.
+`make full-setup` paths serve the stub HMM classifier from `smoke/hmmstub`,
+which lands every turn in one routing group.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -802,55 +1007,6 @@ The first five follow the [OTel SDK env spec](https://opentelemetry.io/docs/spec
 `OTEL_BSP_*` follows the [Batch Span Processor spec](https://opentelemetry.io/docs/specs/otel/trace/sdk/#batch-span-processor).
 `OTEL_EXPORT_WORKERS` is a router-specific extension.
 
-## Cluster-routing artifacts
-
-Each embedder the cluster scorer can use needs two files at runtime —
-`model.onnx` (INT8-quantized) and `tokenizer.json` — in its own subdirectory
-of the assets root, keyed by embedder ID:
-
-- `jina-v2-base-code-int8/` — from the public
-  [`jinaai/jina-embeddings-v2-base-code`](https://huggingface.co/jinaai/jina-embeddings-v2-base-code)
-  HuggingFace repo (Jina's own INT8 export; we don't maintain our own
-  quantization). Default for every bundle through v0.66; the flat legacy
-  layout (`<root>/model.onnx`) still resolves for this embedder.
-- `qwen3-embedding-0.6b-int8/` — produced by `scripts/export_qwen3_onnx.py`
-  (Qwen3-Embedding-0.6B with last-token pooling baked into the graph) and
-  uploaded to the public
-  [`weave-eng/qwen3-embedding-0.6b-onnx-router`](https://huggingface.co/weave-eng/qwen3-embedding-0.6b-onnx-router)
-  HF repo. Only needed when serving a bundle whose `metadata.yaml` declares
-  this embedder; the runtime loads embedders lazily.
-
-Neither is committed to git.
-
-**Docker (default):** the Dockerfile downloads the files at image build time
-into `/opt/router/assets/<embedder-id>/`. Both repos are public — no token
-needed (the optional `hf_token` secret still works for rate-limit headroom);
-set `HF_QWEN_REPO=` (empty) to skip the Qwen pull for Jina-only deploys.
-
-**`make dev` (host-mode hot reload):** fetch the Jina files once into a local
-directory and point `ROUTER_ONNX_ASSETS_DIR` at it:
-
-```bash
-mkdir -p assets/jina-v2-base-code-int8
-BASE="https://huggingface.co/jinaai/jina-embeddings-v2-base-code/resolve/516f4baf13dec4ddddda8631e019b5737c8bc250"
-curl -L "$BASE/onnx/model_quantized.onnx" -o assets/jina-v2-base-code-int8/model.onnx
-curl -L "$BASE/tokenizer.json" -o assets/jina-v2-base-code-int8/tokenizer.json
-echo "ROUTER_ONNX_ASSETS_DIR=$(pwd)/assets" >> .env.local
-```
-
-To also serve Qwen bundles locally, run `scripts/export_qwen3_onnx.py
---out-dir assets/qwen3-embedding-0.6b-int8` (or download the uploaded export
-into that directory).
-
-The pinned revisions (`HF_MODEL_REVISION`, `HF_QWEN_REVISION`) in the
-Dockerfile keep local dev and the container build on the same weights. Bump
-deliberately if you want a newer export.
-
-The committed cluster artifacts (centroids, rankings, model registry,
-metadata) live under `internal/router/cluster/artifacts/v<X.Y>/`. The
-`artifacts/latest` pointer selects the default served version;
-`ROUTER_CLUSTER_VERSION` overrides per-deployment.
-
 ## Response context snapshot
 
 Successful proxied responses report a per-request context snapshot in headers:
@@ -865,8 +1021,8 @@ Successful proxied responses report a per-request context snapshot in headers:
 
 The estimate describes input to this Router request. The window describes the binding that served it, including provider failover. It does not describe the client's private context budget or the maximum window of the eligible pool. A conservative estimate can exceed the served window when the Router admits the widest candidates for the provider to decide actual fit. Do not derive client usage percentages or warnings from it. Omitted, unknown-version, or invalid values are unavailable, never zero. Clients must retain existing model displays when companions are absent. Native CLI integrations need no CORS changes.
 
-Anthropic Messages, OpenAI Chat Completions/Responses through the HTTP adapter, Gemini, and semantic-cache replies carry this contract. Cache replies compute estimates from the current request rather than replaying stored headers. Non-HTTP transports that cannot preserve headers must omit the display.
+Anthropic Messages, OpenAI Chat Completions/Responses through the HTTP adapter, and Gemini replies carry this contract. Non-HTTP transports that cannot preserve headers must omit the display.
 
-The authenticated `GET /v1/sessions/:session_id/cost` response optionally includes `context_snapshot` for the latest conversation request (main loop, tool result, or client compaction) in that installation/session. It contains version, estimate kind/tokens, served window, output reserve, requested/served models, request ID, and UTC request/completion times. Snapshots expire five minutes after completion; a missing, malformed, failed latest request, or older Router omits the field. Title generation, probes, classifiers, recaps, and subagent dispatches do not replace the conversation snapshot. The existing read-key authentication and rate limits apply, and responses use `Cache-Control: no-store`. No eligible-model pool, private thresholds, credentials, or prompt content is returned. Telemetry is asynchronous, so a fetch can lag the completed turn. Semantic-cache hits have live headers but do not create an upstream telemetry snapshot; the session endpoint may still describe an earlier request.
+The authenticated `GET /v1/sessions/:session_id/cost` response optionally includes `context_snapshot` for the latest conversation request (main loop, tool result, or client compaction) in that installation/session. It contains version, estimate kind/tokens, served window, output reserve, requested/served models, request ID, and UTC request/completion times. Snapshots expire five minutes after completion; a missing, malformed, failed latest request, or older Router omits the field. Title generation, probes, classifiers, recaps, and subagent dispatches do not replace the conversation snapshot. The existing read-key authentication and rate limits apply, and responses use `Cache-Control: no-store`. No eligible-model pool, private thresholds, credentials, or prompt content is returned. Telemetry is asynchronous, so a fetch can lag the completed turn.
 
 Migration `0126` adds a nullable snapshot to existing request telemetry so client hooks can read it across Router replicas. Apply the migration before running the new binary; older binaries leave it null. This metadata bridge is required because lifecycle hooks cannot access inference response headers. It creates no new context-history endpoint or stored routine.

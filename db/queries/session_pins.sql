@@ -63,12 +63,12 @@ RETURNING *;
 -- name: UpsertSessionPin :exec
 INSERT INTO router.session_pins (
   session_key, role, installation_id, pinned_provider,
-  pinned_model, pinned_effort, paired_provider, paired_model,
+  pinned_model, pinned_effort, forced_thread_key, paired_provider, paired_model,
   decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
   consecutive_downgrade_votes, consecutive_upgrade_votes
 ) VALUES (
   @session_key::bytea, @role::varchar, @installation_id::uuid,
-  @pinned_provider::varchar, @pinned_model::varchar, @pinned_effort::varchar,
+  @pinned_provider::varchar, @pinned_model::varchar, @pinned_effort::varchar, @forced_thread_key::varchar,
   @paired_provider::varchar, @paired_model::varchar,
   @decision_reason::text, @routing_strategy::varchar, @policy_group::varchar,
   @turn_count::int, @pinned_until::timestamp,
@@ -79,6 +79,7 @@ ON CONFLICT (session_key, role) DO UPDATE SET
   pinned_provider = EXCLUDED.pinned_provider,
   pinned_model    = EXCLUDED.pinned_model,
   pinned_effort   = EXCLUDED.pinned_effort,
+  forced_thread_key = EXCLUDED.forced_thread_key,
   decision_reason = EXCLUDED.decision_reason,
   routing_strategy = EXCLUDED.routing_strategy,
   turn_count      = CASE
@@ -209,8 +210,9 @@ ON CONFLICT (session_key, role) DO UPDATE SET
 -- served this turn; it lives here (not in UpsertSessionPin) so a
 -- /force-model upsert cannot overwrite the genuinely-last-served model
 -- before the next turn reads it to detect a mid-session model switch.
--- pinned_provider is updated to the binding that actually served so per-turn
--- policies receive correct previous-provider cache affinity after fallback.
+-- pinned_provider follows the serving binding only when the pinned model (or
+-- no model) served, preventing a cross-model rescue from pairing the pinned
+-- model with the rescuer's provider.
 -- has_ever_switched latches true the first time the just-served model
 -- differs from a prior non-empty last_served_model. Caller-supplied model and
 -- latch evidence preserves history when the stored role row is new.
@@ -255,7 +257,10 @@ SET last_input_tokens        = CASE
       ELSE last_output_limit_at
     END,
     pinned_provider          = CASE
-      WHEN last_turn_ended_at IS NULL OR @last_turn_ended_at::timestamptz >= last_turn_ended_at
+      WHEN (last_turn_ended_at IS NULL OR @last_turn_ended_at::timestamptz >= last_turn_ended_at)
+        AND (pinned_model = ''
+          OR pinned_model = @last_served_model::varchar
+          OR starts_with(@last_served_model::varchar, pinned_model || ':'))
         THEN @last_served_provider::varchar
       ELSE pinned_provider
     END,
@@ -268,6 +273,22 @@ SET last_input_tokens        = CASE
         THEN @last_served_model::varchar
       ELSE last_served_model
     END
+WHERE session_key = @session_key::bytea
+  AND role        = @role::varchar
+  AND (
+    routing_strategy = @expected_routing_strategy::varchar
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
+  );
+
+-- Replaces the thread's tokenizer calibration (observations and measured
+-- cross-tokenizer ratios; see internal/router/sessionpin). Written after a
+-- served turn with usage. The caller merges the newest evidence from the
+-- thread's pin rows first, so a concurrent writer can lose at most one
+-- observation. Missing pin or strategy mismatch is a no-op, matching
+-- UpdateSessionPinUsage.
+-- name: UpdateSessionPinTokenizerCalibration :exec
+UPDATE router.session_pins
+SET tokenizer_calibration = @tokenizer_calibration::jsonb
 WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (

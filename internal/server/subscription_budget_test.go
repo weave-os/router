@@ -52,7 +52,7 @@ func TestRegisteredSubscriptionRouteAllowsProviderExchangeBudget(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := auth.NewService(nil, subscriptionBudgetKeys{}, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).WithSubscriptionAccounts(subscriptionBudgetAccounts{}).WithCredentialSubjectLookup(subscriptionBudgetOwners{}).WithCodexEnrollmentVerifier(subscriptionBudgetVerifier{})
 	engine := gin.New()
-	server.Register(engine, svc, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil)
+	server.Register(engine, svc, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil)
 	request := httptest.NewRequest(http.MethodPost, "/v1/subscriptions/accounts", strings.NewReader(`{"provider":"codex","external_account_id":"workspace","refresh_token":"synthetic-refresh"}`))
 	request.Header.Set("Authorization", "Bearer rk_synthetic")
 	request.Header.Set("Content-Type", "application/json")

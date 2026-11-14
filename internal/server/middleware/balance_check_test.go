@@ -69,16 +69,18 @@ func (r *stubBillingRepo) GetAutopayConfig(_ context.Context, _ billing.Owner) (
 
 func withInstallation(c *gin.Context, externalID string) {
 	c.Set("router_installation", &auth.Installation{
-		ID:         "00000000-0000-0000-0000-000000000001",
-		ExternalID: externalID,
+		ID:                          "00000000-0000-0000-0000-000000000001",
+		ExternalID:                  externalID,
+		WeaveCreditInferenceEnabled: true,
 	})
 }
 
 func withUsageBypassInstallation(c *gin.Context, externalID string) {
 	c.Set("router_installation", &auth.Installation{
-		ID:                 "00000000-0000-0000-0000-000000000001",
-		ExternalID:         externalID,
-		UsageBypassEnabled: true,
+		ID:                          "00000000-0000-0000-0000-000000000001",
+		ExternalID:                  externalID,
+		UsageBypassEnabled:          true,
+		WeaveCreditInferenceEnabled: true,
 	})
 }
 
@@ -161,6 +163,37 @@ func TestWithBalanceCheck_PassesWhenAboveThreshold(t *testing.T) {
 	repo := &stubBillingRepo{balance: 50_000_000} // $50
 	_, reached := runMiddleware(t, repo, 1_000_000, "org_x")
 	assert.True(t, reached, "request must reach handler when balance is healthy")
+}
+
+func TestWithBalanceCheck_FlagsOrganizationPrepaidAdmission(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		repo *stubBillingRepo
+		want bool
+	}{
+		{name: "funded balance", repo: &stubBillingRepo{balance: 50_000_000}, want: true},
+		{name: "billing override", repo: &stubBillingRepo{override: true}, want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			svc := billing.NewService(test.repo)
+			engine := gin.New()
+			var admitted bool
+			engine.GET("/probe", func(c *gin.Context) {
+				withInstallation(c, "org_x")
+				middleware.WithBalanceCheck(svc, 1_000_000)(c)
+				if c.IsAborted() {
+					return
+				}
+				admitted = billing.OrganizationPrepaidFromContext(c.Request.Context())
+				c.Status(http.StatusOK)
+			})
+			w := httptest.NewRecorder()
+			engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/probe", nil))
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Equal(t, test.want, admitted)
+		})
+	}
 }
 
 func TestWithBalanceCheck_OverrideShortCircuitsAndFlagsContext(t *testing.T) {
@@ -492,4 +525,57 @@ func TestWithBalanceCheck_ExemptsSubscriberAllowanceCoveredRequest(t *testing.T)
 	})
 	assert.True(t, reached, "an allowance-covered turn is not gated on org prepaid credits")
 	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestWithBalanceCheck_MarksWeaveCreditsDenied(t *testing.T) {
+	for _, allowed := range []bool{true, false} {
+		gin.SetMode(gin.TestMode)
+		svc := billing.NewService(&stubBillingRepo{balance: 50_000_000})
+		engine := gin.New()
+		var denied bool
+		engine.GET("/probe", func(c *gin.Context) {
+			c.Set("router_installation", &auth.Installation{ID: "00000000-0000-0000-0000-000000000001", ExternalID: "org_x", WeaveCreditInferenceEnabled: allowed})
+			middleware.WithBalanceCheck(svc, 1_000_000)(c)
+			denied = billing.WeaveCreditsDeniedFromContext(c.Request.Context())
+			c.Status(http.StatusOK)
+		})
+		engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/probe", nil))
+		assert.Equal(t, !allowed, denied, "allowed=%v", allowed)
+	}
+}
+
+func TestWithBalanceCheck_CreditsDisabledIgnoresBalance(t *testing.T) {
+	cases := map[string]*stubBillingRepo{
+		"depleted":    {balance: -1},
+		"row missing": {balanceErr: billing.ErrBalanceRowMissing},
+		"read error":  {balanceErr: errors.New("db down")},
+		"override":    {balance: -1, override: true},
+	}
+	for name, repo := range cases {
+		t.Run(name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			svc := billing.NewService(repo)
+			engine := gin.New()
+			var reached, subOnly, denied, override bool
+			engine.GET("/v1/messages", func(c *gin.Context) {
+				c.Set("router_installation", &auth.Installation{ID: "00000000-0000-0000-0000-000000000001", ExternalID: "org_keys_only"})
+				middleware.WithBalanceCheck(svc, 0)(c)
+				if c.IsAborted() {
+					return
+				}
+				reached = true
+				subOnly = billing.SubscriptionOnlyFromContext(c.Request.Context())
+				denied = billing.WeaveCreditsDeniedFromContext(c.Request.Context())
+				override = billing.HasOverrideFromContext(c.Request.Context())
+				c.Status(http.StatusOK)
+			})
+			w := httptest.NewRecorder()
+			engine.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/messages", nil))
+			assert.Equal(t, repo.override, override, "an override still exempts monthly spend caps")
+			assert.True(t, reached, "a credits-disabled installation must not be gated on its balance")
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.False(t, subOnly, "customer keys must stay usable")
+			assert.True(t, denied)
+		})
+	}
 }

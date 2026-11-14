@@ -1,6 +1,7 @@
 package translate_test
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -205,4 +206,52 @@ func TestResponsesWriter_NativeAttemptResetPreservesSyntheticPrelude(t *testing.
 	assert.Equal(t, "response.failed", events[7]["type"])
 	assert.EqualValues(t, 7, events[7]["sequence_number"])
 	assert.Equal(t, events[0]["response"].(map[string]any)["id"], events[7]["response"].(map[string]any)["id"])
+}
+
+// The Codex backend streams every item but ends with an empty
+// response.completed snapshot; SDK clients read their answer from that snapshot.
+func TestResponsesWriter_NativeEmptyTerminalOutputBackfilledFromDoneItems(t *testing.T) {
+	for _, withBadge := range []bool{false, true} {
+		for _, status := range []nativeTerminalStatus{nativeCompletedStatus, nativeIncompleteStatus} {
+			t.Run(fmt.Sprintf("badge=%t/%s", withBadge, status), func(t *testing.T) {
+				w, rec := newNativeStreamWriter(withBadge)
+				if withBadge {
+					w.SetBadgeText(passthroughTestMarker)
+				}
+				native := nativeStreamFrame(`{"type":"response.created","sequence_number":0,"response":{"id":"resp_native","status":"in_progress","output":[]}}`) +
+					nativeStreamFrame(`{"type":"response.output_item.done","sequence_number":1,"output_index":1,"item":{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","annotations":[],"text":"It is sunny."}]}}`) +
+					nativeStreamFrame(`{"type":"response.output_item.done","sequence_number":2,"output_index":0,"item":{"id":"fc_1","type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{}","status":"completed"}}`) +
+					nativeStreamFrame(fmt.Sprintf(`{"type":"response.%s","sequence_number":3,"response":{"id":"resp_native","status":"%s","output":[]}}`, status, status))
+				_, err := w.Write([]byte(native))
+				require.NoError(t, err)
+				require.NoError(t, w.Finalize())
+
+				events := parseSSEEvents(t, rec.Body.Bytes())
+				terminalJSON, err := json.Marshal(events[len(events)-1])
+				require.NoError(t, err)
+				terminal := gjson.ParseBytes(terminalJSON)
+				require.Equal(t, "response."+string(status), terminal.Get("type").Str)
+				var ids []string
+				for _, item := range terminal.Get("response.output").Array() {
+					if item.Get("id").Str == "fc_1" || item.Get("id").Str == "msg_1" {
+						ids = append(ids, item.Get("id").Str)
+					}
+				}
+				assert.Equal(t, []string{"fc_1", "msg_1"}, ids, "terminal snapshot lists streamed items in output_index order")
+				text := terminal.Get(`response.output.#(id=="msg_1").content.0.text`).Str
+				assert.True(t, strings.HasSuffix(text, "It is sunny."), "message text preserved: %q", text)
+			})
+		}
+	}
+}
+
+func TestResponsesWriter_NativeTerminalOutputLeftAloneWhenPopulated(t *testing.T) {
+	w, rec := newNativeStreamWriter(false)
+	native := nativeStreamFrame(`{"type":"response.created","sequence_number":0,"response":{"id":"resp_native","status":"in_progress","output":[]}}`) +
+		nativeStreamFrame(`{"type":"response.output_item.done","sequence_number":1,"output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"streamed"}]}}`) +
+		nativeStreamFrame(`{"type":"response.completed","sequence_number":2,"response":{"id":"resp_native","status":"completed","output":[{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"output_text","text":"snapshot"}]}]}}`)
+	_, err := w.Write([]byte(native))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+	assert.Equal(t, native, rec.Body.String())
 }

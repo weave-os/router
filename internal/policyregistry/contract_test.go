@@ -140,3 +140,50 @@ func validRelease() policyregistry.Release {
 		},
 	}
 }
+
+func TestReleasePinsDistinctLocalHMMVariant(t *testing.T) {
+	release := validRelease()
+	candidate := policy.ClassifierArtifact{ArtifactID: "candidate-hmm", PackageSHA256: strings.Repeat("b", 64)}
+	release.Classifier.Variants = map[router.Strategy]policy.ClassifierArtifact{router.StrategyHMMBeta: candidate}
+	require.NoError(t, release.Validate(testRegistryRoot))
+	payload, err := json.Marshal(candidate)
+	require.NoError(t, err)
+	assert.NotContains(t, string(payload), "endpoint")
+	assert.NotContains(t, string(payload), "serving_revision")
+
+	for _, field := range []string{"default-package", "endpoint", "audience", "serving-revision"} {
+		t.Run(field, func(t *testing.T) {
+			invalid := candidate
+			switch field {
+			case "default-package":
+				invalid.PackageSHA256 = release.Classifier.PackageSHA256
+			case "endpoint":
+				invalid.Endpoint = "https://foreign.example"
+			case "audience":
+				invalid.Audience = "foreign"
+			case "serving-revision":
+				invalid.ServingRevision = strings.Repeat("c", 64)
+			}
+			release.Classifier.Variants[router.StrategyHMMBeta] = invalid
+			require.Error(t, release.Validate(testRegistryRoot))
+		})
+	}
+}
+
+func TestQwenServingRevisionChangesReleaseIdentity(t *testing.T) {
+	release := validRelease()
+	variant := policy.ClassifierArtifact{ArtifactID: "candidate-qwen", PackageSHA256: strings.Repeat("b", 64),
+		Endpoint: "https://immutable-qwen.modal.run/", Audience: "weave", ServingRevision: strings.Repeat("c", 64)}
+	release.Classifier.Variants = map[router.Strategy]policy.ClassifierArtifact{router.StrategyHMMQwen: variant}
+	require.NoError(t, release.Validate(testRegistryRoot))
+	first, err := policyregistry.ReleaseID(release)
+	require.NoError(t, err)
+	variant.ServingRevision = strings.Repeat("d", 64)
+	release.Classifier.Variants[router.StrategyHMMQwen] = variant
+	second, err := policyregistry.ReleaseID(release)
+	require.NoError(t, err)
+	assert.NotEqual(t, first, second)
+	variant.ServingRevision = "mutable"
+	release.Classifier.Variants[router.StrategyHMMQwen] = variant
+	require.Error(t, release.Validate(testRegistryRoot))
+}

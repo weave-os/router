@@ -2,11 +2,14 @@ package proxy
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 )
@@ -14,6 +17,16 @@ import (
 // ReasonSiblingFailover marks a turn served by a same-cluster candidate after
 // the routed model's own bindings were exhausted.
 const ReasonSiblingFailover = "sibling_failover"
+
+type rescueSkipReason string
+
+const (
+	rescueSkipExcluded          rescueSkipReason = "excluded"
+	rescueSkipAutomaticExcluded rescueSkipReason = "automatic_excluded"
+	rescueSkipImageLimit        rescueSkipReason = "image_limit"
+	rescueSkipNoBinding         rescueSkipReason = "no_binding"
+	rescueSkipContextWindow     rescueSkipReason = "context_window"
+)
 
 // rescueBasisForTurn gives a held automatic pin this request's scored rescue
 // shortlist without changing the primary decision's selected arm or binding.
@@ -43,44 +56,14 @@ func retainRescueModelsAtOrAboveTier(modelIDs []string, minimumTier catalog.Tier
 
 // siblingFailoverDecisions lists the stand-ins for a routed model whose bindings
 // all failed. Roster-backed routes use only their ordered eligible groups;
-// legacy routes append the scored pool and paired model, then prefer other
+// other routes append the candidate pool and paired model, then prefer other
 // providers. Context fit rejects under-sized peers.
 func (s *Service) siblingFailoverDecisions(ctx context.Context, failed router.Decision, est, sigSavings, outputReserve int) []router.Decision {
 	md := failed.Metadata
 	if md == nil {
 		return nil
 	}
-	if md.ClusterRouterVersion != "" && !md.RosterFailover {
-		if order := tierRescueModels(failed.Model, md.CandidateModels, md.CandidateScores); len(order) > 0 {
-			ordered := *md
-			ordered.RescueModels = order
-			ordered.RosterFailover = true
-			failed.Metadata = &ordered
-			md = &ordered
-		}
-	}
 	return s.rescueDecisions(ctx, failed, siblingCandidateOrder(md), ReasonSiblingFailover, est, sigSavings, outputReserve)
-}
-
-func tierRescueModels(selected string, candidates []string, scores map[string]float32) []string {
-	tier := catalog.TierFor(selected)
-	if tier == catalog.TierUnknown {
-		return nil
-	}
-	var ordered []string
-	for level := tier; level <= catalog.TierHigh; level++ {
-		var group []string
-		for _, model := range candidates {
-			if catalog.TierFor(model) == level {
-				group = append(group, model)
-			}
-		}
-		sort.SliceStable(group, func(i, j int) bool {
-			return scores[group[i]] > scores[group[j]]
-		})
-		ordered = append(ordered, group...)
-	}
-	return ordered
 }
 
 // rescueDecision resolves the first candidate the request is allowed to reach.
@@ -112,8 +95,9 @@ func (s *Service) rescueDecisions(ctx context.Context, failed router.Decision, c
 	// The rescue picks a stand-in on the router's own initiative, so a disabled
 	// model must not be resurrected here after the pool already excluded it.
 	automaticExcluded := s.rescueExcludedModels(ctx)
+	imageCount := requestImageCountFromContext(ctx)
 	providerFor := func(id string) (string, bool) {
-		return siblingProvider(id, candidateProviders, available)
+		return siblingProvider(id, candidateProviders, available, imageCount)
 	}
 	return s.rescueWalkOrReadmitCooling(ctx, failed, candidates, reason, excludedModels, automaticExcluded, est, sigSavings, outputReserve, providerFor)
 }
@@ -128,7 +112,12 @@ func (s *Service) rescueDecisions(ctx context.Context, failed router.Decision, c
 // walk never returns failed.Model, so the exhausted case prefers a cooled arm
 // to the arm that just failed.
 //
-// Only when neither walk finds anything does a sibling failover readmit
+// When neither walk finds anything, a sibling failover next readmits models
+// whose overload circuit is open on this replica: the circuit only keeps the
+// router from choosing them, so a turn with no other candidate tries one
+// before surfacing its failure.
+//
+// Only after that does a sibling failover readmit
 // session-lifetime demotions: a session whose every arm has been struck out
 // still gets one rescue attempt on an arm that failed on an earlier turn
 // instead of surfacing this turn's failure. Other rescues (the cyber-refusal
@@ -142,11 +131,30 @@ func (s *Service) rescueWalkOrReadmitCooling(
 	est, sigSavings, outputReserve int,
 	providerFor func(id string) (string, bool),
 ) []router.Decision {
-	decisions := walkRescueCandidates(failed, candidates, reason, excludedModels, automaticExcluded, est, sigSavings, outputReserve, providerFor)
+	var skipped []string
+	decisions := walkRescueCandidates(failed, candidates, reason, requestImageCountFromContext(ctx), excludedModels, automaticExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor, func(model string, why rescueSkipReason) {
+		skipped = append(skipped, model+":"+string(why))
+	})
+	if len(skipped) > 0 {
+		observability.FromContext(ctx).Info("Rescue candidates skipped",
+			"failed_model", failed.Model,
+			"rescue_reason", reason,
+			"context_estimate", est,
+			"skipped", strings.Join(skipped, ","),
+		)
+	}
 	decisions = append(decisions, s.readmitCoolingRescueCandidates(ctx, failed, candidates, reason, excludedModels, est, sigSavings, outputReserve, providerFor)...)
-	struck := strikesInRescuePool(failed, candidates, sessionStrikeReadmitModelsFromContext(ctx))
-	if len(decisions) > 0 || len(struck) == 0 || reason != ReasonSiblingFailover {
+	if len(decisions) > 0 || reason != ReasonSiblingFailover {
 		return decisions
+	}
+	if overloaded := slices.Sorted(maps.Keys(s.overloadOpenModels(ctx))); len(overloaded) > 0 {
+		if decisions = s.readmissionWalk(ctx, failed, candidates, overloaded, reason, excludedModels, est, sigSavings, outputReserve, providerFor); len(decisions) > 0 {
+			return decisions
+		}
+	}
+	struck := strikesInRescuePool(failed, candidates, sessionStrikeReadmitModelsFromContext(ctx))
+	if len(struck) == 0 {
+		return nil
 	}
 	return s.readmissionWalk(ctx, failed, candidates, struck, reason, excludedModels, est, sigSavings, outputReserve, providerFor)
 }
@@ -173,7 +181,7 @@ func (s *Service) readmitCoolingRescueCandidates(
 
 // readmissionWalk walks candidates plus the readmitted models, lifting only
 // their soft exclusion: every other candidate was already covered by an
-// earlier walk, and the deployment-wide automatic exclusion still holds.
+// earlier walk, and the control plane's deployment-wide exclusion still holds.
 func (s *Service) readmissionWalk(
 	ctx context.Context,
 	failed router.Decision,
@@ -196,8 +204,13 @@ func (s *Service) readmissionWalk(
 			readmitExcluded[id] = struct{}{}
 		}
 	}
-	readmitExcluded = mergeExcludedModels(readmitExcluded, s.globalAutomaticExcludedModels(ctx))
-	return walkRescueCandidates(failed, pool, reason, excludedModels, readmitExcluded, est, sigSavings, outputReserve, providerFor)
+	readmitExcluded = mergeExcludedModels(readmitExcluded, s.controlPlaneExcludedModels(ctx))
+	for model := range s.overloadOpenModels(ctx) {
+		if !slices.Contains(readmit, model) {
+			readmitExcluded[model] = struct{}{}
+		}
+	}
+	return walkRescueCandidates(failed, pool, reason, requestImageCountFromContext(ctx), excludedModels, readmitExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor, nil)
 }
 
 // rosterRescueAdmits bounds readmission on a roster-failover turn to the
@@ -206,11 +219,6 @@ func rosterRescueAdmits(failed router.Decision, model string) bool {
 	md := failed.Metadata
 	if md == nil || !md.RosterFailover {
 		return true
-	}
-	if md.ClusterRouterVersion != "" {
-		return slices.Contains(md.ScorerRescuePool, model) &&
-			catalog.TierFor(model) >= catalog.TierFor(failed.Model) &&
-			catalog.TierFor(model) <= catalog.TierHigh
 	}
 	return slices.Contains(md.RescueModels, model) || slices.Contains(md.SidecarRescuePool, model)
 }
@@ -225,7 +233,7 @@ func strikesInRescuePool(failed router.Decision, candidates, struck []string) []
 	}
 	var out []string
 	for _, model := range struck {
-		if slices.Contains(candidates, model) || slices.Contains(md.ScorerRescuePool, model) || slices.Contains(md.SidecarRescuePool, model) {
+		if slices.Contains(candidates, model) || slices.Contains(md.SidecarRescuePool, model) {
 			out = append(out, model)
 		}
 	}
@@ -261,26 +269,43 @@ func walkRescueCandidates(
 	failed router.Decision,
 	candidates []string,
 	reason string,
-	excludedModels, automaticExcluded map[string]struct{},
+	imageCount int,
+	excludedModels, automaticExcluded, cortexGateways map[string]struct{},
 	est, sigSavings, outputReserve int,
 	providerFor func(id string) (string, bool),
+	skip func(model string, reason rescueSkipReason),
 ) []router.Decision {
+	if skip == nil {
+		skip = func(string, rescueSkipReason) {}
+	}
 	var ordered, crossProvider, sameProvider []router.Decision
 	for _, id := range candidates {
 		if id == "" || id == failed.Model {
 			continue
 		}
 		if _, drop := excludedModels[id]; drop {
+			skip(id, rescueSkipExcluded)
 			continue
 		}
 		if _, disabled := automaticExcluded[id]; disabled {
+			skip(id, rescueSkipAutomaticExcluded)
+			continue
+		}
+		if !catalog.AcceptsImageCount(id, imageCount, nil) {
+			skip(id, rescueSkipImageLimit)
 			continue
 		}
 		provider, ok := providerFor(id)
 		if !ok {
+			skip(id, rescueSkipNoBinding)
 			continue
 		}
-		if !siblingFitsContext(id, provider, est, sigSavings, outputReserve) {
+		if binding, found := catalog.BindingFor(id, provider); found && !binding.AcceptsImageCount(imageCount) {
+			skip(id, rescueSkipImageLimit)
+			continue
+		}
+		if !siblingFitsContext(cortexGateways, id, provider, est, sigSavings, outputReserve) {
+			skip(id, rescueSkipContextWindow)
 			continue
 		}
 		candidate := rescueDecisionFor(failed, id, provider, reason)
@@ -298,15 +323,16 @@ func walkRescueCandidates(
 }
 
 // rescueExcludedModels is the exclusion set an in-turn rescue must honor:
-// deployment and session demotions plus models leased by another probe.
+// deployment and session demotions, models leased by another probe, and models
+// the thread's billed usage says this request overflows.
 func (s *Service) rescueExcludedModels(ctx context.Context) map[string]struct{} {
-	demoted := sessionDemotedModelsFromContext(ctx)
+	excluded := slices.Concat(sessionDemotedModelsFromContext(ctx), observedOverflowModelsFromContext(ctx))
 	probeDenied, _ := ctx.Value(SessionCooldownProbeDeniedModelsContextKey{}).([]string)
-	if len(demoted) == 0 && len(probeDenied) == 0 {
+	if len(excluded) == 0 && len(probeDenied) == 0 {
 		return s.globalAutomaticExcludedModels(ctx)
 	}
-	session := make(map[string]struct{}, len(demoted)+len(probeDenied))
-	for _, model := range demoted {
+	session := make(map[string]struct{}, len(excluded)+len(probeDenied))
+	for _, model := range excluded {
 		session[model] = struct{}{}
 	}
 	for _, model := range probeDenied {
@@ -330,11 +356,58 @@ func (s *Service) gatewayRescueDecisions(ctx context.Context, failed router.Deci
 	return s.rescueWalkOrReadmitCooling(ctx, failed, candidates, reason, excludedModels, automaticExcluded, est, sigSavings, outputReserve, providerFor)
 }
 
+// subscriptionSiblingAllowed reports whether sibling rescue is permitted
+// despite a subscription OAuth credential disabling generic failover. A
+// customer's own API key binds the turn to one vendor, but a Codex or Claude
+// plan is a funding source, not the only credential: every rescue candidate
+// re-resolves its own credential, so an overloaded plan-served model can still
+// hand the turn to the next scored candidate. BYOK keys keep the generic rule.
+func (s *Service) subscriptionSiblingAllowed(ctx context.Context) bool {
+	if s.byokOnly || len(externalKeysFromContext(ctx)) > 0 {
+		return false
+	}
+	creds := CredentialsFromContext(ctx)
+	return creds != nil && creds.OAuth
+}
+
+// rescueCredentialContext drops a subscription OAuth bearer before a rescue
+// candidate on another provider resolves its own credential: a ChatGPT or
+// Claude token authenticates only against its own vendor. Keyed on the
+// credential's provider, not the failed decision's, because the sibling walk
+// rebinds the decision after every failed candidate.
+func rescueCredentialContext(ctx context.Context, rescueProvider string) context.Context {
+	creds := CredentialsFromContext(ctx)
+	if creds == nil || !creds.OAuth || oauthCredentialProvider(creds) == rescueProvider {
+		return ctx
+	}
+	return clearCredentials(ctx)
+}
+
+// Codex subscription tokens are OpenAI-only; any other subscription OAuth
+// bearer is a Claude token and authenticates only against Anthropic.
+func oauthCredentialProvider(creds *Credentials) string {
+	if creds.Source == credSourceCodexSubscription {
+		return providers.ProviderOpenAI
+	}
+	return providers.ProviderAnthropic
+}
+
 // gatewaySiblingAllowed reports whether sibling rescue is permitted despite
 // BYOK disabling generic failover: the sibling must be served by a held gateway key.
 func (s *Service) gatewaySiblingAllowed(ctx context.Context, sibling router.Decision) bool {
 	_, held := s.gatewayProvidersForRequest(ctx)[sibling.Provider]
 	return held
+}
+
+// siblingRescueAllowed holds the request-level conditions every same-cluster
+// rescue shares: the flag is on, the rescue can re-resolve credentials
+// (deployment keys, a subscription plan, or gatewayHeld when the rescuer is
+// one of the request's own gateway aliases), and a depleted-credit turn may
+// still spend on it.
+func (s *Service) siblingRescueAllowed(ctx context.Context, gatewayHeld bool) bool {
+	return !claudeEnterpriseTurn(ctx) && s.ResolveSiblingFailover(ctx) &&
+		(s.shouldFailover(ctx) || s.subscriptionSiblingAllowed(ctx) || gatewayHeld) &&
+		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
 }
 
 // gatewayProviderFor resolves the gateway binding serving a candidate: the
@@ -349,7 +422,7 @@ func gatewayProviderFor(model string, custom map[string][]string, gw map[string]
 }
 
 // siblingFitsContext mirrors excludeContextOverflowModels for one candidate.
-func siblingFitsContext(model, provider string, est, sigSavings, outputReserve int) bool {
+func siblingFitsContext(cortexGateways map[string]struct{}, model, provider string, est, sigSavings, outputReserve int) bool {
 	if est <= 0 {
 		return true
 	}
@@ -357,7 +430,7 @@ func siblingFitsContext(model, provider string, est, sigSavings, outputReserve i
 	if sigSavings > 0 && modelStripsAnthropicSignatures(model) {
 		needed -= sigSavings
 	}
-	return needed <= contextWindowForRequest(model, provider)
+	return needed <= gatewayContextWindow(cortexGateways, model, provider)
 }
 
 // siblingCandidateOrder deduplicates the roster's eligible rescue order.
@@ -380,14 +453,24 @@ func siblingCandidateOrder(md *router.RoutingMetadata) []string {
 	return order
 }
 
-// siblingProvider resolves the provider a candidate dispatches to, preferring
-// the one the routing decision resolved for it and falling back to catalog
-// binding order.
-func siblingProvider(model string, resolved map[string]string, available map[string]struct{}) (string, bool) {
+// siblingProvider preserves a compatible resolved binding before considering
+// available alternatives in catalog order.
+func siblingProvider(model string, resolved map[string]string, available map[string]struct{}, imageCount int) (string, bool) {
 	if p, ok := resolved[model]; ok && p != "" {
 		if _, keyed := available[p]; keyed {
-			return p, true
+			binding, known := catalog.BindingFor(model, p)
+			if !known || binding.AcceptsImageCount(imageCount) {
+				return p, true
+			}
 		}
+	}
+	if imageCount > 0 {
+		for _, binding := range catalog.EnumerateBindings(model, available) {
+			if binding.AcceptsImageCount(imageCount) {
+				return binding.Provider, true
+			}
+		}
+		return "", false
 	}
 	binding, ok := catalog.ResolveBinding(model, available)
 	if !ok {

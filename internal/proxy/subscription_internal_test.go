@@ -42,22 +42,20 @@ func TestSubscriptionCredsFromToken(t *testing.T) {
 	})
 }
 
-func TestResolveAndInjectCredentials_SubscriptionBeatsBYOK(t *testing.T) {
-	// Router-keyed request with both a BYOK key and a caller subscription:
-	// subscription must win, reading past the router-key guard.
+func TestResolveAndInjectCredentials_AnthropicBYOKBeatsSubscription(t *testing.T) {
 	ctx := context.Background()
 	ctx = context.WithValue(ctx, InstallationIDContextKey{}, testInstallationID)
 	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-api-byok")},
+		{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("sk-ant-api-byok")},
 	})
 	ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, "sk-ant-oat01-subscription-token")
 
 	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", http.Header{})
 	creds := CredentialsFromContext(out)
 	require.NotNil(t, creds)
-	assert.True(t, creds.OAuth)
-	assert.Equal(t, credSourceSubscription, creds.Source)
-	assert.Equal(t, []byte("sk-ant-oat01-subscription-token"), creds.APIKey)
+	assert.False(t, creds.OAuth)
+	assert.Equal(t, credSourceBYOK, creds.Source)
+	assert.Equal(t, []byte("sk-ant-api-byok"), creds.APIKey)
 }
 
 func TestResolveAndInjectCredentials_SubscriptionIgnoredForNonAnthropic(t *testing.T) {
@@ -78,19 +76,17 @@ func TestResolveAndInjectCredentials_SubscriptionIgnoredForNonAnthropic(t *testi
 		"a non-Anthropic route must use its own BYOK key, never the Anthropic subscription token")
 }
 
-func TestResolveAndInjectCredentials_InboundSubscriptionBeatsBYOK(t *testing.T) {
-	// Self-hosted: inbound subscription bearer must beat BYOK (subscription ->
-	// BYOK -> deployment precedence), not just because BYOK happens to be absent.
+func TestResolveAndInjectCredentials_AnthropicBYOKBeatsInboundSubscription(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-api-byok")},
+		{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("sk-ant-api-byok")},
 	})
 	headers := http.Header{"Authorization": []string{"Bearer sk-ant-oat01-subscription-token"}}
 	out := resolveAndInjectCredentials(ctx, providers.ProviderAnthropic, "claude-opus-4-8", headers)
 	creds := CredentialsFromContext(out)
 	require.NotNil(t, creds)
-	assert.True(t, creds.OAuth, "the inbound subscription bearer must win over BYOK")
-	assert.Equal(t, credSourceSubscription, creds.Source)
-	assert.Equal(t, []byte("sk-ant-oat01-subscription-token"), creds.APIKey)
+	assert.False(t, creds.OAuth)
+	assert.Equal(t, credSourceBYOK, creds.Source)
+	assert.Equal(t, []byte("sk-ant-api-byok"), creds.APIKey)
 }
 
 func TestResolveAndInjectCredentials_SelfHostedInboundSubscription(t *testing.T) {
@@ -277,7 +273,7 @@ func TestResolveAndInjectCredentials_CodexSubscriptionIgnoredForNonOpenAI(t *tes
 	// resolve it.
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
 	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-api-byok")},
+		{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("sk-ant-api-byok")},
 	})
 	ctx = context.WithValue(ctx, OpenAISubscriptionContextKey{}, codexTestJWT)
 	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-999")
@@ -362,7 +358,7 @@ func TestServedOnSubscription(t *testing.T) {
 
 func TestResolveSummarizerCreds_ReturnsBYOK(t *testing.T) {
 	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: providers.ProviderAnthropic, Plaintext: []byte("sk-ant-api-byok")},
+		{Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityKeyFirst, Plaintext: []byte("sk-ant-api-byok")},
 	})
 	creds := resolveSummarizerCreds(ctx, providers.ProviderAnthropic, http.Header{})
 	require.NotNil(t, creds)

@@ -93,6 +93,7 @@ func (q *Queries) DeleteModelRouterSubscriptionAccount(ctx context.Context, arg 
 }
 
 const disableModelRouterSubscriptionAccountIfRefreshHolder = `-- name: DisableModelRouterSubscriptionAccountIfRefreshHolder :execrows
+WITH updated AS (
 UPDATE router.model_router_subscription_accounts
 SET enabled = FALSE,
     health_state = 'reconnect_required',
@@ -100,25 +101,45 @@ SET enabled = FALSE,
     token_refresh_lease_until = NULL,
     token_refresh_lease_id = NULL,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = $1::uuid
-  AND (subscriber_id = $2::uuid
-       OR (subscriber_id IS NULL AND api_key_id = $3::uuid))
+WHERE id = $2::uuid
+  AND (subscriber_id = $3::uuid
+       OR (subscriber_id IS NULL AND api_key_id = $4::uuid))
   AND enabled = TRUE
-  AND token_refresh_lease_id = $4::uuid
+  AND token_refresh_lease_id = $1::uuid
   AND token_refresh_version = $5::bigint
+RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at, access_token_ciphertext, access_token_expires_at, token_refresh_lease_until, token_refresh_lease_id, token_refresh_version, subscriber_id, health_state, display_name, provider_user_id, credential_rejection_count, credential_first_rejected_at, credential_last_rejection_reason
+)
+INSERT INTO router.subscription_credential_events
+ (account_id, subscriber_id, provider, event_kind, reason, token_refresh_version,
+  rejection_count, first_rejected_at, refresh_lease_id, provider_error_type,
+  provider_request_id, upstream_status, request_id)
+SELECT account.id, account.subscriber_id, account.provider, 'reconnect_required',
+ COALESCE(account.credential_last_rejection_reason, 'credential_rejected'), account.token_refresh_version,
+ account.credential_rejection_count, account.credential_first_rejected_at, $1::uuid,
+ COALESCE(rejection.provider_error_type, ''), COALESCE(rejection.provider_request_id, ''),
+ COALESCE(rejection.upstream_status, 0), COALESCE(rejection.request_id, '')
+FROM updated AS account
+LEFT JOIN LATERAL (
+ SELECT event.provider_error_type, event.provider_request_id, event.upstream_status, event.request_id
+ FROM router.subscription_credential_events AS event
+ WHERE event.account_id = account.id AND event.event_kind = 'credential_rejected'
+  AND event.token_refresh_version = account.token_refresh_version
+ ORDER BY event.created_at DESC, event.id DESC LIMIT 1
+) AS rejection ON TRUE
 `
 
 type DisableModelRouterSubscriptionAccountIfRefreshHolderParams struct {
+	LeaseID         uuid.UUID
 	ID              uuid.UUID
 	SubscriberID    pgtype.UUID
 	APIKeyID        pgtype.UUID
-	LeaseID         uuid.UUID
 	ExpectedVersion int64
 }
 
 // A failed refresher may disable only the credentials it still owns. Clearing
 // the lease in this update avoids a takeover between release and disable.
 //
+//	WITH updated AS (
 //	UPDATE router.model_router_subscription_accounts
 //	SET enabled = FALSE,
 //	    health_state = 'reconnect_required',
@@ -126,18 +147,37 @@ type DisableModelRouterSubscriptionAccountIfRefreshHolderParams struct {
 //	    token_refresh_lease_until = NULL,
 //	    token_refresh_lease_id = NULL,
 //	    updated_at = CURRENT_TIMESTAMP
-//	WHERE id = $1::uuid
-//	  AND (subscriber_id = $2::uuid
-//	       OR (subscriber_id IS NULL AND api_key_id = $3::uuid))
+//	WHERE id = $2::uuid
+//	  AND (subscriber_id = $3::uuid
+//	       OR (subscriber_id IS NULL AND api_key_id = $4::uuid))
 //	  AND enabled = TRUE
-//	  AND token_refresh_lease_id = $4::uuid
+//	  AND token_refresh_lease_id = $1::uuid
 //	  AND token_refresh_version = $5::bigint
+//	RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at, access_token_ciphertext, access_token_expires_at, token_refresh_lease_until, token_refresh_lease_id, token_refresh_version, subscriber_id, health_state, display_name, provider_user_id, credential_rejection_count, credential_first_rejected_at, credential_last_rejection_reason
+//	)
+//	INSERT INTO router.subscription_credential_events
+//	 (account_id, subscriber_id, provider, event_kind, reason, token_refresh_version,
+//	  rejection_count, first_rejected_at, refresh_lease_id, provider_error_type,
+//	  provider_request_id, upstream_status, request_id)
+//	SELECT account.id, account.subscriber_id, account.provider, 'reconnect_required',
+//	 COALESCE(account.credential_last_rejection_reason, 'credential_rejected'), account.token_refresh_version,
+//	 account.credential_rejection_count, account.credential_first_rejected_at, $1::uuid,
+//	 COALESCE(rejection.provider_error_type, ''), COALESCE(rejection.provider_request_id, ''),
+//	 COALESCE(rejection.upstream_status, 0), COALESCE(rejection.request_id, '')
+//	FROM updated AS account
+//	LEFT JOIN LATERAL (
+//	 SELECT event.provider_error_type, event.provider_request_id, event.upstream_status, event.request_id
+//	 FROM router.subscription_credential_events AS event
+//	 WHERE event.account_id = account.id AND event.event_kind = 'credential_rejected'
+//	  AND event.token_refresh_version = account.token_refresh_version
+//	 ORDER BY event.created_at DESC, event.id DESC LIMIT 1
+//	) AS rejection ON TRUE
 func (q *Queries) DisableModelRouterSubscriptionAccountIfRefreshHolder(ctx context.Context, arg DisableModelRouterSubscriptionAccountIfRefreshHolderParams) (int64, error) {
 	result, err := q.db.Exec(ctx, disableModelRouterSubscriptionAccountIfRefreshHolder,
+		arg.LeaseID,
 		arg.ID,
 		arg.SubscriberID,
 		arg.APIKeyID,
-		arg.LeaseID,
 		arg.ExpectedVersion,
 	)
 	if err != nil {
@@ -266,6 +306,52 @@ func (q *Queries) GetModelRouterSubscriptionCredentialRecord(ctx context.Context
 	return i, err
 }
 
+const getSubscriberEnrollmentKey = `-- name: GetSubscriberEnrollmentKey :one
+SELECT k.id AS api_key_id, k.installation_id
+FROM router.model_router_api_keys AS k
+JOIN router.credential_subjects AS subject ON subject.id = k.credential_subject_id
+JOIN router.credential_subject_installations AS access
+  ON access.subject_id = subject.id AND access.installation_id = k.installation_id
+JOIN router.model_router_installations AS installation ON installation.id = k.installation_id
+WHERE k.credential_subject_id = $1::uuid
+  AND k.deleted_at IS NULL
+  AND installation.deleted_at IS NULL
+  AND subject.projection_complete
+  AND subject.revoked_at IS NULL
+  AND access.access_enabled
+ORDER BY k.created_at DESC, k.id
+LIMIT 1
+`
+
+type GetSubscriberEnrollmentKeyRow struct {
+	APIKeyID       uuid.UUID
+	InstallationID uuid.UUID
+}
+
+// Browser reconnect has no request key, so it enrolls through the subscriber's
+// newest active personal routing key whose installation access is enabled.
+//
+//	SELECT k.id AS api_key_id, k.installation_id
+//	FROM router.model_router_api_keys AS k
+//	JOIN router.credential_subjects AS subject ON subject.id = k.credential_subject_id
+//	JOIN router.credential_subject_installations AS access
+//	  ON access.subject_id = subject.id AND access.installation_id = k.installation_id
+//	JOIN router.model_router_installations AS installation ON installation.id = k.installation_id
+//	WHERE k.credential_subject_id = $1::uuid
+//	  AND k.deleted_at IS NULL
+//	  AND installation.deleted_at IS NULL
+//	  AND subject.projection_complete
+//	  AND subject.revoked_at IS NULL
+//	  AND access.access_enabled
+//	ORDER BY k.created_at DESC, k.id
+//	LIMIT 1
+func (q *Queries) GetSubscriberEnrollmentKey(ctx context.Context, subscriberID uuid.UUID) (GetSubscriberEnrollmentKeyRow, error) {
+	row := q.db.QueryRow(ctx, getSubscriberEnrollmentKey, subscriberID)
+	var i GetSubscriberEnrollmentKeyRow
+	err := row.Scan(&i.APIKeyID, &i.InstallationID)
+	return i, err
+}
+
 const listModelRouterSubscriptionAccounts = `-- name: ListModelRouterSubscriptionAccounts :many
 SELECT id,
        subscriber_id,
@@ -279,7 +365,8 @@ SELECT id,
        health_state,
        cooldown_until,
        created_at,
-       updated_at
+       updated_at,
+       credential_rejection_count
 FROM router.model_router_subscription_accounts
 WHERE subscriber_id = $1::uuid
    OR (subscriber_id IS NULL AND api_key_id = $2::uuid)
@@ -292,19 +379,20 @@ type ListModelRouterSubscriptionAccountsParams struct {
 }
 
 type ListModelRouterSubscriptionAccountsRow struct {
-	ID                     uuid.UUID
-	SubscriberID           pgtype.UUID
-	APIKeyID               pgtype.UUID
-	Provider               string
-	ExternalAccountID      string
-	ProviderUserID         *string
-	DisplayName            *string
-	RefreshTokenCiphertext []byte
-	Enabled                bool
-	HealthState            string
-	CooldownUntil          pgtype.Timestamp
-	CreatedAt              pgtype.Timestamp
-	UpdatedAt              pgtype.Timestamp
+	ID                       uuid.UUID
+	SubscriberID             pgtype.UUID
+	APIKeyID                 pgtype.UUID
+	Provider                 string
+	ExternalAccountID        string
+	ProviderUserID           *string
+	DisplayName              *string
+	RefreshTokenCiphertext   []byte
+	Enabled                  bool
+	HealthState              string
+	CooldownUntil            pgtype.Timestamp
+	CreatedAt                pgtype.Timestamp
+	UpdatedAt                pgtype.Timestamp
+	CredentialRejectionCount int32
 }
 
 // Account state is scoped by owner so a router key can never manage another
@@ -324,7 +412,8 @@ type ListModelRouterSubscriptionAccountsRow struct {
 //	       health_state,
 //	       cooldown_until,
 //	       created_at,
-//	       updated_at
+//	       updated_at,
+//	       credential_rejection_count
 //	FROM router.model_router_subscription_accounts
 //	WHERE subscriber_id = $1::uuid
 //	   OR (subscriber_id IS NULL AND api_key_id = $2::uuid)
@@ -352,6 +441,7 @@ func (q *Queries) ListModelRouterSubscriptionAccounts(ctx context.Context, arg L
 			&i.CooldownUntil,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CredentialRejectionCount,
 		); err != nil {
 			return nil, err
 		}
@@ -380,7 +470,11 @@ WITH installation AS MATERIALIZED (
 SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
        account.external_account_id, account.provider_user_id, account.display_name, account.refresh_token_ciphertext,
        account.enabled, account.health_state, account.cooldown_until, account.created_at,
-       CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier
+       CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier,
+       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing,
+       -- A successful refresh clears the reason but keeps the rolling strikes.
+       (CASE WHEN account.credential_last_rejection_reason IS NULL THEN 0
+             ELSE account.credential_rejection_count END)::integer AS credential_rejection_count
 FROM router.model_router_subscription_accounts AS account
 JOIN members ON members.subject_id = account.subscriber_id
 JOIN installation ON TRUE
@@ -410,19 +504,21 @@ type ListModelRouterSubscriptionCandidatesParams struct {
 }
 
 type ListModelRouterSubscriptionCandidatesRow struct {
-	ID                     uuid.UUID
-	SubscriberID           pgtype.UUID
-	APIKeyID               pgtype.UUID
-	Provider               string
-	ExternalAccountID      string
-	ProviderUserID         *string
-	DisplayName            *string
-	RefreshTokenCiphertext []byte
-	Enabled                bool
-	HealthState            string
-	CooldownUntil          pgtype.Timestamp
-	CreatedAt              pgtype.Timestamp
-	Tier                   string
+	ID                       uuid.UUID
+	SubscriberID             pgtype.UUID
+	APIKeyID                 pgtype.UUID
+	Provider                 string
+	ExternalAccountID        string
+	ProviderUserID           *string
+	DisplayName              *string
+	RefreshTokenCiphertext   []byte
+	Enabled                  bool
+	HealthState              string
+	CooldownUntil            pgtype.Timestamp
+	CreatedAt                pgtype.Timestamp
+	Tier                     string
+	AccessTokenMissing       bool
+	CredentialRejectionCount int32
 }
 
 // Read from the primary so admission observes current membership, key lifecycle and sharing settings.
@@ -444,7 +540,11 @@ type ListModelRouterSubscriptionCandidatesRow struct {
 //	SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
 //	       account.external_account_id, account.provider_user_id, account.display_name, account.refresh_token_ciphertext,
 //	       account.enabled, account.health_state, account.cooldown_until, account.created_at,
-//	       CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier
+//	       CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier,
+//	       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing,
+//	       -- A successful refresh clears the reason but keeps the rolling strikes.
+//	       (CASE WHEN account.credential_last_rejection_reason IS NULL THEN 0
+//	             ELSE account.credential_rejection_count END)::integer AS credential_rejection_count
 //	FROM router.model_router_subscription_accounts AS account
 //	JOIN members ON members.subject_id = account.subscriber_id
 //	JOIN installation ON TRUE
@@ -488,6 +588,8 @@ func (q *Queries) ListModelRouterSubscriptionCandidates(ctx context.Context, arg
 			&i.CooldownUntil,
 			&i.CreatedAt,
 			&i.Tier,
+			&i.AccessTokenMissing,
+			&i.CredentialRejectionCount,
 		); err != nil {
 			return nil, err
 		}
@@ -507,6 +609,7 @@ SET refresh_token_ciphertext = $1::bytea,
     token_refresh_lease_until = NULL,
     token_refresh_lease_id = NULL,
     token_refresh_version = token_refresh_version + 1,
+    credential_last_rejection_reason = NULL,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $4::uuid
   AND (subscriber_id = $5::uuid
@@ -539,6 +642,7 @@ type PersistModelRouterSubscriptionTokensParams struct {
 //	    token_refresh_lease_until = NULL,
 //	    token_refresh_lease_id = NULL,
 //	    token_refresh_version = token_refresh_version + 1,
+//	    credential_last_rejection_reason = NULL,
 //	    updated_at = CURRENT_TIMESTAMP
 //	WHERE id = $4::uuid
 //	  AND (subscriber_id = $5::uuid
@@ -561,6 +665,170 @@ func (q *Queries) PersistModelRouterSubscriptionTokens(ctx context.Context, arg 
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const recordModelRouterSubscriptionCredentialRejection = `-- name: RecordModelRouterSubscriptionCredentialRejection :one
+WITH previous AS (
+  SELECT id, credential_last_rejection_reason
+  FROM router.model_router_subscription_accounts
+  WHERE id = $1::uuid
+    AND (subscriber_id = $2::uuid
+         OR (subscriber_id IS NULL AND api_key_id = $3::uuid))
+    AND enabled = TRUE
+  AND ($4::uuid IS NULL
+       OR (token_refresh_lease_id = $4::uuid
+           AND token_refresh_version = $5::bigint))
+  FOR UPDATE
+), updated AS (
+UPDATE router.model_router_subscription_accounts AS account
+SET credential_rejection_count = CASE
+        WHEN account.credential_first_rejected_at IS NULL
+             OR account.credential_first_rejected_at < $6::timestamp
+        THEN 1
+        ELSE account.credential_rejection_count + 1
+    END,
+    credential_first_rejected_at = CASE
+        WHEN account.credential_first_rejected_at IS NULL
+             OR account.credential_first_rejected_at < $6::timestamp
+        THEN $7::timestamp
+        ELSE account.credential_first_rejected_at
+    END,
+    credential_last_rejection_reason = $8::varchar,
+    access_token_ciphertext = CASE WHEN $9::boolean THEN NULL ELSE account.access_token_ciphertext END,
+    access_token_expires_at = CASE WHEN $9::boolean THEN NULL ELSE account.access_token_expires_at END,
+    updated_at = CURRENT_TIMESTAMP
+FROM previous
+WHERE account.id = previous.id
+RETURNING account.id, account.api_key_id, account.provider, account.external_account_id, account.refresh_token_ciphertext, account.enabled, account.cooldown_until, account.created_at, account.updated_at, account.access_token_ciphertext, account.access_token_expires_at, account.token_refresh_lease_until, account.token_refresh_lease_id, account.token_refresh_version, account.subscriber_id, account.health_state, account.display_name, account.provider_user_id, account.credential_rejection_count, account.credential_first_rejected_at, account.credential_last_rejection_reason, previous.credential_last_rejection_reason AS previous_reason
+), recorded AS (
+ INSERT INTO router.subscription_credential_events
+  (account_id, subscriber_id, provider, event_kind, reason, provider_error_type,
+   provider_request_id, upstream_status, request_id, refresh_lease_id,
+   token_refresh_version, rejection_count, first_rejected_at)
+ SELECT id, subscriber_id, provider, 'credential_rejected', $8::varchar,
+  $10::varchar, $11::varchar, $12::integer,
+  $13::varchar, $4::uuid, token_refresh_version,
+  credential_rejection_count, credential_first_rejected_at
+ FROM updated
+ RETURNING id
+)
+SELECT updated.credential_rejection_count, updated.credential_first_rejected_at, updated.previous_reason,
+ EXISTS (
+  SELECT 1 FROM router.subscription_credential_events AS prior_disconnect
+  WHERE prior_disconnect.account_id = $1::uuid
+   AND prior_disconnect.event_kind = 'reconnect_required'
+   AND prior_disconnect.created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+   AND prior_disconnect.token_refresh_version <> updated.token_refresh_version
+ )::boolean AS repeated_disconnect
+FROM updated
+`
+
+type RecordModelRouterSubscriptionCredentialRejectionParams struct {
+	ID                    uuid.UUID
+	SubscriberID          pgtype.UUID
+	APIKeyID              pgtype.UUID
+	LeaseID               pgtype.UUID
+	ExpectedVersion       *int64
+	WindowStart           pgtype.Timestamp
+	RejectedAt            pgtype.Timestamp
+	Reason                string
+	InvalidateAccessToken bool
+	ProviderErrorType     string
+	ProviderRequestID     string
+	UpstreamStatus        int32
+	RequestID             string
+}
+
+type RecordModelRouterSubscriptionCredentialRejectionRow struct {
+	CredentialRejectionCount  int32
+	CredentialFirstRejectedAt pgtype.Timestamp
+	PreviousReason            *string
+	RepeatedDisconnect        bool
+}
+
+// Counts one provider credential rejection inside a rolling window. Strikes
+// older than the window restart at one. The previous reason is returned so
+// the caller can recognise back-to-back explicit invalid_grant rejections; a
+// successful refresh clears it. A refresh rejection passes its lease and
+// version so a refresher that lost the lease records nothing.
+//
+//	WITH previous AS (
+//	  SELECT id, credential_last_rejection_reason
+//	  FROM router.model_router_subscription_accounts
+//	  WHERE id = $1::uuid
+//	    AND (subscriber_id = $2::uuid
+//	         OR (subscriber_id IS NULL AND api_key_id = $3::uuid))
+//	    AND enabled = TRUE
+//	  AND ($4::uuid IS NULL
+//	       OR (token_refresh_lease_id = $4::uuid
+//	           AND token_refresh_version = $5::bigint))
+//	  FOR UPDATE
+//	), updated AS (
+//	UPDATE router.model_router_subscription_accounts AS account
+//	SET credential_rejection_count = CASE
+//	        WHEN account.credential_first_rejected_at IS NULL
+//	             OR account.credential_first_rejected_at < $6::timestamp
+//	        THEN 1
+//	        ELSE account.credential_rejection_count + 1
+//	    END,
+//	    credential_first_rejected_at = CASE
+//	        WHEN account.credential_first_rejected_at IS NULL
+//	             OR account.credential_first_rejected_at < $6::timestamp
+//	        THEN $7::timestamp
+//	        ELSE account.credential_first_rejected_at
+//	    END,
+//	    credential_last_rejection_reason = $8::varchar,
+//	    access_token_ciphertext = CASE WHEN $9::boolean THEN NULL ELSE account.access_token_ciphertext END,
+//	    access_token_expires_at = CASE WHEN $9::boolean THEN NULL ELSE account.access_token_expires_at END,
+//	    updated_at = CURRENT_TIMESTAMP
+//	FROM previous
+//	WHERE account.id = previous.id
+//	RETURNING account.id, account.api_key_id, account.provider, account.external_account_id, account.refresh_token_ciphertext, account.enabled, account.cooldown_until, account.created_at, account.updated_at, account.access_token_ciphertext, account.access_token_expires_at, account.token_refresh_lease_until, account.token_refresh_lease_id, account.token_refresh_version, account.subscriber_id, account.health_state, account.display_name, account.provider_user_id, account.credential_rejection_count, account.credential_first_rejected_at, account.credential_last_rejection_reason, previous.credential_last_rejection_reason AS previous_reason
+//	), recorded AS (
+//	 INSERT INTO router.subscription_credential_events
+//	  (account_id, subscriber_id, provider, event_kind, reason, provider_error_type,
+//	   provider_request_id, upstream_status, request_id, refresh_lease_id,
+//	   token_refresh_version, rejection_count, first_rejected_at)
+//	 SELECT id, subscriber_id, provider, 'credential_rejected', $8::varchar,
+//	  $10::varchar, $11::varchar, $12::integer,
+//	  $13::varchar, $4::uuid, token_refresh_version,
+//	  credential_rejection_count, credential_first_rejected_at
+//	 FROM updated
+//	 RETURNING id
+//	)
+//	SELECT updated.credential_rejection_count, updated.credential_first_rejected_at, updated.previous_reason,
+//	 EXISTS (
+//	  SELECT 1 FROM router.subscription_credential_events AS prior_disconnect
+//	  WHERE prior_disconnect.account_id = $1::uuid
+//	   AND prior_disconnect.event_kind = 'reconnect_required'
+//	   AND prior_disconnect.created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+//	   AND prior_disconnect.token_refresh_version <> updated.token_refresh_version
+//	 )::boolean AS repeated_disconnect
+//	FROM updated
+func (q *Queries) RecordModelRouterSubscriptionCredentialRejection(ctx context.Context, arg RecordModelRouterSubscriptionCredentialRejectionParams) (RecordModelRouterSubscriptionCredentialRejectionRow, error) {
+	row := q.db.QueryRow(ctx, recordModelRouterSubscriptionCredentialRejection,
+		arg.ID,
+		arg.SubscriberID,
+		arg.APIKeyID,
+		arg.LeaseID,
+		arg.ExpectedVersion,
+		arg.WindowStart,
+		arg.RejectedAt,
+		arg.Reason,
+		arg.InvalidateAccessToken,
+		arg.ProviderErrorType,
+		arg.ProviderRequestID,
+		arg.UpstreamStatus,
+		arg.RequestID,
+	)
+	var i RecordModelRouterSubscriptionCredentialRejectionRow
+	err := row.Scan(
+		&i.CredentialRejectionCount,
+		&i.CredentialFirstRejectedAt,
+		&i.PreviousReason,
+		&i.RepeatedDisconnect,
+	)
+	return i, err
 }
 
 const releaseModelRouterSubscriptionRefreshLease = `-- name: ReleaseModelRouterSubscriptionRefreshLease :execrows
@@ -621,7 +889,8 @@ acquired AS (
     AND (subscriber_id = $2::uuid
          OR (subscriber_id IS NULL AND api_key_id = $3::uuid))
     AND enabled = TRUE
-    AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP)
+    AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP
+         OR ($6::boolean AND provider = 'claude' AND health_state = 'exhausted'))
     AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until <= CURRENT_TIMESTAMP)
   RETURNING id
 )
@@ -631,11 +900,12 @@ JOIN prior ON TRUE
 `
 
 type TryAcquireModelRouterSubscriptionRefreshLeaseParams struct {
-	ID           uuid.UUID
-	SubscriberID pgtype.UUID
-	APIKeyID     pgtype.UUID
-	LeaseSeconds int64
-	LeaseID      uuid.UUID
+	ID                 uuid.UUID
+	SubscriberID       pgtype.UUID
+	APIKeyID           pgtype.UUID
+	LeaseSeconds       int64
+	LeaseID            uuid.UUID
+	AllowClaudeOverage bool
 }
 
 // Try to reserve one account for a cross-replica token refresh. The lease ID
@@ -664,7 +934,8 @@ type TryAcquireModelRouterSubscriptionRefreshLeaseParams struct {
 //	    AND (subscriber_id = $2::uuid
 //	         OR (subscriber_id IS NULL AND api_key_id = $3::uuid))
 //	    AND enabled = TRUE
-//	    AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP)
+//	    AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP
+//	         OR ($6::boolean AND provider = 'claude' AND health_state = 'exhausted'))
 //	    AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until <= CURRENT_TIMESTAMP)
 //	  RETURNING id
 //	)
@@ -678,6 +949,7 @@ func (q *Queries) TryAcquireModelRouterSubscriptionRefreshLease(ctx context.Cont
 		arg.APIKeyID,
 		arg.LeaseSeconds,
 		arg.LeaseID,
+		arg.AllowClaudeOverage,
 	)
 	var took_over bool
 	err := row.Scan(&took_over)
@@ -685,11 +957,14 @@ func (q *Queries) TryAcquireModelRouterSubscriptionRefreshLease(ctx context.Cont
 }
 
 const updateModelRouterSubscriptionAccountCooldown = `-- name: UpdateModelRouterSubscriptionAccountCooldown :execrows
-UPDATE router.model_router_subscription_accounts
-SET cooldown_until = $1::timestamp,
+UPDATE router.model_router_subscription_accounts AS account
+SET cooldown_until = GREATEST(
+        account.cooldown_until,
+        $1::timestamp
+    ),
     health_state = 'cooldown',
     updated_at = CURRENT_TIMESTAMP
-WHERE id = $2::uuid
+WHERE account.id = $2::uuid
   AND (subscriber_id = $3::uuid
        OR (subscriber_id IS NULL AND api_key_id = $4::uuid))
   AND enabled = TRUE
@@ -705,11 +980,14 @@ type UpdateModelRouterSubscriptionAccountCooldownParams struct {
 // A stale replica must not turn an operator-disabled account back on while
 // persisting a quota cooldown.
 //
-//	UPDATE router.model_router_subscription_accounts
-//	SET cooldown_until = $1::timestamp,
+//	UPDATE router.model_router_subscription_accounts AS account
+//	SET cooldown_until = GREATEST(
+//	        account.cooldown_until,
+//	        $1::timestamp
+//	    ),
 //	    health_state = 'cooldown',
 //	    updated_at = CURRENT_TIMESTAMP
-//	WHERE id = $2::uuid
+//	WHERE account.id = $2::uuid
 //	  AND (subscriber_id = $3::uuid
 //	       OR (subscriber_id IS NULL AND api_key_id = $4::uuid))
 //	  AND enabled = TRUE
@@ -726,77 +1004,146 @@ func (q *Queries) UpdateModelRouterSubscriptionAccountCooldown(ctx context.Conte
 	return result.RowsAffected(), nil
 }
 
-const updateModelRouterSubscriptionAccountHealth = `-- name: UpdateModelRouterSubscriptionAccountHealth :execrows
+const updateModelRouterSubscriptionAccountHealth = `-- name: UpdateModelRouterSubscriptionAccountHealth :one
+WITH previous AS (
+ SELECT id, health_state FROM router.model_router_subscription_accounts
+ WHERE id = $1::uuid
+ AND (subscriber_id = $2::uuid
+ OR (subscriber_id IS NULL AND api_key_id = $3::uuid))
+ FOR UPDATE
+), updated AS (
 UPDATE router.model_router_subscription_accounts
 SET health_state = CASE
-        WHEN $1::varchar = 'active'
+        WHEN $4::varchar = 'active'
              AND cooldown_until > CURRENT_TIMESTAMP
         THEN health_state
-        ELSE $1::varchar
+        ELSE $4::varchar
     END,
-    enabled = enabled AND $2::boolean,
+    enabled = enabled AND $5::boolean,
     cooldown_until = CASE
-        WHEN $1::varchar = 'active'
+        WHEN $4::varchar = 'active'
              AND cooldown_until > CURRENT_TIMESTAMP
         THEN cooldown_until
-        ELSE $3::timestamp
+        ELSE $6::timestamp
     END,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = $4::uuid
-  AND (subscriber_id = $5::uuid
-       OR (subscriber_id IS NULL AND api_key_id = $6::uuid))
+WHERE id IN (SELECT previous.id FROM previous)
+RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at, access_token_ciphertext, access_token_expires_at, token_refresh_lease_until, token_refresh_lease_id, token_refresh_version, subscriber_id, health_state, display_name, provider_user_id, credential_rejection_count, credential_first_rejected_at, credential_last_rejection_reason
+), recorded AS (
+INSERT INTO router.subscription_credential_events
+ (account_id, subscriber_id, provider, event_kind, reason, token_refresh_version,
+  rejection_count, first_rejected_at, refresh_lease_id, provider_error_type,
+  provider_request_id, upstream_status, request_id)
+SELECT account.id, account.subscriber_id, account.provider, 'reconnect_required',
+ COALESCE(account.credential_last_rejection_reason, 'credential_rejected'), account.token_refresh_version,
+ account.credential_rejection_count, account.credential_first_rejected_at, NULL::uuid,
+ COALESCE(rejection.provider_error_type, ''), COALESCE(rejection.provider_request_id, ''),
+ COALESCE(rejection.upstream_status, 0), COALESCE(rejection.request_id, '')
+FROM updated AS account
+LEFT JOIN LATERAL (
+ SELECT event.provider_error_type, event.provider_request_id, event.upstream_status, event.request_id
+ FROM router.subscription_credential_events AS event
+ WHERE event.account_id = account.id AND event.event_kind = 'credential_rejected'
+  AND event.token_refresh_version = account.token_refresh_version
+ ORDER BY event.created_at DESC, event.id DESC LIMIT 1
+) AS rejection ON TRUE
+WHERE account.health_state = 'reconnect_required'
+ AND EXISTS (SELECT 1 FROM previous WHERE previous.id = account.id AND previous.health_state <> 'reconnect_required')
+ RETURNING id
+)
+SELECT count(*)::bigint AS matched_count,
+       (SELECT count(*) > 0 FROM recorded)::boolean AS disconnected
+FROM updated
 `
 
 type UpdateModelRouterSubscriptionAccountHealthParams struct {
-	HealthState   string
-	Enabled       bool
-	CooldownUntil pgtype.Timestamp
 	ID            uuid.UUID
 	SubscriberID  pgtype.UUID
 	APIKeyID      pgtype.UUID
+	HealthState   string
+	Enabled       bool
+	CooldownUntil pgtype.Timestamp
+}
+
+type UpdateModelRouterSubscriptionAccountHealthRow struct {
+	MatchedCount int64
+	Disconnected bool
 }
 
 // Updates the internal credential-free routing health for one linked account.
 // enabled = enabled AND @enabled never re-enables an operator-disabled row
 // (Activate/Exhaust) while still allowing ReconnectRequired to disable it.
 //
+//	WITH previous AS (
+//	 SELECT id, health_state FROM router.model_router_subscription_accounts
+//	 WHERE id = $1::uuid
+//	 AND (subscriber_id = $2::uuid
+//	 OR (subscriber_id IS NULL AND api_key_id = $3::uuid))
+//	 FOR UPDATE
+//	), updated AS (
 //	UPDATE router.model_router_subscription_accounts
 //	SET health_state = CASE
-//	        WHEN $1::varchar = 'active'
+//	        WHEN $4::varchar = 'active'
 //	             AND cooldown_until > CURRENT_TIMESTAMP
 //	        THEN health_state
-//	        ELSE $1::varchar
+//	        ELSE $4::varchar
 //	    END,
-//	    enabled = enabled AND $2::boolean,
+//	    enabled = enabled AND $5::boolean,
 //	    cooldown_until = CASE
-//	        WHEN $1::varchar = 'active'
+//	        WHEN $4::varchar = 'active'
 //	             AND cooldown_until > CURRENT_TIMESTAMP
 //	        THEN cooldown_until
-//	        ELSE $3::timestamp
+//	        ELSE $6::timestamp
 //	    END,
 //	    updated_at = CURRENT_TIMESTAMP
-//	WHERE id = $4::uuid
-//	  AND (subscriber_id = $5::uuid
-//	       OR (subscriber_id IS NULL AND api_key_id = $6::uuid))
-func (q *Queries) UpdateModelRouterSubscriptionAccountHealth(ctx context.Context, arg UpdateModelRouterSubscriptionAccountHealthParams) (int64, error) {
-	result, err := q.db.Exec(ctx, updateModelRouterSubscriptionAccountHealth,
-		arg.HealthState,
-		arg.Enabled,
-		arg.CooldownUntil,
+//	WHERE id IN (SELECT previous.id FROM previous)
+//	RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at, access_token_ciphertext, access_token_expires_at, token_refresh_lease_until, token_refresh_lease_id, token_refresh_version, subscriber_id, health_state, display_name, provider_user_id, credential_rejection_count, credential_first_rejected_at, credential_last_rejection_reason
+//	), recorded AS (
+//	INSERT INTO router.subscription_credential_events
+//	 (account_id, subscriber_id, provider, event_kind, reason, token_refresh_version,
+//	  rejection_count, first_rejected_at, refresh_lease_id, provider_error_type,
+//	  provider_request_id, upstream_status, request_id)
+//	SELECT account.id, account.subscriber_id, account.provider, 'reconnect_required',
+//	 COALESCE(account.credential_last_rejection_reason, 'credential_rejected'), account.token_refresh_version,
+//	 account.credential_rejection_count, account.credential_first_rejected_at, NULL::uuid,
+//	 COALESCE(rejection.provider_error_type, ''), COALESCE(rejection.provider_request_id, ''),
+//	 COALESCE(rejection.upstream_status, 0), COALESCE(rejection.request_id, '')
+//	FROM updated AS account
+//	LEFT JOIN LATERAL (
+//	 SELECT event.provider_error_type, event.provider_request_id, event.upstream_status, event.request_id
+//	 FROM router.subscription_credential_events AS event
+//	 WHERE event.account_id = account.id AND event.event_kind = 'credential_rejected'
+//	  AND event.token_refresh_version = account.token_refresh_version
+//	 ORDER BY event.created_at DESC, event.id DESC LIMIT 1
+//	) AS rejection ON TRUE
+//	WHERE account.health_state = 'reconnect_required'
+//	 AND EXISTS (SELECT 1 FROM previous WHERE previous.id = account.id AND previous.health_state <> 'reconnect_required')
+//	 RETURNING id
+//	)
+//	SELECT count(*)::bigint AS matched_count,
+//	       (SELECT count(*) > 0 FROM recorded)::boolean AS disconnected
+//	FROM updated
+func (q *Queries) UpdateModelRouterSubscriptionAccountHealth(ctx context.Context, arg UpdateModelRouterSubscriptionAccountHealthParams) (UpdateModelRouterSubscriptionAccountHealthRow, error) {
+	row := q.db.QueryRow(ctx, updateModelRouterSubscriptionAccountHealth,
 		arg.ID,
 		arg.SubscriberID,
 		arg.APIKeyID,
+		arg.HealthState,
+		arg.Enabled,
+		arg.CooldownUntil,
 	)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected(), nil
+	var i UpdateModelRouterSubscriptionAccountHealthRow
+	err := row.Scan(&i.MatchedCount, &i.Disconnected)
+	return i, err
 }
 
 const updateModelRouterSubscriptionAccountState = `-- name: UpdateModelRouterSubscriptionAccountState :execrows
 UPDATE router.model_router_subscription_accounts AS account
 SET enabled = $1::boolean,
     health_state = CASE WHEN $1::boolean THEN 'unknown' ELSE 'disabled' END,
+    credential_rejection_count = CASE WHEN $1::boolean THEN 0 ELSE account.credential_rejection_count END,
+    credential_first_rejected_at = CASE WHEN $1::boolean THEN NULL ELSE account.credential_first_rejected_at END,
+    credential_last_rejection_reason = CASE WHEN $1::boolean THEN NULL ELSE account.credential_last_rejection_reason END,
     cooldown_until = $2::timestamp,
     updated_at = CURRENT_TIMESTAMP
 WHERE account.id = $3::uuid
@@ -828,6 +1175,9 @@ type UpdateModelRouterSubscriptionAccountStateParams struct {
 //	UPDATE router.model_router_subscription_accounts AS account
 //	SET enabled = $1::boolean,
 //	    health_state = CASE WHEN $1::boolean THEN 'unknown' ELSE 'disabled' END,
+//	    credential_rejection_count = CASE WHEN $1::boolean THEN 0 ELSE account.credential_rejection_count END,
+//	    credential_first_rejected_at = CASE WHEN $1::boolean THEN NULL ELSE account.credential_first_rejected_at END,
+//	    credential_last_rejection_reason = CASE WHEN $1::boolean THEN NULL ELSE account.credential_last_rejection_reason END,
 //	    cooldown_until = $2::timestamp,
 //	    updated_at = CURRENT_TIMESTAMP
 //	WHERE account.id = $3::uuid
@@ -862,6 +1212,9 @@ const updateModelRouterSubscriptionRefreshToken = `-- name: UpdateModelRouterSub
 UPDATE router.model_router_subscription_accounts
 SET refresh_token_ciphertext = $1::bytea,
     health_state = 'unknown',
+    credential_rejection_count = 0,
+    credential_first_rejected_at = NULL,
+    credential_last_rejection_reason = NULL,
     access_token_ciphertext = NULL,
     access_token_expires_at = NULL,
     token_refresh_lease_until = NULL,
@@ -885,6 +1238,9 @@ type UpdateModelRouterSubscriptionRefreshTokenParams struct {
 //	UPDATE router.model_router_subscription_accounts
 //	SET refresh_token_ciphertext = $1::bytea,
 //	    health_state = 'unknown',
+//	    credential_rejection_count = 0,
+//	    credential_first_rejected_at = NULL,
+//	    credential_last_rejection_reason = NULL,
 //	    access_token_ciphertext = NULL,
 //	    access_token_expires_at = NULL,
 //	    token_refresh_lease_until = NULL,
@@ -939,6 +1295,9 @@ adopted AS (
       cooldown_until = NULL,
       access_token_ciphertext = NULL,
       access_token_expires_at = NULL,
+      credential_rejection_count = 0,
+      credential_first_rejected_at = NULL,
+      credential_last_rejection_reason = NULL,
       token_refresh_lease_until = NULL,
       token_refresh_lease_id = NULL,
       token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
@@ -1050,6 +1409,9 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 //	      cooldown_until = NULL,
 //	      access_token_ciphertext = NULL,
 //	      access_token_expires_at = NULL,
+//	      credential_rejection_count = 0,
+//	      credential_first_rejected_at = NULL,
+//	      credential_last_rejection_reason = NULL,
 //	      token_refresh_lease_until = NULL,
 //	      token_refresh_lease_id = NULL,
 //	      token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,

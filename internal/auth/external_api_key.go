@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -32,13 +33,20 @@ type ExternalAPIKey struct {
 	// caller's email under on-behalf-of; empty forwards nothing.
 	BaggageHeader string
 	// AuthType is how Plaintext authenticates upstream; see AuthType* constants.
-	AuthType string
+	AuthType         AuthType
+	FederationConfig *AnthropicFederationConfig
+	// CredentialError marks a failed derived credential for this request only.
+	// It must never be persisted or replaced by a deployment credential.
+	CredentialError error
 	// AuthAccount and AuthUser identify the upstream principal; empty unless
 	// AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
 	AuthAccount string
 	AuthUser    string
-	CreatedAt   time.Time
-	LastUsedAt  *time.Time
+	// FundingPriority orders this key against the caller's subscription for
+	// the same provider; see FundingPriority*.
+	FundingPriority FundingPriority
+	CreatedAt       time.Time
+	LastUsedAt      *time.Time
 	// Plaintext is populated after decrypt; never logged.
 	Plaintext []byte
 }
@@ -60,24 +68,57 @@ type CreateExternalAPIKeyParams struct {
 	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough; nil forwards nothing.
 	ForwardedClientHeaders []string
 	BaggageHeader          *string
-	AuthType               string
+	FederationConfig       *AnthropicFederationConfig
+	AuthType               AuthType
 	// AuthAccount and AuthUser identify the upstream principal; empty unless
 	// AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
-	AuthAccount *string
-	AuthUser    *string
-	CreatedBy   *string
+	AuthAccount     *string
+	AuthUser        *string
+	FundingPriority FundingPriority
+	CreatedBy       *string
 }
 
-// AuthTypeBearer sends the secret verbatim; AuthTypeKeypairJWT signs a short-lived JWT with it;
-// AuthTypeWIF stores no secret and attests the router's own workload identity per request;
-// AuthTypeAzureEntra exchanges the secret for a short-lived Microsoft Entra bearer token.
+// FundingPriority orders a provider key against the caller's subscription
+// (Claude or ChatGPT plan) for the same provider.
+type FundingPriority string
+
 const (
-	AuthTypeBearer     = "bearer"
-	AuthTypeKeypairJWT = "keypair_jwt"
+	// FundingPriorityKeyFirst spends the key before any subscription, so a
+	// subscriber's turns bill to the key instead of their plan.
+	FundingPriorityKeyFirst FundingPriority = "key_first"
+	// FundingPriorityPlanFirst spends the key only when no subscription can
+	// serve the turn: a request from another provider's harness, or a plan
+	// that is suppressed or exhausted.
+	FundingPriorityPlanFirst FundingPriority = "plan_first"
+)
+
+// ErrInvalidFundingPriority is returned for any priority outside the FundingPriority constants; the admin API maps it to HTTP 400.
+var ErrInvalidFundingPriority = errors.New("funding priority must be key_first or plan_first")
+
+// NormalizeFundingPriority defaults an empty value to plan-first, the policy
+// for newly connected keys.
+func NormalizeFundingPriority(p FundingPriority) (FundingPriority, error) {
+	switch p {
+	case "", FundingPriorityPlanFirst:
+		return FundingPriorityPlanFirst, nil
+	case FundingPriorityKeyFirst:
+		return FundingPriorityKeyFirst, nil
+	}
+	return "", ErrInvalidFundingPriority
+}
+
+// AuthType selects how a stored provider credential authenticates upstream.
+type AuthType string
+
+const (
+	AuthTypeBearer     AuthType = "bearer"
+	AuthTypeKeypairJWT AuthType = "keypair_jwt"
 	// AuthTypeAzureEntra exchanges the stored client secret for a short-lived Entra token;
 	// AuthAccount is the tenant ID, AuthUser is the client ID.
-	AuthTypeAzureEntra = "azure_entra"
-	AuthTypeWIF        = "wif"
+	AuthTypeAzureEntra AuthType = "azure_entra"
+	AuthTypeWIF        AuthType = "wif"
+	// AuthTypeAnthropicWIF exchanges an OIDC assertion for a native Anthropic API token.
+	AuthTypeAnthropicWIF AuthType = "anthropic_wif"
 )
 
 // Identity header formats. IdentityFormatEmail sends the bare address;
@@ -368,8 +409,8 @@ const maxKeypairFieldLength = 255
 // NormalizeAuthType validates authType with its account/user pair. Empty defaults to bearer;
 // keypair_jwt uppercases principal fields; azure_entra preserves the tenant and client IDs;
 // wif accepts neither because the attestation names the principal.
-func NormalizeAuthType(authType string, account, user *string) (string, *string, *string, error) {
-	normalized := strings.ToLower(strings.TrimSpace(authType))
+func NormalizeAuthType(authType AuthType, account, user *string) (AuthType, *string, *string, error) {
+	normalized := AuthType(strings.ToLower(strings.TrimSpace(string(authType))))
 	// An account locator carries its region as dotted suffixes; the JWT claims
 	// want the bare locator. Org-qualified identifiers are hyphenated and unaffected.
 	upperAccount, _, _ := strings.Cut(strings.ToUpper(trimmedValue(account)), ".")
@@ -388,7 +429,7 @@ func NormalizeAuthType(authType string, account, user *string) (string, *string,
 		}
 		return normalized, &tenantID, &clientID, nil
 	}
-	if normalized == AuthTypeBearer || normalized == AuthTypeWIF {
+	if normalized == AuthTypeBearer || normalized == AuthTypeWIF || normalized == AuthTypeAnthropicWIF {
 		if upperAccount != "" || upperUser != "" {
 			return "", nil, nil, fmt.Errorf("%w: account and user apply to %s only", ErrInvalidKeypairAuth, AuthTypeKeypairJWT)
 		}
@@ -422,6 +463,10 @@ type ExternalAPIKeyRepository interface {
 	SoftDeleteByProvider(ctx context.Context, installationID, provider string) error
 	// UpdateModelAliases replaces one key's alias map, leaving the stored secret untouched.
 	UpdateModelAliases(ctx context.Context, installationID, id string, aliases map[string]string) (*ExternalAPIKey, error)
+	// UpdateFundingPriority sets one key's FundingPriority, leaving the stored secret untouched.
+	UpdateFundingPriority(ctx context.Context, installationID, id string, priority FundingPriority) (*ExternalAPIKey, error)
+	// ActiveFundingPriority returns "" when the provider has no active key.
+	ActiveFundingPriority(ctx context.Context, installationID, provider string) (FundingPriority, error)
 	SoftDelete(ctx context.Context, installationID, id string) error
 	MarkUsed(ctx context.Context, id string) error
 }

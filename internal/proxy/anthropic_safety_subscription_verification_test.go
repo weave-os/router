@@ -47,7 +47,7 @@ func TestVerificationNativeAnthropicSubscriptionPreferredToPaidAPI(t *testing.T)
 				keyed[providers.ProviderAnthropic] = struct{}{}
 			}
 			client := anthropic.NewClient(apiKey, server.URL)
-			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithDeploymentKeyedProviders(keyed)
+			svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithDeploymentKeyedProviders(keyed)
 			ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-subscription-token")
 			ctx = WithManagedSubscriptionUsage(ctx)
 			ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
@@ -74,7 +74,7 @@ func TestVerificationSuppressedInboundAnthropicOAuthNeverRelayed(t *testing.T) {
 	}))
 	defer server.Close()
 	client := anthropic.NewClient("", server.URL)
-	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithDeploymentKeyedProviders(map[string]struct{}{})
+	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithDeploymentKeyedProviders(map[string]struct{}{})
 	ctx := context.WithValue(WithManagedSubscriptionUsage(context.Background()), InstallationSubscriptionRoutingDisabledContextKey{}, true)
 	body := `{"model":"auto","max_tokens":100,"stream":true,"messages":[{"role":"user","content":"synthetic billing"}]}`
 	request := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(body))
@@ -112,7 +112,7 @@ func TestVerificationNativeAnthropicSubscriptionDelayedHeadersSucceed(t *testing
 	}))
 	defer server.Close()
 	client := anthropic.NewClientWithHeaderTimeouts("synthetic-api-key", server.URL, 30*time.Second, 30*time.Second)
-	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: client}, nil, nil, false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 	ctx, cancel := context.WithTimeout(context.WithValue(WithManagedSubscriptionUsage(context.Background()), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-subscription-token"), time.Minute)
 	defer cancel()
 	body := `{"model":"auto","max_tokens":1000,"stream":true,"messages":[{"role":"user","content":"synthetic delayed turn"}]}`

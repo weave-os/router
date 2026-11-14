@@ -64,6 +64,28 @@ func ParseAuthoritativeUpgradePolicy(raw string) (AuthoritativeUpgradePolicy, er
 	}
 }
 
+// EarlyStopRedoMode selects what happens when a downgraded model ends a Claude
+// Code tool-result turn without calling a tool.
+type EarlyStopRedoMode string
+
+const (
+	EarlyStopRedoOff    EarlyStopRedoMode = "off"
+	EarlyStopRedoShadow EarlyStopRedoMode = "shadow"
+	EarlyStopRedoOn     EarlyStopRedoMode = "on"
+)
+
+// ParseEarlyStopRedoMode validates the deployment/override value at the
+// configuration boundary.
+func ParseEarlyStopRedoMode(raw string) (EarlyStopRedoMode, error) {
+	mode := EarlyStopRedoMode(raw)
+	switch mode {
+	case EarlyStopRedoOff, EarlyStopRedoShadow, EarlyStopRedoOn:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("early stop redo mode must be off, shadow, or on, got %q", raw)
+	}
+}
+
 // Registered flag keys. Each corresponds to exactly one entry in Registry.
 const (
 	KeyEscalationActiveClassifier           Key = "escalation_active_classifier"
@@ -82,45 +104,54 @@ const (
 	KeyTextRepetitionBreak                  Key = "text_repetition_break_enabled"
 	KeyPlannerEnabled                       Key = "planner_enabled"
 	KeyScoreToolResultTurns                 Key = "score_tool_result_turns"
+	KeyHMMToolResultHold                    Key = "hmm_tool_result_hold"
 	KeyPrefixTrimFreeSwitch                 Key = "prefix_trim_free_switch"
 	KeyAuthoritativeUpgradeGate             Key = "authoritative_upgrade_gate"
 	KeyAuthoritativeUpgradePolicy           Key = "authoritative_upgrade_policy"
 	KeyAuthoritativeUpgradeHoldoutPct       Key = "authoritative_upgrade_holdout_pct"
 	KeyAuthoritativeUpgradeVotes            Key = "authoritative_upgrade_votes"
 	KeyAuthoritativeDowngradeGate           Key = "authoritative_downgrade_gate"
+	KeyAuthoritativeUpgradeSlidingThreshold Key = "authoritative_upgrade_sliding_threshold"
 	KeyHMMDowngradeHysteresisTurns          Key = "hmm_downgrade_hysteresis_turns"
 	KeyHMMDowngradeHysteresisShadowTurns    Key = "hmm_downgrade_hysteresis_shadow_turns"
 	KeyAuthorityCacheShadow                 Key = "authority_cache_shadow"
+	KeyAgreementShadowEpoch                 Key = "agreement_shadow_epoch"
 	KeySiblingFailover                      Key = "sibling_failover"
 	KeyEffortEscalation                     Key = "effort_escalation"
 	KeyCyberRefusalRepin                    Key = "cyber_refusal_repin"
 	KeyCyberRefusalRetry                    Key = "cyber_refusal_retry"
 	KeyCyberRefusalFallback                 Key = "cyber_refusal_fallback_model"
 	KeyAnthropicServerFallback              Key = "anthropic_server_side_fallback"
-	KeyEmbedOnlyUserMessage                 Key = "embed_only_user_message"
 	KeyOpenAIResponsesBroad                 Key = "openai_responses_broad"
 	KeyAllowedModelsHeader                  Key = "allowed_models_header"
 	KeyCCTaskToolsCrossVendor               Key = "cc_task_tools_crossvendor"
 	KeyCCAutonomySystemAppend               Key = "cc_autonomy_system_append"
+	KeyEarlyStopRedo                        Key = "early_stop_redo"
 	KeyCCWorkspaceSystemAppend              Key = "cc_workspace_system_append"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
+	KeyClaudeEnterpriseOnly                 Key = "claude_enterprise_only"
+	KeySubscriptionExhaustedOpenRouterOnly  Key = "subscription_exhausted_openrouter_only"
 	KeyCommittedStreamArmDemotion           Key = "committed_stream_arm_demotion"
 	KeyRescuedFailureArmDemotion            Key = "rescued_failure_arm_demotion"
 	KeyTransientRateLimit                   Key = "transient_rate_limit"
 	KeyRateLimitCooldownSeconds             Key = "rate_limit_cooldown_seconds"
+	KeyProviderOverloaded                   Key = "provider_overloaded"
 	KeyNativeAnthropicResponseSignals       Key = "native_anthropic_response_signals"
 	KeyNativeOpenAIResponseSignals          Key = "native_openai_response_signals"
+	KeyPlanUserClusterLists                 Key = "plan_user_cluster_lists"
 )
 
-// These keys were valid organization overrides before struggle escalation was
-// removed. Keep them parse-only so an installation row written by an older
-// revision cannot invalidate unrelated active overrides during a rolling
+// These keys were valid organization overrides before their respective flags
+// were retired. Keep them parse-only so an installation row written by an
+// older revision cannot invalidate unrelated active overrides during a rolling
 // deploy. They are never registered, published, or read by routing code.
 const (
 	retiredKeyStruggleEscalationEnabled Key = "struggle_escalation_enabled"
 	retiredKeyStruggleEscalationHoldout Key = "struggle_escalation_holdout_pct"
 	retiredKeyStruggleEvidenceArming    Key = "struggle_evidence_arming"
 	retiredKeySubscriberPaidFallback    Key = "subscriber_paid_fallback_enabled"
+	retiredKeySubscriptionPoolQuota     Key = "subscription_pool_quota_aware_selection_enabled"
+	retiredKeyEmbedOnlyUserMessage      Key = "embed_only_user_message"
 )
 
 var retiredOverrideKeys = map[Key]struct{}{
@@ -128,6 +159,8 @@ var retiredOverrideKeys = map[Key]struct{}{
 	retiredKeyStruggleEscalationHoldout: {},
 	retiredKeyStruggleEvidenceArming:    {},
 	retiredKeySubscriberPaidFallback:    {},
+	retiredKeySubscriptionPoolQuota:     {},
+	retiredKeyEmbedOnlyUserMessage:      {},
 }
 
 // Definition describes one overridable flag. DeploymentDefault is not stored
@@ -148,7 +181,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 22
+const RegistryVersion = 30
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -165,9 +198,27 @@ var Registry = []Definition{
 	{Key: KeyEscalationXGBoostShadowMarkerEnabled, Kind: KindBool, Description: "Show positive shadow escalation notices in assistant responses. Off by default.", OrgOverridable: true},
 	{Key: KeyEscalationXGBoostEpoch, Kind: KindInt, Description: "Observation generation; increment before enabling or resetting escalation.", OrgOverridable: true},
 	{
+		Key:            KeyClaudeEnterpriseOnly,
+		Kind:           KindBool,
+		Description:    "Keep provider-verified Claude Enterprise subscriptions on their own billing, including authorized overage, without Weave-credit fallback. Pro, Max, Team and unknown plans are never classified as Enterprise by this flag. Explicit BYOK and disabled subscription routing retain precedence.",
+		OrgOverridable: true,
+	},
+	{
 		Key:            KeySubscriptionPlanAwareRouting,
 		Kind:           KindBool,
 		Description:    "Avoid models covered only by exhausted Claude/Codex plans while another plan has headroom. Off by default; ignored when subscription routing is disabled.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeySubscriptionExhaustedOpenRouterOnly,
+		Kind:           KindBool,
+		Description:    "Serve Claude/Codex subscriptions until exhausted, then only the OpenRouter version of the exhausted-state models (all OpenRouter-served models when none are configured). Never falls back to direct Anthropic/OpenAI API keys. Off by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyPlanUserClusterLists,
+		Kind:           KindBool,
+		Description:    "Honor each member's own per-tier model selection: apply it on Max plan requests (the installation's key-scoped tier lists stay ignored), and serve a selected model on paid capacity when no linked subscription can serve it instead of swapping it for a covered model. Off by default.",
 		OrgOverridable: true,
 	},
 	{
@@ -226,6 +277,14 @@ var Registry = []Definition{
 		Description:    "Re-score tool-result turns instead of following the session pin.",
 		OrgOverridable: true,
 	},
+	// Router policy owns this eval control; promote or remove it after the
+	// escalation benchmark comparison.
+	{
+		Key:            KeyHMMToolResultHold,
+		Kind:           KindBool,
+		Description:    "Hold the user turn's first policy pick across its tool-result turns unless escalation constrains the request.",
+		OrgOverridable: true,
+	},
 	{
 		Key:            KeyPrefixTrimFreeSwitch,
 		EnvVar:         "ROUTER_PREFIX_TRIM_FREE_SWITCH",
@@ -269,10 +328,17 @@ var Registry = []Definition{
 		OrgOverridable: true,
 	},
 	{
+		Key:            KeyAuthoritativeUpgradeSlidingThreshold,
+		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD",
+		Kind:           KindBool,
+		Description:    "Upgrade a session pin by probability bands that bypass the confidence floor: from low/medium, maximum at 0.3-0.5 serves high and >=0.5 maximum; from low, high at 0.3-0.5 serves medium and >=0.5 high, medium >=0.3 serves medium; from medium, high needs >=0.4; from high, maximum needs >=0.5. Below a band the existing upgrade gates decide. Off by default.",
+		OrgOverridable: true,
+	},
+	{
 		Key:            KeyHMMDowngradeHysteresisTurns,
 		EnvVar:         "ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS",
 		Kind:           KindInt,
-		Description:    "Consecutive authoritative-per-turn classifier votes for a cheaper-than-pin model required before the downgrade is applied. 0 (default) downgrades on the first vote; 3 is the value a rollout would start from.",
+		Description:    "Consecutive authoritative-per-turn classifier votes for a cheaper-than-pin model required before the downgrade is applied. 2 by default; 0 downgrades on the first vote.",
 		OrgOverridable: true,
 	},
 	{
@@ -287,6 +353,12 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_AUTHORITY_CACHE_SHADOW",
 		Kind:           KindBool,
 		Description:    "Record the HMM cache gate's counterfactual verdict on authoritative-per-turn turns. Observation only; never changes what is served.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyAgreementShadowEpoch,
+		Kind:           KindInt,
+		Description:    "Observation-only internal agreement comparison: 0 disables; choose a fresh positive epoch for each activation/resumption. Compares 1-up/5-down with 2-up/5-down without affecting serving.",
 		OrgOverridable: true,
 	},
 	{
@@ -332,13 +404,6 @@ var Registry = []Definition{
 		OrgOverridable: true,
 	},
 	{
-		Key:            KeyEmbedOnlyUserMessage,
-		EnvVar:         "ROUTER_EMBED_ONLY_USER_MESSAGE",
-		Kind:           KindBool,
-		Description:    "Embed user-role text only, instead of the concatenated stream.",
-		OrgOverridable: true,
-	},
-	{
 		Key:            KeyOpenAIResponsesBroad,
 		EnvVar:         "ROUTER_OPENAI_RESPONSES_BROAD",
 		Kind:           KindBool,
@@ -357,6 +422,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_CC_AUTONOMY_SYSTEM_APPEND",
 		Kind:           KindBool,
 		Description:    "Append a non-interactive operating instruction to the system prompt of Claude Code / Agent SDK main-loop and tool-result turns, whatever model serves them. Off by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyEarlyStopRedo,
+		EnvVar:         "ROUTER_EARLY_STOP_REDO",
+		Kind:           KindString,
+		Description:    "When a Claude Code tool-result turn served below the top tier of its candidates ends without a tool call: off, shadow (log only), or on (re-serve it on the highest-tier candidate before the client sees it).",
 		OrgOverridable: true,
 	},
 	{
@@ -392,6 +464,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_RATE_LIMIT_COOLDOWN_SECONDS",
 		Kind:           KindInt,
 		Description:    "Seconds a model stays out of a session's automatic selection after a rescued 429 while transient_rate_limit is on. Default 45.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyProviderOverloaded,
+		EnvVar:         "ROUTER_PROVIDER_OVERLOADED",
+		Kind:           KindBool,
+		Description:    "Per-model 529 circuit breaker: provider overloaded responses from every organization open a shared circuit, which withdraws the model from automatic selection only for organizations that have each observed overloads themselves; traffic through an organization's own gateway gets an isolated circuit. Probed again after a backoff. On by default; kill switch for the breaker.",
 		OrgOverridable: true,
 	},
 	{
@@ -517,7 +596,7 @@ func ValidateOverrides(o Overrides) error {
 				return fmt.Errorf("%w: %q must be between 0 and 100, got %d", ErrInvalidValue, key, value)
 			}
 		}
-		if key == KeyAuthoritativeUpgradeVotes && value < 0 {
+		if (key == KeyAuthoritativeUpgradeVotes || key == KeyAgreementShadowEpoch) && value < 0 {
 			return fmt.Errorf("%w: %q must be nonnegative, got %d", ErrInvalidValue, key, value)
 		}
 		if key == KeyRateLimitCooldownSeconds && value < 1 {

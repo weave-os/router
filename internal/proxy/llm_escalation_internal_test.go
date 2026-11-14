@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -25,6 +27,7 @@ type llmEscalationStoreStub struct {
 	mu                sync.Mutex
 	completion        llmescalation.Completion
 	finished          chan struct{}
+	finishedJob       llmescalation.Job
 	judgment          llmescalation.Judgment
 	failure           llmescalation.FailureCode
 	applyCalls        int
@@ -42,9 +45,9 @@ func (s *llmEscalationStoreStub) Complete(_ context.Context, request llmescalati
 	s.completionRequest = request
 	return s.completion, nil
 }
-func (s *llmEscalationStoreStub) FinishJob(_ context.Context, _ llmescalation.Job, judgment llmescalation.Judgment, failure llmescalation.FailureCode) error {
+func (s *llmEscalationStoreStub) FinishJob(_ context.Context, job llmescalation.Job, judgment llmescalation.Judgment, failure llmescalation.FailureCode) error {
 	s.mu.Lock()
-	s.judgment, s.failure = judgment, failure
+	s.finishedJob, s.judgment, s.failure = job, judgment, failure
 	s.mu.Unlock()
 	close(s.finished)
 	return nil
@@ -109,7 +112,7 @@ func (j *blockingEscalationJudge) Judge(_ context.Context, request llmescalation
 func TestLLMEscalationJudgeRunsAfterCompletionWithoutBlocking(t *testing.T) {
 	job := llmescalation.Job{ID: "job-1", Lifetime: "life-1", Checkpoint: 3, Model: policy.EscalationJudgeModel, Provider: providers.ProviderFireworks}
 	store := &llmEscalationStoreStub{completion: llmescalation.Completion{Job: &job}, finished: make(chan struct{})}
-	judge := &blockingEscalationJudge{started: make(chan llmescalation.JudgeRequest, 1), release: make(chan struct{}), judgment: llmescalation.Judgment{Escalate: true, Reason: "loop"}}
+	judge := &blockingEscalationJudge{started: make(chan llmescalation.JudgeRequest, 1), release: make(chan struct{}), judgment: llmescalation.Judgment{Escalate: true, Reason: "loop", Release: &llmescalation.ServedRelease{Name: "qwen-escalation-v1.1.0", ModelSHA256: strings.Repeat("a", 64)}}}
 	service := (&Service{}).WithLLMEscalation(store, judge)
 	turn := &llmEscalationTurn{
 		requestID:   "request-3",
@@ -136,10 +139,12 @@ func TestLLMEscalationJudgeRunsAfterCompletionWithoutBlocking(t *testing.T) {
 	require.True(t, store.judgment.Escalate)
 	require.Empty(t, store.judgment.Reason, "rationale is content and capture is disabled")
 	require.Equal(t, llmescalation.FailureNone, store.failure)
+	require.Equal(t, "qwen-escalation-v1.1.0", store.finishedJob.Model, "persistence and telemetry see the release that served the verdict")
+	require.Equal(t, strings.Repeat("a", 64), store.finishedJob.ModelSHA256)
 }
 
 func TestQwenEscalationUsesFiveTurnIntervalAndModalJudge(t *testing.T) {
-	job := llmescalation.Job{ID: "qwen-job", Lifetime: "qwen-life", Checkpoint: 12, Model: llmescalation.QwenReleaseName, Provider: llmescalation.QwenProvider}
+	job := llmescalation.Job{ID: "qwen-job", Lifetime: "qwen-life", Checkpoint: 12, Model: "qwen-escalation-v1.0.0", Provider: llmescalation.QwenProvider}
 	store := &llmEscalationStoreStub{completion: llmescalation.Completion{Job: &job}, finished: make(chan struct{})}
 	switchyard := &blockingEscalationJudge{started: make(chan llmescalation.JudgeRequest, 1), release: make(chan struct{})}
 	qwen := &blockingEscalationJudge{started: make(chan llmescalation.JudgeRequest, 1), release: make(chan struct{}), judgment: llmescalation.Judgment{Escalate: true}}
@@ -254,6 +259,72 @@ func TestQwenEscalationDoesNotRequireSwitchyardActiveRollout(t *testing.T) {
 	require.True(t, turn.active)
 }
 
+func TestQwenEscalationReadsCodexToolOutcomesFromNativeResponses(t *testing.T) {
+	configuration := &escalationConfigurationStub{selection: llmescalation.Selection{InstallationID: "installation", Epoch: 2}}
+	service := (&Service{}).
+		WithLLMEscalation(&llmEscalationStoreStub{}, nil).
+		WithQwenEscalation(&blockingEscalationJudge{}).
+		WithEscalationConfiguration(configuration, nil, false)
+	_, err := service.UpdateEscalationSelection(context.Background(), "installation", llmescalation.SelectionUpdate{Active: flags.EscalationClassifierLLM, Cadence: 3, Epoch: 2})
+	require.NoError(t, err)
+	overrides := flags.Overrides{Strings: map[flags.Key]string{
+		flags.KeyEscalationActiveClassifier: string(flags.EscalationClassifierLLM),
+	}}
+	native := []byte(`{"model":"gpt-5","input":[{"role":"user","content":"start"}]}`)
+	env, err := translate.ParseOpenAI([]byte(`{"model":"gpt-5","messages":[{"role":"user","content":"start"}]}`))
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name  string
+		app   string
+		codex bool
+	}{
+		{name: "codex", app: ClientAppCodex, codex: true},
+		{name: "other client", app: ClientAppClaudeCode, codex: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), overrides)
+			ctx = context.WithValue(ctx, nativeResponsesBodyContextKey{}, native)
+			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: tc.app})
+			requestResult := turnLoopResult{Strategy: router.StrategyHMMEmbedding, InstallationID: uuid.New(), TurnType: turntype.MainLoop}
+			turn := service.beginLLMEscalation(ctx, env, router.Request{}, &requestResult, "test-key")
+			require.NotNil(t, turn)
+			require.Equal(t, tc.codex, turn.observation.CodexToolResults)
+		})
+	}
+}
+
+func TestQwenEscalationSkipsHarnessSideRequests(t *testing.T) {
+	service := (&Service{}).
+		WithLLMEscalation(&llmEscalationStoreStub{}, nil).
+		WithQwenEscalation(&blockingEscalationJudge{}).
+		WithEscalationConfiguration(nil, nil, false)
+	overrides := flags.Overrides{Strings: map[flags.Key]string{
+		flags.KeyEscalationActiveClassifier: string(flags.EscalationClassifierLLM),
+	}}
+	suggestion, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5-5","messages":[{"role":"user","content":"fix it"},{"role":"assistant","content":"done"},{"role":"user","content":"[SUGGESTION MODE: Suggest what the user might naturally type next into Claude Code.]"}]}`))
+	require.NoError(t, err)
+	review, err := translate.ParseOpenAI([]byte(`{"model":"gpt-5","messages":[{"role":"user","content":"The following is the Codex agent history"}]}`))
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name   string
+		env    *translate.RequestEnvelope
+		native []byte
+	}{
+		{name: "claude code prompt suggestion", env: suggestion},
+		{name: "codex auto review", env: review, native: []byte(`{"model":"codex-auto-review","input":[{"role":"user","content":"The following is the Codex agent history"}]}`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), overrides)
+			if tc.native != nil {
+				ctx = context.WithValue(ctx, nativeResponsesBodyContextKey{}, tc.native)
+			}
+			requestResult := turnLoopResult{Strategy: router.StrategyHMMEmbedding, InstallationID: uuid.New(), TurnType: turntype.MainLoop}
+			require.Nil(t, service.beginLLMEscalation(ctx, tc.env, router.Request{}, &requestResult, "test-key"))
+		})
+	}
+}
+
 func TestSwitchyardEscalationReadinessReflectsDisabledRollout(t *testing.T) {
 	configuration := &escalationConfigurationStub{selection: llmescalation.Selection{InstallationID: "installation", Active: flags.EscalationClassifierSwitchyard}}
 	service := (&Service{}).
@@ -293,6 +364,47 @@ func TestQwenEscalationRecordsUnavailableIntervalSeparatelyFromCapacity(t *testi
 	require.Equal(t, 1, store.completeCalls)
 	require.Equal(t, llmescalation.FailureIntervalUnavailable, store.completionRequest.IntervalFailure)
 	require.False(t, store.completionRequest.Capacity)
+}
+
+func TestLLMEscalationSkipsCheckpointsUntilAgentActsOnLatestPrompt(t *testing.T) {
+	prompt := func(text string) translate.EscalationMessage {
+		return translate.EscalationMessage{Role: translate.EscalationRoleUser, Blocks: []translate.EscalationBlock{{Type: translate.EscalationBlockText, Text: text}}}
+	}
+	toolResult := translate.EscalationMessage{Role: translate.EscalationRoleUser, Blocks: []translate.EscalationBlock{{Type: translate.EscalationBlockToolResult, ContentJSON: `"ok"`}}}
+	act := translate.EscalationMessage{Role: translate.EscalationRoleAssistant, Blocks: []translate.EscalationBlock{{Type: translate.EscalationBlockToolCall, Name: "Bash", ArgumentsJSON: `{"command":"make test"}`}}}
+	history := []translate.EscalationMessage{prompt("fix the build"), act}
+	for range 10 {
+		history = append(history, toolResult, act)
+	}
+	const toolCallResponse = `{"id":"response","content":[{"type":"tool_use","id":"call","name":"Bash","input":{"command":"make test"}}],"stop_reason":"tool_use"}`
+
+	for _, tc := range []struct {
+		name    string
+		latest  translate.EscalationMessage
+		served  string
+		failure llmescalation.FailureCode
+	}{
+		{name: "new prompt", latest: prompt("use the staging config instead"), failure: llmescalation.FailureRecentUserPrompt},
+		{name: "tool loop", latest: toolResult, failure: llmescalation.FailureNone},
+		{name: "tool loop below escalation target", latest: toolResult, served: "gpt-5.6-luna", failure: llmescalation.FailureNone},
+		{name: "tool loop on escalation target", latest: toolResult, served: "gpt-6.1-sol", failure: llmescalation.FailureServedTarget},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &llmEscalationStoreStub{}
+			service := (&Service{}).WithLLMEscalation(store, nil).WithQwenEscalation(&blockingEscalationJudge{})
+			turn := &llmEscalationTurn{
+				observation: translate.EscalationObservation{Messages: append(slices.Clone(history), tc.latest)},
+				session:     llmescalation.Session{CompletedTurns: 11, Config: llmescalation.Config{Cadence: 3, Classifier: flags.EscalationClassifierLLM}},
+			}
+			capture := newCaptureWriter(httptest.NewRecorder(), escalationHistoryMaxBytes)
+			_, err := capture.Write([]byte(toolCallResponse))
+			require.NoError(t, err)
+			ctx := context.WithValue(context.Background(), ClusterModelListsContextKey{}, map[string][]string{escalation.TargetClusterLabel: {"gpt-6.1-sol"}})
+			service.completeLLMEscalation(ctx, turnLoopResult{llmEscalation: turn, Decision: router.Decision{Model: tc.served}}, nil, capture, translate.EscalationResponseAnthropic)
+			require.Equal(t, 1, store.completeCalls)
+			require.Equal(t, tc.failure, store.completionRequest.IntervalFailure)
+		})
+	}
 }
 
 func TestLLMEscalationActiveRolloutGateAppliesToRequestOverrides(t *testing.T) {

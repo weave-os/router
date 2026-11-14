@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/sessionstrategy"
+	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -66,7 +67,7 @@ func betaArtifactHistoryFromContext(ctx context.Context) bool {
 
 func internalBetaSession(ctx context.Context) bool {
 	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
-	return managed && identity.Target == string(policyregistry.TargetInternal) && identity.ReleaseID != "" && identity.BindingID != "" && identity.CredentialIdentity != ""
+	return managed && policyregistry.ExperimentalRoutingModelsPermitted(policyregistry.ServingTarget(identity.Target), entitlement.Plan(identity.Plan)) && identity.ReleaseID != "" && identity.BindingID != "" && identity.CredentialIdentity != ""
 }
 
 // WithSessionStrategyStore wires durable per-session routing preferences.
@@ -83,6 +84,9 @@ func (s *Service) applySessionStrategy(
 	installationID uuid.UUID,
 	preferenceKey [sessionpin.SessionKeyLen]byte,
 ) (context.Context, error) {
+	if _, selected := router.RoutingModelFromContext(ctx); selected {
+		return ctx, nil
+	}
 	if router.StrategyFromContext(ctx) == router.StrategyLLMClassifier {
 		return ctx, nil
 	}
@@ -118,10 +122,10 @@ func (s *Service) handleBetaCommand(
 	preferenceKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {
-	strategy := cmd.Strategy
-	if strategy == "" {
-		strategy = router.StrategyHMMBeta
+	if _, selected := router.RoutingModelFromContext(ctx); selected {
+		return writeBetaCommandResponse(w, env, fmt.Sprintf("Select a router with `wv router set-model %s`, `wv router set-model %s`, `wv router set-model %s`, `wv router set-model %s`, or `wv router set-model %s`, then start a new session.", router.ModelHMM, router.ModelHMMBeta, router.ModelQwen, router.ModelDecision, router.ModelAutomatic), inputTokens)
 	}
+	strategy := cmd.Strategy
 	enabledMessage, disabledMessage, usageMessage, unavailableMessage := betaEnabledMessage, betaDisabledMessage, betaUsageMessage, betaUnavailable
 	if strategy == router.StrategyHMMQwen {
 		enabledMessage, disabledMessage, usageMessage, unavailableMessage = qwenEnabledMessage, qwenDisabledMessage, qwenUsageMessage, qwenUnavailable

@@ -1304,7 +1304,7 @@ func TestCrossFormat_OpenAIToAnthropic_ScalarFieldsCarriedThrough(t *testing.T) 
 	assert.Equal(t, []any{"STOP", "END"}, seqs)
 }
 
-func TestCrossFormat_OpenAIToAnthropic_ReasoningTargetOmitsTemperature(t *testing.T) {
+func TestCrossFormat_OpenAIToAnthropic_FableOmitsSamplingParams(t *testing.T) {
 	body := []byte(`{
 		"model":"gpt-6-luna",
 		"messages":[{"role":"user","content":"hi"}],
@@ -1322,11 +1322,11 @@ func TestCrossFormat_OpenAIToAnthropic_ReasoningTargetOmitsTemperature(t *testin
 
 	doc := unmarshalBody(t, prep.Body)
 	assert.NotContains(t, doc, "temperature")
-	assert.Equal(t, float64(0.8), doc["top_p"], "Fable still accepts top_p")
-	assert.Equal(t, float64(12), doc["top_k"], "Anthropic-specific top_k remains available")
+	assert.NotContains(t, doc, "top_p")
+	assert.NotContains(t, doc, "top_k")
 }
 
-func TestCrossFormat_AnthropicToAnthropic_UnsupportedTemperatureIsOmitted(t *testing.T) {
+func TestCrossFormat_AnthropicToAnthropic_FableOmitsSamplingParams(t *testing.T) {
 	body := []byte(`{
 		"model":"claude-fable-5-1",
 		"messages":[{"role":"user","content":"hi"}],
@@ -1344,8 +1344,8 @@ func TestCrossFormat_AnthropicToAnthropic_UnsupportedTemperatureIsOmitted(t *tes
 
 	doc := unmarshalBody(t, prep.Body)
 	assert.NotContains(t, doc, "temperature")
-	assert.Equal(t, float64(0.8), doc["top_p"])
-	assert.Equal(t, float64(12), doc["top_k"])
+	assert.NotContains(t, doc, "top_p")
+	assert.NotContains(t, doc, "top_k")
 }
 
 func TestCrossFormat_AnthropicToOpenAI_ScalarFieldsCarriedThrough(t *testing.T) {

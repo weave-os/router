@@ -146,7 +146,8 @@ func TestSessionStrategyRepoToggleAcceptsBetaClassifiers(t *testing.T) {
 		Strategy:       router.StrategyHMMQwen,
 	})
 	require.NoError(t, err)
-	assert.True(t, enabled, "selecting a different beta changes the active classifier")
+	assert.True(t, enabled)
+	assert.Equal(t, []any{installationID, key[:], string(router.StrategyHMMQwen)}, db.rowArgs, "the switch must write the newly selected classifier")
 }
 
 func TestSessionStrategyRepoDisableReportsWhetherBetaWasOn(t *testing.T) {
@@ -200,12 +201,12 @@ func TestSessionPinMutationsCarryExpectedRoutingStrategy(t *testing.T) {
 	repo := NewSessionPinRepo(db)
 	ctx := context.Background()
 
-	_, ok, err := repo.Consume(ctx, key, "default", router.StrategyCluster)
+	_, ok, err := repo.Consume(ctx, key, "default", router.StrategyHMMEmbedding)
 	require.NoError(t, err)
 	assert.False(t, ok)
 	assert.Contains(t, db.rowQuery, "routing_strategy = ''")
 	assert.Contains(t, db.rowQuery, unscopedPinExclusions)
-	assert.Equal(t, []any{key[:], "default", string(router.StrategyCluster)}, db.rowArgs)
+	assert.Equal(t, []any{key[:], "default", string(router.StrategyHMMEmbedding)}, db.rowArgs)
 
 	_, ok, err = repo.Consume(ctx, key, "default", router.StrategyHMMBeta)
 	require.NoError(t, err)

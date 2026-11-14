@@ -28,7 +28,7 @@ func demotionTurnLoopEnv(t *testing.T) (*translate.RequestEnvelope, translate.Ro
 		[]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
 	)
 	require.NoError(t, err)
-	return env, env.RoutingFeatures(false)
+	return env, env.RoutingFeatures()
 }
 
 func runDemotionTurnLoop(t *testing.T, svc *Service, ctx context.Context) turnLoopResult {
@@ -79,7 +79,7 @@ func TestTurnLoopExcludesDemotedModelUnderAuthoritativePolicy(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "arm-demotion-authoritative-test_policy",
 	}}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
@@ -109,7 +109,7 @@ func TestTurnLoopDropsDemotedPinOnScorerPath(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := NewService(scorer, nil, nil, false, nil, store, false,
+	svc := NewService(scorer, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	res := runDemotionTurnLoop(t, svc, context.Background())
@@ -132,7 +132,7 @@ func TestTurnLoopHonoursDemotionRecordedOnHMMHistory(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := NewService(scorer, nil, nil, false, nil, store, false,
+	svc := NewService(scorer, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	res := runDemotionTurnLoop(t, svc, context.Background())
@@ -153,7 +153,7 @@ func TestTurnLoopKeepsForcedModelDespiteDemotion(t *testing.T) {
 		Model:    freshTurnModel,
 		Reason:   "cluster:v0.2",
 	}}
-	svc := NewService(scorer, nil, nil, false, nil, store, false,
+	svc := NewService(scorer, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	res := runDemotionTurnLoop(t, svc, context.Background())
