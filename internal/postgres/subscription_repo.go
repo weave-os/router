@@ -311,6 +311,7 @@ func (r *subscriptionAccountRepo) GetSubscriptionCredentialRecord(ctx context.Co
 		AccessTokenCiphertext:  row.AccessTokenCiphertext,
 		AccessTokenExpiresAt:   timestampPtr(row.AccessTokenExpiresAt),
 		TokenRefreshVersion:    row.TokenRefreshVersion,
+		QuotaResetGeneration:   row.QuotaResetGeneration,
 		TokenRefreshLeaseID:    leaseID,
 		Enabled:                row.Enabled,
 		State:                  auth.SubscriptionAccountState(row.HealthState),

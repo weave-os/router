@@ -99,6 +99,7 @@ func (s *memoryResetStore) RecoverCodexAccount(_ context.Context, claim subscrip
 	for _, account := range s.accounts.accounts {
 		if account.ID == accountID && account.Enabled {
 			account.State, account.CooldownUntil = auth.SubscriptionAccountStateActive, nil
+			account.QuotaResetGeneration++
 			if s.claim.AccountID == accountID {
 				s.claim.AccountID, s.claim.CreditID, s.claim.RequestID = "", "", ""
 			}
@@ -369,4 +370,16 @@ func TestCodexResetKeepsResumedSelectionWhenAdmissionFails(t *testing.T) {
 	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
 	require.Empty(t, provider.redemptions)
 	require.Equal(t, "earliest", store.claim.CreditID, "a possibly sent redemption keeps its credit and key")
+}
+
+func (s *memoryResetStore) RecordCodexExhaustion(_ context.Context, owner auth.SubscriptionOwner, lease subscriptions.Lease, resetAt time.Time) (bool, error) {
+	s.accounts.mu.Lock()
+	defer s.accounts.mu.Unlock()
+	for _, account := range s.accounts.accounts {
+		if account.ID == lease.AccountID && account.SubscriberID == owner.SubscriberID && account.Enabled && account.QuotaResetGeneration == lease.QuotaResetGeneration {
+			account.State, account.CooldownUntil = auth.SubscriptionAccountStateExhausted, &resetAt
+			return true, nil
+		}
+	}
+	return false, nil
 }

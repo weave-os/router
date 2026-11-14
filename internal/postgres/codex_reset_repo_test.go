@@ -15,7 +15,7 @@ import (
 )
 
 type resetAccountHealthRepository interface {
-	UpdateSubscriptionAccountHealth(context.Context, string, auth.SubscriptionOwner, auth.SubscriptionAccountState, bool, *time.Time) error
+	UpdateSubscriptionAccountHealth(context.Context, string, auth.SubscriptionOwner, auth.SubscriptionAccountState, bool, *time.Time) (bool, error)
 }
 
 func resetAccountFixture(t *testing.T, fixture subscriptionFixture) (auth.SubscriptionOwner, *auth.SubscriptionAccount) {
@@ -27,7 +27,8 @@ func resetAccountFixture(t *testing.T, fixture subscriptionFixture) (auth.Subscr
 	})
 	require.NoError(t, err)
 	resetAt := time.Now().Add(time.Hour)
-	require.NoError(t, repo.(resetAccountHealthRepository).UpdateSubscriptionAccountHealth(context.Background(), account.ID, owner, auth.SubscriptionAccountStateExhausted, true, &resetAt))
+	_, err = repo.(resetAccountHealthRepository).UpdateSubscriptionAccountHealth(context.Background(), account.ID, owner, auth.SubscriptionAccountStateExhausted, true, &resetAt)
+	require.NoError(t, err)
 	return owner, account
 }
 
@@ -89,12 +90,50 @@ func TestCodexResetStoreRejectsForeignAndDisabledAccounts(t *testing.T) {
 	claim.AccountID, claim.CreditID, claim.RequestID = account.ID, "own-credit", uuid.NewString()
 	require.NoError(t, store.SelectCodexReset(ctx, claim))
 	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
-	require.NoError(t, repo.(resetAccountHealthRepository).UpdateSubscriptionAccountHealth(ctx, account.ID, owner, auth.SubscriptionAccountStateDisabled, false, nil))
+	_, err = repo.(resetAccountHealthRepository).UpdateSubscriptionAccountHealth(ctx, account.ID, owner, auth.SubscriptionAccountStateDisabled, false, nil)
+	require.NoError(t, err)
 	require.ErrorIs(t, store.RecoverCodexAccount(ctx, claim, account.ID), subscriptions.ErrResetClaimLost)
 	after, err := repo.GetSubscriptionCredentialRecord(ctx, account.ID, owner)
 	require.NoError(t, err)
 	require.False(t, after.Enabled)
 	require.Equal(t, auth.SubscriptionAccountStateDisabled, after.State)
+}
+
+func TestCodexResetStoreRecoveryGenerationFencesLateExhaustion(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	owner, account := resetAccountFixture(t, fixture)
+	store := postgres.NewCodexResetStore(fixture.pool)
+	ctx := context.Background()
+	claim, acquired, err := store.AcquireCodexReset(ctx, owner.SubscriberID, uuid.NewString(), time.Minute)
+	require.NoError(t, err)
+	require.True(t, acquired)
+	old := subscriptions.Lease{AccountID: account.ID}
+	resetAt := time.Now().Add(time.Hour)
+	applied, err := store.RecordCodexExhaustion(ctx, owner, old, resetAt)
+	require.NoError(t, err)
+	require.True(t, applied)
+	require.NoError(t, store.RecoverCodexAccount(ctx, claim, account.ID))
+	applied, err = store.RecordCodexExhaustion(ctx, owner, old, resetAt)
+	require.NoError(t, err)
+	require.False(t, applied, "a lease from before recovery cannot overwrite the newer generation")
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+	recovered, err := repo.GetSubscriptionCredentialRecord(ctx, account.ID, owner)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), recovered.QuotaResetGeneration)
+	require.Equal(t, auth.SubscriptionAccountStateActive, recovered.State)
+	require.Nil(t, recovered.CooldownUntil)
+	candidates, err := repo.(interface {
+		ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
+	}).ListSubscriptionCandidates(ctx, owner)
+	require.NoError(t, err)
+	require.Len(t, candidates, 1)
+	require.Equal(t, recovered.QuotaResetGeneration, candidates[0].QuotaResetGeneration, "the candidate reader must expose recovery to other replicas")
+	current := old
+	current.QuotaResetGeneration = recovered.QuotaResetGeneration
+	applied, err = store.RecordCodexExhaustion(ctx, owner, current, resetAt)
+	require.NoError(t, err)
+	require.True(t, applied, "a post-recovery provider failure is still authoritative")
+	require.NoError(t, store.ReleaseCodexReset(ctx, claim))
 }
 
 func TestCodexResetStoreConcurrentAcquisitionAndCrashTakeover(t *testing.T) {

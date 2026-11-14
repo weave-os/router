@@ -12,6 +12,47 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const updateCodexExhaustionForGeneration = `-- name: UpdateCodexExhaustionForGeneration :execrows
+UPDATE router.model_router_subscription_accounts
+SET health_state = 'exhausted',
+    cooldown_until = GREATEST(cooldown_until, $1::timestamp),
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2::uuid AND subscriber_id = $3::uuid
+  AND provider = 'codex' AND enabled
+  AND health_state IN ('active', 'unknown', 'cooldown', 'exhausted')
+  AND quota_reset_generation = $4::bigint
+`
+
+type UpdateCodexExhaustionForGenerationParams struct {
+	ResetAt              pgtype.Timestamp
+	AccountID            uuid.UUID
+	SubscriberID         uuid.UUID
+	QuotaResetGeneration int64
+}
+
+// Ignore exhaustion from a lease issued before the latest verified recovery.
+//
+//	UPDATE router.model_router_subscription_accounts
+//	SET health_state = 'exhausted',
+//	    cooldown_until = GREATEST(cooldown_until, $1::timestamp),
+//	    updated_at = CURRENT_TIMESTAMP
+//	WHERE id = $2::uuid AND subscriber_id = $3::uuid
+//	  AND provider = 'codex' AND enabled
+//	  AND health_state IN ('active', 'unknown', 'cooldown', 'exhausted')
+//	  AND quota_reset_generation = $4::bigint
+func (q *Queries) UpdateCodexExhaustionForGeneration(ctx context.Context, arg UpdateCodexExhaustionForGenerationParams) (int64, error) {
+	result, err := q.db.Exec(ctx, updateCodexExhaustionForGeneration,
+		arg.ResetAt,
+		arg.AccountID,
+		arg.SubscriberID,
+		arg.QuotaResetGeneration,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const updateCodexResetClear = `-- name: UpdateCodexResetClear :execrows
 UPDATE router.codex_usage_resets
 SET account_id = NULL, credit_id = NULL, request_id = NULL
@@ -47,7 +88,8 @@ WITH held AS MATERIALIZED (
   FOR UPDATE
 ), recovered AS (
   UPDATE router.model_router_subscription_accounts AS account
-  SET health_state = 'active', cooldown_until = NULL, updated_at = CURRENT_TIMESTAMP
+  SET health_state = 'active', cooldown_until = NULL,
+      quota_reset_generation = quota_reset_generation + 1, updated_at = CURRENT_TIMESTAMP
   FROM held
   WHERE account.id = $1::uuid AND account.subscriber_id = $2::uuid
     AND account.provider = 'codex' AND account.enabled
@@ -80,7 +122,8 @@ type UpdateCodexResetRecoveryParams struct {
 //	  FOR UPDATE
 //	), recovered AS (
 //	  UPDATE router.model_router_subscription_accounts AS account
-//	  SET health_state = 'active', cooldown_until = NULL, updated_at = CURRENT_TIMESTAMP
+//	  SET health_state = 'active', cooldown_until = NULL,
+//	      quota_reset_generation = quota_reset_generation + 1, updated_at = CURRENT_TIMESTAMP
 //	  FROM held
 //	  WHERE account.id = $1::uuid AND account.subscriber_id = $2::uuid
 //	    AND account.provider = 'codex' AND account.enabled

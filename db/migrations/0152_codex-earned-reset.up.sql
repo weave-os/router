@@ -13,4 +13,7 @@ CREATE TABLE router.codex_usage_resets (
     CHECK ((account_id IS NULL) = (credit_id IS NULL) AND (credit_id IS NULL) = (request_id IS NULL))
 );
 
+ALTER TABLE router.model_router_subscription_accounts
+    ADD COLUMN quota_reset_generation BIGINT NOT NULL DEFAULT 0 CHECK (quota_reset_generation >= 0);
+
 COMMIT;

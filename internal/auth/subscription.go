@@ -99,6 +99,7 @@ type SubscriptionAccount struct {
 	Enabled                bool
 	State                  SubscriptionAccountState
 	CooldownUntil          *time.Time
+	QuotaResetGeneration   int64
 	CreatedAt              time.Time
 	// AccessTokenMissing reports a dropped persisted access token, so replicas
 	// discard their cached copy instead of replaying a rejected token.
@@ -148,6 +149,7 @@ func (k SubscriptionUpsertKind) FirstConnected() bool {
 // SubscriptionCredentialRecord is the encrypted credential state for one
 // enrolled account. It never crosses the auth service boundary in this form.
 type SubscriptionCredentialRecord struct {
+	QuotaResetGeneration   int64
 	ExternalAccountID      string
 	ProviderUserID         string
 	Provider               SubscriptionProvider
@@ -165,6 +167,7 @@ type SubscriptionCredentialRecord struct {
 // subscription runtime. The access token is retained only in process memory
 // after this method returns.
 type SubscriptionCredentials struct {
+	QuotaResetGeneration int64
 	ProviderUserID       string
 	RefreshToken         []byte
 	AccessToken          []byte
@@ -506,13 +509,14 @@ func (s *Service) LoadSubscriptionCredentials(ctx context.Context, owner Subscri
 		return SubscriptionCredentials{}, err
 	}
 	credentials := SubscriptionCredentials{
-		ProviderUserID:      credentialRecord.ProviderUserID,
-		RefreshToken:        refreshToken,
-		TokenRefreshVersion: credentialRecord.TokenRefreshVersion,
-		TokenRefreshLeaseID: credentialRecord.TokenRefreshLeaseID,
-		Enabled:             credentialRecord.Enabled,
-		State:               credentialRecord.State,
-		CooldownUntil:       credentialRecord.CooldownUntil,
+		ProviderUserID:       credentialRecord.ProviderUserID,
+		QuotaResetGeneration: credentialRecord.QuotaResetGeneration,
+		RefreshToken:         refreshToken,
+		TokenRefreshVersion:  credentialRecord.TokenRefreshVersion,
+		TokenRefreshLeaseID:  credentialRecord.TokenRefreshLeaseID,
+		Enabled:              credentialRecord.Enabled,
+		State:                credentialRecord.State,
+		CooldownUntil:        credentialRecord.CooldownUntil,
 	}
 	if len(credentialRecord.AccessTokenCiphertext) > 0 {
 		accessToken, decryptErr := s.encryptor.Decrypt(credentialRecord.AccessTokenCiphertext, credentialRecord.ExternalAccountID, subscriptionAccessPurpose(credentialRecord.Provider))

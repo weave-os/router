@@ -56,6 +56,7 @@ type ResetStore interface {
 	RecoverCodexAccount(context.Context, ResetClaim, string) error
 	ClearCodexReset(context.Context, ResetClaim) error
 	ReleaseCodexReset(context.Context, ResetClaim) error
+	RecordCodexExhaustion(context.Context, auth.SubscriptionOwner, Lease, time.Time) (bool, error)
 }
 
 // ErrResetClaimLost prevents a stale worker from consuming or publishing a reset.
@@ -235,7 +236,7 @@ func (r *Runtime) resetCredential(ctx context.Context, owner auth.SubscriptionOw
 		return Lease{}, err
 	}
 	return Lease{AccountID: account.ID, OwnerID: owner.SubscriberID, Tier: auth.SubscriptionTierPersonal,
-		AccessToken: credential.AccessToken, ProviderAccount: account.ExternalAccountID, State: credential.State}, nil
+		AccessToken: credential.AccessToken, ProviderAccount: account.ExternalAccountID, State: credential.State, QuotaResetGeneration: credential.QuotaResetGeneration}, nil
 }
 
 func (r *Runtime) recoverResetAccount(ctx context.Context, owner auth.SubscriptionOwner, sessionID string, claim ResetClaim, lease Lease) (Lease, bool, error) {
@@ -245,8 +246,19 @@ func (r *Runtime) recoverResetAccount(ctx context.Context, owner auth.Subscripti
 	if err := r.resetStore.RecoverCodexAccount(ctx, claim, lease.AccountID); err != nil {
 		return Lease{}, false, err
 	}
-	lease.State = auth.SubscriptionAccountStateActive
-	r.manager.pool("account:"+lease.AccountID, ProviderCodex).restoreQuota(lease.AccountID)
+	credentials, err := r.store.LoadSubscriptionCredentials(ctx, owner, lease.AccountID)
+	if err != nil {
+		return Lease{}, false, err
+	}
+	if credentials.QuotaResetGeneration <= lease.QuotaResetGeneration {
+		return Lease{}, false, errors.New("verified Codex recovery did not advance the quota generation")
+	}
+	if !subscriptionCredentialAvailable(ctx, ProviderCodex, credentials, r.clock()) {
+		return Lease{}, false, nil
+	}
+	lease.QuotaResetGeneration = credentials.QuotaResetGeneration
+	lease.State = credentials.State
+	r.manager.pool("account:"+lease.AccountID, ProviderCodex).restoreQuota(lease.AccountID, lease.QuotaResetGeneration)
 	if sessionID != "" {
 		r.affinity.Add(owner.InstallationID+"|"+owner.SubscriberID+"|"+string(ProviderCodex)+"|"+sessionID, lease.AccountID)
 	}

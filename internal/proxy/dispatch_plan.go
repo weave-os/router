@@ -232,7 +232,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				}
 			}
 			attemptStarted := time.Now()
-			attemptErr := in.attempt(credentialCtx, decision, guarded)
+			attemptErr := attemptWithUsageObservation(credentialCtx, s.usageObserver, in.attempt, decision, guarded)
 
 			// Health bookkeeping must persist even if the caller has gone.
 			bookkeepingCtx := context.WithoutCancel(credentialCtx)

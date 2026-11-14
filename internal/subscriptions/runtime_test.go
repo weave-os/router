@@ -174,24 +174,27 @@ func (s *runtimeStore) LoadSubscriptionCredentials(_ context.Context, _ auth.Sub
 	var cooldownUntil *time.Time
 	var providerUserID string
 	var state auth.SubscriptionAccountState
+	var quotaResetGeneration int64
 	for _, account := range s.accounts {
 		if account.ID == accountID {
 			providerUserID = account.ProviderUserID
 			state = account.State
+			quotaResetGeneration = account.QuotaResetGeneration
 			enabled = account.Enabled
 			cooldownUntil = account.CooldownUntil
 			break
 		}
 	}
 	credentials := auth.SubscriptionCredentials{
-		ProviderUserID:      providerUserID,
-		RefreshToken:        append([]byte(nil), s.refreshTokens[accountID]...),
-		AccessToken:         append([]byte(nil), s.accessTokens[accountID]...),
-		TokenRefreshVersion: s.tokenRefreshVersions[accountID],
-		TokenRefreshLeaseID: s.leaseIDs[accountID],
-		Enabled:             enabled,
-		State:               state,
-		CooldownUntil:       cooldownUntil,
+		ProviderUserID:       providerUserID,
+		QuotaResetGeneration: quotaResetGeneration,
+		RefreshToken:         append([]byte(nil), s.refreshTokens[accountID]...),
+		AccessToken:          append([]byte(nil), s.accessTokens[accountID]...),
+		TokenRefreshVersion:  s.tokenRefreshVersions[accountID],
+		TokenRefreshLeaseID:  s.leaseIDs[accountID],
+		Enabled:              enabled,
+		State:                state,
+		CooldownUntil:        cooldownUntil,
 	}
 	if expiry := s.accessExpiry[accountID]; !expiry.IsZero() {
 		value := expiry

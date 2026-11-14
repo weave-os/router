@@ -60,14 +60,15 @@ type AccountStore interface {
 
 // Lease is a short-lived provider credential. Release must be called exactly once.
 type Lease struct {
-	AccountID       string
-	OwnerID         string
-	Tier            auth.SubscriptionTier
-	AccessToken     string
-	ProviderAccount string
-	State           auth.SubscriptionAccountState
-	CooldownUntil   time.Time
-	release         func()
+	QuotaResetGeneration int64
+	AccountID            string
+	OwnerID              string
+	Tier                 auth.SubscriptionTier
+	AccessToken          string
+	ProviderAccount      string
+	State                auth.SubscriptionAccountState
+	CooldownUntil        time.Time
+	release              func()
 }
 
 // AllowsPlanAttempt admits an exhausted lease only for verified Enterprise
@@ -204,7 +205,7 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 		eligible = eligible[1:]
 		owner := auth.SubscriptionOwner{SubscriberID: candidate.SubscriberID, APIKeyID: candidate.EnrolledByAPIKeyID, InstallationID: requester.InstallationID}
 		poolID := "account:" + candidate.ID
-		account := Account{ID: candidate.ID, OwnerID: poolID, Provider: provider, Enabled: candidate.Enabled, State: candidate.State}
+		account := Account{ID: candidate.ID, OwnerID: poolID, Provider: provider, Enabled: candidate.Enabled, State: candidate.State, QuotaResetGeneration: candidate.QuotaResetGeneration}
 		if provider == ProviderCodex {
 			account.AccountID = candidate.ExternalAccountID
 		}
@@ -238,7 +239,7 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 		if sessionID != "" {
 			r.affinity.Add(affinityKey, leased.ID)
 		}
-		return Lease{AccountID: leased.ID, OwnerID: candidate.SubscriberID, Tier: candidate.Tier, AccessToken: leased.AccessToken,
+		return Lease{AccountID: leased.ID, OwnerID: candidate.SubscriberID, Tier: candidate.Tier, AccessToken: leased.AccessToken, QuotaResetGeneration: leased.QuotaResetGeneration,
 			ProviderAccount: leased.AccountID, State: leased.State, CooldownUntil: leased.CooldownTil, release: release}, true, nil
 	}
 	if present {
@@ -403,12 +404,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 				observability.FromContext(ctx).Error("Failed to persist refreshed subscription credentials", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", persistErr)
 				return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, persistErr)
 			}
-			account.AccessToken = refreshed.AccessToken
-			account.AccessTokenExpiresAt = refreshed.ExpiresAt
-			if refreshed.AccountID != "" {
-				account.AccountID = refreshed.AccountID
-			}
-			return account, nil
+			return applyRefreshedSubscriptionCredentials(account, credentials, refreshed), nil
 		}
 		return Account{}, ErrNoAvailableAccount
 	}
@@ -548,6 +544,7 @@ func subscriptionAccessTokenUsable(credentials auth.SubscriptionCredentials, now
 }
 
 func applySubscriptionCredentials(account Account, credentials auth.SubscriptionCredentials) Account {
+	account.QuotaResetGeneration = credentials.QuotaResetGeneration
 	account.AccessToken = string(credentials.AccessToken)
 	if credentials.AccessTokenExpiresAt == nil {
 		account.AccessTokenExpiresAt = time.Time{}

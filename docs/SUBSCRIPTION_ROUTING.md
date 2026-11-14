@@ -178,6 +178,12 @@ idempotency key for a later retry. No available reset leaves the existing exhaus
 and authorized fallback behavior in place. The flag does not enable subscription
 routing when it is disabled and does not change Max's subscription exclusion.
 
+Verified recovery advances the account's durable quota generation. Replicas use
+that generation to clear older local cooldowns and observations while retaining
+cooldown protection against stale snapshots from the same generation. Responses
+and exhaustion reports from pre-recovery attempts cannot overwrite the recovery;
+new provider failures still apply normally.
+
 ## Paid inference authorization
 
 Immediately before every provider inference call, the dispatch executor checks

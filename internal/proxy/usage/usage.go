@@ -148,11 +148,12 @@ func (w Window) currentAsOf(observedAt, now time.Time) bool {
 // freshFor) — stale headroom must not pin the cost signal, but a reading must not
 // age out faster than the window it describes.
 type Observer struct {
-	mu   sync.RWMutex
-	salt []byte
-	ttl  time.Duration
-	now  func() time.Time
-	data map[CredentialKey]Snapshot
+	mu           sync.RWMutex
+	salt         []byte
+	ttl          time.Duration
+	now          func() time.Time
+	data         map[CredentialKey]Snapshot
+	observations map[CredentialKey]*observationEpoch
 	// rejected holds credentials the upstream refused, until each expiry. It is
 	// not quota evidence, so Snapshot never reports it.
 	rejected map[CredentialKey]time.Time
@@ -233,51 +234,6 @@ func (o *Observer) freshFor(s Snapshot) time.Duration {
 // Key derives the CredentialKey for a token under this observer's salt.
 func (o *Observer) Key(token []byte) CredentialKey { return KeyFor(o.salt, token) }
 
-// Forget removes stale exhaustion after quota has been independently restored.
-func (o *Observer) Forget(key CredentialKey) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	delete(o.data, key)
-}
-
-// Record stores a snapshot for a credential, stamped with the current time.
-// A snapshot with no usable window is ignored (don't overwrite good data with
-// an empty observation from a response that carried no rate-limit headers).
-func (o *Observer) Record(key CredentialKey, snap Snapshot) {
-	if !snap.hasData() {
-		return
-	}
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	now := o.now()
-	if snap.Primary.present() {
-		snap.Primary.ObservedAt = now
-	}
-	if snap.Secondary.present() {
-		snap.Secondary.ObservedAt = now
-	}
-	// Merge per-window with the prior (non-stale) observation: a single response
-	// may report only one window, and replacing the whole snapshot would erase
-	// the other window's last-known utilization — making the account look slack
-	// and selecting exhausted accounts until TTL. A genuinely reset window reports used≈0
-	// (still present), so it correctly overwrites; only an OMITTED window is
-	// preserved from the prior snapshot.
-	if prev, ok := o.data[key]; ok && o.now().Sub(prev.ObservedAt) <= o.freshFor(prev) {
-		if !snap.Primary.present() {
-			snap.Primary = prev.Primary
-		} else if snap.Primary.ResetAt.IsZero() && prev.Primary.ResetAt.After(now) {
-			snap.Primary.ResetAt = prev.Primary.ResetAt
-		}
-		if !snap.Secondary.present() {
-			snap.Secondary = prev.Secondary
-		} else if snap.Secondary.ResetAt.IsZero() && prev.Secondary.ResetAt.After(now) {
-			snap.Secondary.ResetAt = prev.Secondary.ResetAt
-		}
-	}
-	snap.ObservedAt = now
-	o.data[key] = snap
-}
-
 // Snapshot returns the most recent non-stale observation for a credential, or
 // (zero, false) if none / expired. Expired entries are dropped lazily.
 // RecordRejected marks a credential the upstream refused as unusable until until.
@@ -346,6 +302,7 @@ func (o *Observer) Sweep() {
 			delete(o.data, k)
 		}
 	}
+	o.sweepObservationsLocked()
 	for k, until := range o.rejected {
 		if !cutoff.Before(until) {
 			delete(o.rejected, k)

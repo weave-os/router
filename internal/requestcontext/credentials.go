@@ -41,10 +41,11 @@ const (
 // Credentials holds the API key to use for an upstream request.
 type Credentials struct {
 	// SubscriptionPlan comes only from an authenticated provider profile.
-	SubscriptionPlan      providers.SubscriptionPlan
-	SubscriptionAccountID string
-	APIKey                []byte // never logged
-	Source                string // SourceBYOK | SourceClient | SourceSubscription | SourceCodexSubscription
+	SubscriptionPlan            providers.SubscriptionPlan
+	SubscriptionAccountID       string
+	SubscriptionQuotaGeneration int64
+	APIKey                      []byte // never logged
+	Source                      string // SourceBYOK | SourceClient | SourceSubscription | SourceCodexSubscription
 	// OAuth marks a subscription bearer (Claude sk-ant-oat- token, Anthropic
 	// only; or Codex ChatGPT JWT, OpenAI only). Authenticates via
 	// Authorization: Bearer, never x-api-key.

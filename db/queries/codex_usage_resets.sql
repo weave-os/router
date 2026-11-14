@@ -31,7 +31,8 @@ WITH held AS MATERIALIZED (
   FOR UPDATE
 ), recovered AS (
   UPDATE router.model_router_subscription_accounts AS account
-  SET health_state = 'active', cooldown_until = NULL, updated_at = CURRENT_TIMESTAMP
+  SET health_state = 'active', cooldown_until = NULL,
+      quota_reset_generation = quota_reset_generation + 1, updated_at = CURRENT_TIMESTAMP
   FROM held
   WHERE account.id = @account_id::uuid AND account.subscriber_id = @subscriber_id::uuid
     AND account.provider = 'codex' AND account.enabled
@@ -58,3 +59,14 @@ WHERE subscriber_id = @subscriber_id::uuid AND lease_id = @lease_id::uuid
 UPDATE router.codex_usage_resets
 SET lease_id = NULL, lease_until = NULL
 WHERE subscriber_id = @subscriber_id::uuid AND lease_id = @lease_id::uuid;
+
+-- Ignore exhaustion from a lease issued before the latest verified recovery.
+-- name: UpdateCodexExhaustionForGeneration :execrows
+UPDATE router.model_router_subscription_accounts
+SET health_state = 'exhausted',
+    cooldown_until = GREATEST(cooldown_until, @reset_at::timestamp),
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = @account_id::uuid AND subscriber_id = @subscriber_id::uuid
+  AND provider = 'codex' AND enabled
+  AND health_state IN ('active', 'unknown', 'cooldown', 'exhausted')
+  AND quota_reset_generation = @quota_reset_generation::bigint;

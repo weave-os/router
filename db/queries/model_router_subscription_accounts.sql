@@ -295,6 +295,7 @@ SELECT external_account_id,
        access_token_ciphertext,
        access_token_expires_at,
        token_refresh_version,
+       quota_reset_generation,
        token_refresh_lease_id,
        enabled,
        health_state,
@@ -396,7 +397,7 @@ WITH installation AS MATERIALIZED (
 )
 SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
        account.external_account_id, account.provider_user_id, account.display_name, account.refresh_token_ciphertext,
-       account.enabled, account.health_state, account.cooldown_until, account.created_at,
+       account.enabled, account.health_state, account.cooldown_until, account.created_at, account.quota_reset_generation,
        CASE WHEN account.subscriber_id = sqlc.narg(subscriber_id)::uuid THEN 'personal' ELSE 'shared' END AS tier,
        (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing,
        -- A successful refresh clears the reason but keeps the rolling strikes.
