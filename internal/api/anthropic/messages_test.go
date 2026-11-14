@@ -15,7 +15,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/policy"
 
 	"github.com/gin-gonic/gin"
@@ -132,7 +131,7 @@ func newTestService(r router.Router, clientName string, client providers.Client)
 	if clientName != "" && client != nil {
 		providerMap[clientName] = client
 	}
-	return proxy.NewService(r, providerMap, nil, false, nil, nil, false, "", "", nil)
+	return proxy.NewService(r, providerMap, nil, nil, false, "", "", nil)
 }
 
 func errorEnvelope(t *testing.T, body []byte) map[string]any {
@@ -201,7 +200,7 @@ func TestMessagesHandler_MalformedBodyReturns400(t *testing.T) {
 }
 
 func TestMessagesHandler_NoEligibleProviderReturns400(t *testing.T) {
-	svc := newTestService(&fakeRouter{err: cluster.ErrNoEligibleProvider}, "", nil)
+	svc := newTestService(&fakeRouter{err: router.ErrNoEligibleProvider}, "", nil)
 	engine := messagesEngine(svc)
 
 	rec := postMessages(engine, []byte(validAnthropicBody))
@@ -212,7 +211,7 @@ func TestMessagesHandler_NoEligibleProviderReturns400(t *testing.T) {
 }
 
 func TestMessagesHandler_InvalidRoutingKnobsReturns400(t *testing.T) {
-	svc := newTestService(&fakeRouter{err: cluster.ErrInvalidRoutingKnobs}, "", nil)
+	svc := newTestService(&fakeRouter{err: router.ErrInvalidRoutingKnobs}, "", nil)
 	engine := messagesEngine(svc)
 
 	rec := postMessages(engine, []byte(validAnthropicBody))
@@ -222,8 +221,8 @@ func TestMessagesHandler_InvalidRoutingKnobsReturns400(t *testing.T) {
 	assert.Equal(t, "invalid_request_error", errObj["type"])
 }
 
-func TestMessagesHandler_ClusterUnavailableReturns503WithRetryAfter(t *testing.T) {
-	svc := newTestService(&fakeRouter{err: cluster.ErrClusterUnavailable}, "", nil)
+func TestMessagesHandler_RoutingUnavailableReturns503WithRetryAfter(t *testing.T) {
+	svc := newTestService(&fakeRouter{err: router.ErrRoutingUnavailable}, "", nil)
 	engine := messagesEngine(svc)
 
 	rec := postMessages(engine, []byte(validAnthropicBody))
@@ -251,30 +250,6 @@ func TestMessagesHandler_RLPolicyUnavailableReturns503(t *testing.T) {
 	assert.Contains(t, errObj["message"], "RL policy router")
 }
 
-func TestMessagesHandler_BanditUnavailableReturns503(t *testing.T) {
-	// No bandit router wired, mirroring the RL case above.
-	svc := newTestService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-5"}}, "", nil)
-	engine := messagesEngine(svc)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader([]byte(validAnthropicBody)))
-	req = req.WithContext(router.WithStrategy(req.Context(), router.StrategyBandit))
-	engine.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
-	assert.Equal(t, "1", rec.Header().Get("Retry-After"))
-	errObj := errorEnvelope(t, rec.Body.Bytes())
-	assert.Equal(t, "api_error", errObj["type"])
-	assert.Contains(t, errObj["message"], "bandit router")
-}
-
-// TestMessagesHandler_ProviderNotConfiguredReturns502 guards the fix for the
-// anthropic handler previously falling through to the generic 502
-// "Upstream call failed." branch (with no dedicated log line) whenever
-// ProxyMessages returned proxy.ErrProviderNotConfigured — the exact error the
-// dispatch switch in service.go returns for a decision naming a provider with
-// no known translation family. openai and gemini already special-cased this
-// sentinel; anthropic was missing it before the shared proxy.ClassifyDispatchError.
 func TestMessagesHandler_ProviderNotConfiguredReturns502(t *testing.T) {
 	svc := newTestService(&fakeRouter{decision: router.Decision{Provider: "not-a-real-provider", Model: "claude-sonnet-4-5"}}, "", nil)
 	engine := messagesEngine(svc)
@@ -319,7 +294,7 @@ data: {"type":"response.failed","response":{"id":"resp_1","status":"failed","err
 			svc := proxy.NewService(
 				&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5-mini", Reason: "test"}},
 				map[string]providers.Client{providers.ProviderOpenAI: client},
-				nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5-mini", nil,
+				nil, nil, false, providers.ProviderOpenAI, "gpt-5-mini", nil,
 			)
 			reqBody := fmt.Sprintf(`{"model":"gpt-5-mini","max_tokens":1024,"stream":%t,"messages":[{"role":"user","content":"hi"}]}`, stream)
 			rec := postMessages(messagesEngine(svc), []byte(reqBody))
@@ -400,7 +375,7 @@ func routeEngine(svc *proxy.Service) *gin.Engine {
 }
 
 func TestRouteHandler_InvalidRoutingKnobsReturns400(t *testing.T) {
-	svc := newTestService(&fakeRouter{err: cluster.ErrInvalidRoutingKnobs}, "", nil)
+	svc := newTestService(&fakeRouter{err: router.ErrInvalidRoutingKnobs}, "", nil)
 	engine := routeEngine(svc)
 
 	rec := httptest.NewRecorder()
@@ -641,7 +616,7 @@ func TestMessagesHandler_UnservableCompactionTellsClientNotToRetry(t *testing.T)
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-4-5", Reason: "test"}},
 		map[string]providers.Client{providers.ProviderAnthropic: client},
-		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-sonnet-4-5", nil,
+		nil, nil, false, providers.ProviderAnthropic, "claude-sonnet-4-5", nil,
 	)
 	body := `{"model":"claude-sonnet-4-5","max_tokens":4096,"messages":[{"role":"user","content":"Your task is to create a detailed summary of the conversation so far. Do not call any tools."}]}`
 

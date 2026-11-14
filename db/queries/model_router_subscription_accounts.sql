@@ -135,11 +135,14 @@ WHERE account.id = @id::uuid
 -- A stale replica must not turn an operator-disabled account back on while
 -- persisting a quota cooldown.
 -- name: UpdateModelRouterSubscriptionAccountCooldown :execrows
-UPDATE router.model_router_subscription_accounts
-SET cooldown_until = @cooldown_until::timestamp,
+UPDATE router.model_router_subscription_accounts AS account
+SET cooldown_until = GREATEST(
+        account.cooldown_until,
+        @cooldown_until::timestamp
+    ),
     health_state = 'cooldown',
     updated_at = CURRENT_TIMESTAMP
-WHERE id = @id::uuid
+WHERE account.id = @id::uuid
   AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
        OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid))
   AND enabled = TRUE;
@@ -147,7 +150,14 @@ WHERE id = @id::uuid
 -- Updates the internal credential-free routing health for one linked account.
 -- enabled = enabled AND @enabled never re-enables an operator-disabled row
 -- (Activate/Exhaust) while still allowing ReconnectRequired to disable it.
--- name: UpdateModelRouterSubscriptionAccountHealth :execrows
+-- name: UpdateModelRouterSubscriptionAccountHealth :one
+WITH previous AS (
+ SELECT id, health_state FROM router.model_router_subscription_accounts
+ WHERE id = @id::uuid
+ AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
+ OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid))
+ FOR UPDATE
+), updated AS (
 UPDATE router.model_router_subscription_accounts
 SET health_state = CASE
         WHEN @health_state::varchar = 'active'
@@ -163,9 +173,33 @@ SET health_state = CASE
         ELSE @cooldown_until::timestamp
     END,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = @id::uuid
-  AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
-       OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid));
+WHERE id IN (SELECT previous.id FROM previous)
+RETURNING *
+), recorded AS (
+INSERT INTO router.subscription_credential_events
+ (account_id, subscriber_id, provider, event_kind, reason, token_refresh_version,
+  rejection_count, first_rejected_at, refresh_lease_id, provider_error_type,
+  provider_request_id, upstream_status, request_id)
+SELECT account.id, account.subscriber_id, account.provider, 'reconnect_required',
+ COALESCE(account.credential_last_rejection_reason, 'credential_rejected'), account.token_refresh_version,
+ account.credential_rejection_count, account.credential_first_rejected_at, NULL::uuid,
+ COALESCE(rejection.provider_error_type, ''), COALESCE(rejection.provider_request_id, ''),
+ COALESCE(rejection.upstream_status, 0), COALESCE(rejection.request_id, '')
+FROM updated AS account
+LEFT JOIN LATERAL (
+ SELECT event.provider_error_type, event.provider_request_id, event.upstream_status, event.request_id
+ FROM router.subscription_credential_events AS event
+ WHERE event.account_id = account.id AND event.event_kind = 'credential_rejected'
+  AND event.token_refresh_version = account.token_refresh_version
+ ORDER BY event.created_at DESC, event.id DESC LIMIT 1
+) AS rejection ON TRUE
+WHERE account.health_state = 'reconnect_required'
+ AND EXISTS (SELECT 1 FROM previous WHERE previous.id = account.id AND previous.health_state <> 'reconnect_required')
+ RETURNING id
+)
+SELECT count(*)::bigint AS matched_count,
+       (SELECT count(*) > 0 FROM recorded)::boolean AS disconnected
+FROM updated;
 
 -- name: UpdateModelRouterSubscriptionRefreshToken :execrows
 UPDATE router.model_router_subscription_accounts
@@ -292,6 +326,7 @@ WHERE id = @id::uuid
 -- A failed refresher may disable only the credentials it still owns. Clearing
 -- the lease in this update avoids a takeover between release and disable.
 -- name: DisableModelRouterSubscriptionAccountIfRefreshHolder :execrows
+WITH updated AS (
 UPDATE router.model_router_subscription_accounts
 SET enabled = FALSE,
     health_state = 'reconnect_required',
@@ -304,7 +339,27 @@ WHERE id = @id::uuid
        OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid))
   AND enabled = TRUE
   AND token_refresh_lease_id = @lease_id::uuid
-  AND token_refresh_version = @expected_version::bigint;
+  AND token_refresh_version = @expected_version::bigint
+RETURNING *
+)
+INSERT INTO router.subscription_credential_events
+ (account_id, subscriber_id, provider, event_kind, reason, token_refresh_version,
+  rejection_count, first_rejected_at, refresh_lease_id, provider_error_type,
+  provider_request_id, upstream_status, request_id)
+SELECT account.id, account.subscriber_id, account.provider, 'reconnect_required',
+ COALESCE(account.credential_last_rejection_reason, 'credential_rejected'), account.token_refresh_version,
+ account.credential_rejection_count, account.credential_first_rejected_at, @lease_id::uuid,
+ COALESCE(rejection.provider_error_type, ''), COALESCE(rejection.provider_request_id, ''),
+ COALESCE(rejection.upstream_status, 0), COALESCE(rejection.request_id, '')
+FROM updated AS account
+LEFT JOIN LATERAL (
+ SELECT event.provider_error_type, event.provider_request_id, event.upstream_status, event.request_id
+ FROM router.subscription_credential_events AS event
+ WHERE event.account_id = account.id AND event.event_kind = 'credential_rejected'
+  AND event.token_refresh_version = account.token_refresh_version
+ ORDER BY event.created_at DESC, event.id DESC LIMIT 1
+) AS rejection ON TRUE
+;
 
 -- A stale refresh failure must not put the winner's credentials on cooldown.
 -- name: CooldownModelRouterSubscriptionAccountIfRefreshHolder :execrows
@@ -341,7 +396,10 @@ SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
        account.external_account_id, account.provider_user_id, account.display_name, account.refresh_token_ciphertext,
        account.enabled, account.health_state, account.cooldown_until, account.created_at,
        CASE WHEN account.subscriber_id = sqlc.narg(subscriber_id)::uuid THEN 'personal' ELSE 'shared' END AS tier,
-       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing
+       (account.access_token_ciphertext IS NULL)::boolean AS access_token_missing,
+       -- A successful refresh clears the reason but keeps the rolling strikes.
+       (CASE WHEN account.credential_last_rejection_reason IS NULL THEN 0
+             ELSE account.credential_rejection_count END)::integer AS credential_rejection_count
 FROM router.model_router_subscription_accounts AS account
 JOIN members ON members.subject_id = account.subscriber_id
 JOIN installation ON TRUE
@@ -380,7 +438,7 @@ WITH previous AS (
        OR (token_refresh_lease_id = sqlc.narg(lease_id)::uuid
            AND token_refresh_version = sqlc.narg(expected_version)::bigint))
   FOR UPDATE
-)
+), updated AS (
 UPDATE router.model_router_subscription_accounts AS account
 SET credential_rejection_count = CASE
         WHEN account.credential_first_rejected_at IS NULL
@@ -400,9 +458,28 @@ SET credential_rejection_count = CASE
     updated_at = CURRENT_TIMESTAMP
 FROM previous
 WHERE account.id = previous.id
-RETURNING account.credential_rejection_count,
-          account.credential_first_rejected_at,
-          previous.credential_last_rejection_reason AS previous_reason;
+RETURNING account.*, previous.credential_last_rejection_reason AS previous_reason
+), recorded AS (
+ INSERT INTO router.subscription_credential_events
+  (account_id, subscriber_id, provider, event_kind, reason, provider_error_type,
+   provider_request_id, upstream_status, request_id, refresh_lease_id,
+   token_refresh_version, rejection_count, first_rejected_at)
+ SELECT id, subscriber_id, provider, 'credential_rejected', @reason::varchar,
+  @provider_error_type::varchar, @provider_request_id::varchar, @upstream_status::integer,
+  @request_id::varchar, sqlc.narg(lease_id)::uuid, token_refresh_version,
+  credential_rejection_count, credential_first_rejected_at
+ FROM updated
+ RETURNING id
+)
+SELECT updated.credential_rejection_count, updated.credential_first_rejected_at, updated.previous_reason,
+ EXISTS (
+  SELECT 1 FROM router.subscription_credential_events AS prior_disconnect
+  WHERE prior_disconnect.account_id = @id::uuid
+   AND prior_disconnect.event_kind = 'reconnect_required'
+   AND prior_disconnect.created_at >= CURRENT_TIMESTAMP - INTERVAL '24 hours'
+   AND prior_disconnect.token_refresh_version <> updated.token_refresh_version
+ )::boolean AS repeated_disconnect
+FROM updated;
 
 -- Browser reconnect has no request key, so it enrolls through the subscriber's
 -- newest active personal routing key whose installation access is enabled.

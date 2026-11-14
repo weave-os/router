@@ -27,7 +27,7 @@ func TestProxyMessages_SpentOwnClaudePlanNudgesToConnectASeat(t *testing.T) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: earlyStopLowModel, Reason: "test"}},
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", upstream.URL)},
-		nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, earlyStopLowModel, newCaptureTelemetry(),
+		nil, newFakePinStore(), false, providers.ProviderAnthropic, earlyStopLowModel, newCaptureTelemetry(),
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).WithRetrySleep(noRetrySleep).WithUsageObserver(exhaustedObserver())
 	body := `{"model":"claude-opus-4-7","max_tokens":4096,"stream":true,"messages":[{"role":"user","content":"hello"}]}`
 

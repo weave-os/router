@@ -216,7 +216,7 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 
 	converter.collectDeclaredTools(root)
 	converter.requireNativeForForcedWebSearch(root.Get("tool_choice"))
-	converter.result.CodexFeedbackSkill = codexFeedbackSkillInvocation(root.Get("input"))
+	converter.result.CodexSkill = codexSkillTurnFor(root.Get("input"))
 	converter.result.CodexModelSwitch = codexModelSwitchPresent(root.Get("input"))
 	converter.result.CodexModelInstructions = codexModelInstructionsPresent(root.Get("input"))
 	messages := converter.convertInput(root.Get("input"))

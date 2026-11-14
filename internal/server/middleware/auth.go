@@ -74,6 +74,7 @@ func WithAdminOnly(svc *auth.Service) gin.HandlerFunc {
 // (credential resolution, provider gating, usage bookkeeping) reads that
 // single ctx key, so gating it here decides the whole path in one place.
 func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAdmissionConfig) gin.HandlerFunc {
+	allowedOrganizations := organizationAllowlistFromEnv()
 	return func(c *gin.Context) {
 		parentCtx := c.Request.Context()
 		var testPlan *policyregistry.TestPlanScope
@@ -97,20 +98,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			clientSessionID = testPlan.SessionID
 		}
 		authCtx, authSpan := startAuthSpan(parentCtx, clientSessionID)
-		token := extractToken(c)
-		var installation *auth.Installation
-		var apiKey *auth.APIKey
-		var externalKeys []*auth.ExternalAPIKey
-		var clusterModelLists []auth.ClusterModelList
-		var delegatedSession *auth.DelegatedSession
-		var err error
-		if auth.IsSessionToken(token) {
-			installation, apiKey, externalKeys, clusterModelLists, delegatedSession, err = svc.VerifySessionToken(authCtx, token, testPlan == nil)
-		} else if testPlan != nil {
-			installation, apiKey, clusterModelLists, err = svc.VerifyPlatformAPIKey(authCtx, token)
-		} else {
-			installation, apiKey, externalKeys, clusterModelLists, err = svc.VerifyAPIKey(authCtx, token)
-		}
+		installation, apiKey, externalKeys, clusterModelLists, delegatedSession, err := verifyCredential(authCtx, svc, extractToken(c), testPlan, allowedOrganizations)
 		if err != nil {
 			finishAuthSpan(authSpan, err)
 			handleAuthError(c, err)
@@ -293,10 +281,6 @@ func extractToken(c *gin.Context) string {
 	return auth.RoutingTokenFromHeaders(c.Request.Header)
 }
 
-func extractBearer(header string) string {
-	return auth.BearerToken(header)
-}
-
 func handleAuthError(c *gin.Context, err error) {
 	logger := observability.FromGin(c)
 	switch {
@@ -308,6 +292,10 @@ func handleAuthError(c *gin.Context, err error) {
 		logger.Debug("Auth rejected: bearer key scope does not cover this surface")
 	case errors.Is(err, auth.ErrPersonalCredentialRequired):
 		logger.Debug("Auth rejected: personal credential subject is disabled or revoked")
+	case errors.Is(err, errOrganizationNotAllowed):
+		logger.Info("Auth rejected: organization is not on the inference allowlist")
+		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "organization_not_allowed"})
+		return
 	default:
 		// Infra failure — not a bad key. 503 so clients retry instead of treating it as terminal.
 		logger.Error("Auth check errored", "err", err)

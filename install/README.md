@@ -54,10 +54,8 @@ for non-interactive installs). Re-running it reuses the key already on disk,
 so you only ever paste it once — see [Staying up to date](#staying-up-to-date).
 
 After a working Claude Code or Codex install, the installer lists the everyday
-commands (`status`, `off`, `on`, feedback, uninstall) and, on a terminal, asks
-`Start Claude Code now? [Y/n]` (or Codex) to open the client straight away.
-`setup` with both clients asks once, for Claude Code. `--non-interactive`,
-`--quiet`, `update`, and failed key checks skip the offer.
+commands (`status`, `off`, `on`, feedback, uninstall) and exits. `--quiet`,
+`update`, and failed key checks skip the list.
 
 ### Self-hosted via `docker compose` (zero-config)
 
@@ -389,7 +387,7 @@ Limitations:
   Responses wire, turns served by an OpenAI model stream through verbatim
   without one.
 - Prompt directives (`/force-model`, `/fm`, `/force-parent`, `/unforce-model`,
-  `/ufm`, `/router-feedback`, `/rf`, `/router-session` and a bare
+  `/ufm`, `/router-feedback`, `/rf`, `/router-session`, and bare `/list-models` and
   `/router-models`) work as plain prompt text because the router answers them.
   `/router-off`, `/router-on`, `/router-status` and the `/router-models` forms
   that change settings are handled by the installed clients and do nothing in an
@@ -563,8 +561,8 @@ replacement when the bytes are unchanged. The `WEAVE_STATUSLINE_*` variables
 above are accepted as fallbacks for users who configure both clients together.
 
 **Codex skill invocations are answered by the router.** `$fm`/`$force-model`, `$force-parent`,
-`$ufm`/`$unforce-model`, `$rf`/`$router-feedback` and `$router-session` reach
-the router; the local toggles do not, and are covered below. Codex sends a
+`$ufm`/`$unforce-model`, `$rf`/`$router-feedback`, `$router-session` and
+`$list-models` reach the router; the local toggles do not, and are covered below. Codex sends a
 `$name` invocation as two user messages: the text the user typed, then a second
 message carrying the invoked skill's `SKILL.md`. The router reads the invocation
 from the first one, applies it, and answers with a synthetic response — the same
@@ -603,6 +601,13 @@ those hit `/admin/v1/*`, which requires an admin session and rejects the `rk_`
 data-plane key a chat request carries — deliberately, so a leaked key cannot
 rewrite routing config. The registry still lists it as `local-toggle` because
 that column names the adapter its mutating path needs.
+
+`$list-models` lists every model `$force-model` accepts, with the shorthands that
+resolve to each one. The router answers it from the request, judging each model
+with the same installation allowlist, exclusion and provider policy a force is
+checked against, so a model marked `[x]` is one a force will pin. This differs
+from `$router-models`, which shows what automatic routing may choose: a model the
+deployment withholds from automatic routing still lists as forceable.
 
 `$router-session` used to be in that group and no longer is. It reported
 `$CODEX_SESSION_ID` from a script, which cost a model turn plus a tool exec and
@@ -698,7 +703,8 @@ Inside Claude Code you can also run the slash commands `/router-off`,
 `/router-on`, `/router-status`, and `/router-session` (which prints the
 session id used for telemetry correlation and transcript lookup) — installed
 alongside `/force-model` (alias `/fm`), `/unforce-model` (alias `/ufm`),
-`/router-feedback` (alias `/rf`), and `/router-models` (alias `/models`).
+`/router-feedback` (alias `/rf`), `/router-models` (alias `/models`), and
+`/list-models`.
 
 ### Which directives each client gets
 
@@ -714,6 +720,7 @@ installer owns the config file.
 | unforce-model (`ufm`) | `/unforce-model` | `$unforce-model` | `/unforce-model` | `/ufm` (native) | manual |
 | router-feedback (`rf`) | `/router-feedback` | `$router-feedback` | `/router-feedback` | — | manual |
 | router-session | `/router-session` | `$router-session` | — | — | — |
+| list-models | `/list-models` | `$list-models` | — | — | — |
 | router-off / on / status | `/router-off` … | `$router-off` … (plus `$disable-routing`) | — | — | — |
 | router-models (`models`) | `/router-models` | `$router-models` | — | — | — |
 
@@ -725,7 +732,8 @@ installer owns the config file.
   skill sends the leading-space prompt form.
 - **Copilot CLI** gets the Codex skill set as Copilot skills, invoked with `/`
   (Copilot exposes `~/.copilot/skills/<name>` as `/<name>`). The Codex-only
-  `disable-routing`, `router-session`, and `router-models` are not installed.
+  `disable-routing`, `router-session`, `list-models`, and `router-models` are not
+  installed.
 - **pi** implements `/fm` and `/ufm` in the `@weave-os/router` extension rather
   than through installed files; the registry asserts its names match.
 - **Cursor** exposes no command or skill file this installer owns, so its
@@ -805,7 +813,7 @@ leaves the router nothing to pick — re-enable rather than empty it out.
 Editing requires a router that serves the model-selection API (self-hosted and
 local routers do). The Weave-hosted router keeps model selection with the
 organization instead, so there `models` lists what the router can pick from and
-points you at <https://router.weaveos.com/models>. If your
+points you at <https://app.weaveos.com/organization/settings/weave-router/models>. If your
 deployment pins the lists via `ROUTER_EXCLUDED_MODELS` /
 `ROUTER_EXCLUDED_PROVIDERS`, the router refuses the edit and says so — clear the
 env var to make the setting editable.

@@ -7,11 +7,10 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/telemetry"
 )
 
 const blindExperimentPublicDecisionReason = "cluster_argmax"
@@ -43,6 +42,94 @@ func (e *PassthroughModelUnknownError) Unwrap() error { return ErrPassthroughMod
 func blindExperimentPassthroughActive(ctx context.Context) bool {
 	state, active := auth.BlindExperimentFrom(ctx)
 	return active && state.Arm == auth.BlindExperimentArmPassthrough
+}
+
+func blindExperimentModelSource(ctx context.Context, routed *turnLoopResult) auth.BlindExperimentModelSource {
+	switch {
+	case routed == nil || routed.Decision.Model == "":
+		return auth.BlindExperimentModelSourceNotDispatched
+	case routed.UsageBypass:
+		return auth.BlindExperimentModelSourceUsageBypass
+	case isUserForcedReason(routed.Decision.Reason):
+		return auth.BlindExperimentModelSourceForceModel
+	case routed.HardPinned:
+		return auth.BlindExperimentModelSourceHardPin
+	case !routed.CallerModelPassthrough:
+		return auth.BlindExperimentModelSourceRouter
+	case auth.ClientModelPassthroughFrom(ctx):
+		return auth.BlindExperimentModelSourceClientModelPassthrough
+	case auth.RoutingPassthroughFrom(ctx):
+		return auth.BlindExperimentModelSourceRoutingPolicyPassthrough
+	default:
+		return auth.BlindExperimentModelSourceExperimentPassthrough
+	}
+}
+
+type blindExperimentOutcome struct {
+	source           auth.BlindExperimentModelSource
+	treatmentApplied bool
+	baselineModel    string
+	modelChanged     *bool
+}
+
+func blindExperimentOutcomeFor(ctx context.Context, state auth.BlindExperimentState, routed *turnLoopResult, requestedModel, servedModel string) blindExperimentOutcome {
+	source := blindExperimentModelSource(ctx, routed)
+	outcome := blindExperimentOutcome{
+		source:           source,
+		treatmentApplied: blindExperimentTreatmentApplied(state.Arm, source),
+		baselineModel:    blindExperimentBaselineModel(ctx, requestedModel),
+	}
+	if source != auth.BlindExperimentModelSourceNotDispatched && outcome.baselineModel != "" {
+		if servedModel == "" {
+			servedModel = routed.Decision.Model
+		}
+		modelChanged := servedModel != outcome.baselineModel
+		outcome.modelChanged = &modelChanged
+	}
+	return outcome
+}
+
+// blindExperimentBaselineModel is the model the client would run without
+// routing: its requested model, or its default for an automatic-routing alias
+// or an id the catalog no longer serves. Empty for an automatic-routing alias from a client with no default.
+func blindExperimentBaselineModel(ctx context.Context, requestedModel string) string {
+	baseline := clientRequestedModel(ctx, requestedModel)
+	if router.IsRoutingModel(baseline) {
+		return ""
+	}
+	if _, known := catalog.ByID(baseline); !known {
+		if clientDefault := clientBaselineModel(ctx); clientDefault != "" {
+			return clientDefault
+		}
+	}
+	return baseline
+}
+
+// applyBlindExperimentOutcomeAttrs records the assigned arm and what actually
+// chose the model. Spans are internal, so this does not disclose the arm to clients.
+func applyBlindExperimentOutcomeAttrs(ctx context.Context, b *telemetry.AttrBuilder, routed *turnLoopResult, requestedModel, servedModel string) {
+	state, active := auth.BlindExperimentFrom(ctx)
+	if !active {
+		return
+	}
+	outcome := blindExperimentOutcomeFor(ctx, state, routed, requestedModel, servedModel)
+	b.String("routing.blind_experiment_arm", string(state.Arm)).
+		String("routing.blind_experiment_assignment_source", string(state.AssignmentSource)).
+		String("routing.blind_experiment_model_source", string(outcome.source)).
+		Bool("routing.blind_experiment_treatment_applied", outcome.treatmentApplied)
+	if outcome.baselineModel != "" {
+		b.String("routing.blind_experiment_baseline_model", outcome.baselineModel)
+	}
+	if outcome.modelChanged != nil {
+		b.Bool("routing.blind_experiment_model_changed", *outcome.modelChanged)
+	}
+}
+
+func blindExperimentTreatmentApplied(arm auth.BlindExperimentArm, source auth.BlindExperimentModelSource) bool {
+	if arm == auth.BlindExperimentArmPassthrough {
+		return source == auth.BlindExperimentModelSourceExperimentPassthrough
+	}
+	return source == auth.BlindExperimentModelSourceRouter
 }
 
 func callerModelPassthroughActive(ctx context.Context) bool {
@@ -83,7 +170,7 @@ func callerRoutingState(ctx context.Context) (passthrough bool, source callerRou
 // applyCallerRoutingAttrs records the caller's assigned state, not the turn's
 // outcome: force-model and policy pins still rewrite some experiment-passthrough
 // turns. Spans are internal, so this does not disclose the blind arm to clients.
-func applyCallerRoutingAttrs(ctx context.Context, b *otel.AttrBuilder) *otel.AttrBuilder {
+func applyCallerRoutingAttrs(ctx context.Context, b *telemetry.AttrBuilder) *telemetry.AttrBuilder {
 	passthrough, source := callerRoutingState(ctx)
 	return b.Bool("routing.caller_passthrough", passthrough).
 		String("routing.caller_routing_source", string(source))
@@ -130,18 +217,24 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 	// A passthrough arm or router-off policy keeps a Weave Auto user on the
 	// model their client would run without Weave.
 	req.RequestedModel = clientRequestedModel(ctx, req.RequestedModel)
+	experimentArm := blindExperimentPassthroughActive(ctx) && !auth.RoutingPassthroughFrom(ctx) && !auth.ClientModelPassthroughFrom(ctx)
+	if experimentArm && len(req.GatewayProviders) == 0 {
+		if baseline := blindExperimentBaselineModel(ctx, req.RequestedModel); baseline != "" {
+			req.RequestedModel = baseline
+		}
+	}
 	if !modelPermittedByAllowlist(ctx, req.RequestedModel) || !modelInRequestSubset(ctx, req.RequestedModel) {
-		return router.Decision{}, fmt.Errorf("requested model %q is not allowed: %w", req.RequestedModel, cluster.ErrAllowlistEmptiesPool)
+		return router.Decision{}, fmt.Errorf("requested model %q is not allowed: %w", req.RequestedModel, router.ErrAllowlistEmptiesPool)
 	}
 	if _, excluded := req.ExcludedModels[req.RequestedModel]; excluded {
-		return router.Decision{}, fmt.Errorf("requested model %q cannot serve this request: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+		return router.Decision{}, fmt.Errorf("requested model %q cannot serve this request: %w", req.RequestedModel, router.ErrNoEligibleProvider)
 	}
 	if _, excluded := req.SafetyExcludedModels[req.RequestedModel]; excluded {
-		return router.Decision{}, fmt.Errorf("requested model %q cannot serve this request: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+		return router.Decision{}, fmt.Errorf("requested model %q cannot serve this request: %w", req.RequestedModel, router.ErrNoEligibleProvider)
 	}
 	if req.HasImages && (!catalog.AcceptsImages(req.RequestedModel) ||
 		req.ImageCount > 0 && !catalog.AcceptsImageCount(req.RequestedModel, req.ImageCount, req.EnabledProviders)) {
-		return router.Decision{}, fmt.Errorf("requested model %q cannot accept images: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+		return router.Decision{}, fmt.Errorf("requested model %q cannot accept images: %w", req.RequestedModel, router.ErrNoEligibleProvider)
 	}
 	if len(req.GatewayProviders) > 0 {
 		provider, found := gatewayProviderFor(req.RequestedModel, req.CustomBindings, req.GatewayProviders)
@@ -173,7 +266,7 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 	}
 	if availableProviders == nil {
 		if model.PrimaryProvider() == "" {
-			return router.Decision{}, fmt.Errorf("requested model %q has no available provider: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+			return router.Decision{}, fmt.Errorf("requested model %q has no available provider: %w", req.RequestedModel, router.ErrNoEligibleProvider)
 		}
 		return router.Decision{
 			Provider: model.PrimaryProvider(),
@@ -184,7 +277,7 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 
 	binding, found := catalog.ResolveBindingWithCustom(req.RequestedModel, availableProviders, req.CustomBindings)
 	if !found {
-		return router.Decision{}, fmt.Errorf("requested model %q has no available provider: %w", req.RequestedModel, cluster.ErrNoEligibleProvider)
+		return router.Decision{}, fmt.Errorf("requested model %q has no available provider: %w", req.RequestedModel, router.ErrNoEligibleProvider)
 	}
 	return router.Decision{
 		Provider: binding.Provider,
@@ -192,3 +285,6 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 		Reason:   blindExperimentPublicDecisionReason,
 	}, nil
 }
+
+// blindExperimentLoopStopMessage stops a looping turn without naming a model or the router.
+const blindExperimentLoopStopMessage = "Stopped this turn: the last several responses made no progress. Send a follow-up message describing what's still needed.\n\n"

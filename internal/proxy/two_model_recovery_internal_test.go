@@ -25,7 +25,7 @@ func TestTwoModelGatewayRecoveryReadmitsStruckSibling(t *testing.T) {
 	sibling := &fakeClient{outcomes: []fakeOutcome{{writeBytes: []byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")}}}
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
 		hmmHistoryRole(roleForTier(catalog.TierFor(catalog.ModelGPT6Luna))): {
-			Strategy: router.StrategyCluster, DemotedModels: []string{catalog.ModelGPT6Luna, recoveryOpusModel},
+			Strategy: router.StrategyHMMEmbedding, DemotedModels: []string{catalog.ModelGPT6Luna, recoveryOpusModel},
 		},
 	}}
 	decision := router.Decision{Provider: providers.ProviderOpenAIGateway, Model: catalog.ModelGPT6Luna, Metadata: &router.RoutingMetadata{
@@ -36,7 +36,7 @@ func TestTwoModelGatewayRecoveryReadmitsStruckSibling(t *testing.T) {
 	}}
 	svc := NewService(staticRouter{decision: decision}, map[string]providers.Client{
 		providers.ProviderOpenAIGateway: primary, providers.ProviderAnthropicGateway: sibling,
-	}, nil, false, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).WithRetrySleep(func(context.Context, time.Duration) error { return nil })
+	}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	svc.now = func() time.Time { return rateLimitTestNow }
 	body := []byte(`{"model":"gpt-6-luna","stream":true,"messages":[{"role":"user","content":"synthetic exhausted pool"}]}`)
 	rec := httptest.NewRecorder()
@@ -54,7 +54,7 @@ func TestTwoModelRecoveryOnlyLeasesOneExpiredArmPerRequest(t *testing.T) {
 		recoveryOpusModel:     rateLimitTestNow,
 	}
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyCluster, DemotionCooldowns: cooldowns},
+		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: cooldowns},
 	}}
 	svc, _ := cooldownTurnLoopService(store, true)
 	result := runDemotionTurnLoop(t, svc, context.Background())
@@ -139,7 +139,7 @@ var _ sessionpin.RecoveryProbeStore = (*recoveryLeaseStore)(nil)
 func TestRecoveredProbeClearsCooldownFromBothRows(t *testing.T) {
 	expired := rateLimitTestNow.Add(-time.Second)
 	store := &recoveryLeaseStore{rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyCluster, DemotionCooldowns: map[string]time.Time{recoveryOpusModel: expired}},
+		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: map[string]time.Time{recoveryOpusModel: expired}},
 	}}}
 	svc, _ := cooldownTurnLoopService(store, true)
 	result := runDemotionTurnLoop(t, svc, context.Background())
@@ -167,7 +167,7 @@ func TestRecoveryProbeLeaseDeniedModelsAreHardExcluded(t *testing.T) {
 	}
 	store := &recoveryLeaseStore{
 		rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
-			hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyCluster, DemotionCooldowns: cooldowns},
+			hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: cooldowns},
 		}},
 		denyAll: true,
 	}
@@ -189,7 +189,7 @@ func TestRecoveryProbeSkipsHardExcludedExpiredModel(t *testing.T) {
 	excludedModel := catalog.ModelGPT6Luna
 	eligibleModel := recoveryOpusModel
 	store := &recoveryLeaseStore{rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyCluster, DemotionCooldowns: map[string]time.Time{
+		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: map[string]time.Time{
 			excludedModel: rateLimitTestNow.Add(-time.Minute),
 			eligibleModel: rateLimitTestNow,
 		}},
@@ -206,7 +206,7 @@ func TestRecoveryProbeSkipsHardExcludedExpiredModel(t *testing.T) {
 
 func TestRecoveryProbeSkipsModelWithoutEligibleProviderBinding(t *testing.T) {
 	store := &recoveryLeaseStore{rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
-		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyCluster, DemotionCooldowns: map[string]time.Time{
+		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyHMMEmbedding, DemotionCooldowns: map[string]time.Time{
 			recoveryOpusModel: rateLimitTestNow.Add(-time.Minute),
 		}},
 	}}}
@@ -259,7 +259,7 @@ func TestTwoModelGatewayRecoveryRetriesThenRecordsWithdrawal(t *testing.T) {
 			svc := NewService(staticRouter{decision: decision}, map[string]providers.Client{
 				providers.ProviderOpenAIGateway:    primary,
 				providers.ProviderAnthropicGateway: sibling,
-			}, nil, false, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).
+			}, nil, store, false, providers.ProviderAnthropic, recoveryOpusModel, nil).
 				WithRescuedFailureArmDemotion(true).WithTransientRateLimit(scenario.transient, 45)
 			now := rateLimitTestNow
 			svc.now = func() time.Time { return now }

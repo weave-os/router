@@ -10,12 +10,10 @@ import (
 var ErrStrategyUnavailable = errors.New("router: strategy unavailable")
 
 // Strategy identifies the routing policy selected for a request. The zero
-// value ("") means the deployment default (cluster).
+// value ("") means the deployment default.
 type Strategy string
 
 const (
-	// StrategyCluster is the default cluster-scorer strategy (AvengersPro).
-	StrategyCluster Strategy = "cluster"
 	// StrategyRL routes via the trained RL/DPO policy served by the
 	// out-of-process policy sidecar. Opt-in only; never the silent default.
 	StrategyRL Strategy = "rl"
@@ -31,10 +29,6 @@ const (
 	StrategyHMMQwen Strategy = "hmm_qwen"
 	// StrategyDecisionModel asks the decision model judge for task and call complexity and picks models in Go.
 	StrategyDecisionModel Strategy = "decision_model"
-	// StrategyBandit routes via Thompson sampling over a frozen
-	// ts_posterior.json (cluster×model reward posterior). Opt-in only; wired
-	// when ROUTER_BANDIT_POSTERIOR_FILE is set at boot.
-	StrategyBandit Strategy = "bandit"
 	// StrategyLLMClassifier requires an authenticated, release-bound thread handshake.
 	StrategyLLMClassifier Strategy = "llm_classifier"
 )
@@ -43,6 +37,17 @@ const (
 // lifecycle semantics.
 func IsHMMStrategy(strategy Strategy) bool {
 	return strategy == StrategyHMM || strategy == StrategyHMMEmbedding || IsBetaStrategy(strategy)
+}
+
+// retiredClusterStrategy is the removed cluster-scorer strategy. Older
+// installations and deployments may still carry it.
+const retiredClusterStrategy Strategy = "cluster"
+
+// IsRetiredStrategy reports whether strategy names a removed routing policy.
+// It is never routable: persisted values follow the deployment default and a
+// configured default refuses boot.
+func IsRetiredStrategy(strategy Strategy) bool {
+	return strategy == retiredClusterStrategy
 }
 
 // IsBetaStrategy identifies explicit session classifier overrides.
@@ -62,11 +67,11 @@ func WithStrategy(ctx context.Context, s Strategy) context.Context {
 }
 
 // StrategyFromContext returns the per-request strategy override, or
-// StrategyCluster when none was set.
+// StrategyHMMEmbedding (the default policy strategy) when none was set.
 func StrategyFromContext(ctx context.Context) Strategy {
 	s, ok := ctx.Value(strategyContextKey{}).(Strategy)
 	if !ok || s == "" {
-		return StrategyCluster
+		return StrategyHMMEmbedding
 	}
 	return s
 }

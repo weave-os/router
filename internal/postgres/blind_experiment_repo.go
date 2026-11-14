@@ -48,6 +48,7 @@ func (repo *blindExperimentRepo) GetForUser(ctx context.Context, installationID,
 		Enabled:             row.Enabled,
 		RouterOnPercentage:  int(row.RouterOnPercentage),
 		Seed:                row.Seed,
+		SessionMode:         row.SessionMode,
 		CanonicalSubjectKey: derefString(row.CanonicalSubjectKey),
 		AutomaticArm:        auth.BlindExperimentArm(derefString(row.AutomaticArm)),
 		ManualOverride:      auth.BlindExperimentArm(derefString(row.ManualOverride)),
@@ -59,4 +60,12 @@ func (repo *blindExperimentRepo) GetForUser(ctx context.Context, installationID,
 		CohortSchedule:      cohortSchedule,
 		CohortOverrides:     cohortOverrides,
 	}, nil
+}
+
+func (repo *blindExperimentRepo) InstallationExperimentEnabled(ctx context.Context, installationID string) (bool, error) {
+	parsedInstallationID, err := parseUUID(installationID)
+	if err != nil {
+		return false, err
+	}
+	return dbbudget.Queries(repo.tx).GetBlindRouterExperimentEnabledForInstallation(ctx, parsedInstallationID)
 }

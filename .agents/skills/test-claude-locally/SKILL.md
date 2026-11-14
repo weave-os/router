@@ -18,7 +18,7 @@ Stand up the router in docker compose, point a one-off `claude -p` session at it
 
 - **`~/.claude/settings.json` `env` overrides inherited env vars.** Setting `ANTHROPIC_BASE_URL` in the shell does NOT redirect `claude` — settings.json wins and the request silently goes to prod. Always redirect with `claude --settings <file>` (see `scripts/local-settings.json`). Never edit the user's global `~/.claude.json` or `~/.claude/settings.json` — that breaks their live session.
 - **`claude -p` is stateless across invocations.** A standalone `/force-model` call does not persist to the next `claude -p`. Put `/force-model <model>` as the first line of the SAME prompt that contains the task.
-- **The router ignores the request's `model` field** and routes via the cluster scorer. The ONLY way to pin a specific model is `/force-model` through a Claude Code session (raw curl cannot).
+- **The router ignores the request's `model` field** and routes via the routing policy. The ONLY way to pin a specific model is `/force-model` through a Claude Code session (raw curl cannot).
 - **Port 8085 conflict.** The monorepo's pubsub emulator may already own host port 8085. Drop the router's host binding with a `docker-compose.override.yml` (see workflow). The server still reaches the emulator over the compose network.
 - **No credits / no key = no reproduction.** If the real upstream returns an error (e.g. OpenRouter "Insufficient credits"), use the mock-upstream path instead.
 
@@ -145,14 +145,14 @@ For fixes to `internal/billing` + `internal/server/middleware/balance_check.go` 
 
 ## Testing compaction (`/compact`)
 
-- **A persisted force-model pin outranks the compaction hard-pin.** A session seeded with `/force-model` stays pinned after the line is removed, so `/compact` never takes the compaction path. Seed without it (or clear the session's forced pin) and confirm `hard_pinned=true` with the compaction hard-pin reason in `ProxyMessages complete` before trusting the result.
+- **A persisted force-model pin outranks the compaction session pin.** A session seeded with `/force-model` stays pinned after the line is removed, so `/compact` serves the forced model while it stays eligible (enabled, not excluded, fits the window). Seed without it (or clear the session's forced pin) and confirm `turn_type=compaction` in `turnloop classified`, then the session's model (or a scored pick when no pin applies) as `decision_model` in `ProxyMessages complete` before trusting the result.
 - **`claude -p /compact --output-format json` can report success when compaction failed** (`is_error=false`, `subtype=success`, exit 0). Check the `result` text, the router logs, and whether the transcript gained an `isCompactSummary` entry. A successful print-mode compaction can have an empty `result`.
 - **Claude Code hides the router's 400 body** behind "Compaction failed · conversation could not be reduced below the context limit"; the raw response is in `--debug-file`.
 - **A 5xx without `x-should-retry: false` is retried by the SDK** (11 attempts, ~3 minutes) before Claude Code shows the error.
 
 ## Notes
 
-- Local cluster version comes from `ROUTER_CLUSTER_VERSION` in `.env.local`; it may differ from prod, which is why `/force-model` (not the scorer) is the reliable way to hit one model.
+- Local routing uses the stub HMM classifier and baked policy release by default, so it may differ from prod; `/force-model` is the reliable way to hit one model.
 - GLM-5.1's primary binding is Together (then Fireworks, then OpenRouter) — see `internal/router/catalog/catalog.go`.
 - To confirm a deploy contains a given router commit: the prod Cloud Run revision name maps to a monorepo commit; `git ls-tree <monorepo-commit> router-internal/router` shows the pinned router submodule SHA.
 

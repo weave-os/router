@@ -116,7 +116,7 @@ func cyberRefusalService(
 			providers.ProviderOpenAI:    openai.NewClient("test-openai-key", openAIURL),
 			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicURL),
 		},
-		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry,
+		nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry,
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderOpenAI:    {},
 		providers.ProviderAnthropic: {},

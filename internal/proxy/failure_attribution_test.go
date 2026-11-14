@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -146,30 +147,36 @@ func TestDispatchPlanned_ExhaustionNamesOwnerInTerminalMessage(t *testing.T) {
 
 func TestTerminalErrorMessage_RouterAndClientOwners(t *testing.T) {
 	err := &providers.UpstreamErrorResponse{Status: 422, Body: []byte(`bad`)}
-	router := tracedAttempt{Target: inference.Target{Provider: providers.ProviderGoogle}, Err: err,
+	router := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderGoogle}, Err: err,
 		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorInvalidRequest), FailureOwner: string(FailureOwnerRouter), BodyTranslated: true}}
 	assert.Equal(t, "Router error: Gemini rejected our translated request (422).", terminalMessageFor(router))
 
-	client := tracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: &providers.UpstreamErrorResponse{Status: 401},
+	client := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: &providers.UpstreamErrorResponse{Status: 401},
 		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorAuthRejected), FailureOwner: string(FailureOwnerClient)}}
 	assert.Equal(t, "Request rejected by Anthropic: rejected the request (401).", terminalMessageFor(client))
 
-	unknown := tracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Diagnosis: inference.AttemptDiagnosis{FailureOwner: string(FailureOwnerUnknown)}}
+	unknown := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Diagnosis: inference.AttemptDiagnosis{FailureOwner: string(FailureOwnerUnknown)}}
 	assert.Empty(t, terminalMessageFor(unknown))
 	assert.Empty(t, rescueDetailLine(unknown))
 	assert.Equal(t, upstreamCallFailedMessage, TerminalErrorMessage(err))
 }
 
 func TestRouterOwnedFailureWording(t *testing.T) {
-	pool := tracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: ErrSubscriptionPoolExhausted,
+	pool := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: ErrSubscriptionPoolExhausted,
 		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), FailureOwner: string(FailureOwnerRouter)}}
 	assert.Equal(t, "↳ switched: Anthropic had no subscription capacity (router issue)\n\n", rescueDetailLine(pool))
 	assert.Equal(t, "Router error: Anthropic subscription capacity exhausted.", terminalMessageFor(pool))
 
-	customTool := tracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: translate.ErrCustomToolArguments,
-		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), FailureOwner: string(FailureOwnerRouter), BodyTranslated: true}}
-	assert.Equal(t, "↳ switched: Anthropic sent tool arguments we couldn't translate (router issue)\n\n", rescueDetailLine(customTool))
-	assert.Equal(t, "Router error: Anthropic tool call translation failed.", terminalMessageFor(customTool))
+}
+
+func TestMalformedCustomToolArgumentsAreProviderOwned(t *testing.T) {
+	err := fmt.Errorf("write: %w: expected exactly one input field", translate.ErrCustomToolArguments)
+	customTool := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderDeepInfra}, Err: err,
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), BodyTranslated: true}}
+	customTool.Diagnosis.FailureOwner = string(classifyFailureOwner(failureOwnerInput{Err: err, BodyTranslated: true}))
+
+	assert.Equal(t, "↳ switched: DeepInfra sent malformed tool arguments (provider issue)\n\n", rescueDetailLine(customTool))
+	assert.Equal(t, "Provider DeepInfra failed: malformed tool call arguments.", terminalMessageFor(customTool))
 }
 
 func TestWithRescueDetail_SuppressedBadgeStaysEmpty(t *testing.T) {

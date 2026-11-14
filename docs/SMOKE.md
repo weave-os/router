@@ -176,7 +176,7 @@ recording OpenAI by omitting
 | File | Scenario |
 |---|---|
 | `smoke/boot_test.go` | `/health`, `/v1/version`, `/v1/router/models` respond and are well-formed |
-| `smoke/basic_test.go` | `/force-model` command turn; non-stream turn (usage + decision headers); streamed turn well-ordered; `x-weave-force-cluster` / unknown `x-weave-force-model` refused with 400 pre-dispatch |
+| `smoke/basic_test.go` | `/force-model` command turn; non-stream turn (usage + decision headers); streamed turn well-ordered; unknown `x-weave-force-cluster` (against the stub classifier in `smoke/hmmstub`) / unknown `x-weave-force-model` refused with 400 pre-dispatch |
 | `smoke/cache_test.go` | router-injected caching warms then reads; client-at-capacity doesn't over-inject; `ttl=1h` breakpoint not poisoned; overflow rejected cleanly by the router |
 | `smoke/streaming_test.go` | tool-use stream lifecycle: balanced `content_block_start/stop`, exactly one `message_stop`, `stop_reason` present |
 | `smoke/tool_delta_test.go` | non-system `tool_addition` and `tool_removal` blocks are normalized and accepted by Anthropic |
@@ -238,13 +238,12 @@ git status smoke/mitmproxy/cassettes/   # review the diff, then commit
 | `SMOKE_BASE_URL` | Docker-allocated loopback port | set by the runner for tests; rejected as an orchestrator input |
 | `SMOKE_KEEP_STACK` | `0` | leave the stack up after the run |
 | `SMOKE_CI_CACHE` | `0` | layer-cache the server/mitmproxy builds via the GitHub Actions cache backend. **CI-only** — set only by `.github/workflows/smoke.yml`; hard-errors outside a real GitHub Actions runner, never set locally |
-| `SMOKE_PREBUILT` | `0` | use CI's `router-server`, `router-seed`, `router-mitmproxy` images; otherwise build per-run image tags |
+| `SMOKE_PREBUILT` | `0` | use CI's `router-server`, `router-seed`, `router-mitmproxy`, `router-hmm-stub` images; otherwise build per-run image tags |
 
 ## CI build caching
 
-The router's own `Dockerfile` is expensive to build cold: ONNX runtime +
-tokenizer downloads, a Next.js build for the mini UI, then a CGO-linked Go
-compile. `.github/workflows/smoke.yml` sets `SMOKE_CI_CACHE=1`, which makes
+The router's own `Dockerfile` is expensive to build cold: a Next.js build for
+the mini UI, then the Go compile. `.github/workflows/smoke.yml` sets `SMOKE_CI_CACHE=1`, which makes
 `run.sh` add a fourth compose overlay,
 `smoke/mitmproxy/docker-compose.ci-cache.yml`, layering `cache_from`/`cache_to:
 type=gha,mode=max` onto both the `server` and `mitmproxy` builds.

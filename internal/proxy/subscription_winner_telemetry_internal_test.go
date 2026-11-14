@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/telemetry"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,15 +19,15 @@ func TestSubscriptionWinnerTelemetryPreservesOwnerAndAlternative(t *testing.T) {
 	winner.SubscriptionOwnerID = "00000000-0000-0000-0000-000000000102"
 	winner.SubscriptionTier = auth.SubscriptionTierShared
 	winner.IntendedModel = "claude-sonnet-4-6"
-	telemetry := InsertTelemetryParams{RequestedModel: "auto", DecisionModel: "gpt-5.4"}
-	applySubscriberTelemetry(ctx, &telemetry)
-	assert.Equal(t, "claude-sonnet", telemetry.IntendedModelFamily)
-	assert.Equal(t, "gpt", telemetry.FinalModelFamily)
-	assert.Equal(t, "00000000-0000-0000-0000-000000000101", telemetry.SubscriptionAccountID)
-	assert.Equal(t, "00000000-0000-0000-0000-000000000102", telemetry.SubscriptionOwnerID)
-	assert.Equal(t, auth.SubscriptionTierShared, telemetry.SubscriptionTier)
+	telemetryRow := InsertTelemetryParams{RequestedModel: "auto", DecisionModel: "gpt-5.4"}
+	applySubscriberTelemetry(ctx, &telemetryRow)
+	assert.Equal(t, "claude-sonnet", telemetryRow.IntendedModelFamily)
+	assert.Equal(t, "gpt", telemetryRow.FinalModelFamily)
+	assert.Equal(t, "00000000-0000-0000-0000-000000000101", telemetryRow.SubscriptionAccountID)
+	assert.Equal(t, "00000000-0000-0000-0000-000000000102", telemetryRow.SubscriptionOwnerID)
+	assert.Equal(t, auth.SubscriptionTierShared, telemetryRow.SubscriptionTier)
 
-	attrs := otel.NewAttrBuilder(6)
+	attrs := telemetry.NewAttrBuilder(6)
 	(&Service{}).applySubscriptionSpanTelemetry(ctx, attrs, "auto", "gpt-5.4")
 	values := make(map[string]string)
 	for _, attr := range attrs.Build() {

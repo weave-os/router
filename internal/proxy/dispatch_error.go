@@ -11,8 +11,6 @@ import (
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/bandit"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/router/hmm"
@@ -45,13 +43,13 @@ const (
 	DispatchErrorImageLimitExceeded
 	DispatchErrorInvalidRoutingKnobs
 	DispatchErrorRLPolicyUnavailable
-	DispatchErrorBanditUnavailable
 	DispatchErrorHMMUnavailable
 	DispatchErrorPolicyUnavailable
 	DispatchErrorClusterUnavailable
 	DispatchErrorCreditsExhausted
 	DispatchErrorSubscriptionPoolExhausted
 	DispatchErrorSubscriptionPoolUnavailable
+	DispatchErrorSubscriptionPoolThrottled
 	DispatchErrorTranslationIntrinsicallyIncompatible
 	DispatchErrorTranslationProviderUnavailable
 	DispatchErrorUserSpendLimitReached
@@ -79,6 +77,7 @@ const (
 	DispatchErrorDecisionModelUnavailable
 	DispatchErrorCompactionUnservable
 	DispatchErrorClaudeEnterpriseOnly
+	DispatchErrorWeaveCreditsDisabled
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -179,6 +178,12 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Subscription-only request refused: credits exhausted and subscription unavailable",
 		}, true
+	case errors.Is(err, ErrWeaveCreditsDisabled):
+		return DispatchErrorClass{
+			Kind: DispatchErrorWeaveCreditsDisabled, Status: http.StatusPaymentRequired,
+			Message:       "Weave credits are turned off for your organization, and none of your plans or provider API keys can serve this request. Connect a provider key or plan for this model, or allow Weave credits in settings.",
+			NoClientRetry: true, LogLevel: "warn", LogMessage: "Request refused: Weave credits disabled and no customer funding source",
+		}, true
 	case errors.Is(err, ErrClaudeEnterpriseSubscriptionUnavailable):
 		return DispatchErrorClass{
 			Kind: DispatchErrorClaudeEnterpriseOnly, Status: http.StatusPaymentRequired,
@@ -193,6 +198,15 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			RetryAfter: true,
 			LogLevel:   "warn",
 			LogMessage: "Subscription account pool exhausted",
+		}, true
+	case errors.Is(err, ErrSubscriptionPoolThrottled):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorSubscriptionPoolThrottled,
+			Status:     http.StatusTooManyRequests,
+			Message:    "All enrolled subscription accounts are rate-limited. Retry shortly.",
+			RetryAfter: true,
+			LogLevel:   "warn",
+			LogMessage: "Subscription account pool throttled",
 		}, true
 	case errors.Is(err, ErrSubscriptionPoolUnavailable):
 		return DispatchErrorClass{
@@ -228,7 +242,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "Rejected request: forced model is not a known model",
 		}, true
 	case errors.As(err, &passthroughUnknown):
-		message := "This request is served with the requested model as-is, but " + passthroughUnknown.Error() + ". Request a full model ID (e.g. claude-opus-5-5 or gpt-5.6-sol)."
+		message := passthroughUnknown.Error() + ". Request a full model ID (e.g. claude-opus-5-5 or gpt-5.6-sol)."
 		if passthroughUnknown.RoutingPolicyPassthrough {
 			message = "Automatic routing isn't enabled for you in this organization, so the requested model is served as-is, but " + passthroughUnknown.Error() + ". Request a full model ID (e.g. claude-opus-5-5 or gpt-5.6-sol), or ask your org admin to enable automatic routing."
 		}
@@ -341,7 +355,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	// Must precede the ErrNoEligibleProvider case: ErrAllowlistEmptiesPool
 	// wraps it, so the generic case would otherwise match first and report a
 	// missing-provider-keys problem for what is actually a config decision.
-	case errors.Is(err, cluster.ErrAllowlistEmptiesPool):
+	case errors.Is(err, router.ErrAllowlistEmptiesPool):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorAllowlistEmptiesPool,
 			Status:     http.StatusBadRequest,
@@ -349,7 +363,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Model allowlist leaves no eligible candidates",
 		}, true
-	case errors.Is(err, cluster.ErrNoEligibleProvider):
+	case errors.Is(err, router.ErrNoEligibleProvider):
 		return noEligibleProviderClass(), true
 	case errors.Is(err, billing.ErrUserMonthlySpendLimitReached):
 		return DispatchErrorClass{
@@ -368,7 +382,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "error",
 			LogMessage: "Spend-limit check unavailable",
 		}, true
-	case errors.Is(err, cluster.ErrInvalidRoutingKnobs):
+	case errors.Is(err, router.ErrInvalidRoutingKnobs):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorInvalidRoutingKnobs,
 			Status:     http.StatusBadRequest,
@@ -432,15 +446,6 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "error",
 			LogMessage: "RL routing unavailable",
 		}, true
-	case errors.Is(err, bandit.ErrBanditUnavailable):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorBanditUnavailable,
-			Status:     http.StatusServiceUnavailable,
-			Message:    "Router unavailable: bandit router failed and no fallback is configured.",
-			RetryAfter: true,
-			LogLevel:   "error",
-			LogMessage: "Bandit routing unavailable",
-		}, true
 	case errors.Is(err, decisionmodel.ErrUnavailable):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorDecisionModelUnavailable,
@@ -468,14 +473,14 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "error",
 			LogMessage: "Policy routing unavailable",
 		}, true
-	case errors.Is(err, cluster.ErrClusterUnavailable):
+	case errors.Is(err, router.ErrRoutingUnavailable):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorClusterUnavailable,
 			Status:     http.StatusServiceUnavailable,
-			Message:    "Router unavailable: cluster scorer failed and no fallback is configured.",
+			Message:    "Router unavailable: no routing policy could serve this request.",
 			RetryAfter: true,
 			LogLevel:   "error",
-			LogMessage: "Cluster routing unavailable",
+			LogMessage: "Routing unavailable",
 		}, true
 	default:
 		return DispatchErrorClass{}, false

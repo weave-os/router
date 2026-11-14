@@ -79,7 +79,7 @@ func runAuthorityShadowTurnWithPin(
 	store.getFound = true
 	store.getPin = pin
 	svc := NewService(
-		nil, nil, nil, false, nil, store, false,
+		nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	).WithAuthorityCacheShadow(enabled).
 		WithPlanner(planner.EVConfig{
@@ -100,7 +100,7 @@ func runAuthorityShadowTurnWithPin(
 		[]byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
 	)
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	ctx := router.WithStrategy(context.Background(), strategy)
 	result, err := svc.runTurnLoop(
 		ctx, env, features, "api-key", uuid.New(), "", http.Header{},

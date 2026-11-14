@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -52,12 +53,8 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	routerpubsub "weave-os/router/internal/pubsub"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/bandit"
-	"weave-os/router/internal/router/banditexplore"
 	"weave-os/router/internal/router/breaker"
-	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/handover"
@@ -205,9 +202,8 @@ func main() {
 	}
 
 	providerMap := make(map[string]providers.Client)
-	// envKeyedProviders = providers with a real deployment-level API key.
-	// Feeds resolveHardPinModel so compaction only lands where deployment
-	// auth actually exists — a BYOK/passthrough-only provider would 401.
+	// envKeyedProviders = providers with a real deployment-level API key; a
+	// BYOK/passthrough-only provider would 401 without request credentials.
 	envKeyedProviders := make(map[string]struct{})
 	// True when Anthropic has no deployment key but is reachable via client
 	// auth passthrough (Claude Code's OAuth/x-api-key flow). Must stay out of
@@ -253,7 +249,8 @@ func main() {
 	if !byokOnly {
 		anthropicKey = config.GetOr("ANTHROPIC_API_KEY", "")
 	}
-	providerMap[providers.ProviderAnthropic] = anthropic.NewClient(anthropicKey, anthropic.DefaultBaseURL, anthropic.WithModelListHTTPClient(discoveryHTTPClient))
+	anthropicClient := anthropic.NewClient(anthropicKey, anthropic.DefaultBaseURL, anthropic.WithModelListHTTPClient(discoveryHTTPClient))
+	providerMap[providers.ProviderAnthropic] = anthropicClient
 	switch {
 	case byokOnly:
 		logger.Info("Anthropic provider enabled (BYOK only)", "base_url", anthropic.DefaultBaseURL)
@@ -546,14 +543,6 @@ func main() {
 		panic(err)
 	}
 
-	rtr, defaultEmbedderID, err := buildClusterScorer(availableProviders)
-	if err != nil {
-		// Ops alerts on Cloud Run boot failures; silent degradation would mask quality regressions.
-		logger.Error("Cluster scorer failed to build; refusing to boot", "err", err)
-		panic(err)
-	}
-	logger.Info("Routing via cluster scorer", "embedder", defaultEmbedderID)
-
 	var admissionDecisions *policyregistry.AdmissionDecisionCache
 	if managedServingEnabled(deploymentMode) {
 		target := policyregistry.ServingTarget(config.MustGet("ROUTER_SERVING_TARGET"))
@@ -621,6 +610,7 @@ func main() {
 		WithClusterModelLists(repo.ClusterModelLists).
 		WithUserClusterModelLists(repo.UserClusterModelLists, userClusterCache).
 		WithBlindExperiments(repo.BlindExperiments, blindExperimentCache).
+		WithBlindExperimentSessions(repo.BlindExperimentSessions).
 		WithRoutingPolicies(repo.RoutingPolicies, routingPolicyCache).
 		WithWIFTokenSource(buildWIFTokenSource(logger)).
 		WithAnthropicFederationTokenSource(buildAnthropicFederationTokenSource(deploymentMode)).
@@ -682,12 +672,6 @@ func main() {
 		}
 		authSvc.WithAdminPassword(adminPassword)
 	}
-	embedOnlyUser := config.GetOr("ROUTER_EMBED_ONLY_USER_MESSAGE", "true") == "true"
-	if embedOnlyUser {
-		logger.Info("Cluster scorer embedding user-role text only (ROUTER_EMBED_ONLY_USER_MESSAGE=true)")
-	} else {
-		logger.Info("Cluster scorer embedding concatenated stream (ROUTER_EMBED_ONLY_USER_MESSAGE=false)")
-	}
 	escapeNormalize := config.GetOr("ROUTER_DEEPSEEK_ESCAPE_NORMALIZE", "false") == "true"
 	if escapeNormalize {
 		logger.Info("Edit-tool escape-sequence repair enabled (ROUTER_DEEPSEEK_ESCAPE_NORMALIZE=true)")
@@ -706,8 +690,6 @@ func main() {
 		authSvc.WithOnboardingObserver(otel.NewOnboardingObserver(emitter))
 	}
 
-	semanticCache := buildSemanticCache(rtr)
-
 	// Default-on: the scorer's α-blend ignores prompt-cache continuity, so
 	// without pinning, mid-conversation provider switches pay a cache-write
 	// penalty (Anthropic caches per-model) that dwarfs routing savings over a
@@ -724,12 +706,10 @@ func main() {
 
 	hardPinExplore := config.GetOr("ROUTER_HARD_PIN_EXPLORE", "true") == "true"
 	hardPinOverrideConfigured := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_MODEL", "")) != ""
-	// Hard-pin compaction runs on every installation, so it must land on a
-	// provider with real deployment auth (env-keyed, excluding BYOK/passthrough)
-	// or it 401s. In managed/byokOnly mode no provider has deployment auth, so
-	// the boot-time pin here is just a fallback — per-request resolution below
-	// does the real work.
-	hardPinProvider, hardPinModel, err := resolveHardPinModel(envKeyedProviders, logger)
+	// The boot-time pin seeds the title-gen, classifier, probe and sub-agent
+	// deployment targets; hard-pinned turns serve it directly only when the
+	// per-request resolver below is not wired (ROUTER_HARD_PIN_MODEL override).
+	hardPinProvider, hardPinModel, err := resolveHardPinModel()
 	if err != nil {
 		logger.Error("Invalid hard-pin model configuration; refusing to boot", "err", err)
 		panic(err)
@@ -739,32 +719,16 @@ func main() {
 	}
 	logger.Info("Hard-pin model resolved", "provider", hardPinProvider, "model", hardPinModel, "byok_only", byokOnly)
 
-	// Per-request hard-pin resolver: closes over the default cluster bundle so
-	// the proxy can resolve per-request against the request's enabled-providers
-	// and the installation's excluded_models (the hard-pin tier bypasses the
-	// scorer, the only component that otherwise applies excluded_models).
-	// nil if the bundle fails to load, falling back to boot-time hardPin{Provider,Model}.
-	// Not wired when ROUTER_HARD_PIN_MODEL is set — an operator override is
-	// absolute and must never be silently rewritten by excluded_models.
+	// Per-request hard-pin resolver: picks the catalog utility target for the
+	// request's enabled providers, excluded_models and bindings (the hard-pin
+	// tier bypasses the scorer, the only component that otherwise applies
+	// excluded_models). Not wired when ROUTER_HARD_PIN_MODEL is set — an
+	// operator override is absolute and must never be silently rewritten by
+	// excluded_models.
 	var hardPinResolver proxy.HardPinResolver
 	if !hardPinOverrideConfigured {
-		reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
-		if version, vErr := cluster.ResolveVersion(reqVersion); vErr == nil {
-			if bundle, bErr := cluster.LoadBundle(version); bErr == nil {
-				meta, registry := bundle.Metadata, bundle.Registry
-				hardPinResolver = func(req proxy.HardPinRequest) (string, string, bool) {
-					return cluster.FastestModelForRequest(meta, registry, req.EnabledProviders, req.ExcludedModels, nil, cluster.RequestBindings{
-						Custom:   req.CustomBindings,
-						Gateways: req.GatewayProviders,
-					})
-				}
-				logger.Info("Hard-pin resolver wired (per-request fastest model from cluster bundle, applies excluded_models)", "version", version, "byok_only", byokOnly)
-			} else {
-				logger.Warn("Hard-pin resolver disabled: cluster bundle failed to load; hard-pin will fall back to boot-time defaults and cannot apply excluded_models", "err", bErr, "version", version)
-			}
-		} else {
-			logger.Warn("Hard-pin resolver disabled: could not resolve cluster version; hard-pin will fall back to boot-time defaults and cannot apply excluded_models", "err", vErr)
-		}
+		hardPinResolver = proxy.CatalogUtilityHardPin
+		logger.Info("Hard-pin resolver wired (per-request catalog utility target, applies excluded_models)", "default_model", policy.UtilityHardPinDefaultModel, "byok_only", byokOnly)
 	} else {
 		logger.Info("Hard-pin resolver not wired: ROUTER_HARD_PIN_MODEL operator override is set and absolute by design", "model", hardPinModel)
 	}
@@ -951,11 +915,10 @@ func main() {
 		subAgentPolicyProvider = hardPinProvider
 		subAgentPolicyModel = hardPinModel
 	}
-	// The client's own compaction turn is served by proxy.compactionHardPin on
-	// Anthropic unless the operator pinned every utility turn explicitly.
-	compactionHardPin := !hardPinOverrideConfigured
+	// Pi handoff summaries are authorized under the client-compaction purpose:
+	// on Anthropic unless the operator pinned every utility turn explicitly.
 	clientCompactionProvider, clientCompactionModel := providers.ProviderAnthropic, compactionModel
-	if !compactionHardPin {
+	if hardPinOverrideConfigured {
 		clientCompactionProvider, clientCompactionModel = hardPinProvider, hardPinModel
 	}
 	deploymentTargets := []policy.PurposeTargetOverride{
@@ -982,6 +945,10 @@ func main() {
 	if err != nil {
 		logger.Error("Invalid escalation judge active rollout enablement", "err", err)
 		panic(err)
+	}
+	escalationShadowDefault := flags.EscalationClassifier(config.GetOr("ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT", string(flags.EscalationClassifierNone)))
+	if escalationShadowDefault != flags.EscalationClassifierNone && !flags.IsLLMEscalationClassifier(escalationShadowDefault) {
+		panic("ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT must be none, llm_escalation or switchyard_llm_v1")
 	}
 	if escalationJudgeActiveEnabled && !escalationJudgeEnabled {
 		panic("ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED requires ROUTER_ESCALATION_JUDGE_ENABLED")
@@ -1029,10 +996,6 @@ func main() {
 	} else {
 		logger.Info("Handover summarizer disabled (provider not registered); switch turns will preserve full history instead", "requested_provider", handoverProviderName)
 	}
-
-	// OFF by default: wraps only the proxy's routing entrypoint, so rtr stays
-	// the *cluster.Multiversion the admin cast and semantic cache reference.
-	routeEntry := buildExploringRouter(rtr, logger)
 
 	// Off unless WV_CAPTURE_CONTENT is set; managed deploys set "full". Redactor
 	// is nil (no-op) here — managed wires one.
@@ -1085,8 +1048,10 @@ func main() {
 	var hmmQwenRouter router.Router
 	var hmmCapabilities policy.Capabilities
 	var hmmReadinessChecker admin.HealthChecker
+	var policyStatus admin.PolicyStatusSource
 	var hmmRosterSources map[router.Strategy]policy.RosterSource
 	var hmmRosterModels admin.HMMRosterSource
+	var routingDistribution admin.DistributionRosterSource
 	var hmmBetaCapabilities policy.Capabilities
 	var servingAdmission *middleware.ServingAdmissionConfig
 	testPlansEnabled := strings.EqualFold(config.GetOr("ROUTER_TEST_PLANS_ENABLED", "false"), "true")
@@ -1135,7 +1100,6 @@ func main() {
 			hmmRosterSources[router.StrategyHMMBeta] = rosterSource
 			hmmRosterSources[router.StrategyHMMQwen] = rosterSource
 		}
-		hmmRosterModels = admittedHMMRosterSource{}
 		if topic := strings.TrimSpace(config.GetOr("PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION", "")); topic != "" {
 			subscriptionCtx, cancelSubscription := context.WithTimeout(context.Background(), 30*time.Second)
 			subscriptionName, cleanup, err := routerpubsub.CreateReplicaSubscription(subscriptionCtx, pubsubClient, pubsubProjectID, topic, config.GetOr("PUBSUB_SUBSCRIPTION_ROUTER_POLICY_INVALIDATION", topic))
@@ -1206,11 +1170,13 @@ func main() {
 		hmmEmbeddingRouter = policyregistry.NewDynamicRouter(stableManager, router.StrategyHMMEmbedding)
 		hmmCapabilities = hmmRouter.(policy.CapabilitySource).CurrentCapabilities()
 		hmmReadinessChecker = stableManager
+		policyStatus = stableManager
 		hmmRosterSources = map[router.Strategy]policy.RosterSource{
 			router.StrategyHMM:          stableManager,
 			router.StrategyHMMEmbedding: stableManager,
 		}
 		hmmRosterModels = newHMMRosterSource(stableManager, hmmTimeout)
+		routingDistribution = stableManager
 		escalationObserver = stableDynamicRouter
 
 		var betaManager *policyregistry.Manager
@@ -1272,26 +1238,6 @@ func main() {
 		logger.Info("HMM policy routers disabled (ROUTER_POLICY_ENVIRONMENT and ROUTER_POLICY_RELEASE_DIR unset); HMM strategies will return 503")
 	}
 
-	// Wired only when ROUTER_BANDIT_POSTERIOR_FILE points at a ts_posterior.json;
-	// x-weave-router-strategy: bandit then routes through it. Wraps the raw
-	// cluster scorer, not the explore wrapper. Unset -> nil -> 503.
-	var banditRouter router.Router
-	if posteriorPath := strings.TrimSpace(config.GetOr("ROUTER_BANDIT_POSTERIOR_FILE", "")); posteriorPath != "" {
-		post, loadErr := bandit.LoadPosterior(posteriorPath)
-		if loadErr != nil {
-			logger.Error(
-				"Bandit posterior load failed; x-weave-router-strategy: bandit will return 503",
-				"path", posteriorPath,
-				"err", loadErr,
-			)
-		} else {
-			banditRouter = bandit.New(rtr, post)
-			logger.Info("Bandit strategy router wired", "posterior_file", posteriorPath)
-		}
-	} else {
-		logger.Info("Bandit strategy router disabled (ROUTER_BANDIT_POSTERIOR_FILE unset); x-weave-router-strategy: bandit will return 503")
-	}
-
 	configuredPolicySpecs, err := buildConfiguredPolicySidecars(
 		context.Background(),
 		config.GetOr("ROUTER_POLICY_SIDECARS", ""),
@@ -1314,7 +1260,7 @@ func main() {
 	// degrades that UI and nothing else.
 	publishFlagRegistry(logger, repo.FlagDefinitions, map[flags.Key]string{
 		flags.KeyEscalationActiveClassifier:           string(flags.EscalationClassifierNone),
-		flags.KeyEscalationShadowClassifier:           string(flags.EscalationClassifierNone),
+		flags.KeyEscalationShadowClassifier:           string(escalationShadowDefault),
 		flags.KeyEscalationCadence:                    strconv.Itoa(llmescalation.DefaultCadence),
 		flags.KeyEscalationEpoch:                      "0",
 		flags.KeyEscalationXGBoostEnabled:             boolDefault(false),
@@ -1333,6 +1279,7 @@ func main() {
 		flags.KeyTextRepetitionBreak:                  boolDefault(textRepetitionBreakEnabled),
 		flags.KeyPlannerEnabled:                       boolDefault(plannerEnabled),
 		flags.KeyScoreToolResultTurns:                 boolDefault(scoreToolResultTurns),
+		flags.KeyHMMToolResultHold:                    boolDefault(false),
 		flags.KeyPrefixTrimFreeSwitch:                 boolDefault(prefixTrimFreeSwitch),
 		flags.KeyAuthoritativeUpgradeGate:             boolDefault(authoritativeUpgradeGate),
 		flags.KeyAuthoritativeUpgradePolicy:           string(parsedUpgradePolicy),
@@ -1363,7 +1310,6 @@ func main() {
 		flags.KeyCyberRefusalRetry:                    boolDefault(cyberRefusalRetry),
 		flags.KeyCyberRefusalFallback:                 cyberRefusalFallbackModel,
 		flags.KeyAnthropicServerFallback:              boolDefault(anthropicServerSideFallback),
-		flags.KeyEmbedOnlyUserMessage:                 boolDefault(embedOnlyUser),
 	})
 
 	// Always wire even when beta is unavailable: existing beta sessions fail
@@ -1393,9 +1339,16 @@ func main() {
 		}
 		qwenEscalationJudge = judge
 	}
+	if (escalationShadowDefault == flags.EscalationClassifierSwitchyard && !escalationJudgeEnabled) ||
+		(escalationShadowDefault == flags.EscalationClassifierLLM && qwenEscalationJudge == nil) {
+		panic("ROUTER_ESCALATION_SHADOW_CLASSIFIER_DEFAULT names a classifier whose judge is not configured")
+	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
-	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+	proxySvc := proxy.NewService(nil, providerMap, telemetryEmitter, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+		WithTranslationMetrics(otel.NewTranslationMetrics()).
+		WithClaudeSubscriptionPlanReader(anthropicClient).
+		WithExternalKeyUsageRecorder(authSvc).
 		WithCodexExtraCredits(allowCodexCredits).
 		WithSessionStrategyStore(sessionStrategyStore).
 		WithSessionTurnClock(sessionTurnClock).
@@ -1404,6 +1357,7 @@ func main() {
 		WithLLMEscalation(llmEscalationStore, escalationJudge).
 		WithQwenEscalation(qwenEscalationJudge).
 		WithEscalationConfiguration(llmEscalationStore, authSvc.InvalidateInstallation, escalationJudgeActiveEnabled).
+		WithEscalationShadowDefault(escalationShadowDefault).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
 		WithScopedSearchRequirement(scopedSearchRequirement, searchRequirementDecayTurns).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: rlRouter, Unavailable: rl.ErrPolicyUnavailable}).
@@ -1427,7 +1381,6 @@ func main() {
 			Strategy: router.StrategyDecisionModel, Router: buildDecisionModelRouter(logger), Unavailable: decisionmodel.ErrUnavailable,
 			Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true},
 		}).
-		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyBandit, Router: banditRouter, Unavailable: bandit.ErrBanditUnavailable}).
 		WithContentCapture(captureMode, captureMaxBytes, nil).
 		WithFeedback(repo.Feedback, feedbackSigner, feedbackBaseURL).
 		WithPiHandoffSecret(config.GetOr("ROUTER_PI_HANDOFF_SECRET", "")).
@@ -1490,8 +1443,6 @@ func main() {
 		WithSummarizer(summarizer).
 		WithCompactionHandoverSummarizer(compactionHandoverSz).
 		WithWebSearchExecutor(cortexWebSearch(logger)).
-		WithCompactionModel(compactionModel).
-		WithCompactionHardPin(compactionHardPin).
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
@@ -1571,6 +1522,15 @@ func main() {
 		panic(err)
 	}
 	usageObserver := usage.NewObserver(observerSalt, subscriptionTTL, time.Now)
+	if subscriptionRuntime != nil {
+		subscriptionRuntime.WithCandidateSignal(func(accountID string, _ subscriptions.Provider, now time.Time) subscriptions.CandidateSignal {
+			snapshot, observed := usageObserver.Snapshot(usageObserver.Key([]byte("subscription-account:" + accountID)))
+			if !observed {
+				return subscriptions.CandidateSignal{}
+			}
+			return subscriptionCandidateSignal(snapshot, now)
+		})
+	}
 	// Bound memory: evict expired observations periodically (the usage package
 	// spawns no goroutines of its own).
 	go func() {
@@ -1607,11 +1567,13 @@ func main() {
 		observability.AccessLog(),
 	)
 
-	// Lets the admin model-selection handler surface deployed models; nil
-	// fallback keeps non-cluster routers bootable.
-	deployedModels, _ := rtr.(*cluster.Multiversion)
 	analyticsSvc := analytics.NewService(repo.Analytics, time.Now)
-	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker, proxySvc, server.DefaultStrategyFromEnv())
+	defaultStrategy, defaultStrategyErr := server.DefaultStrategyFromEnv()
+	if defaultStrategyErr != nil {
+		logger.Error("ROUTER_DEFAULT_STRATEGY is invalid; refusing to boot", "err", defaultStrategyErr)
+		panic(defaultStrategyErr)
+	}
+	readinessChecker := newReadinessChecker(pool, hmmReadinessChecker, proxySvc, defaultStrategy)
 	if defaultStrategyErr := readinessChecker.checkDefaultStrategy(); defaultStrategyErr != nil {
 		logger.Error("ROUTER_DEFAULT_STRATEGY has no router configured; refusing to boot", "err", defaultStrategyErr)
 		panic(defaultStrategyErr)
@@ -1661,11 +1623,13 @@ func main() {
 		ServingAdmission:         servingAdmission,
 		SubscriberAllowance:      subscriberAllowanceSvc,
 		SubscriptionPoolsEnabled: subscriptionPoolsEnabled,
+		PolicyStatus:             policyStatus,
+		RoutingDistribution:      routingDistribution,
 	}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}
-	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)
+	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModelsSource(hmmRosterModels), deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)
 
 	port := config.GetOr("PORT", "8080")
 	address := ":" + port
@@ -1728,40 +1692,44 @@ func main() {
 	apm.ShutdownWithContext(apmCtx)
 }
 
-// buildExploringRouter optionally wraps rtr in the quality-tie-band explorer.
-// OFF unless ROUTER_EXPLORE_ENABLED=true (band half-width ROUTER_EXPLORE_EPSILON,
-// default 0.05). Intended for staging/small slices — never flip fleet-wide
-// without a bake-off.
-func buildExploringRouter(rtr router.Router, logger *slog.Logger) router.Router {
-	if !strings.EqualFold(config.GetOr("ROUTER_EXPLORE_ENABLED", "false"), "true") {
-		return rtr
-	}
-	multi, ok := rtr.(*cluster.Multiversion)
-	if !ok {
-		logger.Warn("ROUTER_EXPLORE_ENABLED set but router is not a cluster.Multiversion; exploration disabled")
-		return rtr
+func subscriptionCandidateSignal(snapshot usage.Snapshot, now time.Time) subscriptions.CandidateSignal {
+	if snapshot.OverageInUse {
+		signal := subscriptions.CandidateSignal{Observed: true, Billable: true, UsedFraction: 1}
+		if snapshot.UnifiedResetAt.After(now) {
+			signal.ResetAt = snapshot.UnifiedResetAt
+		}
+		signal.ObservedAt = snapshot.ObservedAt
+		return signal
 	}
 
-	providers := make(map[string]string)
-	for _, e := range multi.DefaultDeployedModels() {
-		// First binding wins; the default bundle lists a model's primary
-		// provider first, which matches the scorer's default resolution.
-		if _, seen := providers[e.Model]; !seen {
-			providers[e.Model] = e.Provider
+	signal := subscriptions.CandidateSignal{Exhausted: snapshot.ExhaustedAsOf(now), ObservedAt: snapshot.ObservedAt}
+	for _, window := range []usage.Window{snapshot.Primary, snapshot.Secondary} {
+		if math.IsNaN(window.UsedPercent) || math.IsInf(window.UsedPercent, 0) || window.UsedPercent < 0 || window.UsedPercent > 1 {
+			return subscriptions.CandidateSignal{}
+		}
+		if window.WindowMinutes <= 0 && window.UsedPercent <= 0 {
+			continue
+		}
+		resetAt := window.ResetAt
+		if resetAt.IsZero() && window.WindowMinutes > 0 {
+			observedAt := window.ObservedAt
+			if observedAt.IsZero() {
+				observedAt = snapshot.ObservedAt
+			}
+			resetAt = observedAt.Add(time.Duration(window.WindowMinutes) * time.Minute)
+		}
+		if !resetAt.IsZero() && !resetAt.After(now) {
+			continue
+		}
+		if !signal.Observed || window.UsedPercent > signal.UsedFraction {
+			signal.Observed = true
+			signal.UsedFraction = window.UsedPercent
+		}
+		if resetAt.After(now) && (signal.ResetAt.IsZero() || resetAt.Before(signal.ResetAt)) {
+			signal.ResetAt = resetAt
 		}
 	}
-	providerFor := func(model string) (string, bool) {
-		p, ok := providers[model]
-		return p, ok
-	}
-
-	epsilon := float32(parseEnvFloat("ROUTER_EXPLORE_EPSILON", 0.05))
-	logger.Info(
-		"Quality-tie-band exploration ENABLED (non-prod / shadow expected)",
-		"band_width", epsilon,
-		"deployed_models", len(providers),
-	)
-	return banditexplore.New(rtr, providerFor, epsilon)
+	return signal
 }
 
 // parseOtelHeaders parses a comma-separated key=value string into a map.
@@ -1777,131 +1745,6 @@ func parseOtelHeaders(raw string) map[string]string {
 		}
 	}
 	return out
-}
-
-// buildClusterScorer constructs the cluster.Multiversion router, sharing one
-// ONNX embedder across versions. Errors force the caller to panic rather
-// than silently degrade to a default model. Also returns the default
-// version's embedder ID so the caller can log the resolved value rather than
-// a hardcoded literal.
-func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, string, error) {
-	logger := observability.Get()
-
-	requestedVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
-	defaultVersion, err := cluster.ResolveVersion(requestedVersion)
-	if err != nil {
-		return nil, "", fmt.Errorf("Resolve cluster version %q: %w", requestedVersion, err)
-	}
-
-	// Builds only the served version by default. ROUTER_CLUSTER_BUILD_ALL_VERSIONS=true
-	// powers the eval harness's per-request x-weave-cluster-version A/B; prod
-	// skips it to avoid the extra memory and the header-override foot-gun.
-	buildAll := strings.EqualFold(config.GetOr("ROUTER_CLUSTER_BUILD_ALL_VERSIONS", "false"), "true")
-	var versions []string
-	if buildAll {
-		versions, err = cluster.ListVersions()
-		if err != nil {
-			return nil, "", fmt.Errorf("List cluster versions: %w", err)
-		}
-	} else {
-		versions = []string{defaultVersion}
-	}
-
-	embedders, err := cluster.NewEmbedderSet()
-	if err != nil {
-		return nil, "", err
-	}
-
-	cfg := cluster.DefaultConfig()
-	if v := config.GetOr("ROUTER_CLUSTER_EMBED_TIMEOUT_MS", ""); v != "" {
-		ms, parseErr := time.ParseDuration(v + "ms")
-		if parseErr != nil || ms <= 0 {
-			logger.Warn("Invalid ROUTER_CLUSTER_EMBED_TIMEOUT_MS; using default", "value", v, "default_ms", cfg.EmbedTimeout.Milliseconds())
-		} else {
-			cfg.EmbedTimeout = ms
-			logger.Info("Cluster embed timeout overridden", "embed_timeout_ms", ms.Milliseconds())
-		}
-	}
-	if v := config.GetOr("ROUTER_CLUSTER_TOP_P", ""); v != "" {
-		n, parseErr := strconv.Atoi(v)
-		if parseErr != nil || n <= 0 {
-			logger.Warn("Invalid ROUTER_CLUSTER_TOP_P; using default", "value", v, "default", cfg.TopP)
-		} else {
-			cfg.TopP = n
-			logger.Info("Cluster top_p overridden", "top_p", n)
-		}
-	}
-	scorers := make(map[string]*cluster.Scorer, len(versions))
-	var defaultEmbedderID string
-	for _, v := range versions {
-		bundle, err := cluster.LoadBundle(v)
-		if err != nil {
-			_ = embedders.Close()
-			return nil, "", fmt.Errorf("Load bundle %s: %w", v, err)
-		}
-		if v == defaultVersion {
-			defaultEmbedderID = bundle.EmbedderID()
-		}
-
-		missingProviders := map[string][]string{}
-		for _, e := range bundle.Registry.DeployedModels {
-			if _, ok := availableProviders[e.Provider]; !ok {
-				missingProviders[e.Provider] = append(missingProviders[e.Provider], e.Model)
-			}
-		}
-		for prov, models := range missingProviders {
-			logger.Warn(
-				"Cluster artifact references unregistered provider; affected models will be excluded from argmax",
-				"cluster_version", v,
-				"missing_provider", prov,
-				"affected_models", models,
-				"hint", "set "+envVarHint(prov)+" to keep these in the routing pool",
-			)
-		}
-
-		// Lazily construct only the embedders the built versions need:
-		// prod (single default version) loads exactly one model.
-		embedder, err := embedders.Get(bundle.EmbedderID())
-		if err != nil {
-			// The default version's embedder must construct; sibling
-			// versions degrade like any other per-version build failure.
-			if v == defaultVersion {
-				_ = embedders.Close()
-				return nil, "", fmt.Errorf("Construct embedder %q for default cluster version %s: %w", bundle.EmbedderID(), v, err)
-			}
-			logger.Warn("Cluster scorer version skipped; embedder unavailable", "cluster_version", v, "embedder", bundle.EmbedderID(), "err", err)
-			continue
-		}
-
-		scorer, err := cluster.NewScorer(bundle, cfg, embedder, availableProviders)
-		if err != nil {
-			logger.Warn("Cluster scorer version skipped", "cluster_version", v, "err", err)
-			continue
-		}
-		scorers[v] = scorer
-		logger.Info("Cluster scorer version built", "cluster_version", v, "embedder", bundle.EmbedderID(), "models", bundle.Registry.Models())
-	}
-
-	if _, ok := scorers[defaultVersion]; !ok {
-		_ = embedders.Close()
-		return nil, "", fmt.Errorf("Default cluster version %q failed to build (likely no registered provider covers its deployed_models); set ROUTER_CLUSTER_VERSION to a version that does, or register the missing provider key", defaultVersion)
-	}
-
-	multi, err := cluster.NewMultiversion(defaultVersion, scorers)
-	if err != nil {
-		_ = embedders.Close()
-		return nil, "", fmt.Errorf("Build multiversion router: %w", err)
-	}
-	logger.Info(
-		"Cluster multiversion router ready",
-		"default_version", defaultVersion,
-		"built_versions", multi.Built(),
-		"built_embedders", embedders.Built(),
-		"requested_version", requestedVersion,
-		"build_all_versions", buildAll,
-	)
-
-	return multi, defaultEmbedderID, nil
 }
 
 // buildEntraTokenSource returns the lazy Microsoft Entra client-credentials token source;
@@ -2156,63 +1999,6 @@ func parseEnvAttemptTimeoutMs(key string, fallback time.Duration) time.Duration 
 	return parseEnvDurationMs(key, fallback)
 }
 
-// buildSemanticCache constructs the cross-request semantic cache, or nil when
-// disabled (ROUTER_SEMANTIC_CACHE_ENABLED=false). Per-cluster cosine thresholds
-// come from the default version's metadata.yaml, so promoting `artifacts/latest`
-// flips cache thresholds atomically along with the cluster version.
-func buildSemanticCache(rtr router.Router) *cache.Cache {
-	logger := observability.Get()
-	if config.GetOr("ROUTER_SEMANTIC_CACHE_ENABLED", "true") != "true" {
-		logger.Info("Semantic cache disabled (ROUTER_SEMANTIC_CACHE_ENABLED=false)")
-		return nil
-	}
-	multi, ok := rtr.(*cluster.Multiversion)
-	if !ok {
-		// Defensive: guards against a future router shape silently disabling the cache.
-		logger.Warn("Semantic cache disabled: router is not a cluster.Multiversion")
-		return nil
-	}
-	defaultScorer, ok := multi.Versions[multi.Default]
-	if !ok {
-		// Defensive: NewMultiversion guarantees the default is built.
-		logger.Warn("Semantic cache disabled: default cluster scorer not found", "default_version", multi.Default)
-		return nil
-	}
-	perCluster, defaultThreshold := defaultScorer.CacheThresholds()
-
-	cfg := cache.DefaultConfig()
-	cfg.PerClusterThreshold = perCluster
-	if defaultThreshold > 0 {
-		cfg.DefaultThreshold = defaultThreshold
-	}
-	if v := config.GetOr("ROUTER_SEMANTIC_CACHE_TTL_SEC", ""); v != "" {
-		secs, err := strconv.Atoi(v)
-		if err != nil || secs <= 0 {
-			logger.Warn("Invalid ROUTER_SEMANTIC_CACHE_TTL_SEC; using default", "value", v, "default_sec", int(cfg.TTL.Seconds()))
-		} else {
-			cfg.TTL = time.Duration(secs) * time.Second
-		}
-	}
-	if v := config.GetOr("ROUTER_SEMANTIC_CACHE_BUCKET", ""); v != "" {
-		size, err := strconv.Atoi(v)
-		if err != nil || size <= 0 {
-			logger.Warn("Invalid ROUTER_SEMANTIC_CACHE_BUCKET; using default", "value", v, "default", cfg.BucketSize)
-		} else {
-			cfg.BucketSize = size
-		}
-	}
-	logger.Info(
-		"Semantic cache enabled",
-		"default_threshold", cfg.DefaultThreshold,
-		"per_cluster_overrides", len(cfg.PerClusterThreshold),
-		"bucket_size", cfg.BucketSize,
-		"ttl_sec", int(cfg.TTL.Seconds()),
-		"max_body_kib", cfg.MaxBodyBytes/1024,
-		"version", multi.Default,
-	)
-	return cache.New(cfg)
-}
-
 // safeGo launches fn in a goroutine with panic recovery so a bug in a
 // long-running background task (Pub/Sub listener, sweep loop, etc.) logs and
 // dies quietly instead of crashing the whole process.
@@ -2315,11 +2101,10 @@ func resolveCompactionModel(summarizerProvider string) (string, error) {
 	return m, nil
 }
 
-// resolveHardPinModel returns the (provider, model) for Explore and utility
-// hard-pins (Claude Code's compaction turn prefers the compaction model):
-// operator override wins, else the fastest available model in the default
-// bundle, else the policy-owned utility hard-pin default.
-func resolveHardPinModel(available map[string]struct{}, logger *slog.Logger) (provider, model string, resolutionErr error) {
+// resolveHardPinModel returns the boot-time (provider, model) for Explore and
+// utility hard pins: the operator override, else the policy-owned utility
+// hard-pin default.
+func resolveHardPinModel() (provider, model string, resolutionErr error) {
 	configuredModel := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_MODEL", ""))
 	configuredProvider := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_PROVIDER", ""))
 	if configuredModel != "" {
@@ -2331,24 +2116,7 @@ func resolveHardPinModel(available map[string]struct{}, logger *slog.Logger) (pr
 	if configuredProvider != "" {
 		return "", "", errors.New("ROUTER_HARD_PIN_PROVIDER requires ROUTER_HARD_PIN_MODEL")
 	}
-
-	reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
-	defaultVersion, err := cluster.ResolveVersion(reqVersion)
-	if err != nil {
-		logger.Warn("Hard-pin model: could not resolve cluster version; using default", "err", err, "default_model", policy.UtilityHardPinDefaultModel)
-		return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
-	}
-	bundle, err := cluster.LoadBundle(defaultVersion)
-	if err != nil {
-		logger.Warn("Hard-pin model: could not load bundle; using default", "err", err, "default_model", policy.UtilityHardPinDefaultModel)
-		return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
-	}
-	p, m, ok := cluster.FastestModel(bundle.Metadata, bundle.Registry, available)
-	if !ok {
-		logger.Warn("Hard-pin model: no model found for available providers; using default", "default_model", policy.UtilityHardPinDefaultModel)
-		return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
-	}
-	return p, m, nil
+	return policy.UtilityHardPinDefaultProvider, policy.UtilityHardPinDefaultModel, nil
 }
 
 // envVarHint returns the env var name for a provider's API key, for log

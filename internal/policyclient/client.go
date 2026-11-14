@@ -5,11 +5,15 @@ package policyclient
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -89,11 +93,68 @@ const (
 
 // Client calls a versioned policy sidecar.
 type Client struct {
-	taskDomain     taskdomain.Resolver
-	baseURL        string
-	client         *http.Client
-	timeout        time.Duration
-	attemptTimeout time.Duration
+	taskDomain       taskdomain.Resolver
+	baseURL          string
+	classifierClient *Client
+	client           *http.Client
+	timeout          time.Duration
+	attemptTimeout   time.Duration
+}
+
+// NewWithClassifierService composes a classifier-only v5 client with the
+// existing integration client used for outcomes, feedback and escalation.
+func NewWithClassifierService(integrationClient, classifierClient *Client) (*Client, error) {
+	if integrationClient == nil || classifierClient == nil {
+		return nil, errors.New("policy client requires integration and classifier clients")
+	}
+	combined := *integrationClient
+	if integrationClient != classifierClient {
+		combined.classifierClient = classifierClient
+	} else {
+		combined.classifierClient = nil
+	}
+	return &combined, nil
+}
+
+func (c *Client) v5ClassifierClient() (*Client, error) {
+	if c == nil {
+		return nil, errors.New("policy client is required")
+	}
+	if c.classifierClient != nil {
+		return c.classifierClient, nil
+	}
+	return c, nil
+}
+
+func validClassifierSHA256(value string) bool {
+	if len(value) != sha256.Size*2 || strings.ToLower(value) != value {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
+func taxonomyDigest(classOrder []string) string {
+	// json.Marshal cannot fail for a []string.
+	encoded, _ := json.Marshal(classOrder)
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:])
+}
+
+func decodeStrictJSON(payload []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("JSON response contains trailing data")
+		}
+		return err
+	}
+	return nil
 }
 
 // New builds a policy sidecar client. A nil HTTP client uses a bounded default.
@@ -133,6 +194,71 @@ type ClassifierHealth struct {
 	ClassifierClassOrder  []string                                      `json:"classifier_class_order"`
 	ClassifierTaxonomySHA string                                        `json:"classifier_taxonomy_sha256"`
 	ClassifierVariants    map[router.Strategy]policy.ClassifierArtifact `json:"classifier_variants,omitempty"`
+}
+
+// ClassifierCapabilitiesV5 is the release-specific v5 contract negotiated at activation.
+type ClassifierCapabilitiesV5 struct {
+	SchemaVersion         string                       `json:"schema_version"`
+	APIMajor              policy.ClassifierAPIMajor    `json:"api_major"`
+	ClassifierSelectionID string                       `json:"classifier_selection_id"`
+	ClassifierReleaseID   string                       `json:"classifier_release_id"`
+	WireSchema            string                       `json:"wire_schema"`
+	ClassOrder            []string                     `json:"class_order"`
+	TaxonomySHA256        string                       `json:"classifier_taxonomy_sha256"`
+	ClassifierVariants    []policy.ClassifierVariantID `json:"classifier_variants"`
+	SupportsPreview       bool                         `json:"supports_preview"`
+	ReportsOutcomes       bool                         `json:"-"`
+	ReportsFeedback       bool                         `json:"-"`
+}
+
+type classifierRequestV5 struct {
+	SchemaVersion         string                     `json:"schema_version"`
+	ClassifierSelectionID string                     `json:"classifier_selection_id"`
+	ClassifierReleaseID   string                     `json:"classifier_release_id"`
+	ClassifierVariantID   policy.ClassifierVariantID `json:"classifier_variant_id"`
+	RequestID             string                     `json:"request_id"`
+	SessionID             string                     `json:"session_id,omitempty"`
+	Harness               string                     `json:"harness"`
+	PromptText            string                     `json:"prompt_text,omitempty"`
+	LatestUserText        string                     `json:"latest_user_text,omitempty"`
+	TurnIndex             int                        `json:"turn_index"`
+	IsSubagent            bool                       `json:"is_subagent"`
+	VisibleTurnIndex      *int                       `json:"visible_turn_index,omitempty"`
+	SessionTurnCount      *int                       `json:"session_turn_count,omitempty"`
+	TurnType              string                     `json:"turn_type,omitempty"`
+	CacheState            string                     `json:"cache_state,omitempty"`
+	PriorOutputTokens     *int                       `json:"prior_output_tokens,omitempty"`
+	SessionEverSwitched   *bool                      `json:"session_ever_switched,omitempty"`
+	HistoryTruncated      *bool                      `json:"history_truncated,omitempty"`
+	ConversationMessages  []routeMessage             `json:"conversation_messages,omitempty"`
+	OmittedUserTurnCount  *int                       `json:"omitted_user_turn_count,omitempty"`
+	AvailableTools        []string                   `json:"available_tools,omitempty"`
+	InvokedTools          []string                   `json:"invoked_tools,omitempty"`
+	Tools                 []routeTool                `json:"tools,omitempty"`
+	EstimatedInputTokens  int                        `json:"estimated_input_tokens"`
+	HasTools              bool                       `json:"has_tools"`
+	HasImages             bool                       `json:"has_images"`
+}
+
+type classifierResponseV5 struct {
+	SchemaVersion            string                     `json:"schema_version"`
+	RequestID                string                     `json:"request_id"`
+	ClassifierSelectionID    string                     `json:"classifier_selection_id"`
+	ClassifierReleaseID      string                     `json:"classifier_release_id"`
+	ClassifierVariantID      policy.ClassifierVariantID `json:"classifier_variant_id"`
+	ClassifierArtifactID     string                     `json:"classifier_artifact_id"`
+	ClassifierArtifactSHA256 string                     `json:"classifier_artifact_sha256"`
+	ClassifierTaxonomySHA256 string                     `json:"classifier_taxonomy_sha256"`
+	PredictedLabel           string                     `json:"predicted_label"`
+	ClassOrder               []string                   `json:"class_order"`
+	ClassProbabilities       map[string]float64         `json:"class_probabilities"`
+	ClassifierConfidence     float64                    `json:"classifier_confidence"`
+	ClassifierMargin         float64                    `json:"classifier_margin"`
+	HMMStateID               *int                       `json:"hmm_state_id"`
+	HMMStatePath             []int                      `json:"hmm_state_path"`
+	HMMStateProbabilities    []float64                  `json:"hmm_state_probabilities"`
+	Error                    string                     `json:"error"`
+	Detail                   string                     `json:"detail"`
 }
 
 // ReadClassifierHealth returns the exact classifier identity behind a tagged revision.
@@ -214,6 +340,54 @@ func (c *Client) Capabilities(ctx context.Context) (policy.Capabilities, error) 
 	}
 	if !supportedSchema(capabilities.SchemaVersion) {
 		return policy.Capabilities{}, fmt.Errorf("unsupported policy capabilities schema %q", capabilities.SchemaVersion)
+	}
+	return capabilities, nil
+}
+
+// CapabilitiesForClassifierRelease fetches strict v5 capabilities for one exact target selection and release.
+func (c *Client) CapabilitiesForClassifierRelease(ctx context.Context, selectionID, releaseID string) (ClassifierCapabilitiesV5, error) {
+	classifierClient, err := c.v5ClassifierClient()
+	if err != nil {
+		return ClassifierCapabilitiesV5{}, err
+	}
+	if !validClassifierSHA256(selectionID) || !validClassifierSHA256(releaseID) {
+		return ClassifierCapabilitiesV5{}, errors.New("classifier capabilities require exact selection and release digests")
+	}
+	endpoint := classifierClient.baseURL + "/v5/capabilities?classifier_selection_id=" + selectionID + "&classifier_release_id=" + releaseID
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return ClassifierCapabilitiesV5{}, fmt.Errorf("build v5 classifier capabilities request: %w", err)
+	}
+	resp, err := classifierClient.client.Do(req)
+	if err != nil {
+		return ClassifierCapabilitiesV5{}, fmt.Errorf("call v5 classifier capabilities endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return ClassifierCapabilitiesV5{}, fmt.Errorf("read v5 classifier capabilities response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return ClassifierCapabilitiesV5{}, fmt.Errorf("v5 classifier capabilities status %d", resp.StatusCode)
+	}
+	var capabilities ClassifierCapabilitiesV5
+	if err := decodeStrictJSON(payload, &capabilities); err != nil {
+		return ClassifierCapabilitiesV5{}, fmt.Errorf("decode v5 classifier capabilities: %w", err)
+	}
+	if capabilities.SchemaVersion != policy.SchemaVersionV5 || capabilities.APIMajor != policy.ClassifierAPIMajorV5 ||
+		capabilities.WireSchema != policy.SchemaVersionV5 || capabilities.ClassifierSelectionID != selectionID ||
+		capabilities.ClassifierReleaseID != releaseID || len(capabilities.ClassOrder) == 0 ||
+		!validClassifierSHA256(capabilities.TaxonomySHA256) || taxonomyDigest(capabilities.ClassOrder) != capabilities.TaxonomySHA256 ||
+		!slices.Contains(capabilities.ClassifierVariants, policy.ClassifierVariantPrimary) {
+		return ClassifierCapabilitiesV5{}, errors.New("v5 classifier capabilities do not match the selected release")
+	}
+	if classifierClient != c {
+		integrationCapabilities, err := c.Capabilities(ctx)
+		if err != nil {
+			return ClassifierCapabilitiesV5{}, fmt.Errorf("read integration sidecar capabilities: %w", err)
+		}
+		capabilities.ReportsOutcomes = integrationCapabilities.ReportsOutcomes
+		capabilities.ReportsFeedback = integrationCapabilities.ReportsFeedback
 	}
 	return capabilities, nil
 }
@@ -553,7 +727,166 @@ func (c *Client) Decide(ctx context.Context, query policy.Query) (policy.Result,
 	if c.taskDomain != nil && query.ExecutionMode == policy.ExecutionModeServing && query.TaskDomain != nil {
 		return c.decideWithTaskDomain(ctx, query)
 	}
+	if query.ClassifierReleaseID != "" || query.ClassifierSelectionID != "" {
+		return c.decideV5(ctx, query)
+	}
+	if query.SchemaVersion == policy.SchemaVersionV5 {
+		return policy.Result{}, errors.New("v5 classifier request requires a pinned release and selection")
+	}
 	return c.decide(ctx, query)
+}
+
+func (c *Client) decideV5(ctx context.Context, query policy.Query) (policy.Result, error) {
+	wire, err := c.classifyV5(ctx, "/v5/classify", query)
+	if err != nil {
+		return policy.Result{}, err
+	}
+	stateID := 0
+	if wire.HMMStateID != nil {
+		stateID = *wire.HMMStateID
+	}
+	return policy.Result{
+		SchemaVersion: policy.SchemaVersionV5, RouteID: wire.RequestID,
+		PolicyArtifactID: wire.ClassifierArtifactID, PolicyArtifactSHA256: wire.ClassifierArtifactSHA256,
+		ClassifierReleaseID: wire.ClassifierReleaseID, ClassifierSelectionID: wire.ClassifierSelectionID,
+		ClassifierVariantID: wire.ClassifierVariantID, ClassifierTaxonomySHA256: wire.ClassifierTaxonomySHA256,
+		PredictedLabel: wire.PredictedLabel, ClassOrder: wire.ClassOrder, ClassProbabilities: wire.ClassProbabilities,
+		Confidence: pointerTo(wire.ClassifierConfidence), Margin: pointerTo(wire.ClassifierMargin),
+		HMMStateID: stateID, HMMStatePath: wire.HMMStatePath, HMMStateProbabilities: wire.HMMStateProbabilities,
+	}, nil
+}
+
+// classifyV5 calls one v5 classifier endpoint and returns a response whose pinned identity and facts are verified.
+func (c *Client) classifyV5(ctx context.Context, path string, query policy.Query) (classifierResponseV5, error) {
+	requestBody, err := marshalClassifierRequestV5(query)
+	if err != nil {
+		return classifierResponseV5{}, err
+	}
+	classifierClient, err := c.v5ClassifierClient()
+	if err != nil {
+		return classifierResponseV5{}, err
+	}
+	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	status, payload, err := classifierClient.doPolicyRequest(requestCtx, path, requestBody)
+	if err != nil {
+		return classifierResponseV5{}, err
+	}
+	var wire classifierResponseV5
+	if err := decodeStrictJSON(payload, &wire); err != nil {
+		return classifierResponseV5{}, fmt.Errorf("decode v5 classifier %s response (status %d): %w", path, status, err)
+	}
+	if status != http.StatusOK {
+		if pinErr := classifierPinUnavailable(query, status); pinErr != nil {
+			return classifierResponseV5{}, pinErr
+		}
+		if wire.Error != "" {
+			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, status, wire.Error)
+		}
+		if wire.Detail != "" {
+			return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d: %s", path, status, wire.Detail)
+		}
+		return classifierResponseV5{}, fmt.Errorf("v5 classifier %s status %d", path, status)
+	}
+	if err := validateClassifierResponseV5(query, wire); err != nil {
+		return classifierResponseV5{}, fmt.Errorf("invalid v5 classifier %s response: %w", path, err)
+	}
+	return wire, nil
+}
+
+func marshalClassifierRequestV5(query policy.Query) ([]byte, error) {
+	if query.SchemaVersion != policy.SchemaVersionV5 || !validClassifierSHA256(query.ClassifierReleaseID) ||
+		!validClassifierSHA256(query.ClassifierSelectionID) || !validClassifierVariantID(query.ClassifierVariantID) {
+		return nil, errors.New("v5 classifier request requires API, release, selection, and variant identities")
+	}
+	messageLimits := classifierRouteMessageLimits(query)
+	messages := convertRouteMessages(query.ConversationMessages, messageLimits)
+	turnIndex := turnIndex(messages)
+	var visibleTurnIndex *int
+	var sessionTurnCount *int
+	var sessionEverSwitched *bool
+	var historyTruncated *bool
+	var turnType string
+	var cacheState string
+	var priorOutputTokens *int
+	if query.TurnContext != nil {
+		turnIndex = query.TurnContext.VisibleTurnIndex
+		visibleTurnIndex = pointerTo(query.TurnContext.VisibleTurnIndex)
+		sessionTurnCount = pointerTo(query.TurnContext.SessionTurnCount)
+		sessionEverSwitched = pointerTo(query.TurnContext.SessionEverSwitched)
+		historyTruncated = pointerTo(query.TurnContext.HistoryTruncated || routeMessagesExceedLimits(query.ConversationMessages, messageLimits))
+		turnType = query.TurnContext.TurnType
+		cacheState = query.TurnContext.CacheState
+		priorOutputTokens = query.TurnContext.PriorOutputTokens
+	}
+	var omittedUserTurnCount *int
+	if query.InteractionStateInputs {
+		omittedUserTurnCount = pointerTo(userTextTurnCount(query.ConversationMessages) - routedUserTextTurnCount(messages))
+	}
+	invokedTools := clipRouteValues(invokedToolNames(query.ConversationMessages), maxRouteToolCallInputKeys, maxRouteToolCallInputChars)
+	return json.Marshal(classifierRequestV5{
+		SchemaVersion: string(policy.SchemaVersionV5), ClassifierSelectionID: query.ClassifierSelectionID,
+		ClassifierReleaseID: query.ClassifierReleaseID, ClassifierVariantID: query.ClassifierVariantID,
+		RequestID: query.RouteID, SessionID: query.ClientSessionID, Harness: policy.HarnessForClientApp(query.ClientApp),
+		PromptText: query.PromptText, LatestUserText: latestUserText(messages), TurnIndex: turnIndex,
+		IsSubagent: turnType == "sub_agent_dispatch", VisibleTurnIndex: visibleTurnIndex,
+		SessionTurnCount: sessionTurnCount, TurnType: turnType, CacheState: cacheState,
+		PriorOutputTokens: priorOutputTokens, SessionEverSwitched: sessionEverSwitched,
+		HistoryTruncated: historyTruncated, ConversationMessages: messages,
+		OmittedUserTurnCount: omittedUserTurnCount,
+		AvailableTools:       clipRouteValues(unionToolNames(query.AvailableTools, invokedTools), maxRouteToolCallInputKeys, maxRouteToolCallInputChars),
+		InvokedTools:         invokedTools, Tools: routeTools(query.Tools), EstimatedInputTokens: query.EstimatedInputTokens,
+		HasTools: query.HasTools, HasImages: query.HasImages,
+	})
+}
+
+// validateClassifierResponseV5 fails a mismatched pinned identity as ErrPolicyPinUnavailable and malformed facts as a protocol error.
+func validateClassifierResponseV5(query policy.Query, response classifierResponseV5) error {
+	if response.ClassifierReleaseID != query.ClassifierReleaseID || response.ClassifierSelectionID != query.ClassifierSelectionID ||
+		response.ClassifierVariantID != query.ClassifierVariantID ||
+		(query.ClassifierArtifactSHA256 != "" && response.ClassifierArtifactSHA256 != query.ClassifierArtifactSHA256) {
+		return router.ErrPolicyPinUnavailable
+	}
+	if response.RequestID != query.RouteID {
+		return errors.New("v5 classifier response answers another request")
+	}
+	if response.SchemaVersion != policy.SchemaVersionV5 || response.ClassifierArtifactID == "" ||
+		!validClassifierSHA256(response.ClassifierArtifactSHA256) || !validClassifierSHA256(response.ClassifierTaxonomySHA256) ||
+		response.PredictedLabel == "" || len(response.ClassOrder) == 0 || len(response.ClassProbabilities) != len(response.ClassOrder) {
+		return errors.New("v5 classifier response is missing identity or facts")
+	}
+	if taxonomyDigest(response.ClassOrder) != response.ClassifierTaxonomySHA256 {
+		return errors.New("v5 classifier taxonomy digest does not match class order")
+	}
+	for _, label := range response.ClassOrder {
+		if _, exists := response.ClassProbabilities[label]; !exists {
+			return fmt.Errorf("v5 classifier probabilities omit class %q", label)
+		}
+	}
+	if _, exists := response.ClassProbabilities[response.PredictedLabel]; !exists {
+		return errors.New("v5 classifier prediction is outside class order")
+	}
+	if (response.HMMStateID == nil) != (response.HMMStatePath == nil) || (response.HMMStateID == nil) != (response.HMMStateProbabilities == nil) {
+		return errors.New("v5 HMM state facts must be present together")
+	}
+	return nil
+}
+
+func validClassifierVariantID(variantID policy.ClassifierVariantID) bool {
+	switch variantID {
+	case policy.ClassifierVariantPrimary, policy.ClassifierVariantHMMBeta, policy.ClassifierVariantQwen:
+		return true
+	default:
+		return false
+	}
+}
+
+func classifierPinUnavailable(query policy.Query, status int) error {
+	if query.ClassifierReleaseID == "" || query.ClassifierSelectionID == "" ||
+		(status != http.StatusNotFound && status != http.StatusForbidden && status != http.StatusConflict) {
+		return nil
+	}
+	return fmt.Errorf("classifier release %q is unavailable for selection %q: %w", query.ClassifierReleaseID, query.ClassifierSelectionID, router.ErrPolicyPinUnavailable)
 }
 
 func (c *Client) decide(ctx context.Context, query policy.Query) (policy.Result, error) {
@@ -564,28 +897,28 @@ func (c *Client) decide(ctx context.Context, query policy.Query) (policy.Result,
 
 	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	resp, payload, err := c.doPolicyRequest(requestCtx, "/route", body)
+	status, payload, err := c.doPolicyRequest(requestCtx, "/route", body)
 	if err != nil {
 		return policy.Result{}, err
 	}
 
 	var parsed routeResponse
 	if err := json.Unmarshal(payload, &parsed); err != nil {
-		return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", resp.StatusCode, err)
+		return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", status, err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		if err := unknownArtifactErr(query, resp.StatusCode); err != nil {
+	if status != http.StatusOK {
+		if err := unknownArtifactErr(query, status); err != nil {
 			return policy.Result{}, err
 		}
 		if parsed.Error != "" {
-			return policy.Result{}, fmt.Errorf("policy sidecar status %d: %s", resp.StatusCode, parsed.Error)
+			return policy.Result{}, fmt.Errorf("policy sidecar status %d: %s", status, parsed.Error)
 		}
-		return policy.Result{}, fmt.Errorf("policy sidecar status %d", resp.StatusCode)
+		return policy.Result{}, fmt.Errorf("policy sidecar status %d", status)
 	}
 	if parsed.SchemaVersion == policy.SchemaVersionV4 {
 		classifier, decodeErr := decodeClassifierResponseV4(payload)
 		if decodeErr != nil {
-			return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", resp.StatusCode, decodeErr)
+			return policy.Result{}, fmt.Errorf("decode policy route response (status %d): %w", status, decodeErr)
 		}
 		return policy.Result{
 			SchemaVersion:         classifier.SchemaVersion,
@@ -689,33 +1022,39 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 	if query.ExecutionMode != policy.ExecutionModePreview {
 		return policy.PreviewResult{}, fmt.Errorf("policy preview requires preview execution mode")
 	}
+	if query.ClassifierReleaseID != "" || query.ClassifierSelectionID != "" {
+		return c.previewV5(ctx, query)
+	}
+	if query.SchemaVersion == policy.SchemaVersionV5 {
+		return policy.PreviewResult{}, errors.New("v5 classifier preview requires a pinned release and selection")
+	}
 	body, err := marshalRouteRequest(query)
 	if err != nil {
 		return policy.PreviewResult{}, err
 	}
 	requestCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	resp, payload, err := c.doPolicyRequest(requestCtx, "/preview", body)
+	status, payload, err := c.doPolicyRequest(requestCtx, "/preview", body)
 	if err != nil {
 		return policy.PreviewResult{}, err
 	}
 	var parsed previewResponse
 	if err := json.Unmarshal(payload, &parsed); err != nil {
-		return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", resp.StatusCode, err)
+		return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", status, err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		if err := unknownArtifactErr(query, resp.StatusCode); err != nil {
+	if status != http.StatusOK {
+		if err := unknownArtifactErr(query, status); err != nil {
 			return policy.PreviewResult{}, err
 		}
 		if parsed.Error != "" {
-			return policy.PreviewResult{}, fmt.Errorf("policy preview status %d: %s", resp.StatusCode, parsed.Error)
+			return policy.PreviewResult{}, fmt.Errorf("policy preview status %d: %s", status, parsed.Error)
 		}
-		return policy.PreviewResult{}, fmt.Errorf("policy preview status %d", resp.StatusCode)
+		return policy.PreviewResult{}, fmt.Errorf("policy preview status %d", status)
 	}
 	if parsed.SchemaVersion == policy.SchemaVersionV4 {
 		classifier, decodeErr := decodeClassifierResponseV4(payload)
 		if decodeErr != nil {
-			return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", resp.StatusCode, decodeErr)
+			return policy.PreviewResult{}, fmt.Errorf("decode policy preview response (status %d): %w", status, decodeErr)
 		}
 		return policy.PreviewResult{
 			SchemaVersion: classifier.SchemaVersion, RouteID: classifier.RouteID,
@@ -741,6 +1080,25 @@ func (c *Client) Preview(ctx context.Context, query policy.Query) (policy.Previe
 		RankedFallback:        parsed.RankedFallback,
 		SelectedGroup:         parsed.SelectedGroup,
 		EligibleRosterIDs:     parsed.EligibleRosterIDs,
+	}, nil
+}
+
+func (c *Client) previewV5(ctx context.Context, query policy.Query) (policy.PreviewResult, error) {
+	wire, err := c.classifyV5(ctx, "/v5/preview", query)
+	if err != nil {
+		return policy.PreviewResult{}, err
+	}
+	stateID := 0
+	if wire.HMMStateID != nil {
+		stateID = *wire.HMMStateID
+	}
+	return policy.PreviewResult{
+		SchemaVersion: policy.SchemaVersionV5, RouteID: wire.RequestID,
+		PolicyArtifactID: wire.ClassifierArtifactID, PolicyArtifactSHA256: wire.ClassifierArtifactSHA256,
+		ClassifierReleaseID: wire.ClassifierReleaseID, ClassifierSelectionID: wire.ClassifierSelectionID,
+		ClassifierVariantID: wire.ClassifierVariantID, ClassifierTaxonomySHA256: wire.ClassifierTaxonomySHA256,
+		ClassOrder: wire.ClassOrder, ClassProbabilities: wire.ClassProbabilities, PredictedLabel: wire.PredictedLabel,
+		HMMStateID: stateID, HMMStatePath: wire.HMMStatePath, HMMStateProbabilities: wire.HMMStateProbabilities,
 	}, nil
 }
 
@@ -916,16 +1274,16 @@ func pointerTo[T any](value T) *T {
 	return &value
 }
 
-func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) (*http.Response, []byte, error) {
+func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) (int, []byte, error) {
 	// lastStatusErr is the sidecar's own diagnosis; it diverges from lastErr when the budget cuts a final attempt short.
 	var lastErr, lastStatusErr error
 	for attempt := 1; attempt <= defaultRouteAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
-			return nil, nil, exhaustedPolicyErr(lastStatusErr, lastErr, err)
+			return 0, nil, exhaustedPolicyErr(lastStatusErr, lastErr, err)
 		}
-		resp, payload, done, attemptErr := c.doPolicyAttempt(ctx, attempt, path, body)
+		status, payload, done, attemptErr := c.doPolicyAttempt(ctx, attempt, path, body)
 		if done {
-			return resp, payload, attemptErr
+			return status, payload, attemptErr
 		}
 		lastErr = attemptErr
 		var statusErr *PolicyStatusError
@@ -939,11 +1297,11 @@ func (c *Client) doPolicyRequest(ctx context.Context, path string, body []byte) 
 		select {
 		case <-ctx.Done():
 			timer.Stop()
-			return nil, nil, exhaustedPolicyErr(lastStatusErr, lastErr, ctx.Err())
+			return 0, nil, exhaustedPolicyErr(lastStatusErr, lastErr, ctx.Err())
 		case <-timer.C:
 		}
 	}
-	return nil, nil, exhaustedPolicyErr(lastStatusErr, lastErr, nil)
+	return 0, nil, exhaustedPolicyErr(lastStatusErr, lastErr, nil)
 }
 
 // preferStatusErr picks the sidecar's own status over a transport failure, so an
@@ -1000,23 +1358,26 @@ func (c *Client) doPolicyAttempt(
 	attempt int,
 	path string,
 	body []byte,
-) (*http.Response, []byte, bool, error) {
+) (int, []byte, bool, error) {
 	attemptCtx, cancel := c.attemptContext(ctx)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
 	if err != nil {
-		return nil, nil, true, fmt.Errorf("build policy route request: %w", err)
+		return 0, nil, true, fmt.Errorf("build policy route request: %w", err)
 	}
 	req.Header.Set("content-type", "application/json")
+	if deadline, ok := attemptCtx.Deadline(); ok {
+		req.Header.Set(policy.ClassifierTimeoutHeader, strconv.FormatInt(min(max(time.Until(deadline).Milliseconds(), 1), policy.MaxClassifierTimeoutMilliseconds), 10))
+	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
-		return nil, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("call policy sidecar: %w", err))
+		return 0, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("call policy sidecar: %w", err))
 	}
 	if resp.StatusCode == http.StatusRequestEntityTooLarge {
 		resp.Body.Close()
-		return nil, nil, true, fmt.Errorf(
+		return 0, nil, true, fmt.Errorf(
 			"policy sidecar rejected %d-byte %s request (status %d): %w",
 			len(body), path, resp.StatusCode, policy.ErrContextWindowExceeded,
 		)
@@ -1024,20 +1385,20 @@ func (c *Client) doPolicyAttempt(
 	payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	resp.Body.Close()
 	if readErr != nil {
-		return nil, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("read policy route response: %w", readErr))
+		return 0, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("read policy route response: %w", readErr))
 	}
 	if resp.StatusCode == http.StatusServiceUnavailable {
 		var failure struct {
 			Error policy.ClassifierErrorCode `json:"error"`
 		}
 		if json.Unmarshal(payload, &failure) == nil && failure.Error == policy.ClassifierWarmingCode {
-			return nil, nil, true, policy.ErrClassifierWarming
+			return 0, nil, true, policy.ErrClassifierWarming
 		}
 	}
 	if !isTransientPolicyStatus(resp.StatusCode) {
-		return resp, payload, true, nil
+		return resp.StatusCode, payload, true, nil
 	}
-	return nil, nil, false, policyStatusError(resp.StatusCode, payload)
+	return 0, nil, false, policyStatusError(resp.StatusCode, payload)
 }
 
 // attemptContext bounds one attempt so a single stalled instance cannot spend

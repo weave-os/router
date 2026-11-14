@@ -286,6 +286,37 @@ func TestGemini4ArgonCatalogRow(t *testing.T) {
 	assert.NotContains(t, RoutingTargetSet(available), model.ID)
 }
 
+func TestMythos52ExplicitOnlyAndPricing(t *testing.T) {
+	const id = "claude-mythos-5-2"
+	model, ok := ByID(id)
+	require.True(t, ok)
+	assert.Equal(t, SourceClosedSource, model.Source)
+	assert.Equal(t, 1_000_000, model.ContextWindow)
+	assert.Equal(t, 128_000, model.MaxOutputTokens)
+	assert.True(t, model.ForceModelOnly)
+	rank, ranked := AdvisorRankFor(id)
+	require.True(t, ranked)
+	assert.Equal(t, 10, rank)
+	require.Len(t, model.Providers, 1)
+	assert.Equal(t, providers.ProviderAnthropic, model.Providers[0].Provider)
+	available := map[string]struct{}{providers.ProviderAnthropic: {}}
+	assert.NotContains(t, RoutingTargetSet(available), id)
+	assert.NotContains(t, HMMRoutingTargetSet(available), id)
+	assert.Equal(t, id, LatestInFamily(id, func(string) bool { return true }))
+
+	price, ok := PriceFor(providers.ProviderAnthropic, id)
+	require.True(t, ok)
+	assert.InDelta(t, 8, EffectiveInputCost(1_000_000, 0, 0, price, providers.ProviderAnthropic, UsageModifiers{}), 1e-9)
+	assert.InDelta(t, 10, EffectiveInputCost(0, 1_000_000, 0, price, providers.ProviderAnthropic, UsageModifiers{}), 1e-9)
+	assert.InDelta(t, 16, EffectiveInputCost(0, 1_000_000, 0, price, providers.ProviderAnthropic, UsageModifiers{CacheCreation1h: 1_000_000}), 1e-9)
+	assert.InDelta(t, 0.20, EffectiveInputCost(0, 0, 1_000_000, price, providers.ProviderAnthropic, UsageModifiers{}), 1e-9)
+	assert.InDelta(t, 40, EffectiveOutputCost(0, 1_000_000, price, UsageModifiers{}), 1e-9)
+	fast, ok := FastPriceFor(providers.ProviderAnthropic, id)
+	require.True(t, ok)
+	assert.InDelta(t, 16, EffectiveInputCost(1_000_000, 0, 0, fast, providers.ProviderAnthropic, UsageModifiers{}), 1e-9)
+	assert.InDelta(t, 80, EffectiveOutputCost(0, 1_000_000, fast, UsageModifiers{}), 1e-9)
+}
+
 func TestRoutingTargetSet_FiltersByTierAndRegisteredProviders(t *testing.T) {
 	targets := RoutingTargetSet(map[string]struct{}{providers.ProviderOpenAI: {}})
 
@@ -571,6 +602,17 @@ func TestResolveBinding_WaferTrailingBindings(t *testing.T) {
 	b, ok = ResolveBinding("z-ai/glm-5.2", map[string]struct{}{providers.ProviderWafer: {}, providers.ProviderWaferAnthropic: {}})
 	assert.False(t, ok)
 
+	// kimi-k3.1: Fireworks leads, Together second, OpenRouter last.
+	b, ok = ResolveBinding("moonshotai/kimi-k3.1", map[string]struct{}{providers.ProviderFireworks: {}, providers.ProviderTogether: {}, providers.ProviderOpenRouter: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderFireworks, b.Provider)
+	assert.Equal(t, "accounts/fireworks/models/kimi-k3p1-pro", b.UpstreamID)
+
+	b, ok = ResolveBinding("moonshotai/kimi-k3.1", map[string]struct{}{providers.ProviderTogether: {}, providers.ProviderOpenRouter: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderTogether, b.Provider)
+	assert.Equal(t, "moonshotai/Kimi-K3.1-Pro", b.UpstreamID)
+
 	b, ok = ResolveBinding("moonshotai/kimi-k3.1", map[string]struct{}{providers.ProviderOpenRouter: {}})
 	require.True(t, ok)
 	assert.Equal(t, "moonshotai/kimi-k3.1-pro", UpstreamIDFor("moonshotai/kimi-k3.1", b.UpstreamID))
@@ -770,4 +812,13 @@ func TestSubscriptionOverflowBindingsTrailOpenRouterVendorModels(t *testing.T) {
 			assert.NotEmpty(t, binding.UpstreamID, model.ID)
 		}
 	}
+}
+
+func TestCustomToolUnsupportedSet(t *testing.T) {
+	// MiMo v2.6 Pro returns {} for Codex's projected exec tool on DeepInfra and
+	// OpenRouter alike, so the flag is model-wide. Its Flash sibling is unaffected.
+	set := CustomToolUnsupportedSet()
+	assert.Contains(t, set, ModelMiMoV26Pro)
+	assert.NotContains(t, set, ModelMiMoV26Flash)
+	assert.NotContains(t, set, ModelIDClaudeOpus47.String())
 }

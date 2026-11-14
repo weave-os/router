@@ -16,25 +16,9 @@ interface ConfigRow {
 function buildRows(cfg: RouterConfig): ConfigRow[] {
   return [
     {
-      label: "Cluster version",
-      value: cfg.cluster_version || "—",
-      description: "Active routing artifact bundle served by default",
-    },
-    {
-      label: "Embed only user message",
-      value: cfg.embed_only_user_message ? "Enabled" : "Disabled",
-      description:
-        "Whether the router embeds user-role text only (no system, assistant, or tool_result content) for cluster routing",
-    },
-    {
       label: "Sticky decision TTL",
       value: cfg.sticky_decision_ttl_ms || "—",
       description: "How long a sticky routing decision is cached per conversation",
-    },
-    {
-      label: "Semantic cache",
-      value: cfg.semantic_cache_enabled ? "Enabled" : "Disabled",
-      description: "Whether semantic response caching is active",
     },
     {
       label: "OpenTelemetry",

@@ -128,12 +128,9 @@ export interface ExternalKey {
 }
 
 export interface RouterConfig {
-  cluster_version: string;
-  embed_only_user_message: boolean;
   sticky_decision_ttl_ms: string;
   otel_enabled: boolean;
   dev_mode: boolean;
-  semantic_cache_enabled: boolean;
   env_provider_keys: string[];
 }
 

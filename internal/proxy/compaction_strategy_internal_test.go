@@ -13,7 +13,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -23,24 +23,16 @@ import (
 const compactionStrategyModel = "gpt-6.1-terra"
 
 func TestCodexCompactionAfterAutoReview(t *testing.T) {
-	version, err := cluster.ResolveVersion(cluster.LatestVersion)
-	require.NoError(t, err)
-	bundle, err := cluster.LoadBundle(version)
-	require.NoError(t, err)
 	store := newForceModelMapStore()
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: nil}, nil, false, nil, store, false,
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: nil}, nil, store, false,
 		providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil).
-		WithCompactionHardPin(true).
 		WithAvailableModels(map[string]struct{}{compactionStrategyModel: {}}).
-		WithHardPinResolver(func(req HardPinRequest) (string, string, bool) {
-			return cluster.FastestModelForRequest(bundle.Metadata, bundle.Registry, req.EnabledProviders, req.ExcludedModels, nil,
-				cluster.RequestBindings{Custom: req.CustomBindings, Gateways: req.GatewayProviders})
-		})
+		WithHardPinResolver(CatalogUtilityHardPin)
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, SessionID: "compaction-strategy-test"})
 	ctx = router.WithStrategy(ctx, router.StrategyHMM)
 	env, err := translate.ParseOpenAI([]byte(`{"model":"weave-hmm-20261019-0001v1","messages":[{"role":"user","content":"You are performing a CONTEXT CHECKPOINT COMPACTION. Summarize the work."}]}`))
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 	sessionKey := deriveSessionKeyForRequest(ctx, env, "test-key")
 	installationID := uuid.New()
 
@@ -62,10 +54,10 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 	require.Equal(t, router.StrategyHMMEmbedding, history.Strategy)
 	require.Equal(t, compactionStrategyModel, history.LastServedModel)
 
-	// OAuth-only eligibility excludes the legacy bundle's OpenAI models.
+	// OAuth-only eligibility excludes every other OpenAI catalog model.
 	legacyExcluded := map[string]struct{}{}
-	for _, entry := range bundle.Registry.DeployedModels {
-		if entry.Provider == providers.ProviderOpenAI {
+	for _, entry := range catalog.Listing() {
+		if entry.Provider == providers.ProviderOpenAI && entry.Model != compactionStrategyModel {
 			legacyExcluded[entry.Model] = struct{}{}
 		}
 	}
@@ -83,7 +75,8 @@ func TestCodexCompactionAfterAutoReview(t *testing.T) {
 	}
 	require.NoError(t, err)
 	assert.Equal(t, turntype.Compaction, turn.TurnType)
-	assert.True(t, turn.HardPinned)
+	assert.False(t, turn.HardPinned)
+	assert.True(t, turn.StickyHit)
 	assert.Equal(t, providers.ProviderOpenAI, turn.Decision.Provider)
 	assert.Equal(t, compactionStrategyModel, turn.Decision.Model)
 	assert.Equal(t, policy.OverrideSourceSession, turn.Origin)
@@ -101,8 +94,7 @@ func TestCodexCompactionDispatchAcrossStrategies(t *testing.T) {
 		},
 	}}
 	svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: untypedResponsesStreamProvider{}},
-		nil, false, nil, store, false, providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil).
-		WithCompactionHardPin(true).
+		nil, store, false, providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil).
 		WithHardPinResolver(func(HardPinRequest) (string, string, bool) { return "", "", false })
 	ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
 	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
@@ -137,12 +129,14 @@ func TestCompactionCrossStrategyHistoryHonorsEligibility(t *testing.T) {
 					Strategy: router.StrategyHMMEmbedding, LastTurnEndedAt: time.Now(),
 				},
 			}}
-			svc := NewService(nil, map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil},
-				nil, false, nil, store, false, providers.ProviderAnthropic, policy.UtilityHardPinDefaultModel, nil).
-				WithAvailableModels(test.available)
-			test.req.ClientApp = ClientAppCodex
+			session := compactionSession{
+				pins:      store,
+				providers: map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}},
+				available: test.available,
+				now:       time.Now(),
+			}
 			ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
-			_, _, ok := svc.compactionSessionModel(ctx, [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, test.req)
+			_, _, ok := session.decision(ctx, [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, test.req)
 			assert.False(t, ok)
 		})
 	}

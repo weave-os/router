@@ -70,7 +70,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 		forceWithEffort    bool
 	}{
 		{name: "estimate exceeds window but provider accepts"},
-		{name: "direct subscription survives estimated overflow", directSubscription: true},
+		{name: "inbound subscription does not bypass pool during estimated overflow", directSubscription: true},
 		{name: "effort-qualified force header survives estimated overflow", forceWithEffort: true},
 		{name: "transient provider failure retries same model", transient: true},
 		{name: "real overflow allows compaction and continuation", overflow: true},
@@ -119,11 +119,10 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 			svc := NewService(nil, map[string]providers.Client{
 				providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL),
 				providers.ProviderOpenAI:    planClient{&fakeClient{name: providers.ProviderOpenAI}},
-			}, nil, false, nil, store, false, "", "", nil).
+			}, nil, store, false, "", "", nil).
 				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true}}).
 				WithAvailableModels(modelSet([]string{gatewayCompactionOpusModel, catalog.ModelGPT6Luna})).
 				WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI})).
-				WithCompactionHardPin(true).
 				WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 			ctx := context.WithValue(withClaudeCreditFallback(context.Background()), APIKeyIDContextKey{}, "synthetic-key")
 			ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
@@ -188,9 +187,6 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 					continue
 				}
 				wantCredential := "Bearer synthetic-token"
-				if scenario.directSubscription {
-					wantCredential = "Bearer sk-ant-oat01-synthetic-token"
-				}
 				assert.Equal(t, wantCredential, credentials[i], "context estimation must not force a paid attempt")
 				if scenario.forceWithEffort {
 					assert.Equal(t, "high", efforts[i], "canonicalizing the model must preserve the requested wire effort")

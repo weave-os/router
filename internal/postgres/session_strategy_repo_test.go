@@ -201,12 +201,12 @@ func TestSessionPinMutationsCarryExpectedRoutingStrategy(t *testing.T) {
 	repo := NewSessionPinRepo(db)
 	ctx := context.Background()
 
-	_, ok, err := repo.Consume(ctx, key, "default", router.StrategyCluster)
+	_, ok, err := repo.Consume(ctx, key, "default", router.StrategyHMMEmbedding)
 	require.NoError(t, err)
 	assert.False(t, ok)
 	assert.Contains(t, db.rowQuery, "routing_strategy = ''")
 	assert.Contains(t, db.rowQuery, unscopedPinExclusions)
-	assert.Equal(t, []any{key[:], "default", string(router.StrategyCluster)}, db.rowArgs)
+	assert.Equal(t, []any{key[:], "default", string(router.StrategyHMMEmbedding)}, db.rowArgs)
 
 	_, ok, err = repo.Consume(ctx, key, "default", router.StrategyHMMBeta)
 	require.NoError(t, err)

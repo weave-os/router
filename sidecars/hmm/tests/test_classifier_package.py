@@ -22,7 +22,10 @@ FIXTURES = Path(__file__).parent / "fixtures" / "classifier_package"
 def _manifest(classifier_files: dict[str, str], hmm_files: dict[str, str]) -> dict:
     return {
         "schema_version": "hmm_router_classifier_package_v1",
-        "runtime_contract": {"input_mode": "raw_v5_configured_serving_v1"},
+        "runtime_contract": {
+            "input_mode": "raw_v5_configured_serving_v1",
+            "selection_owner": "go",
+        },
         "classifier_files": classifier_files,
         "hmm_bundle_files": hmm_files,
     }

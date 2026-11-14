@@ -11,7 +11,6 @@ import (
 // internal/flags. Precedence is per-org override > deployment default.
 // Call sites must use these instead of reading Service fields directly;
 // a direct field read silently ignores any per-org override.
-// ResolveEmbedOnlyUserMessage lives in service.go (header > per-org > default).
 
 // ResolveStruggleShadowEnabled reports whether the session-level struggle
 // detector runs for this request.
@@ -57,6 +56,12 @@ func (s *Service) ResolvePlannerEnabled(ctx context.Context) bool {
 // instead of following the session pin.
 func (s *Service) ResolveScoreToolResultTurns(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyScoreToolResultTurns, s.scoreToolResultTurns)
+}
+
+// ResolveHMMToolResultHold reports whether tool-result turns keep the session
+// pin chosen on the turn's first call instead of following per-turn selection.
+func (s *Service) ResolveHMMToolResultHold(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyHMMToolResultHold, false)
 }
 
 // ResolvePrefixTrimFreeSwitch reports whether a trimmed prompt prefix counts as a

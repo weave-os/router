@@ -5,7 +5,6 @@ import json
 import os
 import fcntl
 import shutil
-import tarfile
 import tempfile
 import urllib.parse
 from dataclasses import dataclass
@@ -16,29 +15,23 @@ import httpx
 import numpy as np
 
 from .schemas import FrozenPackageManifest
+from .classifier_package.manifest import (
+    is_classifier_package_manifest,
+)
+from .classifier_package.package_loader import (
+    MAX_ARCHIVE_BYTES,
+    extract_classifier_archive,
+    verify_classifier_package,
+)
 
-MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
-MAX_ARCHIVE_MEMBERS = 128
-MAX_MEMBER_BYTES = 64 * 1024 * 1024
 # Upper bound on HMM_PACKAGE_REGISTRY entries (excluding the default package):
 # every entry is downloaded, verified and loaded at boot, so the registry must
 # stay small enough for startup to finish inside a readiness window.
 MAX_PACKAGE_REGISTRY_ENTRIES = 8
 DEFAULT_CACHE_DIR = Path("/tmp/workweave-hmm-artifacts")
-CLASSIFIER_PACKAGE_SCHEMA_VERSION = "hmm_router_classifier_package_v1"
-CONFIGURED_INPUT_MODE = "raw_v5_configured_serving_v1"
 # Weave registry model id of a published package: family + first 16 hex of the
 # package sha256. Releases pin this as the classifier artifact id.
 PACKAGE_MODEL_FAMILY = "hmm_router_sidecar_package"
-
-
-def is_classifier_package_manifest(manifest: dict[str, Any]) -> bool:
-    runtime = manifest.get("runtime_contract")
-    return (
-        manifest.get("schema_version") == CLASSIFIER_PACKAGE_SCHEMA_VERSION
-        and isinstance(runtime, dict)
-        and runtime.get("input_mode") == CONFIGURED_INPUT_MODE
-    )
 
 
 @dataclass(frozen=True)
@@ -181,20 +174,7 @@ def _download(url: str, destination: Path) -> None:
 def _safe_extract(archive: Path, destination: Path) -> None:
     if archive.stat().st_size > MAX_ARCHIVE_BYTES:
         raise ValueError("HMM package exceeds maximum archive size")
-    with tarfile.open(archive, "r:*") as payload:
-        members = payload.getmembers()
-        if len(members) > MAX_ARCHIVE_MEMBERS:
-            raise ValueError("HMM package has too many archive members")
-        root = destination.resolve()
-        for member in members:
-            if not member.isfile() and not member.isdir():
-                raise ValueError(f"unsupported archive member: {member.name}")
-            if member.size > MAX_MEMBER_BYTES:
-                raise ValueError(f"archive member is too large: {member.name}")
-            target = (destination / member.name).resolve()
-            if root not in (target, *target.parents):
-                raise ValueError(f"unsafe archive member path: {member.name}")
-        payload.extractall(destination, members=members, filter="data")
+    extract_classifier_archive(archive.read_bytes(), destination)
 
 
 def _verify_files(root: Path, files: dict[str, str]) -> None:
@@ -210,24 +190,10 @@ def _verify_files(root: Path, files: dict[str, str]) -> None:
             )
 
 
-def _package_files(manifest: dict[str, Any]) -> dict[str, str]:
-    files: dict[str, str] = {}
-    for directory, field in (
-        ("classifier", "classifier_files"),
-        ("hmm_bundle", "hmm_bundle_files"),
-    ):
-        entries = manifest.get(field)
-        if not isinstance(entries, dict) or not entries:
-            raise ValueError(f"raw-V5 package manifest lacks {field}")
-        files.update({f"{directory}/{name}": str(sha) for name, sha in entries.items()})
-    return files
-
-
 def _verify_manifest(root: Path) -> FrozenPackageManifest | dict[str, Any]:
     raw = json.loads((root / "manifest.json").read_text())
     if isinstance(raw, dict) and is_classifier_package_manifest(raw):
-        _verify_files(root, _package_files(raw))
-        return raw
+        return verify_classifier_package(root)
     manifest = FrozenPackageManifest.model_validate(raw)
     _verify_files(root, manifest.files)
     return manifest

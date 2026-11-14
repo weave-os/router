@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -36,7 +36,7 @@ func newFastModeService(decision router.Decision, upstream providers.Client) (*S
 		providers.ProviderAnthropic:  upstream,
 		providers.ProviderOpenAI:     upstream,
 		providers.ProviderOpenRouter: upstream,
-	}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry)
+	}, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry)
 	return svc, telemetry
 }
 
@@ -260,10 +260,10 @@ func TestAnthropicTierAttempt_OrdinaryRateLimitStaysFast(t *testing.T) {
 		env:           env,
 		r:             req,
 		opts:          opts,
-		native:        svc.anthropicNativeAttempt(env, req, prep, httptest.NewRecorder(), nil, &requestNoticeStream{}, nil, translate.RouterNotice{}, func(*otel.UsageExtractor) {}, func(router.Decision, bool, func() bool) {}),
+		native:        svc.anthropicNativeAttempt(env, req, prep, httptest.NewRecorder(), nil, &requestNoticeStream{}, nil, translate.RouterNotice{}, func(*telemetry.UsageExtractor) {}, func(router.Decision, bool, func() bool) {}),
 		sink:          httptest.NewRecorder(),
 		preludeState:  &requestNoticeStream{},
-		setExtractor:  func(*otel.UsageExtractor) {},
+		setExtractor:  func(*telemetry.UsageExtractor) {},
 		setStreamCost: func(router.Decision, bool, func() bool) {},
 		logBody:       func(router.Decision, []byte) { t.Fatal("an ordinary rate limit must not re-emit the body") },
 	}
@@ -326,10 +326,10 @@ func TestAnthropicTierAttempt_ReemitsWhenBindingLosesFastTier(t *testing.T) {
 		env:           env,
 		r:             req,
 		opts:          opts,
-		native:        svc.anthropicNativeAttempt(env, req, prep, httptest.NewRecorder(), nil, &requestNoticeStream{}, nil, translate.RouterNotice{}, func(*otel.UsageExtractor) {}, func(router.Decision, bool, func() bool) {}),
+		native:        svc.anthropicNativeAttempt(env, req, prep, httptest.NewRecorder(), nil, &requestNoticeStream{}, nil, translate.RouterNotice{}, func(*telemetry.UsageExtractor) {}, func(router.Decision, bool, func() bool) {}),
 		sink:          httptest.NewRecorder(),
 		preludeState:  &requestNoticeStream{},
-		setExtractor:  func(*otel.UsageExtractor) {},
+		setExtractor:  func(*telemetry.UsageExtractor) {},
 		setStreamCost: func(router.Decision, bool, func() bool) {},
 		logBody:       func(_ router.Decision, body []byte) { loggedBodies = append(loggedBodies, body) },
 	}

@@ -12,7 +12,7 @@ import (
 //   - tools / generationConfig: top-level
 // Streaming choice is encoded in the URL path, not the body.
 
-func (e *RequestEnvelope) geminiRoutingFeatures(extractOnlyUser bool) RoutingFeatures {
+func (e *RequestEnvelope) geminiRoutingFeatures() RoutingFeatures {
 	contents := gjson.GetBytes(e.body, "contents")
 
 	var b strings.Builder
@@ -27,7 +27,7 @@ func (e *RequestEnvelope) geminiRoutingFeatures(extractOnlyUser bool) RoutingFea
 		msgCount++
 		appendText(&b, geminiPartsText(msg.Get("parts")))
 		lastMsg = msg
-		if extractOnlyUser && msg.Get("role").String() == "user" {
+		if msg.Get("role").String() == "user" {
 			if text := geminiPartsText(msg.Get("parts")); text != "" {
 				appendText(&onlyUserB, text)
 			}

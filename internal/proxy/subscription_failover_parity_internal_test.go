@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/telemetry"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -166,8 +167,13 @@ func parityIngresses() []parityIngress {
 
 // byokCtx adds a BYOK key for the ingress' provider.
 func (in parityIngress) byokCtx(ctx context.Context) context.Context {
+	// Mirrors stored keys: Anthropic rows predating funding priorities are key-first.
+	priority := auth.FundingPriorityPlanFirst
+	if in.provider == providers.ProviderAnthropic {
+		priority = auth.FundingPriorityKeyFirst
+	}
 	return context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
-		{Provider: in.provider, Plaintext: []byte(in.byokKey)},
+		{Provider: in.provider, Plaintext: []byte(in.byokKey), FundingPriority: priority},
 	})
 }
 
@@ -572,6 +578,8 @@ type parityUpstream struct {
 	subDispatches  int
 	paidDispatches int
 	servedModels   []string
+	// paidKeys records the key each paid dispatch carried; "" is the deployment key.
+	paidKeys []string
 }
 
 func (*parityUpstream) SupportsSubscriptions() bool { return true }
@@ -589,6 +597,11 @@ func (p *parityUpstream) Proxy(ctx context.Context, decision router.Decision, _ 
 		err = p.subErr
 	} else {
 		p.paidDispatches++
+		paidKey := ""
+		if creds != nil {
+			paidKey = string(creds.APIKey)
+		}
+		p.paidKeys = append(p.paidKeys, paidKey)
 	}
 	if err != nil {
 		if p.preErrBody != "" {
@@ -610,7 +623,7 @@ func (in parityIngress) parityService(upstream providers.Client) *Service {
 	svc := NewService(
 		staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
 		map[string]providers.Client{in.provider: upstream},
-		nil, false, nil, nil, false, in.provider, in.model, nil,
+		nil, nil, false, in.provider, in.model, nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{in.provider: {}})
 	svc.retrySleep = noopSleep
 	return svc
@@ -700,7 +713,7 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 			svc := NewService(
 				staticRouter{decision: router.Decision{Provider: in.provider, Model: in.model, Reason: "test"}},
 				map[string]providers.Client{in.provider: upstream},
-				nil, false, nil, nil, false, in.provider, in.model, nil,
+				nil, nil, false, in.provider, in.model, nil,
 			)
 			svc.retrySleep = noopSleep
 			rec, req, body := in.request(t, false)
@@ -847,7 +860,7 @@ func TestSubscriptionFailoverParity_Telemetry(t *testing.T) {
 				svc.emitter = emitter
 
 				buf := otel.NewBuffer(emitter)
-				ctx := buf.WithContext(in.subCtx())
+				ctx := telemetry.WithRecorder(in.subCtx(), buf)
 				rec, req, body := in.request(t, false)
 				_ = in.call(svc, ctx, body, rec, req)
 				buf.Flush()

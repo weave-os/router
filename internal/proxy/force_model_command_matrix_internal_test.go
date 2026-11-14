@@ -32,6 +32,10 @@ func TestForceModelCommand_TypedForms(t *testing.T) {
 		{"$fm sol", "gpt-6.1-sol", ""},
 		{"/fm sol:high", "gpt-6.1-sol", "high"},
 		{"/fm astra high", "gpt-6-astra", "high"},
+		{"/fm GPT 6 ASTRA Extra High", "gpt-6-astra", "xhigh"},
+		{"/fm gpt-6-astra extra-high", "gpt-6-astra", "xhigh"},
+		{"/fm astra x-high", "gpt-6-astra", "xhigh"},
+		{"/fm astra extra_high", "gpt-6-astra", "xhigh"},
 		{"/fm claude-opus-5-5[1m]", "claude-opus-5-5", ""},
 		{"/fm qwen 3.8", "qwen/qwen3.8-max", ""},
 		{"<command-name>/fm</command-name>\n/fm claude-opus-5.5", "claude-opus-5-5", ""},
@@ -39,7 +43,7 @@ func TestForceModelCommand_TypedForms(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.typed, func(t *testing.T) {
 			store := &recordingPinStore{}
-			svc := NewService(nil, nil, nil, false, nil, store, false,
+			svc := NewService(nil, nil, nil, store, false,
 				providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 			env := typedCommandEnv(t, tt.typed+"\nfix the failing test")
 			cmd, found := env.ExtractForceModelCommand()
@@ -63,7 +67,7 @@ func TestForceModelCommand_TypedUnknownKeepsRouting(t *testing.T) {
 	for _, typed := range []string{"/fm opsu", "/fm opus-5-", "/fm gpt-5.6-astra", "/fm opus fix the tests"} {
 		t.Run(typed, func(t *testing.T) {
 			store := &recordingPinStore{}
-			svc := NewService(nil, nil, nil, false, nil, store, false,
+			svc := NewService(nil, nil, nil, store, false,
 				providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 			env := typedCommandEnv(t, typed)
 			cmd, found := env.ExtractForceModelCommand()
@@ -81,7 +85,7 @@ func TestForceModelCommand_TypedUnknownKeepsRouting(t *testing.T) {
 
 func TestForceModelCommand_TypoSuggestsWithoutPinning(t *testing.T) {
 	store := &recordingPinStore{}
-	svc := NewService(nil, nil, nil, false, nil, store, false,
+	svc := NewService(nil, nil, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	env := typedCommandEnv(t, "/fm opsu")
 	cmd, found := env.ExtractForceModelCommand()

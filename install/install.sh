@@ -248,27 +248,6 @@ print_uninstall_hint() {
     "$C_BOLD" "$C_RESET" "$C_CYAN" "$(uninstall_cmd)" "$C_RESET"
 }
 
-# offer_launch asks to start the client named in $1 (command in the remaining
-# args) so a working interactive install ends in the product. The client runs
-# as a child, not via exec, so the EXIT trap still removes the temp files. It
-# inherits the terminal stdin: Bun-based clients crash with EINVAL on macOS
-# when stdin is /dev/tty, which kqueue can't watch.
-offer_launch() {
-  local label="$1"; shift
-  [ "${WEAVE_SETUP_DEFER_LAUNCH:-}" != "1" ] && [ "$non_interactive" = "false" ] && [ "$quiet" != "true" ] \
-    && [ -t 0 ] && [ -t 1 ] && command -v "${!#}" >/dev/null 2>&1 || return 0
-  local answer=""
-  printf "\n%sStart %s now?%s [Y/n] " "$C_BOLD" "$label" "$C_RESET" >/dev/tty
-  read -r answer </dev/tty || answer="n"
-  case "$answer" in
-    ""|y|Y|yes|Yes) ;;
-    *) return 0 ;;
-  esac
-  local launch_status=0
-  "$@" || launch_status=$?
-  exit "$launch_status"
-}
-
 # ---------- banner ----------
 #
 # Print the WEAVE wordmark in brand orange. Skipped under --quiet or when
@@ -1345,9 +1324,10 @@ write_pi_models_config() {
     | (if $name  != "" then . + {"X-Weave-User-Name":  $name } else . end)
   ')"
 
-  # Headline models surfaced in pi's /model picker. The router re-routes every
-  # request regardless, so this list is UX; keep it Anthropic-shaped and in
-  # sync with @weave-os/router's WEAVE_MODELS constant.
+  # One "Weave Router" entry: the router picks the served model per request
+  # from the organization's enabled models, so listing concrete models only
+  # advertised choices pi never honored. Keep in sync with WEAVE_MODELS in
+  # pi-router/src/config.ts, which replaces this list whenever the extension loads.
   #
   # baseUrl is the router ROOT (no /v1): pi's anthropic-messages provider uses
   # @anthropic-ai/sdk, which appends /v1/messages itself. Unlike the codex block
@@ -1365,24 +1345,7 @@ write_pi_models_config() {
       authHeader: false,
       headers: $headers,
       models: [
-        { id: "claude-fable-5-1",  name: "Claude Fable 5.1 (via Weave Router)",  reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
-        { id: "claude-fable-5",    name: "Claude Fable 5 (via Weave Router)",    reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
-        { id: "claude-opus-5-5",   name: "Claude Opus 5.5 (via Weave Router)",   reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
-        { id: "claude-opus-5",     name: "Claude Opus 5 (via Weave Router)",     reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
-        { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5 (via Weave Router)", reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
-        { id: "claude-opus-4-7",   name: "Claude Opus 4.7 (via Weave Router)",   reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 64000 },
-        { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (via Weave Router)", reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 64000 },
-        { id: "claude-haiku-5-5",  name: "Claude Haiku 5.5 (via Weave Router)",  reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
-        { id: "claude-haiku-4-5",  name: "Claude Haiku 4.5 (via Weave Router)",  reasoning: true, input: ["text","image"], contextWindow: 200000, maxTokens: 32000 },
-        { id: "gpt-6-astra",       name: "GPT-6 Astra (via Weave Router)",       reasoning: true, input: ["text","image"], contextWindow: 1050000, maxTokens: 128000 },
-        { id: "gpt-6-sol",         name: "GPT-6 Sol (via Weave Router)",         reasoning: true, input: ["text","image"], contextWindow: 1050000, maxTokens: 128000 },
-        { id: "gpt-6.1-sol",       name: "GPT-6.1 Sol (via Weave Router)",       reasoning: true, input: ["text","image"], contextWindow: 1050000, maxTokens: 128000 },
-        { id: "gpt-6.1-terra",     name: "GPT-6.1 Terra (via Weave Router)",     reasoning: true, input: ["text","image"], contextWindow: 1050000, maxTokens: 128000 },
-        { id: "gpt-6-luna",        name: "GPT-6 Luna (via Weave Router)",        reasoning: true, input: ["text","image"], contextWindow: 1050000, maxTokens: 128000 },
-        { id: "gpt-5.6-sol",       name: "GPT-5.6 Sol (via Weave Router)",       reasoning: true, input: ["text","image"], contextWindow: 1050000, maxTokens: 128000 },
-        { id: "grok-4.5",          name: "Grok 4.5 (via Weave Router)",          reasoning: true, input: ["text","image"], contextWindow: 500000, maxTokens: 131072 },
-        { id: "grok-4.6",          name: "Grok 4.6 (via Weave Router)",          reasoning: true, input: ["text","image"], contextWindow: 500000, maxTokens: 131072 },
-        { id: "grok-4.7",          name: "Grok 4.7 (via Weave Router)",          reasoning: true, input: ["text","image"], contextWindow: 500000, maxTokens: 131072 }
+        { id: "auto", name: "Weave Router", reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 64000 }
       ]
     }
   ')"
@@ -1400,10 +1363,11 @@ write_pi_models_config() {
   chmod 600 "$config_file"
 }
 
-# write_pi_settings_config makes the `weave` provider pi's default and loads the
-# npm package named by $npm_package_name. defaultProvider is always set to
-# "weave" — the installer's job is to route via Weave; uninstall reverts it.
-# defaultModel is set only when unset (don't clobber a user's model pick). The
+# write_pi_settings_config makes `weave/auto` pi's default and loads the npm
+# package named by $npm_package_name. defaultProvider is always set to "weave" —
+# the installer's job is to route via Weave; uninstall reverts it. defaultModel
+# is always "auto": it is the provider's only model, so any other value would
+# make pi fall back to a different provider. The
 # npm package source is appended to `packages` idempotently — pi auto-installs
 # missing packages on startup — and every known prior Weave package id
 # (`@workweave/pi-router`, `@workweave/router`, `@weave-os/router`) except the
@@ -1424,12 +1388,12 @@ write_pi_settings_config() {
         ))
       | (if (.packages | index($pkg)) then . else .packages += [$pkg] end)
       | .defaultProvider = "weave"
-      | (if (.defaultModel // "") == "" then .defaultModel = "claude-sonnet-4-6" else . end)
+      | .defaultModel = "auto"
     ' "$settings_file")"
   else
     merged="$(jq -n --arg pkg "$pkg" '{
       defaultProvider: "weave",
-      defaultModel: "claude-sonnet-4-6",
+      defaultModel: "auto",
       packages: [$pkg]
     }')"
   fi
@@ -1602,7 +1566,7 @@ set_copilot_default_model() {
 # are reused with the sigil and client names rewritten. Codex-only toggles and
 # skills that depend on Codex session state are excluded.
 copilot_skill_names() {
-  weave_registry_skill_assets codex | grep -vxE 'disable-routing|router-session|router-models|models' || true
+  weave_registry_skill_assets codex | grep -vxE 'disable-routing|router-session|list-models|router-models|models' || true
 }
 
 # install_copilot_skills installs each router directive as a Copilot skill.
@@ -1890,7 +1854,7 @@ if [ "$mode" = "setup" ]; then
     chmod 600 "$setup_handoff"
   fi
   if [ "$setup_claude" = "true" ]; then
-    WEAVE_SETUP_HANDOFF_FILE="$setup_handoff" WEAVE_SETUP_DEFER_LAUNCH="${setup_handoff:+1}" bash "$0" "${setup_args[@]}" --claude \
+    WEAVE_SETUP_HANDOFF_FILE="$setup_handoff" bash "$0" "${setup_args[@]}" --claude \
       || { setup_status=$?; [ -z "$setup_handoff" ] || rm -f "$setup_handoff"; exit "$setup_status"; }
   fi
   if [ -n "$setup_handoff" ]; then
@@ -1902,10 +1866,9 @@ if [ "$mode" = "setup" ]; then
   fi
   if [ "$setup_codex" = "true" ]; then
     WEAVE_SETUP_SHARED_KEY="$shared_key" WEAVE_SETUP_SHARED_EMAIL="$shared_email" \
-      WEAVE_SETUP_IDENTITY_RESOLVED="$identity_resolved" WEAVE_SETUP_DEFER_LAUNCH="${setup_handoff:+1}" \
+      WEAVE_SETUP_IDENTITY_RESOLVED="$identity_resolved" \
       bash "$0" "${setup_args[@]}" --codex
   fi
-  [ -z "$shared_key" ] || [ -n "$install_dir" ] || offer_launch "Claude Code" claude
   exit 0
 fi
 
@@ -2259,6 +2222,7 @@ router-off||local-toggle|yes|yes|no|no|manual|command,skill
 router-on||local-toggle|yes|yes|no|no|manual|command,skill
 router-status||local-toggle|yes|yes|no|no|manual|command,skill
 router-session||prompt|yes|yes|no|no|manual|command,skill
+list-models||prompt|yes|yes|no|no|manual|command,skill
 router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
 disable-routing||local-toggle|no|yes|no|no|manual|skill
 beta||prompt|yes|no|no|yes|manual|command
@@ -3093,7 +3057,7 @@ prepare_claude_context_window() {
   model="${model:-sonnet}"
   case "$model" in
     *'[1m]') context_window=""; return 0 ;;
-    sonnet|opus|fable|claude-sonnet-4-6|claude-sonnet-5|claude-sonnet-5-5|claude-haiku-5-5|claude-opus-4-6|claude-opus-4-7|claude-opus-4-8|claude-opus-5|claude-opus-5-5|claude-fable-5|claude-fable-5-1) ;;
+    sonnet|opus|fable|claude-sonnet-4-6|claude-sonnet-5|claude-sonnet-5-5|claude-haiku-5-5|claude-opus-4-6|claude-opus-4-7|claude-opus-4-8|claude-opus-5|claude-opus-5-5|claude-fable-5|claude-fable-5-1|claude-fable-5-2) ;;
     *) err "Cannot assert 1M support for '$model'. Select a supported Sonnet/Opus/Fable model first; leaving it unchanged."; return 1 ;;
   esac
   context_managed_model="${model}[1m]"
@@ -3566,9 +3530,11 @@ toggle_copilot() {
 # refusal naming the dashboard.
 
 # Public, unauthed catalog of everything the router can route to. Mounted in
-# both deployment modes, so it is the one listing that always works.
-MODELS_CATALOG_PATH="/v1/router/models"
-MODELS_DASHBOARD_URL="https://router.weaveos.com/models"
+# both deployment modes, so it is the one listing that always works. The scope
+# is explicit because the unscoped listing is a serving roster, which a managed
+# router cannot resolve without an admitted request.
+MODELS_CATALOG_PATH="/v1/router/models?scope=catalog"
+MODELS_DASHBOARD_URL="https://app.weaveos.com/organization/settings/weave-router/models"
 
 # Set by models_api on every call.
 models_http_status=""
@@ -4077,7 +4043,39 @@ run_login_claude() {
   external_account_id="${account_uuid}:${organization_uuid}"
   body="$(jq -nc --arg provider claude --arg account "$external_account_id" --arg token "$refresh_token" --arg label "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $label != "" then .display_name = $label else . end')"
   models_api POST "/v1/subscriptions/accounts" "$body" || models_fail "enrolling Claude subscription"
+  forget_plan_warning claude
   ok "Claude subscription enrolled."
+}
+
+# A new login supersedes the statusline's cached "needs login" warning for
+# that provider in every install, without waiting for the next refresh. Each
+# edit holds the refresh's lock, so a fetch that predates the login cannot
+# land afterwards, and keeps the file's mtime, so the remaining providers'
+# warnings expire on their own schedule.
+forget_plan_warning() {
+  local provider="$1" file lock plans owned tries
+  for file in "${XDG_CACHE_HOME:-$HOME/.cache}"/weave-router/display-settings*.plans; do
+    [ -f "$file" ] || continue
+    lock="${file%.plans}.lock"
+    owned=false tries=0
+    while [ "$tries" -lt 10 ]; do
+      if mkdir "$lock" 2>/dev/null; then owned=true; break; fi
+      tries=$((tries + 1))
+      sleep 1
+    done
+    plans="$(cat "$file" 2>/dev/null)"
+    case " $plans " in
+      *" $provider "*)
+        plans="$(printf '%s' "$plans" | tr ' ' '\n' | grep -vx -- "$provider" | tr '\n' ' ' | sed 's/ *$//')" || true
+        printf '%s' "$plans" >"$file.tmp.$$" 2>/dev/null \
+          && touch -r "$file" "$file.tmp.$$" 2>/dev/null \
+          && mv "$file.tmp.$$" "$file" 2>/dev/null
+        rm -f "$file.tmp.$$" 2>/dev/null
+        ;;
+    esac
+    [ "$owned" = false ] || rmdir "$lock" 2>/dev/null
+  done
+  return 0
 }
 
 run_login_codex() {
@@ -4123,6 +4121,7 @@ run_login_codex() {
   fi
   body="$(jq -nc --arg provider codex --arg account "$account_id" --arg token "$refresh_token" --arg label "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $label != "" then .display_name = $label else . end')"
   models_api POST "/v1/subscriptions/accounts" "$body" || models_fail "enrolling Codex subscription"
+  forget_plan_warning codex
   ok "Codex subscription enrolled."
 }
 
@@ -4813,7 +4812,7 @@ install_slash_commands() {
   while IFS= read -r cmd; do
     [ -f "$commands_src_dir/$cmd.md" ] || continue
     case ",$cmd," in
-      *,router-off,*|*,router-on,*|*,router-status,*|*,router-session,*|*,router-models,*|*,models,*)
+      *,router-off,*|*,router-on,*|*,router-status,*|*,router-session,*|*,list-models,*|*,router-models,*|*,models,*)
         [ "$target" = "claude" ] || continue ;;
     esac
     [ -n "$cmds" ] && cmds="$cmds "
@@ -5323,7 +5322,6 @@ print_next_steps() {
 # finish_install closes a Claude Code or Codex run. Only a working first install
 # gets onboarding; a failed check or an update must not invite the user in.
 finish_install() {
-  local label="$1"; shift
   if [ "$mode" = "install" ] && [ "$quiet" != "true" ] && [ -z "$install_dir" ] && [ "$key_verdict" = "valid" ]; then
     local pkg="npx $npm_package_name" flags="--$target" feedback="type /rf <what happened> in Claude Code"
     [ "$scope" = "project" ] && flags="$flags --scope project"
@@ -5335,7 +5333,6 @@ finish_install() {
     printf "  %-14s %s\n" "Turn back on" "$pkg on $flags"
     printf "  %-14s %s\n" "Give feedback" "$feedback"
     printf "  %-14s %s\n" "Uninstall" "$(uninstall_cmd)"
-    offer_launch "$label" "$@"
   elif [ "$mode" != "update" ]; then
     print_uninstall_hint
   fi
@@ -5499,8 +5496,93 @@ helper_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)"
 disabled_marker="$helper_dir/.weave-router-disabled"
 router_badge_sentinel=$'⁣⁠⁣⁠'
 
+display_hidden_file() {
+  printf '%s/display-hidden-%s' "$state_root" "$(printf '%s' "$helper_dir" | cksum | tr -c '0-9' '-')"
+}
+
+write_display_headers() {
+  printf 'header = "X-Weave-Router-Key: %s"\n' "$2" >"$1"
+  case "$3" in
+    ''|*[!A-Za-z0-9@._+-]*) ;;
+    *) printf 'header = "X-Weave-User-Email: %s"\n' "$3" >>"$1" ;;
+  esac
+}
+
+refresh_display_settings() {
+  local base_url="$1" header_file="$2" max_time="$3" display_url display_body hidden="0" hidden_file
+  hidden_file="$(display_hidden_file)"
+  display_url="${WEAVE_CODEX_DISPLAY_SETTINGS_URL:-}"
+  if [ -z "$display_url" ]; then
+    display_url="${base_url%/}"
+    case "$display_url" in
+      file://*) ;;
+      *) display_url="${display_url%/v1}/v1/display-settings" ;;
+    esac
+  fi
+  display_body="$(curl -fsS --max-time "$max_time" --max-filesize 8192 -K "$header_file" "$display_url" 2>/dev/null)" || return 0
+  [ "$(jq -r '.hide_terminal_surfaces // false' <<<"$display_body" 2>/dev/null)" = "true" ] && hidden="1"
+  printf '%s' "$hidden" >"$hidden_file.tmp.$$" 2>/dev/null && mv "$hidden_file.tmp.$$" "$hidden_file" 2>/dev/null
+  rm -f "$hidden_file.tmp.$$" 2>/dev/null
+}
+
+# A cold cache fetches the setting once in the foreground, briefly, so a
+# subject whose surfaces are hidden never sees a branded first title.
+display_file_younger_than() {
+  local mtime now
+  [ -f "$1" ] || return 1
+  mtime="$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null)" || return 1
+  now="$(date +%s 2>/dev/null)" || return 1
+  [ $(( now - mtime )) -lt "$2" ]
+}
+
+# A cold cache, or a hidden setting past its grace window, fetches in the
+# foreground; a merely stale setting refreshes in the background. Failed
+# fetches are rate-limited by the .refreshed stamp.
+prime_display_settings() {
+  local hidden_file stamp
+  hidden_file="$(display_hidden_file)"
+  stamp="$hidden_file.refreshed"
+  [ -f "$stamp" ] || [ ! -f "$hidden_file" ] || stamp="$hidden_file"
+  display_file_younger_than "$stamp" "${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-300}" && return 0
+  if [ -f "$hidden_file" ] && { [ "$(cat "$hidden_file" 2>/dev/null)" != "1" ] \
+    || display_file_younger_than "$hidden_file" "${WEAVE_DISPLAY_SETTINGS_HIDDEN_GRACE_SECONDS:-604800}"; }; then
+    touch "$hidden_file.refreshed" 2>/dev/null
+    ( exec </dev/null >/dev/null 2>&1; prime_display_settings_now ) &
+    return 0
+  fi
+  prime_display_settings_now
+}
+
+prime_display_settings_now() {
+  local endpoint header_file
+  endpoint="$(read_codex_endpoint)" || return 0
+  [ -n "$endpoint" ] || return 0
+  mkdir -p "$state_root" 2>/dev/null || return 0
+  touch "$(display_hidden_file).refreshed" 2>/dev/null
+  header_file="$(mktemp "$state_root/.headers.XXXXXX")" || return 0
+  chmod 600 "$header_file"
+  write_display_headers "$header_file" "$(printf '%s' "$endpoint" | sed -n 2p)" "$(printf '%s' "$endpoint" | sed -n 3p)"
+  refresh_display_settings "$(printf '%s' "$endpoint" | sed -n 1p)" "$header_file" 2
+  rm -f "$header_file"
+}
+
+codex_surfaces_hidden() {
+  local hidden_file
+  prime_display_settings
+  hidden_file="$(display_hidden_file)"
+  if [ ! -f "$hidden_file" ]; then
+    display_file_younger_than "$hidden_file.refreshed" "${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-300}"
+    return
+  fi
+  [ "$(cat "$hidden_file" 2>/dev/null)" = "1" ] || return 1
+  display_file_younger_than "$hidden_file" "${WEAVE_DISPLAY_SETTINGS_HIDDEN_GRACE_SECONDS:-604800}"
+}
+
 emit_title() {
   local title="$1"
+  case "$title" in
+    "Weave Router"*) if codex_surfaces_hidden; then title="Codex"; fi ;;
+  esac
   if [ -n "${WEAVE_CODEX_STATUS_TITLE_FILE:-}" ]; then
     printf '%s\n' "$title" >"$WEAVE_CODEX_STATUS_TITLE_FILE"
   elif { [ -t 2 ] || [ "${async_title_enabled:-0}" = "1" ]; } && [ -w /dev/tty ]; then
@@ -5718,7 +5800,12 @@ read_codex_endpoint() {
       sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
       if (key == "") key = v
     }
-    END { if (url != "" && key != "") printf "%s\n%s\n", url, key }
+    match($0, /"?X-Weave-User-Email"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      v = substr($0, RSTART, RLENGTH)
+      sub(/^.*=[[:space:]]*"/, "", v); sub(/"$/, "", v)
+      if (email == "") email = v
+    }
+    END { if (url != "" && key != "") printf "%s\n%s\n%s\n", url, key, email }
   ' "$config" 2>/dev/null || true
 }
 
@@ -5731,10 +5818,11 @@ refresh_session_cost() {
   [ "${WEAVE_CODEX_STATUS_SAVINGS:-1}" = "0" ] && [ "${WEAVE_CODEX_STATUS_CONTEXT:-1}" = "0" ] && return 0
   command -v curl >/dev/null 2>&1 || return 0
 
-  local endpoint base_url key active_file state_lock
+  local endpoint base_url key email active_file state_lock
   endpoint="$(read_codex_endpoint)" || return 0
   base_url="$(printf '%s' "$endpoint" | sed -n 1p)"
   key="$(printf '%s' "$endpoint" | sed -n 2p)"
+  email="$(printf '%s' "$endpoint" | sed -n 3p)"
   [ -n "$base_url" ] && [ -n "$key" ] || return 0
 
   mkdir -p "$state_root" 2>/dev/null || return 0
@@ -5767,7 +5855,8 @@ refresh_session_cost() {
     esac
     header_file="$(mktemp "$state_root/.headers.XXXXXX")" || exit 0
     chmod 600 "$header_file"
-    printf 'header = "X-Weave-Router-Key: %s"\n' "$key" >"$header_file"
+    write_display_headers "$header_file" "$key" "$email"
+    refresh_display_settings "$base_url" "$header_file" 5
     if ! body="$(curl -fsS --max-time 5 --max-filesize 8192 -K "$header_file" "$url" 2>/dev/null)"; then
       rm -f "$header_file"
       exit 0
@@ -6425,11 +6514,7 @@ if [ "$target" = "codex" ]; then
     # point CODEX_HOME at the directory we wrote so Codex finds our config.
     info "Run Codex with CODEX_HOME=$codex_dir codex so it picks up this config."
   fi
-  if [ "$scope" = "project" ]; then
-    finish_install "Codex" env CODEX_HOME="$codex_dir" codex
-  else
-    finish_install "Codex" codex
-  fi
+  finish_install
   exit 0
 fi
 
@@ -7249,21 +7334,33 @@ weave_hidden_gate() {
   local cache="$cache_dir/display-settings${script_slug}"
   local ttl="${WEAVE_DISPLAY_SETTINGS_TTL_SECONDS:-3600}"
 
-  # Linked plans that need a fresh login, from the last successful refresh.
-  weave_disconnected_plans="$(cat "$cache.plans" 2>/dev/null)"
-
-  local now mtime fresh="false"
+  local grace="${WEAVE_DISPLAY_SETTINGS_HIDDEN_GRACE_SECONDS:-604800}"
+  local now mtime fresh="false" stale_hidden="false"
   now="$(date +%s 2>/dev/null)" || now=0
+
+  # Linked plans that need a fresh login. Only a refresh within the TTL is
+  # trusted: an older list may name a plan that has since recovered.
+  weave_disconnected_plans=""
+  if [ -f "$cache.plans" ]; then
+    mtime="$(stat -c %Y "$cache.plans" 2>/dev/null || stat -f %m "$cache.plans" 2>/dev/null)" || mtime=0
+    if [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
+      weave_disconnected_plans="$(cat "$cache.plans" 2>/dev/null)"
+    fi
+  fi
   if [ -f "$cache" ]; then
     mtime="$(stat -c %Y "$cache" 2>/dev/null || stat -f %m "$cache" 2>/dev/null)" || mtime=0
     if [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$ttl" ]; then
       fresh="true"
+    elif [ -n "${mtime:-}" ] && [ "$mtime" -gt 0 ] && [ $(( now - mtime )) -lt "$grace" ] \
+      && [ "$(cat "$cache" 2>/dev/null)" = "1" ]; then
+      stale_hidden="true"
     fi
   fi
 
-  # Foreground decision: only a fresh cache hides the surfaces. Anything else
-  # (no cache, stale cache, unreadable cache) renders normally so a slow or
-  # unreachable router can never stall a turn or wedge the statusline blank.
+  # Foreground decision: a fresh cache decides. A hidden cache past the TTL
+  # stays hidden for the grace period while it refreshes, so an hourly expiry
+  # never flashes routing details to someone who must not see them. Anything
+  # else renders normally so an unreachable router cannot wedge it blank.
   if [ "$fresh" = "true" ]; then
     [ "$(cat "$cache" 2>/dev/null)" = "1" ]
     return
@@ -7329,6 +7426,9 @@ weave_hidden_gate() {
     if [ -z "$key" ] && [ -f "$local_settings" ]; then
       key="$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // "" | split("\n")[] | select(startswith("X-Weave-Router-Key:")) | sub("^X-Weave-Router-Key:[[:space:]]*";"")' "$local_settings" 2>/dev/null | head -n1)"
     fi
+    if [ -z "$key" ] && [ -n "${ANTHROPIC_CUSTOM_HEADERS:-}" ]; then
+      key="$(printf '%s\n' "$ANTHROPIC_CUSTOM_HEADERS" | sed -n 's/^X-Weave-Router-Key:[[:space:]]*\([A-Za-z0-9_-]*\)[[:space:]]*$/\1/p' | head -n1)"
+    fi
     if [ -z "$base_url" ] && [ -f "$settings" ]; then
       base_url="$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$settings" 2>/dev/null)"
     fi
@@ -7341,6 +7441,12 @@ weave_hidden_gate() {
     header_file="$(mktemp "$cache_dir/.headers.XXXXXX")" || exit 0
     chmod 600 "$header_file"
     printf 'header = "X-Weave-Router-Key: %s"\n' "$key" >"$header_file"
+    custom_headers="${ANTHROPIC_CUSTOM_HEADERS:-}"
+    for f in "$settings" "$local_settings"; do
+      [ -n "$custom_headers" ] || [ ! -f "$f" ] || custom_headers="$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // ""' "$f" 2>/dev/null)"
+    done
+    printf '%s\n' "$custom_headers" | grep -E '^X-Weave-User-(Email|Name):[[:space:]]*[A-Za-z0-9@._+ -]+$' \
+      | sed 's/^\(.*\)$/header = "\1"/' >>"$header_file" 2>/dev/null || true
     if ! body="$(curl -fsS --max-time 5 -K "$header_file" "$url" 2>/dev/null)"; then
       rm -f "$header_file"
       exit 0
@@ -7358,7 +7464,18 @@ weave_hidden_gate() {
     rm -f "$tmp" 2>/dev/null
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
-  return 1
+  # A cold cache waits briefly for its first refresh so a subject whose
+  # surfaces are hidden does not see one full render before the cache exists.
+  if [ ! -f "$cache" ] && [ ! -f "$cache.cold-waited" ]; then
+    : >"$cache.cold-waited" 2>/dev/null
+    local tries="${WEAVE_DISPLAY_SETTINGS_COLD_WAIT_TENTHS:-20}"
+    while [ "$tries" -gt 0 ] && [ ! -f "$cache" ]; do
+      sleep 0.1 2>/dev/null || break
+      tries=$(( tries - 1 ))
+    done
+    [ "$(cat "$cache" 2>/dev/null)" = "1" ] && return 0
+  fi
+  [ "$stale_hidden" = "true" ]
 }
 
 if weave_hidden_gate </dev/null; then
@@ -7404,8 +7521,10 @@ prices='{
   "input": {
     "claude-fable-5":                   0.01,
     "claude-fable-5-1":                 0.01,
+    "claude-fable-5-2":                 0.008,
     "claude-haiku-4-5":                 0.001,
     "claude-haiku-5-5":                 0.0001,
+    "claude-mythos-5-2":                0.008,
     "claude-opus-4-0":                  0.015,
     "claude-opus-4-1":                  0.015,
     "claude-opus-4-5":                  0.005,
@@ -7469,6 +7588,7 @@ prices='{
     "grok-4.6":                         0.002,
     "grok-4.7":                         0.002,
     "inclusionai/ling-3.0-flash":       0.00006,
+    "meta/muse-spark-open":             0.00125,
     "minimax/minimax-m2.7":             0.0003,
     "minimax/minimax-m3":               0.0003,
     "minimax/minimax-m3.1-flash":       0.00015,
@@ -7478,7 +7598,9 @@ prices='{
     "moonshotai/kimi-k2.7":             0.00095,
     "moonshotai/kimi-k3":               0.003,
     "moonshotai/kimi-k3.1":             0.002,
+    "muse-ember-1.0":                   0.0001,
     "muse-spark-1.3":                   0.00125,
+    "muse-wonder-1.0":                  0.004,
     "qwen/qwen3-235b-a22b-2507":        0.0002266,
     "qwen/qwen3-30b-a3b-instruct-2507": 0.00015,
     "qwen/qwen3-coder":                 0.0009,
@@ -7500,8 +7622,10 @@ prices='{
   "output": {
     "claude-fable-5":                   0.05,
     "claude-fable-5-1":                 0.05,
+    "claude-fable-5-2":                 0.04,
     "claude-haiku-4-5":                 0.005,
     "claude-haiku-5-5":                 0.0005,
+    "claude-mythos-5-2":                0.04,
     "claude-opus-4-0":                  0.075,
     "claude-opus-4-1":                  0.075,
     "claude-opus-4-5":                  0.025,
@@ -7565,6 +7689,7 @@ prices='{
     "grok-4.6":                         0.006,
     "grok-4.7":                         0.006,
     "inclusionai/ling-3.0-flash":       0.00018,
+    "meta/muse-spark-open":             0.00425,
     "minimax/minimax-m2.7":             0.0012,
     "minimax/minimax-m3":               0.0012,
     "minimax/minimax-m3.1-flash":       0.0006,
@@ -7574,7 +7699,9 @@ prices='{
     "moonshotai/kimi-k2.7":             0.004,
     "moonshotai/kimi-k3":               0.015,
     "moonshotai/kimi-k3.1":             0.01,
+    "muse-ember-1.0":                   0.0005,
     "muse-spark-1.3":                   0.00425,
+    "muse-wonder-1.0":                  0.02,
     "qwen/qwen3-235b-a22b-2507":        0.0009064,
     "qwen/qwen3-30b-a3b-instruct-2507": 0.0006,
     "qwen/qwen3-coder":                 0.0027,
@@ -7596,8 +7723,10 @@ prices='{
   "cache_read": {
     "claude-fable-5":                   0.1,
     "claude-fable-5-1":                 0.025,
+    "claude-fable-5-2":                 0.025,
     "claude-haiku-4-5":                 0.1,
     "claude-haiku-5-5":                 0.1,
+    "claude-mythos-5-2":                0.025,
     "claude-opus-4-0":                  0.1,
     "claude-opus-4-1":                  0.1,
     "claude-opus-4-5":                  0.1,
@@ -7661,6 +7790,7 @@ prices='{
     "grok-4.6":                         0.25,
     "grok-4.7":                         0.25,
     "inclusionai/ling-3.0-flash":       0.2,
+    "meta/muse-spark-open":             0.12,
     "minimax/minimax-m2.7":             0.2,
     "minimax/minimax-m3":               0.2,
     "minimax/minimax-m3.1-flash":       0.1,
@@ -7670,7 +7800,9 @@ prices='{
     "moonshotai/kimi-k2.7":             0.2,
     "moonshotai/kimi-k3":               0.1,
     "moonshotai/kimi-k3.1":             0.1,
+    "muse-ember-1.0":                   0.04,
     "muse-spark-1.3":                   0.12,
+    "muse-wonder-1.0":                  0.05,
     "qwen/qwen3-235b-a22b-2507":        0.5,
     "qwen/qwen3-30b-a3b-instruct-2507": 0.1684,
     "qwen/qwen3-coder":                 0.1684,
@@ -8012,8 +8144,8 @@ if [ -n "${weave_disconnected_plans:-}" ]; then
 fi
 for weave_plan in ${weave_disconnected_plans:-}; do
   case "$weave_plan" in
-    claude) status_text="$status_text · Claude plan disconnected: run npx @weave-os/router login claude$weave_login_scope" ;;
-    codex) status_text="$status_text · Codex plan disconnected: run npx @weave-os/router login codex$weave_login_scope" ;;
+    claude) status_text="$status_text · Claude plan needs login: npx @weave-os/router login claude$weave_login_scope" ;;
+    codex) status_text="$status_text · Codex plan needs login: npx @weave-os/router login codex$weave_login_scope" ;;
   esac
 done
 
@@ -8243,4 +8375,4 @@ verify_install
 # ---------- done ----------
 
 announce_done "Claude Code"
-finish_install "Claude Code" claude
+finish_install

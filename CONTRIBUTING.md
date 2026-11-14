@@ -40,7 +40,7 @@ only**. The full rules live in [AGENTS.md](AGENTS.md). The summary:
   `internal/providers`, `internal/translate`) — pure domain logic, no
   I/O outside Service methods. `internal/router` and
   `internal/providers` are interface-only and never import each other.
-- **Adapters** (`internal/postgres`, `internal/router/cluster`,
+- **Adapters** (`internal/postgres`,
   `internal/providers/{anthropic,openai,google,openaicompat}`) — depend
   only on the inner ring. Adapters never import each other.
 - **Presentation** (`internal/api/*`, `internal/server*`) — adapts HTTP
@@ -54,9 +54,27 @@ recipes for adding endpoints, providers, migrations, queries, and
 routing strategies — please read the relevant section before starting
 non-trivial work.
 
+## Where does my change go?
+
+`internal/proxy` is being split into five bounded contexts: Protocol &
+Ingress, Credential Brokerage, Routing Policy, Inference Execution and
+Conversation Lifecycle. Before writing code, find your change's row in
+the [decision table](internal/proxy/CLAUDE.md#where-new-behavior-goes).
+New behavior goes in a new focused file for that context, as a free
+function or small struct with explicit dependencies, never as a new
+method or field on `proxy.Service`. Model quirks are catalog data; new
+I/O is an interface in the owning context plus an adapter wired in
+`cmd/router`.
+
+CI enforces the limits: PRs fail when they grow `proxy.Service`, add
+context keys in `internal/proxy`, add or grow a function or file past
+the complexity limits, add model-name string matching outside the
+catalog, add `//nolint`, or add duplicated code. Split along a concept
+boundary to fix a failure; see [CLAUDE.md](CLAUDE.md#things-to-never-do).
+
 ## What we won't accept
 
-- **Silent fallbacks.** When the cluster scorer can't run, the router
+- **Silent fallbacks.** When the routing policy can't decide, the router
   returns HTTP 503 — it does *not* fall back to a default model. PRs
   re-introducing fail-open behavior will be rejected; silent degradation
   masked real regressions before, which is why the heuristic was retired.
@@ -105,21 +123,6 @@ make dev                               # run the server with hot reload
 
 Prerequisites: Go 1.26+, [golang-migrate](https://github.com/golang-migrate/migrate),
 [CompileDaemon](https://github.com/githubnemo/CompileDaemon).
-
-The cluster scorer uses an ONNX embedder; on Apple Silicon you also need:
-
-```bash
-# Populate ./assets/ first — see docs/CONFIGURATION.md → Cluster-routing artifacts.
-echo "ROUTER_ONNX_ASSETS_DIR=$(pwd)/assets" >> .env.local
-echo "CGO_LDFLAGS=-L/path/to/libtokenizers" >> .env.local
-echo "ROUTER_ONNX_LIBRARY_DIR=/opt/homebrew/lib" >> .env.local
-```
-
-(`brew install onnxruntime`; `libtokenizers` from
-[daulet/tokenizers releases](https://github.com/daulet/tokenizers/releases).)
-Without these the cluster scorer fails at boot and the router refuses to
-start. The Docker path bundles all of this — Apple Silicon CGO setup only
-matters for the `make dev` flow.
 
 ### Tests
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -56,44 +57,14 @@ func retainRescueModelsAtOrAboveTier(modelIDs []string, minimumTier catalog.Tier
 
 // siblingFailoverDecisions lists the stand-ins for a routed model whose bindings
 // all failed. Roster-backed routes use only their ordered eligible groups;
-// legacy routes append the scored pool and paired model, then prefer other
+// other routes append the candidate pool and paired model, then prefer other
 // providers. Context fit rejects under-sized peers.
 func (s *Service) siblingFailoverDecisions(ctx context.Context, failed router.Decision, est, sigSavings, outputReserve int) []router.Decision {
 	md := failed.Metadata
 	if md == nil {
 		return nil
 	}
-	if md.ClusterRouterVersion != "" && !md.RosterFailover {
-		if order := tierRescueModels(failed.Model, md.CandidateModels, md.CandidateScores); len(order) > 0 {
-			ordered := *md
-			ordered.RescueModels = order
-			ordered.RosterFailover = true
-			failed.Metadata = &ordered
-			md = &ordered
-		}
-	}
 	return s.rescueDecisions(ctx, failed, siblingCandidateOrder(md), ReasonSiblingFailover, est, sigSavings, outputReserve)
-}
-
-func tierRescueModels(selected string, candidates []string, scores map[string]float32) []string {
-	tier := catalog.TierFor(selected)
-	if tier == catalog.TierUnknown {
-		return nil
-	}
-	var ordered []string
-	for level := tier; level <= catalog.TierHigh; level++ {
-		var group []string
-		for _, model := range candidates {
-			if catalog.TierFor(model) == level {
-				group = append(group, model)
-			}
-		}
-		sort.SliceStable(group, func(i, j int) bool {
-			return scores[group[i]] > scores[group[j]]
-		})
-		ordered = append(ordered, group...)
-	}
-	return ordered
 }
 
 // rescueDecision resolves the first candidate the request is allowed to reach.
@@ -117,7 +88,7 @@ func (s *Service) rescueDecisions(ctx context.Context, failed router.Decision, c
 		return nil
 	}
 	available := s.keyedProvidersExcluding(s.excludedProvidersForRequest(ctx))
-	excludedModels := s.excludedModelsForRequest(ctx)
+	excludedModels := mergeExcludedModels(s.excludedModelsForRequest(ctx), customToolExcludedModels(ctx))
 	var candidateProviders map[string]string
 	if failed.Metadata != nil {
 		candidateProviders = failed.Metadata.CandidateProviders
@@ -250,11 +221,6 @@ func rosterRescueAdmits(failed router.Decision, model string) bool {
 	if md == nil || !md.RosterFailover {
 		return true
 	}
-	if md.ClusterRouterVersion != "" {
-		return slices.Contains(md.ScorerRescuePool, model) &&
-			catalog.TierFor(model) >= catalog.TierFor(failed.Model) &&
-			catalog.TierFor(model) <= catalog.TierHigh
-	}
 	return slices.Contains(md.RescueModels, model) || slices.Contains(md.SidecarRescuePool, model)
 }
 
@@ -268,7 +234,7 @@ func strikesInRescuePool(failed router.Decision, candidates, struck []string) []
 	}
 	var out []string
 	for _, model := range struck {
-		if slices.Contains(candidates, model) || slices.Contains(md.ScorerRescuePool, model) || slices.Contains(md.SidecarRescuePool, model) {
+		if slices.Contains(candidates, model) || slices.Contains(md.SidecarRescuePool, model) {
 			out = append(out, model)
 		}
 	}
@@ -280,7 +246,7 @@ func strikesInRescuePool(failed router.Decision, candidates, struck []string) []
 // candidate was left: the session's rescue pool was exhausted.
 func (s *Service) noteRescueReadmission(ctx context.Context, failed, rescuer router.Decision) {
 	if until, cooling := sessionCooldownModelsFromContext(ctx)[rescuer.Model]; cooling {
-		rateLimitTurnFromContext(ctx).recordRescuePoolExhausted(rescuer.Model)
+		dispatch.ThrottleLedgerFromContext(ctx).RecordRescuePoolExhausted(rescuer.Model)
 		observability.FromContext(ctx).Info("rescue pool exhausted, readmitting cooling-down model",
 			"failed_model", failed.Model,
 			"rescue_pool_readmitted", rescuer.Model,
@@ -291,7 +257,7 @@ func (s *Service) noteRescueReadmission(ctx context.Context, failed, rescuer rou
 	if !slices.Contains(sessionStrikeReadmitModelsFromContext(ctx), rescuer.Model) {
 		return
 	}
-	rateLimitTurnFromContext(ctx).recordRescuePoolExhausted(rescuer.Model)
+	dispatch.ThrottleLedgerFromContext(ctx).RecordRescuePoolExhausted(rescuer.Model)
 	observability.FromContext(ctx).Warn("rescue pool exhausted, readmitting session-demoted model",
 		"failed_model", failed.Model,
 		"rescue_pool_readmitted", rescuer.Model,
@@ -383,7 +349,7 @@ func (s *Service) rescueExcludedModels(ctx context.Context) map[string]struct{} 
 // gateway binding rank before those on the same gateway.
 func (s *Service) gatewayRescueDecisions(ctx context.Context, failed router.Decision, candidates []string, reason string, gw map[string]struct{}, est, sigSavings, outputReserve int) []router.Decision {
 	custom := s.customBindingsForRequest(ctx)
-	excludedModels := s.excludedModelsForRequest(ctx)
+	excludedModels := mergeExcludedModels(s.excludedModelsForRequest(ctx), customToolExcludedModels(ctx))
 	automaticExcluded := s.rescueExcludedModels(ctx)
 	providerFor := func(id string) (string, bool) {
 		return gatewayProviderFor(id, custom, gw)

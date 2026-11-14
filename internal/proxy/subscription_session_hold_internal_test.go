@@ -23,7 +23,7 @@ func TestSubscriptionStatePoolOverloadHoldsSessionOffModel(t *testing.T) {
 	overloaded := fakeOutcome{err: &providers.UpstreamErrorResponse{Status: http.StatusBadGateway, Body: []byte(`{"error":{"message":"Our servers are currently overloaded. Please try again later.","type":"server_error"}}`)}}
 	codex := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{overloaded, overloaded, overloaded}}
 	claude := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{writeBytes: []byte("first answer")}, {writeBytes: []byte("second answer")}}}
-	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex}, nil, false, nil, nil, false, "", "", nil).
+	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex}, nil, nil, false, "", "", nil).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true, subscriptions.ProviderCodex: true}})
 	now := time.Date(2026, 11, 4, 6, 41, 0, 0, time.UTC)
 	svc.now = func() time.Time { return now }

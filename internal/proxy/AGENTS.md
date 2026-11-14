@@ -2,7 +2,7 @@
 
 > **Mirror notice.** Generated from [CLAUDE.md](CLAUDE.md). Edit CLAUDE.md, then run `make generate-agent-guides`; CI rejects drift.
 
-Routing/dispatch service. Per-action orchestrator that composes scorer, planner, handover, cache, sessionpin, catalog, turntype, usage, billing, providers, and translate. Read [root CLAUDE.md](../../CLAUDE.md) first.
+Routing/dispatch service. Per-action orchestrator that composes the routing policy, planner, handover, sessionpin, catalog, turntype, usage, billing, providers, and translate. Read [root CLAUDE.md](../../CLAUDE.md) first.
 
 ## Surface
 
@@ -13,26 +13,39 @@ Routing/dispatch service. Per-action orchestrator that composes scorer, planner,
 - `ProxyOpenAIChatCompletion` — OpenAI Chat Completions
 - `ProxyGemini` — Gemini native generateContent
 
-Plus the action loop, handover adapter, cache writer, and session-key derivation in sibling files.
+Plus the action loop, handover adapter, and session-key derivation in sibling files.
 
-## Adding a method to `*proxy.Service`
+## Where new behavior goes
 
-1. **Define method on `*proxy.Service`.** No I/O directly here — push into a provider adapter or repo. Inner-ring imports (`router`, `providers`, `translate`, `observability`, `internal/router/*`, `internal/proxy/usage`) + small utility libs are fine.
-2. **If you need new repo methods**, surface them as an interface in the inner-ring package, implement in `internal/postgres/`. Example: `sessionpin.Store` in [`../router/sessionpin/store.go`](../router/sessionpin/store.go), implemented by `postgres.SessionPinRepo`.
-3. **Update `service_test.go` fakes** to satisfy the expanded interface. Real assertions on return values, not "mock called with X".
+`*proxy.Service` is being split into five bounded contexts. Pick the context by what the change does, then read the files it owns today (`rg -l '<concept>' internal/proxy --type go`):
+
+| If the change… | Context | Owns today |
+|---|---|---|
+| changes wire format or streaming | Protocol & Ingress (pure format conversion stays in [`translate`](../translate/CLAUDE.md)) | the four `Proxy*` entrypoints, `gemini.go`, `responses_*.go`, `stream_*.go` |
+| touches keys, BYOK, OAuth or subscriptions | Credential Brokerage | `credentials.go`, `credential_key_parts.go`, `managed_subscriptions.go`, `subscription_*.go` |
+| chooses or filters models | Routing Policy (inference purposes register in `internal/router/policy`) | `turnloop.go`, `escalation*.go`, `classifier_*.go`, `force_model*.go`, `*_model_selection.go` |
+| does retry, fallback or provider calls | Inference Execution (port: `inference.Executor`; start of the implementation: `dispatch.Executor`) | `dispatch_plan.go`, `fallback.go`, `*_failover.go`, `early_stop_redo.go`, `context_overflow.go`, `*overload*.go`, `rate_limit_cooldown.go`, `attempt_trace.go`, `arm_demotion.go` |
+| handles commands, compaction, handover or loops | Conversation Lifecycle | `beta.go`, `command_*.go`, `*compaction.go`, `handover.go`, `loop_detection.go`, `no_progress.go`, `spiral_detection.go`, `struggle_detection.go`, `text_repetition*.go` |
+| is a model quirk | catalog data in [`../router/catalog`](../router/catalog/CLAUDE.md) | typed `catalog.Model` / `catalog.ProviderBinding` fields |
+| is new I/O | a port (interface) in the owning context, an adapter package, wiring in `cmd/router` | e.g. `sessionpin.Store`, implemented by `postgres.SessionPinRepo` |
+
+Accounting and shadows/experiments stay in the orchestrator for now.
+
+**Until a context package exists, new logic goes in a new focused file in its context's group above, as a free function or a small collaborator struct whose dependencies are explicit constructor or function parameters.** Never add a `Service` method or field for it: `Service` methods have no visible dependencies and every one can reach all of `Service`'s state, which is how it reached its current size. Thread request-scoped values as parameters, not new context keys. No I/O in the logic itself; new repo methods are an interface in the inner ring, implemented in `internal/postgres/`. Tests drive the function or collaborator directly with in-memory fakes and real assertions.
+
+CI enforces this. The architecture ratchet (`make arch-ratchet`, a PR-only step) fails a PR when `proxy.Service` gains fields or methods, `internal/proxy` gains context-key types, a function over cognitive complexity 25 / 100 lines / 7 params / nesting depth 5 grows or a new one appears, a non-test file over 500 lines grows or a new one appears, model/provider-name string matching outside `internal/router/catalog` grows, or the `//nolint` count grows. Reviewed exceptions live in `internal/architecture/ratchet_exceptions.json`. golangci-lint's `dupl` gate rejects duplicated new code, and `make inference-boundary` rejects new provider calls outside the inference boundary. Fix a failure by splitting along a concept boundary, never by adding `//nolint` or an exception.
 
 ## Per-action flow (cache-aware action routing)
 
-The per-action flow is more than "scorer → dispatch". Pinned session, planner verdict, optional handover summary, and the semantic response cache all sit between the inbound request and the upstream provider. Packages are intentionally small + single-purpose so each is unit-testable without the others. ("Action" = one upstream API request; see [../../docs/SEMANTICS.md](../../docs/SEMANTICS.md). The `Stage` column below is a pipeline stage *within* one action, not a router step.)
+The per-action flow is more than "scorer → dispatch". Pinned session, planner verdict, and optional handover summary all sit between the inbound request and the upstream provider. Packages are intentionally small + single-purpose so each is unit-testable without the others. ("Action" = one upstream API request; see [../../docs/SEMANTICS.md](../../docs/SEMANTICS.md). The `Stage` column below is a pipeline stage *within* one action, not a router step.)
 
 | Stage | Package | Notes |
 |---|---|---|
 | Turn-type classification | [`../router/turntype`](../router/turntype) | MainLoop / ToolResult / SubAgentDispatch / Compaction / Probe |
 | Session-pin lookup | [`../router/sessionpin`](../router/sessionpin) | Sticky `(api_key_id, session_key, role)` pin |
-| Fresh routing decision | [`../router/cluster`](../router/cluster) | Cluster scorer argmax |
+| Fresh routing decision | [`../router/policy`](../router/policy) | Registered policy strategy (HMM classifier groups) |
 | STAY vs SWITCH | [`../router/planner`](../router/planner) | Cache-aware EV policy |
 | Handover summary on SWITCH | [`../router/handover`](../router/handover) | Bounds switch-action input cost |
-| Semantic response cache | [`../router/cache`](../router/cache) | Cross-request, non-streaming only |
 | Subscription strict pass-through gate | [`usage`](usage) | See [`usage/CLAUDE.md`](usage/CLAUDE.md) |
 
 The provider-backed `Summarizer` implementation for handover lives in [`handover.go`](handover.go); the inner-ring `handover` package only defines the contract. On summarizer timeout or error, proxy keeps the full prior history unchanged (it does **not** trim) — a pricier switch action beats silently dropping the conversation the switched-to model needs.
@@ -158,9 +171,7 @@ replica by design. The request path never takes the registry lock: withdrawn
 sets and the due list are an atomically published snapshot, and claiming or
 releasing a probe is a compare-and-swap on the circuit. Only overload strikes
 and probe outcomes lock and republish, and closed circuits whose strikes have
-aged out are swept. The semantic cache is
-skipped while any model is withdrawn for the request, as for any automatic
-exclusion.
+aged out are swept.
 
 **Rescued transient failures get a bounded cooldown, not a session-lifetime
 strike.** Under `transient_rate_limit` (default off),
@@ -273,12 +284,13 @@ has catalog bindings to walk), and a model stays routable unless **every**
 gateway key aliasing it has refused, since a second endpoint may serve it. The
 alias itself is still the customer-side fix — this only caps the bill at one 404.
 
-**The hard-pin tier resolves against the same bindings.** Compaction and explicitly
-deployment-pinned utility turns bypass the scorer, so `hardPinResolver` gets its
-own `HardPinRequest` carrying `CustomBindings` + `GatewayProviders` and selects
-via `cluster.FastestModelForRequest`. Without them a gateway-only installation
-resolved nothing and every such turn 503'd `ErrClusterUnavailable` ("cluster
-scorer failed") while its scored turns routed fine — prod 2026-08-26. An empty
+**The hard-pin tier resolves against the same bindings.** Explore sub-agent hard
+pins bypass the scorer, so `hardPinResolver` gets its own `HardPinRequest`
+carrying `CustomBindings` + `GatewayProviders` and selects via the catalog-backed
+`policy.UtilityTarget` (`CatalogUtilityHardPin`). Title-gen and probe hard-pin only
+under the `ROUTER_HARD_PIN_MODEL` override, which leaves the resolver unwired;
+compaction never hard-pins (`routeCompaction` keeps the session pin or scores). Without them a gateway-only installation
+resolved nothing and every such turn 503'd as routing unavailable while its scored turns routed fine — prod 2026-08-26. An empty
 result under a gateway now reports `ErrGatewayServesNoDeployedModel` for the
 same reason the resolver does: the alias list is the thing to fix.
 
@@ -396,7 +408,7 @@ Multi-binding models (deepseek/qwen/moonshot with Fireworks/Makora/Bedrock prima
 
 **Early-stop redo ([`early_stop_redo.go`](early_stop_redo.go)).** A lower-tier model on a Claude Code main-thread tool-result turn often ends the agent turn with text and `end_turn` mid-task, and the user has to type "continue". Under `early_stop_redo` (`ROUTER_EARLY_STOP_REDO`: `off` default, `shadow`, `on`; per-org), when the routed model sits below the top tier of the turn's scored candidates (`Decision.Metadata.CandidateModels`, via `rescueBasisForTurn` for held pins), `earlyStopGate` sits above `preludeBuffer` and withholds the client stream until the response proves it calls a tool (released at the first `tool_use` block) or stops for another reason. A response that ends `end_turn` with no tool call stays withheld, and `redoEarlyStop` re-serves the same request on the highest-tier candidate the shared rescue rules admit (`earlyStopRedoTarget` → `rescueDecisions`), so the client sees one clean message from that model and its history matches what the model saw. The trigger and target never read the requested model. The redo strikes the stopped model and every lower-tier candidate for the rest of the agent turn (`recordTurnFailure`), so a turn is redone at most once per user prompt. A redo that fails before output delivers the withheld response instead; one that cannot be built leaves the stopped response in place. The gate releases at `earlyStopHoldCap` bytes or `earlyStopHoldMax` (60s, inside Claude Code's 180s byte-silence timeout), and `preludeBuffer.onDiscard` drops withheld bytes between attempts so a retry never appends to a stale response. `shadow` logs `Tool-result turn ended without a tool call below the top candidate tier` and serves the turn unchanged. Off for streamless, non-Claude Code, hard-pinned, `/force-model`, caller-passthrough, usage-bypass and agent-shadow turns. Telemetry marks a re-served turn with reason `early-stop-redo`, `failover_used`, and `dispatch.early_stop_redo`; the discarded attempt is not billed to the client.
 
-**Subscription recovery and paid authorization ([`subscription_funding.go`](subscription_funding.go)).** Suppression of a failed direct Claude/Codex token opens recovery through remaining eligible linked seats, not permission to pay. The dispatch executor checks final credentials immediately before provider I/O against the request's original credential-free pool snapshot. Non-OAuth inference requires no compatible pool, or positive unexpired quota-exhaustion evidence for every compatible account and presented direct token. This covers deployment keys, BYOK, gateway bindings, API-only state-model walks, and buffered auxiliary calls. Configured native Anthropic BYOK is the exception: it takes precedence over caller OAuth and linked Claude accounts without probing their quota, and a BYOK failure must never fall back to Enterprise overage. Enrollment/read/refresh failures, lease contention, auth errors, model denials, generic 429s, timeouts, transport faults, and admission-budget expiry fail closed. Genuine Codex `usage_limit_reached`/`insufficient_quota`, observed exhausted quota, and observed paid overage (`OverageInUse` before its reported reset) may authorize rollover; request-local proof works even without a usage observer. A buffered upstream 5xx on a plan attempt is a different kind of evidence — "the plan cannot serve this turn", not "the quota is spent" — so `recordSubscriptionUnavailable` marks the pool in the request's `ManagedSubscriptionUsage` for a bounded `subscriptionUnavailableCooldown` and `authorizeSubscriptionAPI` admits paid rescue of that turn (same model or a scored sibling) while the mark is live; quota-shaped failed payloads and caller-model passthrough never set it, and nothing about the account's included quota is persisted. Model denials remain account/model scoped, never whole-account exhaustion. A failed rotation preserves its original upstream error alongside the pool sentinel. Depleted credits remain an independent prohibition on paid fallback.
+**Subscription recovery and paid authorization ([`subscription_funding.go`](subscription_funding.go)).** Suppression of a failed direct Claude/Codex token opens recovery through remaining eligible linked seats, not permission to pay. The dispatch executor checks final credentials immediately before provider I/O against the request's original credential-free pool snapshot. Non-OAuth inference requires no compatible pool, or positive unexpired quota-exhaustion evidence for every compatible account and presented direct token. This covers deployment keys, BYOK, gateway bindings, API-only state-model walks, and buffered auxiliary calls. A `key_first` BYOK key (`byokFirst`; every Anthropic key predating funding priorities) is the exception: it takes precedence over caller OAuth and linked accounts of its provider without probing their quota, and a BYOK failure must never fall back to Enterprise overage. A `plan_first` key (the default for new keys) gets no exception: it serves only when no subscription credential resolves or this gate's ordinary evidence admits paid dispatch. Enrollment/read/refresh failures, lease contention, auth errors, model denials, generic 429s, timeouts, transport faults, and admission-budget expiry fail closed. A generic 429 on the caller's own plan (`ThrottledProviders`, until its `Retry-After`) still fails closed, but as the retryable `ErrSubscriptionPoolThrottled` 429 rather than a 503, so the client backs off; that refusal (`errCallerPlanThrottled`) is client-owned in `failure_owner`, since the customer's plan, not router or provider capacity, is what ran out. Genuine Codex `usage_limit_reached`/`insufficient_quota`, observed exhausted quota, and observed paid overage (`OverageInUse` before its reported reset) may authorize rollover; request-local proof works even without a usage observer. A buffered upstream 5xx on a plan attempt is a different kind of evidence — "the plan cannot serve this turn", not "the quota is spent" — so `recordSubscriptionUnavailable` marks the pool in the request's `ManagedSubscriptionUsage` for a bounded `subscriptionUnavailableCooldown` and `authorizeSubscriptionAPI` admits paid rescue of that turn (same model or a scored sibling) while the mark is live; quota-shaped failed payloads and caller-model passthrough never set it, and nothing about the account's included quota is persisted. Model denials remain account/model scoped, never whole-account exhaustion. A failed rotation preserves its original upstream error alongside the pool sentinel. Depleted credits remain an independent prohibition on paid fallback. An installation with `WeaveCreditInferenceEnabled` off ([`weave_credits.go`](weave_credits.go)) narrows ingress providers to customer-funded ones and refuses any non-customer credential at this check with `ErrWeaveCreditsDisabled`.
 
 **Claude subscription third-party refusal ([`subscription_third_party.go`](subscription_third_party.go)).** `anthropicSubscriptionThirdPartyRefused` narrowly matches Anthropic's 400 `invalid_request_error` saying third-party apps draw from extra usage, not plan limits. It triggers included-seat recovery, never paid authorization. A refused managed account is denied for that `client_app` only, for `subscriptionThirdPartyDenialTTL`; it is not cooled down, exhausted, or marked reconnect-required. Successful subscription traffic from other clients is not contradicted by this scoped refusal. Its cause must be established from matched requests, not inferred from client names or speculative missing headers. The router does not forge provider attestation headers.
 

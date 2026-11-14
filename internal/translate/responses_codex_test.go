@@ -102,6 +102,52 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexTitleShapeIsS
 	assert.False(t, converted.TitleGeneration, "other structured-output objects must not be treated as hidden title calls")
 }
 
+func codexDesktopTitleTurnMetadataJSONString(threadSource, turnTrigger string) string {
+	turnMetadataJSON, _ := json.Marshal(map[string]string{"thread_source": threadSource, "turn_trigger": turnTrigger, "request_kind": "turn"})
+	quotedTurnMetadataJSON, _ := json.Marshal(string(turnMetadataJSON))
+	return string(quotedTurnMetadataJSON)
+}
+
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexDesktopTitleGeneration(t *testing.T) {
+	titleSchema := `"text":{"verbosity":"low","format":{"type":"json_schema","strict":true,"name":"codex_output_schema","schema":{
+		"$schema":"https://json-schema.org/draft/2020-12/schema",
+		"type":"object",
+		"properties":{"title":{"type":"string","minLength":1,"maxLength":60},"description":{"type":"string","minLength":1}},
+		"required":["title","description"],
+		"additionalProperties":false
+	}}},`
+	input := `"input":[
+		{"type":"additional_tools","role":"developer","tools":[]},
+		{"type":"message","role":"developer","content":[{"type":"input_text","text":"You are Codex."}]},
+		{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/repo</cwd>\n</environment_context>"}]},
+		{"type":"message","role":"user","content":[{"type":"input_text","text":"You are a helpful assistant. You will be presented with a user prompt, and your job is to provide a short title for a task that will be created from that prompt.\nGenerate a concise UI title (up to 36 characters) for this task.\nFill the structured title field with plain text.\n\nUser prompt:\nfix the flaky login test"}]}
+	]`
+	tests := []struct {
+		name       string
+		metadata   string
+		schema     string
+		wantTitled bool
+	}{
+		{name: "thread title source", metadata: codexDesktopTitleTurnMetadataJSONString("thread_title", "user"), schema: titleSchema, wantTitled: true},
+		{name: "forked title turn", metadata: codexDesktopTitleTurnMetadataJSONString("user", "thread_title"), wantTitled: true},
+		{name: "ordinary user turn with title schema", metadata: codexDesktopTitleTurnMetadataJSONString("user", "user"), schema: titleSchema},
+		{name: "title schema without metadata", schema: titleSchema},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			metadata := ""
+			if tt.metadata != "" {
+				metadata = `"client_metadata":{"x-codex-turn-metadata":` + tt.metadata + `},`
+			}
+			body := []byte(`{"model":"gpt-6-luna","stream":true,` + metadata + tt.schema + input + `}`)
+			converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantTitled, converted.TitleGeneration)
+		})
+	}
+}
+
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexTools(t *testing.T) {
 	body := []byte(`{
 		"model":"gpt-5.6-sol",

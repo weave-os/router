@@ -23,13 +23,13 @@ Router PRs [#884](https://github.com/weave-os/router/pull/884) and [#792](https:
 | Classifier turn | `classifier` | main inference (scored, no session pin) | ingress surface purpose; `aux-classifier` policy retained but no longer dispatched | Phase 7 |
 | Probe turn | ingress purpose for auto/empty/`weave-*` routing models; `probe` for concrete requested target or explicit override | auxiliary inference | independent scorer without conversation state, concrete requested target, or explicit override | Phase 7 |
 | Sub-agent dispatch | `sub_agent_dispatch` | auxiliary inference | turn-type/operator hard pin | Phase 7 |
-| Client compaction turn | `client_compaction` | client authoritative | client body plus current compaction hard-pin path | Phase 7 |
+| Client compaction turn | `client_compaction` | client authoritative | client body on an eligible forced model, else the session pin, else the scorer | Phase 7 |
 | Agent shadow evaluation | `agent_shadow_evaluation` | auxiliary inference | request-scoped explicit catalog target | Phase 8 |
 | Anthropic `count_tokens` | `count_tokens` | metadata passthrough | named-provider passthrough with local estimate rescue | Phase 5 metadata method |
 | Upstream model listing | `upstream_model_listing` | metadata passthrough | provider adapter list methods | remains non-selection |
 | Policy decision/preview/outcome/feedback | `policy_sidecar_*` | control plane | `internal/policyclient` and legacy `internal/router/rl` HTTP clients | remains non-inference |
 | Initial-task domain classification | `task_domain_classification` | control plane | `internal/policyclient.TaskDomainClassifier` with bounded `proxy.TaskDomainResolver` orchestration | remains non-inference |
-| Cluster/cache embeddings | `cluster_embedding`, `semantic_cache_embedding` | local support | local embedder/cache packages | remains local-only |
+| Cluster/cache embeddings | `cluster_embedding`, `semantic_cache_embedding` | local support | none in workers: the semantic cache is deleted and the legacy cluster scorer is being removed | purposes stay registered until removed |
 | Native/Cortex web search | `native_web_search` | web-search tool | explicit `websearch.Executor` | remains separate from generic inference |
 | Codex subscription search bridge | `openai_responses` | main inference | isolated Claude Code helper projected into the existing Responses entry point | uses existing policy, subscription admission and dispatch |
 

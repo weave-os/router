@@ -87,6 +87,25 @@ func splitEvalClientApp(xApp string) (string, bool) {
 // personal key attributes the request to its authenticated owner; a shared
 // key leaves the request unattributed.
 func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installation *auth.Installation, apiKey *auth.APIKey) context.Context {
+	return withBlindExperimentSession(resolveUserFromContext(ctx, authSvc, installation, apiKey), authSvc, installation, apiKey)
+}
+
+func withBlindExperimentSession(ctx context.Context, authSvc *auth.Service, installation *auth.Installation, apiKey *auth.APIKey) context.Context {
+	if authSvc == nil || installation == nil {
+		return ctx
+	}
+	if _, internalTest := requestcontext.InternalTestIdentityFrom(ctx); internalTest {
+		return ctx
+	}
+	apiKeyID := ""
+	if apiKey != nil {
+		apiKeyID = apiKey.ID
+	}
+	sessionKey := auth.BlindExperimentSessionSubjectKey(sessionCredentialIdentity(ctx, apiKeyID), ClientIdentityFrom(ctx).SessionID)
+	return authSvc.WithBlindExperimentSession(ctx, installation.ID, sessionKey)
+}
+
+func resolveUserFromContext(ctx context.Context, authSvc *auth.Service, installation *auth.Installation, apiKey *auth.APIKey) context.Context {
 	if _, ok := requestcontext.InternalTestIdentityFrom(ctx); ok {
 		return ctx
 	}
@@ -206,6 +225,32 @@ const (
 	ClientAppOpencode   = "opencode"
 )
 
+// completionLogClientApp is the client_app completion-log field, which log
+// metrics use as a label. X-App is caller-controlled, so anything but a
+// canonical app collapses to one value.
+func completionLogClientApp(id ClientIdentity) string {
+	if id.ClientApp == "" {
+		return ""
+	}
+	if id.Eval {
+		return "eval"
+	}
+	switch id.ClientApp {
+	case ClientAppClaudeCode:
+		return ClientAppClaudeCode
+	case ClientAppCodex:
+		return ClientAppCodex
+	case ClientAppCursor:
+		return ClientAppCursor
+	case ClientAppGeminiCLI:
+		return ClientAppGeminiCLI
+	case ClientAppOpencode:
+		return ClientAppOpencode
+	default:
+		return "other"
+	}
+}
+
 func supportsResponsesTerminalSurfaces(clientApp string) bool {
 	return clientApp == ClientAppCodex || clientApp == ClientAppOpencode
 }
@@ -217,7 +262,7 @@ func supportsResponsesTerminalSurfaces(clientApp string) bool {
 // "/" through untouched.
 //
 // Ingress accepts both spellings from every client regardless (see
-// translate.parseForceModelCommand) -- this only decides which one we print
+// translate.parseForceModelCommandFromSource) -- this only decides which one we print
 // back. Unknown clients get "/", the form the docs and every non-Codex client
 // use.
 func directivePrefix(clientApp string) string {

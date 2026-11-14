@@ -215,14 +215,14 @@ func TestResolveForceModel(t *testing.T) {
 			name:         "kimi k3.1 version pin",
 			input:        "kimi-k3.1",
 			wantID:       "moonshotai/kimi-k3.1",
-			wantProvider: providers.ProviderOpenRouter,
+			wantProvider: providers.ProviderFireworks,
 			wantKnown:    true,
 		},
 		{
 			name:         "upstream kimi k3.1 pro spelling",
 			input:        "moonshotai/kimi-k3.1-pro",
 			wantID:       "moonshotai/kimi-k3.1",
-			wantProvider: providers.ProviderOpenRouter,
+			wantProvider: providers.ProviderFireworks,
 			wantKnown:    true,
 		},
 		{
@@ -454,6 +454,14 @@ func TestResolveForceModel_GrokFamilyAlias(t *testing.T) {
 	}
 }
 
+func TestResolveForceModel_MythosAlias(t *testing.T) {
+	gotID, gotProvider, gotKnown := resolveForceModel("mythos")
+
+	assert.Equal(t, "claude-mythos-5-2", gotID)
+	assert.Equal(t, providers.ProviderAnthropic, gotProvider)
+	assert.True(t, gotKnown)
+}
+
 // An explicit :level suffix must survive resolution to its catalog model.
 func TestResolveForceModel_EffortSuffixPreserved(t *testing.T) {
 	gotID, _, gotKnown, gotEffort := resolveForceModelWithEffort("grok-4.6:high")
@@ -480,6 +488,8 @@ func TestResolveForceModel_ObservedSpellings(t *testing.T) {
 		{"claude-sonnet-5.5", "claude-sonnet-5-5", ""},
 		{"claude-haiku-4.5", "claude-haiku-4-5", ""},
 		{"claude-fable-5.1", "claude-fable-5-1", ""},
+		{"claude-fable-5.2", "claude-fable-5-2", ""},
+		{"fable 5.2", "claude-fable-5-2", ""},
 		{"opus-4-5", "claude-opus-4-5", ""},
 		{"opus-4.7", "claude-opus-4-7", ""},
 		{"claude-opus-5-5[1m]", "claude-opus-5-5", ""},

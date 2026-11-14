@@ -119,6 +119,9 @@ type EmitOptions struct {
 type RequestEnvelope struct {
 	body   []byte
 	format Format
+	// threadDiscriminator is the opening user text as the client sent it,
+	// captured before router-only history is stripped from body.
+	threadDiscriminator *string
 }
 
 // Clone returns an independent copy of the envelope; mutations to either
@@ -127,7 +130,7 @@ func (e *RequestEnvelope) Clone() *RequestEnvelope {
 	if e == nil {
 		return nil
 	}
-	return &RequestEnvelope{body: append([]byte(nil), e.body...), format: e.format}
+	return &RequestEnvelope{body: append([]byte(nil), e.body...), format: e.format, threadDiscriminator: e.threadDiscriminator}
 }
 
 // ParseOpenAI validates body as a JSON object and wraps it in a RequestEnvelope.
@@ -284,6 +287,24 @@ func (e *RequestEnvelope) FirstUserMessageText() string {
 	}
 }
 
+// ThreadDiscriminatorText is the opening user text the session key hashes.
+// Once StripHistoricalCommands has run it is the pre-strip text, so removing an
+// opening directive from the model-visible body does not re-key the thread.
+func (e *RequestEnvelope) ThreadDiscriminatorText() string {
+	if e.threadDiscriminator != nil {
+		return *e.threadDiscriminator
+	}
+	return e.FirstUserMessageText()
+}
+
+func (e *RequestEnvelope) captureThreadDiscriminator() {
+	if e.threadDiscriminator != nil {
+		return
+	}
+	text := e.FirstUserMessageText()
+	e.threadDiscriminator = &text
+}
+
 // HasTools reports whether the request has a non-empty tools array.
 func (e *RequestEnvelope) HasTools() bool {
 	r := gjson.GetBytes(e.body, "tools.#")
@@ -410,10 +431,24 @@ func requestRootRequestsCodexTitleSchema(root gjson.Result) bool {
 const (
 	codexTitlePromptMarker          = "you are generating a short conversation title."
 	codexDirectResponsePromptMarker = "respond directly to the user's prompt"
+	codexThreadTitleSource          = "thread_title"
 )
 
+// requestRootCodexTurnIsThreadTitle reads the turn origin Codex app-server
+// stamps on every request. Codex Desktop titles a thread with a hidden
+// structured turn whose origin is "thread_title".
+func requestRootCodexTurnIsThreadTitle(root gjson.Result) bool {
+	metadata := root.Get("client_metadata.x-codex-turn-metadata")
+	if metadata.Type != gjson.String || !gjson.Valid(metadata.Str) {
+		return false
+	}
+	turn := gjson.Parse(metadata.Str)
+	return turn.Get("thread_source").Str == codexThreadTitleSource ||
+		turn.Get("turn_trigger").Str == codexThreadTitleSource
+}
+
 func requestRootRequestsCodexTitle(root gjson.Result) bool {
-	if requestRootRequestsCodexTitleSchema(root) {
+	if requestRootRequestsCodexTitleSchema(root) || requestRootCodexTurnIsThreadTitle(root) {
 		return true
 	}
 	text, ok := freshCodexResponsesUserText(root.Get("input"))
@@ -841,31 +876,10 @@ func rewriteMessageBlocks(
 		return body, nil
 	}
 	if droppedMessage {
-		msgRaws = keepSystemMessagesBeforeAssistant(msgRaws)
+		msgRaws, _ = placeAnthropicSystemMessages(msgRaws)
 	}
 
 	return sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(msgRaws, ",")+"]"))
-}
-
-// keepSystemMessagesBeforeAssistant moves each run of role:"system" messages
-// that no longer directly precedes an assistant turn to just before the next
-// one, or to the end. Anthropic 400s on a system message followed by a user
-// message, which a dropped assistant turn can leave behind.
-func keepSystemMessagesBeforeAssistant(msgRaws []string) []string {
-	out := make([]string, 0, len(msgRaws))
-	var pending []string
-	for _, raw := range msgRaws {
-		switch gjson.Get(raw, "role").String() {
-		case "system":
-			pending = append(pending, raw)
-			continue
-		case "assistant":
-			out = append(out, pending...)
-			pending = pending[:0]
-		}
-		out = append(out, raw)
-	}
-	return append(out, pending...)
 }
 
 // stripThinkingBlocksBytes removes thinking/redacted_thinking blocks from
@@ -1355,8 +1369,12 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 		StripThoughtSignature:        true,
 		SanitizeAnthropicToolSchemas: true,
 	}
-	if opts.Capabilities.Supports(router.CapTemperatureUnsupported) && gjson.GetBytes(body, "temperature").Exists() {
-		ov.DeleteKeys = append(ov.DeleteKeys, "temperature")
+	if opts.Capabilities.Supports(router.CapSamplingParamsUnsupported) {
+		for _, key := range anthropicSamplingParams {
+			if gjson.GetBytes(body, key).Exists() {
+				ov.DeleteKeys = append(ov.DeleteKeys, key)
+			}
+		}
 	}
 
 	// User-forced effort wins over inbound heuristic; no-op on non-adaptive targets.
@@ -1490,7 +1508,8 @@ var modelMaxOutputTokens = map[string]int{
 	"gpt-6-astra": 128000, "gpt-6-sol": 128000, "gpt-6.1-sol": 128000, "gpt-6.1-terra": 128000, "gpt-6-luna": 128000,
 	"grok-4.5": 131072, "grok-4.6": 131072, "grok-4.7": 131072,
 	"muse-spark-1.3": 131072, // Meta documents a 128K max output; always-on reasoning shares the budget
-	"o1":             100000, "o1-pro": 100000, "o1-mini": 65536,
+	"muse-ember-1.0": 131072, "muse-wonder-1.0": 131072,
+	"o1": 100000, "o1-pro": 100000, "o1-mini": 65536,
 	"o3": 100000, "o3-pro": 100000, "o3-mini": 100000,
 	"o4-mini":              100000,
 	"gemini-3-pro-preview": 65536, "gemini-3.1-pro-preview": 65536,
@@ -1516,6 +1535,7 @@ var modelMaxOutputTokens = map[string]int{
 	"deepseek/deepseek-v4-pro":         131072,
 	"deepseek/deepseek-v4-pro-0813":    131072,
 	"minimax/minimax-m3.1-flash":       131072,
+	catalog.ModelMuseSparkOpen:         131072, // Together accepts more; matches Muse Spark 1.3's 128K
 	"minimax/minimax-m3":               131072, // 512K context, output up to the window
 	"minimax/minimax-m2.7":             65536,
 	"z-ai/glm-5":                       65536,

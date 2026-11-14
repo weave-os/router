@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -44,7 +45,7 @@ func TestModelSelectionReasoningOnlyForNewlyServedModel(t *testing.T) {
 	turn := turnLoopResult{Decision: router.Decision{Model: "new-model"}, PriorServedModel: "old-model"}
 	marker := routingMarkerFor(turn)
 	assert.Equal(t, marker, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""))
-	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, siblingRoutingMarkerFor(turn, siblingMarkerReason(ctx, "overloaded-model"), "rescue-model"), "rescue-model", siblingMarkerReason(ctx, "overloaded-model")), " · switched after overloaded-model was overloaded\n\n")
+	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, siblingRoutingMarkerFor(turn, siblingMarkerReason(ctx, "overloaded-model"), "rescue-model"), "rescue-model", siblingMarkerReason(ctx, "overloaded-model")), " · switched after overloaded-model was unavailable\n\n")
 	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, baselineRoutingMarkerFor(turn, "baseline-model"), "baseline-model", markerReasonBaseline), " · "+markerReasonBaseline+"\n\n")
 	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, cyberRefusalRoutingMarkerFor(turn, "retry-model"), "retry-model", markerReasonCyberRefusal), " · "+markerReasonCyberRefusal+"\n\n")
 
@@ -593,9 +594,9 @@ func TestSubscriptionTargetMarker_UndispatchedPickIsNotCalledOverloaded(t *testi
 	assert.Equal(t, "✦ **Weave Router** → claude-opus-5-5 · "+markerReasonSubscriptionCovered+"\n\n", got,
 		"a pick that was never dispatched did not fail, so the badge must not blame it")
 
-	failed := tracedAttempt{Target: inference.Target{Provider: providers.ProviderOpenAI, CatalogID: "xiaomi/mimo-v2.6-pro"}, Err: errors.New("boom"),
+	failed := dispatch.TracedAttempt{Target: inference.Target{Provider: providers.ProviderOpenAI, CatalogID: "xiaomi/mimo-v2.6-pro"}, Err: errors.New("boom"),
 		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorUpstream5xx)}}
-	traced := context.WithValue(context.Background(), attemptTraceContextKey{}, &attemptTrace{attempts: []tracedAttempt{failed}})
+	traced := context.WithValue(context.Background(), attemptTraceContextKey{}, traceOf(failed))
 	assert.Contains(t, subscriptionTargetMarker(traced, http.Header{}, res, picked, target, routingMarkerFor(res)), "switched after xiaomi/mimo-v2.6-pro",
 		"a pick that did fail is still named as the failed model")
 }

@@ -27,7 +27,7 @@ func TestOpenCodeCompletionUsesRoutingViewForEachWireFormat(t *testing.T) {
 			env, err := test.parse([]byte(test.body))
 			require.NoError(t, err)
 			ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppOpencode})
-			prompt, messages := routingInputForRequest(ctx, env, "unfiltered", true)
+			prompt, messages := routingInputForRequest(ctx, env, "unfiltered")
 			require.Len(t, messages, 5)
 			assert.Equal(t, "Fix the test", prompt)
 			assert.Equal(t, string(translate.EscalationRoleAssistant), messages[4].Role)
@@ -68,7 +68,7 @@ func TestOpenCodeCompletedTaskReceiptDoesNotConsumeLaterUserQuote(t *testing.T) 
 	env, err := translate.ParseOpenAI([]byte(body))
 	require.NoError(t, err)
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppOpencode})
-	_, messages := routingInputForRequest(ctx, env, "unfiltered", true)
+	_, messages := routingInputForRequest(ctx, env, "unfiltered")
 	require.Len(t, messages, 7)
 	assert.Equal(t, string(translate.EscalationRoleAssistant), messages[4].Role)
 	assert.Equal(t, string(translate.EscalationRoleUser), messages[6].Role)
@@ -80,11 +80,11 @@ func TestClaudeNotificationProjectionDoesNotRewriteGenericUserInput(t *testing.T
 	const body = `{"messages":[{"role":"user","content":"Fix the test"},{"role":"assistant","content":"Working"},{"role":"user","content":"` + notification + `"}]}`
 	env, err := translate.ParseAnthropic([]byte(body))
 	require.NoError(t, err)
-	_, genericMessages := routingInputForRequest(context.Background(), env, "unfiltered", true)
+	_, genericMessages := routingInputForRequest(context.Background(), env, "unfiltered")
 	require.Len(t, genericMessages, 3)
 	assert.Equal(t, notification, genericMessages[2].Text)
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode})
-	prompt, claudeMessages := routingInputForRequest(ctx, env, "unfiltered", true)
+	prompt, claudeMessages := routingInputForRequest(ctx, env, "unfiltered")
 	require.Len(t, claudeMessages, 2)
 	assert.Equal(t, "Fix the test", prompt)
 }
@@ -118,4 +118,15 @@ func TestConversationMessagesForRoutingConvertsAtProxyBoundary(t *testing.T) {
 	assert.Equal(t, "toolu_123", messages[1].ToolResults[0].ToolUseID)
 	assert.True(t, messages[1].ToolResults[0].IsError)
 	assert.Equal(t, "raw output", messages[1].ToolResults[0].Text)
+}
+
+func TestResponsesRoutingEnvelopeDropsHistoricalDirectives(t *testing.T) {
+	body := []byte(`{"model":"gpt","messages":[` +
+		`{"role":"user","content":"/fm astra"},` +
+		`{"role":"user","content":"now write the parser"}]}`)
+	ctx, err := withResponsesRoutingEnvelope(context.Background(), body)
+	require.NoError(t, err)
+	routingEnv := routingEnvelopeForRequest(ctx, nil)
+	require.NotNil(t, routingEnv)
+	assert.Equal(t, "now write the parser", routingEnv.FirstUserMessageText(), "a prior-turn directive must not shape model selection")
 }

@@ -19,10 +19,9 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
-// This exercises ingress, translation, provider HTTP dispatch, and response
-// translation. An exhausted request-local token must not strand linked capacity
-// merely because the requester has no API credential.
-func TestVerificationSafeTransportDirectExhaustionUsesLinkedWithoutAPI(t *testing.T) {
+// Pool-first dispatch must preserve translation without a paid API credential.
+// Direct-login fallback is covered by TestResolvedOAuthRemainsAvailableWithoutManagedCapacity.
+func TestVerificationSafeTransportInboundOAuthUsesLinkedWithoutAPI(t *testing.T) {
 	var bearers, accountIDs, paths []string
 	var sent [][]byte
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -35,11 +34,6 @@ func TestVerificationSafeTransportDirectExhaustionUsesLinkedWithoutAPI(t *testin
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		sent = append(sent, body)
-		if r.Header.Get("Authorization") == "Bearer "+codexTestToken {
-			w.WriteHeader(http.StatusTooManyRequests)
-			_, _ = io.WriteString(w, `{"error":{"type":"usage_limit_reached"}}`)
-			return
-		}
 		if r.Header.Get("Authorization") != "Bearer linked-token" {
 			w.WriteHeader(http.StatusForbidden)
 			return
@@ -52,7 +46,7 @@ func TestVerificationSafeTransportDirectExhaustionUsesLinkedWithoutAPI(t *testin
 	client := openai.NewClient("", upstream.URL)
 	client.SetCodexBaseURL(upstream.URL)
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "linked-account", AccessToken: "linked-token", ProviderAccount: "linked-provider-account"}}}
-	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(leaser)
+	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(leaser)
 	body := []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"inspect synthetic input"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}}],"reasoning_effort":"medium"}`)
 	ctx := context.WithValue(codexSubscriptionTestCtx(), APIKeyIDContextKey{}, "synthetic-key")
 	ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderCodex: {}})
@@ -60,13 +54,13 @@ func TestVerificationSafeTransportDirectExhaustionUsesLinkedWithoutAPI(t *testin
 	recorder := httptest.NewRecorder()
 	err := svc.ProxyOpenAIChatCompletion(ctx, body, recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
 	require.NoError(t, err)
-	require.Equal(t, []string{"Bearer " + codexTestToken, "Bearer linked-token"}, bearers)
-	require.Equal(t, []string{codexTestAccountID, "linked-provider-account"}, accountIDs)
-	require.Equal(t, []string{"/responses", "/responses"}, paths)
+	require.Equal(t, []string{"Bearer linked-token"}, bearers)
+	require.Equal(t, []string{"linked-provider-account"}, accountIDs)
+	require.Equal(t, []string{"/responses"}, paths)
 	require.Contains(t, recorder.Body.String(), "linked answer")
 	require.True(t, servedOnSubscription(ctx), "winning subscription must be cost-neutral")
-	require.Equal(t, "read_file", gjson.GetBytes(sent[1], "tools.0.name").String())
-	require.Equal(t, "medium", gjson.GetBytes(sent[1], "reasoning.effort").String())
+	require.Equal(t, "read_file", gjson.GetBytes(sent[0], "tools.0.name").String())
+	require.Equal(t, "medium", gjson.GetBytes(sent[0], "reasoning.effort").String())
 }
 
 func TestVerificationSafeTransportManagedWinnerQuotaObservedFromHTTP(t *testing.T) {
@@ -91,7 +85,7 @@ func TestVerificationSafeTransportManagedWinnerQuotaObservedFromHTTP(t *testing.
 	client.SetCodexBaseURL(upstream.URL)
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "quota-account", AccessToken: "quota-token", ProviderAccount: "quota-provider-account"}}}
 	observer := usage.NewObserver([]byte("synthetic-salt"), time.Hour, time.Now)
-	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(leaser).WithUsageObserver(observer)
+	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(leaser).WithUsageObserver(observer)
 	body := []byte(`{"model":"auto","stream":true,"messages":[{"role":"user","content":"inspect synthetic quota"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`)
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	recorder := httptest.NewRecorder()

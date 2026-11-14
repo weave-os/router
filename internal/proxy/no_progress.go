@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"weave-os/router/internal/auth"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
@@ -297,6 +298,10 @@ func (s *Service) handleNoProgressBreak(
 			"Weave Router: no-progress loop detected (%d consecutive routes to %s/%s with no progress in %s). Stopping and %s.",
 			count, decisionModel, decisionProvider, noProgressTimeWindow, pinAction,
 		)
+	}
+
+	if _, active := auth.BlindExperimentFrom(ctx); active {
+		msg = blindExperimentLoopStopMessage
 	}
 
 	log.Info("No-progress loop detected; breaking turn",

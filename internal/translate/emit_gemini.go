@@ -801,32 +801,6 @@ func geminiEmitsValidatedToolMode(body []byte, model string, format Format) bool
 	return kind == toolChoiceAbsent || kind == toolChoiceAuto
 }
 
-// filterOutGeminiFunctionCallParts strips functionCall parts; used when
-// history has tool_use blocks without thoughtSignature (Gemini 3.x would 400).
-func filterOutGeminiFunctionCallParts(parts []string) []string {
-	out := parts[:0]
-	for _, p := range parts {
-		if gjson.Get(p, "functionCall").Exists() {
-			continue
-		}
-		out = append(out, p)
-	}
-	return out
-}
-
-// filterOutGeminiToolResponseParts strips functionResponse parts left dangling
-// by a dropped functionCall; Gemini rejects responses with no matching call.
-func filterOutGeminiToolResponseParts(parts []string) []string {
-	out := parts[:0]
-	for _, p := range parts {
-		if gjson.Get(p, "functionResponse").Exists() {
-			continue
-		}
-		out = append(out, p)
-	}
-	return out
-}
-
 // anthropicUserPartsGJSON converts an Anthropic user content value to raw JSON part strings.
 func anthropicUserPartsGJSON(content gjson.Result, toolNames map[string]string) []string {
 	switch content.Type {

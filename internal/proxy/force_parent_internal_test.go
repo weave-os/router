@@ -21,7 +21,7 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 	const apiKeyID = "parent-scope-test-key"
 	installationID := uuid.New()
 	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "shared-parent-session"})
-	ctx = router.WithStrategy(ctx, router.StrategyCluster)
+	ctx = router.WithStrategy(ctx, router.StrategyHMMEmbedding)
 	parent, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"max_tokens":4096,"messages":[{"role":"user","content":"Implement a synthetic feature"}]}`, catalog.ModelIDClaudeOpus48.String())))
 	require.NoError(t, err)
 	child, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"max_tokens":4096,"messages":[{"role":"user","content":"Research a synthetic helper"}]}`, catalog.ModelIDClaudeOpus48.String())))
@@ -33,7 +33,7 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 	require.Equal(t, controlKey, deriveForceModelSessionKeyForRequest(ctx, child, apiKeyID, childKey))
 	store := newForceModelMapStore()
 	scorer := &tierProbeRouter{available: map[string]struct{}{catalog.ModelIDClaudeHaiku45.String(): {}}}
-	svc := NewService(scorer, nil, nil, false, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+	svc := NewService(scorer, nil, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 	apply := func(command translate.ForceModelResult) string {
 		t.Helper()
 		_, ack, err := svc.applyForceModelCommand(ctx, command, installationID, parentKey, controlKey)
@@ -42,7 +42,7 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 	}
 	route := func(env *translate.RequestEnvelope) turnLoopResult {
 		t.Helper()
-		features := env.RoutingFeatures(false)
+		features := env.RoutingFeatures()
 		routed, err := svc.runTurnLoop(ctx, env, features, apiKeyID, installationID, "", nil, router.Request{RequestedModel: features.Model})
 		require.NoError(t, err)
 		return routed
@@ -58,7 +58,7 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 	ack := apply(translate.ForceModelResult{Model: "opus-4-8:high", ParentOnly: true})
 	assert.Contains(t, ack, "force-parent applied:")
 	assert.Contains(t, ack, "Subagents use automatic routing")
-	features := parent.RoutingFeatures(false)
+	features := parent.RoutingFeatures()
 	inheritedChild, err := svc.runTurnLoop(ctx, parent, features, apiKeyID, installationID, "explore", nil, router.Request{RequestedModel: features.Model})
 	require.NoError(t, err)
 	assert.Equal(t, catalog.ModelIDClaudeHaiku45.String(), inheritedChild.Decision.Model, "identified subagents must route even when they inherit the parent transcript")
@@ -92,10 +92,11 @@ func TestForceParentDoesNotOverrideChildCompaction(t *testing.T) {
 	compaction, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","max_tokens":4096,"messages":[{"role":"user","content":"Implement the parser"},{"role":"assistant","content":"Inspecting the source"},{"role":"user","content":"Your task is to create a detailed summary. Do not call any tools."}]}`))
 	require.NoError(t, err)
 	store := newForceModelMapStore()
-	svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeSonnet46.String(), nil).WithCompactionHardPin(true)
+	scored := router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String()}
+	svc := NewService(fixedRouter{decision: scored}, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeSonnet46.String(), nil)
 	parentKey := deriveSessionKeyForRequest(ctx, parent, apiKeyID)
 	require.Equal(t, parentKey, deriveSessionKeyForRequest(ctx, compaction, apiKeyID))
-	features := compaction.RoutingFeatures(false)
+	features := compaction.RoutingFeatures()
 	route := func() turnLoopResult {
 		t.Helper()
 		turn, err := svc.runTurnLoop(ctx, compaction, features, apiKeyID, installationID, "explore", nil, router.Request{RequestedModel: features.Model})
@@ -128,7 +129,7 @@ func TestForceParentPreservesChildLoopRescue(t *testing.T) {
 			threadKey, controlKey := loopTestKey(50), loopTestKey(51)
 			store := newForceModelMapStore()
 			events := &recordingLoopStore{}
-			svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil).WithLoopEscalationStore(events)
+			svc := NewService(nil, nil, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil).WithLoopEscalationStore(events)
 			_, _, err := svc.applyForceModelCommand(ctx, translate.ForceModelResult{Model: catalog.ModelIDClaudeSonnet46.String(), ParentOnly: test.parentOnly}, installationID, threadKey, controlKey)
 			require.NoError(t, err)
 			svc.handleLoopEscalation(ctx, loopTestSig, 24, 0.2, 30, installationID, threadKey, sessionpin.DefaultRole, catalog.ModelIDClaudeHaiku45.String(), test.child, controlKey)

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -143,7 +144,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		// transient error on it still gets the same-binding retries.
 		Bound: func(dispatch.Attempt, error) bool { return managedBinding },
 		// Nil unless transient_rate_limit is on for this request.
-		RetryDelay: s.throttleRetryDelay(ctx),
+		RetryDelay: dispatch.ThrottleLedgerFromContext(ctx).RetryDelay(s.clockNow),
 	}
 	transport.Attempt = func(attemptCtx context.Context, attempt dispatch.Attempt, client providers.Client) error {
 		decision := in.initialDecision
@@ -151,8 +152,8 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		guarded := dispatch.GuardTarget(client, attempt.Target)
 		trace := attemptTraceFromContext(ctx)
 		if trace != nil {
-			trace.beginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
-			guarded = dispatch.ObservePrepared(guarded, trace.observeSent)
+			trace.BeginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
+			guarded = dispatch.ObservePrepared(guarded, observeAttemptSent(trace))
 		}
 		var lastSubscriptionErr error
 		if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
@@ -202,6 +203,8 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				credentialCtx = context.WithValue(attemptCtx, CredentialsContextKey{}, requestcontext.CredentialsFromContext(credentialCtx))
 			}
 			managedBinding = managedBinding || managedAttempt
+			credentialCtx = s.withClaudeSubscriptionProfile(credentialCtx, nil)
+			credentialCtx = withClaudeEnterpriseTurn(credentialCtx, decision)
 			if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && managedAttempt {
 				if usage.AttemptedAccounts == nil {
 					usage.AttemptedAccounts = make(map[string]struct{})
@@ -222,11 +225,24 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			if creds := CredentialsFromContext(credentialCtx); creds != nil && creds.OAuth {
 				if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
 					state.SubscriptionAttempted = true
+					if creds.Source == credSourceSubscription && creds.SubscriptionPlan != "" {
+						state.ClaudeSubscriptionPlan = creds.SubscriptionPlan
+						state.ClaudePlanUnverified = state.ClaudePlanUnverified || creds.SubscriptionPlan == providers.SubscriptionPlanUnknown
+					}
 				}
 			}
+			attemptStarted := time.Now()
 			attemptErr := in.attempt(credentialCtx, decision, guarded)
+
 			// Health bookkeeping must persist even if the caller has gone.
 			bookkeepingCtx := context.WithoutCancel(credentialCtx)
+			if managedAttempt {
+				observability.FromContext(bookkeepingCtx).Info("Subscription account attempt completed",
+					"subscription_event", auth.SubscriptionCredentialEventAttempted, "account_id", lease.AccountID,
+					"provider", decision.Provider, "succeeded", attemptErr == nil,
+					"upstream_status", upstreamStatus(attemptErr), "attempt_ms", time.Since(attemptStarted).Milliseconds(),
+					"response_committed", committed(in.buf), "subscription_account_attempt", account+1)
+			}
 			if creds := CredentialsFromContext(credentialCtx); !managedAttempt && creds != nil && creds.OAuth && attemptErr != nil {
 				s.recordDirectSubscriptionQuota(bookkeepingCtx, decision.Provider, decision.Model, creds, attemptErr)
 			}
@@ -259,14 +275,14 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			if managedAttempt && !committed(in.buf) {
 				s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
 			}
-			if !managedAttempt && servedOnCodexSubscription(credentialCtx) && !committed(in.buf) {
-				_, quotaSpent := codexQuotaExhaustion(attemptErr)
-				if quotaSpent || codexOAuthCredentialRejected(attemptErr) || codexSubscriptionModelRejected(attemptErr) || providers.IsRetryable(attemptErr) {
-					s.recordCodexQuotaExhaustionForCredentials(bookkeepingCtx, CredentialsFromContext(credentialCtx), attemptErr)
-					s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
-					attemptCtx = resolveAndInjectCredentials(withSuppressedCodexSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{})
-					rotate = true
-				}
+			if !managedAttempt && !committed(in.buf) && codexSubscriptionRotates(credentialCtx, attemptErr) {
+				s.recordCodexCredentialUnusable(bookkeepingCtx, CredentialsFromContext(credentialCtx), attemptErr)
+				s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
+				attemptCtx = resolveAndInjectCredentials(withSuppressedCodexSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{})
+				rotate = true
+			}
+			if next, capped := claudeEnterpriseCapRotation(credentialCtx, attemptCtx, decision, attemptErr); capped && !managedAttempt && !committed(in.buf) {
+				attemptCtx, rotate = next, true
 			}
 			if credentialRejectionStands(lastSubscriptionErr, attemptErr, codexOAuthCredentialRejected) {
 				return lastSubscriptionErr
@@ -280,8 +296,8 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			// Describe runs once per dispatch attempt; record the failed account
 			// call before the next account overwrites the traced body.
 			if trace != nil {
-				trace.describe(ctx, attempt, attemptErr)
-				trace.beginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
+				describeAttempt(ctx, trace, attempt, attemptErr)
+				trace.BeginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
 			}
 			lastSubscriptionErr = attemptErr
 			if rotationBudget.remaining <= 0 {
@@ -301,7 +317,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 
 	if trace := attemptTraceFromContext(ctx); trace != nil {
 		transport.Describe = func(attempt dispatch.Attempt, err error) inference.AttemptDiagnosis {
-			return trace.describe(ctx, attempt, err)
+			return describeAttempt(ctx, trace, attempt, err)
 		}
 	}
 	req := inference.InvocationRequest{Purpose: in.purpose, RequestID: observability.RequestIDFromContext(ctx)}

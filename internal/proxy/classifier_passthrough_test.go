@@ -43,7 +43,7 @@ func classifierPassthroughFixture(t *testing.T, obs *usage.Observer) (*proxy.Ser
 		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"` + classifierRequestedMdl + `","content":[{"type":"text","text":"<severity>0</severity>"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
 	}}
 	store := newFakePinStore()
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, store, false, providers.ProviderAnthropic, classifierRequestedMdl, nil)
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, store, false, providers.ProviderAnthropic, classifierRequestedMdl, nil)
 	if obs != nil {
 		svc = svc.WithUsageObserver(obs)
 	}
@@ -213,7 +213,7 @@ func TestClassifier_SubscriptionOnly_Exhausted_Refuses402(t *testing.T) {
 	assert.Empty(t, p.proxyBodies, "no paid dispatch may occur when the subscription cannot serve the classifier")
 }
 
-func TestClassifier_SubscriptionOnly_UsageBilledOverage_PassesThrough(t *testing.T) {
+func TestClassifier_SubscriptionOnly_VerifiedEnterpriseOverage_PassesThrough(t *testing.T) {
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
 		RepresentativeClaim: usage.AnthropicClaimOverage,
@@ -221,6 +221,7 @@ func TestClassifier_SubscriptionOnly_UsageBilledOverage_PassesThrough(t *testing
 		UnifiedResetAt:      time.Now().Add(72 * time.Hour),
 	})
 	svc, fr, p, _ := classifierPassthroughFixture(t, obs)
+	svc.WithClaudeSubscriptionPlanReader(fixedSubscriptionPlanReader{providers.SubscriptionPlanEnterprise})
 	rec, req := classifierRequest()
 
 	require.NoError(t, svc.ProxyMessages(billing.WithSubscriptionOnly(classifierSubscriptionCtx(), billing.SubscriptionOnlyCreditsDepleted), []byte(classifierBody), rec, req))
@@ -251,7 +252,7 @@ func TestClassifier_PassthroughRetryable_FallsBackToRoutedDispatch_NoPin(t *test
 	}}
 	upstream := &swapErrProvider{first: limit, second: nil, inner: inner}
 	store := newFakePinStore()
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, false, nil, store, false, providers.ProviderAnthropic, classifierRequestedMdl, nil)
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, store, false, providers.ProviderAnthropic, classifierRequestedMdl, nil)
 	rec, req := classifierRequest()
 
 	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req))

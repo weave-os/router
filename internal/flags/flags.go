@@ -104,6 +104,7 @@ const (
 	KeyTextRepetitionBreak                  Key = "text_repetition_break_enabled"
 	KeyPlannerEnabled                       Key = "planner_enabled"
 	KeyScoreToolResultTurns                 Key = "score_tool_result_turns"
+	KeyHMMToolResultHold                    Key = "hmm_tool_result_hold"
 	KeyPrefixTrimFreeSwitch                 Key = "prefix_trim_free_switch"
 	KeyAuthoritativeUpgradeGate             Key = "authoritative_upgrade_gate"
 	KeyAuthoritativeUpgradePolicy           Key = "authoritative_upgrade_policy"
@@ -121,7 +122,6 @@ const (
 	KeyCyberRefusalRetry                    Key = "cyber_refusal_retry"
 	KeyCyberRefusalFallback                 Key = "cyber_refusal_fallback_model"
 	KeyAnthropicServerFallback              Key = "anthropic_server_side_fallback"
-	KeyEmbedOnlyUserMessage                 Key = "embed_only_user_message"
 	KeyOpenAIResponsesBroad                 Key = "openai_responses_broad"
 	KeyAllowedModelsHeader                  Key = "allowed_models_header"
 	KeyCCTaskToolsCrossVendor               Key = "cc_task_tools_crossvendor"
@@ -141,15 +141,17 @@ const (
 	KeyPlanUserClusterLists                 Key = "plan_user_cluster_lists"
 )
 
-// These keys were valid organization overrides before struggle escalation was
-// removed. Keep them parse-only so an installation row written by an older
-// revision cannot invalidate unrelated active overrides during a rolling
+// These keys were valid organization overrides before their respective flags
+// were retired. Keep them parse-only so an installation row written by an
+// older revision cannot invalidate unrelated active overrides during a rolling
 // deploy. They are never registered, published, or read by routing code.
 const (
 	retiredKeyStruggleEscalationEnabled Key = "struggle_escalation_enabled"
 	retiredKeyStruggleEscalationHoldout Key = "struggle_escalation_holdout_pct"
 	retiredKeyStruggleEvidenceArming    Key = "struggle_evidence_arming"
 	retiredKeySubscriberPaidFallback    Key = "subscriber_paid_fallback_enabled"
+	retiredKeySubscriptionPoolQuota     Key = "subscription_pool_quota_aware_selection_enabled"
+	retiredKeyEmbedOnlyUserMessage      Key = "embed_only_user_message"
 )
 
 var retiredOverrideKeys = map[Key]struct{}{
@@ -157,6 +159,8 @@ var retiredOverrideKeys = map[Key]struct{}{
 	retiredKeyStruggleEscalationHoldout: {},
 	retiredKeyStruggleEvidenceArming:    {},
 	retiredKeySubscriberPaidFallback:    {},
+	retiredKeySubscriptionPoolQuota:     {},
+	retiredKeyEmbedOnlyUserMessage:      {},
 }
 
 // Definition describes one overridable flag. DeploymentDefault is not stored
@@ -177,7 +181,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 28
+const RegistryVersion = 30
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -196,7 +200,7 @@ var Registry = []Definition{
 	{
 		Key:            KeyClaudeEnterpriseOnly,
 		Kind:           KindBool,
-		Description:    "Fund Claude calls through linked Claude accounts, including provider-authorized Enterprise overage, without Weave-credit fallback. On by default for linked accounts; explicit BYOK and disabled subscription routing retain precedence over the default.",
+		Description:    "Keep provider-verified Claude Enterprise subscriptions on their own billing, including authorized overage, without Weave-credit fallback. Pro, Max, Team and unknown plans are never classified as Enterprise by this flag. Explicit BYOK and disabled subscription routing retain precedence.",
 		OrgOverridable: true,
 	},
 	{
@@ -271,6 +275,14 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_SCORE_TOOL_RESULT_TURNS",
 		Kind:           KindBool,
 		Description:    "Re-score tool-result turns instead of following the session pin.",
+		OrgOverridable: true,
+	},
+	// Router policy owns this eval control; promote or remove it after the
+	// escalation benchmark comparison.
+	{
+		Key:            KeyHMMToolResultHold,
+		Kind:           KindBool,
+		Description:    "Hold the user turn's first policy pick across its tool-result turns unless escalation constrains the request.",
 		OrgOverridable: true,
 	},
 	{
@@ -389,13 +401,6 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_ANTHROPIC_SERVER_SIDE_FALLBACK",
 		Kind:           KindBool,
 		Description:    "Ask Anthropic to re-serve a safety-refused turn on a fallback model instead of returning the refusal.",
-		OrgOverridable: true,
-	},
-	{
-		Key:            KeyEmbedOnlyUserMessage,
-		EnvVar:         "ROUTER_EMBED_ONLY_USER_MESSAGE",
-		Kind:           KindBool,
-		Description:    "Embed user-role text only, instead of the concatenated stream.",
 		OrgOverridable: true,
 	},
 	{

@@ -33,9 +33,9 @@ type ResponsesConversion struct {
 	OriginalBody []byte
 	Stream       bool
 	Model        string
-	// CodexFeedbackSkill reports a user-invoked $rf/$router-feedback skill
-	// whose emitted directive arrived in a later tool-result item.
-	CodexFeedbackSkill bool
+	// CodexSkill names the router skill whose emitted directive arrived in
+	// a later tool-result item.
+	CodexSkill CodexSkillTurn
 	// CodexModelSwitch reports that the user switched models with Codex's
 	// native /model picker during this session, as opposed to launching with
 	// a configured model.
@@ -698,7 +698,6 @@ type ResponsesWriter struct {
 	nativeSequenceShift         int64
 	outputIndexOffset           int
 	footerText                  string
-	footerEmitted               bool
 	sawToolCall                 bool
 	hasUpstreamOutput           bool
 	nativeHeldEvents            [][]byte
@@ -887,6 +886,10 @@ func (t *ResponsesWriter) SetPassthrough() {
 	t.resetSSEScanState()
 	t.passthrough = true
 }
+
+// Passthrough reports whether the writer forwards native Responses events
+// rather than translating Chat Completions chunks.
+func (t *ResponsesWriter) Passthrough() bool { return t.passthrough }
 
 // ClearPassthrough returns the writer to translation mode, reporting false
 // after provider output prevents a clean continuation. A visible synthetic

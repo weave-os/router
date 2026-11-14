@@ -27,10 +27,9 @@ const (
 	JudgeTimeout        = 20 * time.Second
 	JobLease            = 30 * time.Second
 	MaxWorkers          = 16
-	QwenReleaseName     = "qwen-finetuned-escalation-classifier"
-	QwenModelSHA256     = "620f908e24268bf9f116d533cc1d42f825f2a38599374c3db63c5db210b783d6"
-	QwenPromptSHA256    = "6fc829a3bc36d3f5c2cd2705ee28ba3d4f61dc5380313adf2012bfab22a8f9a0"
-	QwenRendererVersion = "five_turn_v3"
+	MaxShadowWorkers    = 8
+	QwenRendererVersion = "five_turn_v4"
+	QwenRendererHeader  = "X-Escalation-Renderer"
 	QwenProvider        = "modal"
 	QwenSchemaVersion   = "escalation_classifier_v1"
 )
@@ -84,6 +83,15 @@ type Judgment struct {
 	CostUSD    float64         `json:"cost_usd"`
 	CostKnown  bool            `json:"cost_known"`
 	CostSource CostSource      `json:"cost_source"`
+	Release    *ServedRelease  `json:"release,omitempty"`
+}
+
+// ServedRelease is the classifier release that produced one verdict, as
+// reported by the serving endpoint, so a model swap needs no Router change.
+type ServedRelease struct {
+	Name         string `json:"name"`
+	ModelSHA256  string `json:"model_sha256"`
+	PromptSHA256 string `json:"prompt_sha256,omitempty"`
 }
 
 // CostSource identifies whether spend came from the provider or catalog pricing.
@@ -120,6 +128,7 @@ const (
 	FailureCapacity            FailureCode = "capacity"
 	FailureIntervalUnavailable FailureCode = "interval_unavailable"
 	FailureRecentUserPrompt    FailureCode = "recent_user_prompt"
+	FailureServedTarget        FailureCode = "served_escalation_target"
 	FailureCallLimit           FailureCode = "call_limit"
 	FailureInFlight            FailureCode = "in_flight"
 	FailureStale               FailureCode = "stale"
@@ -162,12 +171,21 @@ type Job struct {
 	AppliedRequestID string      `json:"applied_request_id,omitempty"`
 	AppliedTurn      *int64      `json:"applied_turn,omitempty"`
 	Model            string      `json:"model"`
+	ModelSHA256      string      `json:"model_sha256,omitempty"`
 	Provider         string      `json:"provider"`
 	Version          string      `json:"version"`
 	PromptRevision   string      `json:"prompt_revision"`
 	SchemaRevision   string      `json:"schema_revision"`
 	RendererRevision string      `json:"renderer_revision"`
 	ConfigDigest     string      `json:"config_digest"`
+}
+
+// RecordServedRelease attributes the job to the release that served its verdict. A nil release leaves the job's attribution unchanged.
+func (j *Job) RecordServedRelease(release *ServedRelease) {
+	if release == nil {
+		return
+	}
+	j.Model, j.ModelSHA256, j.PromptRevision = release.Name, release.ModelSHA256, release.PromptSHA256
 }
 
 // StartRequest fences changes in user instruction before verdict consumption.

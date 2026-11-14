@@ -89,7 +89,7 @@ func TestNativeSearchErrorsUseAnthropicEnvelope(t *testing.T) {
 func TestNativeSearchPreservesRoutingPassthroughWithoutPins(t *testing.T) {
 	spy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
 	pins := newStubPinStore()
-	service := NewService(spy, nil, nil, false, nil, pins, false, providers.ProviderOpenAI, catalog.ModelIDGPT56Luna.String(), nil)
+	service := NewService(spy, nil, nil, pins, false, providers.ProviderOpenAI, catalog.ModelIDGPT56Luna.String(), nil)
 	authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyPassthrough}, nil)
 	ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
 	require.NoError(t, err)
@@ -98,7 +98,7 @@ func TestNativeSearchPreservesRoutingPassthroughWithoutPins(t *testing.T) {
 	envelope, err := translate.ParseOpenAI(body)
 	require.NoError(t, err)
 	request := router.Request{RequestedModel: catalog.ModelIDGPT56Luna.String(), EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}
-	turn, err := service.runTurnLoop(ctx, envelope, envelope.RoutingFeatures(false), "api-key", uuid.New(), "", http.Header{}, request)
+	turn, err := service.runTurnLoop(ctx, envelope, envelope.RoutingFeatures(), "api-key", uuid.New(), "", http.Header{}, request)
 	require.NoError(t, err)
 	assert.True(t, turn.CallerModelPassthrough)
 	assert.True(t, turn.HardPinned)

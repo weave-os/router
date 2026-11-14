@@ -69,7 +69,7 @@ func codexOverloadService(primary, sibling providers.Client, withSibling bool) *
 	svc := NewService(
 		staticRouter{decision: decision},
 		map[string]providers.Client{providers.ProviderOpenAI: planClient{primary}, providers.ProviderAnthropic: planClient{sibling}},
-		nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil,
+		nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil,
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderAnthropic: {}}).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
 		WithSiblingFailover(true)

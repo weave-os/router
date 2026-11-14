@@ -227,7 +227,7 @@ func TestRequestEnvelope_RoutingFeatures_OpenAI_LastKind(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			env, err := translate.ParseOpenAI([]byte(tc.body))
 			require.NoError(t, err)
-			feats := env.RoutingFeatures(false)
+			feats := env.RoutingFeatures()
 			assert.Equal(t, tc.wantKind, feats.LastKind)
 			if tc.wantPreview != "" {
 				assert.Equal(t, tc.wantPreview, feats.LastPreview)

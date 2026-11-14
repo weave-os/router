@@ -66,6 +66,7 @@ var compactionSummarizerModels = []string{
 	"claude-opus-5-5",
 	"claude-fable-5",
 	"claude-fable-5-1",
+	"claude-fable-5-2",
 }
 
 // FallbackSpec declares the only fallback family and fixed alternatives a policy permits.
@@ -622,9 +623,9 @@ func defaultPolicySpecs() []PolicySpec {
 			Purpose:            PurposeClientCompaction,
 			DispatchClass:      DispatchClassClientAuthoritative,
 			PolicyID:           "client-compaction",
-			PolicyRevision:     "2",
+			PolicyRevision:     "3",
 			Owner:              inferencePolicyOwner,
-			Rationale:          "Serve the client-supplied compaction turn on the session's own warm model when it is summary-grade, else the deployment compaction hard pin, rather than inventing another router summary operation.",
+			Rationale:          "Authorize the Pi handoff summary on the session's previous model. Client compaction turns route as main inference: an eligible forced model, else the session pin, else the scorer.",
 			SelectionStrategy:  SelectionStrategyDeploymentHardPin,
 			CandidateSource:    CandidateSourceDeployment,
 			HardConstraints:    append([]Constraint(nil), mainConstraints...),

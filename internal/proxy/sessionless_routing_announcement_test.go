@@ -52,7 +52,7 @@ func sessionlessMessagesService(t *testing.T, pins *fakePinStore) (*proxy.Servic
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: earlyStopLowModel, Reason: "test"}},
 		map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", upstream.URL)},
-		nil, false, nil, pins, false, providers.ProviderAnthropic, earlyStopLowModel, newCaptureTelemetry(),
+		nil, pins, false, providers.ProviderAnthropic, earlyStopLowModel, newCaptureTelemetry(),
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).WithRetrySleep(noRetrySleep)
 	return svc, &upstreamBodies
 }
@@ -116,7 +116,7 @@ func TestSessionlessRoutingAnnouncementResponses(t *testing.T) {
 			}}
 			svc := proxy.NewService(&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenRouter, Model: model, Reason: "test"}},
 				map[string]providers.Client{providers.ProviderOpenRouter: provider},
-				nil, false, nil, newFakePinStore(), false, providers.ProviderOpenRouter, model, nil)
+				nil, newFakePinStore(), false, providers.ProviderOpenRouter, model, nil)
 			ctx := requestcontext.WithClientIdentity(authedCtx("11111111-1111-1111-1111-111111111111"), proxy.ClientIdentity{ClientApp: sessionlessClientApp})
 			rec := httptest.NewRecorder()
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, announcementReplayBody(t, test.history...), rec,

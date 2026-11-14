@@ -147,30 +147,30 @@ func (r *subscriptionAccountRepo) UpdateSubscriptionAccountState(ctx context.Con
 	return nil
 }
 
-func (r *subscriptionAccountRepo) UpdateSubscriptionAccountHealth(ctx context.Context, accountID string, owner auth.SubscriptionOwner, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) error {
+func (r *subscriptionAccountRepo) UpdateSubscriptionAccountHealth(ctx context.Context, accountID string, owner auth.SubscriptionOwner, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) (bool, error) {
 	accountUUID, err := uuid.Parse(accountID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
 	if err != nil {
-		return err
+		return false, err
 	}
 	var cooldown pgtype.Timestamp
 	if cooldownUntil != nil {
 		cooldown = pgtype.Timestamp{Time: cooldownUntil.UTC(), Valid: true}
 	}
-	rows, err := dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionAccountHealth(ctx, sqlc.UpdateModelRouterSubscriptionAccountHealthParams{
+	transition, err := dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionAccountHealth(ctx, sqlc.UpdateModelRouterSubscriptionAccountHealthParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID,
 		HealthState: string(state), Enabled: enabled, CooldownUntil: cooldown,
 	})
 	if err != nil {
-		return err
+		return false, err
 	}
-	if rows == 0 {
-		return auth.ErrSubscriptionAccountNotFound
+	if transition.MatchedCount == 0 {
+		return false, auth.ErrSubscriptionAccountNotFound
 	}
-	return nil
+	return transition.Disconnected, nil
 }
 
 func (r *subscriptionAccountRepo) UpdateSubscriptionRefreshToken(ctx context.Context, accountID string, owner auth.SubscriptionOwner, ciphertext []byte) error {
@@ -344,12 +344,6 @@ func (r *subscriptionAccountRepo) PersistSubscriptionTokens(ctx context.Context,
 	return nil
 }
 
-func toAuthSubscriptionAccount(row sqlc.RouterModelRouterSubscriptionAccount) *auth.SubscriptionAccount {
-	account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
-	account.CredentialRejections = int(row.CredentialRejectionCount)
-	return account
-}
-
 func toAuthSubscriptionAccountListRow(row sqlc.ListModelRouterSubscriptionAccountsRow) *auth.SubscriptionAccount {
 	account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
 	account.CredentialRejections = int(row.CredentialRejectionCount)
@@ -442,6 +436,10 @@ func (r *subscriptionAccountRepo) RecordSubscriptionCredentialRejection(ctx cont
 		WindowStart:           pgtype.Timestamp{Time: input.RejectedAt.Add(-input.Window).UTC(), Valid: true},
 		RejectedAt:            pgtype.Timestamp{Time: input.RejectedAt.UTC(), Valid: true},
 		InvalidateAccessToken: input.InvalidateAccessToken,
+		ProviderErrorType:     input.ProviderErrorType,
+		ProviderRequestID:     input.ProviderRequestID,
+		UpstreamStatus:        int32(input.UpstreamStatus),
+		RequestID:             input.RequestID,
 	}
 	if input.LeaseID != "" {
 		leaseID, err := uuid.Parse(input.LeaseID)
@@ -461,7 +459,7 @@ func (r *subscriptionAccountRepo) RecordSubscriptionCredentialRejection(ctx cont
 	if err != nil {
 		return auth.SubscriptionCredentialRejection{}, err
 	}
-	rejection := auth.SubscriptionCredentialRejection{Count: int(row.CredentialRejectionCount), FirstRejectedAt: row.CredentialFirstRejectedAt.Time}
+	rejection := auth.SubscriptionCredentialRejection{Count: int(row.CredentialRejectionCount), FirstRejectedAt: row.CredentialFirstRejectedAt.Time, RepeatedDisconnect: row.RepeatedDisconnect}
 	if row.PreviousReason != nil {
 		rejection.PreviousReason = *row.PreviousReason
 	}
@@ -477,43 +475,6 @@ func subscriptionUpsertKind(inserted, adopted bool) auth.SubscriptionUpsertKind 
 	default:
 		return auth.SubscriptionUpsertUpdated
 	}
-}
-
-func (r *subscriptionAccountRepo) ListSubscriptionCandidates(ctx context.Context, owner auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error) {
-	installationID, err := uuid.Parse(owner.InstallationID)
-	if err != nil {
-		return nil, auth.ErrSubscriptionAccountNotFound
-	}
-	params := sqlc.ListModelRouterSubscriptionCandidatesParams{InstallationID: installationID}
-	switch {
-	case owner.SubscriberID != "":
-		subscriberID, err := uuid.Parse(owner.SubscriberID)
-		if err != nil {
-			return nil, auth.ErrSubscriptionAccountNotFound
-		}
-		params.SubscriberID = pgtype.UUID{Bytes: subscriberID, Valid: true}
-	case owner.APIKeyID != "":
-		apiKeyID, err := uuid.Parse(owner.APIKeyID)
-		if err != nil {
-			return nil, auth.ErrSubscriptionAccountNotFound
-		}
-		params.APIKeyID = pgtype.UUID{Bytes: apiKeyID, Valid: true}
-	default:
-		return nil, nil
-	}
-	rows, err := dbbudget.Queries(r.tx).ListModelRouterSubscriptionCandidates(ctx, params)
-	if err != nil {
-		return nil, err
-	}
-	accounts := make([]*auth.SubscriptionAccount, 0, len(rows))
-	for _, row := range rows {
-		account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID,
-			row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
-		account.Tier = auth.SubscriptionTier(row.Tier)
-		account.AccessTokenMissing = row.AccessTokenMissing
-		accounts = append(accounts, account)
-	}
-	return accounts, nil
 }
 
 func subscriptionProviderUserID(providerUserID *string) string {

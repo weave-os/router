@@ -1,0 +1,152 @@
+{
+  "requests": [
+    {
+      "ingress": "openai_chat",
+      "stream": false,
+      "routing_decisions": [
+        {
+          "requested_model": "gpt-5",
+          "model": "claude-opus-4-7",
+          "provider": "anthropic",
+          "reason": "golden_route"
+        }
+      ],
+      "dispatch_attempts": [
+        {
+          "provider": "anthropic",
+          "wire_model": "claude-opus-4-7",
+          "outbound_body": {
+            "max_tokens": 16000,
+            "messages": [
+              {
+                "content": [
+                  {
+                    "cache_control": {
+                      "type": "ephemeral"
+                    },
+                    "text": "Say hi",
+                    "type": "text"
+                  }
+                ],
+                "role": "user"
+              }
+            ],
+            "model": "claude-opus-4-7",
+            "stream": false
+          },
+          "outcome": "upstream_status_400"
+        }
+      ],
+      "attempt_events": [
+        {
+          "Diagnosis": {
+            "BodyTranslated": true,
+            "ErrorClass": "invalid_request",
+            "FailureOwner": "client"
+          },
+          "FailureReason": "upstream_status",
+          "Outcome": "failed",
+          "Provenance": {
+            "PolicyID": "main-openai-chat-completions",
+            "PolicyRevision": "3",
+            "Purpose": "openai_chat_completions",
+            "RegistryRevision": "sha256:c9cc4fb18551b00509b6e0dc6dd7d8ce7df173730d9b4129f20fd44970165a2a"
+          },
+          "Target": {
+            "CatalogID": "claude-opus-4-7",
+            "Provider": "anthropic",
+            "UpstreamID": "claude-opus-4-7"
+          },
+          "UpstreamStatusCode": 400
+        }
+      ],
+      "response": {
+        "headers": {
+          "X-Router-Context-Estimate-Kind": "approximate",
+          "X-Router-Context-Estimate-Tokens": "20",
+          "X-Router-Context-Output-Reserve-Tokens": "8000",
+          "X-Router-Context-Version": "1",
+          "X-Router-Context-Window": "1000000",
+          "X-Router-Decision": "golden_route",
+          "X-Router-Model": "claude-opus-4-7",
+          "X-Router-Provider": "anthropic"
+        }
+      },
+      "dispatch_error": {
+        "outcome": "upstream_status_400",
+        "kind": 9,
+        "status": 400,
+        "message": "prompt is too long: the conversation exceeds the model's context window. Compact the conversation or start a new session."
+      },
+      "pin_events": [
+        {
+          "op": "upsert",
+          "role": "default_high",
+          "detail": {
+            "InstallationID": [
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              64,
+              null,
+              128,
+              null,
+              null,
+              null,
+              null,
+              null,
+              null,
+              1
+            ],
+            "Model": "claude-opus-4-7",
+            "PolicyGroup": "golden-group",
+            "Provider": "anthropic",
+            "Reason": "golden_route",
+            "Role": "default_high",
+            "Strategy": "hmm_embedding",
+            "TurnCount": 1
+          }
+        }
+      ],
+      "telemetry": [
+        {
+          "APIKeyID": "golden-key",
+          "CandidateModels": [
+            "claude-opus-4-7",
+            "deepseek/deepseek-v4-pro"
+          ],
+          "CaptureMode": "off",
+          "CrossFormat": true,
+          "DecisionModel": "claude-opus-4-7",
+          "DecisionProvider": "anthropic",
+          "DecisionReason": "golden_route",
+          "EmbedInput": "only_user_message",
+          "ErrorClass": "invalid_request",
+          "EstimatedInputTokens": 1,
+          "FailureOwner": "client",
+          "FinalModelFamily": "claude-opus",
+          "FreshDecisionModel": "claude-opus-4-7",
+          "InstallationID": "00000000-0000-4000-8000-000000000001",
+          "IntendedModelFamily": "claude-opus",
+          "PinTier": "miss",
+          "PlannerOutcome": "switch",
+          "PlannerReason": "no_pin",
+          "RequestedModel": "gpt-5",
+          "Role": "default_high",
+          "SelectionTrace": {
+            "served_group": "golden-group"
+          },
+          "SpanType": "router.upstream",
+          "Strategy": "hmm_embedding",
+          "TurnType": "main_loop",
+          "UpstreamStatusCode": 400,
+          "UserPrompt": true
+        }
+      ]
+    }
+  ],
+  "scenario": "openai_chat_nonstream_upstream_context_overflow"
+}

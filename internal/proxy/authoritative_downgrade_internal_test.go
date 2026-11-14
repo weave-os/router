@@ -30,8 +30,6 @@ func authoritativeDowngradeService(store *stubPinStore, fresh router.Decision) *
 		nil,
 		nil,
 		nil,
-		false,
-		nil,
 		store,
 		false,
 		providers.ProviderAnthropic,
@@ -51,7 +49,7 @@ func runAuthoritativeDowngradeTurn(t *testing.T, svc *Service) turnLoopResult {
 	t.Helper()
 	env, err := translate.ParseAnthropic(authoritativeDowngradeBody)
 	require.NoError(t, err)
-	features := env.RoutingFeatures(false)
+	features := env.RoutingFeatures()
 
 	result, err := svc.runTurnLoop(
 		router.WithStrategy(context.Background(), authoritativeDowngradeStrategy),

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -137,11 +138,11 @@ func (s *Service) maybeStrikeArmAfterRescuedFailure(
 	} else if s.ResolveTransientRateLimit(ctx) && isTransientGatewayFailure(primaryErr) {
 		cooldown := s.ResolveRateLimitCooldown(ctx)
 		reason, cooldownUntil = sessionpin.DemotionReasonTransientFailure, s.clockNow().Add(cooldown)
-		rateLimitTurnFromContext(ctx).recordCooldown(cooldownUntil, cooldown)
+		dispatch.ThrottleLedgerFromContext(ctx).RecordCooldown(cooldownUntil, cooldown)
 	} else if s.ResolveTransientRateLimit(ctx) && isRateLimitedPrimaryFailure(primaryErr) {
 		cooldown := s.ResolveRateLimitCooldown(ctx)
 		reason, cooldownUntil = sessionpin.DemotionReasonRateLimited, s.clockNow().Add(cooldown)
-		rateLimitTurnFromContext(ctx).recordCooldown(cooldownUntil, cooldown)
+		dispatch.ThrottleLedgerFromContext(ctx).RecordCooldown(cooldownUntil, cooldown)
 	}
 	if !s.demoteArmForSession(ctx, primary.Model, reason, cooldownUntil, upstreamStatus(primaryErr), installationID, sessionKey, role, pinRole) {
 		return "", ""
@@ -303,15 +304,6 @@ func clusterAllowlistsPinModel(overrides map[string][]string, model string) bool
 		}
 	}
 	return true
-}
-
-// armDemotionReason is the completion line's companion to arm_demoted: empty
-// unless a model was actually withdrawn this turn.
-func armDemotionReason(demotedModel string) string {
-	if demotedModel == "" {
-		return ""
-	}
-	return string(sessionpin.DemotionReasonCommittedStreamFailure)
 }
 
 // armDemotionLogFields is the completion line's account of the turn's strikes.

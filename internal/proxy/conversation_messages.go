@@ -19,6 +19,9 @@ func withResponsesRoutingEnvelope(ctx context.Context, body []byte) (context.Con
 	if err := env.StripCommandOutcomes(); err != nil {
 		return ctx, fmt.Errorf("strip Responses routing outcomes: %w", err)
 	}
+	if _, err := env.StripHistoricalCommands(); err != nil {
+		return ctx, fmt.Errorf("strip Responses routing directives: %w", err)
+	}
 	env.StripRouterFeedbackArtifacts()
 	env.StripBetaArtifacts()
 	return context.WithValue(ctx, responsesRoutingEnvelopeContextKey{}, env), nil
@@ -31,16 +34,16 @@ func routingEnvelopeForRequest(ctx context.Context, env *translate.RequestEnvelo
 	return env
 }
 
-func routingInputForRequest(ctx context.Context, env *translate.RequestEnvelope, promptText string, onlyUser bool) (string, []router.ConversationMessage) {
+func routingInputForRequest(ctx context.Context, env *translate.RequestEnvelope, promptText string) (string, []router.ConversationMessage) {
 	routingEnv := routingEnvelopeForRequest(ctx, env)
 	if routingEnv != env {
-		features := routingEnv.RoutingFeatures(onlyUser)
+		features := routingEnv.RoutingFeatures()
 		promptText = features.PromptText
-		if onlyUser && features.OnlyUserMessageText != "" {
+		if features.OnlyUserMessageText != "" {
 			promptText = features.OnlyUserMessageText
 		}
 	}
-	promptText, messages := routingEnv.RoutingInput(routingHistoryProfile(ctx), promptText, onlyUser)
+	promptText, messages := routingEnv.RoutingInput(routingHistoryProfile(ctx), promptText)
 	return promptText, routingConversationMessages(messages)
 }
 

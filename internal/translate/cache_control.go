@@ -236,39 +236,65 @@ func addCacheControlToLastMessageBlock(request map[string]any) (func(), bool) {
 	if !ok || len(messages) == 0 {
 		return nil, false
 	}
-	message, ok := messages[len(messages)-1].(map[string]any)
-	if !ok {
-		return nil, false
-	}
-	blocks, ok := message["content"].([]any)
-	promoted := false
-	originalContent := message["content"]
-	if !ok {
-		if content, ok := message["content"].(string); ok {
-			blocks = []any{map[string]any{"type": "text", "text": content}}
-			message["content"] = blocks
-			promoted = true
-		} else {
-			return nil, false
+	latestAssistantIndex := -1
+	for messageIndex, rawMessage := range messages {
+		message, ok := rawMessage.(map[string]any)
+		if ok && message["role"] == "assistant" {
+			latestAssistantIndex = messageIndex
 		}
 	}
-	if len(blocks) == 0 {
-		return nil, false
-	}
-	last, ok := blocks[len(blocks)-1].(map[string]any)
-	if !ok {
-		return nil, false
-	}
-	if _, exists := last["cache_control"]; exists {
-		return nil, false
-	}
-	last["cache_control"] = map[string]any{"type": "ephemeral"}
-	return func() {
-		delete(last, "cache_control")
+	for messageIndex := len(messages) - 1; messageIndex >= 0; messageIndex-- {
+		message, ok := messages[messageIndex].(map[string]any)
+		if !ok {
+			continue
+		}
+		blocks, ok := message["content"].([]any)
+		promoted := false
+		originalContent := message["content"]
+		if !ok {
+			if content, ok := message["content"].(string); ok {
+				blocks = []any{map[string]any{"type": "text", "text": content}}
+				message["content"] = blocks
+				promoted = true
+			} else {
+				continue
+			}
+		}
+		for blockIndex := len(blocks) - 1; blockIndex >= 0; blockIndex-- {
+			candidate, ok := blocks[blockIndex].(map[string]any)
+			if !ok {
+				continue
+			}
+			// Anthropic requires thinking and redacted_thinking blocks in the
+			// latest assistant message to remain byte-for-byte unchanged.
+			if messageIndex == latestAssistantIndex && isImmutableLatestAssistantBlock(candidate) {
+				continue
+			}
+			if _, exists := candidate["cache_control"]; exists {
+				if messageIndex == len(messages)-1 {
+					return nil, false
+				}
+				continue
+			}
+			candidate["cache_control"] = map[string]any{"type": "ephemeral"}
+			return func() {
+				delete(candidate, "cache_control")
+				if promoted {
+					message["content"] = originalContent
+				}
+			}, true
+		}
 		if promoted {
 			message["content"] = originalContent
 		}
-	}, true
+	}
+	return nil, false
+}
+
+func isImmutableLatestAssistantBlock(block map[string]any) bool {
+	blockType, _ := block["type"].(string)
+	return escalationWireType(blockType) == escalationWireThinking ||
+		escalationWireType(blockType) == escalationWireRedactedThinking
 }
 
 // AnthropicRequestCacheTTL1h reports whether an Anthropic Messages body

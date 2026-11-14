@@ -22,6 +22,10 @@ func (e *RequestEnvelope) PrepareAnthropicPassthrough(in http.Header) (providers
 	if err != nil {
 		return providers.PreparedRequest{}, fmt.Errorf("normalize system-only content blocks: %w", err)
 	}
+	body, err = placeAnthropicSystemMessagesBytes(body)
+	if err != nil {
+		return providers.PreparedRequest{}, fmt.Errorf("place system messages: %w", err)
+	}
 	return providers.PreparedRequest{Body: body, Headers: AnthropicPassthroughHeadersForBody(in, body)}, nil
 }
 

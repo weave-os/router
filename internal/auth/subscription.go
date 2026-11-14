@@ -185,11 +185,28 @@ type RefreshLeaseAcquisition struct {
 	TookOver bool
 }
 
+type SubscriptionCredentialEventKind string
+
+const (
+	SubscriptionCredentialEventRejected           SubscriptionCredentialEventKind = "credential_rejected"
+	SubscriptionCredentialEventReconnectRequired  SubscriptionCredentialEventKind = "reconnect_required"
+	SubscriptionCredentialEventPersistenceFailed  SubscriptionCredentialEventKind = "token_persistence_failed"
+	SubscriptionCredentialEventSelected           SubscriptionCredentialEventKind = "account_selected"
+	SubscriptionCredentialEventLeaseAttempted     SubscriptionCredentialEventKind = "account_lease_attempted"
+	SubscriptionCredentialEventCandidateEvaluated SubscriptionCredentialEventKind = "candidate_evaluated"
+	SubscriptionCredentialEventAttempted          SubscriptionCredentialEventKind = "account_attempted"
+	SubscriptionCredentialEventAdmissionEvaluated SubscriptionCredentialEventKind = "account_admission_evaluated"
+)
+
 // SubscriptionCredentialRejectionInput describes one provider credential
 // rejection. A refresh rejection sets LeaseID and ExpectedVersion so a
 // refresher that lost its lease cannot strike replacement credentials.
 type SubscriptionCredentialRejectionInput struct {
 	Reason                string
+	ProviderErrorType     string
+	ProviderRequestID     string
+	UpstreamStatus        int
+	RequestID             string
 	RejectedAt            time.Time
 	Window                time.Duration
 	InvalidateAccessToken bool
@@ -201,9 +218,10 @@ type SubscriptionCredentialRejectionInput struct {
 // rejection history inside the current strike window. PreviousReason is the
 // reason recorded by the strike before this one.
 type SubscriptionCredentialRejection struct {
-	Count           int
-	FirstRejectedAt time.Time
-	PreviousReason  string
+	Count              int
+	FirstRejectedAt    time.Time
+	PreviousReason     string
+	RepeatedDisconnect bool
 }
 
 // SubscriptionRefreshRepository coordinates refresh leases and encrypted
@@ -546,17 +564,17 @@ func (s *Service) UpdateSubscriptionAccountState(ctx context.Context, owner Subs
 	return rowsErr
 }
 
-// UpdateSubscriptionAccountHealth records a routing health transition.
-func (s *Service) UpdateSubscriptionAccountHealth(ctx context.Context, owner SubscriptionOwner, accountID string, state SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) error {
+// UpdateSubscriptionAccountHealth returns true only when a new disconnect event was committed.
+func (s *Service) UpdateSubscriptionAccountHealth(ctx context.Context, owner SubscriptionOwner, accountID string, state SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) (bool, error) {
 	if s.subscriptionAccounts == nil {
-		return errors.New("subscription accounts are not configured")
+		return false, errors.New("subscription accounts are not configured")
 	}
 	if repository, ok := s.subscriptionAccounts.(interface {
-		UpdateSubscriptionAccountHealth(context.Context, string, SubscriptionOwner, SubscriptionAccountState, bool, *time.Time) error
+		UpdateSubscriptionAccountHealth(context.Context, string, SubscriptionOwner, SubscriptionAccountState, bool, *time.Time) (bool, error)
 	}); ok {
 		return repository.UpdateSubscriptionAccountHealth(ctx, accountID, owner, state, enabled, cooldownUntil)
 	}
-	return s.subscriptionAccounts.UpdateSubscriptionAccountState(ctx, accountID, owner, enabled, cooldownUntil)
+	return false, s.subscriptionAccounts.UpdateSubscriptionAccountState(ctx, accountID, owner, enabled, cooldownUntil)
 }
 
 // DeleteSubscriptionAccount removes an account only for the authenticated owner.

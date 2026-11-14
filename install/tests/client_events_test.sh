@@ -100,6 +100,7 @@ wait_for_events() {
 }
 event_count() { wc -l <"$event_log" | tr -d ' '; }
 last_event() { tail -n 1 "$event_log"; }
+last_event_payload() { local event; event="$(last_event)"; printf '%s' "${event% *}"; }
 # settle gives a ping that should NOT happen a moment to prove it didn't.
 settle() { sleep 0.3; }
 
@@ -194,11 +195,13 @@ check "on-disk endpoint is pinged otherwise" "$(head -n 1 "$url_log")" "https://
 run "$home" -- on --codex --scope user --quiet
 wait_for_events 8
 
-# Uninstall reports once, while the config (and its key) still exists.
+# Uninstall captures authentication before cleanup; the detached POST may finish later.
+: >"$key_log"
 run_uninstall "$home" "$config" -- --codex --scope user; status=$?
 check "uninstall exits 0" "$status" "0"
 wait_for_events 9
-check "uninstall reports one event before removing the config" "$(last_event)" 'POST /v1/client-events {"action":"uninstall","harness":"codex"} present'
+check "uninstall reports one event" "$(last_event_payload)" 'POST /v1/client-events {"action":"uninstall","harness":"codex"}'
+check "uninstall captured the Codex key" "$(cat "$key_log")" 'X-Weave-Router-Key: rk_codex_secret_1234'
 run_uninstall "$home" "$config" -- --codex --scope user
 settle
 check "uninstall of an absent install reports nothing" "$(event_count)" "9"
@@ -253,10 +256,12 @@ run "$home" -- on --claude --scope user --quiet
 settle
 check "already-on reports nothing" "$(event_count)" "3"
 
+: >"$key_log"
 run_uninstall "$home" "$settings" -- --claude --scope user; status=$?
 check "uninstall exits 0" "$status" "0"
 wait_for_events 4
-check "uninstall reports before scrubbing settings" "$(last_event)" 'POST /v1/client-events {"action":"uninstall","harness":"claude_code"} present'
+check "uninstall reports after capturing settings" "$(last_event_payload)" 'POST /v1/client-events {"action":"uninstall","harness":"claude_code"}'
+check "uninstall captured the Claude key" "$(cat "$key_log")" 'X-Weave-Router-Key: rk_claude_secret_1234'
 if grep -q 'ANTHROPIC_CUSTOM_HEADERS' "$settings" 2>/dev/null; then
   no "uninstall scrubbed the key" "no header" "$(cat "$settings")"
 else
@@ -268,9 +273,11 @@ fi
 run "$home" WEAVE_ROUTER_KEY=rk_claude_secret_1234 -- --claude --scope user --quiet --non-interactive --base-url https://router.weaveos.com
 run "$home" -- off --claude --scope user --quiet
 wait_for_events 5
+: >"$key_log"
 run_uninstall "$home" "$home/.claude/.weave-parked.json" -- --claude --scope user
 wait_for_events 6
-check "uninstall while off reports from the sidecar" "$(last_event)" 'POST /v1/client-events {"action":"uninstall","harness":"claude_code"} present'
+check "uninstall while off reports from the sidecar" "$(last_event_payload)" 'POST /v1/client-events {"action":"uninstall","harness":"claude_code"}'
+check "uninstall captured the parked Claude key" "$(cat "$key_log")" 'X-Weave-Router-Key: rk_claude_secret_1234'
 assert "uninstall removed the sidecar" "gone" "present" [ ! -f "$home/.claude/.weave-parked.json" ]
 
 # ---------- opencode ----------
@@ -293,9 +300,11 @@ check "already-off reports nothing" "$(event_count)" "1"
 run "$home" -- on --opencode --dir "$dir" --quiet
 wait_for_events 2
 check "on reports one event" "$(last_event)" 'POST /v1/client-events {"action":"on","harness":"opencode"} absent'
+: >"$key_log"
 run_uninstall "$home" "$config" -- --opencode --dir "$dir"
 wait_for_events 3
-check "uninstall reports before cleaning the config" "$(last_event)" 'POST /v1/client-events {"action":"uninstall","harness":"opencode"} present'
+check "uninstall reports after capturing config" "$(last_event_payload)" 'POST /v1/client-events {"action":"uninstall","harness":"opencode"}'
+check "uninstall captured the OpenCode key" "$(cat "$key_log")" 'X-Weave-Router-Key: rk_opencode_secret_1'
 
 # ---------- pi ----------
 printf 'pi\n'
@@ -310,8 +319,31 @@ check "install itself reports nothing" "$(event_count)" "0"
 run_uninstall "$home" "$models" -- --pi --scope user; status=$?
 check "uninstall exits 0" "$status" "0"
 wait_for_events 1
-check "uninstall reports before cleaning models.json" "$(last_event)" 'POST /v1/client-events {"action":"uninstall","harness":"pi"} present'
+check "uninstall reports after capturing models.json" "$(last_event_payload)" 'POST /v1/client-events {"action":"uninstall","harness":"pi"}'
 check "pi key was sent in the header file" "$(grep -c 'X-Weave-Router-Key: rk_pi_secret_12345' "$key_log")" "1"
+
+# ---------- copilot ----------
+printf 'copilot\n'
+: >"$event_log"; : >"$key_log"
+home="$work/copilot"; mkdir -p "$home"
+run "$home" WEAVE_ROUTER_KEY=rk_copilot_secret_123 -- --copilot --quiet --non-interactive --base-url https://router.weaveos.com
+providers="$home/.copilot/providers.json"
+[ -f "$providers" ] || { echo "copilot install did not write $providers" >&2; exit 1; }
+settle
+check "install itself reports nothing" "$(event_count)" "0"
+run "$home" -- off --copilot --quiet; status=$?
+check "off exits 0" "$status" "0"
+wait_for_events 1
+check "off event body" "$(last_event)" 'POST /v1/client-events {"action":"off","harness":"copilot"} absent'
+run "$home" -- on --copilot --quiet
+wait_for_events 2
+check "on event body" "$(last_event)" 'POST /v1/client-events {"action":"on","harness":"copilot"} absent'
+: >"$key_log"
+run_uninstall "$home" "$providers" -- --copilot; status=$?
+check "uninstall exits 0" "$status" "0"
+wait_for_events 3
+check "uninstall event body" "$(last_event_payload)" 'POST /v1/client-events {"action":"uninstall","harness":"copilot"}'
+check "uninstall captured the Copilot key" "$(cat "$key_log")" 'X-Weave-Router-Key: rk_copilot_secret_123'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

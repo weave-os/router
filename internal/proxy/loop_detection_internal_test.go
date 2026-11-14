@@ -152,7 +152,7 @@ func (r *recordingLoopStore) CountLoopEscalationEvents(context.Context, []byte, 
 // newLoopEscalationSvc wires a Service with just the pieces
 // handleLoopEscalation touches.
 func newLoopEscalationSvc(pins *stubPinStore, events *recordingLoopStore) *Service {
-	svc := NewService(nil, nil, nil, false, nil, pins, false, "anthropic", "claude-haiku-4-5", nil)
+	svc := NewService(nil, nil, nil, pins, false, "anthropic", "claude-haiku-4-5", nil)
 	if events != nil {
 		svc = svc.WithLoopEscalationStore(events)
 	}

@@ -27,7 +27,7 @@ func TestProxyMessages_GatewayExhaustionAttributesCortexBody(t *testing.T) {
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropicGateway, Model: "claude-haiku-4-5"}},
 		map[string]providers.Client{providers.ProviderAnthropicGateway: anthropic.NewClient("test-key", upstream.URL)},
-		nil, false, nil, nil, false, providers.ProviderAnthropicGateway, "claude-haiku-4-5", newCaptureTelemetry(),
+		nil, nil, false, providers.ProviderAnthropicGateway, "claude-haiku-4-5", newCaptureTelemetry(),
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropicGateway: {}}).
 		WithRetrySleep(noRetrySleep)
 	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")

@@ -42,7 +42,7 @@ func openAIChatService(provider providers.Client, model string) *proxy.Service {
 	return proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: model, Reason: "test"}},
 		map[string]providers.Client{providers.ProviderOpenAI: provider},
-		nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
+		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
 	)
 }
 
@@ -335,7 +335,7 @@ func TestService_ProxyOpenAIChatCompletion_GatewayKeepsChatCompletions(t *testin
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAIGateway, Model: "gpt-5.6-luna", Reason: "test"}},
 		map[string]providers.Client{providers.ProviderOpenAIGateway: provider},
-		nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
+		nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
 	)
 
 	body := `{"model":"auto","messages":[{"role":"user","content":"hi"}]}`

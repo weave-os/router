@@ -31,7 +31,7 @@ func TestSlowStartNotice_CodexSubagentContinuations(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, envelope := codexRoutingEnvelope(t, test.agentPath, test.toolResult)
 			ctx = observability.WithClientSessionID(ctx, ClientIdentityFrom(ctx).SessionID)
-			features := envelope.RoutingFeatures(false)
+			features := envelope.RoutingFeatures()
 			turn := turntype.Detect(envelope, features, subAgentHintForRequest(ctx, ""), openCodeCaller(ClientIdentityFrom(ctx)))
 			require.Equal(t, test.wantTurn, turn)
 
@@ -77,8 +77,7 @@ func TestSlowStartNotice_ReplayedCodexToolLoop(t *testing.T) {
 			inbound, err := json.Marshal(map[string]any{"input": input})
 			require.NoError(t, err)
 			tracker, now := slowStartAfterBaseline(t)
-			trace := slowStartTrace(now.Add(-41*time.Second), now.Add(-41*time.Second))
-			trace.inbound = inbound
+			trace := slowStartTraceOf(inbound, now.Add(-41*time.Second), now.Add(-41*time.Second))
 			ctx := slowStartCtx("synthetic-session", "synthetic-key", "codex/0.166.0")
 			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex, UserAgent: "codex/0.166.0"})
 			_, shown := slowStartNotice(ctx, trace, tracker, now)

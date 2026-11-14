@@ -105,7 +105,7 @@ func heldPinRescueFixture() (*Service, context.Context, *heldPinGatewayClient) {
 	upstream := &heldPinGatewayClient{}
 	svc := NewService(nil, map[string]providers.Client{
 		providers.ProviderOpenAIGateway: upstream,
-	}, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	}, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,
 			Router:   policyRouter,

@@ -58,7 +58,7 @@ func TestFundingBypassPartialStreamRecoversOnLinkedSubscription(t *testing.T) {
 				}))
 				defer upstream.Close()
 				pool := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "spent", AccessToken: "sk-ant-oat01-linked-spent"}, {AccountID: "healthy", AccessToken: "sk-ant-oat01-linked-healthy"}}}
-				svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL)}, nil, false, nil, nil, false, providers.ProviderAnthropic, model, nil).
+				svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL)}, nil, nil, false, providers.ProviderAnthropic, model, nil).
 					WithManagedSubscriptions(pool).WithUsageObserver(usage.NewObserver([]byte("salt"), time.Minute, time.Now)).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-direct-partial")
 				ctx = billing.WithSubscriptionOnly(ctx, reason)
@@ -74,7 +74,11 @@ func TestFundingBypassPartialStreamRecoversOnLinkedSubscription(t *testing.T) {
 				require.NotContains(t, rec.Body.String(), "abandoned")
 				require.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_start\n"))
 				require.Equal(t, 1, strings.Count(rec.Body.String(), "event: message_stop\n"))
-				require.Equal(t, 1, strings.Count(rec.Body.String(), "paid model fallback is disabled"))
+				wantWarnings := 1
+				if reason == billing.SubscriptionOnlyCreditsDepleted {
+					wantWarnings = 0
+				}
+				require.Equal(t, wantWarnings, strings.Count(rec.Body.String(), "paid model fallback is disabled"), "a linked seat funds the turn, so only a reached cap is worth announcing")
 				require.Equal(t, 1, strings.Count(rec.Body.String(), `"input_tokens":3`))
 				require.Equal(t, 1, strings.Count(rec.Body.String(), `"output_tokens":2`))
 			})
@@ -118,7 +122,7 @@ func TestClaudeBypassDepletedCreditsRotatesLinkedAccounts(t *testing.T) {
 				if available {
 					pool.leases = []subscriptions.Lease{{AccountID: "spent", AccessToken: "sk-ant-oat01-linked-spent"}, {AccountID: "healthy", AccessToken: "sk-ant-oat01-linked-healthy"}}
 				}
-				svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL)}, nil, false, nil, nil, false, providers.ProviderAnthropic, model, nil).
+				svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderAnthropic: anthropic.NewClient("synthetic-paid-key", upstream.URL)}, nil, nil, false, providers.ProviderAnthropic, model, nil).
 					WithManagedSubscriptions(pool).WithUsageObserver(usage.NewObserver([]byte("salt"), time.Minute, time.Now)).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 				ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-direct-spent")
 				ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)

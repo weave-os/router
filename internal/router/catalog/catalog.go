@@ -17,6 +17,18 @@ const ModelGPT6Luna = "gpt-6-luna"
 // ModelMiMoV26Flash is the canonical Xiaomi MiMo-V2.6-Flash model ID.
 const ModelMiMoV26Flash = "xiaomi/mimo-v2.6-flash"
 
+// ModelMiMoV26Pro is the canonical Xiaomi MiMo-V2.6-Pro model ID.
+const ModelMiMoV26Pro = "xiaomi/mimo-v2.6-pro"
+
+// ModelMuseSparkOpen is the canonical Meta Muse Spark Open model ID.
+const ModelMuseSparkOpen = "meta/muse-spark-open"
+
+// ModelMuseEmber is the canonical Meta Muse Ember model ID.
+const ModelMuseEmber = "muse-ember-1.0"
+
+// ModelMuseWonder is the canonical Meta Muse Wonder model ID.
+const ModelMuseWonder = "muse-wonder-1.0"
+
 // Tier is the coarse capability bucket. Higher is stronger; integer
 // ordering is load-bearing (planner compares freshTier > pinTier).
 type Tier int
@@ -173,18 +185,6 @@ const (
 	AgenticLow
 )
 
-// ImageInput marks whether a model accepts image content parts.
-// ImageInputUnknown (zero value) = no restriction; first-party models default
-// here since they're all multimodal. ImageInputUnsupported flags text-only
-// models that 4xx on image parts (e.g. GLM-5.1). The scorer excludes the
-// ImageInputUnsupported set from image-bearing requests.
-type ImageInput int
-
-const (
-	ImageInputUnknown ImageInput = iota
-	ImageInputUnsupported
-)
-
 // ModelID is a catalog model identifier. Production lookup still uses string IDs
 // because the table is data, but call sites that name a known catalog model
 // should use these constants instead of repeating raw strings.
@@ -194,6 +194,9 @@ const (
 	// ModelIDGemini4Argon is the canonical Gemini 4 Argon routing ID.
 	ModelIDGemini4Argon       ModelID = router.ModelGemini4Argon
 	ModelIDClaudeHaiku45      ModelID = "claude-haiku-4-5"
+	ModelIDClaudeHaiku55      ModelID = "claude-haiku-5-5"
+	ModelIDGPT41Nano          ModelID = "gpt-4.1-nano"
+	ModelIDGPT41Mini          ModelID = "gpt-4.1-mini"
 	ModelIDClaudeSonnet46     ModelID = "claude-sonnet-4-6"
 	ModelIDClaudeOpus47       ModelID = "claude-opus-4-7"
 	ModelIDGPT56Luna          ModelID = "gpt-5.6-luna"
@@ -228,6 +231,8 @@ type Model struct {
 	// ContextWindow is the model's total input+output token budget in tokens.
 	// 0 means use catalog.DefaultContextWindow.
 	ContextWindow int
+	// MaxOutputTokens is the model's documented output limit. Zero means unknown.
+	MaxOutputTokens int
 	// ToolUseQuality: default ToolUseUnknown; set ToolUseLow to remove the
 	// model from agentic argmax pools.
 	ToolUseQuality ToolUseQuality
@@ -237,6 +242,10 @@ type Model struct {
 	// ImageInput: default ImageInputUnknown; set ImageInputUnsupported on
 	// text-only models so the scorer keeps image-bearing turns off them.
 	ImageInput ImageInput
+	// CustomToolInput: default CustomToolInputUnknown; set
+	// CustomToolInputUnsupported when the model cannot fill a projected custom
+	// tool's {"input": string} wrapper, so custom-tool requests route around it.
+	CustomToolInput CustomToolInput
 	// ThinkTagReasoning marks a model that streams inline <think>...</think>
 	// instead of reasoning_content; the Anthropic translator reroutes a
 	// leading <think> block into Anthropic thinking. Default false.
@@ -245,6 +254,9 @@ type Model struct {
 	// rejects an advisor ranked below the request model. Values mirror Claude
 	// Code's model catalog; 0 means the model takes no advisor.
 	AdvisorRank int
+	// ForceModelOnly keeps the model off family advancement: it serves only
+	// when a caller names it, never as a newer stand-in for an older sibling.
+	ForceModelOnly bool
 	// CodexSubscriptionFallback explicitly permits trying a Codex subscription
 	// for this model outside the native Codex automatic roster. Unsupported
 	// targets must fall back to the selected model's API credential.
@@ -400,6 +412,16 @@ var Models = []Model{
 	{ID: "claude-fable-5-1", Source: SourceClosedSource, Tier: TierHigh, AdvisorRank: 9, ContextWindow: 1_000_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.025, USInferenceGeoMultiplier: USInferenceGeoMultiplier}},
 		{Provider: providers.ProviderOpenRouter, UpstreamID: "anthropic/claude-fable-5.1", SubscriptionOverflowOnly: true, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.025}},
+	}},
+	// Fable 5.2: $8/$40, cache reads at $0.20/MTok (0.025x), fast mode $16/$80.
+	// Same wire quirks as Fable 5.1. Not a cluster roster member until it has
+	// quality labels.
+	{ID: "claude-fable-5-2", Source: SourceClosedSource, Tier: TierHigh, AdvisorRank: 10, ForceModelOnly: true, ContextWindow: 1_000_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00, CacheReadMultiplier: 0.025, USInferenceGeoMultiplier: USInferenceGeoMultiplier}, FastPrice: Pricing{InputUSDPer1M: 16.00, OutputUSDPer1M: 80.00}},
+		{Provider: providers.ProviderOpenRouter, UpstreamID: "anthropic/claude-fable-5.2", SubscriptionOverflowOnly: true, Price: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00, CacheReadMultiplier: 0.025}},
+	}},
+	{ID: "claude-mythos-5-2", Source: SourceClosedSource, AdvisorRank: 10, ForceModelOnly: true, ContextWindow: 1_000_000, MaxOutputTokens: 128_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00, CacheReadMultiplier: 0.025, USInferenceGeoMultiplier: USInferenceGeoMultiplier}, FastPrice: Pricing{InputUSDPer1M: 16.00, OutputUSDPer1M: 80.00}},
 	}},
 
 	// --- OpenAI GPT-4.x (legacy) ---
@@ -608,6 +630,20 @@ var Models = []Model{
 	{ID: "muse-spark-1.3", Source: SourceUnknown, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderMeta, Price: Pricing{InputUSDPer1M: 1.25, OutputUSDPer1M: 4.25, CacheReadMultiplier: 0.12}},
 	}},
+	// Muse Ember ($0.10/$0.50, cache reads $0.004) and Muse Wonder ($4/$20,
+	// cache reads $0.20) are served only by Meta's Model API.
+	{ID: ModelMuseEmber, Source: SourceUnknown, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderMeta, Price: Pricing{InputUSDPer1M: 0.10, OutputUSDPer1M: 0.50, CacheReadMultiplier: 0.004 / 0.10}},
+	}},
+	{ID: ModelMuseWonder, Source: SourceUnknown, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderMeta, Price: Pricing{InputUSDPer1M: 4.00, OutputUSDPer1M: 20.00, CacheReadMultiplier: 0.20 / 4.00}},
+	}},
+	// Muse Spark Open: the open-weight 816B-A42B release. Every host lists
+	// $1.25/$4.25; Together is the one the router supports.
+	{ID: ModelMuseSparkOpen, Source: SourceOpenSource, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderTogether, UpstreamID: "meta-models/Muse-Spark-Open-816B-A42B",
+			Price: Pricing{InputUSDPer1M: 1.25, OutputUSDPer1M: 4.25, CacheReadMultiplier: 0.15 / 1.25}},
+	}},
 
 	// --- Google Gemini 2.x ---
 	{ID: "gemini-2.0-flash-lite", Source: SourceClosedSource, ContextWindow: 1_048_576, Providers: []ProviderBinding{
@@ -741,7 +777,7 @@ var Models = []Model{
 	}},
 	// MiMo-V2.6 Pro remains DeepInfra-first, with the higher capability tier
 	// reserved for maximum-complexity Max requests.
-	{ID: "xiaomi/mimo-v2.6-pro", Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_048_576, ThinkTagReasoning: true, Providers: []ProviderBinding{
+	{ID: ModelMiMoV26Pro, Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_048_576, ThinkTagReasoning: true, CustomToolInput: CustomToolInputUnsupported, Providers: []ProviderBinding{
 		{Provider: providers.ProviderDeepInfra, UpstreamID: "XiaomiMiMo/MiMo-V2.6-Pro",
 			// DeepInfra returns "Too many images in request: N > 4".
 			MaxImagesPerRequest: 4,
@@ -805,8 +841,12 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 3.000, OutputUSDPer1M: 15.000, CacheReadMultiplier: 0.10}},
 	}},
 	// K3.1 Pro is a post-trained K3 successor at a lower list price ($2/$10 vs
-	// $3/$15). Only Moonshot serves it so far (OpenRouter's "Pro" listing).
+	// $3/$15). OpenRouter trails as the outage fallback, as on kimi-k3.
 	{ID: "moonshotai/kimi-k3.1", Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/kimi-k3p1-pro",
+			Price: Pricing{InputUSDPer1M: 2.000, OutputUSDPer1M: 10.000, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderTogether, UpstreamID: "moonshotai/Kimi-K3.1-Pro",
+			Price: Pricing{InputUSDPer1M: 2.000, OutputUSDPer1M: 10.000, CacheReadMultiplier: 0.10}},
 		{Provider: providers.ProviderOpenRouter, UpstreamID: "moonshotai/kimi-k3.1-pro",
 			Price: Pricing{InputUSDPer1M: 2.000, OutputUSDPer1M: 10.000, CacheReadMultiplier: 0.10}},
 	}},

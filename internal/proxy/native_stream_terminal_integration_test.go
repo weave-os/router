@@ -65,7 +65,7 @@ func nativeSurfaceService(provider *fakeProvider, providerName, model string) *p
 	return proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providerName, Model: model, Reason: "test"}},
 		map[string]providers.Client{providerName: provider},
-		nil, false, nil, nil, false, providerName, model, nil,
+		nil, nil, false, providerName, model, nil,
 	).WithOpenAIResponsesBroad(providerName == providers.ProviderOpenAI).
 		WithRetrySleep(noRetrySleep)
 }
@@ -159,4 +159,31 @@ func TestProxyOpenAIResponses_EmptyNativeStreamRetriedBeforeCommit(t *testing.T)
 	assert.Equal(t, []providers.Endpoint{providers.EndpointResponses, providers.EndpointResponses}, provider.proxyEndpoints)
 	assert.Contains(t, rec.Body.String(), "response.completed")
 	assert.NotContains(t, rec.Body.String(), "response.failed")
+}
+
+// Anthropic sends stop_reason in message_delta, before its message_stop
+// terminal, so an upstream that hangs up between the two cut the turn itself.
+func TestProxyMessages_NativeCutAfterMessageDeltaIsProviderOwned(t *testing.T) {
+	logBuf := captureCompletionLog(t)
+	provider := scriptedStream(append(append([]string{}, anthropicCutFrames...),
+		"event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n"))
+	svc := makeProxyService(
+		router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Reason: "test"},
+		map[string]providers.Client{providers.ProviderAnthropic: provider},
+	).WithNativeAnthropicResponseSignals(true)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(streamCutTurnBody))
+	require.Error(t, svc.ProxyMessages(context.Background(), []byte(streamCutTurnBody), rec, req))
+
+	var completion string
+	for _, line := range strings.Split(logBuf.String(), "\n") {
+		if strings.Contains(line, `msg="ProxyMessages complete"`) {
+			completion = line
+		}
+	}
+	require.NotEmpty(t, completion)
+	assert.Contains(t, completion, "error_class=stream_cut")
+	assert.Contains(t, completion, "upstream_finish_reason=end_turn")
+	assert.Contains(t, completion, "failure_owner=provider")
 }

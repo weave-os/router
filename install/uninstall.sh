@@ -54,6 +54,7 @@ router-off||local-toggle|yes|yes|no|no|manual|command,skill
 router-on||local-toggle|yes|yes|no|no|manual|command,skill
 router-status||local-toggle|yes|yes|no|no|manual|command,skill
 router-session||prompt|yes|yes|no|no|manual|command,skill
+list-models||prompt|yes|yes|no|no|manual|command,skill
 router-models|models|local-toggle|yes|yes|no|no|manual|command,skill
 disable-routing||local-toggle|no|yes|no|no|manual|skill
 beta||prompt|yes|no|no|yes|manual|command
@@ -403,77 +404,6 @@ if [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] && { [ "$target" = "claude" ] || [ "$
   exit 1
 fi
 
-# Claude Desktop runs through a local proxy service (see install.sh); remove the
-# service, its certificate and the stored router key.
-if [ "$target" = "claude-desktop" ]; then
-  if [ "$scope" = "project" ]; then
-    [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] || exit 3
-    err "--claude-desktop installs in user scope only; drop --scope project."
-    exit 2
-  fi
-  desktop_shim_dir="${install_dir:-$HOME}/.weave-router/desktop-shim"
-  desktop_shim_config="$desktop_shim_dir/config.json"
-  desktop_shim_plist="$HOME/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist"
-  desktop_shim_unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/weave-router-desktop-shim.service"
-  skip_if_not_installed "$desktop_shim_config" 'router_base_url'
-  # The service files live under $HOME whatever --dir says; only remove the ones
-  # that run this install's config.
-  desktop_shim_config_xml="$(printf '%s' "$desktop_shim_config" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
-  if [ -f "$desktop_shim_plist" ] && grep -Fq "<string>$desktop_shim_config_xml</string>" "$desktop_shim_plist"; then
-    launchctl bootout "gui/$(id -u)/ai.workweave.router-desktop-shim" >/dev/null 2>&1 || true
-    rm -f "$desktop_shim_plist"
-    ok "Removed $desktop_shim_plist"
-  fi
-  if [ -f "$desktop_shim_unit" ] && grep -Fq "\"$desktop_shim_config\"" "$desktop_shim_unit"; then
-    systemctl --user disable --now weave-router-desktop-shim.service >/dev/null 2>&1 || true
-    rm -f "$desktop_shim_unit"
-    systemctl --user daemon-reload >/dev/null 2>&1 || true
-    ok "Removed $desktop_shim_unit"
-  fi
-  # Undo the trusted certificate and the auto-proxy, but only where they are this install's.
-  desktop_shim_pac="http://127.0.0.1:$(jq -r '.listen_port // 47821' "$desktop_shim_config" 2>/dev/null || echo 47821)/proxy.pac"
-  case "$(uname -s)" in
-    Darwin)
-      if [ -f "$desktop_shim_dir/ca.pem" ] \
-        && security find-certificate -c "Weave Router Claude Desktop proxy" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
-        if ! security remove-trusted-cert "$desktop_shim_dir/ca.pem" \
-          || ! security delete-certificate -Z "$(openssl x509 -noout -fingerprint -sha1 -in "$desktop_shim_dir/ca.pem" | sed 's/.*=//; s/://g')" \
-            "$HOME/Library/Keychains/login.keychain-db" >/dev/null; then
-          desktop_shim_ca_left="true"
-        fi
-      fi
-      while IFS= read -r service; do
-        if [ "$(networksetup -getautoproxyurl "$service" | sed -n 's/^URL: //p')" = "$desktop_shim_pac" ]; then
-          sudo networksetup -setautoproxystate "$service" off
-        fi
-      done < <(networksetup -listallnetworkservices | tail -n +2 | grep -v '^\*')
-      ;;
-    Linux)
-      desktop_shim_ca_store="/usr/local/share/ca-certificates/weave-router-claude-desktop.crt"
-      if [ -f "$desktop_shim_ca_store" ] && cmp -s "$desktop_shim_dir/ca.pem" "$desktop_shim_ca_store"; then
-        if ! { sudo rm -f "$desktop_shim_ca_store" && sudo update-ca-certificates --fresh >/dev/null; }; then
-          desktop_shim_ca_left="true"
-        fi
-      fi
-      if [ "$(gsettings get org.gnome.system.proxy autoconfig-url 2>/dev/null)" = "'$desktop_shim_pac'" ]; then
-        gsettings set org.gnome.system.proxy mode 'none'
-        gsettings reset org.gnome.system.proxy autoconfig-url
-      fi
-      ;;
-  esac
-  # Keep ca.pem and the config while the OS still trusts the CA, so a rerun can remove it.
-  if [ "${desktop_shim_ca_left:-}" = "true" ]; then
-    warn "Could not remove the proxy certificate from the OS trust store (a cancelled password prompt?). Rerun: npx @weave-os/router --uninstall --claude-desktop"
-  elif [ -d "$desktop_shim_dir" ]; then
-    refuse_if_symlink "$desktop_shim_dir"
-    rm -rf "$desktop_shim_dir"
-    rmdir "$(dirname "$desktop_shim_dir")" 2>/dev/null || true
-    ok "Removed $desktop_shim_dir"
-  fi
-  info "Quit and reopen Claude Desktop so new sessions go direct to Anthropic."
-  exit 0
-fi
-
 # ---------- lifecycle report ----------
 #
 # report_uninstall_event tells this install's router that the uninstall is
@@ -639,6 +569,84 @@ report_pi_uninstall_event() {
   [ -n "$key" ] || key="$(uninstall_json_get "$models" '.providers.weave.headers["X-Weave-Router-Key"]')"
   report_uninstall_event pi "$endpoint" "$key"
 }
+
+report_desktop_uninstall_event() {
+  local f="$1"
+  uninstall_file_is_own "$f" || return 0
+  report_uninstall_event claude_desktop "$(uninstall_json_get "$f" '.router_base_url')" "$(uninstall_json_get "$f" '.router_key')"
+}
+
+# Claude Desktop runs through a local proxy service (see install.sh); remove the
+# service, its certificate and the stored router key.
+if [ "$target" = "claude-desktop" ]; then
+  if [ "$scope" = "project" ]; then
+    [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] || exit 3
+    err "--claude-desktop installs in user scope only; drop --scope project."
+    exit 2
+  fi
+  desktop_shim_dir="${install_dir:-$HOME}/.weave-router/desktop-shim"
+  desktop_shim_config="$desktop_shim_dir/config.json"
+  desktop_shim_plist="$HOME/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist"
+  desktop_shim_unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/weave-router-desktop-shim.service"
+  skip_if_not_installed "$desktop_shim_config" 'router_base_url'
+  # The service files live under $HOME whatever --dir says; only remove the ones
+  # that run this install's config.
+  desktop_shim_config_xml="$(printf '%s' "$desktop_shim_config" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
+  if [ -f "$desktop_shim_plist" ] && grep -Fq "<string>$desktop_shim_config_xml</string>" "$desktop_shim_plist"; then
+    launchctl bootout "gui/$(id -u)/ai.workweave.router-desktop-shim" >/dev/null 2>&1 || true
+    rm -f "$desktop_shim_plist"
+    ok "Removed $desktop_shim_plist"
+  fi
+  if [ -f "$desktop_shim_unit" ] && grep -Fq "\"$desktop_shim_config\"" "$desktop_shim_unit"; then
+    systemctl --user disable --now weave-router-desktop-shim.service >/dev/null 2>&1 || true
+    rm -f "$desktop_shim_unit"
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    ok "Removed $desktop_shim_unit"
+  fi
+  # Undo the trusted certificate and the auto-proxy, but only where they are this install's.
+  desktop_shim_pac="http://127.0.0.1:$(jq -r '.listen_port // 47821' "$desktop_shim_config" 2>/dev/null || echo 47821)/proxy.pac"
+  case "$(uname -s)" in
+    Darwin)
+      if [ -f "$desktop_shim_dir/ca.pem" ] \
+        && security find-certificate -c "Weave Router Claude Desktop proxy" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
+        if ! security remove-trusted-cert "$desktop_shim_dir/ca.pem" \
+          || ! security delete-certificate -Z "$(openssl x509 -noout -fingerprint -sha1 -in "$desktop_shim_dir/ca.pem" | sed 's/.*=//; s/://g')" \
+            "$HOME/Library/Keychains/login.keychain-db" >/dev/null; then
+          desktop_shim_ca_left="true"
+        fi
+      fi
+      while IFS= read -r service; do
+        if [ "$(networksetup -getautoproxyurl "$service" | sed -n 's/^URL: //p')" = "$desktop_shim_pac" ]; then
+          sudo networksetup -setautoproxystate "$service" off
+        fi
+      done < <(networksetup -listallnetworkservices | tail -n +2 | grep -v '^\*')
+      ;;
+    Linux)
+      desktop_shim_ca_store="/usr/local/share/ca-certificates/weave-router-claude-desktop.crt"
+      if [ -f "$desktop_shim_ca_store" ] && cmp -s "$desktop_shim_dir/ca.pem" "$desktop_shim_ca_store"; then
+        if ! { sudo rm -f "$desktop_shim_ca_store" && sudo update-ca-certificates --fresh >/dev/null; }; then
+          desktop_shim_ca_left="true"
+        fi
+      fi
+      if [ "$(gsettings get org.gnome.system.proxy autoconfig-url 2>/dev/null)" = "'$desktop_shim_pac'" ]; then
+        gsettings set org.gnome.system.proxy mode 'none'
+        gsettings reset org.gnome.system.proxy autoconfig-url
+      fi
+      ;;
+  esac
+  # Keep ca.pem and the config while the OS still trusts the CA, so a rerun can remove it.
+  if [ "${desktop_shim_ca_left:-}" = "true" ]; then
+    warn "Could not remove the proxy certificate from the OS trust store (a cancelled password prompt?). Rerun: npx @weave-os/router --uninstall --claude-desktop"
+  elif [ -d "$desktop_shim_dir" ]; then
+    refuse_if_symlink "$desktop_shim_dir"
+    report_desktop_uninstall_event "$desktop_shim_config"
+    rm -rf "$desktop_shim_dir"
+    rmdir "$(dirname "$desktop_shim_dir")" 2>/dev/null || true
+    ok "Removed $desktop_shim_dir"
+  fi
+  info "Quit and reopen Claude Desktop so new sessions go direct to Anthropic."
+  exit 0
+fi
 
 # Markers must stay in sync with install.sh. Keep verbatim.
 WEAVE_CODEX_BEGIN_MARKER="# >>> weave-router managed (do not edit between markers) >>>"
@@ -1139,15 +1147,15 @@ if [ "$target" = "pi" ]; then
   # router. Leaving defaultProvider="weave" after removing the provider would
   # break pi startup, so reverting is the correct reverse of the install.
   # defaultModel is reverted ONLY when defaultProvider was "weave" (the state
-  # install creates): install sets defaultModel only when it was empty, so a user
-  # who independently picked claude-sonnet-4-6 with their own provider keeps it.
+  # install creates) and it names a model install wrote: "auto", or
+  # claude-sonnet-4-6 from installs before weave/auto.
   if [ -f "$pi_settings_file" ]; then
     cleaned="$(jq '
       (if .packages then .packages -= ["npm:@workweave/router", "npm:@weave-os/router", "npm:@workweave/pi-router"] else . end)
       | (if (.packages // []) == [] then del(.packages) else . end)
       | (if .defaultProvider == "weave"
            then del(.defaultProvider)
-                | (if .defaultModel == "claude-sonnet-4-6" then del(.defaultModel) else . end)
+                | (if .defaultModel == "auto" or .defaultModel == "claude-sonnet-4-6" then del(.defaultModel) else . end)
            else . end)
     ' "$pi_settings_file")"
     printf '%s\n' "$cleaned" >"$pi_settings_file"

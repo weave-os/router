@@ -95,6 +95,7 @@ Exit only when every condition is true on the same poll, _after CI has dispatche
 3. **No CI pending/running** — `checks_summary.pending == 0` and `checks_fetch_failed` is absent. If `checks_fetch_failed: true`, CI is unknown — do not count as done.
 4. **No `REVIEW_REQUESTED`** — `reviewRequests` is empty.
 5. **No `CHANGES_REQUESTED`** — `reviewDecision` is not `CHANGES_REQUESTED`; each `latestReviews` state is `APPROVED`, `COMMENTED`, or `DISMISSED`.
+6. **Architecture gates pass on the head** — see [Architecture gates](#architecture-gates-before-declaring-done).
 
 ## Stacks: one loop for the whole stack
 
@@ -478,6 +479,17 @@ If the skill body is no longer in context (compacted away), Read .claude/skills/
 2. Re-run `pr-fix-plan` once more (auto-reviewers may have posted at the end of CI).
 3. Go back to Step 1.
 
+### Architecture gates (before declaring DONE)
+
+Once per head SHA, before Step 7, from the PR branch:
+
+```bash
+grep -q '^arch-ratchet:' Makefile && make arch-ratchet
+make check-changed
+```
+
+Inspect `check-changed`'s per-suite receipts: actual `failed` outcomes block DONE, even if CI is green. An expected CI-owned integration suite reported as `blocked` is not a local failure; require its CI check to conclude successfully, and do not report it as locally passed. Other blocked outcomes remain blocked. Fix ratchet failures by splitting the code along a concept boundary (see `.agents/skills/fix-lint-gate-failure/SKILL.md`), then run Steps 4–6 again. Never raise a limit or baseline, add a ratchet exception or add `//nolint` to pass. If a split truly isn't possible, escalate to the user.
+
 ### Step 7: Stop
 
 When Step 1's DONE check passes against the latest head SHA:
@@ -488,6 +500,7 @@ PR #<num> ready to merge:
   - Declined threads this run: <count>
   - Escalated → user-decided this run: <count>
   - CI checks: all green (<count> checks)
+  - Architecture gates: arch-ratchet <passed|no target>, check-changed passed
   - Reviewers: <list>
 ```
 

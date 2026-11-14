@@ -13,7 +13,6 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
@@ -21,6 +20,7 @@ import (
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
+	"weave-os/router/internal/telemetry"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -271,7 +271,7 @@ func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {
 	if pickedModelOnOwnPlan(ctx) {
 		return false
 	}
-	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst && snap.UsageBilled() {
+	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst && claudeSubscriptionPlan(ctx) == providers.SubscriptionPlanEnterprise {
 		return false
 	}
 	return snap.BillableOrExhausted()
@@ -322,24 +322,9 @@ func anthropicOAuthCredentialRejected(err error) bool {
 
 // topUpURL is the customer-facing page where org admins buy router credits.
 // Duplicated from middleware.TopUpURL (proxy can't import the middleware
-// adapter without an import cycle) so subscription-only warnings and the
-// credits-exhausted 402 can surface the CTA.
-const topUpURL = "https://app.workweave.ai/organization/settings/weave-router"
-
-// subscriptionOnlyWarningMarker is prepended to a subscription-only bypass
-// response so the customer sees why they're being served on their own plan and
-// how to restore full routing. The marker is emitted only when terminal
-// surfaces are enabled for the installation and request.
-const subscriptionOnlyWarningMarker = routingMarkerPrefix +
-	"your Weave router credits are depleted, so this turn is running on your own Anthropic subscription and paid model fallback is disabled. Add credits to restore full routing: " +
-	topUpURL + "\n\n"
-
-// subscriptionOnlyWarningMarkerCodex is the Codex/OpenAI-surface counterpart to
-// subscriptionOnlyWarningMarker, prepended to a subscription-only turn served on
-// the caller's own ChatGPT (Codex) subscription.
-const subscriptionOnlyWarningMarkerCodex = routingMarkerPrefix +
-	"your Weave router credits are depleted, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled. Add credits to restore full routing: " +
-	topUpURL + "\n\n"
+// adapter without an import cycle) so the credits-exhausted 402 can surface
+// the CTA.
+const topUpURL = "https://app.weaveos.com/organization/settings/weave-router/credits"
 
 // subscriptionSpendCapWarningMarker is prepended to a subscription-only turn
 // a spend cap barred from paid capacity. The organization may still hold
@@ -358,11 +343,6 @@ type subscriptionFundingWarning struct {
 
 func (w subscriptionFundingWarning) text() string {
 	switch w.reason {
-	case billing.SubscriptionOnlyCreditsDepleted:
-		if w.source == subscriptions.ProviderCodex {
-			return subscriptionOnlyWarningMarkerCodex
-		}
-		return subscriptionOnlyWarningMarker
 	case billing.SubscriptionOnlySpendCapReached:
 		if w.source == subscriptions.ProviderCodex {
 			return subscriptionSpendCapWarningMarkerCodex
@@ -392,7 +372,7 @@ type subscriptionOnlyWarningsEchoedContextKey struct{}
 
 // SubscriptionsDashboardURL is the user's own linked-plans settings page.
 // The nudges add `reconnect=<provider>` so the page starts that login on load.
-const SubscriptionsDashboardURL = "https://router.weaveos.com/settings/subscriptions"
+const SubscriptionsDashboardURL = "https://app.weaveos.com/organization/settings/weave-router/subscriptions"
 
 // ownCodexPlanSpentNudge replaces the routing marker once per session when
 // the caller's own ChatGPT plan is spent, so they can connect a seat instead
@@ -445,8 +425,6 @@ func reconnectNudgeEchoed(ctx context.Context, text string) bool {
 }
 
 var subscriptionFundingWarnings = []subscriptionFundingWarning{
-	{reason: billing.SubscriptionOnlyCreditsDepleted, source: subscriptions.ProviderClaude},
-	{reason: billing.SubscriptionOnlyCreditsDepleted, source: subscriptions.ProviderCodex},
 	{reason: billing.SubscriptionOnlySpendCapReached, source: subscriptions.ProviderClaude},
 	{reason: billing.SubscriptionOnlySpendCapReached, source: subscriptions.ProviderCodex},
 }
@@ -635,11 +613,10 @@ func (s *Service) bypassToAnthropic(
 
 	// Tap the response stream so the bypass span carries token usage for
 	// Weave's router cost-savings metric — subscription turns are otherwise invisible.
-	var extractor *otel.UsageExtractor
+	var extractor *telemetry.UsageExtractor
 	if s.usageRequired() || streamCost != nil {
-		extractor = otel.NewUsageExtractor(respW, decision.Provider)
+		extractor, respW = s.newUsageExtractor(respW, decision.Provider)
 		extractor.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) })
-		respW = extractor
 	}
 
 	if streamCost != nil {
@@ -682,7 +659,7 @@ func (s *Service) bypassToAnthropic(
 	}
 	if env.Stream() && proxyErr != nil && preludeBuf.Committed() {
 		proxyErr = emitAnthropicSSEErrorEvent(w, proxyErr)
-	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) && !claudeEnterpriseOnly(ctx) {
+	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) && bypassMayReroute(ctx, proxyErr) {
 		return errBypassRetryable
 	}
 	if !claudeEnterpriseOnly(ctx) && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) &&
@@ -711,7 +688,7 @@ func (s *Service) bypassToAnthropic(
 	if upstreamErr != nil {
 		outcomeErr = upstreamErr
 	}
-	bypassBuilder := otel.NewAttrBuilder(18).
+	bypassBuilder := telemetry.NewAttrBuilder(18).
 		String("request_id", requestID).
 		String("external_id", externalID).
 		String("router_user_id", auth.UserIDFrom(ctx)).
@@ -735,13 +712,13 @@ func (s *Service) bypassToAnthropic(
 		Float64("cost.actual_input_usd", inputCost).
 		Float64("cost.actual_output_usd", outputCost).Int64("upstream.status_code", int64(upstreamStatus(outcomeErr)))
 	s.applySubscriptionSpanTelemetry(ctx, bypassBuilder, feats.Model, decision.Model)
-	otel.Record(ctx, otel.Span{
+	telemetry.Record(ctx, telemetry.Span{
 		Name:  "router.usage_bypass",
 		Start: requestStart,
 		End:   time.Now(),
 		Attrs: bypassBuilder.Build(),
 	})
-	otel.Flush(ctx)
+	telemetry.Flush(ctx)
 
 	// Persist a router.upstream telemetry row so bypass turns appear in the
 	// telemetry table. Routing-brain fields stay NULL; decision_reason
@@ -753,6 +730,7 @@ func (s *Service) bypassToAnthropic(
 			outcomeErr = upstreamErr
 		}
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
+		s.markServedExternalKeyUsed(ctx, outcomeErr)
 		stopReason, _, _ := extractor.AnthropicResponse()
 		// The routed path's key, so a session switching lanes keeps one turn clock.
 		sessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyIDFromContext(ctx))

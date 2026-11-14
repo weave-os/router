@@ -23,9 +23,9 @@ const (
 	// CapAutoToolChoiceOnly marks models that 400 on a forced tool_choice
 	// ({"type":"any"} / {"type":"tool"}); emit downgrades those to auto.
 	CapAutoToolChoiceOnly ModelCapability = "auto_tool_choice_only"
-	// CapTemperatureUnsupported marks Anthropic models that reject the
-	// temperature parameter even though they accept other sampling controls.
-	CapTemperatureUnsupported ModelCapability = "temperature_unsupported"
+	// CapSamplingParamsUnsupported marks Anthropic models that reject
+	// temperature, top_p and top_k.
+	CapSamplingParamsUnsupported ModelCapability = "sampling_params_unsupported"
 	// CapAssistantPrefill marks models that accept a conversation ending on an
 	// assistant message (prefill); everything else, including unknown models,
 	// gets the trailing assistant turn dropped.
@@ -140,6 +140,9 @@ var (
 	// any/tool ("not supported for this model"); opus-5 and fable-5 accept them.
 	anthropicAdaptiveFallbackAutoTools = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly)
 	anthropicExtended                  = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapExtendedThinking, CapAssistantPrefill)
+
+	// Fable 5.1+ also reject temperature, top_p and top_k ("deprecated for this model").
+	anthropicFable51 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly, CapSamplingParamsUnsupported)
 )
 
 var (
@@ -162,6 +165,8 @@ var (
 	// (always reasons), so AlwaysOn maps a disable to the floor level. The
 	// router canonicalizes "minimal" to "low" before dispatch.
 	museSpark = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true, AlwaysOn: true}, CapReasoning, CapXhighEffort)
+	// museMax: Muse Ember and Wonder add "max" above "xhigh"; "none" is still a 400.
+	museMax = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh", "max"}, SupportsBudget: true, AlwaysOn: true}, CapReasoning, CapXhighEffort)
 )
 
 // MiniMax M3.1 Flash always reasons (disable is a 400), so AlwaysOn maps a
@@ -178,12 +183,10 @@ var openAICompatBase = NewSpec()
 var registry = map[string]ModelSpec{
 	// claude-fable-5 has adaptive thinking always on (disabled is rejected);
 	// 1M context is native, so CapExtendedContext's beta header is a no-op.
-	"claude-fable-5": anthropicAdaptiveFallback,
-	"claude-fable-5-1": NewSpecWithReasoning(
-		ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true},
-		CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback,
-		CapAutoToolChoiceOnly, CapTemperatureUnsupported,
-	),
+	"claude-fable-5":    anthropicAdaptiveFallback,
+	"claude-fable-5-1":  anthropicFable51,
+	"claude-fable-5-2":  anthropicFable51,
+	"claude-mythos-5-2": anthropicFable51,
 	"claude-opus-5-5": NewSpecWithReasoning(
 		ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true},
 		CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback,
@@ -247,7 +250,10 @@ var registry = map[string]ModelSpec{
 	"grok-4.6": grok46,
 	"grok-4.7": grok47,
 
-	"muse-spark-1.3": museSpark,
+	"muse-spark-1.3":       museSpark,
+	"meta/muse-spark-open": museSpark,
+	"muse-ember-1.0":       museMax,
+	"muse-wonder-1.0":      museMax,
 
 	"gpt-5.4":      openaiReasoning,
 	"gpt-5.4-pro":  NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"medium", "high", "xhigh"}, AlwaysOn: true}, CapReasoning, CapXhighEffort),

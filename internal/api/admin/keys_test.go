@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -15,7 +16,7 @@ import (
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -362,6 +363,24 @@ func (f *fakeExternalAPIKeyRepo) UpdateModelAliases(_ context.Context, installat
 	return nil, auth.ErrExternalAPIKeyNotFound
 }
 func (f *fakeExternalAPIKeyRepo) MarkUsed(context.Context, string) error { return nil }
+func (f *fakeExternalAPIKeyRepo) ActiveFundingPriority(_ context.Context, installationID, provider string) (auth.FundingPriority, error) {
+	for _, k := range f.keys {
+		if k.InstallationID == installationID && k.Provider == provider {
+			return k.FundingPriority, nil
+		}
+	}
+	return "", nil
+}
+
+func (f *fakeExternalAPIKeyRepo) UpdateFundingPriority(_ context.Context, installationID, id string, priority auth.FundingPriority) (*auth.ExternalAPIKey, error) {
+	for _, k := range f.keys {
+		if k.ID == id && k.InstallationID == installationID {
+			k.FundingPriority = priority
+			return k, nil
+		}
+	}
+	return nil, auth.ErrExternalAPIKeyNotFound
+}
 
 // upsertKeyEngine wires UpsertExternalKeyHandler behind a middleware that injects
 // an already-authed installation, so the handler reaches the env-shadow guard
@@ -370,7 +389,7 @@ func upsertKeyEngine(svc *auth.Service) *gin.Engine {
 	return upsertKeyEngineWithModels(svc, nil)
 }
 
-func upsertKeyEngineWithModels(svc *auth.Service, models admin.DeployedModelsSource) *gin.Engine {
+func upsertKeyEngineWithModels(svc *auth.Service, models admin.HMMRosterSource) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.POST("/admin/v1/provider-keys", func(c *gin.Context) {
@@ -520,7 +539,7 @@ func TestUpsertExternalKeyHandler_PersistsAndReturnsModelAliases(t *testing.T) {
 	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropic), "")
 
 	repo := &fakeExternalAPIKeyRepo{}
-	models := fakeDeployedModels{entries: []cluster.DeployedEntry{
+	models := &fakeHMMRoster{entries: []router.DeployedEntry{
 		{Model: "claude-fable-5", Provider: providers.ProviderAnthropic},
 	}}
 	rec := postProviderKeyWithAliases(
@@ -545,7 +564,7 @@ func TestUpsertExternalKeyHandler_RejectsAliasForUnknownModel(t *testing.T) {
 	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropic), "")
 
 	repo := &fakeExternalAPIKeyRepo{}
-	models := fakeDeployedModels{entries: []cluster.DeployedEntry{
+	models := &fakeHMMRoster{entries: []router.DeployedEntry{
 		{Model: "claude-fable-5", Provider: providers.ProviderAnthropic},
 	}}
 	rec := postProviderKeyWithAliases(
@@ -627,7 +646,7 @@ func TestUpsertExternalKeyHandler_RejectsCollidingHeaderDestinationsBeforeReplac
 		"invalid effective configuration must leave the active key untouched")
 }
 
-func aliasUpdateEngine(svc *auth.Service, models admin.DeployedModelsSource) *gin.Engine {
+func aliasUpdateEngine(svc *auth.Service, models admin.HMMRosterSource) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.PUT("/admin/v1/provider-keys/:id/model-aliases", func(c *gin.Context) {
@@ -649,7 +668,7 @@ func TestUpdateExternalKeyAliasesHandler_ReplacesAliasesWithoutTheSecret(t *test
 	repo := &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{
 		{ID: "ext-1", InstallationID: "inst-1", Provider: providers.ProviderOpenAIGateway},
 	}}
-	models := fakeDeployedModels{entries: []cluster.DeployedEntry{{Model: "gpt-5", Provider: providers.ProviderOpenAI}}}
+	models := &fakeHMMRoster{entries: []router.DeployedEntry{{Model: "gpt-5", Provider: providers.ProviderOpenAI}}}
 
 	rec := putModelAliases(aliasUpdateEngine(newUpsertKeyService(repo), models), "ext-1", map[string]string{"gpt-5": "openai-gpt-5"})
 
@@ -667,7 +686,7 @@ func TestUpdateExternalKeyAliasesHandler_RejectsUnknownCatalogModel(t *testing.T
 	repo := &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{
 		{ID: "ext-1", InstallationID: "inst-1", Provider: providers.ProviderOpenAIGateway},
 	}}
-	models := fakeDeployedModels{entries: []cluster.DeployedEntry{{Model: "gpt-5", Provider: providers.ProviderOpenAI}}}
+	models := &fakeHMMRoster{entries: []router.DeployedEntry{{Model: "gpt-5", Provider: providers.ProviderOpenAI}}}
 
 	rec := putModelAliases(aliasUpdateEngine(newUpsertKeyService(repo), models), "ext-1", map[string]string{"gpt-6": "openai-gpt-6"})
 
@@ -675,14 +694,77 @@ func TestUpdateExternalKeyAliasesHandler_RejectsUnknownCatalogModel(t *testing.T
 	assert.Nil(t, repo.keys[0].ModelAliases, "a typo'd catalog id must fail at write time, not silently at runtime")
 }
 
+func TestExternalKeyHandlers_RosterUnavailableIs503(t *testing.T) {
+	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropic), "")
+	models := &fakeHMMRoster{err: errors.New("policy not loaded")}
+
+	repo := &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{
+		{ID: "ext-1", InstallationID: "inst-1", Provider: providers.ProviderOpenAIGateway},
+	}}
+	upsert := postProviderKeyWithAliases(
+		upsertKeyEngineWithModels(newUpsertKeyService(repo), models),
+		providers.ProviderAnthropic,
+		map[string]string{"claude-fable-5": "gateway-claude-fable-5"},
+	)
+	assert.Equal(t, http.StatusServiceUnavailable, upsert.Code)
+	assert.Zero(t, repo.created, "aliases must not be stored unvalidated when the roster is unavailable")
+
+	update := putModelAliases(aliasUpdateEngine(newUpsertKeyService(repo), models), "ext-1", map[string]string{"gpt-5": "openai-gpt-5"})
+	assert.Equal(t, http.StatusServiceUnavailable, update.Code)
+	assert.Nil(t, repo.keys[0].ModelAliases)
+}
+
 func TestUpdateExternalKeyAliasesHandler_ForeignKeyIsNotFound(t *testing.T) {
 	repo := &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{
 		{ID: "ext-1", InstallationID: "inst-2", Provider: providers.ProviderOpenAIGateway},
 	}}
-	models := fakeDeployedModels{entries: []cluster.DeployedEntry{{Model: "gpt-5", Provider: providers.ProviderOpenAI}}}
+	models := &fakeHMMRoster{entries: []router.DeployedEntry{{Model: "gpt-5", Provider: providers.ProviderOpenAI}}}
 
 	rec := putModelAliases(aliasUpdateEngine(newUpsertKeyService(repo), models), "ext-1", map[string]string{"gpt-5": "openai-gpt-5"})
 
 	assert.Equal(t, http.StatusNotFound, rec.Code, "another tenant's key must read as absent, not as a server error")
 	assert.Nil(t, repo.keys[0].ModelAliases)
+}
+
+func TestUpdateExternalKeyFundingPriorityHandler(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		ownerID    string
+		priority   auth.FundingPriority
+		wantStatus int
+		wantStored auth.FundingPriority
+	}{
+		{name: "sets key first", ownerID: "inst-1", priority: auth.FundingPriorityKeyFirst, wantStatus: http.StatusOK, wantStored: auth.FundingPriorityKeyFirst},
+		{name: "rejects unknown priority", ownerID: "inst-1", priority: "weave_first", wantStatus: http.StatusBadRequest, wantStored: auth.FundingPriorityPlanFirst},
+		{name: "rejects empty priority", ownerID: "inst-1", priority: "", wantStatus: http.StatusBadRequest, wantStored: auth.FundingPriorityPlanFirst},
+		{name: "foreign key is not found", ownerID: "inst-2", priority: auth.FundingPriorityKeyFirst, wantStatus: http.StatusNotFound, wantStored: auth.FundingPriorityPlanFirst},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{
+				{ID: "ext-1", InstallationID: tc.ownerID, Provider: providers.ProviderAnthropic, FundingPriority: auth.FundingPriorityPlanFirst},
+			}}
+
+			gin.SetMode(gin.TestMode)
+			engine := gin.New()
+			engine.PUT("/admin/v1/provider-keys/:id/funding-priority", func(c *gin.Context) {
+				c.Set("router_installation", &auth.Installation{ID: "inst-1"})
+			}, admin.UpdateExternalKeyFundingPriorityHandler(newUpsertKeyService(repo)))
+			reqBody, _ := json.Marshal(map[string]any{"funding_priority": tc.priority})
+			req := httptest.NewRequest(http.MethodPut, "/admin/v1/provider-keys/ext-1/funding-priority", bytes.NewReader(reqBody))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			engine.ServeHTTP(rec, req)
+
+			require.Equal(t, tc.wantStatus, rec.Code)
+			assert.Equal(t, tc.wantStored, repo.keys[0].FundingPriority)
+			if tc.wantStatus != http.StatusOK {
+				return
+			}
+			var body struct {
+				FundingPriority auth.FundingPriority `json:"funding_priority"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			assert.Equal(t, tc.wantStored, body.FundingPriority)
+		})
+	}
 }

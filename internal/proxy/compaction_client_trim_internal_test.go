@@ -41,8 +41,7 @@ func forcedOpusGatewayCompactionFixture(anthropicFail error) (*Service, context.
 	svc := NewService(nil, map[string]providers.Client{
 		providers.ProviderAnthropicGateway: anthropicGateway,
 		providers.ProviderOpenAIGateway:    openAIGateway,
-	}, nil, false, nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil).
-		WithCompactionHardPin(true).
+	}, nil, store, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil })
 	ctx := rescuedFailureCtx()
 	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, gatewayCompactionOpusModel})

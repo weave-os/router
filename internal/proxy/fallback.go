@@ -17,7 +17,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -246,7 +245,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 	}
 	if subscriptionStateModelsEnabled(ctx) && !subscriptionAttemptOnly(ctx) {
 		if _, allowed := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[in.initialDecision.Model]; !allowed {
-			return -1, cluster.ErrAllowlistEmptiesPool
+			return -1, router.ErrAllowlistEmptiesPool
 		}
 		if openRouterOverflowEnabled(ctx) && subscriptionAPIOnly(ctx) {
 			var err error
@@ -317,6 +316,21 @@ func clearWithheldPassthrough(rw *translate.ResponsesWriter, buf *preludeBuffer)
 		rw.ForgetWithheldHeaders()
 	}
 	return rw.ClearPassthrough()
+}
+
+// errResponsesPassthroughStuck reports a non-OpenAI attempt that cannot run
+// because the Responses writer already forwarded native bytes for an earlier
+// OpenAI attempt and can no longer translate.
+var errResponsesPassthroughStuck = errors.New("responses passthrough already carries native output; another wire format cannot continue it")
+
+// leaveResponsesPassthrough returns a passthrough writer to translation before
+// an attempt that speaks another wire format. It returns errResponsesPassthroughStuck
+// when the writer is still in passthrough and cannot be cleared.
+func leaveResponsesPassthrough(rw *translate.ResponsesWriter, buf *preludeBuffer) error {
+	if !rw.Passthrough() || clearWithheldPassthrough(rw, buf) {
+		return nil
+	}
+	return errResponsesPassthroughStuck
 }
 
 // subscriptionRotationBudget bounds how long included-capacity accounts and
